@@ -558,6 +558,49 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/Channel"
+    WeixinRegistrationBegin:
+      type: object
+      required: [qrcode, qr_image_url, poll_interval]
+      properties:
+        qrcode:
+          type: string
+        qr_image_url:
+          type: string
+        poll_interval:
+          type: integer
+    WeixinRegistrationPollRequest:
+      type: object
+      required: [qrcode, agent_id]
+      properties:
+        qrcode:
+          type: string
+        channel_id:
+          type: string
+          default: weixin
+          description: Weixin is singleton-only; omit or set to "weixin".
+        agent_id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+          default: true
+        config:
+          type: object
+          additionalProperties: true
+    WeixinRegistrationPoll:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [wait, scaned, confirmed, expired, created]
+        poll_interval:
+          type: integer
+        channel:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/Channel"
     WeixinQRCode:
       type: object
       properties:

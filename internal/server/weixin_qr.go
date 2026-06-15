@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -18,8 +17,7 @@ import (
 // from the iLink API. Any authenticated user can call this.
 // POST /api/channels/weixin/qr
 func (s *Server) StartWeixinQR(w http.ResponseWriter, r *http.Request) {
-	client := weixin.NewClient("", "", "", "")
-	qr, err := client.GetQRCode()
+	qr, err := getWeixinRegistrationQRCode()
 	if err != nil {
 		s.writeBadGatewayError(w, err)
 		return
@@ -44,8 +42,7 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 		return
 	}
 
-	client := weixin.NewClient("", "", "", "")
-	status, err := client.GetQRCodeStatus(qrcode)
+	status, err := getWeixinRegistrationStatus(qrcode)
 	if err != nil {
 		s.writeBadGatewayError(w, err)
 		return
@@ -85,59 +82,6 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 // saveWeixinCredentials merges iLink credentials into the existing weixin
 // channel instance config in the DB.
 func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCodeStatusResponse) error {
-	pluginID := config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin)
-	ch, err := s.store.GetChannel(ctx, pkgchannel.PlatformWeixin)
-	cfg := make(map[string]any)
-	if err != nil {
-		ch = config.Channel{
-			ID:      pkgchannel.PlatformWeixin,
-			Type:    pkgchannel.PlatformWeixin,
-			Enabled: true,
-		}
-	} else if ch.Config != "" {
-		_ = json.Unmarshal([]byte(ch.Config), &cfg)
-		if cfg == nil {
-			cfg = make(map[string]any)
-		}
-	}
-	if ch.Type == "" {
-		ch.Type = pkgchannel.PlatformWeixin
-	}
-
-	cfg["bot_token"] = status.BotToken
-	cfg["base_url"] = status.BaseURL
-	cfg["bot_id"] = status.ILinkBotID
-	cfg["user_id"] = status.ILinkUserID
-
-	plugin := config.Plugin{
-		ID:      pluginID,
-		Kind:    config.PluginKindChannel,
-		Name:    pkgchannel.PlatformWeixin,
-		Enabled: ch.Enabled,
-		Config:  cfg,
-	}
-	if err := s.store.UpsertPlugin(ctx, plugin); err != nil {
-		return err
-	}
-
-	if s.pluginHost != nil {
-		if err := s.pluginHost.ValidateConfig(pluginID, cfg); err != nil {
-			return err
-		}
-	}
-
-	cfgJSON, err := json.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-	ch.Config = string(cfgJSON)
-	if err := s.store.UpsertChannel(ctx, ch); err != nil {
-		return err
-	}
-	if s.pluginHost != nil {
-		if err := s.pluginHost.ApplyChannel(ctx, ch); err != nil {
-			s.log.Error("failed to apply channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
-		}
-	}
-	return nil
+	_, err := s.saveWeixinSingletonChannel(ctx, config.Channel{}, nil, status)
+	return err
 }

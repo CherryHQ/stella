@@ -1333,6 +1333,7 @@ const en = {
   "channels.channelIdPlaceholder": "e.g. feishu-coder",
   "channels.channelIdDesc":
     'Must not match the platform ID (e.g. not "telegram" for a Telegram channel).',
+  "channels.weixinChannelIdDesc": 'WeChat is singleton-only; the channel ID is fixed to "weixin".',
   "channels.configuration": "Configuration",
   "channels.boundAgent": "Bound agent",
   "channels.boundAgentDesc":
@@ -1340,16 +1341,24 @@ const en = {
   "channels.noAvailableAgents": "No enabled agents are available for this platform.",
   "channels.selectAgent": "Select agent...",
   "channels.manualFeishuSetup": "I already have a Feishu app",
+  "channels.manualWeixinSetup": "I already have WeChat iLink credentials",
   "channels.scanCreateFeishu": "Scan to create Feishu bot",
   "channels.scanCreateFeishuDesc":
     "Stella creates a PersonalAgent app in your Feishu tenant and stores the returned credentials on this channel.",
+  "channels.scanCreateWeixin": "Scan to create WeChat bot",
+  "channels.scanCreateWeixinDesc":
+    "Stella creates an iLink bot with your WeChat account and stores the returned credentials on this channel.",
   "channels.scanFeishuTitle": "Create Feishu bot",
   "channels.scanFeishuDesc":
     "Scan with the Feishu mobile app, then confirm the app creation request.",
   "channels.scanFeishuQrAlt": "Feishu bot registration QR code",
+  "channels.scanWeixinTitle": "Create WeChat bot",
+  "channels.scanWeixinDesc": "Scan with the WeChat mobile app, then confirm bot creation.",
+  "channels.scanWeixinQrAlt": "WeChat bot registration QR code",
   "channels.scanNeedsName": "Enter a name before starting QR setup.",
   "channels.scanNeedsId": "Enter a channel ID before starting QR setup.",
-  "channels.scanNeedsAgent": "Bind this Feishu channel to an agent before starting QR setup.",
+  "channels.scanNeedsAgent": "Bind this channel to an agent before starting QR setup.",
+  "channels.scanExpired": "QR code expired. Try again.",
   "channels.waiting": "Waiting",
 
   // Automations schedule detail
@@ -2719,6 +2728,7 @@ const zh: Record<MessageKey, string> = {
   "channels.channelId": "频道 ID",
   "channels.channelIdPlaceholder": "例如：feishu-coder",
   "channels.channelIdDesc": '不能和平台 ID 相同（例如 Telegram 频道不能填写 "telegram"）。',
+  "channels.weixinChannelIdDesc": '微信是单例频道；频道 ID 固定为 "weixin"。',
   "channels.configuration": "配置",
   "channels.boundAgent": "绑定 Agent",
   "channels.boundAgentDesc":
@@ -2726,15 +2736,23 @@ const zh: Record<MessageKey, string> = {
   "channels.noAvailableAgents": "这个平台没有可用的已启用 Agent。",
   "channels.selectAgent": "选择 Agent...",
   "channels.manualFeishuSetup": "我已有飞书应用",
+  "channels.manualWeixinSetup": "我已有微信 iLink 凭据",
   "channels.scanCreateFeishu": "扫码创建飞书机器人",
   "channels.scanCreateFeishuDesc":
     "Stella 会在你的飞书租户中创建 PersonalAgent 应用，并把返回的凭据保存到这个频道。",
+  "channels.scanCreateWeixin": "扫码创建微信机器人",
+  "channels.scanCreateWeixinDesc":
+    "Stella 会用你的微信账号创建 iLink 机器人，并把返回的凭据保存到这个频道。",
   "channels.scanFeishuTitle": "创建飞书机器人",
   "channels.scanFeishuDesc": "用飞书手机端扫码，然后确认创建应用。",
   "channels.scanFeishuQrAlt": "飞书机器人注册二维码",
+  "channels.scanWeixinTitle": "创建微信机器人",
+  "channels.scanWeixinDesc": "用微信手机端扫码，然后确认创建机器人。",
+  "channels.scanWeixinQrAlt": "微信机器人注册二维码",
   "channels.scanNeedsName": "先填写名称，再开始扫码配置。",
   "channels.scanNeedsId": "先填写频道 ID，再开始扫码配置。",
-  "channels.scanNeedsAgent": "先把这个飞书频道绑定到 Agent，再开始扫码配置。",
+  "channels.scanNeedsAgent": "先把这个频道绑定到 Agent，再开始扫码配置。",
+  "channels.scanExpired": "二维码已过期，请重试。",
   "channels.waiting": "等待中",
 
   // Automations schedule detail

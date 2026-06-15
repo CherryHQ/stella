@@ -10,7 +10,8 @@ Before you start, make sure you have:
 
 - A running Stella server (`stellad server`)
 - At least one AI provider configured in the Web UI (e.g. Anthropic, OpenAI)
-- A WeChat account to authorize the bot via QR code login
+- A WeChat account to create the bot via QR code
+- An enabled Stella agent to receive messages from the bot
 
 ## Setup
 
@@ -21,13 +22,13 @@ Before you start, make sure you have:
    ```
 
 2. Open the Web UI at `http://localhost:25678`.
-3. Go to the **Channels** page and find the WeChat section.
-4. Click **Scan QR to Login** to generate a QR code.
-5. Open WeChat on your phone and scan the QR code to authorize the bot.
-6. Once confirmed, your credentials are saved automatically.
-7. Restart `stellad server` to activate the channel.
+3. Go to the **Channels** page and click **New Channel**.
+4. Select **Weixin**, enter a name, leave the fixed channel ID as `weixin`, and choose the agent that should receive messages from this bot.
+5. Click **Scan to create WeChat bot**.
+6. Open WeChat on your phone, scan the QR code, and confirm bot creation.
+7. Once confirmed, Stella saves the returned iLink credentials and starts the channel.
 
-All channel configuration is managed through the Web UI. The QR login flow is only available through the Web UI and must be re-done if the session expires.
+All channel configuration is managed through the Web UI. WeChat is singleton-only in Stella because one iLink account does not support multiple independent bots. If you already have an iLink credential bundle, expand **I already have WeChat iLink credentials** and enter it manually instead.
 
 ## How It Works
 
@@ -35,7 +36,7 @@ The WeChat channel uses the iLink Bot protocol. After QR login, Stella receives 
 
 ### Session Expiry
 
-If the iLink session expires, Stella clears all credentials and stops the WeChat channel. You will need to re-scan the QR code from the Web UI to re-authorize.
+If the iLink session expires, the WeChat channel stops responding. Create a fresh bot with the scan flow or update the channel with a valid manual credential bundle.
 
 ## Multi-User Support
 
@@ -89,25 +90,25 @@ The WeChat channel supports notifications (scheduler results, notify tool). Set 
 
 All settings below are managed through the Web UI.
 
-| Field         | Description                                | Default    |
-| ------------- | ------------------------------------------ | ---------- |
-| `bot_token`   | iLink bot token (obtained via QR login)    | (required) |
-| `base_url`    | iLink API base URL                         | (auto)     |
-| `bot_id`      | iLink bot ID (obtained via QR login)       | (auto)     |
-| `user_id`     | iLink user ID (obtained via QR login)      | (auto)     |
-| `notify_chat` | Default user ID for notifications          | `""`       |
-| `allowed_ids` | User IDs allowed to interact (empty = all) | `[]`       |
+| Field         | Description                                               | Default    |
+| ------------- | --------------------------------------------------------- | ---------- |
+| `bot_token`   | iLink bot token (obtained via scan setup or manual setup) | (required) |
+| `base_url`    | iLink API base URL                                        | (auto)     |
+| `bot_id`      | iLink bot ID (obtained via scan setup)                    | (auto)     |
+| `user_id`     | iLink user ID (obtained via scan setup)                   | (auto)     |
+| `notify_chat` | Default user ID for notifications                         | `""`       |
+| `allowed_ids` | User IDs allowed to interact (empty = all)                | `[]`       |
 
 ## Troubleshooting
 
 **Bot not responding to messages?**
 
 - Make sure `stellad server` is running and the WeChat channel is configured in the Web UI.
-- Your session may have expired. Go to the Web UI and re-scan the QR code to re-authorize.
+- The iLink credentials may have expired. Go to the Web UI and run the scan setup again.
 
 **Session expired?**
 
-- When the iLink session expires, Stella automatically stops the WeChat channel. Go to the Web UI, click **Scan QR to Login** again, and scan with WeChat.
+- When the iLink session expires, run **Scan to create WeChat bot** again or enter a fresh manual credential bundle.
 
 **Notifications not being delivered?**
 
