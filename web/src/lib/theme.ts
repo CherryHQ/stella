@@ -2,13 +2,30 @@ export type ThemeAppearance = "system" | "light" | "dark";
 
 export interface ThemeSettings {
   appearance: ThemeAppearance;
+  /** OKLch hue (0–360) for the accent family. Undefined = default teal theme. */
+  accentHue?: number;
 }
 
 export const THEME_STORAGE_KEY = "stella-theme";
 
+/** Hue of the shipped teal accent (`--primary`). A chosen hue rotates the whole
+ *  chromatic family by its delta from this base. */
+export const DEFAULT_ACCENT_HUE = 174;
+
 export const DEFAULT_THEME: ThemeSettings = {
   appearance: "system",
 };
+
+/** Preset accent hues offered as quick swatches. */
+export const ACCENT_PRESETS: { name: string; hue: number }[] = [
+  { name: "Teal", hue: 174 },
+  { name: "Blue", hue: 245 },
+  { name: "Indigo", hue: 275 },
+  { name: "Violet", hue: 305 },
+  { name: "Rose", hue: 0 },
+  { name: "Orange", hue: 55 },
+  { name: "Green", hue: 145 },
+];
 
 export function getStoredTheme(): ThemeSettings {
   if (typeof window === "undefined") return DEFAULT_THEME;
@@ -25,7 +42,11 @@ export function getStoredTheme(): ThemeSettings {
     const appearance = isAppearance(parsed.appearance)
       ? parsed.appearance
       : DEFAULT_THEME.appearance;
-    return { appearance };
+    const accentHue =
+      typeof parsed.accentHue === "number" && Number.isFinite(parsed.accentHue)
+        ? normalizeHue(parsed.accentHue)
+        : undefined;
+    return { appearance, accentHue };
   } catch {
     return DEFAULT_THEME;
   }
@@ -36,6 +57,7 @@ export function applyTheme(settings: ThemeSettings) {
     settings.appearance === "dark" ||
     (settings.appearance === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.classList.toggle("dark", dark);
+  applyAccent(settings.accentHue, dark);
 }
 
 export function setStoredTheme(settings: ThemeSettings) {
@@ -45,4 +67,101 @@ export function setStoredTheme(settings: ThemeSettings) {
 
 function isAppearance(value: unknown): value is ThemeAppearance {
   return value === "system" || value === "light" || value === "dark";
+}
+
+function normalizeHue(hue: number): number {
+  return ((hue % 360) + 360) % 360;
+}
+
+// --- Accent rotation ---------------------------------------------------------
+//
+// Each chromatic token in tokens.css is mirrored here as [name, L, C, H]. When
+// the user picks a hue, every token rotates by (hue - DEFAULT_ACCENT_HUE),
+// preserving the tuned lightness/chroma and the relative hue offsets between
+// tokens (e.g. neutrals sit ~26° off the accent). Default hue applies nothing,
+// so tokens.css stays the single source of truth for the shipped look.
+//
+// Status colors (chart-2..5, destructive) and the pure-white card/popover are
+// intentionally absent — they must not rotate with the brand accent.
+//
+// Keep in sync with tokens.css if a token's L/C ever changes.
+
+type TokenSpec = [name: string, l: number, c: number, h: number];
+
+const LIGHT_TOKENS: TokenSpec[] = [
+  ["background", 0.975, 0.008, 200],
+  ["foreground", 0.2, 0.022, 220],
+  ["card-foreground", 0.2, 0.022, 220],
+  ["popover-foreground", 0.2, 0.022, 220],
+  ["primary", 0.55, 0.14, 172],
+  ["primary-foreground", 0.99, 0.01, 172],
+  ["secondary", 0.95, 0.012, 198],
+  ["secondary-foreground", 0.2, 0.022, 220],
+  ["muted", 0.95, 0.012, 198],
+  ["muted-foreground", 0.48, 0.025, 205],
+  ["accent", 0.93, 0.05, 178],
+  ["accent-foreground", 0.43, 0.11, 178],
+  ["border", 0.9, 0.012, 200],
+  ["input", 0.9, 0.012, 200],
+  ["ring", 0.55, 0.14, 172],
+  ["chart-1", 0.55, 0.14, 172],
+  ["sidebar", 0.965, 0.01, 198],
+  ["sidebar-foreground", 0.2, 0.022, 220],
+  ["sidebar-primary", 0.55, 0.14, 172],
+  ["sidebar-primary-foreground", 0.99, 0.01, 172],
+  ["sidebar-accent", 0.93, 0.05, 178],
+  ["sidebar-accent-foreground", 0.43, 0.11, 178],
+  ["sidebar-border", 0.9, 0.012, 200],
+  ["sidebar-ring", 0.55, 0.14, 172],
+];
+
+const DARK_TOKENS: TokenSpec[] = [
+  ["background", 0.18, 0.014, 215],
+  ["foreground", 0.95, 0.006, 200],
+  ["card-foreground", 0.95, 0.006, 200],
+  ["popover-foreground", 0.95, 0.006, 200],
+  ["primary", 0.7, 0.14, 174],
+  ["primary-foreground", 0.18, 0.04, 200],
+  ["secondary", 0.24, 0.018, 215],
+  ["secondary-foreground", 0.95, 0.006, 200],
+  ["muted", 0.24, 0.018, 215],
+  ["muted-foreground", 0.7, 0.018, 200],
+  ["accent", 0.3, 0.06, 178],
+  ["accent-foreground", 0.8, 0.13, 174],
+  ["border", 0.28, 0.016, 210],
+  ["input", 0.28, 0.016, 210],
+  ["ring", 0.7, 0.14, 174],
+  ["chart-1", 0.7, 0.14, 174],
+  ["sidebar", 0.2, 0.016, 215],
+  ["sidebar-foreground", 0.95, 0.006, 200],
+  ["sidebar-primary", 0.7, 0.14, 174],
+  ["sidebar-primary-foreground", 0.18, 0.04, 200],
+  ["sidebar-accent", 0.3, 0.06, 178],
+  ["sidebar-accent-foreground", 0.8, 0.13, 174],
+  ["sidebar-border", 0.28, 0.016, 210],
+  ["sidebar-ring", 0.7, 0.14, 174],
+];
+
+const ALL_TOKEN_NAMES = LIGHT_TOKENS.map(([name]) => name);
+
+function applyAccent(accentHue: number | undefined, dark: boolean) {
+  const root = document.documentElement.style;
+
+  // Default (or unset) hue: clear overrides, let tokens.css drive everything.
+  if (accentHue === undefined || normalizeHue(accentHue) === DEFAULT_ACCENT_HUE) {
+    for (const name of ALL_TOKEN_NAMES) root.removeProperty(`--${name}`);
+    return;
+  }
+
+  const delta = normalizeHue(accentHue) - DEFAULT_ACCENT_HUE;
+  const tokens = dark ? DARK_TOKENS : LIGHT_TOKENS;
+  for (const [name, l, c, h] of tokens) {
+    root.setProperty(`--${name}`, `oklch(${l} ${c} ${normalizeHue(h + delta)})`);
+  }
+}
+
+/** A single swatch color (the primary at the given hue) for picker UI. */
+export function accentSwatch(hue: number, dark = false): string {
+  const [, l, c] = (dark ? DARK_TOKENS : LIGHT_TOKENS).find(([n]) => n === "primary")!;
+  return `oklch(${l} ${c} ${normalizeHue(hue)})`;
 }

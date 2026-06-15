@@ -1266,6 +1266,8 @@ const en = {
   "header.system": "System",
   "header.light": "Light",
   "header.dark": "Dark",
+  "header.accent": "Accent color",
+  "header.resetAccent": "Reset",
 
   // Users (additions)
   "users.none": "None",
@@ -2703,6 +2705,8 @@ const zh: Record<MessageKey, string> = {
   "header.system": "跟随系统",
   "header.light": "浅色",
   "header.dark": "深色",
+  "header.accent": "主题色",
+  "header.resetAccent": "恢复默认",
 
   // Users (additions)
   "users.none": "无",

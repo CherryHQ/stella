@@ -1,6 +1,14 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, FileText, LogOut, Menu as MenuIcon, Monitor, Moon, Sun } from "lucide-react";
+import {
+  FileText,
+  LogOut,
+  Menu as MenuIcon,
+  Monitor,
+  Moon,
+  Sun,
+  type LucideIcon,
+} from "lucide-react";
 import { siGithub } from "simple-icons";
 import { useEffect, useState } from "react";
 import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
@@ -18,11 +26,17 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/menu";
 import { Sheet, SheetTrigger, SheetPopup, SheetHeader } from "@/components/ui/sheet";
+import { Popover, PopoverTrigger, PopoverPopup } from "@/components/ui/popover";
+import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
 import {
   applyTheme,
   getStoredTheme,
   setStoredTheme,
+  accentSwatch,
+  ACCENT_PRESETS,
+  DEFAULT_ACCENT_HUE,
   type ThemeAppearance,
   type ThemeSettings,
 } from "@/lib/theme";
@@ -96,7 +110,7 @@ export function SiteHeader() {
             <LocaleSelector />
           </>
         )}
-        <ThemeSelector />
+        <ThemeMenu />
         {me ? (
           <UserMenu />
         ) : (
@@ -168,7 +182,15 @@ export function SiteHeader() {
   );
 }
 
-export function ThemeSelector() {
+const APPEARANCE_ICONS: Record<ThemeAppearance, LucideIcon> = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+};
+
+// Appearance (system / light / dark) and accent color in one popover — they're
+// both "how the app looks", so a single control beats two header buttons.
+export function ThemeMenu() {
   const { t } = useI18n();
   const [theme, setTheme] = useState<ThemeSettings>(() => getStoredTheme());
 
@@ -176,64 +198,121 @@ export function ThemeSelector() {
     if (theme.appearance !== "system") return;
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => applyTheme(theme);
+    // Re-read full settings so a system-theme flip still honors the chosen accent.
+    const update = () => applyTheme(getStoredTheme());
     media.addEventListener("change", update);
 
     return () => media.removeEventListener("change", update);
   }, [theme]);
 
-  function setAppearance(appearance: string) {
-    if (!isAppearance(appearance)) return;
-    const next = { appearance };
+  function update(next: ThemeSettings) {
     setTheme(next);
     setStoredTheme(next);
   }
 
-  const Icon = theme.appearance === "system" ? Monitor : theme.appearance === "light" ? Sun : Moon;
+  function setAppearance(appearance: ThemeAppearance) {
+    update({ ...getStoredTheme(), appearance });
+  }
+
+  function setHue(next: number | undefined) {
+    // Treat the default teal hue as "unset" so we fall back to tokens.css and
+    // hide the reset affordance.
+    const norm = next === undefined ? undefined : ((next % 360) + 360) % 360;
+    const accentHue = norm === DEFAULT_ACCENT_HUE ? undefined : norm;
+    update({ ...getStoredTheme(), accentHue });
+  }
+
+  const TriggerIcon = APPEARANCE_ICONS[theme.appearance];
+  const current = theme.accentHue ?? DEFAULT_ACCENT_HUE;
+  const appearances: ThemeAppearance[] = ["system", "light", "dark"];
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        className="inline-flex items-center gap-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        aria-label={`Appearance: ${theme.appearance}`}
-        title={`Appearance: ${theme.appearance}`}
+    <Popover>
+      <PopoverTrigger
+        className="inline-flex items-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-label={t("header.appearance")}
+        title={t("header.appearance")}
       >
-        <Icon className="size-4" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={8} className="w-40">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{t("header.appearance")}</DropdownMenuLabel>
-          {THEME_APPEARANCES.map((appearance) => (
-            <DropdownMenuItem
-              key={appearance}
-              onClick={() => setAppearance(appearance)}
-              className="gap-2"
-            >
-              <ThemeCheck checked={theme.appearance === appearance} />
-              {appearance === "system"
-                ? t("header.system")
-                : appearance === "light"
-                  ? t("header.light")
-                  : t("header.dark")}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
+        <TriggerIcon className="size-4" />
+      </PopoverTrigger>
+      <PopoverPopup align="end" sideOffset={8} className="w-68 space-y-4 p-4">
+        <div className="space-y-2.5">
+          <span className="px-0.5 text-xs font-medium text-muted-foreground">
+            {t("header.appearance")}
+          </span>
+          <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1.5">
+            {appearances.map((appearance) => {
+              const ItemIcon = APPEARANCE_ICONS[appearance];
+              const active = theme.appearance === appearance;
+              return (
+                <button
+                  key={appearance}
+                  type="button"
+                  onClick={() => setAppearance(appearance)}
+                  className={cn(
+                    "flex flex-col items-center gap-1.5 rounded-lg py-2.5 text-xs whitespace-nowrap transition-colors",
+                    active
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <ItemIcon className="size-4" />
+                  {appearance === "system"
+                    ? t("header.system")
+                    : appearance === "light"
+                      ? t("header.light")
+                      : t("header.dark")}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-const THEME_APPEARANCES: ThemeAppearance[] = ["system", "light", "dark"];
+        <Separator />
 
-function isAppearance(value: string): value is ThemeAppearance {
-  return value === "system" || value === "light" || value === "dark";
-}
-
-function ThemeCheck({ checked }: { checked: boolean }) {
-  return (
-    <span className="flex size-4 items-center justify-center text-foreground">
-      {checked && <Check aria-hidden="true" className="size-4" />}
-    </span>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-xs font-medium text-muted-foreground">{t("header.accent")}</span>
+            {theme.accentHue !== undefined && (
+              <button
+                type="button"
+                onClick={() => setHue(undefined)}
+                className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {t("header.resetAccent")}
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-7 gap-1.5">
+            {ACCENT_PRESETS.map((p) => {
+              const active = current === p.hue;
+              return (
+                <button
+                  key={p.hue}
+                  type="button"
+                  onClick={() => setHue(p.hue)}
+                  title={p.name}
+                  aria-label={p.name}
+                  className={cn(
+                    "size-6 rounded-full transition-transform hover:scale-110",
+                    active && "ring-2 ring-foreground/40 ring-offset-2 ring-offset-popover",
+                  )}
+                  style={{ background: accentSwatch(p.hue) }}
+                />
+              );
+            })}
+          </div>
+          <div className="px-0.5 pt-1">
+            <Slider
+              min={0}
+              max={359}
+              value={current}
+              onValueChange={(v) => setHue(Array.isArray(v) ? v[0] : v)}
+            />
+          </div>
+        </div>
+      </PopoverPopup>
+    </Popover>
   );
 }
 
