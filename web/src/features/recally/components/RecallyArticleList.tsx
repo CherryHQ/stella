@@ -64,7 +64,7 @@ export function RecallyArticleList({
   };
 
   return (
-    <div className="flex min-h-0 w-full flex-col overflow-hidden border-r border-border bg-card/50">
+    <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden border-r border-border bg-card/50">
       {/* Search + Filter Toolbar */}
       {!digestView && (
         <div className="shrink-0 border-b border-border px-3 py-2">
@@ -81,6 +81,8 @@ export function RecallyArticleList({
             </div>
             <button
               onClick={() => setRefinementsOpen(!refinementsOpen)}
+              title={t("recally.article.filterRefinements")}
+              aria-label={t("recally.article.filterRefinements")}
               className={cn(
                 "relative p-2 rounded-md border transition-colors duration-120 cursor-pointer flex items-center justify-center shrink-0",
                 refinementsOpen || activeFiltersCount > 0
@@ -104,7 +106,7 @@ export function RecallyArticleList({
         <div className="shrink-0 border-b border-border/40 p-3 space-y-2.5">
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono font-semibold text-muted-foreground w-12 shrink-0">
-              Status:
+              {t("recally.filter.status")}
             </span>
             <div className="flex flex-wrap gap-1.5">
               <FilterChip
@@ -126,7 +128,7 @@ export function RecallyArticleList({
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono font-semibold text-muted-foreground w-12 shrink-0">
-              Source:
+              {t("recally.filter.source")}
             </span>
             <div className="flex flex-wrap gap-1.5">
               <FilterChip
