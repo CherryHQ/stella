@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-06-15
+
+### ✨ Features
+
+- Skills: redesign the agent skills page with a unified inspector. ([#413](https://github.com/CherryHQ/stella/pull/413))
+- API: add the ClawHub skill discovery endpoint. ([#415](https://github.com/CherryHQ/stella/pull/415))
+
+### 🐛 Bug Fixes
+
+- Group chat: improve dispatch correctness for mention routing, ordering, web disconnects, and at-least-once delivery. ([#410](https://github.com/CherryHQ/stella/pull/410))
+- Agent runtime: pass the project root into the runner prompt. ([#422](https://github.com/CherryHQ/stella/pull/422))
+- Sessions: keep channel main sessions separate from project main sessions. ([#428](https://github.com/CherryHQ/stella/pull/428))
+- Goals: fix goal listing and recoverable rollup behavior. ([#429](https://github.com/CherryHQ/stella/pull/429))
+- Agents: respect assigned-agent visibility for admins. ([#431](https://github.com/CherryHQ/stella/pull/431))
+
+### ⚡ Performance
+
+- Group chat: inject the active speaker per turn. ([#423](https://github.com/CherryHQ/stella/pull/423))
+
+**Full Changelog**: [v0.46.0...v0.47.0](https://github.com/CherryHQ/stella/compare/v0.46.0...v0.47.0)
+
 ## [0.46.0] - 2026-06-12
 
 ### ✨ Features
