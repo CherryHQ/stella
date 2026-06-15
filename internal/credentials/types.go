@@ -11,6 +11,10 @@ type ProviderStatus struct {
 	Connected   bool   `json:"connected"`
 	Username    string `json:"username,omitempty"`    // label for the connected account
 	Unavailable string `json:"unavailable,omitempty"` // reason when Available is false
+	// RequiredBy lists display names of enabled tools that depend on this
+	// provider being connected. Empty when no enabled tool needs it. Populated
+	// at the server layer, which has access to the plugin manifest.
+	RequiredBy []string `json:"required_by,omitempty"`
 }
 
 // OAuthProviderConfig holds the mutable credentials for an OAuth provider.

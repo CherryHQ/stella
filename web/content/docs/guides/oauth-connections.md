@@ -38,15 +38,11 @@ You can disconnect at any time by clicking **Disconnect** on the Credentials pag
 
 Feishu and Lark require an admin to configure app credentials before users can connect.
 
-### Automatic connection via Feishu login
+Logging in with Feishu only authenticates you -- it does not connect Feishu tools. After login, connect the tool credential once as below. You can check connection status on the **Credentials** page in the Web UI, where the Feishu provider shows a "connect to enable …" prompt naming the tools that depend on it.
 
-If your admin has configured [Feishu OAuth login](./oidc-authentication#feishu-login) and the login app uses the **same App ID** as the tool app, you are connected automatically when you log in. No extra steps needed -- Feishu tools work immediately after your first login.
+### Connecting
 
-You can verify your connection status on the **Credentials** page in the Web UI.
-
-### Manual connection
-
-When the login app and tool app use different App IDs, or when Feishu login is not configured, you connect manually:
+To connect Feishu/Lark (or GitHub) tools:
 
 #### Admin setup (one-time)
 

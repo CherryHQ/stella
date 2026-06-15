@@ -261,6 +261,16 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, va
 			if spec.Required {
 				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 			}
+			// Provider not connected: the tool will run without this env var.
+			// Expected when a user hasn't connected the tool's credential yet,
+			// so keep it at Debug — the credentials page surfaces the prompt.
+			slog.Debug("session env skipped: oauth provider not connected",
+				"component", "runner_sandbox",
+				"user_id", cfg.UserID,
+				"env_var", spec.EnvVar,
+				"provider", providerID,
+				"plugin", spec.PluginID,
+			)
 			continue
 		}
 		field := strings.TrimPrefix(src, "oauth.")

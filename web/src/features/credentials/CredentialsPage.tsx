@@ -391,13 +391,18 @@ export function CredentialsPage() {
           break;
         }
         if (!status || status.state !== "pending") {
-          if (status?.state === "authorized") showToast(`${provider} connected successfully`);
-          else if (status) showToast(`${provider} authorization ${status.state}`, "error");
+          if (status?.state === "authorized")
+            showToast(t("credentials.oauth.connectedSuccess", { provider }));
+          else if (status)
+            showToast(
+              t("credentials.oauth.authorizationState", { provider, state: status.state }),
+              "error",
+            );
           break;
         }
       }
     },
-    [showToast],
+    [showToast, t],
   );
 
   const connectOAuth = useCallback(
@@ -410,35 +415,38 @@ export function CredentialsPage() {
         setOauthFlow((prev) => ({ ...prev, [provider]: flow }));
         await pollUntilDone(provider, flow.flow_id);
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "OAuth error", "error");
+        showToast(e instanceof Error ? e.message : t("credentials.oauth.error"), "error");
       } finally {
         setOauthFlowActive((prev) => ({ ...prev, [provider]: false }));
         setOauthFlow((prev) => ({ ...prev, [provider]: null }));
         await checkOAuthConnected(provider);
       }
     },
-    [pollUntilDone, showToast, checkOAuthConnected],
+    [pollUntilDone, showToast, checkOAuthConnected, t],
   );
 
   const disconnectOAuth = useCallback(
     async (provider: string) => {
-      if (!window.confirm(`Disconnect ${provider} credentials?`)) return;
+      if (!window.confirm(t("credentials.oauth.disconnectConfirm", { provider }))) return;
       try {
         await disconnectOAuthRequest({ path: { provider }, throwOnError: true });
-        showToast(`${provider} disconnected`);
+        showToast(t("credentials.oauth.disconnected", { provider }));
         await checkOAuthConnected(provider);
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Failed to disconnect", "error");
+        showToast(
+          e instanceof Error ? e.message : t("credentials.oauth.disconnectFailed"),
+          "error",
+        );
       }
     },
-    [showToast, checkOAuthConnected],
+    [showToast, checkOAuthConnected, t],
   );
 
   const saveProviderConfig = useCallback(
     async (provider: string) => {
       const vals = configValues[provider];
       if (!vals?.clientId) {
-        showToast("Client ID is required", "error");
+        showToast(t("credentials.oauth.clientIdRequired"), "error");
         return;
       }
       setConfigSaving((prev) => ({ ...prev, [provider]: true }));
@@ -452,33 +460,39 @@ export function CredentialsPage() {
           },
           throwOnError: true,
         });
-        showToast(`${provider} credentials saved`);
+        showToast(t("credentials.oauth.configSaved", { provider }));
         await loadOAuthProviders();
         await loadProviderConfig(provider);
         await checkOAuthConnected(provider);
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Failed to save config", "error");
+        showToast(
+          e instanceof Error ? e.message : t("credentials.oauth.configSaveFailed"),
+          "error",
+        );
       } finally {
         setConfigSaving((prev) => ({ ...prev, [provider]: false }));
       }
     },
-    [configValues, showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected],
+    [configValues, showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected, t],
   );
 
   const deleteProviderConfig = useCallback(
     async (provider: string) => {
-      if (!window.confirm(`Reset ${provider} credentials to defaults?`)) return;
+      if (!window.confirm(t("credentials.oauth.resetConfirm", { provider }))) return;
       try {
         await deleteOAuthProviderConfig({ path: { id: provider }, throwOnError: true });
-        showToast(`${provider} credentials reset to defaults`);
+        showToast(t("credentials.oauth.configReset", { provider }));
         await loadOAuthProviders();
         await loadProviderConfig(provider);
         await checkOAuthConnected(provider);
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Failed to reset config", "error");
+        showToast(
+          e instanceof Error ? e.message : t("credentials.oauth.configResetFailed"),
+          "error",
+        );
       }
     },
-    [showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected],
+    [showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected, t],
   );
 
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
@@ -573,7 +587,7 @@ export function CredentialsPage() {
             type="text"
             value={newSecretName}
             onChange={(e) => setNewSecretName(e.target.value)}
-            placeholder="e.g. MY_API_KEY"
+            placeholder={t("credentials.secretNamePlaceholder")}
             autoComplete="off"
             nativeInput
           />
@@ -586,7 +600,7 @@ export function CredentialsPage() {
             type="password"
             value={newSecretValue}
             onChange={(e) => setNewSecretValue(e.target.value)}
-            placeholder="secret value"
+            placeholder={t("credentials.secretValuePlaceholder")}
             autoComplete="new-password"
             nativeInput
           />
@@ -612,24 +626,24 @@ export function CredentialsPage() {
     if (status === "connected")
       return (
         <Badge variant="success" size="sm">
-          Connected
+          {t("credentials.oauth.status.connected")}
         </Badge>
       );
     if (!p.available)
       return (
         <Badge variant="warning" size="sm">
-          Setup required
+          {t("credentials.oauth.status.setupRequired")}
         </Badge>
       );
     if (status === "checking")
       return (
         <Badge variant="outline" size="sm">
-          Checking
+          {t("credentials.oauth.status.checking")}
         </Badge>
       );
     return (
       <Badge variant="secondary" size="sm">
-        Ready
+        {t("credentials.oauth.status.ready")}
       </Badge>
     );
   }
@@ -641,6 +655,17 @@ export function CredentialsPage() {
     <DetailPanel>
       <DetailPanelHeader title={sp.provider} subtitle={statusBadge(sp)} />
 
+      {sp.available && !spConnected && (sp.required_by?.length ?? 0) > 0 && (
+        <div className="rounded-lg border border-info/36 bg-info/8 p-3 text-xs">
+          <p className="font-medium text-foreground">
+            {t("credentials.oauth.connectToEnable", { tools: sp.required_by?.join(", ") ?? "" })}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            {t("credentials.oauth.unauthenticatedWarning")}
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         {sp.available && !spConnected && (
           <Button
@@ -648,7 +673,7 @@ export function CredentialsPage() {
             loading={oauthFlowActive[sp.provider]}
             onClick={() => connectOAuth(sp.provider)}
           >
-            Connect
+            {t("credentials.oauth.connect")}
           </Button>
         )}
         {spConnected && sp.available && (
@@ -658,14 +683,14 @@ export function CredentialsPage() {
             className="text-destructive hover:bg-destructive/10"
             onClick={() => disconnectOAuth(sp.provider)}
           >
-            Disconnect
+            {t("credentials.oauth.disconnect")}
           </Button>
         )}
       </div>
 
       {spFlow && (
         <div className="rounded-lg border border-info/36 bg-info/8 p-3 text-xs">
-          <p className="font-semibold">Authorize stella:</p>
+          <p className="font-semibold">{t("credentials.oauth.authorizeStella")}</p>
           <a
             href={spFlow.verification_uri}
             target="_blank"
@@ -676,19 +701,23 @@ export function CredentialsPage() {
           </a>
           {spFlow.user_code && (
             <p className="mt-1 font-medium">
-              Code:{" "}
+              {t("credentials.oauth.code")}{" "}
               <span className="font-mono font-semibold text-foreground">{spFlow.user_code}</span>
             </p>
           )}
-          <p className="mt-1 text-xs text-muted-foreground">Waiting for authorization…</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("credentials.oauth.waitingAuthorization")}
+          </p>
         </div>
       )}
 
       {isAdmin && (
         <div className="space-y-3 border-t border-border pt-4">
-          <FormSectionTitle>OAuth app</FormSectionTitle>
+          <FormSectionTitle>{t("credentials.oauth.app")}</FormSectionTitle>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Client ID</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("credentials.oauth.clientId")}
+            </label>
             <Input
               type="text"
               value={configValues[sp.provider]?.clientId ?? ""}
@@ -698,13 +727,15 @@ export function CredentialsPage() {
                   [sp.provider]: { ...prev[sp.provider], clientId: e.target.value },
                 }))
               }
-              placeholder="OAuth app client ID"
+              placeholder={t("credentials.oauth.clientIdPlaceholder")}
               autoComplete="off"
               nativeInput
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Client Secret</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("credentials.oauth.clientSecret")}
+            </label>
             <Input
               type="password"
               value={configValues[sp.provider]?.clientSecret ?? ""}
@@ -716,10 +747,10 @@ export function CredentialsPage() {
               }
               placeholder={
                 hasExistingSecret[sp.provider]
-                  ? "Keep existing secret"
+                  ? t("credentials.oauth.keepExistingSecret")
                   : sp.configured
-                    ? "Configured"
-                    : "OAuth app client secret"
+                    ? t("credentials.oauth.configured")
+                    : t("credentials.oauth.clientSecretPlaceholder")
               }
               autoComplete="new-password"
               nativeInput
@@ -733,7 +764,7 @@ export function CredentialsPage() {
                 className="text-destructive hover:bg-destructive/10"
                 onClick={() => deleteProviderConfig(sp.provider)}
               >
-                Reset
+                {t("credentials.oauth.reset")}
               </Button>
             )}
             <Button
@@ -741,7 +772,7 @@ export function CredentialsPage() {
               loading={configSaving[sp.provider]}
               onClick={() => saveProviderConfig(sp.provider)}
             >
-              Save
+              {t("common.save")}
             </Button>
           </div>
         </div>
@@ -758,7 +789,7 @@ export function CredentialsPage() {
           count={oauthProviders.length}
         >
           {oauthProviders.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No OAuth providers available.</p>
+            <p className="text-sm text-muted-foreground">{t("credentials.oauth.noProviders")}</p>
           ) : (
             <SettingsList>
               {oauthProviders.map((p) => {
@@ -769,20 +800,28 @@ export function CredentialsPage() {
                 const clientId = configValues[p.provider]?.clientId ?? "";
                 const clientIdPreview =
                   clientId.length > 12 ? `${clientId.slice(0, 6)}…${clientId.slice(-4)}` : clientId;
+                const requiredBy = p.required_by ?? [];
                 const subtitle = !p.configured
-                  ? "App not configured"
+                  ? t("credentials.oauth.appNotConfigured")
                   : connected
                     ? clientIdPreview
-                      ? `Connected · ${clientIdPreview}`
-                      : "Connected"
-                    : `${clientIdPreview || "Configured"} · not connected`;
+                      ? t("credentials.oauth.connectedWithClient", { client: clientIdPreview })
+                      : t("credentials.oauth.status.connected")
+                    : requiredBy.length > 0
+                      ? t("credentials.oauth.connectToEnable", { tools: requiredBy.join(", ") })
+                      : t("credentials.oauth.notConnectedWithClient", {
+                          client: clientIdPreview || t("credentials.oauth.configured"),
+                        });
 
                 const menu: RowAction[] = [];
                 if (isAdmin)
-                  menu.push({ label: "Edit app", onClick: () => setSheetProvider(p.provider) });
+                  menu.push({
+                    label: t("credentials.oauth.editApp"),
+                    onClick: () => setSheetProvider(p.provider),
+                  });
                 if (connected && p.available)
                   menu.push({
-                    label: "Disconnect",
+                    label: t("credentials.oauth.disconnect"),
                     destructive: true,
                     onClick: () => void disconnectOAuth(p.provider),
                   });
@@ -791,7 +830,7 @@ export function CredentialsPage() {
                 if (needsSetup && isAdmin) {
                   primary = (
                     <Button size="sm" variant="ghost" onClick={() => setSheetProvider(p.provider)}>
-                      Set up
+                      {t("credentials.oauth.setUp")}
                     </Button>
                   );
                 } else if (ready) {
@@ -805,7 +844,7 @@ export function CredentialsPage() {
                         void connectOAuth(p.provider);
                       }}
                     >
-                      Connect
+                      {t("credentials.oauth.connect")}
                     </Button>
                   );
                 }
@@ -881,9 +920,10 @@ export function CredentialsPage() {
                               </Badge>
                             ) : undefined
                           }
-                          subtitle={`updated ${formatTime(entry.updated_at)} · created ${formatTime(
-                            entry.created_at,
-                          )}`}
+                          subtitle={t("credentials.updatedCreated", {
+                            updated: formatTime(entry.updated_at),
+                            created: formatTime(entry.created_at),
+                          })}
                           menu={
                             reserved
                               ? []
