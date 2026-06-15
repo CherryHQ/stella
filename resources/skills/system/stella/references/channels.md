@@ -125,23 +125,24 @@ Connects via WebSocket (no public URL or webhook needed).
 
 ## WeChat bot (iLink)
 
-1. Open the Web UI and go to the Channels tab
-2. Click "Scan QR to Login" in the WeChat section
-3. Scan the QR code with your WeChat account
-4. Credentials are saved automatically on confirmation
+1. Open the Web UI and go to Channels → New Channel
+2. Select Weixin, enter a name, keep the fixed channel ID `weixin`, and bind an enabled agent
+3. Click "Scan to create WeChat bot"
+4. Scan the QR code with WeChat and confirm bot creation
+5. Stella saves the returned iLink credentials automatically
 
 WeChat channel config (JSON):
 
 ```json
 {
-  "bot_token": "OBTAINED_VIA_QR",
+  "bot_token": "OBTAINED_VIA_SCAN_OR_MANUAL_SETUP",
   "base_url": "https://ilinkai.weixin.qq.com",
   "bot_id": "AUTO",
   "user_id": "AUTO"
 }
 ```
 
-5. Start: `stellad server`
+Manual setup remains available in the Web UI under "I already have WeChat iLink credentials". WeChat is singleton-only in Stella because one iLink account does not support multiple independent bots.
 
 Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
 
@@ -151,11 +152,11 @@ Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
 - Text messaging with 2000-char smart splitting
 - Image input/output with AES-128-ECB encryption
 - Typing indicators while processing
-- QR-code-based login via Web UI
+- QR-code-based bot creation via Web UI
 - Commands: `/start`, `/help`, `/new`, `/compact`, `/model`, `/agent`, `/whoami`
 
 ### WeChat limitations
 
 - Notifications require a cached `context_token` (in-memory only, lost on restart)
 - No group chat support (DM only)
-- Session expiry requires manual QR re-scan from Web UI
+- Session expiry requires a fresh scan-created bot or a fresh manual credential bundle

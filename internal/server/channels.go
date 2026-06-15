@@ -253,6 +253,12 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "id and type are required")
 		return
 	}
+	if channelType == pkgchannel.PlatformWeixin {
+		if err := validateWeixinChannelID(req.ID); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {

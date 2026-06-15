@@ -5,6 +5,7 @@ import { meQueryOptions } from "@/lib/queries/me";
 import QRCode from "qrcode";
 import {
   beginFeishuRegistration,
+  beginWeixinRegistration,
   createChannel as createChannelRequest,
   deleteChannel,
   generateLinkCode,
@@ -14,6 +15,7 @@ import {
   listPublicChannels,
   pollFeishuRegistration,
   pollWeixinQrStatus,
+  pollWeixinRegistration,
   startWeixinQr,
   unlinkProfileIdentity,
   updateChannel,
@@ -77,7 +79,10 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; 
       auto_provision: false,
     },
   },
-  weixin: { label: "Weixin", defaults: {} },
+  weixin: {
+    label: "Weixin",
+    defaults: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
+  },
 };
 
 const channelTypes = Object.entries(platformMeta).map(([id, meta]) => ({
@@ -165,7 +170,7 @@ function normalizeChannel(ch: Channel): NormalizedChannel {
 }
 
 function newInstanceDraft(type = defaultChannelType, id = ""): Record<string, unknown> {
-  return { id, type, ...platformConfigDefaults(type) };
+  return { id: type === "weixin" ? "weixin" : id, type, ...platformConfigDefaults(type) };
 }
 
 function channelConfig(ch: Record<string, unknown>): string {
@@ -283,9 +288,12 @@ function InstanceFields({
       )}
 
       {type === "weixin" && (
-        <p className="text-xs text-muted-foreground">
-          Weixin dedicated instances currently only expose notification settings here.
-        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+          {field("bot_token", "Bot Token", "password")}
+          {field("base_url", "Base URL", "text", "https://ilinkai.weixin.qq.com")}
+          {field("bot_id", "Bot ID", "text", "optional")}
+          {field("user_id", "User ID", "text", "optional")}
+        </div>
       )}
     </div>
   );
@@ -510,6 +518,7 @@ function NewChannelForm({
   const [scanError, setScanError] = useState("");
   const [scanning, setScanning] = useState(false);
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const weixinScanRefreshesRef = useRef(0);
 
   const stopScanPolling = useCallback(() => {
     if (scanIntervalRef.current) {
@@ -529,7 +538,7 @@ function NewChannelForm({
   const updateField = (key: string, value: unknown) => {
     if (key === "type") {
       setDraft(newInstanceDraft(value as string, draft.id as string));
-    } else {
+    } else if (key !== "id" || draft.type !== "weixin") {
       setDraft((prev) => ({ ...prev, [key]: value }));
     }
   };
@@ -573,6 +582,63 @@ function NewChannelForm({
     [draft, onRegistered, stopScanPolling],
   );
 
+  async function pollWeixinScan(qrCode: string) {
+    const channelId = ((draft.id as string) || "").trim();
+    const agentId = ((draft.agent_id as string) || "").trim();
+    if (!qrCode || !channelId || !agentId) return;
+    try {
+      const { data: result } = await pollWeixinRegistration({
+        body: {
+          qrcode: qrCode,
+          channel_id: channelId,
+          agent_id: agentId,
+          name: (draft.name as string) || "WeChat",
+          config: serializePlatformConfig("weixin", draft),
+        },
+        throwOnError: true,
+      });
+      setScanStatus(result.status);
+      if (result.status === "expired") {
+        stopScanPolling();
+        if (weixinScanRefreshesRef.current < 3) {
+          weixinScanRefreshesRef.current += 1;
+          await beginWeixinScanPolling();
+        } else {
+          setScanError(t("channels.scanExpired"));
+        }
+      }
+      if (result.status === "created" && result.channel) {
+        stopScanPolling();
+        setScanOpen(false);
+        await onRegistered(normalizeChannel(result.channel as Channel));
+      }
+    } catch (e) {
+      stopScanPolling();
+      setScanError((e as Error).message);
+    }
+  }
+
+  async function beginWeixinScanPolling() {
+    setScanQrUrl("");
+    setScanStatus("waiting");
+    setScanError("");
+    stopScanPolling();
+    setScanning(true);
+    try {
+      const { data: result } = await beginWeixinRegistration({ throwOnError: true });
+      setScanQrUrl(await QRCode.toDataURL(result.qr_image_url, { width: 256, margin: 2 }));
+      const intervalSeconds = result.poll_interval || 2;
+      scanIntervalRef.current = setInterval(
+        () => void pollWeixinScan(result.qrcode),
+        intervalSeconds * 1000,
+      );
+      setScanning(true);
+    } catch (e) {
+      setScanError((e as Error).message);
+      setScanning(false);
+    }
+  }
+
   const startFeishuScan = async () => {
     const channelName = ((draft.name as string) || "").trim();
     const channelId = ((draft.id as string) || "").trim();
@@ -615,13 +681,38 @@ function NewChannelForm({
     }
   };
 
+  const startWeixinScan = async () => {
+    const channelName = ((draft.name as string) || "").trim();
+    const channelId = ((draft.id as string) || "").trim();
+    if (!channelName) {
+      setScanError(t("channels.scanNeedsName"));
+      setScanOpen(true);
+      return;
+    }
+    if (!channelId) {
+      setScanError(t("channels.scanNeedsId"));
+      setScanOpen(true);
+      return;
+    }
+    if (!draft.agent_id) {
+      setScanError(t("channels.scanNeedsAgent"));
+      setScanOpen(true);
+      return;
+    }
+    setScanOpen(true);
+    weixinScanRefreshesRef.current = 0;
+    await beginWeixinScanPolling();
+  };
+
+  const requiresBoundAgent = draft.type === "feishu" || draft.type === "weixin";
+
   const availableAgents = agents.filter(
     (agent) =>
       agent.enabled !== false &&
       !channels.some((channel) => channel.type === draft.type && channel.agent_id === agent.id),
   );
 
-  const canStartFeishuScan = Boolean(
+  const canStartRegistrationScan = Boolean(
     ((draft.name as string) || "").trim() &&
     ((draft.id as string) || "").trim() &&
     ((draft.agent_id as string) || "").trim(),
@@ -683,12 +774,17 @@ function NewChannelForm({
             value={(draft.id as string) || ""}
             onChange={(e) => updateField("id", e.target.value)}
             placeholder={t("channels.channelIdPlaceholder")}
+            disabled={draft.type === "weixin"}
             className="w-full text-sm font-mono"
           />
-          <p className="text-xs text-muted-foreground">{t("channels.channelIdDesc")}</p>
+          <p className="text-xs text-muted-foreground">
+            {draft.type === "weixin"
+              ? t("channels.weixinChannelIdDesc")
+              : t("channels.channelIdDesc")}
+          </p>
         </div>
 
-        {draft.type === "feishu" && (
+        {requiresBoundAgent && (
           <div className="w-full space-y-1.5">
             <label className="text-sm font-medium">{t("channels.boundAgent")}</label>
             <select
@@ -713,26 +809,32 @@ function NewChannelForm({
         {!!draft.type && (
           <div className="space-y-4">
             <FormSectionTitle>{t("channels.configuration")}</FormSectionTitle>
-            {draft.type === "feishu" && (
+            {(draft.type === "feishu" || draft.type === "weixin") && (
               <div className="space-y-2">
                 <Button
                   type="button"
-                  onClick={startFeishuScan}
+                  onClick={draft.type === "weixin" ? startWeixinScan : startFeishuScan}
                   loading={scanning}
-                  disabled={scanning || !canStartFeishuScan}
+                  disabled={scanning || !canStartRegistrationScan}
                   size="sm"
                 >
-                  {t("channels.scanCreateFeishu")}
+                  {draft.type === "weixin"
+                    ? t("channels.scanCreateWeixin")
+                    : t("channels.scanCreateFeishu")}
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  {t("channels.scanCreateFeishuDesc")}
+                  {draft.type === "weixin"
+                    ? t("channels.scanCreateWeixinDesc")
+                    : t("channels.scanCreateFeishuDesc")}
                 </p>
               </div>
             )}
-            {draft.type === "feishu" ? (
+            {draft.type === "feishu" || draft.type === "weixin" ? (
               <details className="space-y-4">
                 <summary className="cursor-pointer text-sm font-medium">
-                  {t("channels.manualFeishuSetup")}
+                  {draft.type === "weixin"
+                    ? t("channels.manualWeixinSetup")
+                    : t("channels.manualFeishuSetup")}
                 </summary>
                 <div className="pt-4">
                   <InstanceFields ch={draft} onChange={updateField} />
@@ -748,15 +850,27 @@ function NewChannelForm({
       <Dialog open={scanOpen} onOpenChange={setScanOpen}>
         <DialogPopup>
           <DialogHeader>
-            <DialogTitle>{t("channels.scanFeishuTitle")}</DialogTitle>
-            <DialogDescription>{t("channels.scanFeishuDesc")}</DialogDescription>
+            <DialogTitle>
+              {draft.type === "weixin"
+                ? t("channels.scanWeixinTitle")
+                : t("channels.scanFeishuTitle")}
+            </DialogTitle>
+            <DialogDescription>
+              {draft.type === "weixin"
+                ? t("channels.scanWeixinDesc")
+                : t("channels.scanFeishuDesc")}
+            </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <div className="flex flex-col items-center gap-4 text-center">
               {scanQrUrl && (
                 <img
                   src={scanQrUrl}
-                  alt={t("channels.scanFeishuQrAlt")}
+                  alt={
+                    draft.type === "weixin"
+                      ? t("channels.scanWeixinQrAlt")
+                      : t("channels.scanFeishuQrAlt")
+                  }
                   className="size-48 max-w-full"
                 />
               )}
@@ -1197,11 +1311,11 @@ export function ChannelsPage() {
       showToast("ID and platform are required", "error");
       return;
     }
-    if (id === draft.type) {
+    if (id === draft.type && draft.type !== "weixin") {
       showToast("Dedicated instance ID must not match the platform ID", "error");
       return;
     }
-    if (draft.type === "feishu" && !draft.agent_id) {
+    if ((draft.type === "feishu" || draft.type === "weixin") && !draft.agent_id) {
       showToast(t("channels.scanNeedsAgent"), "error");
       return;
     }

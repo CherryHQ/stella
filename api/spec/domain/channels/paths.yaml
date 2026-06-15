@@ -225,6 +225,66 @@ paths:
                 $ref: "../../components.yaml#/components/schemas/Error",
               }
 
+  /api/channels/weixin/register/qr:
+    post:
+      tags: [channels]
+      summary: Begin WeChat iLink bot registration (admin only)
+      operationId: beginWeixinRegistration
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WeixinRegistrationBegin",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "502":
+          description: upstream error from iLink API
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+
+  /api/channels/weixin/register/poll:
+    post:
+      tags: [channels]
+      summary: Poll WeChat iLink bot registration and create a channel (admin only)
+      operationId: pollWeixinRegistration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/WeixinRegistrationPollRequest",
+            }
+      responses:
+        "200":
+          description: pending or created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WeixinRegistrationPoll",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "502":
+          description: upstream error from iLink API
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+
   /api/channels/weixin/qr:
     post:
       tags: [weixin]

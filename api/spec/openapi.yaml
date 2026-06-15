@@ -156,6 +156,10 @@ paths:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1feishu~1register~1begin"
   /api/channels/feishu/register/poll:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1feishu~1register~1poll"
+  /api/channels/weixin/register/qr:
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1register~1qr"
+  /api/channels/weixin/register/poll:
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1register~1poll"
   /api/channels/weixin/qr:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1qr"
   /api/channels/weixin/qr/status:
