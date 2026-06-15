@@ -149,6 +149,23 @@ func TestSetScopedRejectsSystemScope(t *testing.T) {
 	}
 }
 
+func TestScopedWriteRejectsManagedToken(t *testing.T) {
+	t.Parallel()
+	svc, _, userID := testService(t)
+	ctx := context.Background()
+
+	// Public scoped writes must never set the managed STELLA_TOKEN: a user_agent
+	// entry would shadow it and force a token rotation on every sandbox start.
+	if err := svc.SetScoped(ctx, vault.ScopeUserAgent, userID, "agent-1", vault.StellaTokenName, "value"); err == nil {
+		t.Fatal("SetScoped should reject STELLA_TOKEN")
+	}
+
+	// The internal reserved path still owns the token.
+	if err := svc.SetReserved(ctx, userID, vault.StellaTokenName, "managed"); err != nil {
+		t.Fatalf("SetReserved(STELLA_TOKEN): %v", err)
+	}
+}
+
 func TestSetValidation(t *testing.T) {
 	t.Parallel()
 	svc, _, userID := testService(t)
@@ -160,6 +177,7 @@ func TestSetValidation(t *testing.T) {
 		"123START",
 		"HAS SPACE",
 		"STELLA_SECRET",
+		"STELLA_TOKEN",
 		"PATH",
 		"HOME",
 		"LC_ALL",

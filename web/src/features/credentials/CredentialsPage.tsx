@@ -19,6 +19,13 @@ import type { Agent, OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
@@ -180,6 +187,26 @@ export function CredentialsPage() {
     [isAdmin],
   );
 
+  // Refetch a single scope (plus agent, for agent-keyed scopes) and splice it
+  // back into the flat list. A mutation only changes one slice, so this avoids
+  // the full 2N+2 fan-out of loadVaultEntries on every add/delete.
+  const reloadScope = useCallback(async (scope: VaultScope, agentID?: string) => {
+    let fetched: VaultEntry[] = [];
+    try {
+      const { data } = await listScopedVaultEntries({
+        query: { scope, agent_id: agentID },
+        throwOnError: true,
+      });
+      fetched = (data?.entries as VaultEntry[]) ?? [];
+    } catch {
+      fetched = [];
+    }
+    setVaultEntries((prev) => [
+      ...prev.filter((e) => !(e.scope === scope && (agentID ? e.agent_id === agentID : true))),
+      ...fetched,
+    ]);
+  }, []);
+
   const loadAgents = useCallback(async () => {
     try {
       const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
@@ -299,13 +326,14 @@ export function CredentialsPage() {
       showToast(t("credentials.scope.agentMissing"), "error");
       return;
     }
+    const scope = toVaultScope(formOwner, formRange);
     setVaultSaving(true);
     try {
       await setScopedVaultEntry({
         path: { name: newSecretName },
         body: {
           value: newSecretValue,
-          scope: toVaultScope(formOwner, formRange),
+          scope,
           agent_id: agentScoped ? formAgentID : undefined,
         },
         throwOnError: true,
@@ -314,23 +342,13 @@ export function CredentialsPage() {
       setNewSecretName("");
       setNewSecretValue("");
       setAddSheetOpen(false);
-      await loadVaultEntries(agents);
+      await reloadScope(scope, agentScoped ? formAgentID : undefined);
     } catch (e) {
       showToast(e instanceof Error ? e.message : t("credentials.secretSaveFailed"), "error");
     } finally {
       setVaultSaving(false);
     }
-  }, [
-    newSecretName,
-    newSecretValue,
-    formOwner,
-    formRange,
-    formAgentID,
-    agents,
-    showToast,
-    loadVaultEntries,
-    t,
-  ]);
+  }, [newSecretName, newSecretValue, formOwner, formRange, formAgentID, showToast, reloadScope, t]);
 
   const deleteVaultEntry = useCallback(
     async (entry: VaultEntry) => {
@@ -345,12 +363,15 @@ export function CredentialsPage() {
           throwOnError: true,
         });
         showToast(t("credentials.secretDeleted"));
-        await loadVaultEntries(agents);
+        await reloadScope(
+          entry.scope,
+          isAgentVaultScope(entry.scope) ? (entry.agent_id ?? undefined) : undefined,
+        );
       } catch (e) {
         showToast(e instanceof Error ? e.message : t("credentials.secretDeleteFailed"), "error");
       }
     },
-    [agents, showToast, loadVaultEntries, t],
+    [showToast, reloadScope, t],
   );
 
   const pollUntilDone = useCallback(
@@ -521,18 +542,25 @@ export function CredentialsPage() {
         <p className="px-1 text-xs text-muted-foreground">{t(SCOPE_DESC_KEY[formScope])}</p>
 
         {formRange === "specific" && (
-          <select
-            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
-            value={formAgentID}
-            onChange={(e) => setFormAgentID(e.target.value)}
+          <Select
+            value={formAgentID || null}
+            onValueChange={(value) => setFormAgentID((value as string | null) ?? "")}
           >
-            <option value="">{t("credentials.scope.selectAgent")}</option>
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name || agent.id}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger>
+              <SelectValue placeholder={t("credentials.scope.selectAgent")}>
+                {(value) =>
+                  value ? agents.find((agent) => agent.id === value)?.name || value : null
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {agents.map((agent) => (
+                <SelectItem key={agent.id} value={agent.id}>
+                  {agent.name || agent.id}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
         )}
       </div>
 
