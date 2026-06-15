@@ -76,6 +76,8 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 
 	senderIDs := feishuSenderIDs(b.resolveUnionID(ctx, openID), openID)
 	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(text))
+	msg.ThreadID = rootID
+	msg.MessageID = messageID
 
 	replyFn := func(reply string) {
 		replyCtx, cancel := b.apiContext()
