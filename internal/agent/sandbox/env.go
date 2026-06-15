@@ -18,49 +18,54 @@ import (
 )
 
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
-	key := miseUserKey(cfg)
-	miseDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, key)
-	// A non-empty key that yields no dir means the user/group ID failed the
+	principalDir, id := misePrincipal(cfg)
+	miseDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)
+	// A set principal that yields no dir means the user/group ID failed the
 	// safe-path-component check. Don't fail the session (we fall back to the
 	// shared read-only system tree and a session-local temp dir), but surface the
 	// silent downgrade so a malformed ID is diagnosable instead of mysterious.
-	if key != "" && miseDir == "" {
-		slog.Warn("per-user mise tree disabled: unsafe key, using shared read-only system tree",
+	if id != "" && miseDir == "" {
+		slog.Warn("per-user mise tree disabled: unsafe id, using shared read-only system tree",
 			"component", "runner_sandbox",
 			"user_id", cfg.UserID,
 			"group_id", cfg.GroupID,
-			"key", key,
+			"principal_dir", principalDir,
 		)
 	}
 	return pkgsandbox.FilesystemPolicy{
 		WorkspaceRoot:       paths.UserRoot,
 		WorkingDir:          paths.WorkDir,
 		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
-		TempDirHost:         userTempDir(key),
+		TempDirHost:         userTempDir(principalDir, id),
 		MiseUserDirHost:     miseDir,
 	}
 }
 
-// miseUserKey returns the key for this session's per-user temp and mise trees.
-// User and group keys carry disjoint prefixes ("user-"/"group-") so the two
-// principal namespaces can never collide into one shared writable tree, even if a
-// user ID ever takes the literal form "group-<n>". Empty when neither is set,
-// which makes callers fall back to a session-local temp dir and the shared
-// read-only system mise tree.
-func miseUserKey(cfg Config) string {
+// misePrincipal returns the home subtree and raw ID for this session's per-user
+// temp and mise trees. Users and groups resolve to disjoint top-level subtrees
+// ("users"/"groups") keyed by the raw ID, so the two principal namespaces live in
+// separate trees and equal IDs across them can never collide into one shared
+// writable tree — without a name prefix. Empty dir when neither is set, which
+// makes callers fall back to a session-local temp dir and the shared read-only
+// system mise tree. Groups take precedence: a group session carries both a
+// GroupID and a synthetic UserID and must key off the group.
+func misePrincipal(cfg Config) (principalDir, id string) {
 	if cfg.GroupID != "" {
-		return "group-" + cfg.GroupID
+		return "groups", cfg.GroupID
 	}
 	if cfg.UserID == "" {
-		return ""
+		return "", ""
 	}
-	return "user-" + cfg.UserID
+	return "users", cfg.UserID
 }
 
 var validUserTempDirID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-func userTempDir(userID string) string {
-	if !validUserTempDirID.MatchString(userID) {
+// userTempDir returns the per-principal scratch dir mounted as /tmp. principalDir
+// ("users"/"groups") keeps the user and group namespaces in separate subtrees so
+// equal IDs across them can't share a temp dir. Empty for an empty or unsafe id.
+func userTempDir(principalDir, id string) string {
+	if principalDir == "" || !validUserTempDirID.MatchString(id) {
 		return ""
 	}
 	// Resolve symlinks in the base temp dir so that pathWithinRoot checks
@@ -69,7 +74,7 @@ func userTempDir(userID string) string {
 	if resolved, err := filepath.EvalSymlinks(base); err == nil {
 		base = resolved
 	}
-	return filepath.Join(base, userID)
+	return filepath.Join(base, principalDir, id)
 }
 
 // skillMountsForSandbox returns host paths for all skill directories that must
@@ -177,7 +182,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// PATH, so they need the mise env pointed at the org's config. Docker carries
 	// its own in-image mise tree and PATH, so host-side paths must not leak in.
 	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
-		userDataDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, miseUserKey(cfg))
+		principalDir, id := misePrincipal(cfg)
+		userDataDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)
 		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, userDataDir, paths.UserRoot))
 	}
 

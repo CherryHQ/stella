@@ -8,18 +8,21 @@ import (
 
 func TestMiseUserToolsDir(t *testing.T) {
 	home := "/srv/.stella"
-	cases := map[string]string{
-		"u1":          filepath.Join(home, "users", "u1", ".mise-tools"),
-		"group-42":    filepath.Join(home, "users", "group-42", ".mise-tools"),
-		"":            "", // no user → fall back to the system tree
-		"a/b":         "", // path traversal rejected
-		"..":          "",
-		"bad name":    "",
-		"weird;rm-rf": "",
+	type in struct{ dir, id string }
+	cases := map[in]string{
+		{"users", "u1"}:          filepath.Join(home, "users", "u1", ".mise-tools"),
+		{"groups", "42"}:         filepath.Join(home, "groups", "42", ".mise-tools"),
+		{"users", ""}:            "", // no id → fall back to the system tree
+		{"", "u1"}:               "", // no principal subtree
+		{"vault", "u1"}:          "", // unknown subtree rejected
+		{"users", "a/b"}:         "", // path traversal rejected
+		{"users", ".."}:          "",
+		{"users", "bad name"}:    "",
+		{"users", "weird;rm-rf"}: "",
 	}
-	for key, want := range cases {
-		if got := MiseUserToolsDir(home, key); got != want {
-			t.Errorf("MiseUserToolsDir(%q) = %q, want %q", key, got, want)
+	for k, want := range cases {
+		if got := MiseUserToolsDir(home, k.dir, k.id); got != want {
+			t.Errorf("MiseUserToolsDir(%q, %q) = %q, want %q", k.dir, k.id, got, want)
 		}
 	}
 }
@@ -31,7 +34,7 @@ func TestEnsureUserMiseHome_SeedsSystemInstallsAsRelativeSymlinks(t *testing.T) 
 	mustMkdirAll(t, sysGo)
 	mustWriteFile(t, filepath.Join(sysGo, "go"), "binary")
 
-	userDir := MiseUserToolsDir(stellaHome, "u1")
+	userDir := MiseUserToolsDir(stellaHome, "users", "u1")
 	if err := EnsureUserMiseHome(stellaHome, userDir); err != nil {
 		t.Fatalf("EnsureUserMiseHome: %v", err)
 	}
@@ -66,7 +69,7 @@ func TestEnsureUserMiseHome_IdempotentAndDoesNotShadowUserInstall(t *testing.T) 
 	stellaHome := t.TempDir()
 	mustMkdirAll(t, filepath.Join(MiseToolsDir(stellaHome), "installs", "node", "20.0.0"))
 
-	userDir := MiseUserToolsDir(stellaHome, "u1")
+	userDir := MiseUserToolsDir(stellaHome, "users", "u1")
 	// A real user-installed version sits alongside the (to-be-seeded) system one.
 	userNode22 := filepath.Join(userDir, "installs", "node", "22.0.0")
 	mustMkdirAll(t, userNode22)
@@ -91,7 +94,7 @@ func TestEnsureUserMiseHome_DoesNotSeedThroughPlantedSymlink(t *testing.T) {
 	stellaHome := t.TempDir()
 	mustMkdirAll(t, filepath.Join(MiseToolsDir(stellaHome), "installs", "node", "20.0.0"))
 
-	userDir := MiseUserToolsDir(stellaHome, "u1")
+	userDir := MiseUserToolsDir(stellaHome, "users", "u1")
 	mustMkdirAll(t, userDir)
 	// A prior session's agent planted a symlink where "installs" belongs, aimed at
 	// an outside dir it wants the (unsandboxed) seeding step to write into.
@@ -123,7 +126,7 @@ func TestEnsureUserMiseHome_RelinksPerUserShimsToRelative(t *testing.T) {
 	mustMkdirAll(t, filepath.Join(stellaHome, "bin"))
 	mustWriteFile(t, filepath.Join(stellaHome, "bin", "mise"), "binary")
 
-	userDir := MiseUserToolsDir(stellaHome, "u1")
+	userDir := MiseUserToolsDir(stellaHome, "users", "u1")
 	mustMkdirAll(t, filepath.Join(userDir, "shims"))
 	// A shim mise wrote inside a different backend's sandbox: an absolute,
 	// backend-specific target that wouldn't resolve under another backend.
@@ -151,7 +154,7 @@ func TestEnsureUserMiseHome_RelinksPerUserShimsToRelative(t *testing.T) {
 
 func TestEnsureUserMiseHome_PrunesDanglingSeedLinks(t *testing.T) {
 	stellaHome := t.TempDir()
-	userDir := MiseUserToolsDir(stellaHome, "u1")
+	userDir := MiseUserToolsDir(stellaHome, "users", "u1")
 	mustMkdirAll(t, filepath.Join(userDir, "installs", "node"))
 	// A seed link whose system target was pruned/upgraded away.
 	dangling := filepath.Join(userDir, "installs", "node", "18.0.0")

@@ -40,17 +40,23 @@ func MiseShimsDir(stellaHome string) string {
 // path component. Anything else falls back to the shared (read-only) system tree.
 var miseUserKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// MiseUserToolsDir returns the per-user writable MISE_DATA_DIR. It mirrors a
-// real machine's per-user mise home: each user (or group) gets one tree shared
-// by all their agents, layered above the shared read-only system installs.
-// The path is keyed purely by userKey — never by agent — so the planned
-// user-directory refactor (user-scoped dirs, agents as apps) needs no change here.
-// An empty or unsafe key yields "" so callers fall back to the system tree.
-func MiseUserToolsDir(stellaHome, userKey string) string {
-	if !miseUserKeyPattern.MatchString(userKey) {
+// MiseUserToolsDir returns the per-principal writable MISE_DATA_DIR. It mirrors a
+// real machine's per-user mise home: each user or group gets one tree shared by
+// all their agents, layered above the shared read-only system installs.
+// principalDir is the top-level home subtree ("users" or "groups") and id is the
+// raw user/group ID. Keying as {stellaHome}/{principalDir}/{id}/.mise-tools puts
+// the two principal namespaces in disjoint top-level trees, so equal IDs across
+// them can't collide — no name prefix needed. The path never depends on the
+// agent, so all of a principal's agents share one tree. An empty or unsafe
+// argument yields "" so callers fall back to the system tree.
+func MiseUserToolsDir(stellaHome, principalDir, id string) string {
+	if principalDir != "users" && principalDir != "groups" {
 		return ""
 	}
-	return filepath.Join(stellaHome, "users", userKey, ".mise-tools")
+	if !miseUserKeyPattern.MatchString(id) {
+		return ""
+	}
+	return filepath.Join(stellaHome, principalDir, id, ".mise-tools")
 }
 
 // MiseUserShimsDir returns the per-user mise shims directory. It is prepended to
