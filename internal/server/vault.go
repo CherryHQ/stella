@@ -23,163 +23,6 @@ type vaultEntryResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// ListVaultEntries handles GET /api/users/me/vault.
-func (s *Server) ListVaultEntries(w http.ResponseWriter, r *http.Request) {
-	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
-		return
-	}
-
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return
-	}
-
-	entries, err := s.vaultSvc.List(r.Context(), info.UserID)
-	if err != nil {
-		s.log.Error("list vault entries", "user_id", info.UserID, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	resp := make([]vaultEntryResponse, len(entries))
-	for i, e := range entries {
-		resp[i] = vaultEntryResponseFromMeta(e)
-	}
-	writeData(w, http.StatusOK, map[string]any{"entries": resp})
-}
-
-// GetVaultEntry handles GET /api/users/me/vault/{name}.
-func (s *Server) GetVaultEntry(w http.ResponseWriter, r *http.Request, name string) {
-	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
-		return
-	}
-
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return
-	}
-
-	if name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-
-	value, err := s.vaultSvc.Get(r.Context(), info.UserID, name)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "vault entry not found")
-			return
-		}
-		s.log.Error("get vault entry", "user_id", info.UserID, "name", name, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	writeData(w, http.StatusOK, map[string]string{"name": name, "value": value})
-}
-
-// SetVaultEntry handles PUT /api/users/me/vault/{name}.
-func (s *Server) SetVaultEntry(w http.ResponseWriter, r *http.Request, name string) {
-	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
-		return
-	}
-
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return
-	}
-
-	if name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-
-	var body struct {
-		Value string `json:"value"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-	if body.Value == "" {
-		writeError(w, http.StatusBadRequest, "value is required")
-		return
-	}
-
-	if name == "EMAIL_CONFIG" {
-		var cfg email.Config
-		if err := json.Unmarshal([]byte(body.Value), &cfg); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid EMAIL_CONFIG: malformed JSON")
-			return
-		}
-		if err := cfg.Validate(); err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid email config: %v", err))
-			return
-		}
-	}
-
-	if err := s.vaultSvc.Set(r.Context(), info.UserID, name, body.Value); err != nil {
-		s.log.Error("set vault entry", "user_id", info.UserID, "name", name, "error", err)
-		writeError(w, http.StatusBadRequest, "invalid request")
-		return
-	}
-
-	// Vault entries are baked into the sandbox env at session-creation time and
-	// cannot be injected into a running process; closing live runners forces a
-	// clean restart so the next chat turn or scheduled run reads the new value.
-	// Mirrors the OAuth token write path (see credentials.Service).
-	if err := s.credSvc.InvalidateUser(info.UserID); err != nil {
-		s.log.Warn("invalidate user runners after vault set", "user_id", info.UserID, "name", name, "error", err)
-	}
-
-	meta, err := s.vaultSvc.GetMeta(r.Context(), info.UserID, name)
-	if err != nil {
-		s.log.Error("get vault entry meta", "user_id", info.UserID, "name", name, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeData(w, http.StatusOK, vaultEntryResponseFromMeta(meta))
-}
-
-// DeleteVaultEntry handles DELETE /api/users/me/vault/{name}.
-func (s *Server) DeleteVaultEntry(w http.ResponseWriter, r *http.Request, name string) {
-	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
-		return
-	}
-
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return
-	}
-
-	if name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-
-	if err := s.vaultSvc.Delete(r.Context(), info.UserID, name); err != nil {
-		s.log.Error("delete vault entry", "user_id", info.UserID, "name", name, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	// See SetVaultEntry: invalidate live runners so the next session sees the
-	// updated vault snapshot instead of the cached one from sandbox start.
-	if err := s.credSvc.InvalidateUser(info.UserID); err != nil {
-		s.log.Warn("invalidate user runners after vault delete", "user_id", info.UserID, "name", name, "error", err)
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // ListScopedVaultEntries handles GET /api/vault.
 func (s *Server) ListScopedVaultEntries(w http.ResponseWriter, r *http.Request, params apiserver.ListScopedVaultEntriesParams) {
 	if s.vaultSvc == nil {
@@ -222,6 +65,48 @@ func (s *Server) ListScopedVaultEntries(w http.ResponseWriter, r *http.Request, 
 		resp[i] = vaultEntryResponseFromMeta(e)
 	}
 	writeData(w, http.StatusOK, map[string]any{"entries": resp})
+}
+
+// GetScopedVaultEntry handles GET /api/vault/{name}.
+func (s *Server) GetScopedVaultEntry(w http.ResponseWriter, r *http.Request, name string, params apiserver.GetScopedVaultEntryParams) {
+	if s.vaultSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		return
+	}
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	scope := vault.ScopeUser
+	if params.Scope != nil {
+		scope = string(*params.Scope)
+	}
+	agentID := ""
+	if params.AgentId != nil {
+		agentID = *params.AgentId
+	}
+	userID, agentID, ok := s.resolveVaultScope(w, r, info, scope, agentID)
+	if !ok {
+		return
+	}
+
+	value, err := s.vaultSvc.GetScoped(r.Context(), scope, userID, agentID, name)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "vault entry not found")
+			return
+		}
+		s.log.Error("get scoped vault entry", "user_id", info.UserID, "scope", scope, "agent_id", agentID, "name", name, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeData(w, http.StatusOK, map[string]string{"name": name, "value": value})
 }
 
 // SetScopedVaultEntry handles PUT /api/vault/{name}.
@@ -276,6 +161,7 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
+	s.invalidateVaultRunners(body.Scope, userID, agentID, name, "set")
 	meta, err := s.vaultSvc.GetScopedMeta(r.Context(), body.Scope, userID, agentID, name)
 	if err != nil {
 		s.log.Error("get scoped vault entry meta", "user_id", info.UserID, "scope", body.Scope, "agent_id", agentID, "name", name, "error", err)
@@ -324,10 +210,53 @@ func (s *Server) DeleteScopedVaultEntry(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	s.invalidateVaultRunners(scope, userID, agentID, name, "delete")
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// invalidateVaultRunners closes the live runners a vault mutation affects so the
+// next session reads the new snapshot instead of the value baked into the sandbox
+// env at start. Reach follows the scope: a single user for user/user_agent, one
+// agent across all users for system_agent, and every runner for system (whose
+// secrets merge into every agent's env via LoadEnvForAgent).
+func (s *Server) invalidateVaultRunners(scope, userID, agentID, name, op string) {
+	var err error
+	switch scope {
+	case vault.ScopeSystem:
+		err = s.credSvc.InvalidateAll()
+	case vault.ScopeSystemAgent:
+		err = s.credSvc.InvalidateAgent(agentID)
+	default: // user, user_agent
+		if userID == "" {
+			return
+		}
+		err = s.credSvc.InvalidateUser(userID)
+	}
+	if err != nil {
+		s.log.Warn("invalidate runners after vault "+op, "scope", scope, "user_id", userID, "agent_id", agentID, "name", name, "error", err)
+	}
+}
+
 func (s *Server) resolveVaultScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope string, agentID string) (string, string, bool) {
+	// A sandbox (scoped) token is bound to exactly one agent. It may only reach
+	// its own user/user_agent secrets — never another agent's, and never the
+	// admin-managed system scopes. Without this, any agent's sandbox token could
+	// pass scope=user_agent&agent_id=<sibling> to read or overwrite a different
+	// agent's credentials under the same user.
+	if info.Scoped != nil {
+		switch scope {
+		case vault.ScopeUser:
+		case vault.ScopeUserAgent:
+			if agentID != info.Scoped.AgentID {
+				writeError(w, http.StatusForbidden, "scoped token cannot access another agent's vault")
+				return "", "", false
+			}
+		default:
+			writeError(w, http.StatusForbidden, "scoped token cannot access system vault scopes")
+			return "", "", false
+		}
+	}
+
 	userID := ""
 	switch scope {
 	case vault.ScopeUser:

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  deleteVaultEntry as deleteVaultEntryRequest,
-  getVaultEntry,
-  setVaultEntry,
+  deleteScopedVaultEntry as deleteVaultEntryRequest,
+  getScopedVaultEntry,
+  setScopedVaultEntry,
 } from "@/lib/api-client/sdk.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,8 +78,9 @@ export function EmailAccountsPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await getVaultEntry({
+      const { data } = await getScopedVaultEntry({
         path: { name: "EMAIL_CONFIG" },
+        query: { scope: "user" },
         throwOnError: true,
       });
       if (data && data.value) {
@@ -99,9 +100,9 @@ export function EmailAccountsPanel({
   }, [load]);
 
   const saveConfig = async (cfg: EmailConfig) => {
-    await setVaultEntry({
+    await setScopedVaultEntry({
       path: { name: "EMAIL_CONFIG" },
-      body: { value: JSON.stringify(cfg) },
+      body: { value: JSON.stringify(cfg), scope: "user" },
       throwOnError: true,
     });
     await load();
@@ -134,7 +135,11 @@ export function EmailAccountsPanel({
     setSaving(true);
     try {
       if (Object.keys(updatedAccounts).length === 0) {
-        await deleteVaultEntryRequest({ path: { name: "EMAIL_CONFIG" }, throwOnError: true });
+        await deleteVaultEntryRequest({
+          path: { name: "EMAIL_CONFIG" },
+          query: { scope: "user" },
+          throwOnError: true,
+        });
         setConfig({ default: "", accounts: {} });
       } else {
         await saveConfig({ default: nextDefault, accounts: updatedAccounts });

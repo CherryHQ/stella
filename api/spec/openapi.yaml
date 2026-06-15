@@ -248,10 +248,6 @@ paths:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1constraints~1{constraintId}"
   /api/users/me/memories/{agentId}/changelog:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1changelog"
-  /api/users/me/vault:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1vault"
-  /api/users/me/vault/{name}:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1vault~1{name}"
   /api/vault:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1vault"
   /api/vault/{name}:

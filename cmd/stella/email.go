@@ -18,6 +18,7 @@ import (
 	"golang.org/x/term"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
+	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/email"
 )
@@ -44,7 +45,8 @@ read messages, and send mail directly from the terminal.`,
 }
 
 func loadVaultEmailConfig(ctx context.Context, api *apiclient.Client) (*email.Config, error) {
-	resp, err := api.GetVaultEntry(ctx, emailConfigKey)
+	scope := apiclient.GetScopedVaultEntryParamsScopeUser
+	resp, err := api.GetScopedVaultEntry(ctx, emailConfigKey, &apiclient.GetScopedVaultEntryParams{Scope: &scope})
 	if err != nil {
 		return nil, apiclient.WrapServerErr(err)
 	}
@@ -82,8 +84,10 @@ func saveVaultEmailConfig(ctx context.Context, api *apiclient.Client, cfg *email
 	if err != nil {
 		return fmt.Errorf("marshal email config: %w", err)
 	}
-	resp, err := api.SetVaultEntry(ctx, emailConfigKey, apiclient.SetVaultEntryJSONRequestBody{
+	scope := apitypes.SetVaultEntryRequestScopeUser
+	resp, err := api.SetScopedVaultEntry(ctx, emailConfigKey, apiclient.SetScopedVaultEntryJSONRequestBody{
 		Value: string(data),
+		Scope: &scope,
 	})
 	if err != nil {
 		return apiclient.WrapServerErr(err)

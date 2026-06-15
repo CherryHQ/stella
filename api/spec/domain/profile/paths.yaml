@@ -298,78 +298,6 @@ paths:
         }
 
   # ── Vault ───────────────────────────────────────────────────────────────────
-  /api/users/me/vault:
-    get:
-      tags: [profile]
-      summary: List vault entries for the current user
-      operationId: listVaultEntries
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/VaultEntryList",
-              }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-
-  /api/users/me/vault/{name}:
-    parameters:
-      - { name: name, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [profile]
-      summary: Get a vault entry value
-      operationId: getVaultEntry
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/VaultEntryValue",
-              }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    put:
-      tags: [profile]
-      summary: Create or update a vault entry
-      operationId: setVaultEntry
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/SetVaultEntryRequest",
-            }
-      responses:
-        "200":
-          description: saved
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/VaultEntry",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-    delete:
-      tags: [profile]
-      summary: Delete a vault entry
-      operationId: deleteVaultEntry
-      responses:
-        "204":
-          description: no content
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-
   /api/vault:
     get:
       tags: [profile]
@@ -410,6 +338,42 @@ paths:
   /api/vault/{name}:
     parameters:
       - { name: name, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [profile]
+      summary: Get a scoped vault entry value
+      operationId: getScopedVaultEntry
+      parameters:
+        - {
+            name: scope,
+            in: query,
+            required: false,
+            schema: {
+              type: string,
+              enum: [user, user_agent, system, system_agent],
+              default: user,
+            },
+          }
+        - {
+            name: agent_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/VaultEntryValue",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": {
+          $ref: "../../components.yaml#/components/responses/Forbidden",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     put:
       tags: [profile]
       summary: Create or update a scoped vault entry

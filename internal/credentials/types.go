@@ -49,7 +49,11 @@ type AddSecretInstruction struct {
 	Command string // exact /config KEY VALUE command to run
 }
 
-// RunnerInvalidator invalidates live runners for a user across all pools.
+// RunnerInvalidator closes live runners so the next session reloads vault/OAuth
+// snapshots. Scope determines reach: a single user, one agent across all users,
+// or every runner.
 type RunnerInvalidator interface {
 	InvalidateUser(userID string) error
+	InvalidateAgent(agentID string) error
+	InvalidateAll() error
 }
