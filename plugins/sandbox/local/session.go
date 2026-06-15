@@ -105,29 +105,58 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 		env = make(map[string]string)
 	}
 	sandboxSH := adjustStellaHome(f.cfg.StellaHome)
-	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH)
+	hostSH := f.cfg.StellaHome
+	remap := func(p string) string { return remapStellaHomePath(p, hostSH, sandboxSH) }
+	userShims := ""
+	if dir := policy.Filesystem.MiseUserDirHost; dir != "" {
+		userShims = sandboxpkg.MiseUserShimsDir(remap(dir))
+	}
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
 	env["HOME"] = adjustHome(policy.Filesystem.WorkingDir)
 	env["STELLA_HOME"] = sandboxSH
 	// Rewrite MISE_* path-valued env vars from host STELLA_HOME to the
-	// sandbox-adjusted path so mise shims resolve tools correctly inside
-	// bwrap (where STELLA_HOME is remapped to /home/stella/.stella).
-	if hostSH := f.cfg.StellaHome; hostSH != sandboxSH {
-		hostPrefix := hostSH + string(filepath.Separator)
+	// sandbox-adjusted path so mise resolves tools and configs correctly inside
+	// bwrap. All but MISE_TRUSTED_CONFIG_PATHS are single scalar paths, and ':'
+	// is a legal character in a POSIX path, so they must be remapped whole — only
+	// the genuinely list-valued var is split on the path-list separator (each
+	// element remapped independently; already-sandbox paths like /workspace
+	// survive untouched).
+	if hostSH != sandboxSH {
 		for k, v := range env {
 			if !strings.HasPrefix(k, "MISE_") {
 				continue
 			}
-			if v == hostSH {
-				env[k] = sandboxSH
-			} else if strings.HasPrefix(v, hostPrefix) {
-				env[k] = sandboxSH + v[len(hostSH):]
+			if k == "MISE_TRUSTED_CONFIG_PATHS" {
+				parts := strings.Split(v, string(filepath.ListSeparator))
+				for i, p := range parts {
+					parts[i] = remap(p)
+				}
+				env[k] = strings.Join(parts, string(filepath.ListSeparator))
+				continue
 			}
+			env[k] = remap(v)
 		}
 	}
 	sandboxpkg.HostEnvCopy(env)
 	policy.Env = env
 	policy.InheritEnv = false
 	return policy
+}
+
+// remapStellaHomePath rewrites a host path under hostSH to its sandbox-adjusted
+// location under sandboxSH, leaving paths outside hostSH (e.g. /workspace)
+// untouched. When hostSH == sandboxSH (macOS, no remap) it is a no-op. Shared by
+// the env rewrite in adjustPolicy and the bwrap mount path in session_linux.go so
+// the two can't drift.
+func remapStellaHomePath(p, hostSH, sandboxSH string) string {
+	switch {
+	case p == hostSH:
+		return sandboxSH
+	case strings.HasPrefix(p, hostSH+string(filepath.Separator)):
+		return sandboxSH + p[len(hostSH):]
+	default:
+		return p
+	}
 }
 
 // ─────────────────────────── localSession ─────────────────────────────

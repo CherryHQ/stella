@@ -54,6 +54,14 @@ type FilesystemPolicy struct {
 	// directories are guaranteed to exist with 0700 permissions before the
 	// backend sees the policy; they may be shared across sessions.
 	TempDirHost string
+
+	// MiseUserDirHost is the host path of the per-user writable MISE_DATA_DIR
+	// (see pkgsandbox.MiseUserToolsDir). When set, host-execution backends bind
+	// it writable so agents can install their own mise tools, layered above the
+	// shared read-only system installs. Empty means no per-user tree — the
+	// session uses the read-only system tree only. The directory is guaranteed
+	// to exist (and be seeded with system installs) before the backend sees it.
+	MiseUserDirHost string
 }
 
 // NetworkPolicy defines network constraints for a sandbox session.

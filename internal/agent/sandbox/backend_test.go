@@ -183,7 +183,7 @@ func TestRunnerFilesystemPolicyUsesUserScopedTmp(t *testing.T) {
 	if resolved, err := filepath.EvalSymlinks(base); err == nil {
 		base = resolved
 	}
-	want := filepath.Join(base, "42")
+	want := filepath.Join(base, "user-42")
 	if policy.TempDirHost != want {
 		t.Fatalf("TempDirHost = %q, want %q", policy.TempDirHost, want)
 	}

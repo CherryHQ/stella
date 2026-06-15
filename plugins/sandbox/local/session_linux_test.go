@@ -234,3 +234,51 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 		t.Errorf("expected hostCwd %q, got %q", root, hostCwd)
 	}
 }
+
+// TestWrapCommand_linux_perUserMiseWritableBind verifies the per-user mise tree
+// is bound writable (--bind, not --ro-bind) at its STELLA_HOME-remapped path so
+// agents can install their own tools, while the rest of STELLA_HOME stays read-only.
+func TestWrapCommand_linux_perUserMiseWritableBind(t *testing.T) {
+	if _, err := exec.LookPath("bwrap"); err != nil {
+		t.Skip("bwrap not installed")
+	}
+	if !bwrapFunctional() {
+		t.Skip("bwrap not functional (namespace creation blocked)")
+	}
+
+	stellaHome := t.TempDir()
+	userDir := filepath.Join(stellaHome, "users", "u1", ".mise-tools")
+	if err := os.MkdirAll(userDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sandboxUserDir := filepath.Join(sandboxStellaHome, "users", "u1", ".mise-tools")
+
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot:   "/tmp/test-workspace",
+			WorkingDir:      "/workspace",
+			MiseUserDirHost: userDir,
+		},
+		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+	}
+
+	_, args, _, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	hasFlagPair := func(flag, first, second string) bool {
+		for i, a := range args {
+			if a == flag && i+2 < len(args) && args[i+1] == first && args[i+2] == second {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasFlagPair("--bind", userDir, sandboxUserDir) {
+		t.Errorf("expected writable --bind %s %s for the per-user mise tree, got %v", userDir, sandboxUserDir, args)
+	}
+	if hasFlagPair("--ro-bind", userDir, sandboxUserDir) {
+		t.Errorf("per-user mise tree must be writable, not --ro-bind, got %v", args)
+	}
+}

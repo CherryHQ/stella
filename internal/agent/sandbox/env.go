@@ -18,16 +18,43 @@ import (
 )
 
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
-	tempID := cfg.UserID
-	if cfg.GroupID != "" {
-		tempID = "group-" + cfg.GroupID
+	key := miseUserKey(cfg)
+	miseDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, key)
+	// A non-empty key that yields no dir means the user/group ID failed the
+	// safe-path-component check. Don't fail the session (we fall back to the
+	// shared read-only system tree and a session-local temp dir), but surface the
+	// silent downgrade so a malformed ID is diagnosable instead of mysterious.
+	if key != "" && miseDir == "" {
+		slog.Warn("per-user mise tree disabled: unsafe key, using shared read-only system tree",
+			"component", "runner_sandbox",
+			"user_id", cfg.UserID,
+			"group_id", cfg.GroupID,
+			"key", key,
+		)
 	}
 	return pkgsandbox.FilesystemPolicy{
 		WorkspaceRoot:       paths.UserRoot,
 		WorkingDir:          paths.WorkDir,
 		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
-		TempDirHost:         userTempDir(tempID),
+		TempDirHost:         userTempDir(key),
+		MiseUserDirHost:     miseDir,
 	}
+}
+
+// miseUserKey returns the key for this session's per-user temp and mise trees.
+// User and group keys carry disjoint prefixes ("user-"/"group-") so the two
+// principal namespaces can never collide into one shared writable tree, even if a
+// user ID ever takes the literal form "group-<n>". Empty when neither is set,
+// which makes callers fall back to a session-local temp dir and the shared
+// read-only system mise tree.
+func miseUserKey(cfg Config) string {
+	if cfg.GroupID != "" {
+		return "group-" + cfg.GroupID
+	}
+	if cfg.UserID == "" {
+		return ""
+	}
+	return "user-" + cfg.UserID
 }
 
 var validUserTempDirID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -150,7 +177,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// PATH, so they need the mise env pointed at the org's config. Docker carries
 	// its own in-image mise tree and PATH, so host-side paths must not leak in.
 	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
-		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome))
+		userDataDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, miseUserKey(cfg))
+		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, userDataDir, paths.UserRoot))
 	}
 
 	return env, nil

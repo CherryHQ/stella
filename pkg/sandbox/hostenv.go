@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 )
@@ -35,19 +36,44 @@ func MiseShimsDir(stellaHome string) string {
 	return filepath.Join(MiseToolsDir(stellaHome), "shims")
 }
 
+// miseUserKeyPattern restricts a per-user mise directory name to a single safe
+// path component. Anything else falls back to the shared (read-only) system tree.
+var miseUserKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// MiseUserToolsDir returns the per-user writable MISE_DATA_DIR. It mirrors a
+// real machine's per-user mise home: each user (or group) gets one tree shared
+// by all their agents, layered above the shared read-only system installs.
+// The path is keyed purely by userKey — never by agent — so the planned
+// user-directory refactor (user-scoped dirs, agents as apps) needs no change here.
+// An empty or unsafe key yields "" so callers fall back to the system tree.
+func MiseUserToolsDir(stellaHome, userKey string) string {
+	if !miseUserKeyPattern.MatchString(userKey) {
+		return ""
+	}
+	return filepath.Join(stellaHome, "users", userKey, ".mise-tools")
+}
+
+// MiseUserShimsDir returns the per-user mise shims directory. It is prepended to
+// PATH ahead of the system shims so a user's own tool versions win.
+func MiseUserShimsDir(userToolsDir string) string {
+	return filepath.Join(userToolsDir, "shims")
+}
+
 // HostEnvBuildPath returns a sanitized PATH suitable for host-execution sandbox
-// backends (local, none). It prepends the mise shims and stella bin directories
-// and filters host PATH entries to a safe allowlist on Linux.
-func HostEnvBuildPath(stellaHome string) string {
+// backends (local, none). It prepends the per-user mise shims (so a user's own
+// tool versions win), then the system mise shims and stella bin directories, and
+// filters host PATH entries to a safe allowlist on Linux. An empty userShimsDir
+// is dropped, so callers without a per-user tree pass "".
+func HostEnvBuildPath(stellaHome, userShimsDir string) string {
 	stellaBin := filepath.Join(stellaHome, "bin")
 	shimsDir := MiseShimsDir(stellaHome)
 	if runtime.GOOS != "linux" {
 		return strings.Join(hostEnvDedupeEntries([]string{
-			shimsDir, stellaBin, os.Getenv("PATH"),
+			userShimsDir, shimsDir, stellaBin, os.Getenv("PATH"),
 		}), string(os.PathListSeparator))
 	}
 
-	entries := []string{shimsDir, stellaBin}
+	entries := []string{userShimsDir, shimsDir, stellaBin}
 	for entry := range strings.SplitSeq(os.Getenv("PATH"), string(os.PathListSeparator)) {
 		if hostEnvPathAllowed(entry, stellaBin) {
 			entries = append(entries, entry)
