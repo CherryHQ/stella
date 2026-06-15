@@ -384,14 +384,26 @@ func TestScopedTokenVaultAgentBinding(t *testing.T) {
 	}
 }
 
-// fakeRunnerInvalidator records InvalidateUser calls so tests can assert that
-// vault mutations propagate to the runner cache.
+// fakeRunnerInvalidator records invalidation calls so tests can assert that
+// vault mutations propagate to the runner cache at the right scope.
 type fakeRunnerInvalidator struct {
-	calls []string
+	calls   []string // user IDs from InvalidateUser
+	agents  []string // agent IDs from InvalidateAgent
+	allHits int      // InvalidateAll count
 }
 
 func (f *fakeRunnerInvalidator) InvalidateUser(userID string) error {
 	f.calls = append(f.calls, userID)
+	return nil
+}
+
+func (f *fakeRunnerInvalidator) InvalidateAgent(agentID string) error {
+	f.agents = append(f.agents, agentID)
+	return nil
+}
+
+func (f *fakeRunnerInvalidator) InvalidateAll() error {
+	f.allHits++
 	return nil
 }
 
@@ -436,6 +448,48 @@ func TestVaultMutationsInvalidateUserRunners(t *testing.T) {
 	}
 	if inv.calls[2] != env.adminUser.ID {
 		t.Errorf("after DELETE: invalidated user = %q, want %q", inv.calls[2], env.adminUser.ID)
+	}
+}
+
+// TestSystemVaultMutationsInvalidateRunners verifies that admin-managed system
+// secrets, which merge into every agent's runtime env, invalidate at the right
+// reach: system → all runners, system_agent → that agent's runners (CR-002).
+func TestSystemVaultMutationsInvalidateRunners(t *testing.T) {
+	env, _ := setupVaultEnv(t)
+	if _, err := sqlc.New(env.db).CreateAgent(context.Background(), sqlc.CreateAgentParams{
+		ID: "sys-agent", Name: "Sys", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+	}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	inv := &fakeRunnerInvalidator{}
+	env.srv.CredentialsService().SetInvalidator(inv)
+
+	// system scope → InvalidateAll on both PUT and DELETE.
+	rr := doRequest(t, env, "PUT", "/api/vault/SYS_TOKEN", map[string]string{"scope": "system", "value": "v"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("system set status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "DELETE", "/api/vault/SYS_TOKEN?scope=system", nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("system delete status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	if inv.allHits != 2 {
+		t.Fatalf("system mutations: InvalidateAll hits = %d, want 2", inv.allHits)
+	}
+
+	// system_agent scope → InvalidateAgent for that agent only.
+	rr = doRequest(t, env, "PUT", "/api/vault/SA_TOKEN", map[string]string{"scope": "system_agent", "agent_id": "sys-agent", "value": "v"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("system_agent set status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	if len(inv.agents) != 1 || inv.agents[0] != "sys-agent" {
+		t.Fatalf("system_agent set: InvalidateAgent calls = %v, want [sys-agent]", inv.agents)
+	}
+
+	// System scopes must never fall back to per-user invalidation.
+	if len(inv.calls) != 0 {
+		t.Fatalf("system scopes must not InvalidateUser, got %v", inv.calls)
 	}
 }
 

@@ -75,6 +75,22 @@ func (s *Service) InvalidateUser(userID string) error {
 	return s.invalidator.InvalidateUser(userID)
 }
 
+// InvalidateAgent closes all live runners for one agent across every user.
+func (s *Service) InvalidateAgent(agentID string) error {
+	if s.invalidator == nil {
+		return nil
+	}
+	return s.invalidator.InvalidateAgent(agentID)
+}
+
+// InvalidateAll closes every live runner across all agents and users.
+func (s *Service) InvalidateAll() error {
+	if s.invalidator == nil {
+		return nil
+	}
+	return s.invalidator.InvalidateAll()
+}
+
 // getBroker constructs a flow broker for providerID on demand from the registry
 // config and current plugin credentials. The flowType selects which flow entry to
 // use when a provider declares multiple flows.

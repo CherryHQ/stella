@@ -161,7 +161,7 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	s.invalidateVaultRunners(userID, body.Scope, agentID, name, "set")
+	s.invalidateVaultRunners(body.Scope, userID, agentID, name, "set")
 	meta, err := s.vaultSvc.GetScopedMeta(r.Context(), body.Scope, userID, agentID, name)
 	if err != nil {
 		s.log.Error("get scoped vault entry meta", "user_id", info.UserID, "scope", body.Scope, "agent_id", agentID, "name", name, "error", err)
@@ -210,20 +210,30 @@ func (s *Server) DeleteScopedVaultEntry(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	s.invalidateVaultRunners(userID, scope, agentID, name, "delete")
+	s.invalidateVaultRunners(scope, userID, agentID, name, "delete")
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// invalidateVaultRunners closes the affected user's live runners after a vault
-// mutation so the next session reads the new snapshot instead of the value
-// baked into the sandbox env at start. Only user-owned scopes carry a userID;
-// system-scoped writes affect every user and are left to the idle reap.
-func (s *Server) invalidateVaultRunners(userID, scope, agentID, name, op string) {
-	if userID == "" {
-		return
+// invalidateVaultRunners closes the live runners a vault mutation affects so the
+// next session reads the new snapshot instead of the value baked into the sandbox
+// env at start. Reach follows the scope: a single user for user/user_agent, one
+// agent across all users for system_agent, and every runner for system (whose
+// secrets merge into every agent's env via LoadEnvForAgent).
+func (s *Server) invalidateVaultRunners(scope, userID, agentID, name, op string) {
+	var err error
+	switch scope {
+	case vault.ScopeSystem:
+		err = s.credSvc.InvalidateAll()
+	case vault.ScopeSystemAgent:
+		err = s.credSvc.InvalidateAgent(agentID)
+	default: // user, user_agent
+		if userID == "" {
+			return
+		}
+		err = s.credSvc.InvalidateUser(userID)
 	}
-	if err := s.credSvc.InvalidateUser(userID); err != nil {
-		s.log.Warn("invalidate user runners after vault "+op, "user_id", userID, "scope", scope, "agent_id", agentID, "name", name, "error", err)
+	if err != nil {
+		s.log.Warn("invalidate runners after vault "+op, "scope", scope, "user_id", userID, "agent_id", agentID, "name", name, "error", err)
 	}
 }
 

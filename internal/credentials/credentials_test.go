@@ -162,6 +162,10 @@ func (s *stubInvalidator) InvalidateUser(userID string) error {
 	return nil
 }
 
+func (s *stubInvalidator) InvalidateAgent(agentID string) error { return nil }
+
+func (s *stubInvalidator) InvalidateAll() error { return nil }
+
 func TestInvalidateUserCallsInvalidator(t *testing.T) {
 	svc := newService(t)
 	inv := &stubInvalidator{}

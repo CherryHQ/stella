@@ -609,6 +609,38 @@ func (pm *PoolManager) InvalidateUser(userID string) error {
 	return lastErr
 }
 
+// InvalidateAgent closes all live runners for one agent across every user.
+func (pm *PoolManager) InvalidateAgent(agentID string) error {
+	pm.mu.RLock()
+	svc, ok := pm.services[agentID]
+	pm.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	if err := svc.Runtime.ResetRunners(); err != nil {
+		pm.log.Error("reset runners for agent", "agent_id", agentID, "error", err)
+		return err
+	}
+	return nil
+}
+
+// InvalidateAll closes every live runner across all services.
+func (pm *PoolManager) InvalidateAll() error {
+	pm.mu.RLock()
+	services := make(map[string]*Service, len(pm.services))
+	maps.Copy(services, pm.services)
+	pm.mu.RUnlock()
+
+	var lastErr error
+	for id, svc := range services {
+		if err := svc.Runtime.ResetRunners(); err != nil {
+			pm.log.Error("reset runners for service", "agent_id", id, "error", err)
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
 // Close shuts down all services and hook plugins.
 func (pm *PoolManager) Close() error {
 	pm.mu.Lock()
