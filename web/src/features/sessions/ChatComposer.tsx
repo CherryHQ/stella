@@ -1,6 +1,7 @@
 import type { ReactNode, RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Paperclip, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 
@@ -324,42 +325,32 @@ export function ChatComposer({
           />
           <div className="absolute bottom-1.5 right-2">
             {isStreaming && onStop ? (
-              <button
-                type="button"
-                onClick={onStop}
-                className="text-destructive hover:bg-destructive/10 bg-destructive/5 border border-destructive/25 font-semibold text-xs rounded-lg px-3 h-7 transition-colors flex items-center gap-1.5 cursor-pointer"
-              >
+              <Button variant="destructive-outline" size="sm" onClick={onStop}>
                 <div className="w-2 h-2 bg-destructive rounded-xs" />
                 <span>{t("sessions.composer.stop")}</span>
-              </button>
+              </Button>
             ) : (
-              <button
-                type="button"
+              <Button
+                size="icon-sm"
                 disabled={!canSend}
                 onClick={handleSend}
-                className={cn(
-                  "w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer",
-                  !canSend
-                    ? "bg-muted text-muted-foreground/30 cursor-not-allowed"
-                    : "bg-primary text-primary-foreground hover:bg-primary/90",
-                )}
                 title={t("sessions.composer.sendMessage")}
               >
-                <ArrowUp className="w-4 h-4 stroke-[2.5]" />
-              </button>
+                <ArrowUp className="size-4 stroke-[2.5]" />
+              </Button>
             )}
           </div>
         </div>
         <div className="flex min-w-0 items-center gap-1.5 px-2 pb-0.5">
           {!isStreaming && onFileSelect && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onClick={() => fileInputRef.current?.click()}
-              className="text-muted-foreground hover:text-foreground hover:bg-muted transition-colors p-1 rounded-md w-6 h-6 flex items-center justify-center cursor-pointer"
               title={t("sessions.composer.attachFiles")}
             >
-              <Paperclip className="w-3.5 h-3.5" />
-            </button>
+              <Paperclip className="size-3.5" />
+            </Button>
           )}
           {!isStreaming && (
             <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
