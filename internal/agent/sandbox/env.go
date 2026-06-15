@@ -28,15 +28,20 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy
 	}
 }
 
-// miseUserKey returns the key for this session's per-user temp and mise trees:
-// the group key for group sessions, otherwise the user ID. Empty when neither
-// is set, which makes callers fall back to a session-local temp dir and the
-// shared read-only system mise tree.
+// miseUserKey returns the key for this session's per-user temp and mise trees.
+// User and group keys carry disjoint prefixes ("user-"/"group-") so the two
+// principal namespaces can never collide into one shared writable tree, even if a
+// user ID ever takes the literal form "group-<n>". Empty when neither is set,
+// which makes callers fall back to a session-local temp dir and the shared
+// read-only system mise tree.
 func miseUserKey(cfg Config) string {
 	if cfg.GroupID != "" {
 		return "group-" + cfg.GroupID
 	}
-	return cfg.UserID
+	if cfg.UserID == "" {
+		return ""
+	}
+	return "user-" + cfg.UserID
 }
 
 var validUserTempDirID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)

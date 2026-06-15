@@ -130,19 +130,25 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	env["STELLA_HOME"] = sandboxSH
 	// Rewrite MISE_* path-valued env vars from host STELLA_HOME to the
 	// sandbox-adjusted path so mise resolves tools and configs correctly inside
-	// bwrap. Values are treated as PathListSeparator-joined lists so multi-path
-	// vars (MISE_TRUSTED_CONFIG_PATHS) remap each element independently and
-	// already-sandbox paths like /workspace survive untouched.
+	// bwrap. All but MISE_TRUSTED_CONFIG_PATHS are single scalar paths, and ':'
+	// is a legal character in a POSIX path, so they must be remapped whole — only
+	// the genuinely list-valued var is split on the path-list separator (each
+	// element remapped independently; already-sandbox paths like /workspace
+	// survive untouched).
 	if hostSH != sandboxSH {
 		for k, v := range env {
 			if !strings.HasPrefix(k, "MISE_") {
 				continue
 			}
-			parts := strings.Split(v, string(filepath.ListSeparator))
-			for i, p := range parts {
-				parts[i] = remap(p)
+			if k == "MISE_TRUSTED_CONFIG_PATHS" {
+				parts := strings.Split(v, string(filepath.ListSeparator))
+				for i, p := range parts {
+					parts[i] = remap(p)
+				}
+				env[k] = strings.Join(parts, string(filepath.ListSeparator))
+				continue
 			}
-			env[k] = strings.Join(parts, string(filepath.ListSeparator))
+			env[k] = remap(v)
 		}
 	}
 	sandboxpkg.HostEnvCopy(env)

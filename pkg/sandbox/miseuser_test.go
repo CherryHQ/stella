@@ -43,6 +43,11 @@ func TestEnsureUserMiseHome_SeedsSystemInstallsAsRelativeSymlinks(t *testing.T) 
 		}
 	}
 
+	// The tree is private (0700) so other host users can't read a tenant's tools.
+	if fi, err := os.Stat(userDir); err != nil || fi.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("per-user mise tree must not be group/other-accessible, mode=%v err=%v", fi.Mode().Perm(), err)
+	}
+
 	link := filepath.Join(userDir, "installs", "go", "1.21.0")
 	target, err := os.Readlink(link)
 	if err != nil {
@@ -79,6 +84,37 @@ func TestEnsureUserMiseHome_IdempotentAndDoesNotShadowUserInstall(t *testing.T) 
 	// The user's own version is left as a real dir, never replaced by a symlink.
 	if fi, err := os.Lstat(userNode22); err != nil || fi.Mode()&os.ModeSymlink != 0 {
 		t.Fatalf("user node@22 must stay a real dir, lstat=%v err=%v", fi, err)
+	}
+}
+
+func TestEnsureUserMiseHome_DoesNotSeedThroughPlantedSymlink(t *testing.T) {
+	stellaHome := t.TempDir()
+	mustMkdirAll(t, filepath.Join(MiseToolsDir(stellaHome), "installs", "node", "20.0.0"))
+
+	userDir := MiseUserToolsDir(stellaHome, "u1")
+	mustMkdirAll(t, userDir)
+	// A prior session's agent planted a symlink where "installs" belongs, aimed at
+	// an outside dir it wants the (unsandboxed) seeding step to write into.
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(userDir, "installs")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureUserMiseHome(stellaHome, userDir); err != nil {
+		t.Fatalf("EnsureUserMiseHome: %v", err)
+	}
+
+	// The planted symlink is gone — "installs" is a real dir now.
+	if fi, err := os.Lstat(filepath.Join(userDir, "installs")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("installs must be a real dir after seeding, lstat=%v err=%v", fi, err)
+	}
+	// Seeding did not escape through the link into the outside dir.
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Fatalf("seeding escaped the per-user tree into the symlink target: %v", entries)
+	}
+	// Seeding still landed in the real tree.
+	if _, err := os.Lstat(filepath.Join(userDir, "installs", "node", "20.0.0")); err != nil {
+		t.Fatalf("system node@20 should be seeded into the real tree: %v", err)
 	}
 }
 

@@ -30,8 +30,8 @@ func TestRuntimeMiseEnv_PerUser(t *testing.T) {
 	if env["MISE_NOT_FOUND_AUTO_INSTALL"] != "true" {
 		t.Fatalf("auto-install should be enabled for a writable per-user tree, got %q", env["MISE_NOT_FOUND_AUTO_INSTALL"])
 	}
-	if strings.Contains(env["MISE_STATE_DIR"], "/tmp/") {
-		t.Fatalf("state should live in the per-user tree, not /tmp, got %q", env["MISE_STATE_DIR"])
+	if env["MISE_STATE_DIR"] == "/tmp/mise-state" {
+		t.Fatalf("state should live in the per-user tree, not the read-only fallback, got %q", env["MISE_STATE_DIR"])
 	}
 
 	// Global config stays the shared system _builtin layer.

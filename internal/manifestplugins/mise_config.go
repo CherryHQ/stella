@@ -61,10 +61,12 @@ func runtimeScopeConfigPath(stellaHome string) string {
 // are left untouched — the sandbox owns those.
 //
 // When userDataDir is set the per-user tree is writable, so DATA/CACHE/STATE live
-// there and auto-install is enabled (network defaults to allow_all); a user's own
-// tool versions win because the per-user shims sort ahead on PATH. workspaceDir
-// (the host workspace root) is trusted alongside the bwrap "/workspace" mount so a
-// project's mise.toml participates in resolution regardless of backend.
+// there and auto-install is enabled; a user's own tool versions win because the
+// per-user shims sort ahead on PATH. (Auto-install still only reaches the network
+// when the session's NetworkPolicy permits egress — mise doesn't widen it.)
+// workspaceDir (the host workspace root) is trusted alongside the bwrap
+// "/workspace" mount so a project's mise.toml participates in resolution regardless
+// of backend.
 //
 // When userDataDir is empty (no user/group) it falls back to the read-only system
 // tree with auto-install disabled and state redirected to a writable temp dir,
@@ -82,6 +84,10 @@ func RuntimeMiseEnv(stellaHome, userDataDir, workspaceDir string) map[string]str
 	configPath := runtimeScopeConfigPath(stellaHome)
 	env["MISE_GLOBAL_CONFIG_FILE"] = configPath
 
+	// Trust a superset so the project mise.toml resolves on every backend: the
+	// literal "/workspace" is the bind-mount path (load-bearing on Linux/bwrap),
+	// the host workspaceDir is load-bearing on none/macOS where there is no remap.
+	// The entry irrelevant to a given backend is inert, so neither may be dropped.
 	trusted := []string{configPath, sandboxWorkspaceDir}
 	if workspaceDir != "" && workspaceDir != sandboxWorkspaceDir {
 		trusted = append(trusted, workspaceDir)
