@@ -34,10 +34,24 @@ That is all the setup you need. Stella automatically handles per-user encryption
 ### From the Web UI
 
 1. Open the Web UI and go to your Credentials page.
-2. In the Vault section, enter a secret name (for example, `GITHUB_TOKEN`) and its value.
-3. Click Save.
+2. In the Vault section, choose where the secret applies.
+3. Enter a secret name (for example, `GITHUB_TOKEN`) and its value.
+4. Click Save.
 
 Secret values are write-only — once saved, the plaintext is never shown in the Web UI again. You can see the list of secret names, but not their values.
+
+### Secret scopes
+
+Secrets can apply at four levels:
+
+| Scope                              | Who can set it | Available when                   |
+| ---------------------------------- | -------------- | -------------------------------- |
+| My credentials · all agents        | You            | You use any agent                |
+| My credentials · specific agent    | You            | You use the selected agent       |
+| Admin credentials · system-wide    | Admins         | Any user uses any agent          |
+| Admin credentials · specific agent | Admins         | Any user uses the selected agent |
+
+When several scopes define the same name, Stella lets the most specific personal secret win: your agent-specific secret overrides your all-agent secret, which overrides the admin agent-specific secret, which overrides the admin system-wide secret.
 
 ### From a Chat Session
 
@@ -56,7 +70,7 @@ You can also ask Stella to manage your secrets:
 
 ## Using Secrets in Sessions
 
-When an agent session starts, all your vault secrets are decrypted and injected as environment variables. A secret named `GITHUB_TOKEN` is available as `$GITHUB_TOKEN` inside the session.
+When an agent session starts, matching vault secrets are decrypted and injected as environment variables. A secret named `GITHUB_TOKEN` is available as `$GITHUB_TOKEN` inside the session.
 
 Secrets are loaded fresh for each session. If you add or update a secret, the change takes effect on the next session.
 

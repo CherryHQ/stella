@@ -46,6 +46,12 @@ type vaultLoader interface {
 	LoadEnv(ctx context.Context, userID string) (map[string]string, error)
 }
 
+type scopedVaultLoader interface {
+	LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
+}
+
+type envReloader func() (map[string]string, error)
+
 // TokenService owns API token lifecycle and authentication.
 type TokenService struct {
 	store        tokenStore
@@ -79,32 +85,61 @@ func (s *TokenService) EnsureAutoToken(ctx context.Context, userID string) error
 // (token created or rotated). This collapses the two full-vault decrypts the
 // path used to do per sandbox start into one in the steady state.
 func (s *TokenService) EnsureAutoTokenEnv(ctx context.Context, userID string) (map[string]string, error) {
+	return s.ensureAutoTokenEnv(ctx, userID, "")
+}
+
+// EnsureAutoTokenEnvForAgent ensures the auto token and returns scoped runtime
+// env under the same lock, preserving the token/env atomicity guarantee while
+// allowing agent-specific vault scopes to participate in sandbox env resolution.
+func (s *TokenService) EnsureAutoTokenEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
+	return s.ensureAutoTokenEnv(ctx, userID, agentID)
+}
+
+func (s *TokenService) ensureAutoTokenEnv(ctx context.Context, userID string, agentID string) (map[string]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	loader, ok := s.vault.(vaultLoader)
-	if !ok {
-		if _, err := s.ensureAutoTokenLocked(ctx, userID, nil); err != nil {
-			return nil, err
-		}
-		return map[string]string{}, nil
-	}
-
-	env, err := loader.LoadEnv(ctx, userID)
+	env, reload, err := s.loadEnvForTokenEnsure(ctx, userID, agentID)
 	if err != nil {
-		return nil, fmt.Errorf("token service: load env for user %s: %w", userID, err)
+		return nil, err
 	}
 	changed, err := s.ensureAutoTokenLocked(ctx, userID, env)
 	if err != nil {
 		return nil, err
 	}
 	if changed {
-		env, err = loader.LoadEnv(ctx, userID)
+		env, err = reload()
 		if err != nil {
-			return nil, fmt.Errorf("token service: reload env after ensure for user %s: %w", userID, err)
+			return nil, err
 		}
 	}
 	return env, nil
+}
+
+func (s *TokenService) loadEnvForTokenEnsure(ctx context.Context, userID string, agentID string) (map[string]string, envReloader, error) {
+	if loader, ok := s.vault.(scopedVaultLoader); ok {
+		reload := func() (map[string]string, error) {
+			env, err := loader.LoadEnvForAgent(ctx, userID, agentID)
+			if err != nil {
+				return nil, fmt.Errorf("token service: load env for user %s agent %s: %w", userID, agentID, err)
+			}
+			return env, nil
+		}
+		env, err := reload()
+		return env, reload, err
+	}
+	if loader, ok := s.vault.(vaultLoader); ok {
+		reload := func() (map[string]string, error) {
+			env, err := loader.LoadEnv(ctx, userID)
+			if err != nil {
+				return nil, fmt.Errorf("token service: load env for user %s: %w", userID, err)
+			}
+			return env, nil
+		}
+		env, err := reload()
+		return env, reload, err
+	}
+	return map[string]string{}, func() (map[string]string, error) { return map[string]string{}, nil }, nil
 }
 
 // ensureAutoTokenLocked guarantees an active auto token whose vault plaintext

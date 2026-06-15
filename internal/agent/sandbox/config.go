@@ -13,6 +13,10 @@ type VaultEnvLoader interface {
 	LoadEnv(ctx context.Context, userID string) (map[string]string, error)
 }
 
+type scopedVaultEnvLoader interface {
+	LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
+}
+
 // TokenEnsurer ensures API tokens needed by sandbox sessions. Implementations
 // must be idempotent.
 type TokenEnsurer interface {
@@ -22,6 +26,10 @@ type TokenEnsurer interface {
 
 type tokenEnvEnsurer interface {
 	EnsureAutoTokenEnv(ctx context.Context, userID string) (map[string]string, error)
+}
+
+type agentTokenEnvEnsurer interface {
+	EnsureAutoTokenEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
 }
 
 // Config is passed to sandbox operations.

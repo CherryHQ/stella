@@ -2,19 +2,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   deleteOAuthProviderConfig,
-  deleteVaultEntry as deleteVaultEntryRequest,
+  deleteScopedVaultEntry as deleteVaultEntryRequest,
   disconnectOAuth as disconnectOAuthRequest,
   getOAuthConnected,
   getOAuthProviderConfig,
+  listAgents,
   listOAuthProviders,
-  listVaultEntries,
+  listScopedVaultEntries,
   pollOAuthFlow,
   setOAuthProviderConfig,
-  setVaultEntry,
+  setScopedVaultEntry,
   startOAuthFlow,
 } from "@/lib/api-client/sdk.gen";
 import { formatTime } from "@/lib/time";
-import type { OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
+import type { Agent, OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,10 @@ const SIMPLE_ICON_PATHS: Record<string, string> = {
   x: siX.path,
 };
 
+function isAgentVaultScope(scope: VaultEntry["scope"]) {
+  return scope === "user_agent" || scope === "system_agent";
+}
+
 function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
   const [family, name] = (icon ?? "").split(":");
   const path = family === "simpleicons" ? SIMPLE_ICON_PATHS[name?.toLowerCase()] : undefined;
@@ -62,6 +67,9 @@ export function CredentialsPage() {
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultSaving, setVaultSaving] = useState(false);
+  const [vaultScope, setVaultScope] = useState<VaultEntry["scope"]>("user");
+  const [vaultAgentID, setVaultAgentID] = useState("");
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
   const [showAddSecret, setShowAddSecret] = useState(false);
@@ -86,12 +94,29 @@ export function CredentialsPage() {
   const loadVaultEntries = useCallback(async () => {
     setVaultLoading(true);
     try {
-      const { data } = await listVaultEntries({ throwOnError: true });
+      const agentScoped = isAgentVaultScope(vaultScope);
+      if (agentScoped && !vaultAgentID) {
+        setVaultEntries([]);
+        return;
+      }
+      const { data } = await listScopedVaultEntries({
+        query: { scope: vaultScope, agent_id: agentScoped ? vaultAgentID : undefined },
+        throwOnError: true,
+      });
       setVaultEntries((data?.entries as VaultEntry[]) ?? []);
     } catch {
       setVaultEntries([]);
     } finally {
       setVaultLoading(false);
+    }
+  }, [vaultScope, vaultAgentID]);
+
+  const loadAgents = useCallback(async () => {
+    try {
+      const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
+      setAgents((data?.agents as Agent[]) ?? []);
+    } catch {
+      setAgents([]);
     }
   }, []);
 
@@ -165,7 +190,7 @@ export function CredentialsPage() {
 
   useEffect(() => {
     const init = async () => {
-      await loadVaultEntries();
+      await Promise.all([loadVaultEntries(), loadAgents()]);
       const providers = await loadOAuthProviders();
       await Promise.all([
         ...providers.map((p) => checkOAuthConnected(p.provider)),
@@ -178,7 +203,14 @@ export function CredentialsPage() {
         pollAbortRef.current[key] = true;
       }
     };
-  }, [loadVaultEntries, loadOAuthProviders, checkOAuthConnected, loadProviderConfig, isAdmin]);
+  }, [
+    loadVaultEntries,
+    loadAgents,
+    loadOAuthProviders,
+    checkOAuthConnected,
+    loadProviderConfig,
+    isAdmin,
+  ]);
 
   const addVaultEntry = useCallback(async () => {
     if (!newSecretName) {
@@ -191,9 +223,18 @@ export function CredentialsPage() {
     }
     setVaultSaving(true);
     try {
-      await setVaultEntry({
+      const agentScoped = isAgentVaultScope(vaultScope);
+      if (agentScoped && !vaultAgentID) {
+        showToast("Select an agent for this scope", "error");
+        return;
+      }
+      await setScopedVaultEntry({
         path: { name: newSecretName },
-        body: { value: newSecretValue },
+        body: {
+          value: newSecretValue,
+          scope: vaultScope,
+          agent_id: agentScoped ? vaultAgentID : undefined,
+        },
         throwOnError: true,
       });
       showToast("Secret saved");
@@ -206,20 +247,25 @@ export function CredentialsPage() {
     } finally {
       setVaultSaving(false);
     }
-  }, [newSecretName, newSecretValue, showToast, loadVaultEntries]);
+  }, [newSecretName, newSecretValue, vaultScope, vaultAgentID, showToast, loadVaultEntries]);
 
   const deleteVaultEntry = useCallback(
     async (name: string) => {
       if (!window.confirm(`Delete secret "${name}"?`)) return;
       try {
-        await deleteVaultEntryRequest({ path: { name }, throwOnError: true });
+        const agentScoped = isAgentVaultScope(vaultScope);
+        await deleteVaultEntryRequest({
+          path: { name },
+          query: { scope: vaultScope, agent_id: agentScoped ? vaultAgentID : undefined },
+          throwOnError: true,
+        });
         showToast("Secret deleted");
         await loadVaultEntries();
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Failed to delete secret", "error");
       }
     },
-    [showToast, loadVaultEntries],
+    [vaultScope, vaultAgentID, showToast, loadVaultEntries],
   );
 
   const pollUntilDone = useCallback(
@@ -330,6 +376,7 @@ export function CredentialsPage() {
   );
 
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
+  const vaultAgentRequired = isAgentVaultScope(vaultScope);
   const sheetProviderData = sheetProvider
     ? oauthProviders.find((p) => p.provider === sheetProvider)
     : undefined;
@@ -572,6 +619,44 @@ export function CredentialsPage() {
             </Button>
           }
         >
+          <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Scope</label>
+              <select
+                className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+                value={vaultScope}
+                onChange={(e) => {
+                  setVaultScope(e.target.value as VaultEntry["scope"]);
+                  setVaultAgentID("");
+                }}
+              >
+                <option value="user">My credentials · all agents</option>
+                <option value="user_agent">My credentials · specific agent</option>
+                {isAdmin && <option value="system">Admin credentials · system-wide</option>}
+                {isAdmin && (
+                  <option value="system_agent">Admin credentials · specific agent</option>
+                )}
+              </select>
+            </div>
+            {vaultAgentRequired && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Agent</label>
+                <select
+                  className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+                  value={vaultAgentID}
+                  onChange={(e) => setVaultAgentID(e.target.value)}
+                >
+                  <option value="">Select an agent</option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name || agent.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
           {vaultLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
           {filteredVaultEntries.length > 0 && (
@@ -581,7 +666,7 @@ export function CredentialsPage() {
                   key={entry.name}
                   icon={<KeyRound className="size-4" />}
                   title={<span className="font-mono">{entry.name}</span>}
-                  subtitle={`Updated ${formatTime(entry.updated_at)} · created ${formatTime(
+                  subtitle={`${entry.scope.replace("_", " ")}${entry.agent_id ? ` · ${entry.agent_id}` : ""} · updated ${formatTime(entry.updated_at)} · created ${formatTime(
                     entry.created_at,
                   )}`}
                   menu={[

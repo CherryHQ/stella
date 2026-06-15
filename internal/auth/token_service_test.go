@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -134,6 +135,20 @@ func (v *fakeVault) LoadEnv(_ context.Context, userID string) (map[string]string
 	return v.env[userID], nil
 }
 
+func (v *fakeVault) LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
+	env, err := v.LoadEnv(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if agentID == "" {
+		return env, nil
+	}
+	out := make(map[string]string, len(env)+1)
+	maps.Copy(out, env)
+	out["AGENT_ID"] = agentID
+	return out, nil
+}
+
 func TestTokenHelpers(t *testing.T) {
 	token, err := generateToken()
 	if err != nil {
@@ -251,6 +266,26 @@ func TestTokenServiceEnsureAutoTokenRotates(t *testing.T) {
 	}
 	if vault.env["1"][StellaTokenName] == first || vault.sets != 2 {
 		t.Fatalf("rotation failed, first=%q current=%q sets=%d", first, vault.env["1"][StellaTokenName], vault.sets)
+	}
+}
+
+func TestTokenServiceEnsureAutoTokenEnvForAgentReturnsScopedEnv(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 30, 8, 0, 0, 0, time.UTC)
+	store := newFakeTokenStore(func() time.Time { return now })
+	vault := newFakeVault()
+	svc := NewTokenService(store, vault)
+	svc.now = func() time.Time { return now }
+
+	env, err := svc.EnsureAutoTokenEnvForAgent(ctx, "1", "agent-1")
+	if err != nil {
+		t.Fatalf("EnsureAutoTokenEnvForAgent: %v", err)
+	}
+	if got := env["AGENT_ID"]; got != "agent-1" {
+		t.Fatalf("AGENT_ID = %q, want agent-1", got)
+	}
+	if _, err := svc.Authenticate(ctx, env[StellaTokenName]); err != nil {
+		t.Fatalf("Authenticate scoped env token: %v", err)
 	}
 }
 

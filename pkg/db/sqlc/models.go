@@ -732,10 +732,12 @@ type SkillFile struct {
 }
 
 type VaultEntry struct {
-	ID         string `json:"id"`
-	UserID     string `json:"user_id"`
-	Name       string `json:"name"`
-	Ciphertext string `json:"ciphertext"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	ID         string         `json:"id"`
+	Scope      string         `json:"scope"`
+	UserID     sql.NullString `json:"user_id"`
+	AgentID    sql.NullString `json:"agent_id"`
+	Name       string         `json:"name"`
+	Ciphertext string         `json:"ciphertext"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
 }
