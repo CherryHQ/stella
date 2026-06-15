@@ -143,6 +143,10 @@ bubblewrap 必须实际可用，仅安装不够。在未启用 `--privileged` �
 
 在 Linux 上，无论真实宿主机路径如何，agent 始终将工作区看作 `/workspace`（bubblewrap 负责绑定挂载）。Docker 和 Linux 本地会话会把宿主机 `/tmp/{user_id}` 挂载为沙箱内 `/tmp`，因此沙箱内可以正常使用临时文件路径，同时仍按用户隔离。在 macOS 上，agent 看到的是真实宿主机路径。
 
+### 主目录
+
+在沙箱内，`$HOME` 是按用户划分的主目录，由该用户的所有 agent 共享——因此工具缓存与工具链（`~/.cache`、mise 工具树）按用户共享，而非按 agent 重复。每个 agent 的凭证与状态目录——XDG 目录 `~/.config`、`~/.local/share`、`~/.local/state`（例如 `~/.config/gh`）——位于该 agent 在主目录下的私有子目录中，因此各 agent 缓存的凭证彼此隔离。项目目录仍作为工作目录。
+
 ## None 后端
 
 `none` 后端以当前用户权限直接在宿主机上运行 agent，不提供任何隔离——无文件系统限制、无网络限制、无进程组终止，也无资源限制。

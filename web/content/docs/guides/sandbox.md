@@ -143,6 +143,10 @@ bubblewrap must be functional, not just installed. Inside Docker containers with
 
 On Linux the agent always sees its workspace at `/workspace` regardless of the real host path (bubblewrap bind-mounts it). Docker and Linux local sessions mount the host `/tmp/{user_id}` directory as sandbox `/tmp`, so temporary files work inside the sandbox while remaining scoped per user. On macOS the agent sees the real host path.
 
+### Home directory
+
+Inside the sandbox, `$HOME` is the per-user home, shared by all of that user's agents — so tool caches and toolchains (`~/.cache`, the mise tree) are shared per user instead of duplicated per agent. Each agent's credential and state directories — the XDG dirs `~/.config`, `~/.local/share`, `~/.local/state` (e.g. `~/.config/gh`) — live under that agent's own private subdir of the home, so one agent's cached credentials stay separate from another's. The project tree remains the working directory.
+
 ## None Backend
 
 The `none` backend runs the agent directly on the host with the current user's permissions. No isolation of any kind — no filesystem confinement, no network restrictions, no process group kill, no resource limits.

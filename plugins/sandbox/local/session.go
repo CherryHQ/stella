@@ -75,9 +75,12 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	}
 
 	hostStellaHome := f.cfg.StellaHome
-	policy = f.adjustPolicy(policy)
-
+	// Resolve the sandbox-space root first: adjustPolicy needs it to point HOME
+	// and the XDG dirs at the user home as the agent sees it. resolveSandboxRoot
+	// reads only WorkspaceRoot, which adjustPolicy leaves untouched.
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
+	policy = f.adjustPolicy(policy, sandboxRoot, realRoot)
+
 	tmpMounts, err := createSessionTmpMounts(policy)
 	if err != nil {
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
@@ -96,7 +99,10 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 }
 
 // adjustPolicy applies local-backend-specific environment adjustments.
-func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
+// sandboxRoot/realRoot are the sandbox-space and host views of the workspace
+// root (the user home); HOME and the XDG dirs are anchored to the sandbox-space
+// view so the agent sees a real per-user home.
+func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot string) sandboxpkg.Policy {
 	if f.cfg.StellaHome == "" {
 		return policy
 	}
@@ -114,7 +120,11 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 		userShims = sandboxpkg.MiseUserShimsDir(remap(dir))
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
-	env["HOME"] = adjustHome(policy.Filesystem.WorkingDir)
+	// HOME is the user home (the workspace root as the agent sees it), so XDG
+	// defaults — caches, tool config — land under it and are shared per-user. The
+	// project dir stays the cwd; only HOME differs (#442).
+	env["HOME"] = sandboxRoot
+	setXDGDirs(env, sandboxRoot, remapToSandboxRoot(policy.Filesystem.AgentPrivateDir, realRoot, sandboxRoot))
 	env["STELLA_HOME"] = sandboxSH
 	// Rewrite MISE_* path-valued env vars from host STELLA_HOME to the
 	// sandbox-adjusted path so mise resolves tools and configs correctly inside
@@ -143,6 +153,39 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	policy.Env = env
 	policy.InheritEnv = false
 	return policy
+}
+
+// setXDGDirs points the per-agent XDG dirs at the agent's private subdir so each
+// agent's credentials and state (e.g. ~/.config/gh) stay private to it, while the
+// cache stays at the shared user-home default. agentPrivate is the sandbox-space
+// agent-private dir, or "" for a user-less session with no siblings — then XDG is
+// left to its $HOME defaults (everything shared under the one home).
+func setXDGDirs(env map[string]string, home, agentPrivate string) {
+	env["XDG_CACHE_HOME"] = filepath.Join(home, ".cache")
+	if agentPrivate == "" {
+		return
+	}
+	env["XDG_CONFIG_HOME"] = filepath.Join(agentPrivate, ".config")
+	env["XDG_DATA_HOME"] = filepath.Join(agentPrivate, ".local", "share")
+	env["XDG_STATE_HOME"] = filepath.Join(agentPrivate, ".local", "state")
+}
+
+// remapToSandboxRoot rewrites a host path under realRoot to its sandbox-space
+// location under sandboxRoot, leaving paths outside realRoot (and the macOS case
+// realRoot == sandboxRoot) untouched. It mirrors localSession.toSandboxPath for
+// the workspace root, but runs at policy-build time before a session exists.
+func remapToSandboxRoot(hostPath, realRoot, sandboxRoot string) string {
+	if hostPath == "" || realRoot == sandboxRoot {
+		return hostPath
+	}
+	rel, err := filepath.Rel(realRoot, filepath.Clean(hostPath))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return hostPath
+	}
+	if rel == "." {
+		return sandboxRoot
+	}
+	return filepath.Join(sandboxRoot, rel)
 }
 
 // remapStellaHomePath rewrites a host path under hostSH to its sandbox-adjusted

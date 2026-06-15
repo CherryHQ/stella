@@ -16,9 +16,6 @@ func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string)
 // createSessionTmpMounts returns no temp mounts on platforms other than Linux and macOS.
 func createSessionTmpMounts(sandboxpkg.Policy) ([]tmpMount, error) { return nil, nil }
 
-// adjustHome returns the sandbox-view HOME directory. No remapping on this platform.
-func adjustHome(workDir string) string { return workDir }
-
 // adjustStellaHome returns the sandbox-view STELLA_HOME. No remapping on this platform.
 func adjustStellaHome(stellaHome string) string { return stellaHome }
 

@@ -24,7 +24,23 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy
 		WorkingDir:          paths.WorkDir,
 		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
 		TempDirHost:         userTempDir(principalDir, id),
+		AgentPrivateDir:     agentPrivateDir(paths, cfg),
 	}
+}
+
+// agentPrivateDir returns the host path of the running agent's private subdir of
+// the user home, users/{id}/agents/{agentID} — the area the isolating backends
+// keep private to this agent (XDG config/data/state) while hiding its siblings.
+// It mirrors the agent's project area (UserRoot/agents/{agentID}/projects/...,
+// see internal/agent/workspace.go), kept here as a literal join to avoid a cycle
+// back into the agent package. Empty for a user-less job: with no principal home
+// the agent is its own principal under paths.UserRoot and has no siblings, so
+// there is nothing to isolate.
+func agentPrivateDir(paths Paths, cfg Config) string {
+	if cfg.AgentID == "" || (cfg.UserID == "" && cfg.GroupID == "") {
+		return ""
+	}
+	return filepath.Join(paths.UserRoot, "agents", cfg.AgentID)
 }
 
 // miseUserDirHost returns the host path of this session's writable per-user mise

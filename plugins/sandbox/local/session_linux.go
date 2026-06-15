@@ -16,13 +16,10 @@ import (
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-const (
-	// sandboxHome is the virtual HOME inside the bwrap sandbox, matching the
-	// docker backend's /home/stella layout for a realistic Linux user directory.
-	sandboxHome = "/home/stella"
-	// sandboxStellaHome is the virtual STELLA_HOME inside the bwrap sandbox.
-	sandboxStellaHome = "/home/stella/.stella"
-)
+// sandboxStellaHome is the virtual STELLA_HOME inside the bwrap sandbox. HOME is
+// not a fixed path: it is the workspace root (the user home) at /workspace, set
+// in adjustPolicy, so XDG defaults land in the per-user home (#442).
+const sandboxStellaHome = "/home/stella/.stella"
 
 // setSysProcAttr places the child in its own process group so that
 // killProcessGroup can terminate the entire subtree.
@@ -182,10 +179,6 @@ func appendLinuxRuntimeMounts(args []string) []string {
 	return args
 }
 
-// adjustHome returns the sandbox-view HOME directory.
-// On Linux (bwrap), HOME is remapped to /home/stella for a realistic layout.
-func adjustHome(_ string) string { return sandboxHome }
-
 // adjustStellaHome returns the sandbox-view STELLA_HOME directory.
 // On Linux (bwrap), it is remapped to /home/stella/.stella.
 func adjustStellaHome(_ string) string { return sandboxStellaHome }
@@ -306,6 +299,19 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 		"--bind", realRoot, "/workspace",
 		"--chdir", sandboxCwd,
 	)
+	// Hide sibling agents: the realRoot bind exposes every users/{id}/agents/* at
+	// /workspace/agents/*, so cover that subtree with an empty tmpfs and bind back
+	// only this agent's own dir. One agent then can neither read nor write
+	// another's credentials/state, enforcing the per-agent boundary (#442). Must
+	// follow the realRoot bind (which it overlays) and precede the read-only
+	// re-mounts (the agent's own project skill dirs live under it).
+	if sandboxAP := remapToSandboxRoot(policy.Filesystem.AgentPrivateDir, realRoot, "/workspace"); sandboxAP != "" && sandboxAP != "/workspace" {
+		bwrapArgs = append(bwrapArgs,
+			"--tmpfs", filepath.Dir(sandboxAP),
+			"--dir", sandboxAP,
+			"--bind", policy.Filesystem.AgentPrivateDir, sandboxAP,
+		)
+	}
 	// Re-mount workspace-contained extra paths read-only at their /workspace/...
 	// equivalent. This overrides the writable workspace bind for those subdirectories
 	// so bash cannot write to them via /workspace.
