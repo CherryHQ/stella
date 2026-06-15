@@ -72,6 +72,11 @@ func MiseUserShimsDir(userToolsDir string) string {
 // mise-specific field. stellaHome is the host STELLA_HOME used to recognize the
 // system tree; the returned path is whatever scope the env holds (host path here,
 // the backend remaps it as needed).
+//
+// Precondition: env's MISE_DATA_DIR and stellaHome must be in the same scope
+// (both host paths, or both sandbox paths). Callers that remap MISE_* env vars
+// must read this before remapping (see adjustPolicy), since after remap the
+// data dir no longer matches the host system tree this compares against.
 func PerUserMiseDataDir(env map[string]string, stellaHome string) string {
 	dir := env["MISE_DATA_DIR"]
 	if dir == "" || dir == MiseToolsDir(stellaHome) {

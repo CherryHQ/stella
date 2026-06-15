@@ -56,15 +56,25 @@ type FilesystemPolicy struct {
 	TempDirHost string
 
 	// ExtraWritableMounts is a list of host paths to mount writable inside the
-	// sandbox at their STELLA_HOME-remapped path. Symmetric with
-	// ExtraReadOnlyMounts: the isolating backends bind each writable (bwrap
-	// --bind, Seatbelt allow file-write*); the host-passthrough backends
-	// (none/local) need no mount since they share the host filesystem. Used for
-	// per-user subtrees an agent must write through — today the writable per-user
-	// mise home (see pkgsandbox.MiseUserToolsDir), with more to follow. Each path
-	// is guaranteed to exist (the mise tree also seeded with system installs)
-	// before the backend sees the policy. The policy stays mise-agnostic: it only
-	// learns "these host dirs are writable", not why.
+	// sandbox at their STELLA_HOME-remapped path. Each path must live under the
+	// host STELLA_HOME: the isolating backends mount it at its remapped location
+	// (bwrap remaps STELLA_HOME -> /home/stella/.stella; Seatbelt uses the host
+	// path unchanged), so a path outside STELLA_HOME would bind at an unintended
+	// target. This differs from ExtraReadOnlyMounts, which mounts at the exact
+	// host path (same-path strategy).
+	//
+	// The isolating backends bind each writable (bwrap --bind, Seatbelt allow
+	// file-write*); the none backend needs no mount since it shares the host
+	// filesystem. The docker backend is the exception: it ships its own in-image
+	// mise and never reads this field, so the caller skips populating it for
+	// docker (see the backend guard in buildBasePolicy). Reaching docker with a
+	// non-empty list would silently no-op — backend parity is tracked in #442.
+	//
+	// Used for per-user subtrees an agent must write through — today the writable
+	// per-user mise home (see pkgsandbox.MiseUserToolsDir), with more to follow.
+	// Each path is guaranteed to exist (the mise tree also seeded with system
+	// installs) before the backend sees the policy. The policy stays mise-agnostic:
+	// it only learns "these host dirs are writable", not why.
 	ExtraWritableMounts []string
 }
 

@@ -71,6 +71,11 @@ func runtimeScopeConfigPath(stellaHome string) string {
 // When userDataDir is empty (no user/group) it falls back to the read-only system
 // tree with auto-install disabled and state redirected to a writable temp dir,
 // matching the historical behavior.
+//
+// MISE_DATA_DIR is load-bearing beyond mise itself: the sandbox host backends
+// recover the per-user mise home from it via pkgsandbox.PerUserMiseDataDir to put
+// the per-user shims on PATH, so the FilesystemPolicy carries no mise-specific
+// field. Keep DATA_DIR pointing at userDataDir (or the system tree when empty).
 func RuntimeMiseEnv(stellaHome, userDataDir, workspaceDir string) map[string]string {
 	dataDir := userDataDir
 	if dataDir == "" {
