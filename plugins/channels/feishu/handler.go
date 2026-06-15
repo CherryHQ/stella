@@ -77,6 +77,7 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
 	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(reactionText))
+	msg.ThreadID = rootID
 	replyFn := func(reply string) {
 		replyCtx, cancel := b.apiContext()
 		defer cancel()
@@ -157,6 +158,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	if derefStr(msg.MessageType) == "file" {
 		if resolver, ok := b.handler.(channel.UserRootResolver); ok {
 			probeMsg := b.incomingMsg(senderIDs, chatID, chatType, nil)
+			probeMsg.ThreadID = rootID
 			resolveCtx, resolveCancel := b.apiContext()
 			if userRoot, err := resolver.ResolveUserRoot(resolveCtx, probeMsg); err == nil {
 				assetsDir = agent.UserAssetsDir(userRoot)
@@ -186,6 +188,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	}
 
 	incoming := b.incomingMsg(senderIDs, chatID, chatType, content)
+	incoming.ThreadID = rootID
 	incoming.MessageID = messageID
 	incoming.ReplyTo = derefStr(msg.ParentId)
 	incoming.Timestamp = feishuEventTime(derefStr(msg.CreateTime))
@@ -202,6 +205,11 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			}
 			authContent := channel.TextContent(fmt.Sprintf("Please connect my %s OAuth credentials using the oauth tool with action=connect and provider=%s. Show me the verification URL so I can authorize in my browser.", provider, provider))
 			authMsg := b.incomingMsg(senderIDs, chatID, chatType, authContent)
+			authMsg.ThreadID = rootID
+			authMsg.MessageID = messageID
+			authMsg.ReplyTo = derefStr(msg.ParentId)
+			authMsg.Timestamp = feishuEventTime(derefStr(msg.CreateTime))
+			authMsg.Mentions = feishuMentions(mentions)
 			go b.handleIncoming(authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
 			return nil
 		case "/model":

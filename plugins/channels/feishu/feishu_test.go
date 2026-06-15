@@ -1348,9 +1348,10 @@ func testStringPtr(v string) *string { return &v }
 func testBoolPtr(v bool) *bool { return &v }
 
 type mockHandler struct {
-	handleIncomingFn func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
-	models           []channel.ModelOption
-	switchErr        error
+	handleIncomingFn  func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
+	resolveUserRootFn func(context.Context, channel.IncomingMessage) (string, error)
+	models            []channel.ModelOption
+	switchErr         error
 }
 
 func (m *mockHandler) HandleIncoming(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
@@ -1366,6 +1367,13 @@ func (m *mockHandler) ListAgents(_ context.Context, _ channel.IncomingMessage) (
 
 func (m *mockHandler) SwitchAgent(_ context.Context, _ channel.IncomingMessage, _ string) error {
 	return nil
+}
+
+func (m *mockHandler) ResolveUserRoot(ctx context.Context, msg channel.IncomingMessage) (string, error) {
+	if m.resolveUserRootFn != nil {
+		return m.resolveUserRootFn(ctx, msg)
+	}
+	return "", fmt.Errorf("resolve user root not configured")
 }
 
 func (m *mockHandler) ListModels() []channel.ModelOption {
@@ -1463,6 +1471,40 @@ func TestCardActionReturnsToast(t *testing.T) {
 	}
 	if resp.Toast.Type != "info" {
 		t.Errorf("toast type = %q, want info", resp.Toast.Type)
+	}
+}
+
+func TestCardActionSyntheticMessageDoesNotReuseCardMessageID(t *testing.T) {
+	captured := make(chan channel.IncomingMessage, 1)
+	bot := &Bot{
+		handler: &mockHandler{
+			handleIncomingFn: func(_ context.Context, msg channel.IncomingMessage, _, _ string) (string, bool, *channel.ChatStream, error) {
+				captured <- msg
+				return "", false, nil, nil
+			},
+		},
+		chatModels:  make(map[string]channel.ModelOption),
+		seenMsgs:    make(map[string]time.Time),
+		provisioned: make(map[string]time.Time),
+	}
+	_, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
+		Event: &callback.CardActionTriggerRequest{
+			Operator: &callback.Operator{OpenID: "ou_user1"},
+			Action: &callback.CallBackAction{
+				Value: map[string]any{"action": "retry"},
+			},
+			Context: &callback.Context{
+				OpenChatID:    "oc_chat1",
+				OpenMessageID: "om_card1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	msg := waitMessage(t, captured)
+	if msg.MessageID != "" {
+		t.Errorf("MessageID = %q, want empty synthetic action id", msg.MessageID)
 	}
 }
 
