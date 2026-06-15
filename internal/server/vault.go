@@ -130,6 +130,14 @@ func (s *Server) SetVaultEntry(w http.ResponseWriter, r *http.Request, name stri
 		return
 	}
 
+	// Vault entries are baked into the sandbox env at session-creation time and
+	// cannot be injected into a running process; closing live runners forces a
+	// clean restart so the next chat turn or scheduled run reads the new value.
+	// Mirrors the OAuth token write path (see credentials.Service).
+	if err := s.credSvc.InvalidateUser(info.UserID); err != nil {
+		s.log.Warn("invalidate user runners after vault set", "user_id", info.UserID, "name", name, "error", err)
+	}
+
 	meta, err := s.vaultSvc.GetMeta(r.Context(), info.UserID, name)
 	if err != nil {
 		s.log.Error("get vault entry meta", "user_id", info.UserID, "name", name, "error", err)
@@ -161,6 +169,12 @@ func (s *Server) DeleteVaultEntry(w http.ResponseWriter, r *http.Request, name s
 		s.log.Error("delete vault entry", "user_id", info.UserID, "name", name, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+
+	// See SetVaultEntry: invalidate live runners so the next session sees the
+	// updated vault snapshot instead of the cached one from sandbox start.
+	if err := s.credSvc.InvalidateUser(info.UserID); err != nil {
+		s.log.Warn("invalidate user runners after vault delete", "user_id", info.UserID, "name", name, "error", err)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
