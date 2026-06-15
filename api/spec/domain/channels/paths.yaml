@@ -120,6 +120,111 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/channels/feishu/register/init:
+    post:
+      tags: [channels]
+      summary: Initialize Feishu PersonalAgent registration (admin only)
+      operationId: initFeishuRegistration
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/FeishuRegistrationInitRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/FeishuRegistrationInit",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "502":
+          description: upstream error from Feishu registration API
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+
+  /api/channels/feishu/register/begin:
+    post:
+      tags: [channels]
+      summary: Begin Feishu PersonalAgent registration (admin only)
+      operationId: beginFeishuRegistration
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/FeishuRegistrationBeginRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/FeishuRegistrationBegin",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "502":
+          description: upstream error from Feishu registration API
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+
+  /api/channels/feishu/register/poll:
+    post:
+      tags: [channels]
+      summary: Poll Feishu PersonalAgent registration and create a channel (admin only)
+      operationId: pollFeishuRegistration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/FeishuRegistrationPollRequest",
+            }
+      responses:
+        "200":
+          description: pending or created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/FeishuRegistrationPoll",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "502":
+          description: upstream error from Feishu registration API
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+
   /api/channels/weixin/qr:
     post:
       tags: [weixin]

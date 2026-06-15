@@ -318,6 +318,13 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 }
 
 func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.Channel, cfgMap map[string]any, status int) bool {
+	if conflict, err := s.channelAgentPlatformBindingConflict(r.Context(), ch); err != nil {
+		s.writeInternalError(w, err)
+		return false
+	} else if conflict != "" {
+		writeError(w, http.StatusBadRequest, conflict)
+		return false
+	}
 	pluginID := config.PluginID(config.PluginKindChannel, ch.Type)
 	if err := s.pluginHost.ValidateConfig(pluginID, cfgMap); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request")
@@ -347,6 +354,25 @@ func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.C
 	}
 	writeData(w, status, channelToView(saved))
 	return true
+}
+
+func (s *Server) channelAgentPlatformBindingConflict(ctx context.Context, ch config.Channel) (string, error) {
+	if ch.AgentID == "" || ch.Type == "" {
+		return "", nil
+	}
+	channels, err := s.store.ListChannels(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, existing := range channels {
+		if existing.ID == ch.ID {
+			continue
+		}
+		if effectiveChannelType(existing) == ch.Type && existing.AgentID == ch.AgentID {
+			return "agent is already bound to " + ch.Type + " channel " + existing.ID, nil
+		}
+	}
+	return "", nil
 }
 
 func (s *Server) ensureChannelPluginEnabled(ctx context.Context, channelType string) error {

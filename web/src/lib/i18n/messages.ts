@@ -1328,6 +1328,29 @@ const en = {
   "channels.selectPlatform": "Select platform...",
   "channels.addChannel": "Add Channel",
   "channels.adding": "Adding...",
+  "channels.namePlaceholder": "e.g. Feishu Coder",
+  "channels.channelId": "Channel ID",
+  "channels.channelIdPlaceholder": "e.g. feishu-coder",
+  "channels.channelIdDesc":
+    'Must not match the platform ID (e.g. not "telegram" for a Telegram channel).',
+  "channels.configuration": "Configuration",
+  "channels.boundAgent": "Bound agent",
+  "channels.boundAgentDesc":
+    "Messages received by this bot are routed to this agent. Each agent can only have one channel per platform.",
+  "channels.noAvailableAgents": "No enabled agents are available for this platform.",
+  "channels.selectAgent": "Select agent...",
+  "channels.manualFeishuSetup": "I already have a Feishu app",
+  "channels.scanCreateFeishu": "Scan to create Feishu bot",
+  "channels.scanCreateFeishuDesc":
+    "Stella creates a PersonalAgent app in your Feishu tenant and stores the returned credentials on this channel.",
+  "channels.scanFeishuTitle": "Create Feishu bot",
+  "channels.scanFeishuDesc":
+    "Scan with the Feishu mobile app, then confirm the app creation request.",
+  "channels.scanFeishuQrAlt": "Feishu bot registration QR code",
+  "channels.scanNeedsName": "Enter a name before starting QR setup.",
+  "channels.scanNeedsId": "Enter a channel ID before starting QR setup.",
+  "channels.scanNeedsAgent": "Bind this Feishu channel to an agent before starting QR setup.",
+  "channels.waiting": "Waiting",
 
   // Automations schedule detail
   "automations.scheduleField": "Schedule",
@@ -2692,6 +2715,27 @@ const zh: Record<MessageKey, string> = {
   "channels.selectPlatform": "选择平台...",
   "channels.addChannel": "添加频道",
   "channels.adding": "添加中...",
+  "channels.namePlaceholder": "例如：飞书编码助手",
+  "channels.channelId": "频道 ID",
+  "channels.channelIdPlaceholder": "例如：feishu-coder",
+  "channels.channelIdDesc": '不能和平台 ID 相同（例如 Telegram 频道不能填写 "telegram"）。',
+  "channels.configuration": "配置",
+  "channels.boundAgent": "绑定 Agent",
+  "channels.boundAgentDesc":
+    "这个机器人收到的消息会路由到该 Agent。每个 Agent 在同一平台只能绑定一个频道。",
+  "channels.noAvailableAgents": "这个平台没有可用的已启用 Agent。",
+  "channels.selectAgent": "选择 Agent...",
+  "channels.manualFeishuSetup": "我已有飞书应用",
+  "channels.scanCreateFeishu": "扫码创建飞书机器人",
+  "channels.scanCreateFeishuDesc":
+    "Stella 会在你的飞书租户中创建 PersonalAgent 应用，并把返回的凭据保存到这个频道。",
+  "channels.scanFeishuTitle": "创建飞书机器人",
+  "channels.scanFeishuDesc": "用飞书手机端扫码，然后确认创建应用。",
+  "channels.scanFeishuQrAlt": "飞书机器人注册二维码",
+  "channels.scanNeedsName": "先填写名称，再开始扫码配置。",
+  "channels.scanNeedsId": "先填写频道 ID，再开始扫码配置。",
+  "channels.scanNeedsAgent": "先把这个飞书频道绑定到 Agent，再开始扫码配置。",
+  "channels.waiting": "等待中",
 
   // Automations schedule detail
   "automations.scheduleField": "计划",
