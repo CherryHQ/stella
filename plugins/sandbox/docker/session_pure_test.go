@@ -221,7 +221,7 @@ func TestConfigureSessionMounts_BindModeTranslatesSources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
-	if opts.WorkspaceHost != "/daemon/stella/workspaces/agent/users/user" {
+	if opts.WorkspaceHost != "/daemon/stella/users/user" {
 		t.Fatalf("WorkspaceHost = %q", opts.WorkspaceHost)
 	}
 	if mountedTmp != "" {
@@ -231,8 +231,8 @@ func TestConfigureSessionMounts_BindModeTranslatesSources(t *testing.T) {
 		t.Fatalf("mounted extra = %v, want [%q]", mountedExtra, extra)
 	}
 	assertMount(t, opts.ExtraMounts, "/daemon/stella/bin", filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountType(""), "")
-	assertMount(t, opts.ExtraMounts, "/daemon/stella/workspaces/agent/users/user/skills", extra, true, dockerclient.MountType(""), "")
-	assertMount(t, opts.ExtraMounts, "/daemon/stella/workspaces/agent/users/user/skills", filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeBind, "")
+	assertMount(t, opts.ExtraMounts, "/daemon/stella/users/user/skills", extra, true, dockerclient.MountType(""), "")
+	assertMount(t, opts.ExtraMounts, "/daemon/stella/users/user/skills", filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeBind, "")
 }
 
 func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
@@ -255,10 +255,10 @@ func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
 	if len(mountedExtra) != 1 || mountedExtra[0] != extra {
 		t.Fatalf("mounted extra = %v, want only [%q]", mountedExtra, extra)
 	}
-	assertMount(t, opts.ExtraMounts, "stella-data", workspaceMount, false, dockerclient.MountTypeVolume, "workspaces/agent/users/user")
+	assertMount(t, opts.ExtraMounts, "stella-data", workspaceMount, false, dockerclient.MountTypeVolume, "users/user")
 	assertMount(t, opts.ExtraMounts, "stella-data", filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountTypeVolume, "bin")
-	assertMount(t, opts.ExtraMounts, "stella-data", extra, true, dockerclient.MountTypeVolume, "workspaces/agent/users/user/skills")
-	assertMount(t, opts.ExtraMounts, "stella-data", filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeVolume, "workspaces/agent/users/user/skills")
+	assertMount(t, opts.ExtraMounts, "stella-data", extra, true, dockerclient.MountTypeVolume, "users/user/skills")
+	assertMount(t, opts.ExtraMounts, "stella-data", filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeVolume, "users/user/skills")
 }
 
 func TestConfigureSessionMounts_VolumeModeRejectsStellaHomeAsWorkspace(t *testing.T) {
@@ -290,7 +290,7 @@ func TestConfigureSessionMounts_BindModeUsesConfigStellaHome(t *testing.T) {
 func dockerModeTestDirs(t *testing.T) (stellaHome, workspace, extra, tmp string) {
 	t.Helper()
 	stellaHome = t.TempDir()
-	workspace = filepath.Join(stellaHome, "workspaces", "agent", "users", "user")
+	workspace = filepath.Join(stellaHome, "users", "user")
 	extra = filepath.Join(workspace, "skills")
 	tmp = t.TempDir()
 	for _, dir := range []string{filepath.Join(stellaHome, "bin"), workspace, extra} {

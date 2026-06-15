@@ -6,15 +6,15 @@ import (
 	"testing"
 )
 
-func TestSetupWorkspace(t *testing.T) {
+func TestSetupAgentWorkspace(t *testing.T) {
 	base := t.TempDir()
 
-	dir, err := SetupWorkspace("stella", base)
+	dir, err := SetupAgentWorkspace(base, "stella")
 	if err != nil {
-		t.Fatalf("SetupWorkspace: %v", err)
+		t.Fatalf("SetupAgentWorkspace: %v", err)
 	}
 
-	want := filepath.Join(base, "workspaces", "stella")
+	want := filepath.Join(base, "agents", "stella")
 	if dir != want {
 		t.Errorf("dir = %q, want %q", dir, want)
 	}
@@ -30,15 +30,15 @@ func TestSetupWorkspace(t *testing.T) {
 	}
 }
 
-func TestSetupWorkspaceIdempotent(t *testing.T) {
+func TestSetupAgentWorkspaceIdempotent(t *testing.T) {
 	base := t.TempDir()
 
-	dir1, err := SetupWorkspace("stella", base)
+	dir1, err := SetupAgentWorkspace(base, "stella")
 	if err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 
-	dir2, err := SetupWorkspace("stella", base)
+	dir2, err := SetupAgentWorkspace(base, "stella")
 	if err != nil {
 		t.Fatalf("second call: %v", err)
 	}
@@ -48,8 +48,8 @@ func TestSetupWorkspaceIdempotent(t *testing.T) {
 	}
 }
 
-func TestSetupWorkspaceEmptyID(t *testing.T) {
-	_, err := SetupWorkspace("", t.TempDir())
+func TestSetupAgentWorkspaceEmptyID(t *testing.T) {
+	_, err := SetupAgentWorkspace(t.TempDir(), "")
 	if err == nil {
 		t.Error("expected error for empty agent ID")
 	}
@@ -57,20 +57,22 @@ func TestSetupWorkspaceEmptyID(t *testing.T) {
 
 func TestSetupUserWorkspace(t *testing.T) {
 	base := t.TempDir()
-	userDir, err := SetupUserWorkspace("agent-1", base, "42")
+	userDir, err := SetupUserWorkspace(base, "42", "agent-1")
 	if err != nil {
 		t.Fatalf("SetupUserWorkspace: %v", err)
 	}
 
-	want := filepath.Join(base, "workspaces", "agent-1", "users", "42")
+	want := filepath.Join(base, "users", "42")
 	if userDir != want {
 		t.Errorf("dir = %q, want %q", userDir, want)
 	}
 
-	// Verify subdirectories.
+	// Verify the shared user-home subdirectories and the per-agent private area.
 	for _, sub := range []string{
 		filepath.Join(userDir, ".agents", "skills"),
 		filepath.Join(userDir, "data"),
+		filepath.Join(userDir, "assets"),
+		filepath.Join(userDir, "agents", "agent-1"),
 	} {
 		info, err := os.Stat(sub)
 		if err != nil {
@@ -84,14 +86,14 @@ func TestSetupUserWorkspace(t *testing.T) {
 }
 
 func TestSetupUserWorkspaceEmptyAgent(t *testing.T) {
-	_, err := SetupUserWorkspace("", t.TempDir(), "1")
+	_, err := SetupUserWorkspace(t.TempDir(), "1", "")
 	if err == nil {
 		t.Error("expected error for empty agent ID")
 	}
 }
 
 func TestSetupUserWorkspaceInvalidUser(t *testing.T) {
-	_, err := SetupUserWorkspace("agent-1", t.TempDir(), "")
+	_, err := SetupUserWorkspace(t.TempDir(), "", "agent-1")
 	if err == nil {
 		t.Error("expected error for empty user ID")
 	}
@@ -99,7 +101,7 @@ func TestSetupUserWorkspaceInvalidUser(t *testing.T) {
 
 func TestSetupUserWorkspaceIdempotent(t *testing.T) {
 	base := t.TempDir()
-	d1, err := SetupUserWorkspace("agent-1", base, "42")
+	d1, err := SetupUserWorkspace(base, "42", "agent-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +111,7 @@ func TestSetupUserWorkspaceIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d2, err := SetupUserWorkspace("agent-1", base, "42")
+	d2, err := SetupUserWorkspace(base, "42", "agent-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,13 +123,35 @@ func TestSetupUserWorkspaceIdempotent(t *testing.T) {
 	}
 }
 
-func TestSetupUserWorkspaceIsolation(t *testing.T) {
+// TestSetupUserWorkspaceSharedAcrossAgents verifies the user home is the same
+// directory regardless of which agent set it up — toolchains, skills, and uploads
+// are shared across a user's agents (#442).
+func TestSetupUserWorkspaceSharedAcrossAgents(t *testing.T) {
 	base := t.TempDir()
-	d1, err := SetupUserWorkspace("agent-1", base, "1")
+	d1, err := SetupUserWorkspace(base, "42", "agent-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d2, err := SetupUserWorkspace("agent-1", base, "2")
+	d2, err := SetupUserWorkspace(base, "42", "agent-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d1 != d2 {
+		t.Errorf("same user under different agents should share one home: %q vs %q", d1, d2)
+	}
+	// Each agent still gets its own private subdir for projects.
+	if a1, a2 := UserAgentDir(base, "42", "agent-1"), UserAgentDir(base, "42", "agent-2"); a1 == a2 {
+		t.Error("different agents should have distinct private areas under the user home")
+	}
+}
+
+func TestSetupUserWorkspaceIsolation(t *testing.T) {
+	base := t.TempDir()
+	d1, err := SetupUserWorkspace(base, "1", "agent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2, err := SetupUserWorkspace(base, "2", "agent-1")
 	if err != nil {
 		t.Fatal(err)
 	}

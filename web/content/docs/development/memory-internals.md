@@ -257,4 +257,4 @@ This is suitable for short-lived conversations or resource-constrained environme
 
 ## Agent Workspaces
 
-Each agent has its own workspace at `$STELLA_HOME/workspaces/{agent_id}/` for file overrides, skills, and per-agent data.
+Each agent has its own workspace at `$STELLA_HOME/agents/{agent_id}/` for file overrides, skills, and per-agent data.

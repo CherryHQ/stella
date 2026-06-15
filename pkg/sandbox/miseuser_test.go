@@ -11,11 +11,12 @@ func TestMiseUserToolsDir(t *testing.T) {
 	type in struct{ dir, id string }
 	cases := map[in]string{
 		{"users", "u1"}:          filepath.Join(home, "users", "u1", ".mise-tools"),
-		{"groups", "42"}:         filepath.Join(home, "groups", "42", ".mise-tools"),
-		{"users", ""}:            "", // no id → fall back to the system tree
-		{"", "u1"}:               "", // no principal subtree
-		{"vault", "u1"}:          "", // unknown subtree rejected
-		{"users", "a/b"}:         "", // path traversal rejected
+		{"users", "group-42"}:    filepath.Join(home, "users", "group-42", ".mise-tools"), // a channel group, prefixed
+		{"users", ""}:            "",                                                      // no id → fall back to the system tree
+		{"", "u1"}:               "",                                                      // no principal subtree
+		{"groups", "42"}:         "",                                                      // groups no longer a top-level subtree (#442)
+		{"vault", "u1"}:          "",                                                      // unknown subtree rejected
+		{"users", "a/b"}:         "",                                                      // path traversal rejected
 		{"users", ".."}:          "",
 		{"users", "bad name"}:    "",
 		{"users", "weird;rm-rf"}: "",

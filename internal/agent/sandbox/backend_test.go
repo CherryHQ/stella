@@ -195,20 +195,21 @@ func TestRunnerFilesystemPolicyUsesUserScopedTmp(t *testing.T) {
 }
 
 // A group session carries both a GroupID and a synthetic UserID equal to it. It
-// must key off the group subtree so a real user whose ID equals the group ID can
-// never share the group's writable mise/temp trees.
+// must key off the group under the "group-" prefix in the users tree, so a real
+// user whose ID equals the group ID can never share the group's writable
+// mise/temp trees (#442).
 func TestRunnerFilesystemPolicyGroupUsesGroupSubtree(t *testing.T) {
 	paths := Paths{StellaHome: "/stella", UserRoot: "/workspace", WorkDir: "/workspace"}
 	cfg := Config{GroupID: "g7", UserID: "g7"}
 
-	if want := filepath.Join("/stella", "groups", "g7", ".mise-tools"); miseUserDirHost(paths, cfg) != want {
+	if want := filepath.Join("/stella", "users", "group-g7", ".mise-tools"); miseUserDirHost(paths, cfg) != want {
 		t.Fatalf("miseUserDirHost = %q, want %q", miseUserDirHost(paths, cfg), want)
 	}
 	base := os.TempDir()
 	if resolved, err := filepath.EvalSymlinks(base); err == nil {
 		base = resolved
 	}
-	if want := filepath.Join(base, "groups", "g7"); runnerFilesystemPolicy(paths, cfg).TempDirHost != want {
+	if want := filepath.Join(base, "users", "group-g7"); runnerFilesystemPolicy(paths, cfg).TempDirHost != want {
 		t.Fatalf("TempDirHost = %q, want %q", runnerFilesystemPolicy(paths, cfg).TempDirHost, want)
 	}
 }

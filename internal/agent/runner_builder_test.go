@@ -36,8 +36,10 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	userRoot := filepath.Join(stellaHome, "workspaces", snap.AgentID, "users", "user-1")
-	projectRoot := filepath.Join(userRoot, "projects", "app")
+	// A project is owned by the agent, so it lives under the agent's private subdir
+	// of the user home (#442).
+	userAgentDir := filepath.Join(stellaHome, "users", "user-1", "agents", snap.AgentID)
+	projectRoot := filepath.Join(userAgentDir, "projects", "app")
 	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

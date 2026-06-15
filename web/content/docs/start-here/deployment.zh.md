@@ -205,12 +205,12 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 所有数据都存储在 stella 主目录下（默认为 `~/.stella`，可通过 `STELLA_HOME` 配置）。
 
-| 路径                                      | 用途                             |
-| ----------------------------------------- | -------------------------------- |
-| `~/.stella/stella.db`                     | 单一数据库（配置、记忆、调度器） |
-| `~/.stella/workspaces/{agent-id}/skills/` | 每个 agent 安装的技能            |
-| `~/.stella/workspaces/{agent-id}/SOUL.md` | 可选的每个 agent 的灵魂/身份覆盖 |
-| `~/.stella/cache/`                        | 模型缓存（可重新生成，安全删除） |
+| 路径                                  | 用途                             |
+| ------------------------------------- | -------------------------------- |
+| `~/.stella/stella.db`                 | 单一数据库（配置、记忆、调度器） |
+| `~/.stella/agents/{agent-id}/skills/` | 每个 agent 安装的技能            |
+| `~/.stella/agents/{agent-id}/SOUL.md` | 可选的每个 agent 的灵魂/身份覆盖 |
+| `~/.stella/cache/`                    | 模型缓存（可重新生成，安全删除） |
 
 `stella.db` 文件是唯一需要备份的关键数据。它包含所有配置、消息历史、摘要和调度器任务。
 

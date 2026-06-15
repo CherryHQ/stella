@@ -15,12 +15,14 @@ import (
 )
 
 func validateBaseDir(w http.ResponseWriter, agentID, userID, baseDir string) bool {
-	userRoot, err := agent.SetupUserWorkspace(agentID, config.StellaHome(), userID)
-	if err != nil {
+	if _, err := agent.SetupUserWorkspace(config.StellaHome(), userID, agentID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to resolve workspace")
 		return false
 	}
-	if err := agent.ValidateProjectDir(baseDir, userRoot); err != nil {
+	// A project is owned by the agent (#442), so it must live under the agent's
+	// subdir of the user home.
+	projectRoot := agent.UserAgentDir(config.StellaHome(), userID, agentID)
+	if err := agent.ValidateProjectDir(baseDir, projectRoot); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid base_dir")
 		return false
 	}

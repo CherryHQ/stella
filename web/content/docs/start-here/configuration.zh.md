@@ -23,7 +23,7 @@ title: 配置
 - **系统提示** — 自定义人格和指令
 - **沙箱设置** — 代理代码执行的网络访问策略
 
-你也可以在代理工作空间 `~/.stella/workspaces/{agent-id}/` 中放置 `SOUL.md` 文件来覆盖系统提示。
+你也可以在代理工作空间 `~/.stella/agents/{agent-id}/` 中放置 `SOUL.md` 文件来覆盖系统提示。
 
 ## 渠道
 
@@ -63,13 +63,13 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 
 所有数据存储在 `~/.stella` 下（可通过 `STELLA_HOME` 配置）：
 
-| 路径                                        | 用途                                       |
-| ------------------------------------------- | ------------------------------------------ |
-| `~/.stella/stella.db`                       | 数据库（配置、记忆、调度器）— 请备份此文件 |
-| `~/.stella/workspaces/{agent-id}/`          | 每个代理的工作空间、技能和覆盖文件         |
-| `~/.stella/workspaces/{agent-id}/SOUL.md`   | 可选的代理人格覆盖                         |
-| `~/.stella/workspaces/{agent-id}/SYSTEM.md` | 可选的系统提示覆盖                         |
-| `~/.stella/cache/`                          | 模型缓存（可安全删除）                     |
+| 路径                                    | 用途                                       |
+| --------------------------------------- | ------------------------------------------ |
+| `~/.stella/stella.db`                   | 数据库（配置、记忆、调度器）— 请备份此文件 |
+| `~/.stella/agents/{agent-id}/`          | 每个代理的工作空间、技能和覆盖文件         |
+| `~/.stella/agents/{agent-id}/SOUL.md`   | 可选的代理人格覆盖                         |
+| `~/.stella/agents/{agent-id}/SYSTEM.md` | 可选的系统提示覆盖                         |
+| `~/.stella/cache/`                      | 模型缓存（可安全删除）                     |
 
 ## 环境变量
 

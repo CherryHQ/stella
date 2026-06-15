@@ -539,13 +539,13 @@ func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.Incomi
 		return "", fmt.Errorf("resolve user root: %w", err)
 	}
 	if rc.GroupID != "" {
-		dir, err := agent.SetupGroupWorkspace(rc.AgentID, config.StellaHome(), rc.GroupID)
+		dir, err := agent.SetupGroupWorkspace(config.StellaHome(), rc.GroupID, rc.AgentID)
 		if err != nil {
 			return "", fmt.Errorf("setup group workspace: %w", err)
 		}
 		return dir, nil
 	}
-	userDir, err := agent.SetupUserWorkspace(rc.AgentID, config.StellaHome(), rc.User.ID)
+	userDir, err := agent.SetupUserWorkspace(config.StellaHome(), rc.User.ID, rc.AgentID)
 	if err != nil {
 		return "", fmt.Errorf("setup user workspace: %w", err)
 	}
