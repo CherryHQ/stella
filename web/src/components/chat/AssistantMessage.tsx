@@ -15,6 +15,9 @@ import {
   FilePen,
   Users,
   Sparkles,
+  Library,
+  Send,
+  ListTodo,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -253,6 +256,17 @@ const TOOL_META: Record<string, { icon: LucideIcon; verb: string; surface: strin
   edit: { icon: FilePen, verb: "Edited", surface: "File" },
   delegate: { icon: Users, verb: "Delegated to", surface: "Agent" },
   skills: { icon: Sparkles, verb: "Used skill", surface: "Skill" },
+  memory: { icon: Library, verb: "Memory", surface: "Memory" },
+  notify: { icon: Send, verb: "Notified", surface: "Message" },
+  task_control: { icon: ListTodo, verb: "Task", surface: "Task" },
+};
+
+// memory's verb depends on the `action` arg so the line reads as a sentence.
+const MEMORY_VERBS: Record<string, string> = {
+  search: "Searched memory",
+  add: "Saved to memory",
+  update: "Updated memory",
+  delete: "Removed from memory",
 };
 
 function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } }) {
@@ -263,6 +277,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
 
   const meta = TOOL_META[n] ?? { icon: Wrench, verb: n, surface: n };
   const Icon = meta.icon;
+  let verb = meta.verb;
   const isFileTool = n === "read" || n === "write" || n === "edit";
   const isBash = n === "bash";
 
@@ -277,9 +292,17 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
     cmdPreview = toolArgText(args.agent ?? args.target ?? args.to ?? args.name ?? args);
   } else if (n === "skills") {
     cmdPreview = toolArgText(args.skill ?? args.name ?? args.command ?? args);
+  } else if (n === "memory") {
+    const action = typeof args.action === "string" ? args.action : "";
+    verb = MEMORY_VERBS[action] ?? meta.verb;
+    cmdPreview = toolArgText(args.pattern ?? args.query ?? args.content ?? args.scope ?? "");
+  } else if (n === "notify") {
+    cmdPreview = toolArgText(args.message ?? args.text ?? args.content ?? "");
   } else {
-    cmdPreview = JSON.stringify(args);
+    // Unknown / plugin tool: show the first scalar arg, never the raw JSON blob.
+    cmdPreview = firstScalarArg(args);
   }
+  if (cmdPreview.length > 200) cmdPreview = cmdPreview.slice(0, 200) + "…";
 
   const inputText = toolArgText(args.command ?? args.input ?? args.path ?? args.file_path ?? args);
 
@@ -309,7 +332,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
       >
         <Icon className="size-3.5 shrink-0 text-muted-foreground/60" />
         <span className="truncate">
-          {meta.verb} {cmdPreview}
+          {verb} {cmdPreview}
         </span>
         <ChevronDown
           className={cn(
@@ -365,4 +388,14 @@ function toolArgText(value: unknown): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
   return JSON.stringify(value, null, 2);
+}
+
+// First string/number value among a tool's args — a readable hint for plugin
+// tools we don't have a bespoke preview for, instead of dumping the whole blob.
+function firstScalarArg(args: Record<string, unknown>): string {
+  for (const v of Object.values(args)) {
+    if (typeof v === "string" && v.trim()) return v;
+    if (typeof v === "number") return String(v);
+  }
+  return "";
 }
