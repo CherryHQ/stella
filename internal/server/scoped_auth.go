@@ -65,6 +65,8 @@ func topLevelPathScope(method string, rest []string) string {
 		return readWriteScope("shares", method)
 	case "recally":
 		return readWriteScope("recally", method)
+	case "vault":
+		return readWriteScope("vault", method)
 	case "users":
 		return usersMePathScope(method, rest[1:])
 	default:
@@ -79,8 +81,6 @@ func usersMePathScope(method string, rest []string) string {
 	switch rest[1] {
 	case "oauth":
 		return readWriteScope("oauth", method)
-	case "vault":
-		return readWriteScope("vault", method)
 	default:
 		return ""
 	}

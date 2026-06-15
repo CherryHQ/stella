@@ -71,7 +71,7 @@ func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
 func TestVaultNotConfigured(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/users/me/vault", nil)
+	rr := doRequest(t, env, "GET", "/api/vault", nil)
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
 	}
@@ -81,7 +81,7 @@ func TestVaultCRUD(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
 	// List — empty.
-	rr := doRequest(t, env, "GET", "/api/users/me/vault", nil)
+	rr := doRequest(t, env, "GET", "/api/vault", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -98,13 +98,13 @@ func TestVaultCRUD(t *testing.T) {
 	}
 
 	// Set a secret.
-	rr = doRequest(t, env, "PUT", "/api/users/me/vault/GITHUB_TOKEN", map[string]string{"value": "ghp_test123"})
+	rr = doRequest(t, env, "PUT", "/api/vault/GITHUB_TOKEN", map[string]string{"value": "ghp_test123"})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("set status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// List — one entry.
-	rr = doRequest(t, env, "GET", "/api/users/me/vault", nil)
+	rr = doRequest(t, env, "GET", "/api/vault", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -119,13 +119,13 @@ func TestVaultCRUD(t *testing.T) {
 	}
 
 	// Delete.
-	rr = doRequest(t, env, "DELETE", "/api/users/me/vault/GITHUB_TOKEN", nil)
+	rr = doRequest(t, env, "DELETE", "/api/vault/GITHUB_TOKEN", nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
 	// List — empty again.
-	rr = doRequest(t, env, "GET", "/api/users/me/vault", nil)
+	rr = doRequest(t, env, "GET", "/api/vault", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d", rr.Code)
 	}
@@ -141,7 +141,7 @@ func TestVaultCRUD(t *testing.T) {
 func TestVaultSetValidationError(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
-	rr := doRequest(t, env, "PUT", "/api/users/me/vault/invalid_name", map[string]string{"value": "test"})
+	rr := doRequest(t, env, "PUT", "/api/vault/invalid_name", map[string]string{"value": "test"})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
@@ -150,7 +150,7 @@ func TestVaultSetValidationError(t *testing.T) {
 func TestVaultNotConfiguredPUT(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/users/me/vault/MY_KEY", map[string]string{"value": "v"})
+	rr := doRequest(t, env, "PUT", "/api/vault/MY_KEY", map[string]string{"value": "v"})
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
 	}
@@ -159,7 +159,7 @@ func TestVaultNotConfiguredPUT(t *testing.T) {
 func TestVaultNotConfiguredDELETE(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "DELETE", "/api/users/me/vault/MY_KEY", nil)
+	rr := doRequest(t, env, "DELETE", "/api/vault/MY_KEY", nil)
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
 	}
@@ -168,7 +168,7 @@ func TestVaultNotConfiguredDELETE(t *testing.T) {
 func TestVaultSetEmptyValue(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
-	rr := doRequest(t, env, "PUT", "/api/users/me/vault/MY_KEY", map[string]string{"value": ""})
+	rr := doRequest(t, env, "PUT", "/api/vault/MY_KEY", map[string]string{"value": ""})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
@@ -177,7 +177,7 @@ func TestVaultSetEmptyValue(t *testing.T) {
 func TestVaultSetEmptyName(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
-	rr := doRequest(t, env, "PUT", "/api/users/me/vault/", map[string]string{"value": "v"})
+	rr := doRequest(t, env, "PUT", "/api/vault/", map[string]string{"value": "v"})
 	// Empty name in path — either 400 or 404 depending on router
 	if rr.Code == http.StatusOK {
 		t.Fatal("expected error for empty name, got 200")
@@ -187,7 +187,7 @@ func TestVaultSetEmptyName(t *testing.T) {
 func TestVaultSetInvalidJSON(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
-	rr := doRequestWithSession(t, env.srv, env.bearerToken, "PUT", "/api/users/me/vault/MY_KEY", nil)
+	rr := doRequestWithSession(t, env.srv, env.bearerToken, "PUT", "/api/vault/MY_KEY", nil)
 	// No body → JSON decode error or empty value
 	if rr.Code == http.StatusOK {
 		t.Fatal("expected error for nil body, got 200")
@@ -198,14 +198,14 @@ func TestVaultEmailConfigValidation(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
 	t.Run("rejects malformed JSON", func(t *testing.T) {
-		rr := doRequest(t, env, "PUT", "/api/users/me/vault/EMAIL_CONFIG", map[string]string{"value": "not-json"})
+		rr := doRequest(t, env, "PUT", "/api/vault/EMAIL_CONFIG", map[string]string{"value": "not-json"})
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 		}
 	})
 
 	t.Run("rejects invalid config", func(t *testing.T) {
-		rr := doRequest(t, env, "PUT", "/api/users/me/vault/EMAIL_CONFIG", map[string]string{
+		rr := doRequest(t, env, "PUT", "/api/vault/EMAIL_CONFIG", map[string]string{
 			"value": `{"default":"missing","accounts":{}}`,
 		})
 		if rr.Code != http.StatusBadRequest {
@@ -214,7 +214,7 @@ func TestVaultEmailConfigValidation(t *testing.T) {
 	})
 
 	t.Run("accepts valid config", func(t *testing.T) {
-		rr := doRequest(t, env, "PUT", "/api/users/me/vault/EMAIL_CONFIG", map[string]string{
+		rr := doRequest(t, env, "PUT", "/api/vault/EMAIL_CONFIG", map[string]string{
 			"value": `{"default":"work","accounts":{"work":{"imap_host":"imap.example.com","smtp_host":"smtp.example.com","username":"u","from":"u@example.com"}}}`,
 		})
 		if rr.Code != http.StatusOK {
@@ -284,6 +284,38 @@ func TestScopedVaultPermissionsAndRuntimeResolution(t *testing.T) {
 	}
 }
 
+// TestScopedVaultGet verifies the scoped GET /api/vault/{name} endpoint returns
+// the value written through the scoped PUT, the read path CLI/web callers use
+// after the legacy /api/vault routes were removed (#452).
+func TestScopedVaultGet(t *testing.T) {
+	env, _ := setupVaultEnv(t)
+
+	// Write via the scoped endpoint (default scope=user).
+	rr := doRequest(t, env, "PUT", "/api/vault/API_KEY", map[string]string{"value": "secret-value"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("scoped set status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Read back via the scoped endpoint.
+	rr = doRequest(t, env, "GET", "/api/vault/API_KEY?scope=user", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("scoped get status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var got map[string]string
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["name"] != "API_KEY" || got["value"] != "secret-value" {
+		t.Fatalf("got %+v, want name=API_KEY value=secret-value", got)
+	}
+
+	// Missing entry → 404.
+	rr = doRequest(t, env, "GET", "/api/vault/NOPE?scope=user", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("scoped get missing status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
+	}
+}
+
 // fakeRunnerInvalidator records InvalidateUser calls so tests can assert that
 // vault mutations propagate to the runner cache.
 type fakeRunnerInvalidator struct {
@@ -306,7 +338,7 @@ func TestVaultMutationsInvalidateUserRunners(t *testing.T) {
 	env.srv.CredentialsService().SetInvalidator(inv)
 
 	// PUT triggers invalidate.
-	rr := doRequest(t, env, "PUT", "/api/users/me/vault/MY_TOKEN", map[string]string{"value": "v1"})
+	rr := doRequest(t, env, "PUT", "/api/vault/MY_TOKEN", map[string]string{"value": "v1"})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("set status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -318,7 +350,7 @@ func TestVaultMutationsInvalidateUserRunners(t *testing.T) {
 	}
 
 	// PUT overwriting also triggers invalidate (covers rotate-in-place).
-	rr = doRequest(t, env, "PUT", "/api/users/me/vault/MY_TOKEN", map[string]string{"value": "v2"})
+	rr = doRequest(t, env, "PUT", "/api/vault/MY_TOKEN", map[string]string{"value": "v2"})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -327,7 +359,7 @@ func TestVaultMutationsInvalidateUserRunners(t *testing.T) {
 	}
 
 	// DELETE also triggers invalidate.
-	rr = doRequest(t, env, "DELETE", "/api/users/me/vault/MY_TOKEN", nil)
+	rr = doRequest(t, env, "DELETE", "/api/vault/MY_TOKEN", nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -343,19 +375,19 @@ func TestVaultUpdateExisting(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
 	// Set initial value.
-	rr := doRequest(t, env, "PUT", "/api/users/me/vault/MY_SECRET", map[string]string{"value": "v1"})
+	rr := doRequest(t, env, "PUT", "/api/vault/MY_SECRET", map[string]string{"value": "v1"})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("set status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Update with new value.
-	rr = doRequest(t, env, "PUT", "/api/users/me/vault/MY_SECRET", map[string]string{"value": "v2"})
+	rr = doRequest(t, env, "PUT", "/api/vault/MY_SECRET", map[string]string{"value": "v2"})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// List — still one entry.
-	rr = doRequest(t, env, "GET", "/api/users/me/vault", nil)
+	rr = doRequest(t, env, "GET", "/api/vault", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d", rr.Code)
 	}

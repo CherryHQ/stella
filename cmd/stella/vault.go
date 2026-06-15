@@ -55,8 +55,9 @@ func vaultListCommand() *ucli.Command {
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
+			scope := apiclient.ListScopedVaultEntriesParamsScopeUser
 			list, err := apiclient.Call[apitypes.VaultEntryList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListVaultEntries(c.Context)
+				return api.ListScopedVaultEntries(c.Context, &apiclient.ListScopedVaultEntriesParams{Scope: &scope})
 			})
 			if err != nil {
 				return err
@@ -93,8 +94,9 @@ func vaultGetCommand() *ucli.Command {
 			if name == "" {
 				return fmt.Errorf("usage: stella vault get <name>")
 			}
+			scope := apiclient.GetScopedVaultEntryParamsScopeUser
 			entry, err := apiclient.Call[apiclient.VaultEntryValue](func(api *apiclient.Client) (*http.Response, error) {
-				return api.GetVaultEntry(c.Context, name)
+				return api.GetScopedVaultEntry(c.Context, name, &apiclient.GetScopedVaultEntryParams{Scope: &scope})
 			})
 			if err != nil {
 				return err
@@ -135,8 +137,9 @@ func vaultSetCommand() *ucli.Command {
 			case "":
 				return fmt.Errorf("usage: stella vault set <name> <value>  (use '-' to read from stdin)")
 			}
+			scope := apitypes.SetVaultEntryRequestScopeUser
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.SetVaultEntry(c.Context, name, apiclient.SetVaultEntryJSONRequestBody{Value: value})
+				return api.SetScopedVaultEntry(c.Context, name, apiclient.SetScopedVaultEntryJSONRequestBody{Value: value, Scope: &scope})
 			}); err != nil {
 				return err
 			}
@@ -163,8 +166,9 @@ func vaultDeleteCommand() *ucli.Command {
 			if name == "" {
 				return fmt.Errorf("usage: stella vault delete <name>")
 			}
+			scope := apiclient.DeleteScopedVaultEntryParamsScopeUser
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.DeleteVaultEntry(c.Context, name)
+				return api.DeleteScopedVaultEntry(c.Context, name, &apiclient.DeleteScopedVaultEntryParams{Scope: &scope})
 			}); err != nil {
 				return err
 			}
