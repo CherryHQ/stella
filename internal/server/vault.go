@@ -228,6 +228,25 @@ func (s *Server) invalidateVaultRunners(userID, scope, agentID, name, op string)
 }
 
 func (s *Server) resolveVaultScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope string, agentID string) (string, string, bool) {
+	// A sandbox (scoped) token is bound to exactly one agent. It may only reach
+	// its own user/user_agent secrets — never another agent's, and never the
+	// admin-managed system scopes. Without this, any agent's sandbox token could
+	// pass scope=user_agent&agent_id=<sibling> to read or overwrite a different
+	// agent's credentials under the same user.
+	if info.Scoped != nil {
+		switch scope {
+		case vault.ScopeUser:
+		case vault.ScopeUserAgent:
+			if agentID != info.Scoped.AgentID {
+				writeError(w, http.StatusForbidden, "scoped token cannot access another agent's vault")
+				return "", "", false
+			}
+		default:
+			writeError(w, http.StatusForbidden, "scoped token cannot access system vault scopes")
+			return "", "", false
+		}
+	}
+
 	userID := ""
 	switch scope {
 	case vault.ScopeUser:
