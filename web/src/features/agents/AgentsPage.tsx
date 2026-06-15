@@ -686,7 +686,7 @@ export function AgentsPage() {
       try {
         const { data: res } = await getAgentSkillFile({
           path: { id: editingId ?? "", skillId: skill.name },
-          query: { path },
+          query: { path, scope: skill.scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
         const content = (res as { content?: string })?.content ?? "";
@@ -725,6 +725,7 @@ export function AgentsPage() {
       try {
         const { data: raw } = await getAgentSkill({
           path: { id: currentState.editingId ?? "", skillId: sk.name },
+          query: { scope: sk.scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
         const unwrapped = raw as Skill;
@@ -812,6 +813,7 @@ export function AgentsPage() {
             id: currentState.editingId ?? "",
             skillId: selectedSkill.name,
           },
+          query: { scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
         setState((prev) => ({

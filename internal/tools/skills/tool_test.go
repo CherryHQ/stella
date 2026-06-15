@@ -89,6 +89,22 @@ func (s *testSkillStore) Resolve(ctx context.Context, name string, vc pkgplugins
 	return &sk, nil
 }
 
+func (s *testSkillStore) ListByScope(ctx context.Context, scope, userID, agentID string) ([]pkgplugins.Skill, error) {
+	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
+		Scope:   scope,
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pkgplugins.Skill, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, tsMapRow(r))
+	}
+	return out, nil
+}
+
 func (s *testSkillStore) ListFiles(ctx context.Context, skillID string) ([]string, error) {
 	rows, err := s.q.ListSkillFiles(ctx, skillID)
 	if err != nil {
@@ -565,27 +581,28 @@ func TestRemoveViaStore(t *testing.T) {
 	}
 }
 
-// TestRemoveRespectsScope asserts that when both a user- and agent-scoped skill
+// TestRemoveRespectsScope asserts that when a user-global and a per-agent skill
 // share the same name, remove honors args["scope"] instead of silently deleting
-// whichever Resolve returns first (user, by precedence).
+// whichever Resolve returns first (user_agent, by precedence). The model-facing
+// "agent" scope is the user's per-agent (user_agent) skill.
 func TestRemoveRespectsScope(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
 	if _, err := store.Create(ctx, pkgplugins.Skill{
-		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "dup", Description: "u", Status: "active",
+		Scope: "user", UserID: userID, Name: "dup", Description: "u", Status: "active",
 	}, map[string]string{pkgplugins.SkillMainFile: "# u"}); err != nil {
 		t.Fatalf("create user skill: %v", err)
 	}
 	if _, err := store.Create(ctx, pkgplugins.Skill{
-		Scope: "system_agent", AgentID: agentID, Name: "dup", Description: "a", Status: "active",
+		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "dup", Description: "a", Status: "active",
 	}, map[string]string{pkgplugins.SkillMainFile: "# a"}); err != nil {
-		t.Fatalf("create agent skill: %v", err)
+		t.Fatalf("create user_agent skill: %v", err)
 	}
 
 	tool := NewTool(store, "", "", "", "")
 
-	// scope=agent must delete the agent row, leaving user alive.
+	// scope=agent must delete the per-agent (user_agent) row, leaving user alive.
 	if _, err := tool.remove(ctx, map[string]any{"name": "dup", "scope": "agent"}); err != nil {
 		t.Fatalf("remove agent scope: %v", err)
 	}
@@ -600,9 +617,9 @@ func TestRemoveRespectsScope(t *testing.T) {
 			continue
 		}
 		switch s.Scope {
-		case "user_agent":
+		case "user":
 			userLeft = true
-		case "system_agent":
+		case "user_agent":
 			agentLeft = true
 		}
 	}
@@ -610,7 +627,7 @@ func TestRemoveRespectsScope(t *testing.T) {
 		t.Error("expected user-scoped dup to remain")
 	}
 	if agentLeft {
-		t.Error("expected agent-scoped dup to be deleted")
+		t.Error("expected user_agent-scoped dup to be deleted")
 	}
 }
 
@@ -620,7 +637,7 @@ func TestRemoveScopeNotFound(t *testing.T) {
 	ctx := ctxWithUser(userID, agentID)
 
 	if _, err := store.Create(ctx, pkgplugins.Skill{
-		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "only-user", Description: "u", Status: "active",
+		Scope: "user", UserID: userID, Name: "only-user", Description: "u", Status: "active",
 	}, map[string]string{pkgplugins.SkillMainFile: "# u"}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -632,6 +649,62 @@ func TestRemoveScopeNotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "scope=agent") {
 		t.Errorf("expected scope in error message, got %q", err.Error())
+	}
+}
+
+// TestRemoveRejectsAdminScope asserts the model-facing tool cannot remove an
+// admin-managed system_agent skill even when it is the effective resolution.
+func TestRemoveRejectsAdminScope(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "system_agent", AgentID: agentID, Name: "shared", Description: "a", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# a"}); err != nil {
+		t.Fatalf("create system_agent skill: %v", err)
+	}
+
+	tool := NewTool(store, "", "", "", "")
+	if _, err := tool.remove(ctx, map[string]any{"name": "shared"}); err == nil {
+		t.Fatal("expected error removing a system_agent skill via the tool")
+	}
+}
+
+// TestPatchRespectsScope guards CR-007: patch honors an explicit scope instead
+// of mutating whichever same-name skill Resolve returns by precedence.
+func TestPatchRespectsScope(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user", UserID: userID, Name: "dup", Description: "u", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# u"}); err != nil {
+		t.Fatalf("create user skill: %v", err)
+	}
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "dup", Description: "a", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# a"}); err != nil {
+		t.Fatalf("create user_agent skill: %v", err)
+	}
+
+	tool := NewTool(store, "", "", "", "")
+	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "scope": "user", "status": "deprecated"}); err != nil {
+		t.Fatalf("patch user scope: %v", err)
+	}
+
+	userRows, err := store.ListByScope(ctx, "user", userID, "")
+	if err != nil {
+		t.Fatalf("list user scope: %v", err)
+	}
+	if len(userRows) != 1 || userRows[0].Status != "deprecated" {
+		t.Fatalf("user dup = %#v, want deprecated", userRows)
+	}
+	agentRows, err := store.ListByScope(ctx, "user_agent", userID, agentID)
+	if err != nil {
+		t.Fatalf("list user_agent scope: %v", err)
+	}
+	if len(agentRows) != 1 || agentRows[0].Status != "active" {
+		t.Fatalf("user_agent dup = %#v, want still active", agentRows)
 	}
 }
 
@@ -802,13 +875,13 @@ func TestInstallAgentScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install error: %v", err)
 	}
-	if !strings.Contains(result, "scope=system_agent") {
-		t.Fatalf("expected system_agent scope in result, got %q", result)
+	if !strings.Contains(result, "scope=user_agent") {
+		t.Fatalf("expected user_agent scope in result, got %q", result)
 	}
 
-	// Verify it's in the store with system_agent scope (the model-facing "agent"
-	// scope persists as system_agent).
-	vc := pkgplugins.SkillViewContext{AgentID: agentID}
+	// The model-facing "agent" scope persists as user_agent: the user's own
+	// skill bound to this agent, not the admin-managed system_agent scope.
+	vc := pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}
 	skills, err := store.List(ctx, vc)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -817,8 +890,11 @@ func TestInstallAgentScope(t *testing.T) {
 	for _, s := range skills {
 		if s.Name == "agent-skill" {
 			found = true
-			if s.Scope != "system_agent" {
-				t.Errorf("expected scope 'system_agent', got %q", s.Scope)
+			if s.Scope != "user_agent" {
+				t.Errorf("expected scope 'user_agent', got %q", s.Scope)
+			}
+			if s.UserID != userID {
+				t.Errorf("expected user_id %q, got %q", userID, s.UserID)
 			}
 			if s.AgentID != agentID {
 				t.Errorf("expected agent_id %q, got %q", agentID, s.AgentID)

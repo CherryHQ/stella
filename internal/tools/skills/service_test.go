@@ -57,6 +57,38 @@ func TestResolveScopedExactScope(t *testing.T) {
 	}
 }
 
+// TestResolveScopedFindsDisabledAndDBSystem guards CR-002: scoped management
+// lookup must find rows the runtime-visible List filters out — disabled
+// (knowledge) entries and DB-backed system skills.
+func TestResolveScopedFindsDisabledAndDBSystem(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	svc := NewService(store, t.TempDir())
+	ctx := context.Background()
+	vc := pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}
+
+	// A disabled (knowledge) user skill is excluded from List but must resolve.
+	mustCreateDBSkill(t, store, pkgplugins.Skill{
+		Scope: "user", Name: "kn", UserID: userID, DisableModelInvocation: true,
+	})
+	rs, err := svc.ResolveScoped(ctx, "kn", "user", vc, "")
+	if err != nil {
+		t.Fatalf("ResolveScoped(kn): %v", err)
+	}
+	if rs == nil || rs.Scope != "user" {
+		t.Fatalf("ResolveScoped(kn) = %#v, want disabled user skill", rs)
+	}
+
+	// A DB-backed system skill must resolve via the DB, not only the filesystem.
+	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "system", Name: "dbsys"})
+	rs, err = svc.ResolveScoped(ctx, "dbsys", "system", vc, "")
+	if err != nil {
+		t.Fatalf("ResolveScoped(dbsys): %v", err)
+	}
+	if rs == nil || rs.Scope != "system" || rs.ID == "" {
+		t.Fatalf("ResolveScoped(dbsys) = %#v, want DB system skill", rs)
+	}
+}
+
 // TestResolvePrecedenceDBOverFSSystem guards CR-003: a DB user/agent skill must
 // shadow a filesystem system skill of the same name during model resolution.
 func TestResolvePrecedenceDBOverFSSystem(t *testing.T) {

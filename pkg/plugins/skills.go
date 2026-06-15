@@ -49,6 +49,10 @@ type SkillStore interface {
 	// Priority: user > agent > system (project skills are resolved via filesystem).
 	Resolve(ctx context.Context, name string, vc SkillViewContext) (*Skill, error)
 
+	// ListByScope returns every skill in exactly one scope/owner bucket,
+	// including drafts and disabled skills, for exact management lookups.
+	ListByScope(ctx context.Context, scope, userID, agentID string) ([]Skill, error)
+
 	// LoadFile fetches a single file by path. Pass SkillMainFile ("SKILL.md") for the body.
 	LoadFile(ctx context.Context, skillID, path string) (string, error)
 

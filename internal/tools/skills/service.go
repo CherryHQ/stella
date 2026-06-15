@@ -118,58 +118,63 @@ func findFSSkill(root, scope, name string) *ResolvedSkill {
 	return nil
 }
 
-// ResolveScoped finds a skill by name in a specific scope.
-// Unlike Resolve, it does not fall through to other scopes — the scope must match exactly.
+// ResolveScoped finds a skill by name in a specific scope, for management
+// (get/update/delete/file) operations. Unlike Resolve it never falls through to
+// another scope, and it matches by row ownership rather than runtime visibility
+// so it also finds drafts, disabled (knowledge) entries, and DB-backed system
+// skills that the effective Resolve query filters out.
 func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
 	switch scope {
 	case "project":
-		if projectRoot == "" {
-			return nil, nil
-		}
-		skills, dirs, err := listFSSkills(projectRoot, "project")
-		if err != nil {
-			return nil, err
-		}
-		for _, sk := range skills {
-			if sk.Name == name {
-				return &ResolvedSkill{Skill: sk, Dir: dirs[name]}, nil
-			}
-		}
-		return nil, nil
-	case "system":
-		if s.stellaHome == "" {
-			return nil, nil
-		}
-		skills, dirs, err := listFSSkills(s.stellaHome, "system")
-		if err != nil {
-			return nil, err
-		}
-		for _, sk := range skills {
-			if sk.Name == name {
-				return &ResolvedSkill{Skill: sk, Dir: dirs[name]}, nil
-			}
-		}
-		return nil, nil
+		return findFSSkill(projectRoot, "project", name), nil
 	case "system_agent", "user", "user_agent":
-		if s.store == nil {
-			return nil, nil
-		}
-		// store.Resolve only returns the single highest-precedence row for a
-		// name, so it would miss a lower-priority scope shadowed by another with
-		// the same name. List returns every visible scope for this context;
-		// match the exact scope the caller asked for.
-		list, err := s.store.List(ctx, vc)
+		return s.dbSkillByScope(ctx, name, scope, vc)
+	case "system":
+		// A system skill may live in the DB (installed via Settings) or on the
+		// filesystem (built-in). Prefer the DB row, fall back to the FS.
+		rs, err := s.dbSkillByScope(ctx, name, scope, vc)
 		if err != nil {
 			return nil, err
 		}
-		for i := range list {
-			if list[i].Name == name && list[i].Scope == scope {
-				return &ResolvedSkill{Skill: list[i]}, nil
-			}
+		if rs != nil {
+			return rs, nil
 		}
-		return nil, nil
+		return findFSSkill(s.stellaHome, "system", name), nil
 	default:
 		return nil, nil
+	}
+}
+
+// dbSkillByScope returns the DB skill with the given name in exactly one
+// scope/owner bucket, including drafts and disabled entries.
+func (s *Service) dbSkillByScope(ctx context.Context, name, scope string, vc pkgplugins.SkillViewContext) (*ResolvedSkill, error) {
+	if s.store == nil {
+		return nil, nil
+	}
+	userID, agentID := scopeOwner(scope, vc)
+	list, err := s.store.ListByScope(ctx, scope, userID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		if list[i].Name == name {
+			return &ResolvedSkill{Skill: list[i]}, nil
+		}
+	}
+	return nil, nil
+}
+
+// scopeOwner derives the (user_id, agent_id) owner keys a scope is bucketed by.
+func scopeOwner(scope string, vc pkgplugins.SkillViewContext) (userID, agentID string) {
+	switch scope {
+	case "system_agent":
+		return "", vc.AgentID
+	case "user":
+		return vc.UserID, ""
+	case "user_agent":
+		return vc.UserID, vc.AgentID
+	default: // system
+		return "", ""
 	}
 }
 
