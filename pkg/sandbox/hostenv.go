@@ -65,6 +65,21 @@ func MiseUserShimsDir(userToolsDir string) string {
 	return filepath.Join(userToolsDir, "shims")
 }
 
+// PerUserMiseDataDir returns the per-user MISE_DATA_DIR carried in a session's
+// env, or "" when it points at the shared read-only system tree (or is unset).
+// It lets a host backend recover the per-user mise home — to derive the shims
+// dir for PATH — from the env it already remaps, so the FilesystemPolicy needs no
+// mise-specific field. stellaHome is the host STELLA_HOME used to recognize the
+// system tree; the returned path is whatever scope the env holds (host path here,
+// the backend remaps it as needed).
+func PerUserMiseDataDir(env map[string]string, stellaHome string) string {
+	dir := env["MISE_DATA_DIR"]
+	if dir == "" || dir == MiseToolsDir(stellaHome) {
+		return ""
+	}
+	return dir
+}
+
 // HostEnvBuildPath returns a sanitized PATH suitable for host-execution sandbox
 // backends (local, none). It prepends the per-user mise shims (so a user's own
 // tool versions win), then the system mise shims and stella bin directories, and

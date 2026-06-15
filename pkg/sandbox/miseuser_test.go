@@ -27,6 +27,23 @@ func TestMiseUserToolsDir(t *testing.T) {
 	}
 }
 
+func TestPerUserMiseDataDir(t *testing.T) {
+	home := "/srv/.stella"
+	cases := map[string]struct {
+		env  map[string]string
+		want string
+	}{
+		"per-user tree": {map[string]string{"MISE_DATA_DIR": home + "/users/u1/.mise-tools"}, home + "/users/u1/.mise-tools"},
+		"system tree":   {map[string]string{"MISE_DATA_DIR": MiseToolsDir(home)}, ""},
+		"unset":         {map[string]string{}, ""},
+	}
+	for name, tc := range cases {
+		if got := PerUserMiseDataDir(tc.env, home); got != tc.want {
+			t.Errorf("%s: PerUserMiseDataDir = %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
 func TestEnsureUserMiseHome_SeedsSystemInstallsAsRelativeSymlinks(t *testing.T) {
 	stellaHome := t.TempDir()
 	// A builtin tool already installed in the shared system tree.

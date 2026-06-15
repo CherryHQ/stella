@@ -55,13 +55,17 @@ type FilesystemPolicy struct {
 	// backend sees the policy; they may be shared across sessions.
 	TempDirHost string
 
-	// MiseUserDirHost is the host path of the per-user writable MISE_DATA_DIR
-	// (see pkgsandbox.MiseUserToolsDir). When set, host-execution backends bind
-	// it writable so agents can install their own mise tools, layered above the
-	// shared read-only system installs. Empty means no per-user tree — the
-	// session uses the read-only system tree only. The directory is guaranteed
-	// to exist (and be seeded with system installs) before the backend sees it.
-	MiseUserDirHost string
+	// ExtraWritableMounts is a list of host paths to mount writable inside the
+	// sandbox at their STELLA_HOME-remapped path. Symmetric with
+	// ExtraReadOnlyMounts: the isolating backends bind each writable (bwrap
+	// --bind, Seatbelt allow file-write*); the host-passthrough backends
+	// (none/local) need no mount since they share the host filesystem. Used for
+	// per-user subtrees an agent must write through — today the writable per-user
+	// mise home (see pkgsandbox.MiseUserToolsDir), with more to follow. Each path
+	// is guaranteed to exist (the mise tree also seeded with system installs)
+	// before the backend sees the policy. The policy stays mise-agnostic: it only
+	// learns "these host dirs are writable", not why.
+	ExtraWritableMounts []string
 }
 
 // NetworkPolicy defines network constraints for a sandbox session.

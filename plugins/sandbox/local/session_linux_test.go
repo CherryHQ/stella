@@ -255,9 +255,9 @@ func TestWrapCommand_linux_perUserMiseWritableBind(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:   "/tmp/test-workspace",
-			WorkingDir:      "/workspace",
-			MiseUserDirHost: userDir,
+			WorkspaceRoot:       "/tmp/test-workspace",
+			WorkingDir:          "/workspace",
+			ExtraWritableMounts: []string{userDir},
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}

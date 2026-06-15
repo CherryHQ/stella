@@ -292,10 +292,11 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
 	bwrapArgs = appendStellaHomeMounts(bwrapArgs, stellaHomeHost)
-	// Per-user mise tree: the agent's writable mise home, layered above the
-	// read-only system installs mounted by appendStellaHomeMounts.
-	if userDir := policy.Filesystem.MiseUserDirHost; userDir != "" {
-		bwrapArgs = appendWritableBind(bwrapArgs, userDir, remapToSandboxStellaHome(userDir, stellaHomeHost))
+	// Extra writable mounts (e.g. the per-user mise home, layered above the
+	// read-only system installs mounted by appendStellaHomeMounts): bind each at
+	// its STELLA_HOME-remapped sandbox path so writes land in the host tree.
+	for _, writable := range policy.Filesystem.ExtraWritableMounts {
+		bwrapArgs = appendWritableBind(bwrapArgs, writable, remapToSandboxStellaHome(writable, stellaHomeHost))
 	}
 	for _, extraPath := range policy.Filesystem.ExtraReadOnlyMounts {
 		bwrapArgs = appendRoBindIfExists(bwrapArgs, extraPath, extraPath)

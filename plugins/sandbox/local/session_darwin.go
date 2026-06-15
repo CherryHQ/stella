@@ -127,13 +127,14 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy) string {
 	// Dev nodes: required for stdout/stderr, pseudo-terminals, /dev/null, etc.
 	sb.WriteString("(allow file-write* (subpath \"/dev\"))\n")
 
-	// Mise: with a per-user tree, carve out the whole writable mise home so the
-	// agent can install tools (installs/cache/state all live under it). Without
-	// one, the system installs stay read-only and only the narrow cache/state
-	// metadata holes mise needs are opened.
-	if dir := policy.Filesystem.MiseUserDirHost; dir != "" {
+	// Extra writable mounts (e.g. the per-user mise home): carve out each subtree
+	// so the agent can write through it — for mise that's installs/cache/state,
+	// all under the tree. With no writable per-user tree, the system installs stay
+	// read-only and only the narrow cache/state metadata holes mise needs open.
+	for _, dir := range policy.Filesystem.ExtraWritableMounts {
 		fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", filepath.Clean(dir))
-	} else {
+	}
+	if len(policy.Filesystem.ExtraWritableMounts) == 0 {
 		appendSeatbeltWritableEnvDirs(&sb, policy.Env)
 	}
 

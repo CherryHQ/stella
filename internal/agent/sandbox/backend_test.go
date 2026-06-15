@@ -199,17 +199,17 @@ func TestRunnerFilesystemPolicyUsesUserScopedTmp(t *testing.T) {
 // never share the group's writable mise/temp trees.
 func TestRunnerFilesystemPolicyGroupUsesGroupSubtree(t *testing.T) {
 	paths := Paths{StellaHome: "/stella", UserRoot: "/workspace", WorkDir: "/workspace"}
-	policy := runnerFilesystemPolicy(paths, Config{GroupID: "g7", UserID: "g7"})
+	cfg := Config{GroupID: "g7", UserID: "g7"}
 
-	if want := filepath.Join("/stella", "groups", "g7", ".mise-tools"); policy.MiseUserDirHost != want {
-		t.Fatalf("MiseUserDirHost = %q, want %q", policy.MiseUserDirHost, want)
+	if want := filepath.Join("/stella", "groups", "g7", ".mise-tools"); miseUserDirHost(paths, cfg) != want {
+		t.Fatalf("miseUserDirHost = %q, want %q", miseUserDirHost(paths, cfg), want)
 	}
 	base := os.TempDir()
 	if resolved, err := filepath.EvalSymlinks(base); err == nil {
 		base = resolved
 	}
-	if want := filepath.Join(base, "groups", "g7"); policy.TempDirHost != want {
-		t.Fatalf("TempDirHost = %q, want %q", policy.TempDirHost, want)
+	if want := filepath.Join(base, "groups", "g7"); runnerFilesystemPolicy(paths, cfg).TempDirHost != want {
+		t.Fatalf("TempDirHost = %q, want %q", runnerFilesystemPolicy(paths, cfg).TempDirHost, want)
 	}
 }
 
