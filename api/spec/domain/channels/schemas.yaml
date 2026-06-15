@@ -60,6 +60,81 @@ components:
           description: "JSON string of the channel config",
         }
 
+    FeishuRegistrationInitRequest:
+      type: object
+      properties:
+        brand:
+          type: string
+          enum: [feishu, lark]
+          default: feishu
+
+    FeishuRegistrationInit:
+      type: object
+      required: [supported_auth_methods]
+      properties:
+        supported_auth_methods:
+          type: array
+          items: { type: string }
+
+    FeishuRegistrationBeginRequest:
+      type: object
+      properties:
+        brand:
+          type: string
+          enum: [feishu, lark]
+          default: feishu
+
+    FeishuRegistrationBegin:
+      type: object
+      required: [
+        device_code,
+        verification_uri_complete,
+        qr_url,
+        interval,
+        expires_in,
+      ]
+      properties:
+        device_code: { type: string }
+        user_code: { type: string }
+        verification_uri: { type: string }
+        verification_uri_complete: { type: string }
+        qr_url: { type: string }
+        interval: { type: integer }
+        expires_in: { type: integer }
+
+    FeishuRegistrationPollRequest:
+      type: object
+      required: [device_code, channel_id, agent_id]
+      properties:
+        device_code: { type: string }
+        channel_id: { type: string }
+        agent_id: { type: string }
+        name: { type: string }
+        brand:
+          type: string
+          enum: [feishu, lark]
+          default: feishu
+        enabled:
+          type: boolean
+          default: true
+        config:
+          type: object
+          additionalProperties: true
+
+    FeishuRegistrationPoll:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [pending, slow_down, created]
+        interval: { type: integer }
+        tenant_brand: { type: string }
+        channel:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/Channel"
+
     WeixinQRCode:
       type: object
       properties:

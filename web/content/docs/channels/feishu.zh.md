@@ -10,9 +10,29 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
 
 - 一个正在运行的 Stella 服务器（`stellad server`）
 - 至少在Web UI中配置了一个 AI 提供商（如 Anthropic、OpenAI）
-- 在 [飞书开放平台](https://open.feishu.cn/) 创建的应用，并启用了 **Bot** 能力
+- 已登录飞书手机端，并且当前租户允许你创建内部应用
 
 ## 设置
+
+1. 如果尚未启动，先启动 Stella 服务器：
+
+   ```bash
+   stellad server
+   ```
+
+2. 打开 Web UI：`http://localhost:25678`。
+3. 进入 **Channels**，添加新的飞书频道实例。
+4. 填写频道 ID 和名称。
+5. 选择这个机器人代表的 Agent。
+6. 点击 **扫码创建飞书机器人**。
+7. 用飞书手机端扫码，并确认创建应用。
+8. Stella 会把返回的 App ID 和 App Secret 保存到频道，并启动机器人。
+
+你可以在 Web UI 中创建多个飞书频道实例。每个实例都会获得独立的飞书 PersonalAgent 应用，也可以选择绑定专用 agent。
+
+### 手动设置（高级）
+
+如果你已经有飞书应用，仍然可以手动填写凭据：
 
 1. 在 [飞书开放平台](https://open.feishu.cn/) 创建应用。
 2. 在应用设置中启用 **Bot** 能力。
@@ -20,18 +40,9 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
    - `im.message.receive_v1`
    - `im.message.reaction.created_v1`（可选，用于表情事件）
 4. 复制你的 App ID、App Secret、Encrypt Key 和 Verification Token。
-5. 如果尚未启动，先启动 Stella 服务器：
-
-   ```bash
-   stellad server
-   ```
-
-6. 打开Web UI `http://localhost:25678`。
-7. 进入 **Channels** 页面，添加一个新的飞书频道实例。
-8. 输入你的凭据并保存。
-9. 重启 `stellad server` 以激活新频道。
-
-你可以在Web UI中创建多个飞书频道实例。每个实例可以使用不同的飞书应用凭据，并可选择绑定专用 agent。
+5. 在 Web UI 中添加飞书频道实例。
+6. 选择这个机器人代表的 Agent。
+7. 展开手动字段，输入凭据并保存。
 
 ## Lark 工作区自动化
 

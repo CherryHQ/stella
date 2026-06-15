@@ -10,9 +10,29 @@ Before you start, make sure you have:
 
 - A running Stella server (`stellad server`)
 - At least one AI provider configured in the Web UI (e.g. Anthropic, OpenAI)
-- A Feishu app created at [Feishu Open Platform](https://open.feishu.cn/) with the **Bot** capability enabled
+- The Feishu mobile app, signed in as a tenant user who can create internal apps
 
 ## Setup
+
+1. Start your Stella server if it is not already running:
+
+   ```bash
+   stellad server
+   ```
+
+2. Open the Web UI at `http://localhost:25678`.
+3. Go to **Channels** and add a new Feishu channel instance.
+4. Enter a channel ID and name.
+5. Select the agent this bot should represent.
+6. Click **Scan to create Feishu bot**.
+7. Scan the QR code with the Feishu mobile app and confirm the app creation request.
+8. Stella saves the returned App ID and App Secret on the channel and starts the bot.
+
+You can create multiple Feishu channel instances in the Web UI. Each instance gets its own Feishu PersonalAgent app and can optionally be bound to a dedicated agent.
+
+### Manual setup (advanced)
+
+If you already have a Feishu app, you can still enter credentials manually:
 
 1. Create a Feishu app at [Feishu Open Platform](https://open.feishu.cn/).
 2. Enable the **Bot** capability in your app settings.
@@ -20,18 +40,9 @@ Before you start, make sure you have:
    - `im.message.receive_v1`
    - `im.message.reaction.created_v1` (optional, for reaction events)
 4. Copy your App ID, App Secret, Encrypt Key, and Verification Token.
-5. Start your Stella server if it is not already running:
-
-   ```bash
-   stellad server
-   ```
-
-6. Open the Web UI at `http://localhost:25678`.
-7. Go to the **Channels** page and add a new Feishu channel instance.
-8. Enter your credentials and save.
-9. Restart `stellad server` to activate the new channel.
-
-You can create multiple Feishu channel instances in the Web UI. Each instance can use its own Feishu app credentials and can optionally be bound to a dedicated agent.
+5. Add a Feishu channel instance in the Web UI.
+6. Select the agent this bot should represent.
+7. Expand the manual fields, enter your credentials, and save.
 
 ## Lark Workspace Automation
 

@@ -4,24 +4,37 @@ import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import QRCode from "qrcode";
 import {
+  beginFeishuRegistration,
   createChannel as createChannelRequest,
   deleteChannel,
   generateLinkCode,
+  listAgents,
   listChannels,
   listProfileIdentities,
   listPublicChannels,
+  pollFeishuRegistration,
   pollWeixinQrStatus,
   startWeixinQr,
   unlinkProfileIdentity,
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
 import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
-import type { Channel, Identity } from "@/lib/types";
+import type { Agent, Channel, Identity } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import {
@@ -67,7 +80,10 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; 
   weixin: { label: "Weixin", defaults: {} },
 };
 
-const channelTypes = Object.entries(platformMeta).map(([id, meta]) => ({ id, label: meta.label }));
+const channelTypes = Object.entries(platformMeta).map(([id, meta]) => ({
+  id,
+  label: meta.label,
+}));
 const defaultChannelType = channelTypes[0]?.id || "";
 
 const PLATFORM_ICON_PATHS: Record<string, string> = {
@@ -467,15 +483,47 @@ function ChannelDetail({
 
 interface NewChannelFormProps {
   fallbackChannelType: string;
+  agents: Agent[];
+  channels: NormalizedChannel[];
   onAdd: (channel: Record<string, unknown>) => Promise<void>;
+  onRegistered: (channel: NormalizedChannel) => Promise<void>;
   onCancel: () => void;
   creating: boolean;
 }
 
-function NewChannelForm({ fallbackChannelType, onAdd, onCancel, creating }: NewChannelFormProps) {
+function NewChannelForm({
+  fallbackChannelType,
+  agents,
+  channels,
+  onAdd,
+  onRegistered,
+  onCancel,
+  creating,
+}: NewChannelFormProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState<Record<string, unknown>>(
     newInstanceDraft(fallbackChannelType, ""),
+  );
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanQrUrl, setScanQrUrl] = useState("");
+  const [scanStatus, setScanStatus] = useState("");
+  const [scanError, setScanError] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopScanPolling = useCallback(() => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    setScanning(false);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
+    },
+    [],
   );
 
   const updateField = (key: string, value: unknown) => {
@@ -485,6 +533,99 @@ function NewChannelForm({ fallbackChannelType, onAdd, onCancel, creating }: NewC
       setDraft((prev) => ({ ...prev, [key]: value }));
     }
   };
+
+  const pollFeishuScan = useCallback(
+    async (deviceCode: string, intervalSeconds: number) => {
+      const channelId = ((draft.id as string) || "").trim();
+      const agentId = ((draft.agent_id as string) || "").trim();
+      if (!deviceCode || !channelId || !agentId) return;
+      try {
+        const { data: result } = await pollFeishuRegistration({
+          body: {
+            device_code: deviceCode,
+            channel_id: channelId,
+            agent_id: agentId,
+            name: (draft.name as string) || "Feishu",
+            enabled: true,
+            config: serializePlatformConfig("feishu", draft),
+          },
+          throwOnError: true,
+        });
+        setScanStatus(result.status);
+        if (result.status === "slow_down") {
+          stopScanPolling();
+          scanIntervalRef.current = setInterval(
+            () => void pollFeishuScan(deviceCode, result.interval || intervalSeconds + 5),
+            (result.interval || intervalSeconds + 5) * 1000,
+          );
+          setScanning(true);
+        }
+        if (result.status === "created" && result.channel) {
+          stopScanPolling();
+          setScanOpen(false);
+          await onRegistered(normalizeChannel(result.channel as Channel));
+        }
+      } catch (e) {
+        stopScanPolling();
+        setScanError((e as Error).message);
+      }
+    },
+    [draft, onRegistered, stopScanPolling],
+  );
+
+  const startFeishuScan = async () => {
+    const channelName = ((draft.name as string) || "").trim();
+    const channelId = ((draft.id as string) || "").trim();
+    if (!channelName) {
+      setScanError(t("channels.scanNeedsName"));
+      setScanOpen(true);
+      return;
+    }
+    if (!channelId) {
+      setScanError(t("channels.scanNeedsId"));
+      setScanOpen(true);
+      return;
+    }
+    if (!draft.agent_id) {
+      setScanError(t("channels.scanNeedsAgent"));
+      setScanOpen(true);
+      return;
+    }
+    setScanOpen(true);
+    setScanQrUrl("");
+    setScanStatus("waiting");
+    setScanError("");
+    stopScanPolling();
+    setScanning(true);
+    try {
+      const { data: result } = await beginFeishuRegistration({
+        body: {},
+        throwOnError: true,
+      });
+      setScanQrUrl(await QRCode.toDataURL(result.qr_url, { width: 256, margin: 2 }));
+      const intervalSeconds = result.interval || 5;
+      scanIntervalRef.current = setInterval(
+        () => void pollFeishuScan(result.device_code, intervalSeconds),
+        intervalSeconds * 1000,
+      );
+      setScanning(true);
+    } catch (e) {
+      setScanError((e as Error).message);
+      setScanning(false);
+    }
+  };
+
+  const availableAgents = agents.filter(
+    (agent) =>
+      agent.enabled !== false &&
+      !channels.some((channel) => channel.type === draft.type && channel.agent_id === agent.id),
+  );
+
+  const canStartFeishuScan = Boolean(
+    ((draft.name as string) || "").trim() &&
+    ((draft.id as string) || "").trim() &&
+    ((draft.agent_id as string) || "").trim(),
+  );
 
   const canSubmit = !creating && !!draft.id && !!draft.type;
 
@@ -523,39 +664,121 @@ function NewChannelForm({ fallbackChannelType, onAdd, onCancel, creating }: NewC
         </div>
 
         <div className="w-full space-y-1.5">
-          <label className="text-sm font-medium">Name</label>
+          <label className="text-sm font-medium">{t("common.name")}</label>
           <Input
             nativeInput
             type="text"
             value={(draft.name as string) || ""}
             onChange={(e) => updateField("name", e.target.value)}
-            placeholder="e.g. Feishu Coder"
+            placeholder={t("channels.namePlaceholder")}
             className="w-full text-sm"
           />
         </div>
 
         <div className="w-full space-y-1.5">
-          <label className="text-sm font-medium font-mono">Channel ID</label>
+          <label className="text-sm font-medium font-mono">{t("channels.channelId")}</label>
           <Input
             nativeInput
             type="text"
             value={(draft.id as string) || ""}
             onChange={(e) => updateField("id", e.target.value)}
-            placeholder="e.g. feishu-coder"
+            placeholder={t("channels.channelIdPlaceholder")}
             className="w-full text-sm font-mono"
           />
-          <p className="text-xs text-muted-foreground">
-            Must not match the platform ID (e.g. not &quot;telegram&quot; for a Telegram channel).
-          </p>
+          <p className="text-xs text-muted-foreground">{t("channels.channelIdDesc")}</p>
         </div>
+
+        {draft.type === "feishu" && (
+          <div className="w-full space-y-1.5">
+            <label className="text-sm font-medium">{t("channels.boundAgent")}</label>
+            <select
+              value={(draft.agent_id as string) || ""}
+              onChange={(e) => updateField("agent_id", e.target.value)}
+              className={selectClassName}
+            >
+              <option value="">{t("channels.selectAgent")}</option>
+              {availableAgents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name || agent.id}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">{t("channels.boundAgentDesc")}</p>
+            {availableAgents.length === 0 && (
+              <p className="text-xs text-muted-foreground">{t("channels.noAvailableAgents")}</p>
+            )}
+          </div>
+        )}
 
         {!!draft.type && (
           <div className="space-y-4">
-            <FormSectionTitle>Configuration</FormSectionTitle>
-            <InstanceFields ch={draft} onChange={updateField} />
+            <FormSectionTitle>{t("channels.configuration")}</FormSectionTitle>
+            {draft.type === "feishu" && (
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  onClick={startFeishuScan}
+                  loading={scanning}
+                  disabled={scanning || !canStartFeishuScan}
+                  size="sm"
+                >
+                  {t("channels.scanCreateFeishu")}
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  {t("channels.scanCreateFeishuDesc")}
+                </p>
+              </div>
+            )}
+            {draft.type === "feishu" ? (
+              <details className="space-y-4">
+                <summary className="cursor-pointer text-sm font-medium">
+                  {t("channels.manualFeishuSetup")}
+                </summary>
+                <div className="pt-4">
+                  <InstanceFields ch={draft} onChange={updateField} />
+                </div>
+              </details>
+            ) : (
+              <InstanceFields ch={draft} onChange={updateField} />
+            )}
           </div>
         )}
       </div>
+
+      <Dialog open={scanOpen} onOpenChange={setScanOpen}>
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>{t("channels.scanFeishuTitle")}</DialogTitle>
+            <DialogDescription>{t("channels.scanFeishuDesc")}</DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <div className="flex flex-col items-center gap-4 text-center">
+              {scanQrUrl && (
+                <img
+                  src={scanQrUrl}
+                  alt={t("channels.scanFeishuQrAlt")}
+                  className="size-48 max-w-full"
+                />
+              )}
+              {!scanQrUrl && !scanError && <Spinner className="size-4" />}
+              <Badge
+                size="sm"
+                variant={scanError ? "error" : scanStatus === "created" ? "success" : "warning"}
+                className="max-w-full whitespace-normal"
+              >
+                {scanError || scanStatus || t("channels.waiting")}
+              </Badge>
+            </div>
+          </DialogPanel>
+          <DialogFooter>
+            <DialogClose
+              render={<Button type="button" variant="ghost" onClick={stopScanPolling} />}
+            >
+              {t("common.cancel")}
+            </DialogClose>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </DetailPanel>
   );
 }
@@ -703,6 +926,7 @@ export function ChannelsPage() {
   const [publicChannels, setPublicChannels] = useState<ComponentsPublicChannel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [loadingInstances, setLoadingInstances] = useState(false);
 
   const [linkCode, setLinkCode] = useState("");
@@ -766,6 +990,18 @@ export function ChannelsPage() {
     }
   }, [showToast]);
 
+  const loadAgents = useCallback(async () => {
+    try {
+      const { data } = await listAgents({
+        query: { include_all: true },
+        throwOnError: true,
+      });
+      setAgents((data?.agents as Agent[]) ?? []);
+    } catch (e) {
+      showToast((e as Error).message, "error");
+    }
+  }, [showToast]);
+
   const loadInstances = useCallback(async () => {
     setLoadingInstances(true);
     try {
@@ -790,14 +1026,14 @@ export function ChannelsPage() {
 
   useEffect(() => {
     if (isAdmin) {
-      void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances()]);
+      void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances(), loadAgents()]);
     } else {
       void Promise.all([loadPublicChannels(), loadIdentities()]);
     }
     return () => {
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
     };
-  }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances]);
+  }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances, loadAgents]);
 
   // ── link code ──
 
@@ -873,7 +1109,10 @@ export function ChannelsPage() {
       wxQrCodeRef.current = qrCode;
       const imgContent = result.qrcode_img_content || "";
       if (imgContent) {
-        const dataUrl = await QRCode.toDataURL(imgContent, { width: 256, margin: 2 });
+        const dataUrl = await QRCode.toDataURL(imgContent, {
+          width: 256,
+          margin: 2,
+        });
         setWxQrUrl(dataUrl);
       }
       setWxQrStatus("waiting");
@@ -889,7 +1128,10 @@ export function ChannelsPage() {
   const unlinkIdentity = async (id: string | undefined) => {
     if (!id || !confirm("Unlink this identity?")) return;
     try {
-      await unlinkProfileIdentity({ path: { id: String(id) }, throwOnError: true });
+      await unlinkProfileIdentity({
+        path: { id: String(id) },
+        throwOnError: true,
+      });
       showToast("Identity unlinked");
       await loadIdentities();
     } catch (e) {
@@ -940,6 +1182,15 @@ export function ChannelsPage() {
     }
   };
 
+  const finishRegisteredChannel = async (channel: NormalizedChannel) => {
+    await loadInstances();
+    void navigate({
+      to: "/settings/channels/$channelId",
+      params: { channelId: channel.id },
+    });
+    showToast(channel.id + " created");
+  };
+
   const createNewChannel = async (draft: Record<string, unknown>) => {
     const id = ((draft.id as string) || "").trim();
     if (!id || !draft.type) {
@@ -950,6 +1201,10 @@ export function ChannelsPage() {
       showToast("Dedicated instance ID must not match the platform ID", "error");
       return;
     }
+    if (draft.type === "feishu" && !draft.agent_id) {
+      showToast(t("channels.scanNeedsAgent"), "error");
+      return;
+    }
     setCreatingInstance(true);
     try {
       const { data: saved } = await createChannelRequest({
@@ -957,7 +1212,7 @@ export function ChannelsPage() {
           id,
           name: (draft.name as string) || "",
           type: draft.type as string,
-          agent_id: "",
+          agent_id: (draft.agent_id as string) || "",
           config: channelConfig(draft),
         },
         throwOnError: true,
@@ -998,7 +1253,10 @@ export function ChannelsPage() {
       detail = (
         <NewChannelForm
           fallbackChannelType={defaultChannelType}
+          agents={agents}
+          channels={instances}
           onAdd={createNewChannel}
+          onRegistered={finishRegisteredChannel}
           onCancel={() => void navigate({ to: "/settings/channels" })}
           creating={creatingInstance}
         />
