@@ -75,42 +75,47 @@ func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, projectRoot string) [
 	return out
 }
 
-// Resolve finds a skill by name across all 4 levels.
-// Priority: project > system > DB (user > agent > system in DB).
-// FS skills are checked first so they always shadow DB skills of the same name.
+// Resolve finds a skill by name across all 4 levels, honoring the scope
+// precedence: project > user_agent > user > system_agent > system. Project
+// (filesystem) wins outright; DB skills (which already rank user_agent > user >
+// system_agent > system among themselves) shadow filesystem system skills.
 func (s *Service) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
-	for _, lookup := range []struct {
-		scope string
-		root  string
-	}{
-		{"project", projectRoot},
-		{"system", s.stellaHome},
-	} {
-		if lookup.root == "" {
-			continue
-		}
-		skills, dirs, err := listFSSkills(lookup.root, lookup.scope)
-		if err != nil {
-			continue
-		}
-		for _, sk := range skills {
-			if sk.Name == name {
-				return &ResolvedSkill{Skill: sk, Dir: dirs[name]}, nil
-			}
+	if projectRoot != "" {
+		if rs := findFSSkill(projectRoot, "project", name); rs != nil {
+			return rs, nil
 		}
 	}
 
-	if s.store == nil {
-		return nil, nil
+	if s.store != nil {
+		sk, err := s.store.Resolve(ctx, name, vc)
+		if err != nil {
+			return nil, err
+		}
+		if sk != nil {
+			return &ResolvedSkill{Skill: *sk}, nil
+		}
 	}
-	sk, err := s.store.Resolve(ctx, name, vc)
+
+	if s.stellaHome != "" {
+		if rs := findFSSkill(s.stellaHome, "system", name); rs != nil {
+			return rs, nil
+		}
+	}
+	return nil, nil
+}
+
+// findFSSkill returns the named skill from a filesystem scope root, or nil.
+func findFSSkill(root, scope, name string) *ResolvedSkill {
+	skills, dirs, err := listFSSkills(root, scope)
 	if err != nil {
-		return nil, err
+		return nil
 	}
-	if sk == nil {
-		return nil, nil
+	for _, sk := range skills {
+		if sk.Name == name {
+			return &ResolvedSkill{Skill: sk, Dir: dirs[name]}
+		}
 	}
-	return &ResolvedSkill{Skill: *sk}, nil
+	return nil
 }
 
 // ResolveScoped finds a skill by name in a specific scope.
@@ -149,14 +154,20 @@ func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgp
 		if s.store == nil {
 			return nil, nil
 		}
-		sk, err := s.store.Resolve(ctx, name, vc)
+		// store.Resolve only returns the single highest-precedence row for a
+		// name, so it would miss a lower-priority scope shadowed by another with
+		// the same name. List returns every visible scope for this context;
+		// match the exact scope the caller asked for.
+		list, err := s.store.List(ctx, vc)
 		if err != nil {
 			return nil, err
 		}
-		if sk == nil || sk.Scope != scope {
-			return nil, nil
+		for i := range list {
+			if list[i].Name == name && list[i].Scope == scope {
+				return &ResolvedSkill{Skill: list[i]}, nil
+			}
 		}
-		return &ResolvedSkill{Skill: *sk}, nil
+		return nil, nil
 	default:
 		return nil, nil
 	}

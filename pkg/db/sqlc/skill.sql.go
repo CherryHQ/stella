@@ -505,7 +505,12 @@ WHERE status != 'deprecated'
     OR (scope = 'user'         AND user_id = ?2)
     OR (scope = 'user_agent'   AND user_id = ?2 AND agent_id = ?1)
   )
-ORDER BY scope, created_at
+ORDER BY CASE scope
+    WHEN 'user_agent'   THEN 1
+    WHEN 'user'         THEN 2
+    WHEN 'system_agent' THEN 3
+    WHEN 'system'       THEN 4
+  END, created_at
 `
 
 type ListSkillsForAgentContextParams struct {
@@ -513,6 +518,9 @@ type ListSkillsForAgentContextParams struct {
 	UserID  sql.NullString `json:"user_id"`
 }
 
+// ListSkillsForAgentContext returns the visible skills for one (user, agent),
+// ordered most-specific-first so a name-dedup downstream keeps the effective
+// skill: user_agent > user > system_agent > system.
 func (q *Queries) ListSkillsForAgentContext(ctx context.Context, arg ListSkillsForAgentContextParams) ([]Skill, error) {
 	rows, err := q.db.QueryContext(ctx, listSkillsForAgentContext, arg.AgentID, arg.UserID)
 	if err != nil {

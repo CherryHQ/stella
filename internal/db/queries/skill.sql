@@ -35,6 +35,9 @@ ORDER BY CASE scope
     WHEN 'system'       THEN 4
   END, created_at;
 
+-- ListSkillsForAgentContext returns the visible skills for one (user, agent),
+-- ordered most-specific-first so a name-dedup downstream keeps the effective
+-- skill: user_agent > user > system_agent > system.
 -- name: ListSkillsForAgentContext :many
 SELECT * FROM skill
 WHERE status != 'deprecated'
@@ -44,7 +47,12 @@ WHERE status != 'deprecated'
     OR (scope = 'user'         AND user_id = sqlc.arg(user_id))
     OR (scope = 'user_agent'   AND user_id = sqlc.arg(user_id) AND agent_id = sqlc.arg(agent_id))
   )
-ORDER BY scope, created_at;
+ORDER BY CASE scope
+    WHEN 'user_agent'   THEN 1
+    WHEN 'user'         THEN 2
+    WHEN 'system_agent' THEN 3
+    WHEN 'system'       THEN 4
+  END, created_at;
 
 -- name: ListSkillsByScope :many
 SELECT * FROM skill
