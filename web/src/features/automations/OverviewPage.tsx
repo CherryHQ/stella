@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { reopenTask, updateSchedulerJob } from "@/lib/api-client";
@@ -141,10 +141,15 @@ export function OverviewPage() {
     return soonest;
   }, [sortedJobs]);
 
-  const activeGoals = useMemo(
-    () => goals.filter((g) => !["done", "cancelled", "failed"].includes(g.status)),
+  const sortedGoals = useMemo(
+    () =>
+      [...goals].sort(
+        (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+      ),
     [goals],
   );
+
+  const previewGoals = useMemo(() => sortedGoals.slice(0, 6), [sortedGoals]);
 
   const recentDone = useMemo(() => {
     const items: NeedsYouItem[] = [];
@@ -222,11 +227,23 @@ export function OverviewPage() {
         </section>
 
         {/* Goals */}
-        {activeGoals.length > 0 && (
+        {sortedGoals.length > 0 && (
           <section className="mt-8">
-            <SectionHead title={t("hub.secGoals")} count={activeGoals.length} />
+            <SectionHead
+              title={t("hub.secGoals")}
+              count={sortedGoals.length}
+              action={
+                <Button
+                  render={<Link to="/agents/$agentId/tasks/goals" params={{ agentId }} />}
+                  variant="outline"
+                  size="xs"
+                >
+                  {t("hub.viewAll")}
+                </Button>
+              }
+            />
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {activeGoals.map((g) => (
+              {previewGoals.map((g) => (
                 <GoalCard key={g.id} goal={g} onOpen={() => openItem({ kind: "goal", goal: g })} />
               ))}
             </div>
@@ -311,7 +328,15 @@ function StatCard({ num, label, tone }: { num: number; label: string; tone?: "at
   );
 }
 
-function SectionHead({ title, count }: { title: string; count?: number }) {
+function SectionHead({
+  title,
+  count,
+  action,
+}: {
+  title: string;
+  count?: number;
+  action?: ReactNode;
+}) {
   return (
     <div className="mb-3 flex items-baseline gap-2">
       <h2 className="text-sm font-semibold">{title}</h2>
@@ -320,6 +345,7 @@ function SectionHead({ title, count }: { title: string; count?: number }) {
           {count}
         </span>
       )}
+      {action && <div className="ml-auto">{action}</div>}
     </div>
   );
 }

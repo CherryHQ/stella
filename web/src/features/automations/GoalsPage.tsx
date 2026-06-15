@@ -21,8 +21,8 @@ const VIEW_LABEL: Record<GoalsView, MessageKey> = {
 
 export function GoalsPage() {
   const { t } = useI18n();
-  const { agentId } = useParams({ from: "/_app/agents/$agentId/automations/" });
-  const search = useSearch({ from: "/_app/agents/$agentId/automations/" });
+  const { agentId } = useParams({ strict: false }) as { agentId: string };
+  const search = useSearch({ strict: false });
   const view = (search as Record<string, unknown>).view as string | undefined;
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
@@ -32,7 +32,7 @@ export function GoalsPage() {
   const setView = useCallback(
     (v: GoalsView) =>
       void navigate({
-        to: "/agents/$agentId/automations",
+        to: "/agents/$agentId/tasks/goals",
         params: { agentId },
         search: { view: v } as Record<string, unknown>,
       }),
@@ -40,7 +40,7 @@ export function GoalsPage() {
   );
   const openGoal = (g: ComponentsGoal) =>
     void navigate({
-      to: "/agents/$agentId/automations/goals/$goalId",
+      to: "/agents/$agentId/tasks/goals/$goalId",
       params: { agentId, goalId: g.id },
     });
 
