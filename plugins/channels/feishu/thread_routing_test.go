@@ -14,6 +14,11 @@ import (
 // IncomingMessage passed to HandleIncoming. The captured message is delivered
 // on the returned channel so tests can assert on its thread metadata.
 func newThreadRoutingBot(t *testing.T) (*Bot, <-chan channel.IncomingMessage) {
+	b, _, captured := newThreadRoutingBotWithHandler(t)
+	return b, captured
+}
+
+func newThreadRoutingBotWithHandler(t *testing.T) (*Bot, *mockHandler, <-chan channel.IncomingMessage) {
 	t.Helper()
 	captured := make(chan channel.IncomingMessage, 1)
 	h := &mockHandler{
@@ -29,7 +34,7 @@ func newThreadRoutingBot(t *testing.T) (*Bot, <-chan channel.IncomingMessage) {
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
 	}
-	return b, captured
+	return b, h, captured
 }
 
 func waitMessage(t *testing.T, ch <-chan channel.IncomingMessage) channel.IncomingMessage {
@@ -44,8 +49,14 @@ func waitMessage(t *testing.T, ch <-chan channel.IncomingMessage) channel.Incomi
 }
 
 func textReceiveEvent(chatID, chatType, messageID, rootID, parentID, text string) *larkim.P2MessageReceiveV1 {
-	msgType := "text"
-	content := `{"text":"` + text + `"}`
+	return receiveEvent(chatID, chatType, messageID, rootID, parentID, "text", `{"text":"`+text+`"}`)
+}
+
+func fileReceiveEvent(chatID, chatType, messageID, rootID, parentID string) *larkim.P2MessageReceiveV1 {
+	return receiveEvent(chatID, chatType, messageID, rootID, parentID, "file", `{"file_name":"report.pdf"}`)
+}
+
+func receiveEvent(chatID, chatType, messageID, rootID, parentID, msgType, content string) *larkim.P2MessageReceiveV1 {
 	createTime := "1700000000000"
 	openID := "ou_sender"
 	unionID := "on_sender"
@@ -74,12 +85,18 @@ func textReceiveEvent(chatID, chatType, messageID, rootID, parentID, text string
 func TestOnMessageThreadIDFromRootID(t *testing.T) {
 	b, captured := newThreadRoutingBot(t)
 
-	event := textReceiveEvent("oc_chat", "p2p", "om_msg", "om_root", "om_parent", "hello thread")
+	event := textReceiveEvent("oc_chat", "group", "om_msg", "om_root", "om_parent", "hello thread")
 	if err := b.onMessage(context.Background(), event); err != nil {
 		t.Fatalf("onMessage: %v", err)
 	}
 
 	msg := waitMessage(t, captured)
+	if !msg.IsGroup {
+		t.Error("IsGroup = false, want true")
+	}
+	if msg.ChatID != "oc_chat" {
+		t.Errorf("ChatID = %q, want %q", msg.ChatID, "oc_chat")
+	}
 	if msg.ThreadID != "om_root" {
 		t.Errorf("ThreadID = %q, want %q", msg.ThreadID, "om_root")
 	}
@@ -96,12 +113,18 @@ func TestOnMessageThreadIDFromRootID(t *testing.T) {
 func TestOnMessageNoThreadID(t *testing.T) {
 	b, captured := newThreadRoutingBot(t)
 
-	event := textReceiveEvent("oc_chat", "p2p", "om_msg", "", "", "hello")
+	event := textReceiveEvent("oc_chat", "group", "om_msg", "", "", "hello")
 	if err := b.onMessage(context.Background(), event); err != nil {
 		t.Fatalf("onMessage: %v", err)
 	}
 
 	msg := waitMessage(t, captured)
+	if !msg.IsGroup {
+		t.Error("IsGroup = false, want true")
+	}
+	if msg.ChatID != "oc_chat" {
+		t.Errorf("ChatID = %q, want %q", msg.ChatID, "oc_chat")
+	}
 	if msg.ThreadID != "" {
 		t.Errorf("ThreadID = %q, want empty", msg.ThreadID)
 	}
@@ -112,12 +135,24 @@ func TestOnMessageNoThreadID(t *testing.T) {
 func TestOnMessageAuthPreservesThreadID(t *testing.T) {
 	b, captured := newThreadRoutingBot(t)
 
-	event := textReceiveEvent("oc_chat", "p2p", "om_msg", "om_root", "om_parent", "/auth")
+	event := textReceiveEvent("oc_chat", "group", "om_msg", "om_root", "om_parent", "/auth")
+	mentionName := "Agent"
+	mentionOpenID := "ou_bot"
+	event.Event.Message.Mentions = []*larkim.MentionEvent{{
+		Name: &mentionName,
+		Id:   &larkim.UserId{OpenId: &mentionOpenID},
+	}}
 	if err := b.onMessage(context.Background(), event); err != nil {
 		t.Fatalf("onMessage: %v", err)
 	}
 
 	msg := waitMessage(t, captured)
+	if !msg.IsGroup {
+		t.Error("IsGroup = false, want true")
+	}
+	if msg.ChatID != "oc_chat" {
+		t.Errorf("ChatID = %q, want %q", msg.ChatID, "oc_chat")
+	}
 	if msg.ThreadID != "om_root" {
 		t.Errorf("ThreadID = %q, want %q", msg.ThreadID, "om_root")
 	}
@@ -126,5 +161,41 @@ func TestOnMessageAuthPreservesThreadID(t *testing.T) {
 	}
 	if msg.ReplyTo != "om_parent" {
 		t.Errorf("ReplyTo = %q, want %q", msg.ReplyTo, "om_parent")
+	}
+	if !msg.Timestamp.Equal(time.UnixMilli(1700000000000).UTC()) {
+		t.Errorf("Timestamp = %v, want %v", msg.Timestamp, time.UnixMilli(1700000000000).UTC())
+	}
+	if len(msg.Mentions) != 1 || msg.Mentions[0].Raw != "Agent" || msg.Mentions[0].PlatformID != "ou_bot" {
+		t.Errorf("Mentions = %#v, want Agent/ou_bot", msg.Mentions)
+	}
+}
+
+func TestOnMessageFileResolveUserRootPreservesThreadID(t *testing.T) {
+	b, h, captured := newThreadRoutingBotWithHandler(t)
+	probeCh := make(chan channel.IncomingMessage, 1)
+	h.resolveUserRootFn = func(_ context.Context, msg channel.IncomingMessage) (string, error) {
+		probeCh <- msg
+		return t.TempDir(), nil
+	}
+
+	event := fileReceiveEvent("oc_chat", "group", "om_file", "om_root", "om_parent")
+	if err := b.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage: %v", err)
+	}
+
+	probe := waitMessage(t, probeCh)
+	if !probe.IsGroup {
+		t.Error("probe IsGroup = false, want true")
+	}
+	if probe.ChatID != "oc_chat" {
+		t.Errorf("probe ChatID = %q, want %q", probe.ChatID, "oc_chat")
+	}
+	if probe.ThreadID != "om_root" {
+		t.Errorf("probe ThreadID = %q, want %q", probe.ThreadID, "om_root")
+	}
+
+	msg := waitMessage(t, captured)
+	if msg.ThreadID != "om_root" {
+		t.Errorf("ThreadID = %q, want %q", msg.ThreadID, "om_root")
 	}
 }

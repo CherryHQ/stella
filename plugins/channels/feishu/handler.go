@@ -158,6 +158,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	if derefStr(msg.MessageType) == "file" {
 		if resolver, ok := b.handler.(channel.UserRootResolver); ok {
 			probeMsg := b.incomingMsg(senderIDs, chatID, chatType, nil)
+			probeMsg.ThreadID = rootID
 			resolveCtx, resolveCancel := b.apiContext()
 			if userRoot, err := resolver.ResolveUserRoot(resolveCtx, probeMsg); err == nil {
 				assetsDir = agent.UserAssetsDir(userRoot)
