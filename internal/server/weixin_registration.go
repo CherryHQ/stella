@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"strings"
@@ -13,6 +15,21 @@ import (
 )
 
 const weixinRegistrationPollInterval = 2
+
+// errWeixinConfigInvalid wraps plugin config-validation failures so callers can
+// distinguish a bad caller-supplied config (HTTP 400) from a store/runtime
+// failure (HTTP 500).
+var errWeixinConfigInvalid = errors.New("invalid weixin channel config")
+
+// validateWeixinChannelID enforces the WeChat singleton invariant: one iLink
+// account cannot back multiple independent bots, so the only valid weixin
+// channel ID is the canonical "weixin".
+func validateWeixinChannelID(id string) error {
+	if id != pkgchannel.PlatformWeixin {
+		return errors.New("weixin supports only the default channel id weixin")
+	}
+	return nil
+}
 
 var weixinRegistrationEndpoint = weixin.DefaultBaseURL
 
@@ -73,8 +90,8 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "qrcode is required")
 		return
 	}
-	if req.ChannelID != pkgchannel.PlatformWeixin {
-		writeError(w, http.StatusBadRequest, "weixin supports only the default channel id weixin")
+	if err := validateWeixinChannelID(req.ChannelID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.AgentID == "" {
@@ -117,9 +134,11 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 	if name == "" {
 		name = "WeChat"
 	}
-	ch.Name = name
-	ch.Enabled = true
-	saved, err := s.saveWeixinSingletonChannel(r.Context(), ch, req.Config, status)
+	saved, err := s.saveWeixinSingletonChannel(r.Context(), name, req.AgentID, true, req.Config, status)
+	if errors.Is(err, errWeixinConfigInvalid) {
+		writeError(w, http.StatusBadRequest, "invalid channel config")
+		return
+	}
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -127,7 +146,12 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 	writeData(w, http.StatusOK, map[string]any{"status": "created", "channel": channelToView(saved)})
 }
 
-func (s *Server) saveWeixinSingletonChannel(ctx context.Context, patch config.Channel, cfgPatch map[string]any, status *weixin.QRCodeStatusResponse) (config.Channel, error) {
+// saveWeixinSingletonChannel upserts the canonical "weixin" channel with the
+// iLink credentials from status, merging cfgPatch first so the credentials
+// always win. name and agentID are applied only when non-empty; enable only
+// ever turns the channel on (a confirmed registration enables it; the
+// identity-link path passes false to leave the existing state untouched).
+func (s *Server) saveWeixinSingletonChannel(ctx context.Context, name, agentID string, enable bool, cfgPatch map[string]any, status *weixin.QRCodeStatusResponse) (config.Channel, error) {
 	ch, err := s.store.GetChannel(ctx, pkgchannel.PlatformWeixin)
 	cfg := map[string]any{}
 	if err != nil {
@@ -141,16 +165,13 @@ func (s *Server) saveWeixinSingletonChannel(ctx context.Context, patch config.Ch
 	if ch.Type == "" {
 		ch.Type = pkgchannel.PlatformWeixin
 	}
-	if patch.Name != "" {
-		ch.Name = patch.Name
+	if name != "" {
+		ch.Name = name
 	}
-	if patch.AgentID != "" {
-		ch.AgentID = patch.AgentID
+	if agentID != "" {
+		ch.AgentID = agentID
 	}
-	// Enabled is one-way on purpose: a confirmed registration enables the
-	// channel, while the QR-login path passes a zero patch to leave the
-	// existing enabled state untouched. There is no caller that disables here.
-	if patch.Enabled {
+	if enable {
 		ch.Enabled = true
 	}
 	maps.Copy(cfg, cfgPatch)
@@ -162,7 +183,7 @@ func (s *Server) saveWeixinSingletonChannel(ctx context.Context, patch config.Ch
 	pluginID := config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin)
 	if s.pluginHost != nil {
 		if err := s.pluginHost.ValidateConfig(pluginID, cfg); err != nil {
-			return config.Channel{}, err
+			return config.Channel{}, fmt.Errorf("%w: %w", errWeixinConfigInvalid, err)
 		}
 	}
 	if err := s.store.UpsertPlugin(ctx, config.Plugin{ID: pluginID, Kind: config.PluginKindChannel, Name: pkgchannel.PlatformWeixin, Enabled: ch.Enabled, Config: cfg}); err != nil {

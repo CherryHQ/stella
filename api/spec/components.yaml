@@ -591,7 +591,8 @@ components:
       properties:
         status:
           type: string
-          enum: [wait, scaned, confirmed, expired, created]
+          description: >-
+            Registration status. "created" is synthesized by Stella once credentials are saved; all other values are passed through verbatim from the iLink scan status (e.g. wait, scaned, expired) and are not an exhaustive set.
         poll_interval:
           type: integer
         channel:
