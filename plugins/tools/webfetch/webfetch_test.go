@@ -9,8 +9,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	readability "codeberg.org/readeck/go-readability/v2"
 )
 
 func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server) {
@@ -48,7 +46,7 @@ func makeArticleServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = fmt.Fprint(w, `<html><head><title>Test Article</title></head><body><article><p>Hello world. This is test content for rendering. It has enough words to be parsed successfully by the readability library.</p><p>Second paragraph for completeness and more content here.</p></article></body></html>`)
+		_, _ = fmt.Fprint(w, `<html><head><title>Test Article</title></head><body><article><p>Hello world. This is test content for rendering. It has enough words to be parsed successfully by the extractor.</p><p>Second paragraph for completeness and more content here.</p></article></body></html>`)
 	}))
 }
 
@@ -104,10 +102,10 @@ func TestWebFetchTool_FormatJSON(t *testing.T) {
 }
 
 func TestWebFetchToolNoContent(t *testing.T) {
-	// Serve minimal HTML that readability cannot extract content from (nil Node).
+	// Serve minimal HTML that the extractor cannot extract content from.
 	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		// Empty body with just a title — readability will parse but produce nil Node.
+		// Empty body with just a title should produce no article content.
 		_, _ = fmt.Fprint(w, `<html><head><title>Test Page</title></head><body><script>app()</script></body></html>`)
 	}))
 	defer srv.Close()
@@ -128,7 +126,7 @@ func TestWebFetchToolNoContent(t *testing.T) {
 func TestWebFetchToolSuccess(t *testing.T) {
 	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = fmt.Fprint(w, `<html><head><title>Article</title></head><body><article><p>Hello world. This is a test article with enough content for readability to extract.</p><p>Second paragraph with more details about the topic at hand.</p></article></body></html>`)
+		_, _ = fmt.Fprint(w, `<html><head><title>Article</title></head><body><article><p>Hello world. This is a test article with enough content for extraction.</p><p>Second paragraph with more details about the topic at hand.</p></article></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -143,7 +141,7 @@ func TestWebFetchToolSuccess(t *testing.T) {
 }
 
 func TestBuildNoContentMessage(t *testing.T) {
-	msg := buildNoContentMessage("https://example.com/page", readability.Article{})
+	msg := buildNoContentMessage("https://example.com/page", nil)
 	if !strings.Contains(msg, "No readable content") {
 		t.Error("missing header")
 	}

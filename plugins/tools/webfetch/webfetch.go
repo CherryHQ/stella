@@ -1,18 +1,19 @@
 package webfetch
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"strings"
 
-	readability "codeberg.org/readeck/go-readability/v2"
-	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/go-resty/resty/v2"
+	defuddle "github.com/vaayne/go-defuddle"
+	"golang.org/x/net/html"
 
 	"github.com/CherryHQ/stella/pkg/httpclient"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -54,10 +55,10 @@ const (
 )
 
 // fetchResult holds the outcome of a fetch: either raw content served
-// directly by the server (markdown or JSON), or a readability article to be rendered.
+// directly by the server (markdown or JSON), or extracted article content to be rendered.
 type fetchResult struct {
 	rawContent string
-	article    readability.Article
+	article    *defuddle.Result
 }
 
 // WebFetchTool fetches a URL, extracts readable content, and returns it in the requested format.
@@ -103,6 +104,11 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) (string
 
 	format, _ := args["format"].(string)
 	if format == "" {
+		format = formatMarkdown
+	}
+	switch format {
+	case formatMarkdown, formatHTML, formatText, formatJSON:
+	default:
 		format = formatMarkdown
 	}
 
@@ -168,12 +174,18 @@ func (t *WebFetchTool) fetch(ctx context.Context, rawURL string, parsed *url.URL
 		return fetchResult{rawContent: string(body)}, nil
 	}
 
-	article, err := readability.FromReader(bytes.NewReader(body), parsed)
+	parser, err := defuddle.NewParser()
 	if err != nil {
-		return fetchResult{}, fmt.Errorf("webfetch: readability parse failed: %w", err)
+		return fetchResult{}, fmt.Errorf("webfetch: defuddle init failed: %w", err)
+	}
+	defer parser.Close()
+
+	article, err := parser.Parse(string(body), parsed.String(), &defuddle.Options{Markdown: format == formatMarkdown})
+	if err != nil {
+		return fetchResult{}, fmt.Errorf("webfetch: defuddle parse failed: %w", err)
 	}
 
-	if article.Node == nil {
+	if strings.TrimSpace(article.Content) == "" || (article.WordCount == 0 && htmlToText(article.Content) == "") {
 		return fetchResult{rawContent: buildNoContentMessage(rawURL, article)}, nil
 	}
 
@@ -192,7 +204,7 @@ func parseMediaType(contentType string) string {
 	return mediaType
 }
 
-func (t *WebFetchTool) render(article readability.Article, parsed *url.URL, format string) (string, error) {
+func (t *WebFetchTool) render(article *defuddle.Result, parsed *url.URL, format string) (string, error) {
 	switch format {
 	case formatHTML:
 		return t.renderHTML(article)
@@ -201,47 +213,27 @@ func (t *WebFetchTool) render(article readability.Article, parsed *url.URL, form
 	case formatJSON:
 		return t.renderJSON(article, parsed)
 	default:
-		return t.renderMarkdown(article, parsed)
+		return t.renderMarkdown(article)
 	}
 }
 
-func (t *WebFetchTool) renderMarkdown(article readability.Article, parsed *url.URL) (string, error) {
-	var htmlBuf strings.Builder
-	if err := article.RenderHTML(&htmlBuf); err != nil {
-		return "", fmt.Errorf("webfetch: render html failed: %w", err)
-	}
-
-	converter := md.NewConverter(parsed.Host, true, nil)
-	markdown, err := converter.ConvertString(htmlBuf.String())
-	if err != nil {
-		return "", fmt.Errorf("webfetch: html-to-markdown failed: %w", err)
-	}
-
+func (t *WebFetchTool) renderMarkdown(article *defuddle.Result) (string, error) {
 	var result strings.Builder
 	t.writeMetadata(&result, article)
-	result.WriteString(markdown)
+	result.WriteString(article.Markdown)
 	return result.String(), nil
 }
 
-func (t *WebFetchTool) renderHTML(article readability.Article) (string, error) {
-	var htmlBuf strings.Builder
-	if err := article.RenderHTML(&htmlBuf); err != nil {
-		return "", fmt.Errorf("webfetch: render html failed: %w", err)
-	}
-	return htmlBuf.String(), nil
+func (t *WebFetchTool) renderHTML(article *defuddle.Result) (string, error) {
+	return article.Content, nil
 }
 
-func (t *WebFetchTool) renderText(article readability.Article) (string, error) {
-	var textBuf strings.Builder
-	if err := article.RenderText(&textBuf); err != nil {
-		return "", fmt.Errorf("webfetch: render text failed: %w", err)
-	}
-
+func (t *WebFetchTool) renderText(article *defuddle.Result) (string, error) {
 	var result strings.Builder
-	if title := article.Title(); title != "" {
-		fmt.Fprintf(&result, "%s\n\n", title)
+	if article.Title != "" {
+		fmt.Fprintf(&result, "%s\n\n", article.Title)
 	}
-	result.WriteString(textBuf.String())
+	result.WriteString(htmlToText(article.Content))
 	return result.String(), nil
 }
 
@@ -254,19 +246,14 @@ type webFetchJSON struct {
 	Content     string `json:"content"`
 }
 
-func (t *WebFetchTool) renderJSON(article readability.Article, parsed *url.URL) (string, error) {
-	var textBuf strings.Builder
-	if err := article.RenderText(&textBuf); err != nil {
-		return "", fmt.Errorf("webfetch: render text failed: %w", err)
-	}
-
+func (t *WebFetchTool) renderJSON(article *defuddle.Result, parsed *url.URL) (string, error) {
 	data := webFetchJSON{
-		Title:       article.Title(),
-		Author:      article.Byline(),
-		Description: article.Excerpt(),
-		SiteName:    article.SiteName(),
+		Title:       article.Title,
+		Author:      article.Author,
+		Description: article.Description,
+		SiteName:    article.Site,
 		URL:         parsed.String(),
-		Content:     textBuf.String(),
+		Content:     htmlToText(article.Content),
 	}
 
 	b, err := json.Marshal(data)
@@ -276,34 +263,51 @@ func (t *WebFetchTool) renderJSON(article readability.Article, parsed *url.URL) 
 	return string(b), nil
 }
 
-// buildNoContentMessage produces a fallback message when readability could not
-// extract article content (Node is nil). This commonly happens with pages that
-// require JavaScript, use bot detection, or have no article-like structure
-// (e.g. search engine result pages, SPAs, login walls).
-func buildNoContentMessage(rawURL string, article readability.Article) string {
+// buildNoContentMessage produces a fallback message when defuddle could not
+// extract article content. This commonly happens with pages that require
+// JavaScript, use bot detection, or have no article-like structure (e.g. search
+// engine result pages, SPAs, login walls).
+func buildNoContentMessage(rawURL string, article *defuddle.Result) string {
 	var sb strings.Builder
 	sb.WriteString("No readable content could be extracted from this page.\n")
 	sb.WriteString("URL: " + rawURL + "\n")
 
-	if title := article.Title(); title != "" {
-		sb.WriteString("Title: " + title + "\n")
+	if article != nil {
+		if article.Title != "" {
+			sb.WriteString("Title: " + article.Title + "\n")
+		}
+		if article.Site != "" {
+			sb.WriteString("Site: " + article.Site + "\n")
+		}
 	}
-	if siteName := article.SiteName(); siteName != "" {
-		sb.WriteString("Site: " + siteName + "\n")
-	}
-	// Note: article.Excerpt() panics when Node is nil (readability bug),
-	// so we only call safe metadata accessors above.
 
 	sb.WriteString("\nThis usually means the page requires JavaScript rendering, ")
 	sb.WriteString("uses bot detection, or has no article-like content (e.g. search engines, SPAs).")
 	return sb.String()
 }
 
-func (t *WebFetchTool) writeMetadata(w *strings.Builder, article readability.Article) {
-	if title := article.Title(); title != "" {
-		fmt.Fprintf(w, "# %s\n\n", title)
+func htmlToText(content string) string {
+	tokenizer := html.NewTokenizer(strings.NewReader(content))
+	var text strings.Builder
+	for {
+		switch tokenizer.Next() {
+		case html.ErrorToken:
+			if !errors.Is(tokenizer.Err(), io.EOF) {
+				return strings.Join(strings.Fields(text.String()), " ")
+			}
+			return strings.Join(strings.Fields(text.String()), " ")
+		case html.TextToken:
+			text.WriteByte(' ')
+			text.Write(tokenizer.Text())
+		}
 	}
-	if author := article.Byline(); author != "" {
-		fmt.Fprintf(w, "**Author:** %s\n\n", author)
+}
+
+func (t *WebFetchTool) writeMetadata(w *strings.Builder, article *defuddle.Result) {
+	if article.Title != "" {
+		fmt.Fprintf(w, "# %s\n\n", article.Title)
+	}
+	if article.Author != "" {
+		fmt.Fprintf(w, "**Author:** %s\n\n", article.Author)
 	}
 }
