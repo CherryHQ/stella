@@ -11,6 +11,27 @@ icon: History
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-06-15
+
+### ✨ 功能
+
+- Skills：以统一 inspector 重新设计 agent skills 页面。([#413](https://github.com/CherryHQ/stella/pull/413))
+- API：新增 ClawHub 技能发现接口。([#415](https://github.com/CherryHQ/stella/pull/415))
+
+### 🐛 修复
+
+- 群聊：改进 @mention 路由、消息顺序、Web 断连和至少一次投递的分发正确性。([#410](https://github.com/CherryHQ/stella/pull/410))
+- Agent runtime：将 project root 传入 runner prompt。([#422](https://github.com/CherryHQ/stella/pull/422))
+- Sessions：保持 channel main session 与 project main session 分离。([#428](https://github.com/CherryHQ/stella/pull/428))
+- Goals：修复 goal 列表和可恢复 rollup 行为。([#429](https://github.com/CherryHQ/stella/pull/429))
+- Agents：管理员列表中遵守 assigned-agent 可见性。([#431](https://github.com/CherryHQ/stella/pull/431))
+
+### ⚡ 性能
+
+- 群聊：按 turn 注入当前发言人。([#423](https://github.com/CherryHQ/stella/pull/423))
+
+**完整变更日志**：[v0.46.0...v0.47.0](https://github.com/CherryHQ/stella/compare/v0.46.0...v0.47.0)
+
 ## [0.46.0] - 2026-06-12
 
 ### ✨ 功能
