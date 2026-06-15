@@ -106,6 +106,16 @@ paths:
   # ── Skills ─────────────────────────────────────────────────────────────────
   /api/skills/search:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1search"
+  /api/skills:
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills"
+  /api/skills/install:
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1install"
+  /api/skills/upload:
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1upload"
+  /api/skills/{id}:
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}"
+  /api/skills/{id}/file:
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}~1file"
   # ── ClawHub ────────────────────────────────────────────────────────────────
   /api/clawhub/skills:
     $ref: "./domain/clawhub/paths.yaml#/paths/~1api~1clawhub~1skills"

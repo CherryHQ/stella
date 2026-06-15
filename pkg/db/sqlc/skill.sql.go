@@ -60,8 +60,9 @@ func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill
 const deleteSkill = `-- name: DeleteSkill :exec
 DELETE FROM skill
 WHERE id = ?1
-  AND ((scope='agent' AND agent_id=?2)
-    OR (scope='user' AND user_id=?3))
+  AND ((scope='system_agent' AND agent_id=?2)
+    OR (scope='user'         AND user_id=?3)
+    OR (scope='user_agent'   AND user_id=?3 AND agent_id=?2))
 `
 
 type DeleteSkillParams struct {
@@ -130,17 +131,24 @@ func (q *Queries) ExpireKnowledgeDraftsByType(ctx context.Context, arg ExpireKno
 	return err
 }
 
-const getAgentSkillByName = `-- name: GetAgentSkillByName :one
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill WHERE scope = 'agent' AND agent_id = ? AND name = ?
+const getSkill = `-- name: GetSkill :one
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
+WHERE id = ?1
+  AND ((?2 IS NULL AND ?3 IS NULL)
+    OR scope='system'
+    OR (scope='system_agent' AND agent_id=?2)
+    OR (scope='user'         AND user_id=?3)
+    OR (scope='user_agent'   AND user_id=?3 AND agent_id=?2))
 `
 
-type GetAgentSkillByNameParams struct {
-	AgentID sql.NullString `json:"agent_id"`
-	Name    string         `json:"name"`
+type GetSkillParams struct {
+	ID      string      `json:"id"`
+	AgentID interface{} `json:"agent_id"`
+	UserID  interface{} `json:"user_id"`
 }
 
-func (q *Queries) GetAgentSkillByName(ctx context.Context, arg GetAgentSkillByNameParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getAgentSkillByName, arg.AgentID, arg.Name)
+func (q *Queries) GetSkill(ctx context.Context, arg GetSkillParams) (Skill, error) {
+	row := q.db.QueryRowContext(ctx, getSkill, arg.ID, arg.AgentID, arg.UserID)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -158,20 +166,12 @@ func (q *Queries) GetAgentSkillByName(ctx context.Context, arg GetAgentSkillByNa
 	return i, err
 }
 
-const getSkill = `-- name: GetSkill :one
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
-WHERE id = ?1
-  AND ((?2 IS NULL AND ?3 IS NULL) OR scope='system' OR (scope='agent' AND agent_id=?2) OR (scope='user' AND user_id=?3))
+const getSkillByID = `-- name: GetSkillByID :one
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill WHERE id = ?
 `
 
-type GetSkillParams struct {
-	ID      string      `json:"id"`
-	AgentID interface{} `json:"agent_id"`
-	UserID  interface{} `json:"user_id"`
-}
-
-func (q *Queries) GetSkill(ctx context.Context, arg GetSkillParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getSkill, arg.ID, arg.AgentID, arg.UserID)
+func (q *Queries) GetSkillByID(ctx context.Context, id string) (Skill, error) {
+	row := q.db.QueryRowContext(ctx, getSkillByID, id)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -202,6 +202,34 @@ func (q *Queries) GetSkillFile(ctx context.Context, arg GetSkillFileParams) (Ski
 	row := q.db.QueryRowContext(ctx, getSkillFile, arg.SkillID, arg.Path)
 	var i SkillFile
 	err := row.Scan(&i.SkillID, &i.Path, &i.Content)
+	return i, err
+}
+
+const getSystemAgentSkillByName = `-- name: GetSystemAgentSkillByName :one
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill WHERE scope = 'system_agent' AND agent_id = ? AND name = ?
+`
+
+type GetSystemAgentSkillByNameParams struct {
+	AgentID sql.NullString `json:"agent_id"`
+	Name    string         `json:"name"`
+}
+
+func (q *Queries) GetSystemAgentSkillByName(ctx context.Context, arg GetSystemAgentSkillByNameParams) (Skill, error) {
+	row := q.db.QueryRowContext(ctx, getSystemAgentSkillByName, arg.AgentID, arg.Name)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 
@@ -262,8 +290,9 @@ WHERE disable_model_invocation = 1
   AND status = 'active'
   AND (
     scope = 'system'
-    OR (scope = 'agent' AND agent_id = ?1)
-    OR (scope = 'user'  AND user_id  = ?2 AND agent_id = ?1)
+    OR (scope = 'system_agent' AND agent_id = ?1)
+    OR (scope = 'user'         AND user_id  = ?2)
+    OR (scope = 'user_agent'   AND user_id  = ?2 AND agent_id = ?1)
   )
   AND (?3 = '' OR metadata LIKE '%"knowledge_type":"' || ?3 || '"%')
 ORDER BY created_at DESC
@@ -376,9 +405,58 @@ func (q *Queries) ListSkillFiles(ctx context.Context, skillID string) ([]SkillFi
 	return items, nil
 }
 
+const listSkillsByScope = `-- name: ListSkillsByScope :many
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
+WHERE scope = ?1
+  AND ifnull(user_id, '') = ifnull(?2, '')
+  AND ifnull(agent_id, '') = ifnull(?3, '')
+ORDER BY created_at
+`
+
+type ListSkillsByScopeParams struct {
+	Scope   string      `json:"scope"`
+	UserID  interface{} `json:"user_id"`
+	AgentID interface{} `json:"agent_id"`
+}
+
+func (q *Queries) ListSkillsByScope(ctx context.Context, arg ListSkillsByScopeParams) ([]Skill, error) {
+	rows, err := q.db.QueryContext(ctx, listSkillsByScope, arg.Scope, arg.UserID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Skill{}
+	for rows.Next() {
+		var i Skill
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Name,
+			&i.Description,
+			&i.Status,
+			&i.DisableModelInvocation,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSkillsForAdmin = `-- name: ListSkillsForAdmin :many
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
-WHERE scope != 'user'
+WHERE scope NOT IN ('user', 'user_agent')
       OR user_id = ?1
 ORDER BY scope, created_at
 `
@@ -423,8 +501,9 @@ SELECT id, scope, user_id, agent_id, name, description, status, disable_model_in
 WHERE status != 'deprecated'
   AND (
     scope = 'system'
-    OR (scope = 'agent' AND agent_id = ?1)
-    OR (scope = 'user' AND user_id = ?2 AND agent_id = ?1)
+    OR (scope = 'system_agent' AND agent_id = ?1)
+    OR (scope = 'user'         AND user_id = ?2)
+    OR (scope = 'user_agent'   AND user_id = ?2 AND agent_id = ?1)
   )
 ORDER BY scope, created_at
 `
@@ -474,11 +553,10 @@ SELECT id, scope, user_id, agent_id, name, description, status, disable_model_in
 WHERE status != 'deprecated'
   AND (
     scope = 'system'
-    OR (scope = 'agent' AND instr(',' || ?1 || ',', ',' || agent_id || ',') > 0)
-    OR (scope = 'user' AND user_id = ?2 AND (
-      agent_id IS NULL
-      OR instr(',' || ?1 || ',', ',' || agent_id || ',') > 0
-    ))
+    OR (scope = 'system_agent' AND instr(',' || ?1 || ',', ',' || agent_id || ',') > 0)
+    OR (scope = 'user' AND user_id = ?2)
+    OR (scope = 'user_agent' AND user_id = ?2
+        AND instr(',' || ?1 || ',', ',' || agent_id || ',') > 0)
   )
 ORDER BY scope, created_at
 `
@@ -529,13 +607,16 @@ WHERE status != 'deprecated'
   AND disable_model_invocation = 0
   AND (
     scope = 'system'
-    OR (scope = 'agent'   AND agent_id = ?1)
-    OR (scope = 'user'    AND user_id = ?2 AND (
-      (?1 IS NULL AND agent_id IS NULL)
-      OR agent_id = ?1
-    ))
+    OR (scope = 'system_agent' AND agent_id = ?1)
+    OR (scope = 'user'         AND user_id = ?2)
+    OR (scope = 'user_agent'   AND user_id = ?2 AND agent_id = ?1)
   )
-ORDER BY created_at
+ORDER BY CASE scope
+    WHEN 'user_agent'   THEN 1
+    WHEN 'user'         THEN 2
+    WHEN 'system_agent' THEN 3
+    WHEN 'system'       THEN 4
+  END, created_at
 `
 
 type ListSkillsVisibleParams struct {
@@ -543,6 +624,9 @@ type ListSkillsVisibleParams struct {
 	UserID  sql.NullString `json:"user_id"`
 }
 
+// ListSkillsVisible returns the effective skill set for a (user, agent) context,
+// ordered most-specific-first so a name-dedup keeps the highest-precedence skill:
+// user_agent > user > system_agent > system.
 func (q *Queries) ListSkillsVisible(ctx context.Context, arg ListSkillsVisibleParams) ([]Skill, error) {
 	rows, err := q.db.QueryContext(ctx, listSkillsVisible, arg.AgentID, arg.UserID)
 	if err != nil {
@@ -585,17 +669,16 @@ WHERE name = ?1
   AND disable_model_invocation = 0
   AND (
     scope = 'system'
-    OR (scope = 'agent'   AND agent_id = ?2)
-    OR (scope = 'user'    AND user_id = ?3 AND (
-      (?2 IS NULL AND agent_id IS NULL)
-      OR agent_id = ?2
-    ))
+    OR (scope = 'system_agent' AND agent_id = ?2)
+    OR (scope = 'user'         AND user_id = ?3)
+    OR (scope = 'user_agent'   AND user_id = ?3 AND agent_id = ?2)
   )
 ORDER BY
   CASE scope
-    WHEN 'user'   THEN 1
-    WHEN 'agent'  THEN 2
-    WHEN 'system' THEN 3
+    WHEN 'user_agent'   THEN 1
+    WHEN 'user'         THEN 2
+    WHEN 'system_agent' THEN 3
+    WHEN 'system'       THEN 4
   END ASC
 LIMIT 1
 `
@@ -606,6 +689,8 @@ type ResolveSkillParams struct {
 	UserID  sql.NullString `json:"user_id"`
 }
 
+// ResolveSkill returns the single effective skill for a name in a (user, agent)
+// context. Precedence: user_agent > user > system_agent > system.
 func (q *Queries) ResolveSkill(ctx context.Context, arg ResolveSkillParams) (Skill, error) {
 	row := q.db.QueryRowContext(ctx, resolveSkill, arg.Name, arg.AgentID, arg.UserID)
 	var i Skill
@@ -633,8 +718,9 @@ SET description              = ?1,
     metadata                 = ?4,
     updated_at               = datetime('now')
 WHERE id = ?5
-  AND ((scope='agent' AND agent_id=?6)
-    OR (scope='user' AND user_id=?7))
+  AND ((scope='system_agent' AND agent_id=?6)
+    OR (scope='user'         AND user_id=?7)
+    OR (scope='user_agent'   AND user_id=?7 AND agent_id=?6))
 `
 
 type UpdateSkillMetadataParams struct {

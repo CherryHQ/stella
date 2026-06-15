@@ -168,7 +168,10 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 	switch scope {
 	case "user":
 		sk.UserID = vc.UserID
-	case "agent":
+	case "user_agent":
+		sk.UserID = vc.UserID
+		sk.AgentID = vc.AgentID
+	case "system_agent":
 		sk.AgentID = vc.AgentID
 	}
 

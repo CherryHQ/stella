@@ -11,9 +11,9 @@ import { Spinner } from "@/components/ui/spinner";
 interface Props {
   state: AgentsPageState;
   onClose: () => void;
-  onSetScope: (scope: "user" | "agent") => void;
-  onInstall: (source: string, scope: "user" | "agent") => Promise<void>;
-  onUpload: (file: File, scope: "user" | "agent") => Promise<void>;
+  onSetScope: (scope: "user_agent" | "system_agent") => void;
+  onInstall: (source: string, scope: "user_agent" | "system_agent") => Promise<void>;
+  onUpload: (file: File, scope: "user_agent" | "system_agent") => Promise<void>;
   showToast: (msg: string, type?: "success" | "error") => void;
 }
 
@@ -101,9 +101,9 @@ export function SkillInstallModal({
             {canInstallAgentSkills && (
               <button
                 type="button"
-                onClick={() => onSetScope("agent")}
+                onClick={() => onSetScope("system_agent")}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
-                  skillInstallScope === "agent"
+                  skillInstallScope === "system_agent"
                     ? "bg-card text-foreground border border-border/10"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -113,9 +113,9 @@ export function SkillInstallModal({
             )}
             <button
               type="button"
-              onClick={() => onSetScope("user")}
+              onClick={() => onSetScope("user_agent")}
               className={`px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
-                skillInstallScope === "user"
+                skillInstallScope === "user_agent"
                   ? "bg-card text-foreground border border-border/10"
                   : "text-muted-foreground hover:text-foreground"
               }`}

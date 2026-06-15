@@ -136,10 +136,10 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 	switch sk.Scope {
 	case "user":
 		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
-		if sk.AgentID != "" {
-			params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
-		}
-	case "agent":
+	case "user_agent":
+		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
+		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
+	case "system_agent":
 		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -190,11 +190,14 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 	params := sqlc.UpdateSkillMetadataParams{
 		ID: id, Description: desc, Status: status, DisableModelInvocation: disabled, Metadata: meta,
 	}
-	if row.Scope == "agent" {
+	switch row.Scope {
+	case "system_agent":
 		params.AgentID = row.AgentID
-	}
-	if row.Scope == "user" {
+	case "user":
 		params.UserID = row.UserID
+	case "user_agent":
+		params.UserID = row.UserID
+		params.AgentID = row.AgentID
 	}
 	return s.q.UpdateSkillMetadata(ctx, params)
 }
@@ -213,11 +216,14 @@ func (s *testSkillStore) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	params := sqlc.DeleteSkillParams{ID: id}
-	if row.Scope == "agent" {
+	switch row.Scope {
+	case "system_agent":
 		params.AgentID = row.AgentID
-	}
-	if row.Scope == "user" {
+	case "user":
 		params.UserID = row.UserID
+	case "user_agent":
+		params.UserID = row.UserID
+		params.AgentID = row.AgentID
 	}
 	return s.q.DeleteSkill(ctx, params)
 }
@@ -567,12 +573,12 @@ func TestRemoveRespectsScope(t *testing.T) {
 	ctx := ctxWithUser(userID, agentID)
 
 	if _, err := store.Create(ctx, pkgplugins.Skill{
-		Scope: "user", UserID: userID, AgentID: agentID, Name: "dup", Description: "u", Status: "active",
+		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "dup", Description: "u", Status: "active",
 	}, map[string]string{pkgplugins.SkillMainFile: "# u"}); err != nil {
 		t.Fatalf("create user skill: %v", err)
 	}
 	if _, err := store.Create(ctx, pkgplugins.Skill{
-		Scope: "agent", AgentID: agentID, Name: "dup", Description: "a", Status: "active",
+		Scope: "system_agent", AgentID: agentID, Name: "dup", Description: "a", Status: "active",
 	}, map[string]string{pkgplugins.SkillMainFile: "# a"}); err != nil {
 		t.Fatalf("create agent skill: %v", err)
 	}
@@ -594,9 +600,9 @@ func TestRemoveRespectsScope(t *testing.T) {
 			continue
 		}
 		switch s.Scope {
-		case "user":
+		case "user_agent":
 			userLeft = true
-		case "agent":
+		case "system_agent":
 			agentLeft = true
 		}
 	}
@@ -614,7 +620,7 @@ func TestRemoveScopeNotFound(t *testing.T) {
 	ctx := ctxWithUser(userID, agentID)
 
 	if _, err := store.Create(ctx, pkgplugins.Skill{
-		Scope: "user", UserID: userID, AgentID: agentID, Name: "only-user", Description: "u", Status: "active",
+		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "only-user", Description: "u", Status: "active",
 	}, map[string]string{pkgplugins.SkillMainFile: "# u"}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -796,11 +802,12 @@ func TestInstallAgentScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install error: %v", err)
 	}
-	if !strings.Contains(result, "scope=agent") {
-		t.Fatalf("expected agent scope in result, got %q", result)
+	if !strings.Contains(result, "scope=system_agent") {
+		t.Fatalf("expected system_agent scope in result, got %q", result)
 	}
 
-	// Verify it's in the store with agent scope.
+	// Verify it's in the store with system_agent scope (the model-facing "agent"
+	// scope persists as system_agent).
 	vc := pkgplugins.SkillViewContext{AgentID: agentID}
 	skills, err := store.List(ctx, vc)
 	if err != nil {
@@ -810,8 +817,8 @@ func TestInstallAgentScope(t *testing.T) {
 	for _, s := range skills {
 		if s.Name == "agent-skill" {
 			found = true
-			if s.Scope != "agent" {
-				t.Errorf("expected scope 'agent', got %q", s.Scope)
+			if s.Scope != "system_agent" {
+				t.Errorf("expected scope 'system_agent', got %q", s.Scope)
 			}
 			if s.AgentID != agentID {
 				t.Errorf("expected agent_id %q, got %q", agentID, s.AgentID)

@@ -94,8 +94,10 @@ func NewTool(store pkgplugins.SkillStore, stellaHome, agentRoot, projectRoot, us
 }
 
 const (
-	skillScopeUser  = "user"
-	skillScopeAgent = "agent"
+	skillScopeUser = "user"
+	// The model-facing "agent" scope persists as system_agent (admin-managed,
+	// available to everyone running this agent). See normalizeSkillScope.
+	skillScopeAgent = "system_agent"
 )
 
 // skillDirForScope returns the absolute host path to the skill's directory so
@@ -108,12 +110,12 @@ func (t *Tool) skillDirForScope(scope, agentID string, userID string, skillName 
 			return ""
 		}
 		return filepath.Join(t.stellaHome, ".agents", "skills", skillName)
-	case "agent":
+	case "system_agent":
 		if t.agentRoot == "" {
 			return ""
 		}
 		return filepath.Join(t.agentRoot, ".agents", "skills", skillName)
-	case "user":
+	case "user", "user_agent":
 		if t.userSkillsDir == "" {
 			return ""
 		}
@@ -131,7 +133,7 @@ func normalizeSkillScope(scope string) (string, error) {
 	switch scope {
 	case "", ".", skillScopeUser:
 		return skillScopeUser, nil
-	case skillScopeAgent:
+	case "agent", skillScopeAgent:
 		return skillScopeAgent, nil
 	case "project":
 		return "", errors.New(errProjectScopeMsg)
@@ -347,7 +349,10 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 	switch scope {
 	case "user":
 		sk.UserID = vc.UserID
-	case "agent":
+	case "user_agent":
+		sk.UserID = vc.UserID
+		sk.AgentID = vc.AgentID
+	case "system_agent":
 		sk.AgentID = vc.AgentID
 	}
 
@@ -477,7 +482,7 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 			}
 		}
 		if s == nil {
-			return "", fmt.Errorf("skill %q not found in scope=%s", name, wantScope)
+			return "", fmt.Errorf("skill %q not found in scope=%s", name, rawScope)
 		}
 	} else {
 		s, err = t.store.Resolve(ctx, name, vc)
@@ -492,7 +497,7 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 	if s.Scope == "project" {
 		return "", fmt.Errorf("skill %q is a project skill — %s", name, errProjectScopeMsg)
 	}
-	if s.Scope != "user" && s.Scope != "agent" {
+	if !IsWritable(s.Scope) {
 		return "", fmt.Errorf("skill %q has scope %q; only user/agent-scoped skills can be removed", name, s.Scope)
 	}
 

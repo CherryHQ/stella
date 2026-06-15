@@ -186,7 +186,10 @@ paths:
         - name: scope
           in: query
           required: false
-          schema: { type: string, enum: [project, user, agent, system] }
+          schema: {
+            type: string,
+            enum: [project, user, user_agent, system, system_agent],
+          }
         - name: session_id
           in: query
           required: false
@@ -279,7 +282,7 @@ paths:
                   format: binary
                 scope:
                   type: string
-                  enum: [user, agent]
+                  enum: [user, user_agent, system_agent]
       responses:
         "201":
           description: uploaded
@@ -314,7 +317,10 @@ paths:
         - name: scope
           in: query
           required: false
-          schema: { type: string, enum: [project, user, agent, system] }
+          schema: {
+            type: string,
+            enum: [project, user, user_agent, system, system_agent],
+          }
         - name: session_id
           in: query
           required: false
@@ -340,7 +346,10 @@ paths:
         - name: scope
           in: query
           required: true
-          schema: { type: string, enum: [project, user, agent, system] }
+          schema: {
+            type: string,
+            enum: [project, user, user_agent, system, system_agent],
+          }
         - name: session_id
           in: query
           required: false
@@ -376,7 +385,10 @@ paths:
         - name: scope
           in: query
           required: true
-          schema: { type: string, enum: [project, user, agent, system] }
+          schema: {
+            type: string,
+            enum: [project, user, user_agent, system, system_agent],
+          }
         - name: session_id
           in: query
           required: false
@@ -409,7 +421,10 @@ paths:
         - name: scope
           in: query
           required: false
-          schema: { type: string, enum: [project, user, agent, system] }
+          schema: {
+            type: string,
+            enum: [project, user, user_agent, system, system_agent],
+          }
         - name: session_id
           in: query
           required: false
@@ -439,7 +454,10 @@ paths:
         - name: scope
           in: query
           required: true
-          schema: { type: string, enum: [project, user, agent, system] }
+          schema: {
+            type: string,
+            enum: [project, user, user_agent, system, system_agent],
+          }
         - name: session_id
           in: query
           required: false

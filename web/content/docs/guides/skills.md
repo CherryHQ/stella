@@ -10,13 +10,21 @@ Skills are written in plain markdown — they are essentially cheat sheets that 
 
 ## Skill Scopes
 
-Skills are organized into three scopes:
+Skills are organized by who manages them and where they apply:
 
 - **Project skills** — live in your repository under `.agents/skills/`. They ship with the code and are available when the current session is attached to that project.
-- **User skills** — personal skills stored in your account for the current agent.
-- **Agent skills** — scoped to a specific agent. Useful when different agents need different workflows.
+- **User skills** — your personal skills, available across all of your agents.
+- **User · this agent** — your personal skills scoped to a single agent.
+- **Shared agent skills** — managed by admins and available to everyone who uses that agent.
+- **Built-in skills** — managed by admins and available everywhere.
 
-Project skills take precedence over user and agent skills with the same name.
+When two skills share a name, the most specific one wins. Resolution order, highest first:
+
+```
+project > user · this agent > user > shared agent > built-in
+```
+
+Manage your user and per-agent skills from an agent's **Skills** tab, or manage every scope (including the admin-only shared and built-in scopes) from **Settings → Skills**.
 
 ## Installing Skills
 

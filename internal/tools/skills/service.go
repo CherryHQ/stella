@@ -145,7 +145,7 @@ func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgp
 			}
 		}
 		return nil, nil
-	case "agent", "user":
+	case "system_agent", "user", "user_agent":
 		if s.store == nil {
 			return nil, nil
 		}
@@ -237,5 +237,5 @@ func ListDirFiles(dir string) ([]string, error) {
 
 // IsWritable returns whether a skill scope supports write operations.
 func IsWritable(scope string) bool {
-	return scope == "user" || scope == "agent"
+	return scope == "user" || scope == "user_agent" || scope == "system_agent"
 }

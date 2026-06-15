@@ -118,10 +118,12 @@ func (s *Server) upsertSkillFiles(w http.ResponseWriter, store skills.Store, ctx
 
 func skillOwnerViewContext(sk skills.Skill) skills.ViewContext {
 	switch sk.Scope {
-	case "agent":
+	case "system_agent":
 		return skills.ViewContext{AgentID: sk.AgentID}
 	case "user":
 		return skills.ViewContext{UserID: sk.UserID}
+	case "user_agent":
+		return skills.ViewContext{UserID: sk.UserID, AgentID: sk.AgentID}
 	default:
 		return skills.ViewContext{}
 	}

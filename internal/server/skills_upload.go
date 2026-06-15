@@ -49,7 +49,7 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 	}
 	scope := r.FormValue("scope")
 	if scope == "" {
-		scope = "agent"
+		scope = "system_agent"
 	}
 	userID, _, code, msg := s.requireAgentSkillWrite(r.Context(), agentID, scope)
 	if code != 0 {
@@ -58,16 +58,13 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 	}
 	sk := skills.Skill{
 		Scope:                  scope,
-		AgentID:                agentID,
 		Name:                   up.name,
 		Description:            up.description,
 		Status:                 up.status,
 		DisableModelInvocation: up.disableModelInvocation,
 		Metadata:               up.metadata,
 	}
-	if scope == "user" {
-		sk.UserID = userID
-	}
+	sk.UserID, sk.AgentID = skillScopeOwner(scope, userID, agentID)
 	skillID, err := s.skillStore().Create(r.Context(), sk, up.files)
 	if err != nil {
 		s.writeInternalError(w, err)

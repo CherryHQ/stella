@@ -12,9 +12,10 @@ CREATE TABLE skill (
     updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
 
     CHECK (
-        (scope='system'  AND user_id IS NULL     AND agent_id IS NULL) OR
-        (scope='agent'   AND user_id IS NULL     AND agent_id IS NOT NULL) OR
-        (scope='user'    AND user_id IS NOT NULL)
+        (scope='user'         AND user_id IS NOT NULL AND agent_id IS NULL) OR
+        (scope='user_agent'   AND user_id IS NOT NULL AND agent_id IS NOT NULL) OR
+        (scope='system'       AND user_id IS NULL     AND agent_id IS NULL) OR
+        (scope='system_agent' AND user_id IS NULL     AND agent_id IS NOT NULL)
     )
 );
 

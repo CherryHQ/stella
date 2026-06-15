@@ -95,10 +95,12 @@ func (a skillStoreAdapter) viewContextForSkill(ctx context.Context, id string) (
 			continue
 		}
 		switch row.Scope {
-		case "agent":
+		case "system_agent":
 			return skills.ViewContext{AgentID: row.AgentID}, nil
 		case "user":
 			return skills.ViewContext{UserID: row.UserID}, nil
+		case "user_agent":
+			return skills.ViewContext{UserID: row.UserID, AgentID: row.AgentID}, nil
 		default:
 			return skills.ViewContext{}, nil
 		}

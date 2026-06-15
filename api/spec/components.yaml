@@ -154,7 +154,7 @@ components:
           type: string
         scope:
           type: string
-          enum: [project, user, agent, system]
+          enum: [project, user, user_agent, system, system_agent]
         user_id:
           type: string
         agent_id:
@@ -195,7 +195,7 @@ components:
           type: string
         scope:
           type: string
-          enum: [user, agent]
+          enum: [user, user_agent, system_agent]
         description:
           type: string
         status:
@@ -230,7 +230,7 @@ components:
           type: string
         scope:
           type: string
-          enum: [user, agent]
+          enum: [user, user_agent, system_agent]
     SkillFileResponse:
       type: object
       properties:
@@ -2650,6 +2650,38 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SkillSearchResult"
+    ScopedCreateSkillRequest:
+      type: object
+      required: [name, scope]
+      properties:
+        name:
+          type: string
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        agent_id:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        disable_model_invocation:
+          type: boolean
+        files:
+          type: object
+          additionalProperties:
+            type: string
+    ScopedInstallSkillRequest:
+      type: object
+      required: [source, scope]
+      properties:
+        source:
+          type: string
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        agent_id:
+          type: string
     StatusRuntime:
       type: object
       required: [goVersion, os, arch, goroutines, memory]
