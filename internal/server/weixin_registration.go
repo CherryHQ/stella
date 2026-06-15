@@ -27,7 +27,6 @@ type weixinRegistrationPollRequest struct {
 	ChannelID string         `json:"channel_id"`
 	AgentID   string         `json:"agent_id"`
 	Name      string         `json:"name"`
-	Enabled   *bool          `json:"enabled"`
 	Config    map[string]any `json:"config"`
 }
 
@@ -114,16 +113,12 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	enabled := true
-	if req.Enabled != nil {
-		enabled = *req.Enabled
-	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		name = "WeChat"
 	}
 	ch.Name = name
-	ch.Enabled = enabled
+	ch.Enabled = true
 	saved, err := s.saveWeixinSingletonChannel(r.Context(), ch, req.Config, status)
 	if err != nil {
 		s.writeInternalError(w, err)
@@ -152,6 +147,9 @@ func (s *Server) saveWeixinSingletonChannel(ctx context.Context, patch config.Ch
 	if patch.AgentID != "" {
 		ch.AgentID = patch.AgentID
 	}
+	// Enabled is one-way on purpose: a confirmed registration enables the
+	// channel, while the QR-login path passes a zero patch to leave the
+	// existing enabled state untouched. There is no caller that disables here.
 	if patch.Enabled {
 		ch.Enabled = true
 	}

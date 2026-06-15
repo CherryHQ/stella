@@ -582,9 +582,6 @@ components:
           type: string
         name:
           type: string
-        enabled:
-          type: boolean
-          default: true
         config:
           type: object
           additionalProperties: true

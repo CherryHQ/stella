@@ -154,9 +154,6 @@ components:
           description: Weixin is singleton-only; omit or set to "weixin".
         agent_id: { type: string }
         name: { type: string }
-        enabled:
-          type: boolean
-          default: true
         config:
           type: object
           additionalProperties: true

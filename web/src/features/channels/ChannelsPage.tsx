@@ -593,7 +593,6 @@ function NewChannelForm({
           channel_id: channelId,
           agent_id: agentId,
           name: (draft.name as string) || "WeChat",
-          enabled: true,
           config: serializePlatformConfig("weixin", draft),
         },
         throwOnError: true,

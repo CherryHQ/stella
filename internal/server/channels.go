@@ -253,6 +253,10 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "id and type are required")
 		return
 	}
+	if channelType == pkgchannel.PlatformWeixin && req.ID != pkgchannel.PlatformWeixin {
+		writeError(w, http.StatusBadRequest, "weixin supports only the default channel id weixin")
+		return
+	}
 
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
@@ -318,10 +322,6 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 }
 
 func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.Channel, cfgMap map[string]any, status int) bool {
-	if ch.Type == pkgchannel.PlatformWeixin && ch.ID != pkgchannel.PlatformWeixin {
-		writeError(w, http.StatusBadRequest, "weixin supports only the default channel id weixin")
-		return false
-	}
 	if conflict, err := s.channelAgentPlatformBindingConflict(r.Context(), ch); err != nil {
 		s.writeInternalError(w, err)
 		return false
