@@ -73,7 +73,11 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	if env == nil {
 		env = make(map[string]string)
 	}
-	env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome)
+	userShims := ""
+	if dir := policy.Filesystem.MiseUserDirHost; dir != "" {
+		userShims = sandboxpkg.MiseUserShimsDir(dir)
+	}
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims)
 	policy.Env = env
 	return policy
 }

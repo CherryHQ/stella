@@ -21,21 +21,32 @@ const builtinScope = "_builtin"
 // parallel or they clobber each other's shims.
 var miseInstallMu sync.Mutex
 
-// miseBaseEnv returns the mise env entries shared by every Stella mise
-// invocation — the isolated data-dir layout plus the non-interactive flags.
-// Both the install side (isolatedMiseEnv) and the runtime side (RuntimeMiseEnv)
-// build on this, so the directories they must agree on cannot silently drift.
-func miseBaseEnv(stellaHome string) map[string]string {
-	dataDir := miseToolsDir(stellaHome)
+// sandboxWorkspaceDir is the path the agent workspace is mounted at inside the
+// Linux (bwrap) sandbox. It is trusted for mise config so a project's mise.toml
+// participates in version resolution. Mirrors the mount point in
+// plugins/sandbox/local/session_linux.go.
+const sandboxWorkspaceDir = "/workspace"
+
+// miseDirEnv returns the DATA/CONFIG/CACHE/STATE layout rooted at dataDir. The
+// install side roots it at the shared system tree; the runtime side roots it at
+// the per-user writable tree so both agree on the layout without drifting.
+func miseDirEnv(dataDir string) map[string]string {
 	return map[string]string{
-		"MISE_DATA_DIR":     dataDir,
-		"MISE_CONFIG_DIR":   filepath.Join(dataDir, "config"),
-		"MISE_CACHE_DIR":    filepath.Join(dataDir, "cache"),
-		"MISE_STATE_DIR":    filepath.Join(dataDir, "state"),
-		"MISE_YES":          "1",
-		"MISE_NO_ANALYTICS": "1",
-		"MISE_EXPERIMENTAL": "1",
+		"MISE_DATA_DIR":   dataDir,
+		"MISE_CONFIG_DIR": filepath.Join(dataDir, "config"),
+		"MISE_CACHE_DIR":  filepath.Join(dataDir, "cache"),
+		"MISE_STATE_DIR":  filepath.Join(dataDir, "state"),
 	}
+}
+
+// miseBaseEnv returns the mise env entries shared by every Stella mise
+// invocation — the system data-dir layout plus the non-interactive flags.
+func miseBaseEnv(stellaHome string) map[string]string {
+	env := miseDirEnv(miseToolsDir(stellaHome))
+	env["MISE_YES"] = "1"
+	env["MISE_NO_ANALYTICS"] = "1"
+	env["MISE_EXPERIMENTAL"] = "1"
+	return env
 }
 
 // runtimeScopeConfigPath returns the mise config the sandbox resolves against.
@@ -43,19 +54,48 @@ func runtimeScopeConfigPath(stellaHome string) string {
 	return ScopeConfigPath(stellaHome, builtinScope)
 }
 
-// RuntimeMiseEnv returns the mise environment variables a sandbox needs so its
-// shims resolve tool versions from the persisted config against the shared
-// install dir. HOME/XDG are intentionally left untouched — the sandbox owns
-// those. Auto-install is disabled so runtime never reaches the network.
-func RuntimeMiseEnv(stellaHome string) map[string]string {
-	env := miseBaseEnv(stellaHome)
+// RuntimeMiseEnv returns the mise environment for a sandbox session, layered
+// like a real machine: the shared system installs supply the builtin tools and
+// the _builtin config supplies their default versions, while the per-user
+// writable tree (userDataDir) holds anything the agent installs itself. HOME/XDG
+// are left untouched — the sandbox owns those.
+//
+// When userDataDir is set the per-user tree is writable, so DATA/CACHE/STATE live
+// there and auto-install is enabled (network defaults to allow_all); a user's own
+// tool versions win because the per-user shims sort ahead on PATH. workspaceDir
+// (the host workspace root) is trusted alongside the bwrap "/workspace" mount so a
+// project's mise.toml participates in resolution regardless of backend.
+//
+// When userDataDir is empty (no user/group) it falls back to the read-only system
+// tree with auto-install disabled and state redirected to a writable temp dir,
+// matching the historical behavior.
+func RuntimeMiseEnv(stellaHome, userDataDir, workspaceDir string) map[string]string {
+	dataDir := userDataDir
+	if dataDir == "" {
+		dataDir = miseToolsDir(stellaHome)
+	}
+	env := miseDirEnv(dataDir)
+	env["MISE_YES"] = "1"
+	env["MISE_NO_ANALYTICS"] = "1"
+	env["MISE_EXPERIMENTAL"] = "1"
+
 	configPath := runtimeScopeConfigPath(stellaHome)
 	env["MISE_GLOBAL_CONFIG_FILE"] = configPath
-	env["MISE_TRUSTED_CONFIG_PATHS"] = configPath
-	env["MISE_NOT_FOUND_AUTO_INSTALL"] = "false"
-	// Sandbox mounts .mise-tools read-only, so redirect state (config
-	// tracking, etc.) to a writable temp location.
-	env["MISE_STATE_DIR"] = "/tmp/mise-state"
+
+	trusted := []string{configPath, sandboxWorkspaceDir}
+	if workspaceDir != "" && workspaceDir != sandboxWorkspaceDir {
+		trusted = append(trusted, workspaceDir)
+	}
+	env["MISE_TRUSTED_CONFIG_PATHS"] = strings.Join(trusted, string(filepath.ListSeparator))
+
+	if userDataDir == "" {
+		// No writable per-user tree: keep runtime off the network and redirect
+		// state off the read-only system tree, as before.
+		env["MISE_NOT_FOUND_AUTO_INSTALL"] = "false"
+		env["MISE_STATE_DIR"] = "/tmp/mise-state"
+	} else {
+		env["MISE_NOT_FOUND_AUTO_INSTALL"] = "true"
+	}
 	return env
 }
 

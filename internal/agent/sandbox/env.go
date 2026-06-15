@@ -18,16 +18,25 @@ import (
 )
 
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
-	tempID := cfg.UserID
-	if cfg.GroupID != "" {
-		tempID = "group-" + cfg.GroupID
-	}
+	key := miseUserKey(cfg)
 	return pkgsandbox.FilesystemPolicy{
 		WorkspaceRoot:       paths.UserRoot,
 		WorkingDir:          paths.WorkDir,
 		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
-		TempDirHost:         userTempDir(tempID),
+		TempDirHost:         userTempDir(key),
+		MiseUserDirHost:     pkgsandbox.MiseUserToolsDir(paths.StellaHome, key),
 	}
+}
+
+// miseUserKey returns the key for this session's per-user temp and mise trees:
+// the group key for group sessions, otherwise the user ID. Empty when neither
+// is set, which makes callers fall back to a session-local temp dir and the
+// shared read-only system mise tree.
+func miseUserKey(cfg Config) string {
+	if cfg.GroupID != "" {
+		return "group-" + cfg.GroupID
+	}
+	return cfg.UserID
 }
 
 var validUserTempDirID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -150,7 +159,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// PATH, so they need the mise env pointed at the org's config. Docker carries
 	// its own in-image mise tree and PATH, so host-side paths must not leak in.
 	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
-		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome))
+		userDataDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, miseUserKey(cfg))
+		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, userDataDir, paths.UserRoot))
 	}
 
 	return env, nil

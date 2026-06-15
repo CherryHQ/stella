@@ -105,23 +105,44 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 		env = make(map[string]string)
 	}
 	sandboxSH := adjustStellaHome(f.cfg.StellaHome)
-	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH)
+	// remap rewrites a host STELLA_HOME path to its sandbox-adjusted form, leaving
+	// paths outside STELLA_HOME (e.g. /workspace) untouched. bwrap remaps
+	// STELLA_HOME to /home/stella/.stella; on macOS the two are equal and this is
+	// a no-op.
+	hostSH := f.cfg.StellaHome
+	hostPrefix := hostSH + string(filepath.Separator)
+	remap := func(p string) string {
+		switch {
+		case p == hostSH:
+			return sandboxSH
+		case strings.HasPrefix(p, hostPrefix):
+			return sandboxSH + p[len(hostSH):]
+		default:
+			return p
+		}
+	}
+	userShims := ""
+	if dir := policy.Filesystem.MiseUserDirHost; dir != "" {
+		userShims = sandboxpkg.MiseUserShimsDir(remap(dir))
+	}
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
 	env["HOME"] = adjustHome(policy.Filesystem.WorkingDir)
 	env["STELLA_HOME"] = sandboxSH
 	// Rewrite MISE_* path-valued env vars from host STELLA_HOME to the
-	// sandbox-adjusted path so mise shims resolve tools correctly inside
-	// bwrap (where STELLA_HOME is remapped to /home/stella/.stella).
-	if hostSH := f.cfg.StellaHome; hostSH != sandboxSH {
-		hostPrefix := hostSH + string(filepath.Separator)
+	// sandbox-adjusted path so mise resolves tools and configs correctly inside
+	// bwrap. Values are treated as PathListSeparator-joined lists so multi-path
+	// vars (MISE_TRUSTED_CONFIG_PATHS) remap each element independently and
+	// already-sandbox paths like /workspace survive untouched.
+	if hostSH != sandboxSH {
 		for k, v := range env {
 			if !strings.HasPrefix(k, "MISE_") {
 				continue
 			}
-			if v == hostSH {
-				env[k] = sandboxSH
-			} else if strings.HasPrefix(v, hostPrefix) {
-				env[k] = sandboxSH + v[len(hostSH):]
+			parts := strings.Split(v, string(filepath.ListSeparator))
+			for i, p := range parts {
+				parts[i] = remap(p)
 			}
+			env[k] = strings.Join(parts, string(filepath.ListSeparator))
 		}
 	}
 	sandboxpkg.HostEnvCopy(env)

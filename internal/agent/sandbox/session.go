@@ -129,6 +129,16 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 			return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure user temp dir: %w", err)
 		}
 	}
+	// Docker carries its own in-image mise tree; the per-user host tree only
+	// applies to host-execution backends (local, none).
+	if resolveBackendName(ctx, cfg) == config.SandboxBackendDocker {
+		fs.MiseUserDirHost = ""
+	}
+	if fs.MiseUserDirHost != "" {
+		if err := pkgsandbox.EnsureUserMiseHome(paths.StellaHome, fs.MiseUserDirHost); err != nil {
+			return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure per-user mise home: %w", err)
+		}
+	}
 
 	policy := pkgsandbox.Policy{
 		Filesystem: fs,

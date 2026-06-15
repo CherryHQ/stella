@@ -226,6 +226,28 @@ func appendRoBindIfExists(args []string, hostPath, sandboxPath string) []string 
 	return append(args, "--ro-bind", hostPath, sandboxPath)
 }
 
+// appendWritableBind binds a host directory read-write into the sandbox,
+// creating the sandbox-side parent directories first. Used for the per-user
+// mise tree, the one STELLA_HOME subtree an agent may write to.
+func appendWritableBind(args []string, hostPath, sandboxPath string) []string {
+	args = appendDirParents(args, sandboxPath)
+	args = append(args, "--dir", filepath.Clean(sandboxPath))
+	return append(args, "--bind", hostPath, sandboxPath)
+}
+
+// remapToSandboxStellaHome rewrites a host path under STELLA_HOME to its
+// sandbox-view location (STELLA_HOME is remapped to /home/stella/.stella).
+// Paths outside STELLA_HOME are returned unchanged.
+func remapToSandboxStellaHome(hostPath, stellaHomeHost string) string {
+	if hostPath == stellaHomeHost {
+		return sandboxStellaHome
+	}
+	if prefix := stellaHomeHost + string(filepath.Separator); strings.HasPrefix(hostPath, prefix) {
+		return sandboxStellaHome + hostPath[len(stellaHomeHost):]
+	}
+	return hostPath
+}
+
 func appendDirParents(args []string, path string) []string {
 	parent := filepath.Clean(filepath.Dir(path))
 	if parent == "." || parent == string(filepath.Separator) {
@@ -276,6 +298,11 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
 	bwrapArgs = appendStellaHomeMounts(bwrapArgs, stellaHomeHost)
+	// Per-user mise tree: the agent's writable mise home, layered above the
+	// read-only system installs mounted by appendStellaHomeMounts.
+	if userDir := policy.Filesystem.MiseUserDirHost; userDir != "" {
+		bwrapArgs = appendWritableBind(bwrapArgs, userDir, remapToSandboxStellaHome(userDir, stellaHomeHost))
+	}
 	for _, extraPath := range policy.Filesystem.ExtraReadOnlyMounts {
 		bwrapArgs = appendRoBindIfExists(bwrapArgs, extraPath, extraPath)
 	}

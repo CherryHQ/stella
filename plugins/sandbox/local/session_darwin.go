@@ -127,9 +127,15 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy) string {
 	// Dev nodes: required for stdout/stderr, pseudo-terminals, /dev/null, etc.
 	sb.WriteString("(allow file-write* (subpath \"/dev\"))\n")
 
-	// Mise runtime shims are read-only, but mise still refreshes metadata caches.
-	// Keep that write hole narrow instead of allowing the entire STELLA_HOME.
-	appendSeatbeltWritableEnvDirs(&sb, policy.Env)
+	// Mise: with a per-user tree, carve out the whole writable mise home so the
+	// agent can install tools (installs/cache/state all live under it). Without
+	// one, the system installs stay read-only and only the narrow cache/state
+	// metadata holes mise needs are opened.
+	if dir := policy.Filesystem.MiseUserDirHost; dir != "" {
+		fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", filepath.Clean(dir))
+	} else {
+		appendSeatbeltWritableEnvDirs(&sb, policy.Env)
+	}
 
 	// Workspace root: the only user-controlled path that is fully writable.
 	fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", workspace)
