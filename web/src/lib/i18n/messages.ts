@@ -1165,9 +1165,20 @@ const en = {
   "recally.reader.discuss": "Discuss",
   "recally.reader.discussWithAI": "Discuss with AI",
   "recally.reader.copyShareLink": "Copy share link",
+  "recally.reader.emptyDesc":
+    "Select an article or digest from the sidebar queue to start reading and chatting with AI.",
+  "recally.reader.shareFailed": "Failed to share",
+  "recally.reader.sourceUrl": "Source URL",
+  "recally.reader.publishedTime": "Published Time",
+  "recally.reader.noContentParsed": "No article content parsed",
+  "recally.reader.noContentDesc":
+    "This item has no body text. It could be a simple link, or require JavaScript to render. You can read the summary or visit the original webpage.",
   "recally.article.err": "Err",
   "recally.article.poll": "Poll",
   "recally.article.filterRefinements": "Filter refinements",
+  "recally.filter.status": "Status:",
+  "recally.filter.source": "Source:",
+  "recally.tags.empty": "No tags",
 
   // Automations (additions)
   "hub.priority": "Priority",
@@ -2497,9 +2508,19 @@ const zh: Record<MessageKey, string> = {
   "recally.reader.discuss": "讨论",
   "recally.reader.discussWithAI": "与 AI 讨论",
   "recally.reader.copyShareLink": "复制分享链接",
+  "recally.reader.emptyDesc": "从侧边栏选择文章或摘要，开始阅读并与 AI 讨论。",
+  "recally.reader.shareFailed": "分享失败",
+  "recally.reader.sourceUrl": "来源 URL",
+  "recally.reader.publishedTime": "发布时间",
+  "recally.reader.noContentParsed": "未解析到文章正文",
+  "recally.reader.noContentDesc":
+    "此条目没有正文内容。它可能只是一个链接，或需要 JavaScript 渲染。你可以阅读摘要，或访问原网页。",
   "recally.article.err": "错误",
   "recally.article.poll": "拉取",
   "recally.article.filterRefinements": "筛选条件",
+  "recally.filter.status": "状态：",
+  "recally.filter.source": "来源：",
+  "recally.tags.empty": "暂无标签",
 
   // Automations (additions)
   "hub.priority": "优先级",

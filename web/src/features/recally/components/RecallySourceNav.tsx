@@ -196,7 +196,9 @@ export function RecallySourceNav({
                       {pollFeedMut.isPending && pollFeedMut.variables?.path.id === feed.id ? (
                         <RefreshCw className="size-2.5 animate-spin" />
                       ) : feedPollResults[feed.id]?.error ? (
-                        <span className="text-destructive font-semibold">Err</span>
+                        <span className="text-destructive font-semibold">
+                          {t("recally.article.err")}
+                        </span>
                       ) : feedPollResults[feed.id] ? (
                         <span className="text-primary font-semibold">
                           +{feedPollResults[feed.id].newCount}
@@ -260,7 +262,9 @@ export function RecallySourceNav({
                   )}
                 </>
               ) : (
-                <div className="px-3 py-2 text-xs font-mono text-muted-foreground/45">No tags</div>
+                <div className="px-3 py-2 text-xs font-mono text-muted-foreground/45">
+                  {t("recally.tags.empty")}
+                </div>
               )}
             </div>
           )}

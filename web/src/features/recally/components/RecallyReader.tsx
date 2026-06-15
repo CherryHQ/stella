@@ -104,22 +104,25 @@ export function RecallyReader({
     setShareError(null);
   }, [selectedId]);
 
-  const createArticleShare = useCallback(async (articleId: string) => {
-    setSharing(true);
-    setShareError(null);
-    try {
-      const { data } = await createShare({
-        body: { source: "article", article_id: articleId, expires_in: "7d" },
-        throwOnError: true,
-      });
-      setShareUrl(data.url);
-      await navigator.clipboard?.writeText(data.url);
-    } catch (e) {
-      setShareError(e instanceof Error ? e.message : "Failed to share");
-    } finally {
-      setSharing(false);
-    }
-  }, []);
+  const createArticleShare = useCallback(
+    async (articleId: string) => {
+      setSharing(true);
+      setShareError(null);
+      try {
+        const { data } = await createShare({
+          body: { source: "article", article_id: articleId, expires_in: "7d" },
+          throwOnError: true,
+        });
+        setShareUrl(data.url);
+        await navigator.clipboard?.writeText(data.url);
+      } catch (e) {
+        setShareError(e instanceof Error ? e.message : t("recally.reader.shareFailed"));
+      } finally {
+        setSharing(false);
+      }
+    },
+    [t],
+  );
 
   const articleQuery = useQuery({
     ...getArticleOptions({
@@ -152,8 +155,7 @@ export function RecallyReader({
             </div>
             <h3 className="text-base font-semibold text-foreground">{t("recally.reader.empty")}</h3>
             <p className="text-xs text-muted-foreground mt-1 max-w-72 mx-auto leading-relaxed">
-              Select an article or digest from the sidebar queue to start reading and chatting with
-              AI.
+              {t("recally.reader.emptyDesc")}
             </p>
           </div>
         </div>
@@ -296,7 +298,9 @@ export function RecallyReader({
               {/* Delete / Destructive actions */}
               {confirmingDeleteId === selectedArticle.id ? (
                 <div className="flex items-center gap-1 bg-destructive/5 border border-destructive/20 rounded-lg p-1">
-                  <span className="text-xs font-medium text-destructive px-1.5">Confirm?</span>
+                  <span className="text-xs font-medium text-destructive px-1.5">
+                    {t("common.confirm")}
+                  </span>
                   <button
                     onClick={() =>
                       deleteArticleMut.mutate({
@@ -346,7 +350,7 @@ export function RecallyReader({
                     <Link className="size-4 text-primary/75 shrink-0 mt-0.5" />
                     <div className="min-w-0 flex-1">
                       <span className="text-xs font-semibold text-muted-foreground block leading-none mb-1">
-                        Source URL
+                        {t("recally.reader.sourceUrl")}
                       </span>
                       <a
                         href={parsed.metadata.url}
@@ -364,7 +368,7 @@ export function RecallyReader({
                     <Calendar className="size-4 text-primary/75 shrink-0 mt-0.5" />
                     <div className="min-w-0 flex-1">
                       <span className="text-xs font-semibold text-muted-foreground block leading-none mb-1">
-                        Published Time
+                        {t("recally.reader.publishedTime")}
                       </span>
                       <span className="text-xs text-foreground block leading-tight">
                         {parsed.metadata.publishedTime}
@@ -416,11 +420,10 @@ export function RecallyReader({
                 </div>
                 <div>
                   <h4 className="text-sm font-semibold text-foreground">
-                    No article content parsed
+                    {t("recally.reader.noContentParsed")}
                   </h4>
                   <p className="text-xs text-muted-foreground max-w-96 mx-auto mt-1 leading-normal">
-                    This item has no body text. It could be a simple link, or require JavaScript to
-                    render. You can read the summary or visit the original webpage.
+                    {t("recally.reader.noContentDesc")}
                   </p>
                 </div>
               </div>
