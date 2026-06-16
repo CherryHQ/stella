@@ -14,7 +14,7 @@ export function SkillEditPage() {
       void navigate({
         to: "/agents/$agentId/skills",
         params: { agentId },
-        search: { expand: skillId, scope },
+        search: scope && skillId ? { sel: `${scope}:${skillId}` } : {},
         replace: true,
       });
     }

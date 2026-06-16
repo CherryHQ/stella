@@ -2,18 +2,23 @@ import { createFileRoute } from "@tanstack/react-router";
 
 interface SkillsSearch {
   new?: boolean;
-  expand?: string;
-  scope?: string;
-  tab?: string;
-  dslug?: string;
+  source?: "installed" | "market";
+  fscope?: "project" | "user" | "agent" | "system";
+  sel?: string;
 }
+
+const SOURCES = new Set(["installed", "market"]);
+const SCOPES = new Set(["project", "user", "agent", "system"]);
 
 export const Route = createFileRoute("/_app/agents/$agentId/skills/")({
   validateSearch: (search: Record<string, unknown>): SkillsSearch => ({
     new: search.new === true || search.new === "true",
-    expand: typeof search.expand === "string" ? search.expand : undefined,
-    scope: typeof search.scope === "string" ? search.scope : undefined,
-    tab: search.tab === "discover" ? "discover" : undefined,
-    dslug: typeof search.dslug === "string" ? search.dslug : undefined,
+    source: SOURCES.has(search.source as string)
+      ? (search.source as SkillsSearch["source"])
+      : undefined,
+    fscope: SCOPES.has(search.fscope as string)
+      ? (search.fscope as SkillsSearch["fscope"])
+      : undefined,
+    sel: typeof search.sel === "string" ? search.sel : undefined,
   }),
 });
