@@ -75,90 +75,106 @@ func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, projectRoot string) [
 	return out
 }
 
-// Resolve finds a skill by name across all 4 levels.
-// Priority: project > system > DB (user > agent > system in DB).
-// FS skills are checked first so they always shadow DB skills of the same name.
+// Resolve finds a skill by name across all 4 levels, honoring the scope
+// precedence: project > user_agent > user > system_agent > system. Project
+// (filesystem) wins outright; DB skills (which already rank user_agent > user >
+// system_agent > system among themselves) shadow filesystem system skills.
 func (s *Service) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
-	for _, lookup := range []struct {
-		scope string
-		root  string
-	}{
-		{"project", projectRoot},
-		{"system", s.stellaHome},
-	} {
-		if lookup.root == "" {
-			continue
-		}
-		skills, dirs, err := listFSSkills(lookup.root, lookup.scope)
-		if err != nil {
-			continue
-		}
-		for _, sk := range skills {
-			if sk.Name == name {
-				return &ResolvedSkill{Skill: sk, Dir: dirs[name]}, nil
-			}
+	if projectRoot != "" {
+		if rs := findFSSkill(projectRoot, "project", name); rs != nil {
+			return rs, nil
 		}
 	}
 
-	if s.store == nil {
-		return nil, nil
-	}
-	sk, err := s.store.Resolve(ctx, name, vc)
-	if err != nil {
-		return nil, err
-	}
-	if sk == nil {
-		return nil, nil
-	}
-	return &ResolvedSkill{Skill: *sk}, nil
-}
-
-// ResolveScoped finds a skill by name in a specific scope.
-// Unlike Resolve, it does not fall through to other scopes — the scope must match exactly.
-func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
-	switch scope {
-	case "project":
-		if projectRoot == "" {
-			return nil, nil
-		}
-		skills, dirs, err := listFSSkills(projectRoot, "project")
-		if err != nil {
-			return nil, err
-		}
-		for _, sk := range skills {
-			if sk.Name == name {
-				return &ResolvedSkill{Skill: sk, Dir: dirs[name]}, nil
-			}
-		}
-		return nil, nil
-	case "system":
-		if s.stellaHome == "" {
-			return nil, nil
-		}
-		skills, dirs, err := listFSSkills(s.stellaHome, "system")
-		if err != nil {
-			return nil, err
-		}
-		for _, sk := range skills {
-			if sk.Name == name {
-				return &ResolvedSkill{Skill: sk, Dir: dirs[name]}, nil
-			}
-		}
-		return nil, nil
-	case "agent", "user":
-		if s.store == nil {
-			return nil, nil
-		}
+	if s.store != nil {
 		sk, err := s.store.Resolve(ctx, name, vc)
 		if err != nil {
 			return nil, err
 		}
-		if sk == nil || sk.Scope != scope {
-			return nil, nil
+		if sk != nil {
+			return &ResolvedSkill{Skill: *sk}, nil
 		}
-		return &ResolvedSkill{Skill: *sk}, nil
+	}
+
+	if s.stellaHome != "" {
+		if rs := findFSSkill(s.stellaHome, "system", name); rs != nil {
+			return rs, nil
+		}
+	}
+	return nil, nil
+}
+
+// findFSSkill returns the named skill from a filesystem scope root, or nil.
+func findFSSkill(root, scope, name string) *ResolvedSkill {
+	skills, dirs, err := listFSSkills(root, scope)
+	if err != nil {
+		return nil
+	}
+	for _, sk := range skills {
+		if sk.Name == name {
+			return &ResolvedSkill{Skill: sk, Dir: dirs[name]}
+		}
+	}
+	return nil
+}
+
+// ResolveScoped finds a skill by name in a specific scope, for management
+// (get/update/delete/file) operations. Unlike Resolve it never falls through to
+// another scope, and it matches by row ownership rather than runtime visibility
+// so it also finds drafts, disabled (knowledge) entries, and DB-backed system
+// skills that the effective Resolve query filters out.
+func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
+	switch scope {
+	case "project":
+		return findFSSkill(projectRoot, "project", name), nil
+	case "system_agent", "user", "user_agent":
+		return s.dbSkillByScope(ctx, name, scope, vc)
+	case "system":
+		// A system skill may live in the DB (installed via Settings) or on the
+		// filesystem (built-in). Prefer the DB row, fall back to the FS.
+		rs, err := s.dbSkillByScope(ctx, name, scope, vc)
+		if err != nil {
+			return nil, err
+		}
+		if rs != nil {
+			return rs, nil
+		}
+		return findFSSkill(s.stellaHome, "system", name), nil
 	default:
 		return nil, nil
+	}
+}
+
+// dbSkillByScope returns the DB skill with the given name in exactly one
+// scope/owner bucket, including drafts and disabled entries.
+func (s *Service) dbSkillByScope(ctx context.Context, name, scope string, vc pkgplugins.SkillViewContext) (*ResolvedSkill, error) {
+	if s.store == nil {
+		return nil, nil
+	}
+	userID, agentID := scopeOwner(scope, vc)
+	list, err := s.store.ListByScope(ctx, scope, userID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		if list[i].Name == name {
+			return &ResolvedSkill{Skill: list[i]}, nil
+		}
+	}
+	return nil, nil
+}
+
+// scopeOwner derives the (user_id, agent_id) owner keys a scope is bucketed by.
+func scopeOwner(scope string, vc pkgplugins.SkillViewContext) (userID, agentID string) {
+	switch scope {
+	case "system_agent":
+		return "", vc.AgentID
+	case "user":
+		return vc.UserID, ""
+	case "user_agent":
+		return vc.UserID, vc.AgentID
+	default: // system
+		return "", ""
 	}
 }
 
@@ -237,5 +253,5 @@ func ListDirFiles(dir string) ([]string, error) {
 
 // IsWritable returns whether a skill scope supports write operations.
 func IsWritable(scope string) bool {
-	return scope == "user" || scope == "agent"
+	return scope == "user" || scope == "user_agent" || scope == "system_agent"
 }

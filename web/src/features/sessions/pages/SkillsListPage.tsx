@@ -65,10 +65,10 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
-type Scope = "project" | "user" | "agent" | "system";
+type Scope = "project" | "user" | "user_agent" | "system_agent" | "system";
 type Tab = "installed" | "discover";
-const SCOPES: Scope[] = ["project", "user", "agent", "system"];
-const WRITABLE = new Set<Scope>(["user", "agent"]);
+const SCOPES: Scope[] = ["project", "user", "user_agent", "system_agent", "system"];
+const WRITABLE = new Set<Scope>(["user", "user_agent", "system_agent"]);
 
 function route(projectId?: string) {
   return projectId ? "/agents/$agentId/projects/$projectId/skills" : "/agents/$agentId/skills";
@@ -447,7 +447,7 @@ function SkillInspector({
             <h2 className="truncate font-mono text-base font-semibold">{skill.name}</h2>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <Badge variant="secondary" size="sm">
-                {t(`sessions.skillsList.${skill.scope}`)}
+                {t(`sessions.skillsList.${skill.scope as Scope}`)}
               </Badge>
               {skill.status !== "active" ? (
                 <Badge variant="outline" size="sm">
@@ -716,7 +716,7 @@ function InstallDialog({
   const { showToast } = useToast();
   const [tab, setTab] = useState("clawhub");
   const [q, setQ] = useState("");
-  const [scope, setScope] = useState<"user" | "agent">("user");
+  const [scope, setScope] = useState<"user_agent" | "system_agent">("user_agent");
   const [file, setFile] = useState<File | null>(null);
   const results = useQuery({
     queryKey: ["skill-search", q],
@@ -750,16 +750,16 @@ function InstallDialog({
             <div className="flex gap-2 pt-3">
               <Button
                 size="sm"
-                variant={scope === "user" ? "secondary" : "outline"}
-                onClick={() => setScope("user")}
+                variant={scope === "user_agent" ? "secondary" : "outline"}
+                onClick={() => setScope("user_agent")}
               >
                 {t("sessions.skillsList.profileScope")}
               </Button>
               {me?.is_admin && (
                 <Button
                   size="sm"
-                  variant={scope === "agent" ? "secondary" : "outline"}
-                  onClick={() => setScope("agent")}
+                  variant={scope === "system_agent" ? "secondary" : "outline"}
+                  onClick={() => setScope("system_agent")}
                 >
                   {t("sessions.skillsList.agentScope")}
                 </Button>
@@ -819,7 +819,7 @@ function CreateDialog({
       body: {
         name,
         description,
-        scope: "user",
+        scope: "user_agent",
         files: { "SKILL.md": `# ${name}\n\n${description}\n` },
       },
       throwOnError: true,

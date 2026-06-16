@@ -134,6 +134,32 @@ func findSkill(list []map[string]any, name string) map[string]any {
 	return nil
 }
 
+// TestAgentSkills_ListPrecedenceDedup guards CR-004: when the same name exists
+// at multiple scopes, the agent listing must show the effective (highest
+// precedence) row, not whichever scope sorts first alphabetically.
+func TestAgentSkills_ListPrecedenceDedup(t *testing.T) {
+	env := setupAdmin(t)
+	user, sid := newNonAdmin(t, env, "list-precedence")
+	agentID := createAgentAsUser(t, env, sid, "list-precedence-agent")
+
+	// Same name at system_agent (admin/shared) and user_agent (personal override).
+	createTestSkill(t, env, "system_agent", "", agentID, "dup")
+	createTestSkill(t, env, "user_agent", user.ID, agentID, "dup")
+
+	rr := doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+agentID+"/skills", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	list := decodeSkillList(t, rr)
+	dup := findSkill(list, "dup")
+	if dup == nil {
+		t.Fatalf("dup skill missing from list: %#v", list)
+	}
+	if dup["scope"] != "user_agent" {
+		t.Fatalf("dup scope = %v, want user_agent (the higher-precedence override)", dup["scope"])
+	}
+}
+
 func TestSessionSystemPromptIncludesSkills(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := createAgentAsUser(t, env, env.bearerToken, "prompt-skills-agent")
@@ -182,15 +208,15 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 
 	agentID := createAgentAsUser(t, env, creatorSID, "list-agent")
 	createTestSkill(t, env, "system", "", "", "system-skill")
-	createTestSkill(t, env, "agent", "", agentID, "agent-skill")
-	createTestSkill(t, env, "user", creator.ID, agentID, "creator-user-skill")
-	draftID := createTestSkill(t, env, "user", creator.ID, agentID, "draft-skill")
+	createTestSkill(t, env, "system_agent", "", agentID, "agent-skill")
+	createTestSkill(t, env, "user_agent", creator.ID, agentID, "creator-user-skill")
+	draftID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "draft-skill")
 	orgCtx := context.Background()
 	draftStatus := "draft"
 	if err := env.pluginHost.SkillStore().Update(orgCtx, draftID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &draftStatus}); err != nil {
 		t.Fatalf("mark skill draft: %v", err)
 	}
-	deprecatedID := createTestSkill(t, env, "user", creator.ID, agentID, "deprecated-skill")
+	deprecatedID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "deprecated-skill")
 	deprecatedStatus := "deprecated"
 	if err := env.pluginHost.SkillStore().Update(orgCtx, deprecatedID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &deprecatedStatus}); err != nil {
 		t.Fatalf("mark skill deprecated: %v", err)
@@ -244,7 +270,7 @@ func TestAgentSkills_CrossAgentScope(t *testing.T) {
 	a1 := createAgentAsUser(t, env, sid, "cross-a1")
 	a2 := createAgentAsUser(t, env, sid, "cross-a2")
 
-	createTestSkill(t, env, "agent", "", a1, "skill-on-agent1")
+	createTestSkill(t, env, "system_agent", "", a1, "skill-on-agent1")
 
 	// skill-on-agent1 belongs to a1, so fetching via a2 should 404
 	rr := doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+a2+"/skills/skill-on-agent1", nil)
@@ -263,7 +289,7 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	// Non-admin users without agent assignment are denied access.
 	rr := doRequestWithSession(t, env.srv, otherSID, "POST", "/api/agents/"+agentID+"/skills", map[string]any{
 		"name":  "other-agent-skill",
-		"scope": "agent",
+		"scope": "system_agent",
 	})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("other create status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
@@ -278,10 +304,10 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 		t.Fatalf("system create status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	// Creator can create user-scoped skill
+	// Creator can create user_agent-scoped skill (personal, bound to this agent)
 	rr = doRequestWithSession(t, env.srv, sid, "POST", "/api/agents/"+agentID+"/skills", map[string]any{
 		"name":        "user-skill",
-		"scope":       "user",
+		"scope":       "user_agent",
 		"description": "personal",
 	})
 	if rr.Code != http.StatusCreated {
@@ -289,29 +315,46 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	}
 	listRR := doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+agentID+"/skills", nil)
 	userSkill := findSkill(decodeSkillList(t, listRR), "user-skill")
-	if userSkill == nil || userSkill["scope"] != "user" || userSkill["user_id"] != creator.ID || userSkill["agent_id"] != agentID {
-		t.Fatalf("created user skill = %#v, want user scoped to creator and agent", userSkill)
+	if userSkill == nil || userSkill["scope"] != "user_agent" || userSkill["user_id"] != creator.ID || userSkill["agent_id"] != agentID {
+		t.Fatalf("created user skill = %#v, want user_agent scoped to creator and agent", userSkill)
 	}
 
-	// Create an agent-scoped skill for update/delete tests
-	createTestSkill(t, env, "agent", "", agentID, "skill-ud")
+	// system_agent is admin-only: the agent creator (non-admin) cannot write it.
+	rr = doRequestWithSession(t, env.srv, sid, "POST", "/api/agents/"+agentID+"/skills", map[string]any{
+		"name":  "creator-system-agent-skill",
+		"scope": "system_agent",
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("creator system_agent create status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
 
-	rr = doRequestWithSession(t, env.srv, sid, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud?scope=agent", map[string]any{
+	// Create an agent-scoped skill for update/delete tests; admins manage it.
+	createTestSkill(t, env, "system_agent", "", agentID, "skill-ud")
+
+	rr = doRequest(t, env, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud?scope=system_agent", map[string]any{
 		"description": "updated",
 		"files":       map[string]string{"SKILL.md": "# updated body"},
 	})
 	if rr.Code != http.StatusOK {
-		t.Fatalf("update status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+		t.Fatalf("admin update status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=agent&path=reference.md", nil)
+	// Non-admin creator cannot update the admin-managed system_agent skill.
+	rr = doRequestWithSession(t, env.srv, sid, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud?scope=system_agent", map[string]any{
+		"description": "creator edit",
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("creator system_agent update status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=reference.md", nil)
 	if rr.Code != http.StatusNoContent {
-		t.Fatalf("delete file status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+		t.Fatalf("admin delete file status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=agent&path=SKILL.md", nil)
+	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=SKILL.md", nil)
 	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("delete SKILL.md status = %d, want 400", rr.Code)
+		t.Fatalf("admin delete SKILL.md status = %d, want 400", rr.Code)
 	}
 }
 
@@ -325,13 +368,31 @@ func TestAgentSkills_InstallScopedSkill(t *testing.T) {
 		t.Fatalf("abs path: %v", err)
 	}
 
-	// Install as agent scope (default)
+	// Non-admin creator cannot install into the admin-only system_agent scope.
 	rr := doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
 		"source": source,
-		"scope":  "agent",
+		"scope":  "system_agent",
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("creator system_agent install status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// Creator can install into their own per-agent scope.
+	rr = doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
+		"source": source,
+		"scope":  "user_agent",
 	})
 	if rr.Code != http.StatusCreated {
-		t.Fatalf("creator install status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+		t.Fatalf("creator user_agent install status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// Admin can install into the system_agent scope.
+	rr = doRequest(t, env, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
+		"source": source,
+		"scope":  "system_agent",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("admin system_agent install status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	// Cannot install as system scope
@@ -354,7 +415,7 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 		"bundle/uploaded-skill/reference.md": "notes",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), creatorSID, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "uploaded-skill.zip", archive, "scope", "user")
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), creatorSID, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "uploaded-skill.zip", archive, "scope", "user_agent")
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -367,8 +428,8 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 	if uploaded == nil {
 		t.Fatalf("uploaded skill missing from list")
 	}
-	if uploaded["scope"] != "user" || uploaded["user_id"] != creator.ID || uploaded["agent_id"] != agentID {
-		t.Fatalf("uploaded skill ownership = %#v, want user scoped to creator and agent", uploaded)
+	if uploaded["scope"] != "user_agent" || uploaded["user_id"] != creator.ID || uploaded["agent_id"] != agentID {
+		t.Fatalf("uploaded skill ownership = %#v, want user_agent scoped to creator and agent", uploaded)
 	}
 	if uploaded["status"] != "draft" {
 		t.Fatalf("uploaded status = %v, want draft", uploaded["status"])
@@ -388,8 +449,8 @@ func TestAgentUserSkills_SelfOnly(t *testing.T) {
 		t.Fatalf("assign user2 to agent: %v", err)
 	}
 
-	createTestSkill(t, env, "user", u1.ID, agentID, "u1-skill")
-	createTestSkill(t, env, "user", u2.ID, agentID, "u2-skill")
+	createTestSkill(t, env, "user_agent", u1.ID, agentID, "u1-skill")
+	createTestSkill(t, env, "user_agent", u2.ID, agentID, "u2-skill")
 
 	rr := doRequestWithSession(t, env.srv, sid1, "GET", "/api/agents/"+agentID+"/skills", nil)
 	if rr.Code != http.StatusOK {
@@ -404,12 +465,12 @@ func TestAgentUserSkills_SelfOnly(t *testing.T) {
 	}
 
 	// u2 cannot access u1's skill by name even with scope
-	rr = doRequestWithSession(t, env.srv, sid2, "GET", "/api/agents/"+agentID+"/skills/u1-skill?scope=user", nil)
+	rr = doRequestWithSession(t, env.srv, sid2, "GET", "/api/agents/"+agentID+"/skills/u1-skill?scope=user_agent", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("u2 cross status = %d, want 404", rr.Code)
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid2, "DELETE", "/api/agents/"+agentID+"/skills/u1-skill?scope=user", nil)
+	rr = doRequestWithSession(t, env.srv, sid2, "DELETE", "/api/agents/"+agentID+"/skills/u1-skill?scope=user_agent", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("u2 cross delete status = %d, want 404", rr.Code)
 	}

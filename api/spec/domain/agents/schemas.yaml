@@ -89,7 +89,7 @@ components:
         id: { type: string }
         scope:
           type: string
-          enum: [project, user, agent, system]
+          enum: [project, user, user_agent, system, system_agent]
         user_id: { type: string }
         agent_id: { type: string }
         name: { type: string }
@@ -114,7 +114,7 @@ components:
         name: { type: string }
         scope:
           type: string
-          enum: [user, agent]
+          enum: [user, user_agent, system_agent]
         description: { type: string }
         status: { type: string }
         disable_model_invocation: { type: boolean }
@@ -139,7 +139,7 @@ components:
         source: { type: string }
         scope:
           type: string
-          enum: [user, agent]
+          enum: [user, user_agent, system_agent]
 
     SkillFileResponse:
       type: object

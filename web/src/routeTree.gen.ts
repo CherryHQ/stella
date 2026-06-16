@@ -28,6 +28,7 @@ import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/ind
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks.$taskId'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
+import { Route as AppSettingsSkillsRouteImport } from './routes/_app/settings/skills'
 import { Route as AppSettingsSandboxRouteImport } from './routes/_app/settings/sandbox'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
 import { Route as AppSettingsPluginsRouteImport } from './routes/_app/settings/plugins'
@@ -171,6 +172,13 @@ const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
   getParentRoute: () => AppSettingsRoute,
 } as any).lazy(() =>
   import('./routes/_app/settings/users.lazy').then((d) => d.Route),
+)
+const AppSettingsSkillsRoute = AppSettingsSkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => AppSettingsRoute,
+} as any).lazy(() =>
+  import('./routes/_app/settings/skills.lazy').then((d) => d.Route),
 )
 const AppSettingsSandboxRoute = AppSettingsSandboxRouteImport.update({
   id: '/sandbox',
@@ -568,6 +576,7 @@ export interface FileRoutesByFullPath {
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/sandbox': typeof AppSettingsSandboxRoute
+  '/settings/skills': typeof AppSettingsSkillsRoute
   '/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/agents/': typeof AppAgentsIndexRoute
@@ -632,6 +641,7 @@ export interface FileRoutesByTo {
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/sandbox': typeof AppSettingsSandboxRoute
+  '/settings/skills': typeof AppSettingsSkillsRoute
   '/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/agents': typeof AppAgentsIndexRoute
@@ -701,6 +711,7 @@ export interface FileRoutesById {
   '/_app/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/_app/settings/sandbox': typeof AppSettingsSandboxRoute
+  '/_app/settings/skills': typeof AppSettingsSkillsRoute
   '/_app/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
@@ -770,6 +781,7 @@ export interface FileRouteTypes {
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/sandbox'
+    | '/settings/skills'
     | '/settings/users'
     | '/tasks/$taskId'
     | '/agents/'
@@ -834,6 +846,7 @@ export interface FileRouteTypes {
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/sandbox'
+    | '/settings/skills'
     | '/settings/users'
     | '/tasks/$taskId'
     | '/agents'
@@ -902,6 +915,7 @@ export interface FileRouteTypes {
     | '/_app/settings/plugins'
     | '/_app/settings/providers'
     | '/_app/settings/sandbox'
+    | '/_app/settings/skills'
     | '/_app/settings/users'
     | '/_app/tasks/$taskId'
     | '/_app/agents/'
@@ -1086,6 +1100,13 @@ declare module '@tanstack/react-router' {
       path: '/users'
       fullPath: '/settings/users'
       preLoaderRoute: typeof AppSettingsUsersRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/skills': {
+      id: '/_app/settings/skills'
+      path: '/skills'
+      fullPath: '/settings/skills'
+      preLoaderRoute: typeof AppSettingsSkillsRouteImport
       parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/sandbox': {
@@ -1666,6 +1687,7 @@ interface AppSettingsRouteChildren {
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRouteWithChildren
   AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
   AppSettingsSandboxRoute: typeof AppSettingsSandboxRoute
+  AppSettingsSkillsRoute: typeof AppSettingsSkillsRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRouteWithChildren
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
 }
@@ -1679,6 +1701,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsPluginsRoute: AppSettingsPluginsRouteWithChildren,
   AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
   AppSettingsSandboxRoute: AppSettingsSandboxRoute,
+  AppSettingsSkillsRoute: AppSettingsSkillsRoute,
   AppSettingsUsersRoute: AppSettingsUsersRouteWithChildren,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
 }

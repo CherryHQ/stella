@@ -28,7 +28,7 @@ import { Sheet, SheetPanel, SheetPopup } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
-type Scope = "user" | "agent";
+type Scope = "user_agent" | "system_agent";
 
 function formatInstalls(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : String(n);
@@ -101,7 +101,7 @@ export function SkillsDiscover({
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
-  const [scope, setScope] = useState<Scope>("user");
+  const [scope, setScope] = useState<Scope>("user_agent");
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query), 250);
@@ -447,11 +447,11 @@ function DiscoverDetail({
               value={[scope]}
               onValueChange={(value: string[]) => value[0] && onScope(value[0] as Scope)}
             >
-              <ToggleGroupItem value="user">
+              <ToggleGroupItem value="user_agent">
                 {t("sessions.skillsList.profileScope")}
               </ToggleGroupItem>
               {showAgentScope && (
-                <ToggleGroupItem value="agent">
+                <ToggleGroupItem value="system_agent">
                   {t("sessions.skillsList.agentScope")}
                 </ToggleGroupItem>
               )}

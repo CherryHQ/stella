@@ -264,7 +264,7 @@ export interface AgentsPageState {
   selectedSkillAddingFile: boolean;
   selectedSkillNewFileName: string;
   skillInstallModalOpen: boolean;
-  skillInstallScope: "user" | "agent";
+  skillInstallScope: "user_agent" | "system_agent";
   personalisation: Personalisation;
 }
 
@@ -318,7 +318,7 @@ export function AgentsPage() {
     selectedSkillAddingFile: false,
     selectedSkillNewFileName: "",
     skillInstallModalOpen: false,
-    skillInstallScope: "user",
+    skillInstallScope: "user_agent",
     personalisation: loaderData?.personalisation ?? {
       soul: "",
       soulDraft: "",
@@ -686,7 +686,7 @@ export function AgentsPage() {
       try {
         const { data: res } = await getAgentSkillFile({
           path: { id: editingId ?? "", skillId: skill.name },
-          query: { path },
+          query: { path, scope: skill.scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
         const content = (res as { content?: string })?.content ?? "";
@@ -725,6 +725,7 @@ export function AgentsPage() {
       try {
         const { data: raw } = await getAgentSkill({
           path: { id: currentState.editingId ?? "", skillId: sk.name },
+          query: { scope: sk.scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
         const unwrapped = raw as Skill;
@@ -812,6 +813,7 @@ export function AgentsPage() {
             id: currentState.editingId ?? "",
             skillId: selectedSkill.name,
           },
+          query: { scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
         setState((prev) => ({
@@ -858,7 +860,7 @@ export function AgentsPage() {
   );
 
   const doSkillInstall = useCallback(
-    async (source: string, scope: "user" | "agent", currentState: AgentsPageState) => {
+    async (source: string, scope: "user_agent" | "system_agent", currentState: AgentsPageState) => {
       if (!source) {
         showToast("Choose a skill first", "error");
         return;
@@ -898,7 +900,7 @@ export function AgentsPage() {
   );
 
   const doSkillUpload = useCallback(
-    async (file: File, scope: "user" | "agent", currentState: AgentsPageState) => {
+    async (file: File, scope: "user_agent" | "system_agent", currentState: AgentsPageState) => {
       if (!file) {
         showToast("Choose a .zip file first", "error");
         return;
@@ -1060,7 +1062,8 @@ export function AgentsPage() {
         setState((prev) => ({
           ...prev,
           skillInstallModalOpen: true,
-          skillInstallScope: scope ?? (prev.isAdmin && prev.editingId ? "agent" : "user"),
+          skillInstallScope:
+            scope ?? (prev.isAdmin && prev.editingId ? "system_agent" : "user_agent"),
         }))
       }
       onDelete={state.editingId ? () => doDeleteAgent(state.editingId!) : undefined}
