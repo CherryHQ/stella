@@ -11,7 +11,6 @@ import {
   MessageList,
   type TranscriptMessage,
 } from "@/components/chat/ChatTranscript";
-import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -186,12 +185,20 @@ function SummaryCard({
               ))}
             </div>
           )}
-          <div className="mt-3 flex items-center gap-2">
-            <Button variant="outline" size="xs" onClick={() => setShowMessages((value) => !value)}>
-              <MessageSquareText className="size-3.5" />
-              {t("sessions.epoch.originalMessages")}
-            </Button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowMessages((value) => !value)}
+            className="mt-3 flex cursor-pointer items-center gap-1.5 font-mono text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+          >
+            <MessageSquareText className="size-3.5 shrink-0 text-muted-foreground/60" />
+            <span>{t("sessions.epoch.originalMessages")}</span>
+            <ChevronDown
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground/40 transition-transform",
+                showMessages && "rotate-180",
+              )}
+            />
+          </button>
           {showMessages && (
             <div className="mt-3 max-h-[60vh] overflow-y-auto rounded-md border border-border bg-background/40 px-4 py-3">
               {messagesQuery.isLoading ? (
