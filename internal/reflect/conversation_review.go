@@ -3,12 +3,12 @@ package reflect
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
@@ -124,7 +124,7 @@ func loadExistingSkillSummaries(ctx context.Context, store pkgplugins.SkillStore
 
 func userSkillsDir(workspace string, userID string) string {
 	// User skills live under the shared user-data root (data/, mounted as /user).
-	return filepath.Join(workspace, "users", userID, "data", ".agents", "skills")
+	return agent.UserSkillsDir(agent.UserDataDir(agent.UserHomeDir(workspace, userID)))
 }
 
 func (s *Service) notifyReviewResult(ctx context.Context, userID string, result reviewResult) {

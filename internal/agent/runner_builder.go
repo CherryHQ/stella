@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -197,15 +196,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			stellaHome := config.StellaHome()
 			toolAgentRoot := cfg.Snap.Workspace
 			toolProjectRoot := projectRoot
-			userSkillsDir := filepath.Join(UserDataDir(userRoot), ".agents", "skills")
+			userSkillsDir := UserSkillsDir(UserDataDir(userRoot))
 			userAgentSkillsDir := ""
 			view := skillstool.SkillDirView{Isolated: true}
 			if resolved, err := sandbox.ResolvePaths(sandboxCfg); err == nil {
 				stellaHome = resolved.StellaHome
 				toolAgentRoot = resolved.AgentRoot
 				toolProjectRoot = resolved.ProjectRoot
-				userSkillsDir = filepath.Join(resolved.UserDataDir, ".agents", "skills")
-				userAgentSkillsDir = filepath.Join(resolved.WorkspaceRoot, ".agents", "skills")
+				userSkillsDir = UserSkillsDir(resolved.UserDataDir)
+				userAgentSkillsDir = UserSkillsDir(resolved.WorkspaceRoot)
 				sv := sandbox.ResolveSkillView(ctx, sandboxCfg, resolved)
 				view = skillstool.SkillDirView{
 					Isolated:         sv.Isolated,
