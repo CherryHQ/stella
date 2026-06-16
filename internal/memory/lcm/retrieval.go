@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/internal/db/ftsquery"
@@ -35,14 +36,10 @@ func (p *Provider) Search(ctx context.Context, session memory.Session, query mem
 	if err != nil {
 		return nil, err
 	}
-	conv, err := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
-	if err != nil {
-		return nil, fmt.Errorf("get conversation: %w", err)
-	}
-	return p.retrieval.search(ctx, conv.ID, query)
+	return p.retrieval.search(ctx, session.UserID, session.AgentID, query)
 }
 
-func (r *retrievalEngine) search(ctx context.Context, convID string, query memory.SearchQuery) ([]memory.SearchResult, error) {
+func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, query memory.SearchQuery) ([]memory.SearchResult, error) {
 	limit := query.Limit
 	if limit <= 0 {
 		limit = defaultSearchLimit
@@ -60,7 +57,7 @@ func (r *retrievalEngine) search(ctx context.Context, convID string, query memor
 		// All tokens are below the trigram minimum (e.g. 部署, "go"), which
 		// MATCH would silently never hit — fall back to a substring scan.
 		if text := strings.TrimSpace(query.Text); text != "" {
-			return r.searchLike(ctx, convID, text, scope, limit)
+			return r.searchLike(ctx, userID, agentID, text, scope, limit)
 		}
 		return nil, nil
 	}
@@ -69,40 +66,46 @@ func (r *retrievalEngine) search(ctx context.Context, convID string, query memor
 
 	if scope == scopeMessages || scope == scopeBoth {
 		msgs, err := r.q.SearchMessages(ctx, sqlc.SearchMessagesParams{
-			ConversationID: convID,
-			Match:          match,
-			Limit:          int64(limit),
+			UserID:  sql.NullString{String: userID, Valid: true},
+			AgentID: nullAgent(agentID),
+			Match:   match,
+			Limit:   int64(limit),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("search messages: %w", err)
 		}
 		for _, msg := range msgs {
 			results = append(results, memory.SearchResult{
-				SourceType: itemTypeMessage,
-				SourceID:   fmt.Sprint(msg.ID),
-				Content:    searchSnippet(msg.Snippet, msg.Content),
-				Score:      -msg.Score,
-				Timestamp:  parseTime(msg.CreatedAt),
+				SourceType:        itemTypeMessage,
+				SourceID:          fmt.Sprint(msg.ID),
+				Content:           searchSnippet(msg.Snippet, msg.Content),
+				Score:             -msg.Score,
+				OccurredAt:        parseTime(msg.CreatedAt),
+				SessionID:         msg.SessionID,
+				ConversationTitle: msg.ConversationTitle.String,
 			})
 		}
 	}
 
 	if scope == scopeSummaries || scope == scopeBoth {
 		sums, err := r.q.SearchSummaries(ctx, sqlc.SearchSummariesParams{
-			ConversationID: convID,
-			Match:          match,
-			Limit:          int64(limit),
+			UserID:  sql.NullString{String: userID, Valid: true},
+			AgentID: nullAgent(agentID),
+			Match:   match,
+			Limit:   int64(limit),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("search summaries: %w", err)
 		}
 		for _, s := range sums {
 			results = append(results, memory.SearchResult{
-				SourceType: itemTypeSummary,
-				SourceID:   s.ID,
-				Content:    searchSnippet(s.Snippet, s.Content),
-				Score:      -s.Score,
-				Timestamp:  parseTime(s.CreatedAt),
+				SourceType:        itemTypeSummary,
+				SourceID:          s.ID,
+				Content:           searchSnippet(s.Snippet, s.Content),
+				Score:             -s.Score,
+				OccurredAt:        summaryContentTime(s.LatestAt, s.CreatedAt),
+				SessionID:         s.SessionID,
+				ConversationTitle: s.ConversationTitle.String,
 			})
 		}
 	}
@@ -115,7 +118,7 @@ func (r *retrievalEngine) search(ctx context.Context, convID string, query memor
 		if results[i].Score != results[j].Score {
 			return results[i].Score > results[j].Score
 		}
-		return results[i].Timestamp.After(results[j].Timestamp)
+		return results[i].OccurredAt.After(results[j].OccurredAt)
 	})
 	if len(results) > limit {
 		results = results[:limit]
@@ -126,55 +129,71 @@ func (r *retrievalEngine) search(ctx context.Context, convID string, query memor
 // searchLike is the recall path for short queries: a plain substring scan of
 // the content tables, recency-ordered. Honest limitation: no BM25 ranking and
 // no snippet highlighting here, so hits carry Score 0 and truncated content.
-func (r *retrievalEngine) searchLike(ctx context.Context, convID, text, scope string, limit int) ([]memory.SearchResult, error) {
+func (r *retrievalEngine) searchLike(ctx context.Context, userID, agentID, text, scope string, limit int) ([]memory.SearchResult, error) {
 	pattern := "%" + ftsquery.EscapeLike(text) + "%"
 	var results []memory.SearchResult
 
 	if scope == scopeMessages || scope == scopeBoth {
 		msgs, err := r.q.SearchMessagesLike(ctx, sqlc.SearchMessagesLikeParams{
-			ConversationID: convID,
-			Pattern:        pattern,
-			Limit:          int64(limit),
+			UserID:  sql.NullString{String: userID, Valid: true},
+			AgentID: nullAgent(agentID),
+			Pattern: pattern,
+			Limit:   int64(limit),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("search messages like: %w", err)
 		}
 		for _, msg := range msgs {
 			results = append(results, memory.SearchResult{
-				SourceType: itemTypeMessage,
-				SourceID:   fmt.Sprint(msg.ID),
-				Content:    truncateUTF8(msg.Content, maxContentSnippet),
-				Timestamp:  parseTime(msg.CreatedAt),
+				SourceType:        itemTypeMessage,
+				SourceID:          fmt.Sprint(msg.ID),
+				Content:           truncateUTF8(msg.Content, maxContentSnippet),
+				OccurredAt:        parseTime(msg.CreatedAt),
+				SessionID:         msg.SessionID,
+				ConversationTitle: msg.ConversationTitle.String,
 			})
 		}
 	}
 
 	if scope == scopeSummaries || scope == scopeBoth {
 		sums, err := r.q.SearchSummariesLike(ctx, sqlc.SearchSummariesLikeParams{
-			ConversationID: convID,
-			Pattern:        pattern,
-			Limit:          int64(limit),
+			UserID:  sql.NullString{String: userID, Valid: true},
+			AgentID: nullAgent(agentID),
+			Pattern: pattern,
+			Limit:   int64(limit),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("search summaries like: %w", err)
 		}
 		for _, s := range sums {
 			results = append(results, memory.SearchResult{
-				SourceType: itemTypeSummary,
-				SourceID:   s.ID,
-				Content:    truncateUTF8(s.Content, maxContentSnippet),
-				Timestamp:  parseTime(s.CreatedAt),
+				SourceType:        itemTypeSummary,
+				SourceID:          s.ID,
+				Content:           truncateUTF8(s.Content, maxContentSnippet),
+				OccurredAt:        summaryContentTime(s.LatestAt, s.CreatedAt),
+				SessionID:         s.SessionID,
+				ConversationTitle: s.ConversationTitle.String,
 			})
 		}
 	}
 
 	sort.SliceStable(results, func(i, j int) bool {
-		return results[i].Timestamp.After(results[j].Timestamp)
+		return results[i].OccurredAt.After(results[j].OccurredAt)
 	})
 	if len(results) > limit {
 		results = results[:limit]
 	}
 	return results, nil
+}
+
+// summaryContentTime returns when a summary's underlying content actually
+// occurred: latest_at (the real end of the summarized window), falling back to
+// created_at (when the summary was generated) only when latest_at is null.
+func summaryContentTime(latestAt sql.NullString, createdAt string) time.Time {
+	if t := parseNullTime(latestAt); t != nil {
+		return *t
+	}
+	return parseTime(createdAt)
 }
 
 // searchSnippet prefers the FTS5 snippet (match context with <<>> highlights)

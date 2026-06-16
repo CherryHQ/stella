@@ -549,37 +549,53 @@ func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessage
 const searchMessages = `-- name: SearchMessages :many
 SELECT
     m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
+    c.session_id AS session_id,
+    c.title AS conversation_title,
     snippet(ctx_message_fts, 0, '<<', '>>', '...', 32) AS snippet,
     bm25(ctx_message_fts) AS score
 FROM ctx_message_fts
 JOIN ctx_message m ON m.rowid = ctx_message_fts.rowid
+JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE ctx_message_fts.content MATCH ?1
-  AND m.conversation_id = ?2
+  AND c.user_id = ?2
+  AND c.agent_id IS ?3
 ORDER BY score ASC
-LIMIT ?3
+LIMIT ?4
 `
 
 type SearchMessagesParams struct {
-	Match          string `json:"match"`
-	ConversationID string `json:"conversation_id"`
-	Limit          int64  `json:"limit"`
+	Match   string         `json:"match"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
+	Limit   int64          `json:"limit"`
 }
 
 type SearchMessagesRow struct {
-	ID             string  `json:"id"`
-	ConversationID string  `json:"conversation_id"`
-	Seq            int64   `json:"seq"`
-	Role           string  `json:"role"`
-	EventType      string  `json:"event_type"`
-	Content        string  `json:"content"`
-	TokenCount     int64   `json:"token_count"`
-	CreatedAt      string  `json:"created_at"`
-	Snippet        string  `json:"snippet"`
-	Score          float64 `json:"score"`
+	ID                string         `json:"id"`
+	ConversationID    string         `json:"conversation_id"`
+	Seq               int64          `json:"seq"`
+	Role              string         `json:"role"`
+	EventType         string         `json:"event_type"`
+	Content           string         `json:"content"`
+	TokenCount        int64          `json:"token_count"`
+	CreatedAt         string         `json:"created_at"`
+	SessionID         string         `json:"session_id"`
+	ConversationTitle sql.NullString `json:"conversation_title"`
+	Snippet           string         `json:"snippet"`
+	Score             float64        `json:"score"`
 }
 
+// Spans every conversation of the current (user_id, agent_id) so memory recall
+// survives across sessions. Joins ctx_conversation to pin the scope and surface
+// provenance (session_id, title). Global ORDER BY score + LIMIT keeps the best
+// matches across the merged corpus, not per-conversation truncations.
 func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) ([]SearchMessagesRow, error) {
-	rows, err := q.db.QueryContext(ctx, searchMessages, arg.Match, arg.ConversationID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, searchMessages,
+		arg.Match,
+		arg.UserID,
+		arg.AgentID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -596,6 +612,8 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.SessionID,
+			&i.ConversationTitle,
 			&i.Snippet,
 			&i.Score,
 		); err != nil {
@@ -613,17 +631,37 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 }
 
 const searchMessagesLike = `-- name: SearchMessagesLike :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message
-WHERE conversation_id = ?1
-  AND (content LIKE ?2 ESCAPE '\')
-ORDER BY created_at DESC
-LIMIT ?3
+SELECT
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
+    c.session_id AS session_id,
+    c.title AS conversation_title
+FROM ctx_message m
+JOIN ctx_conversation c ON c.id = m.conversation_id
+WHERE c.user_id = ?1
+  AND c.agent_id IS ?2
+  AND (m.content LIKE ?3 ESCAPE '\')
+ORDER BY m.created_at DESC
+LIMIT ?4
 `
 
 type SearchMessagesLikeParams struct {
-	ConversationID string `json:"conversation_id"`
-	Pattern        string `json:"pattern"`
-	Limit          int64  `json:"limit"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
+	Pattern string         `json:"pattern"`
+	Limit   int64          `json:"limit"`
+}
+
+type SearchMessagesLikeRow struct {
+	ID                string         `json:"id"`
+	ConversationID    string         `json:"conversation_id"`
+	Seq               int64          `json:"seq"`
+	Role              string         `json:"role"`
+	EventType         string         `json:"event_type"`
+	Content           string         `json:"content"`
+	TokenCount        int64          `json:"token_count"`
+	CreatedAt         string         `json:"created_at"`
+	SessionID         string         `json:"session_id"`
+	ConversationTitle sql.NullString `json:"conversation_title"`
 }
 
 // Fallback for queries with no token of 3+ runes, which trigram MATCH would
@@ -633,15 +671,20 @@ type SearchMessagesLikeParams struct {
 // cannot parse || concatenation here, so the caller wraps it, and the parens
 // around LIKE...ESCAPE are also required by sqlc's grammar. Keep these doc
 // comments ASCII: multibyte chars corrupt sqlc's query rewriter offsets.
-func (q *Queries) SearchMessagesLike(ctx context.Context, arg SearchMessagesLikeParams) ([]CtxMessage, error) {
-	rows, err := q.db.QueryContext(ctx, searchMessagesLike, arg.ConversationID, arg.Pattern, arg.Limit)
+func (q *Queries) SearchMessagesLike(ctx context.Context, arg SearchMessagesLikeParams) ([]SearchMessagesLikeRow, error) {
+	rows, err := q.db.QueryContext(ctx, searchMessagesLike,
+		arg.UserID,
+		arg.AgentID,
+		arg.Pattern,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxMessage{}
+	items := []SearchMessagesLikeRow{}
 	for rows.Next() {
-		var i CtxMessage
+		var i SearchMessagesLikeRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ConversationID,
@@ -651,6 +694,8 @@ func (q *Queries) SearchMessagesLike(ctx context.Context, arg SearchMessagesLike
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.SessionID,
+			&i.ConversationTitle,
 		); err != nil {
 			return nil, err
 		}

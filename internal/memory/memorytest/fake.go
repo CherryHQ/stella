@@ -237,7 +237,8 @@ func (f *Fake) Search(_ context.Context, session memory.Session, query memory.Se
 				SourceID:   fmt.Sprintf("msg_%d", i),
 				Content:    truncate(text, 500),
 				Score:      0,
-				Timestamp:  memory.MessageTimestamp(m),
+				OccurredAt: memory.MessageTimestamp(m),
+				SessionID:  session.ID,
 			})
 		}
 	}

@@ -464,20 +464,25 @@ func (q *Queries) ListSummaryParentsBySummaryIDs(ctx context.Context, summaryIds
 const searchSummaries = `-- name: SearchSummaries :many
 SELECT
     s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at,
+    c.session_id AS session_id,
+    c.title AS conversation_title,
     snippet(ctx_summary_fts, 0, '<<', '>>', '...', 32) AS snippet,
     bm25(ctx_summary_fts) AS score
 FROM ctx_summary_fts
 JOIN ctx_summary s ON s.rowid = ctx_summary_fts.rowid
+JOIN ctx_conversation c ON c.id = s.conversation_id
 WHERE ctx_summary_fts.content MATCH ?1
-  AND s.conversation_id = ?2
+  AND c.user_id = ?2
+  AND c.agent_id IS ?3
 ORDER BY score ASC
-LIMIT ?3
+LIMIT ?4
 `
 
 type SearchSummariesParams struct {
-	Match          string `json:"match"`
-	ConversationID string `json:"conversation_id"`
-	Limit          int64  `json:"limit"`
+	Match   string         `json:"match"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
+	Limit   int64          `json:"limit"`
 }
 
 type SearchSummariesRow struct {
@@ -493,12 +498,20 @@ type SearchSummariesRow struct {
 	DescendantTokenCount    int64          `json:"descendant_token_count"`
 	SourceMessageTokenCount int64          `json:"source_message_token_count"`
 	CreatedAt               string         `json:"created_at"`
+	SessionID               string         `json:"session_id"`
+	ConversationTitle       sql.NullString `json:"conversation_title"`
 	Snippet                 string         `json:"snippet"`
 	Score                   float64        `json:"score"`
 }
 
+// Spans every conversation of the current (user_id, agent_id); see SearchMessages.
 func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams) ([]SearchSummariesRow, error) {
-	rows, err := q.db.QueryContext(ctx, searchSummaries, arg.Match, arg.ConversationID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, searchSummaries,
+		arg.Match,
+		arg.UserID,
+		arg.AgentID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -519,6 +532,8 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
+			&i.SessionID,
+			&i.ConversationTitle,
 			&i.Snippet,
 			&i.Score,
 		); err != nil {
@@ -536,29 +551,58 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 }
 
 const searchSummariesLike = `-- name: SearchSummariesLike :many
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary
-WHERE conversation_id = ?1
-  AND (content LIKE ?2 ESCAPE '\')
-ORDER BY created_at DESC
-LIMIT ?3
+SELECT
+    s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at,
+    c.session_id AS session_id,
+    c.title AS conversation_title
+FROM ctx_summary s
+JOIN ctx_conversation c ON c.id = s.conversation_id
+WHERE c.user_id = ?1
+  AND c.agent_id IS ?2
+  AND (s.content LIKE ?3 ESCAPE '\')
+ORDER BY s.created_at DESC
+LIMIT ?4
 `
 
 type SearchSummariesLikeParams struct {
-	ConversationID string `json:"conversation_id"`
-	Pattern        string `json:"pattern"`
-	Limit          int64  `json:"limit"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
+	Pattern string         `json:"pattern"`
+	Limit   int64          `json:"limit"`
+}
+
+type SearchSummariesLikeRow struct {
+	ID                      string         `json:"id"`
+	ConversationID          string         `json:"conversation_id"`
+	Kind                    string         `json:"kind"`
+	Depth                   int64          `json:"depth"`
+	Content                 string         `json:"content"`
+	TokenCount              int64          `json:"token_count"`
+	EarliestAt              sql.NullString `json:"earliest_at"`
+	LatestAt                sql.NullString `json:"latest_at"`
+	DescendantCount         int64          `json:"descendant_count"`
+	DescendantTokenCount    int64          `json:"descendant_token_count"`
+	SourceMessageTokenCount int64          `json:"source_message_token_count"`
+	CreatedAt               string         `json:"created_at"`
+	SessionID               string         `json:"session_id"`
+	ConversationTitle       sql.NullString `json:"conversation_title"`
 }
 
 // Fallback for queries with no token of 3+ runes (see SearchMessagesLike).
-func (q *Queries) SearchSummariesLike(ctx context.Context, arg SearchSummariesLikeParams) ([]CtxSummary, error) {
-	rows, err := q.db.QueryContext(ctx, searchSummariesLike, arg.ConversationID, arg.Pattern, arg.Limit)
+func (q *Queries) SearchSummariesLike(ctx context.Context, arg SearchSummariesLikeParams) ([]SearchSummariesLikeRow, error) {
+	rows, err := q.db.QueryContext(ctx, searchSummariesLike,
+		arg.UserID,
+		arg.AgentID,
+		arg.Pattern,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxSummary{}
+	items := []SearchSummariesLikeRow{}
 	for rows.Next() {
-		var i CtxSummary
+		var i SearchSummariesLikeRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ConversationID,
@@ -572,6 +616,8 @@ func (q *Queries) SearchSummariesLike(ctx context.Context, arg SearchSummariesLi
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
+			&i.SessionID,
+			&i.ConversationTitle,
 		); err != nil {
 			return nil, err
 		}

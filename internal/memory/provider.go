@@ -136,13 +136,18 @@ type SearchQuery struct {
 	Limit int         // max results (default 20)
 }
 
-// SearchResult represents a single search hit.
+// SearchResult represents a single search hit. Results span every session of
+// the current (user_id, agent_id), so each hit carries provenance — which
+// conversation it came from — plus the time the content actually occurred so
+// the agent can weight recency.
 type SearchResult struct {
-	SourceType string    // "message" or "summary"
-	SourceID   string    // message ID or summary ID
-	Content    string    // snippet of the matching content (truncated at ~500 chars)
-	Score      float64   // normalized BM25 relevance (-bm25), higher is better
-	Timestamp  time.Time // when the source was created
+	SourceType        string    `json:"source_type"`        // "message" or "summary"
+	SourceID          string    `json:"source_id"`          // message ID or summary ID
+	Content           string    `json:"content"`            // snippet of the matching content (truncated at ~500 chars)
+	Score             float64   `json:"score"`              // normalized BM25 relevance (-bm25), higher is better
+	OccurredAt        time.Time `json:"occurred_at"`        // when the underlying content actually happened
+	SessionID         string    `json:"session_id"`         // origin session for traceability
+	ConversationTitle string    `json:"conversation_title"` // human-readable origin label (may be empty)
 }
 
 // Searcher is implemented by providers that support history search.

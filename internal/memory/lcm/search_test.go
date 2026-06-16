@@ -189,23 +189,62 @@ func TestSearch_DeleteRemovesFTSHits(t *testing.T) {
 	}
 }
 
-func TestSearch_ConversationIsolation(t *testing.T) {
-	// Marker fits the ~34-char trigram snippet window.
-	_, p, sess := newSearchTestEnv(t, "fts-iso-a")
+func TestSearch_SpansSessionsOfSameUserAgent(t *testing.T) {
+	// Marker fits the ~34-char trigram snippet window. Both sessions share the
+	// same (user_id, agent_id), so memory recall must span both — searching from
+	// session A still surfaces what was said in session B.
+	_, p, sess := newSearchTestEnv(t, "fts-span-a")
 	appendUser(t, p, sess, "shared quokka keyword in convA")
 
-	other := newLCMTestSession("fts-iso-b")
+	other := newLCMTestSession("fts-span-b")
 	if err := p.Bootstrap(context.Background(), other); err != nil {
 		t.Fatalf("bootstrap other: %v", err)
 	}
 	appendUser(t, p, other, "shared quokka keyword in convB")
 
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "quokka"})
-	if len(results) != 1 {
-		t.Fatalf("expected 1 hit scoped to conversation A, got %d", len(results))
+	if len(results) != 2 {
+		t.Fatalf("expected hits from both sessions, got %d: %+v", len(results), results)
 	}
-	if !strings.Contains(results[0].Content, "convA") {
-		t.Errorf("hit leaked from another conversation: %q", results[0].Content)
+	// Provenance: each hit carries its origin session so the agent can trace it.
+	seen := map[string]bool{}
+	for _, r := range results {
+		if r.SessionID == "" {
+			t.Errorf("hit missing origin session: %+v", r)
+		}
+		seen[r.SessionID] = true
+	}
+	if !seen[sess.ID] || !seen[other.ID] {
+		t.Errorf("expected hits from both %q and %q, saw %v", sess.ID, other.ID, seen)
+	}
+}
+
+func TestSearch_IsolatesOtherUsersAndAgents(t *testing.T) {
+	_, p, sess := newSearchTestEnv(t, "fts-iso-self")
+	appendUser(t, p, sess, "private wombat keyword for owner")
+
+	// Same DB, different user and different agent: neither may leak into the
+	// owner's recall.
+	otherUser := newLCMTestSession("fts-iso-user")
+	otherUser.UserID = "2"
+	if err := p.Bootstrap(context.Background(), otherUser); err != nil {
+		t.Fatalf("bootstrap other user: %v", err)
+	}
+	appendUser(t, p, otherUser, "private wombat keyword for stranger")
+
+	otherAgent := newLCMTestSession("fts-iso-agent")
+	otherAgent.AgentID = "other"
+	if err := p.Bootstrap(context.Background(), otherAgent); err != nil {
+		t.Fatalf("bootstrap other agent: %v", err)
+	}
+	appendUser(t, p, otherAgent, "private wombat keyword for other agent")
+
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "wombat"})
+	if len(results) != 1 {
+		t.Fatalf("expected 1 hit scoped to owner, got %d: %+v", len(results), results)
+	}
+	if !strings.Contains(results[0].Content, "owner") {
+		t.Errorf("hit leaked across user/agent boundary: %q", results[0].Content)
 	}
 }
 
@@ -271,22 +310,33 @@ func TestSearch_ShortQueryFallsBackToLike(t *testing.T) {
 	}
 }
 
-func TestSearch_LikeFallbackConversationIsolation(t *testing.T) {
-	_, p, sess := newSearchTestEnv(t, "fts-like-iso-a")
+func TestSearch_LikeFallbackSpansSessionsButIsolatesUsers(t *testing.T) {
+	_, p, sess := newSearchTestEnv(t, "fts-like-span-a")
 	appendUser(t, p, sess, "会话A的部署记录")
 
-	other := newLCMTestSession("fts-like-iso-b")
+	other := newLCMTestSession("fts-like-span-b")
 	if err := p.Bootstrap(context.Background(), other); err != nil {
 		t.Fatalf("bootstrap other: %v", err)
 	}
 	appendUser(t, p, other, "会话B的部署记录")
 
-	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署"})
-	if len(results) != 1 {
-		t.Fatalf("expected 1 hit scoped to conversation A, got %d", len(results))
+	stranger := newLCMTestSession("fts-like-span-x")
+	stranger.UserID = "2"
+	if err := p.Bootstrap(context.Background(), stranger); err != nil {
+		t.Fatalf("bootstrap stranger: %v", err)
 	}
-	if !strings.Contains(results[0].Content, "会话A") {
-		t.Errorf("fallback hit leaked from another conversation: %q", results[0].Content)
+	appendUser(t, p, stranger, "陌生人的部署记录")
+
+	// The LIKE fallback path must also span both same-user sessions while
+	// keeping another user's content out.
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署"})
+	if len(results) != 2 {
+		t.Fatalf("expected hits from both same-user sessions, got %d: %+v", len(results), results)
+	}
+	for _, r := range results {
+		if strings.Contains(r.Content, "陌生人") {
+			t.Errorf("fallback hit leaked across user boundary: %q", r.Content)
+		}
 	}
 }
 
