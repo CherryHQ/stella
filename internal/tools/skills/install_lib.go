@@ -210,14 +210,15 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 		return "", nil, nil, err
 	}
 
-	// cleanup defaults to a no-op (shared-cache and local sources own their path);
-	// the authenticated GitHub path overrides it to remove its temp clone. The
-	// guard releases the temp dir on any error before the caller takes ownership.
-	cleanup = func() {}
-	ok := false
+	// tempCleanup removes the authenticated GitHub temp clone (nil for shared-cache
+	// and local sources, which own their path). The guard releases it whenever we
+	// return an error after the clone; on success the caller takes ownership. It is
+	// kept separate from the named cleanup return so the guard never dereferences a
+	// return value that an error path has just set to nil.
+	var tempCleanup func()
 	defer func() {
-		if !ok {
-			cleanup()
+		if err != nil && tempCleanup != nil {
+			tempCleanup()
 		}
 	}()
 
@@ -231,7 +232,7 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 				return "", nil, nil, fmt.Errorf("%s: %w", githubAuthHint(true), ferr)
 			}
 			skillDir = dir
-			cleanup = clean
+			tempCleanup = clean
 		} else {
 			local, ferr := mcpskills.FetchGitSkill(ctx, mcpskills.GitSource{
 				URL:         parsed.URL,
@@ -284,6 +285,9 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 		return "", nil, nil, fmt.Errorf("walk skill dir: %w", werr)
 	}
 
-	ok = true
+	cleanup = tempCleanup
+	if cleanup == nil {
+		cleanup = func() {}
+	}
 	return skillName, files, cleanup, nil
 }

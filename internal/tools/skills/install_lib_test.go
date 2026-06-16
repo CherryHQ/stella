@@ -27,6 +27,15 @@ func TestGitHubSource(t *testing.T) {
 	}
 }
 
+func TestFetchSkillFilesErrorPathNoPanic(t *testing.T) {
+	// An error returned after the deferred cleanup guard is installed must not
+	// panic: error paths hand back a nil cleanup, and the guard must not call it.
+	_, _, _, err := FetchSkillFiles(context.Background(), "/nonexistent/stella-skill-xyz")
+	if err == nil {
+		t.Fatal("expected error for nonexistent local path")
+	}
+}
+
 func TestGitHubTokenContext(t *testing.T) {
 	ctx := context.Background()
 	if tok := githubTokenFromContext(ctx); tok != "" {
