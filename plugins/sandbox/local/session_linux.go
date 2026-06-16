@@ -304,6 +304,11 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	if as := policy.Filesystem.AgentSkillsDir; as != "" {
 		bwrapArgs = appendRoBindIfExists(bwrapArgs, as, sandboxpkg.MountAgentSkills)
 	}
+	// DB-installed system skills: read-only at a fixed path, kept separate from the
+	// shipped built-ins so a system skill installed via Settings stays loadable.
+	if sd := policy.Filesystem.SystemDBSkillsDir; sd != "" {
+		bwrapArgs = appendRoBindIfExists(bwrapArgs, sd, sandboxpkg.MountSystemDBSkills)
+	}
 	// Extra writable mounts (e.g. an out-of-workspace per-principal cache), layered
 	// above the read-only system installs mounted by appendStellaHomeMounts: bind
 	// each at its STELLA_HOME-remapped sandbox path so writes land in the host tree.

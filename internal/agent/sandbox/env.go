@@ -20,12 +20,23 @@ import (
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
 	principalDir, id := misePrincipal(cfg)
 	return pkgsandbox.FilesystemPolicy{
-		WorkspaceRoot:  paths.WorkspaceRoot,
-		WorkingDir:     paths.WorkDir,
-		UserDataDir:    userDataDirHost(paths, cfg),
-		AgentSkillsDir: agentSkillsDirHost(paths),
-		TempDirHost:    userTempDir(principalDir, id),
+		WorkspaceRoot:     paths.WorkspaceRoot,
+		WorkingDir:        paths.WorkDir,
+		UserDataDir:       userDataDirHost(paths, cfg),
+		AgentSkillsDir:    agentSkillsDirHost(paths),
+		SystemDBSkillsDir: systemDBSkillsDirHost(paths),
+		TempDirHost:       userTempDir(principalDir, id),
 	}
+}
+
+// systemDBSkillsDirHost returns the host path of the DB-installed system-scope
+// skills dir, STELLA_HOME/.agents/db-skills (a sibling of the shipped built-ins).
+// Isolating backends mount it read-only at /opt/stella/db-skills.
+func systemDBSkillsDirHost(paths Paths) string {
+	if paths.StellaHome == "" {
+		return ""
+	}
+	return filepath.Join(paths.StellaHome, ".agents", "db-skills")
 }
 
 // agentSkillsDirHost returns the host path of the admin-managed, agent-bound

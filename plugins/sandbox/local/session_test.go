@@ -488,6 +488,51 @@ func TestAgentSkills_readableButNotWritable(t *testing.T) {
 	}
 }
 
+// TestSystemDBSkills_readableButNotWritable verifies that the DB-installed
+// system skills dir, mounted read-only at /opt/stella/db-skills on an isolating
+// backend, is resolvable for reads and rejected for writes — and stays distinct
+// from the shipped built-in system skills dir under STELLA_HOME.
+func TestSystemDBSkills_readableButNotWritable(t *testing.T) {
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	hostSH := t.TempDir()
+	hostSH, _ = filepath.EvalSymlinks(hostSH)
+
+	dbSkills := filepath.Join(hostSH, ".agents", "db-skills")
+	if err := os.MkdirAll(filepath.Join(dbSkills, "demo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dbSkills, "demo", "SKILL.md"), []byte("# skill"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := &localSession{
+		id:                 "test",
+		policy:             sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, SystemDBSkillsDir: dbSkills}},
+		realRoot:           root,
+		sandboxRoot:        root,
+		systemDBSkillsReal: dbSkills,
+		stellaHomeHost:     hostSH,
+		stellaHomeSandbox:  "/opt/stella",
+		done:               make(chan struct{}),
+	}
+
+	sandboxPath := sandboxpkg.MountSystemDBSkills + "/demo/SKILL.md"
+	real, _, err := s.resolvePath(sandboxPath)
+	if err != nil {
+		t.Fatalf("resolvePath rejected system-db-skills read: %v", err)
+	}
+	if want := filepath.Join(dbSkills, "demo", "SKILL.md"); real != want {
+		t.Errorf("resolvePath real = %q, want %q", real, want)
+	}
+	if got := s.toSandboxPath(filepath.Join(dbSkills, "demo")); got != sandboxpkg.MountSystemDBSkills+"/demo" {
+		t.Errorf("toSandboxPath = %q, want %q", got, sandboxpkg.MountSystemDBSkills+"/demo")
+	}
+	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
+		t.Fatal("expected ResolveWritePath to reject system-db-skills path, got nil")
+	}
+}
+
 // TestResolveWritePath_acceptsWorkspace verifies that ResolveWritePath allows
 // paths within the writable workspace root.
 func TestResolveWritePath_acceptsWorkspace(t *testing.T) {

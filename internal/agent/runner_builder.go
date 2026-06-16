@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -194,37 +195,36 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			// then, omit every skill_dir (Isolated, no roots) rather than risk emitting a
 			// host path the model could leak or fail to resolve.
 			stellaHome := config.StellaHome()
-			toolAgentRoot := cfg.Snap.Workspace
 			toolProjectRoot := projectRoot
-			userSkillsDir := UserSkillsDir(UserDataDir(userRoot))
-			userAgentSkillsDir := ""
+			// Until ResolvePaths succeeds the view has no roots (Isolated drops every
+			// skill_dir), so the layout is inert; keep it empty to match that intent
+			// rather than emit dirs that would never be remapped.
+			layout := skills.SkillDiskLayout{}
 			view := skillstool.SkillDirView{Isolated: true}
 			if resolved, err := sandbox.ResolvePaths(sandboxCfg); err == nil {
 				stellaHome = resolved.StellaHome
-				toolAgentRoot = resolved.AgentRoot
 				toolProjectRoot = resolved.ProjectRoot
-				userSkillsDir = UserSkillsDir(resolved.UserDataDir)
-				userAgentSkillsDir = UserSkillsDir(resolved.WorkspaceRoot)
+				layout = skillDiskLayout(SystemDBSkillsDir(resolved.StellaHome), resolved.AgentRoot, resolved.UserDataDir, resolved.WorkspaceRoot)
 				sv := sandbox.ResolveSkillView(ctx, sandboxCfg, resolved)
 				view = skillstool.SkillDirView{
-					Isolated:         sv.Isolated,
-					SystemSkillsHost: sv.SystemSkillsHost,
-					SystemSkillsView: sv.SystemSkillsView,
-					AgentSkillsHost:  sv.AgentSkillsHost,
-					AgentSkillsView:  sv.AgentSkillsView,
-					UserDataHost:     sv.UserDataHost,
-					UserDataView:     sv.UserDataView,
-					WorkspaceHost:    sv.WorkspaceHost,
-					WorkspaceView:    sv.WorkspaceView,
+					Isolated:           sv.Isolated,
+					SystemSkillsHost:   sv.SystemSkillsHost,
+					SystemSkillsView:   sv.SystemSkillsView,
+					AgentSkillsHost:    sv.AgentSkillsHost,
+					AgentSkillsView:    sv.AgentSkillsView,
+					SystemDBSkillsHost: sv.SystemDBSkillsHost,
+					SystemDBSkillsView: sv.SystemDBSkillsView,
+					UserDataHost:       sv.UserDataHost,
+					UserDataView:       sv.UserDataView,
+					WorkspaceHost:      sv.WorkspaceHost,
+					WorkspaceView:      sv.WorkspaceView,
 				}
 			}
 			runnerTools = append(runnerTools, skillstool.NewTool(
 				cfg.SkillStore,
 				stellaHome,
-				toolAgentRoot,
 				toolProjectRoot,
-				userSkillsDir,
-			).WithUserAgentSkillsDir(userAgentSkillsDir).WithSkillDirView(view))
+			).WithSkillDiskLayout(layout).WithSkillDirView(view))
 		}
 
 		return newRunner(ctx, runnerConfig{

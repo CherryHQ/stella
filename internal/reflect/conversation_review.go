@@ -8,7 +8,6 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
@@ -93,9 +92,12 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 		profile, _ = ps.GetProfile(ctx, userID, snap.AgentID)
 	}
 	return newReviewer(reviewerConfig{
-		Stream:         stream,
-		Model:          model,
-		SkillsTool:     skillstool.NewTool(s.skillStore, "", snap.Workspace, "", userSkillsDir(snap.Workspace, userID)),
+		Stream: stream,
+		Model:  model,
+		// No skill-disk layout: reflect runs host-identity and only reads skill
+		// content (from the DB) and writes back through the store, which mirrors to
+		// disk itself. The tool needs no skill-path knowledge here.
+		SkillsTool:     skillstool.NewTool(s.skillStore, "", ""),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
 		ExistingSkills: loadExistingSkillSummaries(context.Background(), s.skillStore, userID),
 		CurrentProfile: profile,
@@ -120,11 +122,6 @@ func loadExistingSkillSummaries(ctx context.Context, store pkgplugins.SkillStore
 		}
 	}
 	return entries
-}
-
-func userSkillsDir(workspace string, userID string) string {
-	// User skills live under the shared user-data root (data/, mounted as /user).
-	return agent.UserSkillsDir(agent.UserDataDir(agent.UserHomeDir(workspace, userID)))
 }
 
 func (s *Service) notifyReviewResult(ctx context.Context, userID string, result reviewResult) {

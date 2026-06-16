@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
+	coreskills "github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -74,28 +75,31 @@ var skillsInputSchema = func() map[string]any {
 }()
 
 type Tool struct {
-	svc           *Service
-	store         pkgplugins.SkillStore
-	stellaHome    string
-	agentRoot     string
-	projectRoot   string
-	userSkillsDir string
-	// userAgentSkillsDir is the per-(user, agent) skills dir (the agent workspace,
-	// mounted as /workspace). user_agent skills live here, not under the shared
-	// userSkillsDir. Empty falls back to userSkillsDir (non-sandbox callers).
-	userAgentSkillsDir string
-	view               SkillDirView
+	svc         *Service
+	store       pkgplugins.SkillStore
+	stellaHome  string
+	projectRoot string
+	// layout is the single authority for where a DB-backed skill's files live on
+	// disk, by scope; it must agree with the write side that materialized them.
+	layout coreskills.SkillDiskLayout
+	view   SkillDirView
 }
 
-func NewTool(store pkgplugins.SkillStore, stellaHome, agentRoot, projectRoot, userSkillsDir string) *Tool {
+func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool {
 	return &Tool{
-		svc:           NewService(store, stellaHome),
-		store:         store,
-		stellaHome:    stellaHome,
-		agentRoot:     agentRoot,
-		projectRoot:   projectRoot,
-		userSkillsDir: userSkillsDir,
+		svc:         NewService(store, stellaHome),
+		store:       store,
+		stellaHome:  stellaHome,
+		projectRoot: projectRoot,
 	}
+}
+
+// WithSkillDiskLayout sets where DB-backed skills live on disk, by scope. The
+// emitted <skill_dir> for a DB skill comes from here, so it must match the dirs
+// the disk-mirroring writer used. The zero value emits no dir for DB skills.
+func (t *Tool) WithSkillDiskLayout(l coreskills.SkillDiskLayout) *Tool {
+	t.layout = l
+	return t
 }
 
 // WithSkillDirView sets how host skill directories are remapped to the
@@ -103,14 +107,6 @@ func NewTool(store pkgplugins.SkillStore, stellaHome, agentRoot, projectRoot, us
 // emits host paths, which is correct for host-execution and non-sandbox callers.
 func (t *Tool) WithSkillDirView(v SkillDirView) *Tool {
 	t.view = v
-	return t
-}
-
-// WithUserAgentSkillsDir sets the host dir for user_agent-scoped skills (the
-// agent workspace, mounted as /workspace), distinct from the shared user skills
-// dir. Without it, user_agent skill_dir falls back to the user skills dir.
-func (t *Tool) WithUserAgentSkillsDir(dir string) *Tool {
-	t.userAgentSkillsDir = dir
 	return t
 }
 
@@ -131,6 +127,11 @@ type SkillDirView struct {
 	// in the user-independent agent definition tree, outside the two roots.
 	AgentSkillsHost string
 	AgentSkillsView string
+	// SystemDBSkillsHost/View map the DB-installed system skills dir (a sibling of
+	// the shipped built-ins under STELLA_HOME), mounted at its own fixed path
+	// (/opt/stella/db-skills); the built-ins map via SystemSkillsHost/View.
+	SystemDBSkillsHost string
+	SystemDBSkillsView string
 	// UserData and Workspace are full binds, so their whole root maps (this lets
 	// project skills under <workspace>/projects/<id>/.agents/skills map too).
 	UserDataHost  string
@@ -152,6 +153,7 @@ func (v SkillDirView) apply(hostDir string) string {
 		{v.UserDataHost, v.UserDataView},
 		{v.SystemSkillsHost, v.SystemSkillsView},
 		{v.AgentSkillsHost, v.AgentSkillsView},
+		{v.SystemDBSkillsHost, v.SystemDBSkillsView},
 	} {
 		if m[0] == "" {
 			continue
@@ -179,42 +181,6 @@ const (
 	skillScopeAgent = "user_agent"
 )
 
-// skillDirForScope returns the absolute host path to the skill's directory so
-// agents can execute scripts directly. Returns empty string if the path cannot
-// be determined.
-func (t *Tool) skillDirForScope(scope, agentID string, userID string, skillName string) string {
-	switch scope {
-	case "system":
-		if t.stellaHome == "" {
-			return ""
-		}
-		return filepath.Join(t.stellaHome, ".agents", "skills", skillName)
-	case "system_agent":
-		if t.agentRoot == "" {
-			return ""
-		}
-		return filepath.Join(t.agentRoot, ".agents", "skills", skillName)
-	case "user":
-		if t.userSkillsDir == "" {
-			return ""
-		}
-		return filepath.Join(t.userSkillsDir, skillName)
-	case "user_agent":
-		// user_agent skills live in the agent workspace (/workspace), not the
-		// shared user dir; fall back to the user dir for non-sandbox callers.
-		dir := t.userAgentSkillsDir
-		if dir == "" {
-			dir = t.userSkillsDir
-		}
-		if dir == "" {
-			return ""
-		}
-		return filepath.Join(dir, skillName)
-	default:
-		return ""
-	}
-}
-
 // errProjectScopeWriteRejected is the error returned when a write action is attempted on project scope.
 const errProjectScopeMsg = "scope=project is not supported for write operations — project skills live in {PROJECT_ROOT}/.agents/skills and come with the repo; edit the files directly in git"
 
@@ -239,31 +205,25 @@ func (t *Tool) targetScope(ctx context.Context, rawScope string) (string, error)
 	}
 	switch scope {
 	case skillScopeUser:
-		if t.userSkillsDir == "" {
-			return "", fmt.Errorf("user skill scope is unavailable")
+		// User-scope skills are owned by the requesting user; without a user in
+		// context there is no owner to attribute them to. Where they materialize on
+		// disk is the store's concern (DiskSyncStore), not the tool's — the tool
+		// carries no skill-path knowledge for writes.
+		//
+		// Group sessions deliberately leave the user unset (D9: runtime identity
+		// stays the group, see runtime/chat.go), so user-scope writes are refused
+		// here. That is intentional: the old layout-based gate let them through but
+		// create() then stamped an empty owner — which fails late on the user_id
+		// foreign key under normal enforcement, or (without it) leaves a dead row the
+		// store never resolves and DiskSyncStore never materializes. This fails fast.
+		if memory.UserIDFromContext(ctx) == "" {
+			return "", fmt.Errorf("user skill scope is unavailable without a user context")
 		}
 		return scope, nil
 	case skillScopeAgent:
 		return scope, nil
 	default:
 		return "", fmt.Errorf("unsupported scope %q", scope)
-	}
-}
-
-// targetSkillsDir returns the scope and skill directory for a writable scope.
-// Kept for backward compatibility; most callers only need the scope now.
-func (t *Tool) targetSkillsDir(ctx context.Context, rawScope string) (string, string, error) {
-	scope, err := t.targetScope(ctx, rawScope)
-	if err != nil {
-		return "", "", err
-	}
-	switch scope {
-	case skillScopeUser:
-		return scope, t.userSkillsDir, nil
-	case skillScopeAgent:
-		return scope, filepath.Join(t.agentRoot, ".agents", "skills"), nil
-	default:
-		return "", "", fmt.Errorf("unsupported scope %q", scope)
 	}
 }
 
@@ -330,11 +290,12 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		path = pkgplugins.SkillMainFile
 	}
 
-	// For DB skills without a dir from the service, try to resolve the disk path.
+	// For DB skills without a dir from the service, resolve the disk path the
+	// writer materialized them to (the layout is the shared authority).
 	if skillDir == "" {
 		rs, _ := t.svc.Resolve(ctx, name, vc, projectRoot)
 		if rs != nil {
-			skillDir = t.skillDirForScope(rs.Scope, rs.AgentID, rs.UserID, rs.Name)
+			skillDir = t.layout.Dir(rs.Scope, rs.Name)
 		}
 	}
 

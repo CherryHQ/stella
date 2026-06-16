@@ -30,10 +30,16 @@ type SkillView struct {
 	// mapping onto /workspace.
 	AgentSkillsHost string
 	AgentSkillsView string
-	UserDataHost    string
-	UserDataView    string
-	WorkspaceHost   string
-	WorkspaceView   string
+	// SystemDBSkillsHost/View map the DB-installed system skills dir
+	// (STELLA_HOME/.agents/db-skills), a sibling of the shipped built-ins. It gets
+	// its own fixed /opt/stella/db-skills mount rather than mixing into the
+	// built-in system skills view.
+	SystemDBSkillsHost string
+	SystemDBSkillsView string
+	UserDataHost       string
+	UserDataView       string
+	WorkspaceHost      string
+	WorkspaceView      string
 }
 
 // ResolveSkillView returns the skill-root remapping for cfg's active backend:
@@ -46,20 +52,24 @@ func ResolveSkillView(ctx context.Context, cfg Config, paths Paths) SkillView {
 	backend := resolveBackendName(ctx, cfg)
 	systemSkillsHost := filepath.Join(paths.StellaHome, ".agents", "skills")
 	agentSkillsHost := agentSkillsDirHost(paths)
+	systemDBSkillsHost := systemDBSkillsDirHost(paths)
 	v := SkillView{
-		SystemSkillsHost: systemSkillsHost,
-		SystemSkillsView: systemSkillsHost,
-		AgentSkillsHost:  agentSkillsHost,
-		AgentSkillsView:  agentSkillsHost,
-		UserDataHost:     paths.UserDataDir,
-		UserDataView:     paths.UserDataDir,
-		WorkspaceHost:    paths.WorkspaceRoot,
-		WorkspaceView:    paths.WorkspaceRoot,
+		SystemSkillsHost:   systemSkillsHost,
+		SystemSkillsView:   systemSkillsHost,
+		AgentSkillsHost:    agentSkillsHost,
+		AgentSkillsView:    agentSkillsHost,
+		SystemDBSkillsHost: systemDBSkillsHost,
+		SystemDBSkillsView: systemDBSkillsHost,
+		UserDataHost:       paths.UserDataDir,
+		UserDataView:       paths.UserDataDir,
+		WorkspaceHost:      paths.WorkspaceRoot,
+		WorkspaceView:      paths.WorkspaceRoot,
 	}
 	if isolatingBackend(backend) {
 		v.Isolated = true
 		v.SystemSkillsView = filepath.Join(pkgsandbox.MountStellaHome, ".agents", "skills")
 		v.AgentSkillsView = pkgsandbox.MountAgentSkills
+		v.SystemDBSkillsView = pkgsandbox.MountSystemDBSkills
 		v.UserDataView = pkgsandbox.MountUserData
 		v.WorkspaceView = pkgsandbox.MountWorkspace
 	}
