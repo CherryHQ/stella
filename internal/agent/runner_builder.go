@@ -123,6 +123,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			UserID:              params.UserID,
 			AgentID:             params.AgentID,
 			UserRoot:            userRoot,
+			WorkspaceRoot:       userRoot,
 			SkillStore:          cfg.SkillStore,
 			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 			EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),

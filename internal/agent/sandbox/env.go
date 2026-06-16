@@ -20,7 +20,7 @@ import (
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
 	principalDir, id := misePrincipal(cfg)
 	return pkgsandbox.FilesystemPolicy{
-		WorkspaceRoot:       paths.UserRoot,
+		WorkspaceRoot:       paths.WorkspaceRoot,
 		WorkingDir:          paths.WorkDir,
 		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
 		TempDirHost:         userTempDir(principalDir, id),

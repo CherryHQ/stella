@@ -10,9 +10,16 @@ import (
 
 // Paths is the path set sandbox policy creation and tool registration depend on.
 type Paths struct {
-	StellaHome  string
-	AgentRoot   string
-	UserRoot    string
+	StellaHome string
+	AgentRoot  string
+	UserRoot   string
+	// WorkspaceRoot is the agent's workspace root — the sandbox HOME and cwd in
+	// the two-root layout. During the migration it tracks UserRoot (the user home)
+	// and no consumer reads it yet; a later phase flips it to the per-agent dir.
+	WorkspaceRoot string
+	// UserDataDir is the shared user-data root (mounted as /user). Filled from
+	// UserRoot/data; not yet consumed during the migration.
+	UserDataDir string
 	ProjectRoot string
 	// WorkDir is the initial working directory inside the sandbox.
 	// Set by ResolvePaths to the absolute form of UserRoot.
@@ -47,6 +54,10 @@ func ResolvePaths(cfg Config) (Paths, error) {
 	}
 	p.UserRoot = userRoot
 	p.WorkDir = userRoot
+	// Additive (migration phase 1): fill the two-root fields without consuming
+	// them. WorkspaceRoot tracks UserRoot for now; UserDataDir is UserRoot/data.
+	p.WorkspaceRoot = userRoot
+	p.UserDataDir = filepath.Join(userRoot, "data")
 
 	if p.ProjectRoot != "" {
 		pr, err := filepath.Abs(p.ProjectRoot)

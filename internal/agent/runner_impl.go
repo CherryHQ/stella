@@ -200,11 +200,12 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	// Runtime capabilities are injected from the active runner session.
 	bc := pkgplugins.ToolBuildContext{
 		Paths: pkgplugins.ToolPaths{
-			UserRoot:    paths.UserRoot,
-			ToolsBinDir: toolsBinDir,
-			StellaHome:  paths.StellaHome,
-			AgentRoot:   paths.AgentRoot,
-			ProjectRoot: paths.ProjectRoot,
+			UserRoot:      paths.UserRoot,
+			WorkspaceRoot: paths.WorkspaceRoot,
+			ToolsBinDir:   toolsBinDir,
+			StellaHome:    paths.StellaHome,
+			AgentRoot:     paths.AgentRoot,
+			ProjectRoot:   paths.ProjectRoot,
 		},
 		Runtime: session,
 	}

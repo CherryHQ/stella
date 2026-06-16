@@ -330,6 +330,7 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 		UserID:              info.UserID,
 		AgentID:             info.AgentID,
 		UserRoot:            userRoot,
+		WorkspaceRoot:       userRoot,
 		SkillStore:          pm.skillStore,
 		RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 		EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),

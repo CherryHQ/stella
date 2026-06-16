@@ -108,6 +108,14 @@ func setupHome(home, agentDir, agentID string) (string, error) {
 	return home, nil
 }
 
+// UserDataDir returns the shared user-data root within a user home. Toolchains,
+// caches, user-level skills/delegates, and uploaded assets live here, shared by
+// all the user's agents; it is mounted as /user in the two-root sandbox layout.
+// Takes the resolved home so it composes with both user and group homes.
+func UserDataDir(userHome string) string {
+	return filepath.Join(userHome, "data")
+}
+
 // UserAssetsDir returns the per-user assets directory within a user home.
 // Uploaded files from all channels are stored here, shared across the user's agents.
 func UserAssetsDir(userHome string) string {

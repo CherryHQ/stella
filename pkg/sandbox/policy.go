@@ -44,6 +44,14 @@ type FilesystemPolicy struct {
 	// WorkingDir is the logical working directory inside the sandbox root.
 	WorkingDir string
 
+	// UserDataDir is the host path of the shared user-data root, mounted as a
+	// second top-level root (/user) in the two-root layout. Holds toolchains,
+	// caches, user-level skills/delegates, and uploads shared across the user's
+	// agents. Empty during the migration / for backends that don't yet implement
+	// the second root; not consumed until a later phase wires the mount and the
+	// host-side path resolver.
+	UserDataDir string
+
 	// ExtraReadOnlyMounts is a list of host paths to mount read-only inside the
 	// sandbox at their exact host path (same-path strategy). Used for skill dirs
 	// that live outside the workspace root but must be accessible for script execution.
