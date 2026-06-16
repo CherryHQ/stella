@@ -147,9 +147,18 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot s
 			continue
 		}
 		if k == "MISE_TRUSTED_CONFIG_PATHS" {
-			parts := strings.Split(v, string(filepath.ListSeparator))
-			for i, p := range parts {
-				parts[i] = remapMise(p)
+			seen := map[string]struct{}{}
+			var parts []string
+			for p := range strings.SplitSeq(v, string(filepath.ListSeparator)) {
+				// Remapping can collapse distinct host paths onto one sandbox path
+				// (e.g. the host user-root onto /workspace), so dedupe to keep the
+				// trusted list clean and order-stable.
+				rp := remapMise(p)
+				if _, ok := seen[rp]; ok {
+					continue
+				}
+				seen[rp] = struct{}{}
+				parts = append(parts, rp)
 			}
 			env[k] = strings.Join(parts, string(filepath.ListSeparator))
 			continue

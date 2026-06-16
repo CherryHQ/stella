@@ -551,7 +551,7 @@ func TestAdjustPolicy_perUserMiseInHomeFrame(t *testing.T) {
 		{"MISE_DATA_DIR", "/workspace/.mise-tools"},
 		{"MISE_CACHE_DIR", "/workspace/.mise-tools/cache"},
 		{"MISE_GLOBAL_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
-		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml:/workspace:/workspace"},
+		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml:/workspace"},
 	} {
 		if got := adjusted.Env[tc.key]; got != tc.want {
 			t.Errorf("env[%s] = %q, want %q", tc.key, got, tc.want)
