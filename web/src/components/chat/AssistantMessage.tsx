@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { getAgentColor } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
+import { CopyButton } from "./CopyButton";
 import { SessionTrace } from "./SessionTrace";
 
 export interface AssistantMessageProps {
@@ -51,6 +52,10 @@ export function AssistantMessage({
 }: AssistantMessageProps) {
   const color = getAgentColor(agentId);
   const grouped = groupBlocks(blocks);
+  const copyText = blocks
+    .filter((b) => b.type === "text")
+    .map((b) => (b as { text: string }).text)
+    .join("\n\n");
 
   return (
     <div className="group w-full min-w-0 flex flex-col gap-1.5">
@@ -119,6 +124,7 @@ export function AssistantMessage({
             )}
           </div>
         )}
+        {!streaming && copyText && <CopyButton text={copyText} className="-ml-1" />}
       </div>
     </div>
   );

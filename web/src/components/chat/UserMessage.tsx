@@ -1,6 +1,7 @@
 import { FileText } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
+import { CopyButton } from "./CopyButton";
 import {
   replaceUUIDMentions,
   extractUserText,
@@ -36,7 +37,7 @@ export function UserMessage({
   const otherFiles = files.filter((f) => !isImagePath(f));
 
   return (
-    <div className="w-full min-w-0 flex flex-col items-end gap-1.5">
+    <div className="group w-full min-w-0 flex flex-col items-end gap-1.5">
       {!sameRoleAsPrev && (
         <div className="flex items-center gap-2 mb-0.5">
           {msg.timestamp && (
@@ -97,6 +98,7 @@ export function UserMessage({
             ))}
           </div>
         )}
+        <CopyButton text={text} className="-mr-1" />
       </div>
     </div>
   );
