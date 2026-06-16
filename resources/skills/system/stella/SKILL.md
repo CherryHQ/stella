@@ -8,6 +8,8 @@ description: >
   self-update, multi-agent, multi-user, or general "how does stella work" / "help me get started" questions.
   Also triggers on "change my model", "set up telegram", "set up wechat", "configure provider", "update stella",
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
+  Also triggers when the user wants to report a bug or file a GitHub issue about stella:
+  "report this bug", "create an issue for this", "报告这个 issue", "帮我建个 issue".
 ---
 
 # Stella Self-Knowledge
@@ -56,6 +58,7 @@ Read the relevant reference file for detailed guidance:
 | Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                           |
 | Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                            |
 | Tasks & goals | [references/tasks.md](references/tasks.md)                 | Goal/task system: manager CLI vs worker `task_control`, lifecycle, deps, readiness, reviews, blockers |
+| Report issue  | [references/report-issue.md](references/report-issue.md)   | User asks to report a bug / file a GitHub issue about stella                                          |
 
 ## In-chat commands
 
