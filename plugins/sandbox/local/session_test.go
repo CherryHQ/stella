@@ -521,6 +521,50 @@ func TestAdjustPolicy_perUserMiseShimsOnPath(t *testing.T) {
 	}
 }
 
+// TestAdjustPolicy_perUserMiseInHomeFrame verifies that when the per-user mise
+// tree lives inside the user home (the workspace root), adjustPolicy expresses it
+// in the HOME-frame (/workspace) instead of the host STELLA_HOME tree: the agent
+// sees its own toolchain under $HOME and never learns the on-disk users/{id}
+// layout (#442). The system config path stays under the sandbox STELLA_HOME, and
+// the host user-root trusted entry collapses onto /workspace.
+func TestAdjustPolicy_perUserMiseInHomeFrame(t *testing.T) {
+	hostSH := "/home/user/.stella"
+	userHome := hostSH + "/users/u1"
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: userHome},
+		Env: map[string]string{
+			"MISE_DATA_DIR":             userHome + "/.mise-tools",
+			"MISE_CACHE_DIR":            userHome + "/.mise-tools/cache",
+			"MISE_GLOBAL_CONFIG_FILE":   hostSH + "/.mise-tools/configs/_builtin.toml",
+			"MISE_TRUSTED_CONFIG_PATHS": hostSH + "/.mise-tools/configs/_builtin.toml:/workspace:" + userHome,
+		},
+	}
+	f := &Factory{cfg: Config{StellaHome: hostSH}}
+	// Drive adjustPolicy with an explicit remapping root (sandboxRoot != realRoot)
+	// so the HOME-frame composition is exercised on every platform, not only where
+	// resolveSandboxRoot remaps (Linux/bwrap).
+	sandboxRoot, realRoot := "/workspace", userHome
+	sandboxSH := adjustStellaHome(hostSH)
+	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot)
+
+	for _, tc := range []struct{ key, want string }{
+		{"MISE_DATA_DIR", "/workspace/.mise-tools"},
+		{"MISE_CACHE_DIR", "/workspace/.mise-tools/cache"},
+		{"MISE_GLOBAL_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
+		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml:/workspace:/workspace"},
+	} {
+		if got := adjusted.Env[tc.key]; got != tc.want {
+			t.Errorf("env[%s] = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+	if wantShims := "/workspace/.mise-tools/shims"; !strings.Contains(adjusted.Env["PATH"], wantShims) {
+		t.Errorf("PATH must include HOME-frame shims %q, got %q", wantShims, adjusted.Env["PATH"])
+	}
+	if strings.Contains(adjusted.Env["PATH"], userHome) {
+		t.Errorf("PATH must not leak the host user-home path %q: %q", userHome, adjusted.Env["PATH"])
+	}
+}
+
 // TestAdjustPolicy_homeAndXDG verifies HOME is the user home (the sandbox-space
 // workspace root) and the XDG dirs split shared-vs-private: cache stays at the
 // shared home while config/data/state redirect into the agent's private subdir

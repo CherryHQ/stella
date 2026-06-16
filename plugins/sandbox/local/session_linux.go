@@ -16,10 +16,12 @@ import (
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// sandboxStellaHome is the virtual STELLA_HOME inside the bwrap sandbox. HOME is
-// not a fixed path: it is the workspace root (the user home) at /workspace, set
-// in adjustPolicy, so XDG defaults land in the per-user home (#442).
-const sandboxStellaHome = "/home/stella/.stella"
+// sandboxStellaHome is the virtual STELLA_HOME inside the bwrap sandbox: the
+// shared read-only system tree (toolchains, bin) the agent sees. It is deliberately
+// an infrastructure path, not a home-shaped one — the agent's home is the user
+// workspace at /workspace, set in adjustPolicy, so XDG defaults and the agent's own
+// mise tree land under that home, never under this system tree (#442).
+const sandboxStellaHome = "/opt/stella"
 
 // setSysProcAttr places the child in its own process group so that
 // killProcessGroup can terminate the entire subtree.
@@ -285,10 +287,16 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
 	bwrapArgs = appendStellaHomeMounts(bwrapArgs, stellaHomeHost)
-	// Extra writable mounts (e.g. the per-user mise home, layered above the
-	// read-only system installs mounted by appendStellaHomeMounts): bind each at
-	// its STELLA_HOME-remapped sandbox path so writes land in the host tree.
+	// Extra writable mounts (e.g. an out-of-workspace per-principal cache), layered
+	// above the read-only system installs mounted by appendStellaHomeMounts: bind
+	// each at its STELLA_HOME-remapped sandbox path so writes land in the host tree.
+	// A mount inside the workspace is skipped — it is already writable through the
+	// realRoot -> /workspace bind below, and binding it again under the STELLA_HOME
+	// tree would only re-expose the host path to the agent (#442).
 	for _, writable := range policy.Filesystem.ExtraWritableMounts {
+		if remapToSandboxRoot(writable, realRoot, "/workspace") != writable {
+			continue
+		}
 		bwrapArgs = appendWritableBind(bwrapArgs, writable, remapToSandboxStellaHome(writable, stellaHomeHost))
 	}
 	for _, extraPath := range policy.Filesystem.ExtraReadOnlyMounts {

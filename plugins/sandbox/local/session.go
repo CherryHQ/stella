@@ -112,12 +112,21 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot s
 	}
 	sandboxSH := adjustStellaHome(f.cfg.StellaHome)
 	hostSH := f.cfg.StellaHome
-	remap := func(p string) string { return remapStellaHomePath(p, hostSH, sandboxSH) }
+	// remapMise rewrites a mise path to the agent's view. The per-user mise tree
+	// lives inside the user home (realRoot), so map it into the HOME-frame
+	// (/workspace) first: the agent then sees its own toolchain under $HOME, not
+	// the host STELLA_HOME tree, and never learns the on-disk users/{id} layout
+	// (#442). The shared system tree sits outside the home, so it falls through to
+	// the STELLA_HOME remap. Composing is safe — a path already under sandboxRoot
+	// is no longer under hostSH, so the second step leaves it untouched.
+	remapMise := func(p string) string {
+		return remapStellaHomePath(remapToSandboxRoot(p, realRoot, sandboxRoot), hostSH, sandboxSH)
+	}
 	// Recover the per-user mise home from the runtime env (MISE_DATA_DIR, still a
 	// host path here) and remap it to the sandbox tree to put its shims on PATH.
 	userShims := ""
 	if dir := sandboxpkg.PerUserMiseDataDir(env, hostSH); dir != "" {
-		userShims = sandboxpkg.MiseUserShimsDir(remap(dir))
+		userShims = sandboxpkg.MiseUserShimsDir(remapMise(dir))
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
 	// HOME is the user home (the workspace root as the agent sees it), so XDG
@@ -126,28 +135,26 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot s
 	env["HOME"] = sandboxRoot
 	setXDGDirs(env, sandboxRoot, remapToSandboxRoot(policy.Filesystem.AgentPrivateDir, realRoot, sandboxRoot))
 	env["STELLA_HOME"] = sandboxSH
-	// Rewrite MISE_* path-valued env vars from host STELLA_HOME to the
-	// sandbox-adjusted path so mise resolves tools and configs correctly inside
-	// bwrap. All but MISE_TRUSTED_CONFIG_PATHS are single scalar paths, and ':'
-	// is a legal character in a POSIX path, so they must be remapped whole — only
+	// Rewrite MISE_* path-valued env vars to the agent's view (see remapMise): the
+	// per-user tree lands under /workspace, the system tree under the sandbox
+	// STELLA_HOME. All but MISE_TRUSTED_CONFIG_PATHS are single scalar paths, and
+	// ':' is a legal character in a POSIX path, so they are remapped whole — only
 	// the genuinely list-valued var is split on the path-list separator (each
 	// element remapped independently; already-sandbox paths like /workspace
 	// survive untouched).
-	if hostSH != sandboxSH {
-		for k, v := range env {
-			if !strings.HasPrefix(k, "MISE_") {
-				continue
-			}
-			if k == "MISE_TRUSTED_CONFIG_PATHS" {
-				parts := strings.Split(v, string(filepath.ListSeparator))
-				for i, p := range parts {
-					parts[i] = remap(p)
-				}
-				env[k] = strings.Join(parts, string(filepath.ListSeparator))
-				continue
-			}
-			env[k] = remap(v)
+	for k, v := range env {
+		if !strings.HasPrefix(k, "MISE_") {
+			continue
 		}
+		if k == "MISE_TRUSTED_CONFIG_PATHS" {
+			parts := strings.Split(v, string(filepath.ListSeparator))
+			for i, p := range parts {
+				parts[i] = remapMise(p)
+			}
+			env[k] = strings.Join(parts, string(filepath.ListSeparator))
+			continue
+		}
+		env[k] = remapMise(v)
 	}
 	sandboxpkg.HostEnvCopy(env)
 	policy.Env = env

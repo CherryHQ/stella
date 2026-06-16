@@ -58,7 +58,7 @@ type FilesystemPolicy struct {
 	// ExtraWritableMounts is a list of host paths to mount writable inside the
 	// sandbox at their STELLA_HOME-remapped path. Each path must live under the
 	// host STELLA_HOME: the isolating backends mount it at its remapped location
-	// (bwrap remaps STELLA_HOME -> /home/stella/.stella; Seatbelt uses the host
+	// (bwrap remaps STELLA_HOME -> /opt/stella; Seatbelt uses the host
 	// path unchanged), so a path outside STELLA_HOME would bind at an unintended
 	// target. This differs from ExtraReadOnlyMounts, which mounts at the exact
 	// host path (same-path strategy).

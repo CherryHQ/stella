@@ -283,6 +283,50 @@ func TestWrapCommand_linux_perUserMiseWritableBind(t *testing.T) {
 	}
 }
 
+// TestWrapCommand_linux_inWorkspaceWritableMountSkipped verifies a writable mount
+// inside the workspace is NOT bound again under the STELLA_HOME tree: it is already
+// writable via the realRoot -> /workspace bind, and a second bind would only
+// re-expose the host path. This is the runtime case for the per-user mise tree,
+// which lives inside the user home (#442).
+func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
+	if _, err := exec.LookPath("bwrap"); err != nil {
+		t.Skip("bwrap not installed")
+	}
+	if !bwrapFunctional() {
+		t.Skip("bwrap not functional (namespace creation blocked)")
+	}
+
+	stellaHome := t.TempDir()
+	userHome := filepath.Join(stellaHome, "users", "u1")
+	miseDir := filepath.Join(userHome, ".mise-tools")
+	if err := os.MkdirAll(miseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sandboxMiseDir := filepath.Join(sandboxStellaHome, "users", "u1", ".mise-tools")
+
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot:       userHome,
+			WorkingDir:          "/workspace",
+			ExtraWritableMounts: []string{miseDir},
+		},
+		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+	}
+
+	_, args, _, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, sandboxMiseDir) {
+		t.Errorf("in-workspace writable mount must not be re-bound under %s: %v", sandboxStellaHome, args)
+	}
+	if !strings.Contains(joined, "--bind "+userHome+" /workspace") {
+		t.Errorf("expected realRoot bind to /workspace covering the mise tree, got %v", args)
+	}
+}
+
 // TestWrapCommand_linux_hidesSiblingAgents verifies the per-agent isolation
 // mounts (#442): the agents/ subtree under /workspace is covered by an empty
 // tmpfs (hiding siblings) and only this agent's own dir is bound back, after the
