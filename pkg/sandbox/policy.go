@@ -85,16 +85,10 @@ type FilesystemPolicy struct {
 	// it only learns "these host dirs are writable", not why.
 	ExtraWritableMounts []string
 
-	// AgentPrivateDir is the host path of the running agent's private subdir of
-	// the user home (users/{id}/agents/{agentID}), which must live under
-	// WorkspaceRoot. The isolating backends redirect the agent's XDG
-	// config/data/state here and hide its siblings' subdirs, so one agent cannot
-	// read or tamper with another's cached credentials and bypass the per-agent
-	// scoped-token isolation (#442). Caches and toolchains stay shared at the
-	// user-home level; only this subtree is private. Empty when the session has
-	// no sibling agents to isolate from — a user-less job, where the agent is its
-	// own principal — and ignored by backends that don't enforce isolation (none,
-	// and docker until #436).
+	// AgentPrivateDir is a legacy sibling-hiding hint, left empty in the two-root
+	// layout: the agent workspace IS the per-agent dir (WorkspaceRoot), so siblings
+	// are never mounted and there is nothing to hide. Still read by the macOS
+	// Seatbelt profile (a deny/allow carve-out), where it stays inert while empty.
 	AgentPrivateDir string
 }
 

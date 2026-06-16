@@ -51,6 +51,13 @@ func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string)
 	return real, real
 }
 
+// resolveUserDataRoot returns the shared user-data root. macOS does no path
+// remapping, so the sandbox-space and host paths are identical (no /user alias).
+func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
+	real := policy.Filesystem.UserDataDir
+	return real, real
+}
+
 // createSessionTmpMounts returns tmpMount pairs for macOS temp paths.
 // On macOS, /tmp and /var/tmp are symlinks into /private; sandbox-exec cannot
 // bind-mount, so this maps file-tool access to the policy temp dir while shell
@@ -141,8 +148,14 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy, stellaHomeHost string) strin
 		appendSeatbeltWritableEnvDirs(&sb, policy.Env)
 	}
 
-	// Workspace root: the only user-controlled path that is fully writable.
+	// Workspace root: the agent's fully writable working tree.
 	fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", workspace)
+
+	// Shared user-data root (/user equivalent): writable, shared across the user's
+	// agents. macOS does no remap, so this is the host UserDataDir path.
+	if ud := filepath.Clean(policy.Filesystem.UserDataDir); filepath.IsAbs(ud) {
+		fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", ud)
+	}
 
 	// Hide sibling agents: deny read+write across the agents/ subtree, then
 	// re-allow this agent's own dir, so it can neither read nor write another

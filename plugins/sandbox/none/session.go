@@ -80,6 +80,12 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 		userShims = sandboxpkg.MiseUserShimsDir(dir)
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims)
+	// Host execution shares the real filesystem, so the shared user-data root is
+	// exposed at its real path (no /user remap). Keeps STELLA_USER_DIR meaningful
+	// for skills/prompt that address it regardless of backend.
+	if ud := policy.Filesystem.UserDataDir; ud != "" {
+		env["STELLA_USER_DIR"] = ud
+	}
 	policy.Env = env
 	return policy
 }

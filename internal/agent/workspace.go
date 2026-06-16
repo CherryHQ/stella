@@ -95,7 +95,16 @@ func setupHome(home, agentDir, agentID string) (string, error) {
 	if agentID == "" {
 		return "", fmt.Errorf("agent ID must not be empty")
 	}
-	for _, sub := range [][]string{{".agents", "skills"}, {"data"}, {"assets"}} {
+	// data/ is the shared user-data root mounted as /user. Its subtree holds the
+	// per-user toolchain, cache, user-level skills/delegates, and uploads — all
+	// shared across the user's agents. (.agents/skills and assets at the home root
+	// are legacy #442 locations, kept until their consumers move to data/.)
+	for _, sub := range [][]string{
+		{".agents", "skills"}, {"assets"},
+		{"data"}, {"data", ".mise-tools"}, {"data", ".cache"},
+		{"data", ".agents", "skills"}, {"data", ".agents", "delegates"},
+		{"data", "assets"},
+	} {
 		if err := os.MkdirAll(filepath.Join(home, filepath.Join(sub...)), 0o755); err != nil {
 			return "", fmt.Errorf("create home dir %q: %w", home, err)
 		}

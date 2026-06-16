@@ -79,30 +79,34 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	// and the XDG dirs at the user home as the agent sees it. resolveSandboxRoot
 	// reads only WorkspaceRoot, which adjustPolicy leaves untouched.
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	policy = f.adjustPolicy(policy, sandboxRoot, realRoot)
+	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
+	policy = f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
 
 	tmpMounts, err := createSessionTmpMounts(policy)
 	if err != nil {
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
 	}
 	s := &localSession{
-		id:             sessionID,
-		policy:         policy,
-		realRoot:       realRoot,
-		sandboxRoot:    sandboxRoot,
-		stellaHomeHost: hostStellaHome,
-		tmpMounts:      tmpMounts,
-		done:           make(chan struct{}),
+		id:              sessionID,
+		policy:          policy,
+		realRoot:        realRoot,
+		sandboxRoot:     sandboxRoot,
+		userDataReal:    userDataReal,
+		userDataSandbox: userDataSandbox,
+		stellaHomeHost:  hostStellaHome,
+		tmpMounts:       tmpMounts,
+		done:            make(chan struct{}),
 	}
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
 	return s, nil
 }
 
 // adjustPolicy applies local-backend-specific environment adjustments.
-// sandboxRoot/realRoot are the sandbox-space and host views of the workspace
-// root (the user home); HOME and the XDG dirs are anchored to the sandbox-space
-// view so the agent sees a real per-user home.
-func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot string) sandboxpkg.Policy {
+// sandboxRoot/realRoot are the sandbox-space and host views of the agent
+// workspace; userDataSandbox/userDataReal are the same for the shared user-data
+// root (empty when none). HOME and the XDG dirs are anchored to the sandbox-space
+// views so the agent sees a clean /workspace + /user pair.
+func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, userDataSandbox, userDataReal string) sandboxpkg.Policy {
 	if f.cfg.StellaHome == "" {
 		return policy
 	}
@@ -113,14 +117,16 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot s
 	sandboxSH := adjustStellaHome(f.cfg.StellaHome)
 	hostSH := f.cfg.StellaHome
 	// remapMise rewrites a mise path to the agent's view. The per-user mise tree
-	// lives inside the user home (realRoot), so map it into the HOME-frame
-	// (/workspace) first: the agent then sees its own toolchain under $HOME, not
-	// the host STELLA_HOME tree, and never learns the on-disk users/{id} layout
-	// (#442). The shared system tree sits outside the home, so it falls through to
-	// the STELLA_HOME remap. Composing is safe — a path already under sandboxRoot
-	// is no longer under hostSH, so the second step leaves it untouched.
+	// now lives under the shared user-data root (UserDataDir/.mise-tools), so map
+	// that frame to /user first; the agent sees its toolchain at /user/.mise-tools
+	// and never learns the on-disk users/{id} layout. A project-local or system
+	// tree falls through to the workspace (/workspace) then STELLA_HOME (/opt/stella)
+	// remaps. Composing is safe — once a path lands under one sandbox root it is no
+	// longer under the next frame's host prefix, so later steps leave it untouched.
 	remapMise := func(p string) string {
-		return remapStellaHomePath(remapToSandboxRoot(p, realRoot, sandboxRoot), hostSH, sandboxSH)
+		p = remapToSandboxRoot(p, userDataReal, userDataSandbox)
+		p = remapToSandboxRoot(p, realRoot, sandboxRoot)
+		return remapStellaHomePath(p, hostSH, sandboxSH)
 	}
 	// Recover the per-user mise home from the runtime env (MISE_DATA_DIR, still a
 	// host path here) and remap it to the sandbox tree to put its shims on PATH.
@@ -129,14 +135,19 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot s
 		userShims = sandboxpkg.MiseUserShimsDir(remapMise(dir))
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
-	// HOME is the user home (the workspace root as the agent sees it), so XDG
-	// defaults — caches, tool config — land under it and are shared per-user. The
-	// project dir stays the cwd; only HOME differs (#442).
+	// HOME is the agent workspace (/workspace), so XDG config/data/state default
+	// under it and stay private to this agent; only the cache is shared, pointed at
+	// the user-data root (/user). The project dir stays the cwd; only HOME differs.
 	env["HOME"] = sandboxRoot
-	setXDGDirs(env, sandboxRoot, remapToSandboxRoot(policy.Filesystem.AgentPrivateDir, realRoot, sandboxRoot))
+	setXDGDirs(env, sandboxRoot, userDataSandbox)
+	if userDataSandbox != "" {
+		// The shared user-data root, exposed so the agent (and skills/uploads) can
+		// address it without learning the host users/{id} layout.
+		env["STELLA_USER_DIR"] = userDataSandbox
+	}
 	env["STELLA_HOME"] = sandboxSH
 	// Rewrite MISE_* path-valued env vars to the agent's view (see remapMise): the
-	// per-user tree lands under /workspace, the system tree under the sandbox
+	// per-user tree lands under /user, the system tree under the sandbox
 	// STELLA_HOME. All but MISE_TRUSTED_CONFIG_PATHS are single scalar paths, and
 	// ':' is a legal character in a POSIX path, so they are remapped whole — only
 	// the genuinely list-valued var is split on the path-list separator (each
@@ -171,19 +182,27 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot s
 	return policy
 }
 
-// setXDGDirs points the per-agent XDG dirs at the agent's private subdir so each
-// agent's credentials and state (e.g. ~/.config/gh) stay private to it, while the
-// cache stays at the shared user-home default. agentPrivate is the sandbox-space
-// agent-private dir, or "" for a user-less session with no siblings — then XDG is
-// left to its $HOME defaults (everything shared under the one home).
-func setXDGDirs(env map[string]string, home, agentPrivate string) {
-	env["XDG_CACHE_HOME"] = filepath.Join(home, ".cache")
-	if agentPrivate == "" {
-		return
+// setXDGDirs points the agent's XDG config/data/state under its $HOME (the agent
+// workspace), so each agent's credentials and state (e.g. ~/.config/gh) stay
+// private to it — the workspace is per-agent and siblings are never mounted. The
+// cache is pointed at the shared user-data root (userData, the sandbox-space
+// /user) so toolchain/download caches are reused across the user's agents. When
+// userData is "" (a user-less session with no shared root) the cache falls back
+// to $HOME so nothing is shared.
+//
+// NOTE: /user is a shared writable trust domain for all of one user's agents, not
+// an isolation boundary — a tool that writes credentials into its cache would
+// expose them to the user's other agents. Credentials belong under the private
+// XDG config/data/state (HOME), which is why only the cache is shared here.
+func setXDGDirs(env map[string]string, home, userData string) {
+	cacheHome := home
+	if userData != "" {
+		cacheHome = userData
 	}
-	env["XDG_CONFIG_HOME"] = filepath.Join(agentPrivate, ".config")
-	env["XDG_DATA_HOME"] = filepath.Join(agentPrivate, ".local", "share")
-	env["XDG_STATE_HOME"] = filepath.Join(agentPrivate, ".local", "state")
+	env["XDG_CACHE_HOME"] = filepath.Join(cacheHome, ".cache")
+	env["XDG_CONFIG_HOME"] = filepath.Join(home, ".config")
+	env["XDG_DATA_HOME"] = filepath.Join(home, ".local", "share")
+	env["XDG_STATE_HOME"] = filepath.Join(home, ".local", "state")
 }
 
 // remapToSandboxRoot rewrites a host path under realRoot to its sandbox-space
@@ -225,17 +244,19 @@ func remapStellaHomePath(p, hostSH, sandboxSH string) string {
 // localSession implements sandboxpkg.Session by running commands directly on
 // the host OS with no container isolation.
 type localSession struct {
-	id             string
-	policy         sandboxpkg.Policy
-	realRoot       string     // actual host path (e.g. /home/stella/.stella-dev/...)
-	sandboxRoot    string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
-	stellaHomeHost string     // host-side STELLA_HOME for bwrap mounts
-	tmpMounts      []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
-	done           chan struct{}
-	doneOnce       sync.Once
-	mu             sync.RWMutex
-	closed         bool
-	procs          []*localProcess
+	id              string
+	policy          sandboxpkg.Policy
+	realRoot        string     // actual host path (e.g. /home/stella/.stella-dev/...)
+	sandboxRoot     string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
+	userDataReal    string     // host path of the shared user-data root, "" when none
+	userDataSandbox string     // path the agent sees for it (/user on Linux+bwrap, else = userDataReal)
+	stellaHomeHost  string     // host-side STELLA_HOME for bwrap mounts
+	tmpMounts       []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
+	done            chan struct{}
+	doneOnce        sync.Once
+	mu              sync.RWMutex
+	closed          bool
+	procs           []*localProcess
 }
 
 func (s *localSession) Policy() sandboxpkg.Policy { return s.policy }
@@ -372,6 +393,19 @@ func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath stri
 		return resolved, s.toSandboxPath(resolved), nil
 	}
 
+	// Also allow the shared user-data root (/user): a second writable top-level
+	// root, disjoint from the workspace. Without this the file tools reject /user
+	// even though bash inside the sandbox can reach it via the bind mount.
+	if s.userDataReal != "" {
+		cleanUserData := filepath.Clean(s.userDataReal)
+		if pathWithinRoot(cleanUserData, resolved) {
+			if err := rejectLocalSymlinkTraversal(cleanUserData, real); err != nil {
+				return "", "", fmt.Errorf("local: %w", err)
+			}
+			return resolved, s.toSandboxPath(resolved), nil
+		}
+	}
+
 	// Also allow access to extra read-only mounts (e.g. agent-level skill dirs).
 	if mountRoot := matchingExtraMount(s.policy.Filesystem.ExtraReadOnlyMounts, resolved); mountRoot != "" {
 		if err := rejectLocalSymlinkTraversal(mountRoot, real); err != nil {
@@ -473,6 +507,14 @@ func (s *localSession) toRealPath(sandboxPath string) string {
 		}
 		return filepath.Join(m.realPath, rel)
 	}
+	// Shared user-data root: /user/... maps to its host path. Disjoint from the
+	// workspace remap below; identity on macOS (sandbox == real).
+	if s.userDataSandbox != "" && s.userDataSandbox != s.userDataReal {
+		if rel, err := filepath.Rel(s.userDataSandbox, filepath.Clean(sandboxPath)); err == nil &&
+			rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return filepath.Join(s.userDataReal, rel)
+		}
+	}
 	if s.sandboxRoot == s.realRoot {
 		return sandboxPath
 	}
@@ -505,6 +547,16 @@ func (s *localSession) toSandboxPath(realPath string) string {
 			return best.sandboxPath
 		}
 		return filepath.Join(best.sandboxPath, rel)
+	}
+	// Shared user-data root: host paths under it map back to /user/...
+	if s.userDataReal != "" && s.userDataReal != s.userDataSandbox {
+		if rel, err := filepath.Rel(s.userDataReal, clean); err == nil &&
+			rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			if rel == "." {
+				return s.userDataSandbox
+			}
+			return filepath.Join(s.userDataSandbox, rel)
+		}
 	}
 	if s.sandboxRoot == s.realRoot {
 		return realPath

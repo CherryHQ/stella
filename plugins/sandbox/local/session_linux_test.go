@@ -235,10 +235,13 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 	}
 }
 
-// TestWrapCommand_linux_perUserMiseWritableBind verifies the per-user mise tree
-// is bound writable (--bind, not --ro-bind) at its STELLA_HOME-remapped path so
-// agents can install their own tools, while the rest of STELLA_HOME stays read-only.
-func TestWrapCommand_linux_perUserMiseWritableBind(t *testing.T) {
+// TestWrapCommand_linux_outOfRootWritableBind verifies a writable mount that
+// lives under STELLA_HOME (outside both top-level roots) is bound writable
+// (--bind, not --ro-bind) at its STELLA_HOME-remapped path, while the rest of
+// STELLA_HOME stays read-only. (The per-user mise tree no longer takes this path
+// on Linux — it lives under /user — but the mechanism still backs macOS and any
+// future out-of-root writable.)
+func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
 	}
@@ -286,8 +289,7 @@ func TestWrapCommand_linux_perUserMiseWritableBind(t *testing.T) {
 // TestWrapCommand_linux_inWorkspaceWritableMountSkipped verifies a writable mount
 // inside the workspace is NOT bound again under the STELLA_HOME tree: it is already
 // writable via the realRoot -> /workspace bind, and a second bind would only
-// re-expose the host path. This is the runtime case for the per-user mise tree,
-// which lives inside the user home (#442).
+// re-expose the host path.
 func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
@@ -327,11 +329,11 @@ func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
 	}
 }
 
-// TestWrapCommand_linux_hidesSiblingAgents verifies the per-agent isolation
-// mounts (#442): the agents/ subtree under /workspace is covered by an empty
-// tmpfs (hiding siblings) and only this agent's own dir is bound back, after the
-// realRoot bind it overlays.
-func TestWrapCommand_linux_hidesSiblingAgents(t *testing.T) {
+// TestWrapCommand_linux_inUserDataWritableMountSkipped verifies the runtime case
+// for the relocated per-user mise tree: a writable mount under the user-data root
+// is NOT bound again under the STELLA_HOME tree, because the /user bind already
+// makes it writable. A second bind would re-expose the host path.
+func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
 	}
@@ -339,30 +341,67 @@ func TestWrapCommand_linux_hidesSiblingAgents(t *testing.T) {
 		t.Skip("bwrap not functional (namespace creation blocked)")
 	}
 
-	root := "/tmp/test-workspace"
-	agentPriv := root + "/agents/a1"
+	stellaHome := t.TempDir()
+	agentDir := filepath.Join(stellaHome, "users", "u1", "agents", "a1")
+	userData := filepath.Join(stellaHome, "users", "u1", "data")
+	miseDir := filepath.Join(userData, ".mise-tools")
+	if err := os.MkdirAll(miseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:   root,
-			WorkingDir:      agentPriv + "/projects/p",
-			AgentPrivateDir: agentPriv,
+			WorkspaceRoot:       agentDir,
+			WorkingDir:          "/workspace",
+			UserDataDir:         userData,
+			ExtraWritableMounts: []string{miseDir},
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, _, err := wrapCommand(policy, "/workspace/agents/a1/projects/p", nil, "", "sh", []string{"-c", "echo hi"})
+	_, args, _, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	flagIndex := func(flag, val string) int {
-		for i, a := range args {
-			if a == flag && i+1 < len(args) && args[i+1] == val {
-				return i
-			}
-		}
-		return -1
+	joined := strings.Join(args, " ")
+	sandboxMiseDir := filepath.Join(sandboxStellaHome, "users", "u1", "data", ".mise-tools")
+	if strings.Contains(joined, sandboxMiseDir) {
+		t.Errorf("under-/user writable mount must not be re-bound under %s: %v", sandboxStellaHome, args)
 	}
+	if !strings.Contains(joined, "--bind "+userData+" /user") {
+		t.Errorf("expected --bind %s /user covering the relocated mise tree, got %v", userData, args)
+	}
+}
+
+// TestWrapCommand_linux_twoRoots verifies the two-root mounts: the agent's own
+// dir (WorkspaceRoot) is bound at /workspace and the shared user-data root at
+// /user, with NO sibling-hiding tmpfs — isolation is by non-mounting, since the
+// workspace IS the per-agent dir and siblings are never exposed.
+func TestWrapCommand_linux_twoRoots(t *testing.T) {
+	if _, err := exec.LookPath("bwrap"); err != nil {
+		t.Skip("bwrap not installed")
+	}
+	if !bwrapFunctional() {
+		t.Skip("bwrap not functional (namespace creation blocked)")
+	}
+
+	agentDir := "/tmp/test-workspace/users/u1/agents/a1"
+	userData := "/tmp/test-workspace/users/u1/data"
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: agentDir,
+			WorkingDir:    agentDir + "/projects/p",
+			UserDataDir:   userData,
+		},
+		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+	}
+
+	_, args, _, err := wrapCommand(policy, "/workspace/projects/p", nil, "", "sh", []string{"-c", "echo hi"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
 	hasFlagPair := func(flag, first, second string) bool {
 		for i, a := range args {
 			if a == flag && i+2 < len(args) && args[i+1] == first && args[i+2] == second {
@@ -372,16 +411,15 @@ func TestWrapCommand_linux_hidesSiblingAgents(t *testing.T) {
 		return false
 	}
 
-	tmpfsAt := flagIndex("--tmpfs", "/workspace/agents")
-	if tmpfsAt < 0 {
-		t.Errorf("expected --tmpfs /workspace/agents to hide siblings, got %v", args)
+	if !hasFlagPair("--bind", agentDir, "/workspace") {
+		t.Errorf("expected --bind %s /workspace, got %v", agentDir, args)
 	}
-	if !hasFlagPair("--bind", agentPriv, "/workspace/agents/a1") {
-		t.Errorf("expected own agent dir bound back at /workspace/agents/a1, got %v", args)
+	if !hasFlagPair("--bind", userData, "/user") {
+		t.Errorf("expected --bind %s /user, got %v", userData, args)
 	}
-	// The tmpfs must come after the realRoot bind it overlays, else the bind would
-	// re-expose the siblings the tmpfs is meant to hide.
-	if rootBind := flagIndex("--bind", root); rootBind < 0 || rootBind > tmpfsAt {
-		t.Errorf("--tmpfs /workspace/agents must follow --bind %s /workspace, got %v", root, args)
+	for i, a := range args {
+		if a == "--tmpfs" && i+1 < len(args) && args[i+1] == "/workspace/agents" {
+			t.Errorf("two-root layout must not hide siblings with a tmpfs, got %v", args)
+		}
 	}
 }

@@ -22,46 +22,42 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy
 	return pkgsandbox.FilesystemPolicy{
 		WorkspaceRoot:       paths.WorkspaceRoot,
 		WorkingDir:          paths.WorkDir,
+		UserDataDir:         userDataDirHost(paths, cfg),
 		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
 		TempDirHost:         userTempDir(principalDir, id),
-		AgentPrivateDir:     agentPrivateDir(paths, cfg),
 	}
 }
 
-// agentPrivateDir returns the host path of the running agent's private subdir of
-// the user home, users/{id}/agents/{agentID} — the area the isolating backends
-// keep private to this agent (XDG config/data/state) while hiding its siblings.
-// It mirrors the agent's project area (UserRoot/agents/{agentID}/projects/...,
-// see internal/agent/workspace.go), kept here as a literal join to avoid a cycle
-// back into the agent package. Empty for a user-less job: with no principal home
-// the agent is its own principal under paths.UserRoot and has no siblings, so
-// there is nothing to isolate.
-func agentPrivateDir(paths Paths, cfg Config) string {
-	if cfg.AgentID == "" || (cfg.UserID == "" && cfg.GroupID == "") {
+// userDataDirHost returns the host path of the shared user-data root mounted as
+// /user, or "" for a user-less job (no principal home, so no shared root to
+// mount; the agent writes only its workspace and tmp).
+func userDataDirHost(paths Paths, cfg Config) string {
+	if cfg.UserID == "" && cfg.GroupID == "" {
 		return ""
 	}
-	return filepath.Join(paths.UserRoot, "agents", cfg.AgentID)
+	return paths.UserDataDir
 }
 
 // miseUserDirHost returns the host path of this session's writable per-user mise
-// home, or "" when there is no per-user tree: no principal, or an ID that fails
-// the safe-path-component check (the session then falls back to the shared
-// read-only system tree). A downgrade from an unsafe ID is logged so a malformed
-// ID is diagnosable instead of mysterious. The caller seeds the tree and adds it
-// to the policy's writable mounts; keeping that mise-specific wiring here leaves
-// the FilesystemPolicy mise-agnostic.
+// home — now under the shared user-data root (UserDataDir/.mise-tools), so the
+// /user mount makes it writable without a dedicated bind. Returns "" when there
+// is no per-user tree: no principal, or an ID that fails the safe-path-component
+// check (the session then falls back to the shared read-only system tree). A
+// downgrade from an unsafe ID is logged so a malformed ID is diagnosable.
 func miseUserDirHost(paths Paths, cfg Config) string {
 	principalDir, id := misePrincipal(cfg)
-	dir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)
-	if id != "" && dir == "" {
-		slog.Warn("per-user mise tree disabled: unsafe id, using shared read-only system tree",
-			"component", "runner_sandbox",
-			"user_id", cfg.UserID,
-			"group_id", cfg.GroupID,
-			"principal_dir", principalDir,
-		)
+	if pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id) == "" {
+		if id != "" {
+			slog.Warn("per-user mise tree disabled: unsafe id, using shared read-only system tree",
+				"component", "runner_sandbox",
+				"user_id", cfg.UserID,
+				"group_id", cfg.GroupID,
+				"principal_dir", principalDir,
+			)
+		}
+		return ""
 	}
-	return dir
+	return filepath.Join(paths.UserDataDir, ".mise-tools")
 }
 
 // misePrincipal returns the home subtree and ID for this session's per-principal
@@ -215,9 +211,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// PATH, so they need the mise env pointed at the org's config. Docker carries
 	// its own in-image mise tree and PATH, so host-side paths must not leak in.
 	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
-		principalDir, id := misePrincipal(cfg)
-		userDataDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)
-		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, userDataDir, paths.UserRoot))
+		// MISE_DATA_DIR points at the relocated per-user tree (UserDataDir/.mise-tools);
+		// the workspace dir trusted for project mise.toml is the agent workspace.
+		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, miseUserDirHost(paths, cfg), paths.WorkspaceRoot))
 	}
 
 	return env, nil

@@ -53,11 +53,22 @@ func ResolvePaths(cfg Config) (Paths, error) {
 		userRoot = resolved
 	}
 	p.UserRoot = userRoot
-	p.WorkDir = userRoot
-	// Additive (migration phase 1): fill the two-root fields without consuming
-	// them. WorkspaceRoot tracks UserRoot for now; UserDataDir is UserRoot/data.
-	p.WorkspaceRoot = userRoot
+	// A principal (user/group) session must name its agent: the workspace is the
+	// per-agent dir and isolation is by mounting only that dir. With a principal
+	// but no AgentID the workspace would fall back to the whole user home, which —
+	// now that sibling-hiding is gone — would re-expose every sibling agent.
+	if cfg.AgentID == "" && (cfg.UserID != "" || cfg.GroupID != "") {
+		return Paths{}, fmt.Errorf("agent_id is required for a user or group session")
+	}
+	// Two-root layout: WorkspaceRoot is the per-agent dir (sandbox HOME/cwd =
+	// /workspace), UserDataDir is the shared user-data root (mounted as /user).
+	// A user-less job has no principal home, so its workspace is the home itself.
+	p.WorkspaceRoot = workspaceRoot(userRoot, cfg)
+	if resolved, err := filepath.EvalSymlinks(p.WorkspaceRoot); err == nil {
+		p.WorkspaceRoot = resolved
+	}
 	p.UserDataDir = filepath.Join(userRoot, "data")
+	p.WorkDir = p.WorkspaceRoot
 
 	if p.ProjectRoot != "" {
 		pr, err := filepath.Abs(p.ProjectRoot)
@@ -67,14 +78,27 @@ func ResolvePaths(cfg Config) (Paths, error) {
 		if resolved, err := filepath.EvalSymlinks(pr); err == nil {
 			pr = resolved
 		}
-		rel, relErr := filepath.Rel(userRoot, pr)
-		if relErr == nil && !strings.HasPrefix(rel, "..") {
+		// Projects live under the agent workspace, so validate against it.
+		rel, relErr := filepath.Rel(p.WorkspaceRoot, pr)
+		if relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			p.ProjectRoot = pr
 			p.WorkDir = pr
 		}
 	}
 
 	return p, nil
+}
+
+// workspaceRoot returns the agent's workspace root within the user home: the
+// per-(principal, agent) dir users/{id}/agents/{agentID}. A user-less job (no
+// principal, e.g. a builtin scheduled job) has no per-agent subdir — its home is
+// its own workspace — so the home is returned unchanged. Mirrors the on-disk
+// layout in internal/agent/workspace.go, joined literally here to avoid a cycle.
+func workspaceRoot(userRoot string, cfg Config) string {
+	if cfg.AgentID == "" || (cfg.UserID == "" && cfg.GroupID == "") {
+		return userRoot
+	}
+	return filepath.Join(userRoot, "agents", cfg.AgentID)
 }
 
 // ProcessEnv builds the baseline process environment injected into
