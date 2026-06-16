@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -195,10 +196,10 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			// host path the model could leak or fail to resolve.
 			stellaHome := config.StellaHome()
 			toolProjectRoot := projectRoot
-			// layout is rooted at the canonicalized sandbox paths so the host→view
-			// remap below matches; until ResolvePaths succeeds, fall back to the raw
-			// user home (the sandbox session fails downstream anyway).
-			layout := skillDiskLayout(SystemDBSkillsDir(stellaHome), cfg.Snap.Workspace, UserDataDir(userRoot), userRoot)
+			// Until ResolvePaths succeeds the view has no roots (Isolated drops every
+			// skill_dir), so the layout is inert; keep it empty to match that intent
+			// rather than emit dirs that would never be remapped.
+			layout := skills.SkillDiskLayout{}
 			view := skillstool.SkillDirView{Isolated: true}
 			if resolved, err := sandbox.ResolvePaths(sandboxCfg); err == nil {
 				stellaHome = resolved.StellaHome
