@@ -27,20 +27,6 @@ func TestGitHubSource(t *testing.T) {
 	}
 }
 
-func TestInjectGitHubToken(t *testing.T) {
-	got := injectGitHubToken("https://github.com/owner/repo.git", "tok123")
-	want := "https://x-access-token:tok123@github.com/owner/repo.git"
-	if got != want {
-		t.Errorf("injectGitHubToken = %q, want %q", got, want)
-	}
-
-	// Non-github URLs are left untouched.
-	gl := "https://gitlab.com/owner/repo.git"
-	if got := injectGitHubToken(gl, "tok"); got != gl {
-		t.Errorf("injectGitHubToken(gitlab) = %q, want unchanged", got)
-	}
-}
-
 func TestGitHubTokenContext(t *testing.T) {
 	ctx := context.Background()
 	if tok := githubTokenFromContext(ctx); tok != "" {

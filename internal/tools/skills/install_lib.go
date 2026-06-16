@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 	_ "github.com/vaayne/mcphub/pkg/skills/providers"
 
@@ -111,14 +114,53 @@ func GitHubSource(source string) bool {
 	return parsed.Type == mcpskills.SourceTypeGitHub
 }
 
-// injectGitHubToken rewrites an https://github.com/... clone URL to embed an
-// access token for an authenticated clone. Non-github URLs are returned unchanged.
-func injectGitHubToken(gitURL, token string) string {
-	const prefix = "https://github.com/"
-	if !strings.HasPrefix(gitURL, prefix) {
-		return gitURL
+// fetchAuthedGitHubSkill clones a github.com repo into a private temp directory
+// using token-based auth, then locates the skill directory. Unlike the anonymous
+// path it does NOT use mcphub's shared on-disk cache: the cache is keyed only by
+// owner/repo, so a private repo cached for one user would otherwise be readable by
+// any other user, and go-git persists the auth in the cached remote. Passing the
+// token via BasicAuth (not the URL) keeps it out of any persisted git config. The
+// returned cleanup removes the temp directory and must be called by the caller.
+func fetchAuthedGitHubSkill(ctx context.Context, parsed *mcpskills.ParsedSource, token string) (skillDir string, cleanup func(), err error) {
+	tmp, err := os.MkdirTemp("", "stella-skill-")
+	if err != nil {
+		return "", nil, fmt.Errorf("create temp dir: %w", err)
 	}
-	return "https://x-access-token:" + token + "@github.com/" + strings.TrimPrefix(gitURL, prefix)
+	cleanup = func() { _ = os.RemoveAll(tmp) }
+
+	opts := &git.CloneOptions{
+		URL:   parsed.URL,
+		Depth: 1,
+		Auth:  &githttp.BasicAuth{Username: "x-access-token", Password: token},
+	}
+	if parsed.Ref != "" {
+		opts.ReferenceName = plumbing.NewBranchReferenceName(parsed.Ref)
+		opts.SingleBranch = true
+	}
+	if _, cerr := git.PlainCloneContext(ctx, tmp, false, opts); cerr != nil {
+		cleanup()
+		return "", nil, cerr
+	}
+
+	searchDir := tmp
+	if parsed.Subpath != "" {
+		searchDir = filepath.Join(tmp, parsed.Subpath)
+	}
+	dir, ferr := mcpskills.FindSkillDir(searchDir, parsed.SkillFilter)
+	if ferr != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("find skill: %w", ferr)
+	}
+	return dir, cleanup, nil
+}
+
+// githubAuthHint returns user-facing guidance for a failed github.com clone,
+// tailored to whether the user has GitHub connected.
+func githubAuthHint(hasToken bool) string {
+	if hasToken {
+		return "GitHub clone failed — check that your connected GitHub account has access to this repository, or reconnect GitHub and retry"
+	}
+	return "GitHub clone failed — if this repository is private or you hit GitHub's anonymous rate limit, connect your GitHub account and retry"
 }
 
 // resolveGitSource parses a non-clawhub source, applying the `#ref` shorthand
@@ -142,16 +184,15 @@ func resolveGitSource(source string) (*mcpskills.ParsedSource, error) {
 	return parsed, nil
 }
 
-const githubAuthHint = "GitHub clone failed — if this repository is private or you hit GitHub's anonymous rate limit, connect your GitHub account and retry"
-
 // FetchSkillFiles resolves source, finds the skill directory, and returns the
 // skill name and a map of file paths (relative to the skill root) → content.
 // cleanup is a no-op for git sources (their path is a shared cache — do NOT
 // delete it). For local sources it is also a no-op because the path is the
 // user's local directory.
 //
-// For github.com sources, a token carried via WithGitHubToken is embedded in the
-// clone URL to authenticate private repos and avoid anonymous rate limits.
+// For github.com sources, a token carried via WithGitHubToken authenticates the
+// clone (via BasicAuth into a private temp dir) so private repos install and
+// anonymous rate limits are avoided.
 //
 // Supported source formats:
 //   - clawhub:<slug>[@version]    — download from clawhub.ai
@@ -169,28 +210,43 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 		return "", nil, nil, err
 	}
 
+	// cleanup defaults to a no-op (shared-cache and local sources own their path);
+	// the authenticated GitHub path overrides it to remove its temp clone. The
+	// guard releases the temp dir on any error before the caller takes ownership.
+	cleanup = func() {}
+	ok := false
+	defer func() {
+		if !ok {
+			cleanup()
+		}
+	}()
+
 	var skillDir string
 	switch parsed.Type {
 	case mcpskills.SourceTypeGitHub, mcpskills.SourceTypeGitLab, mcpskills.SourceTypeGit:
-		cloneURL := parsed.URL
 		token := githubTokenFromContext(ctx)
-		if token != "" && parsed.Type == mcpskills.SourceTypeGitHub {
-			cloneURL = injectGitHubToken(parsed.URL, token)
-		}
-		src := mcpskills.GitSource{
-			URL:         cloneURL,
-			Ref:         parsed.Ref,
-			Subpath:     parsed.Subpath,
-			SkillFilter: parsed.SkillFilter,
-		}
-		local, ferr := mcpskills.FetchGitSkill(ctx, src)
-		if ferr != nil {
-			if parsed.Type == mcpskills.SourceTypeGitHub && token == "" {
-				return "", nil, nil, fmt.Errorf("%s: %w", githubAuthHint, ferr)
+		if parsed.Type == mcpskills.SourceTypeGitHub && token != "" {
+			dir, clean, ferr := fetchAuthedGitHubSkill(ctx, parsed, token)
+			if ferr != nil {
+				return "", nil, nil, fmt.Errorf("%s: %w", githubAuthHint(true), ferr)
 			}
-			return "", nil, nil, fmt.Errorf("fetch skill: %w", ferr)
+			skillDir = dir
+			cleanup = clean
+		} else {
+			local, ferr := mcpskills.FetchGitSkill(ctx, mcpskills.GitSource{
+				URL:         parsed.URL,
+				Ref:         parsed.Ref,
+				Subpath:     parsed.Subpath,
+				SkillFilter: parsed.SkillFilter,
+			})
+			if ferr != nil {
+				if parsed.Type == mcpskills.SourceTypeGitHub {
+					return "", nil, nil, fmt.Errorf("%s: %w", githubAuthHint(false), ferr)
+				}
+				return "", nil, nil, fmt.Errorf("fetch skill: %w", ferr)
+			}
+			skillDir = local.Path
 		}
-		skillDir = local.Path
 	case mcpskills.SourceTypeLocal:
 		dir, ferr := mcpskills.FindSkillDir(parsed.LocalPath, "")
 		if ferr != nil {
@@ -228,5 +284,6 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 		return "", nil, nil, fmt.Errorf("walk skill dir: %w", werr)
 	}
 
-	return skillName, files, func() {}, nil
+	ok = true
+	return skillName, files, cleanup, nil
 }
