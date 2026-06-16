@@ -7,99 +7,116 @@ import (
 	"time"
 )
 
-// SetupWorkspace ensures the per-agent workspace directory exists.
-// Creates: basePath/workspaces/{agentID}/.agents/skills/
-// Returns the absolute path to the agent's workspace directory.
-func SetupWorkspace(agentID, basePath string) (string, error) {
+// The on-disk layout is user-first (#442): a principal — a user, or a channel
+// group treated as a synthetic user — has one home shared by all of its agents,
+// the "real PC" model where the principal has a home and an agent is an app run
+// under it. Toolchains, skills, caches, and uploads live at the principal level
+// and are shared across its agents; a project's working tree stays scoped to the
+// agent that owns it, under that agent's subdir of the home.
+//
+//	{base}/agents/{agentID}/                  agent definition + agent-level skills (user-independent)
+//	{base}/users/{userID}/                    THE user home (sandbox $HOME)
+//	  .mise-tools/                            per-user toolchain, shared by all agents (#424)
+//	  .agents/skills/                         user-level skills, shared
+//	  data/  assets/                          user data + uploads, shared
+//	  agents/{agentID}/projects/{projectID}/  project working tree = sandbox cwd, owned by the agent
+//	{base}/users/group-{groupID}/             a channel group's home — same shape, a shared "account"
+//
+// The users tree is the only top-level isolation boundary. A channel group is its
+// own principal (one home for the whole group), keyed by the group ID under a
+// "group-" prefix so a group home can never collide with a user home of the same
+// raw ID. User-less agent jobs (e.g. builtin scheduled jobs) have no principal
+// home and run in the agent's own workspace, {base}/agents/{agentID}/.
+
+// AgentWorkspaceDir returns the user-independent agent directory that holds the
+// agent definition and agent-level skills.
+func AgentWorkspaceDir(base, agentID string) string {
+	return filepath.Join(base, "agents", agentID)
+}
+
+// UserHomeDir returns the home directory for a user, shared by all the user's agents.
+func UserHomeDir(base, userID string) string {
+	return filepath.Join(base, "users", userID)
+}
+
+// GroupHomeDir returns the home directory for a channel group — a principal in
+// the users tree, shared by all the group's agents. The "group-" prefix keeps a
+// group home from colliding with a user home of the same raw ID.
+func GroupHomeDir(base, groupID string) string {
+	return filepath.Join(base, "users", "group-"+groupID)
+}
+
+// UserAgentDir returns the per-(user, agent) private area under a user home.
+// Projects owned by the agent live under this directory.
+func UserAgentDir(base, userID, agentID string) string {
+	return filepath.Join(UserHomeDir(base, userID), "agents", agentID)
+}
+
+// GroupAgentDir returns the per-(group, agent) private area under a group home.
+func GroupAgentDir(base, groupID, agentID string) string {
+	return filepath.Join(GroupHomeDir(base, groupID), "agents", agentID)
+}
+
+// SetupAgentWorkspace ensures the user-independent agent directory exists.
+// Creates {base}/agents/{agentID}/.agents/skills/ and returns the agent directory.
+func SetupAgentWorkspace(base, agentID string) (string, error) {
 	if agentID == "" {
 		return "", fmt.Errorf("agent ID must not be empty")
 	}
-	dir := filepath.Join(basePath, "workspaces", agentID)
+	dir := AgentWorkspaceDir(base, agentID)
 	if err := os.MkdirAll(filepath.Join(dir, ".agents", "skills"), 0o755); err != nil {
-		return "", fmt.Errorf("create workspace for agent %q: %w", agentID, err)
+		return "", fmt.Errorf("create agent workspace for agent %q: %w", agentID, err)
 	}
 	return dir, nil
 }
 
-// SetupUserWorkspace ensures per-user directories exist within an agent workspace.
-// Creates:
-//   - basePath/workspaces/{agentID}/users/{userID}/.agents/skills/
-//   - basePath/workspaces/{agentID}/users/{userID}/data/
-//   - basePath/workspaces/{agentID}/users/{userID}/assets/
-//
-// Returns the absolute path to the user's workspace directory
-// (basePath/workspaces/{agentID}/users/{userID}/).
-func SetupUserWorkspace(agentID, basePath string, userID string) (string, error) {
-	if agentID == "" {
-		return "", fmt.Errorf("agent ID must not be empty")
-	}
+// SetupUserWorkspace ensures a user home and the per-(user, agent) area exist.
+// Creates the user home (.agents/skills, data, assets — shared by all the user's
+// agents) and the agent's private subdir (where its projects live). Returns the
+// user home directory, which is the sandbox workspace root and HOME.
+func SetupUserWorkspace(base, userID, agentID string) (string, error) {
 	if userID == "" {
 		return "", fmt.Errorf("user ID must not be empty")
 	}
-	userDir := filepath.Join(basePath, "workspaces", agentID, "users", userID)
-	if err := os.MkdirAll(filepath.Join(userDir, ".agents", "skills"), 0o755); err != nil {
-		return "", fmt.Errorf("create user workspace for agent %q user %s: %w", agentID, userID, err)
-	}
-	if err := os.MkdirAll(filepath.Join(userDir, "data"), 0o755); err != nil {
-		return "", fmt.Errorf("create user data dir for agent %q user %s: %w", agentID, userID, err)
-	}
-	if err := os.MkdirAll(filepath.Join(userDir, "assets"), 0o755); err != nil {
-		return "", fmt.Errorf("create user assets dir for agent %q user %s: %w", agentID, userID, err)
-	}
-	return userDir, nil
+	return setupHome(UserHomeDir(base, userID), UserAgentDir(base, userID, agentID), agentID)
 }
 
-// SetupGroupWorkspace ensures per-group directories exist within an agent workspace.
-// Returns the path basePath/workspaces/{agentID}/groups/{groupID}/.
-func SetupGroupWorkspace(agentID, basePath, groupID string) (string, error) {
-	if agentID == "" {
-		return "", fmt.Errorf("agent ID must not be empty")
-	}
+// SetupGroupWorkspace mirrors SetupUserWorkspace for a group account.
+func SetupGroupWorkspace(base, groupID, agentID string) (string, error) {
 	if groupID == "" {
 		return "", fmt.Errorf("group ID must not be empty")
 	}
-	dir := filepath.Join(basePath, "workspaces", agentID, "groups", groupID)
-	if err := os.MkdirAll(filepath.Join(dir, ".agents", "skills"), 0o755); err != nil {
-		return "", fmt.Errorf("create group workspace for agent %q group %s: %w", agentID, groupID, err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
-		return "", fmt.Errorf("create group data dir for agent %q group %s: %w", agentID, groupID, err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
-		return "", fmt.Errorf("create group assets dir for agent %q group %s: %w", agentID, groupID, err)
-	}
-	return dir, nil
+	return setupHome(GroupHomeDir(base, groupID), GroupAgentDir(base, groupID, agentID), agentID)
 }
 
-// SetupSystemWorkspace creates the shared system workspace for agent jobs that
-// run without a user context (e.g. builtin scheduled jobs).
-// Returns the path basePath/workspaces/{agentID}/system/.
-func SetupSystemWorkspace(agentID, basePath string) (string, error) {
+// setupHome creates the shared home directories and, when agentDir is non-empty,
+// the agent's private subdir under the home.
+func setupHome(home, agentDir, agentID string) (string, error) {
 	if agentID == "" {
 		return "", fmt.Errorf("agent ID must not be empty")
 	}
-	dir := filepath.Join(basePath, "workspaces", agentID, "system")
-	if err := os.MkdirAll(filepath.Join(dir, ".agents", "skills"), 0o755); err != nil {
-		return "", fmt.Errorf("create system workspace for agent %q: %w", agentID, err)
+	for _, sub := range [][]string{{".agents", "skills"}, {"data"}, {"assets"}} {
+		if err := os.MkdirAll(filepath.Join(home, filepath.Join(sub...)), 0o755); err != nil {
+			return "", fmt.Errorf("create home dir %q: %w", home, err)
+		}
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
-		return "", fmt.Errorf("create system data dir for agent %q: %w", agentID, err)
+	if agentDir != "" {
+		if err := os.MkdirAll(agentDir, 0o755); err != nil {
+			return "", fmt.Errorf("create per-agent area %q: %w", agentDir, err)
+		}
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
-		return "", fmt.Errorf("create system assets dir for agent %q: %w", agentID, err)
-	}
-	return dir, nil
+	return home, nil
 }
 
-// UserAssetsDir returns the per-user assets directory within a user root.
-// Uploaded files from all channels are stored here.
-func UserAssetsDir(userRoot string) string {
-	return filepath.Join(userRoot, "assets")
+// UserAssetsDir returns the per-user assets directory within a user home.
+// Uploaded files from all channels are stored here, shared across the user's agents.
+func UserAssetsDir(userHome string) string {
+	return filepath.Join(userHome, "assets")
 }
 
-// UserSkillsDir returns the per-user skills directory path within a user workspace.
-func UserSkillsDir(userWorkspace string) string {
-	return filepath.Join(userWorkspace, ".agents", "skills")
+// UserSkillsDir returns the user-level skills directory within a user home.
+func UserSkillsDir(userHome string) string {
+	return filepath.Join(userHome, ".agents", "skills")
 }
 
 // SaveAsset writes data to assetsDir with a timestamp-prefixed filename to avoid

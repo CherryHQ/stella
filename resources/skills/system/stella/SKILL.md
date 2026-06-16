@@ -22,7 +22,7 @@ Run mode:
 
 - **Server**: `stellad server` (Telegram, QQ, Feishu, WeChat bots + scheduler + Web UI)
 
-Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration is stored in a SQLite database (`$STELLA_HOME/stella.db`). Data: `$STELLA_HOME/workspaces/{agent_id}/`.
+Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration is stored in a SQLite database (`$STELLA_HOME/stella.db`). Data: `$STELLA_HOME/agents/{agent_id}/`.
 
 ## Architecture
 

@@ -304,13 +304,13 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 // the session's UserID (the group id) so they match the cached group runner.
 func (pm *PoolManager) promptScope(agentID string, info session.Info) (userRoot, promptUserID, groupID string) {
 	if info.GroupID != "" {
-		if dir, err := SetupGroupWorkspace(agentID, config.StellaHome(), info.GroupID); err == nil {
+		if dir, err := SetupGroupWorkspace(config.StellaHome(), info.GroupID, agentID); err == nil {
 			userRoot = dir
 		}
 		return userRoot, "", info.GroupID
 	}
 	if info.UserID != "" {
-		if dir, err := SetupUserWorkspace(agentID, config.StellaHome(), info.UserID); err == nil {
+		if dir, err := SetupUserWorkspace(config.StellaHome(), info.UserID, agentID); err == nil {
 			userRoot = dir
 		}
 	}
@@ -535,7 +535,7 @@ func (pm *PoolManager) removeAgent(agentID string) error {
 }
 
 func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*config.Snapshot, string, error) {
-	workspace, err := SetupWorkspace(agentID, config.StellaHome())
+	workspace, err := SetupAgentWorkspace(config.StellaHome(), agentID)
 	if err != nil {
 		return nil, "", fmt.Errorf("setup workspace for agent %q: %w", agentID, err)
 	}

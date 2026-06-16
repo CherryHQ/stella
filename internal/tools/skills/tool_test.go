@@ -347,8 +347,8 @@ func TestRemoveInvalidName(t *testing.T) {
 
 func TestTargetSkillsDirDefaultsToUserScope(t *testing.T) {
 	base := t.TempDir()
-	agentWS := filepath.Join(base, "workspaces", "agent-1")
-	userSkillsDir := filepath.Join(agentWS, "users", "7", ".agents", "skills")
+	agentWS := filepath.Join(base, "agents", "agent-1")
+	userSkillsDir := filepath.Join(base, "users", "7", ".agents", "skills")
 
 	tool := NewTool(nil, "/tmp/stella", agentWS, filepath.Join(base, "project"), userSkillsDir)
 	scope, got, err := tool.targetSkillsDir(context.Background(), "")
@@ -365,8 +365,8 @@ func TestTargetSkillsDirDefaultsToUserScope(t *testing.T) {
 
 func TestTargetSkillsDirAgentScope(t *testing.T) {
 	base := t.TempDir()
-	agentWS := filepath.Join(base, "workspaces", "agent-1")
-	userSkillsDir := filepath.Join(agentWS, "users", "7", ".agents", "skills")
+	agentWS := filepath.Join(base, "agents", "agent-1")
+	userSkillsDir := filepath.Join(base, "users", "7", ".agents", "skills")
 
 	tool := NewTool(nil, "/tmp/stella", agentWS, filepath.Join(base, "project"), userSkillsDir)
 	scope, got, err := tool.targetSkillsDir(context.Background(), "agent")

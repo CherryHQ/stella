@@ -62,17 +62,27 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			apiName = provID
 		}
 
+		stellaHome := config.StellaHome()
 		var (
 			userDir string
-			err     error
+			// projectValidateRoot is the per-(principal, agent) dir a project must
+			// live under: a project is owned by the agent (see #442), so it stays
+			// scoped to the agent's subdir of the shared user/group home.
+			projectValidateRoot string
+			err                 error
 		)
 		switch {
 		case params.GroupID != "":
-			userDir, err = SetupGroupWorkspace(cfg.Snap.AgentID, config.StellaHome(), params.GroupID)
+			userDir, err = SetupGroupWorkspace(stellaHome, params.GroupID, cfg.Snap.AgentID)
+			projectValidateRoot = GroupAgentDir(stellaHome, params.GroupID, cfg.Snap.AgentID)
 		case params.UserID != "":
-			userDir, err = SetupUserWorkspace(cfg.Snap.AgentID, config.StellaHome(), params.UserID)
+			userDir, err = SetupUserWorkspace(stellaHome, params.UserID, cfg.Snap.AgentID)
+			projectValidateRoot = UserAgentDir(stellaHome, params.UserID, cfg.Snap.AgentID)
 		default:
-			userDir, err = SetupSystemWorkspace(cfg.Snap.AgentID, config.StellaHome())
+			// A user-less agent job (e.g. a builtin scheduled job) has no
+			// principal home; it runs in the agent's own pool workspace (#442).
+			userDir = cfg.Snap.Workspace
+			projectValidateRoot = userDir
 		}
 		if err != nil {
 			return nil, fmt.Errorf("setup workspace: %w", err)
@@ -86,7 +96,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			if err != nil {
 				slog.Warn("project resolution failed", "project_id", params.ProjectID, "error", err)
 			} else if dir != "" {
-				if err := ValidateProjectDir(dir, userRoot); err != nil {
+				if err := ValidateProjectDir(dir, projectValidateRoot); err != nil {
 					slog.Warn("project dir validation failed", "project_id", params.ProjectID, "base_dir", dir, "error", err)
 				} else {
 					projectRoot = dir

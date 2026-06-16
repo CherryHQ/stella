@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
@@ -12,7 +11,7 @@ import (
 const cliSkillsUserID = "1"
 
 func cliUserSkillsDir(snap *config.Snapshot) (string, error) {
-	userDir, err := agent.SetupUserWorkspace(snap.AgentID, config.StellaHome(), cliSkillsUserID)
+	userDir, err := agent.SetupUserWorkspace(config.StellaHome(), cliSkillsUserID, snap.AgentID)
 	if err != nil {
 		return "", err
 	}
@@ -33,16 +32,22 @@ func setupSkillStores(db *sql.DB) skillStores {
 			if agentID == "" {
 				return ""
 			}
-			return filepath.Join(base, "workspaces", agentID, ".agents", "skills")
+			return agent.UserSkillsDir(agent.AgentWorkspaceDir(base, agentID))
+		case "user":
+			// User skills are shared across all of a user's agents (#442), so the
+			// path no longer depends on agentID.
+			if userID == "" {
+				return ""
+			}
+			return agent.UserSkillsDir(agent.UserHomeDir(base, userID))
 		case "user_agent":
 			if agentID == "" || userID == "" {
 				return ""
 			}
-			return filepath.Join(base, "workspaces", agentID, "users", userID, ".agents", "skills")
+			return agent.UserSkillsDir(agent.UserAgentDir(base, userID, agentID))
 		default:
-			// user (global) and system (global) skills are not tied to a single
-			// agent workspace, so they are not mirrored to disk here; their
-			// SKILL.md resolves from the DB.
+			// system (global) skills are not tied to a workspace, so they are not
+			// mirrored to disk here; their SKILL.md resolves from the DB.
 			return ""
 		}
 	})

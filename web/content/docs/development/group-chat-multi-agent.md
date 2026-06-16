@@ -208,12 +208,12 @@ So the group session stores `group_id` in `ctx_conversation.user_id` as a **look
 
 The critical constraint: that `group_id` must **never flow into the runtime identity surfaces.** The runtime detects "this is a group session" in one place and reroutes all four surfaces:
 
-| Surface                 | Code                                                              | Group-session behavior                                                   |
-| ----------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| memory / prompt profile | `runtime/chat.go` (`memory.WithUserID`), `prompt/prompt.go`       | inject no human; read the group drawer, never a member's private profile |
-| workspace               | `runner_builder.go`, `workspace.go`                               | path `workspaces/{agentID}/groups/{group_id}`, not `users/{userID}`      |
-| vault                   | `sandbox/env.go`                                                  | resolve only agent/group-scoped secrets, never a member's private vault  |
-| scoped token            | `auth/token_service.go`, `auth/scoped_token.go`, `sandbox/env.go` | subject = group principal `group:{group_id}`, not a human userID         |
+| Surface                 | Code                                                              | Group-session behavior                                                                             |
+| ----------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| memory / prompt profile | `runtime/chat.go` (`memory.WithUserID`), `prompt/prompt.go`       | inject no human; read the group drawer, never a member's private profile                           |
+| workspace               | `runner_builder.go`, `workspace.go`                               | path `users/group-{group_id}/` — the group is its own principal, never a member's `users/{userID}` |
+| vault                   | `sandbox/env.go`                                                  | resolve only agent/group-scoped secrets, never a member's private vault                            |
+| scoped token            | `auth/token_service.go`, `auth/scoped_token.go`, `sandbox/env.go` | subject = group principal `group:{group_id}`, not a human userID                                   |
 
 `SignScopedToken` currently hard-requires `claims.UserID != ""`. That must be relaxed to accept a group principal, or gain a `Scope=group` dimension — **never stuff a real human userID in.** No synthetic `auth_user` is created: the group principal is a token subject / execution scope, not a row in `auth_user`.
 

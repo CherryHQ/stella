@@ -48,17 +48,17 @@ func miseUserDirHost(paths Paths, cfg Config) string {
 	return dir
 }
 
-// misePrincipal returns the home subtree and raw ID for this session's per-user
-// temp and mise trees. Users and groups resolve to disjoint top-level subtrees
-// ("users"/"groups") keyed by the raw ID, so the two principal namespaces live in
-// separate trees and equal IDs across them can never collide into one shared
-// writable tree — without a name prefix. Empty dir when neither is set, which
-// makes callers fall back to a session-local temp dir and the shared read-only
-// system mise tree. Groups take precedence: a group session carries both a
-// GroupID and a synthetic UserID and must key off the group.
+// misePrincipal returns the home subtree and ID for this session's per-principal
+// temp and mise trees. Every principal lives in the single "users" subtree (the
+// only top-level isolation boundary, #442): a real user keys off its raw ID, a
+// channel group off the group ID under a "group-" prefix so a group can never
+// collide with a user of the same raw ID into one shared writable tree. Empty dir
+// when neither is set, which makes callers fall back to a session-local temp dir
+// and the shared read-only system mise tree. Groups take precedence: a group
+// session carries both a GroupID and a synthetic UserID and must key off the group.
 func misePrincipal(cfg Config) (principalDir, id string) {
 	if cfg.GroupID != "" {
-		return "groups", cfg.GroupID
+		return "users", "group-" + cfg.GroupID
 	}
 	if cfg.UserID == "" {
 		return "", ""
@@ -69,8 +69,8 @@ func misePrincipal(cfg Config) (principalDir, id string) {
 var validUserTempDirID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // userTempDir returns the per-principal scratch dir mounted as /tmp. principalDir
-// ("users"/"groups") keeps the user and group namespaces in separate subtrees so
-// equal IDs across them can't share a temp dir. Empty for an empty or unsafe id.
+// is always "users"; a channel group's "group-" ID prefix keeps user and group
+// scratch dirs from colliding. Empty for an empty or unsafe id.
 func userTempDir(principalDir, id string) string {
 	if principalDir == "" || !validUserTempDirID.MatchString(id) {
 		return ""

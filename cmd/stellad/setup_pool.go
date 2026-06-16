@@ -95,16 +95,18 @@ func buildProjectEnsurer(db *sql.DB, store config.Store) agent.ProjectEnsurerFun
 		if ag, err := store.GetAgent(ctx, agentID); err == nil && ag.Name != "" {
 			agentName = ag.Name
 		}
-		userRoot, err := agent.SetupUserWorkspace(agentID, config.StellaHome(), userID)
-		if err != nil {
+		if _, err := agent.SetupUserWorkspace(config.StellaHome(), userID, agentID); err != nil {
 			return "", err
 		}
+		// The default project's working tree is the agent's private area under the
+		// user home (a project is owned by the agent, #442).
+		baseDir := agent.UserAgentDir(config.StellaHome(), userID, agentID)
 		p, err := q.CreateProject(ctx, sqlc.CreateProjectParams{
 			ID:      uuid.NewString(),
 			AgentID: agentID,
 			UserID:  userID,
 			Name:    agentName,
-			BaseDir: userRoot,
+			BaseDir: baseDir,
 		})
 		if err != nil {
 			if existing, err2 := q.ListProjects(ctx, sqlc.ListProjectsParams{AgentID: agentID, UserID: userID}); err2 == nil && len(existing) > 0 {

@@ -257,4 +257,4 @@ Simple 插件使用滑动窗口方式：
 
 ## Agent 工作区
 
-每个 agent 在 `$STELLA_HOME/workspaces/{agent_id}/` 有自己的工作区，用于文件覆盖、技能和每 agent 数据。
+每个 agent 在 `$STELLA_HOME/agents/{agent_id}/` 有自己的工作区，用于文件覆盖、技能和每 agent 数据。

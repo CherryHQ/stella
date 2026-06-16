@@ -205,12 +205,12 @@ Running Stella inside a Docker container (described above) is separate from usin
 
 All data lives under the stella home directory (`~/.stella` by default, configurable via `STELLA_HOME`).
 
-| Path                                      | Purpose                                     |
-| ----------------------------------------- | ------------------------------------------- |
-| `~/.stella/stella.db`                     | Single database (config, memory, scheduler) |
-| `~/.stella/workspaces/{agent-id}/skills/` | Per-agent installed skills                  |
-| `~/.stella/workspaces/{agent-id}/SOUL.md` | Optional per-agent soul/identity override   |
-| `~/.stella/cache/`                        | Model cache (regenerable, safe to delete)   |
+| Path                                  | Purpose                                     |
+| ------------------------------------- | ------------------------------------------- |
+| `~/.stella/stella.db`                 | Single database (config, memory, scheduler) |
+| `~/.stella/agents/{agent-id}/skills/` | Per-agent installed skills                  |
+| `~/.stella/agents/{agent-id}/SOUL.md` | Optional per-agent soul/identity override   |
+| `~/.stella/cache/`                    | Model cache (regenerable, safe to delete)   |
 
 The `stella.db` file is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs.
 

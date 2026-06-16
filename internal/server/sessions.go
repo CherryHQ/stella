@@ -941,7 +941,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 		writeData(w, http.StatusOK, workspaceDiskInfo{Root: "", Paths: []string{}})
 		return
 	}
-	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID)
+	userDir, err := agent.SetupUserWorkspace(config.StellaHome(), info.UserID, info.AgentID)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -1059,7 +1059,7 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, ag
 		writeError(w, http.StatusNotFound, "session has no workspace")
 		return "", fmt.Errorf("no workspace")
 	}
-	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID)
+	userDir, err := agent.SetupUserWorkspace(config.StellaHome(), info.UserID, info.AgentID)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return "", err
@@ -1396,7 +1396,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	}
 	var userRoot string
 	if info.UserID != "" && info.AgentID != "" {
-		if userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID); err == nil {
+		if userDir, err := agent.SetupUserWorkspace(config.StellaHome(), info.UserID, info.AgentID); err == nil {
 			userRoot = userDir
 		}
 	}

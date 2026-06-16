@@ -208,12 +208,12 @@ CREATE TABLE ctx_group_memory (
 
 关键约束:这个 `group_id` **绝不能流进运行时身份面**。runtime 在一处识别「这是群 session」,把四个面统一改道:
 
-| 面                      | 代码                                                              | 群 session 行为                                                     |
-| ----------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
-| memory / prompt profile | `runtime/chat.go`(`memory.WithUserID`)、`prompt/prompt.go`        | 不注入任何 human;读群抽屉,绝不读成员私有 profile                    |
-| workspace               | `runner_builder.go`、`workspace.go`                               | 路径 `workspaces/{agentID}/groups/{group_id}`,不是 `users/{userID}` |
-| vault                   | `sandbox/env.go`                                                  | 只解 agent/群作用域密钥,绝不解成员私有 vault                        |
-| scoped token            | `auth/token_service.go`、`auth/scoped_token.go`、`sandbox/env.go` | 主体 = 群 principal `group:{group_id}`,不是 human userID            |
+| 面                      | 代码                                                              | 群 session 行为                                                                  |
+| ----------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| memory / prompt profile | `runtime/chat.go`(`memory.WithUserID`)、`prompt/prompt.go`        | 不注入任何 human;读群抽屉,绝不读成员私有 profile                                 |
+| workspace               | `runner_builder.go`、`workspace.go`                               | 路径 `users/group-{group_id}/`——群是独立 principal,绝不是成员的 `users/{userID}` |
+| vault                   | `sandbox/env.go`                                                  | 只解 agent/群作用域密钥,绝不解成员私有 vault                                     |
+| scoped token            | `auth/token_service.go`、`auth/scoped_token.go`、`sandbox/env.go` | 主体 = 群 principal `group:{group_id}`,不是 human userID                         |
 
 `SignScopedToken` 现硬要求 `claims.UserID != ""`。需放宽成接受群 principal,或加 `Scope=group` 维度——**绝不塞真 human userID**。不造 synthetic `auth_user`:群 principal 是 token 主体 / 执行作用域,不是 `auth_user` 表里的行。
 

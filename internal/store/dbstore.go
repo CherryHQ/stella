@@ -697,7 +697,7 @@ func (s *DBStore) Seed(ctx context.Context) error {
 	if len(agents) > 0 {
 		return nil
 	}
-	workspace := filepath.Join(config.StellaHome(), "workspaces", "stella")
+	workspace := filepath.Join(config.StellaHome(), "agents", "stella")
 	sandboxJSON, err := marshalSandboxConfig(config.SandboxConfig{})
 	if err != nil {
 		return fmt.Errorf("seed: marshal stella sandbox config: %w", err)

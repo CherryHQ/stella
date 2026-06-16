@@ -33,7 +33,7 @@ Each agent has:
 
 - A provider + model configuration
 - A system prompt (personality/identity)
-- An isolated workspace at `$STELLA_HOME/workspaces/{agent_id}/`
+- An isolated workspace at `$STELLA_HOME/agents/{agent_id}/`
 - Its own skills directory
 
 Create agents via the Web UI or directly in the database.
@@ -90,13 +90,13 @@ Global settings are stored in the `settings` table as JSON values:
 
 All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 
-| Path                                    | Purpose                                     |
-| --------------------------------------- | ------------------------------------------- |
-| `stella.db`                             | SQLite database (all config + runtime data) |
-| `cache/models.json`                     | Cached model list (safe to delete)          |
-| `workspaces/{agent_id}/`                | Per-agent workspace                         |
-| `workspaces/{agent_id}/.agents/skills/` | Per-agent installed skills                  |
-| `workspaces/{agent_id}/stella.log`      | Per-agent log                               |
+| Path                                | Purpose                                     |
+| ----------------------------------- | ------------------------------------------- |
+| `stella.db`                         | SQLite database (all config + runtime data) |
+| `cache/models.json`                 | Cached model list (safe to delete)          |
+| `agents/{agent_id}/`                | Per-agent workspace                         |
+| `agents/{agent_id}/.agents/skills/` | Per-agent installed skills                  |
+| `agents/{agent_id}/stella.log`      | Per-agent log                               |
 
 ## Environment variables
 

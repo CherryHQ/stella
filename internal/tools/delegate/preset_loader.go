@@ -14,8 +14,8 @@ import (
 // LoadDelegatePresetsConfig configures the delegate preset discovery paths.
 type LoadDelegatePresetsConfig struct {
 	StellaHome  string // stella home dir (e.g. ~/.stella)
-	AgentRoot   string // agent root dir (e.g. ~/.stella/workspaces/{agentID})
-	UserRoot    string // user root dir (e.g. ~/.stella/workspaces/{agentID}/users/{userID})
+	AgentRoot   string // agent root dir (e.g. ~/.stella/agents/{agentID})
+	UserRoot    string // user home dir (e.g. ~/.stella/users/{userID})
 	ProjectRoot string // optional project root for local/project-attached runs
 }
 
