@@ -72,7 +72,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { Sheet, SheetPanel, SheetPopup } from "@/components/ui/sheet";
+import { Sheet, SheetPopup } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -375,29 +375,31 @@ export function SkillsListPage() {
 
       {/* Detail drawer */}
       <Sheet open={drawerOpen} onOpenChange={(open) => !open && go({ sel: undefined })}>
-        <SheetPopup side="right" className="w-full sm:w-[560px] sm:max-w-[560px]">
-          <SheetPanel className="p-0">
-            {selectedInstalled ? (
-              <SkillInspector
-                agentId={agentId}
-                skill={selectedInstalled}
-                onClose={() => go({ sel: undefined })}
-              />
-            ) : selectedSlug ? (
-              <DiscoverDetail
-                slug={selectedSlug}
-                row={selectedRow}
-                installedNames={installedNames}
-                installedSources={installedSources}
-                installingSlug={installingSlug}
-                scope={installScope}
-                onScope={setInstallScope}
-                showAgentScope={!!me?.is_admin}
-                onInstall={(slug) => void install({ slug, name: selectedRow?.name ?? slug })}
-                onClose={() => go({ sel: undefined })}
-              />
-            ) : null}
-          </SheetPanel>
+        <SheetPopup
+          side="right"
+          showCloseButton={false}
+          className="w-full sm:w-[560px] sm:max-w-[560px]"
+        >
+          {selectedInstalled ? (
+            <SkillInspector
+              agentId={agentId}
+              skill={selectedInstalled}
+              onClose={() => go({ sel: undefined })}
+            />
+          ) : selectedSlug ? (
+            <DiscoverDetail
+              slug={selectedSlug}
+              row={selectedRow}
+              installedNames={installedNames}
+              installedSources={installedSources}
+              installingSlug={installingSlug}
+              scope={installScope}
+              onScope={setInstallScope}
+              showAgentScope={!!me?.is_admin}
+              onInstall={(slug) => void install({ slug, name: selectedRow?.name ?? slug })}
+              onClose={() => go({ sel: undefined })}
+            />
+          ) : null}
         </SheetPopup>
       </Sheet>
 
