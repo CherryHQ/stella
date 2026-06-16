@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"testing"
 	"time"
@@ -30,16 +31,23 @@ type staticSession struct {
 
 func (s *staticSession) Policy() pkgsandbox.Policy { return pkgsandbox.Policy{Env: s.env} }
 
-// recordingEnsurer records CreateScopedToken calls and returns a fixed token.
+// recordingEnsurer records CreateScopedToken calls and returns a fixed token,
+// or err when set. lastUserID captures the user id passed to the last call.
 type recordingEnsurer struct {
-	token string
-	calls int
+	token      string
+	err        error
+	calls      int
+	lastUserID string
 }
 
 func (e *recordingEnsurer) EnsureAutoToken(context.Context, string) error { return nil }
 
-func (e *recordingEnsurer) CreateScopedToken(context.Context, string, string, string, string) (string, error) {
+func (e *recordingEnsurer) CreateScopedToken(_ context.Context, userID, _, _, _ string) (string, error) {
 	e.calls++
+	e.lastUserID = userID
+	if e.err != nil {
+		return "", e.err
+	}
 	return e.token, nil
 }
 
@@ -113,5 +121,50 @@ func TestRefreshScopedTokenNoOpWithoutToken(t *testing.T) {
 
 	if ensurer.calls != 0 {
 		t.Fatalf("expected no re-sign when env carries no token, got %d", ensurer.calls)
+	}
+}
+
+func TestRefreshScopedTokenReSignsUnparseableToken(t *testing.T) {
+	// A token we can't parse is treated as near-expiry and re-signed, so a
+	// corrupt token can't pin a runner to a permanently failing credential.
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"STELLA_TOKEN": "garbage"}}
+	ensurer := &recordingEnsurer{token: "stella_scoped_new"}
+
+	RefreshScopedToken(context.Background(), sess, refreshConfig(ensurer))
+
+	if ensurer.calls != 1 {
+		t.Fatalf("expected 1 re-sign for an unparseable token, got %d", ensurer.calls)
+	}
+	if got := sess.env["STELLA_TOKEN"]; got != "stella_scoped_new" {
+		t.Fatalf("token not refreshed: %q", got)
+	}
+}
+
+func TestRefreshScopedTokenGroupPrincipal(t *testing.T) {
+	near := signTokenExpiring(t, 10*time.Minute)
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"STELLA_TOKEN": near}}
+	ensurer := &recordingEnsurer{token: "stella_scoped_new"}
+	cfg := Config{GroupID: "g1", AgentID: "a1", TokenEnsurer: ensurer}
+
+	RefreshScopedToken(context.Background(), sess, cfg)
+
+	// Group sessions sign against the synthetic "group:<id>" principal, matching
+	// buildSandboxEnv's injection.
+	if ensurer.lastUserID != "group:g1" {
+		t.Fatalf("expected group principal, got %q", ensurer.lastUserID)
+	}
+}
+
+func TestRefreshScopedTokenKeepsOldTokenOnSignFailure(t *testing.T) {
+	near := signTokenExpiring(t, 10*time.Minute)
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"STELLA_TOKEN": near}}
+	ensurer := &recordingEnsurer{err: errors.New("sign failed")}
+
+	RefreshScopedToken(context.Background(), sess, refreshConfig(ensurer))
+
+	// A re-sign failure must leave the still-valid old token in place rather than
+	// blanking it; the next turn retries.
+	if got := sess.env["STELLA_TOKEN"]; got != near {
+		t.Fatalf("old token should survive a sign failure, got %q", got)
 	}
 }
