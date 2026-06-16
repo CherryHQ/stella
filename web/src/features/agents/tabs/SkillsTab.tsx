@@ -94,8 +94,12 @@ export function SkillsTab({
   const { t } = useI18n();
   const canInstallAgentSkills = isAdmin && !!editingId;
   void canInstallAgentSkills;
-  const canEdit = !!selectedSkill && selectedSkill.scope !== "system";
-  const canDelete = !!selectedSkill && selectedSkill.scope !== "system";
+  // Mirror the backend write rules: system/project are read-only, and the
+  // shared system_agent scope is admin-only (agent ownership is not enough).
+  const canManageScope = (scope?: string) =>
+    scope === "user" || scope === "user_agent" || (scope === "system_agent" && isAdmin);
+  const canEdit = !!selectedSkill && canManageScope(selectedSkill.scope);
+  const canDelete = canEdit;
 
   const allSkills = (): Skill[] => {
     const ordered: Record<string, number> = { system: 0, system_agent: 1, user_agent: 2, user: 3 };
@@ -227,7 +231,7 @@ export function SkillsTab({
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  {sk.scope !== "system" ? (
+                  {canManageScope(sk.scope) ? (
                     <Switch
                       checked={sk.status === "active"}
                       onCheckedChange={(e) => {
