@@ -83,7 +83,7 @@ func pruneDanglingSeedLinks(userInstalls string) error {
 // relinkUserShims rewrites every per-user shim to a relative target so it resolves
 // under whatever root the active backend remaps STELLA_HOME to. mise reshim (run
 // by the agent inside the sandbox) writes each shim with the absolute in-sandbox
-// mise path, which is backend-specific (bwrap's /home/stella/.stella vs a host
+// mise path, which is backend-specific (bwrap's /opt/stella vs a host
 // path); a relative target keeps a persisted tree portable across backends.
 // Mirrors relinkShims for the system tree, but computes the depth-correct target.
 func relinkUserShims(stellaHome, userToolsDir string) error {

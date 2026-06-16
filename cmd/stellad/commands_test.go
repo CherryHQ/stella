@@ -164,7 +164,7 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cliUserSkillsDir: %v", err)
 	}
-	want := filepath.Join(config.StellaHome(), "users", "1", ".agents", "skills")
+	want := filepath.Join(config.StellaHome(), "users", "1", "data", ".agents", "skills")
 	if dir != want {
 		t.Fatalf("cliUserSkillsDir() = %q, want %q", dir, want)
 	}

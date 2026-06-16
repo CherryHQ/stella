@@ -514,6 +514,7 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 			UserID:              build.UserID,
 			AgentID:             build.AgentID,
 			UserRoot:            build.UserRoot,
+			WorkspaceRoot:       build.WorkspaceRoot,
 			RegisteredPluginIDs: append([]string(nil), build.RegisteredPluginIDs...),
 			EnabledPluginIDs:    append([]string(nil), build.EnabledPluginIDs...),
 		})

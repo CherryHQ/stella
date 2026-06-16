@@ -199,10 +199,19 @@ func TestRunnerFilesystemPolicyUsesUserScopedTmp(t *testing.T) {
 // user whose ID equals the group ID can never share the group's writable
 // mise/temp trees (#442).
 func TestRunnerFilesystemPolicyGroupUsesGroupSubtree(t *testing.T) {
-	paths := Paths{StellaHome: "/stella", UserRoot: "/workspace", WorkDir: "/workspace"}
-	cfg := Config{GroupID: "g7", UserID: "g7"}
+	userData := filepath.Join("/stella", "users", "group-g7", "data")
+	paths := Paths{
+		StellaHome:    "/stella",
+		UserRoot:      "/stella/users/group-g7",
+		UserDataDir:   userData,
+		WorkspaceRoot: "/stella/users/group-g7/agents/a1",
+		WorkDir:       "/stella/users/group-g7/agents/a1",
+	}
+	cfg := Config{GroupID: "g7", UserID: "g7", AgentID: "a1"}
 
-	if want := filepath.Join("/stella", "users", "group-g7", ".mise-tools"); miseUserDirHost(paths, cfg) != want {
+	// The mise tree relocates under the group's data root; the group-keying still
+	// gates validity (a real user with the same raw ID can't share it).
+	if want := filepath.Join(userData, ".mise-tools"); miseUserDirHost(paths, cfg) != want {
 		t.Fatalf("miseUserDirHost = %q, want %q", miseUserDirHost(paths, cfg), want)
 	}
 	base := os.TempDir()
@@ -221,7 +230,8 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
 		},
-		UserID: "42",
+		UserID:  "42",
+		AgentID: "a1",
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
 				"MY_SECRET":   "s3cr3t",
@@ -287,7 +297,8 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
 		},
-		UserID: "1",
+		UserID:  "1",
+		AgentID: "a1",
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
 				"GH_OAUTH":         `{"version":1,"access_token":"ghp_secret"}`,
@@ -365,6 +376,7 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 			UserRoot:   "/workspace/users/1",
 		},
 		UserID:         userID,
+		AgentID:        "a1",
 		VaultEnvLoader: store,
 		TokenManager:   tm,
 		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
@@ -432,6 +444,7 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 			UserRoot:   "/workspace/users/1",
 		},
 		UserID:         userID,
+		AgentID:        "a1",
 		VaultEnvLoader: store,
 		TokenManager:   tm,
 		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{

@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestRuntimeMiseEnv_PerUser(t *testing.T) {
@@ -43,7 +45,7 @@ func TestRuntimeMiseEnv_PerUser(t *testing.T) {
 	// The project workspace is trusted (both the bwrap /workspace mount and the
 	// host path, so it resolves regardless of backend).
 	trusted := strings.Split(env["MISE_TRUSTED_CONFIG_PATHS"], string(filepath.ListSeparator))
-	for _, want := range []string{wantGlobal, sandboxWorkspaceDir, workspace} {
+	for _, want := range []string{wantGlobal, pkgsandbox.MountWorkspace, workspace} {
 		if !slices.Contains(trusted, want) {
 			t.Fatalf("trusted paths %v missing %q", trusted, want)
 		}

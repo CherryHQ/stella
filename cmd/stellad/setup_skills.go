@@ -15,7 +15,7 @@ func cliUserSkillsDir(snap *config.Snapshot) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return agent.UserSkillsDir(userDir), nil
+	return agent.UserSkillsDir(agent.UserDataDir(userDir)), nil
 }
 
 type skillStores struct {
@@ -34,12 +34,13 @@ func setupSkillStores(db *sql.DB) skillStores {
 			}
 			return agent.UserSkillsDir(agent.AgentWorkspaceDir(base, agentID))
 		case "user":
-			// User skills are shared across all of a user's agents (#442), so the
-			// path no longer depends on agentID.
+			// User skills are shared across all of a user's agents (#442) and live
+			// under the user-data root (mounted as /user), so the path no longer
+			// depends on agentID.
 			if userID == "" {
 				return ""
 			}
-			return agent.UserSkillsDir(agent.UserHomeDir(base, userID))
+			return agent.UserSkillsDir(agent.UserDataDir(agent.UserHomeDir(base, userID)))
 		case "user_agent":
 			if agentID == "" || userID == "" {
 				return ""

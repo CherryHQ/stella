@@ -9,15 +9,19 @@ import (
 )
 
 // ToolPaths is the tool-facing session path surface.
-// UserRoot is the writable execution root and process HOME.
+// UserRoot is the writable execution root and process HOME. (Two-root migration:
+// WorkspaceRoot is being introduced as the agent HOME/cwd and UserRoot will
+// narrow to the shared user-data root; during the migration both carry the user
+// home and WorkspaceRoot has no dedicated consumer yet.)
 // ProjectRoot is the tool-facing current-project directory; relative paths in project-aware tools
 // resolve against it. StellaHome and AgentRoot are discovery roots.
 type ToolPaths struct {
-	UserRoot    string
-	ToolsBinDir string
-	StellaHome  string
-	AgentRoot   string
-	ProjectRoot string // tool-facing project root for relative path resolution
+	UserRoot      string
+	WorkspaceRoot string
+	ToolsBinDir   string
+	StellaHome    string
+	AgentRoot     string
+	ProjectRoot   string // tool-facing project root for relative path resolution
 }
 
 // ToolContext is the narrow build context for tool capabilities.
@@ -75,15 +79,16 @@ type PromptInventoryContext struct {
 // SystemPromptContext is the shared build context for prompt contributions.
 // HomeDir is host-scoped discovery context; UserRoot is the runtime writable root.
 type SystemPromptContext struct {
-	Platform    Platform
-	State       PluginState
-	StellaHome  string
-	HomeDir     string
-	AgentRoot   string
-	ProjectRoot string
-	UserID      string
-	AgentID     string
-	UserRoot    string
+	Platform      Platform
+	State         PluginState
+	StellaHome    string
+	HomeDir       string
+	AgentRoot     string
+	ProjectRoot   string
+	UserID        string
+	AgentID       string
+	UserRoot      string
+	WorkspaceRoot string
 	// SkillStore is a direct shortcut for callers that have a SkillStore but no Platform.
 	// BuildPromptSection uses this when Platform is nil.
 	SkillStore SkillStore

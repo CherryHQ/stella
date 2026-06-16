@@ -16,10 +16,12 @@ import (
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// sandboxStellaHome is the virtual STELLA_HOME inside the bwrap sandbox. HOME is
-// not a fixed path: it is the workspace root (the user home) at /workspace, set
-// in adjustPolicy, so XDG defaults land in the per-user home (#442).
-const sandboxStellaHome = "/home/stella/.stella"
+// sandboxStellaHome is the virtual STELLA_HOME inside the bwrap sandbox: the
+// shared read-only system tree (toolchains, bin) the agent sees. It is deliberately
+// an infrastructure path, not a home-shaped one — the agent's home is the user
+// workspace at /workspace, set in adjustPolicy, so XDG defaults and the agent's own
+// mise tree land under that home, never under this system tree (#442).
+const sandboxStellaHome = sandboxpkg.MountStellaHome
 
 // setSysProcAttr places the child in its own process group so that
 // killProcessGroup can terminate the entire subtree.
@@ -90,7 +92,18 @@ func checkSandboxRequirements() error {
 // resolveSandboxRoot returns the sandbox-space root and the real host root.
 // On Linux bwrap is required, so the agent always sees /workspace.
 func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	return "/workspace", policy.WorkspaceRootOrDefault()
+	return sandboxpkg.MountWorkspace, policy.WorkspaceRootOrDefault()
+}
+
+// resolveUserDataRoot returns the sandbox-space and host paths of the shared
+// user-data root. On Linux it is bind-mounted at the fixed path /user; "" host
+// path (a user-less job) yields no second root.
+func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
+	realRoot = policy.Filesystem.UserDataDir
+	if realRoot == "" {
+		return "", ""
+	}
+	return sandboxpkg.MountUserData, realRoot
 }
 
 // createSessionTmpMounts returns host directories for each sandbox temp path.
@@ -180,7 +193,7 @@ func appendLinuxRuntimeMounts(args []string) []string {
 }
 
 // adjustStellaHome returns the sandbox-view STELLA_HOME directory.
-// On Linux (bwrap), it is remapped to /home/stella/.stella.
+// On Linux (bwrap), it is remapped to /opt/stella.
 func adjustStellaHome(_ string) string { return sandboxStellaHome }
 
 func appendStellaHomeMounts(args []string, stellaHome string) []string {
@@ -229,7 +242,7 @@ func appendWritableBind(args []string, hostPath, sandboxPath string) []string {
 }
 
 // remapToSandboxStellaHome rewrites a host path under STELLA_HOME to its
-// sandbox-view location (STELLA_HOME is remapped to /home/stella/.stella).
+// sandbox-view location (STELLA_HOME is remapped to /opt/stella).
 // Paths outside STELLA_HOME are returned unchanged.
 func remapToSandboxStellaHome(hostPath, stellaHomeHost string) string {
 	return remapStellaHomePath(hostPath, stellaHomeHost, sandboxStellaHome)
@@ -266,6 +279,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	}
 
 	realRoot := policy.WorkspaceRootOrDefault()
+	_, userDataReal := resolveUserDataRoot(policy)
 	networkMode := policy.NetworkModeOrDefault()
 
 	bwrapArgs := []string{
@@ -285,10 +299,26 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
 	bwrapArgs = appendStellaHomeMounts(bwrapArgs, stellaHomeHost)
-	// Extra writable mounts (e.g. the per-user mise home, layered above the
-	// read-only system installs mounted by appendStellaHomeMounts): bind each at
-	// its STELLA_HOME-remapped sandbox path so writes land in the host tree.
+	// Agent-bound (system_agent) skills: read-only at a fixed path, so admin-managed
+	// skills bound to this agent stay loadable without leaking the host path.
+	if as := policy.Filesystem.AgentSkillsDir; as != "" {
+		bwrapArgs = appendRoBindIfExists(bwrapArgs, as, sandboxpkg.MountAgentSkills)
+	}
+	// Extra writable mounts (e.g. an out-of-workspace per-principal cache), layered
+	// above the read-only system installs mounted by appendStellaHomeMounts: bind
+	// each at its STELLA_HOME-remapped sandbox path so writes land in the host tree.
+	// A mount inside the workspace is skipped — it is already writable through the
+	// realRoot -> /workspace bind below, and binding it again under the STELLA_HOME
+	// tree would only re-expose the host path to the agent (#442).
 	for _, writable := range policy.Filesystem.ExtraWritableMounts {
+		// Already writable through a top-level bind — skip the separate
+		// STELLA_HOME-style bind, which would re-expose the host path to the agent.
+		if remapToSandboxRoot(writable, realRoot, "/workspace") != writable {
+			continue // under /workspace
+		}
+		if userDataReal != "" && remapToSandboxRoot(writable, userDataReal, "/user") != writable {
+			continue // under /user (e.g. the relocated per-user mise tree)
+		}
 		bwrapArgs = appendWritableBind(bwrapArgs, writable, remapToSandboxStellaHome(writable, stellaHomeHost))
 	}
 	for _, extraPath := range policy.Filesystem.ExtraReadOnlyMounts {
@@ -299,18 +329,13 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 		"--bind", realRoot, "/workspace",
 		"--chdir", sandboxCwd,
 	)
-	// Hide sibling agents: the realRoot bind exposes every users/{id}/agents/* at
-	// /workspace/agents/*, so cover that subtree with an empty tmpfs and bind back
-	// only this agent's own dir. One agent then can neither read nor write
-	// another's credentials/state, enforcing the per-agent boundary (#442). Must
-	// follow the realRoot bind (which it overlays) and precede the read-only
-	// re-mounts (the agent's own project skill dirs live under it).
-	if sandboxAP := remapToSandboxRoot(policy.Filesystem.AgentPrivateDir, realRoot, "/workspace"); sandboxAP != "" && sandboxAP != "/workspace" {
-		bwrapArgs = append(bwrapArgs,
-			"--tmpfs", filepath.Dir(sandboxAP),
-			"--dir", sandboxAP,
-			"--bind", policy.Filesystem.AgentPrivateDir, sandboxAP,
-		)
+	// Shared user-data root: bind the host UserDataDir writable at /user. Isolation
+	// is by non-mounting — realRoot is the per-agent dir, so sibling agents are
+	// never exposed and no tmpfs cover-up is needed (the #442 sibling-hiding hack
+	// is gone). /user is a deliberate shared writable root for all of the user's
+	// agents (caches, toolchain, uploads), not an isolation boundary.
+	if userDataReal != "" {
+		bwrapArgs = appendWritableBind(bwrapArgs, userDataReal, "/user")
 	}
 	// Re-mount workspace-contained extra paths read-only at their /workspace/...
 	// equivalent. This overrides the writable workspace bind for those subdirectories

@@ -39,11 +39,17 @@ For simple periodic system work (health checks, cleanup), use scheduler/system j
 
 When you are **dispatched to execute a task**, you get a `task_control` tool and the task's title+description as your prompt. Do the work, then call `task_control` exactly once with `submit`, `block`, or `fail` (use `progress` to checkpoint mid-way). Exiting without a terminal action fails the run.
 
-# Rules
+# Filesystem
 
-- keep workspace organized:
-  - Save all agent-created files under `./assets/{YYYYMM}/{DD}-{name}` (e.g. `./assets/202506/14-report.html`)
-  - Clone repositories into `./repos/{repo-name}`
+You work across two areas — know which is which:
+
+- **Your workspace** — your current working directory (`./`). Private to you, this one agent: project files, cloned repos, scratch work, and your own config/state live here. Nothing here is shared with the user's other agents.
+- **Shared user data** (`$STELLA_USER_DIR`) — shared across all of this user's agents: uploads, generated outputs, and assets. Use this when a file belongs to the user rather than to you alone.
+
+Keep both organized:
+
+- Save user-facing files you create under `$STELLA_USER_DIR/assets/{YYYYMM}/{DD}-{name}` (e.g. `$STELLA_USER_DIR/assets/202506/14-report.html`). If `$STELLA_USER_DIR` is unset, fall back to `./assets/{YYYYMM}/{DD}-{name}`.
+- Clone repositories into `./repos/{repo-name}` (under your workspace).
 
 # Memories
 

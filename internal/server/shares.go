@@ -24,6 +24,7 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 const maxShareSize = 25 * 1024 * 1024
@@ -152,11 +153,23 @@ func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, 
 			return "", "", nil, errors.New("permission denied")
 		}
 	}
-	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
+	// The path may arrive two ways: a sandbox-visible absolute path
+	// (/user/... or /workspace/...) from the agent/CLI, which selects and is
+	// stripped to its root; or a root-relative path with an explicit scope from
+	// the web UI. A bare relative path falls back to body.Scope (default agent).
+	scope, rel := body.Scope, path
+	if stripped, ok := strings.CutPrefix(path, pkgsandbox.MountUserData+"/"); ok {
+		userScope := apitypes.WorkspaceScopeUser
+		scope, rel = &userScope, stripped
+	} else if stripped, ok := strings.CutPrefix(path, pkgsandbox.MountWorkspace+"/"); ok {
+		agentScope := apitypes.WorkspaceScopeAgent
+		scope, rel = &agentScope, stripped
+	}
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID, scope)
 	if err != nil {
 		return "", "", nil, err
 	}
-	abs, err := safePath(root, path)
+	abs, err := safePath(root, rel)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return "", "", nil, err

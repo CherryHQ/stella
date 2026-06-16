@@ -95,7 +95,17 @@ func setupHome(home, agentDir, agentID string) (string, error) {
 	if agentID == "" {
 		return "", fmt.Errorf("agent ID must not be empty")
 	}
-	for _, sub := range [][]string{{".agents", "skills"}, {"data"}, {"assets"}} {
+	// data/ is the shared user-data root mounted as /user. Its subtree holds the
+	// per-user toolchain, cache, user-level skills/delegates, and uploads — all
+	// shared across the user's agents.
+	for _, sub := range [][]string{
+		{"data"},
+		{"data", ".mise-tools"},
+		{"data", ".cache"},
+		{"data", ".agents", "skills"},
+		{"data", ".agents", "delegates"},
+		{"data", "assets"},
+	} {
 		if err := os.MkdirAll(filepath.Join(home, filepath.Join(sub...)), 0o755); err != nil {
 			return "", fmt.Errorf("create home dir %q: %w", home, err)
 		}
@@ -108,10 +118,20 @@ func setupHome(home, agentDir, agentID string) (string, error) {
 	return home, nil
 }
 
+// UserDataDir returns the shared user-data root within a user home. Toolchains,
+// caches, user-level skills/delegates, and uploaded assets live here, shared by
+// all the user's agents; it is mounted as /user in the two-root sandbox layout.
+// Takes the resolved home so it composes with both user and group homes.
+func UserDataDir(userHome string) string {
+	return filepath.Join(userHome, "data")
+}
+
 // UserAssetsDir returns the per-user assets directory within a user home.
-// Uploaded files from all channels are stored here, shared across the user's agents.
+// Uploaded files from all channels are stored here, shared across the user's
+// agents, under the user-data root mounted as /user (reachable in-sandbox at
+// $STELLA_USER_DIR/assets).
 func UserAssetsDir(userHome string) string {
-	return filepath.Join(userHome, "assets")
+	return filepath.Join(UserDataDir(userHome), "assets")
 }
 
 // UserSkillsDir returns the user-level skills directory within a user home.

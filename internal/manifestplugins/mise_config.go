@@ -11,6 +11,8 @@ import (
 	"sync"
 
 	"github.com/pelletier/go-toml/v2"
+
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // builtinScope is the scope name for the global base config.
@@ -20,12 +22,6 @@ const builtinScope = "_builtin"
 // rewrites the whole shims directory, so concurrent installs must not run in
 // parallel or they clobber each other's shims.
 var miseInstallMu sync.Mutex
-
-// sandboxWorkspaceDir is the path the agent workspace is mounted at inside the
-// Linux (bwrap) sandbox. It is trusted for mise config so a project's mise.toml
-// participates in version resolution. Mirrors the mount point in
-// plugins/sandbox/local/session_linux.go.
-const sandboxWorkspaceDir = "/workspace"
 
 // miseDirEnv returns the DATA/CONFIG/CACHE/STATE layout rooted at dataDir. The
 // install side roots it at the shared system tree; the runtime side roots it at
@@ -93,8 +89,8 @@ func RuntimeMiseEnv(stellaHome, userDataDir, workspaceDir string) map[string]str
 	// literal "/workspace" is the bind-mount path (load-bearing on Linux/bwrap),
 	// the host workspaceDir is load-bearing on none/macOS where there is no remap.
 	// The entry irrelevant to a given backend is inert, so neither may be dropped.
-	trusted := []string{configPath, sandboxWorkspaceDir}
-	if workspaceDir != "" && workspaceDir != sandboxWorkspaceDir {
+	trusted := []string{configPath, pkgsandbox.MountWorkspace}
+	if workspaceDir != "" && workspaceDir != pkgsandbox.MountWorkspace {
 		trusted = append(trusted, workspaceDir)
 	}
 	env["MISE_TRUSTED_CONFIG_PATHS"] = strings.Join(trusted, string(filepath.ListSeparator))

@@ -20,14 +20,20 @@ import (
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
-// workspaceMount matches the path pre-created in the bundled Dockerfile
-// (plugins/sandbox/docker/Dockerfile) under the stella user's HOME so mise
-// activate, $PATH, and $HOME all line up.
-const workspaceMount = "/home/stella/workspace"
+// workspaceMount is the agent's per-agent workspace root inside the container —
+// the sandbox HOME and initial cwd in the two-root layout. The bundled Dockerfile
+// pre-creates it and bakes HOME=/workspace; the image toolchain (mise) is pinned
+// to absolute /home/stella paths via MISE_DATA_DIR so it stays reachable.
+const workspaceMount = sandboxpkg.MountWorkspace
 
-// stellaHomeMount is the in-container root used for the host STELLA_HOME assets
-// that sandbox sessions need. Only selected subdirectories are bind-mounted.
-const stellaHomeMount = "/home/stella/.stella"
+// userDataMount is the shared user-data root inside the container (the second
+// top-level root). The host users/{id}/data tree binds here so skills, assets,
+// and the per-user mise tree are addressable without leaking the host layout.
+const userDataMount = sandboxpkg.MountUserData
+
+// stellaHomeMount is the in-container root for the read-only host STELLA_HOME
+// assets sessions need. Only selected subdirectories are bind-mounted.
+const stellaHomeMount = sandboxpkg.MountStellaHome
 
 func nextSessionID() string { return sandboxpkg.NewSessionID() }
 
@@ -147,6 +153,15 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		return nil, fmt.Errorf("docker session: abs workspace root: %w", err)
 	}
 
+	// Shared user-data root (mounted as /user). Empty for a user-less job, which
+	// has no principal home — then no /user mount and STELLA_USER_DIR stays unset.
+	userDataHost := ""
+	if ud := policy.Filesystem.UserDataDir; ud != "" {
+		if abs, absErr := filepath.Abs(ud); absErr == nil {
+			userDataHost = abs
+		}
+	}
+
 	ctx, span := tracer.Start(ctx, "sandbox.docker.session",
 		trace.WithAttributes(sessionTraceAttrs(sessionID, policy, f.cfg.Image, workspaceHost)...),
 	)
@@ -179,12 +194,50 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		Name: "stella-sandbox-" + sessionID,
 	}
 
-	mountedExtraReadOnly, mountedTempDirHost, err := f.configureSessionMounts(&opts, policy, workspaceHost)
+	mountedExtraReadOnly, mountedTempDirHost, mountedUserDataHost, err := f.configureSessionMounts(&opts, policy, workspaceHost, userDataHost)
 	if err != nil {
 		recordError(span, err)
 		span.End()
 		return nil, err
 	}
+
+	// Expose the user-data root as STELLA_USER_DIR — but only when /user was
+	// actually mounted, keyed off the host path the mount really used. The value
+	// is the HOST path; translateEnvPaths rewrites it to /user via the /user
+	// mount (Pi C2). Setting it (or the mount table entry) when the mount failed
+	// would make env translation and host-side path resolution lie about /user.
+	if mountedUserDataHost != "" {
+		env := maps.Clone(policy.Env)
+		if env == nil {
+			env = make(map[string]string)
+		}
+		env["STELLA_USER_DIR"] = mountedUserDataHost
+		policy.Env = env
+	}
+
+	// Build the mount table and env prefix maps before creating the container so
+	// the create-time env can be translated to the container view too — otherwise
+	// PID 1's environment carries host paths the agent can read via
+	// /proc/1/environ, defeating the isolation (Pi critical).
+	mountTable := buildMountTable(mountTableOptions{
+		WorkspaceHost:       workspaceHost,
+		WorkspaceMount:      workspaceMount,
+		UserDataHost:        mountedUserDataHost,
+		UserDataMount:       userDataMount,
+		StellaHomeHost:      policy.Env["STELLA_HOME"],
+		StellaHomeContainer: stellaHomeMount,
+		ExtraReadOnlyMounts: mountedExtraReadOnly,
+		TempDirHost:         mountedTempDirHost,
+	})
+
+	var envMaps []envPathMap
+	if hostHome := policy.Env["STELLA_HOME"]; hostHome != "" {
+		envMaps = append(envMaps, envPathMap{
+			HostPrefix:      hostHome,
+			ContainerPrefix: stellaHomeMount,
+		})
+	}
+	opts.Env = translateEnvPaths(mergeEnv(policy.Env, nil), mountTable, envMaps)
 
 	var toolBinPaths []string
 	toolCache, err := ensureUserToolCache(ctx, client, f.cfg)
@@ -214,24 +267,6 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		attribute.String("stella.sandbox.container_id", containerID),
 	))
 
-	// Build mount table for the workspace plus mounted STELLA_HOME assets and extra mounts.
-	mountTable := buildMountTable(mountTableOptions{
-		WorkspaceHost:       workspaceHost,
-		WorkspaceMount:      workspaceMount,
-		StellaHomeHost:      policy.Env["STELLA_HOME"],
-		StellaHomeContainer: stellaHomeMount,
-		ExtraReadOnlyMounts: mountedExtraReadOnly,
-		TempDirHost:         mountedTempDirHost,
-	})
-
-	var envMaps []envPathMap
-	if hostHome := policy.Env["STELLA_HOME"]; hostHome != "" {
-		envMaps = append(envMaps, envPathMap{
-			HostPrefix:      hostHome,
-			ContainerPrefix: stellaHomeMount,
-		})
-	}
-
 	session := &dockerSession{
 		id:           sessionID,
 		policy:       policy,
@@ -251,21 +286,25 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	return session, nil
 }
 
-func (f *dockerFactory) configureSessionMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost string) ([]string, string, error) {
+// configureSessionMounts wires the container mounts for the active mode and
+// returns the extra read-only mounts, the mounted temp-dir host, and the mounted
+// user-data host ("" when /user could not be mounted, so callers don't wire a
+// /user that isn't really there).
+func (f *dockerFactory) configureSessionMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost, userDataHost string) ([]string, string, string, error) {
 	if f.cfg.RuntimeMode == DockerSandboxModeVolume {
-		mountedExtraReadOnly, err := f.configureVolumeMounts(opts, policy, workspaceHost)
-		return mountedExtraReadOnly, "", err
+		mountedExtraReadOnly, mountedUserDataHost, err := f.configureVolumeMounts(opts, policy, workspaceHost, userDataHost)
+		return mountedExtraReadOnly, "", mountedUserDataHost, err
 	}
-	return f.configureBindMounts(opts, policy, workspaceHost)
+	return f.configureBindMounts(opts, policy, workspaceHost, userDataHost)
 }
 
-func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost string) ([]string, error) {
+func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost, userDataHost string) ([]string, string, error) {
 	workspaceSubpath, ok := relativePathWithin(f.cfg.StellaHome, workspaceHost)
 	if !ok {
-		return nil, fmt.Errorf("docker session: workspace %q is not inside STELLA_HOME %q; cannot use volume mode", workspaceHost, f.cfg.StellaHome)
+		return nil, "", fmt.Errorf("docker session: workspace %q is not inside STELLA_HOME %q; cannot use volume mode", workspaceHost, f.cfg.StellaHome)
 	}
 	if workspaceSubpath == "." {
-		return nil, fmt.Errorf("docker session: workspace must be a subdirectory of STELLA_HOME, not STELLA_HOME itself")
+		return nil, "", fmt.Errorf("docker session: workspace must be a subdirectory of STELLA_HOME, not STELLA_HOME itself")
 	}
 	opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
 		HostPath:      f.cfg.StellaHomeVolume,
@@ -274,6 +313,23 @@ func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, 
 		Type:          dockerclient.MountTypeVolume,
 		VolumeSubpath: filepath.ToSlash(workspaceSubpath),
 	})
+	// Shared user-data root → /user (RW). Lives under STELLA_HOME, so it comes
+	// from the same named volume at its subpath.
+	mountedUserDataHost := ""
+	if userDataHost != "" {
+		if subpath, ok := relativePathWithin(f.cfg.StellaHome, userDataHost); ok && subpath != "." {
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      f.cfg.StellaHomeVolume,
+				ContainerPath: userDataMount,
+				ReadOnly:      false,
+				Type:          dockerclient.MountTypeVolume,
+				VolumeSubpath: filepath.ToSlash(subpath),
+			})
+			mountedUserDataHost = userDataHost
+		} else {
+			logSkippedSandboxMount(DockerSandboxModeVolume, userDataHost, "user-data root is outside STELLA_HOME and cannot be mounted from the named volume")
+		}
+	}
 	for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
 		hostPath := filepath.Join(f.cfg.StellaHome, name)
 		if _, err := os.Stat(hostPath); err != nil {
@@ -286,6 +342,22 @@ func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, 
 			Type:          dockerclient.MountTypeVolume,
 			VolumeSubpath: filepath.ToSlash(name),
 		})
+	}
+	// Agent-bound (system_agent) skills → /opt/stella/agent-skills (RO). Lives
+	// under STELLA_HOME, so it comes from the same named volume at its subpath.
+	// Skipped when not installed for this agent (the dir is absent).
+	if as := policy.Filesystem.AgentSkillsDir; as != "" && dirExists(as) {
+		if subpath, ok := relativePathWithin(f.cfg.StellaHome, as); ok && subpath != "." {
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      f.cfg.StellaHomeVolume,
+				ContainerPath: sandboxpkg.MountAgentSkills,
+				ReadOnly:      true,
+				Type:          dockerclient.MountTypeVolume,
+				VolumeSubpath: filepath.ToSlash(subpath),
+			})
+		} else {
+			logSkippedSandboxMount(DockerSandboxModeVolume, as, "agent skills dir is outside STELLA_HOME and cannot be mounted from the named volume")
+		}
 	}
 	mountedExtraReadOnly := []string{}
 	for _, hostPath := range policy.Filesystem.ExtraReadOnlyMounts {
@@ -308,15 +380,41 @@ func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, 
 	// docker client skips the default bind mount. TempDirHost lives outside
 	// STELLA_HOME and is intentionally unavailable in volume mode.
 	opts.WorkspaceHost = ""
-	return mountedExtraReadOnly, nil
+	return mountedExtraReadOnly, mountedUserDataHost, nil
 }
 
-func (f *dockerFactory) configureBindMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost string) ([]string, string, error) {
+func (f *dockerFactory) configureBindMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost, userDataHost string) ([]string, string, string, error) {
 	daemonWorkspaceHost, ok := f.cfg.daemonPath(workspaceHost)
 	if !ok {
-		return nil, "", fmt.Errorf("docker session: workspace %q is not under STELLA_HOME %q; cannot use bind-mount mode", workspaceHost, f.cfg.StellaHome)
+		return nil, "", "", fmt.Errorf("docker session: workspace %q is not under STELLA_HOME %q; cannot use bind-mount mode", workspaceHost, f.cfg.StellaHome)
 	}
 	opts.WorkspaceHost = daemonWorkspaceHost
+	// Shared user-data root → /user (RW).
+	mountedUserDataHost := ""
+	if userDataHost != "" {
+		if daemonPath, ok := f.cfg.daemonPath(userDataHost); ok {
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      daemonPath,
+				ContainerPath: userDataMount,
+			})
+			mountedUserDataHost = userDataHost
+		} else {
+			logSkippedSandboxMount(f.cfg.RuntimeMode, userDataHost, "user-data root is not visible to the Docker daemon")
+		}
+	}
+	// Agent-bound (system_agent) skills → /opt/stella/agent-skills (RO). Skipped
+	// when not installed for this agent (the dir is absent).
+	if as := policy.Filesystem.AgentSkillsDir; as != "" && dirExists(as) {
+		if daemonPath, ok := f.cfg.daemonPath(as); ok {
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      daemonPath,
+				ContainerPath: sandboxpkg.MountAgentSkills,
+				ReadOnly:      true,
+			})
+		} else {
+			logSkippedSandboxMount(f.cfg.RuntimeMode, as, "agent skills dir is not visible to the Docker daemon")
+		}
+	}
 	stellaHome := f.cfg.StellaHome
 	if stellaHome != "" {
 		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
@@ -362,7 +460,7 @@ func (f *dockerFactory) configureBindMounts(opts *dockerclient.CreateOptions, po
 		mountedExtraReadOnly = append(mountedExtraReadOnly, hostPath)
 		appendWorkspaceRelativeReadOnlyMount(opts, daemonPath, hostPath, workspaceHost, "", dockerclient.MountTypeBind)
 	}
-	return mountedExtraReadOnly, mountedTempDirHost, nil
+	return mountedExtraReadOnly, mountedTempDirHost, mountedUserDataHost, nil
 }
 
 func logSkippedSandboxMount(mode DockerSandboxMode, path, reason string) {
@@ -372,6 +470,13 @@ func logSkippedSandboxMount(mode DockerSandboxMode, path, reason string) {
 		"path", path,
 		"reason", reason,
 	)
+}
+
+// dirExists reports whether path exists on the host (file or directory). Used to
+// skip optional mounts whose source is absent for this session.
+func dirExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func relativePathWithin(root, path string) (string, bool) {
@@ -409,6 +514,8 @@ func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 type mountTableOptions struct {
 	WorkspaceHost       string
 	WorkspaceMount      string
+	UserDataHost        string
+	UserDataMount       string
 	StellaHomeHost      string
 	StellaHomeContainer string
 	ExtraReadOnlyMounts []string
@@ -425,6 +532,13 @@ func buildMountTable(opts mountTableOptions) []dockerclient.Mount {
 			ContainerPath: opts.WorkspaceMount,
 			ReadOnly:      false,
 		},
+	}
+	if opts.UserDataHost != "" && opts.UserDataMount != "" {
+		mounts = append(mounts, dockerclient.Mount{
+			HostPath:      opts.UserDataHost,
+			ContainerPath: opts.UserDataMount,
+			ReadOnly:      false,
+		})
 	}
 	if opts.StellaHomeHost != "" && opts.StellaHomeContainer != "" {
 		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {

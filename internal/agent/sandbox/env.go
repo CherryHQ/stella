@@ -20,48 +20,56 @@ import (
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
 	principalDir, id := misePrincipal(cfg)
 	return pkgsandbox.FilesystemPolicy{
-		WorkspaceRoot:       paths.UserRoot,
-		WorkingDir:          paths.WorkDir,
-		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
-		TempDirHost:         userTempDir(principalDir, id),
-		AgentPrivateDir:     agentPrivateDir(paths, cfg),
+		WorkspaceRoot:  paths.WorkspaceRoot,
+		WorkingDir:     paths.WorkDir,
+		UserDataDir:    userDataDirHost(paths, cfg),
+		AgentSkillsDir: agentSkillsDirHost(paths),
+		TempDirHost:    userTempDir(principalDir, id),
 	}
 }
 
-// agentPrivateDir returns the host path of the running agent's private subdir of
-// the user home, users/{id}/agents/{agentID} — the area the isolating backends
-// keep private to this agent (XDG config/data/state) while hiding its siblings.
-// It mirrors the agent's project area (UserRoot/agents/{agentID}/projects/...,
-// see internal/agent/workspace.go), kept here as a literal join to avoid a cycle
-// back into the agent package. Empty for a user-less job: with no principal home
-// the agent is its own principal under paths.UserRoot and has no siblings, so
-// there is nothing to isolate.
-func agentPrivateDir(paths Paths, cfg Config) string {
-	if cfg.AgentID == "" || (cfg.UserID == "" && cfg.GroupID == "") {
+// agentSkillsDirHost returns the host path of the admin-managed, agent-bound
+// (system_agent scope) skills dir, AgentRoot/.agents/skills. Isolating backends
+// mount it read-only at /opt/stella/agent-skills so those skills stay loadable
+// without leaking the host path. Empty when the session has no agent definition
+// root.
+func agentSkillsDirHost(paths Paths) string {
+	if paths.AgentRoot == "" {
 		return ""
 	}
-	return filepath.Join(paths.UserRoot, "agents", cfg.AgentID)
+	return filepath.Join(paths.AgentRoot, ".agents", "skills")
+}
+
+// userDataDirHost returns the host path of the shared user-data root mounted as
+// /user, or "" for a user-less job (no principal home, so no shared root to
+// mount; the agent writes only its workspace and tmp).
+func userDataDirHost(paths Paths, cfg Config) string {
+	if cfg.UserID == "" && cfg.GroupID == "" {
+		return ""
+	}
+	return paths.UserDataDir
 }
 
 // miseUserDirHost returns the host path of this session's writable per-user mise
-// home, or "" when there is no per-user tree: no principal, or an ID that fails
-// the safe-path-component check (the session then falls back to the shared
-// read-only system tree). A downgrade from an unsafe ID is logged so a malformed
-// ID is diagnosable instead of mysterious. The caller seeds the tree and adds it
-// to the policy's writable mounts; keeping that mise-specific wiring here leaves
-// the FilesystemPolicy mise-agnostic.
+// home — now under the shared user-data root (UserDataDir/.mise-tools), so the
+// /user mount makes it writable without a dedicated bind. Returns "" when there
+// is no per-user tree: no principal, or an ID that fails the safe-path-component
+// check (the session then falls back to the shared read-only system tree). A
+// downgrade from an unsafe ID is logged so a malformed ID is diagnosable.
 func miseUserDirHost(paths Paths, cfg Config) string {
 	principalDir, id := misePrincipal(cfg)
-	dir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)
-	if id != "" && dir == "" {
-		slog.Warn("per-user mise tree disabled: unsafe id, using shared read-only system tree",
-			"component", "runner_sandbox",
-			"user_id", cfg.UserID,
-			"group_id", cfg.GroupID,
-			"principal_dir", principalDir,
-		)
+	if pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id) == "" {
+		if id != "" {
+			slog.Warn("per-user mise tree disabled: unsafe id, using shared read-only system tree",
+				"component", "runner_sandbox",
+				"user_id", cfg.UserID,
+				"group_id", cfg.GroupID,
+				"principal_dir", principalDir,
+			)
+		}
+		return ""
 	}
-	return dir
+	return filepath.Join(paths.UserDataDir, ".mise-tools")
 }
 
 // misePrincipal returns the home subtree and ID for this session's per-principal
@@ -98,27 +106,6 @@ func userTempDir(principalDir, id string) string {
 		base = resolved
 	}
 	return filepath.Join(base, principalDir, id)
-}
-
-// skillMountsForSandbox returns host paths for all skill directories that must
-// be mounted read-only in the sandbox. Each path is mounted at its exact host
-// path (same-path strategy) so that skill_dir values returned by the skills
-// tool are valid inside the sandbox without any translation.
-func skillMountsForSandbox(paths Paths) []string {
-	seen := map[string]bool{}
-	var dirs []string
-	for _, base := range []string{paths.StellaHome, paths.AgentRoot, paths.UserRoot, paths.ProjectRoot} {
-		if base == "" {
-			continue
-		}
-		dir := filepath.Join(base, ".agents", "skills")
-		if seen[dir] {
-			continue
-		}
-		seen[dir] = true
-		dirs = append(dirs, dir)
-	}
-	return dirs
 }
 
 // buildSandboxEnv constructs the Policy.Env map for a sandbox session.
@@ -215,9 +202,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// PATH, so they need the mise env pointed at the org's config. Docker carries
 	// its own in-image mise tree and PATH, so host-side paths must not leak in.
 	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
-		principalDir, id := misePrincipal(cfg)
-		userDataDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)
-		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, userDataDir, paths.UserRoot))
+		// MISE_DATA_DIR points at the relocated per-user tree (UserDataDir/.mise-tools);
+		// the workspace dir trusted for project mise.toml is the agent workspace.
+		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, miseUserDirHost(paths, cfg), paths.WorkspaceRoot))
 	}
 
 	return env, nil

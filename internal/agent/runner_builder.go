@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -123,6 +122,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			UserID:              params.UserID,
 			AgentID:             params.AgentID,
 			UserRoot:            userRoot,
+			WorkspaceRoot:       userRoot,
 			SkillStore:          cfg.SkillStore,
 			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 			EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
@@ -162,16 +162,69 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			hookPlugins = params.HooksFn()
 		}
 
+		sandboxCfg := sandbox.Config{
+			SandboxConfig:    cfg.Snap.Sandbox,
+			SandboxBackendFn: cfg.SandboxBackendFn,
+			Paths: sandbox.Paths{
+				StellaHome:  config.StellaHome(),
+				AgentRoot:   cfg.Snap.Workspace,
+				UserRoot:    userRoot,
+				ProjectRoot: projectRoot,
+			},
+			UserID:          params.UserID,
+			GroupID:         params.GroupID,
+			AgentID:         params.AgentID,
+			SessionID:       params.SessionID,
+			ProjectID:       params.ProjectID,
+			SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
+			VaultEnvLoader:  cfg.VaultEnvLoader,
+			TokenEnsurer:    cfg.TokenEnsurer,
+			TokenManager:    cfg.TokenManager,
+		}
+
 		runnerTools := append([]tools.Tool{}, cfg.BuiltinTools...)
 		runnerTools = append(runnerTools, params.ExtraTools...)
 		if cfg.SkillStore != nil {
+			// User skills live under the shared user-data root (mounted as /user); the
+			// skill_dir emitted to the model is remapped to the sandbox-visible path for
+			// the active backend so it resolves in bash and never leaks a host path. Use
+			// ResolvePaths' canonicalized (symlink-evaluated) roots for BOTH the tool's
+			// host paths and the view, so the view's prefix match can't miss on symlinks.
+			// On resolve failure the sandbox session will fail downstream anyway; until
+			// then, omit every skill_dir (Isolated, no roots) rather than risk emitting a
+			// host path the model could leak or fail to resolve.
+			stellaHome := config.StellaHome()
+			toolAgentRoot := cfg.Snap.Workspace
+			toolProjectRoot := projectRoot
+			userSkillsDir := UserSkillsDir(UserDataDir(userRoot))
+			userAgentSkillsDir := ""
+			view := skillstool.SkillDirView{Isolated: true}
+			if resolved, err := sandbox.ResolvePaths(sandboxCfg); err == nil {
+				stellaHome = resolved.StellaHome
+				toolAgentRoot = resolved.AgentRoot
+				toolProjectRoot = resolved.ProjectRoot
+				userSkillsDir = UserSkillsDir(resolved.UserDataDir)
+				userAgentSkillsDir = UserSkillsDir(resolved.WorkspaceRoot)
+				sv := sandbox.ResolveSkillView(ctx, sandboxCfg, resolved)
+				view = skillstool.SkillDirView{
+					Isolated:         sv.Isolated,
+					SystemSkillsHost: sv.SystemSkillsHost,
+					SystemSkillsView: sv.SystemSkillsView,
+					AgentSkillsHost:  sv.AgentSkillsHost,
+					AgentSkillsView:  sv.AgentSkillsView,
+					UserDataHost:     sv.UserDataHost,
+					UserDataView:     sv.UserDataView,
+					WorkspaceHost:    sv.WorkspaceHost,
+					WorkspaceView:    sv.WorkspaceView,
+				}
+			}
 			runnerTools = append(runnerTools, skillstool.NewTool(
 				cfg.SkillStore,
-				config.StellaHome(),
-				cfg.Snap.Workspace,
-				projectRoot,
-				filepath.Join(userRoot, ".agents", "skills"),
-			))
+				stellaHome,
+				toolAgentRoot,
+				toolProjectRoot,
+				userSkillsDir,
+			).WithUserAgentSkillsDir(userAgentSkillsDir).WithSkillDirView(view))
 		}
 
 		return newRunner(ctx, runnerConfig{
@@ -182,26 +235,8 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				BaseURL: creds.BaseURL,
 				Builder: cfg.ProviderStreamBuilder,
 			},
-			Thinking: params.Thinking,
-			Sandbox: sandbox.Config{
-				SandboxConfig:    cfg.Snap.Sandbox,
-				SandboxBackendFn: cfg.SandboxBackendFn,
-				Paths: sandbox.Paths{
-					StellaHome:  config.StellaHome(),
-					AgentRoot:   cfg.Snap.Workspace,
-					UserRoot:    userRoot,
-					ProjectRoot: projectRoot,
-				},
-				UserID:          params.UserID,
-				GroupID:         params.GroupID,
-				AgentID:         params.AgentID,
-				SessionID:       params.SessionID,
-				ProjectID:       params.ProjectID,
-				SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
-				VaultEnvLoader:  cfg.VaultEnvLoader,
-				TokenEnsurer:    cfg.TokenEnsurer,
-				TokenManager:    cfg.TokenManager,
-			},
+			Thinking:        params.Thinking,
+			Sandbox:         sandboxCfg,
 			System:          system,
 			Sections:        sections,
 			ExtraTools:      runnerTools,

@@ -44,8 +44,8 @@ func TestSetupGroupWorkspace(t *testing.T) {
 	if dir != want {
 		t.Fatalf("dir = %q, want %q", dir, want)
 	}
-	// Verify subdirectories exist.
-	for _, sub := range []string{".agents/skills", "data", "assets"} {
+	// Verify the shared user-data subtree exists.
+	for _, sub := range []string{"data/.agents/skills", "data/.agents/delegates", "data/.mise-tools", "data/assets"} {
 		p := filepath.Join(dir, sub)
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			t.Fatalf("expected directory %q to exist", p)

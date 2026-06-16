@@ -141,11 +141,25 @@ bubblewrap must be functional, not just installed. Inside Docker containers with
 
 ### Path Presentation
 
-On Linux the agent always sees its workspace at `/workspace` regardless of the real host path (bubblewrap bind-mounts it). Docker and Linux local sessions mount the host `/tmp/{user_id}` directory as sandbox `/tmp`, so temporary files work inside the sandbox while remaining scoped per user. On macOS the agent sees the real host path.
+Isolating backends (Linux `local` via bubblewrap, and `docker`) present a fixed **two-root** layout, independent of the real host paths:
 
-### Home directory
+| Sandbox path  | Backed by                       | Access     | Holds                                                            |
+| ------------- | ------------------------------- | ---------- | ---------------------------------------------------------------- |
+| `/workspace`  | the agent's per-agent directory | read-write | `$HOME` and the project working tree — private to this one agent |
+| `/user`       | the user's shared data root     | read-write | data shared across all of that user's agents (see below)         |
+| `/opt/stella` | the system install tree         | read-only  | system binaries, the shared mise toolchain, and system skills    |
 
-Inside the sandbox, `$HOME` is the per-user home, shared by all of that user's agents — so tool caches and toolchains (`~/.cache`, the mise tree) are shared per user instead of duplicated per agent. Each agent's credential and state directories — the XDG dirs `~/.config`, `~/.local/share`, `~/.local/state` (e.g. `~/.config/gh`) — live under that agent's own private subdir of the home, so one agent's cached credentials stay separate from another's. The project tree remains the working directory.
+Only the `bin`, `.mise-tools`, and `.agents/skills` subtrees of the system tree are mounted at `/opt/stella` — the sibling `users/` and `agents/` trees under `STELLA_HOME` are never exposed there.
+
+The Linux `local` backend mounts a per-principal temp directory as sandbox `/tmp`; Docker `bind`/`host` mode does the same when that directory is visible to the Docker daemon, while Docker `volume` mode does not mount the host temp dir. Temp files thus stay scoped per user. On macOS (`local`) and with the `none` backend there is no remapping — the agent sees the real host paths, so these two roots are presented at their real locations rather than at `/workspace` and `/user`.
+
+### Home directory and shared data
+
+Inside an isolating sandbox, `$HOME` is `/workspace` — the agent's **own per-agent** directory. Each agent's credential and state directories (the XDG dirs `~/.config`, `~/.local/share`, `~/.local/state`, e.g. `~/.config/gh`) live there and stay private to that one agent. The project tree is the working directory, also under `/workspace`.
+
+Data that should be shared across all of a user's agents lives under `/user` (the shared user-data root), exposed as `$STELLA_USER_DIR`: caches, user-scoped skills, and uploaded assets (`/user/assets`). On the Linux `local` backend the per-user mise toolchain also lives here, at `/user/.mise-tools`. Reference this root as `$STELLA_USER_DIR/...` rather than hardcoding `/user`, so the same instruction works on the `none`/macOS backends where it resolves to the real host path.
+
+The docker backend keeps its image toolchain reachable despite `HOME=/workspace`: mise is pinned to absolute `/home/stella` paths via `MISE_DATA_DIR` and friends, so flipping `$HOME` away from the image's user home does not hide the baked-in tools.
 
 ## None Backend
 

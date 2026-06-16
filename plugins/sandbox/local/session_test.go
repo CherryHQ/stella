@@ -390,6 +390,104 @@ func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
 	}
 }
 
+// TestSystemTree_readableButNotWritable verifies that on an isolating backend
+// (sandbox STELLA_HOME differs from host), the read-only system install tree
+// addressed as /opt/stella is resolvable for reads and rejected for writes.
+func TestSystemTree_readableButNotWritable(t *testing.T) {
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	hostSH := t.TempDir()
+	hostSH, _ = filepath.EvalSymlinks(hostSH)
+
+	skillDir := filepath.Join(hostSH, ".agents", "skills", "demo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "refs.md"), []byte("# refs"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := &localSession{
+		id:                "test",
+		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		realRoot:          root,
+		sandboxRoot:       root,
+		stellaHomeHost:    hostSH,
+		stellaHomeSandbox: "/opt/stella",
+		done:              make(chan struct{}),
+	}
+
+	// The agent addresses the system tree via its sandbox view (/opt/stella/...).
+	sandboxPath := "/opt/stella/.agents/skills/demo/refs.md"
+	real, _, err := s.resolvePath(sandboxPath)
+	if err != nil {
+		t.Fatalf("resolvePath rejected system-tree read: %v", err)
+	}
+	if want := filepath.Join(skillDir, "refs.md"); real != want {
+		t.Errorf("resolvePath real = %q, want %q", real, want)
+	}
+
+	// Writes into the system tree must be rejected.
+	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
+		t.Fatal("expected ResolveWritePath to reject system-tree path, got nil")
+	}
+
+	// Only the RO-mounted subtrees are reachable: sibling host trees nested under
+	// STELLA_HOME (users/, agents/) must stay invisible even via /opt/stella.
+	if err := os.MkdirAll(filepath.Join(hostSH, "users", "u1"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if _, _, err := s.resolvePath("/opt/stella/users/u1/secret"); err == nil {
+		t.Fatal("expected resolvePath to reject /opt/stella/users (not a mounted subtree), got nil")
+	}
+}
+
+// TestAgentSkills_readableButNotWritable verifies that the agent-bound
+// (system_agent) skills dir, mounted read-only at /opt/stella/agent-skills on an
+// isolating backend, is resolvable for reads and rejected for writes.
+func TestAgentSkills_readableButNotWritable(t *testing.T) {
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	hostSH := t.TempDir()
+	hostSH, _ = filepath.EvalSymlinks(hostSH)
+
+	// AgentRoot/.agents/skills lives under STELLA_HOME (agents/<id>), distinct
+	// from the system skills dir at STELLA_HOME/.agents/skills.
+	agentSkills := filepath.Join(hostSH, "agents", "a1", ".agents", "skills")
+	if err := os.MkdirAll(filepath.Join(agentSkills, "demo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentSkills, "demo", "SKILL.md"), []byte("# skill"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := &localSession{
+		id:                "test",
+		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, AgentSkillsDir: agentSkills}},
+		realRoot:          root,
+		sandboxRoot:       root,
+		agentSkillsReal:   agentSkills,
+		stellaHomeHost:    hostSH,
+		stellaHomeSandbox: "/opt/stella",
+		done:              make(chan struct{}),
+	}
+
+	sandboxPath := sandboxpkg.MountAgentSkills + "/demo/SKILL.md"
+	real, _, err := s.resolvePath(sandboxPath)
+	if err != nil {
+		t.Fatalf("resolvePath rejected agent-skills read: %v", err)
+	}
+	if want := filepath.Join(agentSkills, "demo", "SKILL.md"); real != want {
+		t.Errorf("resolvePath real = %q, want %q", real, want)
+	}
+	if got := s.toSandboxPath(filepath.Join(agentSkills, "demo")); got != sandboxpkg.MountAgentSkills+"/demo" {
+		t.Errorf("toSandboxPath = %q, want %q", got, sandboxpkg.MountAgentSkills+"/demo")
+	}
+	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
+		t.Fatal("expected ResolveWritePath to reject agent-skills path, got nil")
+	}
+}
+
 // TestResolveWritePath_acceptsWorkspace verifies that ResolveWritePath allows
 // paths within the writable workspace root.
 func TestResolveWritePath_acceptsWorkspace(t *testing.T) {
@@ -491,7 +589,7 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot)
+	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, "", "")
 
 	if hostSH == sandboxSH {
 		t.Skip("no path remapping on this platform")
@@ -538,7 +636,7 @@ func TestAdjustPolicy_perUserMiseShimsOnPath(t *testing.T) {
 	}
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot)
+	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, "", "")
 
 	wantShims := sandboxSH + "/users/u1/.mise-tools/shims"
 	if !strings.Contains(adjusted.Env["PATH"], wantShims) {
@@ -546,31 +644,79 @@ func TestAdjustPolicy_perUserMiseShimsOnPath(t *testing.T) {
 	}
 }
 
-// TestAdjustPolicy_homeAndXDG verifies HOME is the user home (the sandbox-space
-// workspace root) and the XDG dirs split shared-vs-private: cache stays at the
-// shared home while config/data/state redirect into the agent's private subdir
-// (#442). On Linux the agent-private path is also remapped into /workspace.
+// TestAdjustPolicy_perUserMiseInUserDataFrame verifies that the per-user mise
+// tree — now under the shared user-data root (UserDataDir/.mise-tools) — is
+// expressed in the /user frame, not the host STELLA_HOME tree: the agent sees its
+// toolchain at /user/.mise-tools and never learns the on-disk users/{id} layout.
+// The system config path stays under the sandbox STELLA_HOME, and the host
+// workspace trusted entry collapses onto /workspace.
+func TestAdjustPolicy_perUserMiseInUserDataFrame(t *testing.T) {
+	hostSH := "/home/user/.stella"
+	userHome := hostSH + "/users/u1"
+	agentDir := userHome + "/agents/a1"
+	userData := userHome + "/data"
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: agentDir, UserDataDir: userData},
+		Env: map[string]string{
+			"MISE_DATA_DIR":             userData + "/.mise-tools",
+			"MISE_CACHE_DIR":            userData + "/.mise-tools/cache",
+			"MISE_GLOBAL_CONFIG_FILE":   hostSH + "/.mise-tools/configs/_builtin.toml",
+			"MISE_TRUSTED_CONFIG_PATHS": hostSH + "/.mise-tools/configs/_builtin.toml:/workspace:" + agentDir,
+		},
+	}
+	f := &Factory{cfg: Config{StellaHome: hostSH}}
+	// Drive adjustPolicy with explicit remapping roots so the two-root composition
+	// is exercised on every platform, not only where resolve*Root remaps (Linux).
+	sandboxRoot, realRoot := "/workspace", agentDir
+	userDataSandbox, userDataReal := "/user", userData
+	sandboxSH := adjustStellaHome(hostSH)
+	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
+
+	for _, tc := range []struct{ key, want string }{
+		{"MISE_DATA_DIR", "/user/.mise-tools"},
+		{"MISE_CACHE_DIR", "/user/.mise-tools/cache"},
+		{"MISE_GLOBAL_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
+		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml:/workspace"},
+	} {
+		if got := adjusted.Env[tc.key]; got != tc.want {
+			t.Errorf("env[%s] = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+	if wantShims := "/user/.mise-tools/shims"; !strings.Contains(adjusted.Env["PATH"], wantShims) {
+		t.Errorf("PATH must include /user-frame shims %q, got %q", wantShims, adjusted.Env["PATH"])
+	}
+	if strings.Contains(adjusted.Env["PATH"], userData) {
+		t.Errorf("PATH must not leak the host user-data path %q: %q", userData, adjusted.Env["PATH"])
+	}
+}
+
+// TestAdjustPolicy_homeAndXDG verifies HOME is the agent workspace (/workspace)
+// and the XDG dirs split shared-vs-private: config/data/state stay private under
+// HOME while the cache is pointed at the shared user-data root (/user). HOME and
+// the workspace are the same per-agent dir, so the privacy comes from the
+// workspace itself, not a sub-redirect. STELLA_USER_DIR exposes /user.
 func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 	root := t.TempDir()
-	agentPriv := filepath.Join(root, "agents", "a1")
+	userData := filepath.Join(root, "data")
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:   root,
-			WorkingDir:      filepath.Join(agentPriv, "projects", "p"),
-			AgentPrivateDir: agentPriv,
+			WorkspaceRoot: root,
+			WorkingDir:    filepath.Join(root, "projects", "p"),
+			UserDataDir:   userData,
 		},
 	}
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	env := f.adjustPolicy(policy, sandboxRoot, realRoot).Env
+	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
+	env := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal).Env
 
-	apSandbox := remapToSandboxRoot(agentPriv, realRoot, sandboxRoot)
 	for _, tc := range []struct{ key, want string }{
 		{"HOME", sandboxRoot},
-		{"XDG_CACHE_HOME", filepath.Join(sandboxRoot, ".cache")},
-		{"XDG_CONFIG_HOME", filepath.Join(apSandbox, ".config")},
-		{"XDG_DATA_HOME", filepath.Join(apSandbox, ".local", "share")},
-		{"XDG_STATE_HOME", filepath.Join(apSandbox, ".local", "state")},
+		{"STELLA_USER_DIR", userDataSandbox},
+		{"XDG_CACHE_HOME", filepath.Join(userDataSandbox, ".cache")},
+		{"XDG_CONFIG_HOME", filepath.Join(sandboxRoot, ".config")},
+		{"XDG_DATA_HOME", filepath.Join(sandboxRoot, ".local", "share")},
+		{"XDG_STATE_HOME", filepath.Join(sandboxRoot, ".local", "state")},
 	} {
 		if env[tc.key] != tc.want {
 			t.Errorf("env[%s] = %q, want %q", tc.key, env[tc.key], tc.want)
@@ -578,25 +724,78 @@ func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 	}
 }
 
-// TestAdjustPolicy_noAgentPrivateDir_sharesXDG verifies a user-less session (no
-// agent-private dir, no siblings) keeps config/data/state at their $HOME
-// defaults — only the cache is set, so everything lives under the one home.
-func TestAdjustPolicy_noAgentPrivateDir_sharesXDG(t *testing.T) {
+// TestAdjustPolicy_noUserData_cacheUnderHome verifies a user-less session (no
+// shared user-data root) keeps the cache under HOME and sets no STELLA_USER_DIR,
+// so nothing is shared with other agents.
+func TestAdjustPolicy_noUserData_cacheUnderHome(t *testing.T) {
 	root := t.TempDir()
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
 	}
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	env := f.adjustPolicy(policy, sandboxRoot, realRoot).Env
+	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
+	env := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal).Env
 
-	if env["XDG_CACHE_HOME"] != filepath.Join(sandboxRoot, ".cache") {
-		t.Errorf("XDG_CACHE_HOME = %q, want shared cache", env["XDG_CACHE_HOME"])
-	}
-	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"} {
-		if v, ok := env[k]; ok {
-			t.Errorf("%s should be unset (left to $HOME default), got %q", k, v)
+	for _, tc := range []struct{ key, want string }{
+		{"XDG_CACHE_HOME", filepath.Join(sandboxRoot, ".cache")},
+		{"XDG_CONFIG_HOME", filepath.Join(sandboxRoot, ".config")},
+		{"XDG_DATA_HOME", filepath.Join(sandboxRoot, ".local", "share")},
+		{"XDG_STATE_HOME", filepath.Join(sandboxRoot, ".local", "state")},
+	} {
+		if env[tc.key] != tc.want {
+			t.Errorf("env[%s] = %q, want %q", tc.key, env[tc.key], tc.want)
 		}
+	}
+	if v, ok := env["STELLA_USER_DIR"]; ok {
+		t.Errorf("STELLA_USER_DIR should be unset for a user-less session, got %q", v)
+	}
+}
+
+// TestResolvePath_twoRoots verifies the host-side path resolver recognizes both
+// top-level roots: /workspace maps to the agent dir and /user to the shared
+// user-data dir, while an escape to a sibling and a symlink component under /user
+// are rejected. Without the /user arm the file tools would refuse /user even
+// though bash inside the sandbox can reach it (the critical gap this guards).
+func TestResolvePath_twoRoots(t *testing.T) {
+	agentReal := t.TempDir()
+	userReal := t.TempDir()
+	s := &localSession{
+		realRoot:        agentReal,
+		sandboxRoot:     "/workspace",
+		userDataReal:    userReal,
+		userDataSandbox: "/user",
+		policy: sandboxpkg.Policy{
+			Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"},
+		},
+	}
+
+	got, err := s.ResolveWritePath("/user/assets/x.txt")
+	if err != nil {
+		t.Fatalf("ResolveWritePath(/user/...): %v", err)
+	}
+	if want := filepath.Join(userReal, "assets", "x.txt"); got != want {
+		t.Errorf("/user write resolved to %q, want %q", got, want)
+	}
+
+	got, err = s.ResolveWritePath("/workspace/main.go")
+	if err != nil {
+		t.Fatalf("ResolveWritePath(/workspace/...): %v", err)
+	}
+	if want := filepath.Join(agentReal, "main.go"); got != want {
+		t.Errorf("/workspace write resolved to %q, want %q", got, want)
+	}
+
+	if _, err := s.ResolvePath("/workspace/../other/secret"); err == nil {
+		t.Error("escape from /workspace to a sibling must be rejected")
+	}
+
+	// A symlink component under /user must be rejected (no traversal escape).
+	if err := os.Symlink(userReal, filepath.Join(userReal, "loop")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ResolvePath("/user/loop/x"); err == nil {
+		t.Error("symlink component under /user must be rejected")
 	}
 }
 

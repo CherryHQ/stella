@@ -6,7 +6,16 @@ import {
   useFileTreeSelection,
 } from "@pierre/trees/react";
 import { themeToTreeStyles, type TreeThemeInput } from "@pierre/trees";
-import { FilePlus, FolderPlus, Trash2, RefreshCw, X, Copy } from "lucide-react";
+import {
+  FilePlus,
+  FolderPlus,
+  Trash2,
+  RefreshCw,
+  X,
+  Copy,
+  ChevronRight,
+  ChevronDown,
+} from "lucide-react";
 import {
   createShare as sdkCreateShare,
   createWorkspaceFile,
@@ -99,8 +108,11 @@ function isShareableArtifact(path: string): boolean {
   return /\.(html?|mdx?|markdown|png|jpe?g|gif|webp|svg|avif|bmp|ico|pdf)$/i.test(path);
 }
 
+type Scope = "agent" | "user";
+
 interface ViewerState {
   path: string;
+  scope: Scope;
   content: string;
   language: string;
   loading: boolean;
@@ -118,18 +130,14 @@ export function WorkspacePanel({
   const { t } = useI18n();
   const [mode, setMode] = useState<ViewMode>("tree");
   const [viewer, setViewer] = useState<ViewerState | null>(null);
-  const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
-  const [newItemName, setNewItemName] = useState("");
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [rootCopied, setRootCopied] = useState(false);
-  const reload = useCallback(() => {
+
+  const agentReload = useCallback(() => {
     onReload(sessionID, projectDir || undefined).catch(console.error);
   }, [sessionID, onReload, projectDir]);
 
-  // File operations
   const openFile = useCallback(
-    async (path: string) => {
-      setViewer({ path, content: "", language: "", loading: true, saving: false });
+    async (path: string, scope: Scope) => {
+      setViewer({ path, scope, content: "", language: "", loading: true, saving: false });
       setMode("viewer");
       if (isNonTextFile(path)) {
         setViewer((v) => (v ? { ...v, loading: false } : null));
@@ -138,12 +146,12 @@ export function WorkspacePanel({
       try {
         const { data } = await getWorkspaceFileContent({
           path: { agentId: agentID, sessionId: sessionID },
-          query: { path },
+          query: { path, scope },
           throwOnError: true,
         });
         const file = data as { content?: string; language?: string };
         setViewer((v) =>
-          v && v.path === path
+          v && v.path === path && v.scope === scope
             ? { ...v, content: file.content ?? "", language: file.language ?? "", loading: false }
             : v,
         );
@@ -163,6 +171,7 @@ export function WorkspacePanel({
       try {
         await updateWorkspaceFileContent({
           path: { agentId: agentID, sessionId: sessionID },
+          query: { scope: viewer.scope },
           body: { path: viewer.path, content },
           throwOnError: true,
         });
@@ -175,36 +184,15 @@ export function WorkspacePanel({
     [viewer, agentID, sessionID],
   );
 
-  const createItem = useCallback(async () => {
-    const name = newItemName.trim();
-    if (!name) return;
-    const fullPath = projectDir ? `${projectDir}/${name}` : name;
-    await createWorkspaceFile({
-      path: { agentId: agentID, sessionId: sessionID },
-      body: { path: fullPath, is_dir: newItemType === "dir" },
-      throwOnError: true,
-    });
-    reload();
-    setNewItemType(null);
-    setNewItemName("");
-  }, [agentID, sessionID, newItemName, newItemType, reload, projectDir]);
-
-  const deleteItem = useCallback(
-    async (path: string) => {
-      if (!confirm(`Delete "${path}"?`)) return;
-      await deleteWorkspaceFile({
-        path: { agentId: agentID, sessionId: sessionID },
-        body: { path },
-        throwOnError: true,
-      });
-      reload();
-      if (selectedPath === path) setSelectedPath(null);
-      if (viewer?.path === path) {
+  // Close the viewer when the file it shows is deleted in a section.
+  const onDeleted = useCallback(
+    (path: string, scope: Scope) => {
+      if (viewer?.path === path && viewer.scope === scope) {
         setViewer(null);
         setMode("tree");
       }
     },
-    [agentID, sessionID, selectedPath, reload, viewer],
+    [viewer],
   );
 
   const goBack = useCallback(() => {
@@ -216,24 +204,7 @@ export function WorkspacePanel({
   useEffect(() => {
     setMode("tree");
     setViewer(null);
-    setSelectedPath(null);
   }, [sessionID]);
-
-  const entryCount = workspace?.paths?.length ?? 0;
-  const fileCount = workspace?.total_files ?? 0;
-  const dirCount = workspace?.total_dirs ?? 0;
-  const rootLabel = workspace?.root ?? "";
-  const workspaceStats = `${fileCount.toLocaleString()} files · ${dirCount.toLocaleString()} folders · ${formatBytes(workspace?.total_bytes ?? 0)}`;
-  const copyRootPath = useCallback(() => {
-    if (!workspace?.root) return;
-    navigator.clipboard
-      .writeText(workspace.root)
-      .then(() => {
-        setRootCopied(true);
-        window.setTimeout(() => setRootCopied(false), 1400);
-      })
-      .catch(console.error);
-  }, [workspace?.root]);
 
   if (!sessionID) {
     return (
@@ -262,50 +233,201 @@ export function WorkspacePanel({
         saving={viewer.saving}
         agentID={agentID}
         sessionID={sessionID}
+        scope={viewer.scope}
         onBack={goBack}
         onSave={saveFile}
       />
     );
   }
 
+  // Two stacked roots the agent can see: its own private workspace (/workspace)
+  // and the shared user-data root (/user). The agent root is driven by the
+  // parent (it owns project-dir derivation); the user root self-loads.
   return (
     <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar/80">
-      {/* Header */}
-      <div className="flex min-h-12 flex-shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-border/70 py-1.5 px-4">
-        <div className="min-w-0 flex-1 pl-1">
-          <span
-            className="block truncate font-mono text-xs font-medium text-muted-foreground"
-            title={
-              workspace?.root
-                ? `${workspace.root}\n${fileCount.toLocaleString()} files, ${dirCount.toLocaleString()} folders, ${formatBytes(workspace.total_bytes)}`
-                : undefined
-            }
-          >
-            {workspaceStats}
-          </span>
-          {rootLabel && (
-            <div className="flex min-w-0 items-center gap-1">
-              <button
-                type="button"
-                onClick={copyRootPath}
-                className="block min-w-0 truncate rounded-sm font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-                title={workspace?.root}
-              >
-                in {rootLabel}
-              </button>
-              {rootCopied && (
-                <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-xs font-medium text-muted-foreground">
-                  Copied
-                </span>
-              )}
-            </div>
+      <WorkspaceScopeSection
+        scope="agent"
+        label={t("sessions.workspace.agentHome")}
+        hint={t("sessions.workspace.agentHomeHint")}
+        agentID={agentID}
+        sessionID={sessionID}
+        workspace={workspace}
+        loading={workspaceLoading}
+        onReload={agentReload}
+        onOpenFile={openFile}
+        onDeleted={onDeleted}
+        projectDir={projectDir}
+      />
+      <WorkspaceScopeSection
+        scope="user"
+        label={t("sessions.workspace.sharedData")}
+        hint={t("sessions.workspace.sharedDataHint")}
+        agentID={agentID}
+        sessionID={sessionID}
+        selfLoad
+        onOpenFile={openFile}
+        onDeleted={onDeleted}
+      />
+    </div>
+  );
+}
+
+interface WorkspaceScopeSectionProps {
+  scope: Scope;
+  label: string;
+  hint: string;
+  agentID: string;
+  sessionID: string;
+  workspace?: Workspace | null;
+  loading?: boolean;
+  onReload?: () => void;
+  // selfLoad: fetch this scope's tree internally instead of taking it from props
+  // (used for the shared user-data root the parent does not track).
+  selfLoad?: boolean;
+  onOpenFile: (path: string, scope: Scope) => void;
+  onDeleted: (path: string, scope: Scope) => void;
+  projectDir?: string;
+}
+
+function WorkspaceScopeSection({
+  scope,
+  label,
+  hint,
+  agentID,
+  sessionID,
+  workspace: providedWorkspace,
+  loading: providedLoading,
+  onReload: providedReload,
+  selfLoad,
+  onOpenFile,
+  onDeleted,
+  projectDir,
+}: WorkspaceScopeSectionProps) {
+  const { t } = useI18n();
+  const [collapsed, setCollapsed] = useState(false);
+  const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
+  const [newItemName, setNewItemName] = useState("");
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+
+  // Self-loaded scope state (only used when selfLoad).
+  const [selfWorkspace, setSelfWorkspace] = useState<Workspace | null>(null);
+  const [selfLoading, setSelfLoading] = useState(false);
+  // Monotonic token: only the most recent load may write state, so a slow
+  // response from a previous session/scope can't clobber the current view.
+  const loadToken = useRef(0);
+  const loadSelf = useCallback(async () => {
+    const token = ++loadToken.current;
+    setSelfLoading(true);
+    try {
+      const { data } = await getSessionWorkspace({
+        path: { agentId: agentID, sessionId: sessionID },
+        query: { show_hidden: true, depth: 2, scope },
+        throwOnError: true,
+      });
+      if (token === loadToken.current) setSelfWorkspace(data);
+    } catch {
+      if (token === loadToken.current) setSelfWorkspace(null);
+    } finally {
+      if (token === loadToken.current) setSelfLoading(false);
+    }
+  }, [agentID, sessionID, scope]);
+  useEffect(() => {
+    if (!selfLoad) return;
+    // Drop any stale tree before the new session's load lands.
+    setSelfWorkspace(null);
+    void loadSelf();
+  }, [selfLoad, loadSelf]);
+
+  const workspace = selfLoad ? selfWorkspace : (providedWorkspace ?? null);
+  const loading = selfLoad ? selfLoading : Boolean(providedLoading);
+  const reload = useCallback(() => {
+    if (selfLoad) {
+      void loadSelf();
+    } else {
+      providedReload?.();
+    }
+    setSelectedPath(null);
+  }, [selfLoad, loadSelf, providedReload]);
+
+  const createItem = useCallback(async () => {
+    const name = newItemName.trim();
+    if (!name) return;
+    const fullPath = projectDir ? `${projectDir}/${name}` : name;
+    await createWorkspaceFile({
+      path: { agentId: agentID, sessionId: sessionID },
+      query: { scope },
+      body: { path: fullPath, is_dir: newItemType === "dir" },
+      throwOnError: true,
+    });
+    reload();
+    setNewItemType(null);
+    setNewItemName("");
+  }, [agentID, sessionID, scope, newItemName, newItemType, reload, projectDir]);
+
+  const deleteItem = useCallback(
+    async (path: string) => {
+      if (!confirm(`Delete "${path}"?`)) return;
+      await deleteWorkspaceFile({
+        path: { agentId: agentID, sessionId: sessionID },
+        query: { scope },
+        body: { path },
+        throwOnError: true,
+      });
+      reload();
+      if (selectedPath === path) setSelectedPath(null);
+      onDeleted(path, scope);
+    },
+    [agentID, sessionID, scope, selectedPath, reload, onDeleted],
+  );
+
+  // Reset transient state when the session changes.
+  useEffect(() => {
+    setNewItemType(null);
+    setNewItemName("");
+    setSelectedPath(null);
+  }, [sessionID]);
+
+  const entryCount = workspace?.paths?.length ?? 0;
+  const fileCount = workspace?.total_files ?? 0;
+  const dirCount = workspace?.total_dirs ?? 0;
+  // Show the path the agent sees inside its sandbox (e.g. /workspace, /user),
+  // not the host disk path; fall back to the host root otherwise.
+  const displayRoot = workspace?.sandbox_root || workspace?.root || "";
+  const stats = `${fileCount.toLocaleString()} files · ${dirCount.toLocaleString()} folders · ${formatBytes(workspace?.total_bytes ?? 0)}`;
+
+  return (
+    <section
+      className={cn(
+        "flex min-w-0 flex-col overflow-hidden border-b border-border/70",
+        collapsed ? "flex-none" : "min-h-0 flex-1",
+      )}
+    >
+      {/* Section header */}
+      <div className="flex min-h-9 flex-shrink-0 items-center justify-between gap-2 overflow-hidden px-2 py-1.5">
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          title={displayRoot || hint}
+        >
+          {collapsed ? (
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
           )}
-        </div>
+          <span className="min-w-0 truncate text-xs font-semibold text-foreground">{label}</span>
+          <span className="shrink-0 truncate font-mono text-[10px] text-muted-foreground/70">
+            {displayRoot || hint}
+          </span>
+        </button>
         <div className="flex shrink-0 items-center gap-0">
           <Button
             variant="ghost"
             size="xs"
-            onClick={() => setNewItemType("file")}
+            onClick={() => {
+              setCollapsed(false);
+              setNewItemType("file");
+            }}
             title={t("sessions.workspace.newFile")}
             className="px-1 h-6"
           >
@@ -314,7 +436,10 @@ export function WorkspacePanel({
           <Button
             variant="ghost"
             size="xs"
-            onClick={() => setNewItemType("dir")}
+            onClick={() => {
+              setCollapsed(false);
+              setNewItemType("dir");
+            }}
             title={t("sessions.workspace.newFolder")}
             className="px-1 h-6"
           >
@@ -339,91 +464,95 @@ export function WorkspacePanel({
             variant="ghost"
             size="xs"
             onClick={reload}
-            disabled={workspaceLoading}
+            disabled={loading}
             title={t("sessions.workspace.refresh")}
             className="px-1 h-6"
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", workspaceLoading && "animate-spin")} />
+            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
           </Button>
-          {workspaceLoading && (
-            <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin mx-1" />
-          )}
         </div>
       </div>
 
-      {/* New item form */}
-      {newItemType !== null && (
-        <div className="min-w-0 flex-shrink-0 border-b border-border px-2 py-1.5">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              createItem().catch(console.error);
-            }}
-            className="flex min-w-0 items-center gap-1.5"
-          >
-            <span className="text-xs font-mono text-muted-foreground">
-              {newItemType === "dir" ? "dir" : "file"}:
-            </span>
-            <input
-              autoFocus
-              value={newItemName}
-              onChange={(e) => setNewItemName(e.target.value)}
-              onKeyDown={(e) => e.key === "Escape" && (setNewItemType(null), setNewItemName(""))}
-              className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-xs focus:border-primary/60 focus:outline-none"
-              placeholder="name..."
-              autoComplete="off"
-            />
-            <Button type="submit" size="xs" className="h-6 min-h-0 text-xs">
-              {t("common.add")}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => {
-                setNewItemType(null);
-                setNewItemName("");
-              }}
-              className="text-muted-foreground"
-            >
-              <X className="w-3 h-3" />
-            </Button>
-          </form>
-        </div>
-      )}
+      {!collapsed && (
+        <>
+          {/* New item form */}
+          {newItemType !== null && (
+            <div className="min-w-0 flex-shrink-0 border-t border-border px-2 py-1.5">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  createItem().catch(console.error);
+                }}
+                className="flex min-w-0 items-center gap-1.5"
+              >
+                <span className="text-xs font-mono text-muted-foreground">
+                  {newItemType === "dir" ? "dir" : "file"}:
+                </span>
+                <input
+                  autoFocus
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  onKeyDown={(e) =>
+                    e.key === "Escape" && (setNewItemType(null), setNewItemName(""))
+                  }
+                  className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-xs focus:border-primary/60 focus:outline-none"
+                  placeholder="name..."
+                  autoComplete="off"
+                />
+                <Button type="submit" size="xs" className="h-6 min-h-0 text-xs">
+                  {t("common.add")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => {
+                    setNewItemType(null);
+                    setNewItemName("");
+                  }}
+                  className="text-muted-foreground"
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              </form>
+            </div>
+          )}
 
-      {/* Empty state */}
-      {!workspaceLoading && workspace && entryCount === 0 && !newItemType && (
-        <div className="px-4 py-8 text-center">
-          <p className="text-xs font-mono text-muted-foreground/40">Empty workspace</p>
-        </div>
-      )}
+          {/* Empty state */}
+          {!loading && workspace && entryCount === 0 && !newItemType && (
+            <div className="px-4 py-6 text-center">
+              <p className="text-xs font-mono text-muted-foreground/40">Empty</p>
+            </div>
+          )}
 
-      {/* File tree */}
-      {!workspaceLoading && workspace && entryCount > 0 && (
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <TreeWithSearch
-            agentID={agentID}
-            sessionID={sessionID}
-            workspace={workspace}
-            onReload={reload}
-            onOpenFile={openFile}
-            onSelectedPath={setSelectedPath}
-            onDelete={deleteItem}
-            onNewFile={() => setNewItemType("file")}
-            onNewFolder={() => setNewItemType("dir")}
-            projectDir={projectDir}
-          />
-        </div>
-      )}
+          {/* File tree */}
+          {!loading && workspace && entryCount > 0 && (
+            <div className="min-w-0 flex-1 overflow-hidden" title={`${displayRoot}\n${stats}`}>
+              <TreeWithSearch
+                agentID={agentID}
+                sessionID={sessionID}
+                scope={scope}
+                workspace={workspace}
+                onReload={reload}
+                onOpenFile={(p) => onOpenFile(p, scope)}
+                onSelectedPath={setSelectedPath}
+                onDelete={deleteItem}
+                onNewFile={() => setNewItemType("file")}
+                onNewFolder={() => setNewItemType("dir")}
+                projectDir={projectDir}
+              />
+            </div>
+          )}
 
-      {/* Loading state for tree */}
-      {workspaceLoading && !workspace && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="w-4 h-4 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
-        </div>
+          {/* Loading state */}
+          {loading && !workspace && (
+            <div className="flex flex-1 items-center justify-center py-6">
+              <div className="w-4 h-4 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+            </div>
+          )}
+        </>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -431,10 +560,17 @@ interface ArtifactShareDialogProps {
   path: string | null;
   agentID: string;
   sessionID: string;
+  scope: Scope;
   onClose: () => void;
 }
 
-function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShareDialogProps) {
+function ArtifactShareDialog({
+  path,
+  agentID,
+  sessionID,
+  scope,
+  onClose,
+}: ArtifactShareDialogProps) {
   const { t } = useI18n();
   const expirationOptions = [
     { value: "1h", label: t("sessions.workspace.1hour") },
@@ -467,6 +603,7 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
           agent_id: agentID,
           session_id: sessionID,
           path,
+          scope,
           expires_in: expiresIn as "1h" | "1d" | "7d" | "never",
         },
         throwOnError: true,
@@ -478,7 +615,7 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
     } finally {
       setCreating(false);
     }
-  }, [agentID, expiresIn, path, sessionID]);
+  }, [agentID, expiresIn, path, sessionID, scope]);
 
   const revokeShare = useCallback(async () => {
     if (!share) return;
@@ -573,6 +710,7 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
 interface TreeWithSearchProps {
   agentID: string;
   sessionID: string;
+  scope: Scope;
   workspace: Workspace;
   onReload: () => void;
   onOpenFile: (path: string) => void;
@@ -602,6 +740,7 @@ const ctxItemStyle: React.CSSProperties = {
 function TreeWithSearch({
   agentID,
   sessionID,
+  scope,
   workspace,
   onReload,
   onOpenFile,
@@ -651,6 +790,7 @@ function TreeWithSearch({
         try {
           await moveWorkspaceFile({
             path: { agentId: agentID, sessionId: sessionID },
+            query: { scope },
             body: { path: toApi(sourcePath), new_path: toApi(destinationPath) },
             throwOnError: true,
           });
@@ -671,6 +811,7 @@ function TreeWithSearch({
             const newPath = destDir ? `${destDir}/${filename}` : filename;
             await moveWorkspaceFile({
               path: { agentId: agentID, sessionId: sessionID },
+              query: { scope },
               body: { path: toApi(src), new_path: toApi(newPath) },
               throwOnError: true,
             });
@@ -701,7 +842,7 @@ function TreeWithSearch({
         const apiDir = toApi(dir);
         const { data } = await getSessionWorkspace({
           path: { agentId: agentID, sessionId: sessionID },
-          query: { show_hidden: true, depth: 2, path: apiDir },
+          query: { show_hidden: true, depth: 2, path: apiDir, scope },
           throwOnError: true,
         });
         const added: string[] = [];
@@ -719,7 +860,7 @@ function TreeWithSearch({
         loadingDirSet.current.delete(dir);
       }
     },
-    [enc, model, prefix],
+    [agentID, sessionID, scope, model, toApi, toDisplay],
   );
 
   const selectedPaths = useFileTreeSelection(model);
@@ -736,6 +877,7 @@ function TreeWithSearch({
         path={sharePath}
         agentID={agentID}
         sessionID={sessionID}
+        scope={scope}
         onClose={() => setSharePath(null)}
       />
       <div className="min-w-0 flex-1 overflow-hidden">
@@ -803,7 +945,7 @@ function TreeWithSearch({
                   onClick={() => {
                     context.close({ restoreFocus: false });
                     if (isDir) return;
-                    const url = `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true`;
+                    const url = `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true&scope=${scope}`;
                     fetchBlobUrl(url, mimeTypeForPath(apiPath))
                       .then((blobUrl) => {
                         window.open(blobUrl, "_blank");
@@ -818,7 +960,7 @@ function TreeWithSearch({
                   href={
                     isDir
                       ? undefined
-                      : `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true`
+                      : `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true&scope=${scope}`
                   }
                   download={basename(item.path)}
                   style={ctxItemStyle}

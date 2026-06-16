@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+// Uploads and user skills must live under the shared user-data root (data/,
+// mounted as /user), not at the user-home root — that is what makes them
+// reachable in-sandbox at $STELLA_USER_DIR and shared across the user's agents.
+func TestUserDataDirHoldsAssetsAndSkills(t *testing.T) {
+	home := filepath.Join("/srv", "users", "u1")
+	data := UserDataDir(home)
+	if want := filepath.Join(home, "data"); data != want {
+		t.Fatalf("UserDataDir = %q, want %q", data, want)
+	}
+	if got, want := UserAssetsDir(home), filepath.Join(data, "assets"); got != want {
+		t.Errorf("UserAssetsDir = %q, want %q", got, want)
+	}
+	if got, want := UserSkillsDir(data), filepath.Join(data, ".agents", "skills"); got != want {
+		t.Errorf("UserSkillsDir(data) = %q, want %q", got, want)
+	}
+}
+
 func TestSetupAgentWorkspace(t *testing.T) {
 	base := t.TempDir()
 
@@ -67,11 +84,13 @@ func TestSetupUserWorkspace(t *testing.T) {
 		t.Errorf("dir = %q, want %q", userDir, want)
 	}
 
-	// Verify the shared user-home subdirectories and the per-agent private area.
+	// Verify the shared user-data subtree (mounted as /user) and the per-agent
+	// private area.
 	for _, sub := range []string{
-		filepath.Join(userDir, ".agents", "skills"),
-		filepath.Join(userDir, "data"),
-		filepath.Join(userDir, "assets"),
+		filepath.Join(userDir, "data", ".agents", "skills"),
+		filepath.Join(userDir, "data", ".agents", "delegates"),
+		filepath.Join(userDir, "data", ".mise-tools"),
+		filepath.Join(userDir, "data", "assets"),
 		filepath.Join(userDir, "agents", "agent-1"),
 	} {
 		info, err := os.Stat(sub)

@@ -2369,13 +2369,22 @@ components:
       properties:
         system_prompt:
           type: string
+    WorkspaceScope:
+      type: string
+      enum: [agent, user]
+      default: agent
+      description: >-
+        Which root to operate on: agent — the per-agent home (sandbox /workspace), private to this agent; user — the shared user-data root (sandbox /user), shared across all of the user's agents.
     SessionWorkspace:
       type: object
       required: [root, paths, total_files, total_dirs, total_bytes]
       properties:
         root:
           type: string
-          description: Absolute path of the workspace root directory
+          description: Absolute host path of the workspace root, used to resolve relative file operations
+        sandbox_root:
+          type: string
+          description: Path the agent sees for this directory inside its sandbox (e.g. /workspace on isolating backends; equals root otherwise). For display.
         paths:
           type: array
           items:
@@ -2627,6 +2636,8 @@ components:
           type: string
         path:
           type: string
+        scope:
+          $ref: "#/components/schemas/WorkspaceScope"
         article_id:
           type: string
         expires_in:

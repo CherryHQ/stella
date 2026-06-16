@@ -46,7 +46,7 @@ type Mount struct {
 type CreateOptions struct {
 	Image          string
 	WorkspaceHost  string      // absolute host path (daemon-side)
-	WorkspaceMount string      // absolute in-container path (e.g. "/home/stella/workspace")
+	WorkspaceMount string      // absolute in-container path (e.g. "/workspace")
 	ExtraMounts    []Mount     // additional host -> container mounts; ReadOnly is honored per mount
 	NetworkMode    NetworkMode // disabled | allow_all
 	Env            map[string]string

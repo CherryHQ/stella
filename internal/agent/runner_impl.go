@@ -202,11 +202,12 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	// Runtime capabilities are injected from the active runner session.
 	bc := pkgplugins.ToolBuildContext{
 		Paths: pkgplugins.ToolPaths{
-			UserRoot:    paths.UserRoot,
-			ToolsBinDir: toolsBinDir,
-			StellaHome:  paths.StellaHome,
-			AgentRoot:   paths.AgentRoot,
-			ProjectRoot: paths.ProjectRoot,
+			UserRoot:      paths.UserRoot,
+			WorkspaceRoot: paths.WorkspaceRoot,
+			ToolsBinDir:   toolsBinDir,
+			StellaHome:    paths.StellaHome,
+			AgentRoot:     paths.AgentRoot,
+			ProjectRoot:   paths.ProjectRoot,
 		},
 		Runtime: session,
 	}
@@ -274,9 +275,10 @@ func buildDelegatePresets(cfg runnerConfig) *delegatetool.PresetRegistry {
 		slog.Warn("failed to extract builtin delegates", "error", err)
 	}
 	return delegatetool.NewPresetRegistry(delegatetool.LoadDelegatePresets(delegatetool.LoadDelegatePresetsConfig{
-		StellaHome:  paths.StellaHome,
-		AgentRoot:   paths.AgentRoot,
-		UserRoot:    paths.UserRoot,
+		StellaHome: paths.StellaHome,
+		AgentRoot:  paths.AgentRoot,
+		// User-level presets live under the shared user-data root (mounted as /user).
+		UserRoot:    paths.UserDataDir,
 		ProjectRoot: paths.ProjectRoot,
 	}))
 }
