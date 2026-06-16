@@ -20,6 +20,7 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -962,15 +963,20 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 		s.writeInternalError(w, err)
 		return
 	}
+	// SandboxRoot is the path the agent actually sees for this dir (/workspace on
+	// isolating backends); Root stays the host path the file API resolves against.
+	plugins, _ := s.store.ListPlugins(r.Context())
+	diskInfo.SandboxRoot = sandbox.WorkspaceViewFor(config.ActiveSandboxBackend(plugins), root)
 	writeData(w, http.StatusOK, diskInfo)
 }
 
 type workspaceDiskInfo struct {
-	Root       string   `json:"root"`
-	Paths      []string `json:"paths"`
-	TotalFiles int      `json:"total_files"`
-	TotalDirs  int      `json:"total_dirs"`
-	TotalBytes int64    `json:"total_bytes"`
+	Root        string   `json:"root"`
+	SandboxRoot string   `json:"sandbox_root"`
+	Paths       []string `json:"paths"`
+	TotalFiles  int      `json:"total_files"`
+	TotalDirs   int      `json:"total_dirs"`
+	TotalBytes  int64    `json:"total_bytes"`
 }
 
 func pathDepth(path string) int {

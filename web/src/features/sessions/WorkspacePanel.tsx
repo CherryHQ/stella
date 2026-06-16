@@ -222,18 +222,21 @@ export function WorkspacePanel({
   const entryCount = workspace?.paths?.length ?? 0;
   const fileCount = workspace?.total_files ?? 0;
   const dirCount = workspace?.total_dirs ?? 0;
-  const rootLabel = workspace?.root ?? "";
+  // Show the path the agent sees inside its sandbox (e.g. /workspace), not the
+  // host disk path; fall back to the host root on non-isolating backends.
+  const displayRoot = workspace?.sandbox_root || workspace?.root || "";
+  const rootLabel = displayRoot;
   const workspaceStats = `${fileCount.toLocaleString()} files · ${dirCount.toLocaleString()} folders · ${formatBytes(workspace?.total_bytes ?? 0)}`;
   const copyRootPath = useCallback(() => {
-    if (!workspace?.root) return;
+    if (!displayRoot) return;
     navigator.clipboard
-      .writeText(workspace.root)
+      .writeText(displayRoot)
       .then(() => {
         setRootCopied(true);
         window.setTimeout(() => setRootCopied(false), 1400);
       })
       .catch(console.error);
-  }, [workspace?.root]);
+  }, [displayRoot]);
 
   if (!sessionID) {
     return (
@@ -276,8 +279,8 @@ export function WorkspacePanel({
           <span
             className="block truncate font-mono text-xs font-medium text-muted-foreground"
             title={
-              workspace?.root
-                ? `${workspace.root}\n${fileCount.toLocaleString()} files, ${dirCount.toLocaleString()} folders, ${formatBytes(workspace.total_bytes)}`
+              displayRoot
+                ? `${displayRoot}\n${fileCount.toLocaleString()} files, ${dirCount.toLocaleString()} folders, ${formatBytes(workspace?.total_bytes ?? 0)}`
                 : undefined
             }
           >
@@ -289,7 +292,7 @@ export function WorkspacePanel({
                 type="button"
                 onClick={copyRootPath}
                 className="block min-w-0 truncate rounded-sm font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-                title={workspace?.root}
+                title={displayRoot}
               >
                 in {rootLabel}
               </button>

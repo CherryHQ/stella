@@ -47,16 +47,31 @@ func ResolveSkillView(ctx context.Context, cfg Config, paths Paths) SkillView {
 		WorkspaceHost:    paths.WorkspaceRoot,
 		WorkspaceView:    paths.WorkspaceRoot,
 	}
-	// Linux bwrap (local) and docker both remap host roots to the two-root
-	// container layout. macOS local (Seatbelt) and none share the host
-	// filesystem, so they stay identity.
-	isolating := backend == config.SandboxBackendDocker ||
-		(backend == config.SandboxBackendLocal && runtime.GOOS == "linux")
-	if isolating {
+	if isolatingBackend(backend) {
 		v.Isolated = true
 		v.SystemSkillsView = filepath.Join(pkgsandbox.MountStellaHome, ".agents", "skills")
 		v.UserDataView = pkgsandbox.MountUserData
 		v.WorkspaceView = pkgsandbox.MountWorkspace
 	}
 	return v
+}
+
+// isolatingBackend reports whether the active backend remaps host roots to the
+// two-root container layout (the agent sees /opt/stella, /user, /workspace).
+// Linux bwrap (local) and docker do; macOS local (Seatbelt) and none share the
+// host filesystem, so host paths are valid in-sandbox as-is.
+func isolatingBackend(backend string) bool {
+	return backend == config.SandboxBackendDocker ||
+		(backend == config.SandboxBackendLocal && runtime.GOOS == "linux")
+}
+
+// WorkspaceViewFor maps a host workspace root to the path the agent actually
+// sees for the given backend: MountWorkspace (/workspace) on isolating backends,
+// the host path unchanged otherwise. Use it to label workspace paths for the
+// user without reconstructing the isolating-backend decision.
+func WorkspaceViewFor(backend, hostWorkspaceRoot string) string {
+	if isolatingBackend(backend) {
+		return pkgsandbox.MountWorkspace
+	}
+	return hostWorkspaceRoot
 }

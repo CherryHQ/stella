@@ -96,7 +96,10 @@ components:
       properties:
         root:
           type: string
-          description: Absolute path of the workspace root directory
+          description: Absolute host path of the workspace root, used to resolve relative file operations
+        sandbox_root:
+          type: string
+          description: Path the agent sees for this directory inside its sandbox (e.g. /workspace on isolating backends; equals root otherwise). For display.
         paths:
           type: array
           items: { type: string }
