@@ -60,6 +60,32 @@ func insertSummaryAt(t *testing.T, db *sql.DB, convID, id, content, latestAt str
 	}
 }
 
+func messageIDs(t *testing.T, db *sql.DB, convID string) []string {
+	t.Helper()
+	rows, err := db.Query(`SELECT id FROM ctx_message WHERE conversation_id = ? ORDER BY seq ASC`, convID)
+	if err != nil {
+		t.Fatalf("query message ids: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan message id: %v", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func linkSummaryMessage(t *testing.T, db *sql.DB, summaryID, messageID string, ordinal int) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO ctx_summary_message (summary_id, message_id, ordinal) VALUES (?, ?, ?)`,
+		summaryID, messageID, ordinal); err != nil {
+		t.Fatalf("link summary message: %v", err)
+	}
+}
+
 func parseTestTime(t *testing.T, s string) time.Time {
 	t.Helper()
 	parsed, err := time.Parse("2006-01-02 15:04:05", s)
@@ -422,5 +448,56 @@ func TestSearch_LikeFallbackEscapesWildcards(t *testing.T) {
 	}
 	if got := runSearch(t, p, sess, memory.SearchQuery{Text: "_b"}); len(got) != 1 {
 		t.Errorf("query _b: expected 1 literal hit, got %d: %+v", len(got), got)
+	}
+}
+
+// TestExpand_CrossSessionSummaryReturnsFullMessages locks in the payoff of
+// cross-session search: a summary surfaced from another session of the same
+// user+agent can be expanded back to its complete original messages, not just
+// the search snippet. expand/describe are scoped by (user_id, agent_id), so the
+// summary need not live in the caller's current conversation.
+func TestExpand_CrossSessionSummaryReturnsFullMessages(t *testing.T) {
+	db, p, sess := newSearchTestEnv(t, "expand-xsess-a")
+
+	other := newLCMTestSession("expand-xsess-b")
+	if err := p.Bootstrap(context.Background(), other); err != nil {
+		t.Fatalf("bootstrap other: %v", err)
+	}
+	convB := conversationID(t, db, other.ID)
+
+	// A leaf summary in conv B, linked to its full original messages.
+	appendUser(t, p, other, "first detailed narwhal message", "second detailed narwhal message")
+	ids := messageIDs(t, db, convB)
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 messages in conv B, got %d", len(ids))
+	}
+	insertSummary(t, db, convB, "sum-xsess", "condensed narwhal discussion")
+	for i, id := range ids {
+		linkSummaryMessage(t, db, "sum-xsess", id, i)
+	}
+
+	explorer, ok := p.(memory.Explorer)
+	if !ok {
+		t.Fatal("provider does not implement Explorer")
+	}
+	// Caller is in session A; scope comes from context, not the conversation.
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+
+	res, err := explorer.Expand(ctx, "sum-xsess", 4000)
+	if err != nil {
+		t.Fatalf("expand cross-session summary: %v", err)
+	}
+	if len(res.Messages) != 2 {
+		t.Fatalf("expected 2 full messages, got %d: %+v", len(res.Messages), res.Messages)
+	}
+	if !strings.Contains(res.Messages[0].Content, "first detailed narwhal") ||
+		!strings.Contains(res.Messages[1].Content, "second detailed narwhal") {
+		t.Errorf("expand returned wrong/partial content: %+v", res.Messages)
+	}
+
+	// Another user must not be able to expand it.
+	strangerCtx := memory.WithAgentID(memory.WithUserID(context.Background(), "2"), sess.AgentID)
+	if _, err := explorer.Expand(strangerCtx, "sum-xsess", 4000); err == nil {
+		t.Error("expected cross-user expand to fail, got nil error")
 	}
 }
