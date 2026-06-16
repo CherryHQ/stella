@@ -71,15 +71,13 @@ export function AppShell({
           <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card/65 px-4 backdrop-blur-xl">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-1 h-4" />
-            <div className={subnav ? "min-w-0 max-w-md shrink-0" : "min-w-0 flex-1"}>
+            <div
+              className={subnav ? "hidden min-w-0 max-w-md shrink-0 sm:block" : "min-w-0 flex-1"}
+            >
               {displayTitle}
             </div>
             {subnav ? <div className="min-w-0 flex-1">{subnav}</div> : null}
-            {displayActions && (
-              <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border/60 bg-background/60 px-1 py-0.5">
-                {displayActions}
-              </div>
-            )}
+            {displayActions && <div className="flex shrink-0 items-center">{displayActions}</div>}
           </header>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
         </SidebarInset>

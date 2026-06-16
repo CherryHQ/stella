@@ -1,18 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Blocks,
-  Check,
-  Copy,
-  FileText,
-  GitBranch,
-  Lock,
-  Plus,
-  Search,
-  Upload,
-  X,
-} from "lucide-react";
+import { Blocks, Check, Copy, FileText, GitBranch, Lock, Plus, Search, X } from "lucide-react";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppShell } from "@/layouts/AppShell";
@@ -23,7 +12,6 @@ import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { Skill, SkillSearchResult } from "@/lib/types";
 import {
-  createAgentSkill,
   deleteAgentSkill,
   getAgentSkill,
   getAgentSkillFile,
@@ -58,7 +46,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetPanel, SheetPopup } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -112,7 +99,6 @@ export function SkillsListPage() {
   const [query, setQuery] = useState("");
   const [scopeFilter, setScopeFilter] = useState<Scope | "all">("all");
   const [installOpen, setInstallOpen] = useState(Boolean(search.new));
-  const [createOpen, setCreateOpen] = useState(false);
   const activeTab = search.tab === "discover" ? "discover" : "installed";
   const params = projectId ? { agentId, projectId } : { agentId };
   const selected =
@@ -147,25 +133,23 @@ export function SkillsListPage() {
 
   useEffect(() => {
     setHeaderActions(
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         <ToggleGroup
           variant="outline"
+          size="sm"
           value={[activeTab]}
           onValueChange={(value: string[]) => value[0] && setTab(value[0])}
         >
           <ToggleGroupItem value="installed">
-            {t("sessions.skillsList.installedTab")} {skills.length}
+            <Blocks />
+            <span className="max-sm:hidden">{t("sessions.skillsList.installedTab")}</span>
+            <span className="max-sm:hidden">{skills.length}</span>
           </ToggleGroupItem>
-          <ToggleGroupItem value="discover">{t("sessions.skillsList.discoverTab")}</ToggleGroupItem>
+          <ToggleGroupItem value="discover">
+            <Search />
+            <span className="max-sm:hidden">{t("sessions.skillsList.discoverTab")}</span>
+          </ToggleGroupItem>
         </ToggleGroup>
-        <Button variant="ghost" size="sm" onClick={() => setInstallOpen(true)}>
-          <Upload size={16} />
-          <span className="max-md:hidden">{t("sessions.skillsList.uploadZip")}</span>
-        </Button>
-        <Button size="sm" onClick={() => setInstallOpen(true)}>
-          {t("sessions.skill.installSkill")}
-          <Kbd>⌘K</Kbd>
-        </Button>
       </div>,
     );
     return () => setHeaderActions(null);
@@ -279,10 +263,10 @@ export function SkillsListPage() {
                           size="xs"
                           variant="ghost"
                           className="ml-auto"
-                          onClick={() => setCreateOpen(true)}
+                          onClick={() => setInstallOpen(true)}
                         >
                           <Plus size={16} />
-                          {t("sessions.skill.newSkill")}
+                          {t("sessions.skill.installSkill")}
                         </Button>
                       )}
                     </div>
@@ -330,7 +314,6 @@ export function SkillsListPage() {
         </Sheet>
       )}
       <InstallDialog agentId={agentId} open={installOpen} onOpenChange={setInstallOpen} />
-      <CreateDialog agentId={agentId} open={createOpen} onOpenChange={setCreateOpen} />
       <ToastContainer messages={useToast().toasts} />
     </div>
   );
@@ -794,59 +777,6 @@ function InstallDialog({
               <Button onClick={() => void upload()}>{t("sessions.skillsList.uploadZip")}</Button>
             </TabsContent>
           </Tabs>
-        </DialogPanel>
-      </DialogPopup>
-    </Dialog>
-  );
-}
-
-function CreateDialog({
-  agentId,
-  open,
-  onOpenChange,
-}: {
-  agentId: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const { t } = useI18n();
-  const queryClient = useQueryClient();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  async function create() {
-    await createAgentSkill({
-      path: { id: agentId },
-      body: {
-        name,
-        description,
-        scope: "user",
-        files: { "SKILL.md": `# ${name}\n\n${description}\n` },
-      },
-      throwOnError: true,
-    });
-    void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-    onOpenChange(false);
-  }
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup>
-        <DialogHeader>
-          <DialogTitle>{t("sessions.skill.newSkill")}</DialogTitle>
-        </DialogHeader>
-        <DialogPanel className="space-y-3">
-          <Input
-            nativeInput
-            value={name}
-            onChange={(e) => setName((e.target as HTMLInputElement).value)}
-            placeholder={t("sessions.skillsList.name")}
-          />
-          <Input
-            nativeInput
-            value={description}
-            onChange={(e) => setDescription((e.target as HTMLInputElement).value)}
-            placeholder={t("sessions.skillsList.description")}
-          />
-          <Button onClick={() => void create()}>{t("common.create")}</Button>
         </DialogPanel>
       </DialogPopup>
     </Dialog>

@@ -364,7 +364,7 @@ export function SessionDetail({
                         size="icon-sm"
                         aria-disabled={exportDisabled || undefined}
                         data-disabled={exportDisabled || undefined}
-                        className="rounded-full text-muted-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                        className="text-muted-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                         aria-label={t("sessions.export.button")}
                       >
                         <Download className="size-3.5" />
@@ -396,9 +396,9 @@ export function SessionDetail({
                 render={
                   <Button
                     variant="ghost"
-                    size="xs"
+                    size="icon-sm"
                     onClick={onNewSession}
-                    className="hidden h-7 w-7 rounded-full p-0 text-muted-foreground sm:inline-flex"
+                    className="text-muted-foreground"
                     aria-label={t("sessions.startThread")}
                   >
                     <MessageCircleDashed className="size-3.5" />
@@ -411,9 +411,9 @@ export function SessionDetail({
           {onToggleWorkspace && (
             <Button
               variant="ghost"
-              size="xs"
+              size="icon-sm"
               onClick={onToggleWorkspace}
-              className="h-7 w-7 rounded-full p-0 text-muted-foreground"
+              className="text-muted-foreground"
               title={workspaceOpen ? t("sessions.hideInspector") : t("sessions.showInspector")}
             >
               {workspaceOpen ? (

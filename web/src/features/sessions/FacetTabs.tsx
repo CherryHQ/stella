@@ -119,10 +119,10 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               key={tab.key}
               aria-disabled
               title={t("facets.comingSoon")}
-              className="flex h-8 shrink-0 cursor-not-allowed items-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground/50"
+              className="flex h-9 shrink-0 cursor-not-allowed items-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground/50 sm:h-8"
             >
               <Icon className="size-4" />
-              <span>{tab.label}</span>
+              <span className="hidden sm:inline">{tab.label}</span>
             </span>
           );
         }
@@ -132,14 +132,14 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
             to={tab.to}
             search={tab.search}
             className={cn(
-              "flex h-8 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+              "flex h-9 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors sm:h-8",
               active
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
             )}
           >
             <Icon className="size-4" />
-            <span>{tab.label}</span>
+            <span className="hidden sm:inline">{tab.label}</span>
           </Link>
         );
       })}

@@ -10,6 +10,7 @@ import { useI18n } from "@/lib/i18n";
 import { useAppShell } from "@/layouts/AppShell";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { CalendarClock, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -62,7 +63,7 @@ export function OverviewPage() {
 
   useEffect(() => {
     setHeaderActions(
-      <div className="flex gap-2">
+      <div className="flex items-center gap-1">
         <Button
           render={
             <Link
@@ -74,7 +75,8 @@ export function OverviewPage() {
           variant="outline"
           size="sm"
         >
-          {t("hub.newTask")}
+          <Plus />
+          <span className="max-sm:hidden">{t("hub.newTask")}</span>
         </Button>
         <Button
           render={
@@ -86,7 +88,8 @@ export function OverviewPage() {
           }
           size="sm"
         >
-          {t("hub.newSchedule")}
+          <CalendarClock />
+          <span className="max-sm:hidden">{t("hub.newSchedule")}</span>
         </Button>
       </div>,
     );
