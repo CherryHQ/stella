@@ -76,6 +76,18 @@ type FilesystemPolicy struct {
 	// installs) before the backend sees the policy. The policy stays mise-agnostic:
 	// it only learns "these host dirs are writable", not why.
 	ExtraWritableMounts []string
+
+	// AgentPrivateDir is the host path of the running agent's private subdir of
+	// the user home (users/{id}/agents/{agentID}), which must live under
+	// WorkspaceRoot. The isolating backends redirect the agent's XDG
+	// config/data/state here and hide its siblings' subdirs, so one agent cannot
+	// read or tamper with another's cached credentials and bypass the per-agent
+	// scoped-token isolation (#442). Caches and toolchains stay shared at the
+	// user-home level; only this subtree is private. Empty when the session has
+	// no sibling agents to isolate from — a user-less job, where the agent is its
+	// own principal — and ignored by backends that don't enforce isolation (none,
+	// and docker until #436).
+	AgentPrivateDir string
 }
 
 // NetworkPolicy defines network constraints for a sandbox session.

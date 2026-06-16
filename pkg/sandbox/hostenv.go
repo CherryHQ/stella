@@ -117,16 +117,6 @@ func HostEnvBuildPath(stellaHome, userShimsDir string) string {
 	return strings.Join(hostEnvDedupeEntries(entries), string(os.PathListSeparator))
 }
 
-// HostEnvBuildHome returns the HOME value for host-execution sandbox backends.
-// On Linux (with bwrap), HOME is remapped to /workspace; elsewhere it
-// mirrors the working directory.
-func HostEnvBuildHome(workDir string) string {
-	if runtime.GOOS == "linux" {
-		return "/workspace"
-	}
-	return workDir
-}
-
 // HostEnvCopy copies a fixed allowlist of host environment variables into env.
 // Only locale, terminal, and proxy variables are included.
 func HostEnvCopy(env map[string]string) {

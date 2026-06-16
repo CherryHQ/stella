@@ -76,10 +76,6 @@ func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
 	}, nil
 }
 
-// adjustHome returns the sandbox-view HOME directory.
-// On macOS (Seatbelt), no path remapping; uses the working directory.
-func adjustHome(workDir string) string { return sandboxpkg.HostEnvBuildHome(workDir) }
-
 // adjustStellaHome returns the sandbox-view STELLA_HOME directory.
 // On macOS (Seatbelt), no path remapping; uses the real host path.
 func adjustStellaHome(stellaHome string) string { return stellaHome }
@@ -147,6 +143,17 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy, stellaHomeHost string) strin
 
 	// Workspace root: the only user-controlled path that is fully writable.
 	fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", workspace)
+
+	// Hide sibling agents: deny read+write across the agents/ subtree, then
+	// re-allow this agent's own dir, so it can neither read nor write another
+	// agent's credentials/state (#442). Placed after the workspace allow above so
+	// it wins (last-match-wins) for the agents subtree, while the rest of the home
+	// — caches, toolchains — stays shared. Reads outside the home remain governed
+	// by (allow default): seatbelt's read-permissive base is unchanged here.
+	if ap := filepath.Clean(policy.Filesystem.AgentPrivateDir); filepath.IsAbs(ap) && ap != workspace {
+		fmt.Fprintf(&sb, "(deny file-read* file-write* (subpath %q))\n", filepath.Dir(ap))
+		fmt.Fprintf(&sb, "(allow file-read* file-write* (subpath %q))\n", ap)
+	}
 
 	// Network: deny unless the policy explicitly requests unrestricted access.
 	if networkMode != sandboxpkg.NetworkAllowAll {

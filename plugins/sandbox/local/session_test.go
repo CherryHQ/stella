@@ -465,7 +465,8 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 	}
 
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
-	adjusted := f.adjustPolicy(policy)
+	sandboxRoot, realRoot := resolveSandboxRoot(policy)
+	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot)
 
 	if hostSH == sandboxSH {
 		t.Skip("no path remapping on this platform")
@@ -511,11 +512,66 @@ func TestAdjustPolicy_perUserMiseShimsOnPath(t *testing.T) {
 		Env: map[string]string{"MISE_DATA_DIR": hostSH + "/users/u1/.mise-tools"},
 	}
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
-	adjusted := f.adjustPolicy(policy)
+	sandboxRoot, realRoot := resolveSandboxRoot(policy)
+	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot)
 
 	wantShims := sandboxSH + "/users/u1/.mise-tools/shims"
 	if !strings.Contains(adjusted.Env["PATH"], wantShims) {
 		t.Fatalf("PATH must include per-user shims %q, got %q", wantShims, adjusted.Env["PATH"])
+	}
+}
+
+// TestAdjustPolicy_homeAndXDG verifies HOME is the user home (the sandbox-space
+// workspace root) and the XDG dirs split shared-vs-private: cache stays at the
+// shared home while config/data/state redirect into the agent's private subdir
+// (#442). On Linux the agent-private path is also remapped into /workspace.
+func TestAdjustPolicy_homeAndXDG(t *testing.T) {
+	root := t.TempDir()
+	agentPriv := filepath.Join(root, "agents", "a1")
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot:   root,
+			WorkingDir:      filepath.Join(agentPriv, "projects", "p"),
+			AgentPrivateDir: agentPriv,
+		},
+	}
+	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
+	sandboxRoot, realRoot := resolveSandboxRoot(policy)
+	env := f.adjustPolicy(policy, sandboxRoot, realRoot).Env
+
+	apSandbox := remapToSandboxRoot(agentPriv, realRoot, sandboxRoot)
+	for _, tc := range []struct{ key, want string }{
+		{"HOME", sandboxRoot},
+		{"XDG_CACHE_HOME", filepath.Join(sandboxRoot, ".cache")},
+		{"XDG_CONFIG_HOME", filepath.Join(apSandbox, ".config")},
+		{"XDG_DATA_HOME", filepath.Join(apSandbox, ".local", "share")},
+		{"XDG_STATE_HOME", filepath.Join(apSandbox, ".local", "state")},
+	} {
+		if env[tc.key] != tc.want {
+			t.Errorf("env[%s] = %q, want %q", tc.key, env[tc.key], tc.want)
+		}
+	}
+}
+
+// TestAdjustPolicy_noAgentPrivateDir_sharesXDG verifies a user-less session (no
+// agent-private dir, no siblings) keeps config/data/state at their $HOME
+// defaults — only the cache is set, so everything lives under the one home.
+func TestAdjustPolicy_noAgentPrivateDir_sharesXDG(t *testing.T) {
+	root := t.TempDir()
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
+	}
+	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
+	sandboxRoot, realRoot := resolveSandboxRoot(policy)
+	env := f.adjustPolicy(policy, sandboxRoot, realRoot).Env
+
+	if env["XDG_CACHE_HOME"] != filepath.Join(sandboxRoot, ".cache") {
+		t.Errorf("XDG_CACHE_HOME = %q, want shared cache", env["XDG_CACHE_HOME"])
+	}
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"} {
+		if v, ok := env[k]; ok {
+			t.Errorf("%s should be unset (left to $HOME default), got %q", k, v)
+		}
 	}
 }
 

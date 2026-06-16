@@ -282,3 +282,62 @@ func TestWrapCommand_linux_perUserMiseWritableBind(t *testing.T) {
 		t.Errorf("per-user mise tree must be writable, not --ro-bind, got %v", args)
 	}
 }
+
+// TestWrapCommand_linux_hidesSiblingAgents verifies the per-agent isolation
+// mounts (#442): the agents/ subtree under /workspace is covered by an empty
+// tmpfs (hiding siblings) and only this agent's own dir is bound back, after the
+// realRoot bind it overlays.
+func TestWrapCommand_linux_hidesSiblingAgents(t *testing.T) {
+	if _, err := exec.LookPath("bwrap"); err != nil {
+		t.Skip("bwrap not installed")
+	}
+	if !bwrapFunctional() {
+		t.Skip("bwrap not functional (namespace creation blocked)")
+	}
+
+	root := "/tmp/test-workspace"
+	agentPriv := root + "/agents/a1"
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot:   root,
+			WorkingDir:      agentPriv + "/projects/p",
+			AgentPrivateDir: agentPriv,
+		},
+		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+	}
+
+	_, args, _, err := wrapCommand(policy, "/workspace/agents/a1/projects/p", nil, "", "sh", []string{"-c", "echo hi"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	flagIndex := func(flag, val string) int {
+		for i, a := range args {
+			if a == flag && i+1 < len(args) && args[i+1] == val {
+				return i
+			}
+		}
+		return -1
+	}
+	hasFlagPair := func(flag, first, second string) bool {
+		for i, a := range args {
+			if a == flag && i+2 < len(args) && args[i+1] == first && args[i+2] == second {
+				return true
+			}
+		}
+		return false
+	}
+
+	tmpfsAt := flagIndex("--tmpfs", "/workspace/agents")
+	if tmpfsAt < 0 {
+		t.Errorf("expected --tmpfs /workspace/agents to hide siblings, got %v", args)
+	}
+	if !hasFlagPair("--bind", agentPriv, "/workspace/agents/a1") {
+		t.Errorf("expected own agent dir bound back at /workspace/agents/a1, got %v", args)
+	}
+	// The tmpfs must come after the realRoot bind it overlays, else the bind would
+	// re-expose the siblings the tmpfs is meant to hide.
+	if rootBind := flagIndex("--bind", root); rootBind < 0 || rootBind > tmpfsAt {
+		t.Errorf("--tmpfs /workspace/agents must follow --bind %s /workspace, got %v", root, args)
+	}
+}
