@@ -129,28 +129,22 @@ function SummaryCard({
     <section className="rounded-lg border border-border bg-muted/20">
       <button
         type="button"
-        className="flex w-full items-start gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left"
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground">
-          <Archive className="size-4" />
+        <Archive className="size-4 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 text-xs font-semibold text-foreground">
+          {t("sessions.epoch.summary")}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-xs font-semibold text-foreground">
-            {t("sessions.epoch.summary")}
-          </span>
-          {!open && (
-            <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-              {summary.content}
-            </span>
-          )}
-          <span className="mt-2 block font-mono text-xs text-muted-foreground">
-            {t("sessions.epoch.messageCount", { count: summary.descendant_count })} ·{" "}
-            {formatNumber(summary.source_message_token_count)} → {formatNumber(summary.token_count)}
-          </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+          {t("sessions.epoch.messageCount", { count: summary.descendant_count })} ·{" "}
+          {formatNumber(summary.source_message_token_count)} → {formatNumber(summary.token_count)}
         </span>
         <ChevronDown
-          className={cn("mt-1 size-4 shrink-0 transition-transform", open && "rotate-180")}
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
         />
       </button>
       {open && (
