@@ -301,6 +301,14 @@ export function SkillsListPage() {
   const selectedSlug = sel?.startsWith("market:") ? sel.slice("market:".length) : undefined;
   const selectedRow = selectedSlug ? marketRows.find((r) => r.slug === selectedSlug) : undefined;
 
+  // After a manual install, jump to the Installed tab and open the new skill's
+  // drawer so the result is visible — the manual panel itself shows no list.
+  function onManualInstalled(scope: InstallScope, name: string) {
+    showToast(t("sessions.discover.installSuccess"), "success");
+    void qc.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+    go({ source: "installed", fscope: "all", sel: name ? `${scope}:${name}` : undefined });
+  }
+
   async function install(skill: Pick<ClawhubSkill, "slug" | "name">) {
     setInstallingSlug(skill.slug);
     try {
@@ -417,7 +425,11 @@ export function SkillsListPage() {
         )}
 
         {source === "manual" && (
-          <ManualInstallPanel agentId={agentId} showAgentScope={!!me?.is_admin} />
+          <ManualInstallPanel
+            agentId={agentId}
+            showAgentScope={!!me?.is_admin}
+            onInstalled={onManualInstalled}
+          />
         )}
       </div>
 
@@ -1213,22 +1225,24 @@ function githubSource(repo: string, skill: string, version: string): string {
 
 // ManualInstallPanel is the inline "manual install" tab: install a skill by
 // pointing at a GitHub repo or uploading a ZIP. It replaces the former modal
-// dialogs and shares one install-scope picker across both methods.
+// dialogs and shares one install-scope picker across both methods. onInstalled
+// reports the chosen scope and the installed skill name so the page can reveal
+// the result.
 function ManualInstallPanel({
   agentId,
   showAgentScope,
+  onInstalled,
 }: {
   agentId: string;
   showAgentScope: boolean;
+  onInstalled: (scope: InstallScope, name: string) => void;
 }) {
   const { t } = useI18n();
-  const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [scope, setScope] = useState<InstallScope>("user_agent");
 
-  function onInstalled() {
-    showToast(t("sessions.discover.installSuccess"), "success");
-    void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+  function onDone(name: string) {
+    onInstalled(scope, name);
   }
   function onError(error: unknown) {
     showToast(apiErrorMessage(error, t("common.error")), "error");
@@ -1245,13 +1259,8 @@ function ManualInstallPanel({
           size="sm"
         />
       </div>
-      <GitHubInstallCard
-        agentId={agentId}
-        scope={scope}
-        onInstalled={onInstalled}
-        onError={onError}
-      />
-      <ZipUploadCard agentId={agentId} scope={scope} onInstalled={onInstalled} onError={onError} />
+      <GitHubInstallCard agentId={agentId} scope={scope} onInstalled={onDone} onError={onError} />
+      <ZipUploadCard agentId={agentId} scope={scope} onInstalled={onDone} onError={onError} />
     </div>
   );
 }
@@ -1264,7 +1273,7 @@ function GitHubInstallCard({
 }: {
   agentId: string;
   scope: InstallScope;
-  onInstalled: () => void;
+  onInstalled: (name: string) => void;
   onError: (error: unknown) => void;
 }) {
   const { t } = useI18n();
@@ -1278,12 +1287,12 @@ function GitHubInstallCard({
     if (!ready) return;
     setBusy(true);
     try {
-      await installAgentSkill({
+      const res = await installAgentSkill({
         path: { id: agentId },
         body: { source: githubSource(repo, skill, version), scope },
         throwOnError: true,
       });
-      onInstalled();
+      onInstalled(res.data?.name ?? skill.trim());
       setRepo("");
       setSkill("");
       setVersion("");
@@ -1347,7 +1356,7 @@ function ZipUploadCard({
 }: {
   agentId: string;
   scope: InstallScope;
-  onInstalled: () => void;
+  onInstalled: (name: string) => void;
   onError: (error: unknown) => void;
 }) {
   const { t } = useI18n();
@@ -1358,8 +1367,12 @@ function ZipUploadCard({
     if (!file) return;
     setBusy(true);
     try {
-      await uploadAgentSkill({ path: { id: agentId }, body: { file, scope }, throwOnError: true });
-      onInstalled();
+      const res = await uploadAgentSkill({
+        path: { id: agentId },
+        body: { file, scope },
+        throwOnError: true,
+      });
+      onInstalled(res.data?.name ?? "");
       setFile(null);
     } catch (error) {
       onError(error);
