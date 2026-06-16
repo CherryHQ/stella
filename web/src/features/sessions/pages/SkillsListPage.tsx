@@ -84,7 +84,7 @@ type Scope = "project" | "user" | "user_agent" | "system_agent" | "system";
 // single "agent" pill, matching the agent-settings SkillsTab's coarser grouping.
 type ScopeFilter = "all" | "system" | "agent" | "user" | "project";
 type Source = "installed" | "market";
-type InstallScope = "user_agent" | "system_agent";
+type InstallScope = "user" | "user_agent" | "system_agent";
 
 const SOURCE_META = {
   installed: { icon: PackageCheck, key: "sessions.skillsList.installedTab" },
@@ -94,11 +94,27 @@ const SOURCE_META = {
 const SCOPE_PILLS: ScopeFilter[] = ["all", "system", "agent", "user", "project"];
 const WRITABLE = new Set<Scope>(["user", "user_agent", "system_agent"]);
 
+// Scopes a skill can be installed/uploaded into, labelled to mirror the filter
+// buckets (用户 / 智能体). system_agent is admin-only and gated via showAgentScope.
+const INSTALL_SCOPES: InstallScope[] = ["user", "user_agent", "system_agent"];
+const INSTALL_SCOPE_KEY = {
+  user: "sessions.skillsList.user",
+  user_agent: "sessions.skillsList.agent",
+  system_agent: "sessions.skillsList.sharedScope",
+} as const;
+
 // A skill's raw scope belongs to a filter bucket; "agent" spans both agent scopes.
 function inBucket(scope: string, bucket: ScopeFilter): boolean {
   if (bucket === "all") return true;
   if (bucket === "agent") return scope === "user_agent" || scope === "system_agent";
   return scope === bucket;
+}
+
+// system_agent is an admin-managed shared scope; the backend rejects non-admin
+// writes, so mirror that in the UI rather than letting a save fail with 403.
+function isReadOnly(scope: string, isAdmin: boolean): boolean {
+  if (scope === "system_agent") return !isAdmin;
+  return !WRITABLE.has(scope as Scope);
 }
 
 // Match FacetTabs' active treatment so the in-page filter pills read as the
@@ -668,13 +684,14 @@ function SkillInspector({
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { data: me } = useQuery(meQueryOptions);
   const [tab, setTab] = useState("overview");
   const [description, setDescription] = useState(skill.description ?? "");
   const [status, setStatus] = useState(skill.status ?? "active");
   const [modelEnabled, setModelEnabled] = useState(!skill.disable_model_invocation);
   const [viewer, setViewer] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const readOnly = !WRITABLE.has(skill.scope as Scope);
+  const readOnly = isReadOnly(skill.scope, !!me?.is_admin);
   const detail = useQuery({
     queryKey: ["agent-skill", agentId, skill.scope, skill.name],
     queryFn: async () =>
@@ -905,9 +922,10 @@ function SkillFileViewer({
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const { data: me } = useQuery(meQueryOptions);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const readOnly = !WRITABLE.has(skill.scope as Scope);
+  const readOnly = isReadOnly(skill.scope, !!me?.is_admin);
   const file = useQuery({
     queryKey: ["agent-skill-file", agentId, skill.scope, skill.name, path],
     queryFn: async () =>
@@ -1101,20 +1119,19 @@ function DiscoverDetail({
             <span className="text-xs text-muted-foreground">
               {t("sessions.discover.installTo")}
             </span>
-            <ToggleGroup
-              variant="outline"
-              value={[scope]}
-              onValueChange={(value: string[]) => value[0] && onScope(value[0] as InstallScope)}
-            >
-              <ToggleGroupItem value="user_agent">
-                {t("sessions.skillsList.profileScope")}
-              </ToggleGroupItem>
-              {showAgentScope && (
-                <ToggleGroupItem value="system_agent">
-                  {t("sessions.skillsList.agentScope")}
-                </ToggleGroupItem>
-              )}
-            </ToggleGroup>
+            <div className="flex items-center gap-1">
+              {INSTALL_SCOPES.filter((s) => s !== "system_agent" || showAgentScope).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  aria-pressed={scope === s}
+                  onClick={() => onScope(s)}
+                  className={tabPillCls(scope === s, "xs")}
+                >
+                  {t(INSTALL_SCOPE_KEY[s])}
+                </button>
+              ))}
+            </div>
           </>
         )}
         <span className="ml-auto inline-flex items-center gap-2">
@@ -1190,23 +1207,18 @@ function UploadDialog({
           <DialogTitle>{t("sessions.skillsList.uploadZip")}</DialogTitle>
         </DialogHeader>
         <DialogPanel className="space-y-4">
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant={scope === "user_agent" ? "secondary" : "outline"}
-              onClick={() => setScope("user_agent")}
-            >
-              {t("sessions.skillsList.profileScope")}
-            </Button>
-            {showAgentScope && (
-              <Button
-                size="sm"
-                variant={scope === "system_agent" ? "secondary" : "outline"}
-                onClick={() => setScope("system_agent")}
+          <div className="flex items-center gap-1">
+            {INSTALL_SCOPES.filter((s) => s !== "system_agent" || showAgentScope).map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={scope === s}
+                onClick={() => setScope(s)}
+                className={tabPillCls(scope === s)}
               >
-                {t("sessions.skillsList.agentScope")}
-              </Button>
-            )}
+                {t(INSTALL_SCOPE_KEY[s])}
+              </button>
+            ))}
           </div>
           <Input
             nativeInput
