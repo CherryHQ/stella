@@ -564,7 +564,13 @@ interface ArtifactShareDialogProps {
   onClose: () => void;
 }
 
-function ArtifactShareDialog({ path, agentID, sessionID, scope, onClose }: ArtifactShareDialogProps) {
+function ArtifactShareDialog({
+  path,
+  agentID,
+  sessionID,
+  scope,
+  onClose,
+}: ArtifactShareDialogProps) {
   const { t } = useI18n();
   const expirationOptions = [
     { value: "1h", label: t("sessions.workspace.1hour") },
