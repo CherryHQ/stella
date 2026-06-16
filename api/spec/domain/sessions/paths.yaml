@@ -272,6 +272,12 @@ paths:
           in: query
           schema: { type: integer, default: 2, minimum: 1 }
           description: Maximum number of levels to return below path
+        - name: scope
+          in: query
+          schema: {
+            $ref: "../../components.yaml#/components/schemas/WorkspaceScope",
+          }
+          description: Which workspace root to list (agent home or shared user data)
       responses:
         "200":
           description: ok
@@ -294,6 +300,13 @@ paths:
       tags: [sessions]
       summary: Create a file or directory in the session workspace
       operationId: createWorkspaceFile
+      parameters:
+        - name: scope
+          in: query
+          schema: {
+            $ref: "../../components.yaml#/components/schemas/WorkspaceScope",
+          }
+          description: Which workspace root to target (agent home or shared user data)
       requestBody:
         required: true
         content:
@@ -321,6 +334,13 @@ paths:
       tags: [sessions]
       summary: Delete a file or directory from the session workspace
       operationId: deleteWorkspaceFile
+      parameters:
+        - name: scope
+          in: query
+          schema: {
+            $ref: "../../components.yaml#/components/schemas/WorkspaceScope",
+          }
+          description: Which workspace root to target (agent home or shared user data)
       requestBody:
         required: true
         content:
@@ -343,6 +363,13 @@ paths:
       tags: [sessions]
       summary: Rename or move a file or directory in the session workspace
       operationId: moveWorkspaceFile
+      parameters:
+        - name: scope
+          in: query
+          schema: {
+            $ref: "../../components.yaml#/components/schemas/WorkspaceScope",
+          }
+          description: Which workspace root to target (agent home or shared user data)
       requestBody:
         required: true
         content:
@@ -386,6 +413,12 @@ paths:
           required: false
           schema: { type: boolean, default: false }
           description: When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
+        - name: scope
+          in: query
+          schema: {
+            $ref: "../../components.yaml#/components/schemas/WorkspaceScope",
+          }
+          description: Which workspace root to read from (agent home or shared user data)
       responses:
         "200":
           description: ok
@@ -408,6 +441,13 @@ paths:
       tags: [sessions]
       summary: Write content to a file in the session workspace
       operationId: updateWorkspaceFileContent
+      parameters:
+        - name: scope
+          in: query
+          schema: {
+            $ref: "../../components.yaml#/components/schemas/WorkspaceScope",
+          }
+          description: Which workspace root to target (agent home or shared user data)
       requestBody:
         required: true
         content:

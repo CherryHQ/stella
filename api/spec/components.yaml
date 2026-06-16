@@ -2369,6 +2369,12 @@ components:
       properties:
         system_prompt:
           type: string
+    WorkspaceScope:
+      type: string
+      enum: [agent, user]
+      default: agent
+      description: >-
+        Which root to operate on: agent — the per-agent home (sandbox /workspace), private to this agent; user — the shared user-data root (sandbox /user), shared across all of the user's agents.
     SessionWorkspace:
       type: object
       required: [root, paths, total_files, total_dirs, total_bytes]

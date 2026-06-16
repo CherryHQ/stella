@@ -143,11 +143,11 @@ bubblewrap must be functional, not just installed. Inside Docker containers with
 
 Isolating backends (Linux `local` via bubblewrap, and `docker`) present a fixed **two-root** layout, independent of the real host paths:
 
-| Sandbox path  | Backed by                       | Access     | Holds                                                              |
-| ------------- | ------------------------------- | ---------- | ----------------------------------------------------------------- |
-| `/workspace`  | the agent's per-agent directory | read-write | `$HOME` and the project working tree — private to this one agent  |
-| `/user`       | the user's shared data root     | read-write | data shared across all of that user's agents (see below)          |
-| `/opt/stella` | the system install tree         | read-only  | system binaries, the shared mise toolchain, and system skills     |
+| Sandbox path  | Backed by                       | Access     | Holds                                                            |
+| ------------- | ------------------------------- | ---------- | ---------------------------------------------------------------- |
+| `/workspace`  | the agent's per-agent directory | read-write | `$HOME` and the project working tree — private to this one agent |
+| `/user`       | the user's shared data root     | read-write | data shared across all of that user's agents (see below)         |
+| `/opt/stella` | the system install tree         | read-only  | system binaries, the shared mise toolchain, and system skills    |
 
 Only the `bin`, `.mise-tools`, and `.agents/skills` subtrees of the system tree are mounted at `/opt/stella` — the sibling `users/` and `agents/` trees under `STELLA_HOME` are never exposed there.
 

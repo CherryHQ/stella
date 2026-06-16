@@ -75,3 +75,13 @@ func WorkspaceViewFor(backend, hostWorkspaceRoot string) string {
 	}
 	return hostWorkspaceRoot
 }
+
+// UserDataViewFor maps a host user-data root to the path the agent sees for the
+// given backend: MountUserData (/user) on isolating backends, the host path
+// unchanged otherwise. The user-data counterpart of WorkspaceViewFor.
+func UserDataViewFor(backend, hostUserDataRoot string) string {
+	if isolatingBackend(backend) {
+		return pkgsandbox.MountUserData
+	}
+	return hostUserDataRoot
+}

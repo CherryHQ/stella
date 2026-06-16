@@ -68,6 +68,7 @@ interface Props {
   saving: boolean;
   agentID: string;
   sessionID: string;
+  scope?: "agent" | "user";
   onBack: () => void;
   onSave: (content: string) => Promise<void>;
 }
@@ -80,6 +81,7 @@ export function FileViewer({
   saving,
   agentID,
   sessionID,
+  scope,
   onBack,
   onSave,
 }: Props) {
@@ -93,7 +95,7 @@ export function FileViewer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const ext = extOf(path);
   const fileName = path.split("/").pop() ?? path;
-  const rawUrl = `/api/agents/${encodeURIComponent(agentID)}/sessions/${encodeURIComponent(sessionID)}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true`;
+  const rawUrl = `/api/agents/${encodeURIComponent(agentID)}/sessions/${encodeURIComponent(sessionID)}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true${scope ? `&scope=${scope}` : ""}`;
 
   useEffect(() => {
     setEditing(false);

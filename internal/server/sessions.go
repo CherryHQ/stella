@@ -946,9 +946,9 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 		s.writeInternalError(w, err)
 		return
 	}
-	// Root the browser at the agent's own workspace (sandbox /workspace), not the
-	// shared user home — the home also holds /user data and sibling agents.
-	root := agent.UserAgentDir(config.StellaHome(), info.UserID, info.AgentID)
+	// Root at whichever scope the caller asked for: the agent's private home
+	// (sandbox /workspace, default) or the shared user-data root (sandbox /user).
+	root := workspaceRootForScope(info.UserID, info.AgentID, params.Scope)
 	showHidden := params.ShowHidden != nil && *params.ShowHidden
 	listPath := ""
 	if params.Path != nil {
@@ -963,11 +963,33 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 		s.writeInternalError(w, err)
 		return
 	}
-	// SandboxRoot is the path the agent actually sees for this dir (/workspace on
-	// isolating backends); Root stays the host path the file API resolves against.
+	// SandboxRoot is the path the agent actually sees for this dir (/workspace or
+	// /user on isolating backends); Root stays the host path the file API resolves
+	// against.
 	plugins, _ := s.store.ListPlugins(r.Context())
-	diskInfo.SandboxRoot = sandbox.WorkspaceViewFor(config.ActiveSandboxBackend(plugins), root)
+	diskInfo.SandboxRoot = scopeSandboxView(config.ActiveSandboxBackend(plugins), root, params.Scope)
 	writeData(w, http.StatusOK, diskInfo)
+}
+
+// workspaceRootForScope returns the on-disk root for the requested scope under a
+// principal's home: the per-agent private home (sandbox /workspace) for "agent"
+// (the default), or the shared user-data root (sandbox /user) for "user". Each
+// scope is a single root, so the safePath invariant (one root + relative path)
+// holds for whichever scope a file op targets.
+func workspaceRootForScope(userID, agentID string, scope *apitypes.WorkspaceScope) string {
+	if scope != nil && *scope == apitypes.WorkspaceScopeUser {
+		return agent.UserDataDir(agent.UserHomeDir(config.StellaHome(), userID))
+	}
+	return agent.UserAgentDir(config.StellaHome(), userID, agentID)
+}
+
+// scopeSandboxView maps a scope's host root to the path the agent sees for it
+// inside the sandbox (/workspace for agent scope, /user for user scope).
+func scopeSandboxView(backend, root string, scope *apitypes.WorkspaceScope) string {
+	if scope != nil && *scope == apitypes.WorkspaceScopeUser {
+		return sandbox.UserDataViewFor(backend, root)
+	}
+	return sandbox.WorkspaceViewFor(backend, root)
 }
 
 type workspaceDiskInfo struct {
@@ -1044,7 +1066,7 @@ func collectWorkspaceDiskInfo(root string, showHidden bool, listPath string, dep
 
 // sessionWorkspaceRoot resolves the workspace root for a session, checking
 // access and returning (root, nil) or writing an error and returning ("", err).
-func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) (string, error) {
+func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, scope *apitypes.WorkspaceScope) (string, error) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return "", fmt.Errorf("missing session ID")
@@ -1070,9 +1092,9 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, ag
 		s.writeInternalError(w, err)
 		return "", err
 	}
-	// Root at the agent's own workspace (sandbox /workspace), matching
-	// GetSessionWorkspace — file ops must not reach the shared user home.
-	return agent.UserAgentDir(config.StellaHome(), info.UserID, info.AgentID), nil
+	// Root at the requested scope, matching GetSessionWorkspace — file ops stay
+	// within that single root and never reach the other.
+	return workspaceRootForScope(info.UserID, info.AgentID, scope), nil
 }
 
 // safePath resolves a caller-supplied relative path to an absolute path that
@@ -1086,8 +1108,8 @@ func safePath(root, rel string) (string, error) {
 	return abs, nil
 }
 
-func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
-	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
+func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.CreateWorkspaceFileParams) {
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID, params.Scope)
 	if err != nil {
 		return
 	}
@@ -1132,8 +1154,8 @@ func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	writeData(w, http.StatusCreated, diskInfo)
 }
 
-func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
-	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
+func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.DeleteWorkspaceFileParams) {
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID, params.Scope)
 	if err != nil {
 		return
 	}
@@ -1158,8 +1180,8 @@ func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	writeNoContent(w)
 }
 
-func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
-	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
+func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.MoveWorkspaceFileParams) {
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID, params.Scope)
 	if err != nil {
 		return
 	}
@@ -1199,7 +1221,7 @@ func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agent
 }
 
 func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.GetWorkspaceFileContentParams) {
-	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID, params.Scope)
 	if err != nil {
 		return
 	}
@@ -1252,8 +1274,8 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 	})
 }
 
-func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
-	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
+func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.UpdateWorkspaceFileContentParams) {
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID, params.Scope)
 	if err != nil {
 		return
 	}
@@ -1288,7 +1310,11 @@ func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
-	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
+	// Uploads are user-shared, not agent-private: always root at the shared
+	// user-data root (sandbox /user) so the file lands beside channel uploads and
+	// every one of the user's agents can reach it.
+	userScope := apitypes.WorkspaceScopeUser
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID, &userScope)
 	if err != nil {
 		return
 	}
@@ -1311,10 +1337,7 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 
 	now := time.Now()
 	hash := fmt.Sprintf("%06x", now.UnixNano()&0xFFFFFF)
-	// Uploads are user-shared, not agent-private: store under the user-data root
-	// (mounted as /user) so the agent reaches them at $STELLA_USER_DIR/assets,
-	// alongside channel uploads.
-	dir := filepath.Join(agent.UserDataDir(root), "assets", now.Format("200601"))
+	dir := filepath.Join(root, "assets", now.Format("200601"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -1325,8 +1348,12 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 		s.writeInternalError(w, err)
 		return
 	}
+	// Return the sandbox-visible path (e.g. /user/assets/...) so the agent can
+	// open the upload directly from its message text.
 	rel, _ := filepath.Rel(root, abs)
-	writeData(w, http.StatusCreated, map[string]string{"path": rel})
+	plugins, _ := s.store.ListPlugins(r.Context())
+	sandboxRoot := sandbox.UserDataViewFor(config.ActiveSandboxBackend(plugins), root)
+	writeData(w, http.StatusCreated, map[string]string{"path": filepath.ToSlash(filepath.Join(sandboxRoot, rel))})
 }
 
 // detectLanguage returns a simple language hint based on file extension.
