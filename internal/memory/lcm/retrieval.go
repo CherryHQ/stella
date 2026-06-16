@@ -205,6 +205,30 @@ func searchSnippet(snippet, content string) string {
 	return truncateUTF8(content, maxContentSnippet)
 }
 
+// GetMessage implements memory.MessageReader.
+func (p *Provider) GetMessage(ctx context.Context, messageID string) (*memory.MessageDetail, error) {
+	userID, agentID, err := requireSessionScope(ctx, "", "")
+	if err != nil {
+		return nil, err
+	}
+	row, err := p.q.GetMessageScoped(ctx, sqlc.GetMessageScopedParams{
+		ID:      messageID,
+		UserID:  sql.NullString{String: userID, Valid: true},
+		AgentID: nullAgent(agentID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get message: %w", err)
+	}
+	return &memory.MessageDetail{
+		MessageID:         row.ID,
+		Role:              row.Role,
+		Content:           row.Content,
+		OccurredAt:        parseTime(row.CreatedAt),
+		SessionID:         row.SessionID,
+		ConversationTitle: row.ConversationTitle.String,
+	}, nil
+}
+
 func (p *Provider) getScopedSummary(ctx context.Context, summaryID string) (sqlc.CtxSummary, error) {
 	userID, agentID, err := requireSessionScope(ctx, "", "")
 	if err != nil {

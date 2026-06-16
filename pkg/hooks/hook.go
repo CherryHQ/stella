@@ -144,6 +144,7 @@ const (
 	MemoryOpSearch                     MemoryOp = "search"
 	MemoryOpDescribe                   MemoryOp = "describe"
 	MemoryOpExpand                     MemoryOp = "expand"
+	MemoryOpGetMessage                 MemoryOp = "get_message"
 	MemoryOpGetProfile                 MemoryOp = "get_profile"
 	MemoryOpGetProfileAt               MemoryOp = "get_profile_at"
 	MemoryOpSetProfile                 MemoryOp = "set_profile"

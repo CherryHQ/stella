@@ -501,3 +501,57 @@ func TestExpand_CrossSessionSummaryReturnsFullMessages(t *testing.T) {
 		t.Error("expected cross-user expand to fail, got nil error")
 	}
 }
+
+// TestGetMessage_CrossSessionAndIsolation verifies the read-in-full companion to
+// cross-session search: a message ID surfaced from another session of the same
+// user+agent resolves to its complete content (search returns only a snippet),
+// while other users/agents and unknown IDs are denied.
+func TestGetMessage_CrossSessionAndIsolation(t *testing.T) {
+	db, p, sess := newSearchTestEnv(t, "getmsg-a")
+
+	other := newLCMTestSession("getmsg-b")
+	if err := p.Bootstrap(context.Background(), other); err != nil {
+		t.Fatalf("bootstrap other: %v", err)
+	}
+	convB := conversationID(t, db, other.ID)
+	full := "this is the complete platypus message body that a snippet would truncate"
+	appendUser(t, p, other, full)
+	ids := messageIDs(t, db, convB)
+	if len(ids) != 1 {
+		t.Fatalf("expected 1 message in conv B, got %d", len(ids))
+	}
+
+	reader, ok := p.(memory.MessageReader)
+	if !ok {
+		t.Fatal("provider does not implement MessageReader")
+	}
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+
+	got, err := reader.GetMessage(ctx, ids[0])
+	if err != nil {
+		t.Fatalf("get cross-session message: %v", err)
+	}
+	if got.Content != full {
+		t.Errorf("expected full content %q, got %q", full, got.Content)
+	}
+	if got.SessionID != other.ID {
+		t.Errorf("expected provenance session %q, got %q", other.ID, got.SessionID)
+	}
+
+	// Another user must not be able to read it.
+	strangerCtx := memory.WithAgentID(memory.WithUserID(context.Background(), "2"), sess.AgentID)
+	if _, err := reader.GetMessage(strangerCtx, ids[0]); err == nil {
+		t.Error("expected cross-user get_message to fail, got nil error")
+	}
+
+	// Another agent must not be able to read it.
+	otherAgentCtx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), "other")
+	if _, err := reader.GetMessage(otherAgentCtx, ids[0]); err == nil {
+		t.Error("expected cross-agent get_message to fail, got nil error")
+	}
+
+	// Unknown ID fails.
+	if _, err := reader.GetMessage(ctx, "no-such-message"); err == nil {
+		t.Error("expected unknown message id to fail, got nil error")
+	}
+}

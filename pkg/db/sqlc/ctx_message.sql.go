@@ -236,6 +236,59 @@ func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []st
 	return items, nil
 }
 
+const getMessageScoped = `-- name: GetMessageScoped :one
+SELECT
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
+    c.session_id AS session_id,
+    c.title AS conversation_title
+FROM ctx_message m
+JOIN ctx_conversation c ON c.id = m.conversation_id
+WHERE m.id = ?1
+  AND c.user_id = ?2
+  AND c.agent_id IS ?3
+`
+
+type GetMessageScopedParams struct {
+	ID      string         `json:"id"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
+}
+
+type GetMessageScopedRow struct {
+	ID                string         `json:"id"`
+	ConversationID    string         `json:"conversation_id"`
+	Seq               int64          `json:"seq"`
+	Role              string         `json:"role"`
+	EventType         string         `json:"event_type"`
+	Content           string         `json:"content"`
+	TokenCount        int64          `json:"token_count"`
+	CreatedAt         string         `json:"created_at"`
+	SessionID         string         `json:"session_id"`
+	ConversationTitle sql.NullString `json:"conversation_title"`
+}
+
+// Fetch one message in full by ID, scoped to (user_id, agent_id) across every
+// session: the read-in-full companion to cross-session SearchMessages. Joins
+// ctx_conversation for the same isolation filter plus provenance. Keep this doc
+// comment ASCII; multibyte chars corrupt sqlc's query rewriter offsets.
+func (q *Queries) GetMessageScoped(ctx context.Context, arg GetMessageScopedParams) (GetMessageScopedRow, error) {
+	row := q.db.QueryRowContext(ctx, getMessageScoped, arg.ID, arg.UserID, arg.AgentID)
+	var i GetMessageScopedRow
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.Seq,
+		&i.Role,
+		&i.EventType,
+		&i.Content,
+		&i.TokenCount,
+		&i.CreatedAt,
+		&i.SessionID,
+		&i.ConversationTitle,
+	)
+	return i, err
+}
+
 const getMessagesByConversation = `-- name: GetMessagesByConversation :many
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE conversation_id = ? ORDER BY seq ASC
 `

@@ -270,6 +270,27 @@ func (t *tracedProvider) Expand(ctx context.Context, summaryID string, tokenCap 
 }
 
 // ---------------------------------------------------------------------------
+// MessageReader
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetMessage(ctx context.Context, messageID string) (*MessageDetail, error) {
+	r, ok := t.inner.(MessageReader)
+	if !ok {
+		return nil, errCapabilityNotSupported("MessageReader")
+	}
+	hctx := &hooks.PostMemoryCallContext{Op: hooks.MemoryOpGetMessage}
+	ctx, start := t.begin(ctx, hctx)
+	result, err := r.GetMessage(ctx, messageID)
+	hctx.Error = err
+	if result != nil {
+		hctx.Detail = fmt.Sprintf("message=%s session=%s role=%s content=%s",
+			result.MessageID, result.SessionID, result.Role, truncateStr(result.Content, 200))
+	}
+	t.finish(ctx, start, hctx)
+	return result, err
+}
+
+// ---------------------------------------------------------------------------
 // ProfileStore
 // ---------------------------------------------------------------------------
 

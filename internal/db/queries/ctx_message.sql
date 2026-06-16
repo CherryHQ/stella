@@ -6,6 +6,21 @@ RETURNING *;
 -- name: GetMessage :one
 SELECT * FROM ctx_message WHERE id = ? AND conversation_id = ?;
 
+-- name: GetMessageScoped :one
+-- Fetch one message in full by ID, scoped to (user_id, agent_id) across every
+-- session: the read-in-full companion to cross-session SearchMessages. Joins
+-- ctx_conversation for the same isolation filter plus provenance. Keep this doc
+-- comment ASCII; multibyte chars corrupt sqlc's query rewriter offsets.
+SELECT
+    m.*,
+    c.session_id AS session_id,
+    c.title AS conversation_title
+FROM ctx_message m
+JOIN ctx_conversation c ON c.id = m.conversation_id
+WHERE m.id = sqlc.arg('id')
+  AND c.user_id = sqlc.arg('user_id')
+  AND c.agent_id IS sqlc.narg('agent_id');
+
 -- name: GetMessagesByConversation :many
 SELECT * FROM ctx_message WHERE conversation_id = ? ORDER BY seq ASC;
 

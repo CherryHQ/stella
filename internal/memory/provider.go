@@ -214,6 +214,28 @@ type Explorer interface {
 }
 
 // ---------------------------------------------------------------------------
+// Capability: MessageReader
+// ---------------------------------------------------------------------------
+
+// MessageDetail is the full, untruncated content of a single stored message.
+type MessageDetail struct {
+	MessageID         string    `json:"message_id"`
+	Role              string    `json:"role"`
+	Content           string    `json:"content"`
+	OccurredAt        time.Time `json:"occurred_at"`        // when the message happened
+	SessionID         string    `json:"session_id"`         // origin session for traceability
+	ConversationTitle string    `json:"conversation_title"` // human-readable origin label (may be empty)
+}
+
+// MessageReader is implemented by providers that can return a single message in
+// full by ID, scoped to (user_id, agent_id). It complements Searcher: search
+// hits are truncated snippets, so the agent calls GetMessage to read a hit in
+// full — including hits from other sessions of the same user+agent.
+type MessageReader interface {
+	GetMessage(ctx context.Context, messageID string) (*MessageDetail, error)
+}
+
+// ---------------------------------------------------------------------------
 // Capability: ProfileStore
 // ---------------------------------------------------------------------------
 

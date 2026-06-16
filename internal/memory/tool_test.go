@@ -173,6 +173,55 @@ func TestBuildTool_BareProvider(t *testing.T) {
 	}
 }
 
+// fakeWithMessages adds MessageReader to the Fake so the get_message wiring can
+// be exercised. The Fake itself is session-scoped and does not model
+// cross-session reads, so this keeps that concern out of the shared double.
+type fakeWithMessages struct {
+	*memorytest.Fake
+}
+
+func (fakeWithMessages) GetMessage(_ context.Context, messageID string) (*memory.MessageDetail, error) {
+	return &memory.MessageDetail{
+		MessageID: messageID,
+		Role:      "user",
+		Content:   "the complete message body",
+		SessionID: "sess-origin",
+	}, nil
+}
+
+func TestBuildTool_MessageReader(t *testing.T) {
+	tool := memory.BuildTool(fakeWithMessages{memorytest.New()})
+	def := tool.Definition()
+
+	actions := extractActionEnum(t, def.InputSchema)
+	if !slices.Contains(actions, "get_message") {
+		t.Fatalf("expected get_message action, got %v", actions)
+	}
+	props := def.InputSchema["properties"].(map[string]any)
+	if _, ok := props["message_id"]; !ok {
+		t.Error("expected message_id property in schema")
+	}
+
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "1"), "agent1")
+	out, err := tool.Execute(ctx, map[string]any{"action": "get_message", "message_id": "msg_7"})
+	if err != nil {
+		t.Fatalf("get_message execute: %v", err)
+	}
+	var got memory.MessageDetail
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal get_message result: %v", err)
+	}
+	if got.MessageID != "msg_7" || got.Content != "the complete message body" {
+		t.Errorf("unexpected get_message result: %+v", got)
+	}
+
+	// A provider without MessageReader must not offer the action.
+	bareActions := extractActionEnum(t, memory.BuildTool(memorytest.New()).Definition().InputSchema)
+	if slices.Contains(bareActions, "get_message") {
+		t.Error("provider without MessageReader should not offer get_message")
+	}
+}
+
 func TestBuildTool_WithReadOnlyProfile(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake, memory.WithReadOnlyProfile())
