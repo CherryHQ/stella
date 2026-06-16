@@ -3,12 +3,12 @@ import { createFileRoute } from "@tanstack/react-router";
 interface SkillsSearch {
   new?: boolean;
   source?: "installed" | "market";
-  fscope?: "project" | "user" | "user_agent" | "system_agent" | "system";
+  fscope?: "project" | "user" | "agent" | "system";
   sel?: string;
 }
 
 const SOURCES = new Set(["installed", "market"]);
-const SCOPES = new Set(["project", "user", "user_agent", "system_agent", "system"]);
+const SCOPES = new Set(["project", "user", "agent", "system"]);
 
 export const Route = createFileRoute("/_app/agents/$agentId/skills/")({
   validateSearch: (search: Record<string, unknown>): SkillsSearch => ({

@@ -80,7 +80,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 type Scope = "project" | "user" | "user_agent" | "system_agent" | "system";
-type ScopeFilter = Scope | "all";
+// Filter buckets collapse the two agent scopes (user_agent + system_agent) into a
+// single "agent" pill, matching the agent-settings SkillsTab's coarser grouping.
+type ScopeFilter = "all" | "system" | "agent" | "user" | "project";
 type Source = "installed" | "market";
 type InstallScope = "user_agent" | "system_agent";
 
@@ -89,16 +91,15 @@ const SOURCE_META = {
   market: { icon: Store, key: "sessions.skillsList.market" },
 } as const;
 
-const SCOPE_PILLS: ScopeFilter[] = [
-  "all",
-  "system",
-  "system_agent",
-  "user_agent",
-  "user",
-  "project",
-];
-const SCOPES: Scope[] = ["project", "user", "user_agent", "system_agent", "system"];
+const SCOPE_PILLS: ScopeFilter[] = ["all", "system", "agent", "user", "project"];
 const WRITABLE = new Set<Scope>(["user", "user_agent", "system_agent"]);
+
+// A skill's raw scope belongs to a filter bucket; "agent" spans both agent scopes.
+function inBucket(scope: string, bucket: ScopeFilter): boolean {
+  if (bucket === "all") return true;
+  if (bucket === "agent") return scope === "user_agent" || scope === "system_agent";
+  return scope === bucket;
+}
 
 // Match FacetTabs' active treatment so the in-page filter pills read as the
 // same tab language as the top agent nav (accent pill / muted ghost).
@@ -113,7 +114,7 @@ const tabPillCls = (active: boolean, size: "sm" | "xs" = "sm") =>
 
 interface SkillsSearch {
   source?: Source;
-  fscope?: Scope;
+  fscope?: Exclude<ScopeFilter, "all">;
   sel?: string;
   new?: boolean;
 }
@@ -223,8 +224,11 @@ export function SkillsListPage() {
   const counts = useMemo(
     () =>
       Object.fromEntries(
-        SCOPES.map((scope) => [scope, skills.filter((s) => s.scope === scope).length]),
-      ) as Record<Scope, number>,
+        SCOPE_PILLS.map((bucket) => [
+          bucket,
+          skills.filter((s) => inBucket(s.scope, bucket)).length,
+        ]),
+      ) as Record<ScopeFilter, number>,
     [skills],
   );
 
@@ -232,7 +236,7 @@ export function SkillsListPage() {
     const q = query.trim().toLowerCase();
     return skills.filter(
       (s) =>
-        (fscope === "all" || s.scope === fscope) &&
+        inBucket(s.scope, fscope) &&
         (!q || s.name.toLowerCase().includes(q) || (s.description ?? "").toLowerCase().includes(q)),
     );
   }, [skills, query, fscope]);
@@ -243,7 +247,7 @@ export function SkillsListPage() {
     const merged = { source, fscope, sel, ...next };
     const s: SkillsSearch = {};
     if (merged.source !== "installed") s.source = merged.source;
-    if (merged.fscope !== "all") s.fscope = merged.fscope as Scope;
+    if (merged.fscope !== "all") s.fscope = merged.fscope;
     if (merged.sel) s.sel = merged.sel;
     void navigate({ to: route(projectId), params, search: s, replace: true });
   }
