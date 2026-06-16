@@ -312,7 +312,11 @@ function WorkspaceScopeSection({
   // Self-loaded scope state (only used when selfLoad).
   const [selfWorkspace, setSelfWorkspace] = useState<Workspace | null>(null);
   const [selfLoading, setSelfLoading] = useState(false);
+  // Monotonic token: only the most recent load may write state, so a slow
+  // response from a previous session/scope can't clobber the current view.
+  const loadToken = useRef(0);
   const loadSelf = useCallback(async () => {
+    const token = ++loadToken.current;
     setSelfLoading(true);
     try {
       const { data } = await getSessionWorkspace({
@@ -320,15 +324,18 @@ function WorkspaceScopeSection({
         query: { show_hidden: true, depth: 2, scope },
         throwOnError: true,
       });
-      setSelfWorkspace(data);
+      if (token === loadToken.current) setSelfWorkspace(data);
     } catch {
-      setSelfWorkspace(null);
+      if (token === loadToken.current) setSelfWorkspace(null);
     } finally {
-      setSelfLoading(false);
+      if (token === loadToken.current) setSelfLoading(false);
     }
   }, [agentID, sessionID, scope]);
   useEffect(() => {
-    if (selfLoad) void loadSelf();
+    if (!selfLoad) return;
+    // Drop any stale tree before the new session's load lands.
+    setSelfWorkspace(null);
+    void loadSelf();
   }, [selfLoad, loadSelf]);
 
   const workspace = selfLoad ? selfWorkspace : (providedWorkspace ?? null);
@@ -553,10 +560,11 @@ interface ArtifactShareDialogProps {
   path: string | null;
   agentID: string;
   sessionID: string;
+  scope: Scope;
   onClose: () => void;
 }
 
-function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShareDialogProps) {
+function ArtifactShareDialog({ path, agentID, sessionID, scope, onClose }: ArtifactShareDialogProps) {
   const { t } = useI18n();
   const expirationOptions = [
     { value: "1h", label: t("sessions.workspace.1hour") },
@@ -589,6 +597,7 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
           agent_id: agentID,
           session_id: sessionID,
           path,
+          scope,
           expires_in: expiresIn as "1h" | "1d" | "7d" | "never",
         },
         throwOnError: true,
@@ -600,7 +609,7 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
     } finally {
       setCreating(false);
     }
-  }, [agentID, expiresIn, path, sessionID]);
+  }, [agentID, expiresIn, path, sessionID, scope]);
 
   const revokeShare = useCallback(async () => {
     if (!share) return;
@@ -862,6 +871,7 @@ function TreeWithSearch({
         path={sharePath}
         agentID={agentID}
         sessionID={sessionID}
+        scope={scope}
         onClose={() => setSharePath(null)}
       />
       <div className="min-w-0 flex-1 overflow-hidden">

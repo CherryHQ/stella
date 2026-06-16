@@ -26,6 +26,8 @@ components:
         agent_id: { type: string }
         session_id: { type: string }
         path: { type: string }
+        scope:
+          $ref: "#/components/schemas/WorkspaceScope"
         article_id: { type: string }
         expires_in:
           type: string

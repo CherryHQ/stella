@@ -22,7 +22,6 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -153,12 +152,21 @@ func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, 
 			return "", "", nil, errors.New("permission denied")
 		}
 	}
-	// Artifacts may live in either root — the agent's own workspace (default) or
-	// the shared user-data root (where generated reports/assets are saved). The
-	// roots are disjoint, so resolve against agent scope first and fall back to
-	// user scope, accepting whichever holds the file.
-	abs, fi, err := s.statShareArtifact(w, r, agentID, sessionID, path)
+	// Resolve against the scope the file was browsed in: agent (default) or the
+	// shared user-data root, where generated reports/assets are saved. The path
+	// is relative to that single root, keeping the safePath invariant intact.
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID, body.Scope)
 	if err != nil {
+		return "", "", nil, err
+	}
+	abs, err := safePath(root, path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return "", "", nil, err
+	}
+	fi, err := os.Stat(abs)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
 		return "", "", nil, err
 	}
 	if fi.IsDir() {
@@ -180,33 +188,6 @@ func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, 
 		return "", "", nil, err
 	}
 	return filepath.Base(path), mt, data, nil
-}
-
-// statShareArtifact locates a share artifact by trying the agent workspace root
-// first, then the shared user-data root. It returns the resolved absolute path
-// and FileInfo, or writes the appropriate error and returns it. Access checks
-// run once via the agent-scope resolution; the user scope reuses the same
-// session, so a second access check is redundant.
-func (s *Server) statShareArtifact(w http.ResponseWriter, r *http.Request, agentID, sessionID, path string) (string, os.FileInfo, error) {
-	agentRoot, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID, nil)
-	if err != nil {
-		return "", nil, err
-	}
-	// agentRoot is users/{user}/agents/{agent}; the shared user-data root is its
-	// sibling users/{user}/data. Derive it from the home two levels up so we need
-	// not reload session info.
-	userRoot := agent.UserDataDir(filepath.Dir(filepath.Dir(agentRoot)))
-	for _, root := range []string{agentRoot, userRoot} {
-		abs, pathErr := safePath(root, path)
-		if pathErr != nil {
-			continue
-		}
-		if fi, statErr := os.Stat(abs); statErr == nil {
-			return abs, fi, nil
-		}
-	}
-	writeError(w, http.StatusNotFound, "not found")
-	return "", nil, errors.New("not found")
 }
 
 func (s *Server) resolveArticleContent(w http.ResponseWriter, r *http.Request, userID string, body apitypes.CreateShareRequest) (string, string, []byte, error) {
