@@ -218,7 +218,11 @@ func (t *tracedProvider) Describe(ctx context.Context, summaryID string) (*Descr
 	if !ok {
 		return nil, errCapabilityNotSupported("Explorer")
 	}
-	hctx := &hooks.PostMemoryCallContext{Op: hooks.MemoryOpDescribe}
+	hctx := &hooks.PostMemoryCallContext{
+		HookMeta:  hooks.HookMeta{UserID: UserIDFromContext(ctx), AgentID: AgentIDFromContext(ctx)},
+		SessionID: SessionIDFromContext(ctx),
+		Op:        hooks.MemoryOpDescribe,
+	}
 	ctx, start := t.begin(ctx, hctx)
 	result, err := e.Describe(ctx, summaryID)
 	hctx.Error = err
@@ -236,7 +240,11 @@ func (t *tracedProvider) Expand(ctx context.Context, summaryID string, tokenCap 
 	if !ok {
 		return nil, errCapabilityNotSupported("Explorer")
 	}
-	hctx := &hooks.PostMemoryCallContext{Op: hooks.MemoryOpExpand}
+	hctx := &hooks.PostMemoryCallContext{
+		HookMeta:  hooks.HookMeta{UserID: UserIDFromContext(ctx), AgentID: AgentIDFromContext(ctx)},
+		SessionID: SessionIDFromContext(ctx),
+		Op:        hooks.MemoryOpExpand,
+	}
 	ctx, start := t.begin(ctx, hctx)
 	result, err := e.Expand(ctx, summaryID, tokenCap)
 	hctx.Error = err
