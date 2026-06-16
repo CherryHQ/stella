@@ -279,7 +279,9 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	if skillstool.GitHubSource(req.Source) {
-		if token := s.credSvc.GitHubAccessToken(ctx, userID); token != "" {
+		// Use the acting user's bound token, not the store owner — system-scope
+		// installs resolve userID to "" yet are still performed by a real admin.
+		if token := s.credSvc.GitHubAccessToken(ctx, info.UserID); token != "" {
 			ctx = skillstool.WithGitHubToken(ctx, token)
 		}
 	}

@@ -1190,8 +1190,7 @@ const en = {
   "sessions.skillsList.githubRepo": "Repository",
   "sessions.skillsList.githubRepoPlaceholder": "owner/repo or github.com URL",
   "sessions.skillsList.githubVersion": "Version (optional)",
-  "sessions.skillsList.githubVersionPlaceholder":
-    "tag, branch, or commit — blank uses the default branch",
+  "sessions.skillsList.githubVersionPlaceholder": "tag or branch — blank uses the default branch",
   "sessions.skillsList.githubHint": "Private repos require a connected GitHub account.",
   "sessions.skillsList.githubRepoRequired": "Repository is required",
   "sessions.skillsList.searchPlaceholder": "Search skills…",
@@ -2728,7 +2727,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.skillsList.githubRepo": "仓库",
   "sessions.skillsList.githubRepoPlaceholder": "owner/repo 或 github.com 链接",
   "sessions.skillsList.githubVersion": "版本（可选）",
-  "sessions.skillsList.githubVersionPlaceholder": "tag、branch 或 commit — 留空用默认分支",
+  "sessions.skillsList.githubVersionPlaceholder": "tag 或 branch — 留空用默认分支",
   "sessions.skillsList.githubHint": "私有仓库需要已连接 GitHub 账号。",
   "sessions.skillsList.githubRepoRequired": "请填写仓库",
   "sessions.skillsList.market": "市场",

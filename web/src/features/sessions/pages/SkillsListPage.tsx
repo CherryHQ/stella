@@ -1223,15 +1223,20 @@ function DiscoverDetail({
 // Build an mcphub source from a GitHub repo + optional version. The repo may be
 // "owner/repo", "owner/repo@skill", or a github.com URL; the version becomes the
 // "#ref" suffix the install path resolves (and records as the skill version).
-// The "#ref" form only parses for the shorthand, so when a version is given we
-// normalize a full github.com URL down to "owner/repo" first.
+//
+// Only a bare reference accepts a "#ref" suffix: we match the shorthand or a
+// plain github.com URL with nothing after the repo and normalize both down to
+// "owner/repo[@skill]#ref". A URL carrying a /tree/<ref>/<subpath> already pins
+// its own ref and path, so we leave it untouched rather than clobber the subpath.
 function githubSource(repo: string, version: string): string {
   const r = repo.trim();
   const v = version.trim();
   if (!v || r.includes("#")) return r;
-  const m = r.match(/github\.com[/:]([^/]+)\/([^/#?]+?)(?:\.git)?(?:[/#?].*)?$/i);
-  const base = m ? `${m[1]}/${m[2]}` : r;
-  return `${base}#${v}`;
+  const bare = r.match(
+    /^(?:https?:\/\/github\.com\/|git@github\.com:)?([^/\s]+\/[^/\s#?]+?)(?:\.git)?$/i,
+  );
+  if (!bare) return r;
+  return `${bare[1]}#${v}`;
 }
 
 function GithubInstallDialog({

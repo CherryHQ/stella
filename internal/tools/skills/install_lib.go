@@ -133,16 +133,7 @@ func fetchAuthedGitHubSkill(ctx context.Context, parsed *mcpskills.ParsedSource,
 	}
 	cleanup = func() { _ = os.RemoveAll(tmp) }
 
-	opts := &git.CloneOptions{
-		URL:   parsed.URL,
-		Depth: 1,
-		Auth:  &githttp.BasicAuth{Username: "x-access-token", Password: token},
-	}
-	if parsed.Ref != "" {
-		opts.ReferenceName = plumbing.NewBranchReferenceName(parsed.Ref)
-		opts.SingleBranch = true
-	}
-	if _, cerr := git.PlainCloneContext(ctx, tmp, false, opts); cerr != nil {
+	if cerr := cloneGitHubRef(ctx, tmp, parsed.URL, parsed.Ref, token); cerr != nil {
 		cleanup()
 		return "", nil, cerr
 	}
@@ -157,6 +148,48 @@ func fetchAuthedGitHubSkill(ctx context.Context, parsed *mcpskills.ParsedSource,
 		return "", nil, fmt.Errorf("find skill: %w", ferr)
 	}
 	return dir, cleanup, nil
+}
+
+// cloneGitHubRef shallow-clones url into dest using token-based BasicAuth. When
+// ref is set it is tried as a branch and then as a tag, since go-git needs a
+// fully-qualified ref and the user's free-text version may be either; dest is
+// wiped between attempts because PlainClone requires an empty target. An empty
+// ref clones the default branch.
+func cloneGitHubRef(ctx context.Context, dest, url, ref, token string) error {
+	auth := &githttp.BasicAuth{Username: "x-access-token", Password: token}
+	refNames := []plumbing.ReferenceName{""}
+	if ref != "" {
+		refNames = []plumbing.ReferenceName{
+			plumbing.NewBranchReferenceName(ref),
+			plumbing.NewTagReferenceName(ref),
+		}
+	}
+	var err error
+	for i, rn := range refNames {
+		if i > 0 {
+			if rerr := resetDir(dest); rerr != nil {
+				return rerr
+			}
+		}
+		opts := &git.CloneOptions{URL: url, Depth: 1, Auth: auth}
+		if rn != "" {
+			opts.ReferenceName = rn
+			opts.SingleBranch = true
+		}
+		if _, err = git.PlainCloneContext(ctx, dest, false, opts); err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+// resetDir empties dir (a failed clone leaves a partial .git behind), recreating
+// it so the next PlainClone sees an empty target.
+func resetDir(dir string) error {
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return os.MkdirAll(dir, 0o700)
 }
 
 // resolveGitVersion returns the version to record for a git-sourced skill: the
