@@ -966,8 +966,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 	// SandboxRoot is the path the agent actually sees for this dir (/workspace or
 	// /user on isolating backends); Root stays the host path the file API resolves
 	// against.
-	plugins, _ := s.store.ListPlugins(r.Context())
-	diskInfo.SandboxRoot = scopeSandboxView(config.ActiveSandboxBackend(plugins), root, params.Scope)
+	diskInfo.SandboxRoot = scopeSandboxView(s.sandboxBackend(r.Context()), root, params.Scope)
 	writeData(w, http.StatusOK, diskInfo)
 }
 
@@ -981,6 +980,13 @@ func workspaceRootForScope(userID, agentID string, scope *apitypes.WorkspaceScop
 		return agent.UserDataDir(agent.UserHomeDir(config.StellaHome(), userID))
 	}
 	return agent.UserAgentDir(config.StellaHome(), userID, agentID)
+}
+
+// sandboxBackend returns the name of the active sandbox backend, or "" if the
+// plugin list can't be read (treated as a non-isolating backend by callers).
+func (s *Server) sandboxBackend(ctx context.Context) string {
+	plugins, _ := s.store.ListPlugins(ctx)
+	return config.ActiveSandboxBackend(plugins)
 }
 
 // scopeSandboxView maps a scope's host root to the path the agent sees for it
@@ -1351,8 +1357,7 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	// Return the sandbox-visible path (e.g. /user/assets/...) so the agent can
 	// open the upload directly from its message text.
 	rel, _ := filepath.Rel(root, abs)
-	plugins, _ := s.store.ListPlugins(r.Context())
-	sandboxRoot := sandbox.UserDataViewFor(config.ActiveSandboxBackend(plugins), root)
+	sandboxRoot := sandbox.UserDataViewFor(s.sandboxBackend(r.Context()), root)
 	writeData(w, http.StatusCreated, map[string]string{"path": filepath.ToSlash(filepath.Join(sandboxRoot, rel))})
 }
 
