@@ -5,7 +5,6 @@ import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import {
-  Lightbulb,
   ChevronDown,
   Copy,
   Check,
@@ -231,13 +230,11 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
         {blocks.map((block, idx) => {
           if (block.type === "thinking" && block.thinking) {
             return (
-              <div key={idx} className="flex gap-2.5 items-start py-0.5">
-                <span className="flex items-center justify-center text-muted-foreground/60 mt-1 shrink-0">
-                  <Lightbulb className="size-3.5" />
-                </span>
-                <div className="text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-mono min-w-0">
-                  {block.thinking}
-                </div>
+              <div
+                key={idx}
+                className="py-0.5 text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-sans min-w-0"
+              >
+                {block.thinking}
               </div>
             );
           }
