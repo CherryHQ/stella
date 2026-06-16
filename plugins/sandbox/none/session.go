@@ -95,7 +95,28 @@ type noneSession struct {
 	procs    []*noneProcess
 }
 
-func (s *noneSession) Policy() sandboxpkg.Policy { return s.policy }
+func (s *noneSession) Policy() sandboxpkg.Policy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.policy
+}
+
+// RefreshEnv replaces injected env entries with the given updates, swapping the
+// policy's env map under the write lock (copy-on-write) so readers that snapshot
+// the policy under the read lock never observe a half-written map.
+func (s *noneSession) RefreshEnv(updates map[string]string) {
+	if len(updates) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	env := maps.Clone(s.policy.Env)
+	if env == nil {
+		env = make(map[string]string, len(updates))
+	}
+	maps.Copy(env, updates)
+	s.policy.Env = env
+}
 
 func (s *noneSession) WorkingDir() string {
 	if s.policy.Filesystem.WorkingDir != "" {
@@ -148,6 +169,7 @@ func (s *noneSession) ResolveWritePath(path string) (string, error) {
 func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	s.mu.RLock()
 	closed := s.closed
+	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
 		return sandboxpkg.ExecResult{}, errors.New("none: session is closed")
@@ -160,7 +182,7 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 
 	timeout := opts.Timeout
 	if timeout == 0 {
-		timeout = s.policy.Timeout
+		timeout = policy.Timeout
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -171,7 +193,7 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	sh, shFlag := shell()
 	cmd := exec.Command(sh, shFlag, command)
 	cmd.Dir = cwd
-	cmd.Env = buildEnv(s.policy, opts.Env)
+	cmd.Env = buildEnv(policy, opts.Env)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -210,6 +232,7 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
 	s.mu.RLock()
 	closed := s.closed
+	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
 		return nil, errors.New("none: session is closed")
@@ -222,7 +245,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 
 	timeout := req.Timeout
 	if timeout == 0 {
-		timeout = s.policy.Timeout
+		timeout = policy.Timeout
 	}
 
 	var execCtx context.Context
@@ -235,7 +258,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 
 	cmd := exec.Command(req.Path, req.Args...)
 	cmd.Dir = cwd
-	cmd.Env = buildEnv(s.policy, req.Env)
+	cmd.Env = buildEnv(policy, req.Env)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
