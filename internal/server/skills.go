@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -49,6 +50,7 @@ type updateSkillRequest struct {
 	Description            *string           `json:"description"`
 	Status                 *string           `json:"status"`
 	DisableModelInvocation *bool             `json:"disable_model_invocation"`
+	Version                *string           `json:"version"`
 	Files                  map[string]string `json:"files"`
 }
 
@@ -76,9 +78,13 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
-	if vc.AgentID == "" && vc.UserID == "" {
-		sk, err := s.findSkillByID(r.Context(), id)
-		if err != nil {
+	// The version lives inside the metadata JSON; merge it so source and install
+	// timestamps survive. Loading the row also drives the scope branch below, so
+	// fetch once and reuse.
+	var sk *skills.Skill
+	if req.Version != nil || (vc.AgentID == "" && vc.UserID == "") {
+		var err error
+		if sk, err = s.findSkillByID(r.Context(), id); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				writeError(w, http.StatusNotFound, "skill not found")
 			} else {
@@ -86,6 +92,16 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 			}
 			return
 		}
+	}
+	if req.Version != nil {
+		merged, err := mergeMetadataVersion(sk.Metadata, *req.Version)
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		patch.Metadata = merged
+	}
+	if vc.AgentID == "" && vc.UserID == "" {
 		if sk.Scope == "system" {
 			if systemStore, ok := store.(interface {
 				UpdateSystemSkill(context.Context, string, skills.UpdatePatch) error
@@ -105,6 +121,24 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	s.upsertSkillFiles(w, store, r.Context(), id, req.Files)
+}
+
+// mergeMetadataVersion overwrites just the "version" key in a skill's metadata
+// JSON, preserving every other field (source, install timestamps). An empty
+// version clears the key so the badge disappears.
+func mergeMetadataVersion(metadata json.RawMessage, version string) (json.RawMessage, error) {
+	m := map[string]any{}
+	if len(metadata) > 0 {
+		if err := json.Unmarshal(metadata, &m); err != nil {
+			return nil, err
+		}
+	}
+	if version == "" {
+		delete(m, "version")
+	} else {
+		m["version"] = version
+	}
+	return json.Marshal(m)
 }
 
 func (s *Server) upsertSkillFiles(w http.ResponseWriter, store skills.Store, ctx context.Context, id string, files map[string]string) {

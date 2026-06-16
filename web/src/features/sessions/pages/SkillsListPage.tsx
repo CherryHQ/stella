@@ -729,6 +729,7 @@ function SkillInspector({
   const { showToast } = useToast();
   const { data: me } = useQuery(meQueryOptions);
   const [description, setDescription] = useState(skill.description ?? "");
+  const [version, setVersion] = useState(skill.version ?? "");
   const [status, setStatus] = useState(skill.status ?? "active");
   const [modelEnabled, setModelEnabled] = useState(!skill.disable_model_invocation);
   const [viewer, setViewer] = useState<string | null>(null);
@@ -753,11 +754,14 @@ function SkillInspector({
       await updateAgentSkill({
         path: { id: agentId, skillId: skill.name },
         query: { scope: skill.scope as SkillScope },
-        body: { description, status, disable_model_invocation: !modelEnabled },
+        body: { description, status, disable_model_invocation: !modelEnabled, version },
         throwOnError: true,
       });
       showToast(t("sessions.skillsList.saved"), "success");
       void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-skill", agentId, skill.scope, skill.name],
+      });
     } catch (error) {
       showToast(apiErrorMessage(error, t("common.error")), "error");
     }
@@ -928,6 +932,17 @@ function SkillInspector({
                 ))}
               </ToggleGroup>
             </div>
+            <div className="space-y-2">
+              <Label>{t("sessions.skillsList.versionLabel")}</Label>
+              <Input
+                value={version}
+                onChange={(e) => setVersion((e.target as HTMLInputElement).value)}
+                className="font-mono"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("sessions.skillsList.versionHint")}
+              </p>
+            </div>
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-0.5">
                 <Label>{t("sessions.skillsList.modelInvocation")}</Label>
@@ -947,11 +962,7 @@ function SkillInspector({
         </div>
       ) : (
         <div className="flex items-center gap-2 border-t p-4">
-          <Button
-            variant="ghost"
-            className="text-destructive hover:bg-destructive/10"
-            onClick={() => setConfirmOpen(true)}
-          >
+          <Button variant="destructive-outline" onClick={() => setConfirmOpen(true)}>
             <Trash2 size={16} />
             {t("sessions.skillsList.deleteSkill")}
           </Button>
