@@ -141,11 +141,25 @@ bubblewrap 必须实际可用，仅安装不够。在未启用 `--privileged` �
 
 ### 路径呈现
 
-在 Linux 上，无论真实宿主机路径如何，agent 始终将工作区看作 `/workspace`（bubblewrap 负责绑定挂载）。Docker 和 Linux 本地会话会把宿主机 `/tmp/{user_id}` 挂载为沙箱内 `/tmp`，因此沙箱内可以正常使用临时文件路径，同时仍按用户隔离。在 macOS 上，agent 看到的是真实宿主机路径。
+隔离型后端（Linux `local`，经 bubblewrap；以及 `docker`）呈现固定的**双根**布局，与真实宿主机路径无关：
 
-### 主目录
+| 沙箱路径      | 实际来源                | 访问权限 | 存放内容                                              |
+| ------------- | ----------------------- | -------- | ----------------------------------------------------- |
+| `/workspace`  | 该 agent 的 per-agent 目录 | 读写     | `$HOME` 与项目工作树——仅属于这一个 agent             |
+| `/user`       | 该用户的共享数据根目录   | 读写     | 该用户所有 agent 共享的数据（见下）                   |
+| `/opt/stella` | 系统安装树              | 只读     | 系统二进制、共享 mise 工具链、系统级 skills           |
 
-在沙箱内，`$HOME` 是按用户划分的主目录，由该用户的所有 agent 共享——因此工具缓存与工具链（`~/.cache`、mise 工具树）按用户共享，而非按 agent 重复。每个 agent 的凭证与状态目录——XDG 目录 `~/.config`、`~/.local/share`、`~/.local/state`（例如 `~/.config/gh`）——位于该 agent 在主目录下的私有子目录中，因此各 agent 缓存的凭证彼此隔离。项目目录仍作为工作目录。
+系统树中只有 `bin`、`.mise-tools`、`.agents/skills` 三个子树被挂到 `/opt/stella`——`STELLA_HOME` 下的兄弟目录 `users/`、`agents/` 不会在此暴露。
+
+Linux `local` 后端会把按 principal 划分的临时目录挂为沙箱内 `/tmp`；Docker `bind`/`host` 模式在该目录对 Docker daemon 可见时同样如此，而 Docker `volume` 模式不挂载宿主机临时目录。临时文件因此按用户隔离。在 macOS（`local`）和 `none` 后端下不做重映射——agent 看到的是真实宿主机路径，因此这两个根呈现在其真实位置，而非 `/workspace` 与 `/user`。
+
+### 主目录与共享数据
+
+在隔离型沙箱内，`$HOME` 即 `/workspace`——agent **自己的 per-agent** 目录。每个 agent 的凭证与状态目录（XDG 目录 `~/.config`、`~/.local/share`、`~/.local/state`，例如 `~/.config/gh`）都位于此处，仅属于该 agent。项目目录也在 `/workspace` 下，作为工作目录。
+
+需要在该用户所有 agent 间共享的数据位于 `/user`（共享用户数据根目录），通过 `$STELLA_USER_DIR` 暴露：包括缓存、用户级 skills，以及上传的资产（`/user/assets`）。在 Linux `local` 后端下，按用户划分的 mise 工具链也位于此处，即 `/user/.mise-tools`。请用 `$STELLA_USER_DIR/...` 引用该根，而非硬编码 `/user`——这样在 `none`/macOS 后端（解析为真实宿主机路径）下同样有效。
+
+Docker 后端在 `HOME=/workspace` 下仍能访问镜像工具链：mise 通过 `MISE_DATA_DIR` 等被钉死在绝对 `/home/stella` 路径上，因此把 `$HOME` 从镜像用户主目录翻走不会隐藏内置工具。
 
 ## None 后端
 
