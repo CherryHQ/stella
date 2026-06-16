@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-06-16
+
+### ✨ Features
+
+- Memory: search now spans all sessions of the same user and agent. ([#489](https://github.com/CherryHQ/stella/pull/489))
+- Sandbox: user-home `$HOME` with per-agent credential isolation. ([#460](https://github.com/CherryHQ/stella/pull/460))
+- Skills: authenticate GitHub skill installs via OAuth token. ([#488](https://github.com/CherryHQ/stella/pull/488))
+
+### 🐛 Bug Fixes
+
+- Sandbox: refresh expiring `STELLA_TOKEN` in long-lived runners. ([#491](https://github.com/CherryHQ/stella/pull/491))
+- Skills: unify skill disk-path authority and fix system-scope `skill_dir`. ([#500](https://github.com/CherryHQ/stella/pull/500))
+
+### ♻️ Refactoring
+
+- Sandbox: two-root mount layout (`/workspace` + `/user`). ([#496](https://github.com/CherryHQ/stella/pull/496))
+- Sandbox: flip on-disk layout to user-first. ([#455](https://github.com/CherryHQ/stella/pull/455))
+
+### 📝 Documentation
+
+- Skills: document the GitHub issue reporting workflow in the stella skill. ([#498](https://github.com/CherryHQ/stella/pull/498))
+
+**Full Changelog**: [v0.48.0...v0.49.0](https://github.com/CherryHQ/stella/compare/v0.48.0...v0.49.0)
+
 ## [0.48.0] - 2026-06-16
 
 ### ✨ Features

@@ -11,6 +11,30 @@ icon: History
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-06-16
+
+### ✨ 功能
+
+- Memory：搜索现在覆盖同一用户与 agent 的所有会话。([#489](https://github.com/CherryHQ/stella/pull/489))
+- Sandbox：用户级 `$HOME`，并按 agent 隔离凭证。([#460](https://github.com/CherryHQ/stella/pull/460))
+- Skills：通过 OAuth token 认证 GitHub 技能安装。([#488](https://github.com/CherryHQ/stella/pull/488))
+
+### 🐛 修复
+
+- Sandbox：在长生命周期 runner 中刷新即将过期的 `STELLA_TOKEN`。([#491](https://github.com/CherryHQ/stella/pull/491))
+- Skills：统一技能磁盘路径权威来源，修复 system 作用域的 `skill_dir`。([#500](https://github.com/CherryHQ/stella/pull/500))
+
+### ♻️ 重构
+
+- Sandbox：双根挂载布局（`/workspace` + `/user`）。([#496](https://github.com/CherryHQ/stella/pull/496))
+- Sandbox：将磁盘布局翻转为 user-first。([#455](https://github.com/CherryHQ/stella/pull/455))
+
+### 📝 文档
+
+- Skills：在 stella 技能中补充 GitHub issue 上报流程。([#498](https://github.com/CherryHQ/stella/pull/498))
+
+**完整变更日志**：[v0.48.0...v0.49.0](https://github.com/CherryHQ/stella/compare/v0.48.0...v0.49.0)
+
 ## [0.48.0] - 2026-06-16
 
 ### ✨ 功能
