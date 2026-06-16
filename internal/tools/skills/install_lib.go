@@ -144,6 +144,15 @@ func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, skillID st
 	if err != nil {
 		return UpgradeResult{}, fmt.Errorf("list installed files: %w", err)
 	}
+	// Write the new files before pruning stale ones (and bump metadata last) so a
+	// mid-upgrade failure leaves a still-loadable skill — old files plus whatever
+	// new files landed — rather than a half-deleted one. This is not atomic; a
+	// transactional store method would be the complete fix.
+	for path, content := range files {
+		if err := store.UpsertFile(ctx, skillID, path, content); err != nil {
+			return UpgradeResult{}, fmt.Errorf("write file %q: %w", path, err)
+		}
+	}
 	keep := make(map[string]bool, len(files))
 	for path := range files {
 		keep[path] = true
@@ -153,11 +162,6 @@ func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, skillID st
 			if err := store.DeleteFile(ctx, skillID, path); err != nil {
 				return UpgradeResult{}, fmt.Errorf("remove stale file %q: %w", path, err)
 			}
-		}
-	}
-	for path, content := range files {
-		if err := store.UpsertFile(ctx, skillID, path, content); err != nil {
-			return UpgradeResult{}, fmt.Errorf("write file %q: %w", path, err)
 		}
 	}
 
@@ -290,13 +294,14 @@ func resetDir(dir string) error {
 }
 
 // resolveGitVersion returns the version to record for a git-sourced skill: the
-// ref the user pinned (tag/branch), or the short HEAD commit when no ref was
-// given. Best-effort — returns "" if the commit cannot be read. skillDir may be
-// a subdirectory of the repo; DetectDotGit walks up to the enclosing .git.
-func resolveGitVersion(skillDir, ref string) string {
-	if ref != "" {
-		return ref
-	}
+// short HEAD commit the working tree resolved to. Recording the commit — not the
+// pinned ref — is what makes upgrades work: a branch pin re-fetched later resolves
+// to a new commit and is detected as an update, while a tag pin always resolves to
+// the same commit and correctly reports "up to date". The human-readable ref stays
+// visible in the skill's source. Best-effort — returns "" if the commit cannot be
+// read. skillDir may be a subdirectory of the repo; DetectDotGit walks up to the
+// enclosing .git.
+func resolveGitVersion(skillDir string) string {
 	repo, err := git.PlainOpenWithOptions(skillDir, &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
 		return ""
@@ -403,7 +408,7 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 			}
 			skillDir = local.Path
 		}
-		version = resolveGitVersion(skillDir, parsed.Ref)
+		version = resolveGitVersion(skillDir)
 	case mcpskills.SourceTypeLocal:
 		dir, ferr := mcpskills.FindSkillDir(parsed.LocalPath, "")
 		if ferr != nil {
