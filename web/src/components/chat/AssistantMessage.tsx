@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { getAgentColor } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
-import { CopyButton } from "./CopyButton";
+import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import { SessionTrace } from "./SessionTrace";
 
 export interface AssistantMessageProps {
@@ -73,11 +73,6 @@ export function AssistantMessage({
               <span className="size-1.5 animate-pulse rounded-full bg-chart-2" />
             </span>
           )}
-          {timestamp && !streaming && (
-            <span className="font-mono text-xs text-muted-foreground/50">
-              {formatTime(timestamp)}
-            </span>
-          )}
         </div>
       )}
       <div className="min-w-0 space-y-3 ml-2.5 border-l border-border pl-4">
@@ -109,22 +104,26 @@ export function AssistantMessage({
               .join("")}
           />
         )}
-        {showTimestamp && (
-          <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground/60 mt-2">
-            {model && (
-              <span className="bg-muted border border-border/10 px-1.5 py-0.5 rounded text-foreground/75 font-medium">
-                {model}
-              </span>
-            )}
-            {timestamp && sameRoleAsPrev && <span>{formatTime(timestamp)}</span>}
-            {(tokenCount ?? 0) > 0 && (
-              <span className="text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100">
-                {tokenCount!.toLocaleString()} tok
-              </span>
-            )}
-          </div>
-        )}
-        {!streaming && copyText && <CopyButton text={copyText} className="-ml-1" />}
+        {!streaming &&
+          (copyText || (showTimestamp && (model || timestamp || (tokenCount ?? 0) > 0))) && (
+            <div
+              className={cn(
+                "mt-1 flex items-center gap-2 text-xs font-mono text-muted-foreground/60",
+                REVEAL_ON_HOVER,
+              )}
+            >
+              {copyText && <CopyButton text={copyText} className="-ml-1.5" />}
+              {showTimestamp && model && (
+                <span className="rounded border border-border/10 bg-muted px-1.5 py-0.5 font-medium text-foreground/75">
+                  {model}
+                </span>
+              )}
+              {showTimestamp && timestamp && <span>{formatTime(timestamp)}</span>}
+              {showTimestamp && (tokenCount ?? 0) > 0 && (
+                <span>{tokenCount!.toLocaleString()} tok</span>
+              )}
+            </div>
+          )}
       </div>
     </div>
   );

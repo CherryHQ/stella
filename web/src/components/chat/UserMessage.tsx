@@ -1,7 +1,8 @@
 import { FileText } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
-import { CopyButton } from "./CopyButton";
+import { cn } from "@/lib/utils";
+import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import {
   replaceUUIDMentions,
   extractUserText,
@@ -21,6 +22,7 @@ export interface UserMessageProps {
   sessionId?: string;
   agentNames?: Map<string, string>;
   sameRoleAsPrev?: boolean;
+  showTimestamp?: boolean;
 }
 
 export function UserMessage({
@@ -29,6 +31,7 @@ export function UserMessage({
   sessionId,
   agentNames,
   sameRoleAsPrev,
+  showTimestamp,
 }: UserMessageProps) {
   const { t } = useI18n();
   const displayContent = replaceUUIDMentions(extractUserText(msg), agentNames);
@@ -40,11 +43,6 @@ export function UserMessage({
     <div className="group w-full min-w-0 flex flex-col items-end gap-1.5">
       {!sameRoleAsPrev && (
         <div className="flex items-center gap-2 mb-0.5">
-          {msg.timestamp && (
-            <span className="font-mono text-xs text-muted-foreground/50">
-              {formatTime(msg.timestamp)}
-            </span>
-          )}
           <span className="text-xs font-semibold text-foreground">{t("chat.you")}</span>
           <span className="grid size-5 place-items-center rounded-full bg-foreground/15 text-xs font-semibold text-foreground shrink-0">
             Y
@@ -98,7 +96,17 @@ export function UserMessage({
             ))}
           </div>
         )}
-        <CopyButton text={text} className="-mr-1" />
+        {(text || (showTimestamp && msg.timestamp)) && (
+          <div
+            className={cn(
+              "flex items-center gap-2 text-xs font-mono text-muted-foreground/60",
+              REVEAL_ON_HOVER,
+            )}
+          >
+            {showTimestamp && msg.timestamp && <span>{formatTime(msg.timestamp)}</span>}
+            {text && <CopyButton text={text} className="-mr-1.5" />}
+          </div>
+        )}
       </div>
     </div>
   );

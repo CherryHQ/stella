@@ -83,6 +83,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
                 sessionId={fileSessionId}
                 agentNames={agentNames}
                 sameRoleAsPrev={msg.sameRoleAsPrev}
+                showTimestamp={msg.showTimestamp}
               />
             ) : (
               <AssistantMessage
