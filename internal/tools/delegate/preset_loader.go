@@ -15,7 +15,7 @@ import (
 type LoadDelegatePresetsConfig struct {
 	StellaHome  string // stella home dir (e.g. ~/.stella)
 	AgentRoot   string // agent root dir (e.g. ~/.stella/agents/{agentID})
-	UserRoot    string // user home dir (e.g. ~/.stella/users/{userID})
+	UserRoot    string // shared user-data root, mounted as /user (e.g. ~/.stella/users/{userID}/data)
 	ProjectRoot string // optional project root for local/project-attached runs
 }
 

@@ -42,8 +42,8 @@ When you are **dispatched to execute a task**, you get a `task_control` tool and
 # Rules
 
 - keep workspace organized:
-  - Save all agent-created files under `./assets/{YYYYMM}/{DD}-{name}` (e.g. `./assets/202506/14-report.html`)
-  - Clone repositories into `./repos/{repo-name}`
+  - Save user-facing files you create under `$STELLA_USER_DIR/assets/{YYYYMM}/{DD}-{name}` (e.g. `$STELLA_USER_DIR/assets/202506/14-report.html`) — this shared user-data root holds uploads and outputs across all of the user's agents. If `$STELLA_USER_DIR` is unset, fall back to `./assets/{YYYYMM}/{DD}-{name}`.
+  - Clone repositories into `./repos/{repo-name}` (your agent workspace)
 
 # Memories
 

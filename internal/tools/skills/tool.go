@@ -80,6 +80,11 @@ type Tool struct {
 	agentRoot     string
 	projectRoot   string
 	userSkillsDir string
+	// userAgentSkillsDir is the per-(user, agent) skills dir (the agent workspace,
+	// mounted as /workspace). user_agent skills live here, not under the shared
+	// userSkillsDir. Empty falls back to userSkillsDir (non-sandbox callers).
+	userAgentSkillsDir string
+	view               SkillDirView
 }
 
 func NewTool(store pkgplugins.SkillStore, stellaHome, agentRoot, projectRoot, userSkillsDir string) *Tool {
@@ -91,6 +96,72 @@ func NewTool(store pkgplugins.SkillStore, stellaHome, agentRoot, projectRoot, us
 		projectRoot:   projectRoot,
 		userSkillsDir: userSkillsDir,
 	}
+}
+
+// WithSkillDirView sets how host skill directories are remapped to the
+// model-visible paths the agent sees inside the sandbox. The default (zero value)
+// emits host paths, which is correct for host-execution and non-sandbox callers.
+func (t *Tool) WithSkillDirView(v SkillDirView) *Tool {
+	t.view = v
+	return t
+}
+
+// WithUserAgentSkillsDir sets the host dir for user_agent-scoped skills (the
+// agent workspace, mounted as /workspace), distinct from the shared user skills
+// dir. Without it, user_agent skill_dir falls back to the user skills dir.
+func (t *Tool) WithUserAgentSkillsDir(dir string) *Tool {
+	t.userAgentSkillsDir = dir
+	return t
+}
+
+// SkillDirView remaps a host skill directory to the path the agent sees inside
+// the sandbox, so an emitted <skill_dir> is usable in bash and never leaks a host
+// path. The zero value is identity (host paths emitted) for host-execution and
+// non-sandbox callers. For an isolating backend, set Isolated and the host→view
+// root pairs; a skill dir under no known root is then omitted rather than leaked.
+type SkillDirView struct {
+	Isolated bool
+	// SystemSkillsHost/View map the system skills dir specifically (not all of
+	// STELLA_HOME): only that subtree is mounted, so a broad STELLA_HOME mapping
+	// would wrongly swallow the sibling users/ and agents/ trees nested under it.
+	SystemSkillsHost string
+	SystemSkillsView string
+	// UserData and Workspace are full binds, so their whole root maps (this lets
+	// project skills under <workspace>/projects/<id>/.agents/skills map too).
+	UserDataHost  string
+	UserDataView  string
+	WorkspaceHost string
+	WorkspaceView string
+}
+
+// apply remaps hostDir to its model-visible path. It returns "" to omit the dir
+// when an isolating backend has no mounted root containing hostDir (emitting the
+// host path would leak the host layout and would not resolve in the sandbox).
+func (v SkillDirView) apply(hostDir string) string {
+	if hostDir == "" {
+		return ""
+	}
+	clean := filepath.Clean(hostDir)
+	for _, m := range [][2]string{
+		{v.WorkspaceHost, v.WorkspaceView},
+		{v.UserDataHost, v.UserDataView},
+		{v.SystemSkillsHost, v.SystemSkillsView},
+	} {
+		if m[0] == "" {
+			continue
+		}
+		host := filepath.Clean(m[0])
+		if clean == host {
+			return m[1]
+		}
+		if rel, err := filepath.Rel(host, clean); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return filepath.Join(m[1], rel)
+		}
+	}
+	if v.Isolated {
+		return ""
+	}
+	return hostDir
 }
 
 const (
@@ -117,11 +188,22 @@ func (t *Tool) skillDirForScope(scope, agentID string, userID string, skillName 
 			return ""
 		}
 		return filepath.Join(t.agentRoot, ".agents", "skills", skillName)
-	case "user", "user_agent":
+	case "user":
 		if t.userSkillsDir == "" {
 			return ""
 		}
 		return filepath.Join(t.userSkillsDir, skillName)
+	case "user_agent":
+		// user_agent skills live in the agent workspace (/workspace), not the
+		// shared user dir; fall back to the user dir for non-sandbox callers.
+		dir := t.userAgentSkillsDir
+		if dir == "" {
+			dir = t.userSkillsDir
+		}
+		if dir == "" {
+			return ""
+		}
+		return filepath.Join(dir, skillName)
 	default:
 		return ""
 	}
@@ -249,6 +331,10 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 			skillDir = t.skillDirForScope(rs.Scope, rs.AgentID, rs.UserID, rs.Name)
 		}
 	}
+
+	// Remap the host directory to the path the agent sees inside the sandbox; an
+	// unmappable dir on an isolating backend is dropped rather than leaked.
+	skillDir = t.view.apply(skillDir)
 
 	var out strings.Builder
 	if skillDir != "" {

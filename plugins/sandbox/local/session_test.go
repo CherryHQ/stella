@@ -365,6 +365,58 @@ func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
 	}
 }
 
+// TestSystemTree_readableButNotWritable verifies that on an isolating backend
+// (sandbox STELLA_HOME differs from host), the read-only system install tree
+// addressed as /opt/stella is resolvable for reads and rejected for writes.
+func TestSystemTree_readableButNotWritable(t *testing.T) {
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	hostSH := t.TempDir()
+	hostSH, _ = filepath.EvalSymlinks(hostSH)
+
+	skillDir := filepath.Join(hostSH, ".agents", "skills", "demo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "refs.md"), []byte("# refs"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := &localSession{
+		id:                "test",
+		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		realRoot:          root,
+		sandboxRoot:       root,
+		stellaHomeHost:    hostSH,
+		stellaHomeSandbox: "/opt/stella",
+		done:              make(chan struct{}),
+	}
+
+	// The agent addresses the system tree via its sandbox view (/opt/stella/...).
+	sandboxPath := "/opt/stella/.agents/skills/demo/refs.md"
+	real, _, err := s.resolvePath(sandboxPath)
+	if err != nil {
+		t.Fatalf("resolvePath rejected system-tree read: %v", err)
+	}
+	if want := filepath.Join(skillDir, "refs.md"); real != want {
+		t.Errorf("resolvePath real = %q, want %q", real, want)
+	}
+
+	// Writes into the system tree must be rejected.
+	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
+		t.Fatal("expected ResolveWritePath to reject system-tree path, got nil")
+	}
+
+	// Only the RO-mounted subtrees are reachable: sibling host trees nested under
+	// STELLA_HOME (users/, agents/) must stay invisible even via /opt/stella.
+	if err := os.MkdirAll(filepath.Join(hostSH, "users", "u1"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if _, _, err := s.resolvePath("/opt/stella/users/u1/secret"); err == nil {
+		t.Fatal("expected resolvePath to reject /opt/stella/users (not a mounted subtree), got nil")
+	}
+}
+
 // TestResolveWritePath_acceptsWorkspace verifies that ResolveWritePath allows
 // paths within the writable workspace root.
 func TestResolveWritePath_acceptsWorkspace(t *testing.T) {

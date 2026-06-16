@@ -1303,7 +1303,10 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 
 	now := time.Now()
 	hash := fmt.Sprintf("%06x", now.UnixNano()&0xFFFFFF)
-	dir := filepath.Join(root, ".assets", now.Format("200601"))
+	// Uploads are user-shared, not agent-private: store under the user-data root
+	// (mounted as /user) so the agent reaches them at $STELLA_USER_DIR/assets,
+	// alongside channel uploads.
+	dir := filepath.Join(agent.UserDataDir(root), "assets", now.Format("200601"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		s.writeInternalError(w, err)
 		return

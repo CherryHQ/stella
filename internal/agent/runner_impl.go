@@ -273,9 +273,10 @@ func buildDelegatePresets(cfg runnerConfig) *delegatetool.PresetRegistry {
 		slog.Warn("failed to extract builtin delegates", "error", err)
 	}
 	return delegatetool.NewPresetRegistry(delegatetool.LoadDelegatePresets(delegatetool.LoadDelegatePresetsConfig{
-		StellaHome:  paths.StellaHome,
-		AgentRoot:   paths.AgentRoot,
-		UserRoot:    paths.UserRoot,
+		StellaHome: paths.StellaHome,
+		AgentRoot:  paths.AgentRoot,
+		// User-level presets live under the shared user-data root (mounted as /user).
+		UserRoot:    paths.UserDataDir,
 		ProjectRoot: paths.ProjectRoot,
 	}))
 }

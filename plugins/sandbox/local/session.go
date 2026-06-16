@@ -87,15 +87,16 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
 	}
 	s := &localSession{
-		id:              sessionID,
-		policy:          policy,
-		realRoot:        realRoot,
-		sandboxRoot:     sandboxRoot,
-		userDataReal:    userDataReal,
-		userDataSandbox: userDataSandbox,
-		stellaHomeHost:  hostStellaHome,
-		tmpMounts:       tmpMounts,
-		done:            make(chan struct{}),
+		id:                sessionID,
+		policy:            policy,
+		realRoot:          realRoot,
+		sandboxRoot:       sandboxRoot,
+		userDataReal:      userDataReal,
+		userDataSandbox:   userDataSandbox,
+		stellaHomeHost:    hostStellaHome,
+		stellaHomeSandbox: adjustStellaHome(hostStellaHome),
+		tmpMounts:         tmpMounts,
+		done:              make(chan struct{}),
 	}
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
 	return s, nil
@@ -244,19 +245,20 @@ func remapStellaHomePath(p, hostSH, sandboxSH string) string {
 // localSession implements sandboxpkg.Session by running commands directly on
 // the host OS with no container isolation.
 type localSession struct {
-	id              string
-	policy          sandboxpkg.Policy
-	realRoot        string     // actual host path (e.g. /home/stella/.stella-dev/...)
-	sandboxRoot     string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
-	userDataReal    string     // host path of the shared user-data root, "" when none
-	userDataSandbox string     // path the agent sees for it (/user on Linux+bwrap, else = userDataReal)
-	stellaHomeHost  string     // host-side STELLA_HOME for bwrap mounts
-	tmpMounts       []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
-	done            chan struct{}
-	doneOnce        sync.Once
-	mu              sync.RWMutex
-	closed          bool
-	procs           []*localProcess
+	id                string
+	policy            sandboxpkg.Policy
+	realRoot          string     // actual host path (e.g. /home/stella/.stella-dev/...)
+	sandboxRoot       string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
+	userDataReal      string     // host path of the shared user-data root, "" when none
+	userDataSandbox   string     // path the agent sees for it (/user on Linux+bwrap, else = userDataReal)
+	stellaHomeHost    string     // host-side STELLA_HOME for bwrap mounts
+	stellaHomeSandbox string     // agent's view of STELLA_HOME (/opt/stella on Linux+bwrap, else = host)
+	tmpMounts         []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
+	done              chan struct{}
+	doneOnce          sync.Once
+	mu                sync.RWMutex
+	closed            bool
+	procs             []*localProcess
 }
 
 func (s *localSession) Policy() sandboxpkg.Policy { return s.policy }
@@ -348,6 +350,13 @@ func (s *localSession) ResolveWritePath(agentPath string) (string, error) {
 	if matchingExtraMount(s.policy.Filesystem.ExtraReadOnlyMounts, resolved) != "" {
 		return "", fmt.Errorf("local: path %q is in a read-only mount", agentPath)
 	}
+	// The system install subtrees (/opt/stella/*) are read-only — reject writes
+	// even though resolvePath allows reads of them.
+	for _, pair := range s.stellaHomeSubdirs() {
+		if pathWithinRoot(filepath.Clean(pair[1]), resolved) {
+			return "", fmt.Errorf("local: path %q is in the read-only system tree", agentPath)
+		}
+	}
 	return resolved, nil
 }
 
@@ -406,6 +415,17 @@ func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath stri
 		}
 	}
 
+	// Also allow read of the RO system install subtrees (/opt/stella/{bin,
+	// .mise-tools,.agents/skills}) — e.g. system skill bundles the model addresses
+	// via skill_dir. Scoped to the mounted subtrees only, never the whole host
+	// STELLA_HOME, so the sibling users/ and agents/ trees stay invisible. Writes
+	// are rejected separately in ResolveWritePath.
+	for _, pair := range s.stellaHomeSubdirs() {
+		if pathWithinRoot(filepath.Clean(pair[1]), resolved) {
+			return resolved, s.toSandboxPath(resolved), nil
+		}
+	}
+
 	// Also allow access to extra read-only mounts (e.g. agent-level skill dirs).
 	if mountRoot := matchingExtraMount(s.policy.Filesystem.ExtraReadOnlyMounts, resolved); mountRoot != "" {
 		if err := rejectLocalSymlinkTraversal(mountRoot, real); err != nil {
@@ -454,6 +474,26 @@ func matchingExtraMount(mounts []string, resolved string) string {
 		}
 	}
 	return best
+}
+
+// stellaHomeSubdirs returns the {sandboxRoot, hostRoot} pairs for each subtree of
+// STELLA_HOME that an isolating backend RO-mounts (see StellaHomeSandboxDirs).
+// File tools mirror exactly these mounts — reads are scoped to them and nothing
+// broader, so the sibling users/ and agents/ host trees nested under STELLA_HOME
+// stay invisible. Returns nil on identity backends (sandbox == host).
+func (s *localSession) stellaHomeSubdirs() [][2]string {
+	if s.stellaHomeHost == "" || s.stellaHomeSandbox == s.stellaHomeHost {
+		return nil
+	}
+	names := sandboxpkg.StellaHomeSandboxDirs()
+	out := make([][2]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, [2]string{
+			filepath.Join(s.stellaHomeSandbox, name),
+			filepath.Join(s.stellaHomeHost, name),
+		})
+	}
+	return out
 }
 
 // pathWithinRoot reports whether path is the root itself or is contained under it.
@@ -515,6 +555,14 @@ func (s *localSession) toRealPath(sandboxPath string) string {
 			return filepath.Join(s.userDataReal, rel)
 		}
 	}
+	// RO system install subtrees: /opt/stella/{bin,.mise-tools,.agents/skills}/...
+	// map back to the matching host STELLA_HOME subtree (only the mounted ones).
+	for _, pair := range s.stellaHomeSubdirs() {
+		if rel, err := filepath.Rel(pair[0], filepath.Clean(sandboxPath)); err == nil &&
+			rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return filepath.Join(pair[1], rel)
+		}
+	}
 	if s.sandboxRoot == s.realRoot {
 		return sandboxPath
 	}
@@ -556,6 +604,17 @@ func (s *localSession) toSandboxPath(realPath string) string {
 				return s.userDataSandbox
 			}
 			return filepath.Join(s.userDataSandbox, rel)
+		}
+	}
+	// RO system install subtrees: host STELLA_HOME subtrees map back to
+	// /opt/stella/{bin,.mise-tools,.agents/skills}/... (only the mounted ones).
+	for _, pair := range s.stellaHomeSubdirs() {
+		if rel, err := filepath.Rel(pair[1], clean); err == nil &&
+			rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			if rel == "." {
+				return pair[0]
+			}
+			return filepath.Join(pair[0], rel)
 		}
 	}
 	if s.sandboxRoot == s.realRoot {

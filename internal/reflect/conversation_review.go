@@ -123,7 +123,8 @@ func loadExistingSkillSummaries(ctx context.Context, store pkgplugins.SkillStore
 }
 
 func userSkillsDir(workspace string, userID string) string {
-	return filepath.Join(workspace, "users", userID, ".agents", "skills")
+	// User skills live under the shared user-data root (data/, mounted as /user).
+	return filepath.Join(workspace, "users", userID, "data", ".agents", "skills")
 }
 
 func (s *Service) notifyReviewResult(ctx context.Context, userID string, result reviewResult) {

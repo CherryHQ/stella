@@ -21,7 +21,7 @@ import (
 // an infrastructure path, not a home-shaped one — the agent's home is the user
 // workspace at /workspace, set in adjustPolicy, so XDG defaults and the agent's own
 // mise tree land under that home, never under this system tree (#442).
-const sandboxStellaHome = "/opt/stella"
+const sandboxStellaHome = sandboxpkg.MountStellaHome
 
 // setSysProcAttr places the child in its own process group so that
 // killProcessGroup can terminate the entire subtree.
@@ -92,7 +92,7 @@ func checkSandboxRequirements() error {
 // resolveSandboxRoot returns the sandbox-space root and the real host root.
 // On Linux bwrap is required, so the agent always sees /workspace.
 func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	return "/workspace", policy.WorkspaceRootOrDefault()
+	return sandboxpkg.MountWorkspace, policy.WorkspaceRootOrDefault()
 }
 
 // resolveUserDataRoot returns the sandbox-space and host paths of the shared
@@ -103,7 +103,7 @@ func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string
 	if realRoot == "" {
 		return "", ""
 	}
-	return "/user", realRoot
+	return sandboxpkg.MountUserData, realRoot
 }
 
 // createSessionTmpMounts returns host directories for each sandbox temp path.

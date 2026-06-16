@@ -79,12 +79,12 @@ type PromptInventoryContext struct {
 // SystemPromptContext is the shared build context for prompt contributions.
 // HomeDir is host-scoped discovery context; UserRoot is the runtime writable root.
 type SystemPromptContext struct {
-	Platform    Platform
-	State       PluginState
-	StellaHome  string
-	HomeDir     string
-	AgentRoot   string
-	ProjectRoot string
+	Platform      Platform
+	State         PluginState
+	StellaHome    string
+	HomeDir       string
+	AgentRoot     string
+	ProjectRoot   string
 	UserID        string
 	AgentID       string
 	UserRoot      string

@@ -16,6 +16,21 @@ const (
 	NetworkAllowAll NetworkMode = "allow_all"
 )
 
+// Mount points an isolating backend exposes inside the sandbox. These are the
+// stable, model-visible paths for the two-root layout (plus the read-only system
+// install tree). The bwrap backend binds the host roots here; higher layers
+// (e.g. the skills tool's skill_dir remap) address skills by these paths instead
+// of host paths. Backends that don't isolate the filesystem (none) ignore them
+// and use host paths directly.
+const (
+	// MountWorkspace is the agent's per-agent workspace root and HOME/cwd.
+	MountWorkspace = "/workspace"
+	// MountUserData is the shared user-data root (toolchain, caches, skills, uploads).
+	MountUserData = "/user"
+	// MountStellaHome is the read-only system install tree (STELLA_HOME).
+	MountStellaHome = "/opt/stella"
+)
+
 // Policy is an immutable, backend-agnostic session policy describing requested limits
 // for filesystem, network, and process constraints.
 type Policy struct {
