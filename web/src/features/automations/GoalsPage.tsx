@@ -10,7 +10,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { useAppShell } from "@/layouts/AppShell";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Button } from "@/components/ui/button";
 import { StatusDot, StatusPill, avatarInitials, goalNeedsYou, statusLabel } from "./lib";
 
 export type GoalsView = "triage" | "board" | "table";
@@ -64,22 +64,21 @@ export function GoalsPage() {
     );
     setHeaderActions(
       <div className="flex items-center gap-1">
-        <ToggleGroup
-          variant="outline"
-          size="sm"
-          value={[cur]}
-          onValueChange={(value: string[]) => value[0] && setView(value[0] as GoalsView)}
-        >
-          {VIEWS.map((v) => {
-            const Icon = VIEW_ICON[v];
-            return (
-              <ToggleGroupItem key={v} value={v}>
-                <Icon />
-                <span className="max-sm:hidden">{t(VIEW_LABEL[v])}</span>
-              </ToggleGroupItem>
-            );
-          })}
-        </ToggleGroup>
+        {VIEWS.map((v) => {
+          const Icon = VIEW_ICON[v];
+          return (
+            <Button
+              key={v}
+              size="sm"
+              variant={cur === v ? "secondary" : "outline"}
+              aria-pressed={cur === v}
+              onClick={() => setView(v)}
+            >
+              <Icon />
+              <span className="max-sm:hidden">{t(VIEW_LABEL[v])}</span>
+            </Button>
+          );
+        })}
         <span className="font-mono text-xs text-muted-foreground max-sm:hidden">
           {t("goals.unit", { count: goals.length })}
         </span>

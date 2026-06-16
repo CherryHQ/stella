@@ -13,7 +13,7 @@ export function TaskNewPage() {
     <TaskPanel
       agentId={agentId}
       projectId={projectId}
-      onCreated={(task: ComponentsTask) => {
+      onCreatedTask={(task: ComponentsTask) => {
         void queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
         if (task.session_id) {
           void navigate({
@@ -23,6 +23,13 @@ export function TaskNewPage() {
         } else {
           void navigate({ to: "/agents/$agentId/tasks", params: { agentId } });
         }
+      }}
+      onCreatedJob={(jobId: string) => {
+        void queryClient.invalidateQueries({ queryKey: ["agent-scheduler-jobs"] });
+        void navigate({
+          to: "/agents/$agentId/tasks/schedules/$scheduleId",
+          params: { agentId, scheduleId: jobId },
+        });
       }}
     />
   );

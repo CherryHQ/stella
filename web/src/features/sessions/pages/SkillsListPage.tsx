@@ -134,22 +134,25 @@ export function SkillsListPage() {
   useEffect(() => {
     setHeaderActions(
       <div className="flex items-center gap-1">
-        <ToggleGroup
-          variant="outline"
+        <Button
           size="sm"
-          value={[activeTab]}
-          onValueChange={(value: string[]) => value[0] && setTab(value[0])}
+          variant={activeTab === "installed" ? "secondary" : "outline"}
+          aria-pressed={activeTab === "installed"}
+          onClick={() => setTab("installed")}
         >
-          <ToggleGroupItem value="installed">
-            <Blocks />
-            <span className="max-sm:hidden">{t("sessions.skillsList.installedTab")}</span>
-            <span className="max-sm:hidden">{skills.length}</span>
-          </ToggleGroupItem>
-          <ToggleGroupItem value="discover">
-            <Search />
-            <span className="max-sm:hidden">{t("sessions.skillsList.discoverTab")}</span>
-          </ToggleGroupItem>
-        </ToggleGroup>
+          <Blocks />
+          <span className="max-sm:hidden">{t("sessions.skillsList.installedTab")}</span>
+          <span className="max-sm:hidden">{skills.length}</span>
+        </Button>
+        <Button
+          size="sm"
+          variant={activeTab === "discover" ? "secondary" : "outline"}
+          aria-pressed={activeTab === "discover"}
+          onClick={() => setTab("discover")}
+        >
+          <Search />
+          <span className="max-sm:hidden">{t("sessions.skillsList.discoverTab")}</span>
+        </Button>
       </div>,
     );
     return () => setHeaderActions(null);

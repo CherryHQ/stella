@@ -360,14 +360,15 @@ export function SessionDetail({
                   <DropdownMenuTrigger
                     render={
                       <Button
-                        variant="ghost"
-                        size="icon-sm"
+                        variant="outline"
+                        size="sm"
                         aria-disabled={exportDisabled || undefined}
                         data-disabled={exportDisabled || undefined}
-                        className="text-muted-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                        className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                         aria-label={t("sessions.export.button")}
                       >
-                        <Download className="size-3.5" />
+                        <Download />
+                        <span className="max-sm:hidden">{t("sessions.export.label")}</span>
                       </Button>
                     }
                   />
@@ -395,13 +396,13 @@ export function SessionDetail({
               <TooltipTrigger
                 render={
                   <Button
-                    variant="ghost"
-                    size="icon-sm"
+                    variant="outline"
+                    size="sm"
                     onClick={onNewSession}
-                    className="text-muted-foreground"
                     aria-label={t("sessions.startThread")}
                   >
-                    <MessageCircleDashed className="size-3.5" />
+                    <MessageCircleDashed />
+                    <span className="max-sm:hidden">{t("sessions.startThread")}</span>
                   </Button>
                 }
               />
@@ -410,17 +411,13 @@ export function SessionDetail({
           )}
           {onToggleWorkspace && (
             <Button
-              variant="ghost"
-              size="icon-sm"
+              variant="outline"
+              size="sm"
               onClick={onToggleWorkspace}
-              className="text-muted-foreground"
               title={workspaceOpen ? t("sessions.hideInspector") : t("sessions.showInspector")}
             >
-              {workspaceOpen ? (
-                <PanelRightClose className="size-3.5" />
-              ) : (
-                <PanelRightOpen className="size-3.5" />
-              )}
+              {workspaceOpen ? <PanelRightClose /> : <PanelRightOpen />}
+              <span className="max-sm:hidden">{t("sessions.inspectorPanel")}</span>
             </Button>
           )}
         </div>
