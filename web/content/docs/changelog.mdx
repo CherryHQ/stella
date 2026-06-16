@@ -11,6 +11,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-06-16
+
+### ✨ Features
+
+- Web UI: teal theme, user-selectable accent color, and button unification. ([#472](https://github.com/CherryHQ/stella/pull/472))
+- Skills: scoped skill management with four-level scopes. ([#471](https://github.com/CherryHQ/stella/pull/471))
+- Channels: add WeChat QR bot setup. ([#464](https://github.com/CherryHQ/stella/pull/464))
+- Channels: add Feishu QR bot setup. ([#461](https://github.com/CherryHQ/stella/pull/461))
+- Credentials: add scoped credential envs. ([#445](https://github.com/CherryHQ/stella/pull/445))
+- Sandbox: layered per-user mise — shared system base + per-user writable installs. ([#437](https://github.com/CherryHQ/stella/pull/437))
+
+### 🐛 Bug Fixes
+
+- Web: align user chat message typography with agent output. ([#469](https://github.com/CherryHQ/stella/pull/469))
+- OAuth: stop merging tool scopes into Feishu login (HTTP 431). ([#468](https://github.com/CherryHQ/stella/pull/468))
+- Server: invalidate runner cache when vault entries change. ([#466](https://github.com/CherryHQ/stella/pull/466))
+- Web: expose full goals view from agent tasks. ([#444](https://github.com/CherryHQ/stella/pull/444))
+- Web: repair Recally article list display. ([#441](https://github.com/CherryHQ/stella/pull/441))
+- Feishu: preserve thread context in group sessions. ([#435](https://github.com/CherryHQ/stella/pull/435))
+
+### ♻️ Refactoring
+
+- Vault: remove legacy `/api/users/me/vault` routes. ([#470](https://github.com/CherryHQ/stella/pull/470))
+- Sandbox: generalize MiseUserDirHost into ExtraWritableMounts. ([#448](https://github.com/CherryHQ/stella/pull/448))
+- Sandbox: key per-principal mise/temp trees by subtree, drop name prefix. ([#443](https://github.com/CherryHQ/stella/pull/443))
+
+### 📦 Dependencies
+
+- Replace webfetch extractor with defuddle.
+
+**Full Changelog**: [v0.47.0...v0.48.0](https://github.com/CherryHQ/stella/compare/v0.47.0...v0.48.0)
+
 ## [0.47.0] - 2026-06-15
 
 ### ✨ Features

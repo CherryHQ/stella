@@ -11,6 +11,38 @@ icon: History
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-06-16
+
+### ✨ 功能
+
+- Web UI：teal 主题、用户可选强调色、按钮统一。([#472](https://github.com/CherryHQ/stella/pull/472))
+- Skills：四级作用域的技能管理。([#471](https://github.com/CherryHQ/stella/pull/471))
+- Channels：新增微信二维码机器人接入。([#464](https://github.com/CherryHQ/stella/pull/464))
+- Channels：新增飞书二维码机器人接入。([#461](https://github.com/CherryHQ/stella/pull/461))
+- Credentials：新增作用域凭证环境变量。([#445](https://github.com/CherryHQ/stella/pull/445))
+- Sandbox：分层 per-user mise — 共享系统基础 + 用户可写安装。([#437](https://github.com/CherryHQ/stella/pull/437))
+
+### 🐛 修复
+
+- Web：统一用户消息与 agent 输出的排版。([#469](https://github.com/CherryHQ/stella/pull/469))
+- OAuth：飞书登录不再合并工具 scope（HTTP 431）。([#468](https://github.com/CherryHQ/stella/pull/468))
+- Server：vault 条目变更时清除 runner 缓存。([#466](https://github.com/CherryHQ/stella/pull/466))
+- Web：从 agent tasks 暴露完整 goals 视图。([#444](https://github.com/CherryHQ/stella/pull/444))
+- Web：修复 Recally 文章列表显示。([#441](https://github.com/CherryHQ/stella/pull/441))
+- 飞书：群聊中保持会话线程上下文。([#435](https://github.com/CherryHQ/stella/pull/435))
+
+### ♻️ 重构
+
+- Vault：移除旧版 `/api/users/me/vault` 路由。([#470](https://github.com/CherryHQ/stella/pull/470))
+- Sandbox：将 MiseUserDirHost 泛化为 ExtraWritableMounts。([#448](https://github.com/CherryHQ/stella/pull/448))
+- Sandbox：按 subtree 为 per-principal mise/temp 树建 key，去除 name 前缀。([#443](https://github.com/CherryHQ/stella/pull/443))
+
+### 📦 依赖
+
+- 将 webfetch extractor 替换为 defuddle。
+
+**完整变更日志**：[v0.47.0...v0.48.0](https://github.com/CherryHQ/stella/compare/v0.47.0...v0.48.0)
+
 ## [0.47.0] - 2026-06-15
 
 ### ✨ 功能
