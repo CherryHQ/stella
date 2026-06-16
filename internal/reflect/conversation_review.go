@@ -8,10 +8,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
-	coreskills "github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -94,27 +92,16 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 		profile, _ = ps.GetProfile(ctx, userID, snap.AgentID)
 	}
 	return newReviewer(reviewerConfig{
-		Stream:         stream,
-		Model:          model,
-		SkillsTool:     skillstool.NewTool(s.skillStore, "", "").WithSkillDiskLayout(reviewSkillLayout(snap.Workspace, userID)),
+		Stream: stream,
+		Model:  model,
+		// No skill-disk layout: reflect runs host-identity and only reads skill
+		// content (from the DB) and writes back through the store, which mirrors to
+		// disk itself. The tool needs no skill-path knowledge here.
+		SkillsTool:     skillstool.NewTool(s.skillStore, "", ""),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
 		ExistingSkills: loadExistingSkillSummaries(context.Background(), s.skillStore, userID),
 		CurrentProfile: profile,
 	})
-}
-
-// reviewSkillLayout reproduces the pre-refactor skill_dir mapping for the
-// host-identity reflect tool, where workspace is the agent workspace root (not
-// STELLA_HOME). Skill content is served from the DB; these dirs only label the
-// host-side <skill_dir>. system / DB-system are intentionally absent (the old
-// tool emitted none), and user_agent mirrors user as the old fallback did.
-func reviewSkillLayout(workspace, userID string) coreskills.SkillDiskLayout {
-	userDir := agent.UserSkillsDir(agent.UserDataDir(agent.UserHomeDir(workspace, userID)))
-	return coreskills.SkillDiskLayout{
-		Agent:     agent.UserSkillsDir(workspace),
-		User:      userDir,
-		UserAgent: userDir,
-	}
 }
 
 func loadExistingSkillSummaries(ctx context.Context, store pkgplugins.SkillStore, userID string) []string {

@@ -17,7 +17,6 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
-	coreskills "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -349,9 +348,8 @@ func TestRemoveInvalidName(t *testing.T) {
 func TestTargetScopeDefaultsToUser(t *testing.T) {
 	store, _, _ := newTestSkillStore(t)
 
-	tool := NewTool(store, "/tmp/stella", "").
-		WithSkillDiskLayout(coreskills.SkillDiskLayout{User: t.TempDir()})
-	scope, err := tool.targetScope(context.Background(), "")
+	tool := NewTool(store, "/tmp/stella", "")
+	scope, err := tool.targetScope(ctxWithUser("7", "agent-1"), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -360,10 +358,24 @@ func TestTargetScopeDefaultsToUser(t *testing.T) {
 	}
 }
 
-func TestTargetScopeUserUnavailableWithoutLayout(t *testing.T) {
+func TestTargetScopeRequiresUserContext(t *testing.T) {
 	tool := NewTool(nil, "/tmp/stella", "")
 	if _, err := tool.targetScope(context.Background(), ""); err == nil {
-		t.Fatal("expected error when user scope has no disk location")
+		t.Fatal("expected error for user scope without a user in context")
+	}
+}
+
+// A group turn carries an agent but no user (D9 keeps identity as the group):
+// user-scope writes are refused (no owner), while the agent scope still works.
+func TestTargetScopeGroupContext(t *testing.T) {
+	tool := NewTool(nil, "/tmp/stella", "")
+	groupCtx := memory.WithAgentID(context.Background(), "agent-1")
+
+	if _, err := tool.targetScope(groupCtx, "user"); err == nil {
+		t.Fatal("expected user scope to be refused in a group (no user) context")
+	}
+	if scope, err := tool.targetScope(groupCtx, "agent"); err != nil || scope != skillScopeAgent {
+		t.Fatalf("agent scope in group context = (%q, %v), want (%q, nil)", scope, err, skillScopeAgent)
 	}
 }
 
@@ -755,8 +767,7 @@ func TestInstallFromLocalDirViaStore(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
-	userSkillsDir := t.TempDir()
-	tool := NewTool(store, "", "").WithSkillDiskLayout(coreskills.SkillDiskLayout{User: userSkillsDir})
+	tool := NewTool(store, "", "")
 	result, err := tool.install(ctx, map[string]any{"source": srcDir})
 	if err != nil {
 		t.Fatalf("install error: %v", err)

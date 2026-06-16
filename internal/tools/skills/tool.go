@@ -205,8 +205,19 @@ func (t *Tool) targetScope(ctx context.Context, rawScope string) (string, error)
 	}
 	switch scope {
 	case skillScopeUser:
-		if t.layout.BaseDir(skillScopeUser) == "" {
-			return "", fmt.Errorf("user skill scope is unavailable")
+		// User-scope skills are owned by the requesting user; without a user in
+		// context there is no owner to attribute them to. Where they materialize on
+		// disk is the store's concern (DiskSyncStore), not the tool's — the tool
+		// carries no skill-path knowledge for writes.
+		//
+		// Group sessions deliberately leave the user unset (D9: runtime identity
+		// stays the group, see runtime/chat.go), so user-scope writes are refused
+		// here. That is intentional: the old layout-based gate let them through but
+		// create() then stamped an empty owner — which fails late on the user_id
+		// foreign key under normal enforcement, or (without it) leaves a dead row the
+		// store never resolves and DiskSyncStore never materializes. This fails fast.
+		if memory.UserIDFromContext(ctx) == "" {
+			return "", fmt.Errorf("user skill scope is unavailable without a user context")
 		}
 		return scope, nil
 	case skillScopeAgent:
