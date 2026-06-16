@@ -171,13 +171,9 @@ export function GoalPage() {
             <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {t("hub.subtasks")}
             </h3>
-            <button
-              type="button"
-              onClick={() => setDagOpen(true)}
-              className="text-[12.5px] font-medium text-primary hover:underline"
-            >
+            <Button type="button" variant="link" size="xs" onClick={() => setDagOpen(true)}>
               {t("hub.viewDag")} →
-            </button>
+            </Button>
           </div>
           <div className="overflow-hidden rounded-xl border border-border">
             {tasks.map((task) => {

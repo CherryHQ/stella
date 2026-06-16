@@ -376,16 +376,18 @@ export function WorkspacePanel({
             <Button type="submit" size="xs" className="h-6 min-h-0 text-xs">
               {t("common.add")}
             </Button>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               onClick={() => {
                 setNewItemType(null);
                 setNewItemName("");
               }}
-              className="p-0.5 rounded hover:bg-muted text-muted-foreground"
+              className="text-muted-foreground"
             >
               <X className="w-3 h-3" />
-            </button>
+            </Button>
           </form>
         </div>
       )}

@@ -13,43 +13,38 @@ import { Badge } from "@/components/ui/badge";
 import { Radio, RadioGroup } from "@/components/ui/radio-group";
 import { Dialog, DialogPopup, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetPopup, SheetHeader, SheetFooter, SheetTitle } from "@/components/ui/sheet";
+import {
+  SchedulePicker,
+  scheduleFromString,
+  isScheduleValid,
+  emptySchedule,
+  type ScheduleValue,
+} from "./SchedulePicker";
 
 interface JobForm {
   name: string;
-  cron: string;
-  every: string;
   message: string;
   session_mode: string;
   enabled: boolean;
-  schedule_type: "cron" | "every";
+  schedule: ScheduleValue;
 }
 
 const emptyForm = (): JobForm => ({
   name: "",
-  cron: "",
-  every: "",
   message: "",
   session_mode: "reuse",
   enabled: true,
-  schedule_type: "cron",
+  schedule: emptySchedule(),
 });
 
 function formFromJob(j: SchedulerJob): JobForm {
   return {
     name: j.name,
     message: j.message,
-    schedule_type: j.cron ? "cron" : "every",
-    cron: j.cron || "",
-    every: j.every || "",
+    schedule: { cron: j.cron || "", every: j.every || "", at: j.at || "" },
     session_mode: j.session_mode || "reuse",
     enabled: j.enabled,
   };
-}
-
-/** Parse a default_schedule string into form fields. Cron has spaces; duration is a bare string like "6h". */
-function scheduleToForm(s: string): Pick<JobForm, "schedule_type" | "cron" | "every"> {
-  if (s.includes(" ")) return { schedule_type: "cron", cron: s, every: "" };
-  return { schedule_type: "every", cron: "", every: s };
 }
 
 interface ScheduleSheetProps {
@@ -104,7 +99,7 @@ export function ScheduleSheet({
     setSource(tpl.key);
     setForm((f) => ({
       ...f,
-      ...scheduleToForm(tpl.default_schedule),
+      schedule: scheduleFromString(tpl.default_schedule),
       session_mode: tpl.session_mode,
     }));
   }, []);
@@ -118,8 +113,7 @@ export function ScheduleSheet({
 
   // For custom mode: name + message + schedule required. For template mode: only schedule required.
   const isFormValid = (() => {
-    const scheduleOk = form.schedule_type === "cron" ? !!form.cron : !!form.every;
-    if (!scheduleOk) return false;
+    if (!isScheduleValid(form.schedule)) return false;
     if (job) {
       // edit mode
       return !!form.name;
@@ -139,8 +133,9 @@ export function ScheduleSheet({
       payload = {
         name: form.name,
         message: isSubscription ? undefined : form.message,
-        cron: form.schedule_type === "cron" ? form.cron : "",
-        every: form.schedule_type === "every" ? form.every : "",
+        cron: form.schedule.cron,
+        every: form.schedule.every,
+        at: form.schedule.at,
         session_mode: form.session_mode,
         enabled: form.enabled,
         agent_id: effectiveAgentId,
@@ -149,8 +144,9 @@ export function ScheduleSheet({
       payload = {
         name: form.name,
         message: form.message,
-        cron: form.schedule_type === "cron" ? form.cron : "",
-        every: form.schedule_type === "every" ? form.every : "",
+        cron: form.schedule.cron,
+        every: form.schedule.every,
+        at: form.schedule.at,
         session_mode: form.session_mode,
         enabled: form.enabled,
         agent_id: effectiveAgentId,
@@ -159,8 +155,9 @@ export function ScheduleSheet({
       // Template subscription
       payload = {
         template_key: source,
-        cron: form.schedule_type === "cron" ? form.cron : "",
-        every: form.schedule_type === "every" ? form.every : "",
+        cron: form.schedule.cron,
+        every: form.schedule.every,
+        at: form.schedule.at,
         session_mode: form.session_mode,
         enabled: form.enabled,
         agent_id: effectiveAgentId,
@@ -306,49 +303,7 @@ export function ScheduleSheet({
           )}
 
           <Field label={t("automations.scheduleField")}>
-            <div className="mb-2 flex items-center gap-4">
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="schedule_type"
-                  value="cron"
-                  checked={form.schedule_type === "cron"}
-                  onChange={() => up({ schedule_type: "cron" })}
-                  className="accent-primary"
-                />
-                {t("automations.cronLabel")}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="schedule_type"
-                  value="every"
-                  checked={form.schedule_type === "every"}
-                  onChange={() => up({ schedule_type: "every" })}
-                  className="accent-primary"
-                />
-                {t("automations.intervalLabel")}
-              </label>
-            </div>
-            {form.schedule_type === "cron" ? (
-              <Input
-                type="text"
-                value={form.cron}
-                onChange={(e) => up({ cron: e.target.value })}
-                placeholder="0 9 * * 1-5"
-                className="font-mono"
-                nativeInput
-              />
-            ) : (
-              <Input
-                type="text"
-                value={form.every}
-                onChange={(e) => up({ every: e.target.value })}
-                placeholder="30m, 2h"
-                className="font-mono"
-                nativeInput
-              />
-            )}
+            <SchedulePicker value={form.schedule} onChange={(s) => up({ schedule: s })} />
           </Field>
           <Field label={t("hub.sessionMode")}>
             <select

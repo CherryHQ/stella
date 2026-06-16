@@ -44,12 +44,62 @@ function annotate(messages: TranscriptMessage[]): Annotated[] {
   }));
 }
 
+interface MessageListProps {
+  messages: TranscriptMessage[];
+  fileAgentId?: string;
+  fileSessionId?: string;
+  agentNames?: Map<string, string>;
+  /* Layout classes for the list wrapper (width, centering); styling stays internal. */
+  className?: string;
+}
+
+/** The bare message column, reusable wherever a transcript needs to render (chat, epoch raw view). */
+export function MessageList({
+  messages,
+  fileAgentId,
+  fileSessionId,
+  agentNames,
+  className,
+}: MessageListProps) {
+  const processed = useMemo(() => annotate(messages), [messages]);
+  return (
+    <div className={cn("min-w-0 space-y-6", className)}>
+      {processed.map((msg) => (
+        <div key={msg.id} className={cn("min-w-0", msg.sameRoleAsPrev ? "-mt-3" : "")}>
+          {msg.role === "user" ? (
+            <UserMessage
+              msg={{ content: msg.content, timestamp: msg.timestamp }}
+              agentId={fileAgentId}
+              sessionId={fileSessionId}
+              agentNames={agentNames}
+              sameRoleAsPrev={msg.sameRoleAsPrev}
+              showTimestamp={msg.showTimestamp}
+            />
+          ) : (
+            <AssistantMessage
+              agentName={msg.agentName || "Agent"}
+              agentId={msg.agentId || "default"}
+              blocks={msg.blocks ?? []}
+              timestamp={msg.timestamp}
+              model={msg.model}
+              tokenCount={msg.tokenCount}
+              streaming={msg.streaming}
+              showTimestamp={msg.showTimestamp}
+              sameRoleAsPrev={msg.sameRoleAsPrev}
+              agentSessionId={msg.agentSessionId}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTranscript(
   { messages, loading, onScroll, fileAgentId, fileSessionId, agentNames, header },
   ref,
 ) {
   const { t } = useI18n();
-  const processed = useMemo(() => annotate(messages), [messages]);
 
   return (
     <div
@@ -73,43 +123,13 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
           </p>
         </div>
       )}
-      <div className="mx-auto w-full min-w-0 max-w-3xl space-y-8">
-        {processed.map((msg, idx) => (
-          <div
-            key={msg.id}
-            className={cn(
-              "min-w-0",
-              msg.sameRoleAsPrev ? "-mt-2" : "",
-              idx > 0 && msg.role === "user" && !msg.sameRoleAsPrev
-                ? "border-t border-border/40 pt-8 mt-8"
-                : "",
-            )}
-          >
-            {msg.role === "user" ? (
-              <UserMessage
-                msg={{ content: msg.content, timestamp: msg.timestamp }}
-                agentId={fileAgentId}
-                sessionId={fileSessionId}
-                agentNames={agentNames}
-                sameRoleAsPrev={msg.sameRoleAsPrev}
-              />
-            ) : (
-              <AssistantMessage
-                agentName={msg.agentName || "Agent"}
-                agentId={msg.agentId || "default"}
-                blocks={msg.blocks ?? []}
-                timestamp={msg.timestamp}
-                model={msg.model}
-                tokenCount={msg.tokenCount}
-                streaming={msg.streaming}
-                showTimestamp={msg.showTimestamp}
-                sameRoleAsPrev={msg.sameRoleAsPrev}
-                agentSessionId={msg.agentSessionId}
-              />
-            )}
-          </div>
-        ))}
-      </div>
+      <MessageList
+        messages={messages}
+        fileAgentId={fileAgentId}
+        fileSessionId={fileSessionId}
+        agentNames={agentNames}
+        className="mx-auto w-full max-w-3xl"
+      />
     </div>
   );
 });

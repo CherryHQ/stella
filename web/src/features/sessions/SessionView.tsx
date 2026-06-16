@@ -200,7 +200,7 @@ export function SessionView() {
 
       <div
         className={cn(
-          "stella-right-panel relative hidden flex-shrink-0 bg-card transition-[width,min-width,opacity] duration-200 ease-out md:block",
+          "stella-right-panel relative hidden flex-shrink-0 bg-sidebar transition-[width,min-width,opacity] duration-200 ease-out md:block",
           showWorkspace
             ? "min-w-0 overflow-hidden border-l border-border"
             : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
@@ -228,7 +228,7 @@ export function SessionView() {
         <SheetPopup
           side="right"
           showCloseButton={false}
-          className="w-[85%] max-w-sm border-l border-border bg-card"
+          className="w-[85%] max-w-sm border-l border-border bg-sidebar"
         >
           <SheetTitle className="sr-only">{t("sessions.inspector.inspector")}</SheetTitle>
           <SheetDescription className="sr-only">

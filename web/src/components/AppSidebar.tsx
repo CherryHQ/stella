@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { ThemeSelector, UserMenu } from "@/components/SiteHeader";
+import { ThemeMenu, UserMenu } from "@/components/SiteHeader";
 import { ChevronDown, Bot, BookOpen, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 import {
@@ -156,7 +156,7 @@ export function AppSidebarFooter() {
           />
           <span className="truncate">{t("nav.settings")}</span>
         </Link>
-        <ThemeSelector />
+        <ThemeMenu />
         <UserMenu />
       </div>
     </div>

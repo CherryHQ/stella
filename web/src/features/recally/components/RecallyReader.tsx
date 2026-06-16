@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { Button } from "@/components/ui/button";
 import {
   Check,
   EyeOff,
@@ -202,7 +203,9 @@ export function RecallyReader({
 
               {/* Status Update Controls */}
               {selectedArticle.status !== "read" ? (
-                <button
+                <Button
+                  variant="outline"
+                  size="icon-sm"
                   onClick={() =>
                     updateArticleMut.mutate({
                       body: { status: "read" },
@@ -210,13 +213,14 @@ export function RecallyReader({
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border transition-colors text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer duration-120"
                   title={t("recally.action.markRead")}
                 >
                   <Check className="size-4" />
-                </button>
+                </Button>
               ) : (
-                <button
+                <Button
+                  variant="outline"
+                  size="icon-sm"
                   onClick={() =>
                     updateArticleMut.mutate({
                       body: { status: "unread" },
@@ -224,15 +228,16 @@ export function RecallyReader({
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border transition-colors text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer duration-120"
                   title={t("recally.action.markUnread")}
                 >
                   <EyeOff className="size-4" />
-                </button>
+                </Button>
               )}
 
               {selectedArticle.status !== "archived" && (
-                <button
+                <Button
+                  variant="outline"
+                  size="icon-sm"
                   onClick={() =>
                     updateArticleMut.mutate({
                       body: { status: "archived" },
@@ -240,15 +245,16 @@ export function RecallyReader({
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border transition-colors text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer duration-120"
                   title={t("recally.action.archive")}
                 >
                   <Archive className="size-4" />
-                </button>
+                </Button>
               )}
 
               {/* Star */}
-              <button
+              <Button
+                variant="outline"
+                size="icon-sm"
                 onClick={() =>
                   updateArticleMut.mutate({
                     body: { starred: !selectedArticle.starred },
@@ -256,7 +262,6 @@ export function RecallyReader({
                   })
                 }
                 disabled={updateArticleMut.isPending}
-                className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border transition-colors text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer duration-120"
                 title={
                   selectedArticle.starred ? t("recally.action.unstar") : t("recally.action.star")
                 }
@@ -267,30 +272,29 @@ export function RecallyReader({
                     selectedArticle.starred ? "fill-chart-4 text-chart-4" : "",
                   )}
                 />
-              </button>
+              </Button>
 
               {/* Share / Copy Link */}
               {shareUrl ? (
-                <button
+                <Button
+                  variant="outline"
+                  size="icon-sm"
                   onClick={() => navigator.clipboard?.writeText(shareUrl)}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border border-primary/20 bg-primary/10 transition-colors text-primary hover:bg-primary/20 cursor-pointer duration-120"
+                  className="border-primary/20 bg-primary/10 text-primary hover:bg-primary/20"
                   title={t("recally.reader.copyShareLink")}
                 >
                   <Link className="size-4" />
-                </button>
+                </Button>
               ) : (
-                <button
+                <Button
+                  variant="outline"
+                  size="icon-sm"
                   onClick={() => createArticleShare(selectedArticle.id)}
-                  disabled={sharing}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border transition-colors text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer duration-120"
+                  loading={sharing}
                   title={t("recally.action.share")}
                 >
-                  {sharing ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Share2 className="size-4" />
-                  )}
-                </button>
+                  <Share2 className="size-4" />
+                </Button>
               )}
 
               {shareError && <span className="text-xs text-destructive">{shareError}</span>}
@@ -320,14 +324,15 @@ export function RecallyReader({
                   </button>
                 </div>
               ) : (
-                <button
+                <Button
+                  variant="destructive-outline"
+                  size="icon-sm"
                   onClick={() => setConfirmingDeleteId(selectedArticle.id)}
                   disabled={deleteArticleMut.isPending}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border border-destructive/20 bg-destructive/5 text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 cursor-pointer duration-120"
                   title={t("common.delete")}
                 >
                   <Trash2 className="size-4" />
-                </button>
+                </Button>
               )}
             </div>
           </div>

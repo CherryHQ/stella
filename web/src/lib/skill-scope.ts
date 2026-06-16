@@ -1,0 +1,39 @@
+import type { MessageKey } from "@/lib/i18n/messages";
+
+// Every place a skill scope is named pulls its label from here, so a scope reads
+// the same two-axis name (owner · range) everywhere instead of ad-hoc strings
+// like "Shared" / "Built-in" that left users guessing.
+export type SkillScope = "project" | "user" | "user_agent" | "system" | "system_agent";
+
+export const SCOPE_LABEL_KEY: Record<SkillScope, MessageKey> = {
+  user: "skills.scope.user.label",
+  user_agent: "skills.scope.userAgent.label",
+  system: "skills.scope.system.label",
+  system_agent: "skills.scope.systemAgent.label",
+  project: "skills.scope.project.label",
+};
+
+export const SCOPE_DESC_KEY: Record<SkillScope, MessageKey> = {
+  user: "skills.scope.user.desc",
+  user_agent: "skills.scope.userAgent.desc",
+  system: "skills.scope.system.desc",
+  system_agent: "skills.scope.systemAgent.desc",
+  project: "skills.scope.project.desc",
+};
+
+// Scopes a skill can be installed/uploaded into. system_agent is admin-only and
+// gated by the caller (showAgentScope).
+export const INSTALL_SCOPES: Extract<SkillScope, "user" | "user_agent" | "system_agent">[] = [
+  "user",
+  "user_agent",
+  "system_agent",
+];
+
+const WRITABLE = new Set<SkillScope>(["user", "user_agent", "system_agent"]);
+
+// Mirror the backend write rules so the UI never offers an edit that 403s:
+// system_agent is admin-managed; project/system are managed outside the web UI.
+export function isSkillReadOnly(scope: string, isAdmin: boolean): boolean {
+  if (scope === "system_agent") return !isAdmin;
+  return !WRITABLE.has(scope as SkillScope);
+}

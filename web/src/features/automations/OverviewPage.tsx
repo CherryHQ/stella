@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { reopenTask, updateSchedulerJob } from "@/lib/api-client";
 import type { ComponentsGoal, ComponentsTask, JobRun } from "@/lib/api-client/types.gen";
 import type { SchedulerJob } from "@/lib/types";
@@ -10,6 +10,7 @@ import { useI18n } from "@/lib/i18n";
 import { useAppShell } from "@/layouts/AppShell";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -31,7 +32,6 @@ import {
   statusLabel,
   statusMeta,
 } from "./lib";
-import { ScheduleSheet } from "./ScheduleSheet";
 
 export function OverviewPage() {
   const { t } = useI18n();
@@ -39,7 +39,6 @@ export function OverviewPage() {
     agentId: string;
     projectId?: string;
   };
-  const search = useSearch({ strict: false }) as { new?: string };
   const navigate = useNavigate();
   const { setHeaderActions } = useAppShell();
 
@@ -47,22 +46,9 @@ export function OverviewPage() {
   const { data: jobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
   const { data: tasks = [] } = useQuery(standaloneTasksOptions(agentId, projectId));
 
-  const isNewSchedule = search.new === "schedule";
-  const closeSheet = useCallback(() => {
-    if (projectId) {
-      void navigate({
-        to: "/agents/$agentId/projects/$projectId",
-        params: { agentId, projectId },
-        search: { tab: "tasks" },
-      });
-      return;
-    }
-    void navigate({ to: "/agents/$agentId/tasks", params: { agentId } });
-  }, [navigate, agentId, projectId]);
-
   useEffect(() => {
     setHeaderActions(
-      <div className="flex gap-2">
+      <div className="flex items-center gap-1">
         <Button
           render={
             <Link
@@ -74,26 +60,15 @@ export function OverviewPage() {
           variant="outline"
           size="sm"
         >
-          {t("hub.newTask")}
-        </Button>
-        <Button
-          render={
-            <Link
-              to={projectId ? "/agents/$agentId/projects/$projectId" : "/agents/$agentId/tasks"}
-              params={projectId ? { agentId, projectId } : { agentId }}
-              search={projectId ? { tab: "tasks", new: "schedule" } : { new: "schedule" }}
-            />
-          }
-          size="sm"
-        >
-          {t("hub.newSchedule")}
+          <Plus />
+          <span className="max-sm:hidden">{t("hub.newTask")}</span>
         </Button>
       </div>,
     );
     return () => {
       setHeaderActions(null);
     };
-  }, [setHeaderActions, t, navigate, agentId, projectId]);
+  }, [setHeaderActions, t, agentId, projectId]);
 
   const needsYou = useMemo(() => {
     const items: NeedsYouItem[] = [];
@@ -279,21 +254,6 @@ export function OverviewPage() {
           </section>
         )}
       </div>
-
-      <ScheduleSheet
-        open={isNewSchedule}
-        onOpenChange={(open) => {
-          if (!open) closeSheet();
-        }}
-        job={null}
-        agentId={agentId}
-        onCreated={(jobId) =>
-          navigate({
-            to: "/agents/$agentId/tasks/schedules/$scheduleId",
-            params: { agentId, scheduleId: jobId },
-          })
-        }
-      />
     </div>
   );
 }

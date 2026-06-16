@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from "react";
+import { Columns3, Inbox, Table as TableIcon } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
@@ -9,6 +10,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { useAppShell } from "@/layouts/AppShell";
+import { Button } from "@/components/ui/button";
 import { StatusDot, StatusPill, avatarInitials, goalNeedsYou, statusLabel } from "./lib";
 
 export type GoalsView = "triage" | "board" | "table";
@@ -17,6 +19,11 @@ const VIEW_LABEL: Record<GoalsView, MessageKey> = {
   triage: "goals.viewTriage",
   board: "goals.viewBoard",
   table: "goals.viewTable",
+};
+const VIEW_ICON: Record<GoalsView, typeof Inbox> = {
+  triage: Inbox,
+  board: Columns3,
+  table: TableIcon,
 };
 
 export function GoalsPage() {
@@ -56,24 +63,23 @@ export function GoalsPage() {
       </div>,
     );
     setHeaderActions(
-      <div className="flex items-center gap-3">
-        <div className="inline-flex gap-1 rounded-full bg-muted p-0.5">
-          {VIEWS.map((v) => (
-            <button
+      <div className="flex items-center gap-1">
+        {VIEWS.map((v) => {
+          const Icon = VIEW_ICON[v];
+          return (
+            <Button
               key={v}
+              size="sm"
+              variant={cur === v ? "secondary" : "outline"}
+              aria-pressed={cur === v}
               onClick={() => setView(v)}
-              className={cn(
-                "rounded-full px-3.5 py-1 text-xs font-medium transition-colors",
-                cur === v
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
             >
-              {t(VIEW_LABEL[v])}
-            </button>
-          ))}
-        </div>
-        <span className="font-mono text-xs text-muted-foreground">
+              <Icon />
+              <span className="max-sm:hidden">{t(VIEW_LABEL[v])}</span>
+            </Button>
+          );
+        })}
+        <span className="font-mono text-xs text-muted-foreground max-sm:hidden">
           {t("goals.unit", { count: goals.length })}
         </span>
       </div>,

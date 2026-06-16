@@ -1,6 +1,8 @@
 import { FileText } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
+import { cn } from "@/lib/utils";
+import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import {
   replaceUUIDMentions,
   extractUserText,
@@ -20,6 +22,7 @@ export interface UserMessageProps {
   sessionId?: string;
   agentNames?: Map<string, string>;
   sameRoleAsPrev?: boolean;
+  showTimestamp?: boolean;
 }
 
 export function UserMessage({
@@ -28,6 +31,7 @@ export function UserMessage({
   sessionId,
   agentNames,
   sameRoleAsPrev,
+  showTimestamp,
 }: UserMessageProps) {
   const { t } = useI18n();
   const displayContent = replaceUUIDMentions(extractUserText(msg), agentNames);
@@ -36,23 +40,18 @@ export function UserMessage({
   const otherFiles = files.filter((f) => !isImagePath(f));
 
   return (
-    <div className="w-full min-w-0 flex flex-col gap-1.5">
+    <div className="group w-full min-w-0 flex flex-col items-end gap-1.5">
       {!sameRoleAsPrev && (
         <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-xs font-semibold text-foreground">{t("chat.you")}</span>
           <span className="grid size-5 place-items-center rounded-full bg-foreground/15 text-xs font-semibold text-foreground shrink-0">
             Y
           </span>
-          <span className="text-xs font-semibold text-foreground">{t("chat.you")}</span>
-          {msg.timestamp && (
-            <span className="font-mono text-xs text-muted-foreground/50">
-              {formatTime(msg.timestamp)}
-            </span>
-          )}
         </div>
       )}
-      <div className="pl-7 w-full min-w-0 flex flex-col items-start gap-3">
+      <div className="w-full min-w-0 flex flex-col items-end gap-2">
         {text && (
-          <div className="min-w-0 break-words text-[15px] leading-relaxed whitespace-pre-wrap text-foreground/90 font-sans">
+          <div className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left">
             {renderMentionedText(text, agentNames)}
           </div>
         )}
@@ -95,6 +94,17 @@ export function UserMessage({
                 <span className="truncate max-w-48 font-medium">{basename(path)}</span>
               </a>
             ))}
+          </div>
+        )}
+        {(text || (showTimestamp && msg.timestamp)) && (
+          <div
+            className={cn(
+              "flex items-center gap-2 text-xs font-mono text-muted-foreground/60",
+              REVEAL_ON_HOVER,
+            )}
+          >
+            {showTimestamp && msg.timestamp && <span>{formatTime(msg.timestamp)}</span>}
+            {text && <CopyButton text={text} className="-mr-1.5" />}
           </div>
         )}
       </div>

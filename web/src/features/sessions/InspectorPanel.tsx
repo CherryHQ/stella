@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, FileText, Wrench } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getSessionSystemPrompt, listTools } from "@/lib/api-client";
+import { Button } from "@/components/ui/button";
 import type { Session, Tool, Workspace } from "@/lib/types";
 import { sessionContextItemsOptions } from "@/lib/queries/session-context";
 import { cn } from "@/lib/utils";
@@ -49,7 +50,7 @@ export function InspectorPanel({
   );
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-card">
+    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar">
       <div className="flex h-12 shrink-0 items-end border-b border-border px-4">
         <div className="flex w-full min-w-0 gap-4 overflow-hidden text-xs">
           <InspectorTabButton active={tab === "files"} onClick={() => selectTab("files")}>
@@ -340,13 +341,9 @@ function SessionContextCard({
         <dd className="truncate font-mono text-xs text-muted-foreground">{session.id}</dd>
       </dl>
       <div className="flex justify-end border-t border-border/10 pt-2.5">
-        <button
-          type="button"
-          onClick={copyID}
-          className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer border border-border/60 bg-transparent"
-        >
+        <Button type="button" variant="outline" size="xs" onClick={copyID}>
           {t("sessions.inspector.copySessionId")}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -418,13 +415,9 @@ function PromptContext({ systemPrompt, loading }: { systemPrompt: string; loadin
         <span className="font-mono text-xs text-muted-foreground">
           ~{Math.round(systemPrompt.length / 4)} tokens
         </span>
-        <button
-          type="button"
-          onClick={copyPrompt}
-          className="rounded-lg px-2 py-1 font-semibold text-xs text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer border border-border/50"
-        >
+        <Button type="button" variant="outline" size="xs" onClick={copyPrompt}>
           {t("sessions.inspector.copy")}
-        </button>
+        </Button>
       </div>
       <pre className="whitespace-pre-wrap rounded-xl border border-border/60 bg-muted/40 p-3.5 font-mono text-xs leading-relaxed text-muted-foreground">
         {systemPrompt || t("sessions.inspector.noPrompt")}

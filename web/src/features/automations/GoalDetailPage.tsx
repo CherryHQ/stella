@@ -77,18 +77,19 @@ export function GoalDetailPage() {
     <div className="flex h-full min-h-0 overflow-hidden bg-background">
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
-          <button
+          <Button
+            variant="link"
+            size="sm"
             onClick={() =>
               void navigate({
                 to: "/agents/$agentId/automations",
                 params: { agentId },
               })
             }
-            className="flex items-center gap-1 text-sm text-primary hover:text-primary/80"
           >
             <ChevronLeft />
             {t("goals.backToGoals")}
-          </button>
+          </Button>
           {goal && (
             <>
               <span className="h-4 w-px bg-border" />
@@ -328,12 +329,14 @@ function TaskDrawer({
           </div>
           <h2 className="font-serif text-lg leading-tight tracking-tight">{task.title}</h2>
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={onClose}
           className="shrink-0 text-lg leading-none text-muted-foreground hover:text-foreground"
         >
           ×
-        </button>
+        </Button>
       </div>
 
       <div className="flex shrink-0 gap-0.5 border-b border-border px-3">

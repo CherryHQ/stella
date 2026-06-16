@@ -204,12 +204,14 @@ export function FileViewer({
     <div className="flex flex-col h-full overflow-hidden bg-background">
       {/* Header */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border flex-shrink-0 min-h-[36px]">
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={onBack}
-          className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          className="h-6 px-1.5 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-        </button>
+        </Button>
         <span className="text-xs font-mono text-foreground truncate flex-1 min-w-0">
           {fileName}
         </span>

@@ -6,8 +6,11 @@ import { agentsQueryOptions } from "@/lib/queries/agents";
 import { sessionSummaryOptions } from "@/lib/queries/session-context";
 import { getSessionMessages } from "@/lib/api-client/sdk.gen";
 import type { SessionContextItem } from "@/lib/api-client/types.gen";
-import { ChatTranscript, type TranscriptMessage } from "@/components/chat/ChatTranscript";
-import { Button } from "@/components/ui/button";
+import {
+  ChatTranscript,
+  MessageList,
+  type TranscriptMessage,
+} from "@/components/chat/ChatTranscript";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +72,7 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
           <SummaryCard
             key={`summary:${item.summary.id}`}
             agentId={agentId}
+            agentName={agentName}
             sessionId={sessionId}
             item={item}
           />
@@ -92,10 +96,12 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
 
 function SummaryCard({
   agentId,
+  agentName,
   sessionId,
   item,
 }: {
   agentId: string;
+  agentName: string;
   sessionId: string;
   item: SessionContextItem;
 }) {
@@ -123,32 +129,44 @@ function SummaryCard({
     enabled: showMessages && rangeReady,
   });
 
+  const rawTranscript = useMemo<TranscriptMessage[]>(() => {
+    const raw = (messagesQuery.data ?? []) as unknown as Message[];
+    const filtered = raw.filter((m) => m.role !== "tool");
+    return mergeConsecutiveMessages(filtered).map((msg, i) => ({
+      id: msg.id ?? `${msg.timestamp}-${msg.role}-${i}`,
+      role: msg.role as "user" | "assistant",
+      content: msg.content,
+      timestamp: msg.timestamp,
+      agentName,
+      agentId,
+      blocks: msg.blocks ?? (msg.content ? [{ type: "text" as const, text: msg.content }] : []),
+      model: msg.model,
+      tokenCount: msg.token_count,
+    }));
+  }, [messagesQuery.data, agentName, agentId]);
+
   if (!summary) return null;
 
   return (
     <section className="rounded-lg border border-border bg-muted/20">
       <button
         type="button"
-        className="flex w-full items-start gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left"
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground">
-          <Archive className="size-4" />
+        <Archive className="size-4 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 text-xs font-semibold text-foreground">
+          {t("sessions.epoch.summary")}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-xs font-semibold text-foreground">
-            {t("sessions.epoch.summary")}
-          </span>
-          <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-            {summary.content}
-          </span>
-          <span className="mt-2 block font-mono text-xs text-muted-foreground">
-            {t("sessions.epoch.messageCount", { count: summary.descendant_count })} ·{" "}
-            {formatNumber(summary.source_message_token_count)} → {formatNumber(summary.token_count)}
-          </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+          {t("sessions.epoch.messageCount", { count: summary.descendant_count })} ·{" "}
+          {formatNumber(summary.source_message_token_count)} → {formatNumber(summary.token_count)}
         </span>
         <ChevronDown
-          className={cn("mt-1 size-4 shrink-0 transition-transform", open && "rotate-180")}
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
         />
       </button>
       {open && (
@@ -167,25 +185,32 @@ function SummaryCard({
               ))}
             </div>
           )}
-          <div className="mt-3 flex items-center gap-2">
-            <Button variant="outline" size="xs" onClick={() => setShowMessages((value) => !value)}>
-              <MessageSquareText className="size-3.5" />
-              {t("sessions.epoch.originalMessages")}
-            </Button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowMessages((value) => !value)}
+            className="mt-3 flex cursor-pointer items-center gap-1.5 font-mono text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+          >
+            <MessageSquareText className="size-3.5 shrink-0 text-muted-foreground/60" />
+            <span>{t("sessions.epoch.originalMessages")}</span>
+            <ChevronDown
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground/40 transition-transform",
+                showMessages && "rotate-180",
+              )}
+            />
+          </button>
           {showMessages && (
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 max-h-[60vh] overflow-y-auto rounded-md border border-border bg-background/40 px-4 py-3">
               {messagesQuery.isLoading ? (
                 <p className="text-xs text-muted-foreground">{t("common.loading")}</p>
+              ) : rawTranscript.length > 0 ? (
+                <MessageList
+                  messages={rawTranscript}
+                  fileAgentId={agentId}
+                  fileSessionId={sessionId}
+                />
               ) : (
-                messagesQuery.data?.map((message, index) => (
-                  <pre
-                    key={index}
-                    className="whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs text-muted-foreground"
-                  >
-                    {formatRawMessage(message)}
-                  </pre>
-                ))
+                <p className="text-xs text-muted-foreground">{t("sessions.transcript.empty")}</p>
               )}
             </div>
           )}
@@ -198,24 +223,6 @@ function SummaryCard({
 function formatNumber(value: number): string {
   if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
   return String(value);
-}
-
-function formatRawMessage(message: Record<string, unknown>): string {
-  if (typeof message.content === "string" && message.content.trim()) return message.content;
-  if (Array.isArray(message.blocks)) {
-    const parts = (message.blocks as Array<Record<string, unknown>>)
-      .map((block) => {
-        if (block.type === "text" && typeof block.text === "string") return block.text;
-        if (block.type === "tool_call") {
-          const name = typeof block.name === "string" ? block.name : "unknown";
-          return `[tool: ${name}]`;
-        }
-        return null;
-      })
-      .filter(Boolean);
-    if (parts.length > 0) return parts.join("\n");
-  }
-  return JSON.stringify(message.blocks ?? message, null, 2);
 }
 
 function mergeConsecutiveMessages(messages: Message[]): Message[] {
