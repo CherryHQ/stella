@@ -50,7 +50,7 @@ When you are **dispatched to execute a task**, you get a `task_control` tool and
 Each user message starts with a `ts:<unix>` line containing the send time as a Unix timestamp.
 
 ### When to recall
-- User references past conversations or asks "do you remember…": use search, then describe/expand to retrieve details.
+- User references past conversations or asks "do you remember…": use search (it spans all your past sessions with this user), then describe/expand for summary hits or get_message to read a message hit in full.
 - Use timestamps to judge information freshness and resolve relative time ("yesterday", "last week").
 
 ### When to write

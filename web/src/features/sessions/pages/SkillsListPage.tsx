@@ -12,8 +12,11 @@ import {
   ExternalLink,
   FileText,
   GitBranch,
+  GitFork,
   Lock,
   PackageCheck,
+  PackagePlus,
+  RefreshCw,
   Search,
   Store,
   Trash2,
@@ -47,6 +50,7 @@ import {
   installAgentSkill,
   updateAgentSkill,
   uploadAgentSkill,
+  upgradeAgentSkill,
 } from "@/lib/api-client/sdk.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
@@ -72,13 +76,6 @@ import {
 } from "@/components/ui/empty";
 import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-  Dialog,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Sheet, SheetPopup } from "@/components/ui/sheet";
@@ -91,12 +88,13 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 // Filter buckets collapse the two agent scopes (user_agent + system_agent) into a
 // single "agent" pill, matching the agent-settings SkillsTab's coarser grouping.
 type ScopeFilter = "all" | "system" | "agent" | "user" | "project";
-type Source = "installed" | "market";
+type Source = "installed" | "market" | "manual";
 type InstallScope = (typeof INSTALL_SCOPES)[number];
 
 const SOURCE_META = {
   installed: { icon: PackageCheck, key: "sessions.skillsList.installedTab" },
   market: { icon: Store, key: "sessions.skillsList.market" },
+  manual: { icon: PackagePlus, key: "sessions.skillsList.manualTab" },
 } as const;
 
 const SCOPE_PILLS: ScopeFilter[] = ["all", "system", "agent", "user", "project"];
@@ -158,6 +156,15 @@ function isSkillInstalled(
     installedSources.has(`clawhub:${skill.slug}`) ||
     installedNames.has(skill.name) ||
     installedNames.has(skill.slug)
+  );
+}
+
+// A skill can be re-fetched from its source when it was installed from a remote
+// (git/github/URL) — clawhub pins and on-disk project skills have no moving ref
+// to check, so the upgrade affordance only applies to remote sources.
+function isUpdatableSource(source?: string): boolean {
+  return (
+    !!source && !source.startsWith("clawhub:") && !source.startsWith("/") && !source.startsWith(".")
   );
 }
 
@@ -237,7 +244,7 @@ export function SkillsListPage() {
   const { toasts, showToast } = useToast();
   const { data: me } = useQuery(meQueryOptions);
 
-  const source: Source = search.source ?? "installed";
+  const source: Source = search.source ?? (search.new ? "manual" : "installed");
   const fscope: ScopeFilter = search.fscope ?? "all";
   const sel = search.sel;
   const params = projectId ? { agentId, projectId } : { agentId };
@@ -247,7 +254,6 @@ export function SkillsListPage() {
   const [debounced, setDebounced] = useState("");
   const [installScope, setInstallScope] = useState<InstallScope>("user_agent");
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
-  const [uploadOpen, setUploadOpen] = useState(Boolean(search.new));
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query), 250);
@@ -306,6 +312,14 @@ export function SkillsListPage() {
   const selectedSlug = sel?.startsWith("market:") ? sel.slice("market:".length) : undefined;
   const selectedRow = selectedSlug ? marketRows.find((r) => r.slug === selectedSlug) : undefined;
 
+  // After a manual install, jump to the Installed tab and open the new skill's
+  // drawer so the result is visible — the manual panel itself shows no list.
+  function onManualInstalled(scope: InstallScope, name: string) {
+    showToast(t("sessions.discover.installSuccess"), "success");
+    void qc.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+    go({ source: "installed", fscope: "all", sel: name ? `${scope}:${name}` : undefined });
+  }
+
   async function install(skill: Pick<ClawhubSkill, "slug" | "name">) {
     setInstallingSlug(skill.slug);
     try {
@@ -331,21 +345,23 @@ export function SkillsListPage() {
       <div className="flex flex-col gap-2.5 border-b p-3 sm:px-4">
         {/* Row 1: search · source · upload */}
         <div className="flex flex-wrap items-center gap-2">
-          <InputGroup className="w-full sm:max-w-xs">
-            <InputGroupAddon>
-              <Search />
-            </InputGroupAddon>
-            <InputGroupInput
-              nativeInput
-              type="search"
-              value={query}
-              onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
-              placeholder={t("sessions.skillsList.searchPlaceholder")}
-            />
-          </InputGroup>
+          {source !== "manual" && (
+            <InputGroup className="w-full sm:max-w-xs">
+              <InputGroupAddon>
+                <Search />
+              </InputGroupAddon>
+              <InputGroupInput
+                nativeInput
+                type="search"
+                value={query}
+                onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
+                placeholder={t("sessions.skillsList.searchPlaceholder")}
+              />
+            </InputGroup>
+          )}
 
           <div className="flex items-center gap-1">
-            {(["installed", "market"] as const).map((s) => {
+            {(["installed", "market", "manual"] as const).map((s) => {
               const Icon = SOURCE_META[s].icon;
               const active = source === s;
               return (
@@ -365,20 +381,10 @@ export function SkillsListPage() {
               );
             })}
           </div>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="sm:ml-auto"
-            onClick={() => setUploadOpen(true)}
-          >
-            <Upload />
-            <span className="max-sm:hidden">{t("sessions.skillsList.uploadZip")}</span>
-          </Button>
         </div>
 
-        {/* Row 2: scope subfilter (installed/all only) */}
-        {source !== "market" && (
+        {/* Row 2: scope subfilter (installed only) */}
+        {source === "installed" && (
           <div className="flex flex-wrap items-center gap-1">
             <span className="mr-1 text-xs text-muted-foreground">
               {t("sessions.skillsList.scopeFilter")}
@@ -428,6 +434,14 @@ export function SkillsListPage() {
             onInstall={(s) => void install(s)}
           />
         )}
+
+        {source === "manual" && (
+          <ManualInstallPanel
+            agentId={agentId}
+            showAgentScope={!!me?.is_admin}
+            onInstalled={onManualInstalled}
+          />
+        )}
       </div>
 
       {/* Detail drawer */}
@@ -460,12 +474,6 @@ export function SkillsListPage() {
         </SheetPopup>
       </Sheet>
 
-      <UploadDialog
-        agentId={agentId}
-        showAgentScope={!!me?.is_admin}
-        open={uploadOpen}
-        onOpenChange={setUploadOpen}
-      />
       <ToastContainer messages={toasts} />
     </div>
   );
@@ -533,6 +541,11 @@ function InstalledCard({
         <SkillGlyph />
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="truncate font-mono text-sm font-medium">{skill.name}</span>
+          {skill.version && (
+            <Badge variant="outline" size="sm">
+              {skill.version}
+            </Badge>
+          )}
           {skill.status !== "active" && (
             <Badge variant="secondary" size="sm">
               {t(statusLabelKey(skill.status))}
@@ -716,11 +729,14 @@ function SkillInspector({
   const { showToast } = useToast();
   const { data: me } = useQuery(meQueryOptions);
   const [description, setDescription] = useState(skill.description ?? "");
+  const [version, setVersion] = useState(skill.version ?? "");
   const [status, setStatus] = useState(skill.status ?? "active");
   const [modelEnabled, setModelEnabled] = useState(!skill.disable_model_invocation);
   const [viewer, setViewer] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
   const readOnly = isSkillReadOnly(skill.scope, !!me?.is_admin);
+  const canUpgrade = !readOnly && isUpdatableSource(skill.source);
   const detail = useQuery({
     queryKey: ["agent-skill", agentId, skill.scope, skill.name],
     queryFn: async () =>
@@ -738,13 +754,42 @@ function SkillInspector({
       await updateAgentSkill({
         path: { id: agentId, skillId: skill.name },
         query: { scope: skill.scope as SkillScope },
-        body: { description, status, disable_model_invocation: !modelEnabled },
+        body: { description, status, disable_model_invocation: !modelEnabled, version },
         throwOnError: true,
       });
       showToast(t("sessions.skillsList.saved"), "success");
       void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-skill", agentId, skill.scope, skill.name],
+      });
     } catch (error) {
       showToast(apiErrorMessage(error, t("common.error")), "error");
+    }
+  }
+  async function upgrade() {
+    setUpgrading(true);
+    try {
+      const res = await upgradeAgentSkill({
+        path: { id: agentId, skillId: skill.name },
+        query: { scope: skill.scope as SkillScope },
+        throwOnError: true,
+      });
+      if (res.data?.updated) {
+        showToast(
+          t("sessions.skillsList.upgradeDone", { version: res.data.version ?? "" }),
+          "success",
+        );
+        void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+        void queryClient.invalidateQueries({
+          queryKey: ["agent-skill", agentId, skill.scope, skill.name],
+        });
+      } else {
+        showToast(t("sessions.skillsList.upgradeUpToDate"), "success");
+      }
+    } catch (error) {
+      showToast(apiErrorMessage(error, t("common.error")), "error");
+    } finally {
+      setUpgrading(false);
     }
   }
   async function remove() {
@@ -821,6 +866,11 @@ function SkillInspector({
               <span className="inline-flex items-center gap-1 font-mono">
                 <GitBranch className="size-4" />
                 {skill.source}
+                {skill.version && (
+                  <Badge variant="outline" size="sm">
+                    {skill.version}
+                  </Badge>
+                )}
               </span>
             )}
           </div>
@@ -882,6 +932,17 @@ function SkillInspector({
                 ))}
               </ToggleGroup>
             </div>
+            <div className="space-y-2">
+              <Label>{t("sessions.skillsList.versionLabel")}</Label>
+              <Input
+                value={version}
+                onChange={(e) => setVersion((e.target as HTMLInputElement).value)}
+                className="font-mono"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("sessions.skillsList.versionHint")}
+              </p>
+            </div>
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-0.5">
                 <Label>{t("sessions.skillsList.modelInvocation")}</Label>
@@ -901,17 +962,19 @@ function SkillInspector({
         </div>
       ) : (
         <div className="flex items-center gap-2 border-t p-4">
-          <Button
-            variant="ghost"
-            className="text-destructive hover:bg-destructive/10"
-            onClick={() => setConfirmOpen(true)}
-          >
+          <Button variant="destructive-outline" onClick={() => setConfirmOpen(true)}>
             <Trash2 size={16} />
             {t("sessions.skillsList.deleteSkill")}
           </Button>
-          <Button className="ml-auto" onClick={() => void save()}>
-            {t("common.save")}
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            {canUpgrade && (
+              <Button variant="outline" loading={upgrading} onClick={() => void upgrade()}>
+                <RefreshCw size={16} />
+                {t("sessions.skillsList.upgradeCheck")}
+              </Button>
+            )}
+            <Button onClick={() => void save()}>{t("common.save")}</Button>
+          </div>
         </div>
       )}
 
@@ -1201,68 +1264,195 @@ function DiscoverDetail({
   );
 }
 
-function UploadDialog({
+// Build an mcphub shorthand source from a GitHub repo, the skill to select inside
+// it, and an optional version. repo may be "owner/repo" or any github.com URL; we
+// reduce it to "owner/repo", append "@<skill>" so a multi-skill repo resolves to
+// one skill, and "#<version>" to pin a tag/branch — e.g. "owner/repo@foo#v1.2.0".
+function githubSource(repo: string, skill: string, version: string): string {
+  const r = repo.trim();
+  const s = skill.trim();
+  const v = version.trim();
+  const m = r.match(/(?:github\.com[/:])?([^/\s]+\/[^/\s@#?]+?)(?:\.git)?(?:[/@#?].*)?$/i);
+  let out = m ? m[1] : r;
+  if (s) out += `@${s}`;
+  if (v) out += `#${v}`;
+  return out;
+}
+
+// ManualInstallPanel is the inline "manual install" tab: install a skill by
+// pointing at a GitHub repo or uploading a ZIP. It replaces the former modal
+// dialogs and shares one install-scope picker across both methods. onInstalled
+// reports the chosen scope and the installed skill name so the page can reveal
+// the result.
+function ManualInstallPanel({
   agentId,
   showAgentScope,
-  open,
-  onOpenChange,
+  onInstalled,
 }: {
   agentId: string;
   showAgentScope: boolean;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onInstalled: (scope: InstallScope, name: string) => void;
 }) {
   const { t } = useI18n();
-  const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [scope, setScope] = useState<InstallScope>("user_agent");
-  const [file, setFile] = useState<File | null>(null);
+
+  function onDone(name: string) {
+    onInstalled(scope, name);
+  }
+  function onError(error: unknown) {
+    showToast(apiErrorMessage(error, t("common.error")), "error");
+  }
+
+  return (
+    <div className="mx-auto max-w-xl space-y-5">
+      <div className="space-y-1.5">
+        <span className="text-xs text-muted-foreground">{t("sessions.discover.installTo")}</span>
+        <InstallScopePicker
+          scope={scope}
+          onScope={setScope}
+          showAgentScope={showAgentScope}
+          size="sm"
+        />
+      </div>
+      <GitHubInstallCard agentId={agentId} scope={scope} onInstalled={onDone} onError={onError} />
+      <ZipUploadCard agentId={agentId} scope={scope} onInstalled={onDone} onError={onError} />
+    </div>
+  );
+}
+
+function GitHubInstallCard({
+  agentId,
+  scope,
+  onInstalled,
+  onError,
+}: {
+  agentId: string;
+  scope: InstallScope;
+  onInstalled: (name: string) => void;
+  onError: (error: unknown) => void;
+}) {
+  const { t } = useI18n();
+  const [repo, setRepo] = useState("");
+  const [skill, setSkill] = useState("");
+  const [version, setVersion] = useState("");
   const [busy, setBusy] = useState(false);
-  async function upload() {
-    if (!file) return;
+  const ready = repo.trim() !== "" && skill.trim() !== "";
+
+  async function install() {
+    if (!ready) return;
     setBusy(true);
     try {
-      await uploadAgentSkill({ path: { id: agentId }, body: { file, scope }, throwOnError: true });
-      showToast(t("sessions.discover.installSuccess"), "success");
-      void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-      onOpenChange(false);
-      setFile(null);
+      const res = await installAgentSkill({
+        path: { id: agentId },
+        body: { source: githubSource(repo, skill, version), scope },
+        throwOnError: true,
+      });
+      onInstalled(res.data?.name ?? skill.trim());
+      setRepo("");
+      setSkill("");
+      setVersion("");
     } catch (error) {
-      showToast(apiErrorMessage(error, t("common.error")), "error");
+      onError(error);
     } finally {
       setBusy(false);
     }
   }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup>
-        <DialogHeader>
-          <DialogTitle>{t("sessions.skillsList.uploadZip")}</DialogTitle>
-        </DialogHeader>
-        <DialogPanel className="space-y-4">
-          <div className="space-y-1.5">
-            <span className="text-xs text-muted-foreground">
-              {t("sessions.discover.installTo")}
-            </span>
-            <InstallScopePicker
-              scope={scope}
-              onScope={setScope}
-              showAgentScope={showAgentScope}
-              size="sm"
-            />
-          </div>
-          <Input
-            nativeInput
-            type="file"
-            accept=".zip"
-            onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
-          />
-          <Button disabled={!file || busy} loading={busy} onClick={() => void upload()}>
-            <Upload size={16} />
-            {t("sessions.skillsList.uploadZip")}
-          </Button>
-        </DialogPanel>
-      </DialogPopup>
-    </Dialog>
+    <section className="space-y-3 rounded-lg border p-4">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <GitFork className="size-4" />
+        {t("sessions.skillsList.installGithub")}
+      </div>
+      <div className="space-y-1.5">
+        <Label>{t("sessions.skillsList.githubRepo")}</Label>
+        <Input
+          nativeInput
+          autoComplete="off"
+          value={repo}
+          onChange={(e) => setRepo((e.target as HTMLInputElement).value)}
+          placeholder={t("sessions.skillsList.githubRepoPlaceholder")}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label>{t("sessions.skillsList.githubSkill")}</Label>
+        <Input
+          nativeInput
+          autoComplete="off"
+          value={skill}
+          onChange={(e) => setSkill((e.target as HTMLInputElement).value)}
+          placeholder={t("sessions.skillsList.githubSkillPlaceholder")}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label>{t("sessions.skillsList.githubVersion")}</Label>
+        <Input
+          nativeInput
+          autoComplete="off"
+          value={version}
+          onChange={(e) => setVersion((e.target as HTMLInputElement).value)}
+          placeholder={t("sessions.skillsList.githubVersionPlaceholder")}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">{t("sessions.skillsList.githubHint")}</p>
+      <Button disabled={!ready || busy} loading={busy} onClick={() => void install()}>
+        <GitFork size={16} />
+        {t("common.install")}
+      </Button>
+    </section>
+  );
+}
+
+function ZipUploadCard({
+  agentId,
+  scope,
+  onInstalled,
+  onError,
+}: {
+  agentId: string;
+  scope: InstallScope;
+  onInstalled: (name: string) => void;
+  onError: (error: unknown) => void;
+}) {
+  const { t } = useI18n();
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function upload() {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const res = await uploadAgentSkill({
+        path: { id: agentId },
+        body: { file, scope },
+        throwOnError: true,
+      });
+      onInstalled(res.data?.name ?? "");
+      setFile(null);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="space-y-3 rounded-lg border p-4">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <Upload className="size-4" />
+        {t("sessions.skillsList.uploadZip")}
+      </div>
+      <Input
+        nativeInput
+        type="file"
+        accept=".zip"
+        onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
+      />
+      <Button disabled={!file || busy} loading={busy} onClick={() => void upload()}>
+        <Upload size={16} />
+        {t("sessions.skillsList.uploadZip")}
+      </Button>
+    </section>
   );
 }

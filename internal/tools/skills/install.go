@@ -123,7 +123,7 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("skills store unavailable")
 	}
 
-	skillName, files, cleanup, err := FetchSkillFiles(ctx, source)
+	skillName, files, version, cleanup, err := FetchSkillFiles(ctx, source)
 	if err != nil {
 		return "", err
 	}
@@ -151,6 +151,9 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 	}
 
 	metaJSON := fmt.Sprintf(`{"created-at":%q}`, createdAt)
+	if version != "" {
+		metaJSON = fmt.Sprintf(`{"created-at":%q,"version":%q}`, createdAt, version)
+	}
 
 	vc := pkgplugins.SkillViewContext{
 		UserID:  memory.UserIDFromContext(ctx),

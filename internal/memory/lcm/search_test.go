@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
@@ -48,6 +49,50 @@ func insertSummary(t *testing.T, db *sql.DB, convID, id, content string) {
 	if err != nil {
 		t.Fatalf("insert summary: %v", err)
 	}
+}
+
+func insertSummaryAt(t *testing.T, db *sql.DB, convID, id, content, latestAt string) {
+	t.Helper()
+	_, err := db.Exec(`INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, latest_at)
+		VALUES (?, ?, 'leaf', 0, ?, 10, ?)`, id, convID, content, latestAt)
+	if err != nil {
+		t.Fatalf("insert summary: %v", err)
+	}
+}
+
+func messageIDs(t *testing.T, db *sql.DB, convID string) []string {
+	t.Helper()
+	rows, err := db.Query(`SELECT id FROM ctx_message WHERE conversation_id = ? ORDER BY seq ASC`, convID)
+	if err != nil {
+		t.Fatalf("query message ids: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan message id: %v", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func linkSummaryMessage(t *testing.T, db *sql.DB, summaryID, messageID string, ordinal int) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO ctx_summary_message (summary_id, message_id, ordinal) VALUES (?, ?, ?)`,
+		summaryID, messageID, ordinal); err != nil {
+		t.Fatalf("link summary message: %v", err)
+	}
+}
+
+func parseTestTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse("2006-01-02 15:04:05", s)
+	if err != nil {
+		t.Fatalf("parse time %q: %v", s, err)
+	}
+	return parsed
 }
 
 func appendUser(t *testing.T, p memory.Provider, sess memory.Session, contents ...string) {
@@ -189,23 +234,62 @@ func TestSearch_DeleteRemovesFTSHits(t *testing.T) {
 	}
 }
 
-func TestSearch_ConversationIsolation(t *testing.T) {
-	// Marker fits the ~34-char trigram snippet window.
-	_, p, sess := newSearchTestEnv(t, "fts-iso-a")
+func TestSearch_SpansSessionsOfSameUserAgent(t *testing.T) {
+	// Marker fits the ~34-char trigram snippet window. Both sessions share the
+	// same (user_id, agent_id), so memory recall must span both — searching from
+	// session A still surfaces what was said in session B.
+	_, p, sess := newSearchTestEnv(t, "fts-span-a")
 	appendUser(t, p, sess, "shared quokka keyword in convA")
 
-	other := newLCMTestSession("fts-iso-b")
+	other := newLCMTestSession("fts-span-b")
 	if err := p.Bootstrap(context.Background(), other); err != nil {
 		t.Fatalf("bootstrap other: %v", err)
 	}
 	appendUser(t, p, other, "shared quokka keyword in convB")
 
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "quokka"})
-	if len(results) != 1 {
-		t.Fatalf("expected 1 hit scoped to conversation A, got %d", len(results))
+	if len(results) != 2 {
+		t.Fatalf("expected hits from both sessions, got %d: %+v", len(results), results)
 	}
-	if !strings.Contains(results[0].Content, "convA") {
-		t.Errorf("hit leaked from another conversation: %q", results[0].Content)
+	// Provenance: each hit carries its origin session so the agent can trace it.
+	seen := map[string]bool{}
+	for _, r := range results {
+		if r.SessionID == "" {
+			t.Errorf("hit missing origin session: %+v", r)
+		}
+		seen[r.SessionID] = true
+	}
+	if !seen[sess.ID] || !seen[other.ID] {
+		t.Errorf("expected hits from both %q and %q, saw %v", sess.ID, other.ID, seen)
+	}
+}
+
+func TestSearch_IsolatesOtherUsersAndAgents(t *testing.T) {
+	_, p, sess := newSearchTestEnv(t, "fts-iso-self")
+	appendUser(t, p, sess, "private wombat keyword for owner")
+
+	// Same DB, different user and different agent: neither may leak into the
+	// owner's recall.
+	otherUser := newLCMTestSession("fts-iso-user")
+	otherUser.UserID = "2"
+	if err := p.Bootstrap(context.Background(), otherUser); err != nil {
+		t.Fatalf("bootstrap other user: %v", err)
+	}
+	appendUser(t, p, otherUser, "private wombat keyword for stranger")
+
+	otherAgent := newLCMTestSession("fts-iso-agent")
+	otherAgent.AgentID = "other"
+	if err := p.Bootstrap(context.Background(), otherAgent); err != nil {
+		t.Fatalf("bootstrap other agent: %v", err)
+	}
+	appendUser(t, p, otherAgent, "private wombat keyword for other agent")
+
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "wombat"})
+	if len(results) != 1 {
+		t.Fatalf("expected 1 hit scoped to owner, got %d: %+v", len(results), results)
+	}
+	if !strings.Contains(results[0].Content, "owner") {
+		t.Errorf("hit leaked across user/agent boundary: %q", results[0].Content)
 	}
 }
 
@@ -271,22 +355,80 @@ func TestSearch_ShortQueryFallsBackToLike(t *testing.T) {
 	}
 }
 
-func TestSearch_LikeFallbackConversationIsolation(t *testing.T) {
-	_, p, sess := newSearchTestEnv(t, "fts-like-iso-a")
+func TestSearch_LikeFallbackSpansSessionsButIsolatesUsers(t *testing.T) {
+	_, p, sess := newSearchTestEnv(t, "fts-like-span-a")
 	appendUser(t, p, sess, "会话A的部署记录")
 
-	other := newLCMTestSession("fts-like-iso-b")
+	other := newLCMTestSession("fts-like-span-b")
 	if err := p.Bootstrap(context.Background(), other); err != nil {
 		t.Fatalf("bootstrap other: %v", err)
 	}
 	appendUser(t, p, other, "会话B的部署记录")
 
-	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署"})
-	if len(results) != 1 {
-		t.Fatalf("expected 1 hit scoped to conversation A, got %d", len(results))
+	stranger := newLCMTestSession("fts-like-span-x")
+	stranger.UserID = "2"
+	if err := p.Bootstrap(context.Background(), stranger); err != nil {
+		t.Fatalf("bootstrap stranger: %v", err)
 	}
-	if !strings.Contains(results[0].Content, "会话A") {
-		t.Errorf("fallback hit leaked from another conversation: %q", results[0].Content)
+	appendUser(t, p, stranger, "陌生人的部署记录")
+
+	otherAgent := newLCMTestSession("fts-like-span-y")
+	otherAgent.AgentID = "other"
+	if err := p.Bootstrap(context.Background(), otherAgent); err != nil {
+		t.Fatalf("bootstrap other agent: %v", err)
+	}
+	appendUser(t, p, otherAgent, "另一个agent的部署记录")
+
+	// The LIKE fallback path must also span both same-user+agent sessions while
+	// keeping another user's and another agent's content out.
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署"})
+	if len(results) != 2 {
+		t.Fatalf("expected hits from both same-user sessions, got %d: %+v", len(results), results)
+	}
+	for _, r := range results {
+		if strings.Contains(r.Content, "陌生人") || strings.Contains(r.Content, "另一个agent") {
+			t.Errorf("fallback hit leaked across user/agent boundary: %q", r.Content)
+		}
+	}
+}
+
+func TestSearch_SummariesSpanSessionsWithContentTime(t *testing.T) {
+	db, p, sess := newSearchTestEnv(t, "fts-sum-span-a")
+	convA := conversationID(t, db, sess.ID)
+	// latest_at is the real end of the summarized window; OccurredAt must report
+	// it (not created_at, which is when the summary row was written).
+	const latestAt = "2030-01-02 03:04:05"
+	insertSummaryAt(t, db, convA, "sum-span-a", "narwhal migration plan finalized", latestAt)
+
+	other := newLCMTestSession("fts-sum-span-b")
+	if err := p.Bootstrap(context.Background(), other); err != nil {
+		t.Fatalf("bootstrap other: %v", err)
+	}
+	convB := conversationID(t, db, other.ID)
+	insertSummary(t, db, convB, "sum-span-b", "narwhal rollout notes from another session")
+
+	stranger := newLCMTestSession("fts-sum-span-x")
+	stranger.UserID = "2"
+	if err := p.Bootstrap(context.Background(), stranger); err != nil {
+		t.Fatalf("bootstrap stranger: %v", err)
+	}
+	convX := conversationID(t, db, stranger.ID)
+	insertSummary(t, db, convX, "sum-span-x", "narwhal secret of a different user")
+
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "narwhal", Scope: memory.SearchScopeSummaries})
+	if len(results) != 2 {
+		t.Fatalf("expected summary hits from both same-user sessions, got %d: %+v", len(results), results)
+	}
+	for _, r := range results {
+		if r.SessionID == "" {
+			t.Errorf("summary hit missing origin session: %+v", r)
+		}
+		if strings.Contains(r.Content, "different user") {
+			t.Errorf("summary hit leaked across user boundary: %q", r.Content)
+		}
+		if r.SourceID == "sum-span-a" && !r.OccurredAt.Equal(parseTestTime(t, latestAt)) {
+			t.Errorf("OccurredAt = %v, want latest_at %s", r.OccurredAt, latestAt)
+		}
 	}
 }
 
@@ -306,5 +448,110 @@ func TestSearch_LikeFallbackEscapesWildcards(t *testing.T) {
 	}
 	if got := runSearch(t, p, sess, memory.SearchQuery{Text: "_b"}); len(got) != 1 {
 		t.Errorf("query _b: expected 1 literal hit, got %d: %+v", len(got), got)
+	}
+}
+
+// TestExpand_CrossSessionSummaryReturnsFullMessages locks in the payoff of
+// cross-session search: a summary surfaced from another session of the same
+// user+agent can be expanded back to its complete original messages, not just
+// the search snippet. expand/describe are scoped by (user_id, agent_id), so the
+// summary need not live in the caller's current conversation.
+func TestExpand_CrossSessionSummaryReturnsFullMessages(t *testing.T) {
+	db, p, sess := newSearchTestEnv(t, "expand-xsess-a")
+
+	other := newLCMTestSession("expand-xsess-b")
+	if err := p.Bootstrap(context.Background(), other); err != nil {
+		t.Fatalf("bootstrap other: %v", err)
+	}
+	convB := conversationID(t, db, other.ID)
+
+	// A leaf summary in conv B, linked to its full original messages.
+	appendUser(t, p, other, "first detailed narwhal message", "second detailed narwhal message")
+	ids := messageIDs(t, db, convB)
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 messages in conv B, got %d", len(ids))
+	}
+	insertSummary(t, db, convB, "sum-xsess", "condensed narwhal discussion")
+	for i, id := range ids {
+		linkSummaryMessage(t, db, "sum-xsess", id, i)
+	}
+
+	explorer, ok := p.(memory.Explorer)
+	if !ok {
+		t.Fatal("provider does not implement Explorer")
+	}
+	// Caller is in session A; scope comes from context, not the conversation.
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+
+	res, err := explorer.Expand(ctx, "sum-xsess", 4000)
+	if err != nil {
+		t.Fatalf("expand cross-session summary: %v", err)
+	}
+	if len(res.Messages) != 2 {
+		t.Fatalf("expected 2 full messages, got %d: %+v", len(res.Messages), res.Messages)
+	}
+	if !strings.Contains(res.Messages[0].Content, "first detailed narwhal") ||
+		!strings.Contains(res.Messages[1].Content, "second detailed narwhal") {
+		t.Errorf("expand returned wrong/partial content: %+v", res.Messages)
+	}
+
+	// Another user must not be able to expand it.
+	strangerCtx := memory.WithAgentID(memory.WithUserID(context.Background(), "2"), sess.AgentID)
+	if _, err := explorer.Expand(strangerCtx, "sum-xsess", 4000); err == nil {
+		t.Error("expected cross-user expand to fail, got nil error")
+	}
+}
+
+// TestGetMessage_CrossSessionAndIsolation verifies the read-in-full companion to
+// cross-session search: a message ID surfaced from another session of the same
+// user+agent resolves to its complete content (search returns only a snippet),
+// while other users/agents and unknown IDs are denied.
+func TestGetMessage_CrossSessionAndIsolation(t *testing.T) {
+	db, p, sess := newSearchTestEnv(t, "getmsg-a")
+
+	other := newLCMTestSession("getmsg-b")
+	if err := p.Bootstrap(context.Background(), other); err != nil {
+		t.Fatalf("bootstrap other: %v", err)
+	}
+	convB := conversationID(t, db, other.ID)
+	full := "this is the complete platypus message body that a snippet would truncate"
+	appendUser(t, p, other, full)
+	ids := messageIDs(t, db, convB)
+	if len(ids) != 1 {
+		t.Fatalf("expected 1 message in conv B, got %d", len(ids))
+	}
+
+	reader, ok := p.(memory.MessageReader)
+	if !ok {
+		t.Fatal("provider does not implement MessageReader")
+	}
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+
+	got, err := reader.GetMessage(ctx, ids[0])
+	if err != nil {
+		t.Fatalf("get cross-session message: %v", err)
+	}
+	if got.Content != full {
+		t.Errorf("expected full content %q, got %q", full, got.Content)
+	}
+	if got.SessionID != other.ID {
+		t.Errorf("expected provenance session %q, got %q", other.ID, got.SessionID)
+	}
+
+	// Another user must not be able to read it.
+	strangerCtx := memory.WithAgentID(memory.WithUserID(context.Background(), "2"), sess.AgentID)
+	if _, err := reader.GetMessage(strangerCtx, ids[0]); err == nil {
+		t.Error("expected cross-user get_message to fail, got nil error")
+	}
+
+	// Another agent must not be able to read it.
+	otherAgentCtx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), "other")
+	if _, err := reader.GetMessage(otherAgentCtx, ids[0]); err == nil {
+		t.Error("expected cross-agent get_message to fail, got nil error")
+	}
+
+	// Unknown ID fails.
+	if _, err := reader.GetMessage(ctx, "no-such-message"); err == nil {
+		t.Error("expected unknown message id to fail, got nil error")
 	}
 }

@@ -218,7 +218,11 @@ func (t *tracedProvider) Describe(ctx context.Context, summaryID string) (*Descr
 	if !ok {
 		return nil, errCapabilityNotSupported("Explorer")
 	}
-	hctx := &hooks.PostMemoryCallContext{Op: hooks.MemoryOpDescribe}
+	hctx := &hooks.PostMemoryCallContext{
+		HookMeta:  hooks.HookMeta{UserID: UserIDFromContext(ctx), AgentID: AgentIDFromContext(ctx)},
+		SessionID: SessionIDFromContext(ctx),
+		Op:        hooks.MemoryOpDescribe,
+	}
 	ctx, start := t.begin(ctx, hctx)
 	result, err := e.Describe(ctx, summaryID)
 	hctx.Error = err
@@ -236,7 +240,11 @@ func (t *tracedProvider) Expand(ctx context.Context, summaryID string, tokenCap 
 	if !ok {
 		return nil, errCapabilityNotSupported("Explorer")
 	}
-	hctx := &hooks.PostMemoryCallContext{Op: hooks.MemoryOpExpand}
+	hctx := &hooks.PostMemoryCallContext{
+		HookMeta:  hooks.HookMeta{UserID: UserIDFromContext(ctx), AgentID: AgentIDFromContext(ctx)},
+		SessionID: SessionIDFromContext(ctx),
+		Op:        hooks.MemoryOpExpand,
+	}
 	ctx, start := t.begin(ctx, hctx)
 	result, err := e.Expand(ctx, summaryID, tokenCap)
 	hctx.Error = err
@@ -264,6 +272,31 @@ func (t *tracedProvider) Expand(ctx context.Context, summaryID string, tokenCap 
 			}
 		}
 		hctx.Detail = b.String()
+	}
+	t.finish(ctx, start, hctx)
+	return result, err
+}
+
+// ---------------------------------------------------------------------------
+// MessageReader
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetMessage(ctx context.Context, messageID string) (*MessageDetail, error) {
+	r, ok := t.inner.(MessageReader)
+	if !ok {
+		return nil, errCapabilityNotSupported("MessageReader")
+	}
+	hctx := &hooks.PostMemoryCallContext{
+		HookMeta:  hooks.HookMeta{UserID: UserIDFromContext(ctx), AgentID: AgentIDFromContext(ctx)},
+		SessionID: SessionIDFromContext(ctx),
+		Op:        hooks.MemoryOpGetMessage,
+	}
+	ctx, start := t.begin(ctx, hctx)
+	result, err := r.GetMessage(ctx, messageID)
+	hctx.Error = err
+	if result != nil {
+		hctx.Detail = fmt.Sprintf("message=%s session=%s role=%s content=%s",
+			result.MessageID, result.SessionID, result.Role, truncateStr(result.Content, 200))
 	}
 	t.finish(ctx, start, hctx)
 	return result, err

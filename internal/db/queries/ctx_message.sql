@@ -6,6 +6,21 @@ RETURNING *;
 -- name: GetMessage :one
 SELECT * FROM ctx_message WHERE id = ? AND conversation_id = ?;
 
+-- name: GetMessageScoped :one
+-- Fetch one message in full by ID, scoped to (user_id, agent_id) across every
+-- session: the read-in-full companion to cross-session SearchMessages. Joins
+-- ctx_conversation for the same isolation filter plus provenance. Keep this doc
+-- comment ASCII; multibyte chars corrupt sqlc's query rewriter offsets.
+SELECT
+    m.*,
+    c.session_id AS session_id,
+    c.title AS conversation_title
+FROM ctx_message m
+JOIN ctx_conversation c ON c.id = m.conversation_id
+WHERE m.id = sqlc.arg('id')
+  AND c.user_id = sqlc.arg('user_id')
+  AND c.agent_id IS sqlc.narg('agent_id');
+
 -- name: GetMessagesByConversation :many
 SELECT * FROM ctx_message WHERE conversation_id = ? ORDER BY seq ASC;
 
@@ -69,14 +84,22 @@ SELECT * FROM ctx_message_part WHERE message_id = ? ORDER BY ordinal ASC;
 SELECT * FROM ctx_message_part WHERE message_id IN (sqlc.slice('message_ids')) ORDER BY message_id, ordinal ASC;
 
 -- name: SearchMessages :many
+-- Spans every conversation of the current (user_id, agent_id) so memory recall
+-- survives across sessions. Joins ctx_conversation to pin the scope and surface
+-- provenance (session_id, title). Global ORDER BY score + LIMIT keeps the best
+-- matches across the merged corpus, not per-conversation truncations.
 SELECT
     m.*,
+    c.session_id AS session_id,
+    c.title AS conversation_title,
     snippet(ctx_message_fts, 0, '<<', '>>', '...', 32) AS snippet,
     bm25(ctx_message_fts) AS score
 FROM ctx_message_fts
 JOIN ctx_message m ON m.rowid = ctx_message_fts.rowid
+JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE ctx_message_fts.content MATCH sqlc.arg('match')
-  AND m.conversation_id = sqlc.arg('conversation_id')
+  AND c.user_id = sqlc.arg('user_id')
+  AND c.agent_id IS sqlc.narg('agent_id')
 ORDER BY score ASC
 LIMIT sqlc.arg('limit');
 
@@ -88,10 +111,16 @@ LIMIT sqlc.arg('limit');
 -- cannot parse || concatenation here, so the caller wraps it, and the parens
 -- around LIKE...ESCAPE are also required by sqlc's grammar. Keep these doc
 -- comments ASCII: multibyte chars corrupt sqlc's query rewriter offsets.
-SELECT * FROM ctx_message
-WHERE conversation_id = sqlc.arg('conversation_id')
-  AND (content LIKE sqlc.arg('pattern') ESCAPE '\')
-ORDER BY created_at DESC
+SELECT
+    m.*,
+    c.session_id AS session_id,
+    c.title AS conversation_title
+FROM ctx_message m
+JOIN ctx_conversation c ON c.id = m.conversation_id
+WHERE c.user_id = sqlc.arg('user_id')
+  AND c.agent_id IS sqlc.narg('agent_id')
+  AND (m.content LIKE sqlc.arg('pattern') ESCAPE '\')
+ORDER BY m.created_at DESC
 LIMIT sqlc.arg('limit');
 
 -- name: GetMessagesSince :many

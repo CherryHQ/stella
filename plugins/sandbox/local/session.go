@@ -261,7 +261,28 @@ type localSession struct {
 	procs             []*localProcess
 }
 
-func (s *localSession) Policy() sandboxpkg.Policy { return s.policy }
+func (s *localSession) Policy() sandboxpkg.Policy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.policy
+}
+
+// RefreshEnv replaces injected env entries with the given updates. It swaps the
+// policy's env map under the write lock (copy-on-write) so readers that snapshot
+// the policy under the read lock never observe a half-written map.
+func (s *localSession) RefreshEnv(updates map[string]string) {
+	if len(updates) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	env := maps.Clone(s.policy.Env)
+	if env == nil {
+		env = make(map[string]string, len(updates))
+	}
+	maps.Copy(env, updates)
+	s.policy.Env = env
+}
 
 func (s *localSession) WorkspaceRoot() string {
 	return s.sandboxRoot
@@ -632,9 +653,11 @@ func (s *localSession) toSandboxPath(realPath string) string {
 
 // Exec runs a shell command via sh -c on the host.
 func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
-	// Finding 5: check closed before starting.
+	// Finding 5: check closed before starting. Snapshot the policy under the same
+	// lock so a concurrent RefreshEnv can't race the per-exec env read.
 	s.mu.RLock()
 	closed := s.closed
+	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local: session is closed")
@@ -647,7 +670,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 
 	timeout := opts.Timeout
 	if timeout == 0 {
-		timeout = s.policy.Timeout
+		timeout = policy.Timeout
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -660,7 +683,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, "sh", []string{"-c", command})
+	execPath, execArgs, hostCwd, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, "sh", []string{"-c", command})
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: wrap: %w", err)
 	}
@@ -669,7 +692,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	// leaving process-group children alive. We manage cancellation manually.
 	cmd := exec.Command(execPath, execArgs...)
 	cmd.Dir = hostCwd
-	cmd.Env = buildEnv(s.policy, opts.Env)
+	cmd.Env = buildEnv(policy, opts.Env)
 	setSysProcAttr(cmd)
 
 	var stdout, stderr bytes.Buffer
@@ -716,6 +739,11 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 
 // StartProcess starts a long-running process on the host and returns a handle.
 func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
+	// Snapshot the policy so a concurrent RefreshEnv can't race the env read.
+	s.mu.RLock()
+	policy := s.policy
+	s.mu.RUnlock()
+
 	sandboxCwd := req.Cwd
 	if sandboxCwd == "" {
 		sandboxCwd = s.WorkingDir()
@@ -723,7 +751,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 
 	timeout := req.Timeout
 	if timeout == 0 {
-		timeout = s.policy.Timeout
+		timeout = policy.Timeout
 	}
 
 	var (
@@ -745,7 +773,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, req.Path, args)
+	execPath, execArgs, hostCwd, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, req.Path, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: wrap: %w", err)
@@ -754,7 +782,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 	// Finding 2: do NOT use exec.CommandContext — kill the process group instead.
 	cmd := exec.Command(execPath, execArgs...)
 	cmd.Dir = hostCwd
-	cmd.Env = buildEnv(s.policy, req.Env)
+	cmd.Env = buildEnv(policy, req.Env)
 	setSysProcAttr(cmd)
 
 	// Finding 7: close previously opened pipes on error.

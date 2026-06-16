@@ -173,6 +173,8 @@ components:
             type: string
         source:
           type: string
+        version:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -218,6 +220,11 @@ components:
         disable_model_invocation:
           type: boolean
           nullable: true
+        # Overwrites only the "version" key in the skill's metadata; source and
+        # install timestamps are preserved by a read-modify-write on the server.
+        version:
+          type: string
+          nullable: true
         files:
           type: object
           additionalProperties:
@@ -237,6 +244,15 @@ components:
         path:
           type: string
         content:
+          type: string
+    SkillUpgradeResult:
+      type: object
+      properties:
+        updated:
+          type: boolean
+        version:
+          type: string
+        previous_version:
           type: string
     LoginRequest:
       type: object

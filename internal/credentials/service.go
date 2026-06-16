@@ -367,6 +367,28 @@ func (s *Service) AddSecretInstruction(name, purpose string) AddSecretInstructio
 
 // --- OAuth provider status ---
 
+// GitHubAccessToken returns the access token userID has bound for GitHub, or ""
+// when GitHub is not connected (or the vault/registry is unavailable). A
+// near-expiry token is refreshed as a side effect. It never surfaces the
+// not-connected condition as an error: an empty string means "clone anonymously".
+func (s *Service) GitHubAccessToken(ctx context.Context, userID string) string {
+	if s.registry == nil || s.vaultSvc == nil {
+		return ""
+	}
+	bundle, err := s.registry.GetToken(ctx, s.vaultSvc, string(oauth.ProviderGitHub), userID)
+	if err != nil {
+		// Not-connected surfaces here as an error too; log at debug so a genuine
+		// vault/refresh failure leaves a breadcrumb without spamming on the common
+		// anonymous case.
+		s.log.Debug("github access token unavailable", "user_id", userID, "error", err)
+		return ""
+	}
+	if bundle == nil {
+		return ""
+	}
+	return bundle.AccessToken
+}
+
 // GetProviderStatuses returns status for all registered OAuth providers.
 func (s *Service) GetProviderStatuses(ctx context.Context, userID string) []ProviderStatus {
 	if s.registry == nil {

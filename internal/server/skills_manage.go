@@ -162,6 +162,7 @@ func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) skillView {
 		DisableModelInvocation: sk.DisableModelInvocation,
 		Files:                  files,
 		Source:                 skillSource(sk.Metadata),
+		Version:                skillVersion(sk.Metadata),
 		CreatedAt:              sk.CreatedAt.UTC(),
 		UpdatedAt:              sk.UpdatedAt.UTC(),
 	}
@@ -276,7 +277,15 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, req.Scope, userID, agentID)
+	ctx := r.Context()
+	if skillstool.GitHubSource(req.Source) {
+		// Use the acting user's bound token, not the store owner — system-scope
+		// installs resolve userID to "" yet are still performed by a real admin.
+		if token := s.credSvc.GitHubAccessToken(ctx, info.UserID); token != "" {
+			ctx = skillstool.WithGitHubToken(ctx, token)
+		}
+	}
+	name, err := skillstool.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, req.Scope, userID, agentID)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
