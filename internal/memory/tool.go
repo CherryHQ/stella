@@ -15,6 +15,7 @@ const (
 	actionSearch          = "search"
 	actionDescribe        = "describe"
 	actionExpand          = "expand"
+	actionGetMessage      = "get_message"
 	actionSoulGet         = "soul_get"
 	actionSoulUpdate      = "soul_update"
 	actionProfileGet      = "profile_get"
@@ -89,6 +90,9 @@ func BuildTool(provider Provider, opts ...ToolOption) tools.Tool {
 	if _, ok := inner.(Explorer); ok {
 		t.explorer, _ = provider.(Explorer)
 	}
+	if _, ok := inner.(MessageReader); ok {
+		t.messageReader, _ = provider.(MessageReader)
+	}
 	if _, ok := inner.(ProfileStore); ok {
 		t.profileStore, _ = provider.(ProfileStore)
 	}
@@ -123,6 +127,7 @@ type memoryTool struct {
 	cfg             *toolConfig
 	searcher        Searcher
 	explorer        Explorer
+	messageReader   MessageReader
 	profileStore    ProfileStore
 	changelogReader ChangelogReader
 	changelogWriter ChangelogWriter
@@ -144,12 +149,16 @@ func (t *memoryTool) buildActions() []actionMeta {
 	add(actionStatus, "Show session memory statistics: message count, token usage, summary count, time range.")
 
 	if t.searcher != nil {
-		add(actionSearch, "Search conversation history by keyword. Returns matching messages and summaries.")
+		add(actionSearch, "Search this user+agent's history by keyword across ALL past sessions, not just the current one. Each hit carries provenance: session_id and conversation_title for origin, and occurred_at (RFC3339) for when the content actually happened — use it to weight recency.")
 	}
 
 	if t.explorer != nil {
 		add(actionDescribe, "Inspect a summary's content, metadata, and lineage (parents/children).")
 		add(actionExpand, "Drill into a summary to retrieve original messages (leaf) or child summaries (condensed).")
+	}
+
+	if t.messageReader != nil {
+		add(actionGetMessage, "Fetch one message in full by its ID (the source_id of a 'message' search hit). Use this to read a truncated search snippet in full, including hits from other past sessions of this user+agent.")
 	}
 
 	if t.profileStore != nil {
@@ -242,6 +251,13 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 		}
 	}
 
+	if t.hasAction(actionGetMessage) {
+		properties["message_id"] = map[string]any{
+			"type":        "string",
+			"description": "The message ID to fetch in full (required for get_message; use the source_id of a 'message' search hit)",
+		}
+	}
+
 	if t.hasAction(actionProfileUpdate) || t.hasAction(actionSoulUpdate) {
 		properties["content"] = map[string]any{
 			"type":        "string",
@@ -320,6 +336,8 @@ func (t *memoryTool) Execute(ctx context.Context, args map[string]any) (string, 
 		return t.execDescribe(ctx, args)
 	case actionExpand:
 		return t.execExpand(ctx, args)
+	case actionGetMessage:
+		return t.execGetMessage(ctx, args)
 	case actionSoulGet:
 		return t.execSoulGet(ctx)
 	case actionSoulUpdate:
@@ -414,6 +432,24 @@ func (t *memoryTool) execExpand(ctx context.Context, args map[string]any) (strin
 	result, err := t.explorer.Expand(ctx, summaryID, tokenCap)
 	if err != nil {
 		return "", fmt.Errorf("memory expand: %w", err)
+	}
+
+	return marshalJSON(result)
+}
+
+func (t *memoryTool) execGetMessage(ctx context.Context, args map[string]any) (string, error) {
+	if t.messageReader == nil {
+		return "", fmt.Errorf("memory get_message: not supported by provider")
+	}
+
+	messageID, ok := args["message_id"].(string)
+	if !ok || messageID == "" {
+		return "", fmt.Errorf("memory get_message: message_id is required")
+	}
+
+	result, err := t.messageReader.GetMessage(ctx, messageID)
+	if err != nil {
+		return "", fmt.Errorf("memory get_message: %w", err)
 	}
 
 	return marshalJSON(result)
