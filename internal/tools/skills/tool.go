@@ -94,8 +94,12 @@ func NewTool(store pkgplugins.SkillStore, stellaHome, agentRoot, projectRoot, us
 }
 
 const (
-	skillScopeUser  = "user"
-	skillScopeAgent = "agent"
+	skillScopeUser = "user"
+	// The model-facing "agent" scope persists as user_agent: the user's own
+	// skills bound to the current agent. The model runs on behalf of a user who
+	// may not be an admin, so it must not write the admin-managed system_agent
+	// scope — those are managed in Settings → Skills. See normalizeSkillScope.
+	skillScopeAgent = "user_agent"
 )
 
 // skillDirForScope returns the absolute host path to the skill's directory so
@@ -108,12 +112,12 @@ func (t *Tool) skillDirForScope(scope, agentID string, userID string, skillName 
 			return ""
 		}
 		return filepath.Join(t.stellaHome, ".agents", "skills", skillName)
-	case "agent":
+	case "system_agent":
 		if t.agentRoot == "" {
 			return ""
 		}
 		return filepath.Join(t.agentRoot, ".agents", "skills", skillName)
-	case "user":
+	case "user", "user_agent":
 		if t.userSkillsDir == "" {
 			return ""
 		}
@@ -131,7 +135,7 @@ func normalizeSkillScope(scope string) (string, error) {
 	switch scope {
 	case "", ".", skillScopeUser:
 		return skillScopeUser, nil
-	case skillScopeAgent:
+	case "agent", skillScopeAgent:
 		return skillScopeAgent, nil
 	case "project":
 		return "", errors.New(errProjectScopeMsg)
@@ -347,7 +351,10 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 	switch scope {
 	case "user":
 		sk.UserID = vc.UserID
-	case "agent":
+	case "user_agent":
+		sk.UserID = vc.UserID
+		sk.AgentID = vc.AgentID
+	case "system_agent":
 		sk.AgentID = vc.AgentID
 	}
 
@@ -372,17 +379,9 @@ func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("name is required for patch action")
 	}
 
-	if t.store == nil {
-		return "", fmt.Errorf("skills store unavailable")
-	}
-
-	vc := t.viewContext(ctx)
-	s, err := t.store.Resolve(ctx, name, vc)
+	s, err := t.resolveWritableSkill(ctx, name, args)
 	if err != nil {
-		return "", fmt.Errorf("resolve skill %q: %w", name, err)
-	}
-	if s == nil {
-		return "", fmt.Errorf("skill %q not found", name)
+		return "", err
 	}
 
 	p := pkgplugins.SkillUpdatePatch{}
@@ -413,17 +412,9 @@ func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, erro
 		return "", fmt.Errorf("name is required for deprecate action")
 	}
 
-	if t.store == nil {
-		return "", fmt.Errorf("skills store unavailable")
-	}
-
-	vc := t.viewContext(ctx)
-	s, err := t.store.Resolve(ctx, name, vc)
+	s, err := t.resolveWritableSkill(ctx, name, args)
 	if err != nil {
-		return "", fmt.Errorf("resolve skill %q: %w", name, err)
-	}
-	if s == nil {
-		return "", fmt.Errorf("skill %q not found", name)
+		return "", err
 	}
 
 	status := SkillStatusDeprecated
@@ -433,6 +424,45 @@ func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, erro
 	}
 
 	return fmt.Sprintf("Skill %q deprecated.", name), nil
+}
+
+// resolveWritableSkill finds the skill a write action (remove/patch/deprecate)
+// targets. Missing scope follows the tool schema and defaults to user. Same-name
+// skills across scopes are expected, so write actions always resolve one exact
+// writable bucket instead of using runtime precedence.
+func (t *Tool) resolveWritableSkill(ctx context.Context, name string, args map[string]any) (*pkgplugins.Skill, error) {
+	if t.store == nil {
+		return nil, fmt.Errorf("skills store unavailable")
+	}
+	rawScope, err := scopeArg(args)
+	if err != nil {
+		return nil, err
+	}
+	wantScope, err := normalizeSkillScope(rawScope)
+	if err != nil {
+		return nil, err
+	}
+	vc := t.viewContext(ctx)
+	rs, err := t.svc.ResolveScoped(ctx, name, wantScope, vc, projectRootFromContext(ctx, t.projectRoot))
+	if err != nil {
+		return nil, fmt.Errorf("resolve skill %q: %w", name, err)
+	}
+	if rs == nil {
+		if rawScope == "" {
+			return nil, fmt.Errorf("skill %q not found in default scope=user", name)
+		}
+		return nil, fmt.Errorf("skill %q not found in scope=%s", name, rawScope)
+	}
+	sk := rs.Skill
+	s := &sk
+
+	if s.Scope == "project" {
+		return nil, fmt.Errorf("skill %q is a project skill — %s", name, errProjectScopeMsg)
+	}
+	if s.Scope != skillScopeUser && s.Scope != "user_agent" {
+		return nil, fmt.Errorf("skill %q has scope %q; the skills tool only manages your user and user_agent skills — system and system_agent skills are admin-managed in Settings → Skills", name, s.Scope)
+	}
+	return s, nil
 }
 
 func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) {
@@ -445,55 +475,9 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 		return "", err
 	}
 
-	if t.store == nil {
-		return "", fmt.Errorf("skills store unavailable")
-	}
-
-	rawScope, err := scopeArg(args)
+	s, err := t.resolveWritableSkill(ctx, name, args)
 	if err != nil {
 		return "", err
-	}
-
-	var wantScope string
-	if rawScope != "" {
-		wantScope, err = normalizeSkillScope(rawScope)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	vc := t.viewContext(ctx)
-
-	var s *pkgplugins.Skill
-	if wantScope != "" {
-		list, err := t.store.List(ctx, vc)
-		if err != nil {
-			return "", fmt.Errorf("list skills: %w", err)
-		}
-		for i := range list {
-			if list[i].Name == name && list[i].Scope == wantScope {
-				s = &list[i]
-				break
-			}
-		}
-		if s == nil {
-			return "", fmt.Errorf("skill %q not found in scope=%s", name, wantScope)
-		}
-	} else {
-		s, err = t.store.Resolve(ctx, name, vc)
-		if err != nil {
-			return "", fmt.Errorf("resolve skill %q: %w", name, err)
-		}
-		if s == nil {
-			return "", fmt.Errorf("skill %q not found", name)
-		}
-	}
-
-	if s.Scope == "project" {
-		return "", fmt.Errorf("skill %q is a project skill — %s", name, errProjectScopeMsg)
-	}
-	if s.Scope != "user" && s.Scope != "agent" {
-		return "", fmt.Errorf("skill %q has scope %q; only user/agent-scoped skills can be removed", name, s.Scope)
 	}
 
 	if err := t.store.Delete(ctx, s.ID); err != nil {

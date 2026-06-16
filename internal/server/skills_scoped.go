@@ -89,12 +89,16 @@ func (s *Server) requireSkillScope(ctx context.Context, id, scope string, userID
 		return nil, http.StatusNotFound, "skill not found"
 	}
 	switch scope {
-	case "agent":
+	case "system_agent":
 		if sk.AgentID != agentID {
 			return nil, http.StatusNotFound, "skill not found"
 		}
 	case "user":
-		if sk.UserID != userID || (agentID != "" && sk.AgentID != agentID) {
+		if sk.UserID != userID {
+			return nil, http.StatusNotFound, "skill not found"
+		}
+	case "user_agent":
+		if sk.UserID != userID || sk.AgentID != agentID {
 			return nil, http.StatusNotFound, "skill not found"
 		}
 	case "system":
@@ -182,6 +186,17 @@ func skillSource(metadata json.RawMessage) string {
 	return m.Source
 }
 
+// defaultAgentSkillScope picks the write scope when the client omits one:
+// admins manage the shared system_agent scope, everyone else writes their own
+// per-agent (user_agent) skills. This keeps the legacy install/upload entry
+// points from defaulting non-admins into the admin-only system_agent scope.
+func defaultAgentSkillScope(ctx context.Context) string {
+	if info := UserFromContext(ctx); info != nil && info.IsAdmin {
+		return "system_agent"
+	}
+	return "user_agent"
+}
+
 // requireAgentSkillWrite checks auth for write operations on DB-backed scopes.
 func (s *Server) requireAgentSkillWrite(ctx context.Context, agentID, scope string) (string, skills.ViewContext, int, string) {
 	info := UserFromContext(ctx)
@@ -189,7 +204,12 @@ func (s *Server) requireAgentSkillWrite(ctx context.Context, agentID, scope stri
 		return "", skills.ViewContext{}, http.StatusUnauthorized, "unauthorized"
 	}
 	switch scope {
-	case "agent":
+	case "system_agent":
+		// system_agent is an admin-managed scope shared with everyone who uses
+		// the agent; being the agent's creator is not enough.
+		if !info.IsAdmin {
+			return "", skills.ViewContext{}, http.StatusForbidden, "system agent skills are managed by admins"
+		}
 		if _, code, msg := s.requireAgentManage(ctx, agentID); code != 0 {
 			return "", skills.ViewContext{}, code, msg
 		}
@@ -198,13 +218,18 @@ func (s *Server) requireAgentSkillWrite(ctx context.Context, agentID, scope stri
 		if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
 			return "", skills.ViewContext{}, code, msg
 		}
+		return info.UserID, skills.ViewContext{UserID: info.UserID}, 0, ""
+	case "user_agent":
+		if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
+			return "", skills.ViewContext{}, code, msg
+		}
 		return info.UserID, skills.ViewContext{UserID: info.UserID, AgentID: agentID}, 0, ""
 	case "project":
 		return "", skills.ViewContext{}, http.StatusBadRequest, "project skills are managed via the CLI or filesystem"
 	case "system":
-		return "", skills.ViewContext{}, http.StatusForbidden, "system skills are read-only"
+		return "", skills.ViewContext{}, http.StatusForbidden, "system skills are managed in Settings → Skills"
 	default:
-		return "", skills.ViewContext{}, http.StatusBadRequest, "scope must be one of: project, system, agent, user"
+		return "", skills.ViewContext{}, http.StatusBadRequest, "scope must be one of: user, user_agent, system_agent"
 	}
 }
 
@@ -349,14 +374,19 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	}
 	sk := skills.Skill{
 		Scope:                  req.Scope,
-		AgentID:                agentID,
 		Name:                   req.Name,
 		Description:            req.Description,
 		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
-	if req.Scope == "user" {
+	switch req.Scope {
+	case "user":
 		sk.UserID = userID
+	case "user_agent":
+		sk.UserID = userID
+		sk.AgentID = agentID
+	case "system_agent":
+		sk.AgentID = agentID
 	}
 	createdID, err := s.skillStore().Create(r.Context(), sk, files)
 	if err != nil {
@@ -546,7 +576,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	}
 	scope := req.Scope
 	if scope == "" {
-		scope = "agent"
+		scope = defaultAgentSkillScope(r.Context())
 	}
 	userID, _, code, msg := s.requireAgentSkillWrite(r.Context(), agentID, scope)
 	if code != 0 {
@@ -554,7 +584,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 	storeUserID := ""
-	if scope == "user" {
+	if scope == "user" || scope == "user_agent" {
 		storeUserID = userID
 	}
 	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)

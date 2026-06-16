@@ -74,6 +74,24 @@ func (s *SQLiteStore) ListForAgentContext(ctx context.Context, userID string, ag
 	return out, nil
 }
 
+// ListByScope returns every skill in exactly one scope/owner bucket, including
+// drafts and disabled skills, for management views.
+func (s *SQLiteStore) ListByScope(ctx context.Context, scope string, userID string, agentID string) ([]Skill, error) {
+	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
+		Scope:   scope,
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("skills: list by scope %q: %w", scope, err)
+	}
+	out := make([]Skill, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, mapRow(r))
+	}
+	return out, nil
+}
+
 // ListForAdmin returns system and agent skills, plus the admin user's own user skills.
 func (s *SQLiteStore) ListForAdmin(ctx context.Context, userID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsForAdmin(ctx, sql.NullString{String: userID, Valid: userID != ""})
@@ -199,10 +217,10 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 	switch sk.Scope {
 	case "user":
 		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
-		if sk.AgentID != "" {
-			params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
-		}
-	case "agent":
+	case "user_agent":
+		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
+		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
+	case "system_agent":
 		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
 	}
 

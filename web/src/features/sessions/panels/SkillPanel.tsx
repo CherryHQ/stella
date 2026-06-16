@@ -43,12 +43,15 @@ function emptyForm(): Form {
 }
 
 function scopeLabel(scope: string) {
-  return { system: "Built-in", agent: "Agent", user: "User" }[scope] ?? scope;
+  return (
+    { system: "Built-in", system_agent: "Agent", user_agent: "My profile", user: "User" }[scope] ??
+    scope
+  );
 }
 
 function scopeBadgeVariant(scope: string): "outline" | "secondary" | "default" {
-  if (scope === "user") return "default";
-  if (scope === "agent") return "secondary";
+  if (scope === "user" || scope === "user_agent") return "default";
+  if (scope === "system_agent") return "secondary";
   return "outline";
 }
 
@@ -75,7 +78,13 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId || !agentId) return;
     setLoading(true);
     try {
-      const skillScope = scope as "project" | "user" | "agent" | "system" | undefined;
+      const skillScope = scope as
+        | "project"
+        | "user"
+        | "user_agent"
+        | "system"
+        | "system_agent"
+        | undefined;
       const { data: skRaw } = await getAgentSkill({
         path: { id: agentId, skillId },
         query: { scope: skillScope },

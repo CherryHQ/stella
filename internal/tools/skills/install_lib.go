@@ -17,8 +17,8 @@ import (
 )
 
 // InstallToStore fetches a skill from source and stores it in the given SkillStore.
-// scope must be one of "user" or "agent".
-// For scope="user", userID is used; for scope="agent", agentID is used.
+// scope must be one of "user", "user_agent", or "system_agent".
+// user uses userID; user_agent uses both; system_agent uses agentID.
 // Returns the installed skill name on success.
 func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID string, agentID string) (string, error) {
 	skillName, files, cleanup, err := FetchSkillFiles(ctx, source)
@@ -62,13 +62,13 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 		DisableModelInvocation: fm.DisableModelInvocation,
 		Metadata:               json.RawMessage(metaBytes),
 	}
-	// A user-scope skill lives within an agent's context (system → agent → user),
-	// so it carries both the owning user and the agent it was installed under.
 	switch scope {
 	case "user":
 		sk.UserID = userID
+	case "user_agent":
+		sk.UserID = userID
 		sk.AgentID = agentID
-	case "agent":
+	case "system_agent":
 		sk.AgentID = agentID
 	}
 

@@ -79,19 +79,26 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
-type Scope = "project" | "user" | "agent" | "system";
+type Scope = "project" | "user" | "user_agent" | "system_agent" | "system";
 type ScopeFilter = Scope | "all";
 type Source = "installed" | "market";
-type InstallScope = "user" | "agent";
+type InstallScope = "user_agent" | "system_agent";
 
 const SOURCE_META = {
   installed: { icon: PackageCheck, key: "sessions.skillsList.installedTab" },
   market: { icon: Store, key: "sessions.skillsList.market" },
 } as const;
 
-const SCOPE_PILLS: ScopeFilter[] = ["all", "system", "agent", "user", "project"];
-const SCOPES: Scope[] = ["project", "user", "agent", "system"];
-const WRITABLE = new Set<Scope>(["user", "agent"]);
+const SCOPE_PILLS: ScopeFilter[] = [
+  "all",
+  "system",
+  "system_agent",
+  "user_agent",
+  "user",
+  "project",
+];
+const SCOPES: Scope[] = ["project", "user", "user_agent", "system_agent", "system"];
+const WRITABLE = new Set<Scope>(["user", "user_agent", "system_agent"]);
 
 // Match FacetTabs' active treatment so the in-page filter pills read as the
 // same tab language as the top agent nav (accent pill / muted ghost).
@@ -191,7 +198,7 @@ export function SkillsListPage() {
   const qc = useQueryClient();
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
-  const [installScope, setInstallScope] = useState<InstallScope>("user");
+  const [installScope, setInstallScope] = useState<InstallScope>("user_agent");
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(Boolean(search.new));
 
@@ -715,7 +722,7 @@ function SkillInspector({
             <h2 className="truncate font-mono text-base font-semibold">{skill.name}</h2>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <Badge variant="secondary" size="sm">
-                {t(`sessions.skillsList.${skill.scope}`)}
+                {t(`sessions.skillsList.${skill.scope as Scope}`)}
               </Badge>
               {skill.status !== "active" ? (
                 <Badge variant="outline" size="sm">
@@ -1095,11 +1102,11 @@ function DiscoverDetail({
               value={[scope]}
               onValueChange={(value: string[]) => value[0] && onScope(value[0] as InstallScope)}
             >
-              <ToggleGroupItem value="user">
+              <ToggleGroupItem value="user_agent">
                 {t("sessions.skillsList.profileScope")}
               </ToggleGroupItem>
               {showAgentScope && (
-                <ToggleGroupItem value="agent">
+                <ToggleGroupItem value="system_agent">
                   {t("sessions.skillsList.agentScope")}
                 </ToggleGroupItem>
               )}
@@ -1154,7 +1161,7 @@ function UploadDialog({
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const [scope, setScope] = useState<InstallScope>("user");
+  const [scope, setScope] = useState<InstallScope>("user_agent");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   async function upload() {
@@ -1182,16 +1189,16 @@ function UploadDialog({
           <div className="flex gap-2">
             <Button
               size="sm"
-              variant={scope === "user" ? "secondary" : "outline"}
-              onClick={() => setScope("user")}
+              variant={scope === "user_agent" ? "secondary" : "outline"}
+              onClick={() => setScope("user_agent")}
             >
               {t("sessions.skillsList.profileScope")}
             </Button>
             {showAgentScope && (
               <Button
                 size="sm"
-                variant={scope === "agent" ? "secondary" : "outline"}
-                onClick={() => setScope("agent")}
+                variant={scope === "system_agent" ? "secondary" : "outline"}
+                onClick={() => setScope("system_agent")}
               >
                 {t("sessions.skillsList.agentScope")}
               </Button>

@@ -24,7 +24,7 @@ interface Props {
   onDeleteSkill: (sk: Skill) => void;
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
   onDeleteSkillFile: () => void;
-  onOpenSkillInstallModal: (scope?: "user" | "agent") => void;
+  onOpenSkillInstallModal: (scope?: "user_agent" | "system_agent") => void;
   onDelete?: () => void;
 }
 

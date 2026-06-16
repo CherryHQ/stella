@@ -18,7 +18,7 @@ interface Props {
   onDeleteSkill: (sk: Skill) => void;
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
   onDeleteSkillFile: () => void;
-  onOpenSkillInstallModal: (scope?: "user" | "agent") => void;
+  onOpenSkillInstallModal: (scope?: "user_agent" | "system_agent") => void;
 }
 
 function skillKey(sk: { scope: string; id: string }) {
@@ -26,7 +26,11 @@ function skillKey(sk: { scope: string; id: string }) {
 }
 
 function skillScopeLabel(scope: string) {
-  return { system: "Built-in", user: "User", agent: "This agent" }[scope] ?? scope;
+  return (
+    { system: "Built-in", user: "User", user_agent: "My profile", system_agent: "This agent" }[
+      scope
+    ] ?? scope
+  );
 }
 
 function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default" {
@@ -35,7 +39,8 @@ function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default
       {
         system: "outline",
         user: "success",
-        agent: "default",
+        user_agent: "success",
+        system_agent: "default",
       } as Record<string, "outline" | "success" | "default">
     )[scope] ?? "outline"
   );
@@ -93,7 +98,7 @@ export function SkillsTab({
   const canDelete = !!selectedSkill && selectedSkill.scope !== "system";
 
   const allSkills = (): Skill[] => {
-    const ordered: Record<string, number> = { system: 0, agent: 1, user: 2 };
+    const ordered: Record<string, number> = { system: 0, system_agent: 1, user_agent: 2, user: 3 };
     return [...agentSkills].sort((a, b) => {
       const diff = (ordered[a.scope] ?? 99) - (ordered[b.scope] ?? 99);
       if (diff !== 0) return diff;
@@ -106,7 +111,13 @@ export function SkillsTab({
     return allSkills().filter((sk) => {
       if (skillViewFilter === "enabled" && sk.status !== "active") return false;
       if (skillViewFilter === "modified" && sk.scope === "system") return false;
-      if (skillScopeFilter !== "all" && sk.scope !== skillScopeFilter) return false;
+      if (skillScopeFilter !== "all") {
+        const matches =
+          skillScopeFilter === "agent"
+            ? sk.scope === "system_agent" || sk.scope === "user_agent"
+            : sk.scope === skillScopeFilter;
+        if (!matches) return false;
+      }
       if (!q) return true;
       return [sk.name, sk.description, sk.scope, sk.status].some((v) =>
         (v ?? "").toLowerCase().includes(q),

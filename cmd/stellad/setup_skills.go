@@ -29,17 +29,20 @@ func setupSkillStores(db *sql.DB) skillStores {
 	diskSync := skills.NewDiskSyncStore(raw, func(scope, agentID string, userID string) string {
 		base := config.StellaHome()
 		switch scope {
-		case "agent":
+		case "system_agent":
 			if agentID == "" {
 				return ""
 			}
 			return filepath.Join(base, "workspaces", agentID, ".agents", "skills")
-		case "user":
+		case "user_agent":
 			if agentID == "" || userID == "" {
 				return ""
 			}
 			return filepath.Join(base, "workspaces", agentID, "users", userID, ".agents", "skills")
 		default:
+			// user (global) and system (global) skills are not tied to a single
+			// agent workspace, so they are not mirrored to disk here; their
+			// SKILL.md resolves from the DB.
 			return ""
 		}
 	})

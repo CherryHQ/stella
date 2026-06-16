@@ -142,11 +142,11 @@ func TestResolvePrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create system: %v", err)
 	}
-	agentSkID, err := store.Create(ctx, Skill{Scope: "agent", AgentID: agentID, Name: "foo", Description: "agent"}, mainFile)
+	agentSkID, err := store.Create(ctx, Skill{Scope: "system_agent", AgentID: agentID, Name: "foo", Description: "agent"}, mainFile)
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
-	userSkID, err := store.Create(ctx, Skill{Scope: "user", UserID: userID, AgentID: agentID, Name: "foo", Description: "user"}, mainFile)
+	userSkID, err := store.Create(ctx, Skill{Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "foo", Description: "user"}, mainFile)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -190,6 +190,90 @@ func TestResolvePrecedence(t *testing.T) {
 	})
 }
 
+// TestResolveFourScopePrecedence covers the full chain including the user-global
+// tier introduced by #434: user_agent > user > system_agent > system.
+func TestResolveFourScopePrecedence(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+
+	mainFile := map[string]string{MainFile: "body"}
+
+	sysID, err := store.Create(ctx, Skill{Scope: "system", Name: "foo", Description: "sys"}, mainFile)
+	if err != nil {
+		t.Fatalf("create system: %v", err)
+	}
+	sysAgentID, err := store.Create(ctx, Skill{Scope: "system_agent", AgentID: agentID, Name: "foo", Description: "system_agent"}, mainFile)
+	if err != nil {
+		t.Fatalf("create system_agent: %v", err)
+	}
+	userID2, err := store.Create(ctx, Skill{Scope: "user", UserID: userID, Name: "foo", Description: "user"}, mainFile)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	userAgentID, err := store.Create(ctx, Skill{Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "foo", Description: "user_agent"}, mainFile)
+	if err != nil {
+		t.Fatalf("create user_agent: %v", err)
+	}
+
+	vc := ViewContext{UserID: userID, AgentID: agentID}
+	steps := []struct {
+		name   string
+		delete string
+		dvc    ViewContext
+		want   string
+	}{
+		{"user_agent wins", "", ViewContext{}, userAgentID},
+		{"user beats system_agent", userAgentID, vc, userID2},
+		{"system_agent beats system", userID2, ViewContext{UserID: userID}, sysAgentID},
+		{"system last", sysAgentID, ViewContext{AgentID: agentID}, sysID},
+	}
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			if step.delete != "" {
+				if err := store.Delete(ctx, step.delete, step.dvc); err != nil {
+					t.Fatalf("Delete: %v", err)
+				}
+			}
+			sk, err := store.Resolve(ctx, "foo", vc)
+			if err != nil || sk == nil {
+				t.Fatalf("Resolve: %v (sk=%v)", err, sk)
+			}
+			if sk.ID != step.want {
+				t.Errorf("got %s (%s), want %s", sk.ID, sk.Scope, step.want)
+			}
+		})
+	}
+}
+
+// TestScopeOwnerCheckConstraint locks in the migration's end-state invariant:
+// each scope permits exactly one owner-column shape.
+func TestScopeOwnerCheckConstraint(t *testing.T) {
+	_, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+
+	// Each row violates the CHECK for its scope and must be rejected.
+	bad := []struct {
+		name            string
+		scope           string
+		userID, agentID sql.NullString
+	}{
+		{"user with agent", "user", sql.NullString{String: userID, Valid: true}, sql.NullString{String: agentID, Valid: true}},
+		{"user_agent without agent", "user_agent", sql.NullString{String: userID, Valid: true}, sql.NullString{}},
+		{"system with owner", "system", sql.NullString{String: userID, Valid: true}, sql.NullString{}},
+		{"system_agent with user", "system_agent", sql.NullString{String: userID, Valid: true}, sql.NullString{String: agentID, Valid: true}},
+	}
+	for _, b := range bad {
+		t.Run(b.name, func(t *testing.T) {
+			_, err := db.ExecContext(ctx,
+				"INSERT INTO skill (id, scope, user_id, agent_id, name, description, status) VALUES (?, ?, ?, ?, ?, 'd', 'active')",
+				uuid.NewString(), b.scope, b.userID, b.agentID, b.name)
+			if err == nil {
+				t.Fatalf("expected CHECK constraint violation for %s/%s", b.scope, b.name)
+			}
+		})
+	}
+}
+
 func TestVisibilityFiltering(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)
@@ -214,7 +298,7 @@ func TestVisibilityFiltering(t *testing.T) {
 	mainFile := map[string]string{MainFile: "body"}
 
 	t.Run("agent-scoped skill invisible to other agent", func(t *testing.T) {
-		_, err := store.Create(ctx, Skill{Scope: "agent", AgentID: agentID, Name: "private-agent-skill", Description: "d"}, mainFile)
+		_, err := store.Create(ctx, Skill{Scope: "system_agent", AgentID: agentID, Name: "private-agent-skill", Description: "d"}, mainFile)
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}

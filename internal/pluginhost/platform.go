@@ -44,6 +44,18 @@ func (a skillStoreAdapter) Resolve(ctx context.Context, name string, vc pkgplugi
 	return &s, nil
 }
 
+func (a skillStoreAdapter) ListByScope(ctx context.Context, scope, userID, agentID string) ([]pkgplugins.Skill, error) {
+	rows, err := a.s.ListByScope(ctx, scope, userID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pkgplugins.Skill, len(rows))
+	for i, r := range rows {
+		out[i] = skillToPlugin(r)
+	}
+	return out, nil
+}
+
 func (a skillStoreAdapter) LoadFile(ctx context.Context, skillID, path string) (string, error) {
 	return a.s.LoadFile(ctx, skillID, path)
 }
@@ -95,10 +107,12 @@ func (a skillStoreAdapter) viewContextForSkill(ctx context.Context, id string) (
 			continue
 		}
 		switch row.Scope {
-		case "agent":
+		case "system_agent":
 			return skills.ViewContext{AgentID: row.AgentID}, nil
 		case "user":
 			return skills.ViewContext{UserID: row.UserID}, nil
+		case "user_agent":
+			return skills.ViewContext{UserID: row.UserID, AgentID: row.AgentID}, nil
 		default:
 			return skills.ViewContext{}, nil
 		}
