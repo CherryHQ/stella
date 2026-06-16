@@ -941,12 +941,13 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 		writeData(w, http.StatusOK, workspaceDiskInfo{Root: "", Paths: []string{}})
 		return
 	}
-	userDir, err := agent.SetupUserWorkspace(config.StellaHome(), info.UserID, info.AgentID)
-	if err != nil {
+	if _, err := agent.SetupUserWorkspace(config.StellaHome(), info.UserID, info.AgentID); err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
-	root := userDir
+	// Root the browser at the agent's own workspace (sandbox /workspace), not the
+	// shared user home — the home also holds /user data and sibling agents.
+	root := agent.UserAgentDir(config.StellaHome(), info.UserID, info.AgentID)
 	showHidden := params.ShowHidden != nil && *params.ShowHidden
 	listPath := ""
 	if params.Path != nil {
@@ -1059,12 +1060,13 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, ag
 		writeError(w, http.StatusNotFound, "session has no workspace")
 		return "", fmt.Errorf("no workspace")
 	}
-	userDir, err := agent.SetupUserWorkspace(config.StellaHome(), info.UserID, info.AgentID)
-	if err != nil {
+	if _, err := agent.SetupUserWorkspace(config.StellaHome(), info.UserID, info.AgentID); err != nil {
 		s.writeInternalError(w, err)
 		return "", err
 	}
-	return userDir, nil
+	// Root at the agent's own workspace (sandbox /workspace), matching
+	// GetSessionWorkspace — file ops must not reach the shared user home.
+	return agent.UserAgentDir(config.StellaHome(), info.UserID, info.AgentID), nil
 }
 
 // safePath resolves a caller-supplied relative path to an absolute path that
