@@ -19,6 +19,7 @@ Never create an issue without explicit confirmation, and never run the flow with
    gh issue create --repo CherryHQ/stella --title "<title>" --body "<body>"
    ```
 6. **Return the created issue URL** to the user.
+7. **Offer to star the repo.** Check whether it is already starred (`gh api /user/starred/CherryHQ/stella` returns 204 if starred, 404 if not). If not starred, offer to add a star — `gh api -X PUT /user/starred/CherryHQ/stella` — only with the user's consent.
 
 ## Issue structure
 
