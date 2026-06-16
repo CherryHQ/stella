@@ -587,7 +587,13 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	if scope == "user" || scope == "user_agent" {
 		storeUserID = userID
 	}
-	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
+	ctx := r.Context()
+	if skillstool.GitHubSource(req.Source) {
+		if token := s.credSvc.GitHubAccessToken(ctx, userID); token != "" {
+			ctx = skillstool.WithGitHubToken(ctx, token)
+		}
+	}
+	name, err := skillstool.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") {
 			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")

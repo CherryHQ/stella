@@ -79,11 +79,79 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 	return name, nil
 }
 
+// githubTokenCtxKey carries a GitHub access token used to authenticate clones
+// of github.com skill sources.
+type githubTokenCtxKey struct{}
+
+// WithGitHubToken returns ctx carrying a GitHub access token used to authenticate
+// clones of github.com skill sources. An empty token is a no-op, leaving clones
+// anonymous.
+func WithGitHubToken(ctx context.Context, token string) context.Context {
+	if token == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, githubTokenCtxKey{}, token)
+}
+
+func githubTokenFromContext(ctx context.Context) string {
+	token, _ := ctx.Value(githubTokenCtxKey{}).(string)
+	return token
+}
+
+// GitHubSource reports whether source resolves to a github.com repository, which
+// can be authenticated with a user's bound GitHub OAuth token via WithGitHubToken.
+func GitHubSource(source string) bool {
+	if _, _, ok := parseClawhubSource(source); ok {
+		return false
+	}
+	parsed, err := resolveGitSource(source)
+	if err != nil {
+		return false
+	}
+	return parsed.Type == mcpskills.SourceTypeGitHub
+}
+
+// injectGitHubToken rewrites an https://github.com/... clone URL to embed an
+// access token for an authenticated clone. Non-github URLs are returned unchanged.
+func injectGitHubToken(gitURL, token string) string {
+	const prefix = "https://github.com/"
+	if !strings.HasPrefix(gitURL, prefix) {
+		return gitURL
+	}
+	return "https://x-access-token:" + token + "@github.com/" + strings.TrimPrefix(gitURL, prefix)
+}
+
+// resolveGitSource parses a non-clawhub source, applying the `#ref` shorthand
+// that mcphub's ParseSource does not handle for non-URL inputs.
+func resolveGitSource(source string) (*mcpskills.ParsedSource, error) {
+	ref := ""
+	if !strings.HasPrefix(source, "http://") && !strings.HasPrefix(source, "https://") &&
+		!strings.HasPrefix(source, "/") && !strings.HasPrefix(source, ".") {
+		if idx := strings.LastIndex(source, "#"); idx != -1 {
+			ref = source[idx+1:]
+			source = source[:idx]
+		}
+	}
+	parsed, err := mcpskills.ParseSource(source)
+	if err != nil {
+		return nil, fmt.Errorf("invalid source %q: %w", source, err)
+	}
+	if ref != "" && parsed.Ref == "" {
+		parsed.Ref = ref
+	}
+	return parsed, nil
+}
+
+const githubAuthHint = "GitHub clone failed — if this repository is private or you hit GitHub's anonymous rate limit, connect your GitHub account and retry"
+
 // FetchSkillFiles resolves source, finds the skill directory, and returns the
 // skill name and a map of file paths (relative to the skill root) → content.
 // cleanup is a no-op for git sources (their path is a shared cache — do NOT
 // delete it). For local sources it is also a no-op because the path is the
 // user's local directory.
+//
+// For github.com sources, a token carried via WithGitHubToken is embedded in the
+// clone URL to authenticate private repos and avoid anonymous rate limits.
 //
 // Supported source formats:
 //   - clawhub:<slug>[@version]    — download from clawhub.ai
@@ -96,34 +164,30 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 		return clawhubFetchSkillFiles(ctx, slug, version)
 	}
 
-	ref := ""
-	if !strings.HasPrefix(source, "http://") && !strings.HasPrefix(source, "https://") &&
-		!strings.HasPrefix(source, "/") && !strings.HasPrefix(source, ".") {
-		if idx := strings.LastIndex(source, "#"); idx != -1 {
-			ref = source[idx+1:]
-			source = source[:idx]
-		}
-	}
-
-	parsed, err := mcpskills.ParseSource(source)
+	parsed, err := resolveGitSource(source)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("invalid source %q: %w", source, err)
-	}
-	if ref != "" && parsed.Ref == "" {
-		parsed.Ref = ref
+		return "", nil, nil, err
 	}
 
 	var skillDir string
 	switch parsed.Type {
 	case mcpskills.SourceTypeGitHub, mcpskills.SourceTypeGitLab, mcpskills.SourceTypeGit:
+		cloneURL := parsed.URL
+		token := githubTokenFromContext(ctx)
+		if token != "" && parsed.Type == mcpskills.SourceTypeGitHub {
+			cloneURL = injectGitHubToken(parsed.URL, token)
+		}
 		src := mcpskills.GitSource{
-			URL:         parsed.URL,
+			URL:         cloneURL,
 			Ref:         parsed.Ref,
 			Subpath:     parsed.Subpath,
 			SkillFilter: parsed.SkillFilter,
 		}
 		local, ferr := mcpskills.FetchGitSkill(ctx, src)
 		if ferr != nil {
+			if parsed.Type == mcpskills.SourceTypeGitHub && token == "" {
+				return "", nil, nil, fmt.Errorf("%s: %w", githubAuthHint, ferr)
+			}
 			return "", nil, nil, fmt.Errorf("fetch skill: %w", ferr)
 		}
 		skillDir = local.Path

@@ -276,7 +276,13 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, req.Scope, userID, agentID)
+	ctx := r.Context()
+	if skillstool.GitHubSource(req.Source) {
+		if token := s.credSvc.GitHubAccessToken(ctx, userID); token != "" {
+			ctx = skillstool.WithGitHubToken(ctx, token)
+		}
+	}
+	name, err := skillstool.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, req.Scope, userID, agentID)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
