@@ -85,6 +85,20 @@ func TestBuildMountTable(t *testing.T) {
 		t.Fatalf("expected 2 entries for partial stella home, got %d", len(tablePartial))
 	}
 
+	// With a user-data root, /user appears RW right after the workspace.
+	tableUser := buildMountTable(mountTableOptions{
+		WorkspaceHost:  "/host/ws",
+		WorkspaceMount: "/container/ws",
+		UserDataHost:   "/host/data",
+		UserDataMount:  "/user",
+	})
+	if len(tableUser) != 2 {
+		t.Fatalf("expected workspace + user entries, got %d", len(tableUser))
+	}
+	if tableUser[1].HostPath != "/host/data" || tableUser[1].ContainerPath != "/user" || tableUser[1].ReadOnly {
+		t.Fatalf("unexpected user-data mount: %+v", tableUser[1])
+	}
+
 	tableExtra := buildMountTable(mountTableOptions{
 		WorkspaceHost:       "/host/ws",
 		WorkspaceMount:      "/container/ws",
@@ -189,7 +203,7 @@ func TestConfigureSessionMounts_HostMode(t *testing.T) {
 	stellaHome, workspace, extra, tmp := dockerModeTestDirs(t)
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
 	opts := dockerModeCreateOptions(workspace)
-	mountedExtra, mountedTmp, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, workspace, extra, tmp), workspace)
+	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, workspace, extra, tmp), workspace, "")
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
@@ -217,7 +231,7 @@ func TestConfigureSessionMounts_BindModeTranslatesSources(t *testing.T) {
 		HostPathPrefix:      "/daemon/stella",
 	}}
 	opts := dockerModeCreateOptions(workspace)
-	mountedExtra, mountedTmp, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, workspace, extra, tmp), workspace)
+	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, workspace, extra, tmp), workspace, "")
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
@@ -242,7 +256,7 @@ func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
 	opts := dockerModeCreateOptions(workspace)
 	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
 	policy.Filesystem.ExtraReadOnlyMounts = append(policy.Filesystem.ExtraReadOnlyMounts, outsideExtra)
-	mountedExtra, mountedTmp, err := f.configureSessionMounts(&opts, policy, workspace)
+	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, policy, workspace, "")
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
@@ -265,7 +279,7 @@ func TestConfigureSessionMounts_VolumeModeRejectsStellaHomeAsWorkspace(t *testin
 	stellaHome, _, extra, tmp := dockerModeTestDirs(t)
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
 	opts := dockerModeCreateOptions(stellaHome)
-	_, _, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, stellaHome, extra, tmp), stellaHome)
+	_, _, _, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, stellaHome, extra, tmp), stellaHome, "")
 	if err == nil {
 		t.Fatal("expected error when volume workspace is STELLA_HOME itself")
 	}
@@ -280,11 +294,45 @@ func TestConfigureSessionMounts_BindModeUsesConfigStellaHome(t *testing.T) {
 	opts := dockerModeCreateOptions(workspace)
 	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
 	policy.Env = nil
-	_, _, err := f.configureSessionMounts(&opts, policy, workspace)
+	_, _, _, err := f.configureSessionMounts(&opts, policy, workspace, "")
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
 	assertMount(t, opts.ExtraMounts, filepath.Join(stellaHome, "bin"), filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountType(""), "")
+}
+
+// TestConfigureSessionMounts_UserDataRoot verifies the shared user-data root is
+// mounted RW at /user — bind mode translates the daemon source, volume mode uses
+// the STELLA_HOME-relative subpath.
+func TestConfigureSessionMounts_UserDataRoot(t *testing.T) {
+	stellaHome, workspace, extra, tmp := dockerModeTestDirs(t)
+	userData := filepath.Join(stellaHome, "users", "user", "data")
+	if err := os.MkdirAll(userData, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("bind", func(t *testing.T) {
+		f := &dockerFactory{cfg: Config{
+			RuntimeMode:         DockerSandboxModeBind,
+			StellaHome:          stellaHome,
+			ContainerPathPrefix: stellaHome,
+			HostPathPrefix:      "/daemon/stella",
+		}}
+		opts := dockerModeCreateOptions(workspace)
+		if _, _, _, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, workspace, extra, tmp), workspace, userData); err != nil {
+			t.Fatalf("configureSessionMounts: %v", err)
+		}
+		assertMount(t, opts.ExtraMounts, "/daemon/stella/users/user/data", userDataMount, false, dockerclient.MountType(""), "")
+	})
+
+	t.Run("volume", func(t *testing.T) {
+		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
+		opts := dockerModeCreateOptions(workspace)
+		if _, _, _, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, workspace, extra, tmp), workspace, userData); err != nil {
+			t.Fatalf("configureSessionMounts: %v", err)
+		}
+		assertMount(t, opts.ExtraMounts, "stella-data", userDataMount, false, dockerclient.MountTypeVolume, "users/user/data")
+	})
 }
 
 func dockerModeTestDirs(t *testing.T) (stellaHome, workspace, extra, tmp string) {

@@ -193,7 +193,7 @@ func appendLinuxRuntimeMounts(args []string) []string {
 }
 
 // adjustStellaHome returns the sandbox-view STELLA_HOME directory.
-// On Linux (bwrap), it is remapped to /home/stella/.stella.
+// On Linux (bwrap), it is remapped to /opt/stella.
 func adjustStellaHome(_ string) string { return sandboxStellaHome }
 
 func appendStellaHomeMounts(args []string, stellaHome string) []string {
@@ -242,7 +242,7 @@ func appendWritableBind(args []string, hostPath, sandboxPath string) []string {
 }
 
 // remapToSandboxStellaHome rewrites a host path under STELLA_HOME to its
-// sandbox-view location (STELLA_HOME is remapped to /home/stella/.stella).
+// sandbox-view location (STELLA_HOME is remapped to /opt/stella).
 // Paths outside STELLA_HOME are returned unchanged.
 func remapToSandboxStellaHome(hostPath, stellaHomeHost string) string {
 	return remapStellaHomePath(hostPath, stellaHomeHost, sandboxStellaHome)

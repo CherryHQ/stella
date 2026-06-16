@@ -34,14 +34,10 @@ type SkillView struct {
 //   - linux local (bwrap): isolating — host roots map to /opt/stella, /user, /workspace.
 //   - none, and macOS local (Seatbelt): identity — the host filesystem is shared,
 //     so host paths are valid in-sandbox as-is.
-//   - docker: isolating with a container layout not yet wired (Phase 4). Marked
-//     Isolated with no host roots so every skill_dir is omitted rather than leaked
-//     — emitting a host path would both fail in-container and disclose the layout.
+//   - docker: isolating with the same two-root container layout as bwrap
+//     (/opt/stella, /user, /workspace), so host roots map identically.
 func ResolveSkillView(ctx context.Context, cfg Config, paths Paths) SkillView {
 	backend := resolveBackendName(ctx, cfg)
-	if backend == config.SandboxBackendDocker {
-		return SkillView{Isolated: true}
-	}
 	systemSkillsHost := filepath.Join(paths.StellaHome, ".agents", "skills")
 	v := SkillView{
 		SystemSkillsHost: systemSkillsHost,
@@ -51,9 +47,12 @@ func ResolveSkillView(ctx context.Context, cfg Config, paths Paths) SkillView {
 		WorkspaceHost:    paths.WorkspaceRoot,
 		WorkspaceView:    paths.WorkspaceRoot,
 	}
-	// Only the Linux bwrap backend remaps paths; macOS local shares the host
-	// filesystem (Seatbelt), so it stays identity like none.
-	if backend == config.SandboxBackendLocal && runtime.GOOS == "linux" {
+	// Linux bwrap (local) and docker both remap host roots to the two-root
+	// container layout. macOS local (Seatbelt) and none share the host
+	// filesystem, so they stay identity.
+	isolating := backend == config.SandboxBackendDocker ||
+		(backend == config.SandboxBackendLocal && runtime.GOOS == "linux")
+	if isolating {
 		v.Isolated = true
 		v.SystemSkillsView = filepath.Join(pkgsandbox.MountStellaHome, ".agents", "skills")
 		v.UserDataView = pkgsandbox.MountUserData
