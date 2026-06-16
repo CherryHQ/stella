@@ -9,6 +9,7 @@
     "cli-as-client",
     "sandbox",
     "memory-internals",
+    "object-storage",
     "group-chat-multi-agent",
     "group-chat-dataflow",
     "session-compaction",
