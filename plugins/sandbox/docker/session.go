@@ -359,6 +359,21 @@ func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, 
 			logSkippedSandboxMount(DockerSandboxModeVolume, as, "agent skills dir is outside STELLA_HOME and cannot be mounted from the named volume")
 		}
 	}
+	// DB-installed system skills → /opt/stella/db-skills (RO). Also under
+	// STELLA_HOME, so it comes from the same named volume at its subpath.
+	if sd := policy.Filesystem.SystemDBSkillsDir; sd != "" && dirExists(sd) {
+		if subpath, ok := relativePathWithin(f.cfg.StellaHome, sd); ok && subpath != "." {
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      f.cfg.StellaHomeVolume,
+				ContainerPath: sandboxpkg.MountSystemDBSkills,
+				ReadOnly:      true,
+				Type:          dockerclient.MountTypeVolume,
+				VolumeSubpath: filepath.ToSlash(subpath),
+			})
+		} else {
+			logSkippedSandboxMount(DockerSandboxModeVolume, sd, "system DB skills dir is outside STELLA_HOME and cannot be mounted from the named volume")
+		}
+	}
 	mountedExtraReadOnly := []string{}
 	for _, hostPath := range policy.Filesystem.ExtraReadOnlyMounts {
 		subpath, ok := relativePathWithin(f.cfg.StellaHome, hostPath)
@@ -413,6 +428,18 @@ func (f *dockerFactory) configureBindMounts(opts *dockerclient.CreateOptions, po
 			})
 		} else {
 			logSkippedSandboxMount(f.cfg.RuntimeMode, as, "agent skills dir is not visible to the Docker daemon")
+		}
+	}
+	// DB-installed system skills → /opt/stella/db-skills (RO).
+	if sd := policy.Filesystem.SystemDBSkillsDir; sd != "" && dirExists(sd) {
+		if daemonPath, ok := f.cfg.daemonPath(sd); ok {
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      daemonPath,
+				ContainerPath: sandboxpkg.MountSystemDBSkills,
+				ReadOnly:      true,
+			})
+		} else {
+			logSkippedSandboxMount(f.cfg.RuntimeMode, sd, "system DB skills dir is not visible to the Docker daemon")
 		}
 	}
 	stellaHome := f.cfg.StellaHome

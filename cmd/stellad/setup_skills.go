@@ -25,32 +25,11 @@ type skillStores struct {
 
 func setupSkillStores(db *sql.DB) skillStores {
 	raw := skills.New(db)
+	// The per-scope on-disk layout is owned by agent.WriterSkillDiskLayout (the
+	// single authority the skills tool reads back through); this resolver just
+	// selects the base dir for the skill's scope.
 	diskSync := skills.NewDiskSyncStore(raw, func(scope, agentID string, userID string) string {
-		base := config.StellaHome()
-		switch scope {
-		case "system_agent":
-			if agentID == "" {
-				return ""
-			}
-			return agent.UserSkillsDir(agent.AgentWorkspaceDir(base, agentID))
-		case "user":
-			// User skills are shared across all of a user's agents (#442) and live
-			// under the user-data root (mounted as /user), so the path no longer
-			// depends on agentID.
-			if userID == "" {
-				return ""
-			}
-			return agent.UserSkillsDir(agent.UserDataDir(agent.UserHomeDir(base, userID)))
-		case "user_agent":
-			if agentID == "" || userID == "" {
-				return ""
-			}
-			return agent.UserSkillsDir(agent.UserAgentDir(base, userID, agentID))
-		default:
-			// system (global) skills are not tied to a workspace, so they are not
-			// mirrored to disk here; their SKILL.md resolves from the DB.
-			return ""
-		}
+		return agent.WriterSkillDiskLayout(config.StellaHome(), userID, agentID).BaseDir(scope)
 	})
 
 	return skillStores{raw: raw, diskSync: diskSync}

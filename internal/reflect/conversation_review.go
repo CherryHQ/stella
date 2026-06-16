@@ -95,7 +95,7 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 	return newReviewer(reviewerConfig{
 		Stream:         stream,
 		Model:          model,
-		SkillsTool:     skillstool.NewTool(s.skillStore, "", snap.Workspace, "", userSkillsDir(snap.Workspace, userID)),
+		SkillsTool:     skillstool.NewTool(s.skillStore, "", "").WithSkillDiskLayout(agent.WriterSkillDiskLayout(snap.Workspace, userID, snap.AgentID)),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
 		ExistingSkills: loadExistingSkillSummaries(context.Background(), s.skillStore, userID),
 		CurrentProfile: profile,
@@ -120,11 +120,6 @@ func loadExistingSkillSummaries(ctx context.Context, store pkgplugins.SkillStore
 		}
 	}
 	return entries
-}
-
-func userSkillsDir(workspace string, userID string) string {
-	// User skills live under the shared user-data root (data/, mounted as /user).
-	return agent.UserSkillsDir(agent.UserDataDir(agent.UserHomeDir(workspace, userID)))
 }
 
 func (s *Service) notifyReviewResult(ctx context.Context, userID string, result reviewResult) {

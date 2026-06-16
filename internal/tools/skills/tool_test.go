@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
+	coreskills "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -275,7 +276,7 @@ func ctxWithUser(userID string, agentID string) context.Context {
 }
 
 func TestDefinition(t *testing.T) {
-	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "")
 	def := tool.Definition()
 
 	if def.Name != "skills" {
@@ -290,7 +291,7 @@ func TestDefinition(t *testing.T) {
 }
 
 func TestExecuteUnknownAction(t *testing.T) {
-	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "")
 	_, err := tool.Execute(context.Background(), map[string]any{"action": "bogus"})
 	if err == nil {
 		t.Error("expected error for unknown action")
@@ -298,7 +299,7 @@ func TestExecuteUnknownAction(t *testing.T) {
 }
 
 func TestExecuteDispatch(t *testing.T) {
-	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "")
 	_, err := tool.Execute(context.Background(), map[string]any{"action": "search"})
 	if err == nil {
 		t.Error("expected error for search without query")
@@ -314,7 +315,7 @@ func TestExecuteDispatch(t *testing.T) {
 }
 
 func TestSearchMissingQuery(t *testing.T) {
-	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "")
 	_, err := tool.search(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing query")
@@ -322,7 +323,7 @@ func TestSearchMissingQuery(t *testing.T) {
 }
 
 func TestInstallMissingSource(t *testing.T) {
-	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "")
 	_, err := tool.install(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing source")
@@ -330,7 +331,7 @@ func TestInstallMissingSource(t *testing.T) {
 }
 
 func TestRemoveMissingName(t *testing.T) {
-	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "")
 	_, err := tool.remove(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing name")
@@ -338,55 +339,38 @@ func TestRemoveMissingName(t *testing.T) {
 }
 
 func TestRemoveInvalidName(t *testing.T) {
-	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "")
 	_, err := tool.remove(context.Background(), map[string]any{"name": "../../../etc"})
 	if err == nil {
 		t.Error("expected error for path traversal name")
 	}
 }
 
-func TestTargetSkillsDirDefaultsToUserScope(t *testing.T) {
-	base := t.TempDir()
-	agentWS := filepath.Join(base, "agents", "agent-1")
-	userSkillsDir := filepath.Join(base, "users", "7", ".agents", "skills")
+func TestTargetScopeDefaultsToUser(t *testing.T) {
+	store, _, _ := newTestSkillStore(t)
 
-	tool := NewTool(nil, "/tmp/stella", agentWS, filepath.Join(base, "project"), userSkillsDir)
-	scope, got, err := tool.targetSkillsDir(context.Background(), "")
+	tool := NewTool(store, "/tmp/stella", "").
+		WithSkillDiskLayout(coreskills.SkillDiskLayout{User: t.TempDir()})
+	scope, err := tool.targetScope(context.Background(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if scope != skillScopeUser {
 		t.Fatalf("scope = %q, want %q", scope, skillScopeUser)
 	}
-	if got != userSkillsDir {
-		t.Errorf("targetSkillsDir() = %q, want %q", got, userSkillsDir)
-	}
 }
 
-func TestTargetSkillsDirAgentScope(t *testing.T) {
-	base := t.TempDir()
-	agentWS := filepath.Join(base, "agents", "agent-1")
-	userSkillsDir := filepath.Join(base, "users", "7", ".agents", "skills")
-
-	tool := NewTool(nil, "/tmp/stella", agentWS, filepath.Join(base, "project"), userSkillsDir)
-	scope, got, err := tool.targetSkillsDir(context.Background(), "agent")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if scope != skillScopeAgent {
-		t.Fatalf("scope = %q, want %q", scope, skillScopeAgent)
-	}
-	want := filepath.Join(agentWS, ".agents", "skills")
-	if got != want {
-		t.Errorf("targetSkillsDir() = %q, want %q", got, want)
+func TestTargetScopeUserUnavailableWithoutLayout(t *testing.T) {
+	tool := NewTool(nil, "/tmp/stella", "")
+	if _, err := tool.targetScope(context.Background(), ""); err == nil {
+		t.Fatal("expected error when user scope has no disk location")
 	}
 }
 
 func TestInstallProjectScopeIsRejected(t *testing.T) {
 	store, _, _ := newTestSkillStore(t)
-	userSkillsDir := t.TempDir()
 
-	tool := NewTool(store, "/tmp/stella", t.TempDir(), t.TempDir(), userSkillsDir)
+	tool := NewTool(store, "/tmp/stella", t.TempDir())
 	_, err := tool.install(context.Background(), map[string]any{
 		"source": t.TempDir(),
 		"scope":  "project",
@@ -401,7 +385,7 @@ func TestInstallProjectScopeIsRejected(t *testing.T) {
 
 func TestInstallRejectsNonStringScope(t *testing.T) {
 	// scope parse happens before store check
-	tool := NewTool(nil, "/tmp/stella", t.TempDir(), t.TempDir(), t.TempDir())
+	tool := NewTool(nil, "/tmp/stella", t.TempDir())
 	_, err := tool.install(context.Background(), map[string]any{
 		"source": t.TempDir(),
 		"scope":  1,
@@ -434,7 +418,7 @@ func TestLoadViaStore(t *testing.T) {
 		t.Fatalf("create skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "", "", "")
+	tool := NewTool(store, "", "")
 
 	t.Run("loads existing skill default path", func(t *testing.T) {
 		result, err := tool.load(ctx, map[string]any{"name": "test-skill"})
@@ -489,7 +473,7 @@ func TestLoadWithPath(t *testing.T) {
 		t.Fatalf("upsert file: %v", err)
 	}
 
-	tool := NewTool(store, "", "", "", "")
+	tool := NewTool(store, "", "")
 	result, err := tool.load(ctx, map[string]any{"name": "multi-file", "path": "references/api.md"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -518,7 +502,7 @@ func TestListViaStore(t *testing.T) {
 		t.Fatalf("create skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "", "", "")
+	tool := NewTool(store, "", "")
 	result, err := tool.list(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -565,7 +549,7 @@ func TestRemoveViaStore(t *testing.T) {
 		t.Fatalf("create skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "", "", "")
+	tool := NewTool(store, "", "")
 	result, err := tool.remove(ctx, map[string]any{"name": "removable-skill"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -600,7 +584,7 @@ func TestRemoveRespectsScope(t *testing.T) {
 		t.Fatalf("create user_agent skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "", "", "")
+	tool := NewTool(store, "", "")
 
 	// scope=agent must delete the per-agent (user_agent) row, leaving user alive.
 	if _, err := tool.remove(ctx, map[string]any{"name": "dup", "scope": "agent"}); err != nil {
@@ -642,7 +626,7 @@ func TestRemoveScopeNotFound(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	tool := NewTool(store, "", "", "", "")
+	tool := NewTool(store, "", "")
 	_, err := tool.remove(ctx, map[string]any{"name": "only-user", "scope": "agent"})
 	if err == nil {
 		t.Fatal("expected error when scope has no match")
@@ -664,7 +648,7 @@ func TestRemoveRejectsAdminScope(t *testing.T) {
 		t.Fatalf("create system_agent skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "", "", "")
+	tool := NewTool(store, "", "")
 	if _, err := tool.remove(ctx, map[string]any{"name": "shared"}); err == nil {
 		t.Fatal("expected error removing a system_agent skill via the tool")
 	}
@@ -687,7 +671,7 @@ func TestPatchRespectsScope(t *testing.T) {
 		t.Fatalf("create user_agent skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "", "", "")
+	tool := NewTool(store, "", "")
 	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "scope": "user", "status": "deprecated"}); err != nil {
 		t.Fatalf("patch user scope: %v", err)
 	}
@@ -730,7 +714,7 @@ func TestPatchDefaultScopeIsUser(t *testing.T) {
 		t.Fatalf("create disabled user skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "", "", "")
+	tool := NewTool(store, "", "")
 	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "status": "deprecated"}); err != nil {
 		t.Fatalf("patch default scope: %v", err)
 	}
@@ -772,7 +756,7 @@ func TestInstallFromLocalDirViaStore(t *testing.T) {
 	ctx := ctxWithUser(userID, agentID)
 
 	userSkillsDir := t.TempDir()
-	tool := NewTool(store, "", "", "", userSkillsDir)
+	tool := NewTool(store, "", "").WithSkillDiskLayout(coreskills.SkillDiskLayout{User: userSkillsDir})
 	result, err := tool.install(ctx, map[string]any{"source": srcDir})
 	if err != nil {
 		t.Fatalf("install error: %v", err)
@@ -836,7 +820,7 @@ func TestListMergesProjectSkills(t *testing.T) {
 	// Create a project skill with same name as a DB skill to test shadowing.
 	makeProjectSkill(t, projectRoot, "db-skill", "Project override of db-skill")
 
-	tool := NewTool(store, "", "", projectRoot, "")
+	tool := NewTool(store, "", projectRoot)
 	result, err := tool.list(WithProjectRoot(ctx, projectRoot))
 	if err != nil {
 		t.Fatalf("list error: %v", err)
@@ -895,7 +879,7 @@ func TestLoadPrefersProjectSkill(t *testing.T) {
 	// Create a project skill with the same name.
 	makeProjectSkill(t, projectRoot, "shared", "Project version")
 
-	tool := NewTool(store, "", "", projectRoot, "")
+	tool := NewTool(store, "", projectRoot)
 	result, err := tool.load(WithProjectRoot(ctx, projectRoot), map[string]any{"name": "shared"})
 	if err != nil {
 		t.Fatalf("load error: %v", err)
@@ -919,8 +903,7 @@ func TestInstallAgentScope(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
-	userSkillsDir := t.TempDir()
-	tool := NewTool(store, "", t.TempDir(), "", userSkillsDir)
+	tool := NewTool(store, "", "")
 	result, err := tool.install(ctx, map[string]any{"source": srcDir, "scope": "agent"})
 	if err != nil {
 		t.Fatalf("install error: %v", err)

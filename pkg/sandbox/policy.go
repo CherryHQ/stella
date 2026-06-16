@@ -34,6 +34,10 @@ const (
 	// dir is the user-independent agent definition tree, not the per-agent
 	// workspace), so it gets its own fixed mount instead of mapping onto /workspace.
 	MountAgentSkills = "/opt/stella/agent-skills"
+	// MountSystemDBSkills is the read-only mount of DB-installed system-scope
+	// skills. They live in a dedicated dir (a sibling of the shipped built-ins
+	// under STELLA_HOME, not mixed into it), so they get their own fixed mount.
+	MountSystemDBSkills = "/opt/stella/db-skills"
 )
 
 // Policy is an immutable, backend-agnostic session policy describing requested limits
@@ -112,6 +116,13 @@ type FilesystemPolicy struct {
 	// leaking. Empty for a session with no agent definition root, and ignored by
 	// the none backend (host paths are valid in-sandbox there).
 	AgentSkillsDir string
+
+	// SystemDBSkillsDir is the host path of the DB-installed system-scope skills
+	// dir (STELLA_HOME/.agents/db-skills). Isolating backends mount it read-only
+	// at MountSystemDBSkills (/opt/stella/db-skills) so a system skill installed
+	// via Settings can still load and run its files without the host path leaking.
+	// Ignored by the none backend (host paths are valid in-sandbox there).
+	SystemDBSkillsDir string
 
 	// AgentPrivateDir is a legacy sibling-hiding hint, left empty in the two-root
 	// layout: the agent workspace IS the per-agent dir (WorkspaceRoot), so siblings

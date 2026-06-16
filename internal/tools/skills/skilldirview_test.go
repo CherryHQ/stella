@@ -9,15 +9,17 @@ import (
 // isolatingView mirrors what runner_builder builds for the bwrap backend.
 func isolatingView() SkillDirView {
 	return SkillDirView{
-		Isolated:         true,
-		SystemSkillsHost: "/srv/.stella/.agents/skills",
-		SystemSkillsView: "/opt/stella/.agents/skills",
-		AgentSkillsHost:  "/srv/.stella/agents/a1/.agents/skills",
-		AgentSkillsView:  "/opt/stella/agent-skills",
-		UserDataHost:     "/srv/.stella/users/u1/data",
-		UserDataView:     "/user",
-		WorkspaceHost:    "/srv/.stella/users/u1/agents/a1",
-		WorkspaceView:    "/workspace",
+		Isolated:           true,
+		SystemSkillsHost:   "/srv/.stella/.agents/skills",
+		SystemSkillsView:   "/opt/stella/.agents/skills",
+		AgentSkillsHost:    "/srv/.stella/agents/a1/.agents/skills",
+		AgentSkillsView:    "/opt/stella/agent-skills",
+		SystemDBSkillsHost: "/srv/.stella/.agents/db-skills",
+		SystemDBSkillsView: "/opt/stella/db-skills",
+		UserDataHost:       "/srv/.stella/users/u1/data",
+		UserDataView:       "/user",
+		WorkspaceHost:      "/srv/.stella/users/u1/agents/a1",
+		WorkspaceView:      "/workspace",
 	}
 }
 
@@ -33,6 +35,7 @@ func TestSkillDirView_remapsReachableTiers(t *testing.T) {
 		{"project", "/srv/.stella/users/u1/agents/a1/projects/p1/.agents/skills/baz", "/workspace/projects/p1/.agents/skills/baz"},
 		{"workspace-root", "/srv/.stella/users/u1/agents/a1/.agents/skills/qux", "/workspace/.agents/skills/qux"},
 		{"agent", "/srv/.stella/agents/a1/.agents/skills/agentlevel", "/opt/stella/agent-skills/agentlevel"},
+		{"system-db", "/srv/.stella/.agents/db-skills/installed", "/opt/stella/db-skills/installed"},
 	}
 	for _, c := range cases {
 		if got := v.apply(c.host); got != c.want {
