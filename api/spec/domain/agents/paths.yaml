@@ -402,6 +402,46 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/agents/{id}/skills/{skillId}/upgrade:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: skillId,
+          in: path,
+          required: true,
+          schema: { type: string },
+          description: "Skill name",
+        }
+    post:
+      tags: [skills]
+      summary: Re-fetch a skill from its install source and update it if newer
+      operationId: upgradeAgentSkill
+      parameters:
+        # Plain string, not the shared scope enum: an extra identical inline enum
+        # perturbs oapi-codegen's enum-name deduping and flips unrelated generated
+        # constants (e.g. vault scope) between prefixed/bare, breaking the CLI build.
+        # The scope is validated server-side by resolveSkill regardless.
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SkillUpgradeResult",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/agents/{id}/skills/{skillId}/file:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }

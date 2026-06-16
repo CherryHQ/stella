@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -85,6 +86,102 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 	}
 
 	return name, nil
+}
+
+// ErrNoUpgradeSource indicates a skill has no recorded install source to re-fetch
+// from (e.g. it was created by hand rather than installed).
+var ErrNoUpgradeSource = errors.New("skill was not installed from a source")
+
+// UpgradeResult reports the outcome of re-fetching a skill from its source.
+type UpgradeResult struct {
+	Updated         bool   // true when the skill's files/version changed
+	Version         string // the version now installed
+	PreviousVersion string // the version before the upgrade
+}
+
+// UpgradeInStore re-fetches the skill identified by skillID from the install
+// source recorded in its metadata and, when the resolved version differs from the
+// stored one, replaces the skill's files and refreshes its metadata from the new
+// SKILL.md. An unchanged version is a no-op (Updated=false), so this doubles as a
+// check: callers get "already up to date" without a second round-trip.
+//
+// For github.com sources a token carried via WithGitHubToken authenticates the
+// fetch, exactly as during install. metadata is the skill's current metadata blob;
+// its created-at and source are preserved while version is bumped.
+func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, skillID string, metadata json.RawMessage) (UpgradeResult, error) {
+	meta := map[string]any{}
+	if len(metadata) > 0 {
+		_ = json.Unmarshal(metadata, &meta)
+	}
+	source, _ := meta["source"].(string)
+	if source == "" {
+		return UpgradeResult{}, ErrNoUpgradeSource
+	}
+	currentVersion, _ := meta["version"].(string)
+
+	name, files, version, cleanup, err := FetchSkillFiles(ctx, source)
+	if err != nil {
+		return UpgradeResult{}, err
+	}
+	defer cleanup()
+
+	// A version we cannot tell apart from the installed one means nothing to do.
+	// Pinned tags resolve to themselves, so this is also how "pinned = frozen" falls out.
+	if version == currentVersion {
+		return UpgradeResult{Updated: false, Version: version}, nil
+	}
+
+	mainContent, ok := files[pkgplugins.SkillMainFile]
+	if !ok {
+		return UpgradeResult{}, fmt.Errorf("fetched skill %q is missing SKILL.md", name)
+	}
+	fm, err := parseFrontmatter(mainContent)
+	if err != nil {
+		return UpgradeResult{}, fmt.Errorf("parse SKILL.md for %q: %w", name, err)
+	}
+
+	existing, err := store.ListFiles(ctx, skillID)
+	if err != nil {
+		return UpgradeResult{}, fmt.Errorf("list installed files: %w", err)
+	}
+	keep := make(map[string]bool, len(files))
+	for path := range files {
+		keep[path] = true
+	}
+	for _, path := range existing {
+		if !keep[path] {
+			if err := store.DeleteFile(ctx, skillID, path); err != nil {
+				return UpgradeResult{}, fmt.Errorf("remove stale file %q: %w", path, err)
+			}
+		}
+	}
+	for path, content := range files {
+		if err := store.UpsertFile(ctx, skillID, path, content); err != nil {
+			return UpgradeResult{}, fmt.Errorf("write file %q: %w", path, err)
+		}
+	}
+
+	if version != "" {
+		meta["version"] = version
+	} else {
+		delete(meta, "version")
+	}
+	metaBytes, err := json.Marshal(meta)
+	if err != nil {
+		return UpgradeResult{}, fmt.Errorf("encode skill metadata: %w", err)
+	}
+	status := NormalizeSkillStatus(fm.Status)
+	disable := fm.DisableModelInvocation
+	if err := store.Update(ctx, skillID, pkgplugins.SkillUpdatePatch{
+		Description:            &fm.Description,
+		Status:                 &status,
+		DisableModelInvocation: &disable,
+		Metadata:               json.RawMessage(metaBytes),
+	}); err != nil {
+		return UpgradeResult{}, fmt.Errorf("update skill %q: %w", name, err)
+	}
+
+	return UpgradeResult{Updated: true, Version: version, PreviousVersion: currentVersion}, nil
 }
 
 // githubTokenCtxKey carries a GitHub access token used to authenticate clones

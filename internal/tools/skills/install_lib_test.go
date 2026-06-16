@@ -2,6 +2,8 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -33,6 +35,16 @@ func TestFetchSkillFilesErrorPathNoPanic(t *testing.T) {
 	_, _, _, _, err := FetchSkillFiles(context.Background(), "/nonexistent/stella-skill-xyz")
 	if err == nil {
 		t.Fatal("expected error for nonexistent local path")
+	}
+}
+
+func TestUpgradeInStoreNoSource(t *testing.T) {
+	// A skill with no recorded source can't be upgraded; the guard returns before
+	// any store call, so a nil store is safe here.
+	for _, md := range []json.RawMessage{nil, json.RawMessage(`{"created-at":"x"}`)} {
+		if _, err := UpgradeInStore(context.Background(), nil, "id", md); !errors.Is(err, ErrNoUpgradeSource) {
+			t.Errorf("UpgradeInStore(%s) error = %v, want ErrNoUpgradeSource", md, err)
+		}
 	}
 }
 

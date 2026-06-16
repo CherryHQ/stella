@@ -16,6 +16,7 @@ import {
   Lock,
   PackageCheck,
   PackagePlus,
+  RefreshCw,
   Search,
   Store,
   Trash2,
@@ -49,6 +50,7 @@ import {
   installAgentSkill,
   updateAgentSkill,
   uploadAgentSkill,
+  upgradeAgentSkill,
 } from "@/lib/api-client/sdk.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
@@ -154,6 +156,15 @@ function isSkillInstalled(
     installedSources.has(`clawhub:${skill.slug}`) ||
     installedNames.has(skill.name) ||
     installedNames.has(skill.slug)
+  );
+}
+
+// A skill can be re-fetched from its source when it was installed from a remote
+// (git/github/URL) — clawhub pins and on-disk project skills have no moving ref
+// to check, so the upgrade affordance only applies to remote sources.
+function isUpdatableSource(source?: string): boolean {
+  return (
+    !!source && !source.startsWith("clawhub:") && !source.startsWith("/") && !source.startsWith(".")
   );
 }
 
@@ -722,7 +733,9 @@ function SkillInspector({
   const [modelEnabled, setModelEnabled] = useState(!skill.disable_model_invocation);
   const [viewer, setViewer] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
   const readOnly = isSkillReadOnly(skill.scope, !!me?.is_admin);
+  const canUpgrade = !readOnly && isUpdatableSource(skill.source);
   const detail = useQuery({
     queryKey: ["agent-skill", agentId, skill.scope, skill.name],
     queryFn: async () =>
@@ -747,6 +760,32 @@ function SkillInspector({
       void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
     } catch (error) {
       showToast(apiErrorMessage(error, t("common.error")), "error");
+    }
+  }
+  async function upgrade() {
+    setUpgrading(true);
+    try {
+      const res = await upgradeAgentSkill({
+        path: { id: agentId, skillId: skill.name },
+        query: { scope: skill.scope as SkillScope },
+        throwOnError: true,
+      });
+      if (res.data?.updated) {
+        showToast(
+          t("sessions.skillsList.upgradeDone", { version: res.data.version ?? "" }),
+          "success",
+        );
+        void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+        void queryClient.invalidateQueries({
+          queryKey: ["agent-skill", agentId, skill.scope, skill.name],
+        });
+      } else {
+        showToast(t("sessions.skillsList.upgradeUpToDate"), "success");
+      }
+    } catch (error) {
+      showToast(apiErrorMessage(error, t("common.error")), "error");
+    } finally {
+      setUpgrading(false);
     }
   }
   async function remove() {
@@ -916,9 +955,15 @@ function SkillInspector({
             <Trash2 size={16} />
             {t("sessions.skillsList.deleteSkill")}
           </Button>
-          <Button className="ml-auto" onClick={() => void save()}>
-            {t("common.save")}
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            {canUpgrade && (
+              <Button variant="outline" loading={upgrading} onClick={() => void upgrade()}>
+                <RefreshCw size={16} />
+                {t("sessions.skillsList.upgradeCheck")}
+              </Button>
+            )}
+            <Button onClick={() => void save()}>{t("common.save")}</Button>
+          </div>
         </div>
       )}
 

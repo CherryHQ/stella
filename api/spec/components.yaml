@@ -240,6 +240,15 @@ components:
           type: string
         content:
           type: string
+    SkillUpgradeResult:
+      type: object
+      properties:
+        updated:
+          type: boolean
+        version:
+          type: string
+        previous_version:
+          type: string
     LoginRequest:
       type: object
       required: [username, password]
