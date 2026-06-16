@@ -54,9 +54,9 @@ export function AssistantMessage({
   const grouped = groupBlocks(blocks);
 
   return (
-    <div className="w-full min-w-0 flex flex-col gap-1.5">
+    <div className="group w-full min-w-0 flex flex-col gap-1.5">
       {!sameRoleAsPrev && (
-        <div className="mb-2 flex items-center gap-2">
+        <div className="mb-1.5 flex items-center gap-2">
           <span
             className="grid size-5 place-items-center rounded-full text-xs font-semibold text-primary-foreground shrink-0"
             style={{ background: color }}
@@ -114,7 +114,9 @@ export function AssistantMessage({
             )}
             {timestamp && sameRoleAsPrev && <span>{formatTime(timestamp)}</span>}
             {(tokenCount ?? 0) > 0 && (
-              <span className="text-muted-foreground/60">{tokenCount!.toLocaleString()} tok</span>
+              <span className="text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100">
+                {tokenCount!.toLocaleString()} tok
+              </span>
             )}
           </div>
         )}

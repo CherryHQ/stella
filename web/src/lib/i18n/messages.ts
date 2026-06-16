@@ -65,6 +65,12 @@ const en = {
   "common.actions": "Actions",
   "common.noData": "No data",
   "common.required": "Required",
+
+  // Relative time
+  "time.justNow": "just now",
+  "time.minutesAgo": "{{m}}m ago",
+  "time.hoursAgo": "{{h}}h ago",
+  "time.daysAgo": "{{d}}d ago",
   "common.optional": "Optional",
   "common.copy": "Copy",
   "common.copied": "Copied",
@@ -1519,6 +1525,12 @@ const zh: Record<MessageKey, string> = {
   "common.actions": "操作",
   "common.noData": "暂无数据",
   "common.required": "必填",
+
+  // Relative time
+  "time.justNow": "刚刚",
+  "time.minutesAgo": "{{m}} 分钟前",
+  "time.hoursAgo": "{{h}} 小时前",
+  "time.daysAgo": "{{d}} 天前",
   "common.optional": "可选",
   "common.copy": "复制",
   "common.copied": "已复制",

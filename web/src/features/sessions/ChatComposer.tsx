@@ -353,7 +353,7 @@ export function ChatComposer({
             </Button>
           )}
           {!isStreaming && (
-            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground/60 select-none">
               {skills && skills.length > 0
                 ? t("sessions.transcript.sendHintSkills")
                 : t("sessions.transcript.sendHint")}

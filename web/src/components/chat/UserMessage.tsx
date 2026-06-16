@@ -36,23 +36,23 @@ export function UserMessage({
   const otherFiles = files.filter((f) => !isImagePath(f));
 
   return (
-    <div className="w-full min-w-0 flex flex-col gap-1.5">
+    <div className="w-full min-w-0 flex flex-col items-end gap-1.5">
       {!sameRoleAsPrev && (
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="grid size-5 place-items-center rounded-full bg-foreground/15 text-xs font-semibold text-foreground shrink-0">
-            Y
-          </span>
-          <span className="text-xs font-semibold text-foreground">{t("chat.you")}</span>
           {msg.timestamp && (
             <span className="font-mono text-xs text-muted-foreground/50">
               {formatTime(msg.timestamp)}
             </span>
           )}
+          <span className="text-xs font-semibold text-foreground">{t("chat.you")}</span>
+          <span className="grid size-5 place-items-center rounded-full bg-foreground/15 text-xs font-semibold text-foreground shrink-0">
+            Y
+          </span>
         </div>
       )}
-      <div className="pl-7 w-full min-w-0 flex flex-col items-start gap-3">
+      <div className="w-full min-w-0 flex flex-col items-end gap-2">
         {text && (
-          <div className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tl-md border border-border bg-secondary px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground font-sans">
+          <div className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left">
             {renderMentionedText(text, agentNames)}
           </div>
         )}
