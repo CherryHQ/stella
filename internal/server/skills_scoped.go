@@ -169,6 +169,7 @@ func resolvedSkillToView(rs skillstool.ResolvedSkill) skillView {
 		DisableModelInvocation: rs.DisableModelInvocation,
 		Files:                  files,
 		Source:                 skillSource(rs.Metadata),
+		Version:                skillVersion(rs.Metadata),
 		CreatedAt:              rs.CreatedAt.UTC(),
 		UpdatedAt:              rs.UpdatedAt.UTC(),
 	}
@@ -176,14 +177,27 @@ func resolvedSkillToView(rs skillstool.ResolvedSkill) skillView {
 
 // skillSource extracts the install source recorded in a skill's metadata, if any.
 func skillSource(metadata json.RawMessage) string {
-	if len(metadata) == 0 {
-		return ""
-	}
+	return skillMeta(metadata).Source
+}
+
+// skillVersion extracts the installed version recorded in a skill's metadata
+// (git ref/commit or clawhub version), if any.
+func skillVersion(metadata json.RawMessage) string {
+	return skillMeta(metadata).Version
+}
+
+func skillMeta(metadata json.RawMessage) struct {
+	Source  string `json:"source"`
+	Version string `json:"version"`
+} {
 	var m struct {
-		Source string `json:"source"`
+		Source  string `json:"source"`
+		Version string `json:"version"`
 	}
-	_ = json.Unmarshal(metadata, &m)
-	return m.Source
+	if len(metadata) > 0 {
+		_ = json.Unmarshal(metadata, &m)
+	}
+	return m
 }
 
 // defaultAgentSkillScope picks the write scope when the client omits one:
@@ -469,6 +483,61 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	s.applySkillUpdate(w, r, rs.ID, vc)
 }
 
+// UpgradeAgentSkill re-fetches a DB-backed skill from its recorded install source
+// and updates it in place when the source has a newer version. It is the
+// check-and-update behind the inspector's "check for updates" button.
+func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.UpgradeAgentSkillParams) {
+	var rs *skillstool.ResolvedSkill
+	var code int
+	var msg string
+	if params.Scope != nil {
+		rs, _, code, msg = s.resolveSkill(r.Context(), id, skillId, *params.Scope, nil)
+	} else {
+		rs, _, code, msg = s.resolveSkillAny(r.Context(), id, skillId, nil)
+	}
+	if code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	// Project/system skills live on disk and are managed via the filesystem/CLI.
+	if rs.Dir != "" {
+		writeError(w, http.StatusBadRequest, "only installed skills can be upgraded")
+		return
+	}
+
+	actingUserID, vc, code, msg := s.requireAgentSkillWrite(r.Context(), id, rs.Scope)
+	if code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	if _, code, msg := s.requireSkillScope(r.Context(), rs.ID, rs.Scope, vc.UserID, id); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
+	ctx := r.Context()
+	if skillstool.GitHubSource(skillSource(rs.Metadata)) {
+		if token := s.credSvc.GitHubAccessToken(ctx, actingUserID); token != "" {
+			ctx = skillstool.WithGitHubToken(ctx, token)
+		}
+	}
+
+	res, err := skillstool.UpgradeInStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), rs.ID, rs.Metadata)
+	if err != nil {
+		if errors.Is(err, skillstool.ErrNoUpgradeSource) {
+			writeError(w, http.StatusBadRequest, "skill was not installed from an upgradable source")
+			return
+		}
+		s.writeBadGatewayError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{
+		"updated":          res.Updated,
+		"version":          res.Version,
+		"previous_version": res.PreviousVersion,
+	})
+}
+
 func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillParams) {
 	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
 	if code != 0 {
@@ -587,7 +656,13 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	if scope == "user" || scope == "user_agent" {
 		storeUserID = userID
 	}
-	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
+	ctx := r.Context()
+	if skillstool.GitHubSource(req.Source) {
+		if token := s.credSvc.GitHubAccessToken(ctx, userID); token != "" {
+			ctx = skillstool.WithGitHubToken(ctx, token)
+		}
+	}
+	name, err := skillstool.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") {
 			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")

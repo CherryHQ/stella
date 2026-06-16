@@ -45,7 +45,10 @@
   --sidebar-accent-foreground: oklch(0.43 0.11 178);
   --sidebar-border: oklch(0.9 0.012 200);
   --sidebar-ring: oklch(0.55 0.14 172);
-  --destructive-foreground: oklch(0.99 0.005 25);
+  /* Destructive *foreground text* (red), not on-destructive-bg text. CossUI uses
+     this token for destructive-outline buttons, field errors, and menu items —
+     all red text on light surfaces. Filled destructive variants hardcode white. */
+  --destructive-foreground: oklch(0.55 0.21 25);
   --font-sans:
     "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   --font-serif:
@@ -106,7 +109,8 @@
   --sidebar-accent-foreground: oklch(0.8 0.13 174);
   --sidebar-border: oklch(0.28 0.016 210);
   --sidebar-ring: oklch(0.7 0.14 174);
-  --destructive-foreground: oklch(0.99 0.005 25);
+  /* See light-theme note: red foreground text, lifted for dark surfaces. */
+  --destructive-foreground: oklch(0.7 0.18 25);
   --radius: 0.75rem;
   --font-sans:
     "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
