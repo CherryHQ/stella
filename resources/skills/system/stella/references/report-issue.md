@@ -14,16 +14,22 @@ Never create an issue without explicit confirmation, and never run the flow with
    stella oauth status github --json
    ```
    If `connected` is `false`, run the OAuth flow (next section) before continuing. Do not ask the user to authenticate `gh` manually.
-5. **Create the issue** once approved and authenticated:
+5. **Create the issue** once approved and authenticated. Use a heredoc for the body — a literal `\n` inside a double-quoted `--body` is written verbatim, not as a newline. Add a `bug` label (or `docs`/`enhancement` if it fits better):
    ```bash
-   gh issue create --repo CherryHQ/stella --title "<title>" --body "<body>"
+   gh issue create --repo CherryHQ/stella --label bug \
+     --title "<title>" \
+     --body "$(cat <<'EOF'
+   ## What
+   ...
+   EOF
+   )"
    ```
 6. **Return the created issue URL** to the user.
 7. **Offer to star the repo.** Check whether it is already starred (`gh api /user/starred/CherryHQ/stella` returns 204 if starred, 404 if not). If not starred, offer to add a star — `gh api -X PUT /user/starred/CherryHQ/stella` — only with the user's consent.
 
 ## Issue structure
 
-Follow the project's standard four-section format:
+Follow the project's standard four-section format (the What/Why/How/Refs convention from the repo's issue template). A user-reported bug only needs the issue itself with a label — skip the milestone and project-board steps the full tracker workflow uses.
 
 ```markdown
 ## What
