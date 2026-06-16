@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
+import { SCOPE_LABEL_KEY, type SkillScope } from "@/lib/skill-scope";
 
 interface Props {
   state: AgentsPageState;
@@ -23,14 +24,6 @@ interface Props {
 
 function skillKey(sk: { scope: string; id: string }) {
   return `${sk.scope}:${sk.id}`;
-}
-
-function skillScopeLabel(scope: string) {
-  return (
-    { system: "Built-in", user: "User", user_agent: "My profile", system_agent: "This agent" }[
-      scope
-    ] ?? scope
-  );
 }
 
 function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default" {
@@ -249,7 +242,7 @@ export function SkillsTab({
                     <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                       <p className="text-sm font-mono truncate min-w-0 font-medium">{sk.name}</p>
                       <Badge variant={skillScopeBadgeVariant(sk.scope)}>
-                        {skillScopeLabel(sk.scope)}
+                        {t(SCOPE_LABEL_KEY[sk.scope as SkillScope])}
                       </Badge>
                       <Badge variant={skillStatusBadgeVariant(sk.status)}>
                         {sk.status === "active" ? "Enabled" : sk.status}
@@ -291,7 +284,7 @@ export function SkillsTab({
                     {selectedSkill.name}
                   </h3>
                   <Badge variant={skillScopeBadgeVariant(selectedSkill.scope)}>
-                    {skillScopeLabel(selectedSkill.scope)}
+                    {t(SCOPE_LABEL_KEY[selectedSkill.scope as SkillScope])}
                   </Badge>
                   <Badge variant={skillStatusBadgeVariant(selectedSkill.status)}>
                     {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
@@ -389,7 +382,7 @@ export function SkillsTab({
                   {t("agents.form.scope")}
                 </p>
                 <div className="text-xs font-mono font-medium text-foreground">
-                  {skillScopeLabel(selectedSkill.scope)}
+                  {t(SCOPE_LABEL_KEY[selectedSkill.scope as SkillScope])}
                 </div>
                 {selectedSkillEditMode && (
                   <label className="flex items-center gap-2 cursor-pointer pt-1">

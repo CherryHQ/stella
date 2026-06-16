@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Blocks,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Copy,
   Download,
@@ -14,6 +16,7 @@ import {
   PackageCheck,
   Search,
   Store,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -28,6 +31,13 @@ import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import {
+  INSTALL_SCOPES,
+  isSkillReadOnly,
+  SCOPE_DESC_KEY,
+  SCOPE_LABEL_KEY,
+  type SkillScope,
+} from "@/lib/skill-scope";
 import type { Skill } from "@/lib/types";
 import type { ClawhubSkill } from "@/lib/api-client/types.gen";
 import {
@@ -64,7 +74,6 @@ import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Dialog,
-  DialogDescription,
   DialogHeader,
   DialogPanel,
   DialogPopup,
@@ -76,15 +85,14 @@ import { Sheet, SheetPopup } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 
-type Scope = "project" | "user" | "user_agent" | "system_agent" | "system";
 // Filter buckets collapse the two agent scopes (user_agent + system_agent) into a
 // single "agent" pill, matching the agent-settings SkillsTab's coarser grouping.
 type ScopeFilter = "all" | "system" | "agent" | "user" | "project";
 type Source = "installed" | "market";
-type InstallScope = "user" | "user_agent" | "system_agent";
+type InstallScope = (typeof INSTALL_SCOPES)[number];
 
 const SOURCE_META = {
   installed: { icon: PackageCheck, key: "sessions.skillsList.installedTab" },
@@ -92,29 +100,12 @@ const SOURCE_META = {
 } as const;
 
 const SCOPE_PILLS: ScopeFilter[] = ["all", "system", "agent", "user", "project"];
-const WRITABLE = new Set<Scope>(["user", "user_agent", "system_agent"]);
-
-// Scopes a skill can be installed/uploaded into, labelled to mirror the filter
-// buckets (用户 / 智能体). system_agent is admin-only and gated via showAgentScope.
-const INSTALL_SCOPES: InstallScope[] = ["user", "user_agent", "system_agent"];
-const INSTALL_SCOPE_KEY = {
-  user: "sessions.skillsList.user",
-  user_agent: "sessions.skillsList.agent",
-  system_agent: "sessions.skillsList.sharedScope",
-} as const;
 
 // A skill's raw scope belongs to a filter bucket; "agent" spans both agent scopes.
 function inBucket(scope: string, bucket: ScopeFilter): boolean {
   if (bucket === "all") return true;
   if (bucket === "agent") return scope === "user_agent" || scope === "system_agent";
   return scope === bucket;
-}
-
-// system_agent is an admin-managed shared scope; the backend rejects non-admin
-// writes, so mirror that in the UI rather than letting a save fail with 403.
-function isReadOnly(scope: string, isAdmin: boolean): boolean {
-  if (scope === "system_agent") return !isAdmin;
-  return !WRITABLE.has(scope as Scope);
 }
 
 // Match FacetTabs' active treatment so the in-page filter pills read as the
@@ -192,6 +183,45 @@ function AuthorChip({ handle, image }: { handle: string; image?: string }) {
       </Avatar>
       {handle}
     </span>
+  );
+}
+
+// Scope picker for install/upload. Each pill carries a tooltip spelling out what
+// the scope means (who it's for, which agents) so the short label needs no manual.
+function InstallScopePicker({
+  scope,
+  onScope,
+  showAgentScope,
+  size = "xs",
+}: {
+  scope: InstallScope;
+  onScope: (scope: InstallScope) => void;
+  showAgentScope: boolean;
+  size?: "sm" | "xs";
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {INSTALL_SCOPES.filter((s) => s !== "system_agent" || showAgentScope).map((s) => (
+        <Tooltip key={s}>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-pressed={scope === s}
+                onClick={() => onScope(s)}
+                className={tabPillCls(scope === s, size)}
+              >
+                {t(SCOPE_LABEL_KEY[s])}
+              </button>
+            }
+          />
+          <TooltipPopup side="top" className="max-w-56">
+            {t(SCOPE_DESC_KEY[s])}
+          </TooltipPopup>
+        </Tooltip>
+      ))}
+    </div>
   );
 }
 
@@ -518,7 +548,7 @@ function InstalledCard({
       <p className="line-clamp-2 min-h-9 text-xs text-muted-foreground">{skill.description}</p>
       <div className="mt-auto flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
         <Badge variant="outline" size="sm">
-          {t(`sessions.skillsList.${skill.scope}`)}
+          {t(SCOPE_LABEL_KEY[skill.scope as SkillScope])}
         </Badge>
         <span className="ml-auto">
           {skill.scope === "system"
@@ -685,20 +715,19 @@ function SkillInspector({
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const { data: me } = useQuery(meQueryOptions);
-  const [tab, setTab] = useState("overview");
   const [description, setDescription] = useState(skill.description ?? "");
   const [status, setStatus] = useState(skill.status ?? "active");
   const [modelEnabled, setModelEnabled] = useState(!skill.disable_model_invocation);
   const [viewer, setViewer] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const readOnly = isReadOnly(skill.scope, !!me?.is_admin);
+  const readOnly = isSkillReadOnly(skill.scope, !!me?.is_admin);
   const detail = useQuery({
     queryKey: ["agent-skill", agentId, skill.scope, skill.name],
     queryFn: async () =>
       (
         await getAgentSkill({
           path: { id: agentId, skillId: skill.name },
-          query: { scope: skill.scope as Scope },
+          query: { scope: skill.scope as SkillScope },
           throwOnError: true,
         })
       ).data as Skill,
@@ -708,7 +737,7 @@ function SkillInspector({
     try {
       await updateAgentSkill({
         path: { id: agentId, skillId: skill.name },
-        query: { scope: skill.scope as Scope },
+        query: { scope: skill.scope as SkillScope },
         body: { description, status, disable_model_invocation: !modelEnabled },
         throwOnError: true,
       });
@@ -722,7 +751,7 @@ function SkillInspector({
     try {
       await deleteAgentSkill({
         path: { id: agentId, skillId: skill.name },
-        query: { scope: skill.scope as Scope },
+        query: { scope: skill.scope as SkillScope },
         throwOnError: true,
       });
       showToast(t("common.delete"), "success");
@@ -734,157 +763,158 @@ function SkillInspector({
       setConfirmOpen(false);
     }
   }
+
+  // Drilling into a file swaps the whole drawer to a file view rather than
+  // stacking a centered dialog over the drawer (the old behaviour read as broken).
+  if (viewer) {
+    return (
+      <SkillFileView
+        agentId={agentId}
+        skill={skill}
+        path={viewer}
+        readOnly={readOnly}
+        onBack={() => setViewer(null)}
+        onClose={onClose}
+      />
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <div className="border-b p-5">
-        <div className="flex items-start gap-3">
-          <SkillGlyph className="size-11 rounded-lg" />
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate font-mono text-base font-semibold">{skill.name}</h2>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" size="sm">
-                {t(`sessions.skillsList.${skill.scope as Scope}`)}
-              </Badge>
-              {skill.status !== "active" ? (
-                <Badge variant="outline" size="sm">
-                  {t(statusLabelKey(skill.status))}
-                </Badge>
-              ) : (
-                <Badge variant="success" size="sm">
-                  <Check />
-                  {t("sessions.skillsList.statusActive")}
-                </Badge>
-              )}
+      <div className="flex items-start gap-3 border-b p-5">
+        <SkillGlyph className="size-11 rounded-lg" />
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate font-mono text-base font-semibold">{skill.name}</h2>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger render={<Badge variant="secondary" size="sm" />}>
+                {t(SCOPE_LABEL_KEY[skill.scope as SkillScope])}
+              </TooltipTrigger>
+              <TooltipPopup side="bottom" className="max-w-56">
+                {t(SCOPE_DESC_KEY[skill.scope as SkillScope])}
+              </TooltipPopup>
+            </Tooltip>
+            {skill.status !== "active" ? (
               <Badge variant="outline" size="sm">
-                {skill.disable_model_invocation
-                  ? t("sessions.skillsList.manual")
-                  : t("sessions.skillsList.auto")}
+                {t(statusLabelKey(skill.status))}
               </Badge>
-            </div>
-          </div>
-          <Button size="icon-sm" variant="ghost" onClick={onClose}>
-            <X size={16} />
-          </Button>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1">
-            <FileText className="size-4" />
-            {t("sessions.skillsList.fileCount")} {files.length}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Clock className="size-4" />
-            {skill.scope === "system"
-              ? t("sessions.skillsList.builtin")
-              : formatTime(skill.updated_at)}
-          </span>
-          {skill.source && (
-            <span className="inline-flex items-center gap-1 font-mono">
-              <GitBranch className="size-4" />
-              {skill.source}
-            </span>
-          )}
-        </div>
-      </div>
-      <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
-        <div className="border-b px-4 pt-3">
-          <TabsList>
-            <TabsTrigger value="overview">{t("sessions.skillsList.overview")}</TabsTrigger>
-            <TabsTrigger value="files">{t("sessions.skillsList.files")}</TabsTrigger>
-            {!readOnly && (
-              <TabsTrigger value="settings">{t("sessions.skillsList.settings")}</TabsTrigger>
+            ) : (
+              <Badge variant="success" size="sm">
+                <Check />
+                {t("sessions.skillsList.statusActive")}
+              </Badge>
             )}
-          </TabsList>
+            <Badge variant="outline" size="sm">
+              {skill.disable_model_invocation
+                ? t("sessions.skillsList.manual")
+                : t("sessions.skillsList.auto")}
+            </Badge>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <Clock className="size-4" />
+              {skill.scope === "system"
+                ? t("sessions.skillsList.builtin")
+                : formatTime(skill.updated_at)}
+            </span>
+            {skill.source && (
+              <span className="inline-flex items-center gap-1 font-mono">
+                <GitBranch className="size-4" />
+                {skill.source}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <TabsContent value="overview" className="space-y-4">
-            <p className="text-sm text-muted-foreground">{skill.description}</p>
-            <div className="flex flex-wrap gap-2">
-              {files.map((file) => (
-                <Button key={file} size="sm" variant="outline" onClick={() => setViewer(file)}>
-                  <FileText size={16} />
-                  {file}
-                </Button>
-              ))}
-            </div>
-          </TabsContent>
-          <TabsContent value="files">
-            <div className="divide-y divide-border rounded-lg border">
-              {files.map((file) => (
-                <button
-                  key={file}
-                  type="button"
-                  onClick={() => setViewer(file)}
-                  className="block w-full p-3 text-left font-mono text-sm hover:bg-muted"
-                >
-                  {file}
-                </button>
-              ))}
-            </div>
-          </TabsContent>
-          {!readOnly && (
-            <TabsContent value="settings" className="space-y-6">
-              <div className="space-y-2">
-                <Label>{t("sessions.skillsList.status")}</Label>
-                <ToggleGroup
-                  variant="outline"
-                  value={[status]}
-                  onValueChange={(value: string[]) => value[0] && setStatus(value[0])}
-                >
-                  {["active", "draft", "deprecated"].map((s) => (
-                    <ToggleGroupItem key={s} value={s}>
-                      {t(statusLabelKey(s))}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-              </div>
-              <div className="space-y-2">
-                <Label>{t("sessions.skillsList.description")}</Label>
-                <Textarea
-                  value={description}
-                  onChange={(e) => setDescription((e.target as HTMLTextAreaElement).value)}
-                  className="min-h-20"
-                />
-              </div>
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-0.5">
-                  <Label>{t("sessions.skillsList.modelInvocation")}</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t("sessions.skillsList.modelInvocationHint")}
-                  </p>
-                </div>
-                <Switch checked={modelEnabled} onCheckedChange={setModelEnabled} />
-              </div>
-              <Button className="w-full" onClick={() => void save()}>
-                {t("common.save")}
-              </Button>
-              <div className="space-y-2 border-t pt-4">
-                <Label className="text-destructive">{t("sessions.skillsList.dangerZone")}</Label>
-                <Button
-                  variant="outline"
-                  className="w-full text-destructive hover:bg-destructive/10"
-                  onClick={() => setConfirmOpen(true)}
-                >
-                  {t("sessions.skillsList.deleteSkill")}
-                </Button>
-              </div>
-            </TabsContent>
+        <Button size="icon-sm" variant="ghost" onClick={onClose}>
+          <X size={16} />
+        </Button>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-5">
+        <section className="space-y-2">
+          <Label>{t("sessions.skillsList.description")}</Label>
+          {readOnly ? (
+            <p className="text-sm text-muted-foreground">
+              {skill.description || t("sessions.skillsList.emptyFile")}
+            </p>
+          ) : (
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription((e.target as HTMLTextAreaElement).value)}
+              className="min-h-20"
+            />
           )}
-        </div>
-      </Tabs>
-      {readOnly && (
+        </section>
+
+        <section className="space-y-2">
+          <Label>
+            {t("sessions.skillsList.files")} · {files.length}
+          </Label>
+          <div className="divide-y divide-border overflow-hidden rounded-lg border">
+            {files.map((file) => (
+              <button
+                key={file}
+                type="button"
+                onClick={() => setViewer(file)}
+                className="flex w-full items-center gap-2 p-3 text-left font-mono text-sm hover:bg-muted"
+              >
+                <FileText className="size-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{file}</span>
+                <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {!readOnly && (
+          <section className="space-y-4">
+            <div className="space-y-2">
+              <Label>{t("sessions.skillsList.status")}</Label>
+              <ToggleGroup
+                variant="outline"
+                value={[status]}
+                onValueChange={(value: string[]) => value[0] && setStatus(value[0])}
+              >
+                {["active", "draft", "deprecated"].map((s) => (
+                  <ToggleGroupItem key={s} value={s}>
+                    {t(statusLabelKey(s))}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label>{t("sessions.skillsList.modelInvocation")}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("sessions.skillsList.modelInvocationHint")}
+                </p>
+              </div>
+              <Switch checked={modelEnabled} onCheckedChange={setModelEnabled} />
+            </div>
+          </section>
+        )}
+      </div>
+
+      {readOnly ? (
         <div className="flex items-center gap-2 border-t p-4 text-sm text-muted-foreground">
           <Lock size={16} /> {t("sessions.skillsList.readonlyNote")}
         </div>
+      ) : (
+        <div className="flex items-center gap-2 border-t p-4">
+          <Button
+            variant="ghost"
+            className="text-destructive hover:bg-destructive/10"
+            onClick={() => setConfirmOpen(true)}
+          >
+            <Trash2 size={16} />
+            {t("sessions.skillsList.deleteSkill")}
+          </Button>
+          <Button className="ml-auto" onClick={() => void save()}>
+            {t("common.save")}
+          </Button>
+        </div>
       )}
-      {viewer && (
-        <SkillFileViewer
-          agentId={agentId}
-          skill={skill}
-          path={viewer}
-          open
-          onOpenChange={(open) => !open && setViewer(null)}
-        />
-      )}
+
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogPopup>
           <AlertDialogHeader>
@@ -907,32 +937,34 @@ function SkillInspector({
   );
 }
 
-function SkillFileViewer({
+// Inline file view: replaces the drawer body so reading/editing a skill file
+// stays on the same surface instead of opening a separate centered dialog.
+function SkillFileView({
   agentId,
   skill,
   path,
-  open,
-  onOpenChange,
+  readOnly,
+  onBack,
+  onClose,
 }: {
   agentId: string;
   skill: Skill;
   path: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  readOnly: boolean;
+  onBack: () => void;
+  onClose: () => void;
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const { data: me } = useQuery(meQueryOptions);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const readOnly = isReadOnly(skill.scope, !!me?.is_admin);
   const file = useQuery({
     queryKey: ["agent-skill-file", agentId, skill.scope, skill.name, path],
     queryFn: async () =>
       (
         await getAgentSkillFile({
           path: { id: agentId, skillId: skill.name },
-          query: { scope: skill.scope as Scope, path },
+          query: { scope: skill.scope as SkillScope, path },
           throwOnError: true,
         })
       ).data,
@@ -944,7 +976,7 @@ function SkillFileViewer({
   async function save() {
     await updateAgentSkill({
       path: { id: agentId, skillId: skill.name },
-      query: { scope: skill.scope as Scope },
+      query: { scope: skill.scope as SkillScope },
       body: { files: { [path]: draft } },
       throwOnError: true,
     });
@@ -954,47 +986,57 @@ function SkillFileViewer({
     });
   }
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="max-w-5xl max-sm:h-dvh max-sm:max-w-none">
-        <DialogHeader>
-          <DialogTitle className="font-mono">{path}</DialogTitle>
-          <DialogDescription>{skill.name}</DialogDescription>
-        </DialogHeader>
-        <DialogPanel className="space-y-3">
-          <div className="flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void navigator.clipboard.writeText(content)}
-            >
-              <Copy size={16} />
-              {t("common.copy")}
-            </Button>
-            {!readOnly && (
-              <Button size="sm" variant="outline" onClick={() => setEditing((v) => !v)}>
-                {t("common.edit")}
-              </Button>
-            )}
-          </div>
-          {file.isLoading ? (
-            <Spinner />
-          ) : editing ? (
-            <Textarea
-              value={draft}
-              onChange={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
-              className="min-h-96 font-mono"
-            />
-          ) : (
-            <SkillFilePreview
-              path={path}
-              content={content}
-              emptyText={t("sessions.skillsList.emptyFile")}
-            />
-          )}
-          {editing && <Button onClick={() => void save()}>{t("common.save")}</Button>}
-        </DialogPanel>
-      </DialogPopup>
-    </Dialog>
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-2 border-b p-4">
+        <Button size="icon-sm" variant="ghost" onClick={onBack}>
+          <ChevronLeft size={16} />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-mono text-sm font-medium">{path}</p>
+          <p className="truncate font-mono text-xs text-muted-foreground">{skill.name}</p>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => void navigator.clipboard.writeText(content)}
+        >
+          <Copy size={16} />
+          <span className="max-sm:hidden">{t("common.copy")}</span>
+        </Button>
+        {!readOnly && (
+          <Button size="sm" variant="outline" onClick={() => setEditing((v) => !v)}>
+            {editing ? t("common.cancel") : t("common.edit")}
+          </Button>
+        )}
+        <Button size="icon-sm" variant="ghost" onClick={onClose}>
+          <X size={16} />
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        {file.isLoading ? (
+          <Spinner />
+        ) : editing ? (
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+            className="min-h-96 font-mono"
+          />
+        ) : (
+          <SkillFilePreview
+            path={path}
+            content={content}
+            emptyText={t("sessions.skillsList.emptyFile")}
+          />
+        )}
+      </div>
+      {editing && (
+        <div className="border-t p-4">
+          <Button className="w-full" onClick={() => void save()}>
+            {t("common.save")}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1108,61 +1150,52 @@ function DiscoverDetail({
           </p>
         )}
       </div>
-      <div className="flex items-center gap-3 border-t p-4">
-        {installed ? (
-          <Badge variant="success">
-            <Check />
-            {t("sessions.discover.installed")}
-          </Badge>
-        ) : (
-          <>
+      <div className="space-y-3 border-t p-4">
+        {!installed && (
+          <div className="space-y-1.5">
             <span className="text-xs text-muted-foreground">
               {t("sessions.discover.installTo")}
             </span>
-            <div className="flex items-center gap-1">
-              {INSTALL_SCOPES.filter((s) => s !== "system_agent" || showAgentScope).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  aria-pressed={scope === s}
-                  onClick={() => onScope(s)}
-                  className={tabPillCls(scope === s, "xs")}
-                >
-                  {t(INSTALL_SCOPE_KEY[s])}
-                </button>
-              ))}
-            </div>
-          </>
+            <InstallScopePicker scope={scope} onScope={onScope} showAgentScope={showAgentScope} />
+          </div>
         )}
-        <span className="ml-auto inline-flex items-center gap-2">
-          {row?.slug && (
-            <Button
-              size="sm"
-              variant="ghost"
-              render={
-                <a
-                  href={`https://clawhub.ai/skills/${row.slug}`}
-                  target="_blank"
-                  rel="noreferrer"
-                />
-              }
-            >
-              <ExternalLink size={16} />
-              ClawHub
-            </Button>
+        <div className="flex items-center gap-2">
+          {installed && (
+            <Badge variant="success">
+              <Check />
+              {t("sessions.discover.installed")}
+            </Badge>
           )}
-          {!installed && (
-            <Button
-              size="sm"
-              loading={installingSlug === slug}
-              disabled={installingSlug !== null}
-              onClick={() => onInstall(slug)}
-            >
-              <Download size={16} />
-              {t("common.install")}
-            </Button>
-          )}
-        </span>
+          <span className="ml-auto inline-flex items-center gap-2">
+            {row?.slug && (
+              <Button
+                size="sm"
+                variant="ghost"
+                render={
+                  <a
+                    href={`https://clawhub.ai/skills/${row.slug}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  />
+                }
+              >
+                <ExternalLink size={16} />
+                ClawHub
+              </Button>
+            )}
+            {!installed && (
+              <Button
+                size="sm"
+                loading={installingSlug === slug}
+                disabled={installingSlug !== null}
+                onClick={() => onInstall(slug)}
+              >
+                <Download size={16} />
+                {t("common.install")}
+              </Button>
+            )}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -1207,18 +1240,16 @@ function UploadDialog({
           <DialogTitle>{t("sessions.skillsList.uploadZip")}</DialogTitle>
         </DialogHeader>
         <DialogPanel className="space-y-4">
-          <div className="flex items-center gap-1">
-            {INSTALL_SCOPES.filter((s) => s !== "system_agent" || showAgentScope).map((s) => (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={scope === s}
-                onClick={() => setScope(s)}
-                className={tabPillCls(scope === s)}
-              >
-                {t(INSTALL_SCOPE_KEY[s])}
-              </button>
-            ))}
+          <div className="space-y-1.5">
+            <span className="text-xs text-muted-foreground">
+              {t("sessions.discover.installTo")}
+            </span>
+            <InstallScopePicker
+              scope={scope}
+              onScope={setScope}
+              showAgentScope={showAgentScope}
+              size="sm"
+            />
           </div>
           <Input
             nativeInput
