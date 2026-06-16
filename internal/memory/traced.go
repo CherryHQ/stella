@@ -278,7 +278,11 @@ func (t *tracedProvider) GetMessage(ctx context.Context, messageID string) (*Mes
 	if !ok {
 		return nil, errCapabilityNotSupported("MessageReader")
 	}
-	hctx := &hooks.PostMemoryCallContext{Op: hooks.MemoryOpGetMessage}
+	hctx := &hooks.PostMemoryCallContext{
+		HookMeta:  hooks.HookMeta{UserID: UserIDFromContext(ctx), AgentID: AgentIDFromContext(ctx)},
+		SessionID: SessionIDFromContext(ctx),
+		Op:        hooks.MemoryOpGetMessage,
+	}
 	ctx, start := t.begin(ctx, hctx)
 	result, err := r.GetMessage(ctx, messageID)
 	hctx.Error = err
