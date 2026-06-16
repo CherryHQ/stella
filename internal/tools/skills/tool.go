@@ -126,6 +126,11 @@ type SkillDirView struct {
 	// would wrongly swallow the sibling users/ and agents/ trees nested under it.
 	SystemSkillsHost string
 	SystemSkillsView string
+	// AgentSkillsHost/View map the admin-managed agent-bound (system_agent) skills
+	// dir, mounted at its own fixed path (/opt/stella/agent-skills) since it lives
+	// in the user-independent agent definition tree, outside the two roots.
+	AgentSkillsHost string
+	AgentSkillsView string
 	// UserData and Workspace are full binds, so their whole root maps (this lets
 	// project skills under <workspace>/projects/<id>/.agents/skills map too).
 	UserDataHost  string
@@ -146,6 +151,7 @@ func (v SkillDirView) apply(hostDir string) string {
 		{v.WorkspaceHost, v.WorkspaceView},
 		{v.UserDataHost, v.UserDataView},
 		{v.SystemSkillsHost, v.SystemSkillsView},
+		{v.AgentSkillsHost, v.AgentSkillsView},
 	} {
 		if m[0] == "" {
 			continue

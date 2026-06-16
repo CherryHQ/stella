@@ -12,6 +12,8 @@ func isolatingView() SkillDirView {
 		Isolated:         true,
 		SystemSkillsHost: "/srv/.stella/.agents/skills",
 		SystemSkillsView: "/opt/stella/.agents/skills",
+		AgentSkillsHost:  "/srv/.stella/agents/a1/.agents/skills",
+		AgentSkillsView:  "/opt/stella/agent-skills",
 		UserDataHost:     "/srv/.stella/users/u1/data",
 		UserDataView:     "/user",
 		WorkspaceHost:    "/srv/.stella/users/u1/agents/a1",
@@ -30,6 +32,7 @@ func TestSkillDirView_remapsReachableTiers(t *testing.T) {
 		{"user", "/srv/.stella/users/u1/data/.agents/skills/bar", "/user/.agents/skills/bar"},
 		{"project", "/srv/.stella/users/u1/agents/a1/projects/p1/.agents/skills/baz", "/workspace/projects/p1/.agents/skills/baz"},
 		{"workspace-root", "/srv/.stella/users/u1/agents/a1/.agents/skills/qux", "/workspace/.agents/skills/qux"},
+		{"agent", "/srv/.stella/agents/a1/.agents/skills/agentlevel", "/opt/stella/agent-skills/agentlevel"},
 	}
 	for _, c := range cases {
 		if got := v.apply(c.host); got != c.want {
@@ -39,10 +42,10 @@ func TestSkillDirView_remapsReachableTiers(t *testing.T) {
 }
 
 // An isolating backend must never emit a host path: a skill dir under no mounted
-// root (e.g. the user-independent agent definition dir) is dropped, not leaked.
+// root is dropped, not leaked.
 func TestSkillDirView_isolatedOmitsUnmappedHostPath(t *testing.T) {
 	v := isolatingView()
-	got := v.apply("/srv/.stella/agents/a1/.agents/skills/agentlevel")
+	got := v.apply("/srv/.stella/secrets/.agents/skills/leaky")
 	if got != "" {
 		t.Fatalf("unmapped dir on isolating backend = %q, want \"\" (omitted)", got)
 	}

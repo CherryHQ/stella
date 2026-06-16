@@ -442,6 +442,52 @@ func TestSystemTree_readableButNotWritable(t *testing.T) {
 	}
 }
 
+// TestAgentSkills_readableButNotWritable verifies that the agent-bound
+// (system_agent) skills dir, mounted read-only at /opt/stella/agent-skills on an
+// isolating backend, is resolvable for reads and rejected for writes.
+func TestAgentSkills_readableButNotWritable(t *testing.T) {
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	hostSH := t.TempDir()
+	hostSH, _ = filepath.EvalSymlinks(hostSH)
+
+	// AgentRoot/.agents/skills lives under STELLA_HOME (agents/<id>), distinct
+	// from the system skills dir at STELLA_HOME/.agents/skills.
+	agentSkills := filepath.Join(hostSH, "agents", "a1", ".agents", "skills")
+	if err := os.MkdirAll(filepath.Join(agentSkills, "demo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentSkills, "demo", "SKILL.md"), []byte("# skill"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := &localSession{
+		id:                "test",
+		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, AgentSkillsDir: agentSkills}},
+		realRoot:          root,
+		sandboxRoot:       root,
+		agentSkillsReal:   agentSkills,
+		stellaHomeHost:    hostSH,
+		stellaHomeSandbox: "/opt/stella",
+		done:              make(chan struct{}),
+	}
+
+	sandboxPath := sandboxpkg.MountAgentSkills + "/demo/SKILL.md"
+	real, _, err := s.resolvePath(sandboxPath)
+	if err != nil {
+		t.Fatalf("resolvePath rejected agent-skills read: %v", err)
+	}
+	if want := filepath.Join(agentSkills, "demo", "SKILL.md"); real != want {
+		t.Errorf("resolvePath real = %q, want %q", real, want)
+	}
+	if got := s.toSandboxPath(filepath.Join(agentSkills, "demo")); got != sandboxpkg.MountAgentSkills+"/demo" {
+		t.Errorf("toSandboxPath = %q, want %q", got, sandboxpkg.MountAgentSkills+"/demo")
+	}
+	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
+		t.Fatal("expected ResolveWritePath to reject agent-skills path, got nil")
+	}
+}
+
 // TestResolveWritePath_acceptsWorkspace verifies that ResolveWritePath allows
 // paths within the writable workspace root.
 func TestResolveWritePath_acceptsWorkspace(t *testing.T) {

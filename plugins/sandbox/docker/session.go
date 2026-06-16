@@ -343,6 +343,22 @@ func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, 
 			VolumeSubpath: filepath.ToSlash(name),
 		})
 	}
+	// Agent-bound (system_agent) skills → /opt/stella/agent-skills (RO). Lives
+	// under STELLA_HOME, so it comes from the same named volume at its subpath.
+	// Skipped when not installed for this agent (the dir is absent).
+	if as := policy.Filesystem.AgentSkillsDir; as != "" && dirExists(as) {
+		if subpath, ok := relativePathWithin(f.cfg.StellaHome, as); ok && subpath != "." {
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      f.cfg.StellaHomeVolume,
+				ContainerPath: sandboxpkg.MountAgentSkills,
+				ReadOnly:      true,
+				Type:          dockerclient.MountTypeVolume,
+				VolumeSubpath: filepath.ToSlash(subpath),
+			})
+		} else {
+			logSkippedSandboxMount(DockerSandboxModeVolume, as, "agent skills dir is outside STELLA_HOME and cannot be mounted from the named volume")
+		}
+	}
 	mountedExtraReadOnly := []string{}
 	for _, hostPath := range policy.Filesystem.ExtraReadOnlyMounts {
 		subpath, ok := relativePathWithin(f.cfg.StellaHome, hostPath)
@@ -384,6 +400,19 @@ func (f *dockerFactory) configureBindMounts(opts *dockerclient.CreateOptions, po
 			mountedUserDataHost = userDataHost
 		} else {
 			logSkippedSandboxMount(f.cfg.RuntimeMode, userDataHost, "user-data root is not visible to the Docker daemon")
+		}
+	}
+	// Agent-bound (system_agent) skills → /opt/stella/agent-skills (RO). Skipped
+	// when not installed for this agent (the dir is absent).
+	if as := policy.Filesystem.AgentSkillsDir; as != "" && dirExists(as) {
+		if daemonPath, ok := f.cfg.daemonPath(as); ok {
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      daemonPath,
+				ContainerPath: sandboxpkg.MountAgentSkills,
+				ReadOnly:      true,
+			})
+		} else {
+			logSkippedSandboxMount(f.cfg.RuntimeMode, as, "agent skills dir is not visible to the Docker daemon")
 		}
 	}
 	stellaHome := f.cfg.StellaHome
@@ -441,6 +470,13 @@ func logSkippedSandboxMount(mode DockerSandboxMode, path, reason string) {
 		"path", path,
 		"reason", reason,
 	)
+}
+
+// dirExists reports whether path exists on the host (file or directory). Used to
+// skip optional mounts whose source is absent for this session.
+func dirExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func relativePathWithin(root, path string) (string, bool) {

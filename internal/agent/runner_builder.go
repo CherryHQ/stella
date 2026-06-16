@@ -210,6 +210,8 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 					Isolated:         sv.Isolated,
 					SystemSkillsHost: sv.SystemSkillsHost,
 					SystemSkillsView: sv.SystemSkillsView,
+					AgentSkillsHost:  sv.AgentSkillsHost,
+					AgentSkillsView:  sv.AgentSkillsView,
 					UserDataHost:     sv.UserDataHost,
 					UserDataView:     sv.UserDataView,
 					WorkspaceHost:    sv.WorkspaceHost,

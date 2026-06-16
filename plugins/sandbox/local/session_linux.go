@@ -299,6 +299,11 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
 	bwrapArgs = appendStellaHomeMounts(bwrapArgs, stellaHomeHost)
+	// Agent-bound (system_agent) skills: read-only at a fixed path, so admin-managed
+	// skills bound to this agent stay loadable without leaking the host path.
+	if as := policy.Filesystem.AgentSkillsDir; as != "" {
+		bwrapArgs = appendRoBindIfExists(bwrapArgs, as, sandboxpkg.MountAgentSkills)
+	}
 	// Extra writable mounts (e.g. an out-of-workspace per-principal cache), layered
 	// above the read-only system installs mounted by appendStellaHomeMounts: bind
 	// each at its STELLA_HOME-remapped sandbox path so writes land in the host tree.

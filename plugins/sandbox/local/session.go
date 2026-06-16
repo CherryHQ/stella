@@ -93,6 +93,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		sandboxRoot:       sandboxRoot,
 		userDataReal:      userDataReal,
 		userDataSandbox:   userDataSandbox,
+		agentSkillsReal:   policy.Filesystem.AgentSkillsDir,
 		stellaHomeHost:    hostStellaHome,
 		stellaHomeSandbox: adjustStellaHome(hostStellaHome),
 		tmpMounts:         tmpMounts,
@@ -251,6 +252,7 @@ type localSession struct {
 	sandboxRoot       string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
 	userDataReal      string     // host path of the shared user-data root, "" when none
 	userDataSandbox   string     // path the agent sees for it (/user on Linux+bwrap, else = userDataReal)
+	agentSkillsReal   string     // host path of the agent-bound (system_agent) skills dir, "" when none
 	stellaHomeHost    string     // host-side STELLA_HOME for bwrap mounts
 	stellaHomeSandbox string     // agent's view of STELLA_HOME (/opt/stella on Linux+bwrap, else = host)
 	tmpMounts         []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
@@ -507,12 +509,18 @@ func (s *localSession) stellaHomeSubdirs() [][2]string {
 		return nil
 	}
 	names := sandboxpkg.StellaHomeSandboxDirs()
-	out := make([][2]string, 0, len(names))
+	out := make([][2]string, 0, len(names)+1)
 	for _, name := range names {
 		out = append(out, [2]string{
 			filepath.Join(s.stellaHomeSandbox, name),
 			filepath.Join(s.stellaHomeHost, name),
 		})
+	}
+	// Agent-bound (system_agent) skills: a read-only subtree mounted at its own
+	// fixed path (it lives in the agent definition tree, not under the STELLA_HOME
+	// subtrees above). Mapped here so the file tools can read it and reject writes.
+	if s.agentSkillsReal != "" {
+		out = append(out, [2]string{sandboxpkg.MountAgentSkills, filepath.Clean(s.agentSkillsReal)})
 	}
 	return out
 }

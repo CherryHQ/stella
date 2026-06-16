@@ -29,6 +29,11 @@ const (
 	MountUserData = "/user"
 	// MountStellaHome is the read-only system install tree (STELLA_HOME).
 	MountStellaHome = "/opt/stella"
+	// MountAgentSkills is the read-only mount of the admin-managed, agent-bound
+	// (system_agent scope) skills dir. It lives outside the two roots (its host
+	// dir is the user-independent agent definition tree, not the per-agent
+	// workspace), so it gets its own fixed mount instead of mapping onto /workspace.
+	MountAgentSkills = "/opt/stella/agent-skills"
 )
 
 // Policy is an immutable, backend-agnostic session policy describing requested limits
@@ -99,6 +104,14 @@ type FilesystemPolicy struct {
 	// installs) before the backend sees the policy. The policy stays mise-agnostic:
 	// it only learns "these host dirs are writable", not why.
 	ExtraWritableMounts []string
+
+	// AgentSkillsDir is the host path of the admin-managed, agent-bound
+	// (system_agent scope) skills dir — AgentRoot/.agents/skills. Isolating
+	// backends mount it read-only at MountAgentSkills (/opt/stella/agent-skills)
+	// so an agent can still load and run those skills without the host path
+	// leaking. Empty for a session with no agent definition root, and ignored by
+	// the none backend (host paths are valid in-sandbox there).
+	AgentSkillsDir string
 
 	// AgentPrivateDir is a legacy sibling-hiding hint, left empty in the two-root
 	// layout: the agent workspace IS the per-agent dir (WorkspaceRoot), so siblings

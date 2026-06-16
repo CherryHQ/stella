@@ -24,10 +24,16 @@ type SkillView struct {
 	// nested under STELLA_HOME are not, so a broad mapping would mis-map them).
 	SystemSkillsHost string
 	SystemSkillsView string
-	UserDataHost     string
-	UserDataView     string
-	WorkspaceHost    string
-	WorkspaceView    string
+	// AgentSkillsHost/View map the admin-managed agent-bound (system_agent) skills
+	// dir. It lives in the user-independent agent definition tree (outside the two
+	// roots), so it gets its own fixed /opt/stella/agent-skills mount rather than
+	// mapping onto /workspace.
+	AgentSkillsHost string
+	AgentSkillsView string
+	UserDataHost    string
+	UserDataView    string
+	WorkspaceHost   string
+	WorkspaceView   string
 }
 
 // ResolveSkillView returns the skill-root remapping for cfg's active backend:
@@ -39,9 +45,12 @@ type SkillView struct {
 func ResolveSkillView(ctx context.Context, cfg Config, paths Paths) SkillView {
 	backend := resolveBackendName(ctx, cfg)
 	systemSkillsHost := filepath.Join(paths.StellaHome, ".agents", "skills")
+	agentSkillsHost := agentSkillsDirHost(paths)
 	v := SkillView{
 		SystemSkillsHost: systemSkillsHost,
 		SystemSkillsView: systemSkillsHost,
+		AgentSkillsHost:  agentSkillsHost,
+		AgentSkillsView:  agentSkillsHost,
 		UserDataHost:     paths.UserDataDir,
 		UserDataView:     paths.UserDataDir,
 		WorkspaceHost:    paths.WorkspaceRoot,
@@ -50,6 +59,7 @@ func ResolveSkillView(ctx context.Context, cfg Config, paths Paths) SkillView {
 	if isolatingBackend(backend) {
 		v.Isolated = true
 		v.SystemSkillsView = filepath.Join(pkgsandbox.MountStellaHome, ".agents", "skills")
+		v.AgentSkillsView = pkgsandbox.MountAgentSkills
 		v.UserDataView = pkgsandbox.MountUserData
 		v.WorkspaceView = pkgsandbox.MountWorkspace
 	}

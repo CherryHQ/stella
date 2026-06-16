@@ -20,11 +20,24 @@ import (
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
 	principalDir, id := misePrincipal(cfg)
 	return pkgsandbox.FilesystemPolicy{
-		WorkspaceRoot: paths.WorkspaceRoot,
-		WorkingDir:    paths.WorkDir,
-		UserDataDir:   userDataDirHost(paths, cfg),
-		TempDirHost:   userTempDir(principalDir, id),
+		WorkspaceRoot:  paths.WorkspaceRoot,
+		WorkingDir:     paths.WorkDir,
+		UserDataDir:    userDataDirHost(paths, cfg),
+		AgentSkillsDir: agentSkillsDirHost(paths),
+		TempDirHost:    userTempDir(principalDir, id),
 	}
+}
+
+// agentSkillsDirHost returns the host path of the admin-managed, agent-bound
+// (system_agent scope) skills dir, AgentRoot/.agents/skills. Isolating backends
+// mount it read-only at /opt/stella/agent-skills so those skills stay loadable
+// without leaking the host path. Empty when the session has no agent definition
+// root.
+func agentSkillsDirHost(paths Paths) string {
+	if paths.AgentRoot == "" {
+		return ""
+	}
+	return filepath.Join(paths.AgentRoot, ".agents", "skills")
 }
 
 // userDataDirHost returns the host path of the shared user-data root mounted as
