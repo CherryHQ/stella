@@ -173,6 +173,8 @@ components:
             type: string
         source:
           type: string
+        version:
+          type: string
         created_at:
           type: string
           format: date-time

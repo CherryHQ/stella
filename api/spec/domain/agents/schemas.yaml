@@ -98,6 +98,7 @@ components:
         disable_model_invocation: { type: boolean }
         files: { type: array, items: { type: string } }
         source: { type: string }
+        version: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 

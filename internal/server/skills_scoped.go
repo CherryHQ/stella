@@ -169,6 +169,7 @@ func resolvedSkillToView(rs skillstool.ResolvedSkill) skillView {
 		DisableModelInvocation: rs.DisableModelInvocation,
 		Files:                  files,
 		Source:                 skillSource(rs.Metadata),
+		Version:                skillVersion(rs.Metadata),
 		CreatedAt:              rs.CreatedAt.UTC(),
 		UpdatedAt:              rs.UpdatedAt.UTC(),
 	}
@@ -176,14 +177,27 @@ func resolvedSkillToView(rs skillstool.ResolvedSkill) skillView {
 
 // skillSource extracts the install source recorded in a skill's metadata, if any.
 func skillSource(metadata json.RawMessage) string {
-	if len(metadata) == 0 {
-		return ""
-	}
+	return skillMeta(metadata).Source
+}
+
+// skillVersion extracts the installed version recorded in a skill's metadata
+// (git ref/commit or clawhub version), if any.
+func skillVersion(metadata json.RawMessage) string {
+	return skillMeta(metadata).Version
+}
+
+func skillMeta(metadata json.RawMessage) struct {
+	Source  string `json:"source"`
+	Version string `json:"version"`
+} {
 	var m struct {
-		Source string `json:"source"`
+		Source  string `json:"source"`
+		Version string `json:"version"`
 	}
-	_ = json.Unmarshal(metadata, &m)
-	return m.Source
+	if len(metadata) > 0 {
+		_ = json.Unmarshal(metadata, &m)
+	}
+	return m
 }
 
 // defaultAgentSkillScope picks the write scope when the client omits one:

@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FileText,
   GitBranch,
+  GitFork,
   Lock,
   PackageCheck,
   Search,
@@ -248,6 +249,7 @@ export function SkillsListPage() {
   const [installScope, setInstallScope] = useState<InstallScope>("user_agent");
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(Boolean(search.new));
+  const [githubOpen, setGithubOpen] = useState(false);
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query), 250);
@@ -366,15 +368,16 @@ export function SkillsListPage() {
             })}
           </div>
 
-          <Button
-            size="sm"
-            variant="outline"
-            className="sm:ml-auto"
-            onClick={() => setUploadOpen(true)}
-          >
-            <Upload />
-            <span className="max-sm:hidden">{t("sessions.skillsList.uploadZip")}</span>
-          </Button>
+          <div className="flex items-center gap-1 sm:ml-auto">
+            <Button size="sm" variant="outline" onClick={() => setGithubOpen(true)}>
+              <GitFork />
+              <span className="max-sm:hidden">{t("sessions.skillsList.installGithub")}</span>
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setUploadOpen(true)}>
+              <Upload />
+              <span className="max-sm:hidden">{t("sessions.skillsList.uploadZip")}</span>
+            </Button>
+          </div>
         </div>
 
         {/* Row 2: scope subfilter (installed/all only) */}
@@ -466,6 +469,12 @@ export function SkillsListPage() {
         open={uploadOpen}
         onOpenChange={setUploadOpen}
       />
+      <GithubInstallDialog
+        agentId={agentId}
+        showAgentScope={!!me?.is_admin}
+        open={githubOpen}
+        onOpenChange={setGithubOpen}
+      />
       <ToastContainer messages={toasts} />
     </div>
   );
@@ -533,6 +542,11 @@ function InstalledCard({
         <SkillGlyph />
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="truncate font-mono text-sm font-medium">{skill.name}</span>
+          {skill.version && (
+            <Badge variant="outline" size="sm">
+              {skill.version}
+            </Badge>
+          )}
           {skill.status !== "active" && (
             <Badge variant="secondary" size="sm">
               {t(statusLabelKey(skill.status))}
@@ -821,6 +835,11 @@ function SkillInspector({
               <span className="inline-flex items-center gap-1 font-mono">
                 <GitBranch className="size-4" />
                 {skill.source}
+                {skill.version && (
+                  <Badge variant="outline" size="sm">
+                    {skill.version}
+                  </Badge>
+                )}
               </span>
             )}
           </div>
@@ -1198,6 +1217,110 @@ function DiscoverDetail({
         </div>
       </div>
     </div>
+  );
+}
+
+// Build an mcphub source from a GitHub repo + optional version. The repo may be
+// "owner/repo", "owner/repo@skill", or a github.com URL; the version becomes the
+// "#ref" suffix the install path resolves (and records as the skill version).
+// The "#ref" form only parses for the shorthand, so when a version is given we
+// normalize a full github.com URL down to "owner/repo" first.
+function githubSource(repo: string, version: string): string {
+  const r = repo.trim();
+  const v = version.trim();
+  if (!v || r.includes("#")) return r;
+  const m = r.match(/github\.com[/:]([^/]+)\/([^/#?]+?)(?:\.git)?(?:[/#?].*)?$/i);
+  const base = m ? `${m[1]}/${m[2]}` : r;
+  return `${base}#${v}`;
+}
+
+function GithubInstallDialog({
+  agentId,
+  showAgentScope,
+  open,
+  onOpenChange,
+}: {
+  agentId: string;
+  showAgentScope: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const [scope, setScope] = useState<InstallScope>("user_agent");
+  const [repo, setRepo] = useState("");
+  const [version, setVersion] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function install() {
+    if (!repo.trim()) {
+      showToast(t("sessions.skillsList.githubRepoRequired"), "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      await installAgentSkill({
+        path: { id: agentId },
+        body: { source: githubSource(repo, version), scope },
+        throwOnError: true,
+      });
+      showToast(t("sessions.discover.installSuccess"), "success");
+      void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      onOpenChange(false);
+      setRepo("");
+      setVersion("");
+    } catch (error) {
+      showToast(apiErrorMessage(error, t("common.error")), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup>
+        <DialogHeader>
+          <DialogTitle>{t("sessions.skillsList.installGithub")}</DialogTitle>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          <div className="space-y-1.5">
+            <span className="text-xs text-muted-foreground">
+              {t("sessions.discover.installTo")}
+            </span>
+            <InstallScopePicker
+              scope={scope}
+              onScope={setScope}
+              showAgentScope={showAgentScope}
+              size="sm"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t("sessions.skillsList.githubRepo")}</Label>
+            <Input
+              nativeInput
+              autoComplete="off"
+              value={repo}
+              onChange={(e) => setRepo((e.target as HTMLInputElement).value)}
+              placeholder={t("sessions.skillsList.githubRepoPlaceholder")}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t("sessions.skillsList.githubVersion")}</Label>
+            <Input
+              nativeInput
+              autoComplete="off"
+              value={version}
+              onChange={(e) => setVersion((e.target as HTMLInputElement).value)}
+              placeholder={t("sessions.skillsList.githubVersionPlaceholder")}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">{t("sessions.skillsList.githubHint")}</p>
+          <Button disabled={!repo.trim() || busy} loading={busy} onClick={() => void install()}>
+            <GitFork size={16} />
+            {t("common.install")}
+          </Button>
+        </DialogPanel>
+      </DialogPopup>
+    </Dialog>
   );
 }
 

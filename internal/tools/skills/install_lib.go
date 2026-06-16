@@ -24,7 +24,7 @@ import (
 // user uses userID; user_agent uses both; system_agent uses agentID.
 // Returns the installed skill name on success.
 func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID string, agentID string) (string, error) {
-	skillName, files, cleanup, err := FetchSkillFiles(ctx, source)
+	skillName, files, version, cleanup, err := FetchSkillFiles(ctx, source)
 	if err != nil {
 		return "", err
 	}
@@ -51,8 +51,13 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 	}
 
 	// Record the install source so the UI can match an installed skill back to its
-	// marketplace entry (whose slug may differ from the SKILL.md frontmatter name).
-	metaBytes, err := json.Marshal(map[string]string{"created-at": createdAt, "source": source})
+	// marketplace entry (whose slug may differ from the SKILL.md frontmatter name),
+	// plus the resolved version (git ref/commit or clawhub version) for display.
+	meta := map[string]string{"created-at": createdAt, "source": source}
+	if version != "" {
+		meta["version"] = version
+	}
+	metaBytes, err := json.Marshal(meta)
 	if err != nil {
 		return "", fmt.Errorf("encode skill metadata for %q: %w", name, err)
 	}
@@ -154,6 +159,25 @@ func fetchAuthedGitHubSkill(ctx context.Context, parsed *mcpskills.ParsedSource,
 	return dir, cleanup, nil
 }
 
+// resolveGitVersion returns the version to record for a git-sourced skill: the
+// ref the user pinned (tag/branch), or the short HEAD commit when no ref was
+// given. Best-effort — returns "" if the commit cannot be read. skillDir may be
+// a subdirectory of the repo; DetectDotGit walks up to the enclosing .git.
+func resolveGitVersion(skillDir, ref string) string {
+	if ref != "" {
+		return ref
+	}
+	repo, err := git.PlainOpenWithOptions(skillDir, &git.PlainOpenOptions{DetectDotGit: true})
+	if err != nil {
+		return ""
+	}
+	head, err := repo.Head()
+	if err != nil {
+		return ""
+	}
+	return head.Hash().String()[:7]
+}
+
 // githubAuthHint returns user-facing guidance for a failed github.com clone,
 // tailored to whether the user has GitHub connected.
 func githubAuthHint(hasToken bool) string {
@@ -185,10 +209,10 @@ func resolveGitSource(source string) (*mcpskills.ParsedSource, error) {
 }
 
 // FetchSkillFiles resolves source, finds the skill directory, and returns the
-// skill name and a map of file paths (relative to the skill root) → content.
-// cleanup is a no-op for git sources (their path is a shared cache — do NOT
-// delete it). For local sources it is also a no-op because the path is the
-// user's local directory.
+// skill name, a map of file paths (relative to the skill root) → content, and
+// the installed version (the git ref/commit for git sources, the clawhub version
+// for clawhub sources, empty for local). cleanup is a no-op for shared-cache git
+// and local sources; for an authenticated GitHub clone it removes the temp dir.
 //
 // For github.com sources, a token carried via WithGitHubToken authenticates the
 // clone (via BasicAuth into a private temp dir) so private repos install and
@@ -199,15 +223,16 @@ func resolveGitSource(source string) (*mcpskills.ParsedSource, error) {
 //   - owner/repo@skill-name       — GitHub shorthand (via mcphub)
 //   - GitHub/GitLab URLs          — cloned via git
 //   - local paths                 — read from filesystem
-func FetchSkillFiles(ctx context.Context, source string) (skillName string, files map[string]string, cleanup func(), err error) {
+func FetchSkillFiles(ctx context.Context, source string) (skillName string, files map[string]string, version string, cleanup func(), err error) {
 	// Handle clawhub: prefix before any other parsing.
-	if slug, version, ok := parseClawhubSource(source); ok {
-		return clawhubFetchSkillFiles(ctx, slug, version)
+	if slug, ver, ok := parseClawhubSource(source); ok {
+		name, f, clean, cerr := clawhubFetchSkillFiles(ctx, slug, ver)
+		return name, f, ver, clean, cerr
 	}
 
 	parsed, err := resolveGitSource(source)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, "", nil, err
 	}
 
 	// tempCleanup removes the authenticated GitHub temp clone (nil for shared-cache
@@ -229,7 +254,7 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 		if parsed.Type == mcpskills.SourceTypeGitHub && token != "" {
 			dir, clean, ferr := fetchAuthedGitHubSkill(ctx, parsed, token)
 			if ferr != nil {
-				return "", nil, nil, fmt.Errorf("%s: %w", githubAuthHint(true), ferr)
+				return "", nil, "", nil, fmt.Errorf("%s: %w", githubAuthHint(true), ferr)
 			}
 			skillDir = dir
 			tempCleanup = clean
@@ -242,22 +267,23 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 			})
 			if ferr != nil {
 				if parsed.Type == mcpskills.SourceTypeGitHub {
-					return "", nil, nil, fmt.Errorf("%s: %w", githubAuthHint(false), ferr)
+					return "", nil, "", nil, fmt.Errorf("%s: %w", githubAuthHint(false), ferr)
 				}
-				return "", nil, nil, fmt.Errorf("fetch skill: %w", ferr)
+				return "", nil, "", nil, fmt.Errorf("fetch skill: %w", ferr)
 			}
 			skillDir = local.Path
 		}
+		version = resolveGitVersion(skillDir, parsed.Ref)
 	case mcpskills.SourceTypeLocal:
 		dir, ferr := mcpskills.FindSkillDir(parsed.LocalPath, "")
 		if ferr != nil {
-			return "", nil, nil, fmt.Errorf("find skill: %w", ferr)
+			return "", nil, "", nil, fmt.Errorf("find skill: %w", ferr)
 		}
 		skillDir = dir
 	case mcpskills.SourceTypeDirectURL, mcpskills.SourceTypeWellKnown:
-		return "", nil, nil, fmt.Errorf("source type %q is not yet supported", parsed.Type)
+		return "", nil, "", nil, fmt.Errorf("source type %q is not yet supported", parsed.Type)
 	default:
-		return "", nil, nil, fmt.Errorf("unknown source type %q", parsed.Type)
+		return "", nil, "", nil, fmt.Errorf("unknown source type %q", parsed.Type)
 	}
 
 	skillName = filepath.Base(skillDir)
@@ -282,12 +308,12 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 		files[rel] = string(data)
 		return nil
 	}); werr != nil {
-		return "", nil, nil, fmt.Errorf("walk skill dir: %w", werr)
+		return "", nil, "", nil, fmt.Errorf("walk skill dir: %w", werr)
 	}
 
 	cleanup = tempCleanup
 	if cleanup == nil {
 		cleanup = func() {}
 	}
-	return skillName, files, cleanup, nil
+	return skillName, files, version, cleanup, nil
 }

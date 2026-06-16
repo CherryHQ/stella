@@ -162,6 +162,7 @@ func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) skillView {
 		DisableModelInvocation: sk.DisableModelInvocation,
 		Files:                  files,
 		Source:                 skillSource(sk.Metadata),
+		Version:                skillVersion(sk.Metadata),
 		CreatedAt:              sk.CreatedAt.UTC(),
 		UpdatedAt:              sk.UpdatedAt.UTC(),
 	}
