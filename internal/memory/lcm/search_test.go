@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
@@ -48,6 +49,24 @@ func insertSummary(t *testing.T, db *sql.DB, convID, id, content string) {
 	if err != nil {
 		t.Fatalf("insert summary: %v", err)
 	}
+}
+
+func insertSummaryAt(t *testing.T, db *sql.DB, convID, id, content, latestAt string) {
+	t.Helper()
+	_, err := db.Exec(`INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, latest_at)
+		VALUES (?, ?, 'leaf', 0, ?, 10, ?)`, id, convID, content, latestAt)
+	if err != nil {
+		t.Fatalf("insert summary: %v", err)
+	}
+}
+
+func parseTestTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse("2006-01-02 15:04:05", s)
+	if err != nil {
+		t.Fatalf("parse time %q: %v", s, err)
+	}
+	return parsed
 }
 
 func appendUser(t *testing.T, p memory.Provider, sess memory.Session, contents ...string) {
@@ -327,15 +346,62 @@ func TestSearch_LikeFallbackSpansSessionsButIsolatesUsers(t *testing.T) {
 	}
 	appendUser(t, p, stranger, "陌生人的部署记录")
 
-	// The LIKE fallback path must also span both same-user sessions while
-	// keeping another user's content out.
+	otherAgent := newLCMTestSession("fts-like-span-y")
+	otherAgent.AgentID = "other"
+	if err := p.Bootstrap(context.Background(), otherAgent); err != nil {
+		t.Fatalf("bootstrap other agent: %v", err)
+	}
+	appendUser(t, p, otherAgent, "另一个agent的部署记录")
+
+	// The LIKE fallback path must also span both same-user+agent sessions while
+	// keeping another user's and another agent's content out.
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署"})
 	if len(results) != 2 {
 		t.Fatalf("expected hits from both same-user sessions, got %d: %+v", len(results), results)
 	}
 	for _, r := range results {
-		if strings.Contains(r.Content, "陌生人") {
-			t.Errorf("fallback hit leaked across user boundary: %q", r.Content)
+		if strings.Contains(r.Content, "陌生人") || strings.Contains(r.Content, "另一个agent") {
+			t.Errorf("fallback hit leaked across user/agent boundary: %q", r.Content)
+		}
+	}
+}
+
+func TestSearch_SummariesSpanSessionsWithContentTime(t *testing.T) {
+	db, p, sess := newSearchTestEnv(t, "fts-sum-span-a")
+	convA := conversationID(t, db, sess.ID)
+	// latest_at is the real end of the summarized window; OccurredAt must report
+	// it (not created_at, which is when the summary row was written).
+	const latestAt = "2030-01-02 03:04:05"
+	insertSummaryAt(t, db, convA, "sum-span-a", "narwhal migration plan finalized", latestAt)
+
+	other := newLCMTestSession("fts-sum-span-b")
+	if err := p.Bootstrap(context.Background(), other); err != nil {
+		t.Fatalf("bootstrap other: %v", err)
+	}
+	convB := conversationID(t, db, other.ID)
+	insertSummary(t, db, convB, "sum-span-b", "narwhal rollout notes from another session")
+
+	stranger := newLCMTestSession("fts-sum-span-x")
+	stranger.UserID = "2"
+	if err := p.Bootstrap(context.Background(), stranger); err != nil {
+		t.Fatalf("bootstrap stranger: %v", err)
+	}
+	convX := conversationID(t, db, stranger.ID)
+	insertSummary(t, db, convX, "sum-span-x", "narwhal secret of a different user")
+
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "narwhal", Scope: memory.SearchScopeSummaries})
+	if len(results) != 2 {
+		t.Fatalf("expected summary hits from both same-user sessions, got %d: %+v", len(results), results)
+	}
+	for _, r := range results {
+		if r.SessionID == "" {
+			t.Errorf("summary hit missing origin session: %+v", r)
+		}
+		if strings.Contains(r.Content, "different user") {
+			t.Errorf("summary hit leaked across user boundary: %q", r.Content)
+		}
+		if r.SourceID == "sum-span-a" && !r.OccurredAt.Equal(parseTestTime(t, latestAt)) {
+			t.Errorf("OccurredAt = %v, want latest_at %s", r.OccurredAt, latestAt)
 		}
 	}
 }
