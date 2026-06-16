@@ -212,7 +212,10 @@ func setXDGDirs(env map[string]string, home, userData string) {
 // realRoot == sandboxRoot) untouched. It mirrors localSession.toSandboxPath for
 // the workspace root, but runs at policy-build time before a session exists.
 func remapToSandboxRoot(hostPath, realRoot, sandboxRoot string) string {
-	if hostPath == "" || realRoot == sandboxRoot {
+	// An empty realRoot has no host prefix to match, so nothing can be "under" it;
+	// filepath.Rel("", x) would otherwise treat any relative value as under realRoot
+	// and rewrite scalar env values (e.g. MISE_YES=1) into bogus sandbox paths.
+	if hostPath == "" || realRoot == "" || realRoot == sandboxRoot {
 		return hostPath
 	}
 	rel, err := filepath.Rel(realRoot, filepath.Clean(hostPath))
