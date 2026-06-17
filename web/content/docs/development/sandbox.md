@@ -90,12 +90,14 @@ The abstraction is covered by:
 
 ## Running the Docker Backend Locally
 
-Two mise tasks start a host `stellad` with the `docker` sandbox backend forced on (via `STELLA_SANDBOX_BACKEND=docker`, `STELLA_DOCKER_SANDBOX_MODE=host`). Both depend on `sandbox:docker:build`, so the `stella-sandbox:dev` image is built before the first agent session hits preflight:
+`mise run dev:api:docker` brings up the whole stack with one command, mirroring the production `docker-compose.yml`: `stellad` runs **inside a container** with the `docker` sandbox backend in **volume mode** (`STELLA_SANDBOX_BACKEND=docker`, `STELLA_DOCKER_SANDBOX_MODE=volume`, `STELLA_HOME_VOLUME=stella-data`), plus an `otel-lgtm` sidecar (Grafana at `localhost:3000`). It builds the local images (`docker:build` → `stella:latest`, `sandbox:docker:build` → `stella-sandbox:dev`), creates the named volumes if missing, and reuses a dev vault key persisted at `~/.stella-dev/docker-vault.key`. It runs the same `docker-compose.yml` as prod, just exporting `STELLA_IMAGE=stella:latest` and the dev `STELLA_VAULT_KEY` (both are `${VAR:-default}` placeholders in the compose file) so it uses the local build instead of the released image.
 
-- `mise run dev:docker` — full dev experience: the Vite UI at `localhost:5173` (proxying `/api` to the server on `:25678`) plus the docker-backed API server. Use this for frontend hot-reload.
-- `mise run dev:api:docker` — API server only. The Go server still serves the last-built embedded SPA at `localhost:25678` (see `web/embed.go`), so you get a working UI there — just without Vite hot-reload. Run `vp build` first if the embedded bundle is stale.
+- `mise run dev:api:docker` — the container stack. The in-container Go server serves its baked-in embedded SPA at `localhost:25678` (see `web/embed.go`) — a working UI, just without Vite hot-reload.
+- `mise run dev:docker` — the same stack plus the Vite UI at `localhost:5173` (proxying `/api` to the container on `:25678`). Use this for frontend hot-reload.
 
-The image bakes its mise toolchain at `/opt/stella` via `stella mise reconcile-builtins` (the same `resources/plugins.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths.
+Stop everything with `docker compose down`.
+
+The sandbox image bakes its mise toolchain at `/opt/stella` via `stella mise reconcile-builtins` (the same `resources/plugins.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths.
 
 ## Adding a New Backend
 

@@ -60,7 +60,7 @@ services:
     security_opt:
       - seccomp=unconfined
     volumes:
-      - ./stella-data:/home/nonroot/.stella
+      - ./stella-data:/home/stella/.stella
     environment:
       - ANTHROPIC_API_KEY=sk-...
 ```
@@ -75,7 +75,7 @@ services:
     image: ghcr.io/cherryhq/stella:latest
     restart: unless-stopped
     volumes:
-      - ./stella-data:/home/nonroot/.stella
+      - ./stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - ANTHROPIC_API_KEY=sk-...
@@ -91,7 +91,7 @@ services:
     image: ghcr.io/cherryhq/stella:latest
     restart: unless-stopped
     volumes:
-      - stella-data:/home/nonroot/.stella
+      - stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - ANTHROPIC_API_KEY=sk-...

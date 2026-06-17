@@ -99,19 +99,25 @@ description = "Start stella server (web + api) with the docker sandbox backend +
 depends = ["dev:ui", "dev:api:docker"]
 
 [tasks."dev:api:docker"]
-description = "Start stella API server with the docker sandbox backend + otel-lgtm"
-depends = ["build", "sandbox:docker:build"]
-# Mirrors dev:api, plus: brings up otel-lgtm (Grafana http://localhost:3000) and
-# forces the docker sandbox backend. STELLA_DOCKER_SANDBOX_MODE=host because
-# stellad runs on the host. OTLP env is hardcoded here — no dependence on .env.
+description = "One-command docker dev stack: stellad in a container (docker sandbox volume mode) + otel-lgtm, on the local image"
+depends = ["docker:build", "sandbox:docker:build"]
+# Mirrors the prod docker-compose.yml (volume mode + otel-lgtm) but runs the
+# locally built stella:latest. Creates the named volumes if missing and reuses a
+# persisted dev vault key so encrypted secrets survive restarts.
 run = """
-  docker compose -f docker-compose.dev.yml up -d
-  STELLA_HOME="$HOME/.stella-dev" \
-    STELLA_SANDBOX_BACKEND=docker STELLA_DOCKER_SANDBOX_MODE=host \
-    OTEL_TRACES_EXPORTER=otlp OTEL_LOGS_EXPORTER=otlp OTEL_METRICS_EXPORTER=none \
-    OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
-    OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
-    $BINARY_D server
+  docker volume create stella-data >/dev/null
+  docker volume create otel-data >/dev/null
+  KEY_FILE="$HOME/.stella-dev/docker-vault.key"
+  mkdir -p "$(dirname "$KEY_FILE")"
+  [ -s "$KEY_FILE" ] || docker run --rm stella:latest stella vault keygen > "$KEY_FILE"
+  export GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
+    export GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
+  fi
+  export STELLA_IMAGE=stella:latest STELLA_VAULT_KEY="$(cat "$KEY_FILE")"
+  docker compose up -d
+  echo "stella up — UI http://localhost:25678 · Grafana http://localhost:3000"
+  echo "logs: docker compose logs -f stella   ·   stop: docker compose down"
 """
 
 # ============================================================================
@@ -214,6 +220,10 @@ run = """
   UID_ARG=$(id -u)
   GID_ARG=$(id -g)
   VERSION_ARG=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
+  export GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
+    export GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
+  fi
   if [ -n "${GITHUB_TOKEN:-}" ]; then
     DOCKER_BUILDKIT=1 docker build \
       --secret id=github_token,env=GITHUB_TOKEN \
