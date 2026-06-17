@@ -96,7 +96,8 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 		Channel:   req.Channel,
 	}
 	if req.SessionID != "" {
-		// Resume: accept main or chat sessions; reject internal kinds.
+		// Resume: enforce the caller-declared kind matches the stored session
+		// (any kind, including internal delegate/task/scheduler sessions).
 		if req.Kind != "" {
 			ensureReq.RequireKind = kind
 		}
@@ -122,6 +123,18 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 		opts = append(opts, agentruntime.WithCurrentSpeaker(req.CurrentSpeaker))
 	}
 	return s.Runtime.Chat(ctx, info, req.Message, opts...)
+}
+
+// SubscribeSession registers a read-only listener for a session's live turn
+// events, regardless of who initiated the turn. Used by the SSE endpoint to let
+// the web UI watch scheduler/task/delegate turns in real time.
+func (s *Service) SubscribeSession(sessionID string) (<-chan Event, func()) {
+	return s.Runtime.Subscribe(sessionID)
+}
+
+// SessionLive reports whether a turn is currently in flight on the session.
+func (s *Service) SessionLive(sessionID string) bool {
+	return s.Runtime.SessionLive(sessionID)
 }
 
 // ChannelChatRequest describes a chat turn on a non-private channel/group session

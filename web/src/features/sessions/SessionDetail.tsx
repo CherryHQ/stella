@@ -121,12 +121,45 @@ export function SessionDetail({
     setMessages: setChatMessages,
     status: chatStatus,
     stop: chatStop,
+    resumeStream: chatResume,
   } = useChat({
     id: session?.id ?? "empty",
     transport,
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
+
+  // Server-driven sessions (scheduler/task/delegate) run turns that carry no
+  // HTTP request of their own, so the normal send-stream never sees them. Poll
+  // the read-only events stream to watch such a turn live: resumeStream()
+  // attaches when one is in flight and no-ops (204) otherwise. Fire it only
+  // while idle so we never double-connect, and read status via a ref to keep
+  // the interval stable.
+  const isInternalKind =
+    session?.kind === "scheduler" || session?.kind === "task" || session?.kind === "delegate";
+  const chatStatusRef = useRef(chatStatus);
+  chatStatusRef.current = chatStatus;
+  // resumeStream() is async and status only flips to "streaming" once the SSE
+  // connection parses its first frame; guard with an in-flight ref so a tick
+  // firing inside that window can't open a second concurrent stream.
+  const resumingRef = useRef(false);
+  useEffect(() => {
+    if (!session || !isInternalKind) return;
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled || resumingRef.current || chatStatusRef.current !== "ready") return;
+      resumingRef.current = true;
+      void chatResume().finally(() => {
+        resumingRef.current = false;
+      });
+    };
+    tick();
+    const timer = setInterval(tick, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [session?.id, isInternalKind, chatResume]);
 
   const messagesQuery = useInfiniteQuery({
     queryKey: ["session-messages", session?.id],

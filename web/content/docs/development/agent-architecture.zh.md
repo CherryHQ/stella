@@ -156,6 +156,8 @@ Session kind 描述 session 为什么存在。Channel 描述 session 从哪里�
 
 Typed resume 必须验证 kind。即使 ID 一样，scheduler run 也不能恢复 delegate session。Channel session 虽然 key 是 trusted，也必须要求 `KindChat`。
 
+所有 kind 都接受人工消息。Web UI 可以像给 `chat` session 发消息一样,给 `delegate`、`task`、`scheduler` session 发消息——runtime 的 turn 循环与 kind 无关。turn 进行中发送会以 `ErrSessionBusy` 失败关闭(见并发),因此人工消息不会与服务端驱动的 turn 竞争。
+
 ## ID trust model
 
 不是所有 session ID 都一样。
@@ -206,6 +208,16 @@ Chat timeout 是可恢复停止，不是硬失败。Runtime 会持久化并 stre
 ### Concurrency
 
 Runtime 对每个 session 最多允许一个 active turn。第二个 same-session turn 会被 `ErrSessionBusy` 拒绝。Runtime 不排队。排队需要产品层定义 cancellation、ordering 和 backpressure；拒绝更简单也更安全。
+
+### 实时事件扇出
+
+服务端驱动的 turn(`scheduler`、`task`、`delegate`)没有自己的 HTTP 请求,因此其事件对 Web UI 本来是不可见的。Runtime 把每个 turn 的事件经由每个 runtime 一份的 `SessionHub` tee 出去:
+
+- `Runtime.Chat` 除了写给调用方的 channel,还把每个事件发布到 hub。即使发起的调用方断开,hub 仍被持续喂入,所以由 scheduler 发起的 turn 照样能流式推给正在观看的浏览器。
+- 发布永不阻塞 turn:慢订阅者丢弃事件而非拖住 agent。订阅者通过重新加载已持久化的历史来对齐最终状态,因此丢掉的增量只是视觉上的。
+- turn 结束时,hub 关闭其订阅 channel。
+
+`GET /api/agents/{agentId}/sessions/{sessionId}/events` 订阅一个只读 SSE 流,复用与发消息端点相同的 AI-SDK UI message 编码;没有进行中的 turn 时返回 `204`。Web UI 对内部 kind 的 session 用 AI-SDK 的 `resumeStream()` 连到该端点,使 transcript 实时渲染。
 
 ## Caller flows
 

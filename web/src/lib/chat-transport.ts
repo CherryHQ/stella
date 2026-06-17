@@ -4,8 +4,9 @@ import type { GroupMessage } from "@/lib/api-client/types.gen";
 import type { Message, RenderableReference } from "./types";
 
 export function createSessionTransport(agentId: string, sessionId: string) {
+  const base = `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`;
   return new DefaultChatTransport({
-    api: `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
+    api: `${base}/messages`,
     prepareSendMessagesRequest: ({ messages }) => {
       const last = messages[messages.length - 1];
       const parts = last.parts
@@ -16,6 +17,11 @@ export function createSessionTransport(agentId: string, sessionId: string) {
         .filter(Boolean);
       return { body: { parts } };
     },
+    // Read-only resume: watch a turn started elsewhere (server-driven
+    // scheduler/task/delegate turns, or another tab) via the events SSE
+    // endpoint. It answers 204 when no turn is in flight, which the SDK treats
+    // as "nothing to resume".
+    prepareReconnectToStreamRequest: () => ({ api: `${base}/events` }),
   });
 }
 

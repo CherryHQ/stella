@@ -26,6 +26,7 @@ type Runtime struct {
 	beforeRun      BeforeRunFunc
 	snapshotPrompt SnapshotPromptFunc
 	active         sync.Map // session ID → struct{}, tracks in-flight turns
+	hub            *SessionHub
 }
 
 // CompactionConfig controls automatic compaction thresholds.
@@ -84,7 +85,20 @@ func New(cfg Config) (*Runtime, error) {
 		compact:        cfg.Compaction.WithDefaults(),
 		beforeRun:      cfg.BeforeRun,
 		snapshotPrompt: cfg.SnapshotPrompt,
+		hub:            NewSessionHub(),
 	}, nil
+}
+
+// Subscribe registers a read-only listener for a session's live turn events.
+// The channel is closed when the in-flight turn ends; callers must invoke the
+// returned cancel func when they stop reading. See SessionHub.
+func (rt *Runtime) Subscribe(sessionID string) (<-chan Event, func()) {
+	return rt.hub.Subscribe(sessionID)
+}
+
+// SessionLive reports whether a turn is currently in flight on the session.
+func (rt *Runtime) SessionLive(sessionID string) bool {
+	return rt.hub.IsLive(sessionID)
 }
 
 // SetNewRunner replaces the runner builder. Existing runners are not affected
@@ -186,6 +200,13 @@ var ErrSessionBusy = agenterr.ErrSessionBusy
 //
 // Only one active turn per session is allowed. A second concurrent Chat on the
 // same session returns ErrSessionBusy immediately.
+// safeClose closes ch, tolerating an already-closed channel. The panic-recovery
+// path in Chat cannot know whether rt.chat closed inner before unwinding.
+func safeClose(ch chan Event) {
+	defer func() { _ = recover() }()
+	close(ch)
+}
+
 func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) <-chan Event {
 	out := make(chan Event, 100)
 
@@ -200,9 +221,49 @@ func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageConte
 		o(&co)
 	}
 	ctx = memory.WithSessionID(ctx, info.ID)
+
+	// Tee: chat writes to inner; the forwarder fans every event out to the hub
+	// (read-only subscribers — SSE watchers of scheduler/task/delegate turns, or
+	// another tab) as well as to the caller's channel.
+	//
+	// A server-driven turn (scheduler/task) runs under its own context, so
+	// watchers can attach and detach without affecting it. A user-initiated turn
+	// runs under the caller's request context and ends when that caller
+	// disconnects; the ctx.Done branch below only flushes already-buffered
+	// events rather than blocking on a reader that is gone.
+	inner := make(chan Event, 100)
+	rt.hub.begin(info.ID)
 	go func() {
 		defer rt.active.Delete(info.ID)
-		rt.chat(ctx, out, info, msg, co)
+		defer func() {
+			if p := recover(); p != nil {
+				// rt.chat panicked. Close inner so the forwarder drains and
+				// rt.hub.end runs; otherwise the session wedges — stuck busy
+				// and permanently "live" to SSE watchers. The panic may have
+				// unwound through a defer in rt.chat/streamEvents that already
+				// closed inner, so tolerate an already-closed channel.
+				rt.log.Error("chat turn panicked", "session_id", info.ID, "panic", p)
+				safeClose(inner)
+			}
+		}()
+		rt.chat(ctx, inner, info, msg, co)
+	}()
+	go func() {
+		defer close(out)
+		defer rt.hub.end(info.ID)
+		for ev := range inner {
+			rt.hub.publish(info.ID, ev)
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+				// Caller gone: keep draining inner so the turn finishes cleanly
+				// and hub subscribers still receive, but stop writing to out.
+				for ev := range inner {
+					rt.hub.publish(info.ID, ev)
+				}
+				return
+			}
+		}
 	}()
 	return out
 }

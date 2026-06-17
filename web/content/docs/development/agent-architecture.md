@@ -156,6 +156,8 @@ Session kind describes why the session exists. Channel describes where it origin
 
 Typed resume must validate kind. A scheduler run must not resume a delegate session even if the ID matches. A channel session must require `KindChat` even though channel keys are trusted.
 
+Human messages are accepted on every kind. The web UI may send a message to a `delegate`, `task`, or `scheduler` session just like a `chat` session — the runtime turn loop is kind-agnostic. A send during an in-flight turn fails closed with `ErrSessionBusy` (see Concurrency), so manual messages never race a server-driven turn.
+
 ## ID trust model
 
 Not all session IDs are equal.
@@ -206,6 +208,16 @@ This matters for delegate and scheduler callers because they treat any stream er
 ### Concurrency
 
 Runtime allows at most one active turn per session. It rejects a second same-session turn with `ErrSessionBusy`. It does not queue. Queueing requires product-level semantics for cancellation, ordering, and backpressure; rejection is simple and safe.
+
+### Live event fan-out
+
+Server-driven turns (`scheduler`, `task`, `delegate`) carry no HTTP request of their own, so their events would otherwise be invisible to the web UI. Runtime tees every turn's events through a per-runtime `SessionHub`:
+
+- `Runtime.Chat` publishes each event to the hub in addition to the caller's channel. The hub is fed even if the initiating caller disconnects, so a turn started by the scheduler still streams to a watching browser.
+- Publishing never blocks the turn: a slow subscriber drops events rather than stalling the agent. Subscribers reconcile final state by reloading persisted history, so dropped deltas are cosmetic.
+- When the turn ends, the hub closes its subscriber channels.
+
+`GET /api/agents/{agentId}/sessions/{sessionId}/events` subscribes a read-only SSE stream that reuses the same AI-SDK UI message encoding as the message-send endpoint, and returns `204` when no turn is in flight. The web UI calls the AI-SDK `resumeStream()` against this endpoint for internal-kind sessions so the transcript renders live.
 
 ## Caller flows
 

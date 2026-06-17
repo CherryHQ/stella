@@ -199,6 +199,33 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
+  /api/agents/{agentId}/sessions/{sessionId}/events:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: Stream a session's live turn events (read-only SSE)
+      description: >
+        Subscribe to the events of an in-flight turn on this session without
+        initiating one. Used by the web UI to watch server-driven turns
+        (scheduler, task, delegate) or a turn started in another tab in real
+        time. The stream emits the same Vercel AI-SDK UI message frames as the
+        message-send endpoint and ends when the turn finishes.
+      operationId: streamSessionEvents
+      responses:
+        "200":
+          description: SSE stream of session events
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "204": { description: No turn currently in flight on this session }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/agents/{agentId}/sessions/{sessionId}/context-items:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }
