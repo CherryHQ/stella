@@ -8,24 +8,25 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const createShare = `-- name: CreateShare :one
 INSERT INTO share (
     id, token_hash, user_id, title,
     media_type, content, expires_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, token_hash, user_id, title, media_type, content, expires_at, created_at, updated_at
 `
 
 type CreateShareParams struct {
-	ID        string         `json:"id"`
-	TokenHash string         `json:"token_hash"`
-	UserID    string         `json:"user_id"`
-	Title     string         `json:"title"`
-	MediaType string         `json:"media_type"`
-	Content   []byte         `json:"content"`
-	ExpiresAt sql.NullString `json:"expires_at"`
+	ID        string       `json:"id"`
+	TokenHash string       `json:"token_hash"`
+	UserID    string       `json:"user_id"`
+	Title     string       `json:"title"`
+	MediaType string       `json:"media_type"`
+	Content   []byte       `json:"content"`
+	ExpiresAt sql.NullTime `json:"expires_at"`
 }
 
 func (q *Queries) CreateShare(ctx context.Context, arg CreateShareParams) (Share, error) {
@@ -55,7 +56,7 @@ func (q *Queries) CreateShare(ctx context.Context, arg CreateShareParams) (Share
 
 const deleteShareByUser = `-- name: DeleteShareByUser :execrows
 DELETE FROM share
-WHERE id = ? AND user_id = ?
+WHERE id = $1 AND user_id = $2
 `
 
 type DeleteShareByUserParams struct {
@@ -73,8 +74,8 @@ func (q *Queries) DeleteShareByUser(ctx context.Context, arg DeleteShareByUserPa
 
 const getShareByTokenHash = `-- name: GetShareByTokenHash :one
 SELECT id, token_hash, user_id, title, media_type, content, expires_at, created_at, updated_at FROM share
-WHERE token_hash = ?
-  AND (expires_at IS NULL OR expires_at > datetime('now'))
+WHERE token_hash = $1
+  AND (expires_at IS NULL OR expires_at > now())
 `
 
 func (q *Queries) GetShareByTokenHash(ctx context.Context, tokenHash string) (Share, error) {
@@ -98,26 +99,26 @@ const listSharesByUser = `-- name: ListSharesByUser :many
 SELECT id, token_hash, user_id, title,
        media_type, expires_at, created_at, updated_at
 FROM share
-WHERE user_id = ?
+WHERE user_id = $1
 ORDER BY created_at DESC, id DESC
-LIMIT ? OFFSET ?
+LIMIT $2 OFFSET $3
 `
 
 type ListSharesByUserParams struct {
 	UserID string `json:"user_id"`
-	Limit  int64  `json:"limit"`
-	Offset int64  `json:"offset"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
 }
 
 type ListSharesByUserRow struct {
-	ID        string         `json:"id"`
-	TokenHash string         `json:"token_hash"`
-	UserID    string         `json:"user_id"`
-	Title     string         `json:"title"`
-	MediaType string         `json:"media_type"`
-	ExpiresAt sql.NullString `json:"expires_at"`
-	CreatedAt string         `json:"created_at"`
-	UpdatedAt string         `json:"updated_at"`
+	ID        string       `json:"id"`
+	TokenHash string       `json:"token_hash"`
+	UserID    string       `json:"user_id"`
+	Title     string       `json:"title"`
+	MediaType string       `json:"media_type"`
+	ExpiresAt sql.NullTime `json:"expires_at"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
 func (q *Queries) ListSharesByUser(ctx context.Context, arg ListSharesByUserParams) ([]ListSharesByUserRow, error) {

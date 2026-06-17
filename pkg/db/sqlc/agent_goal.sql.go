@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const createAgentGoal = `-- name: CreateAgentGoal :one
@@ -16,7 +17,7 @@ INSERT INTO agent_goal (
     id, user_id, agent_id, project_id, title, description, status, priority,
     review_policy, context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at
 `
 
@@ -32,8 +33,8 @@ type CreateAgentGoalParams struct {
 	ReviewPolicy string         `json:"review_policy"`
 	Context      string         `json:"context"`
 	Output       string         `json:"output"`
-	CreatedAt    string         `json:"created_at"`
-	UpdatedAt    string         `json:"updated_at"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
 // Slice 3: goal queries.
@@ -76,7 +77,7 @@ func (q *Queries) CreateAgentGoal(ctx context.Context, arg CreateAgentGoalParams
 }
 
 const getAgentGoal = `-- name: GetAgentGoal :one
-SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal WHERE id = ?
+SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal WHERE id = $1
 `
 
 func (q *Queries) GetAgentGoal(ctx context.Context, id string) (AgentGoal, error) {
@@ -106,22 +107,22 @@ func (q *Queries) GetAgentGoal(ctx context.Context, id string) (AgentGoal, error
 const goalChildCounts = `-- name: GoalChildCounts :one
 SELECT
     COUNT(*)                                                    AS total,
-    SUM(CASE WHEN required = 1 AND status = 'done'      THEN 1 ELSE 0 END) AS required_done,
-    SUM(CASE WHEN required = 1 AND status = 'failed'    THEN 1 ELSE 0 END) AS required_failed,
-    SUM(CASE WHEN required = 1 AND status = 'cancelled' THEN 1 ELSE 0 END) AS required_cancelled,
-    SUM(CASE WHEN required = 1 AND status = 'blocked'   THEN 1 ELSE 0 END) AS required_blocked,
-    SUM(CASE WHEN required = 1 AND status NOT IN ('done','failed','cancelled') THEN 1 ELSE 0 END) AS required_pending
+    SUM(CASE WHEN required = true AND status = 'done'      THEN 1 ELSE 0 END) AS required_done,
+    SUM(CASE WHEN required = true AND status = 'failed'    THEN 1 ELSE 0 END) AS required_failed,
+    SUM(CASE WHEN required = true AND status = 'cancelled' THEN 1 ELSE 0 END) AS required_cancelled,
+    SUM(CASE WHEN required = true AND status = 'blocked'   THEN 1 ELSE 0 END) AS required_blocked,
+    SUM(CASE WHEN required = true AND status NOT IN ('done','failed','cancelled') THEN 1 ELSE 0 END) AS required_pending
 FROM agent_task
-WHERE goal_id = ?
+WHERE goal_id = $1
 `
 
 type GoalChildCountsRow struct {
-	Total             int64           `json:"total"`
-	RequiredDone      sql.NullFloat64 `json:"required_done"`
-	RequiredFailed    sql.NullFloat64 `json:"required_failed"`
-	RequiredCancelled sql.NullFloat64 `json:"required_cancelled"`
-	RequiredBlocked   sql.NullFloat64 `json:"required_blocked"`
-	RequiredPending   sql.NullFloat64 `json:"required_pending"`
+	Total             int64 `json:"total"`
+	RequiredDone      int64 `json:"required_done"`
+	RequiredFailed    int64 `json:"required_failed"`
+	RequiredCancelled int64 `json:"required_cancelled"`
+	RequiredBlocked   int64 `json:"required_blocked"`
+	RequiredPending   int64 `json:"required_pending"`
 }
 
 // Aggregate counts of children by required_flag + status for rollup logic.
@@ -142,12 +143,12 @@ func (q *Queries) GoalChildCounts(ctx context.Context, goalID sql.NullString) (G
 const listAgentGoals = `-- name: ListAgentGoals :many
 SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal
 WHERE status NOT IN ('done', 'cancelled')
-ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2
 `
 
 type ListAgentGoalsParams struct {
-	Limit  int64 `json:"limit"`
-	Offset int64 `json:"offset"`
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
 }
 
 // Dispatcher rollup scan. Skip quiescent goals (done/cancelled) so the bounded
@@ -194,13 +195,13 @@ func (q *Queries) ListAgentGoals(ctx context.Context, arg ListAgentGoalsParams) 
 }
 
 const listAgentGoalsByUser = `-- name: ListAgentGoalsByUser :many
-SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3
 `
 
 type ListAgentGoalsByUserParams struct {
 	UserID string `json:"user_id"`
-	Limit  int64  `json:"limit"`
-	Offset int64  `json:"offset"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
 }
 
 func (q *Queries) ListAgentGoalsByUser(ctx context.Context, arg ListAgentGoalsByUserParams) ([]AgentGoal, error) {
@@ -244,14 +245,14 @@ func (q *Queries) ListAgentGoalsByUser(ctx context.Context, arg ListAgentGoalsBy
 }
 
 const listAgentGoalsByUserAndAgent = `-- name: ListAgentGoalsByUserAndAgent :many
-SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal WHERE user_id = ? AND agent_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal WHERE user_id = $1 AND agent_id = $2 ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4
 `
 
 type ListAgentGoalsByUserAndAgentParams struct {
 	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
-	Limit   int64  `json:"limit"`
-	Offset  int64  `json:"offset"`
+	Limit   int32  `json:"limit"`
+	Offset  int32  `json:"offset"`
 }
 
 func (q *Queries) ListAgentGoalsByUserAndAgent(ctx context.Context, arg ListAgentGoalsByUserAndAgentParams) ([]AgentGoal, error) {
@@ -300,7 +301,7 @@ func (q *Queries) ListAgentGoalsByUserAndAgent(ctx context.Context, arg ListAgen
 }
 
 const listChildrenByGoal = `-- name: ListChildrenByGoal :many
-SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE goal_id = $1 ORDER BY created_at ASC
 `
 
 func (q *Queries) ListChildrenByGoal(ctx context.Context, goalID sql.NullString) ([]AgentTask, error) {
@@ -353,13 +354,13 @@ func (q *Queries) ListChildrenByGoal(ctx context.Context, goalID sql.NullString)
 }
 
 const listChildrenByGoalPaged = `-- name: ListChildrenByGoalPaged :many
-SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE goal_id = $1 ORDER BY created_at ASC, id ASC LIMIT $2 OFFSET $3
 `
 
 type ListChildrenByGoalPagedParams struct {
 	GoalID sql.NullString `json:"goal_id"`
-	Limit  int64          `json:"limit"`
-	Offset int64          `json:"offset"`
+	Limit  int32          `json:"limit"`
+	Offset int32          `json:"offset"`
 }
 
 func (q *Queries) ListChildrenByGoalPaged(ctx context.Context, arg ListChildrenByGoalPagedParams) ([]AgentTask, error) {
@@ -415,10 +416,10 @@ const listGoalPlanningCandidates = `-- name: ListGoalPlanningCandidates :many
 SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal
 WHERE status = 'draft'
 ORDER BY priority DESC, created_at ASC
-LIMIT ?
+LIMIT $1
 `
 
-func (q *Queries) ListGoalPlanningCandidates(ctx context.Context, limit int64) ([]AgentGoal, error) {
+func (q *Queries) ListGoalPlanningCandidates(ctx context.Context, limit int32) ([]AgentGoal, error) {
 	rows, err := q.db.QueryContext(ctx, listGoalPlanningCandidates, limit)
 	if err != nil {
 		return nil, err
@@ -462,10 +463,10 @@ const listGoalSynthesisCandidates = `-- name: ListGoalSynthesisCandidates :many
 SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal
 WHERE status = 'running' AND review_policy != 'none'
 ORDER BY priority DESC, updated_at ASC
-LIMIT ?
+LIMIT $1
 `
 
-func (q *Queries) ListGoalSynthesisCandidates(ctx context.Context, limit int64) ([]AgentGoal, error) {
+func (q *Queries) ListGoalSynthesisCandidates(ctx context.Context, limit int32) ([]AgentGoal, error) {
 	rows, err := q.db.QueryContext(ctx, listGoalSynthesisCandidates, limit)
 	if err != nil {
 		return nil, err
@@ -506,12 +507,12 @@ func (q *Queries) ListGoalSynthesisCandidates(ctx context.Context, limit int64) 
 }
 
 const setAgentGoalActiveReview = `-- name: SetAgentGoalActiveReview :exec
-UPDATE agent_goal SET active_review_id = ?, updated_at = ? WHERE id = ?
+UPDATE agent_goal SET active_review_id = $1, updated_at = $2 WHERE id = $3
 `
 
 type SetAgentGoalActiveReviewParams struct {
 	ActiveReviewID sql.NullString `json:"active_review_id"`
-	UpdatedAt      string         `json:"updated_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 	ID             string         `json:"id"`
 }
 
@@ -521,14 +522,14 @@ func (q *Queries) SetAgentGoalActiveReview(ctx context.Context, arg SetAgentGoal
 }
 
 const setAgentGoalOutput = `-- name: SetAgentGoalOutput :exec
-UPDATE agent_goal SET output = ?, completed_at = ?, updated_at = ? WHERE id = ?
+UPDATE agent_goal SET output = $1, completed_at = $2, updated_at = $3 WHERE id = $4
 `
 
 type SetAgentGoalOutputParams struct {
-	Output      string         `json:"output"`
-	CompletedAt sql.NullString `json:"completed_at"`
-	UpdatedAt   string         `json:"updated_at"`
-	ID          string         `json:"id"`
+	Output      string       `json:"output"`
+	CompletedAt sql.NullTime `json:"completed_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	ID          string       `json:"id"`
 }
 
 func (q *Queries) SetAgentGoalOutput(ctx context.Context, arg SetAgentGoalOutputParams) error {
@@ -543,15 +544,15 @@ func (q *Queries) SetAgentGoalOutput(ctx context.Context, arg SetAgentGoalOutput
 
 const transitionAgentGoalStatus = `-- name: TransitionAgentGoalStatus :execrows
 UPDATE agent_goal
-SET status = ?, updated_at = ?
-WHERE id = ? AND status = ?
+SET status = $1, updated_at = $2
+WHERE id = $3 AND status = $4
 `
 
 type TransitionAgentGoalStatusParams struct {
-	Status    string `json:"status"`
-	UpdatedAt string `json:"updated_at"`
-	ID        string `json:"id"`
-	Status_2  string `json:"status_2"`
+	Status    string    `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
+	ID        string    `json:"id"`
+	Status_2  string    `json:"status_2"`
 }
 
 func (q *Queries) TransitionAgentGoalStatus(ctx context.Context, arg TransitionAgentGoalStatusParams) (int64, error) {

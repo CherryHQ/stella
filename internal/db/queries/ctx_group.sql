@@ -6,17 +6,17 @@ WHERE platform = sqlc.arg(platform)
 
 -- name: CreateGroupState :one
 INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id, group_name, created_by_user_id)
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: GetGroupStateByID :one
-SELECT * FROM ctx_group_state WHERE id = ?;
+SELECT * FROM ctx_group_state WHERE id = $1;
 
 -- name: GetGroupLastActive :one
 SELECT COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
 FROM ctx_group_state gs
 LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
-WHERE gs.id = ?
+WHERE gs.id = $1
 GROUP BY gs.id;
 
 -- name: ListGroupsByUser :many
@@ -33,16 +33,16 @@ LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: UpdateGroupName :one
 UPDATE ctx_group_state
-SET group_name = sqlc.arg(group_name), updated_at = datetime('now')
+SET group_name = sqlc.arg(group_name), updated_at = now()
 WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: DeleteGroupState :exec
-DELETE FROM ctx_group_state WHERE id = ?;
+DELETE FROM ctx_group_state WHERE id = $1;
 
 -- name: BumpGroupSeq :one
 UPDATE ctx_group_state
-SET next_seq = next_seq + 1, updated_at = datetime('now')
+SET next_seq = next_seq + 1, updated_at = now()
 WHERE id = sqlc.arg(id)
 RETURNING next_seq;
 
@@ -56,7 +56,7 @@ SELECT * FROM ctx_group_message
 WHERE idempotency_key = sqlc.arg(idempotency_key);
 
 -- name: GetGroupMessage :one
-SELECT * FROM ctx_group_message WHERE id = ?;
+SELECT * FROM ctx_group_message WHERE id = $1;
 
 -- name: ListRecentGroupMessages :many
 SELECT * FROM ctx_group_message
@@ -82,5 +82,5 @@ INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
   platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING *;

@@ -11,10 +11,10 @@ import (
 
 const addGroupMember = `-- name: AddGroupMember :one
 INSERT INTO channel_group_member (group_id, agent_id, reply_channel_id)
-VALUES (?, ?, ?)
+VALUES ($1, $2, $3)
 ON CONFLICT(group_id, agent_id) DO UPDATE SET
     reply_channel_id = excluded.reply_channel_id,
-    updated_at = datetime('now')
+    updated_at = now()
 RETURNING group_id, agent_id, reply_channel_id, created_at, updated_at
 `
 
@@ -38,7 +38,7 @@ func (q *Queries) AddGroupMember(ctx context.Context, arg AddGroupMemberParams) 
 }
 
 const countGroupMembers = `-- name: CountGroupMembers :one
-SELECT COUNT(*) FROM channel_group_member WHERE group_id = ?
+SELECT COUNT(*) FROM channel_group_member WHERE group_id = $1
 `
 
 func (q *Queries) CountGroupMembers(ctx context.Context, groupID string) (int64, error) {
@@ -49,7 +49,7 @@ func (q *Queries) CountGroupMembers(ctx context.Context, groupID string) (int64,
 }
 
 const getGroupMember = `-- name: GetGroupMember :one
-SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE group_id = ? AND agent_id = ?
+SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE group_id = $1 AND agent_id = $2
 `
 
 type GetGroupMemberParams struct {
@@ -71,7 +71,7 @@ func (q *Queries) GetGroupMember(ctx context.Context, arg GetGroupMemberParams) 
 }
 
 const listGroupMembers = `-- name: ListGroupMembers :many
-SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE group_id = ? ORDER BY agent_id
+SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE group_id = $1 ORDER BY agent_id
 `
 
 func (q *Queries) ListGroupMembers(ctx context.Context, groupID string) ([]ChannelGroupMember, error) {
@@ -104,7 +104,7 @@ func (q *Queries) ListGroupMembers(ctx context.Context, groupID string) ([]Chann
 }
 
 const listGroupsByAgent = `-- name: ListGroupsByAgent :many
-SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE agent_id = ?
+SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE agent_id = $1
 `
 
 func (q *Queries) ListGroupsByAgent(ctx context.Context, agentID string) ([]ChannelGroupMember, error) {
@@ -137,7 +137,7 @@ func (q *Queries) ListGroupsByAgent(ctx context.Context, agentID string) ([]Chan
 }
 
 const listGroupsByReplyChannel = `-- name: ListGroupsByReplyChannel :many
-SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE reply_channel_id = ?
+SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE reply_channel_id = $1
 `
 
 func (q *Queries) ListGroupsByReplyChannel(ctx context.Context, replyChannelID string) ([]ChannelGroupMember, error) {
@@ -170,7 +170,7 @@ func (q *Queries) ListGroupsByReplyChannel(ctx context.Context, replyChannelID s
 }
 
 const removeGroupMember = `-- name: RemoveGroupMember :exec
-DELETE FROM channel_group_member WHERE group_id = ? AND agent_id = ?
+DELETE FROM channel_group_member WHERE group_id = $1 AND agent_id = $2
 `
 
 type RemoveGroupMemberParams struct {

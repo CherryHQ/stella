@@ -8,11 +8,12 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const countRunningSchedJobRuns = `-- name: CountRunningSchedJobRuns :one
 SELECT COUNT(*) FROM sched_job_run
-WHERE job_id = ? AND status = 'running'
+WHERE job_id = $1 AND status = 'running'
 `
 
 func (q *Queries) CountRunningSchedJobRuns(ctx context.Context, jobID string) (int64, error) {
@@ -24,7 +25,7 @@ func (q *Queries) CountRunningSchedJobRuns(ctx context.Context, jobID string) (i
 
 const createSchedJobRun = `-- name: CreateSchedJobRun :one
 INSERT INTO sched_job_run (id, job_id, session_id, status, started_at, finished_at, error, user_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, job_id, session_id, status, started_at, finished_at, error, output, user_id
 `
 
@@ -33,8 +34,8 @@ type CreateSchedJobRunParams struct {
 	JobID      string         `json:"job_id"`
 	SessionID  string         `json:"session_id"`
 	Status     string         `json:"status"`
-	StartedAt  string         `json:"started_at"`
-	FinishedAt sql.NullString `json:"finished_at"`
+	StartedAt  time.Time      `json:"started_at"`
+	FinishedAt sql.NullTime   `json:"finished_at"`
 	Error      string         `json:"error"`
 	UserID     sql.NullString `json:"user_id"`
 }
@@ -66,7 +67,7 @@ func (q *Queries) CreateSchedJobRun(ctx context.Context, arg CreateSchedJobRunPa
 }
 
 const getSchedJobRun = `-- name: GetSchedJobRun :one
-SELECT id, job_id, session_id, status, started_at, finished_at, error, output, user_id FROM sched_job_run WHERE id = ? AND job_id = ?
+SELECT id, job_id, session_id, status, started_at, finished_at, error, output, user_id FROM sched_job_run WHERE id = $1 AND job_id = $2
 `
 
 type GetSchedJobRunParams struct {
@@ -102,19 +103,19 @@ SELECT
   r.started_at
 FROM sched_job_run r
 JOIN sched_job j ON j.id = r.job_id
-WHERE r.user_id = ?1
+WHERE r.user_id = $1
   AND r.status = 'failed'
-  AND datetime(r.finished_at) >= datetime(?2)
-  AND (?3 IS NULL OR j.agent_id = ?3)
+  AND r.finished_at >= $2
+  AND ($3 IS NULL OR j.agent_id = $3)
 ORDER BY r.finished_at DESC, r.id DESC
-LIMIT ?4
+LIMIT $4
 `
 
 type ListFailedInboxSchedulerRunsParams struct {
 	UserID     sql.NullString `json:"user_id"`
-	Since      interface{}    `json:"since"`
+	Since      sql.NullTime   `json:"since"`
 	AgentID    interface{}    `json:"agent_id"`
-	LimitCount int64          `json:"limit_count"`
+	LimitCount int32          `json:"limit_count"`
 }
 
 type ListFailedInboxSchedulerRunsRow struct {
@@ -123,8 +124,8 @@ type ListFailedInboxSchedulerRunsRow struct {
 	AgentID    sql.NullString `json:"agent_id"`
 	Name       string         `json:"name"`
 	Error      string         `json:"error"`
-	FinishedAt sql.NullString `json:"finished_at"`
-	StartedAt  string         `json:"started_at"`
+	FinishedAt sql.NullTime   `json:"finished_at"`
+	StartedAt  time.Time      `json:"started_at"`
 }
 
 func (q *Queries) ListFailedInboxSchedulerRuns(ctx context.Context, arg ListFailedInboxSchedulerRunsParams) ([]ListFailedInboxSchedulerRunsRow, error) {
@@ -165,17 +166,17 @@ func (q *Queries) ListFailedInboxSchedulerRuns(ctx context.Context, arg ListFail
 
 const listSchedJobRuns = `-- name: ListSchedJobRuns :many
 SELECT id, job_id, session_id, status, started_at, finished_at, error, output, user_id FROM sched_job_run
-WHERE job_id = ?1
-  AND (?2 IS NULL OR user_id = ?2)
+WHERE job_id = $1
+  AND ($2 IS NULL OR user_id = $2)
 ORDER BY started_at DESC, id DESC
-LIMIT ?4 OFFSET ?3
+LIMIT $4 OFFSET $3
 `
 
 type ListSchedJobRunsParams struct {
 	JobID  string      `json:"job_id"`
 	UserID interface{} `json:"user_id"`
-	Offset int64       `json:"offset"`
-	Limit  int64       `json:"limit"`
+	Offset int32       `json:"offset"`
+	Limit  int32       `json:"limit"`
 }
 
 func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsParams) ([]SchedJobRun, error) {
@@ -218,17 +219,17 @@ func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsPara
 
 const updateSchedJobRun = `-- name: UpdateSchedJobRun :exec
 UPDATE sched_job_run
-SET status = ?, finished_at = ?, error = ?, output = ?
-WHERE id = ? AND job_id = ?
+SET status = $1, finished_at = $2, error = $3, output = $4
+WHERE id = $5 AND job_id = $6
 `
 
 type UpdateSchedJobRunParams struct {
-	Status     string         `json:"status"`
-	FinishedAt sql.NullString `json:"finished_at"`
-	Error      string         `json:"error"`
-	Output     string         `json:"output"`
-	ID         string         `json:"id"`
-	JobID      string         `json:"job_id"`
+	Status     string       `json:"status"`
+	FinishedAt sql.NullTime `json:"finished_at"`
+	Error      string       `json:"error"`
+	Output     string       `json:"output"`
+	ID         string       `json:"id"`
+	JobID      string       `json:"job_id"`
 }
 
 func (q *Queries) UpdateSchedJobRun(ctx context.Context, arg UpdateSchedJobRunParams) error {

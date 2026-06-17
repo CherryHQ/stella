@@ -10,7 +10,7 @@ import (
 )
 
 const deletePlugin = `-- name: DeletePlugin :exec
-DELETE FROM plugin WHERE id = ?
+DELETE FROM plugin WHERE id = $1
 `
 
 func (q *Queries) DeletePlugin(ctx context.Context, id string) error {
@@ -19,7 +19,7 @@ func (q *Queries) DeletePlugin(ctx context.Context, id string) error {
 }
 
 const getPlugin = `-- name: GetPlugin :one
-SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin WHERE id = ?
+SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin WHERE id = $1
 `
 
 func (q *Queries) GetPlugin(ctx context.Context, id string) (Plugin, error) {
@@ -38,7 +38,7 @@ func (q *Queries) GetPlugin(ctx context.Context, id string) (Plugin, error) {
 }
 
 const listEnabledPlugins = `-- name: ListEnabledPlugins :many
-SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin WHERE enabled = 1 ORDER BY kind, name
+SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin WHERE enabled = true ORDER BY kind, name
 `
 
 func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
@@ -143,7 +143,7 @@ func (q *Queries) ListPlugins(ctx context.Context) ([]Plugin, error) {
 }
 
 const listPluginsByKind = `-- name: ListPluginsByKind :many
-SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin WHERE kind = ? ORDER BY name
+SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin WHERE kind = $1 ORDER BY name
 `
 
 func (q *Queries) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error) {
@@ -179,20 +179,20 @@ func (q *Queries) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin,
 
 const upsertPlugin = `-- name: UpsertPlugin :exec
 INSERT INTO plugin (id, kind, name, enabled, config, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
+VALUES ($1, $2, $3, $4, $5, now())
 ON CONFLICT(id) DO UPDATE SET
     kind = excluded.kind,
     name = excluded.name,
     enabled = excluded.enabled,
     config = excluded.config,
-    updated_at = datetime('now')
+    updated_at = now()
 `
 
 type UpsertPluginParams struct {
 	ID      string `json:"id"`
 	Kind    string `json:"kind"`
 	Name    string `json:"name"`
-	Enabled int64  `json:"enabled"`
+	Enabled bool   `json:"enabled"`
 	Config  string `json:"config"`
 }
 

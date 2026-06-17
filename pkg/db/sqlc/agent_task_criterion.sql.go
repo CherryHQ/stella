@@ -7,21 +7,22 @@ package sqlc
 
 import (
 	"context"
+	"time"
 )
 
 const createAgentTaskCriterion = `-- name: CreateAgentTaskCriterion :one
 INSERT INTO agent_task_criterion (id, task_id, description, required_flag, position, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, task_id, description, required_flag, position, created_at
 `
 
 type CreateAgentTaskCriterionParams struct {
-	ID           string `json:"id"`
-	TaskID       string `json:"task_id"`
-	Description  string `json:"description"`
-	RequiredFlag int64  `json:"required_flag"`
-	Position     int64  `json:"position"`
-	CreatedAt    string `json:"created_at"`
+	ID           string    `json:"id"`
+	TaskID       string    `json:"task_id"`
+	Description  string    `json:"description"`
+	RequiredFlag bool      `json:"required_flag"`
+	Position     int64     `json:"position"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func (q *Queries) CreateAgentTaskCriterion(ctx context.Context, arg CreateAgentTaskCriterionParams) (AgentTaskCriterion, error) {
@@ -46,7 +47,7 @@ func (q *Queries) CreateAgentTaskCriterion(ctx context.Context, arg CreateAgentT
 }
 
 const listAgentTaskCriteria = `-- name: ListAgentTaskCriteria :many
-SELECT id, task_id, description, required_flag, position, created_at FROM agent_task_criterion WHERE task_id = ? ORDER BY position
+SELECT id, task_id, description, required_flag, position, created_at FROM agent_task_criterion WHERE task_id = $1 ORDER BY position
 `
 
 func (q *Queries) ListAgentTaskCriteria(ctx context.Context, taskID string) ([]AgentTaskCriterion, error) {

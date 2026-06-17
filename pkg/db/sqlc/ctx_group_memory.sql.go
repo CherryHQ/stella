@@ -10,7 +10,7 @@ import (
 )
 
 const deleteGroupMemory = `-- name: DeleteGroupMemory :exec
-DELETE FROM ctx_group_memory WHERE group_id = ?
+DELETE FROM ctx_group_memory WHERE group_id = $1
 `
 
 func (q *Queries) DeleteGroupMemory(ctx context.Context, groupID string) error {
@@ -19,7 +19,7 @@ func (q *Queries) DeleteGroupMemory(ctx context.Context, groupID string) error {
 }
 
 const getGroupMemory = `-- name: GetGroupMemory :one
-SELECT group_id, content, version, created_at, updated_at FROM ctx_group_memory WHERE group_id = ?
+SELECT group_id, content, version, created_at, updated_at FROM ctx_group_memory WHERE group_id = $1
 `
 
 func (q *Queries) GetGroupMemory(ctx context.Context, groupID string) (CtxGroupMemory, error) {
@@ -37,11 +37,11 @@ func (q *Queries) GetGroupMemory(ctx context.Context, groupID string) (CtxGroupM
 
 const upsertGroupMemoryVersioned = `-- name: UpsertGroupMemoryVersioned :one
 INSERT INTO ctx_group_memory (group_id, content, version, updated_at)
-VALUES (?, ?, 1, datetime('now'))
+VALUES ($1, $2, 1, now())
 ON CONFLICT(group_id) DO UPDATE SET
     content = excluded.content,
     version = ctx_group_memory.version + 1,
-    updated_at = datetime('now')
+    updated_at = now()
 RETURNING group_id, content, version, created_at, updated_at
 `
 

@@ -11,7 +11,7 @@ import (
 
 const createAuthPolicy = `-- name: CreateAuthPolicy :one
 INSERT INTO auth_policy (id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at, updated_at
 `
 
@@ -24,8 +24,8 @@ type CreateAuthPolicyParams struct {
 	Resources  string `json:"resources"`
 	Conditions string `json:"conditions"`
 	Priority   int64  `json:"priority"`
-	IsSystem   int64  `json:"is_system"`
-	Enabled    int64  `json:"enabled"`
+	IsSystem   bool   `json:"is_system"`
+	Enabled    bool   `json:"enabled"`
 }
 
 func (q *Queries) CreateAuthPolicy(ctx context.Context, arg CreateAuthPolicyParams) (AuthPolicy, error) {
@@ -60,7 +60,7 @@ func (q *Queries) CreateAuthPolicy(ctx context.Context, arg CreateAuthPolicyPara
 }
 
 const deleteAuthPolicy = `-- name: DeleteAuthPolicy :exec
-DELETE FROM auth_policy WHERE id = ?
+DELETE FROM auth_policy WHERE id = $1
 `
 
 func (q *Queries) DeleteAuthPolicy(ctx context.Context, id string) error {
@@ -69,7 +69,7 @@ func (q *Queries) DeleteAuthPolicy(ctx context.Context, id string) error {
 }
 
 const getAuthPolicy = `-- name: GetAuthPolicy :one
-SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at, updated_at FROM auth_policy WHERE id = ?
+SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at, updated_at FROM auth_policy WHERE id = $1
 `
 
 func (q *Queries) GetAuthPolicy(ctx context.Context, id string) (AuthPolicy, error) {
@@ -133,7 +133,7 @@ func (q *Queries) ListAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
 }
 
 const listEnabledAuthPolicies = `-- name: ListEnabledAuthPolicies :many
-SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at, updated_at FROM auth_policy WHERE enabled = 1 ORDER BY priority DESC, name
+SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at, updated_at FROM auth_policy WHERE enabled = true ORDER BY priority DESC, name
 `
 
 func (q *Queries) ListEnabledAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
@@ -174,15 +174,15 @@ func (q *Queries) ListEnabledAuthPolicies(ctx context.Context) ([]AuthPolicy, er
 
 const updateAuthPolicy = `-- name: UpdateAuthPolicy :exec
 UPDATE auth_policy SET
-    name = ?,
-    effect = ?,
-    subjects = ?,
-    actions = ?,
-    resources = ?,
-    conditions = ?,
-    priority = ?,
-    enabled = ?
-WHERE id = ?
+    name = $1,
+    effect = $2,
+    subjects = $3,
+    actions = $4,
+    resources = $5,
+    conditions = $6,
+    priority = $7,
+    enabled = $8
+WHERE id = $9
 `
 
 type UpdateAuthPolicyParams struct {
@@ -193,7 +193,7 @@ type UpdateAuthPolicyParams struct {
 	Resources  string `json:"resources"`
 	Conditions string `json:"conditions"`
 	Priority   int64  `json:"priority"`
-	Enabled    int64  `json:"enabled"`
+	Enabled    bool   `json:"enabled"`
 	ID         string `json:"id"`
 }
 

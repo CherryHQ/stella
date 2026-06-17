@@ -9,14 +9,14 @@ INSERT INTO agent_task (
     required, retry_count, max_retries, not_before, deadline_at,
     context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 RETURNING *;
 
 -- name: GetAgentTask :one
-SELECT * FROM agent_task WHERE id = ?;
+SELECT * FROM agent_task WHERE id = $1;
 
 -- name: ListAgentTasks :many
-SELECT * FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
+SELECT * FROM agent_task ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2;
 
 -- name: ListAgentTasksByUser :many
 SELECT * FROM agent_task
@@ -108,68 +108,68 @@ SELECT count(*) FROM agent_task WHERE status = 'running';
 SELECT * FROM agent_task
 WHERE status = 'ready'
   AND active_run_id IS NULL
-  AND (not_before IS NULL OR not_before <= ?)
+  AND (not_before IS NULL OR not_before <= $1)
 ORDER BY priority DESC, created_at ASC
-LIMIT ?;
+LIMIT $2;
 
 -- name: UpdateAgentTaskMeta :exec
 UPDATE agent_task
-SET title = ?, description = ?, priority = ?, not_before = ?, deadline_at = ?,
-    context = ?, updated_at = ?
-WHERE id = ?;
+SET title = $1, description = $2, priority = $3, not_before = $4, deadline_at = $5,
+    context = $6, updated_at = $7
+WHERE id = $8;
 
 -- Transition service uses these. Conditional UPDATE returns affected rows
 -- so callers can detect lost races.
 
 -- name: TransitionAgentTaskStatus :execrows
 UPDATE agent_task
-SET status = ?, updated_at = ?
-WHERE id = ? AND status = ?;
+SET status = $1, updated_at = $2
+WHERE id = $3 AND status = $4;
 
 -- Atomic claim: ready + no active run -> running. session_id is required at task creation.
 -- name: ClaimAgentTask :execrows
 UPDATE agent_task
 SET status = 'running',
-    active_run_id = ?,
-    updated_at = ?
-WHERE id = ?
+    active_run_id = $1,
+    updated_at = $2
+WHERE id = $3
   AND status = 'ready'
   AND active_run_id IS NULL;
 
 -- name: SetAgentTaskActiveRun :exec
 UPDATE agent_task
-SET active_run_id = ?, updated_at = ?
-WHERE id = ?;
+SET active_run_id = $1, updated_at = $2
+WHERE id = $3;
 
 -- name: SetAgentTaskActiveBlocker :exec
 UPDATE agent_task
-SET active_blocker_id = ?, updated_at = ?
-WHERE id = ?;
+SET active_blocker_id = $1, updated_at = $2
+WHERE id = $3;
 
 -- name: SetAgentTaskActiveReview :exec
 UPDATE agent_task
-SET active_review_id = ?, updated_at = ?
-WHERE id = ?;
+SET active_review_id = $1, updated_at = $2
+WHERE id = $3;
 
 -- name: SetAgentTaskReviewPolicy :exec
 UPDATE agent_task
-SET review_policy = ?, updated_at = ?
-WHERE id = ?;
+SET review_policy = $1, updated_at = $2
+WHERE id = $3;
 
 -- name: IncrementAgentTaskRetry :exec
 UPDATE agent_task
-SET retry_count = retry_count + 1, updated_at = ?
-WHERE id = ?;
+SET retry_count = retry_count + 1, updated_at = $1
+WHERE id = $2;
 
 -- name: SetAgentTaskOutput :exec
 UPDATE agent_task
-SET output = ?, completed_at = ?, updated_at = ?
-WHERE id = ?;
+SET output = $1, completed_at = $2, updated_at = $3
+WHERE id = $4;
 
 -- name: SetAgentTaskCancelled :exec
 UPDATE agent_task
-SET cancelled_at = ?, updated_at = ?
-WHERE id = ?;
+SET cancelled_at = $1, updated_at = $2
+WHERE id = $3;
 
 -- name: DeleteAgentTask :exec
-DELETE FROM agent_task WHERE id = ?;
+DELETE FROM agent_task WHERE id = $1;

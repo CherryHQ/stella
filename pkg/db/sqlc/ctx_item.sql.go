@@ -8,11 +8,12 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const appendContextItem = `-- name: AppendContextItem :exec
 INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, summary_id, event_type, role)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type AppendContextItemParams struct {
@@ -39,7 +40,7 @@ func (q *Queries) AppendContextItem(ctx context.Context, arg AppendContextItemPa
 }
 
 const deleteAllContextItems = `-- name: DeleteAllContextItems :exec
-DELETE FROM ctx_item WHERE conversation_id = ?
+DELETE FROM ctx_item WHERE conversation_id = $1
 `
 
 func (q *Queries) DeleteAllContextItems(ctx context.Context, conversationID string) error {
@@ -49,7 +50,7 @@ func (q *Queries) DeleteAllContextItems(ctx context.Context, conversationID stri
 
 const deleteContextItemsInRange = `-- name: DeleteContextItemsInRange :exec
 DELETE FROM ctx_item
-WHERE conversation_id = ? AND ordinal >= ? AND ordinal <= ?
+WHERE conversation_id = $1 AND ordinal >= $2 AND ordinal <= $3
 `
 
 type DeleteContextItemsInRangeParams struct {
@@ -64,7 +65,7 @@ func (q *Queries) DeleteContextItemsInRange(ctx context.Context, arg DeleteConte
 }
 
 const getContextItemCount = `-- name: GetContextItemCount :one
-SELECT COUNT(*) FROM ctx_item WHERE conversation_id = ?
+SELECT COUNT(*) FROM ctx_item WHERE conversation_id = $1
 `
 
 func (q *Queries) GetContextItemCount(ctx context.Context, conversationID string) (int64, error) {
@@ -76,7 +77,7 @@ func (q *Queries) GetContextItemCount(ctx context.Context, conversationID string
 
 const getContextItems = `-- name: GetContextItems :many
 SELECT conversation_id, ordinal, item_type, message_id, summary_id, event_type, role, created_at FROM ctx_item
-WHERE conversation_id = ?
+WHERE conversation_id = $1
 ORDER BY ordinal ASC
 `
 
@@ -116,7 +117,7 @@ const getContextMessageItems = `-- name: GetContextMessageItems :many
 SELECT ci.conversation_id, ci.ordinal, ci.item_type, ci.message_id, ci.summary_id, ci.event_type, ci.role, ci.created_at, m.token_count as msg_token_count
 FROM ctx_item ci
 JOIN ctx_message m ON ci.message_id = m.id
-WHERE ci.conversation_id = ? AND ci.item_type = 'message'
+WHERE ci.conversation_id = $1 AND ci.item_type = 'message'
 ORDER BY ci.ordinal ASC
 `
 
@@ -128,7 +129,7 @@ type GetContextMessageItemsRow struct {
 	SummaryID      sql.NullString `json:"summary_id"`
 	EventType      string         `json:"event_type"`
 	Role           string         `json:"role"`
-	CreatedAt      string         `json:"created_at"`
+	CreatedAt      time.Time      `json:"created_at"`
 	MsgTokenCount  int64          `json:"msg_token_count"`
 }
 
@@ -167,20 +168,20 @@ func (q *Queries) GetContextMessageItems(ctx context.Context, conversationID str
 
 const getContextStats = `-- name: GetContextStats :one
 SELECT
-  (SELECT COUNT(*) FROM ctx_message cm WHERE cm.conversation_id = ?1) AS message_count,
-  (SELECT CAST(COALESCE(SUM(cm.token_count), 0) AS INTEGER) FROM ctx_message cm WHERE cm.conversation_id = ?1) AS source_token_count,
+  (SELECT COUNT(*) FROM ctx_message cm WHERE cm.conversation_id = $1) AS message_count,
+  (SELECT CAST(COALESCE(SUM(cm.token_count), 0) AS BIGINT) FROM ctx_message cm WHERE cm.conversation_id = $1) AS source_token_count,
   (SELECT CAST(COALESCE(SUM(
         CASE
             WHEN ci.item_type = 'message' THEN m.token_count
             WHEN ci.item_type = 'summary' THEN s.token_count
             ELSE 0
         END
-    ), 0) AS INTEGER)
+    ), 0) AS BIGINT)
    FROM ctx_item ci
    LEFT JOIN ctx_message m ON ci.message_id = m.id
    LEFT JOIN ctx_summary s ON ci.summary_id = s.id
-   WHERE ci.conversation_id = ?1) AS active_token_count,
-  (SELECT CAST(COALESCE(MAX(cs.depth), 0) AS INTEGER) FROM ctx_summary cs WHERE cs.conversation_id = ?1) AS summary_depth
+   WHERE ci.conversation_id = $1) AS active_token_count,
+  (SELECT CAST(COALESCE(MAX(cs.depth), 0) AS BIGINT) FROM ctx_summary cs WHERE cs.conversation_id = $1) AS summary_depth
 `
 
 type GetContextStatsRow struct {
@@ -211,11 +212,11 @@ SELECT CAST(
             ELSE 0
         END
     ), 0)
-AS INTEGER)
+AS BIGINT)
 FROM ctx_item ci
 LEFT JOIN ctx_message m ON ci.message_id = m.id
 LEFT JOIN ctx_summary s ON ci.summary_id = s.id
-WHERE ci.conversation_id = ?
+WHERE ci.conversation_id = $1
 `
 
 func (q *Queries) GetContextTokenCount(ctx context.Context, conversationID string) (int64, error) {
@@ -227,14 +228,14 @@ func (q *Queries) GetContextTokenCount(ctx context.Context, conversationID strin
 
 const getFreshTailMessageIDs = `-- name: GetFreshTailMessageIDs :many
 SELECT ci.message_id FROM ctx_item ci
-WHERE ci.conversation_id = ? AND ci.item_type = 'message'
+WHERE ci.conversation_id = $1 AND ci.item_type = 'message'
 ORDER BY ci.ordinal DESC
-LIMIT ?
+LIMIT $2
 `
 
 type GetFreshTailMessageIDsParams struct {
 	ConversationID string `json:"conversation_id"`
-	Limit          int64  `json:"limit"`
+	Limit          int32  `json:"limit"`
 }
 
 func (q *Queries) GetFreshTailMessageIDs(ctx context.Context, arg GetFreshTailMessageIDsParams) ([]sql.NullString, error) {
@@ -261,7 +262,7 @@ func (q *Queries) GetFreshTailMessageIDs(ctx context.Context, arg GetFreshTailMe
 }
 
 const getMaxContextOrdinal = `-- name: GetMaxContextOrdinal :one
-SELECT CAST(COALESCE(MAX(ordinal), 0) AS INTEGER) FROM ctx_item WHERE conversation_id = ?
+SELECT CAST(COALESCE(MAX(ordinal), 0) AS BIGINT) FROM ctx_item WHERE conversation_id = $1
 `
 
 func (q *Queries) GetMaxContextOrdinal(ctx context.Context, conversationID string) (int64, error) {
@@ -298,15 +299,15 @@ SELECT
 FROM ctx_item ci
 LEFT JOIN ctx_message m ON m.id = ci.message_id
 LEFT JOIN ctx_summary s ON s.id = ci.summary_id
-WHERE ci.conversation_id = ?1
+WHERE ci.conversation_id = $1
 ORDER BY ci.ordinal ASC
-LIMIT ?3 OFFSET ?2
+LIMIT $3 OFFSET $2
 `
 
 type ListContextItemsPageParams struct {
 	ConversationID string `json:"conversation_id"`
-	OffsetCount    int64  `json:"offset_count"`
-	LimitCount     int64  `json:"limit_count"`
+	OffsetCount    int32  `json:"offset_count"`
+	LimitCount     int32  `json:"limit_count"`
 }
 
 type ListContextItemsPageRow struct {
@@ -320,18 +321,18 @@ type ListContextItemsPageRow struct {
 	MessageEventType               sql.NullString `json:"message_event_type"`
 	MessageContent                 sql.NullString `json:"message_content"`
 	MessageTokenCount              sql.NullInt64  `json:"message_token_count"`
-	MessageCreatedAt               sql.NullString `json:"message_created_at"`
+	MessageCreatedAt               sql.NullTime   `json:"message_created_at"`
 	SummaryID                      sql.NullString `json:"summary_id"`
 	SummaryKind                    sql.NullString `json:"summary_kind"`
 	SummaryDepth                   sql.NullInt64  `json:"summary_depth"`
 	SummaryContent                 sql.NullString `json:"summary_content"`
 	SummaryTokenCount              sql.NullInt64  `json:"summary_token_count"`
-	SummaryEarliestAt              sql.NullString `json:"summary_earliest_at"`
-	SummaryLatestAt                sql.NullString `json:"summary_latest_at"`
+	SummaryEarliestAt              sql.NullTime   `json:"summary_earliest_at"`
+	SummaryLatestAt                sql.NullTime   `json:"summary_latest_at"`
 	SummaryDescendantCount         sql.NullInt64  `json:"summary_descendant_count"`
 	SummaryDescendantTokenCount    sql.NullInt64  `json:"summary_descendant_token_count"`
 	SummarySourceMessageTokenCount sql.NullInt64  `json:"summary_source_message_token_count"`
-	SummaryCreatedAt               sql.NullString `json:"summary_created_at"`
+	SummaryCreatedAt               sql.NullTime   `json:"summary_created_at"`
 }
 
 func (q *Queries) ListContextItemsPage(ctx context.Context, arg ListContextItemsPageParams) ([]ListContextItemsPageRow, error) {

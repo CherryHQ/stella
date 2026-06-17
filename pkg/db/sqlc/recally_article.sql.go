@@ -8,10 +8,11 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const countArticlesByStatus = `-- name: CountArticlesByStatus :one
-SELECT COUNT(*) as count FROM recally_article WHERE user_id = ? AND status = ?
+SELECT COUNT(*) as count FROM recally_article WHERE user_id = $1 AND status = $2
 `
 
 type CountArticlesByStatusParams struct {
@@ -27,7 +28,7 @@ func (q *Queries) CountArticlesByStatus(ctx context.Context, arg CountArticlesBy
 }
 
 const countStarredArticles = `-- name: CountStarredArticles :one
-SELECT COUNT(*) as count FROM recally_article WHERE user_id = ? AND starred = 1
+SELECT COUNT(*) as count FROM recally_article WHERE user_id = $1 AND starred = true
 `
 
 func (q *Queries) CountStarredArticles(ctx context.Context, userID string) (int64, error) {
@@ -43,8 +44,8 @@ INSERT INTO recally_article (
     title, author, summary, tags, status, starred, file_path, metadata,
     published_at, saved_at, read_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+RETURNING id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv
 `
 
 type CreateArticleParams struct {
@@ -59,12 +60,12 @@ type CreateArticleParams struct {
 	Summary      string         `json:"summary"`
 	Tags         string         `json:"tags"`
 	Status       string         `json:"status"`
-	Starred      int64          `json:"starred"`
+	Starred      bool           `json:"starred"`
 	FilePath     string         `json:"file_path"`
 	Metadata     string         `json:"metadata"`
-	PublishedAt  sql.NullString `json:"published_at"`
-	SavedAt      string         `json:"saved_at"`
-	ReadAt       sql.NullString `json:"read_at"`
+	PublishedAt  sql.NullTime   `json:"published_at"`
+	SavedAt      time.Time      `json:"saved_at"`
+	ReadAt       sql.NullTime   `json:"read_at"`
 }
 
 func (q *Queries) CreateArticle(ctx context.Context, arg CreateArticleParams) (RecallyArticle, error) {
@@ -108,12 +109,13 @@ func (q *Queries) CreateArticle(ctx context.Context, arg CreateArticleParams) (R
 		&i.ReadAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SearchTsv,
 	)
 	return i, err
 }
 
 const deleteArticle = `-- name: DeleteArticle :exec
-DELETE FROM recally_article WHERE id = ? AND user_id = ?
+DELETE FROM recally_article WHERE id = $1 AND user_id = $2
 `
 
 type DeleteArticleParams struct {
@@ -127,7 +129,7 @@ func (q *Queries) DeleteArticle(ctx context.Context, arg DeleteArticleParams) er
 }
 
 const getArticle = `-- name: GetArticle :one
-SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article WHERE id = ? AND user_id = ?
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv FROM recally_article WHERE id = $1 AND user_id = $2
 `
 
 type GetArticleParams struct {
@@ -158,12 +160,13 @@ func (q *Queries) GetArticle(ctx context.Context, arg GetArticleParams) (Recally
 		&i.ReadAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SearchTsv,
 	)
 	return i, err
 }
 
 const getArticleByCanonicalURL = `-- name: GetArticleByCanonicalURL :one
-SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article WHERE user_id = ? AND canonical_url = ?
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv FROM recally_article WHERE user_id = $1 AND canonical_url = $2
 `
 
 type GetArticleByCanonicalURLParams struct {
@@ -194,14 +197,15 @@ func (q *Queries) GetArticleByCanonicalURL(ctx context.Context, arg GetArticleBy
 		&i.ReadAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SearchTsv,
 	)
 	return i, err
 }
 
 const getArticlesSavedThisWeek = `-- name: GetArticlesSavedThisWeek :many
-SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article
-WHERE user_id = ?
-  AND datetime(saved_at) >= datetime('now', '-7 days')
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv FROM recally_article
+WHERE user_id = $1
+  AND saved_at >= now() - interval '7 days'
 ORDER BY saved_at DESC
 `
 
@@ -234,6 +238,7 @@ func (q *Queries) GetArticlesSavedThisWeek(ctx context.Context, userID string) (
 			&i.ReadAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SearchTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -249,22 +254,22 @@ func (q *Queries) GetArticlesSavedThisWeek(ctx context.Context, userID string) (
 }
 
 const listArticles = `-- name: ListArticles :many
-SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article
-WHERE user_id = ?1
-  AND (?2 = '' OR status = ?2)
-  AND (?3 = '' OR source_type = ?3)
-  AND (?4 = 0 OR starred = ?4)
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv FROM recally_article
+WHERE user_id = $1
+  AND ($2 = '' OR status = $2)
+  AND ($3 = '' OR source_type = $3)
+  AND ($4::bigint = 0 OR starred = ($4::bigint = 1))
 ORDER BY saved_at DESC, id DESC
-LIMIT ?6 OFFSET ?5
+LIMIT $6 OFFSET $5
 `
 
 type ListArticlesParams struct {
 	UserID     string      `json:"user_id"`
 	Status     interface{} `json:"status"`
 	SourceType interface{} `json:"source_type"`
-	Starred    interface{} `json:"starred"`
-	Offset     int64       `json:"offset"`
-	Limit      int64       `json:"limit"`
+	Starred    int64       `json:"starred"`
+	Offset     int32       `json:"offset"`
+	Limit      int32       `json:"limit"`
 }
 
 func (q *Queries) ListArticles(ctx context.Context, arg ListArticlesParams) ([]RecallyArticle, error) {
@@ -303,6 +308,7 @@ func (q *Queries) ListArticles(ctx context.Context, arg ListArticlesParams) ([]R
 			&i.ReadAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SearchTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -318,9 +324,9 @@ func (q *Queries) ListArticles(ctx context.Context, arg ListArticlesParams) ([]R
 }
 
 const listArticlesSavedYesterday = `-- name: ListArticlesSavedYesterday :many
-SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article
-WHERE user_id = ?
-  AND date(saved_at) = date('now', '-1 day')
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv FROM recally_article
+WHERE user_id = $1
+  AND (saved_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date - 1
 ORDER BY saved_at DESC
 `
 
@@ -353,6 +359,7 @@ func (q *Queries) ListArticlesSavedYesterday(ctx context.Context, userID string)
 			&i.ReadAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SearchTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -368,22 +375,22 @@ func (q *Queries) ListArticlesSavedYesterday(ctx context.Context, userID string)
 }
 
 const listUnreadArticlesOlderThan = `-- name: ListUnreadArticlesOlderThan :many
-SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article
-WHERE user_id = ?
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv FROM recally_article
+WHERE user_id = $1
   AND status = 'unread'
-  AND datetime(saved_at) < datetime('now', ?)
+  AND saved_at < now() + ($2)::interval
 ORDER BY saved_at ASC
-LIMIT ?
+LIMIT $3
 `
 
 type ListUnreadArticlesOlderThanParams struct {
-	UserID   string      `json:"user_id"`
-	Datetime interface{} `json:"datetime"`
-	Limit    int64       `json:"limit"`
+	UserID  string `json:"user_id"`
+	Column2 int64  `json:"column_2"`
+	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListUnreadArticlesOlderThan(ctx context.Context, arg ListUnreadArticlesOlderThanParams) ([]RecallyArticle, error) {
-	rows, err := q.db.QueryContext(ctx, listUnreadArticlesOlderThan, arg.UserID, arg.Datetime, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listUnreadArticlesOlderThan, arg.UserID, arg.Column2, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -411,6 +418,7 @@ func (q *Queries) ListUnreadArticlesOlderThan(ctx context.Context, arg ListUnrea
 			&i.ReadAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SearchTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -427,21 +435,20 @@ func (q *Queries) ListUnreadArticlesOlderThan(ctx context.Context, arg ListUnrea
 
 const searchArticles = `-- name: SearchArticles :many
 SELECT
-    a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at,
-    snippet(recally_article_fts, -1, '<<', '>>', '...', 32) AS snippet,
-    bm25(recally_article_fts, 4.0, 2.0, 2.0, 1.0) AS score
-FROM recally_article_fts
-JOIN recally_article a ON a.rowid = recally_article_fts.rowid
-WHERE recally_article_fts.recally_article_fts MATCH ?1
-  AND a.user_id = ?2
-ORDER BY score ASC
-LIMIT ?3
+    a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at, a.search_tsv,
+    ts_headline('simple', coalesce(a.title, '') || ' ' || coalesce(a.summary, ''), websearch_to_tsquery('simple', $1), 'StartSel=<<,StopSel=>>,MaxFragments=1,MaxWords=32,MinWords=1')::text AS snippet,
+    ts_rank_cd(a.search_tsv, websearch_to_tsquery('simple', $1))::double precision AS score
+FROM recally_article a
+WHERE a.search_tsv @@ websearch_to_tsquery('simple', $1)
+  AND a.user_id = $2
+ORDER BY score DESC
+LIMIT $3
 `
 
 type SearchArticlesParams struct {
 	Match  string `json:"match"`
 	UserID string `json:"user_id"`
-	Limit  int64  `json:"limit"`
+	Limit  int32  `json:"limit"`
 }
 
 type SearchArticlesRow struct {
@@ -450,11 +457,12 @@ type SearchArticlesRow struct {
 	Score          float64        `json:"score"`
 }
 
-// FTS5/BM25 search over title/summary/tags/author. Matching against the
-// hidden table-name column searches every indexed column (declared for sqlc
-// in recally_article_fts_sqlc.sql); bm25 weights rank title hits highest,
-// and snippet column -1 picks the best-matching column. More negative bm25
-// means more relevant, hence ORDER BY score ASC.
+// Weighted full-text search over title/summary/tags/author via the generated
+// search_tsv column (setweight A=title, B=summary/tags, C=author). ts_rank_cd's
+// default label weights rank title hits highest; ts_headline over title+summary
+// yields the snippet. Higher score = more relevant, hence ORDER BY score DESC.
+// TODO(Phase 5): validate ranking/snippet quality and the CJK trigram tier on
+// real PostgreSQL; CJK queries fall through to SearchArticlesLike (pg_trgm).
 func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) ([]SearchArticlesRow, error) {
 	rows, err := q.db.QueryContext(ctx, searchArticles, arg.Match, arg.UserID, arg.Limit)
 	if err != nil {
@@ -484,6 +492,7 @@ func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) 
 			&i.RecallyArticle.ReadAt,
 			&i.RecallyArticle.CreatedAt,
 			&i.RecallyArticle.UpdatedAt,
+			&i.RecallyArticle.SearchTsv,
 			&i.Snippet,
 			&i.Score,
 		); err != nil {
@@ -501,25 +510,25 @@ func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) 
 }
 
 const searchArticlesLike = `-- name: SearchArticlesLike :many
-SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article
-WHERE user_id = ?1
-  AND ((title LIKE ?2 ESCAPE '\')
-    OR (summary LIKE ?2 ESCAPE '\')
-    OR (tags LIKE ?2 ESCAPE '\')
-    OR (author LIKE ?2 ESCAPE '\'))
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv FROM recally_article
+WHERE user_id = $1
+  AND ((title LIKE $2 ESCAPE '\')
+    OR (summary LIKE $2 ESCAPE '\')
+    OR (tags LIKE $2 ESCAPE '\')
+    OR (author LIKE $2 ESCAPE '\'))
 ORDER BY created_at DESC
-LIMIT ?3
+LIMIT $3
 `
 
 type SearchArticlesLikeParams struct {
 	UserID  string `json:"user_id"`
-	Pattern string `json:"pattern"`
-	Limit   int64  `json:"limit"`
+	Pattern []byte `json:"pattern"`
+	Limit   int32  `json:"limit"`
 }
 
 // Fallback for queries with no token of 3+ runes, which trigram MATCH would
 // silently never hit. Scans the content table directly, recency-ordered, no
-// BM25. Pattern must be a full '%text%' built with ftsquery.EscapeLike; see
+// ranking. Pattern must be a full '%text%' built with ftsquery.EscapeLike; see
 // SearchMessagesLike for the sqlc constraints shaping this query.
 func (q *Queries) SearchArticlesLike(ctx context.Context, arg SearchArticlesLikeParams) ([]RecallyArticle, error) {
 	rows, err := q.db.QueryContext(ctx, searchArticlesLike, arg.UserID, arg.Pattern, arg.Limit)
@@ -550,6 +559,7 @@ func (q *Queries) SearchArticlesLike(ctx context.Context, arg SearchArticlesLike
 			&i.ReadAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SearchTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -566,34 +576,34 @@ func (q *Queries) SearchArticlesLike(ctx context.Context, arg SearchArticlesLike
 
 const updateArticle = `-- name: UpdateArticle :one
 UPDATE recally_article
-SET title       = ?1,
-    author      = ?2,
-    summary     = ?3,
-    tags        = ?4,
-    status      = ?5,
-    starred     = ?6,
-    file_path   = ?7,
-    metadata    = ?8,
-    published_at = ?9,
-    read_at     = ?10,
-    updated_at  = datetime('now')
-WHERE id = ?11 AND user_id = ?12
-RETURNING id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at
+SET title       = $1,
+    author      = $2,
+    summary     = $3,
+    tags        = $4,
+    status      = $5,
+    starred     = $6,
+    file_path   = $7,
+    metadata    = $8,
+    published_at = $9,
+    read_at     = $10,
+    updated_at  = now()
+WHERE id = $11 AND user_id = $12
+RETURNING id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv
 `
 
 type UpdateArticleParams struct {
-	Title       string         `json:"title"`
-	Author      string         `json:"author"`
-	Summary     string         `json:"summary"`
-	Tags        string         `json:"tags"`
-	Status      string         `json:"status"`
-	Starred     int64          `json:"starred"`
-	FilePath    string         `json:"file_path"`
-	Metadata    string         `json:"metadata"`
-	PublishedAt sql.NullString `json:"published_at"`
-	ReadAt      sql.NullString `json:"read_at"`
-	ID          string         `json:"id"`
-	UserID      string         `json:"user_id"`
+	Title       string       `json:"title"`
+	Author      string       `json:"author"`
+	Summary     string       `json:"summary"`
+	Tags        string       `json:"tags"`
+	Status      string       `json:"status"`
+	Starred     bool         `json:"starred"`
+	FilePath    string       `json:"file_path"`
+	Metadata    string       `json:"metadata"`
+	PublishedAt sql.NullTime `json:"published_at"`
+	ReadAt      sql.NullTime `json:"read_at"`
+	ID          string       `json:"id"`
+	UserID      string       `json:"user_id"`
 }
 
 func (q *Queries) UpdateArticle(ctx context.Context, arg UpdateArticleParams) (RecallyArticle, error) {
@@ -632,6 +642,7 @@ func (q *Queries) UpdateArticle(ctx context.Context, arg UpdateArticleParams) (R
 		&i.ReadAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SearchTsv,
 	)
 	return i, err
 }

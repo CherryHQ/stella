@@ -1,19 +1,19 @@
 -- name: CreateGroupDispatch :exec
-INSERT OR IGNORE INTO ctx_group_dispatch (
+INSERT INTO ctx_group_dispatch (
   id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING;
 
 -- name: GetGroupDispatch :one
-SELECT * FROM ctx_group_dispatch WHERE id = ?;
+SELECT * FROM ctx_group_dispatch WHERE id = $1;
 
 -- name: CountGroupDispatchByMessage :one
-SELECT CAST(COUNT(*) AS INTEGER) FROM ctx_group_dispatch
-WHERE group_message_id = ?;
+SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
+WHERE group_message_id = $1;
 
 -- name: CountNonTerminalGroupDispatchByMessage :one
-SELECT CAST(COUNT(*) AS INTEGER) FROM ctx_group_dispatch
-WHERE group_message_id = ?
+SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
+WHERE group_message_id = $1
   AND status IN ('pending', 'running');
 
 -- name: ListPendingGroupDispatchByMessage :many
@@ -31,7 +31,7 @@ WHERE gd.group_message_id = sqlc.arg(group_message_id)
       AND earlier_msg.seq < current_msg.seq
       AND (
         earlier.status = 'pending'
-        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= ?2)
+        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= sqlc.arg('now'))
       )
   )
   AND NOT EXISTS (
@@ -43,7 +43,7 @@ WHERE gd.group_message_id = sqlc.arg(group_message_id)
       AND earlier_msg.seq < current_msg.seq
       AND (
         earlier_outbox.status = 'pending'
-        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= ?2)
+        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= sqlc.arg('now'))
       )
   )
 ORDER BY gd.created_at ASC;
@@ -62,7 +62,7 @@ WHERE gd.status = 'pending'
       AND earlier_msg.seq < current_msg.seq
       AND (
         earlier.status = 'pending'
-        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= ?1)
+        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= sqlc.arg('now'))
       )
   )
   AND NOT EXISTS (
@@ -74,7 +74,7 @@ WHERE gd.status = 'pending'
       AND earlier_msg.seq < current_msg.seq
       AND (
         earlier_outbox.status = 'pending'
-        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= ?1)
+        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= sqlc.arg('now'))
       )
   )
 ORDER BY gd.created_at ASC
@@ -94,7 +94,7 @@ SET status = 'running',
     lease_until = sqlc.arg(lease_until),
     next_attempt_at = NULL,
     last_error = '',
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg('now'))
@@ -107,7 +107,7 @@ SET status = 'running',
     lease_until = sqlc.arg(lease_until),
     next_attempt_at = NULL,
     last_error = '',
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND lease_until IS NOT NULL
@@ -117,7 +117,7 @@ RETURNING *;
 -- name: ExtendRunningGroupDispatchLease :execrows
 UPDATE ctx_group_dispatch
 SET lease_until = sqlc.arg(lease_until),
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
@@ -125,7 +125,7 @@ WHERE id = sqlc.arg(id)
 -- name: SetGroupDispatchResultMessage :execrows
 UPDATE ctx_group_dispatch
 SET result_message_id = sqlc.arg(result_message_id),
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
@@ -135,7 +135,7 @@ UPDATE ctx_group_dispatch
 SET status = 'completed',
     lease_until = NULL,
     next_attempt_at = NULL,
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
@@ -146,7 +146,7 @@ SET status = 'failed',
     lease_until = NULL,
     next_attempt_at = NULL,
     last_error = sqlc.arg(last_error),
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
@@ -157,7 +157,7 @@ SET status = 'pending',
     lease_until = NULL,
     next_attempt_at = sqlc.arg(next_attempt_at),
     last_error = sqlc.arg(last_error),
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);

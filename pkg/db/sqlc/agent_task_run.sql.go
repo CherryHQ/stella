@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const createAgentTaskRun = `-- name: CreateAgentTaskRun :one
@@ -17,7 +18,7 @@ INSERT INTO agent_task_run (
     kind, attempt_no, status, session_id, input, lease_expires_at, worker_id,
     started_at, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at
 `
 
@@ -33,11 +34,11 @@ type CreateAgentTaskRunParams struct {
 	Status          string         `json:"status"`
 	SessionID       string         `json:"session_id"`
 	Input           string         `json:"input"`
-	LeaseExpiresAt  sql.NullString `json:"lease_expires_at"`
+	LeaseExpiresAt  sql.NullTime   `json:"lease_expires_at"`
 	WorkerID        string         `json:"worker_id"`
-	StartedAt       sql.NullString `json:"started_at"`
-	CreatedAt       string         `json:"created_at"`
-	UpdatedAt       string         `json:"updated_at"`
+	StartedAt       sql.NullTime   `json:"started_at"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
 // Run queries  one row per execution attempt.
@@ -88,17 +89,17 @@ func (q *Queries) CreateAgentTaskRun(ctx context.Context, arg CreateAgentTaskRun
 
 const finishAgentTaskRun = `-- name: FinishAgentTaskRun :exec
 UPDATE agent_task_run
-SET status = ?, result = ?, error = ?, finished_at = ?, updated_at = ?
-WHERE id = ?
+SET status = $1, result = $2, error = $3, finished_at = $4, updated_at = $5
+WHERE id = $6
 `
 
 type FinishAgentTaskRunParams struct {
-	Status     string         `json:"status"`
-	Result     string         `json:"result"`
-	Error      string         `json:"error"`
-	FinishedAt sql.NullString `json:"finished_at"`
-	UpdatedAt  string         `json:"updated_at"`
-	ID         string         `json:"id"`
+	Status     string       `json:"status"`
+	Result     string       `json:"result"`
+	Error      string       `json:"error"`
+	FinishedAt sql.NullTime `json:"finished_at"`
+	UpdatedAt  time.Time    `json:"updated_at"`
+	ID         string       `json:"id"`
 }
 
 func (q *Queries) FinishAgentTaskRun(ctx context.Context, arg FinishAgentTaskRunParams) error {
@@ -114,7 +115,7 @@ func (q *Queries) FinishAgentTaskRun(ctx context.Context, arg FinishAgentTaskRun
 }
 
 const getAgentTaskRun = `-- name: GetAgentTaskRun :one
-SELECT id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run WHERE id = ?
+SELECT id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run WHERE id = $1
 `
 
 func (q *Queries) GetAgentTaskRun(ctx context.Context, id string) (AgentTaskRun, error) {
@@ -147,15 +148,15 @@ func (q *Queries) GetAgentTaskRun(ctx context.Context, id string) (AgentTaskRun,
 
 const heartbeatAgentTaskRun = `-- name: HeartbeatAgentTaskRun :execrows
 UPDATE agent_task_run
-SET heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
-WHERE id = ? AND status = 'running'
+SET heartbeat_at = $1, lease_expires_at = $2, updated_at = $3
+WHERE id = $4 AND status = 'running'
 `
 
 type HeartbeatAgentTaskRunParams struct {
-	HeartbeatAt    sql.NullString `json:"heartbeat_at"`
-	LeaseExpiresAt sql.NullString `json:"lease_expires_at"`
-	UpdatedAt      string         `json:"updated_at"`
-	ID             string         `json:"id"`
+	HeartbeatAt    sql.NullTime `json:"heartbeat_at"`
+	LeaseExpiresAt sql.NullTime `json:"lease_expires_at"`
+	UpdatedAt      time.Time    `json:"updated_at"`
+	ID             string       `json:"id"`
 }
 
 func (q *Queries) HeartbeatAgentTaskRun(ctx context.Context, arg HeartbeatAgentTaskRunParams) (int64, error) {
@@ -173,7 +174,7 @@ func (q *Queries) HeartbeatAgentTaskRun(ctx context.Context, arg HeartbeatAgentT
 
 const latestAgentTaskRunForGoal = `-- name: LatestAgentTaskRunForGoal :one
 SELECT id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run
-WHERE goal_id = ? AND kind = ?
+WHERE goal_id = $1 AND kind = $2
 ORDER BY attempt_no DESC
 LIMIT 1
 `
@@ -213,7 +214,7 @@ func (q *Queries) LatestAgentTaskRunForGoal(ctx context.Context, arg LatestAgent
 
 const latestAgentTaskRunForTask = `-- name: LatestAgentTaskRunForTask :one
 SELECT id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run
-WHERE task_id = ? AND kind = ?
+WHERE task_id = $1 AND kind = $2
 ORDER BY attempt_no DESC
 LIMIT 1
 `
@@ -252,13 +253,13 @@ func (q *Queries) LatestAgentTaskRunForTask(ctx context.Context, arg LatestAgent
 }
 
 const listAgentTaskRunsByTask = `-- name: ListAgentTaskRunsByTask :many
-SELECT id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run WHERE task_id = ? ORDER BY attempt_no DESC LIMIT ? OFFSET ?
+SELECT id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run WHERE task_id = $1 ORDER BY attempt_no DESC LIMIT $2 OFFSET $3
 `
 
 type ListAgentTaskRunsByTaskParams struct {
 	TaskID sql.NullString `json:"task_id"`
-	Limit  int64          `json:"limit"`
-	Offset int64          `json:"offset"`
+	Limit  int32          `json:"limit"`
+	Offset int32          `json:"offset"`
 }
 
 func (q *Queries) ListAgentTaskRunsByTask(ctx context.Context, arg ListAgentTaskRunsByTaskParams) ([]AgentTaskRun, error) {
@@ -317,25 +318,24 @@ SELECT
   t.project_id
 FROM agent_task_run r
 LEFT JOIN agent_task t ON t.id = r.task_id
-WHERE r.user_id = ?1
+WHERE r.user_id = $1
   AND r.status = 'failed'
-  -- finished_at mixes RFC3339 (transition service) and naive UTC strings;
-  -- datetime() normalizes both before comparing.
-  AND datetime(r.finished_at) >= datetime(?2)
+  -- finished_at is timestamptz; compare directly.
+  AND r.finished_at >= $2
   -- Only surface a failed run when its task is still terminally failed; a task
   -- that retried to success leaves stale 'failed' runs that should not nag.
   -- Goal-owned runs have no task (r.task_id IS NULL) and are always kept.
   AND (r.task_id IS NULL OR t.status = 'failed')
-  AND (?3 IS NULL OR r.agent_id = ?3)
+  AND ($3 IS NULL OR r.agent_id = $3)
 ORDER BY r.finished_at DESC, r.id DESC
-LIMIT ?4
+LIMIT $4
 `
 
 type ListFailedInboxTaskRunsParams struct {
-	UserID     string      `json:"user_id"`
-	Since      interface{} `json:"since"`
-	AgentID    interface{} `json:"agent_id"`
-	LimitCount int64       `json:"limit_count"`
+	UserID     string       `json:"user_id"`
+	Since      sql.NullTime `json:"since"`
+	AgentID    interface{}  `json:"agent_id"`
+	LimitCount int32        `json:"limit_count"`
 }
 
 type ListFailedInboxTaskRunsRow struct {
@@ -343,8 +343,8 @@ type ListFailedInboxTaskRunsRow struct {
 	TaskID     sql.NullString `json:"task_id"`
 	AgentID    sql.NullString `json:"agent_id"`
 	Error      string         `json:"error"`
-	FinishedAt sql.NullString `json:"finished_at"`
-	CreatedAt  string         `json:"created_at"`
+	FinishedAt sql.NullTime   `json:"finished_at"`
+	CreatedAt  time.Time      `json:"created_at"`
 	Title      sql.NullString `json:"title"`
 	ProjectID  sql.NullString `json:"project_id"`
 }
@@ -390,13 +390,13 @@ const listStaleAgentTaskRuns = `-- name: ListStaleAgentTaskRuns :many
 SELECT id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run
 WHERE status IN ('queued','running')
   AND lease_expires_at IS NOT NULL
-  AND lease_expires_at < ?
-LIMIT ?
+  AND lease_expires_at < $1
+LIMIT $2
 `
 
 type ListStaleAgentTaskRunsParams struct {
-	LeaseExpiresAt sql.NullString `json:"lease_expires_at"`
-	Limit          int64          `json:"limit"`
+	LeaseExpiresAt sql.NullTime `json:"lease_expires_at"`
+	Limit          int32        `json:"limit"`
 }
 
 func (q *Queries) ListStaleAgentTaskRuns(ctx context.Context, arg ListStaleAgentTaskRunsParams) ([]AgentTaskRun, error) {
@@ -446,7 +446,7 @@ func (q *Queries) ListStaleAgentTaskRuns(ctx context.Context, arg ListStaleAgent
 const nextAttemptNoForGoal = `-- name: NextAttemptNoForGoal :one
 SELECT COALESCE(MAX(attempt_no), 0) + 1 AS next_attempt
 FROM agent_task_run
-WHERE goal_id = ? AND kind = ?
+WHERE goal_id = $1 AND kind = $2
 `
 
 type NextAttemptNoForGoalParams struct {
@@ -454,9 +454,9 @@ type NextAttemptNoForGoalParams struct {
 	Kind   string         `json:"kind"`
 }
 
-func (q *Queries) NextAttemptNoForGoal(ctx context.Context, arg NextAttemptNoForGoalParams) (int64, error) {
+func (q *Queries) NextAttemptNoForGoal(ctx context.Context, arg NextAttemptNoForGoalParams) (int32, error) {
 	row := q.db.QueryRowContext(ctx, nextAttemptNoForGoal, arg.GoalID, arg.Kind)
-	var next_attempt int64
+	var next_attempt int32
 	err := row.Scan(&next_attempt)
 	return next_attempt, err
 }
@@ -464,7 +464,7 @@ func (q *Queries) NextAttemptNoForGoal(ctx context.Context, arg NextAttemptNoFor
 const nextAttemptNoForTask = `-- name: NextAttemptNoForTask :one
 SELECT COALESCE(MAX(attempt_no), 0) + 1 AS next_attempt
 FROM agent_task_run
-WHERE task_id = ? AND kind = ?
+WHERE task_id = $1 AND kind = $2
 `
 
 type NextAttemptNoForTaskParams struct {
@@ -472,25 +472,25 @@ type NextAttemptNoForTaskParams struct {
 	Kind   string         `json:"kind"`
 }
 
-func (q *Queries) NextAttemptNoForTask(ctx context.Context, arg NextAttemptNoForTaskParams) (int64, error) {
+func (q *Queries) NextAttemptNoForTask(ctx context.Context, arg NextAttemptNoForTaskParams) (int32, error) {
 	row := q.db.QueryRowContext(ctx, nextAttemptNoForTask, arg.TaskID, arg.Kind)
-	var next_attempt int64
+	var next_attempt int32
 	err := row.Scan(&next_attempt)
 	return next_attempt, err
 }
 
 const promoteAgentTaskRun = `-- name: PromoteAgentTaskRun :execrows
 UPDATE agent_task_run
-SET status = 'running', started_at = ?, heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
-WHERE id = ? AND status = 'queued'
+SET status = 'running', started_at = $1, heartbeat_at = $2, lease_expires_at = $3, updated_at = $4
+WHERE id = $5 AND status = 'queued'
 `
 
 type PromoteAgentTaskRunParams struct {
-	StartedAt      sql.NullString `json:"started_at"`
-	HeartbeatAt    sql.NullString `json:"heartbeat_at"`
-	LeaseExpiresAt sql.NullString `json:"lease_expires_at"`
-	UpdatedAt      string         `json:"updated_at"`
-	ID             string         `json:"id"`
+	StartedAt      sql.NullTime `json:"started_at"`
+	HeartbeatAt    sql.NullTime `json:"heartbeat_at"`
+	LeaseExpiresAt sql.NullTime `json:"lease_expires_at"`
+	UpdatedAt      time.Time    `json:"updated_at"`
+	ID             string       `json:"id"`
 }
 
 // Flip a queued run to running. Returns affected-rows so callers can detect

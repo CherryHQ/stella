@@ -8,13 +8,15 @@ package sqlc
 import (
 	"context"
 	"database/sql"
-	"strings"
+	"time"
+
+	"github.com/lib/pq"
 )
 
 const createMessage = `-- name: CreateMessage :one
 INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, conversation_id, seq, role, event_type, content, token_count, created_at
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv
 `
 
 type CreateMessageParams struct {
@@ -47,13 +49,14 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (C
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ContentTsv,
 	)
 	return i, err
 }
 
 const createMessagePart = `-- name: CreateMessagePart :exec
 INSERT INTO ctx_message_part (id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type CreateMessagePartParams struct {
@@ -88,7 +91,7 @@ func (q *Queries) CreateMessagePart(ctx context.Context, arg CreateMessagePartPa
 const getConversationTimeBounds = `-- name: GetConversationTimeBounds :one
 SELECT MIN(created_at) AS earliest_at, MAX(created_at) AS latest_at
 FROM ctx_message
-WHERE conversation_id = ?
+WHERE conversation_id = $1
 `
 
 type GetConversationTimeBoundsRow struct {
@@ -104,7 +107,7 @@ func (q *Queries) GetConversationTimeBounds(ctx context.Context, conversationID 
 }
 
 const getMaxSeq = `-- name: GetMaxSeq :one
-SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM ctx_message WHERE conversation_id = ?
+SELECT CAST(COALESCE(MAX(seq), 0) AS BIGINT) FROM ctx_message WHERE conversation_id = $1
 `
 
 func (q *Queries) GetMaxSeq(ctx context.Context, conversationID string) (int64, error) {
@@ -115,7 +118,7 @@ func (q *Queries) GetMaxSeq(ctx context.Context, conversationID string) (int64, 
 }
 
 const getMessage = `-- name: GetMessage :one
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE id = ? AND conversation_id = ?
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv FROM ctx_message WHERE id = $1 AND conversation_id = $2
 `
 
 type GetMessageParams struct {
@@ -135,12 +138,13 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (CtxMess
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ContentTsv,
 	)
 	return i, err
 }
 
 const getMessageCount = `-- name: GetMessageCount :one
-SELECT COUNT(*) FROM ctx_message WHERE conversation_id = ?
+SELECT COUNT(*) FROM ctx_message WHERE conversation_id = $1
 `
 
 func (q *Queries) GetMessageCount(ctx context.Context, conversationID string) (int64, error) {
@@ -151,7 +155,7 @@ func (q *Queries) GetMessageCount(ctx context.Context, conversationID string) (i
 }
 
 const getMessageParts = `-- name: GetMessageParts :many
-SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata FROM ctx_message_part WHERE message_id = ? ORDER BY ordinal ASC
+SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata FROM ctx_message_part WHERE message_id = $1 ORDER BY ordinal ASC
 `
 
 func (q *Queries) GetMessageParts(ctx context.Context, messageID string) ([]CtxMessagePart, error) {
@@ -189,21 +193,11 @@ func (q *Queries) GetMessageParts(ctx context.Context, messageID string) ([]CtxM
 }
 
 const getMessagePartsByMessages = `-- name: GetMessagePartsByMessages :many
-SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata FROM ctx_message_part WHERE message_id IN (/*SLICE:message_ids*/?) ORDER BY message_id, ordinal ASC
+SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata FROM ctx_message_part WHERE message_id = ANY($1::text[]) ORDER BY message_id, ordinal ASC
 `
 
 func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []string) ([]CtxMessagePart, error) {
-	query := getMessagePartsByMessages
-	var queryParams []interface{}
-	if len(messageIds) > 0 {
-		for _, v := range messageIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:message_ids*/?", strings.Repeat(",?", len(messageIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:message_ids*/?", "NULL", 1)
-	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	rows, err := q.db.QueryContext(ctx, getMessagePartsByMessages, pq.Array(messageIds))
 	if err != nil {
 		return nil, err
 	}
@@ -238,14 +232,14 @@ func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []st
 
 const getMessageScoped = `-- name: GetMessageScoped :one
 SELECT
-    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.content_tsv,
     c.session_id AS session_id,
     c.title AS conversation_title
 FROM ctx_message m
 JOIN ctx_conversation c ON c.id = m.conversation_id
-WHERE m.id = ?1
-  AND c.user_id = ?2
-  AND c.agent_id IS ?3
+WHERE m.id = $1
+  AND c.user_id = $2
+  AND c.agent_id IS NOT DISTINCT FROM $3
 `
 
 type GetMessageScopedParams struct {
@@ -262,7 +256,8 @@ type GetMessageScopedRow struct {
 	EventType         string         `json:"event_type"`
 	Content           string         `json:"content"`
 	TokenCount        int64          `json:"token_count"`
-	CreatedAt         string         `json:"created_at"`
+	CreatedAt         time.Time      `json:"created_at"`
+	ContentTsv        interface{}    `json:"content_tsv"`
 	SessionID         string         `json:"session_id"`
 	ConversationTitle sql.NullString `json:"conversation_title"`
 }
@@ -283,6 +278,7 @@ func (q *Queries) GetMessageScoped(ctx context.Context, arg GetMessageScopedPara
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ContentTsv,
 		&i.SessionID,
 		&i.ConversationTitle,
 	)
@@ -290,7 +286,7 @@ func (q *Queries) GetMessageScoped(ctx context.Context, arg GetMessageScopedPara
 }
 
 const getMessagesByConversation = `-- name: GetMessagesByConversation :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE conversation_id = ? ORDER BY seq ASC
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC
 `
 
 func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID string) ([]CtxMessage, error) {
@@ -311,6 +307,7 @@ func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID 
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ContentTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -326,8 +323,8 @@ func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID 
 }
 
 const getMessagesByConversationRange = `-- name: GetMessagesByConversationRange :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message
-WHERE conversation_id = ? AND seq >= ? AND seq <= ?
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv FROM ctx_message
+WHERE conversation_id = $1 AND seq >= $2 AND seq <= $3
 ORDER BY seq ASC
 `
 
@@ -355,6 +352,7 @@ func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMes
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ContentTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -370,14 +368,14 @@ func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMes
 }
 
 const getMessagesSince = `-- name: GetMessagesSince :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message
-WHERE conversation_id = ? AND created_at > ?
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv FROM ctx_message
+WHERE conversation_id = $1 AND created_at > $2
 ORDER BY seq ASC
 `
 
 type GetMessagesSinceParams struct {
-	ConversationID string `json:"conversation_id"`
-	CreatedAt      string `json:"created_at"`
+	ConversationID string    `json:"conversation_id"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 func (q *Queries) GetMessagesSince(ctx context.Context, arg GetMessagesSinceParams) ([]CtxMessage, error) {
@@ -398,6 +396,7 @@ func (q *Queries) GetMessagesSince(ctx context.Context, arg GetMessagesSincePara
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ContentTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -414,9 +413,9 @@ func (q *Queries) GetMessagesSince(ctx context.Context, arg GetMessagesSincePara
 
 const listExistingUserMessageContent = `-- name: ListExistingUserMessageContent :many
 SELECT content FROM ctx_message
-WHERE conversation_id = ?1
+WHERE conversation_id = $1
   AND role = 'user'
-  AND content IN (/*SLICE:contents*/?)
+  AND content = ANY($2::text[])
 ORDER BY seq ASC
 `
 
@@ -426,18 +425,7 @@ type ListExistingUserMessageContentParams struct {
 }
 
 func (q *Queries) ListExistingUserMessageContent(ctx context.Context, arg ListExistingUserMessageContentParams) ([]string, error) {
-	query := listExistingUserMessageContent
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.ConversationID)
-	if len(arg.Contents) > 0 {
-		for _, v := range arg.Contents {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:contents*/?", strings.Repeat(",?", len(arg.Contents))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:contents*/?", "NULL", 1)
-	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	rows, err := q.db.QueryContext(ctx, listExistingUserMessageContent, arg.ConversationID, pq.Array(arg.Contents))
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +448,7 @@ func (q *Queries) ListExistingUserMessageContent(ctx context.Context, arg ListEx
 }
 
 const listMessagesByIDs = `-- name: ListMessagesByIDs :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE conversation_id = ? AND id IN (/*SLICE:message_ids*/?) ORDER BY seq ASC
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv FROM ctx_message WHERE conversation_id = $1 AND id = ANY($2::text[]) ORDER BY seq ASC
 `
 
 type ListMessagesByIDsParams struct {
@@ -469,18 +457,7 @@ type ListMessagesByIDsParams struct {
 }
 
 func (q *Queries) ListMessagesByIDs(ctx context.Context, arg ListMessagesByIDsParams) ([]CtxMessage, error) {
-	query := listMessagesByIDs
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.ConversationID)
-	if len(arg.MessageIds) > 0 {
-		for _, v := range arg.MessageIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:message_ids*/?", strings.Repeat(",?", len(arg.MessageIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:message_ids*/?", "NULL", 1)
-	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	rows, err := q.db.QueryContext(ctx, listMessagesByIDs, arg.ConversationID, pq.Array(arg.MessageIds))
 	if err != nil {
 		return nil, err
 	}
@@ -497,6 +474,7 @@ func (q *Queries) ListMessagesByIDs(ctx context.Context, arg ListMessagesByIDsPa
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ContentTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -514,15 +492,15 @@ func (q *Queries) ListMessagesByIDs(ctx context.Context, arg ListMessagesByIDsPa
 const listMessagesByLogicalPage = `-- name: ListMessagesByLogicalPage :many
 WITH ordered AS (
     SELECT
-        id, conversation_id, seq, role, event_type, content, token_count, created_at,
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv,
         lag(role) OVER (ORDER BY seq ASC) AS prev_role
     FROM ctx_message
-    WHERE conversation_id = ?1
-      AND (?2 IS NULL OR created_at >= ?2)
-      AND (?3 IS NULL OR created_at <= ?3)
+    WHERE conversation_id = $1
+      AND ($2 IS NULL OR created_at >= $2)
+      AND ($3 IS NULL OR created_at <= $3)
 ), grouped AS (
     SELECT
-        id, conversation_id, seq, role, event_type, content, token_count, created_at, prev_role,
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv, prev_role,
         sum(CASE WHEN role = 'assistant' AND prev_role = 'assistant' THEN 0 ELSE 1 END)
             OVER (ORDER BY seq ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS logical_idx
     FROM ordered
@@ -531,7 +509,7 @@ WITH ordered AS (
     FROM grouped
     GROUP BY logical_idx
     ORDER BY logical_idx DESC
-    LIMIT ?5 OFFSET ?4
+    LIMIT $5 OFFSET $4
 )
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at
 FROM grouped
@@ -543,19 +521,19 @@ type ListMessagesByLogicalPageParams struct {
 	ConversationID string      `json:"conversation_id"`
 	After          interface{} `json:"after"`
 	Before         interface{} `json:"before"`
-	Offset         int64       `json:"offset"`
-	Limit          int64       `json:"limit"`
+	Offset         int32       `json:"offset"`
+	Limit          int32       `json:"limit"`
 }
 
 type ListMessagesByLogicalPageRow struct {
-	ID             string `json:"id"`
-	ConversationID string `json:"conversation_id"`
-	Seq            int64  `json:"seq"`
-	Role           string `json:"role"`
-	EventType      string `json:"event_type"`
-	Content        string `json:"content"`
-	TokenCount     int64  `json:"token_count"`
-	CreatedAt      string `json:"created_at"`
+	ID             string    `json:"id"`
+	ConversationID string    `json:"conversation_id"`
+	Seq            int64     `json:"seq"`
+	Role           string    `json:"role"`
+	EventType      string    `json:"event_type"`
+	Content        string    `json:"content"`
+	TokenCount     int64     `json:"token_count"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // Keep this logical-message boundary in sync with serializeDBMessages in
@@ -601,26 +579,25 @@ func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessage
 
 const searchMessages = `-- name: SearchMessages :many
 SELECT
-    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.content_tsv,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    snippet(ctx_message_fts, 0, '<<', '>>', '...', 32) AS snippet,
-    bm25(ctx_message_fts) AS score
-FROM ctx_message_fts
-JOIN ctx_message m ON m.rowid = ctx_message_fts.rowid
+    ts_headline('simple', m.content, websearch_to_tsquery('simple', $1), 'StartSel=<<,StopSel=>>,MaxFragments=1,MaxWords=32,MinWords=1')::text AS snippet,
+    ts_rank_cd(m.content_tsv, websearch_to_tsquery('simple', $1))::double precision AS score
+FROM ctx_message m
 JOIN ctx_conversation c ON c.id = m.conversation_id
-WHERE ctx_message_fts.content MATCH ?1
-  AND c.user_id = ?2
-  AND c.agent_id IS ?3
-ORDER BY score ASC
-LIMIT ?4
+WHERE m.content_tsv @@ websearch_to_tsquery('simple', $1)
+  AND c.user_id = $2
+  AND c.agent_id IS NOT DISTINCT FROM $3
+ORDER BY score DESC
+LIMIT $4
 `
 
 type SearchMessagesParams struct {
 	Match   string         `json:"match"`
 	UserID  sql.NullString `json:"user_id"`
 	AgentID sql.NullString `json:"agent_id"`
-	Limit   int64          `json:"limit"`
+	Limit   int32          `json:"limit"`
 }
 
 type SearchMessagesRow struct {
@@ -631,7 +608,8 @@ type SearchMessagesRow struct {
 	EventType         string         `json:"event_type"`
 	Content           string         `json:"content"`
 	TokenCount        int64          `json:"token_count"`
-	CreatedAt         string         `json:"created_at"`
+	CreatedAt         time.Time      `json:"created_at"`
+	ContentTsv        interface{}    `json:"content_tsv"`
 	SessionID         string         `json:"session_id"`
 	ConversationTitle sql.NullString `json:"conversation_title"`
 	Snippet           string         `json:"snippet"`
@@ -642,6 +620,9 @@ type SearchMessagesRow struct {
 // survives across sessions. Joins ctx_conversation to pin the scope and surface
 // provenance (session_id, title). Global ORDER BY score + LIMIT keeps the best
 // matches across the merged corpus, not per-conversation truncations.
+// TODO(Phase 5): validate ranking/snippet quality and the CJK trigram tier on
+// real PostgreSQL; the 'simple' tsvector does not segment CJK, so CJK queries
+// fall through to SearchMessagesLike (pg_trgm).
 func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) ([]SearchMessagesRow, error) {
 	rows, err := q.db.QueryContext(ctx, searchMessages,
 		arg.Match,
@@ -665,6 +646,7 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ContentTsv,
 			&i.SessionID,
 			&i.ConversationTitle,
 			&i.Snippet,
@@ -685,23 +667,23 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 
 const searchMessagesLike = `-- name: SearchMessagesLike :many
 SELECT
-    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.content_tsv,
     c.session_id AS session_id,
     c.title AS conversation_title
 FROM ctx_message m
 JOIN ctx_conversation c ON c.id = m.conversation_id
-WHERE c.user_id = ?1
-  AND c.agent_id IS ?2
-  AND (m.content LIKE ?3 ESCAPE '\')
+WHERE c.user_id = $1
+  AND c.agent_id IS NOT DISTINCT FROM $2
+  AND (m.content LIKE $3 ESCAPE '\')
 ORDER BY m.created_at DESC
-LIMIT ?4
+LIMIT $4
 `
 
 type SearchMessagesLikeParams struct {
 	UserID  sql.NullString `json:"user_id"`
 	AgentID sql.NullString `json:"agent_id"`
-	Pattern string         `json:"pattern"`
-	Limit   int64          `json:"limit"`
+	Pattern []byte         `json:"pattern"`
+	Limit   int32          `json:"limit"`
 }
 
 type SearchMessagesLikeRow struct {
@@ -712,15 +694,15 @@ type SearchMessagesLikeRow struct {
 	EventType         string         `json:"event_type"`
 	Content           string         `json:"content"`
 	TokenCount        int64          `json:"token_count"`
-	CreatedAt         string         `json:"created_at"`
+	CreatedAt         time.Time      `json:"created_at"`
+	ContentTsv        interface{}    `json:"content_tsv"`
 	SessionID         string         `json:"session_id"`
 	ConversationTitle sql.NullString `json:"conversation_title"`
 }
 
 // Fallback for queries with no token of 3+ runes, which trigram MATCH would
-// silently never hit. Scans the content table directly (faster there than on
-// the FTS table, which pays external-content read-back), recency-ordered, no
-// BM25. Pattern must be a full '%text%' built with ftsquery.EscapeLike; sqlc
+// silently never hit. Scans the content table directly, recency-ordered, no
+// ranking. Pattern must be a full '%text%' built with ftsquery.EscapeLike; sqlc
 // cannot parse || concatenation here, so the caller wraps it, and the parens
 // around LIKE...ESCAPE are also required by sqlc's grammar. Keep these doc
 // comments ASCII: multibyte chars corrupt sqlc's query rewriter offsets.
@@ -747,6 +729,7 @@ func (q *Queries) SearchMessagesLike(ctx context.Context, arg SearchMessagesLike
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ContentTsv,
 			&i.SessionID,
 			&i.ConversationTitle,
 		); err != nil {

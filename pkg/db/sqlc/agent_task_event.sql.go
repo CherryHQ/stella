@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const insertAgentTaskEvent = `-- name: InsertAgentTaskEvent :one
@@ -16,7 +17,7 @@ INSERT INTO agent_task_event (
     id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status,
     actor_type, actor_id, detail, created_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at
 `
 
@@ -33,7 +34,7 @@ type InsertAgentTaskEventParams struct {
 	ActorType  string         `json:"actor_type"`
 	ActorID    sql.NullString `json:"actor_id"`
 	Detail     string         `json:"detail"`
-	CreatedAt  string         `json:"created_at"`
+	CreatedAt  time.Time      `json:"created_at"`
 }
 
 // Append-only audit log.
@@ -73,13 +74,13 @@ func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskE
 }
 
 const listAgentTaskEvents = `-- name: ListAgentTaskEvents :many
-SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?
+SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE task_id = $1 ORDER BY created_at ASC, id ASC LIMIT $2 OFFSET $3
 `
 
 type ListAgentTaskEventsParams struct {
 	TaskID sql.NullString `json:"task_id"`
-	Limit  int64          `json:"limit"`
-	Offset int64          `json:"offset"`
+	Limit  int32          `json:"limit"`
+	Offset int32          `json:"offset"`
 }
 
 func (q *Queries) ListAgentTaskEvents(ctx context.Context, arg ListAgentTaskEventsParams) ([]AgentTaskEvent, error) {
@@ -120,7 +121,7 @@ func (q *Queries) ListAgentTaskEvents(ctx context.Context, arg ListAgentTaskEven
 }
 
 const listAgentTaskEventsByGoal = `-- name: ListAgentTaskEventsByGoal :many
-SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE goal_id = ? ORDER BY created_at ASC
+SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE goal_id = $1 ORDER BY created_at ASC
 `
 
 func (q *Queries) ListAgentTaskEventsByGoal(ctx context.Context, goalID sql.NullString) ([]AgentTaskEvent, error) {
@@ -161,7 +162,7 @@ func (q *Queries) ListAgentTaskEventsByGoal(ctx context.Context, goalID sql.Null
 }
 
 const listAgentTaskEventsByRun = `-- name: ListAgentTaskEventsByRun :many
-SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE run_id = ? ORDER BY created_at ASC
+SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE run_id = $1 ORDER BY created_at ASC
 `
 
 func (q *Queries) ListAgentTaskEventsByRun(ctx context.Context, runID sql.NullString) ([]AgentTaskEvent, error) {

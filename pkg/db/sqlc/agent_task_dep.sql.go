@@ -8,22 +8,24 @@ package sqlc
 import (
 	"context"
 	"database/sql"
-	"strings"
+	"time"
+
+	"github.com/lib/pq"
 )
 
 const createAgentTaskDep = `-- name: CreateAgentTaskDep :one
 
 INSERT INTO agent_task_dep (task_id, dep_task_id, dep_kind, on_failure, created_at)
-VALUES (?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING task_id, dep_task_id, dep_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at
 `
 
 type CreateAgentTaskDepParams struct {
-	TaskID    string `json:"task_id"`
-	DepTaskID string `json:"dep_task_id"`
-	DepKind   string `json:"dep_kind"`
-	OnFailure string `json:"on_failure"`
-	CreatedAt string `json:"created_at"`
+	TaskID    string    `json:"task_id"`
+	DepTaskID string    `json:"dep_task_id"`
+	DepKind   string    `json:"dep_kind"`
+	OnFailure string    `json:"on_failure"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // DAG edge queries. Cycle prevention is enforced at the service layer.
@@ -50,7 +52,7 @@ func (q *Queries) CreateAgentTaskDep(ctx context.Context, arg CreateAgentTaskDep
 }
 
 const deleteAgentTaskDep = `-- name: DeleteAgentTaskDep :exec
-DELETE FROM agent_task_dep WHERE task_id = ? AND dep_task_id = ?
+DELETE FROM agent_task_dep WHERE task_id = $1 AND dep_task_id = $2
 `
 
 type DeleteAgentTaskDepParams struct {
@@ -64,7 +66,7 @@ func (q *Queries) DeleteAgentTaskDep(ctx context.Context, arg DeleteAgentTaskDep
 }
 
 const listAgentTaskDependents = `-- name: ListAgentTaskDependents :many
-SELECT task_id, dep_task_id, dep_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_task_dep WHERE dep_task_id = ?
+SELECT task_id, dep_task_id, dep_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_task_dep WHERE dep_task_id = $1
 `
 
 func (q *Queries) ListAgentTaskDependents(ctx context.Context, depTaskID string) ([]AgentTaskDep, error) {
@@ -100,7 +102,7 @@ func (q *Queries) ListAgentTaskDependents(ctx context.Context, depTaskID string)
 }
 
 const listAgentTaskDeps = `-- name: ListAgentTaskDeps :many
-SELECT task_id, dep_task_id, dep_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_task_dep WHERE task_id = ?
+SELECT task_id, dep_task_id, dep_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_task_dep WHERE task_id = $1
 `
 
 func (q *Queries) ListAgentTaskDeps(ctx context.Context, taskID string) ([]AgentTaskDep, error) {
@@ -141,7 +143,7 @@ SELECT
     t.status AS upstream_status
 FROM agent_task_dep d
 JOIN agent_task t ON t.id = d.dep_task_id
-WHERE d.task_id = ?
+WHERE d.task_id = $1
 `
 
 type ListAgentTaskDepsWithUpstreamRow struct {
@@ -190,7 +192,7 @@ SELECT
     t.status AS upstream_status
 FROM agent_task_dep d
 JOIN agent_task t ON t.id = d.dep_task_id
-WHERE d.task_id IN (/*SLICE:task_ids*/?)
+WHERE d.task_id = ANY($1::text[])
 ORDER BY d.task_id, d.dep_task_id
 `
 
@@ -200,17 +202,7 @@ type ListAgentTaskDepsWithUpstreamByTasksRow struct {
 }
 
 func (q *Queries) ListAgentTaskDepsWithUpstreamByTasks(ctx context.Context, taskIds []string) ([]ListAgentTaskDepsWithUpstreamByTasksRow, error) {
-	query := listAgentTaskDepsWithUpstreamByTasks
-	var queryParams []interface{}
-	if len(taskIds) > 0 {
-		for _, v := range taskIds {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:task_ids*/?", strings.Repeat(",?", len(taskIds))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:task_ids*/?", "NULL", 1)
-	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	rows, err := q.db.QueryContext(ctx, listAgentTaskDepsWithUpstreamByTasks, pq.Array(taskIds))
 	if err != nil {
 		return nil, err
 	}
@@ -248,15 +240,15 @@ SELECT
     t.status AS upstream_status
 FROM agent_task_dep d
 JOIN agent_task t ON t.id = d.dep_task_id
-WHERE d.task_id = ?
+WHERE d.task_id = $1
 ORDER BY d.dep_task_id ASC
-LIMIT ? OFFSET ?
+LIMIT $2 OFFSET $3
 `
 
 type ListAgentTaskDepsWithUpstreamPagedParams struct {
 	TaskID string `json:"task_id"`
-	Limit  int64  `json:"limit"`
-	Offset int64  `json:"offset"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
 }
 
 type ListAgentTaskDepsWithUpstreamPagedRow struct {
@@ -299,7 +291,7 @@ func (q *Queries) ListAgentTaskDepsWithUpstreamPaged(ctx context.Context, arg Li
 
 const listReachableDownstream = `-- name: ListReachableDownstream :many
 WITH RECURSIVE downstream(id, depth) AS (
-    SELECT atd.task_id, 1 FROM agent_task_dep atd WHERE atd.dep_task_id = ?
+    SELECT atd.task_id, 1 FROM agent_task_dep atd WHERE atd.dep_task_id = $1
     UNION
     SELECT atd.task_id, ds.depth + 1
     FROM agent_task_dep atd
@@ -364,12 +356,12 @@ func (q *Queries) ListReachableDownstream(ctx context.Context, depTaskID string)
 
 const waiveAgentTaskDep = `-- name: WaiveAgentTaskDep :execrows
 UPDATE agent_task_dep
-SET waived_at = ?, waived_by_user = ?, waiver_reason = ?
-WHERE task_id = ? AND dep_task_id = ? AND waived_at IS NULL
+SET waived_at = $1, waived_by_user = $2, waiver_reason = $3
+WHERE task_id = $4 AND dep_task_id = $5 AND waived_at IS NULL
 `
 
 type WaiveAgentTaskDepParams struct {
-	WaivedAt     sql.NullString `json:"waived_at"`
+	WaivedAt     sql.NullTime   `json:"waived_at"`
 	WaivedByUser sql.NullString `json:"waived_by_user"`
 	WaiverReason string         `json:"waiver_reason"`
 	TaskID       string         `json:"task_id"`

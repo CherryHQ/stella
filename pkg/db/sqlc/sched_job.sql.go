@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const createSchedulerJob = `-- name: CreateSchedulerJob :one
@@ -17,7 +18,7 @@ INSERT INTO sched_job (
     message, payload, session_mode, enabled, agent_id, user_id,
     created_at, updated_at, last_run_at, last_error
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 RETURNING id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error
 `
 
@@ -36,12 +37,12 @@ type CreateSchedulerJobParams struct {
 	Message       string         `json:"message"`
 	Payload       string         `json:"payload"`
 	SessionMode   string         `json:"session_mode"`
-	Enabled       int64          `json:"enabled"`
+	Enabled       bool           `json:"enabled"`
 	AgentID       sql.NullString `json:"agent_id"`
 	UserID        sql.NullString `json:"user_id"`
-	CreatedAt     string         `json:"created_at"`
-	UpdatedAt     string         `json:"updated_at"`
-	LastRunAt     sql.NullString `json:"last_run_at"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	LastRunAt     sql.NullTime   `json:"last_run_at"`
 	LastError     string         `json:"last_error"`
 }
 
@@ -97,7 +98,7 @@ func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJob
 }
 
 const deleteSchedulerJob = `-- name: DeleteSchedulerJob :exec
-DELETE FROM sched_job WHERE id = ?
+DELETE FROM sched_job WHERE id = $1
 `
 
 func (q *Queries) DeleteSchedulerJob(ctx context.Context, id string) error {
@@ -106,7 +107,7 @@ func (q *Queries) DeleteSchedulerJob(ctx context.Context, id string) error {
 }
 
 const getSchedulerJob = `-- name: GetSchedulerJob :one
-SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_job WHERE id = ?
+SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_job WHERE id = $1
 `
 
 func (q *Queries) GetSchedulerJob(ctx context.Context, id string) (SchedJob, error) {
@@ -239,7 +240,7 @@ func (q *Queries) ListSchedulerJobs(ctx context.Context) ([]SchedJob, error) {
 const listSchedulerJobsByAgent = `-- name: ListSchedulerJobsByAgent :many
 SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_job
 WHERE owner_kind IN ('plugin', 'system')
-      OR (agent_id = ? AND user_id = ?)
+      OR (agent_id = $1 AND user_id = $2)
 ORDER BY created_at
 `
 
@@ -295,15 +296,15 @@ func (q *Queries) ListSchedulerJobsByAgent(ctx context.Context, arg ListSchedule
 
 const recordSchedulerJobRun = `-- name: RecordSchedulerJobRun :exec
 UPDATE sched_job
-SET last_run_at = ?, last_error = ?, updated_at = ?
-WHERE id = ?
+SET last_run_at = $1, last_error = $2, updated_at = $3
+WHERE id = $4
 `
 
 type RecordSchedulerJobRunParams struct {
-	LastRunAt sql.NullString `json:"last_run_at"`
-	LastError string         `json:"last_error"`
-	UpdatedAt string         `json:"updated_at"`
-	ID        string         `json:"id"`
+	LastRunAt sql.NullTime `json:"last_run_at"`
+	LastError string       `json:"last_error"`
+	UpdatedAt time.Time    `json:"updated_at"`
+	ID        string       `json:"id"`
 }
 
 func (q *Queries) RecordSchedulerJobRun(ctx context.Context, arg RecordSchedulerJobRunParams) error {
@@ -318,11 +319,11 @@ func (q *Queries) RecordSchedulerJobRun(ctx context.Context, arg RecordScheduler
 
 const updateSchedulerJob = `-- name: UpdateSchedulerJob :exec
 UPDATE sched_job
-SET owner_kind = ?, exec_scope = ?, plugin_id = ?, job_key = ?, runtime_name = ?,
-    name = ?, description = ?, schedule_cron = ?, schedule_every = ?, schedule_at = ?,
-    message = ?, payload = ?, session_mode = ?, enabled = ?, agent_id = ?, user_id = ?,
-    updated_at = ?, last_run_at = ?, last_error = ?
-WHERE id = ?
+SET owner_kind = $1, exec_scope = $2, plugin_id = $3, job_key = $4, runtime_name = $5,
+    name = $6, description = $7, schedule_cron = $8, schedule_every = $9, schedule_at = $10,
+    message = $11, payload = $12, session_mode = $13, enabled = $14, agent_id = $15, user_id = $16,
+    updated_at = $17, last_run_at = $18, last_error = $19
+WHERE id = $20
 `
 
 type UpdateSchedulerJobParams struct {
@@ -339,11 +340,11 @@ type UpdateSchedulerJobParams struct {
 	Message       string         `json:"message"`
 	Payload       string         `json:"payload"`
 	SessionMode   string         `json:"session_mode"`
-	Enabled       int64          `json:"enabled"`
+	Enabled       bool           `json:"enabled"`
 	AgentID       sql.NullString `json:"agent_id"`
 	UserID        sql.NullString `json:"user_id"`
-	UpdatedAt     string         `json:"updated_at"`
-	LastRunAt     sql.NullString `json:"last_run_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	LastRunAt     sql.NullTime   `json:"last_run_at"`
 	LastError     string         `json:"last_error"`
 	ID            string         `json:"id"`
 }

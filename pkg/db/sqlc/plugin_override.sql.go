@@ -12,7 +12,7 @@ import (
 
 const deleteManifestPluginOverride = `-- name: DeleteManifestPluginOverride :exec
 DELETE FROM plugin_override
-WHERE plugin_id = ?
+WHERE plugin_id = $1
 `
 
 func (q *Queries) DeleteManifestPluginOverride(ctx context.Context, pluginID string) error {
@@ -22,7 +22,7 @@ func (q *Queries) DeleteManifestPluginOverride(ctx context.Context, pluginID str
 
 const getManifestPluginOverride = `-- name: GetManifestPluginOverride :one
 SELECT plugin_id, enabled, session_env_vault_key, config, created_at, updated_at FROM plugin_override
-WHERE plugin_id = ?
+WHERE plugin_id = $1
 `
 
 func (q *Queries) GetManifestPluginOverride(ctx context.Context, pluginID string) (PluginOverride, error) {
@@ -76,19 +76,19 @@ func (q *Queries) ListManifestPluginOverrides(ctx context.Context) ([]PluginOver
 
 const upsertManifestPluginOverride = `-- name: UpsertManifestPluginOverride :exec
 INSERT INTO plugin_override (plugin_id, enabled, session_env_vault_key, config, updated_at)
-VALUES (?, ?, ?, ?, datetime('now'))
+VALUES ($1, $2, $3, $4, now())
 ON CONFLICT(plugin_id) DO UPDATE SET
     enabled               = excluded.enabled,
     session_env_vault_key = excluded.session_env_vault_key,
     config                = excluded.config,
-    updated_at            = datetime('now')
+    updated_at            = now()
 `
 
 type UpsertManifestPluginOverrideParams struct {
-	PluginID           string        `json:"plugin_id"`
-	Enabled            sql.NullInt64 `json:"enabled"`
-	SessionEnvVaultKey string        `json:"session_env_vault_key"`
-	Config             string        `json:"config"`
+	PluginID           string       `json:"plugin_id"`
+	Enabled            sql.NullBool `json:"enabled"`
+	SessionEnvVaultKey string       `json:"session_env_vault_key"`
+	Config             string       `json:"config"`
 }
 
 func (q *Queries) UpsertManifestPluginOverride(ctx context.Context, arg UpsertManifestPluginOverrideParams) error {

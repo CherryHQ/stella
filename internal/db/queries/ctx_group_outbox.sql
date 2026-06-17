@@ -2,14 +2,14 @@
 INSERT INTO ctx_group_outbox (
   id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: GetGroupOutbox :one
-SELECT * FROM ctx_group_outbox WHERE id = ?;
+SELECT * FROM ctx_group_outbox WHERE id = $1;
 
 -- name: GetGroupOutboxByMessage :one
-SELECT * FROM ctx_group_outbox WHERE group_message_id = ?;
+SELECT * FROM ctx_group_outbox WHERE group_message_id = $1;
 
 -- name: ListPendingGroupOutbox :many
 SELECT * FROM ctx_group_outbox
@@ -33,7 +33,7 @@ SET status = 'running',
     lease_until = sqlc.arg(lease_until),
     next_attempt_at = NULL,
     last_error = '',
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
@@ -46,7 +46,7 @@ SET status = 'running',
     lease_until = sqlc.arg(lease_until),
     next_attempt_at = NULL,
     last_error = '',
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND lease_until IS NOT NULL
@@ -56,7 +56,7 @@ RETURNING *;
 -- name: ExtendRunningGroupOutboxLease :execrows
 UPDATE ctx_group_outbox
 SET lease_until = sqlc.arg(lease_until),
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
@@ -66,7 +66,7 @@ UPDATE ctx_group_outbox
 SET status = 'completed',
     lease_until = NULL,
     next_attempt_at = NULL,
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
@@ -77,7 +77,7 @@ SET status = 'failed',
     lease_until = NULL,
     next_attempt_at = NULL,
     last_error = sqlc.arg(last_error),
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
@@ -88,7 +88,7 @@ SET status = 'pending',
     lease_until = NULL,
     next_attempt_at = sqlc.arg(next_attempt_at),
     last_error = sqlc.arg(last_error),
-    updated_at = datetime('now')
+    updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);

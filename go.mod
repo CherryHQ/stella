@@ -17,6 +17,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
+	github.com/lib/pq v1.12.3
 	github.com/mmcdole/gofeed v1.3.0
 	github.com/moby/moby/api v1.54.1
 	github.com/moby/moby/client v0.4.0

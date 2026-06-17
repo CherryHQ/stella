@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const createFeed = `-- name: CreateFeed :one
@@ -15,7 +16,7 @@ INSERT INTO recally_feed (
     id, user_id, agent_id, url, kind, metadata, title, description, check_interval,
     last_checked_at, last_etag, last_modified, enabled
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at
 `
 
@@ -29,10 +30,10 @@ type CreateFeedParams struct {
 	Title         string         `json:"title"`
 	Description   string         `json:"description"`
 	CheckInterval string         `json:"check_interval"`
-	LastCheckedAt sql.NullString `json:"last_checked_at"`
+	LastCheckedAt sql.NullTime   `json:"last_checked_at"`
 	LastEtag      string         `json:"last_etag"`
 	LastModified  string         `json:"last_modified"`
-	Enabled       int64          `json:"enabled"`
+	Enabled       bool           `json:"enabled"`
 }
 
 func (q *Queries) CreateFeed(ctx context.Context, arg CreateFeedParams) (RecallyFeed, error) {
@@ -77,7 +78,7 @@ INSERT INTO recally_feed_entry (
     id, feed_id, guid, url, title, status, article_id, attempts, error_msg,
     discovered_at, processed_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT(feed_id, guid) DO NOTHING
 RETURNING id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at
 `
@@ -92,8 +93,8 @@ type CreateFeedEntryParams struct {
 	ArticleID    sql.NullString `json:"article_id"`
 	Attempts     int64          `json:"attempts"`
 	ErrorMsg     string         `json:"error_msg"`
-	DiscoveredAt string         `json:"discovered_at"`
-	ProcessedAt  sql.NullString `json:"processed_at"`
+	DiscoveredAt time.Time      `json:"discovered_at"`
+	ProcessedAt  sql.NullTime   `json:"processed_at"`
 }
 
 func (q *Queries) CreateFeedEntry(ctx context.Context, arg CreateFeedEntryParams) (RecallyFeedEntry, error) {
@@ -128,7 +129,7 @@ func (q *Queries) CreateFeedEntry(ctx context.Context, arg CreateFeedEntryParams
 }
 
 const deleteFeed = `-- name: DeleteFeed :exec
-DELETE FROM recally_feed WHERE id = ? AND user_id = ?
+DELETE FROM recally_feed WHERE id = $1 AND user_id = $2
 `
 
 type DeleteFeedParams struct {
@@ -143,9 +144,9 @@ func (q *Queries) DeleteFeed(ctx context.Context, arg DeleteFeedParams) error {
 
 const deleteOldEntries = `-- name: DeleteOldEntries :exec
 DELETE FROM recally_feed_entry
-WHERE feed_id = ?
+WHERE feed_id = $1
   AND status IN ('skipped', 'error')
-  AND processed_at < datetime('now', '-30 days')
+  AND processed_at < now() - interval '30 days'
 `
 
 func (q *Queries) DeleteOldEntries(ctx context.Context, feedID string) error {
@@ -154,7 +155,7 @@ func (q *Queries) DeleteOldEntries(ctx context.Context, feedID string) error {
 }
 
 const getFeed = `-- name: GetFeed :one
-SELECT id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_feed WHERE id = ? AND user_id = ?
+SELECT id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_feed WHERE id = $1 AND user_id = $2
 `
 
 type GetFeedParams struct {
@@ -186,7 +187,7 @@ func (q *Queries) GetFeed(ctx context.Context, arg GetFeedParams) (RecallyFeed, 
 }
 
 const getFeedByURL = `-- name: GetFeedByURL :one
-SELECT id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_feed WHERE user_id = ? AND url = ?
+SELECT id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_feed WHERE user_id = $1 AND url = $2
 `
 
 type GetFeedByURLParams struct {
@@ -218,7 +219,7 @@ func (q *Queries) GetFeedByURL(ctx context.Context, arg GetFeedByURLParams) (Rec
 }
 
 const getFeedEntry = `-- name: GetFeedEntry :one
-SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM recally_feed_entry WHERE id = ? AND feed_id = ?
+SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM recally_feed_entry WHERE id = $1 AND feed_id = $2
 `
 
 type GetFeedEntryParams struct {
@@ -247,16 +248,16 @@ func (q *Queries) GetFeedEntry(ctx context.Context, arg GetFeedEntryParams) (Rec
 
 const listFeedEntries = `-- name: ListFeedEntries :many
 SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM recally_feed_entry
-WHERE feed_id = ?1
-  AND (?2 = '' OR status = ?2)
+WHERE feed_id = $1
+  AND ($2 = '' OR status = $2)
 ORDER BY discovered_at DESC
-LIMIT ?3
+LIMIT $3
 `
 
 type ListFeedEntriesParams struct {
 	FeedID string      `json:"feed_id"`
 	Status interface{} `json:"status"`
-	Limit  int64       `json:"limit"`
+	Limit  int32       `json:"limit"`
 }
 
 func (q *Queries) ListFeedEntries(ctx context.Context, arg ListFeedEntriesParams) ([]RecallyFeedEntry, error) {
@@ -296,15 +297,15 @@ func (q *Queries) ListFeedEntries(ctx context.Context, arg ListFeedEntriesParams
 
 const listFeeds = `-- name: ListFeeds :many
 SELECT id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_feed
-WHERE user_id = ?1
+WHERE user_id = $1
 ORDER BY created_at DESC, id DESC
-LIMIT ?3 OFFSET ?2
+LIMIT $3 OFFSET $2
 `
 
 type ListFeedsParams struct {
 	UserID string `json:"user_id"`
-	Offset int64  `json:"offset"`
-	Limit  int64  `json:"limit"`
+	Offset int32  `json:"offset"`
+	Limit  int32  `json:"limit"`
 }
 
 func (q *Queries) ListFeeds(ctx context.Context, arg ListFeedsParams) ([]RecallyFeed, error) {
@@ -348,17 +349,17 @@ func (q *Queries) ListFeeds(ctx context.Context, arg ListFeedsParams) ([]Recally
 
 const listPendingEntries = `-- name: ListPendingEntries :many
 SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM recally_feed_entry
-WHERE feed_id = ?1
+WHERE feed_id = $1
   AND status IN ('pending', 'error')
   AND attempts < 3
 ORDER BY discovered_at ASC
-LIMIT ?3 OFFSET ?2
+LIMIT $3 OFFSET $2
 `
 
 type ListPendingEntriesParams struct {
 	FeedID string `json:"feed_id"`
-	Offset int64  `json:"offset"`
-	Limit  int64  `json:"limit"`
+	Offset int32  `json:"offset"`
+	Limit  int32  `json:"limit"`
 }
 
 func (q *Queries) ListPendingEntries(ctx context.Context, arg ListPendingEntriesParams) ([]RecallyFeedEntry, error) {
@@ -398,30 +399,30 @@ func (q *Queries) ListPendingEntries(ctx context.Context, arg ListPendingEntries
 
 const updateFeed = `-- name: UpdateFeed :one
 UPDATE recally_feed
-SET title           = ?1,
-    description     = ?2,
-    metadata        = ?3,
-    check_interval  = ?4,
-    last_checked_at = ?5,
-    last_etag       = ?6,
-    last_modified   = ?7,
-    enabled         = ?8,
-    updated_at      = datetime('now')
-WHERE id = ?9 AND user_id = ?10
+SET title           = $1,
+    description     = $2,
+    metadata        = $3,
+    check_interval  = $4,
+    last_checked_at = $5,
+    last_etag       = $6,
+    last_modified   = $7,
+    enabled         = $8,
+    updated_at      = now()
+WHERE id = $9 AND user_id = $10
 RETURNING id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at
 `
 
 type UpdateFeedParams struct {
-	Title         string         `json:"title"`
-	Description   string         `json:"description"`
-	Metadata      string         `json:"metadata"`
-	CheckInterval string         `json:"check_interval"`
-	LastCheckedAt sql.NullString `json:"last_checked_at"`
-	LastEtag      string         `json:"last_etag"`
-	LastModified  string         `json:"last_modified"`
-	Enabled       int64          `json:"enabled"`
-	ID            string         `json:"id"`
-	UserID        string         `json:"user_id"`
+	Title         string       `json:"title"`
+	Description   string       `json:"description"`
+	Metadata      string       `json:"metadata"`
+	CheckInterval string       `json:"check_interval"`
+	LastCheckedAt sql.NullTime `json:"last_checked_at"`
+	LastEtag      string       `json:"last_etag"`
+	LastModified  string       `json:"last_modified"`
+	Enabled       bool         `json:"enabled"`
+	ID            string       `json:"id"`
+	UserID        string       `json:"user_id"`
 }
 
 func (q *Queries) UpdateFeed(ctx context.Context, arg UpdateFeedParams) (RecallyFeed, error) {
@@ -460,12 +461,12 @@ func (q *Queries) UpdateFeed(ctx context.Context, arg UpdateFeedParams) (Recally
 
 const updateFeedEntry = `-- name: UpdateFeedEntry :one
 UPDATE recally_feed_entry
-SET status       = ?1,
-    article_id   = ?2,
+SET status       = $1,
+    article_id   = $2,
     attempts     = attempts + 1,
-    error_msg    = ?3,
-    processed_at = datetime('now')
-WHERE id = ?4 AND feed_id = ?5
+    error_msg    = $3,
+    processed_at = now()
+WHERE id = $4 AND feed_id = $5
 RETURNING id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at
 `
 

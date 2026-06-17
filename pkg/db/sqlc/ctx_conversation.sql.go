@@ -8,11 +8,12 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
 `
 
@@ -23,8 +24,8 @@ type CreateConversationParams struct {
 	Channel    string         `json:"channel"`
 	Kind       string         `json:"kind"`
 	ProjectID  sql.NullString `json:"project_id"`
-	Archived   int64          `json:"archived"`
-	LastActive string         `json:"last_active"`
+	Archived   bool           `json:"archived"`
+	LastActive time.Time      `json:"last_active"`
 	AgentID    sql.NullString `json:"agent_id"`
 	UserID     sql.NullString `json:"user_id"`
 }
@@ -63,9 +64,9 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 
 const getConversation = `-- name: GetConversation :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
-WHERE id = ?1
-  AND user_id = ?2
-  AND agent_id IS ?3
+WHERE id = $1
+  AND user_id = $2
+  AND agent_id IS NOT DISTINCT FROM $3
 `
 
 type GetConversationParams struct {
@@ -97,8 +98,8 @@ func (q *Queries) GetConversation(ctx context.Context, arg GetConversationParams
 
 const getConversationAgentBySessionID = `-- name: GetConversationAgentBySessionID :one
 SELECT agent_id FROM ctx_conversation
-WHERE session_id = ?1
-  AND user_id = ?2
+WHERE session_id = $1
+  AND user_id = $2
 `
 
 type GetConversationAgentBySessionIDParams struct {
@@ -115,9 +116,9 @@ func (q *Queries) GetConversationAgentBySessionID(ctx context.Context, arg GetCo
 
 const getConversationBySessionID = `-- name: GetConversationBySessionID :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
-WHERE session_id = ?1
-  AND user_id = ?2
-  AND agent_id IS ?3
+WHERE session_id = $1
+  AND user_id = $2
+  AND agent_id IS NOT DISTINCT FROM $3
 `
 
 type GetConversationBySessionIDParams struct {
@@ -149,10 +150,10 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConvers
 
 const getMainConversationByProject = `-- name: GetMainConversationByProject :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
-WHERE project_id = ?1
-  AND user_id = ?2
-  AND agent_id IS ?3
-  AND kind = 'main' AND archived = 0 LIMIT 1
+WHERE project_id = $1
+  AND user_id = $2
+  AND agent_id IS NOT DISTINCT FROM $3
+  AND kind = 'main' AND archived = false LIMIT 1
 `
 
 type GetMainConversationByProjectParams struct {
@@ -185,9 +186,9 @@ func (q *Queries) GetMainConversationByProject(ctx context.Context, arg GetMainC
 const listAgentConversationLastActive = `-- name: ListAgentConversationLastActive :many
 SELECT agent_id, MAX(last_active) AS last_active
 FROM ctx_conversation
-WHERE user_id = ?1
+WHERE user_id = $1
   AND agent_id IS NOT NULL
-  AND archived = 0
+  AND archived = false
 GROUP BY agent_id
 `
 
@@ -221,9 +222,9 @@ func (q *Queries) ListAgentConversationLastActive(ctx context.Context, userID sq
 
 const listConversations = `-- name: ListConversations :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
-WHERE user_id = ?1
-  AND (?2 IS NULL OR agent_id = ?2)
-  AND archived = 0
+WHERE user_id = $1
+  AND ($2 IS NULL OR agent_id = $2)
+  AND archived = false
 ORDER BY last_active DESC
 `
 
@@ -271,8 +272,8 @@ func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsPa
 
 const listConversationsAll = `-- name: ListConversationsAll :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
-WHERE user_id = ?1
-  AND (?2 IS NULL OR agent_id = ?2)
+WHERE user_id = $1
+  AND ($2 IS NULL OR agent_id = $2)
 ORDER BY last_active DESC
 `
 
@@ -319,7 +320,7 @@ func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversation
 }
 
 const listConversationsByKind = `-- name: ListConversationsByKind :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation WHERE agent_id = ? AND user_id = ? AND kind = ? AND archived = 0 ORDER BY last_active DESC
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation WHERE agent_id = $1 AND user_id = $2 AND kind = $3 AND archived = false ORDER BY last_active DESC
 `
 
 type ListConversationsByKindParams struct {
@@ -367,14 +368,14 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 
 const listConversationsFiltered = `-- name: ListConversationsFiltered :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
-WHERE user_id = ?1
-  AND agent_id IS ?2
-  AND (?3 != 0 OR archived = 0)
-  AND (?4 IS NULL OR kind = ?4)
-  AND (?5 = 0 OR project_id IS NULL)
-  AND (?6 IS NULL OR project_id = ?6)
+WHERE user_id = $1
+  AND agent_id IS NOT DISTINCT FROM $2
+  AND ($3 != 0 OR archived = false)
+  AND ($4 IS NULL OR kind = $4)
+  AND ($5 = 0 OR project_id IS NULL)
+  AND ($6 IS NULL OR project_id = $6)
 ORDER BY last_active DESC
-LIMIT ?8 OFFSET ?7
+LIMIT $8 OFFSET $7
 `
 
 type ListConversationsFilteredParams struct {
@@ -384,8 +385,8 @@ type ListConversationsFilteredParams struct {
 	Kind            interface{}    `json:"kind"`
 	ProjectIDIsNull interface{}    `json:"project_id_is_null"`
 	ProjectID       interface{}    `json:"project_id"`
-	Offset          int64          `json:"offset"`
-	Limit           int64          `json:"limit"`
+	Offset          int32          `json:"offset"`
+	Limit           int32          `json:"limit"`
 }
 
 func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConversationsFilteredParams) ([]CtxConversation, error) {
@@ -436,8 +437,8 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 
 const listConversationsForReviewByAgent = `-- name: ListConversationsForReviewByAgent :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
-WHERE agent_id = ?1
-  AND archived = 0
+WHERE agent_id = $1
+  AND archived = false
 ORDER BY last_active DESC
 `
 
@@ -480,13 +481,13 @@ func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID
 
 const listConversationsForReviewFiltered = `-- name: ListConversationsForReviewFiltered :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
-WHERE agent_id = ?1
-  AND archived = 0
-  AND (?2 IS NULL OR kind = ?2)
-  AND (?3 = 0 OR project_id IS NULL)
-  AND (?4 IS NULL OR project_id = ?4)
+WHERE agent_id = $1
+  AND archived = false
+  AND ($2 IS NULL OR kind = $2)
+  AND ($3 = 0 OR project_id IS NULL)
+  AND ($4 IS NULL OR project_id = $4)
 ORDER BY last_active DESC
-LIMIT ?6 OFFSET ?5
+LIMIT $6 OFFSET $5
 `
 
 type ListConversationsForReviewFilteredParams struct {
@@ -494,8 +495,8 @@ type ListConversationsForReviewFilteredParams struct {
 	Kind            interface{}    `json:"kind"`
 	ProjectIDIsNull interface{}    `json:"project_id_is_null"`
 	ProjectID       interface{}    `json:"project_id"`
-	Offset          int64          `json:"offset"`
-	Limit           int64          `json:"limit"`
+	Offset          int32          `json:"offset"`
+	Limit           int32          `json:"limit"`
 }
 
 func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg ListConversationsForReviewFilteredParams) ([]CtxConversation, error) {
@@ -543,12 +544,12 @@ func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg Li
 }
 
 const updateConversationArchived = `-- name: UpdateConversationArchived :exec
-UPDATE ctx_conversation SET archived = ?1, updated_at = datetime('now')
-WHERE session_id = ?2 AND user_id = ?3 AND agent_id IS ?4
+UPDATE ctx_conversation SET archived = $1, updated_at = now()
+WHERE session_id = $2 AND user_id = $3 AND agent_id IS NOT DISTINCT FROM $4
 `
 
 type UpdateConversationArchivedParams struct {
-	Archived  int64          `json:"archived"`
+	Archived  bool           `json:"archived"`
 	SessionID string         `json:"session_id"`
 	UserID    sql.NullString `json:"user_id"`
 	AgentID   sql.NullString `json:"agent_id"`
@@ -565,8 +566,8 @@ func (q *Queries) UpdateConversationArchived(ctx context.Context, arg UpdateConv
 }
 
 const updateConversationBootstrapped = `-- name: UpdateConversationBootstrapped :exec
-UPDATE ctx_conversation SET bootstrapped_at = datetime('now'), updated_at = datetime('now')
-WHERE id = ?1 AND user_id = ?2 AND agent_id IS ?3
+UPDATE ctx_conversation SET bootstrapped_at = now(), updated_at = now()
+WHERE id = $1 AND user_id = $2 AND agent_id IS NOT DISTINCT FROM $3
 `
 
 type UpdateConversationBootstrappedParams struct {
@@ -584,27 +585,27 @@ const updateConversationInfoBySessionID = `-- name: UpdateConversationInfoBySess
 UPDATE ctx_conversation
 SET
   title = CASE
-    WHEN ?1 IS NOT NULL AND (title IS NULL OR title != ?1) THEN ?1
+    WHEN $1 IS NOT NULL AND (title IS NULL OR title != $1) THEN $1
     ELSE title
   END,
-  archived = CASE WHEN archived != ?2 THEN ?2 ELSE archived END,
-  kind = CASE WHEN ?3 IS NOT NULL AND kind != ?3 THEN ?3 ELSE kind END,
+  archived = CASE WHEN archived != $2 THEN $2 ELSE archived END,
+  kind = CASE WHEN $3 IS NOT NULL AND kind != $3 THEN $3 ELSE kind END,
   project_id = CASE
-    WHEN ?4 IS NOT NULL AND (project_id IS NULL OR project_id != ?4) THEN ?4
+    WHEN $4 IS NOT NULL AND (project_id IS NULL OR project_id != $4) THEN $4
     ELSE project_id
   END,
-  last_active = datetime('now'),
-  updated_at = datetime('now')
-WHERE session_id = ?5
-  AND user_id = ?6
-  AND agent_id IS ?7
+  last_active = now(),
+  updated_at = now()
+WHERE session_id = $5
+  AND user_id = $6
+  AND agent_id IS NOT DISTINCT FROM $7
 `
 
 type UpdateConversationInfoBySessionIDParams struct {
-	Title     interface{}    `json:"title"`
-	Archived  int64          `json:"archived"`
-	Kind      interface{}    `json:"kind"`
-	ProjectID interface{}    `json:"project_id"`
+	Title     sql.NullString `json:"title"`
+	Archived  bool           `json:"archived"`
+	Kind      sql.NullString `json:"kind"`
+	ProjectID sql.NullString `json:"project_id"`
 	SessionID string         `json:"session_id"`
 	UserID    sql.NullString `json:"user_id"`
 	AgentID   sql.NullString `json:"agent_id"`
@@ -624,8 +625,8 @@ func (q *Queries) UpdateConversationInfoBySessionID(ctx context.Context, arg Upd
 }
 
 const updateConversationKindProject = `-- name: UpdateConversationKindProject :exec
-UPDATE ctx_conversation SET kind = ?1, project_id = ?2, updated_at = datetime('now')
-WHERE session_id = ?3 AND user_id = ?4 AND agent_id IS ?5
+UPDATE ctx_conversation SET kind = $1, project_id = $2, updated_at = now()
+WHERE session_id = $3 AND user_id = $4 AND agent_id IS NOT DISTINCT FROM $5
 `
 
 type UpdateConversationKindProjectParams struct {
@@ -648,8 +649,8 @@ func (q *Queries) UpdateConversationKindProject(ctx context.Context, arg UpdateC
 }
 
 const updateConversationLastActive = `-- name: UpdateConversationLastActive :exec
-UPDATE ctx_conversation SET last_active = datetime('now'), updated_at = datetime('now')
-WHERE session_id = ?1 AND user_id = ?2 AND agent_id IS ?3
+UPDATE ctx_conversation SET last_active = now(), updated_at = now()
+WHERE session_id = $1 AND user_id = $2 AND agent_id IS NOT DISTINCT FROM $3
 `
 
 type UpdateConversationLastActiveParams struct {
@@ -664,8 +665,8 @@ func (q *Queries) UpdateConversationLastActive(ctx context.Context, arg UpdateCo
 }
 
 const updateConversationTitle = `-- name: UpdateConversationTitle :exec
-UPDATE ctx_conversation SET title = ?1, updated_at = datetime('now')
-WHERE id = ?2 AND user_id = ?3 AND agent_id IS ?4
+UPDATE ctx_conversation SET title = $1, updated_at = now()
+WHERE id = $2 AND user_id = $3 AND agent_id IS NOT DISTINCT FROM $4
 `
 
 type UpdateConversationTitleParams struct {
@@ -686,8 +687,8 @@ func (q *Queries) UpdateConversationTitle(ctx context.Context, arg UpdateConvers
 }
 
 const updateConversationTitleBySessionID = `-- name: UpdateConversationTitleBySessionID :exec
-UPDATE ctx_conversation SET title = ?1, updated_at = datetime('now')
-WHERE session_id = ?2 AND user_id = ?3 AND agent_id IS ?4
+UPDATE ctx_conversation SET title = $1, updated_at = now()
+WHERE session_id = $2 AND user_id = $3 AND agent_id IS NOT DISTINCT FROM $4
 `
 
 type UpdateConversationTitleBySessionIDParams struct {

@@ -1,15 +1,15 @@
 -- name: ListVaultEntriesByUser :many
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
-WHERE scope = 'user' AND user_id = ?
+WHERE scope = 'user' AND user_id = $1
 ORDER BY name;
 
 -- name: ListVaultEntriesByScope :many
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
 WHERE scope = sqlc.arg(scope)
-  AND ifnull(user_id, '') = ifnull(sqlc.narg(user_id), '')
-  AND ifnull(agent_id, '') = ifnull(sqlc.narg(agent_id), '')
+  AND coalesce(user_id, '') = coalesce(sqlc.narg(user_id), '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
 ORDER BY name;
 
 -- name: ListVaultEntriesForRuntime :many
@@ -31,39 +31,39 @@ END, name;
 -- name: GetVaultEntry :one
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
-WHERE scope = 'user' AND user_id = ? AND name = ?;
+WHERE scope = 'user' AND user_id = $1 AND name = $2;
 
 -- name: GetVaultEntryByScope :one
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
 WHERE scope = sqlc.arg(scope)
-  AND ifnull(user_id, '') = ifnull(sqlc.narg(user_id), '')
-  AND ifnull(agent_id, '') = ifnull(sqlc.narg(agent_id), '')
+  AND coalesce(user_id, '') = coalesce(sqlc.narg(user_id), '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
   AND name = sqlc.arg(name);
 
 -- name: UpsertVaultEntry :exec
 INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext)
-VALUES (?, 'user', ?, NULL, ?, ?)
+VALUES ($1, 'user', $2, NULL, $3, $4)
 ON CONFLICT DO UPDATE SET
     ciphertext = excluded.ciphertext,
-    updated_at = datetime('now');
+    updated_at = now();
 
 -- name: UpsertVaultEntryByScope :exec
 INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext)
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT DO UPDATE SET
     ciphertext = excluded.ciphertext,
-    updated_at = datetime('now');
+    updated_at = now();
 
 -- name: DeleteVaultEntry :exec
-DELETE FROM vault_entry WHERE scope = 'user' AND user_id = ? AND name = ?;
+DELETE FROM vault_entry WHERE scope = 'user' AND user_id = $1 AND name = $2;
 
 -- name: DeleteVaultEntryByScope :exec
 DELETE FROM vault_entry
 WHERE scope = sqlc.arg(scope)
-  AND ifnull(user_id, '') = ifnull(sqlc.narg(user_id), '')
-  AND ifnull(agent_id, '') = ifnull(sqlc.narg(agent_id), '')
+  AND coalesce(user_id, '') = coalesce(sqlc.narg(user_id), '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
   AND name = sqlc.arg(name);
 
 -- name: DeleteAllVaultEntriesByUser :exec
-DELETE FROM vault_entry WHERE user_id = ?;
+DELETE FROM vault_entry WHERE user_id = $1;

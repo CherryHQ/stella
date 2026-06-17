@@ -10,8 +10,8 @@ import (
 )
 
 const advanceMemorySnapshot = `-- name: AdvanceMemorySnapshot :exec
-UPDATE ctx_agent_memory_snapshot SET version = ?, updated_at = datetime('now')
-WHERE session_id = ? AND user_id = ? AND agent_id = ?
+UPDATE ctx_agent_memory_snapshot SET version = $1, updated_at = now()
+WHERE session_id = $2 AND user_id = $3 AND agent_id = $4
 `
 
 type AdvanceMemorySnapshotParams struct {
@@ -33,7 +33,7 @@ func (q *Queries) AdvanceMemorySnapshot(ctx context.Context, arg AdvanceMemorySn
 
 const createMemorySnapshot = `-- name: CreateMemorySnapshot :one
 INSERT INTO ctx_agent_memory_snapshot (session_id, user_id, agent_id, version, created_at, updated_at)
-VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+VALUES ($1, $2, $3, $4, now(), now())
 RETURNING session_id, user_id, agent_id, version, created_at, updated_at
 `
 
@@ -64,7 +64,7 @@ func (q *Queries) CreateMemorySnapshot(ctx context.Context, arg CreateMemorySnap
 }
 
 const getMemorySnapshot = `-- name: GetMemorySnapshot :one
-SELECT session_id, user_id, agent_id, version, created_at, updated_at FROM ctx_agent_memory_snapshot WHERE session_id = ? AND user_id = ? AND agent_id = ?
+SELECT session_id, user_id, agent_id, version, created_at, updated_at FROM ctx_agent_memory_snapshot WHERE session_id = $1 AND user_id = $2 AND agent_id = $3
 `
 
 type GetMemorySnapshotParams struct {

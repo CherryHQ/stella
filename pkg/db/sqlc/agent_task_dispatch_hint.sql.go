@@ -8,17 +8,18 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const consumeDispatchHint = `-- name: ConsumeDispatchHint :execrows
 UPDATE agent_task_dispatch_hint
-SET consumed_at = ?
-WHERE id = ? AND consumed_at IS NULL
+SET consumed_at = $1
+WHERE id = $2 AND consumed_at IS NULL
 `
 
 type ConsumeDispatchHintParams struct {
-	ConsumedAt sql.NullString `json:"consumed_at"`
-	ID         string         `json:"id"`
+	ConsumedAt sql.NullTime `json:"consumed_at"`
+	ID         string       `json:"id"`
 }
 
 func (q *Queries) ConsumeDispatchHint(ctx context.Context, arg ConsumeDispatchHintParams) (int64, error) {
@@ -32,7 +33,7 @@ func (q *Queries) ConsumeDispatchHint(ctx context.Context, arg ConsumeDispatchHi
 const createAgentTaskDispatchHint = `-- name: CreateAgentTaskDispatchHint :one
 
 INSERT INTO agent_task_dispatch_hint (id, task_id, kind, executor_agent_id, created_at)
-VALUES (?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING id, task_id, goal_id, kind, executor_agent_id, consumed_at, created_at
 `
 
@@ -41,7 +42,7 @@ type CreateAgentTaskDispatchHintParams struct {
 	TaskID          sql.NullString `json:"task_id"`
 	Kind            string         `json:"kind"`
 	ExecutorAgentID string         `json:"executor_agent_id"`
-	CreatedAt       string         `json:"created_at"`
+	CreatedAt       time.Time      `json:"created_at"`
 }
 
 // Dispatch hint persistence between task creation and the next claim (B1 / D13).
@@ -67,7 +68,7 @@ func (q *Queries) CreateAgentTaskDispatchHint(ctx context.Context, arg CreateAge
 }
 
 const deleteDispatchHint = `-- name: DeleteDispatchHint :exec
-DELETE FROM agent_task_dispatch_hint WHERE id = ?
+DELETE FROM agent_task_dispatch_hint WHERE id = $1
 `
 
 func (q *Queries) DeleteDispatchHint(ctx context.Context, id string) error {
@@ -77,7 +78,7 @@ func (q *Queries) DeleteDispatchHint(ctx context.Context, id string) error {
 
 const getLiveDispatchHintForTask = `-- name: GetLiveDispatchHintForTask :one
 SELECT id, task_id, goal_id, kind, executor_agent_id, consumed_at, created_at FROM agent_task_dispatch_hint
-WHERE task_id = ? AND kind = ? AND consumed_at IS NULL
+WHERE task_id = $1 AND kind = $2 AND consumed_at IS NULL
 LIMIT 1
 `
 

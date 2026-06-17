@@ -8,12 +8,13 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const appendAgentTaskBlockerDetail = `-- name: AppendAgentTaskBlockerDetail :exec
 UPDATE agent_task_blocker
-SET detail = ?
-WHERE id = ?
+SET detail = $1
+WHERE id = $2
 `
 
 type AppendAgentTaskBlockerDetailParams struct {
@@ -28,13 +29,13 @@ func (q *Queries) AppendAgentTaskBlockerDetail(ctx context.Context, arg AppendAg
 
 const cancelAgentTaskBlocker = `-- name: CancelAgentTaskBlocker :execrows
 UPDATE agent_task_blocker
-SET status = 'cancelled', resolved_at = ?
-WHERE id = ? AND status = 'open'
+SET status = 'cancelled', resolved_at = $1
+WHERE id = $2 AND status = 'open'
 `
 
 type CancelAgentTaskBlockerParams struct {
-	ResolvedAt sql.NullString `json:"resolved_at"`
-	ID         string         `json:"id"`
+	ResolvedAt sql.NullTime `json:"resolved_at"`
+	ID         string       `json:"id"`
 }
 
 func (q *Queries) CancelAgentTaskBlocker(ctx context.Context, arg CancelAgentTaskBlockerParams) (int64, error) {
@@ -50,7 +51,7 @@ const createAgentTaskBlocker = `-- name: CreateAgentTaskBlocker :one
 INSERT INTO agent_task_blocker (
     id, task_id, kind, status, question, detail, created_by_run_id, created_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, task_id, kind, status, question, detail, resolution, created_by_run_id, created_at, resolved_at
 `
 
@@ -62,7 +63,7 @@ type CreateAgentTaskBlockerParams struct {
 	Question       string         `json:"question"`
 	Detail         string         `json:"detail"`
 	CreatedByRunID sql.NullString `json:"created_by_run_id"`
-	CreatedAt      string         `json:"created_at"`
+	CreatedAt      time.Time      `json:"created_at"`
 }
 
 // Blocker queries.
@@ -94,7 +95,7 @@ func (q *Queries) CreateAgentTaskBlocker(ctx context.Context, arg CreateAgentTas
 }
 
 const getAgentTaskBlocker = `-- name: GetAgentTaskBlocker :one
-SELECT id, task_id, kind, status, question, detail, resolution, created_by_run_id, created_at, resolved_at FROM agent_task_blocker WHERE id = ?
+SELECT id, task_id, kind, status, question, detail, resolution, created_by_run_id, created_at, resolved_at FROM agent_task_blocker WHERE id = $1
 `
 
 func (q *Queries) GetAgentTaskBlocker(ctx context.Context, id string) (AgentTaskBlocker, error) {
@@ -117,7 +118,7 @@ func (q *Queries) GetAgentTaskBlocker(ctx context.Context, id string) (AgentTask
 
 const getLatestResolvedBlockerForTask = `-- name: GetLatestResolvedBlockerForTask :one
 SELECT id, task_id, kind, status, question, detail, resolution, created_by_run_id, created_at, resolved_at FROM agent_task_blocker
-WHERE task_id = ? AND status = 'resolved'
+WHERE task_id = $1 AND status = 'resolved'
 ORDER BY resolved_at DESC
 LIMIT 1
 `
@@ -142,7 +143,7 @@ func (q *Queries) GetLatestResolvedBlockerForTask(ctx context.Context, taskID st
 
 const getOpenBlockerForTask = `-- name: GetOpenBlockerForTask :one
 SELECT id, task_id, kind, status, question, detail, resolution, created_by_run_id, created_at, resolved_at FROM agent_task_blocker
-WHERE task_id = ? AND status = 'open'
+WHERE task_id = $1 AND status = 'open'
 LIMIT 1
 `
 
@@ -165,7 +166,7 @@ func (q *Queries) GetOpenBlockerForTask(ctx context.Context, taskID string) (Age
 }
 
 const listAgentTaskBlockersByTask = `-- name: ListAgentTaskBlockersByTask :many
-SELECT id, task_id, kind, status, question, detail, resolution, created_by_run_id, created_at, resolved_at FROM agent_task_blocker WHERE task_id = ? ORDER BY created_at DESC
+SELECT id, task_id, kind, status, question, detail, resolution, created_by_run_id, created_at, resolved_at FROM agent_task_blocker WHERE task_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAgentTaskBlockersByTask(ctx context.Context, taskID string) ([]AgentTaskBlocker, error) {
@@ -204,14 +205,14 @@ func (q *Queries) ListAgentTaskBlockersByTask(ctx context.Context, taskID string
 
 const resolveAgentTaskBlocker = `-- name: ResolveAgentTaskBlocker :execrows
 UPDATE agent_task_blocker
-SET status = 'resolved', resolution = ?, resolved_at = ?
-WHERE id = ? AND status = 'open'
+SET status = 'resolved', resolution = $1, resolved_at = $2
+WHERE id = $3 AND status = 'open'
 `
 
 type ResolveAgentTaskBlockerParams struct {
-	Resolution string         `json:"resolution"`
-	ResolvedAt sql.NullString `json:"resolved_at"`
-	ID         string         `json:"id"`
+	Resolution string       `json:"resolution"`
+	ResolvedAt sql.NullTime `json:"resolved_at"`
+	ID         string       `json:"id"`
 }
 
 func (q *Queries) ResolveAgentTaskBlocker(ctx context.Context, arg ResolveAgentTaskBlockerParams) (int64, error) {

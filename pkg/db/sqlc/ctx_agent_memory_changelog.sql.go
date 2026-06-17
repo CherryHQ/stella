@@ -11,8 +11,8 @@ import (
 )
 
 const getMemoryChangelogAtVersion = `-- name: GetMemoryChangelogAtVersion :one
-SELECT id, user_id, agent_id, session_id, entity_id, scope, "action", source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at FROM ctx_agent_memory_changelog
-WHERE user_id = ? AND agent_id = ? AND scope = ? AND memory_version_after <= ?
+SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at FROM ctx_agent_memory_changelog
+WHERE user_id = $1 AND agent_id = $2 AND scope = $3 AND memory_version_after <= $4
 ORDER BY memory_version_after DESC, id DESC
 LIMIT 1
 `
@@ -53,7 +53,7 @@ func (q *Queries) GetMemoryChangelogAtVersion(ctx context.Context, arg GetMemory
 
 const insertMemoryChangelog = `-- name: InsertMemoryChangelog :exec
 INSERT INTO ctx_agent_memory_changelog (id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 `
 
 type InsertMemoryChangelogParams struct {
@@ -92,17 +92,17 @@ func (q *Queries) InsertMemoryChangelog(ctx context.Context, arg InsertMemoryCha
 }
 
 const listMemoryChangelog = `-- name: ListMemoryChangelog :many
-SELECT id, user_id, agent_id, session_id, entity_id, scope, "action", source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at FROM ctx_agent_memory_changelog
-WHERE user_id = ? AND agent_id = ? AND scope = ?
+SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at FROM ctx_agent_memory_changelog
+WHERE user_id = $1 AND agent_id = $2 AND scope = $3
 ORDER BY id DESC
-LIMIT ?
+LIMIT $4
 `
 
 type ListMemoryChangelogParams struct {
 	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 	Scope   string `json:"scope"`
-	Limit   int64  `json:"limit"`
+	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListMemoryChangelog(ctx context.Context, arg ListMemoryChangelogParams) ([]CtxAgentMemoryChangelog, error) {

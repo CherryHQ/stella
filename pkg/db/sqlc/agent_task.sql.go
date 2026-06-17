@@ -8,21 +8,22 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const claimAgentTask = `-- name: ClaimAgentTask :execrows
 UPDATE agent_task
 SET status = 'running',
-    active_run_id = ?,
-    updated_at = ?
-WHERE id = ?
+    active_run_id = $1,
+    updated_at = $2
+WHERE id = $3
   AND status = 'ready'
   AND active_run_id IS NULL
 `
 
 type ClaimAgentTaskParams struct {
 	ActiveRunID sql.NullString `json:"active_run_id"`
-	UpdatedAt   string         `json:"updated_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 	ID          string         `json:"id"`
 }
 
@@ -53,7 +54,7 @@ INSERT INTO agent_task (
     required, retry_count, max_retries, not_before, deadline_at,
     context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 RETURNING id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at
 `
 
@@ -68,15 +69,15 @@ type CreateAgentTaskParams struct {
 	Description string         `json:"description"`
 	Status      string         `json:"status"`
 	Priority    string         `json:"priority"`
-	Required    int64          `json:"required"`
+	Required    bool           `json:"required"`
 	RetryCount  int64          `json:"retry_count"`
 	MaxRetries  int64          `json:"max_retries"`
-	NotBefore   sql.NullString `json:"not_before"`
-	DeadlineAt  sql.NullString `json:"deadline_at"`
+	NotBefore   sql.NullTime   `json:"not_before"`
+	DeadlineAt  sql.NullTime   `json:"deadline_at"`
 	Context     string         `json:"context"`
 	Output      string         `json:"output"`
-	CreatedAt   string         `json:"created_at"`
-	UpdatedAt   string         `json:"updated_at"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 // agent_task v2 queries  Slice 1.
@@ -137,7 +138,7 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 }
 
 const deleteAgentTask = `-- name: DeleteAgentTask :exec
-DELETE FROM agent_task WHERE id = ?
+DELETE FROM agent_task WHERE id = $1
 `
 
 func (q *Queries) DeleteAgentTask(ctx context.Context, id string) error {
@@ -146,7 +147,7 @@ func (q *Queries) DeleteAgentTask(ctx context.Context, id string) error {
 }
 
 const getAgentTask = `-- name: GetAgentTask :one
-SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ?
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = $1
 `
 
 func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error) {
@@ -184,13 +185,13 @@ func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error
 
 const incrementAgentTaskRetry = `-- name: IncrementAgentTaskRetry :exec
 UPDATE agent_task
-SET retry_count = retry_count + 1, updated_at = ?
-WHERE id = ?
+SET retry_count = retry_count + 1, updated_at = $1
+WHERE id = $2
 `
 
 type IncrementAgentTaskRetryParams struct {
-	UpdatedAt string `json:"updated_at"`
-	ID        string `json:"id"`
+	UpdatedAt time.Time `json:"updated_at"`
+	ID        string    `json:"id"`
 }
 
 func (q *Queries) IncrementAgentTaskRetry(ctx context.Context, arg IncrementAgentTaskRetryParams) error {
@@ -199,12 +200,12 @@ func (q *Queries) IncrementAgentTaskRetry(ctx context.Context, arg IncrementAgen
 }
 
 const listAgentTasks = `-- name: ListAgentTasks :many
-SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2
 `
 
 type ListAgentTasksParams struct {
-	Limit  int64 `json:"limit"`
-	Offset int64 `json:"offset"`
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
 }
 
 func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) ([]AgentTask, error) {
@@ -258,12 +259,12 @@ func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) 
 
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
 SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
-WHERE user_id = ?1
-  AND (?2 IS NULL OR agent_id = ?2)
-  AND (?3 IS NULL OR status = ?3)
-  AND (?4 IS NULL OR project_id = ?4)
+WHERE user_id = $1
+  AND ($2 IS NULL OR agent_id = $2)
+  AND ($3 IS NULL OR status = $3)
+  AND ($4 IS NULL OR project_id = $4)
 ORDER BY created_at DESC, id DESC
-LIMIT ?6 OFFSET ?5
+LIMIT $6 OFFSET $5
 `
 
 type ListAgentTasksByUserParams struct {
@@ -271,8 +272,8 @@ type ListAgentTasksByUserParams struct {
 	AgentID   interface{} `json:"agent_id"`
 	Status    interface{} `json:"status"`
 	ProjectID interface{} `json:"project_id"`
-	Offset    int64       `json:"offset"`
-	Limit     int64       `json:"limit"`
+	Offset    int32       `json:"offset"`
+	Limit     int32       `json:"limit"`
 }
 
 func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksByUserParams) ([]AgentTask, error) {
@@ -341,9 +342,9 @@ SELECT
   b.created_at AS created_at
 FROM agent_task t
 JOIN agent_task_blocker b ON b.id = t.active_blocker_id
-WHERE t.user_id = ?2
+WHERE t.user_id = $2
   AND b.status = 'open'
-  AND (?3 IS NULL OR t.agent_id = ?3)
+  AND ($3 IS NULL OR t.agent_id = $3)
 
 UNION ALL
 
@@ -356,15 +357,15 @@ SELECT
   b.created_at AS created_at
 FROM agent_task t
 JOIN agent_task_blocker b ON b.task_id = t.id AND b.status = 'open'
-WHERE t.user_id = ?2
+WHERE t.user_id = $2
   AND t.active_blocker_id IS NULL
-  AND (?3 IS NULL OR t.agent_id = ?3)
+  AND ($3 IS NULL OR t.agent_id = $3)
 ORDER BY created_at DESC
-LIMIT ?1
+LIMIT $1
 `
 
 type ListBlockedInboxTasksParams struct {
-	LimitCount int64       `json:"limit_count"`
+	LimitCount int32       `json:"limit_count"`
 	UserID     string      `json:"user_id"`
 	AgentID    interface{} `json:"agent_id"`
 }
@@ -375,7 +376,7 @@ type ListBlockedInboxTasksRow struct {
 	ProjectID sql.NullString `json:"project_id"`
 	Title     string         `json:"title"`
 	Question  string         `json:"question"`
-	CreatedAt string         `json:"created_at"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 func (q *Queries) ListBlockedInboxTasks(ctx context.Context, arg ListBlockedInboxTasksParams) ([]ListBlockedInboxTasksRow, error) {
@@ -412,14 +413,14 @@ const listReadyCandidates = `-- name: ListReadyCandidates :many
 SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
 WHERE status = 'ready'
   AND active_run_id IS NULL
-  AND (not_before IS NULL OR not_before <= ?)
+  AND (not_before IS NULL OR not_before <= $1)
 ORDER BY priority DESC, created_at ASC
-LIMIT ?
+LIMIT $2
 `
 
 type ListReadyCandidatesParams struct {
-	NotBefore sql.NullString `json:"not_before"`
-	Limit     int64          `json:"limit"`
+	NotBefore sql.NullTime `json:"not_before"`
+	Limit     int32        `json:"limit"`
 }
 
 // Coarse pre-filter for the dispatcher tick (HP4).
@@ -484,11 +485,11 @@ SELECT
   r.created_at AS created_at
 FROM agent_task t
 JOIN agent_review r ON r.id = t.active_review_id
-WHERE t.user_id = ?2
+WHERE t.user_id = $2
   AND t.status = 'reviewing'
   AND r.status IN ('requested', 'in_progress')
   AND r.reviewer_type = 'human'
-  AND (?3 IS NULL OR t.agent_id = ?3)
+  AND ($3 IS NULL OR t.agent_id = $3)
 
 UNION ALL
 
@@ -504,16 +505,16 @@ FROM agent_task t
 JOIN agent_review r ON r.task_id = t.id
   AND r.status IN ('requested', 'in_progress')
   AND r.reviewer_type = 'human'
-WHERE t.user_id = ?2
+WHERE t.user_id = $2
   AND t.status = 'reviewing'
   AND t.active_review_id IS NULL
-  AND (?3 IS NULL OR t.agent_id = ?3)
+  AND ($3 IS NULL OR t.agent_id = $3)
 ORDER BY created_at DESC
-LIMIT ?1
+LIMIT $1
 `
 
 type ListReviewInboxTasksParams struct {
-	LimitCount int64       `json:"limit_count"`
+	LimitCount int32       `json:"limit_count"`
 	UserID     string      `json:"user_id"`
 	AgentID    interface{} `json:"agent_id"`
 }
@@ -525,7 +526,7 @@ type ListReviewInboxTasksRow struct {
 	Title     string         `json:"title"`
 	ReviewID  string         `json:"review_id"`
 	Summary   string         `json:"summary"`
-	CreatedAt string         `json:"created_at"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 // Only reviews waiting on a human belong in the inbox: agent-policy reviews
@@ -564,13 +565,13 @@ func (q *Queries) ListReviewInboxTasks(ctx context.Context, arg ListReviewInboxT
 
 const setAgentTaskActiveBlocker = `-- name: SetAgentTaskActiveBlocker :exec
 UPDATE agent_task
-SET active_blocker_id = ?, updated_at = ?
-WHERE id = ?
+SET active_blocker_id = $1, updated_at = $2
+WHERE id = $3
 `
 
 type SetAgentTaskActiveBlockerParams struct {
 	ActiveBlockerID sql.NullString `json:"active_blocker_id"`
-	UpdatedAt       string         `json:"updated_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
 	ID              string         `json:"id"`
 }
 
@@ -581,13 +582,13 @@ func (q *Queries) SetAgentTaskActiveBlocker(ctx context.Context, arg SetAgentTas
 
 const setAgentTaskActiveReview = `-- name: SetAgentTaskActiveReview :exec
 UPDATE agent_task
-SET active_review_id = ?, updated_at = ?
-WHERE id = ?
+SET active_review_id = $1, updated_at = $2
+WHERE id = $3
 `
 
 type SetAgentTaskActiveReviewParams struct {
 	ActiveReviewID sql.NullString `json:"active_review_id"`
-	UpdatedAt      string         `json:"updated_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 	ID             string         `json:"id"`
 }
 
@@ -598,13 +599,13 @@ func (q *Queries) SetAgentTaskActiveReview(ctx context.Context, arg SetAgentTask
 
 const setAgentTaskActiveRun = `-- name: SetAgentTaskActiveRun :exec
 UPDATE agent_task
-SET active_run_id = ?, updated_at = ?
-WHERE id = ?
+SET active_run_id = $1, updated_at = $2
+WHERE id = $3
 `
 
 type SetAgentTaskActiveRunParams struct {
 	ActiveRunID sql.NullString `json:"active_run_id"`
-	UpdatedAt   string         `json:"updated_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 	ID          string         `json:"id"`
 }
 
@@ -615,14 +616,14 @@ func (q *Queries) SetAgentTaskActiveRun(ctx context.Context, arg SetAgentTaskAct
 
 const setAgentTaskCancelled = `-- name: SetAgentTaskCancelled :exec
 UPDATE agent_task
-SET cancelled_at = ?, updated_at = ?
-WHERE id = ?
+SET cancelled_at = $1, updated_at = $2
+WHERE id = $3
 `
 
 type SetAgentTaskCancelledParams struct {
-	CancelledAt sql.NullString `json:"cancelled_at"`
-	UpdatedAt   string         `json:"updated_at"`
-	ID          string         `json:"id"`
+	CancelledAt sql.NullTime `json:"cancelled_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	ID          string       `json:"id"`
 }
 
 func (q *Queries) SetAgentTaskCancelled(ctx context.Context, arg SetAgentTaskCancelledParams) error {
@@ -632,15 +633,15 @@ func (q *Queries) SetAgentTaskCancelled(ctx context.Context, arg SetAgentTaskCan
 
 const setAgentTaskOutput = `-- name: SetAgentTaskOutput :exec
 UPDATE agent_task
-SET output = ?, completed_at = ?, updated_at = ?
-WHERE id = ?
+SET output = $1, completed_at = $2, updated_at = $3
+WHERE id = $4
 `
 
 type SetAgentTaskOutputParams struct {
-	Output      string         `json:"output"`
-	CompletedAt sql.NullString `json:"completed_at"`
-	UpdatedAt   string         `json:"updated_at"`
-	ID          string         `json:"id"`
+	Output      string       `json:"output"`
+	CompletedAt sql.NullTime `json:"completed_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	ID          string       `json:"id"`
 }
 
 func (q *Queries) SetAgentTaskOutput(ctx context.Context, arg SetAgentTaskOutputParams) error {
@@ -655,14 +656,14 @@ func (q *Queries) SetAgentTaskOutput(ctx context.Context, arg SetAgentTaskOutput
 
 const setAgentTaskReviewPolicy = `-- name: SetAgentTaskReviewPolicy :exec
 UPDATE agent_task
-SET review_policy = ?, updated_at = ?
-WHERE id = ?
+SET review_policy = $1, updated_at = $2
+WHERE id = $3
 `
 
 type SetAgentTaskReviewPolicyParams struct {
-	ReviewPolicy string `json:"review_policy"`
-	UpdatedAt    string `json:"updated_at"`
-	ID           string `json:"id"`
+	ReviewPolicy string    `json:"review_policy"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string    `json:"id"`
 }
 
 func (q *Queries) SetAgentTaskReviewPolicy(ctx context.Context, arg SetAgentTaskReviewPolicyParams) error {
@@ -673,15 +674,15 @@ func (q *Queries) SetAgentTaskReviewPolicy(ctx context.Context, arg SetAgentTask
 const transitionAgentTaskStatus = `-- name: TransitionAgentTaskStatus :execrows
 
 UPDATE agent_task
-SET status = ?, updated_at = ?
-WHERE id = ? AND status = ?
+SET status = $1, updated_at = $2
+WHERE id = $3 AND status = $4
 `
 
 type TransitionAgentTaskStatusParams struct {
-	Status    string `json:"status"`
-	UpdatedAt string `json:"updated_at"`
-	ID        string `json:"id"`
-	Status_2  string `json:"status_2"`
+	Status    string    `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
+	ID        string    `json:"id"`
+	Status_2  string    `json:"status_2"`
 }
 
 // Transition service uses these. Conditional UPDATE returns affected rows
@@ -701,20 +702,20 @@ func (q *Queries) TransitionAgentTaskStatus(ctx context.Context, arg TransitionA
 
 const updateAgentTaskMeta = `-- name: UpdateAgentTaskMeta :exec
 UPDATE agent_task
-SET title = ?, description = ?, priority = ?, not_before = ?, deadline_at = ?,
-    context = ?, updated_at = ?
-WHERE id = ?
+SET title = $1, description = $2, priority = $3, not_before = $4, deadline_at = $5,
+    context = $6, updated_at = $7
+WHERE id = $8
 `
 
 type UpdateAgentTaskMetaParams struct {
-	Title       string         `json:"title"`
-	Description string         `json:"description"`
-	Priority    string         `json:"priority"`
-	NotBefore   sql.NullString `json:"not_before"`
-	DeadlineAt  sql.NullString `json:"deadline_at"`
-	Context     string         `json:"context"`
-	UpdatedAt   string         `json:"updated_at"`
-	ID          string         `json:"id"`
+	Title       string       `json:"title"`
+	Description string       `json:"description"`
+	Priority    string       `json:"priority"`
+	NotBefore   sql.NullTime `json:"not_before"`
+	DeadlineAt  sql.NullTime `json:"deadline_at"`
+	Context     string       `json:"context"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	ID          string       `json:"id"`
 }
 
 func (q *Queries) UpdateAgentTaskMeta(ctx context.Context, arg UpdateAgentTaskMetaParams) error {

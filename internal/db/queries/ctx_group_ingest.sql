@@ -4,14 +4,14 @@ WHERE group_id = sqlc.arg(group_id) AND pipeline = sqlc.arg(pipeline);
 
 -- name: UpsertIngestCursor :exec
 INSERT INTO ctx_group_ingest_cursor (group_id, pipeline, last_seq, updated_at)
-VALUES (sqlc.arg(group_id), sqlc.arg(pipeline), sqlc.arg(last_seq), datetime('now'))
+VALUES (sqlc.arg(group_id), sqlc.arg(pipeline), sqlc.arg(last_seq), now())
 ON CONFLICT(group_id, pipeline) DO UPDATE SET
     last_seq = excluded.last_seq,
-    updated_at = datetime('now');
+    updated_at = now();
 
 -- name: CreateIngestError :exec
 INSERT INTO ctx_group_ingest_error (id, group_id, pipeline, seq, reason)
-VALUES (?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT(group_id, pipeline, seq) DO NOTHING;
 
 -- name: IsIngestError :one

@@ -14,21 +14,21 @@ const claimExpiredGroupOutbox = `-- name: ClaimExpiredGroupOutbox :one
 UPDATE ctx_group_outbox
 SET status = 'running',
     attempt_count = attempt_count + 1,
-    lease_until = ?1,
+    lease_until = $1,
     next_attempt_at = NULL,
     last_error = '',
-    updated_at = datetime('now')
-WHERE id = ?2
+    updated_at = now()
+WHERE id = $2
   AND status = 'running'
   AND lease_until IS NOT NULL
-  AND lease_until <= ?3
+  AND lease_until <= $3
 RETURNING id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at
 `
 
 type ClaimExpiredGroupOutboxParams struct {
-	LeaseUntil sql.NullString `json:"lease_until"`
-	ID         string         `json:"id"`
-	Now        sql.NullString `json:"now"`
+	LeaseUntil sql.NullTime `json:"lease_until"`
+	ID         string       `json:"id"`
+	Now        sql.NullTime `json:"now"`
 }
 
 func (q *Queries) ClaimExpiredGroupOutbox(ctx context.Context, arg ClaimExpiredGroupOutboxParams) (CtxGroupOutbox, error) {
@@ -54,20 +54,20 @@ const claimPendingGroupOutbox = `-- name: ClaimPendingGroupOutbox :one
 UPDATE ctx_group_outbox
 SET status = 'running',
     attempt_count = attempt_count + 1,
-    lease_until = ?1,
+    lease_until = $1,
     next_attempt_at = NULL,
     last_error = '',
-    updated_at = datetime('now')
-WHERE id = ?2
+    updated_at = now()
+WHERE id = $2
   AND status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= ?3)
+  AND (next_attempt_at IS NULL OR next_attempt_at <= $3)
 RETURNING id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at
 `
 
 type ClaimPendingGroupOutboxParams struct {
-	LeaseUntil sql.NullString `json:"lease_until"`
-	ID         string         `json:"id"`
-	Now        sql.NullString `json:"now"`
+	LeaseUntil sql.NullTime `json:"lease_until"`
+	ID         string       `json:"id"`
+	Now        sql.NullTime `json:"now"`
 }
 
 func (q *Queries) ClaimPendingGroupOutbox(ctx context.Context, arg ClaimPendingGroupOutboxParams) (CtxGroupOutbox, error) {
@@ -93,20 +93,20 @@ const createGroupOutbox = `-- name: CreateGroupOutbox :one
 INSERT INTO ctx_group_outbox (
   id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at
 `
 
 type CreateGroupOutboxParams struct {
-	ID             string         `json:"id"`
-	GroupMessageID string         `json:"group_message_id"`
-	GroupID        string         `json:"group_id"`
-	Envelope       string         `json:"envelope"`
-	Status         string         `json:"status"`
-	AttemptCount   int64          `json:"attempt_count"`
-	LeaseUntil     sql.NullString `json:"lease_until"`
-	NextAttemptAt  sql.NullString `json:"next_attempt_at"`
-	LastError      string         `json:"last_error"`
+	ID             string       `json:"id"`
+	GroupMessageID string       `json:"group_message_id"`
+	GroupID        string       `json:"group_id"`
+	Envelope       string       `json:"envelope"`
+	Status         string       `json:"status"`
+	AttemptCount   int64        `json:"attempt_count"`
+	LeaseUntil     sql.NullTime `json:"lease_until"`
+	NextAttemptAt  sql.NullTime `json:"next_attempt_at"`
+	LastError      string       `json:"last_error"`
 }
 
 func (q *Queries) CreateGroupOutbox(ctx context.Context, arg CreateGroupOutboxParams) (CtxGroupOutbox, error) {
@@ -140,17 +140,17 @@ func (q *Queries) CreateGroupOutbox(ctx context.Context, arg CreateGroupOutboxPa
 
 const extendRunningGroupOutboxLease = `-- name: ExtendRunningGroupOutboxLease :execrows
 UPDATE ctx_group_outbox
-SET lease_until = ?1,
-    updated_at = datetime('now')
-WHERE id = ?2
+SET lease_until = $1,
+    updated_at = now()
+WHERE id = $2
   AND status = 'running'
-  AND attempt_count = ?3
+  AND attempt_count = $3
 `
 
 type ExtendRunningGroupOutboxLeaseParams struct {
-	LeaseUntil   sql.NullString `json:"lease_until"`
-	ID           string         `json:"id"`
-	AttemptCount int64          `json:"attempt_count"`
+	LeaseUntil   sql.NullTime `json:"lease_until"`
+	ID           string       `json:"id"`
+	AttemptCount int64        `json:"attempt_count"`
 }
 
 func (q *Queries) ExtendRunningGroupOutboxLease(ctx context.Context, arg ExtendRunningGroupOutboxLeaseParams) (int64, error) {
@@ -162,7 +162,7 @@ func (q *Queries) ExtendRunningGroupOutboxLease(ctx context.Context, arg ExtendR
 }
 
 const getGroupOutbox = `-- name: GetGroupOutbox :one
-SELECT id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_outbox WHERE id = ?
+SELECT id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_outbox WHERE id = $1
 `
 
 func (q *Queries) GetGroupOutbox(ctx context.Context, id string) (CtxGroupOutbox, error) {
@@ -185,7 +185,7 @@ func (q *Queries) GetGroupOutbox(ctx context.Context, id string) (CtxGroupOutbox
 }
 
 const getGroupOutboxByMessage = `-- name: GetGroupOutboxByMessage :one
-SELECT id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_outbox WHERE group_message_id = ?
+SELECT id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_outbox WHERE group_message_id = $1
 `
 
 func (q *Queries) GetGroupOutboxByMessage(ctx context.Context, groupMessageID string) (CtxGroupOutbox, error) {
@@ -211,14 +211,14 @@ const listExpiredRunningGroupOutbox = `-- name: ListExpiredRunningGroupOutbox :m
 SELECT id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_outbox
 WHERE status = 'running'
   AND lease_until IS NOT NULL
-  AND lease_until <= ?1
+  AND lease_until <= $1
 ORDER BY lease_until ASC
-LIMIT ?2
+LIMIT $2
 `
 
 type ListExpiredRunningGroupOutboxParams struct {
-	Now        sql.NullString `json:"now"`
-	LimitCount int64          `json:"limit_count"`
+	Now        sql.NullTime `json:"now"`
+	LimitCount int32        `json:"limit_count"`
 }
 
 func (q *Queries) ListExpiredRunningGroupOutbox(ctx context.Context, arg ListExpiredRunningGroupOutboxParams) ([]CtxGroupOutbox, error) {
@@ -259,14 +259,14 @@ func (q *Queries) ListExpiredRunningGroupOutbox(ctx context.Context, arg ListExp
 const listPendingGroupOutbox = `-- name: ListPendingGroupOutbox :many
 SELECT id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_outbox
 WHERE status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
+  AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
 ORDER BY created_at ASC
-LIMIT ?2
+LIMIT $2
 `
 
 type ListPendingGroupOutboxParams struct {
-	Now        sql.NullString `json:"now"`
-	LimitCount int64          `json:"limit_count"`
+	Now        sql.NullTime `json:"now"`
+	LimitCount int32        `json:"limit_count"`
 }
 
 func (q *Queries) ListPendingGroupOutbox(ctx context.Context, arg ListPendingGroupOutboxParams) ([]CtxGroupOutbox, error) {
@@ -309,10 +309,10 @@ UPDATE ctx_group_outbox
 SET status = 'completed',
     lease_until = NULL,
     next_attempt_at = NULL,
-    updated_at = datetime('now')
-WHERE id = ?1
+    updated_at = now()
+WHERE id = $1
   AND status = 'running'
-  AND attempt_count = ?2
+  AND attempt_count = $2
 `
 
 type MarkGroupOutboxCompletedParams struct {
@@ -333,11 +333,11 @@ UPDATE ctx_group_outbox
 SET status = 'failed',
     lease_until = NULL,
     next_attempt_at = NULL,
-    last_error = ?1,
-    updated_at = datetime('now')
-WHERE id = ?2
+    last_error = $1,
+    updated_at = now()
+WHERE id = $2
   AND status = 'running'
-  AND attempt_count = ?3
+  AND attempt_count = $3
 `
 
 type MarkGroupOutboxFailedParams struct {
@@ -358,19 +358,19 @@ const requeueGroupOutbox = `-- name: RequeueGroupOutbox :execrows
 UPDATE ctx_group_outbox
 SET status = 'pending',
     lease_until = NULL,
-    next_attempt_at = ?1,
-    last_error = ?2,
-    updated_at = datetime('now')
-WHERE id = ?3
+    next_attempt_at = $1,
+    last_error = $2,
+    updated_at = now()
+WHERE id = $3
   AND status = 'running'
-  AND attempt_count = ?4
+  AND attempt_count = $4
 `
 
 type RequeueGroupOutboxParams struct {
-	NextAttemptAt sql.NullString `json:"next_attempt_at"`
-	LastError     string         `json:"last_error"`
-	ID            string         `json:"id"`
-	AttemptCount  int64          `json:"attempt_count"`
+	NextAttemptAt sql.NullTime `json:"next_attempt_at"`
+	LastError     string       `json:"last_error"`
+	ID            string       `json:"id"`
+	AttemptCount  int64        `json:"attempt_count"`
 }
 
 func (q *Queries) RequeueGroupOutbox(ctx context.Context, arg RequeueGroupOutboxParams) (int64, error) {
