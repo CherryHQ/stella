@@ -11,6 +11,22 @@ icon: History
 
 ## [Unreleased]
 
+## [0.49.2] - 2026-06-17
+
+### ✨ 功能
+
+- Feishu：将 agent 创建的任务、目标和 Recally 文章渲染为带深链的交互式引用卡片。([#516](https://github.com/CherryHQ/stella/pull/516))
+- Chat：Web UI 中为 agent 创建的目标、任务和文章展示富卡片。([#513](https://github.com/CherryHQ/stella/pull/513))
+- Sandbox：对齐 docker 的 `mise` 工具树与 bwrap，使后端可透明切换。([#511](https://github.com/CherryHQ/stella/pull/511))
+
+### 🐛 修复
+
+- Sandbox：在 Docker-outside-of-Docker 模式下自动接线让沙箱可访问 `stellad`，沙箱内的 CLI 调用不再出现 `connection refused`。([#518](https://github.com/CherryHQ/stella/pull/518))
+- Recally：澄清仅传 URL 时的保存交互体验。([#515](https://github.com/CherryHQ/stella/pull/515))
+- Inbox：移除残留的失败状态标记并修复任务深链。([#510](https://github.com/CherryHQ/stella/pull/510))
+
+**完整变更日志**：[v0.49.1...v0.49.2](https://github.com/CherryHQ/stella/compare/v0.49.1...v0.49.2)
+
 ## [0.49.1] - 2026-06-17
 
 ### ✨ 功能

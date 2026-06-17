@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.2] - 2026-06-17
+
+### ✨ Features
+
+- Feishu: render agent-created tasks, goals, and Recally articles as interactive reference cards with deep links. ([#516](https://github.com/CherryHQ/stella/pull/516))
+- Chat: rich cards for agent-created goals, tasks, and articles in the Web UI. ([#513](https://github.com/CherryHQ/stella/pull/513))
+- Sandbox: align the docker `mise` tree with bwrap so the backend switches transparently. ([#511](https://github.com/CherryHQ/stella/pull/511))
+
+### 🐛 Bug Fixes
+
+- Sandbox: auto-wire the docker sandbox to reach `stellad` when running Docker-outside-of-Docker, so in-sandbox CLI calls no longer hit `connection refused`. ([#518](https://github.com/CherryHQ/stella/pull/518))
+- Recally: clarify the save UX for URL-only invocations. ([#515](https://github.com/CherryHQ/stella/pull/515))
+- Inbox: drop stale failed chips and fix task deep-links. ([#510](https://github.com/CherryHQ/stella/pull/510))
+
+**Full Changelog**: [v0.49.1...v0.49.2](https://github.com/CherryHQ/stella/compare/v0.49.1...v0.49.2)
+
 ## [0.49.1] - 2026-06-17
 
 ### ✨ Features
