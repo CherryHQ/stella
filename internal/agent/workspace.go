@@ -98,11 +98,11 @@ func setupHome(home, agentDir, agentID string) (string, error) {
 		return "", fmt.Errorf("agent ID must not be empty")
 	}
 	// data/ is the shared user-data root mounted as /user. Its subtree holds the
-	// per-user toolchain, cache, user-level skills/delegates, and uploads — all
-	// shared across the user's agents.
+	// per-user cache, user-level skills/delegates, and uploads — all shared across
+	// the user's agents. The per-user mise tree is a sibling of data/ (under the
+	// STELLA_HOME frame, created on demand by EnsureUserMiseHome), not here.
 	for _, sub := range [][]string{
 		{"data"},
-		{"data", ".mise-tools"},
 		{"data", ".cache"},
 		{"data", ".agents", "skills"},
 		{"data", ".agents", "delegates"},

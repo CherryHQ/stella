@@ -11,6 +11,10 @@ icon: History
 
 ## [Unreleased]
 
+### 🐛 修复
+
+- Sandbox：修复 agent 运行时中损坏的 `mise` shim（如 `gh`、`lark-cli`）——将 per-user 工具链保留在 `STELLA_HOME` 框架下，使其软链在沙箱内可正确解析。在 v0.49.0 下手动安装的工具需重新安装一次。([#507](https://github.com/CherryHQ/stella/pull/507))
+
 ## [0.49.0] - 2026-06-16
 
 ### ✨ 功能

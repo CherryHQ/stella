@@ -120,12 +120,13 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 	sandboxSH := adjustStellaHome(f.cfg.StellaHome)
 	hostSH := f.cfg.StellaHome
 	// remapMise rewrites a mise path to the agent's view. The per-user mise tree
-	// now lives under the shared user-data root (UserDataDir/.mise-tools), so map
-	// that frame to /user first; the agent sees its toolchain at /user/.mise-tools
-	// and never learns the on-disk users/{id} layout. A project-local or system
-	// tree falls through to the workspace (/workspace) then STELLA_HOME (/opt/stella)
-	// remaps. Composing is safe — once a path lands under one sandbox root it is no
-	// longer under the next frame's host prefix, so later steps leave it untouched.
+	// lives under the STELLA_HOME frame ($STELLA_HOME/users/{id}/.mise-tools), so it
+	// falls through the user-data (/user) and workspace (/workspace) frames and
+	// lands under STELLA_HOME (/opt/stella/users/{id}/.mise-tools) — the same root
+	// as the system tree, so the relative seed/shim symlinks resolve (#505). A
+	// project-local tree maps to /workspace. Composing is safe — once a path lands
+	// under one sandbox root it is no longer under the next frame's host prefix, so
+	// later steps leave it untouched.
 	remapMise := func(p string) string {
 		p = remapToSandboxRoot(p, userDataReal, userDataSandbox)
 		p = remapToSandboxRoot(p, realRoot, sandboxRoot)
@@ -149,9 +150,10 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 		env["STELLA_USER_DIR"] = userDataSandbox
 	}
 	env["STELLA_HOME"] = sandboxSH
-	// Rewrite MISE_* path-valued env vars to the agent's view (see remapMise): the
-	// per-user tree lands under /user, the system tree under the sandbox
-	// STELLA_HOME. All but MISE_TRUSTED_CONFIG_PATHS are single scalar paths, and
+	// Rewrite MISE_* path-valued env vars to the agent's view (see remapMise): both
+	// the per-user tree and the system tree land under the sandbox STELLA_HOME, so
+	// their host-relative seed/shim symlinks resolve identically in the sandbox.
+	// All but MISE_TRUSTED_CONFIG_PATHS are single scalar paths, and
 	// ':' is a legal character in a POSIX path, so they are remapped whole — only
 	// the genuinely list-valued var is split on the path-list separator (each
 	// element remapped independently; already-sandbox paths like /workspace

@@ -129,16 +129,21 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 			return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure user temp dir: %w", err)
 		}
 	}
-	// Per-user mise tree: host-execution backends (local, none) get a writable
-	// per-user mise home, seeded with relative symlinks to the read-only system
-	// installs and mounted writable so the agent can install its own tools.
-	// Docker carries its own in-image mise tree, so it is skipped here (bringing
-	// docker to parity is tracked in #436).
+	// Mise shims for host-execution backends (local, none). EnsureMiseShims
+	// relinks the shared system-tree shims to relative targets so they resolve
+	// after STELLA_HOME is remapped (bwrap's /opt/stella) — otherwise the system
+	// shims are only relinked at reconcile, so a session started before the next
+	// reconcile inherits stale absolute host-path shims that dangle in the sandbox
+	// (#505). When a per-user tree exists it is also seeded (relative symlinks to
+	// the read-only system installs) and mounted writable so the agent can install
+	// its own tools. Docker carries its own in-image mise tree, so it is skipped
+	// here (bringing docker to parity is tracked in #436).
 	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
-		if miseDir := miseUserDirHost(paths, cfg); miseDir != "" {
-			if err := pkgsandbox.EnsureUserMiseHome(paths.StellaHome, miseDir); err != nil {
-				return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure per-user mise home: %w", err)
-			}
+		miseDir := miseUserDirHost(paths, cfg)
+		if err := pkgsandbox.EnsureMiseShims(paths.StellaHome, miseDir); err != nil {
+			return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure mise shims: %w", err)
+		}
+		if miseDir != "" {
 			fs.ExtraWritableMounts = append(fs.ExtraWritableMounts, miseDir)
 		}
 	}

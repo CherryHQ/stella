@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 )
 
 // EnsureUserMiseHome creates the per-user mise tree at userToolsDir and seeds it
@@ -80,28 +82,75 @@ func pruneDanglingSeedLinks(userInstalls string) error {
 	return nil
 }
 
-// relinkUserShims rewrites every per-user shim to a relative target so it resolves
-// under whatever root the active backend remaps STELLA_HOME to. mise reshim (run
-// by the agent inside the sandbox) writes each shim with the absolute in-sandbox
-// mise path, which is backend-specific (bwrap's /opt/stella vs a host
-// path); a relative target keeps a persisted tree portable across backends.
-// Mirrors relinkShims for the system tree, but computes the depth-correct target.
-func relinkUserShims(stellaHome, userToolsDir string) error {
-	miseBin := filepath.Join(stellaHome, "bin", "mise")
-	if _, err := os.Stat(miseBin); err != nil {
-		return nil //nolint:nilerr // no local mise binary to point at → leave shims untouched
+// EnsureMiseShims prepares the mise shims a sandbox session resolves against,
+// before the session's PATH is used. It relinks the shared system-tree shims
+// (always) and, when userToolsDir is set, seeds and relinks the per-user tree via
+// EnsureUserMiseHome. Splitting the two trees keeps each concern separate while a
+// single call site guarantees both resolve under the active backend's remap.
+// Docker carries its own in-image mise tree and must not call this.
+func EnsureMiseShims(stellaHome, userToolsDir string) error {
+	if err := RelinkSystemMiseShims(stellaHome); err != nil {
+		return err
 	}
-	shimsDir := filepath.Join(userToolsDir, "shims")
+	if userToolsDir == "" {
+		return nil
+	}
+	return EnsureUserMiseHome(stellaHome, userToolsDir)
+}
+
+// shimRelinkMu serializes shim relinking. The system shims dir is shared by every
+// session, so concurrent session starts would otherwise race on the per-shim temp
+// symlink. Relinking is fast (one readlink per shim once already relative), so a
+// single lock across all trees is cheap.
+var shimRelinkMu sync.Mutex
+
+// miseBinName is the mise binary file name for the current platform.
+func miseBinName() string {
+	if runtime.GOOS == "windows" {
+		return "mise.exe"
+	}
+	return "mise"
+}
+
+// RelinkSystemMiseShims rewrites the shared system-tree shims to relative targets.
+// Idempotent and safe to call before every session; see relinkShimsToLocalMise.
+func RelinkSystemMiseShims(stellaHome string) error {
+	return relinkShimsToLocalMise(stellaHome, MiseShimsDir(stellaHome))
+}
+
+// relinkUserShims rewrites the per-user shims (those the agent created with mise
+// reshim inside a sandbox) to relative targets. Mirrors RelinkSystemMiseShims for
+// the per-user tree.
+func relinkUserShims(stellaHome, userToolsDir string) error {
+	return relinkShimsToLocalMise(stellaHome, MiseUserShimsDir(userToolsDir))
+}
+
+// relinkShimsToLocalMise rewrites every symlink shim in shimsDir to a relative
+// path targeting $STELLA_HOME/bin/mise. mise reshim writes each shim with the
+// absolute path of whichever mise ran it — a host path that does not exist once a
+// backend remaps STELLA_HOME (bwrap's /opt/stella), which is the #505 failure:
+// the shim resolves on the host but dangles in the sandbox. A relative target
+// resolves identically on the host and under any remap. A no-op when
+// $STELLA_HOME/bin/mise is absent: we never point a shim at an arbitrary host mise.
+func relinkShimsToLocalMise(stellaHome, shimsDir string) error {
+	miseBin := filepath.Join(stellaHome, "bin", miseBinName())
+	if _, err := os.Stat(miseBin); err != nil {
+		return nil
+	}
+	relTarget, err := filepath.Rel(shimsDir, miseBin)
+	if err != nil {
+		return fmt.Errorf("sandbox: relative shim target: %w", err)
+	}
+
+	shimRelinkMu.Lock()
+	defer shimRelinkMu.Unlock()
+
 	entries, err := os.ReadDir(shimsDir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("sandbox: read per-user shims: %w", err)
-	}
-	relTarget, err := filepath.Rel(shimsDir, miseBin)
-	if err != nil {
-		return fmt.Errorf("sandbox: relative shim target: %w", err)
+		return fmt.Errorf("sandbox: read shims dir: %w", err)
 	}
 	for _, e := range entries {
 		if e.Type()&os.ModeSymlink == 0 {
@@ -115,11 +164,11 @@ func relinkUserShims(stellaHome, userToolsDir string) error {
 		tmp := shimPath + ".tmp"
 		_ = os.Remove(tmp)
 		if err := os.Symlink(relTarget, tmp); err != nil {
-			return fmt.Errorf("sandbox: relink per-user shim %s: %w", e.Name(), err)
+			return fmt.Errorf("sandbox: relink shim %s: %w", e.Name(), err)
 		}
 		if err := os.Rename(tmp, shimPath); err != nil {
 			_ = os.Remove(tmp)
-			return fmt.Errorf("sandbox: relink per-user shim %s: %w", e.Name(), err)
+			return fmt.Errorf("sandbox: relink shim %s: %w", e.Name(), err)
 		}
 	}
 	return nil

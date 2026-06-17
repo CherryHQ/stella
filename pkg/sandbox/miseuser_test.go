@@ -195,6 +195,41 @@ func TestEnsureUserMiseHome_PrunesDanglingSeedLinks(t *testing.T) {
 	}
 }
 
+// TestEnsureMiseShims_RelinksSystemShimsWithoutUserTree locks in the #505 fix:
+// the system-tree shims must be relinked at session start even when there is no
+// per-user tree, so a session started before the next reconcile never inherits a
+// stale absolute host-path shim that dangles once STELLA_HOME is remapped.
+func TestEnsureMiseShims_RelinksSystemShimsWithoutUserTree(t *testing.T) {
+	stellaHome := t.TempDir()
+	mustMkdirAll(t, filepath.Join(stellaHome, "bin"))
+	mustWriteFile(t, filepath.Join(stellaHome, "bin", "mise"), "binary")
+	mustMkdirAll(t, MiseShimsDir(stellaHome))
+
+	// A shim mise reshim wrote with the absolute path of the host mise that ran
+	// the install — valid on the host, dangling under a bwrap remap.
+	shim := filepath.Join(MiseShimsDir(stellaHome), "gh")
+	if err := os.Symlink("/Users/dev/.local/bin/mise", shim); err != nil {
+		t.Fatal(err)
+	}
+
+	// No per-user tree (user-less job).
+	if err := EnsureMiseShims(stellaHome, ""); err != nil {
+		t.Fatalf("EnsureMiseShims: %v", err)
+	}
+
+	target, err := os.Readlink(shim)
+	if err != nil {
+		t.Fatalf("shim should remain a symlink: %v", err)
+	}
+	if filepath.IsAbs(target) {
+		t.Fatalf("system shim must be relinked to a relative target, got %q", target)
+	}
+	// The relative target resolves to the local mise binary.
+	if _, err := os.Stat(shim); err != nil {
+		t.Fatalf("relinked shim does not resolve to bin/mise: %v", err)
+	}
+}
+
 func mustMkdirAll(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

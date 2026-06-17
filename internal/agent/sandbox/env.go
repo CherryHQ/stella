@@ -62,14 +62,22 @@ func userDataDirHost(paths Paths, cfg Config) string {
 }
 
 // miseUserDirHost returns the host path of this session's writable per-user mise
-// home — now under the shared user-data root (UserDataDir/.mise-tools), so the
-// /user mount makes it writable without a dedicated bind. Returns "" when there
-// is no per-user tree: no principal, or an ID that fails the safe-path-component
-// check (the session then falls back to the shared read-only system tree). A
-// downgrade from an unsafe ID is logged so a malformed ID is diagnosable.
+// home, under the STELLA_HOME frame ($STELLA_HOME/users/{id}/.mise-tools), a
+// sibling of the user-data root rather than inside it. This keeps the per-user
+// tree under the same root as the shared system tree once a backend remaps
+// STELLA_HOME (bwrap's /opt/stella), so the relative seed/shim symlinks that
+// bridge per-user tree -> system tree resolve identically on host and in the
+// sandbox. Putting it under the /user-mounted user-data root instead would split
+// the two trees across separate sandbox roots (/user vs /opt/stella) and dangle
+// those symlinks (#505). The cost is one dedicated writable bind, wired via
+// ExtraWritableMounts. Returns "" when there is no per-user tree: no principal, or
+// an ID that fails the safe-path-component check (the session then falls back to
+// the shared read-only system tree). A downgrade from an unsafe ID is logged so a
+// malformed ID is diagnosable.
 func miseUserDirHost(paths Paths, cfg Config) string {
 	principalDir, id := misePrincipal(cfg)
-	if pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id) == "" {
+	dir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)
+	if dir == "" {
 		if id != "" {
 			slog.Warn("per-user mise tree disabled: unsafe id, using shared read-only system tree",
 				"component", "runner_sandbox",
@@ -80,7 +88,7 @@ func miseUserDirHost(paths Paths, cfg Config) string {
 		}
 		return ""
 	}
-	return filepath.Join(paths.UserDataDir, ".mise-tools")
+	return dir
 }
 
 // misePrincipal returns the home subtree and ID for this session's per-principal
@@ -213,8 +221,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// PATH, so they need the mise env pointed at the org's config. Docker carries
 	// its own in-image mise tree and PATH, so host-side paths must not leak in.
 	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
-		// MISE_DATA_DIR points at the relocated per-user tree (UserDataDir/.mise-tools);
-		// the workspace dir trusted for project mise.toml is the agent workspace.
+		// MISE_DATA_DIR points at the per-user tree in the STELLA_HOME frame
+		// ($STELLA_HOME/users/{id}/.mise-tools); the workspace dir trusted for a
+		// project mise.toml is the agent workspace.
 		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, miseUserDirHost(paths, cfg), paths.WorkspaceRoot))
 	}
 

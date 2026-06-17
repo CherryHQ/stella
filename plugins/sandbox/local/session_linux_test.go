@@ -329,10 +329,10 @@ func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
 	}
 }
 
-// TestWrapCommand_linux_inUserDataWritableMountSkipped verifies the runtime case
-// for the relocated per-user mise tree: a writable mount under the user-data root
-// is NOT bound again under the STELLA_HOME tree, because the /user bind already
-// makes it writable. A second bind would re-expose the host path.
+// TestWrapCommand_linux_inUserDataWritableMountSkipped verifies that an extra
+// writable mount that already sits under the user-data root is NOT bound again
+// under the STELLA_HOME tree: the /user bind already makes it writable, and a
+// second bind would re-expose the host path to the agent.
 func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
@@ -344,8 +344,8 @@ func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 	stellaHome := t.TempDir()
 	agentDir := filepath.Join(stellaHome, "users", "u1", "agents", "a1")
 	userData := filepath.Join(stellaHome, "users", "u1", "data")
-	miseDir := filepath.Join(userData, ".mise-tools")
-	if err := os.MkdirAll(miseDir, 0o755); err != nil {
+	writableDir := filepath.Join(userData, "scratch")
+	if err := os.MkdirAll(writableDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -354,7 +354,7 @@ func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 			WorkspaceRoot:       agentDir,
 			WorkingDir:          "/workspace",
 			UserDataDir:         userData,
-			ExtraWritableMounts: []string{miseDir},
+			ExtraWritableMounts: []string{writableDir},
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
@@ -365,12 +365,12 @@ func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 	}
 
 	joined := strings.Join(args, " ")
-	sandboxMiseDir := filepath.Join(sandboxStellaHome, "users", "u1", "data", ".mise-tools")
-	if strings.Contains(joined, sandboxMiseDir) {
+	sandboxWritableDir := filepath.Join(sandboxStellaHome, "users", "u1", "data", "scratch")
+	if strings.Contains(joined, sandboxWritableDir) {
 		t.Errorf("under-/user writable mount must not be re-bound under %s: %v", sandboxStellaHome, args)
 	}
 	if !strings.Contains(joined, "--bind "+userData+" /user") {
-		t.Errorf("expected --bind %s /user covering the relocated mise tree, got %v", userData, args)
+		t.Errorf("expected --bind %s /user covering the writable mount, got %v", userData, args)
 	}
 }
 
