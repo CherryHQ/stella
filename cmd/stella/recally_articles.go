@@ -12,6 +12,7 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	"github.com/CherryHQ/stella/internal/cli"
+	"github.com/CherryHQ/stella/internal/renderrefs"
 )
 
 func recallySaveCommand() *ucli.Command {
@@ -99,6 +100,19 @@ Options must be placed before the URL. Trailing options are rejected.`,
 			if created {
 				message = "Article saved successfully"
 			}
+			// Best-effort: a failed sentinel write must never fail the save.
+			// `save` is upsert — only call it "created" when the article is new,
+			// otherwise the card would claim a creation that didn't happen.
+			saveIntent := "referenced"
+			if created {
+				saveIntent = "created"
+			}
+			_ = renderrefs.Emit(c.App.ErrWriter, renderrefs.Reference{
+				Type:    "recally_article",
+				ID:      article.Id,
+				Intent:  saveIntent,
+				Preview: &renderrefs.Preview{Title: article.Title, Status: string(article.Status)},
+			})
 			if cli.IsJSON(c) {
 				return cli.PrintJSON(c, article)
 			}

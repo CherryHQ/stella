@@ -115,10 +115,25 @@ export interface ThinkingBlock {
 
 export type ContentBlock = TextBlock | ThinkingBlock | ToolBlock;
 
+/**
+ * A renderable reference an agent emitted when it created (or referenced) a
+ * Stella entity via a CLI tool. `type` + `id` are load-bearing; `preview` is a
+ * loading placeholder only — cards hydrate the live entity by id and never
+ * trust it past first paint.
+ */
+export interface RenderableReference {
+  v: 1;
+  type: "task" | "goal" | "recally_article" | (string & {});
+  id: string;
+  intent?: "created" | "referenced";
+  preview?: { title?: string; status?: string };
+}
+
 export interface ToolResult {
   tool_call_id: string;
   content: string;
   is_error: boolean;
+  references?: RenderableReference[];
 }
 
 export interface Message {
@@ -127,6 +142,7 @@ export interface Message {
   content?: string;
   blocks?: ContentBlock[];
   tool_call_id?: string;
+  references?: RenderableReference[];
   timestamp: string;
   token_count?: number;
   model?: string;

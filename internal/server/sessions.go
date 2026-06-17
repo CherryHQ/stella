@@ -25,6 +25,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/renderrefs"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -313,10 +314,24 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 						"input":      args,
 					})
 				case "done":
+					// Lift renderable-reference sentinels out of the live output so
+					// the chat can show a card the moment the tool finishes, without
+					// waiting for a reload to hydrate them from storage. Extraction
+					// also runs at LCM ingest for the persisted copy; the two are
+					// independent.
+					output := tu.Content
+					if clean, refs := renderrefs.Extract(output); len(refs) > 0 {
+						output = clean
+						writeData(map[string]any{
+							"type": "data-tool-references",
+							"id":   tu.ID,
+							"data": map[string]any{"toolCallId": tu.ID, "references": refs},
+						})
+					}
 					writeData(map[string]any{
 						"type":       "tool-output-available",
 						"toolCallId": tu.ID,
-						"output":     tu.Content,
+						"output":     output,
 					})
 				case "error":
 					writeData(map[string]any{
@@ -1637,7 +1652,7 @@ func serializeUserRow(row sqlc.CtxMessage) map[string]any {
 	return map[string]any{
 		"id":          row.ID,
 		"role":        "user",
-		"timestamp":   row.CreatedAt,
+		"timestamp":   parseTime(row.CreatedAt),
 		"content":     row.Content,
 		"token_count": row.TokenCount,
 	}
@@ -1673,7 +1688,7 @@ func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, 
 		"id":          rows[start].ID,
 		"role":        "assistant",
 		"blocks":      blocks,
-		"timestamp":   rows[start].CreatedAt,
+		"timestamp":   parseTime(rows[start].CreatedAt),
 		"token_count": totalTokens,
 	}, consumed
 }
@@ -1696,14 +1711,15 @@ func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 	m := map[string]any{
 		"id":          row.ID,
 		"role":        "tool",
-		"timestamp":   row.CreatedAt,
+		"timestamp":   parseTime(row.CreatedAt),
 		"token_count": row.TokenCount,
 	}
 	var env struct {
-		ID     string          `json:"id"`
-		Tool   string          `json:"tool"`
-		Result json.RawMessage `json:"result"`
-		Error  string          `json:"error,omitempty"`
+		ID         string                 `json:"id"`
+		Tool       string                 `json:"tool"`
+		Result     json.RawMessage        `json:"result"`
+		Error      string                 `json:"error,omitempty"`
+		References []renderrefs.Reference `json:"references,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(row.Content), &env); err != nil {
 		// Malformed envelope: best-effort — show raw content, no ID to match.
@@ -1721,6 +1737,9 @@ func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 	m["tool_name"] = env.Tool
 	m["content"] = text
 	m["is_error"] = env.Error != ""
+	if len(env.References) > 0 {
+		m["references"] = env.References
+	}
 	return m
 }
 

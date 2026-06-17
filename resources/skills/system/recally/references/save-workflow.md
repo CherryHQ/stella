@@ -107,6 +107,6 @@ Required values for this workflow:
 - source type (`web`, `twitter`, `youtube`, `github`, `rss`, or `pdf`)
 - `worth_reading` metadata value: `Top pick`, `Good read`, or `Skim` — no emoji
 
-**Output** (`--json`): the saved article resource, including `id`, `file_path`, `url`, `title`, `status`, `source_type`, and `saved_at`.
+**Output** (`--json`): the saved article resource, including `id`, `file_path`, `url`, `title`, `status`, `source_type`, and `saved_at`. The CLI also prints a sideband marker on stderr that the chat renders as a clickable article card — run `stella recally save` plainly and do not discard stderr (no `2>/dev/null`), or the user sees a bare ID instead. The card shows the title and a link, so do not echo the raw ID/title back into your reply text.
 
 To re-fetch and refresh an existing article: recompute `$f` from the URL hash, re-fetch, read `stella recally save --help`, then save again with the refreshed content file.

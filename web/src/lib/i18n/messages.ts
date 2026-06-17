@@ -16,6 +16,16 @@ const en = {
   "nav.docs": "Docs",
   "nav.apiReferences": "API References",
 
+  // Renderable reference cards (agent-created entities in chat)
+  "references.task": "Task",
+  "references.goal": "Goal",
+  "references.article": "Article",
+  "references.open": "Open",
+  "references.deleted": "No longer available",
+  "references.goalTasks": "{{count}} tasks",
+  "references.goalDone": "{{count}} done",
+  "references.goalRunning": "{{count}} running",
+
   // Agent IA
   "inbox.needsYou": "Needs you",
   "inbox.title": "Inbox",
@@ -1583,6 +1593,16 @@ const zh: Record<MessageKey, string> = {
   "nav.recally.desc": "阅读队列、订阅源与记忆",
   "nav.docs": "文档",
   "nav.apiReferences": "API 文档",
+
+  // Renderable reference cards (agent-created entities in chat)
+  "references.task": "任务",
+  "references.goal": "目标",
+  "references.article": "文章",
+  "references.open": "打开",
+  "references.deleted": "已不存在",
+  "references.goalTasks": "{{count}} 个任务",
+  "references.goalDone": "{{count}} 完成",
+  "references.goalRunning": "{{count}} 进行",
 
   // Agent IA
   "inbox.needsYou": "需要你",

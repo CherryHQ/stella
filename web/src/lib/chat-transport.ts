@@ -1,7 +1,7 @@
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
 import type { GroupMessage } from "@/lib/api-client/types.gen";
-import type { Message } from "./types";
+import type { Message, RenderableReference } from "./types";
 
 export function createSessionTransport(agentId: string, sessionId: string) {
   return new DefaultChatTransport({
@@ -154,6 +154,7 @@ export function mergeToolResults(messages: Message[]): Message[] {
                 tool_call_id: m.tool_call_id!,
                 content: m.content ?? "",
                 is_error: false,
+                ...(m.references && m.references.length > 0 ? { references: m.references } : {}),
               },
             };
           }
@@ -194,7 +195,7 @@ export function messageToUIMessage(m: Message): UIMessage {
             parts.push({ type: "reasoning", text: block.thinking, providerMetadata: {} });
           }
           break;
-        case "tool_call":
+        case "tool_call": {
           parts.push({
             type: "dynamic-tool",
             toolName: block.name,
@@ -208,7 +209,19 @@ export function messageToUIMessage(m: Message): UIMessage {
             ...(block.result && !block.result.is_error ? { output: block.result.content } : {}),
             ...(block.result?.is_error ? { errorText: block.result.content } : {}),
           } as UIMessage["parts"][number]);
+          // Re-emit references as a data part so history rehydration feeds the
+          // exact same channel as the live SSE stream — uiMessageToMessage reads
+          // `data-tool-references` for both, so there is one rendering path.
+          const refs = block.result?.references;
+          if (refs && refs.length > 0) {
+            parts.push({
+              type: "data-tool-references",
+              id: block.id,
+              data: { toolCallId: block.id, references: refs },
+            } as unknown as UIMessage["parts"][number]);
+          }
           break;
+        }
       }
     }
   } else if (m.content) {
@@ -253,6 +266,20 @@ export function uiMessageToMessage(m: UIMessage): Message {
   const blocks: Message["blocks"] = [];
   let content = "";
 
+  // Renderable references arrive as out-of-band `data-tool-references` parts
+  // (the live counterpart of the stored `references[]`); collect them up front
+  // and attach to the matching tool block so cards show mid-stream.
+  const refsByTool = new Map<string, RenderableReference[]>();
+  for (const part of m.parts) {
+    if (part.type === "data-tool-references") {
+      const data = (part as unknown as { data?: { toolCallId?: string; references?: unknown } })
+        .data;
+      if (data?.toolCallId && Array.isArray(data.references)) {
+        refsByTool.set(data.toolCallId, data.references as RenderableReference[]);
+      }
+    }
+  }
+
   for (const part of m.parts) {
     switch (part.type) {
       case "text":
@@ -272,6 +299,7 @@ export function uiMessageToMessage(m: UIMessage): Message {
                 ? part.output
                 : JSON.stringify(part.output)
             : undefined;
+          const references = refsByTool.get(part.toolCallId);
           blocks.push({
             type: "tool_call",
             id: part.toolCallId,
@@ -284,6 +312,7 @@ export function uiMessageToMessage(m: UIMessage): Message {
                     tool_call_id: part.toolCallId,
                     content: outputContent!,
                     is_error: part.state === "output-error",
+                    ...(references && references.length > 0 ? { references } : {}),
                   },
                 }
               : {}),

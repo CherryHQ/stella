@@ -50,6 +50,10 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	if t.toolsBinDir != "" {
 		env["PATH"] = t.toolsBinDir + string(os.PathListSeparator) + os.Getenv("PATH")
 	}
+	// Opt the CLI into emitting renderable-reference sentinels: when the agent
+	// runs `stella task/goal/recally create`, the command announces the new
+	// entity on stderr so the chat can render a rich card instead of a UUID.
+	env["STELLA_RENDERABLE_REFS"] = "1"
 	execOpts := sandbox.ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second, Env: env}
 	if t.projectRoot != "" {
 		execOpts.Cwd = t.projectRoot
