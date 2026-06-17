@@ -21,18 +21,17 @@ FROM debian:13-slim
 COPY --from=stella-builder /out/stella /usr/local/bin/stella
 # mise lives at /opt/stella/bin/mise — the same path the bwrap sandbox exposes —
 # so per-user and system shims (which relink to ../../bin/mise) resolve to it.
+# bun, uv (+uvx), fd, rg, and lightpanda are NOT vendored here: `stella mise
+# reconcile-builtins` below installs them from resources/plugins.yaml, exposing
+# them via mise shims exactly as the host does. Only non-mise base runtime deps
+# are installed via apt.
 COPY --from=jdxcode/mise:2026.4.25 /usr/local/bin/mise /opt/stella/bin/mise
-COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /usr/local/bin/
-COPY --from=oven/bun:1.3.12 /usr/local/bin/bunx /usr/local/bin/bun /usr/local/bin/
-COPY --from=lightpanda/browser:nightly /bin/lightpanda /usr/local/bin/lightpanda
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates git curl wget \
         python3 python3-venv \
-        nodejs npm \
-        ripgrep fd-find && \
-    ln -s /usr/bin/fdfind /usr/local/bin/fd && \
+        nodejs npm && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ARG USER_UID=1000
