@@ -26,6 +26,7 @@ type Runtime struct {
 	beforeRun      BeforeRunFunc
 	snapshotPrompt SnapshotPromptFunc
 	active         sync.Map // session ID → struct{}, tracks in-flight turns
+	hub            *SessionHub
 }
 
 // CompactionConfig controls automatic compaction thresholds.
@@ -84,7 +85,20 @@ func New(cfg Config) (*Runtime, error) {
 		compact:        cfg.Compaction.WithDefaults(),
 		beforeRun:      cfg.BeforeRun,
 		snapshotPrompt: cfg.SnapshotPrompt,
+		hub:            NewSessionHub(),
 	}, nil
+}
+
+// Subscribe registers a read-only listener for a session's live turn events.
+// The channel is closed when the in-flight turn ends; callers must invoke the
+// returned cancel func when they stop reading. See SessionHub.
+func (rt *Runtime) Subscribe(sessionID string) (<-chan Event, func()) {
+	return rt.hub.Subscribe(sessionID)
+}
+
+// SessionLive reports whether a turn is currently in flight on the session.
+func (rt *Runtime) SessionLive(sessionID string) bool {
+	return rt.hub.IsLive(sessionID)
 }
 
 // SetNewRunner replaces the runner builder. Existing runners are not affected
@@ -200,9 +214,34 @@ func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageConte
 		o(&co)
 	}
 	ctx = memory.WithSessionID(ctx, info.ID)
+
+	// Tee: chat writes to inner; the forwarder fans every event out to the hub
+	// (for read-only subscribers — SSE watchers of scheduler/task/delegate turns
+	// or other tabs) and to the caller's channel. The hub is fed even if the
+	// initiating caller disconnects, so a server-driven turn still streams to
+	// watching UIs.
+	inner := make(chan Event, 100)
+	rt.hub.begin(info.ID)
 	go func() {
 		defer rt.active.Delete(info.ID)
-		rt.chat(ctx, out, info, msg, co)
+		rt.chat(ctx, inner, info, msg, co)
+	}()
+	go func() {
+		defer close(out)
+		defer rt.hub.end(info.ID)
+		for ev := range inner {
+			rt.hub.publish(info.ID, ev)
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+				// Caller gone: keep draining so the turn completes and hub
+				// subscribers keep receiving, but stop writing to out.
+				for ev := range inner {
+					rt.hub.publish(info.ID, ev)
+				}
+				return
+			}
+		}
 	}()
 	return out
 }

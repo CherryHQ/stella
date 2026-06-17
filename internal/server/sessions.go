@@ -145,11 +145,10 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	// Convert AI SDK parts to internal MessageContent.
 	msgContent := partsToMessageContent(body.Parts)
 
+	// Humans may join any session kind (chat/main and internal delegate/task/
+	// scheduler sessions alike). The runtime's chat loop is kind-agnostic, so a
+	// manual message simply resumes the agent on that session's context.
 	siKind := session.Kind(si.Kind)
-	if siKind != session.KindMain && siKind != session.KindChat {
-		writeError(w, http.StatusBadRequest, "cannot send messages to internal sessions")
-		return
-	}
 
 	// Intercept slash commands before hitting the LLM.
 	if text, ok := msgContent.(string); ok {
@@ -159,6 +158,23 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		}
 	}
 
+	ch := svc.Chat(ctx, agent.ChatRequest{
+		SessionID: sessionID,
+		UserID:    si.UserID,
+		AgentID:   si.AgentID,
+		Kind:      siKind,
+		Channel:   session.Channel(si.Channel),
+		Message:   msgContent,
+	})
+	streamAgentEvents(r.Context(), w, flusher, agentID, sessionID, ch)
+}
+
+// streamAgentEvents encodes a live turn's events to w as a Vercel AI-SDK UI
+// message stream (SSE). Shared by SendSessionMessage (the turn it initiated) and
+// StreamSessionEvents (a read-only subscription to a turn started elsewhere), so
+// both emit the exact wire format the web chat parser expects. The stream ends
+// when ch closes (turn finished) or ctx is cancelled (client disconnected).
+func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, ch <-chan agent.Event) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -200,17 +216,9 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		}
 	}
 
-	ch := svc.Chat(ctx, agent.ChatRequest{
-		SessionID: sessionID,
-		UserID:    si.UserID,
-		AgentID:   si.AgentID,
-		Kind:      siKind,
-		Channel:   session.Channel(si.Channel),
-		Message:   msgContent,
-	})
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			closeText()
 			closeReasoning()
 			if stepOpen {
@@ -370,6 +378,72 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 			}
 		}
 	}
+}
+
+// StreamSessionEvents subscribes to a session's in-flight turn and streams its
+// events read-only, regardless of who initiated the turn. This lets the web UI
+// watch server-driven turns (scheduler/task/delegate) or a turn started in
+// another tab in real time, since those turns carry no HTTP request of their own.
+func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+
+	authInfo := UserFromContext(r.Context())
+	if authInfo == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
+		return
+	}
+
+	ctx := memoryContext(r, agentID)
+	si, err := sm.LoadInfo(ctx, sessionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	// Ownership is strict: only the session owner may watch its events.
+	if authInfo.UserID != si.UserID {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+
+	var svc *agent.Service
+	if si.AgentID != "" {
+		svc = s.poolManager.GetService(si.AgentID)
+	} else {
+		svc = s.poolManager.Default()
+	}
+	if svc == nil {
+		writeError(w, http.StatusBadRequest, "no service available for this session")
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	ch, cancel := svc.SubscribeSession(sessionID)
+	defer cancel()
+
+	// No turn in flight: 204 tells the AI-SDK resume client there is nothing to
+	// reconnect to, so it stays on the static transcript instead of holding the
+	// connection open.
+	if !svc.SessionLive(sessionID) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	streamAgentEvents(r.Context(), w, flusher, agentID, sessionID, ch)
 }
 
 // partsToMessageContent converts API MessageParts to internal MessageContent.

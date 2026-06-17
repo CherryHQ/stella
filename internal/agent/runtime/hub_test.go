@@ -1,0 +1,60 @@
+package runtime
+
+import "testing"
+
+func TestSessionHubFanOutAndClose(t *testing.T) {
+	h := NewSessionHub()
+	if h.IsLive("s1") {
+		t.Fatal("session should not be live before a turn begins")
+	}
+
+	ch, cancel := h.Subscribe("s1")
+	defer cancel()
+
+	h.begin("s1")
+	if !h.IsLive("s1") {
+		t.Fatal("session should be live after begin")
+	}
+
+	h.publish("s1", Event{Text: "hello"})
+	if ev := <-ch; ev.Text != "hello" {
+		t.Fatalf("got %q, want %q", ev.Text, "hello")
+	}
+
+	h.end("s1")
+	if h.IsLive("s1") {
+		t.Fatal("session should not be live after end")
+	}
+	if _, open := <-ch; open {
+		t.Fatal("subscriber channel should be closed when the turn ends")
+	}
+}
+
+func TestSessionHubCancelUnsubscribes(t *testing.T) {
+	h := NewSessionHub()
+	ch, cancel := h.Subscribe("s1")
+
+	cancel()
+	if _, open := <-ch; open {
+		t.Fatal("cancel should close the channel")
+	}
+
+	// Publishing after cancel must not panic or deliver.
+	h.begin("s1")
+	h.publish("s1", Event{Text: "dropped"})
+	h.end("s1")
+
+	// Double cancel is a no-op.
+	cancel()
+}
+
+func TestSessionHubPublishNeverBlocks(t *testing.T) {
+	h := NewSessionHub()
+	_, cancel := h.Subscribe("s1") // never drained
+	defer cancel()
+
+	// More events than the buffer; excess is dropped rather than blocking.
+	for range subBuffer + 10 {
+		h.publish("s1", Event{Text: "x"})
+	}
+}
