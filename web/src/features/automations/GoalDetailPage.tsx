@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TFunction } from "i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
   activateGoal,
   approveTaskReview,
@@ -25,16 +25,18 @@ import { cn } from "@/lib/utils";
 import { useAppShell } from "@/layouts/AppShell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { taskBlockerOptions } from "./queries";
 import { ProgressBar, StatusDot, StatusPill, rollup, statusLabel } from "./lib";
 
 export function GoalDetailPage() {
   const { t } = useI18n();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { agentId, goalId } = useParams({
-    from: "/_app/agents/$agentId/automations/goals/$goalId",
+    from: "/_app/agents/$agentId/tasks/goals_/$goalId",
   });
   const { task: selectedTaskId } = useSearch({
-    from: "/_app/agents/$agentId/automations/goals/$goalId",
+    from: "/_app/agents/$agentId/tasks/goals_/$goalId",
   });
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -47,7 +49,7 @@ export function GoalDetailPage() {
 
   const selectTask = (id: string | null) =>
     void navigate({
-      to: "/agents/$agentId/automations/goals/$goalId",
+      to: "/agents/$agentId/tasks/goals/$goalId",
       params: { agentId, goalId },
       search: id ? { task: id } : {},
     });
@@ -82,7 +84,7 @@ export function GoalDetailPage() {
             size="sm"
             onClick={() =>
               void navigate({
-                to: "/agents/$agentId/automations",
+                to: "/agents/$agentId/tasks/goals",
                 params: { agentId },
               })
             }
@@ -161,6 +163,7 @@ export function GoalDetailPage() {
       {selectedTask && (
         <TaskDrawer
           key={selectedTask.id}
+          agentId={agentId}
           task={selectedTask}
           deps={(graph?.deps ?? []).filter((d) => d.task_id === selectedTask.id)}
           tasks={tasks}
@@ -304,11 +307,13 @@ const TABS: { key: Tab; labelKey: MessageKey }[] = [
 ];
 
 function TaskDrawer({
+  agentId,
   task,
   deps,
   tasks,
   onClose,
 }: {
+  agentId: string;
   task: ComponentsTask;
   deps: ComponentsDep[];
   tasks: ComponentsTask[];
@@ -357,7 +362,9 @@ function TaskDrawer({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        {tab === "overview" && <OverviewTab task={task} deps={deps} tasks={tasks} />}
+        {tab === "overview" && (
+          <OverviewTab agentId={agentId} task={task} deps={deps} tasks={tasks} />
+        )}
         {tab === "runs" && <RunsTab task={task} />}
         {tab === "reviews" && <ReviewsTab task={task} />}
         {tab === "blocker" && <BlockerTab task={task} />}
@@ -384,10 +391,12 @@ function Meta({ label, value, highlight }: { label: string; value: string; highl
 }
 
 function OverviewTab({
+  agentId,
   task,
   deps,
   tasks,
 }: {
+  agentId: string;
   task: ComponentsTask;
   deps: ComponentsDep[];
   tasks: ComponentsTask[];
@@ -445,6 +454,36 @@ function OverviewTab({
         <Meta label={t("goals.colUpdated")} value={formatTime(task.updated_at)} />
       </div>
 
+      {task.output && (
+        <div>
+          <div className="mb-2 font-mono text-xs font-semibold text-muted-foreground">
+            {t("hub.outputArtifacts")}
+          </div>
+          <pre className="max-h-52 overflow-auto rounded-xl border border-border bg-background p-3 text-[11.5px] leading-relaxed text-muted-foreground">
+            {JSON.stringify(task.output, null, 2)}
+          </pre>
+        </div>
+      )}
+
+      {task.context && (
+        <div>
+          <div className="mb-2 font-mono text-xs font-semibold text-muted-foreground">
+            {t("tasks.sectionContext")}
+          </div>
+          <pre className="max-h-52 overflow-auto rounded-xl border border-border bg-background p-3 text-[11.5px] leading-relaxed text-muted-foreground">
+            {JSON.stringify(task.context, null, 2)}
+          </pre>
+        </div>
+      )}
+
+      <Link
+        to="/agents/$agentId/tasks/$taskId"
+        params={{ agentId, taskId: task.id }}
+        className="inline-flex text-sm font-medium text-primary hover:underline"
+      >
+        {t("hub.openTaskDetail")} →
+      </Link>
+
       <div>
         <div className="mb-2 font-mono text-xs font-semibold text-muted-foreground">
           {t("goals.deps")}
@@ -488,6 +527,9 @@ function RunsTab({ task }: { task: ComponentsTask }) {
             <span>{run.status}</span>
             <span>{formatTime(run.finished_at ?? run.started_at ?? run.created_at)}</span>
           </div>
+          {run.result && (
+            <p className="mt-2 line-clamp-3 text-[12px] text-muted-foreground">{run.result}</p>
+          )}
           {run.error && <p className="mt-2 text-[12px] text-destructive">{run.error}</p>}
         </li>
       ))}
@@ -597,6 +639,7 @@ function BlockerTab({ task }: { task: ComponentsTask }) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const [resolution, setResolution] = useState("");
+  const { data: blocker } = useQuery(taskBlockerOptions(task.id, task.active_blocker_id));
 
   const resolve = useMutation({
     mutationFn: () =>
@@ -616,6 +659,24 @@ function BlockerTab({ task }: { task: ComponentsTask }) {
 
   return (
     <div className="space-y-3">
+      {blocker && (
+        <div className="rounded-xl border border-chart-4/30 bg-chart-4/[0.06] p-3.5">
+          <div className="font-mono text-xs text-chart-4">
+            {blocker.kind.replace(/_/g, " ")} · {formatTime(blocker.created_at)}
+          </div>
+          {blocker.question && (
+            <MarkdownPreview
+              content={blocker.question}
+              className="mt-2 text-[12.5px] [&_ol]:pl-5 [&_ul]:pl-5"
+            />
+          )}
+          {blocker.detail && (
+            <pre className="mt-2 max-h-32 overflow-auto rounded-lg border border-border bg-background px-3 py-2 text-[11px] text-muted-foreground">
+              {blocker.detail}
+            </pre>
+          )}
+        </div>
+      )}
       <p className="text-sm text-foreground">{t("tasks.blockedMessage")}</p>
       <Textarea
         value={resolution}
