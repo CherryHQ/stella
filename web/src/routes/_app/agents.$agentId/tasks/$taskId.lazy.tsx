@@ -1,5 +1,5 @@
 import { createLazyFileRoute, useParams } from "@tanstack/react-router";
-import { TaskPage } from "@/features/automations/TaskPage";
+import { TaskPage } from "@/features/tasks/TaskPage";
 
 export const Route = createLazyFileRoute("/_app/agents/$agentId/tasks/$taskId")({
   component: TaskKeyed,

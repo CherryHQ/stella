@@ -8,7 +8,6 @@ const en = {
   // Navigation
   "nav.sessions": "Agents",
   "nav.sessions.desc": "AI chat assistant & projects",
-  "nav.automations": "Automations",
   "nav.scheduler": "Scheduler",
   "nav.tasks": "Tasks",
   "nav.settings": "Settings",
@@ -1577,7 +1576,6 @@ const zh: Record<MessageKey, string> = {
   // Navigation
   "nav.sessions": "智能体",
   "nav.sessions.desc": "AI 聊天智能体与项目",
-  "nav.automations": "自动化",
   "nav.scheduler": "计划任务",
   "nav.tasks": "任务",
   "nav.settings": "设置",
