@@ -18,11 +18,27 @@ import (
 func recallySaveCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "save",
-		Usage:     "Save an article to your library",
+		Usage:     "Save already-fetched content as an article in your library",
 		ArgsUsage: "<url>",
-		Description: `Examples:
-  stella recally save --title "Article Title" --summary "Brief summary" --tags go --tags concurrency "https://example.com/article"
-  stella recally save --json --content-file article.md --source-type twitter --title "Tweet title" "https://x.com/user/status/123"
+		Description: `Saves content you have ALREADY fetched — it does not fetch the URL for you.
+
+Fetching web pages is error-prone (paywalls, JS-rendered pages, bot walls), so
+that step is left to the caller (e.g. an agent using tap fetch). For a NEW
+article the content is required via --content-file (or piped on stdin); without
+it the server rejects the save with "content is required for new articles".
+
+Typical workflow:
+  1. Fetch the page to a file:   tap fetch "https://example.com/article" > article.md
+  2. Derive title/summary/tags from that content.
+  3. Save it:                    stella recally save --content-file article.md --title "..." "https://example.com/article"
+
+Re-saving a URL that already exists WITHOUT --content-file refreshes its
+metadata only (title, summary, tags) and keeps the stored content.
+
+Examples:
+  stella recally save --content-file article.md --title "Article Title" --summary "Brief summary" --tags go --tags concurrency "https://example.com/article"
+  stella recally save --json --content-file tweet.md --source-type twitter --title "Tweet title" "https://x.com/user/status/123"
+  cat article.md | stella recally save --title "Piped article" "https://example.com/article"
 
 Options must be placed before the URL. Trailing options are rejected.`,
 		Flags: []ucli.Flag{
@@ -93,6 +109,19 @@ Options must be placed before the URL. Trailing options are rejected.`,
 			defer resp.Body.Close() //nolint:errcheck
 			var article apiclient.Article
 			if err := apiclient.DecodeJSON(resp, &article); err != nil {
+				// A new article with no content is the one confusing failure: the
+				// command does not fetch URLs, so turn the server's terse 400 into
+				// the exact fetch-then-save commands. Refreshing an existing article
+				// without content succeeds (200), so it never reaches here.
+				if resp.StatusCode == http.StatusBadRequest && content == "" {
+					return fmt.Errorf("%q is not saved yet and no content was provided.\n\n"+
+						"This command saves content you have already fetched — it does not fetch the URL.\n"+
+						"Fetch the page first, then save:\n"+
+						"  tap fetch %q > article.md\n"+
+						"  stella recally save --content-file article.md --title \"...\" %q\n\n"+
+						"Or pipe content on stdin:\n"+
+						"  cat article.md | stella recally save --title \"...\" %q", url, url, url, url)
+				}
 				return err
 			}
 			created := resp.StatusCode == http.StatusCreated

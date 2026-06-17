@@ -88,6 +88,10 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 
 ## 3. Save
 
+`save` never fetches the URL itself — that is why steps 1-2 exist. Content is
+required for a new article (`--content-file` or stdin); saving an already-saved
+URL without content refreshes its metadata only.
+
 Before saving, read the command help:
 
 ```bash
