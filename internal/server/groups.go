@@ -26,17 +26,13 @@ func webChannelID(agentID string) string { return "web:" + agentID }
 
 const groupOutboxLeaseDuration = 5 * time.Minute
 
-func groupDispatchTimestamp(t time.Time) string {
-	return t.UTC().Format("2006-01-02 15:04:05")
-}
-
 func groupToAPI(g sqlc.CtxGroupState) apitypes.Group {
 	resp := apitypes.Group{
 		Id:        g.ID,
 		GroupName: g.GroupName,
 		Platform:  g.Platform,
-		CreatedAt: parseTime(g.CreatedAt),
-		UpdatedAt: parseTime(g.UpdatedAt),
+		CreatedAt: g.CreatedAt.UTC(),
+		UpdatedAt: g.UpdatedAt.UTC(),
 	}
 	resp.LastActive = &resp.UpdatedAt
 	if g.CreatedByUserID.Valid {
@@ -50,7 +46,7 @@ func groupToAPI(g sqlc.CtxGroupState) apitypes.Group {
 func (s *Server) groupToAPIWithActivity(ctx context.Context, g sqlc.CtxGroupState) apitypes.Group {
 	resp := groupToAPI(g)
 	if la, err := s.q.GetGroupLastActive(ctx, g.ID); err == nil {
-		if t := parseTime(la); !t.IsZero() {
+		if t := la.UTC(); !t.IsZero() {
 			resp.LastActive = &t
 		}
 	}
@@ -62,10 +58,10 @@ func groupListRowToAPI(g sqlc.ListGroupsByUserRow) apitypes.Group {
 		Id:        g.ID,
 		GroupName: g.GroupName,
 		Platform:  g.Platform,
-		CreatedAt: parseTime(g.CreatedAt),
-		UpdatedAt: parseTime(g.UpdatedAt),
+		CreatedAt: g.CreatedAt.UTC(),
+		UpdatedAt: g.UpdatedAt.UTC(),
 	}
-	lastActive := parseTime(g.LastActive)
+	lastActive := g.LastActive.UTC()
 	if !lastActive.IsZero() {
 		resp.LastActive = &lastActive
 	}
@@ -115,8 +111,8 @@ func (s *Server) ListGroups(w http.ResponseWriter, r *http.Request, params apise
 
 	groups, err := s.q.ListGroupsByUser(ctx, sqlc.ListGroupsByUserParams{
 		UserID:      sql.NullString{String: info.UserID, Valid: true},
-		LimitCount:  pageSize + 1,
-		OffsetCount: int64(offset),
+		LimitCount:  int32(pageSize + 1),
+		OffsetCount: int32(offset),
 	})
 	if err != nil {
 		s.writeInternalError(w, err)
@@ -264,7 +260,7 @@ func (s *Server) ListGroupMembers(w http.ResponseWriter, r *http.Request, groupI
 			GroupId:        m.GroupID,
 			AgentId:        m.AgentID,
 			ReplyChannelId: m.ReplyChannelID,
-			CreatedAt:      parseTime(m.CreatedAt),
+			CreatedAt:      m.CreatedAt.UTC(),
 		}
 		if a, err := s.store.GetAgent(ctx, m.AgentID); err == nil {
 			apiMembers[i].AgentName = &a.Name
@@ -311,7 +307,7 @@ func (s *Server) AddGroupMember(w http.ResponseWriter, r *http.Request, groupId 
 		GroupId:        m.GroupID,
 		AgentId:        m.AgentID,
 		ReplyChannelId: m.ReplyChannelID,
-		CreatedAt:      parseTime(m.CreatedAt),
+		CreatedAt:      m.CreatedAt.UTC(),
 	}
 	if a, aErr := s.store.GetAgent(ctx, m.AgentID); aErr == nil {
 		resp.AgentName = &a.Name
@@ -363,8 +359,8 @@ func (s *Server) ListGroupMessages(w http.ResponseWriter, r *http.Request, group
 
 	msgs, err := s.q.ListGroupMessagesPaginated(ctx, sqlc.ListGroupMessagesPaginatedParams{
 		GroupID:     groupId,
-		LimitCount:  pageSize + 1,
-		OffsetCount: int64(offset),
+		LimitCount:  int32(pageSize + 1),
+		OffsetCount: int32(offset),
 	})
 	if err != nil {
 		s.writeInternalError(w, err)
@@ -389,7 +385,7 @@ func (s *Server) ListGroupMessages(w http.ResponseWriter, r *http.Request, group
 			Content:        m.Content,
 			Reasoning:      ptrStr(m.Reasoning),
 			AgentSessionId: ptrStr(m.AgentSessionID),
-			CreatedAt:      parseTime(m.CreatedAt),
+			CreatedAt:      m.CreatedAt.UTC(),
 		}
 	}
 
@@ -474,8 +470,8 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 			Envelope:       envelope,
 			Status:         "running",
 			AttemptCount:   0,
-			LeaseUntil:     sql.NullString{String: groupDispatchTimestamp(time.Now().UTC().Add(groupOutboxLeaseDuration)), Valid: true},
-			NextAttemptAt:  sql.NullString{},
+			LeaseUntil:     sql.NullTime{Time: time.Now().UTC().Add(groupOutboxLeaseDuration), Valid: true},
+			NextAttemptAt:  sql.NullTime{},
 			LastError:      "",
 		})
 		if err != nil {

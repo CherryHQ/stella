@@ -395,7 +395,7 @@ func (s *Server) ListProfileChangelog(w http.ResponseWriter, r *http.Request, ag
 			UserID:  info.UserID,
 			AgentID: agentID,
 			Scope:   scope,
-			Limit:   int64(limit),
+			Limit:   int32(limit),
 		})
 		if err != nil {
 			s.writeInternalError(w, err)
@@ -437,7 +437,7 @@ func profileChangelogEntryToAPI(row sqlc.CtxAgentMemoryChangelog) apiserver.Chan
 		MemoryVersionAfter:  nullIntToPtr(row.MemoryVersionAfter),
 		BeforeText:          nullStringToPtr(row.BeforeText),
 		AfterText:           nullStringToPtr(row.AfterText),
-		CreatedAt:           parseTime(row.CreatedAt),
+		CreatedAt:           row.CreatedAt.UTC(),
 	}
 }
 

@@ -700,7 +700,7 @@ func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request, agentID s
 		return
 	}
 	if err := s.q.UpdateConversationArchived(r.Context(), sqlc.UpdateConversationArchivedParams{
-		Archived:  1,
+		Archived:  true,
 		SessionID: sessionID,
 		UserID:    sql.NullString{String: info.UserID, Valid: true},
 		AgentID:   sql.NullString{String: agentID, Valid: agentID != ""},
@@ -764,8 +764,8 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 			ConversationID: conv.ID,
 			After:          nilIfStringPtr(params.After),
 			Before:         nilIfStringPtr(params.Before),
-			Limit:          int64(limit),
-			Offset:         int64(skip),
+			Limit:          int32(limit),
+			Offset:         int32(skip),
 		})
 		if err != nil {
 			s.writeInternalError(w, err)
@@ -804,8 +804,8 @@ func (s *Server) GetSessionContextItems(w http.ResponseWriter, r *http.Request, 
 	}
 	rows, err := s.q.ListContextItemsPage(r.Context(), sqlc.ListContextItemsPageParams{
 		ConversationID: conv.ID,
-		LimitCount:     int64(pageSize + 1),
-		OffsetCount:    int64(offset),
+		LimitCount:     int32(pageSize + 1),
+		OffsetCount:    int32(offset),
 	})
 	if err != nil {
 		s.writeInternalError(w, err)
@@ -1581,7 +1581,16 @@ func nilIfStringPtr(p *string) any {
 func logicalPageRowsToMessages(rows []sqlc.ListMessagesByLogicalPageRow) []sqlc.CtxMessage {
 	out := make([]sqlc.CtxMessage, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, sqlc.CtxMessage(row))
+		out = append(out, sqlc.CtxMessage{
+			ID:             row.ID,
+			ConversationID: row.ConversationID,
+			Seq:            row.Seq,
+			Role:           row.Role,
+			EventType:      row.EventType,
+			Content:        row.Content,
+			TokenCount:     row.TokenCount,
+			CreatedAt:      row.CreatedAt,
+		})
 	}
 	return out
 }
@@ -1590,12 +1599,19 @@ func filterMessageRowsByTime(rows []sqlc.CtxMessage, after, before *string) []sq
 	if after == nil && before == nil {
 		return rows
 	}
+	var afterT, beforeT time.Time
+	if after != nil {
+		afterT = parseTime(*after)
+	}
+	if before != nil {
+		beforeT = parseTime(*before)
+	}
 	filtered := rows[:0]
 	for _, row := range rows {
-		if after != nil && row.CreatedAt < *after {
+		if after != nil && row.CreatedAt.Before(afterT) {
 			continue
 		}
-		if before != nil && row.CreatedAt > *before {
+		if before != nil && row.CreatedAt.After(beforeT) {
 			continue
 		}
 		filtered = append(filtered, row)
@@ -1616,7 +1632,7 @@ func contextRowsFromMessages(messages []sqlc.CtxMessage) []sqlc.ListContextItems
 			MessageEventType:  sql.NullString{String: msg.EventType, Valid: true},
 			MessageContent:    sql.NullString{String: msg.Content, Valid: true},
 			MessageTokenCount: sql.NullInt64{Int64: msg.TokenCount, Valid: true},
-			MessageCreatedAt:  sql.NullString{String: msg.CreatedAt, Valid: true},
+			MessageCreatedAt:  sql.NullTime{Time: msg.CreatedAt, Valid: true},
 		})
 	}
 	return rows
@@ -1641,7 +1657,7 @@ func contextItemFromRow(row sqlc.ListContextItemsPageRow) (apitypes.SessionConte
 			Role:       row.MessageRole.String,
 			EventType:  eventType,
 			Content:    content,
-			Timestamp:  parseTime(row.MessageCreatedAt.String),
+			Timestamp:  row.MessageCreatedAt.Time.UTC(),
 			TokenCount: int(row.MessageTokenCount.Int64),
 		}
 		return item, true
@@ -1661,7 +1677,7 @@ func contextItemFromRow(row sqlc.ListContextItemsPageRow) (apitypes.SessionConte
 			DescendantCount:         int(row.SummaryDescendantCount.Int64),
 			DescendantTokenCount:    int(row.SummaryDescendantTokenCount.Int64),
 			SourceMessageTokenCount: int(row.SummarySourceMessageTokenCount.Int64),
-			CreatedAt:               parseTime(row.SummaryCreatedAt.String),
+			CreatedAt:               row.SummaryCreatedAt.Time.UTC(),
 		}
 		return item, true
 	default:
@@ -1681,7 +1697,7 @@ func summaryToAPI(s sqlc.CtxSummary) apitypes.SessionContextSummary {
 		DescendantCount:         int(s.DescendantCount),
 		DescendantTokenCount:    int(s.DescendantTokenCount),
 		SourceMessageTokenCount: int(s.SourceMessageTokenCount),
-		CreatedAt:               parseTime(s.CreatedAt),
+		CreatedAt:               s.CreatedAt.UTC(),
 	}
 }
 
@@ -1716,7 +1732,7 @@ func serializeUserRow(row sqlc.CtxMessage) map[string]any {
 	return map[string]any{
 		"id":          row.ID,
 		"role":        "user",
-		"timestamp":   parseTime(row.CreatedAt),
+		"timestamp":   row.CreatedAt.UTC(),
 		"content":     row.Content,
 		"token_count": row.TokenCount,
 	}
@@ -1752,7 +1768,7 @@ func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, 
 		"id":          rows[start].ID,
 		"role":        "assistant",
 		"blocks":      blocks,
-		"timestamp":   parseTime(rows[start].CreatedAt),
+		"timestamp":   rows[start].CreatedAt.UTC(),
 		"token_count": totalTokens,
 	}, consumed
 }
@@ -1775,7 +1791,7 @@ func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 	m := map[string]any{
 		"id":          row.ID,
 		"role":        "tool",
-		"timestamp":   parseTime(row.CreatedAt),
+		"timestamp":   row.CreatedAt.UTC(),
 		"token_count": row.TokenCount,
 	}
 	var env struct {

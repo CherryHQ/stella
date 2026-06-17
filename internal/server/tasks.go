@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -534,10 +533,10 @@ func blockerToAPI(b sqlc.AgentTaskBlocker) apitypes.Blocker {
 		Question:   b.Question,
 		Detail:     optStr(b.Detail),
 		Resolution: optStr(b.Resolution),
-		CreatedAt:  parseTS(b.CreatedAt),
+		CreatedAt:  b.CreatedAt.UTC(),
 	}
 	if b.ResolvedAt.Valid {
-		v := parseTS(b.ResolvedAt.String)
+		v := b.ResolvedAt.Time.UTC()
 		out.ResolvedAt = &v
 	}
 	return out
@@ -714,11 +713,11 @@ func taskToAPI(t sqlc.AgentTask) apitypes.Task {
 		Status:       apitypes.TaskStatus(t.Status),
 		Priority:     apitypes.TaskPriority(t.Priority),
 		ReviewPolicy: apitypes.TaskReviewPolicy(t.ReviewPolicy),
-		Required:     t.Required != 0,
+		Required:     t.Required,
 		RetryCount:   t.RetryCount,
 		MaxRetries:   t.MaxRetries,
-		CreatedAt:    parseTS(t.CreatedAt),
-		UpdatedAt:    parseTS(t.UpdatedAt),
+		CreatedAt:    t.CreatedAt.UTC(),
+		UpdatedAt:    t.UpdatedAt.UTC(),
 	}
 	out.AgentId = t.AgentID
 	if t.GoalID.Valid {
@@ -730,11 +729,11 @@ func taskToAPI(t sqlc.AgentTask) apitypes.Task {
 		out.ProjectId = &v
 	}
 	if t.NotBefore.Valid {
-		v := parseTS(t.NotBefore.String)
+		v := t.NotBefore.Time.UTC()
 		out.NotBefore = &v
 	}
 	if t.DeadlineAt.Valid {
-		v := parseTS(t.DeadlineAt.String)
+		v := t.DeadlineAt.Time.UTC()
 		out.DeadlineAt = &v
 	}
 	out.SessionId = t.SessionID
@@ -751,11 +750,11 @@ func taskToAPI(t sqlc.AgentTask) apitypes.Task {
 		out.ActiveReviewId = &v
 	}
 	if t.CompletedAt.Valid {
-		v := parseTS(t.CompletedAt.String)
+		v := t.CompletedAt.Time.UTC()
 		out.CompletedAt = &v
 	}
 	if t.CancelledAt.Valid {
-		v := parseTS(t.CancelledAt.String)
+		v := t.CancelledAt.Time.UTC()
 		out.CancelledAt = &v
 	}
 	if m := jsonObject(t.Context); m != nil {
@@ -776,8 +775,8 @@ func runToAPI(r sqlc.AgentTaskRun) apitypes.Run {
 		AttemptNo: r.AttemptNo,
 		Status:    apitypes.RunStatus(r.Status),
 		SessionId: r.SessionID,
-		CreatedAt: parseTS(r.CreatedAt),
-		UpdatedAt: parseTS(r.UpdatedAt),
+		CreatedAt: r.CreatedAt.UTC(),
+		UpdatedAt: r.UpdatedAt.UTC(),
 	}
 	if r.AgentID.Valid {
 		v := r.AgentID.String
@@ -804,19 +803,19 @@ func runToAPI(r sqlc.AgentTaskRun) apitypes.Run {
 		out.WorkerId = &v
 	}
 	if r.HeartbeatAt.Valid {
-		v := parseTS(r.HeartbeatAt.String)
+		v := r.HeartbeatAt.Time.UTC()
 		out.HeartbeatAt = &v
 	}
 	if r.LeaseExpiresAt.Valid {
-		v := parseTS(r.LeaseExpiresAt.String)
+		v := r.LeaseExpiresAt.Time.UTC()
 		out.LeaseExpiresAt = &v
 	}
 	if r.StartedAt.Valid {
-		v := parseTS(r.StartedAt.String)
+		v := r.StartedAt.Time.UTC()
 		out.StartedAt = &v
 	}
 	if r.FinishedAt.Valid {
-		v := parseTS(r.FinishedAt.String)
+		v := r.FinishedAt.Time.UTC()
 		out.FinishedAt = &v
 	}
 	return out
@@ -827,7 +826,7 @@ func eventToAPI(e sqlc.AgentTaskEvent) apitypes.Event {
 		Id:        e.ID,
 		EventType: e.EventType,
 		ActorType: apitypes.EventActorType(e.ActorType),
-		CreatedAt: parseTS(e.CreatedAt),
+		CreatedAt: e.CreatedAt.UTC(),
 	}
 	if e.TaskID.Valid {
 		v := e.TaskID.String
@@ -865,14 +864,14 @@ func depToAPI(row sqlc.ListAgentTaskDepsWithUpstreamPagedRow) apitypes.Dep {
 		DepTaskId: row.AgentTaskDep.DepTaskID,
 		DepKind:   apitypes.DepDepKind(row.AgentTaskDep.DepKind),
 		OnFailure: apitypes.DepOnFailure(row.AgentTaskDep.OnFailure),
-		CreatedAt: parseTS(row.AgentTaskDep.CreatedAt),
+		CreatedAt: row.AgentTaskDep.CreatedAt.UTC(),
 	}
 	if row.UpstreamStatus != "" {
 		v := row.UpstreamStatus
 		out.UpstreamStatus = &v
 	}
 	if row.AgentTaskDep.WaivedAt.Valid {
-		v := parseTS(row.AgentTaskDep.WaivedAt.String)
+		v := row.AgentTaskDep.WaivedAt.Time.UTC()
 		out.WaivedAt = &v
 	}
 	if row.AgentTaskDep.WaivedByUser.Valid {
@@ -893,8 +892,8 @@ func reviewToAPI(rev sqlc.AgentReview) apitypes.Review {
 		Status:       apitypes.ReviewStatus(rev.Status),
 		Summary:      rev.Summary,
 		Feedback:     rev.Feedback,
-		CreatedAt:    parseTS(rev.CreatedAt),
-		UpdatedAt:    parseTS(rev.UpdatedAt),
+		CreatedAt:    rev.CreatedAt.UTC(),
+		UpdatedAt:    rev.UpdatedAt.UTC(),
 	}
 	if rev.TaskID.Valid {
 		v := rev.TaskID.String
@@ -921,7 +920,7 @@ func reviewToAPI(rev sqlc.AgentReview) apitypes.Review {
 		out.EscalatedFromReviewId = &v
 	}
 	if rev.ResolvedAt.Valid {
-		v := parseTS(rev.ResolvedAt.String)
+		v := rev.ResolvedAt.Time.UTC()
 		out.ResolvedAt = &v
 	}
 	return out
@@ -967,16 +966,6 @@ func optStr(v string) *string {
 		return nil
 	}
 	return &v
-}
-
-// parseTS parses sqlc-emitted timestamps (RFC3339Nano or SQLite-style).
-func parseTS(s string) time.Time {
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05"} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t
-		}
-	}
-	return time.Time{}
 }
 
 func jsonObject(s string) *map[string]any {

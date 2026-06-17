@@ -42,8 +42,8 @@ func (s *Server) ListShares(w http.ResponseWriter, r *http.Request, params apise
 	}
 	rows, err := s.q.ListSharesByUser(r.Context(), sqlc.ListSharesByUserParams{
 		UserID: info.UserID,
-		Limit:  int64(limit + 1),
-		Offset: int64(offset),
+		Limit:  int32(limit + 1),
+		Offset: int32(offset),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list shares")
@@ -57,7 +57,7 @@ func (s *Server) ListShares(w http.ResponseWriter, r *http.Request, params apise
 			Title:     row.Title,
 			MediaType: row.MediaType,
 			ExpiresAt: parseTimePtr(row.ExpiresAt),
-			CreatedAt: parseTime(row.CreatedAt),
+			CreatedAt: row.CreatedAt.UTC(),
 		})
 	}
 	resp := map[string]any{"shares": out}
@@ -114,7 +114,7 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 		Title:     share.Title,
 		MediaType: share.MediaType,
 		ExpiresAt: parseTimePtr(share.ExpiresAt),
-		CreatedAt: parseTime(share.CreatedAt),
+		CreatedAt: share.CreatedAt.UTC(),
 	})
 }
 
@@ -277,7 +277,7 @@ func (s *Server) GetShareContent(w http.ResponseWriter, r *http.Request, token s
 	if strings.HasPrefix(mediaType, "text/markdown") {
 		expiresAt := ""
 		if share.ExpiresAt.Valid {
-			expiresAt = share.ExpiresAt.String
+			expiresAt = share.ExpiresAt.Time.UTC().Format(time.RFC3339)
 		}
 		rendered, renderErr := renderMarkdownPage(renderMarkdownOpts{
 			Title:     share.Title,
@@ -331,7 +331,7 @@ func artifactMediaType(path string) string {
 	}
 }
 
-func shareExpiry(preset *apitypes.CreateShareRequestExpiresIn) (sql.NullString, error) {
+func shareExpiry(preset *apitypes.CreateShareRequestExpiresIn) (sql.NullTime, error) {
 	value := "7d"
 	if preset != nil && *preset != "" {
 		value = string(*preset)
@@ -345,11 +345,11 @@ func shareExpiry(preset *apitypes.CreateShareRequestExpiresIn) (sql.NullString, 
 	case "7d":
 		d = 7 * 24 * time.Hour
 	case "never":
-		return sql.NullString{}, nil
+		return sql.NullTime{}, nil
 	default:
-		return sql.NullString{}, fmt.Errorf("expires_in must be one of 1h, 1d, 7d, never")
+		return sql.NullTime{}, fmt.Errorf("expires_in must be one of 1h, 1d, 7d, never")
 	}
-	return sql.NullString{String: time.Now().UTC().Add(d).Format("2006-01-02 15:04:05"), Valid: true}, nil
+	return sql.NullTime{Time: time.Now().UTC().Add(d), Valid: true}, nil
 }
 
 func newShareToken() (string, string, error) {
@@ -375,7 +375,7 @@ func setShareContentHeaders(w http.ResponseWriter, share sqlc.Share, effectiveMe
 	w.Header().Set("X-Share-Title", share.Title)
 	w.Header().Set("X-Share-Media-Type", share.MediaType)
 	if share.ExpiresAt.Valid {
-		w.Header().Set("X-Share-Expires-At", share.ExpiresAt.String)
+		w.Header().Set("X-Share-Expires-At", share.ExpiresAt.Time.UTC().Format(time.RFC3339))
 	}
 	switch {
 	case strings.HasPrefix(effectiveMediaType, "text/html"):

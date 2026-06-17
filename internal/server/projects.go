@@ -267,9 +267,9 @@ func toProjectResponse(p sqlc.Project) projectResponse {
 		UserID:    p.UserID,
 		Name:      p.Name,
 		BaseDir:   p.BaseDir,
-		Archived:  p.Archived != 0,
-		CreatedAt: parseTime(p.CreatedAt),
-		UpdatedAt: parseTime(p.UpdatedAt),
+		Archived:  p.Archived,
+		CreatedAt: p.CreatedAt.UTC(),
+		UpdatedAt: p.UpdatedAt.UTC(),
 	}
 	if p.Description.Valid {
 		r.Description = p.Description.String

@@ -38,9 +38,9 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 
-	limit := int64(offset + pageSize + 1)
+	limit := int32(offset + pageSize + 1)
 	agentID := nullableStringParam(params.AgentId)
-	since := time.Now().UTC().Add(-inboxRecentFailureWindow).Format("2006-01-02 15:04:05")
+	since := time.Now().UTC().Add(-inboxRecentFailureWindow)
 	ctx := r.Context()
 
 	blocked, err := s.q.ListBlockedInboxTasks(ctx, sqlc.ListBlockedInboxTasksParams{
@@ -63,7 +63,7 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 	}
 	taskRuns, err := s.q.ListFailedInboxTaskRuns(ctx, sqlc.ListFailedInboxTaskRunsParams{
 		UserID:     info.UserID,
-		Since:      sql.NullString{String: since, Valid: true},
+		Since:      sql.NullTime{Time: since, Valid: true},
 		AgentID:    agentID,
 		LimitCount: limit,
 	})
@@ -73,7 +73,7 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 	}
 	schedulerRuns, err := s.q.ListFailedInboxSchedulerRuns(ctx, sqlc.ListFailedInboxSchedulerRunsParams{
 		UserID:     sql.NullString{String: info.UserID, Valid: true},
-		Since:      sql.NullString{String: since, Valid: true},
+		Since:      sql.NullTime{Time: since, Valid: true},
 		AgentID:    agentID,
 		LimitCount: limit,
 	})
@@ -140,7 +140,7 @@ func blockedInboxItem(row sqlc.ListBlockedInboxTasksRow) apitypes.InboxItem {
 		SourceType: apitypes.InboxItemSourceTypeTask,
 		SourceId:   row.TaskID,
 		TargetPath: taskTargetPath(row.AgentID, row.TaskID),
-		CreatedAt:  parseTime(row.CreatedAt),
+		CreatedAt:  row.CreatedAt.UTC(),
 	}
 }
 
@@ -155,14 +155,14 @@ func reviewInboxItem(row sqlc.ListReviewInboxTasksRow) apitypes.InboxItem {
 		SourceType: apitypes.InboxItemSourceTypeTask,
 		SourceId:   row.TaskID,
 		TargetPath: taskTargetPath(row.AgentID, row.TaskID),
-		CreatedAt:  parseTime(row.CreatedAt),
+		CreatedAt:  row.CreatedAt.UTC(),
 	}
 }
 
 func failedTaskRunInboxItem(row sqlc.ListFailedInboxTaskRunsRow) apitypes.InboxItem {
 	createdAt := parseTimePtr(row.FinishedAt)
 	if createdAt == nil {
-		t := parseTime(row.CreatedAt)
+		t := row.CreatedAt.UTC()
 		createdAt = &t
 	}
 	return apitypes.InboxItem{
@@ -182,7 +182,7 @@ func failedTaskRunInboxItem(row sqlc.ListFailedInboxTaskRunsRow) apitypes.InboxI
 func failedSchedulerRunInboxItem(row sqlc.ListFailedInboxSchedulerRunsRow) apitypes.InboxItem {
 	createdAt := parseTimePtr(row.FinishedAt)
 	if createdAt == nil {
-		t := parseTime(row.StartedAt)
+		t := row.StartedAt.UTC()
 		createdAt = &t
 	}
 	return apitypes.InboxItem{

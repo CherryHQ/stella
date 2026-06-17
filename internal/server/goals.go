@@ -368,8 +368,8 @@ func goalToAPI(g sqlc.AgentGoal) apitypes.Goal {
 		Status:       apitypes.GoalStatus(g.Status),
 		Priority:     apitypes.GoalPriority(g.Priority),
 		ReviewPolicy: apitypes.GoalReviewPolicy(g.ReviewPolicy),
-		CreatedAt:    parseTS(g.CreatedAt),
-		UpdatedAt:    parseTS(g.UpdatedAt),
+		CreatedAt:    g.CreatedAt.UTC(),
+		UpdatedAt:    g.UpdatedAt.UTC(),
 	}
 	out.AgentId = g.AgentID
 	if g.ProjectID.Valid {
@@ -381,11 +381,11 @@ func goalToAPI(g sqlc.AgentGoal) apitypes.Goal {
 		out.ActiveReviewId = &v
 	}
 	if g.CompletedAt.Valid {
-		v := parseTS(g.CompletedAt.String)
+		v := g.CompletedAt.Time.UTC()
 		out.CompletedAt = &v
 	}
 	if g.CancelledAt.Valid {
-		v := parseTS(g.CancelledAt.String)
+		v := g.CancelledAt.Time.UTC()
 		out.CancelledAt = &v
 	}
 	if m := jsonObject(g.Context); m != nil {
