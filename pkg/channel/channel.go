@@ -8,6 +8,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/renderrefs"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
@@ -113,12 +114,13 @@ type ChatStream struct {
 // Event is a stream event from the agent, consumed by channel plugins
 // to render responses on the platform.
 type Event struct {
-	Text      string
-	Reasoning string
-	Image     *ImageEvent
-	File      *FileEvent
-	ToolUse   *ToolUseEvent
-	Err       error
+	Text       string
+	Reasoning  string
+	Image      *ImageEvent
+	File       *FileEvent
+	ToolUse    *ToolUseEvent
+	References []renderrefs.Reference
+	Err        error
 }
 
 // ImageEvent carries a base64-encoded image.

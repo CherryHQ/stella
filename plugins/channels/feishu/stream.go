@@ -8,6 +8,7 @@ import (
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
+	"github.com/CherryHQ/stella/internal/renderrefs"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -45,7 +46,7 @@ var nowFunc = time.Now
 //  1. Thinking: sends initial card with "Thinking..." immediately
 //  2. Generating: updates card with streaming content + cursor
 //  3. Complete: final content with elapsed time footer
-func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyMsgID, rootID string) (string, string, []channel.ImageEvent, []channel.FileEvent, time.Duration, error) {
+func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyMsgID, rootID string) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
 	startTime := nowFunc()
 
 	var sb strings.Builder
@@ -54,6 +55,7 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 	var sentMsgID string
 	var images []channel.ImageEvent
 	var files []channel.FileEvent
+	var refs []renderrefs.Reference
 	phase := phaseThinking
 	lastSend := time.Time{}
 
@@ -69,6 +71,10 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 		if evt.Err != nil {
 			streamErr = evt.Err
 			break
+		}
+
+		if len(evt.References) > 0 {
+			refs = append(refs, evt.References...)
 		}
 
 		if evt.Image != nil {
@@ -131,7 +137,7 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 	// via sendFinalResponseInThread with elapsed time appended).
 	elapsed := nowFunc().Sub(startTime)
 
-	return sentMsgID, sb.String(), images, files, elapsed, streamErr
+	return sentMsgID, sb.String(), images, files, dedupeReferences(refs), elapsed, streamErr
 }
 
 // sendCardReply sends an interactive card reply and returns the new message ID.
@@ -140,7 +146,10 @@ func (b *Bot) sendCardReply(replyMsgID, text string) (string, error) {
 	apiCtx, cancel := b.apiContext()
 	defer cancel()
 
-	content := cardContent(text)
+	content, err := buildCardContent(text)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errCardContentBuild, err)
+	}
 	resp, err := b.client.Im.Message.Reply(apiCtx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(replyMsgID).
@@ -166,7 +175,10 @@ func (b *Bot) patchMessage(messageID, text string) error {
 	apiCtx, cancel := b.apiContext()
 	defer cancel()
 
-	content := cardContent(text)
+	content, err := buildCardContent(text)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errCardContentBuild, err)
+	}
 	resp, err := b.client.Im.Message.Patch(apiCtx,
 		larkim.NewPatchMessageReqBuilder().
 			MessageId(messageID).

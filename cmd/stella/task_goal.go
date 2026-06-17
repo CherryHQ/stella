@@ -164,6 +164,7 @@ func goalCreateCmd() *ucli.Command {
 				Type:    "goal",
 				ID:      goal.Id,
 				Intent:  "created",
+				AgentID: goal.AgentId,
 				Preview: &renderrefs.Preview{Title: goal.Title, Status: string(goal.Status)},
 			})
 			return printGoal(c, goal)

@@ -2,7 +2,7 @@
 title: 飞书机器人
 ---
 
-Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不需要公网 webhook URL。你可以在飞书中与 AI 助手对话、发送图片和文档，也可以在群聊中使用，并支持线程回复。
+Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不需要公网 webhook URL。你可以在飞书中与 AI 助手对话、发送图片和文档，也可以在群聊中使用，并支持线程回复。Agent 创建的任务、目标和文章引用会渲染为紧凑的飞书卡片;配置 `STELLA_BASE_URL` 后,卡片会带一个"打开 Web UI"按钮直达对应条目。
 
 ## 前提条件
 

@@ -13,6 +13,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/renderrefs"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -520,7 +521,6 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 
 	case coreagent.ToolFinished:
 		status := "done"
-		detail := summarizeToolResult(e.Result)
 		if e.Result.IsError {
 			status = "error"
 		}
@@ -531,15 +531,24 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 				break
 			}
 		}
+		cleanText, refs := renderrefs.Extract(fullText)
+		// Persist the stripped text whenever Extract removed anything — a real ref
+		// or a malformed/truncated sentinel — so the saved conversation (and any
+		// later replay into the model) never carries a raw sentinel. Summarize the
+		// detail from the same cleaned result for the same reason.
+		stored := e.Result
+		if cleanText != fullText {
+			stored = cleanToolResult(e.Result, cleanText)
+		}
 		return []Event{
 			{ToolUse: &ToolUseEvent{
 				ID:      e.Result.ToolCallID,
 				Tool:    e.Result.ToolName,
 				Status:  status,
-				Detail:  detail,
-				Content: fullText,
-			}},
-			{Store: e.Result},
+				Detail:  summarizeToolResult(stored),
+				Content: cleanText,
+			}, References: refs},
+			{Store: stored},
 		}
 
 	case coreagent.AgentErrored:
@@ -547,6 +556,23 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 	}
 
 	return nil
+}
+
+// cleanToolResult returns a copy of result with its first text block replaced by
+// clean, so the persisted tool result carries no renderref sentinel. Other
+// blocks (images, etc.) are shared unchanged.
+func cleanToolResult(result ai.ToolResultMessage, clean string) ai.ToolResultMessage {
+	out := result
+	out.Content = make([]ai.ContentBlock, len(result.Content))
+	copy(out.Content, result.Content)
+	for i, block := range out.Content {
+		if tc, ok := block.(ai.TextContent); ok {
+			tc.Text = clean
+			out.Content[i] = tc
+			break
+		}
+	}
+	return out
 }
 
 // summarizeToolResult returns a short human-readable summary of a tool result.

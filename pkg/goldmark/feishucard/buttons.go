@@ -97,6 +97,8 @@ func buttonInCode(content string, pos int) bool {
 
 // parseButton extracts attributes from a {{button ...}} match and builds
 // a Feishu button element. Returns nil if required attributes are missing.
+// A button is either a link (url=) that opens a URL or a callback (value=)
+// that posts an action back to the bot; url takes precedence when both are set.
 func parseButton(raw string) map[string]any {
 	sub := buttonRegex.FindStringSubmatch(raw)
 	if len(sub) < 2 {
@@ -105,12 +107,13 @@ func parseButton(raw string) map[string]any {
 
 	attrs := parseAttrs(sub[1])
 	label := attrs["label"]
+	url := attrs["url"]
 	value := attrs["value"]
-	if label == "" || value == "" {
+	if label == "" || (url == "" && value == "") {
 		return nil
 	}
 
-	return buildButtonElement(label, value, attrs["type"], attrs["confirm"])
+	return buildButtonElement(label, url, value, attrs["type"], attrs["confirm"])
 }
 
 // parseAttrs extracts key="value" pairs from an attribute string.
@@ -122,10 +125,17 @@ func parseAttrs(s string) map[string]string {
 	return m
 }
 
-// buildButtonElement constructs a Feishu button component.
-func buildButtonElement(label, value, typ, confirm string) map[string]any {
+// buildButtonElement constructs a Feishu button component. When url is
+// non-empty the button opens that URL; otherwise it posts value back as a
+// callback action.
+func buildButtonElement(label, url, value, typ, confirm string) map[string]any {
 	if typ == "" {
 		typ = "default"
+	}
+
+	behavior := map[string]any{"type": "callback", "value": map[string]any{"action": value}}
+	if url != "" {
+		behavior = map[string]any{"type": "open_url", "default_url": url}
 	}
 
 	btn := map[string]any{
@@ -135,12 +145,7 @@ func buildButtonElement(label, value, typ, confirm string) map[string]any {
 			"tag":     "plain_text",
 			"content": label,
 		},
-		"behaviors": []map[string]any{
-			{
-				"type":  "callback",
-				"value": map[string]any{"action": value},
-			},
-		},
+		"behaviors": []map[string]any{behavior},
 	}
 
 	if confirm != "" {

@@ -180,6 +180,7 @@ func taskCreateCmd() *ucli.Command {
 				Type:    "task",
 				ID:      task.Id,
 				Intent:  "created",
+				AgentID: task.AgentId,
 				Preview: &renderrefs.Preview{Title: task.Title, Status: string(task.Status)},
 			})
 			return printTask(c, task)

@@ -40,9 +40,10 @@ type Preview struct {
 // bearing fields; everything else is a hint.
 type Reference struct {
 	V       int      `json:"v"`
-	Type    string   `json:"type"`             // "task" | "goal" | "recally_article" | future
-	ID      string   `json:"id"`               // entity UUID
-	Intent  string   `json:"intent,omitempty"` // "created" (default emitted) | "referenced"
+	Type    string   `json:"type"`               // "task" | "goal" | "recally_article" | future
+	ID      string   `json:"id"`                 // entity UUID
+	Intent  string   `json:"intent,omitempty"`   // "created" (default emitted) | "referenced"
+	AgentID string   `json:"agent_id,omitempty"` // owning agent, for deep links to agent-scoped pages (task/goal)
 	Preview *Preview `json:"preview,omitempty"`
 }
 
@@ -85,13 +86,16 @@ func Extract(text string) (clean string, refs []Reference) {
 	kept := lines[:0]
 	for _, line := range lines {
 		// Only treat the marker as a sentinel when nothing but whitespace
-		// precedes it; this avoids eating a line that merely mentions it.
+		// precedes it; this avoids eating a line that merely mentions it. Such a
+		// line is protocol, never user content, so it is always dropped — even
+		// when the payload is malformed or truncated (e.g. a sentinel clipped by
+		// tail truncation), which must not leak to the user as garbage.
 		if before, payload, found := strings.Cut(line, marker); found && strings.TrimSpace(before) == "" {
 			var ref Reference
 			if err := json.Unmarshal([]byte(payload), &ref); err == nil && ref.ID != "" && ref.Type != "" {
 				refs = append(refs, ref)
-				continue
 			}
+			continue
 		}
 		kept = append(kept, line)
 	}

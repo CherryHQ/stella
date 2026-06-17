@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -20,18 +21,54 @@ func textContent(text string) string {
 	return string(data)
 }
 
-// cardContent builds a Feishu Interactive Card JSON 2.0 string.
-// GFM tables become native table components; all other content is rendered
-// as markdown elements. Cards support the Patch API for in-place editing.
-func cardContent(text string) string {
+var (
+	cardButtonDirective = regexp.MustCompile(`\{\{button\s+([^}]*)\}\}`)
+	cardButtonAttr      = regexp.MustCompile(`(\w+)="([^"]*)"`)
+)
+
+// stripCardDirectives rewrites {{button ...}} directives into readable plain
+// text ("label: url") so a plain-text fallback never shows raw directives. Used
+// when an interactive card can't be built and the reply must degrade to text.
+func stripCardDirectives(text string) string {
+	return cardButtonDirective.ReplaceAllStringFunc(text, func(m string) string {
+		attrs := map[string]string{}
+		for _, a := range cardButtonAttr.FindAllStringSubmatch(m, -1) {
+			attrs[a[1]] = a[2]
+		}
+		switch {
+		case attrs["label"] != "" && attrs["url"] != "":
+			return attrs["label"] + ": " + attrs["url"]
+		case attrs["url"] != "":
+			return attrs["url"]
+		default:
+			return strings.TrimSpace(attrs["label"])
+		}
+	})
+}
+
+var buildCardContent = func(text string) (string, error) {
 	card := map[string]any{
 		"schema": "2.0",
 		"body": map[string]any{
 			"elements": feishucard.Render(text),
 		},
 	}
-	data, _ := json.Marshal(card)
-	return string(data)
+	data, err := json.Marshal(card)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// cardContent builds a Feishu Interactive Card JSON 2.0 string.
+// GFM tables become native table components; all other content is rendered
+// as markdown elements. Cards support the Patch API for in-place editing.
+func cardContent(text string) string {
+	content, err := buildCardContent(text)
+	if err != nil {
+		return textContent(text)
+	}
+	return content
 }
 
 // feishuFileType maps common file extensions to Feishu's file_type field.

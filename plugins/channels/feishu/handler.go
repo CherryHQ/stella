@@ -396,7 +396,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
-	sentMsgID, response, images, files, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID)
 
 	b.removeReaction(messageID, ackReactionID)
 
@@ -417,7 +417,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	// Append elapsed time footer to the final response.
 	finalResponse := response + elapsedFooter(elapsed)
 
-	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse)
+	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup)
 
 	for _, img := range images {
 		b.sendImageInThread(chatID, messageID, rootID, img)
@@ -431,13 +431,20 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 }
 
 // replyText sends a text reply to a message. When the text contains
-// {{button ...}} directives, sends an interactive card instead.
+// {{button ...}} directives it sends an interactive card — but only if the card
+// actually builds. If the card build fails it degrades to genuine plain text
+// (directives stripped) rather than sending an interactive type with text-shaped
+// content, which Feishu rejects.
 func (b *Bot) replyText(ctx context.Context, messageID, text string) {
 	msgType := larkim.MsgTypeText
 	content := textContent(text)
-	if strings.Contains(text, "{{button ") {
-		msgType = larkim.MsgTypeInteractive
-		content = cardContent(text)
+	if cardButtonDirective.MatchString(text) {
+		if card, err := buildCardContent(text); err == nil {
+			msgType = larkim.MsgTypeInteractive
+			content = card
+		} else {
+			content = textContent(stripCardDirectives(text))
+		}
 	}
 
 	resp, err := b.client.Im.Message.Reply(ctx,

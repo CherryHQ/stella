@@ -475,9 +475,10 @@ func (c *Coordinator) SwitchModel(provider, model string) error {
 
 func convertEvent(evt agent.Event) pkgchannel.Event {
 	out := pkgchannel.Event{
-		Text:      evt.Text,
-		Reasoning: evt.Reasoning,
-		Err:       evt.Err,
+		Text:       evt.Text,
+		Reasoning:  evt.Reasoning,
+		References: evt.References,
+		Err:        evt.Err,
 	}
 	if evt.Image != nil {
 		out.Image = &pkgchannel.ImageEvent{
