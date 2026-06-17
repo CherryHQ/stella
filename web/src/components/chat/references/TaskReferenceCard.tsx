@@ -6,6 +6,7 @@ import type { ComponentsTask } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import type { RenderableReference } from "@/lib/types";
 import { StatusPill, statusLabel } from "@/features/tasks/lib";
+import { pollWhileActive } from "./poll";
 import { ReferenceCardShell } from "./ReferenceCardShell";
 
 function taskOptions(taskId: string) {
@@ -16,6 +17,7 @@ function taskOptions(taskId: string) {
       return data as ComponentsTask;
     },
     enabled: !!taskId,
+    refetchInterval: pollWhileActive,
   });
 }
 

@@ -5,11 +5,16 @@ import { goalGraphOptions, goalOptions } from "@/lib/queries/goals";
 import { useI18n } from "@/lib/i18n";
 import type { RenderableReference } from "@/lib/types";
 import { StatusPill, statusLabel, statusMeta } from "@/features/tasks/lib";
+import { pollWhileActive } from "./poll";
 import { ReferenceCardShell } from "./ReferenceCardShell";
 
 export function GoalReferenceCard({ reference }: { reference: RenderableReference }) {
   const { t } = useI18n();
-  const { data: goal, isError } = useQuery(goalOptions(reference.id));
+  // Poll only while the goal is active; the shared goalOptions stays unpolled.
+  const { data: goal, isError } = useQuery({
+    ...goalOptions(reference.id),
+    refetchInterval: pollWhileActive,
+  });
   const { data: graph } = useQuery(goalGraphOptions(reference.id));
 
   const title = goal?.title ?? reference.preview?.title ?? reference.id;
