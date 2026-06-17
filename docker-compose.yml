@@ -11,29 +11,40 @@
 #      environment or a .env file.
 #   2. Create the named volumes — they are external on purpose (see the volumes
 #      section), so create them once before the first `up`:
-#        docker volume create stella-data && docker volume create otel-data
+#        docker volume create stella-data && docker volume create stella-otel-data
 #   3. docker compose up -d
 #   4. Open http://localhost:25678 to configure agents and channels.
 #
 # First-run setup (before running in the background):
-#   docker compose run --rm -p 8080:8080 stella stellad server --port 8080
-#   Then open http://localhost:8080 to finish setup.
+#   Then open http://localhost:25688 to finish setup.
 
 services:
+  stella-volume-init:
+    build: .
+    image: ${STELLA_IMAGE:-ghcr.io/cherryhq/stella:latest}
+    user: root
+    restart: "no"
+    volumes:
+      - stella-data:/home/stella/.stella
+    command: ["sh", "-c", "chown -R stella:stella /home/stella/.stella"]
+
   stella:
+    build: .
     image: ${STELLA_IMAGE:-ghcr.io/cherryhq/stella:latest} # mise run dev:api:docker sets this to the local stella:latest
     restart: unless-stopped
+    depends_on:
+      stella-volume-init:
+        condition: service_completed_successfully
     ports:
-      - "25678:25678"
+      - "25688:25678"
     volumes:
       # Named volume backing STELLA_HOME (~/.stella for the image's stella user) — required for docker sandbox volume mode
       - stella-data:/home/stella/.stella
       # Host Docker socket so stellad can create sandbox containers
       - /var/run/docker.sock:/var/run/docker.sock
+    env_file: ${STELLA_HOME:-${HOME}/.stella-dev}/.env
     environment:
-      - STELLA_VAULT_KEY=${STELLA_VAULT_KEY:?set STELLA_VAULT_KEY first (run stella vault keygen)}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # - STELLA_VAULT_KEY=${STELLA_VAULT_KEY:?set STELLA_VAULT_KEY first (run stella vault keygen)}
       # Authenticates the boot-time mise reconcile of builtin tools (avoids GitHub rate limits)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       # Lock sandbox backend via env (docker | local | none); UI becomes read-only
@@ -42,6 +53,9 @@ services:
       - STELLA_DOCKER_SANDBOX_MODE=volume
       # Tell volume mode which named volume backs STELLA_HOME
       - STELLA_HOME_VOLUME=stella-data
+      # OTEL
+      - OTEL_SERVICE_NAME=stella
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=dev,service.version=dev
       - OTEL_TRACES_EXPORTER=otlp
       - OTEL_LOGS_EXPORTER=otlp
       - OTEL_METRICS_EXPORTER=none
@@ -54,9 +68,9 @@ services:
     ports:
       - "4317:4317" # OTLP gRPC
       - "4318:4318" # OTLP HTTP
-      - "3000:3000" # Grafana UI
+      - "13413:3000" # Grafana UI
     volumes:
-      - otel-data:/data
+      - stella-otel-data:/data
 
 volumes:
   # external on purpose: a fixed-name, pre-created volume is shared across
@@ -64,5 +78,5 @@ volumes:
   # is never silently recreated. Create them once (see Quick start step 2).
   stella-data:
     external: true
-  otel-data:
+  stella-otel-data:
     external: true
