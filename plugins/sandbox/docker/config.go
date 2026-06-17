@@ -48,6 +48,22 @@ type Config struct {
 	// Normally auto-derived from STELLA_HOME_VOLUME by NewFactory.
 	StellaHomeVolume string
 
+	// SandboxNetwork, when set, attaches sandbox containers to this Docker
+	// network instead of the daemon default bridge. Required in DooD setups
+	// where stellad and the sandbox are separate containers: without a shared
+	// network the sandbox cannot reach stellad, so server-backed CLI commands
+	// (stella task/goal, recally) fail with connection refused. Set via
+	// STELLA_SANDBOX_NETWORK, otherwise auto-detected by NewFactory from the
+	// network stellad's own container is on.
+	SandboxNetwork string
+
+	// ServerURL, when set, is injected into the sandbox as STELLA_SERVER_URL so
+	// CLI commands inside the sandbox reach stellad over SandboxNetwork instead
+	// of the default 127.0.0.1 loopback (which, inside a separate sandbox
+	// container, points at nothing). Set via STELLA_SANDBOX_SERVER_URL, otherwise
+	// auto-detected by NewFactory as stellad's address on SandboxNetwork.
+	ServerURL string
+
 	// UserToolBinaries are manifest-declared, user-configured CLIs that are not
 	// baked into the versioned sandbox image. They are installed in a Linux
 	// helper container and exposed to sessions through a Docker-managed tool

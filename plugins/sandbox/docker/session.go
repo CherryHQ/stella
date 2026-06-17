@@ -69,6 +69,9 @@ func NewFactory(cfg Config) (sandboxpkg.Factory, error) {
 		if err != nil {
 			return nil, err
 		}
+		detectCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		cfg = autodetectServerReachability(detectCtx, cfg)
+		cancel()
 		if len(cfg.UserToolBinaries) == 0 {
 			tools, err := resolveUserToolBinaries(cfg.StellaHome)
 			if err != nil {
@@ -184,6 +187,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		WorkspaceHost:  workspaceHost,
 		WorkspaceMount: workspaceMount,
 		NetworkMode:    networkMode,
+		Network:        f.cfg.SandboxNetwork,
 		Env:            mergeEnv(policy.Env, nil),
 		Labels: map[string]string{
 			dockerclient.LabelSessionID:  sessionID,
@@ -220,6 +224,14 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		env["STELLA_USER_DIR"] = mountedUserDataHost
 		policy.Env = env
 	}
+
+	// Point the in-sandbox CLI at stellad over the shared network. Without this
+	// the CLI falls back to 127.0.0.1:25678 — the sandbox container's own
+	// loopback, where nothing listens — so server-backed commands fail. Injecting
+	// into policy.Env covers both the container's create-time env and every later
+	// exec, which both derive from it. Set only when configured (DooD); the
+	// local/host backend reaches stellad on loopback.
+	policy.Env = withServerURL(policy.Env, f.cfg.ServerURL)
 
 	// Build the mount table and env prefix maps before creating the container so
 	// the create-time env can be translated to the container view too — otherwise
@@ -708,6 +720,21 @@ func buildMountTable(opts mountTableOptions) []dockerclient.Mount {
 
 // mergeEnv merges policy environment and per-call overrides into a map.
 // NEVER inherits host environment — that is a host-process concept, not a container concept.
+// withServerURL returns env with STELLA_SERVER_URL set to url, cloning so the
+// caller's map is untouched. A blank url returns env unchanged (local/host
+// backends keep the 127.0.0.1 default).
+func withServerURL(env map[string]string, url string) map[string]string {
+	if url == "" {
+		return env
+	}
+	out := maps.Clone(env)
+	if out == nil {
+		out = make(map[string]string, 1)
+	}
+	out["STELLA_SERVER_URL"] = url
+	return out
+}
+
 func mergeEnv(policyEnv, optsEnv map[string]string) map[string]string {
 	out := make(map[string]string, len(policyEnv)+len(optsEnv))
 	maps.Copy(out, policyEnv)

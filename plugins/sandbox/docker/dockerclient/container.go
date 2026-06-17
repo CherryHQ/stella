@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
@@ -49,6 +50,7 @@ type CreateOptions struct {
 	WorkspaceMount string      // absolute in-container path (e.g. "/workspace")
 	ExtraMounts    []Mount     // additional host -> container mounts; ReadOnly is honored per mount
 	NetworkMode    NetworkMode // disabled | allow_all
+	Network        string      // optional Docker network to join (e.g. to reach stellad in DooD); ignored when NetworkMode is disabled
 	Env            map[string]string
 	User           string            // optional container user override
 	Labels         map[string]string // must include LabelSessionID + LabelStellaHome + LabelCreatedAt
@@ -151,6 +153,60 @@ func (c *Client) InspectContainerState(ctx context.Context, containerRef string)
 	}, nil
 }
 
+// SelfNetwork is one network the current container is attached to.
+type SelfNetwork struct {
+	Name string
+	IP   string // this container's IP on the network, empty if unset
+}
+
+// SelfContainer describes the container the current process runs in, so a
+// sibling sandbox can be wired to reach it. Networks holds the user-defined
+// networks (DNS-capable; a sandbox can reach this container by Name on them),
+// sorted by name. BridgeIP is the address on the default bridge, used as a
+// last resort when there is no user-defined network (the bridge has no embedded
+// DNS, so only its IP is reachable).
+type SelfContainer struct {
+	ID       string
+	Name     string // without the leading slash docker prepends
+	Networks []SelfNetwork
+	BridgeIP string
+}
+
+// InspectSelf inspects the container referenced by ref — typically os.Hostname(),
+// which Docker defaults to the short container ID — and reports its networks so
+// a sibling sandbox can be attached and pointed back at this process. Returns
+// (nil, nil) when ref is not a known container (e.g. stellad runs on the host),
+// so callers fall back to explicit configuration or loopback.
+func (c *Client) InspectSelf(ctx context.Context, ref string) (*SelfContainer, error) {
+	res, err := c.api.ContainerInspect(ctx, ref, mobyclient.ContainerInspectOptions{})
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("dockerclient: inspect self %s: %w", ref, err)
+	}
+	self := &SelfContainer{ID: res.Container.ID, Name: strings.TrimPrefix(res.Container.Name, "/")}
+	if res.Container.NetworkSettings == nil {
+		return self, nil
+	}
+	for name, ep := range res.Container.NetworkSettings.Networks {
+		ip := ""
+		if ep != nil && ep.IPAddress.IsValid() {
+			ip = ep.IPAddress.String()
+		}
+		switch name {
+		case "host", "none":
+			continue
+		case "bridge":
+			self.BridgeIP = ip
+		default:
+			self.Networks = append(self.Networks, SelfNetwork{Name: name, IP: ip})
+		}
+	}
+	sort.Slice(self.Networks, func(i, j int) bool { return self.Networks[i].Name < self.Networks[j].Name })
+	return self, nil
+}
+
 // buildContainerCreateOptions translates CreateOptions into the SDK request.
 // Pure function so tests can assert the wiring without a daemon.
 func buildContainerCreateOptions(opts CreateOptions) mobyclient.ContainerCreateOptions {
@@ -178,19 +234,24 @@ func buildContainerConfig(opts CreateOptions) *container.Config {
 
 func buildHostConfig(opts CreateOptions) *container.HostConfig {
 	hc := &container.HostConfig{
-		NetworkMode: mapNetworkMode(opts.NetworkMode),
+		NetworkMode: mapNetworkMode(opts),
 		Mounts:      buildMounts(opts),
 	}
 	return hc
 }
 
-func mapNetworkMode(m NetworkMode) container.NetworkMode {
-	switch m {
-	case NetworkDisabled:
+// mapNetworkMode picks the container network. A disabled policy always wins
+// (fully isolated). Otherwise an explicit Network joins that user-defined
+// network — required so DooD sandboxes can reach stellad by service name —
+// falling back to the daemon default bridge.
+func mapNetworkMode(opts CreateOptions) container.NetworkMode {
+	if opts.NetworkMode == NetworkDisabled {
 		return container.NetworkMode("none")
-	default:
-		return container.NetworkMode("")
 	}
+	if opts.Network != "" {
+		return container.NetworkMode(opts.Network)
+	}
+	return container.NetworkMode("")
 }
 
 func buildMounts(opts CreateOptions) []mount.Mount {

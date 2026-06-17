@@ -37,6 +37,32 @@ func TestMergeEnv(t *testing.T) {
 	})
 }
 
+func TestWithServerURL(t *testing.T) {
+	t.Run("blank url leaves env untouched", func(t *testing.T) {
+		in := map[string]string{"A": "1"}
+		got := withServerURL(in, "")
+		if _, ok := got["STELLA_SERVER_URL"]; ok {
+			t.Fatalf("did not expect STELLA_SERVER_URL: %v", got)
+		}
+	})
+	t.Run("sets url and does not mutate input", func(t *testing.T) {
+		in := map[string]string{"A": "1"}
+		got := withServerURL(in, "http://stella:25678")
+		if got["STELLA_SERVER_URL"] != "http://stella:25678" || got["A"] != "1" {
+			t.Fatalf("unexpected: %v", got)
+		}
+		if _, ok := in["STELLA_SERVER_URL"]; ok {
+			t.Fatalf("input map was mutated: %v", in)
+		}
+	})
+	t.Run("nil env", func(t *testing.T) {
+		got := withServerURL(nil, "http://stella:25678")
+		if got["STELLA_SERVER_URL"] != "http://stella:25678" {
+			t.Fatalf("unexpected: %v", got)
+		}
+	})
+}
+
 func TestBuildMountTable(t *testing.T) {
 	stellaHome := t.TempDir()
 	for _, name := range []string{"bin", ".mise-tools", filepath.Join(".agents", "skills")} {

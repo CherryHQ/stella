@@ -37,17 +37,20 @@ func TestEnvSlice(t *testing.T) {
 
 func TestMapNetworkMode(t *testing.T) {
 	cases := []struct {
-		in   NetworkMode
+		name string
+		in   CreateOptions
 		want container.NetworkMode
 	}{
-		{NetworkDisabled, container.NetworkMode("none")},
-		{NetworkAllowAll, container.NetworkMode("")},
-		{"unknown", container.NetworkMode("")},
+		{"disabled", CreateOptions{NetworkMode: NetworkDisabled}, container.NetworkMode("none")},
+		{"allow all default bridge", CreateOptions{NetworkMode: NetworkAllowAll}, container.NetworkMode("")},
+		{"unknown mode default bridge", CreateOptions{NetworkMode: "unknown"}, container.NetworkMode("")},
+		{"explicit network", CreateOptions{NetworkMode: NetworkAllowAll, Network: "stella-net"}, container.NetworkMode("stella-net")},
+		{"disabled wins over network", CreateOptions{NetworkMode: NetworkDisabled, Network: "stella-net"}, container.NetworkMode("none")},
 	}
 	for _, c := range cases {
 		got := mapNetworkMode(c.in)
 		if got != c.want {
-			t.Fatalf("mapNetworkMode(%q) = %q, want %q", c.in, got, c.want)
+			t.Fatalf("%s: mapNetworkMode = %q, want %q", c.name, got, c.want)
 		}
 	}
 }
