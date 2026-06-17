@@ -129,23 +129,21 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 			return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure user temp dir: %w", err)
 		}
 	}
-	// Mise shims for host-execution backends (local, none). EnsureMiseShims
-	// relinks the shared system-tree shims to relative targets so they resolve
-	// after STELLA_HOME is remapped (bwrap's /opt/stella) — otherwise the system
-	// shims are only relinked at reconcile, so a session started before the next
+	// Mise tree prep, uniform across backends. EnsureMiseShims relinks the shared
+	// system-tree shims to relative targets so they resolve after STELLA_HOME is
+	// remapped (bwrap's /opt/stella) — otherwise a session started before the next
 	// reconcile inherits stale absolute host-path shims that dangle in the sandbox
 	// (#505). When a per-user tree exists it is also seeded (relative symlinks to
 	// the read-only system installs) and mounted writable so the agent can install
-	// its own tools. Docker carries its own in-image mise tree, so it is skipped
-	// here (bringing docker to parity is tracked in #436).
-	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
-		miseDir := miseUserDirHost(paths, cfg)
-		if err := pkgsandbox.EnsureMiseShims(paths.StellaHome, miseDir); err != nil {
-			return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure mise shims: %w", err)
-		}
-		if miseDir != "" {
-			fs.ExtraWritableMounts = append(fs.ExtraWritableMounts, miseDir)
-		}
+	// its own tools. Docker consumes the same seeded host tree: it mounts the tree
+	// writable at /opt/stella/users/{id}/.mise-tools and resolves the relative
+	// symlinks against the image-baked linux system tree (#436).
+	miseDir := miseUserDirHost(paths, cfg)
+	if err := pkgsandbox.EnsureMiseShims(paths.StellaHome, miseDir); err != nil {
+		return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure mise shims: %w", err)
+	}
+	if miseDir != "" {
+		fs.ExtraWritableMounts = append(fs.ExtraWritableMounts, miseDir)
 	}
 
 	policy := pkgsandbox.Policy{

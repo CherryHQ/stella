@@ -19,7 +19,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 FROM debian:13-slim
 
 COPY --from=stella-builder /out/stella /usr/local/bin/stella
-COPY --from=jdxcode/mise:2026.4.25 /usr/local/bin/mise /usr/local/bin/mise
+# mise lives at /opt/stella/bin/mise — the same path the bwrap sandbox exposes —
+# so per-user and system shims (which relink to ../../bin/mise) resolve to it.
+COPY --from=jdxcode/mise:2026.4.25 /usr/local/bin/mise /opt/stella/bin/mise
 COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /usr/local/bin/
 COPY --from=oven/bun:1.3.12 /usr/local/bin/bunx /usr/local/bin/bun /usr/local/bin/
 COPY --from=lightpanda/browser:nightly /bin/lightpanda /usr/local/bin/lightpanda
@@ -38,30 +40,36 @@ ARG USER_GID=1000
 
 RUN groupadd --non-unique -g ${USER_GID} stella && \
     useradd --non-unique -u ${USER_UID} -g ${USER_GID} -m -s /bin/bash stella && \
-    mkdir -p /workspace /user && \
-    chown -R stella:stella /home/stella /workspace /user
+    mkdir -p /workspace /user /opt/stella/bin /opt/stella/.mise-tools/configs && \
+    chown -R stella:stella /home/stella /workspace /user /opt/stella
 
 USER stella
-# Two-root layout: at runtime HOME and cwd are the agent's per-agent workspace
-# (/workspace) and the shared user-data root binds at /user. The image toolchain
-# (mise) is pinned to ABSOLUTE /home/stella paths via MISE_* so it stays reachable
-# even though runtime HOME is no longer /home/stella — otherwise mise would look
-# under /workspace/.local/share/mise (the empty bind mount) and find nothing.
-# HOME stays /home/stella for the build so `mise install` and any HOME-relative
-# tooling resolve correctly; it flips to /workspace only after the toolchain is
-# installed.
+# The image mise tree lives under ABSOLUTE /opt/stella — the SAME scheme the
+# bwrap sandbox exposes (STELLA_HOME → /opt/stella) — so an agent sees identical
+# mise paths whichever backend runs it, and switching backends has no effect. At
+# runtime RuntimeMiseEnv overrides MISE_DATA_DIR to the per-user writable tree
+# (/opt/stella/users/{id}/.mise-tools) mounted from the host; the builtin tools
+# baked here under /opt/stella/.mise-tools remain the shared read-only base that
+# per-user relative symlinks resolve against. MISE_GLOBAL_CONFIG_FILE points at
+# the _builtin config the runtime also resolves against (RuntimeMiseEnv →
+# ScopeConfigPath(_builtin)). HOME stays /home/stella for the build, then flips
+# to /workspace.
 ENV HOME=/home/stella
-ENV MISE_DATA_DIR=/home/stella/.local/share/mise
-ENV MISE_CONFIG_DIR=/home/stella/.config/mise
-ENV MISE_STATE_DIR=/home/stella/.local/state/mise
-ENV MISE_CACHE_DIR=/home/stella/.cache/mise
-ENV PATH=/home/stella/.local/bin:/home/stella/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV MISE_DATA_DIR=/opt/stella/.mise-tools
+ENV MISE_CONFIG_DIR=/opt/stella/.mise-tools/config
+ENV MISE_STATE_DIR=/opt/stella/.mise-tools/state
+ENV MISE_CACHE_DIR=/opt/stella/.mise-tools/cache
+ENV MISE_GLOBAL_CONFIG_FILE=/opt/stella/.mise-tools/configs/_builtin.toml
+ENV PATH=/opt/stella/.mise-tools/shims:/opt/stella/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-COPY --chown=stella:stella plugins/sandbox/docker/_mise.toml /home/stella/.config/mise/config.toml
-
+# Install the builtin tools through the SAME reconcile path the daemon runs, so
+# the image's tool identifiers and versions are byte-for-byte what the host
+# produces from resources/plugins.yaml (single source of truth, no drift). This
+# writes /opt/stella/.mise-tools/configs/_builtin.toml, installs every enabled
+# plugin binary, and relinks shims to relative targets.
 RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
-    mise install && \
-    mise cache clear
+    STELLA_HOME=/opt/stella stella mise reconcile-builtins && \
+    rm -rf /opt/stella/.mise-tools/cache
 
 ENV HOME=/workspace
 WORKDIR /workspace

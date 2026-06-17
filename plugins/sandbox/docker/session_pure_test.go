@@ -51,8 +51,10 @@ func TestBuildMountTable(t *testing.T) {
 		StellaHomeHost:      stellaHome,
 		StellaHomeContainer: "/home/stella/.stella",
 	})
-	if len(table) != 4 {
-		t.Fatalf("expected 4 entries, got %d", len(table))
+	// bin and .mise-tools are image-provided (linux), never host-mounted, so the
+	// process view carries only the workspace and the host-supplied skills.
+	if len(table) != 2 {
+		t.Fatalf("expected 2 entries, got %d: %+v", len(table), table)
 	}
 	if table[0].HostPath != "/host/ws" || table[0].ContainerPath != "/container/ws" {
 		t.Fatalf("unexpected workspace mount: %+v", table[0])
@@ -60,16 +62,16 @@ func TestBuildMountTable(t *testing.T) {
 	if table[0].ReadOnly {
 		t.Fatal("workspace should be read-write")
 	}
-	if table[1].HostPath != filepath.Join(stellaHome, "bin") || table[1].ContainerPath != "/home/stella/.stella/bin" || !table[1].ReadOnly {
-		t.Fatalf("unexpected stella bin mount: %+v", table[1])
+	if table[1].HostPath != filepath.Join(stellaHome, ".agents/skills") || table[1].ContainerPath != "/home/stella/.stella/.agents/skills" || !table[1].ReadOnly {
+		t.Fatalf("unexpected stella skills mount: %+v", table[1])
 	}
-	if table[2].HostPath != filepath.Join(stellaHome, ".mise-tools") || table[2].ContainerPath != "/home/stella/.stella/.mise-tools" || !table[2].ReadOnly {
-		t.Fatalf("unexpected stella mise-tools mount: %+v", table[2])
+	for _, m := range table {
+		if strings.HasSuffix(m.ContainerPath, "/bin") || strings.HasSuffix(m.ContainerPath, "/.mise-tools") {
+			t.Fatalf("image-provided dir must not be host-mounted: %+v", m)
+		}
 	}
-	if table[3].HostPath != filepath.Join(stellaHome, ".agents/skills") || table[3].ContainerPath != "/home/stella/.stella/.agents/skills" || !table[3].ReadOnly {
-		t.Fatalf("unexpected stella skills mount: %+v", table[3])
-	}
-	// Verify that missing subdirs are skipped — fresh install without .mise-tools.
+	// Verify that missing subdirs are skipped — a home with only bin (image-provided)
+	// yields just the workspace.
 	partialHome := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(partialHome, "bin"), 0o755); err != nil {
 		t.Fatal(err)
@@ -80,9 +82,9 @@ func TestBuildMountTable(t *testing.T) {
 		StellaHomeHost:      partialHome,
 		StellaHomeContainer: "/home/stella/.stella",
 	})
-	// workspace + bin only (no .mise-tools, no .agents/skills)
-	if len(tablePartial) != 2 {
-		t.Fatalf("expected 2 entries for partial stella home, got %d", len(tablePartial))
+	// workspace only (bin is image-provided, no .agents/skills)
+	if len(tablePartial) != 1 {
+		t.Fatalf("expected 1 entry for partial stella home, got %d", len(tablePartial))
 	}
 
 	// With a user-data root, /user appears RW right after the workspace.
@@ -216,7 +218,7 @@ func TestConfigureSessionMounts_HostMode(t *testing.T) {
 	if len(mountedExtra) != 1 || mountedExtra[0] != extra {
 		t.Fatalf("mounted extra = %v, want [%q]", mountedExtra, extra)
 	}
-	assertMount(t, opts.ExtraMounts, filepath.Join(stellaHome, "bin"), filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountType(""), "")
+	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
 	assertMount(t, opts.ExtraMounts, tmp, "/tmp", false, dockerclient.MountType(""), "")
 	assertMount(t, opts.ExtraMounts, extra, extra, true, dockerclient.MountType(""), "")
 	assertMount(t, opts.ExtraMounts, extra, filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeBind, "")
@@ -244,7 +246,7 @@ func TestConfigureSessionMounts_BindModeTranslatesSources(t *testing.T) {
 	if len(mountedExtra) != 1 || mountedExtra[0] != extra {
 		t.Fatalf("mounted extra = %v, want [%q]", mountedExtra, extra)
 	}
-	assertMount(t, opts.ExtraMounts, "/daemon/stella/bin", filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountType(""), "")
+	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
 	assertMount(t, opts.ExtraMounts, "/daemon/stella/users/user/skills", extra, true, dockerclient.MountType(""), "")
 	assertMount(t, opts.ExtraMounts, "/daemon/stella/users/user/skills", filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeBind, "")
 }
@@ -270,7 +272,7 @@ func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
 		t.Fatalf("mounted extra = %v, want only [%q]", mountedExtra, extra)
 	}
 	assertMount(t, opts.ExtraMounts, "stella-data", workspaceMount, false, dockerclient.MountTypeVolume, "users/user")
-	assertMount(t, opts.ExtraMounts, "stella-data", filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountTypeVolume, "bin")
+	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
 	assertMount(t, opts.ExtraMounts, "stella-data", extra, true, dockerclient.MountTypeVolume, "users/user/skills")
 	assertMount(t, opts.ExtraMounts, "stella-data", filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeVolume, "users/user/skills")
 }
@@ -290,6 +292,12 @@ func TestConfigureSessionMounts_VolumeModeRejectsStellaHomeAsWorkspace(t *testin
 
 func TestConfigureSessionMounts_BindModeUsesConfigStellaHome(t *testing.T) {
 	stellaHome, workspace, extra, tmp := dockerModeTestDirs(t)
+	// A host-mounted stella-home dir (skills) is the witness that the factory reads
+	// STELLA_HOME from cfg, not policy.Env — bin/.mise-tools are image-provided.
+	skills := filepath.Join(stellaHome, ".agents", "skills")
+	if err := os.MkdirAll(skills, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
 	opts := dockerModeCreateOptions(workspace)
 	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
@@ -298,7 +306,8 @@ func TestConfigureSessionMounts_BindModeUsesConfigStellaHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
-	assertMount(t, opts.ExtraMounts, filepath.Join(stellaHome, "bin"), filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountType(""), "")
+	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
+	assertMount(t, opts.ExtraMounts, skills, filepath.Join(stellaHomeMount, ".agents", "skills"), true, dockerclient.MountType(""), "")
 }
 
 // TestConfigureSessionMounts_UserDataRoot verifies the shared user-data root is
@@ -335,6 +344,72 @@ func TestConfigureSessionMounts_UserDataRoot(t *testing.T) {
 	})
 }
 
+// TestMountPerUserToolTrees verifies the per-user mise tree is mounted writable at
+// the /opt/stella-remapped path in both bind and volume modes — the path parity
+// that lets an agent switch backends without its mise layout changing (#436).
+func TestMountPerUserToolTrees(t *testing.T) {
+	stellaHome := t.TempDir()
+	miseDir := filepath.Join(stellaHome, "users", "u1", ".mise-tools")
+	want := filepath.Join(stellaHomeMount, "users", "u1", ".mise-tools")
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{ExtraWritableMounts: []string{miseDir}}}
+
+	t.Run("host", func(t *testing.T) {
+		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
+		opts := &dockerclient.CreateOptions{}
+		mounted := f.mountPerUserToolTrees(opts, policy)
+		if len(mounted) != 1 || mounted[0].Container != want {
+			t.Fatalf("mounted = %+v, want container %q", mounted, want)
+		}
+		assertMount(t, opts.ExtraMounts, miseDir, want, false, dockerclient.MountType(""), "")
+	})
+
+	t.Run("volume", func(t *testing.T) {
+		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
+		opts := &dockerclient.CreateOptions{}
+		mounted := f.mountPerUserToolTrees(opts, policy)
+		if len(mounted) != 1 || mounted[0].Container != want {
+			t.Fatalf("mounted = %+v, want container %q", mounted, want)
+		}
+		assertMount(t, opts.ExtraMounts, "stella-data", want, false, dockerclient.MountTypeVolume, "users/u1/.mise-tools")
+	})
+
+	t.Run("outside STELLA_HOME skipped", func(t *testing.T) {
+		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
+		opts := &dockerclient.CreateOptions{}
+		outside := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{ExtraWritableMounts: []string{t.TempDir()}}}
+		if mounted := f.mountPerUserToolTrees(opts, outside); len(mounted) != 0 {
+			t.Fatalf("expected outside-STELLA_HOME mount to be skipped, got %+v", mounted)
+		}
+	})
+}
+
+// TestTranslateEnvPaths_Mise verifies the per-user MISE_DATA_DIR is rewritten to
+// its /opt/stella container view and the MISE_TRUSTED_CONFIG_PATHS list is split,
+// translated element-wise, and deduped (keeping the literal /workspace mise needs).
+func TestTranslateEnvPaths_Mise(t *testing.T) {
+	stellaHome := "/host/.stella"
+	sep := string(filepath.ListSeparator)
+	mountTable := []dockerclient.Mount{{HostPath: "/host/ws", ContainerPath: "/workspace"}}
+	envMaps := []envPathMap{{HostPrefix: stellaHome, ContainerPrefix: stellaHomeMount}}
+	env := map[string]string{
+		"MISE_DATA_DIR":             stellaHome + "/users/u1/.mise-tools",
+		"MISE_TRUSTED_CONFIG_PATHS": strings.Join([]string{stellaHome + "/.mise-tools/configs/_builtin.toml", "/workspace", "/host/ws"}, sep),
+		"PATH":                      "/host/leak",
+	}
+	out := translateEnvPaths(env, mountTable, envMaps)
+
+	if got, want := out["MISE_DATA_DIR"], stellaHomeMount+"/users/u1/.mise-tools"; got != want {
+		t.Errorf("MISE_DATA_DIR = %q, want %q", got, want)
+	}
+	wantTrusted := strings.Join([]string{stellaHomeMount + "/.mise-tools/configs/_builtin.toml", "/workspace"}, sep)
+	if got := out["MISE_TRUSTED_CONFIG_PATHS"]; got != wantTrusted {
+		t.Errorf("MISE_TRUSTED_CONFIG_PATHS = %q, want %q", got, wantTrusted)
+	}
+	if _, ok := out["PATH"]; ok {
+		t.Error("PATH must be dropped (image-baked PATH wins)")
+	}
+}
+
 func dockerModeTestDirs(t *testing.T) (stellaHome, workspace, extra, tmp string) {
 	t.Helper()
 	stellaHome = t.TempDir()
@@ -362,6 +437,15 @@ func dockerModePolicy(stellaHome, workspace, extra, tmp string) sandboxpkg.Polic
 			ExtraReadOnlyMounts: []string{extra},
 			TempDirHost:         tmp,
 		},
+	}
+}
+
+func assertNoMountTo(t *testing.T, mounts []dockerclient.Mount, target string) {
+	t.Helper()
+	for _, m := range mounts {
+		if m.ContainerPath == target {
+			t.Fatalf("expected no mount to %q, found %+v", target, m)
+		}
 	}
 }
 

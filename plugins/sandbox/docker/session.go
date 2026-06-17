@@ -201,6 +201,12 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		return nil, err
 	}
 
+	// Per-user mise tree(s): mounted writable at the /opt/stella-remapped path so
+	// the agent can persist its own `mise install`s, mirroring bwrap. The image
+	// supplies the shared read-only base at /opt/stella/.mise-tools; these overlay
+	// the writable per-user layer on top.
+	perUserTrees := f.mountPerUserToolTrees(&opts, policy)
+
 	// Expose the user-data root as STELLA_USER_DIR — but only when /user was
 	// actually mounted, keyed off the host path the mount really used. The value
 	// is the HOST path; translateEnvPaths rewrites it to /user via the /user
@@ -230,6 +236,14 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		TempDirHost:         mountedTempDirHost,
 	})
 
+	// The per-user trees are writable and resolve via the process view too.
+	for _, tree := range perUserTrees {
+		mountTable = append(mountTable, dockerclient.Mount{
+			HostPath:      tree.Host,
+			ContainerPath: tree.Container,
+		})
+	}
+
 	var envMaps []envPathMap
 	if hostHome := policy.Env["STELLA_HOME"]; hostHome != "" {
 		envMaps = append(envMaps, envPathMap{
@@ -239,7 +253,12 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	}
 	opts.Env = translateEnvPaths(mergeEnv(policy.Env, nil), mountTable, envMaps)
 
+	// Per-user mise shims go on PATH ahead of the image's system shims so a user's
+	// own tool versions win (mirrors HostEnvBuildPath on the host backends).
 	var toolBinPaths []string
+	for _, tree := range perUserTrees {
+		toolBinPaths = append(toolBinPaths, filepath.Join(tree.Container, "shims"))
+	}
 	toolCache, err := ensureUserToolCache(ctx, client, f.cfg)
 	if err != nil {
 		recordError(span, err)
@@ -330,7 +349,7 @@ func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, 
 			logSkippedSandboxMount(DockerSandboxModeVolume, userDataHost, "user-data root is outside STELLA_HOME and cannot be mounted from the named volume")
 		}
 	}
-	for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
+	for _, name := range dockerHostStellaDirs() {
 		hostPath := filepath.Join(f.cfg.StellaHome, name)
 		if _, err := os.Stat(hostPath); err != nil {
 			continue
@@ -444,7 +463,7 @@ func (f *dockerFactory) configureBindMounts(opts *dockerclient.CreateOptions, po
 	}
 	stellaHome := f.cfg.StellaHome
 	if stellaHome != "" {
-		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
+		for _, name := range dockerHostStellaDirs() {
 			hostPath := filepath.Join(stellaHome, name)
 			if _, err := os.Stat(hostPath); err != nil {
 				continue
@@ -528,6 +547,73 @@ func appendWorkspaceRelativeReadOnlyMount(opts *dockerclient.CreateOptions, sour
 	})
 }
 
+// dockerImageProvidedStellaDirs are STELLA_HOME subdirs the sandbox image bakes
+// itself, built for the container's linux platform: the mise binary (bin) and the
+// shared system mise tree (.mise-tools). They must NOT be mounted from the host —
+// whose binaries may be a different platform — so the /opt/stella image versions
+// win and the per-user relative symlinks resolve against a runnable system tree.
+var dockerImageProvidedStellaDirs = map[string]struct{}{
+	"bin":         {},
+	".mise-tools": {},
+}
+
+// dockerHostStellaDirs returns the STELLA_HOME subdirs docker mounts from the
+// host — the shared set minus the image-provided ones.
+func dockerHostStellaDirs() []string {
+	all := sandboxpkg.StellaHomeSandboxDirs()
+	dirs := make([]string, 0, len(all))
+	for _, name := range all {
+		if _, skip := dockerImageProvidedStellaDirs[name]; skip {
+			continue
+		}
+		dirs = append(dirs, name)
+	}
+	return dirs
+}
+
+// writableMount is a per-user writable tree mounted into the container, recording
+// both ends so the caller can register it in the mount table and derive PATH.
+type writableMount struct {
+	Host      string
+	Container string
+}
+
+// mountPerUserToolTrees mounts each policy writable mount (the per-user mise
+// tree) into the container at its /opt/stella-remapped path, RW, and returns the
+// mounted pairs. Mode-aware: a volume subpath in volume mode, a daemon bind
+// otherwise. Mounts outside STELLA_HOME are skipped (the remap can't place them).
+func (f *dockerFactory) mountPerUserToolTrees(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy) []writableMount {
+	var mounted []writableMount
+	for _, hostPath := range policy.Filesystem.ExtraWritableMounts {
+		sub, ok := relativePathWithin(f.cfg.StellaHome, hostPath)
+		if !ok || sub == "." {
+			logSkippedSandboxMount(f.cfg.RuntimeMode, hostPath, "writable mount is outside STELLA_HOME and cannot be remapped")
+			continue
+		}
+		containerPath := filepath.Join(stellaHomeMount, sub)
+		if f.cfg.RuntimeMode == DockerSandboxModeVolume {
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      f.cfg.StellaHomeVolume,
+				ContainerPath: containerPath,
+				Type:          dockerclient.MountTypeVolume,
+				VolumeSubpath: filepath.ToSlash(sub),
+			})
+		} else {
+			daemonPath, ok := f.cfg.daemonPath(hostPath)
+			if !ok {
+				logSkippedSandboxMount(f.cfg.RuntimeMode, hostPath, "writable mount is not visible to the Docker daemon")
+				continue
+			}
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      daemonPath,
+				ContainerPath: containerPath,
+			})
+		}
+		mounted = append(mounted, writableMount{Host: hostPath, Container: containerPath})
+	}
+	return mounted
+}
+
 // mapNetworkMode translates sandbox policy network mode to the dockerclient type.
 func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 	switch policy.NetworkModeOrDefault() {
@@ -568,7 +654,7 @@ func buildMountTable(opts mountTableOptions) []dockerclient.Mount {
 		})
 	}
 	if opts.StellaHomeHost != "" && opts.StellaHomeContainer != "" {
-		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
+		for _, name := range dockerHostStellaDirs() {
 			hostPath := filepath.Join(opts.StellaHomeHost, name)
 			if _, err := os.Stat(hostPath); err != nil {
 				continue
@@ -635,21 +721,72 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount, e
 		if _, drop := hostOnlyEnvKeys[k]; drop {
 			continue
 		}
-		if !filepath.IsAbs(v) {
-			out[k] = v
+		// MISE_TRUSTED_CONFIG_PATHS is a path-list, not a scalar path; translate
+		// each element and keep the ones that map (a host path with no container
+		// view, like a backend-irrelevant entry, is dropped). Mirrors the local
+		// backend, which splits the same var (see plugins/sandbox/local/session.go).
+		if k == "MISE_TRUSTED_CONFIG_PATHS" {
+			seen := map[string]struct{}{}
+			var parts []string
+			for p := range strings.SplitSeq(v, string(filepath.ListSeparator)) {
+				tp, ok := translateEnvPath(p, mountTable, envMaps)
+				if !ok {
+					continue
+				}
+				// Translation can collapse distinct host paths onto one container
+				// path (e.g. the host workspace and the literal /workspace), so
+				// dedupe to keep the trusted list clean and order-stable.
+				if _, dup := seen[tp]; dup {
+					continue
+				}
+				seen[tp] = struct{}{}
+				parts = append(parts, tp)
+			}
+			if len(parts) > 0 {
+				out[k] = strings.Join(parts, string(filepath.ListSeparator))
+			}
 			continue
 		}
-		container, err := toContainerPath(mountTable, v)
-		if err == nil {
-			out[k] = container
-			continue
-		}
-		if mapped, ok := applyEnvPathMaps(envMaps, v); ok {
-			out[k] = mapped
-			continue
+		if tp, ok := translateEnvPath(v, mountTable, envMaps); ok {
+			out[k] = tp
 		}
 	}
 	return out
+}
+
+// translateEnvPath rewrites a single absolute host path to its container view via
+// the mount table, then the env prefix maps. A non-absolute value passes through
+// unchanged. A value that is already a container path (e.g. the literal
+// "/workspace" mise trusts) passes through too. An absolute host path with no
+// container view is reported as not ok so the caller drops it.
+func translateEnvPath(v string, mountTable []dockerclient.Mount, envMaps []envPathMap) (string, bool) {
+	if !filepath.IsAbs(v) {
+		return v, true
+	}
+	if container, err := toContainerPath(mountTable, v); err == nil {
+		return container, true
+	}
+	if mapped, ok := applyEnvPathMaps(envMaps, v); ok {
+		return mapped, true
+	}
+	if isContainerPath(mountTable, v) {
+		return v, true
+	}
+	return "", false
+}
+
+// isContainerPath reports whether v already names a path inside the container
+// (equal to or under a mount's container path), so it needs no translation.
+func isContainerPath(mountTable []dockerclient.Mount, v string) bool {
+	for _, m := range mountTable {
+		if m.ContainerPath == "" {
+			continue
+		}
+		if v == m.ContainerPath || strings.HasPrefix(v, m.ContainerPath+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func applyEnvPathMaps(maps []envPathMap, hostPath string) (string, bool) {
@@ -668,12 +805,13 @@ func applyEnvPathMaps(maps []envPathMap, hostPath string) (string, bool) {
 // It is used as the base when building a container exec PATH that prepends
 // container-native user tool cache paths. Keep in sync with the ENV PATH line
 // in plugins/sandbox/docker/Dockerfile.
-const containerDefaultPATH = "/home/stella/.local/bin:/home/stella/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+const containerDefaultPATH = "/opt/stella/.mise-tools/shims:/opt/stella/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-// injectToolPaths prepends container-native user tool directories to PATH.
-// Built-in tools come from the image-baked PATH; host $STELLA_HOME/bin is never
-// used for docker executable resolution because it may contain host-platform
-// binaries.
+// injectToolPaths prepends container-native tool directories to PATH (the
+// per-user mise shims so an agent's own installs win, then any manifest tool
+// cache). Built-in tools resolve through the image-baked PATH (the shared
+// /opt/stella mise tree); the host filesystem is never used for docker
+// executable resolution because it may contain host-platform binaries.
 func injectToolPaths(env map[string]string, toolBinPaths []string) map[string]string {
 	if len(toolBinPaths) == 0 {
 		return env

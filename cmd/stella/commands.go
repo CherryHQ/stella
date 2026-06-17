@@ -16,6 +16,7 @@ Start the server with "stellad server".`,
 		Version: version.DisplayVersion(),
 		Commands: []*ucli.Command{
 			versionCommand(),
+			miseCommand(),
 			recallyCommand(),
 			schedulerCommand(),
 			emailCommand(),
