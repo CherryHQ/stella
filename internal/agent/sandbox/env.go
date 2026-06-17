@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -217,15 +216,13 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, ProcessEnv(paths))
 
-	// Host-execution backends (none, local) run tools via mise shims on the host
-	// PATH, so they need the mise env pointed at the org's config. Docker carries
-	// its own in-image mise tree and PATH, so host-side paths must not leak in.
-	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
-		// MISE_DATA_DIR points at the per-user tree in the STELLA_HOME frame
-		// ($STELLA_HOME/users/{id}/.mise-tools); the workspace dir trusted for a
-		// project mise.toml is the agent workspace.
-		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, miseUserDirHost(paths, cfg), paths.WorkspaceRoot))
-	}
+	// Every backend resolves tools through the same mise layout: the per-user
+	// writable tree ($STELLA_HOME/users/{id}/.mise-tools) over the shared system
+	// base, with the agent workspace trusted for a project mise.toml. The emitted
+	// values are host paths; docker rewrites them to its /opt/stella container view
+	// (translateEnvPaths), while local/none use them via the host PATH or bwrap
+	// remap — so an agent sees identical mise paths whichever backend runs it.
+	maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, miseUserDirHost(paths, cfg), paths.WorkspaceRoot))
 
 	return env, nil
 }

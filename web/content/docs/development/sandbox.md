@@ -88,6 +88,16 @@ The abstraction is covered by:
 - Docker backend integration tests
 - static bypass regression guards for migrated runtime paths
 
+## Running the Docker Backend Locally
+
+`mise run dev:docker` brings up the whole stack with one command, mirroring the production `docker-compose.yml`: `stellad` runs **inside a container** with the `docker` sandbox backend in **volume mode** (`STELLA_SANDBOX_BACKEND=docker`, `STELLA_DOCKER_SANDBOX_MODE=volume`, `STELLA_HOME_VOLUME=stella-data`), plus an `otel-lgtm` sidecar. It builds the local images (`docker:build` → `stella:latest`, `sandbox:docker:build` → `stella-sandbox:dev`), creates the named volumes if missing, and ensures `~/.stella-dev/.env` contains a dev vault key. It runs the same `docker-compose.yml` as prod, just exporting `STELLA_IMAGE=stella:latest` so it uses the local build instead of the released image.
+
+The in-container Go server serves its baked-in embedded SPA at `localhost:25688` (see `web/embed.go`), and Grafana is available at `localhost:13413`.
+
+Stop everything with `docker compose down`.
+
+The sandbox image bakes its mise toolchain at `/opt/stella` via `stella mise reconcile-builtins` (the same `resources/plugins.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths.
+
 ## Adding a New Backend
 
 Every new sandbox backend requires changes in all of the following locations — missing any one causes a runtime error:

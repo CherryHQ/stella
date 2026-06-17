@@ -88,6 +88,16 @@ Stella 优先选择显式拒绝而非静默降级：
 - Docker 后端集成测试
 - 已迁移运行时路径的静态绕过回归保护
 
+## 本地运行 Docker 后端
+
+`mise run dev:docker` 一条命令拉起整套栈，对齐生产的 `docker-compose.yml`：`stellad` 跑在**容器内**，docker 沙箱后端走 **volume 模式**（`STELLA_SANDBOX_BACKEND=docker`、`STELLA_DOCKER_SANDBOX_MODE=volume`、`STELLA_HOME_VOLUME=stella-data`），外加一个 `otel-lgtm` 边车。它会构建本地镜像（`docker:build` → `stella:latest`、`sandbox:docker:build` → `stella-sandbox:dev`）、按需新建命名卷，并确保 `~/.stella-dev/.env` 里有 dev vault key。它跑的是和 prod 同一份 `docker-compose.yml`，只是导出 `STELLA_IMAGE=stella:latest`，从而用本地构建而非发布镜像。
+
+容器内 Go 服务器在 `localhost:25688` 提供其烤进镜像的内嵌 SPA（见 `web/embed.go`），Grafana 在 `localhost:13413`。
+
+用 `docker compose down` 停掉整套栈。
+
+sandbox 镜像通过 `stella mise reconcile-builtins`（与宿主相同的 `resources/plugins.yaml` reconcile）把 mise 工具链烤在 `/opt/stella`，因此 docker 与 Linux `local` 后端呈现完全一致的 mise 路径。
+
 ## 添加新后端
 
 每个新沙箱后端需要在以下所有位置进行修改——遗漏任何一处都会导致运行时错误：

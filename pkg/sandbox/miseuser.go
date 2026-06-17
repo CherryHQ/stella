@@ -87,7 +87,9 @@ func pruneDanglingSeedLinks(userInstalls string) error {
 // (always) and, when userToolsDir is set, seeds and relinks the per-user tree via
 // EnsureUserMiseHome. Splitting the two trees keeps each concern separate while a
 // single call site guarantees both resolve under the active backend's remap.
-// Docker carries its own in-image mise tree and must not call this.
+// All backends call this, including docker: the relinked relative shims and
+// seeded per-user tree are mounted into the container and resolve against the
+// image's in-image system tree (#436).
 func EnsureMiseShims(stellaHome, userToolsDir string) error {
 	if err := RelinkSystemMiseShims(stellaHome); err != nil {
 		return err

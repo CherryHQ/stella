@@ -141,7 +141,7 @@ Unit 文件安装至 `/etc/systemd/system/stella.service`。
 ```bash
 docker run -it --rm \
   --security-opt seccomp=unconfined \
-  -v ~/.stella:/home/nonroot/.stella \
+  -v ~/.stella:/home/stella/.stella \
   -p 8080:8080 \
   ghcr.io/cherryhq/stella:latest \
   stellad server --port 8080
@@ -153,7 +153,7 @@ docker run -it --rm \
 docker run -d \
   --name stella \
   --security-opt seccomp=unconfined \
-  -v ~/.stella:/home/nonroot/.stella \
+  -v ~/.stella:/home/stella/.stella \
   -p 25678:25678 \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
@@ -173,7 +173,7 @@ services:
     security_opt:
       - seccomp=unconfined
     volumes:
-      - ./stella-data:/home/nonroot/.stella
+      - ./stella-data:/home/stella/.stella
     environment:
       - ANTHROPIC_API_KEY=sk-...
       # - OPENAI_API_KEY=sk-...

@@ -47,7 +47,8 @@ RUN apt-get update \
         ca-certificates libncurses6 libstdc++6 \
         bubblewrap util-linux \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --home-dir /home/stella --shell /usr/sbin/nologin stella
+    && useradd --create-home --home-dir /home/stella --shell /usr/sbin/nologin stella \
+    && install -d -o stella -g stella /home/stella/.stella
 
 WORKDIR /home/stella
 USER stella

@@ -109,6 +109,8 @@ stellad server
 
 打开 `http://localhost:3000`（Grafana UI）。使用 **Explore → Tempo** 查看追踪瀑布图，使用 **Explore → Loki** 查看日志。如果日志中包含 `trace_id`，Grafana 会自动关联追踪与日志。
 
+> **开发 Stella 本身？** 不必手动 `docker run`。`mise run dev:docker` 会用本地构建的镜像拉起整套 `docker-compose.yml` 栈——`stellad` 加一个 `otel-lgtm` 边车，OTLP 已接到 `otel` 服务——无需额外配置。Grafana 在 `http://localhost:13413`。用 `docker compose down` 停掉。
+
 `grafana/otel-lgtm` 适合本地开发，不建议用于生产环境。生产部署请使用独立的 OTel Collector 或 Grafana Alloy，将数据转发到独立的 Loki、Tempo 和 Mimir 实例。
 
 ### 配合其他后端使用

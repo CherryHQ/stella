@@ -94,6 +94,44 @@ description = "Start stella API server"
 depends = ["build"]
 run = 'STELLA_HOME="$HOME/.stella-dev" $BINARY_D server'
 
+[tasks."dev:docker"]
+description = "Start the Docker dev stack: stellad + docker sandbox + otel-lgtm"
+depends = ["docker:build", "sandbox:docker:build"]
+run = """
+  docker volume create stella-data >/dev/null
+  docker volume create stella-otel-data >/dev/null
+
+  ENV_FILE="${STELLA_HOME:-$HOME/.stella-dev}/.env"
+  mkdir -p "$(dirname "$ENV_FILE")"
+  if ! grep -q '^STELLA_VAULT_KEY=' "$ENV_FILE" 2>/dev/null; then
+    docker run --rm stella:latest stella vault keygen | sed 's/^/STELLA_VAULT_KEY=/' >> "$ENV_FILE"
+  fi
+
+  export GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
+    export GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
+  fi
+
+  if [ "$(uname -s)" = "Darwin" ]; then
+    DOCKER_SOCKET_GID=0
+  else
+    DOCKER_SOCKET_GID="$(python3 - <<'PY'
+import os
+try:
+    print(os.stat('/var/run/docker.sock').st_gid)
+except OSError:
+    print(0)
+PY
+    )"
+  fi
+  export DOCKER_SOCKET_GID
+
+  STELLA_IMAGE=stella:latest docker compose up -d otel
+  STELLA_IMAGE=stella:latest docker compose up -d --force-recreate stella-volume-init stella
+  echo "stella up — UI http://localhost:25688 · Grafana http://localhost:13413"
+  echo "logs: docker compose logs -f stella   ·   stop: docker compose down"
+"""
+
 # ============================================================================
 # Code Quality
 # ============================================================================
@@ -191,45 +229,21 @@ run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || 
 description = "Build local stella-sandbox:dev image (used by the docker sandbox backend in dev builds)"
 run = """
   DIR=plugins/sandbox/docker
-  UID_ARG=$(id -u)
-  GID_ARG=$(id -g)
   VERSION_ARG=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
+  export GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
+    export GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
+  fi
   if [ -n "${GITHUB_TOKEN:-}" ]; then
     DOCKER_BUILDKIT=1 docker build \
       --secret id=github_token,env=GITHUB_TOKEN \
-      --build-arg USER_UID=$UID_ARG \
-      --build-arg USER_GID=$GID_ARG \
       --build-arg VERSION=$VERSION_ARG \
       -f "$DIR/Dockerfile" \
       -t stella-sandbox:dev .
   else
     DOCKER_BUILDKIT=1 docker build \
-      --build-arg USER_UID=$UID_ARG \
-      --build-arg USER_GID=$GID_ARG \
       --build-arg VERSION=$VERSION_ARG \
       -f "$DIR/Dockerfile" \
       -t stella-sandbox:dev .
   fi
-"""
-
-[tasks."docker:dev"]
-description = "Run Stella with docker"
-depends = ["docker:build"]
-run = """
-    docker image inspect stella:latest >/dev/null 2>&1 || { echo 'stella:latest not found; run mise run docker:build first' >&2; exit 1; }
-    docker volume create stella-dev >/dev/null
-    if ! docker run --rm -v "stella-dev:/home/stella" stella:latest sh -c 'test -f /home/stella/.env && grep -q "^STELLA_VAULT_KEY=" /home/stella/.env'; then
-        docker run --rm -v "stella-dev:/home/stella" stella:latest sh -c 'stella vault keygen | sed "s/^/STELLA_VAULT_KEY=/" >> /home/stella/.env'
-    fi
-    docker rm -f stella-dev >/dev/null 2>&1 || true
-    docker run -d --name stella-dev -p 25678:25678 \
-        --security-opt seccomp=unconfined \
-        -v "stella-dev:/home/stella" \
-        -e "STELLA_HOME=/home/stella" \
-        -e "HOST=0.0.0.0" \
-        stella:latest
-    echo 'stella-dev started'
-    echo 'logs: docker logs -f stella-dev'
-    echo 'stop: docker stop stella-dev'
-    docker logs -f stella-dev
 """
