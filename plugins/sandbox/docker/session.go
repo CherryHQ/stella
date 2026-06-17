@@ -280,13 +280,32 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		toolBinPaths = append(toolBinPaths, toolCache.BinPath)
 	}
 
+	slog.Info("docker session: creating sandbox container",
+		"session_id", sessionID,
+		"image", opts.Image,
+		"container_name", opts.Name,
+		"workspace", workspaceHost,
+		"network_mode", opts.NetworkMode,
+		"extra_mounts", len(opts.ExtraMounts),
+	)
 	containerID, err := client.CreateAndStart(ctx, opts)
 	if err != nil {
+		slog.Warn("docker session: sandbox container create/start failed",
+			"session_id", sessionID,
+			"image", opts.Image,
+			"container_name", opts.Name,
+			"error", err,
+		)
 		recordError(span, err)
 		span.End()
 		return nil, fmt.Errorf("docker session: create and start: %w", err)
 	}
 
+	slog.Info("docker session: sandbox container ready",
+		"session_id", sessionID,
+		"container_id", containerID,
+		"container_name", opts.Name,
+	)
 	span.AddEvent("sandbox.docker.session.ready", trace.WithAttributes(
 		attribute.String("stella.sandbox.container_id", containerID),
 	))

@@ -95,28 +95,39 @@ depends = ["build"]
 run = 'STELLA_HOME="$HOME/.stella-dev" $BINARY_D server'
 
 [tasks."dev:docker"]
-description = "Start stella server (web + api) with the docker sandbox backend + otel-lgtm"
-depends = ["dev:ui", "dev:api:docker"]
-
-[tasks."dev:api:docker"]
-description = "One-command docker dev stack: stellad in a container (docker sandbox volume mode) + otel-lgtm, on the local image"
+description = "Start the Docker dev stack: stellad + docker sandbox + otel-lgtm"
 depends = ["docker:build", "sandbox:docker:build"]
-# Mirrors the prod docker-compose.yml (volume mode + otel-lgtm) but runs the
-# locally built stella:latest. Creates the named volumes if missing and reuses a
-# persisted dev vault key so encrypted secrets survive restarts.
 run = """
   docker volume create stella-data >/dev/null
-  docker volume create otel-data >/dev/null
-  KEY_FILE="$HOME/.stella-dev/docker-vault.key"
-  mkdir -p "$(dirname "$KEY_FILE")"
-  [ -s "$KEY_FILE" ] || docker run --rm stella:latest stella vault keygen > "$KEY_FILE"
+  docker volume create stella-otel-data >/dev/null
+
+  ENV_FILE="${STELLA_HOME:-$HOME/.stella-dev}/.env"
+  mkdir -p "$(dirname "$ENV_FILE")"
+  if ! grep -q '^STELLA_VAULT_KEY=' "$ENV_FILE" 2>/dev/null; then
+    docker run --rm stella:latest stella vault keygen | sed 's/^/STELLA_VAULT_KEY=/' >> "$ENV_FILE"
+  fi
+
   export GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
   if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
     export GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
   fi
-  export STELLA_IMAGE=stella:latest STELLA_VAULT_KEY="$(cat "$KEY_FILE")"
-  docker compose up -d
-  echo "stella up — UI http://localhost:25678 · Grafana http://localhost:3000"
+
+  if [ "$(uname -s)" = "Darwin" ]; then
+    DOCKER_SOCKET_GID=0
+  else
+    DOCKER_SOCKET_GID="$(python3 - <<'PY'
+import os
+try:
+    print(os.stat('/var/run/docker.sock').st_gid)
+except OSError:
+    print(0)
+PY
+    )"
+  fi
+  export DOCKER_SOCKET_GID
+
+  STELLA_IMAGE=stella:latest docker compose up -d
+  echo "stella up — UI http://localhost:25688 · Grafana http://localhost:13413"
   echo "logs: docker compose logs -f stella   ·   stop: docker compose down"
 """
 

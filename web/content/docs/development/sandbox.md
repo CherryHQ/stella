@@ -90,10 +90,9 @@ The abstraction is covered by:
 
 ## Running the Docker Backend Locally
 
-`mise run dev:api:docker` brings up the whole stack with one command, mirroring the production `docker-compose.yml`: `stellad` runs **inside a container** with the `docker` sandbox backend in **volume mode** (`STELLA_SANDBOX_BACKEND=docker`, `STELLA_DOCKER_SANDBOX_MODE=volume`, `STELLA_HOME_VOLUME=stella-data`), plus an `otel-lgtm` sidecar (Grafana at `localhost:3000`). It builds the local images (`docker:build` → `stella:latest`, `sandbox:docker:build` → `stella-sandbox:dev`), creates the named volumes if missing, and reuses a dev vault key persisted at `~/.stella-dev/docker-vault.key`. It runs the same `docker-compose.yml` as prod, just exporting `STELLA_IMAGE=stella:latest` and the dev `STELLA_VAULT_KEY` (both are `${VAR:-default}` placeholders in the compose file) so it uses the local build instead of the released image.
+`mise run dev:docker` brings up the whole stack with one command, mirroring the production `docker-compose.yml`: `stellad` runs **inside a container** with the `docker` sandbox backend in **volume mode** (`STELLA_SANDBOX_BACKEND=docker`, `STELLA_DOCKER_SANDBOX_MODE=volume`, `STELLA_HOME_VOLUME=stella-data`), plus an `otel-lgtm` sidecar. It builds the local images (`docker:build` → `stella:latest`, `sandbox:docker:build` → `stella-sandbox:dev`), creates the named volumes if missing, and ensures `~/.stella-dev/.env` contains a dev vault key. It runs the same `docker-compose.yml` as prod, just exporting `STELLA_IMAGE=stella:latest` so it uses the local build instead of the released image.
 
-- `mise run dev:api:docker` — the container stack. The in-container Go server serves its baked-in embedded SPA at `localhost:25678` (see `web/embed.go`) — a working UI, just without Vite hot-reload.
-- `mise run dev:docker` — the same stack plus the Vite UI at `localhost:5173` (proxying `/api` to the container on `:25678`). Use this for frontend hot-reload.
+The in-container Go server serves its baked-in embedded SPA at `localhost:25688` (see `web/embed.go`), and Grafana is available at `localhost:13413`.
 
 Stop everything with `docker compose down`.
 

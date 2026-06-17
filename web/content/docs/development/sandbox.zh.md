@@ -90,10 +90,9 @@ Stella 优先选择显式拒绝而非静默降级：
 
 ## 本地运行 Docker 后端
 
-`mise run dev:api:docker` 一条命令拉起整套栈，对齐生产的 `docker-compose.yml`：`stellad` 跑在**容器内**，docker 沙箱后端走 **volume 模式**（`STELLA_SANDBOX_BACKEND=docker`、`STELLA_DOCKER_SANDBOX_MODE=volume`、`STELLA_HOME_VOLUME=stella-data`），外加一个 `otel-lgtm` 边车（Grafana 在 `localhost:3000`）。它会构建本地镜像（`docker:build` → `stella:latest`、`sandbox:docker:build` → `stella-sandbox:dev`）、按需新建命名卷，并复用持久化在 `~/.stella-dev/docker-vault.key` 的 dev vault key。它跑的是和 prod 同一份 `docker-compose.yml`，只是导出 `STELLA_IMAGE=stella:latest` 和 dev 的 `STELLA_VAULT_KEY`（两者在 compose 里都是 `${VAR:-default}` 占位），从而用本地构建而非发布镜像。
+`mise run dev:docker` 一条命令拉起整套栈，对齐生产的 `docker-compose.yml`：`stellad` 跑在**容器内**，docker 沙箱后端走 **volume 模式**（`STELLA_SANDBOX_BACKEND=docker`、`STELLA_DOCKER_SANDBOX_MODE=volume`、`STELLA_HOME_VOLUME=stella-data`），外加一个 `otel-lgtm` 边车。它会构建本地镜像（`docker:build` → `stella:latest`、`sandbox:docker:build` → `stella-sandbox:dev`）、按需新建命名卷，并确保 `~/.stella-dev/.env` 里有 dev vault key。它跑的是和 prod 同一份 `docker-compose.yml`，只是导出 `STELLA_IMAGE=stella:latest`，从而用本地构建而非发布镜像。
 
-- `mise run dev:api:docker` — 容器栈。容器内 Go 服务器在 `localhost:25678` 提供其烤进镜像的内嵌 SPA（见 `web/embed.go`）——可用 UI，只是没有 Vite 热重载。
-- `mise run dev:docker` — 同一套栈再加 Vite UI 在 `localhost:5173`（把 `/api` 代理到 `:25678` 上的容器）。需要前端热重载时用这个。
+容器内 Go 服务器在 `localhost:25688` 提供其烤进镜像的内嵌 SPA（见 `web/embed.go`），Grafana 在 `localhost:13413`。
 
 用 `docker compose down` 停掉整套栈。
 

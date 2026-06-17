@@ -59,28 +59,36 @@ type CreateOptions struct {
 // (`sh -c 'tail -f /dev/null'`), starts it, and returns the container ID.
 // If the image is not present locally it is pulled automatically.
 func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string, error) {
+	slog.Info("dockerclient: checking sandbox image", "image", opts.Image, "container_name", opts.Name)
 	exists, err := c.ImageExists(ctx, opts.Image)
 	if err != nil {
+		slog.Warn("dockerclient: image check failed", "image", opts.Image, "container_name", opts.Name, "error", err)
 		return "", fmt.Errorf("dockerclient: image check %s: %w", opts.Image, err)
 	}
 	if !exists {
-		slog.Info("dockerclient: image not found locally, pulling", "image", opts.Image)
+		slog.Info("dockerclient: image not found locally, pulling", "image", opts.Image, "container_name", opts.Name)
 		if err := c.PullImage(ctx, opts.Image); err != nil {
+			slog.Warn("dockerclient: image pull failed", "image", opts.Image, "container_name", opts.Name, "error", err)
 			return "", err
 		}
 	}
 
 	createOpts := buildContainerCreateOptions(opts)
 
+	slog.Info("dockerclient: creating sandbox container", "image", opts.Image, "container_name", opts.Name, "network_mode", opts.NetworkMode, "mounts", len(createOpts.HostConfig.Mounts))
 	created, err := c.api.ContainerCreate(ctx, createOpts)
 	if err != nil {
+		slog.Warn("dockerclient: container create failed", "image", opts.Image, "container_name", opts.Name, "error", err)
 		return "", fmt.Errorf("dockerclient: container create: %w", err)
 	}
 
+	slog.Info("dockerclient: starting sandbox container", "container_id", created.ID, "container_name", opts.Name)
 	if _, err := c.api.ContainerStart(ctx, created.ID, mobyclient.ContainerStartOptions{}); err != nil {
+		slog.Warn("dockerclient: container start failed", "container_id", created.ID, "container_name", opts.Name, "error", err)
 		return created.ID, fmt.Errorf("dockerclient: container start %s: %w", created.ID, err)
 	}
 
+	slog.Info("dockerclient: sandbox container started", "container_id", created.ID, "container_name", opts.Name)
 	return created.ID, nil
 }
 

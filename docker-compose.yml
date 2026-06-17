@@ -13,7 +13,7 @@
 #      section), so create them once before the first `up`:
 #        docker volume create stella-data && docker volume create stella-otel-data
 #   3. docker compose up -d
-#   4. Open http://localhost:25678 to configure agents and channels.
+#   4. Open http://localhost:25688 to configure agents and channels.
 #
 # First-run setup (before running in the background):
 #   Then open http://localhost:25688 to finish setup.
@@ -30,11 +30,14 @@ services:
 
   stella:
     build: .
-    image: ${STELLA_IMAGE:-ghcr.io/cherryhq/stella:latest} # mise run dev:api:docker sets this to the local stella:latest
+    image: ${STELLA_IMAGE:-ghcr.io/cherryhq/stella:latest} # mise run dev:docker sets this to the local stella:latest
     restart: unless-stopped
     depends_on:
       stella-volume-init:
         condition: service_completed_successfully
+    group_add:
+      # Let the non-root stella user access the host Docker socket in DooD mode.
+      - ${DOCKER_SOCKET_GID:-0}
     ports:
       - "25688:25678"
     volumes:
