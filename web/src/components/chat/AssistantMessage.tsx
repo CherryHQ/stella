@@ -23,6 +23,7 @@ import {
 import { getAgentColor } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
+import { RenderableReferenceList } from "./references";
 import { SessionTrace } from "./SessionTrace";
 
 export interface AssistantMessageProps {
@@ -233,27 +234,37 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
     labelText = t("sessions.transcript.worked");
   }
 
+  // Renderable references the agent emitted while creating entities in this
+  // step group. Surfaced as cards OUTSIDE the collapsible — the raw tool output
+  // defaults to collapsed, so a card buried inside would read as "not done".
+  const references = blocks.flatMap((b) =>
+    b.type === "tool_call" ? (b.result?.references ?? []) : [],
+  );
+
   return (
-    <CollapsibleThinking labelText={labelText} expanded={expanded} onToggle={setExpanded}>
-      <div className="space-y-3">
-        {blocks.map((block, idx) => {
-          if (block.type === "thinking" && block.thinking) {
-            return (
-              <div
-                key={idx}
-                className="py-0.5 text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-sans min-w-0"
-              >
-                {block.thinking}
-              </div>
-            );
-          }
-          if (block.type === "tool_call") {
-            return <ToolStepRow key={idx} block={block} />;
-          }
-          return null;
-        })}
-      </div>
-    </CollapsibleThinking>
+    <div className="space-y-3">
+      <CollapsibleThinking labelText={labelText} expanded={expanded} onToggle={setExpanded}>
+        <div className="space-y-3">
+          {blocks.map((block, idx) => {
+            if (block.type === "thinking" && block.thinking) {
+              return (
+                <div
+                  key={idx}
+                  className="py-0.5 text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-sans min-w-0"
+                >
+                  {block.thinking}
+                </div>
+              );
+            }
+            if (block.type === "tool_call") {
+              return <ToolStepRow key={idx} block={block} />;
+            }
+            return null;
+          })}
+        </div>
+      </CollapsibleThinking>
+      {references.length > 0 && <RenderableReferenceList references={references} />}
+    </div>
   );
 }
 

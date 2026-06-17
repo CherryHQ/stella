@@ -10,6 +10,7 @@ import (
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/cli"
+	"github.com/CherryHQ/stella/internal/renderrefs"
 )
 
 func taskAgentID(_ *ucli.Context) (string, error) {
@@ -174,6 +175,13 @@ func taskCreateCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("create task: %w", err)
 			}
+			// Best-effort: a failed sentinel write must never fail task creation.
+			_ = renderrefs.Emit(c.App.ErrWriter, renderrefs.Reference{
+				Type:    "task",
+				ID:      task.Id,
+				Intent:  "created",
+				Preview: &renderrefs.Preview{Title: task.Title, Status: string(task.Status)},
+			})
 			return printTask(c, task)
 		},
 	}

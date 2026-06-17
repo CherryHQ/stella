@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	ucli "github.com/urfave/cli/v2"
@@ -69,6 +70,32 @@ func TestRecallySaveUsesPositionalURL(t *testing.T) {
 	}
 }
 
+func TestRecallySaveNewWithoutContentGivesActionableError(t *testing.T) {
+	t.Setenv("STELLA_TOKEN", "test-token")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"code":"bad_request","message":"content is required for new articles","status":400}}`))
+	}))
+	defer server.Close()
+	t.Setenv("STELLA_SERVER_URL", server.URL)
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
+
+	app := ucli.NewApp()
+	app.Commands = []*ucli.Command{recallyCommand()}
+	err := app.Run([]string{"stella", "recally", "save", "https://example.com/article"})
+	if err == nil {
+		t.Fatal("expected error for new article without content")
+	}
+	got := err.Error()
+	for _, want := range []string{"is not saved yet", "tap fetch", "--content-file", "https://example.com/article"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error %q missing %q", got, want)
+		}
+	}
+}
+
 func TestRecallySaveRequiresURL(t *testing.T) {
 	app := ucli.NewApp()
 	app.Commands = []*ucli.Command{recallyCommand()}
@@ -84,7 +111,7 @@ func TestRecallySaveRejectsFlagsAfterURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for flags after url")
 	}
-	if got := err.Error(); got != "flags must be placed before positional arguments; usage: stella recally save [options] <url>" {
+	if got := err.Error(); got != `options must be placed before positional arguments; found "--title" after them; usage: stella recally save [options] <url>` {
 		t.Fatalf("error = %q", got)
 	}
 }
@@ -96,7 +123,7 @@ func TestRecallyFeedMarkRejectsFlagsAfterArgs(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for flags after feed entry args")
 	}
-	if got := err.Error(); got != "flags must be placed before positional arguments; usage: stella recally feed mark [options] <feed-id> <entry-id>" {
+	if got := err.Error(); got != `options must be placed before positional arguments; found "--status" after them; usage: stella recally feed mark [options] <feed-id> <entry-id>` {
 		t.Fatalf("error = %q", got)
 	}
 }

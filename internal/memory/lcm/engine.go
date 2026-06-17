@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/renderrefs"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -106,11 +107,12 @@ type toolCallEnvelope struct {
 // and the provider's prompt cache stays valid. Result remains the flattened text
 // for backward compatibility and token estimation.
 type toolResultEnvelope struct {
-	ID     string             `json:"id"`
-	Tool   string             `json:"tool"`
-	Result json.RawMessage    `json:"result"`
-	Error  string             `json:"error,omitempty"`
-	Blocks []contentBlockJSON `json:"blocks,omitempty"`
+	ID         string                 `json:"id"`
+	Tool       string                 `json:"tool"`
+	Result     json.RawMessage        `json:"result"`
+	Error      string                 `json:"error,omitempty"`
+	Blocks     []contentBlockJSON     `json:"blocks,omitempty"`
+	References []renderrefs.Reference `json:"references,omitempty"`
 }
 
 // storageRow is a single DB row to be written for an ai.Message.
@@ -179,16 +181,21 @@ func assistantMessageToRows(m ai.AssistantMessage) []storageRow {
 
 func toolResultToRows(m ai.ToolResultMessage) []storageRow {
 	text := ai.FlattenText(m.Content)
+	// Lift any renderable-reference sentinels out of the tool output once, at
+	// ingest: the cleaned text is what the model and user see; the references
+	// ride along on the envelope so the chat can render cards by entity id.
+	text, refs := renderrefs.Extract(text)
 	resultJSON, _ := json.Marshal(text)
 	var errStr string
 	if m.IsError {
 		errStr = text
 	}
 	envelope := toolResultEnvelope{
-		ID:     m.ToolCallID,
-		Tool:   m.ToolName,
-		Result: resultJSON,
-		Error:  errStr,
+		ID:         m.ToolCallID,
+		Tool:       m.ToolName,
+		Result:     resultJSON,
+		Error:      errStr,
+		References: refs,
 	}
 	if ai.HasImage(m.Content) {
 		envelope.Blocks = contentBlocksToJSON(m.Content)
