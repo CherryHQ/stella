@@ -50,9 +50,14 @@ type Reference struct {
 func Enabled() bool { return os.Getenv(envVar) == "1" }
 
 // Emit writes one sentinel line for ref to w (typically a command's stderr).
-// It is a no-op returning nil when ref carries no id, so callers can emit
-// unconditionally without guarding on partial data.
+// It is a no-op (returning nil) unless emission is [Enabled], so a human running
+// the same CLI in a terminal never sees the marker — only agent runs, where the
+// bash tool sets the env, do. It is also a no-op when ref carries no id/type, so
+// callers can emit unconditionally without guarding on partial data.
 func Emit(w io.Writer, ref Reference) error {
+	if !Enabled() {
+		return nil
+	}
 	if ref.ID == "" || ref.Type == "" {
 		return nil
 	}

@@ -18,8 +18,9 @@ const registry: Record<string, React.ComponentType<{ reference: RenderableRefere
 /**
  * Renders the renderable-reference cards an agent emitted in a tool step. Placed
  * by {@link StepsGroup} outside the collapsible so cards are always visible, not
- * buried in the (default-collapsed) raw tool output. Dedupes by type+id so a
- * reference echoed across steps shows once.
+ * buried in the (default-collapsed) raw tool output. Dedupes by type+id within
+ * this list (one StepsGroup); the same entity surfacing in a different step
+ * group still renders once per group.
  */
 export function RenderableReferenceList({ references }: { references: RenderableReference[] }) {
   const seen = new Set<string>();
