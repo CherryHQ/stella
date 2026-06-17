@@ -10,6 +10,15 @@ import "sync"
 // Publishing never blocks the turn: a slow subscriber drops events rather than
 // stalling the agent. Subscribers reconcile final state by reloading persisted
 // history, so dropped deltas are cosmetic.
+//
+// Placement invariant: the hub lives on the Runtime that executes a session's
+// turns, and the SSE handler subscribes via the Service of `session.AgentID`.
+// This is correct only because every turn for a session — chat, scheduler,
+// task, and delegate — runs on that agent's Runtime. If a turn ever runs on a
+// different Runtime (e.g. a cross-agent delegate, or a standalone task runner),
+// it would publish to a hub the watcher never subscribes to and the live
+// stream would silently fall back to 204. Such a change must hoist the hub to a
+// single per-pool instance keyed by session ID.
 type SessionHub struct {
 	mu   sync.Mutex
 	subs map[string]map[chan Event]struct{}

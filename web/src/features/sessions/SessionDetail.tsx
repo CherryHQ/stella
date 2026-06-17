@@ -139,11 +139,19 @@ export function SessionDetail({
     session?.kind === "scheduler" || session?.kind === "task" || session?.kind === "delegate";
   const chatStatusRef = useRef(chatStatus);
   chatStatusRef.current = chatStatus;
+  // resumeStream() is async and status only flips to "streaming" once the SSE
+  // connection parses its first frame; guard with an in-flight ref so a tick
+  // firing inside that window can't open a second concurrent stream.
+  const resumingRef = useRef(false);
   useEffect(() => {
     if (!session || !isInternalKind) return;
     let cancelled = false;
     const tick = () => {
-      if (!cancelled && chatStatusRef.current === "ready") void chatResume();
+      if (cancelled || resumingRef.current || chatStatusRef.current !== "ready") return;
+      resumingRef.current = true;
+      void chatResume().finally(() => {
+        resumingRef.current = false;
+      });
     };
     tick();
     const timer = setInterval(tick, 3000);

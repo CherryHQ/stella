@@ -90,12 +90,6 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	authInfo := UserFromContext(r.Context())
-	if authInfo == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-
 	var body apiserver.SendSessionMessageJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request")
@@ -103,6 +97,13 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	}
 	if len(body.Parts) == 0 {
 		writeError(w, http.StatusBadRequest, "parts is required")
+		return
+	}
+
+	// Authorize through the single chokepoint: ownership, agent/path match, and
+	// the scoped-token session pin. A scoped (e.g. sandbox) token must not reach
+	// a session other than the one it is pinned to.
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
 		return
 	}
 
@@ -116,12 +117,6 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	si, err := sm.LoadInfo(ctx, sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-
-	// Ownership is strict: only the session owner may send messages.
-	if authInfo.UserID != si.UserID {
-		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
 
@@ -390,9 +385,10 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 
-	authInfo := UserFromContext(r.Context())
-	if authInfo == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	// Same authorization chokepoint as message-send: ownership, agent/path
+	// match, and scoped-token session pin. The live event stream is at least as
+	// sensitive as the transcript, so it must not be reachable cross-session.
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
 		return
 	}
 
@@ -406,12 +402,6 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 	si, err := sm.LoadInfo(ctx, sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-
-	// Ownership is strict: only the session owner may watch its events.
-	if authInfo.UserID != si.UserID {
-		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
 

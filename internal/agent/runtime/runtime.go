@@ -216,14 +216,27 @@ func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageConte
 	ctx = memory.WithSessionID(ctx, info.ID)
 
 	// Tee: chat writes to inner; the forwarder fans every event out to the hub
-	// (for read-only subscribers — SSE watchers of scheduler/task/delegate turns
-	// or other tabs) and to the caller's channel. The hub is fed even if the
-	// initiating caller disconnects, so a server-driven turn still streams to
-	// watching UIs.
+	// (read-only subscribers — SSE watchers of scheduler/task/delegate turns, or
+	// another tab) as well as to the caller's channel.
+	//
+	// A server-driven turn (scheduler/task) runs under its own context, so
+	// watchers can attach and detach without affecting it. A user-initiated turn
+	// runs under the caller's request context and ends when that caller
+	// disconnects; the ctx.Done branch below only flushes already-buffered
+	// events rather than blocking on a reader that is gone.
 	inner := make(chan Event, 100)
 	rt.hub.begin(info.ID)
 	go func() {
 		defer rt.active.Delete(info.ID)
+		defer func() {
+			if p := recover(); p != nil {
+				// rt.chat panicked before closing inner. Close it so the
+				// forwarder drains and rt.hub.end runs; otherwise the session
+				// wedges — stuck busy and permanently "live" to SSE watchers.
+				rt.log.Error("chat turn panicked", "session_id", info.ID, "panic", p)
+				close(inner)
+			}
+		}()
 		rt.chat(ctx, inner, info, msg, co)
 	}()
 	go func() {
@@ -234,8 +247,8 @@ func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageConte
 			select {
 			case out <- ev:
 			case <-ctx.Done():
-				// Caller gone: keep draining so the turn completes and hub
-				// subscribers keep receiving, but stop writing to out.
+				// Caller gone: keep draining inner so the turn finishes cleanly
+				// and hub subscribers still receive, but stop writing to out.
 				for ev := range inner {
 					rt.hub.publish(info.ID, ev)
 				}
