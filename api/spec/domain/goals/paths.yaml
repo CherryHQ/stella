@@ -11,6 +11,13 @@ paths:
             required: false,
             schema: { type: string },
           }
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - {
+            name: project_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
         - {
             name: page_size,
             in: query,
@@ -67,6 +74,18 @@ paths:
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [goals]
+      summary: Archive a goal
+      description: Audit-safe delete; hides terminal/draft goals from default lists without removing history.
+      operationId: deleteGoal
+      responses:
+        "204": { description: archived }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
 
   /api/goals/{goalId}/activate:
     parameters:
@@ -75,6 +94,34 @@ paths:
       tags: [goals]
       summary: Activate a goal (draft → running, promotes draft children to ready)
       operationId: activateGoal
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Goal" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/complete:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Mark a goal achieved
+      operationId: completeGoal
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/CompleteGoalRequest",
+              }
       responses:
         "200":
           description: ok

@@ -245,6 +245,25 @@ func (s *Server) GetTask(w http.ResponseWriter, r *http.Request, taskID string) 
 	writeData(w, http.StatusOK, taskToAPI(t))
 }
 
+func (s *Server) DeleteTask(w http.ResponseWriter, r *http.Request, taskID string) {
+	if !s.tasksReady() {
+		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
+		return
+	}
+	if requireAuth(w, r) == nil {
+		return
+	}
+	t, ok := s.loadTask(r.Context(), w, taskID)
+	if !ok {
+		return
+	}
+	if err := s.tasksSvc.Facade.ArchiveTask(r.Context(), t.ID, authActor(r)); err != nil {
+		s.taskError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ---------------------------------------------------------------------------
 // Cancel / reopen
 // ---------------------------------------------------------------------------

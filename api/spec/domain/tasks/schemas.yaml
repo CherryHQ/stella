@@ -70,6 +70,10 @@ components:
         updated_at: { type: string, format: date-time }
         completed_at: { type: string, format: date-time }
         cancelled_at: { type: string, format: date-time }
+        archived_at:
+          type: string
+          format: date-time
+          description: Set when the task is hidden from default lists.
 
     TaskList:
       type: object

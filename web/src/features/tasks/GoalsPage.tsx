@@ -1,5 +1,11 @@
-import { useCallback, useEffect } from "react";
-import { Columns3, Inbox, Table as TableIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Archive,
+  Columns3,
+  Inbox,
+  Search,
+  Table as TableIcon,
+} from "lucide-react";
 import type { TFunction } from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
@@ -11,9 +17,27 @@ import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { useAppShell } from "@/layouts/AppShell";
 import { Button } from "@/components/ui/button";
-import { StatusDot, StatusPill, avatarInitials, goalNeedsYou, statusLabel } from "./lib";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  StatusDot,
+  StatusPill,
+  avatarInitials,
+  goalNeedsYou,
+  statusLabel,
+} from "./lib";
 
 export type GoalsView = "triage" | "board" | "table";
+type GoalsMode = "active" | "history";
+type GoalStatusFilter = "all" | ComponentsGoal["status"];
+
 const VIEWS: GoalsView[] = ["triage", "board", "table"];
 const VIEW_LABEL: Record<GoalsView, MessageKey> = {
   triage: "goals.viewTriage",
@@ -25,31 +49,131 @@ const VIEW_ICON: Record<GoalsView, typeof Inbox> = {
   board: Columns3,
   table: TableIcon,
 };
+const TERMINAL_STATUSES: ComponentsGoal["status"][] = [
+  "done",
+  "failed",
+  "cancelled",
+];
+const ACTIVE_STATUSES: ComponentsGoal["status"][] = [
+  "blocked",
+  "reviewing",
+  "running",
+  "planning",
+  "draft",
+];
+const PAGE_SIZE = 24;
 
 export function GoalsPage() {
   const { t } = useI18n();
   const { agentId } = useParams({ strict: false }) as { agentId: string };
   const search = useSearch({ strict: false });
-  const view = (search as Record<string, unknown>).view as string | undefined;
+  const rawSearch = search as Record<string, unknown>;
+  const view = rawSearch.view as string | undefined;
+  const modeParam = rawSearch.mode as string | undefined;
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { data: goals = [], isLoading } = useQuery(goalsOptions(agentId));
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<GoalStatusFilter>("all");
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() =>
+    readHiddenGoals(agentId),
+  );
 
-  const cur: GoalsView = VIEWS.includes(view as GoalsView) ? (view as GoalsView) : "triage";
+  const cur: GoalsView = VIEWS.includes(view as GoalsView)
+    ? (view as GoalsView)
+    : "triage";
+  const mode: GoalsMode = modeParam === "history" ? "history" : "active";
   const setView = useCallback(
     (v: GoalsView) =>
       void navigate({
         to: "/agents/$agentId/tasks/goals",
         params: { agentId },
-        search: { view: v } as Record<string, unknown>,
+        search: { ...rawSearch, view: v } as Record<string, unknown>,
       }),
-    [agentId, navigate],
+    [agentId, navigate, rawSearch],
+  );
+  const setMode = useCallback(
+    (m: GoalsMode) =>
+      void navigate({
+        to: "/agents/$agentId/tasks/goals",
+        params: { agentId },
+        search: { ...rawSearch, mode: m } as Record<string, unknown>,
+      }),
+    [agentId, navigate, rawSearch],
   );
   const openGoal = (g: ComponentsGoal) =>
     void navigate({
       to: "/agents/$agentId/tasks/goals/$goalId",
       params: { agentId, goalId: g.id },
     });
+
+  const visibleGoals = useMemo(
+    () => goals.filter((g) => !hiddenIds.has(g.id)),
+    [goals, hiddenIds],
+  );
+  const counts = useMemo(() => {
+    const active = visibleGoals.filter(
+      (g) => !TERMINAL_STATUSES.includes(g.status),
+    ).length;
+    const history = visibleGoals.length - active;
+    const needs = visibleGoals.filter(goalNeedsYou).length;
+    return { active, history, needs, hidden: hiddenIds.size };
+  }, [hiddenIds.size, visibleGoals]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return visibleGoals
+      .filter((g) =>
+        mode === "active"
+          ? !TERMINAL_STATUSES.includes(g.status)
+          : TERMINAL_STATUSES.includes(g.status),
+      )
+      .filter((g) => status === "all" || g.status === status)
+      .filter((g) => {
+        if (!q) return true;
+        return [g.title, g.description, g.agent_id, g.project_id]
+          .filter(Boolean)
+          .some((part) => String(part).toLowerCase().includes(q));
+      })
+      .sort(byUpdatedDesc);
+  }, [mode, query, status, visibleGoals]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageGoals = useMemo(() => {
+    const safePage = Math.min(page, totalPages);
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, page, totalPages]);
+  const selectedTerminalCount = useMemo(
+    () =>
+      filtered.filter(
+        (g) => selected.has(g.id) && TERMINAL_STATUSES.includes(g.status),
+      ).length,
+    [filtered, selected],
+  );
+
+  useEffect(() => setPage(1), [mode, query, status, hiddenIds]);
+  useEffect(() => setSelected(new Set()), [mode, query, status]);
+  useEffect(() => setHiddenIds(readHiddenGoals(agentId)), [agentId]);
+
+  const hideSelectedTerminal = useCallback(() => {
+    const next = new Set(hiddenIds);
+    for (const g of filtered) {
+      if (selected.has(g.id) && TERMINAL_STATUSES.includes(g.status))
+        next.add(g.id);
+    }
+    setHiddenIds(next);
+    writeHiddenGoals(agentId, next);
+    setSelected(new Set());
+  }, [agentId, filtered, hiddenIds, selected]);
+
+  const restoreHidden = useCallback(() => {
+    const next = new Set<string>();
+    setHiddenIds(next);
+    writeHiddenGoals(agentId, next);
+  }, [agentId]);
 
   useEffect(() => {
     setHeaderTitle(
@@ -64,6 +188,29 @@ export function GoalsPage() {
     );
     setHeaderActions(
       <div className="flex items-center gap-1">
+        <Button
+          size="sm"
+          variant={mode === "active" ? "secondary" : "outline"}
+          aria-pressed={mode === "active"}
+          onClick={() => setMode("active")}
+        >
+          {t("goals.modeActive")}
+          <span className="font-mono text-xs text-muted-foreground">
+            {counts.active}
+          </span>
+        </Button>
+        <Button
+          size="sm"
+          variant={mode === "history" ? "secondary" : "outline"}
+          aria-pressed={mode === "history"}
+          onClick={() => setMode("history")}
+        >
+          <Archive />
+          <span className="max-sm:hidden">{t("goals.modeHistory")}</span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {counts.history}
+          </span>
+        </Button>
         {VIEWS.map((v) => {
           const Icon = VIEW_ICON[v];
           return (
@@ -79,16 +226,23 @@ export function GoalsPage() {
             </Button>
           );
         })}
-        <span className="font-mono text-xs text-muted-foreground max-sm:hidden">
-          {t("goals.unit", { count: goals.length })}
-        </span>
       </div>,
     );
     return () => {
       setHeaderTitle(null);
       setHeaderActions(null);
     };
-  }, [cur, goals.length, setHeaderActions, setHeaderTitle, setView, t]);
+  }, [
+    counts.active,
+    counts.history,
+    cur,
+    mode,
+    setHeaderActions,
+    setHeaderTitle,
+    setMode,
+    setView,
+    t,
+  ]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
@@ -101,10 +255,130 @@ export function GoalsPage() {
           <Empty />
         ) : (
           <div className="mx-auto max-w-[1140px] px-6 py-6">
-            {cur === "triage" && <Triage goals={goals} onOpen={openGoal} />}
-            {cur === "board" && <Board goals={goals} onOpen={openGoal} />}
-            {cur === "table" && <Table goals={goals} onOpen={openGoal} />}
+            <Toolbar
+              query={query}
+              status={status}
+              mode={mode}
+              total={filtered.length}
+              hiddenCount={counts.hidden}
+              selectedTerminalCount={selectedTerminalCount}
+              onQueryChange={setQuery}
+              onStatusChange={setStatus}
+              onHideSelected={hideSelectedTerminal}
+              onRestoreHidden={restoreHidden}
+            />
+            {filtered.length === 0 ? (
+              <FilteredEmpty />
+            ) : (
+              <>
+                {cur === "triage" && (
+                  <Triage
+                    goals={pageGoals}
+                    onOpen={openGoal}
+                    selected={selected}
+                    onSelect={setSelected}
+                  />
+                )}
+                {cur === "board" && (
+                  <Board
+                    goals={pageGoals}
+                    onOpen={openGoal}
+                    selected={selected}
+                    onSelect={setSelected}
+                  />
+                )}
+                {cur === "table" && (
+                  <Table
+                    goals={pageGoals}
+                    onOpen={openGoal}
+                    selected={selected}
+                    onSelect={setSelected}
+                  />
+                )}
+                <Pager
+                  page={page}
+                  totalPages={totalPages}
+                  total={filtered.length}
+                  onPage={setPage}
+                />
+              </>
+            )}
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Toolbar({
+  query,
+  status,
+  mode,
+  total,
+  hiddenCount,
+  selectedTerminalCount,
+  onQueryChange,
+  onStatusChange,
+  onHideSelected,
+  onRestoreHidden,
+}: {
+  query: string;
+  status: GoalStatusFilter;
+  mode: GoalsMode;
+  total: number;
+  hiddenCount: number;
+  selectedTerminalCount: number;
+  onQueryChange: (value: string) => void;
+  onStatusChange: (value: GoalStatusFilter) => void;
+  onHideSelected: () => void;
+  onRestoreHidden: () => void;
+}) {
+  const { t } = useI18n();
+  const statusOptions = mode === "active" ? ACTIVE_STATUSES : TERMINAL_STATUSES;
+  return (
+    <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-border bg-card p-3 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <Search className="size-4 shrink-0 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder={t("goals.searchPlaceholder")}
+          type="search"
+          size="sm"
+        />
+      </div>
+      <Select
+        value={status}
+        onValueChange={(value) => onStatusChange(value as GoalStatusFilter)}
+      >
+        <SelectTrigger size="sm" className="w-full sm:w-44">
+          <SelectValue placeholder={t("goals.statusAll")} />
+        </SelectTrigger>
+        <SelectPopup>
+          <SelectItem value="all">{t("goals.statusAll")}</SelectItem>
+          {statusOptions.map((s) => (
+            <SelectItem key={s} value={s}>
+              {statusLabel(t, s)}
+            </SelectItem>
+          ))}
+        </SelectPopup>
+      </Select>
+      <div className="flex items-center gap-2 sm:ml-auto">
+        <span className="font-mono text-xs text-muted-foreground">
+          {t("goals.filteredCount", { count: total })}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={selectedTerminalCount === 0}
+          onClick={onHideSelected}
+        >
+          {t("goals.hideSelected", { count: selectedTerminalCount })}
+        </Button>
+        {hiddenCount > 0 && (
+          <Button variant="ghost" size="sm" onClick={onRestoreHidden}>
+            {t("goals.restoreHidden", { count: hiddenCount })}
+          </Button>
         )}
       </div>
     </div>
@@ -115,8 +389,26 @@ function Empty() {
   const { t } = useI18n();
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
-      <p className="text-sm font-medium text-muted-foreground">{t("goals.empty")}</p>
-      <p className="mt-1 max-w-xs text-xs text-muted-foreground">{t("goals.emptyDesc")}</p>
+      <p className="text-sm font-medium text-muted-foreground">
+        {t("goals.empty")}
+      </p>
+      <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+        {t("goals.emptyDesc")}
+      </p>
+    </div>
+  );
+}
+
+function FilteredEmpty() {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-border py-16 text-center">
+      <p className="text-sm font-medium text-muted-foreground">
+        {t("goals.noMatches")}
+      </p>
+      <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+        {t("goals.noMatchesDesc")}
+      </p>
     </div>
   );
 }
@@ -124,6 +416,12 @@ function Empty() {
 function hookText(t: TFunction, g: ComponentsGoal): string | null {
   if (g.status === "blocked") return t("goals.hookBlocked");
   if (g.status === "reviewing") return t("goals.hookReviewing");
+  if (g.status === "done")
+    return t("goals.hookAchieved", {
+      time: formatTime(g.completed_at ?? g.updated_at),
+    });
+  if (g.status === "failed") return t("goals.hookFailed");
+  if (g.status === "cancelled") return t("goals.hookCancelled");
   return null;
 }
 
@@ -133,23 +431,51 @@ const byUpdatedDesc = (a: ComponentsGoal, b: ComponentsGoal) =>
 interface ViewProps {
   goals: ComponentsGoal[];
   onOpen: (g: ComponentsGoal) => void;
+  selected: Set<string>;
+  onSelect: (next: Set<string>) => void;
 }
 
-function Triage({ goals, onOpen }: ViewProps) {
+function toggleSelected(
+  selected: Set<string>,
+  id: string,
+  onSelect: (next: Set<string>) => void,
+) {
+  const next = new Set(selected);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  onSelect(next);
+}
+
+function Triage({ goals, onOpen, selected, onSelect }: ViewProps) {
   const { t } = useI18n();
   const needs = goals.filter(goalNeedsYou).sort(byUpdatedDesc);
   const prog = goals
-    .filter((g) => g.status === "running" || g.status === "planning")
+    .filter(
+      (g) =>
+        g.status === "running" ||
+        g.status === "planning" ||
+        g.status === "draft",
+    )
     .sort(byUpdatedDesc);
   const closed = goals
-    .filter((g) => ["done", "failed", "cancelled", "draft"].includes(g.status))
+    .filter((g) => TERMINAL_STATUSES.includes(g.status))
     .sort(byUpdatedDesc);
 
-  const Section = ({ label, arr, dim }: { label: string; arr: ComponentsGoal[]; dim?: boolean }) =>
+  const Section = ({
+    label,
+    arr,
+    dim,
+  }: {
+    label: string;
+    arr: ComponentsGoal[];
+    dim?: boolean;
+  }) =>
     arr.length ? (
       <section className="mb-7">
         <div className="mb-3 flex items-center gap-2.5">
-          <span className="font-mono text-xs font-semibold text-muted-foreground">{label}</span>
+          <span className="font-mono text-xs font-semibold text-muted-foreground">
+            {label}
+          </span>
           <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">
             {arr.length}
           </span>
@@ -157,7 +483,14 @@ function Triage({ goals, onOpen }: ViewProps) {
         </div>
         <div className="space-y-2">
           {arr.map((g) => (
-            <Row key={g.id} g={g} onOpen={onOpen} dim={dim} />
+            <Row
+              key={g.id}
+              g={g}
+              onOpen={onOpen}
+              selected={selected.has(g.id)}
+              onSelect={() => toggleSelected(selected, g.id, onSelect)}
+              dim={dim}
+            />
           ))}
         </div>
       </section>
@@ -175,48 +508,68 @@ function Triage({ goals, onOpen }: ViewProps) {
 function Row({
   g,
   onOpen,
+  selected,
+  onSelect,
   dim,
 }: {
   g: ComponentsGoal;
   onOpen: (g: ComponentsGoal) => void;
+  selected: boolean;
+  onSelect: () => void;
   dim?: boolean;
 }) {
   const { t } = useI18n();
   const hook = hookText(t, g);
   const needs = goalNeedsYou(g);
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(g)}
+    <div
       className={cn(
         "flex w-full items-center gap-3.5 rounded-2xl border bg-card px-4 py-3 text-left transition-shadow hover:shadow-md",
         needs ? "border-primary/30" : "border-border",
         dim && "opacity-65 hover:opacity-100",
       )}
     >
-      <StatusPill status={g.status} label={statusLabel(t, g.status)} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-serif text-[15px] font-semibold">{g.title}</span>
-          {g.priority === "urgent" && (
-            <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-4">
-              urgent
+      <Checkbox
+        checked={selected}
+        onCheckedChange={onSelect}
+        aria-label={t("goals.selectGoal")}
+      />
+      <button
+        type="button"
+        onClick={() => onOpen(g)}
+        className="flex min-w-0 flex-1 items-center gap-3.5 text-left"
+      >
+        <StatusPill status={g.status} label={statusLabel(t, g.status)} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate font-serif text-[15px] font-semibold">
+              {g.title}
             </span>
-          )}
+            {g.status === "done" && (
+              <span className="rounded-md border border-chart-3/25 bg-chart-3/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-3">
+                {t("goals.achieved")}
+              </span>
+            )}
+            {g.priority === "urgent" && (
+              <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-4">
+                urgent
+              </span>
+            )}
+          </div>
+          <div
+            className={cn(
+              "mt-1 truncate text-[12.5px]",
+              hook ? "font-medium text-primary/90" : "text-muted-foreground",
+            )}
+          >
+            {hook ?? g.description ?? t("goals.progressHint")}
+          </div>
         </div>
-        <div
-          className={cn(
-            "mt-1 truncate text-[12.5px]",
-            hook ? "font-medium text-primary/90" : "text-muted-foreground",
-          )}
-        >
-          {hook ?? g.description ?? ""}
-        </div>
-      </div>
-      <span className="shrink-0 font-mono text-xs text-muted-foreground">
-        {formatTime(g.updated_at)}
-      </span>
-    </button>
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+          {formatTime(g.updated_at)}
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -239,53 +592,81 @@ const BOARD_COLS: {
   {
     labelKey: "goals.colClosed",
     status: "done",
-    match: (g) => ["done", "failed", "cancelled"].includes(g.status),
+    match: (g) => TERMINAL_STATUSES.includes(g.status),
   },
 ];
 
-function Board({ goals, onOpen }: ViewProps) {
+function Board({ goals, onOpen, selected, onSelect }: ViewProps) {
   const { t } = useI18n();
   return (
     <div className="grid grid-cols-1 items-start gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
       {BOARD_COLS.map((col) => {
         const items = goals.filter(col.match).sort(byUpdatedDesc);
         return (
-          <div key={col.labelKey} className="min-h-[180px] rounded-2xl bg-muted p-2.5">
+          <div
+            key={col.labelKey}
+            className="min-h-[180px] rounded-2xl bg-muted p-2.5"
+          >
             <div className="flex items-center gap-2 px-1.5 pb-2.5 pt-1">
               <StatusDot status={col.status} />
-              <span className="font-mono text-xs font-semibold">{t(col.labelKey)}</span>
+              <span className="font-mono text-xs font-semibold">
+                {t(col.labelKey)}
+              </span>
               <span className="ml-auto font-mono text-xs text-muted-foreground">
                 {items.length}
               </span>
             </div>
             <div className="space-y-2">
               {items.map((g) => (
-                <button
+                <div
                   key={g.id}
-                  type="button"
-                  onClick={() => onOpen(g)}
-                  className="block w-full rounded-xl border border-border bg-card px-3 py-2.5 text-left transition-shadow hover:shadow-md"
+                  className="rounded-xl border border-border bg-card px-3 py-2.5 transition-shadow hover:shadow-md"
                 >
-                  <div className="font-serif text-[13.5px] font-semibold leading-snug">
-                    {g.title}
+                  <div className="mb-2 flex items-center gap-2">
+                    <Checkbox
+                      checked={selected.has(g.id)}
+                      onCheckedChange={() =>
+                        toggleSelected(selected, g.id, onSelect)
+                      }
+                      aria-label={t("goals.selectGoal")}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => onOpen(g)}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <div className="truncate font-serif text-[13.5px] font-semibold leading-snug">
+                        {g.title}
+                      </div>
+                    </button>
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <StatusPill status={g.status} label={statusLabel(t, g.status)} />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusPill
+                      status={g.status}
+                      label={statusLabel(t, g.status)}
+                    />
+                    {g.status === "done" && (
+                      <span className="rounded-md border border-chart-3/25 bg-chart-3/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-3">
+                        {t("goals.achieved")}
+                      </span>
+                    )}
                     {g.priority === "urgent" && (
                       <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-4">
                         urgent
                       </span>
                     )}
                   </div>
-                  {goalNeedsYou(g) && (
+                  {hookText(t, g) && (
                     <div className="mt-1.5 text-[11.5px] font-medium text-primary/90">
                       {hookText(t, g)}
                     </div>
                   )}
-                </button>
+                </div>
               ))}
               {!items.length && (
-                <div className="py-5 text-center text-xs text-muted-foreground">—</div>
+                <div className="py-5 text-center text-xs text-muted-foreground">
+                  —
+                </div>
               )}
             </div>
           </div>
@@ -306,7 +687,7 @@ const TABLE_ORDER = [
   "cancelled",
 ];
 
-function Table({ goals, onOpen }: ViewProps) {
+function Table({ goals, onOpen, selected, onSelect }: ViewProps) {
   const { t } = useI18n();
   const rows = [...goals].sort(
     (a, b) => TABLE_ORDER.indexOf(a.status) - TABLE_ORDER.indexOf(b.status),
@@ -316,24 +697,52 @@ function Table({ goals, onOpen }: ViewProps) {
       <table className="w-full border-collapse">
         <thead>
           <tr className="border-b border-border bg-muted/50 text-left font-mono text-[10.5px] text-muted-foreground">
-            <th className="w-[120px] px-3.5 py-2.5 font-semibold">{t("goals.colStatus")}</th>
-            <th className="px-3.5 py-2.5 font-semibold">{t("goals.colGoal")}</th>
-            <th className="w-[120px] px-3.5 py-2.5 font-semibold">{t("goals.colAttention")}</th>
-            <th className="w-[150px] px-3.5 py-2.5 font-semibold">{t("goals.colAgent")}</th>
-            <th className="w-[90px] px-3.5 py-2.5 font-semibold">{t("goals.colUpdated")}</th>
+            <th className="w-[42px] px-3.5 py-2.5 font-semibold" />
+            <th className="w-[120px] px-3.5 py-2.5 font-semibold">
+              {t("goals.colStatus")}
+            </th>
+            <th className="px-3.5 py-2.5 font-semibold">
+              {t("goals.colGoal")}
+            </th>
+            <th className="w-[120px] px-3.5 py-2.5 font-semibold">
+              {t("goals.colAttention")}
+            </th>
+            <th className="w-[150px] px-3.5 py-2.5 font-semibold">
+              {t("goals.colAgent")}
+            </th>
+            <th className="w-[90px] px-3.5 py-2.5 font-semibold">
+              {t("goals.colUpdated")}
+            </th>
           </tr>
         </thead>
         <tbody>
           {rows.map((g) => (
             <tr
               key={g.id}
-              onClick={() => onOpen(g)}
-              className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40"
+              className="border-b border-border last:border-0 hover:bg-accent/40"
             >
               <td className="px-3.5 py-3">
-                <StatusPill status={g.status} label={statusLabel(t, g.status)} />
+                <Checkbox
+                  checked={selected.has(g.id)}
+                  onCheckedChange={() =>
+                    toggleSelected(selected, g.id, onSelect)
+                  }
+                  aria-label={t("goals.selectGoal")}
+                />
               </td>
-              <td className="px-3.5 py-3">
+              <td
+                className="cursor-pointer px-3.5 py-3"
+                onClick={() => onOpen(g)}
+              >
+                <StatusPill
+                  status={g.status}
+                  label={statusLabel(t, g.status)}
+                />
+              </td>
+              <td
+                className="cursor-pointer px-3.5 py-3"
+                onClick={() => onOpen(g)}
+              >
                 <div className="font-medium">{g.title}</div>
                 {g.description && (
                   <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
@@ -344,14 +753,22 @@ function Table({ goals, onOpen }: ViewProps) {
               <td className="px-3.5 py-3">
                 {goalNeedsYou(g) ? (
                   <span className="rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs font-medium text-primary">
-                    {g.status === "blocked" ? t("goals.actUnblock") : t("goals.actReview")}
+                    {g.status === "blocked"
+                      ? t("goals.actUnblock")
+                      : t("goals.actReview")}
+                  </span>
+                ) : g.status === "done" ? (
+                  <span className="rounded-md border border-chart-3/25 bg-chart-3/10 px-2 py-0.5 font-mono text-xs font-medium text-chart-3">
+                    {t("goals.achieved")}
                   </span>
                 ) : g.priority === "urgent" ? (
                   <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-2 py-0.5 font-mono text-xs font-medium text-chart-4">
                     urgent
                   </span>
                 ) : (
-                  <span className="font-mono text-xs text-muted-foreground">—</span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    —
+                  </span>
                 )}
               </td>
               <td className="px-3.5 py-3">
@@ -362,7 +779,9 @@ function Table({ goals, onOpen }: ViewProps) {
                     </span>
                   </span>
                 ) : (
-                  <span className="font-mono text-xs text-muted-foreground">—</span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    —
+                  </span>
                 )}
               </td>
               <td className="px-3.5 py-3">
@@ -375,5 +794,70 @@ function Table({ goals, onOpen }: ViewProps) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function Pager({
+  page,
+  totalPages,
+  total,
+  onPage,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  onPage: (page: number) => void;
+}) {
+  const { t } = useI18n();
+  if (totalPages <= 1) return null;
+  return (
+    <div className="mt-5 flex items-center justify-between gap-3">
+      <span className="font-mono text-xs text-muted-foreground">
+        {t("goals.pageStatus", { page, totalPages, total })}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page <= 1}
+          onClick={() => onPage(page - 1)}
+        >
+          {t("common.back")}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page >= totalPages}
+          onClick={() => onPage(page + 1)}
+        >
+          {t("common.next")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function hiddenStorageKey(agentId: string): string {
+  return `stella:hidden-goals:${agentId}`;
+}
+
+function readHiddenGoals(agentId: string): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(hiddenStorageKey(agentId));
+    const parsed = raw ? (JSON.parse(raw) as string[]) : [];
+    return new Set(
+      Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function writeHiddenGoals(agentId: string, ids: Set<string>) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(
+    hiddenStorageKey(agentId),
+    JSON.stringify([...ids]),
   );
 }

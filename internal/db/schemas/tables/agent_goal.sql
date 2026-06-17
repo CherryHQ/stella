@@ -19,7 +19,8 @@ CREATE TABLE agent_goal (
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at    TEXT,
-    cancelled_at    TEXT
+    cancelled_at    TEXT,
+    archived_at     TEXT
 );
 
 CREATE INDEX idx_agent_goal_agent_project ON agent_goal(agent_id, project_id);

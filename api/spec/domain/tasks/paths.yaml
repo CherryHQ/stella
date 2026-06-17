@@ -83,6 +83,19 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+    delete:
+      tags: [tasks]
+      summary: Archive a task
+      description: Audit-safe delete; hides terminal/draft tasks from default lists without removing history.
+      operationId: deleteTask
+      responses:
+        "204": { description: archived }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
   /api/tasks/{taskId}/cancel:
     parameters:
       - { name: taskId, in: path, required: true, schema: { type: string } }

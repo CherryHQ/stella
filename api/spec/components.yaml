@@ -859,6 +859,17 @@ components:
         cancelled_at:
           type: string
           format: date-time
+        archived_at:
+          type: string
+          format: date-time
+          description: Set when the goal is hidden from default lists.
+    CompleteGoalRequest:
+      type: object
+      properties:
+        output:
+          type: object
+          additionalProperties: {}
+          description: Final goal output/summary recorded when manually marking achieved.
     GoalList:
       type: object
       required: [goals]
@@ -2885,6 +2896,10 @@ components:
         cancelled_at:
           type: string
           format: date-time
+        archived_at:
+          type: string
+          format: date-time
+          description: Set when the task is hidden from default lists.
     TaskList:
       type: object
       required: [tasks]

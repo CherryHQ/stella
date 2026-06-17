@@ -1,4 +1,4 @@
-h1:L/DrpBHs+JWXSXnyM5gV3nve9feT2HvCp3ThLMfVhYQ=
+h1:2uTWkSoxk4vBMchgxt1aSD1eF+Gs3/cQlMMteppPqow=
 20260531120105_initial.sql h1:yFv08NKwCabgVkvWoSNzba6WMXjbXrI9xHctaJBir/8=
 20260601060943_add_config_to_plugin_override.sql h1:q2MIJRzEYGDQyjnLeFUrQ0zbnvdgxBh/MRANwRmPFn4=
 20260602031701_add-channel-name.sql h1:1ZGYJvwMOOShxLGIN9SJihmcfQtFRpTPXHhOWDv29fc=
@@ -22,3 +22,4 @@ h1:L/DrpBHs+JWXSXnyM5gV3nve9feT2HvCp3ThLMfVhYQ=
 20260612043053_add_group_dispatch_result_message_id.sql h1:5G6rlXvNYLAIW7UE/gkUAdWG7wD6mnZbNtDktaSA+oY=
 20260615040329_scoped_vault_entries.sql h1:Bk0KnvCHo3h854gTkH0h/ieShXfe3FYG0/hFfoCYzMQ=
 20260615140513_scoped_skills.sql h1:mS1wbB+WjyAyTbb8uRJOgykNy1rgLwWncoFkjTdzNU0=
+20260617170000_add_task_goal_archive.sql h1:bvj2IDkJSBoeUTmwKnl9Yd16iUaGiN56dizeqb5Y/hU=

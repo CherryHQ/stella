@@ -21,6 +21,7 @@ SELECT * FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 -- name: ListAgentTasksByUser :many
 SELECT * FROM agent_task
 WHERE user_id = sqlc.arg('user_id')
+  AND archived_at IS NULL
   AND (sqlc.narg('agent_id') IS NULL OR agent_id = sqlc.narg('agent_id'))
   AND (sqlc.narg('status') IS NULL OR status = sqlc.narg('status'))
   AND (sqlc.narg('project_id') IS NULL OR project_id = sqlc.narg('project_id'))
@@ -171,5 +172,5 @@ UPDATE agent_task
 SET cancelled_at = ?, updated_at = ?
 WHERE id = ?;
 
--- name: DeleteAgentTask :exec
-DELETE FROM agent_task WHERE id = ?;
+-- name: ArchiveAgentTask :execrows
+UPDATE agent_task SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL;

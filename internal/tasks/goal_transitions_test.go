@@ -114,6 +114,56 @@ func TestCreateGoal_NonePolicy_OK(t *testing.T) {
 	}
 }
 
+func TestArchiveGoal_TerminalHidesGoalAndChildren(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	childID := h.createChildTask(t, gid, StatusDone)
+	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("ArchiveGoal: %v", err)
+	}
+	goal, err := h.q.GetAgentGoal(context.Background(), gid)
+	if err != nil {
+		t.Fatalf("GetAgentGoal: %v", err)
+	}
+	if !goal.ArchivedAt.Valid {
+		t.Fatalf("goal archived_at not set")
+	}
+	child := h.getTask(t, childID)
+	if !child.ArchivedAt.Valid {
+		t.Fatalf("child archived_at not set")
+	}
+	goals, err := f.ListGoals(context.Background(), h.userID, h.agentID, "", "", 10, 0)
+	if err != nil {
+		t.Fatalf("ListGoals: %v", err)
+	}
+	for _, g := range goals {
+		if g.ID == gid {
+			t.Fatalf("archived goal returned in default list")
+		}
+	}
+	tasks, err := f.ListTasksByUser(context.Background(), h.userID, h.agentID, "", "", 10, 0)
+	if err != nil {
+		t.Fatalf("ListTasksByUser: %v", err)
+	}
+	for _, task := range tasks {
+		if task.ID == childID {
+			t.Fatalf("archived child returned in default task list")
+		}
+	}
+}
+
+func TestArchiveGoal_RunningChildRejected(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	h.createChildTask(t, gid, StatusRunning)
+	err := f.ArchiveGoal(context.Background(), gid, SystemActor())
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("got %v want ErrInvalidTransition", err)
+	}
+}
+
 func TestCompleteGoal_RunningToDone_StampsCompletedAt(t *testing.T) {
 	h := newHarness(t)
 	gid := h.createGoal(t, GoalStatusRunning, ReviewPolicyNone)
