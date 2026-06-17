@@ -5,7 +5,7 @@ interface GoalSearch {
   task?: string;
 }
 
-export const Route = createFileRoute("/_app/agents/$agentId/tasks/goals/$goalId")({
+export const Route = createFileRoute("/_app/agents/$agentId/tasks/goals_/$goalId")({
   validateSearch: (search: Record<string, unknown>): GoalSearch => ({
     q: typeof search.q === "string" ? search.q : undefined,
     task: typeof search.task === "string" ? search.task : undefined,

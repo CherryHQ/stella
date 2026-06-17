@@ -33,10 +33,10 @@ export function GoalDetailPage() {
   const { t } = useI18n();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { agentId, goalId } = useParams({
-    from: "/_app/agents/$agentId/automations/goals/$goalId",
+    from: "/_app/agents/$agentId/tasks/goals_/$goalId",
   });
   const { task: selectedTaskId } = useSearch({
-    from: "/_app/agents/$agentId/automations/goals/$goalId",
+    from: "/_app/agents/$agentId/tasks/goals_/$goalId",
   });
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -49,7 +49,7 @@ export function GoalDetailPage() {
 
   const selectTask = (id: string | null) =>
     void navigate({
-      to: "/agents/$agentId/automations/goals/$goalId",
+      to: "/agents/$agentId/tasks/goals/$goalId",
       params: { agentId, goalId },
       search: id ? { task: id } : {},
     });
@@ -84,7 +84,7 @@ export function GoalDetailPage() {
             size="sm"
             onClick={() =>
               void navigate({
-                to: "/agents/$agentId/automations",
+                to: "/agents/$agentId/tasks/goals",
                 params: { agentId },
               })
             }
