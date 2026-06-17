@@ -322,6 +322,10 @@ WHERE r.user_id = ?1
   -- finished_at mixes RFC3339 (transition service) and naive UTC strings;
   -- datetime() normalizes both before comparing.
   AND datetime(r.finished_at) >= datetime(?2)
+  -- Only surface a failed run when its task is still terminally failed; a task
+  -- that retried to success leaves stale 'failed' runs that should not nag.
+  -- Goal-owned runs have no task (r.task_id IS NULL) and are always kept.
+  AND (r.task_id IS NULL OR t.status = 'failed')
   AND (?3 IS NULL OR r.agent_id = ?3)
 ORDER BY r.finished_at DESC, r.id DESC
 LIMIT ?4

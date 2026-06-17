@@ -78,6 +78,10 @@ WHERE r.user_id = sqlc.arg(user_id)
   -- finished_at mixes RFC3339 (transition service) and naive UTC strings;
   -- datetime() normalizes both before comparing.
   AND datetime(r.finished_at) >= datetime(sqlc.arg(since))
+  -- Only surface a failed run when its task is still terminally failed; a task
+  -- that retried to success leaves stale 'failed' runs that should not nag.
+  -- Goal-owned runs have no task (r.task_id IS NULL) and are always kept.
+  AND (r.task_id IS NULL OR t.status = 'failed')
   AND (sqlc.narg(agent_id) IS NULL OR r.agent_id = sqlc.narg(agent_id))
 ORDER BY r.finished_at DESC, r.id DESC
 LIMIT sqlc.arg(limit_count);

@@ -208,6 +208,61 @@ func TestListInboxExcludesNonActionableReviews(t *testing.T) {
 	}
 }
 
+// A task that failed once and then retried to success leaves a stale 'failed'
+// run behind; that run must not keep nagging from the inbox.
+func TestListInboxExcludesFailedRunsOfRecoveredTask(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+	ctx := context.Background()
+	userID := env.adminUser.ID
+
+	created := inboxTS(-2 * time.Hour)
+	_, err := env.db.ExecContext(ctx, `
+		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
+		VALUES (?, 'task:recovered', 'Recovered task', 'task', 'task', ?, ?, ?)
+	`, uuid.NewString(), agentID, userID, created)
+	if err != nil {
+		t.Fatalf("seed conversation: %v", err)
+	}
+	// Task ultimately succeeded.
+	_, err = env.db.ExecContext(ctx, `
+		INSERT INTO agent_task (id, user_id, agent_id, session_id, title, status, created_at, updated_at)
+		VALUES ('task-recovered', ?, ?, 'task:recovered', 'Recovered task', 'done', ?, ?)
+	`, userID, agentID, created, created)
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+	// ...but its first attempt is still on record as failed.
+	_, err = env.db.ExecContext(ctx, `
+		INSERT INTO agent_task_run (
+			id, task_id, user_id, agent_id, kind, attempt_no, status, session_id,
+			error, started_at, finished_at, created_at, updated_at
+		)
+		VALUES (
+			'run-recovered', 'task-recovered', ?, ?, 'worker', 1, 'failed', 'task:recovered',
+			'transient boom', ?, ?, ?, ?
+		)
+	`, userID, agentID,
+		inboxTS(-2*time.Hour),
+		time.Now().UTC().Add(-90*time.Minute).Format(time.RFC3339Nano),
+		inboxTS(-2*time.Hour), inboxTS(-90*time.Minute))
+	if err != nil {
+		t.Fatalf("seed task run: %v", err)
+	}
+
+	rr := doRequest(t, env, http.MethodGet, "/api/inbox?page_size=100", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list inbox: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var list apitypes.InboxList
+	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode inbox: %v", err)
+	}
+	if len(list.Items) != 0 {
+		t.Fatalf("recovered task must leave an empty inbox, got %+v", list.Items)
+	}
+}
+
 func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 	t.Helper()
 	ctx := context.Background()
