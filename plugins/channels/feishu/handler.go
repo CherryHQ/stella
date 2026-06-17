@@ -396,7 +396,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
-	sentMsgID, response, images, files, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID)
 
 	b.removeReaction(messageID, ackReactionID)
 
@@ -417,7 +417,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	// Append elapsed time footer to the final response.
 	finalResponse := response + elapsedFooter(elapsed)
 
-	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse)
+	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup)
 
 	for _, img := range images {
 		b.sendImageInThread(chatID, messageID, rootID, img)

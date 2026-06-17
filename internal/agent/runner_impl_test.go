@@ -5,10 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/renderrefs"
+	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -272,5 +275,41 @@ func TestLastActivityUpdatesOnChat(t *testing.T) {
 
 	if r.LastActivity().Before(before) {
 		t.Errorf("LastActivity %v should be after %v", r.LastActivity(), before)
+	}
+}
+
+func TestConvertLoopEventStripsRenderableReferences(t *testing.T) {
+	t.Setenv("STELLA_RENDERABLE_REFS", "1")
+	ref := renderrefs.Reference{
+		V:    1,
+		Type: "task",
+		ID:   "task-1",
+		Preview: &renderrefs.Preview{
+			Title:  "Ship it",
+			Status: "open",
+		},
+	}
+	var sb strings.Builder
+	if err := renderrefs.Emit(&sb, ref); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	text := "created task\n" + sb.String()
+
+	events := convertLoopEvent(coreagent.ToolFinished{Result: ai.ToolResultMessage{
+		ToolCallID: "call-1",
+		ToolName:   "bash",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: text}},
+	}})
+	if len(events) != 2 {
+		t.Fatalf("events len = %d, want 2", len(events))
+	}
+	if events[0].ToolUse == nil {
+		t.Fatal("first event missing tool use")
+	}
+	if strings.Contains(events[0].ToolUse.Content, "::stella-ref/v1::") {
+		t.Fatalf("tool content leaked sentinel: %q", events[0].ToolUse.Content)
+	}
+	if len(events[0].References) != 1 || events[0].References[0].ID != "task-1" {
+		t.Fatalf("references = %#v", events[0].References)
 	}
 }

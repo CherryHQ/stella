@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/renderrefs"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -46,14 +47,15 @@ type FileEvent struct {
 
 // Event is the consumer-facing stream event.
 type Event struct {
-	Text      string
-	Reasoning string
-	Image     *ImageEvent
-	File      *FileEvent
-	ToolUse   *ToolUseEvent
-	Step      *StepEvent
-	Store     ai.Message // non-nil → append to session history
-	Err       error
+	Text       string
+	Reasoning  string
+	Image      *ImageEvent
+	File       *FileEvent
+	ToolUse    *ToolUseEvent
+	References []renderrefs.Reference
+	Step       *StepEvent
+	Store      ai.Message // non-nil → append to session history
+	Err        error
 }
 
 // MessageContent is a user message: string (text) or []ai.ContentBlock (multimodal).

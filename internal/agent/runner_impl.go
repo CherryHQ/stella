@@ -13,6 +13,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/renderrefs"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -531,14 +532,15 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 				break
 			}
 		}
+		cleanText, refs := renderrefs.Extract(fullText)
 		return []Event{
 			{ToolUse: &ToolUseEvent{
 				ID:      e.Result.ToolCallID,
 				Tool:    e.Result.ToolName,
 				Status:  status,
 				Detail:  detail,
-				Content: fullText,
-			}},
+				Content: cleanText,
+			}, References: refs},
 			{Store: e.Result},
 		}
 

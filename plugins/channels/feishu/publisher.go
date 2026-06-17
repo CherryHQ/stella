@@ -17,7 +17,7 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	}
 	chatID := strings.TrimPrefix(req.PlatformGroupID, "feishu:")
 	rootID := req.PlatformThreadID
-	sentMsgID, response, images, files, elapsed, streamErr := b.streamResponseInThread(req.Stream.Events, chatID, req.ReplyTo, rootID)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(req.Stream.Events, chatID, req.ReplyTo, rootID)
 	if streamErr != nil {
 		if response == "" {
 			response = fmt.Sprintf("Agent error: %v", streamErr)
@@ -29,7 +29,7 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 		response = "(empty response)"
 	}
 	finalResponse := response + elapsedFooter(elapsed)
-	b.sendFinalResponseInThread(chatID, req.ReplyTo, rootID, sentMsgID, finalResponse)
+	b.sendFinalResponseInThread(chatID, req.ReplyTo, rootID, sentMsgID, finalResponse, refs, true)
 	for _, img := range images {
 		b.sendImageInThread(chatID, req.ReplyTo, rootID, img)
 	}
