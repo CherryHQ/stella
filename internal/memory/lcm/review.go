@@ -39,7 +39,7 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 
 		msgs, err := p.q.GetMessagesSince(ctx, sqlc.GetMessagesSinceParams{
 			ConversationID: conv.ID,
-			CreatedAt:      since.UTC().Format("2006-01-02 15:04:05"),
+			CreatedAt:      since.UTC(),
 		})
 		if err != nil {
 			return "", fmt.Errorf("get messages since: %w", err)

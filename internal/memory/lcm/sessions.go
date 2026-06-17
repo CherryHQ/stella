@@ -79,8 +79,8 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			Channel:    info.Channel,
 			Kind:       kind,
 			ProjectID:  sql.NullString{String: info.ProjectID, Valid: info.ProjectID != ""},
-			Archived:   boolToInt(info.Archived),
-			LastActive: lastActive.UTC().Format("2006-01-02 15:04:05"),
+			Archived:   info.Archived,
+			LastActive: lastActive.UTC(),
 			AgentID:    nullAgent(info.AgentID),
 			UserID:     sql.NullString{String: info.UserID, Valid: true},
 		})
@@ -94,10 +94,10 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 	}
 
 	if err := p.q.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
-		Title:     optionalString(info.Title),
-		Archived:  boolToInt(info.Archived),
-		Kind:      optionalString(info.Kind),
-		ProjectID: optionalString(info.ProjectID),
+		Title:     optionalNullString(info.Title),
+		Archived:  info.Archived,
+		Kind:      optionalNullString(info.Kind),
+		ProjectID: optionalNullString(info.ProjectID),
 		SessionID: info.ID,
 		UserID:    sql.NullString{String: info.UserID, Valid: true},
 		AgentID:   nullAgent(info.AgentID),
@@ -206,18 +206,22 @@ func optionalString(s string) any {
 	return s
 }
 
-func listLimit(limit int) int64 {
+func optionalNullString(s string) sql.NullString {
+	return sql.NullString{String: s, Valid: s != ""}
+}
+
+func listLimit(limit int) int32 {
 	if limit <= 0 {
 		return -1
 	}
-	return int64(limit)
+	return int32(limit)
 }
 
-func nonNegativeOffset(offset int) int64 {
+func nonNegativeOffset(offset int) int32 {
 	if offset <= 0 {
 		return 0
 	}
-	return int64(offset)
+	return int32(offset)
 }
 
 func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
@@ -225,7 +229,7 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 		ID:       conv.SessionID,
 		Channel:  conv.Channel,
 		Kind:     conv.Kind,
-		Archived: conv.Archived != 0,
+		Archived: conv.Archived,
 	}
 	if conv.Title.Valid {
 		info.Title = conv.Title.String
@@ -239,12 +243,8 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 	if conv.ProjectID.Valid {
 		info.ProjectID = conv.ProjectID.String
 	}
-	if t, err := time.Parse("2006-01-02 15:04:05", conv.CreatedAt); err == nil {
-		info.CreatedAt = t
-	}
-	if t, err := time.Parse("2006-01-02 15:04:05", conv.LastActive); err == nil {
-		info.LastActive = t
-	}
+	info.CreatedAt = conv.CreatedAt.UTC()
+	info.LastActive = conv.LastActive.UTC()
 	return info
 }
 

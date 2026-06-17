@@ -171,7 +171,7 @@ func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID str
 			UserID:    snap.UserID,
 			AgentID:   snap.AgentID,
 			Version:   snap.Version,
-			UpdatedAt: parseUTCTime(snap.UpdatedAt),
+			UpdatedAt: snap.UpdatedAt.UTC(),
 		}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -199,7 +199,7 @@ func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID str
 		UserID:    created.UserID,
 		AgentID:   created.AgentID,
 		Version:   created.Version,
-		UpdatedAt: parseUTCTime(created.UpdatedAt),
+		UpdatedAt: created.UpdatedAt.UTC(),
 	}, nil
 }
 
@@ -231,7 +231,7 @@ func (p *Provider) ReadChangelog(ctx context.Context, userID string, agentID str
 		UserID:  userID,
 		AgentID: agentID,
 		Scope:   scope,
-		Limit:   int64(limit),
+		Limit:   int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list changelog: %w", err)
@@ -278,7 +278,7 @@ func changelogRowToEntry(r sqlc.CtxAgentMemoryChangelog) memory.ChangeEntry {
 		Scope:     r.Scope,
 		Action:    r.Action,
 		Source:    memory.ChangeSource(r.Source),
-		CreatedAt: r.CreatedAt,
+		CreatedAt: r.CreatedAt.UTC().Format(time.RFC3339),
 	}
 	if r.SessionID.Valid {
 		e.SessionID = r.SessionID.String
@@ -308,9 +308,4 @@ func (p *Provider) GetProfileEntries(ctx context.Context, userID string, agentID
 // GetGroupMemory implements memory.GroupMemoryStore.
 func (p *Provider) GetGroupMemory(ctx context.Context, groupID string) (string, error) {
 	return memorywrite.GetGroupMemory(ctx, p.q, groupID)
-}
-
-func parseUTCTime(s string) time.Time {
-	t, _ := time.Parse("2006-01-02 15:04:05", s)
-	return t.UTC()
 }

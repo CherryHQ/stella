@@ -233,8 +233,8 @@ type messageRunSummary struct {
 	messages    []sqlc.CtxMessage
 	content     string
 	totalTokens int64
-	earliestAt  string
-	latestAt    string
+	earliestAt  time.Time
+	latestAt    time.Time
 }
 
 // summarizeMessageRun creates a leaf summary candidate from a message run without writing it.
@@ -247,7 +247,7 @@ func (c *compactionEngine) summarizeMessageRun(ctx context.Context, convID strin
 	var messages []sqlc.CtxMessage
 	var textParts []string
 	var totalTokens int64
-	var earliestAt, latestAt string
+	var earliestAt, latestAt time.Time
 
 	messageIDs := make([]string, 0, len(run.items))
 	for _, item := range run.items {
@@ -275,10 +275,10 @@ func (c *compactionEngine) summarizeMessageRun(ctx context.Context, convID strin
 		textParts = append(textParts, formatMessageForSummarizer(msg))
 		totalTokens += msg.TokenCount
 
-		if earliestAt == "" || msg.CreatedAt < earliestAt {
+		if earliestAt.IsZero() || msg.CreatedAt.Before(earliestAt) {
 			earliestAt = msg.CreatedAt
 		}
-		if msg.CreatedAt > latestAt {
+		if msg.CreatedAt.After(latestAt) {
 			latestAt = msg.CreatedAt
 		}
 	}
@@ -330,8 +330,8 @@ func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID st
 		Depth:                   0,
 		Content:                 summary.content,
 		TokenCount:              int64(memory.EstimateTokens(summary.content)),
-		EarliestAt:              sql.NullString{String: summary.earliestAt, Valid: summary.earliestAt != ""},
-		LatestAt:                sql.NullString{String: summary.latestAt, Valid: summary.latestAt != ""},
+		EarliestAt:              sql.NullTime{Time: summary.earliestAt.UTC(), Valid: !summary.earliestAt.IsZero()},
+		LatestAt:                sql.NullTime{Time: summary.latestAt.UTC(), Valid: !summary.latestAt.IsZero()},
 		DescendantCount:         int64(len(summary.messages)),
 		DescendantTokenCount:    summary.totalTokens,
 		SourceMessageTokenCount: summary.totalTokens,
@@ -515,8 +515,8 @@ type condensedRunSummary struct {
 	totalTokens      int64
 	totalDescendants int64
 	totalDescTokens  int64
-	earliestAt       string
-	latestAt         string
+	earliestAt       time.Time
+	latestAt         time.Time
 }
 
 // summarizeCondensedRun creates a condensed summary candidate from summary items without writing it.
@@ -530,7 +530,7 @@ func (c *compactionEngine) summarizeCondensedRun(ctx context.Context, run summar
 	var totalDescendants int64
 	var totalDescTokens int64
 	var maxDepth int64
-	var earliestAt, latestAt string
+	var earliestAt, latestAt time.Time
 
 	for _, item := range run.items {
 		if !item.SummaryID.Valid {
@@ -548,11 +548,11 @@ func (c *compactionEngine) summarizeCondensedRun(ctx context.Context, run summar
 		if sum.Depth > maxDepth {
 			maxDepth = sum.Depth
 		}
-		if sum.EarliestAt.Valid && (earliestAt == "" || sum.EarliestAt.String < earliestAt) {
-			earliestAt = sum.EarliestAt.String
+		if sum.EarliestAt.Valid && (earliestAt.IsZero() || sum.EarliestAt.Time.Before(earliestAt)) {
+			earliestAt = sum.EarliestAt.Time.UTC()
 		}
-		if sum.LatestAt.Valid && sum.LatestAt.String > latestAt {
-			latestAt = sum.LatestAt.String
+		if sum.LatestAt.Valid && sum.LatestAt.Time.After(latestAt) {
+			latestAt = sum.LatestAt.Time.UTC()
 		}
 	}
 
@@ -610,8 +610,8 @@ func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID 
 		Depth:                   summary.newDepth,
 		Content:                 summary.content,
 		TokenCount:              int64(memory.EstimateTokens(summary.content)),
-		EarliestAt:              sql.NullString{String: summary.earliestAt, Valid: summary.earliestAt != ""},
-		LatestAt:                sql.NullString{String: summary.latestAt, Valid: summary.latestAt != ""},
+		EarliestAt:              sql.NullTime{Time: summary.earliestAt.UTC(), Valid: !summary.earliestAt.IsZero()},
+		LatestAt:                sql.NullTime{Time: summary.latestAt.UTC(), Valid: !summary.latestAt.IsZero()},
 		DescendantCount:         summary.totalDescendants + int64(len(summary.summaries)),
 		DescendantTokenCount:    summary.totalDescTokens + summary.totalTokens,
 		SourceMessageTokenCount: 0,

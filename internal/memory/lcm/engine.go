@@ -76,7 +76,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 		return "", fmt.Errorf("get conversation: %w", err)
 	}
 
-	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	now := time.Now().UTC()
 	conv, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
 		ID:         uuid.NewString(),
 		SessionID:  session.ID,
@@ -269,7 +269,7 @@ func rowsToMessages(msgs []sqlc.CtxMessage) []ai.Message {
 }
 
 func rowToUserMessage(msg sqlc.CtxMessage) ai.UserMessage {
-	ts, _ := time.Parse("2006-01-02 15:04:05", msg.CreatedAt)
+	ts := msg.CreatedAt.UTC()
 	if msg.EventType == eventTypeMultimodal {
 		var blocks []contentBlockJSON
 		if json.Unmarshal([]byte(msg.Content), &blocks) == nil {
