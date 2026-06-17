@@ -233,12 +233,12 @@ func TestLoadEnvForAgentMergesScopedPrecedence(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID: "agent-b", Name: "Agent B", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+		ID: "agent-b", Name: "Agent B", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}

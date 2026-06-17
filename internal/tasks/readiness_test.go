@@ -13,7 +13,8 @@ import (
 func task(status string, notBefore string) sqlc.AgentTask {
 	t := sqlc.AgentTask{Status: status}
 	if notBefore != "" {
-		t.NotBefore = sql.NullString{String: notBefore, Valid: true}
+		ts, _ := time.Parse(time.RFC3339, notBefore)
+		t.NotBefore = sql.NullTime{Time: ts, Valid: true}
 	}
 	return t
 }

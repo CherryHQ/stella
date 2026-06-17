@@ -9,9 +9,41 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
-
-	appdb "github.com/CherryHQ/stella/internal/db"
 )
+
+// recallyArticleFTSSchema is the SQLite FTS5 DDL these store tests assemble by
+// hand. It was previously exported from internal/db as RecallyArticleFTSSchema,
+// but the PostgreSQL schema port removed that symbol (PG uses generated
+// tsvector columns, not fts5 virtual tables). The DDL is kept here verbatim so
+// the test's runtime-managed index and triggers behave exactly as before.
+const recallyArticleFTSSchema = `
+CREATE VIRTUAL TABLE IF NOT EXISTS recally_article_fts USING fts5(
+    title,
+    summary,
+    tags,
+    author,
+    content='recally_article',
+    content_rowid='rowid',
+    tokenize='trigram'
+);
+
+CREATE TRIGGER IF NOT EXISTS recally_article_fts_ai AFTER INSERT ON recally_article BEGIN
+    INSERT INTO recally_article_fts(rowid, title, summary, tags, author)
+    VALUES (new.rowid, new.title, new.summary, new.tags, new.author);
+END;
+
+CREATE TRIGGER IF NOT EXISTS recally_article_fts_ad AFTER DELETE ON recally_article BEGIN
+    INSERT INTO recally_article_fts(recally_article_fts, rowid, title, summary, tags, author)
+    VALUES ('delete', old.rowid, old.title, old.summary, old.tags, old.author);
+END;
+
+CREATE TRIGGER IF NOT EXISTS recally_article_fts_au AFTER UPDATE OF title, summary, tags, author ON recally_article BEGIN
+    INSERT INTO recally_article_fts(recally_article_fts, rowid, title, summary, tags, author)
+    VALUES ('delete', old.rowid, old.title, old.summary, old.tags, old.author);
+    INSERT INTO recally_article_fts(rowid, title, summary, tags, author)
+    VALUES (new.rowid, new.title, new.summary, new.tags, new.author);
+END;
+`
 
 func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
@@ -118,7 +150,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_feed_entry_feed_guid ON recally_fe
 
 	// Article search runs against the runtime-managed FTS5 index; apply the
 	// same DDL OpenDB would so triggers keep the index in sync.
-	if _, err := db.Exec(appdb.RecallyArticleFTSSchema); err != nil {
+	if _, err := db.Exec(recallyArticleFTSSchema); err != nil {
 		if closeErr := db.Close(); closeErr != nil {
 			t.Fatalf("Failed to close test database: %v", closeErr)
 		}

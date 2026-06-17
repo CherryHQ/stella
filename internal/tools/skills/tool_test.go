@@ -92,8 +92,8 @@ func (s *testSkillStore) Resolve(ctx context.Context, name string, vc pkgplugins
 func (s *testSkillStore) ListByScope(ctx context.Context, scope, userID, agentID string) ([]pkgplugins.Skill, error) {
 	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
 		Scope:   scope,
-		UserID:  userID,
-		AgentID: agentID,
+		UserID:  sql.NullString{String: userID, Valid: userID != ""},
+		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
 	})
 	if err != nil {
 		return nil, err
@@ -132,13 +132,9 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 	if sk.Status == "" {
 		sk.Status = "active"
 	}
-	meta := "{}"
+	meta := json.RawMessage("{}")
 	if len(sk.Metadata) > 0 {
-		meta = string(sk.Metadata)
-	}
-	disabled := int64(0)
-	if sk.DisableModelInvocation {
-		disabled = 1
+		meta = sk.Metadata
 	}
 	params := sqlc.CreateSkillParams{
 		ID:                     sk.ID,
@@ -146,7 +142,7 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 		Name:                   sk.Name,
 		Description:            sk.Description,
 		Status:                 sk.Status,
-		DisableModelInvocation: disabled,
+		DisableModelInvocation: sk.DisableModelInvocation,
 		Metadata:               meta,
 	}
 	switch sk.Scope {
@@ -193,15 +189,11 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 	}
 	disabled := row.DisableModelInvocation
 	if patch.DisableModelInvocation != nil {
-		if *patch.DisableModelInvocation {
-			disabled = 1
-		} else {
-			disabled = 0
-		}
+		disabled = *patch.DisableModelInvocation
 	}
 	meta := row.Metadata
 	if len(patch.Metadata) > 0 {
-		meta = string(patch.Metadata)
+		meta = patch.Metadata
 	}
 	params := sqlc.UpdateSkillMetadataParams{
 		ID: id, Description: desc, Status: status, DisableModelInvocation: disabled, Metadata: meta,
@@ -250,8 +242,8 @@ func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) err
 
 func tsMapRow(r sqlc.Skill) pkgplugins.Skill {
 	meta := json.RawMessage("{}")
-	if r.Metadata != "" {
-		meta = json.RawMessage(r.Metadata)
+	if len(r.Metadata) != 0 {
+		meta = r.Metadata
 	}
 	return pkgplugins.Skill{
 		ID:                     r.ID,
@@ -261,7 +253,7 @@ func tsMapRow(r sqlc.Skill) pkgplugins.Skill {
 		Name:                   r.Name,
 		Description:            r.Description,
 		Status:                 r.Status,
-		DisableModelInvocation: r.DisableModelInvocation != 0,
+		DisableModelInvocation: r.DisableModelInvocation,
 		Metadata:               meta,
 	}
 }

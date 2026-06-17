@@ -31,7 +31,7 @@ func addSecondMember(t *testing.T, fx dispatcherFixture) {
 		Sandbox:              "{}",
 		EnabledBuiltinSkills: "[]",
 		Scope:                "system",
-		Enabled:              1,
+		Enabled:              true,
 	}); err != nil {
 		t.Fatalf("create agent-2: %v", err)
 	}

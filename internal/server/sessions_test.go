@@ -68,7 +68,7 @@ func TestDecodeToolCallBlock_invalid(t *testing.T) {
 }
 
 func TestSerializeUserRow(t *testing.T) {
-	row := sqlc.CtxMessage{ID: "msg-u1", Role: "user", Content: "hello", CreatedAt: "2026-01-01T00:00:00Z"}
+	row := sqlc.CtxMessage{ID: "msg-u1", Role: "user", Content: "hello", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	m := serializeUserRow(row)
 	if m["role"] != "user" {
 		t.Errorf("role = %v", m["role"])
@@ -136,8 +136,8 @@ func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
 		SessionID:  "session-1",
 		Channel:    "chat",
 		Kind:       "chat",
-		Archived:   0,
-		LastActive: "2026-01-01 00:00:00",
+		Archived:   false,
+		LastActive: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)

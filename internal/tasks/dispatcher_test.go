@@ -241,7 +241,7 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 		TaskID:          nullable(id),
 		Kind:            RunKindWorker,
 		ExecutorAgentID: hintAgent,
-		CreatedAt:       time.Now().Format(time.RFC3339Nano),
+		CreatedAt:       time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("create hint: %v", err)
 	}

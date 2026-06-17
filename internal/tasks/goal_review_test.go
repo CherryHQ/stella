@@ -16,7 +16,7 @@ import (
 func (h *testHarness) insertGoalReview(t *testing.T, goalID, reviewerType string) string {
 	t.Helper()
 	id := uuid.NewString()
-	now := time.Now().Format(time.RFC3339Nano)
+	now := time.Now().UTC()
 	if _, err := h.q.CreateAgentReview(context.Background(), sqlc.CreateAgentReviewParams{
 		ID:           id,
 		GoalID:       sql.NullString{String: goalID, Valid: true},

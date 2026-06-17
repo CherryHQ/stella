@@ -1,7 +1,6 @@
 package tasks
 
 import (
-	"database/sql"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -9,7 +8,7 @@ import (
 
 func TestRollupGoal(t *testing.T) {
 	count := func(done, failed, blocked, pending int) sqlc.GoalChildCountsRow {
-		f := func(v int) sql.NullFloat64 { return sql.NullFloat64{Float64: float64(v), Valid: true} }
+		f := func(v int) int64 { return int64(v) }
 		return sqlc.GoalChildCountsRow{
 			RequiredDone: f(done), RequiredFailed: f(failed),
 			RequiredBlocked: f(blocked), RequiredPending: f(pending),
@@ -66,7 +65,7 @@ func TestRollupGoal(t *testing.T) {
 // A cancelled required child can never be reopened, so it must not let a goal
 // vacuously complete: the goal fails instead of falling through to "all done".
 func TestRollupGoal_CancelledRequiredChild(t *testing.T) {
-	f := func(v int) sql.NullFloat64 { return sql.NullFloat64{Float64: float64(v), Valid: true} }
+	f := func(v int) int64 { return int64(v) }
 	row := func(done, failed, cancelled, blocked, pending int) sqlc.GoalChildCountsRow {
 		return sqlc.GoalChildCountsRow{
 			RequiredDone: f(done), RequiredFailed: f(failed), RequiredCancelled: f(cancelled),

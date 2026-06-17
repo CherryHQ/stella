@@ -77,7 +77,7 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 		Sandbox:              "{}",
 		EnabledBuiltinSkills: "[]",
 		Scope:                "system",
-		Enabled:              1,
+		Enabled:              true,
 	}); err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
@@ -144,7 +144,7 @@ func textStream(text string) *pkgchannel.ChatStream {
 	return &pkgchannel.ChatStream{Events: ch, SessionID: "session-1"}
 }
 
-func createDispatchForGroupMessage(t *testing.T, q *sqlc.Queries, msg sqlc.CtxGroupMessage, id, agentID, groupID string, status string, leaseUntil sql.NullString) {
+func createDispatchForGroupMessage(t *testing.T, q *sqlc.Queries, msg sqlc.CtxGroupMessage, id, agentID, groupID string, status string, leaseUntil sql.NullTime) {
 	t.Helper()
 	if err := q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
 		ID:             id,
@@ -176,7 +176,7 @@ func createGroupMessageWithSeq(t *testing.T, q *sqlc.Queries, groupID, id string
 	return msg
 }
 
-func listPendingDispatchIDs(t *testing.T, q *sqlc.Queries, now time.Time, limit int64) []string {
+func listPendingDispatchIDs(t *testing.T, q *sqlc.Queries, now time.Time, limit int32) []string {
 	t.Helper()
 	rows, err := q.ListPendingGroupDispatch(context.Background(), sqlc.ListPendingGroupDispatchParams{
 		Now:        nullTime(now),
@@ -200,8 +200,8 @@ func TestListPendingGroupDispatchBlocksLaterSameAgentSeq(t *testing.T) {
 	now := time.Now().UTC()
 	earlier := fx.message
 	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
-	createDispatchForGroupMessage(t, fx.q, earlier, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
-	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, earlier, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
+	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 
 	ids := listPendingDispatchIDs(t, fx.q, now, 25)
 	if !containsString(ids, "dispatch-1") || containsString(ids, "dispatch-2") {
@@ -224,7 +224,7 @@ func TestListPendingGroupDispatchExpiredRunningDoesNotBlockLater(t *testing.T) {
 	now := time.Now().UTC()
 	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
 	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "running", nullTime(now.Add(-time.Minute)))
-	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 
 	ids := listPendingDispatchIDs(t, fx.q, now, 25)
 	if !containsString(ids, "dispatch-2") {
@@ -236,7 +236,7 @@ func TestListPendingGroupDispatchBlocksLaterWhenEarlierOutboxNotTerminal(t *test
 	fx := newDispatcherFixture(t, "web", `{}`)
 	now := time.Now().UTC()
 	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
-	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 
 	ids := listPendingDispatchIDs(t, fx.q, now, 25)
 	if containsString(ids, "dispatch-2") {
@@ -257,17 +257,17 @@ func TestListPendingGroupDispatchBlockedRowsDoNotConsumeLimit(t *testing.T) {
 		t.Fatalf("complete outbox: %v", err)
 	}
 	now := time.Now().UTC()
-	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 	for i := range 30 {
 		msg := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, fmt.Sprintf("msg-blocked-%02d", i), int64(i+2))
-		createDispatchForGroupMessage(t, fx.q, msg, fmt.Sprintf("dispatch-blocked-%02d", i), "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+		createDispatchForGroupMessage(t, fx.q, msg, fmt.Sprintf("dispatch-blocked-%02d", i), "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 	}
 	otherGroup, err := fx.q.CreateGroupState(context.Background(), sqlc.CreateGroupStateParams{ID: "group-2", Platform: "web", PlatformGroupID: "physical-group-2", GroupName: "Group Two"})
 	if err != nil {
 		t.Fatalf("create group-2: %v", err)
 	}
 	otherMsg := createGroupMessageWithSeq(t, fx.q, otherGroup.ID, "msg-other", 1)
-	createDispatchForGroupMessage(t, fx.q, otherMsg, "dispatch-other", "agent-1", otherGroup.ID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, otherMsg, "dispatch-other", "agent-1", otherGroup.ID, "pending", sql.NullTime{})
 
 	ids := listPendingDispatchIDs(t, fx.q, now, 25)
 	if !containsString(ids, "dispatch-other") {
@@ -282,7 +282,7 @@ func TestListPendingGroupDispatchGateIsPerGroupAgent(t *testing.T) {
 		t.Fatalf("complete outbox: %v", err)
 	}
 	now := time.Now().UTC()
-	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1}); err != nil {
+	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: true}); err != nil {
 		t.Fatalf("create agent-2: %v", err)
 	}
 	state2, err := fx.q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{ID: "group-2", Platform: "web", PlatformGroupID: "physical-group-2", GroupName: "Group Two"})
@@ -292,10 +292,10 @@ func TestListPendingGroupDispatchGateIsPerGroupAgent(t *testing.T) {
 	laterSameAgent := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
 	laterOtherAgent := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-3", 3)
 	otherGroup := createGroupMessageWithSeq(t, fx.q, state2.ID, "msg-4", 2)
-	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
-	createDispatchForGroupMessage(t, fx.q, laterSameAgent, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
-	createDispatchForGroupMessage(t, fx.q, laterOtherAgent, "dispatch-3", "agent-2", fx.message.GroupID, "pending", sql.NullString{})
-	createDispatchForGroupMessage(t, fx.q, otherGroup, "dispatch-4", "agent-1", state2.ID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
+	createDispatchForGroupMessage(t, fx.q, laterSameAgent, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
+	createDispatchForGroupMessage(t, fx.q, laterOtherAgent, "dispatch-3", "agent-2", fx.message.GroupID, "pending", sql.NullTime{})
+	createDispatchForGroupMessage(t, fx.q, otherGroup, "dispatch-4", "agent-1", state2.ID, "pending", sql.NullTime{})
 
 	ids := listPendingDispatchIDs(t, fx.q, now, 25)
 	if containsString(ids, "dispatch-2") || !containsString(ids, "dispatch-3") || !containsString(ids, "dispatch-4") {
@@ -443,7 +443,7 @@ func TestGroupDispatcherPlatformAlwaysModeUsesMemberFallback(t *testing.T) {
 		Sandbox:              "{}",
 		EnabledBuiltinSkills: "[]",
 		Scope:                "system",
-		Enabled:              1,
+		Enabled:              true,
 	}); err != nil {
 		t.Fatalf("create second agent: %v", err)
 	}
@@ -788,7 +788,7 @@ func TestGroupDispatcherDispatchSyncWaitsForBlockedDispatch(t *testing.T) {
 	if _, err := fx.db.ExecContext(ctx, `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
 		t.Fatalf("complete earlier outbox: %v", err)
 	}
-	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
 	setGroupNextSeq(t, fx.db, fx.message.GroupID, later.Seq)
 	laterOutbox, err := fx.q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{ID: "outbox-2", GroupMessageID: later.ID, GroupID: fx.message.GroupID, Envelope: `{}`, Status: "pending", LastError: ""})
@@ -819,7 +819,7 @@ func TestGroupDispatcherExtendsOutboxLeaseWhileRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim outbox: %v", err)
 	}
-	initialLease := claimed.LeaseUntil.String
+	initialLease := claimed.LeaseUntil.Time
 	stop := fx.d.startHeartbeat(context.Background(), "outbox", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
 		return fx.q.ExtendRunningGroupOutboxLease(ctx, sqlc.ExtendRunningGroupOutboxLeaseParams{
 			ID:           claimed.ID,
@@ -840,7 +840,7 @@ func TestGroupDispatcherExtendsOutboxLeaseWhileRunning(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get outbox while waiting heartbeat: %v", err)
 			}
-			if current.LeaseUntil.String != "" && current.LeaseUntil.String != initialLease {
+			if !current.LeaseUntil.Time.IsZero() && !current.LeaseUntil.Time.Equal(initialLease) {
 				return
 			}
 		}
@@ -878,8 +878,8 @@ func TestGroupDispatcherHeartbeatDoesNotExtendAfterOwnershipLoss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get outbox after heartbeat: %v", err)
 	}
-	if current.LeaseUntil.String != afterLoss.LeaseUntil.String {
-		t.Fatalf("stale heartbeat extended lease after ownership loss: before=%q after=%q", afterLoss.LeaseUntil.String, current.LeaseUntil.String)
+	if !current.LeaseUntil.Time.Equal(afterLoss.LeaseUntil.Time) {
+		t.Fatalf("stale heartbeat extended lease after ownership loss: before=%q after=%q", afterLoss.LeaseUntil.Time, current.LeaseUntil.Time)
 	}
 }
 
@@ -966,7 +966,7 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get running dispatch: %v", err)
 	}
-	initialLease := running.LeaseUntil.String
+	initialLease := running.LeaseUntil.Time
 	deadline := time.After(3 * time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -980,7 +980,7 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get dispatch while waiting heartbeat: %v", err)
 			}
-			if current.LeaseUntil.String != "" && current.LeaseUntil.String != initialLease {
+			if !current.LeaseUntil.Time.IsZero() && !current.LeaseUntil.Time.Equal(initialLease) {
 				close(publisher.release)
 				if err := <-errC; err != nil {
 					t.Fatalf("execute dispatch after heartbeat: %v", err)

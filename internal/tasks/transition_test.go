@@ -55,11 +55,11 @@ func (h *testHarness) createTask(t *testing.T, status string) string {
 	t.Helper()
 	id := uuid.NewString()
 	sessionID := h.createTaskSession(t, "task-"+id[:8])
-	now := time.Now().Format(time.RFC3339Nano)
+	now := time.Now().UTC()
 	if _, err := h.q.CreateAgentTask(context.Background(), sqlc.CreateAgentTaskParams{
 		ID: id, UserID: h.userID, AgentID: h.agentID, SessionID: sessionID,
 		Title: "t-" + id[:8], Status: status, Priority: "routine",
-		Required: 1, RetryCount: 0, MaxRetries: 3,
+		Required: true, RetryCount: 0, MaxRetries: 3,
 		Context: "{}", Output: "{}",
 		CreatedAt: now, UpdatedAt: now,
 	}); err != nil {

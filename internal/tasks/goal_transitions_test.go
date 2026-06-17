@@ -16,7 +16,7 @@ import (
 func (h *testHarness) createGoal(t *testing.T, status, policy string) string {
 	t.Helper()
 	id := uuid.NewString()
-	now := time.Now().Format(time.RFC3339Nano)
+	now := time.Now().UTC()
 	if _, err := h.q.CreateAgentGoal(context.Background(), sqlc.CreateAgentGoalParams{
 		ID: id, UserID: h.userID, AgentID: h.agentID,
 		Title: "g-" + id[:8], Description: "", Status: status, Priority: "routine",

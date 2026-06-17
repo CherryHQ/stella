@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -277,7 +278,7 @@ func TestFilterAlreadyPersistedInjectedBatchesLargeCandidateSet(t *testing.T) {
 	}
 	q := sqlc.New(db)
 	ctx := context.Background()
-	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{ID: "conv-large", SessionID: "session-large", Channel: "test", Kind: "chat", LastActive: "2026-06-12T00:00:00Z"}); err != nil {
+	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{ID: "conv-large", SessionID: "session-large", Channel: "test", Kind: "chat", LastActive: time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 	for i, content := range []string{"candidate-0000", "candidate-0500", "candidate-1001"} {
