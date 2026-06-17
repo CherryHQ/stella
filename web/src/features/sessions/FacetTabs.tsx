@@ -88,9 +88,9 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
             {
               key: "tasks",
               label: t("facets.tasks"),
-              to: `${base}/automations`,
+              to: `${base}/tasks`,
               icon: ListTodo,
-              active: (p) => p.startsWith(`${base}/automations`) || p.startsWith(`${base}/tasks`),
+              active: (p) => p.startsWith(`${base}/tasks`),
             },
             {
               key: "memory",
