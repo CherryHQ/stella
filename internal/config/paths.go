@@ -49,9 +49,22 @@ func CachePath() string {
 	return filepath.Join(StellaHome(), "cache")
 }
 
-// DBPath returns the default database path inside the stella home.
+// DBPath returns the path to the legacy SQLite database inside the stella home.
+// It is retained for the one-time SQLite→PostgreSQL data-migration tool; the
+// running server uses DatabaseURL instead.
 func DBPath() string {
 	return filepath.Join(StellaHome(), "stella.db")
+}
+
+// DatabaseURL returns the PostgreSQL connection string the server opens.
+// Priority: STELLA_DATABASE_URL env -> a local default.
+// TODO(Phase 6): when unset, start the managed embedded PostgreSQL runtime and
+// return its DSN instead of this localhost default.
+func DatabaseURL() string {
+	if v := os.Getenv("STELLA_DATABASE_URL"); v != "" {
+		return v
+	}
+	return "postgres://localhost:5432/stella?sslmode=disable"
 }
 
 // ServerURL returns the URL CLI commands should use to talk to the local

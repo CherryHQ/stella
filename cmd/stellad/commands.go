@@ -80,15 +80,15 @@ type setupResult struct {
 }
 
 func setup(parent context.Context, _ bool) (*setupResult, error) {
-	db, err := appdb.OpenDB(config.DBPath())
+	db, err := appdb.OpenDB(config.DatabaseURL())
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	// Dedicated single-connection handle for the write-heavy memory provider,
-	// so its per-turn writes queue in Go rather than contending on SQLite's
-	// write lock and starving the shared read pool.
-	memDB, err := appdb.OpenSerialConn(config.DBPath())
+	// Dedicated single-connection handle for the write-heavy memory provider, so
+	// its read-modify-write JSON transactions serialize rather than lost-updating
+	// each other under concurrency (see appdb.OpenSerialConn).
+	memDB, err := appdb.OpenSerialConn(config.DatabaseURL())
 	if err != nil {
 		return nil, fmt.Errorf("open memory database: %w", err)
 	}
