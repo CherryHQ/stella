@@ -314,10 +314,24 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 						"input":      args,
 					})
 				case "done":
+					// Lift renderable-reference sentinels out of the live output so
+					// the chat can show a card the moment the tool finishes, without
+					// waiting for a reload to hydrate them from storage. Extraction
+					// also runs at LCM ingest for the persisted copy; the two are
+					// independent.
+					output := tu.Content
+					if clean, refs := renderrefs.Extract(output); len(refs) > 0 {
+						output = clean
+						writeData(map[string]any{
+							"type": "data-tool-references",
+							"id":   tu.ID,
+							"data": map[string]any{"toolCallId": tu.ID, "references": refs},
+						})
+					}
 					writeData(map[string]any{
 						"type":       "tool-output-available",
 						"toolCallId": tu.ID,
-						"output":     tu.Content,
+						"output":     output,
 					})
 				case "error":
 					writeData(map[string]any{
