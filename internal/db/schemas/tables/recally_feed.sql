@@ -8,12 +8,12 @@ CREATE TABLE recally_feed (
     title           TEXT NOT NULL DEFAULT '',
     description     TEXT NOT NULL DEFAULT '',
     check_interval  TEXT NOT NULL DEFAULT '1h',
-    last_checked_at TEXT,
+    last_checked_at TIMESTAMPTZ,
     last_etag       TEXT NOT NULL DEFAULT '',
     last_modified   TEXT NOT NULL DEFAULT '',
-    enabled         INTEGER NOT NULL DEFAULT 1,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    enabled         BOOLEAN NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE UNIQUE INDEX idx_recally_feed_user_url ON recally_feed (user_id, url);
@@ -26,10 +26,10 @@ CREATE TABLE recally_feed_entry (
     title      TEXT NOT NULL DEFAULT '',
     status     TEXT NOT NULL DEFAULT 'pending',
     article_id TEXT REFERENCES recally_article(id) ON DELETE SET NULL,
-    attempts   INTEGER NOT NULL DEFAULT 0,
+    attempts   BIGINT NOT NULL DEFAULT 0,
     error_msg  TEXT NOT NULL DEFAULT '',
-    discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
-    processed_at  TEXT
+    discovered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    processed_at  TIMESTAMPTZ
 );
 
 CREATE UNIQUE INDEX idx_recally_feed_entry_feed_guid ON recally_feed_entry (feed_id, guid);

@@ -1,82 +1,20 @@
 package db
 
-import (
-	"context"
-	"database/sql"
-	_ "embed"
-	"fmt"
-	"strings"
-)
+import "database/sql"
 
-// FTS5 indexes live outside the Atlas migration pipeline because Atlas's
-// embedded dev SQLite lacks the fts5 module. The DDL (virtual tables +
-// sync triggers) is kept in the sqlc schema dir so generated queries can
-// reference the virtual tables, and is applied here at startup instead.
-var (
-	//go:embed schemas/tables/ctx_message_fts.sql
-	ctxMessageFTSSchema string
-	//go:embed schemas/tables/ctx_summary_fts.sql
-	ctxSummaryFTSSchema string
-	// RecallyArticleFTSSchema is exported so recally store tests, which
-	// assemble their schema by hand instead of running migrations, can create
-	// the index and triggers their search queries depend on.
-	//go:embed schemas/tables/recally_article_fts.sql
-	RecallyArticleFTSSchema string
-)
-
-// ensureFTS creates the FTS5 virtual tables and triggers if missing, and
-// backfills the index from existing rows on first creation so pre-existing
-// history becomes searchable. Called from OpenDB after migrations succeed;
-// OpenSerialConn skips it because its caller must run OpenDB first.
-func ensureFTS(db *sql.DB) error {
-	ctx := context.Background()
-	for _, t := range []struct {
-		ftsTable string
-		schema   string
-		tokenize string
-	}{
-		{"ctx_message_fts", ctxMessageFTSSchema, "trigram"},
-		{"ctx_summary_fts", ctxSummaryFTSSchema, "trigram"},
-		{"recally_article_fts", RecallyArticleFTSSchema, "trigram"},
-	} {
-		// A table created with an older tokenizer (unicode61) would survive the
-		// CREATE IF NOT EXISTS below with a stale, incompatible index. Drop it
-		// so the embedded DDL recreates it and the rebuild path backfills it.
-		var ddl sql.NullString
-		_ = db.QueryRowContext(ctx,
-			`SELECT sql FROM sqlite_master WHERE type='table' AND name = ?`, t.ftsTable,
-		).Scan(&ddl) // ErrNoRows means no table yet; the create below handles it
-		if ddl.Valid && !strings.Contains(ddl.String, "tokenize='"+t.tokenize+"'") {
-			if _, err := db.ExecContext(ctx, `DROP TABLE `+t.ftsTable); err != nil {
-				return fmt.Errorf("drop stale %s: %w", t.ftsTable, err)
-			}
-		}
-		// Check the insert trigger alongside the table: an Atlas table-rebuild
-		// migration drops the content table's triggers and shifts rowids, which
-		// silently stales the index. A missing trigger with the index present is
-		// exactly that signature, so it must also force a rebuild. A tokenizer
-		// drop above also lands here (table missing → existing < 2 → rebuild).
-		var existing int
-		if err := db.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM sqlite_master WHERE name IN (?, ?)",
-			t.ftsTable, t.ftsTable+"_ai",
-		).Scan(&existing); err != nil {
-			return fmt.Errorf("check %s: %w", t.ftsTable, err)
-		}
-		if _, err := db.ExecContext(ctx, t.schema); err != nil {
-			if strings.Contains(err.Error(), "fts5") {
-				return fmt.Errorf("create %s: sqlite build lacks FTS5 support, required for full-text search: %w", t.ftsTable, err)
-			}
-			return fmt.Errorf("create %s: %w", t.ftsTable, err)
-		}
-		// External-content tables start empty; rebuild scans the content table
-		// so rows inserted before the triggers existed become searchable.
-		if existing < 2 {
-			rebuild := fmt.Sprintf("INSERT INTO %s(%s) VALUES('rebuild')", t.ftsTable, t.ftsTable)
-			if _, err := db.ExecContext(ctx, rebuild); err != nil {
-				return fmt.Errorf("backfill %s: %w", t.ftsTable, err)
-			}
-		}
-	}
+// ensureFTS is a placeholder during the SQLite→PostgreSQL migration.
+//
+// The SQLite implementation created fts5 virtual tables plus sync triggers and
+// backfilled them at startup. PostgreSQL full-text search is built differently:
+// the searchable columns are GENERATED tsvector columns defined directly in the
+// ctx_message, ctx_summary, and recally_article table schemas, each backed by a
+// GIN index — so there are no virtual tables or triggers to maintain at runtime.
+// The only piece Atlas (OSS) cannot manage declaratively is the pg_trgm
+// extension, which must exist before the schema is applied.
+//
+// TODO(Phase 5): give this a PostgreSQL body that ensures the pg_trgm extension
+// exists, and move the OpenDB call site to run before Atlas apply rather than
+// after migrations succeed.
+func ensureFTS(_ *sql.DB) error {
 	return nil
 }

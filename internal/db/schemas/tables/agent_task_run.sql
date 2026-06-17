@@ -13,19 +13,19 @@ CREATE TABLE agent_task_run (
     agent_id            TEXT REFERENCES agent(id) ON DELETE SET NULL,   -- delegator (creator of this run)
     executor_agent_id   TEXT REFERENCES agent(id) ON DELETE SET NULL,   -- D13: resolved at claim
     kind                TEXT NOT NULL DEFAULT 'worker',
-    attempt_no          INTEGER NOT NULL DEFAULT 1,
+    attempt_no          BIGINT NOT NULL DEFAULT 1,
     status              TEXT NOT NULL DEFAULT 'queued',
     session_id          TEXT NOT NULL,
     input               TEXT NOT NULL DEFAULT '{}',
     result              TEXT NOT NULL DEFAULT '{}',
     error               TEXT NOT NULL DEFAULT '',
-    heartbeat_at        TEXT,                                                     -- B6: worker liveness
-    lease_expires_at    TEXT,                                                     -- B6: stale-run detection
+    heartbeat_at        TIMESTAMPTZ,                                              -- B6: worker liveness
+    lease_expires_at    TIMESTAMPTZ,                                              -- B6: stale-run detection
     worker_id           TEXT NOT NULL DEFAULT '',                                 -- B6: optional process tag
-    started_at          TEXT,
-    finished_at         TEXT,
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at          TIMESTAMPTZ,
+    finished_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- Slice 3: XOR parent, kind ↔ parent type coupling (B3).
     CHECK (
       (task_id IS NOT NULL AND goal_id IS NULL     AND kind IN ('worker','reviewer'))
@@ -59,3 +59,8 @@ CREATE UNIQUE INDEX uniq_goal_run_attempt
 -- Invariant: attempt_no unique within (task_id, kind) (HP3).
 CREATE UNIQUE INDEX uniq_task_run_attempt
     ON agent_task_run(task_id, kind, attempt_no) WHERE task_id IS NOT NULL;
+
+-- Deferred FK closing the agent_task <-> agent_task_run cycle.
+ALTER TABLE agent_task
+    ADD CONSTRAINT agent_task_active_run_id_fkey
+    FOREIGN KEY (active_run_id) REFERENCES agent_task_run(id) ON DELETE RESTRICT;

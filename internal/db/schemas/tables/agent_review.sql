@@ -15,9 +15,9 @@ CREATE TABLE agent_review (
     status                      TEXT NOT NULL DEFAULT 'requested',
     summary                     TEXT NOT NULL DEFAULT '',
     feedback                    TEXT NOT NULL DEFAULT '',
-    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at                  TEXT NOT NULL DEFAULT (datetime('now')),
-    resolved_at                 TEXT,
+    created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at                 TIMESTAMPTZ,
     CHECK (
       (task_id IS NOT NULL AND goal_id IS NULL)
       OR
@@ -31,3 +31,12 @@ CREATE UNIQUE INDEX uniq_open_review_per_task
     ON agent_review(task_id) WHERE task_id IS NOT NULL AND status IN ('requested','in_progress');
 CREATE UNIQUE INDEX uniq_open_review_per_goal
     ON agent_review(goal_id) WHERE goal_id IS NOT NULL AND status IN ('requested','in_progress');
+
+-- Deferred FKs closing the agent_review <-> {agent_goal, agent_task} cycles.
+-- active_review_id points forward to agent_review, so the FK lands here.
+ALTER TABLE agent_goal
+    ADD CONSTRAINT agent_goal_active_review_id_fkey
+    FOREIGN KEY (active_review_id) REFERENCES agent_review(id) ON DELETE RESTRICT;
+ALTER TABLE agent_task
+    ADD CONSTRAINT agent_task_active_review_id_fkey
+    FOREIGN KEY (active_review_id) REFERENCES agent_review(id) ON DELETE RESTRICT;

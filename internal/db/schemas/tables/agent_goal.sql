@@ -13,13 +13,13 @@ CREATE TABLE agent_goal (
     status          TEXT NOT NULL DEFAULT 'draft',
     priority        TEXT NOT NULL DEFAULT 'routine',
     review_policy   TEXT NOT NULL DEFAULT 'none',
-    active_review_id TEXT REFERENCES agent_review(id) ON DELETE RESTRICT,
+    active_review_id TEXT,  -- FK added in agent_review.sql (cycle: agent_goal <-> agent_review)
     context         TEXT NOT NULL DEFAULT '{}',
     output          TEXT NOT NULL DEFAULT '{}',
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    completed_at    TEXT,
-    cancelled_at    TEXT
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at    TIMESTAMPTZ,
+    cancelled_at    TIMESTAMPTZ
 );
 
 CREATE INDEX idx_agent_goal_agent_project ON agent_goal(agent_id, project_id);

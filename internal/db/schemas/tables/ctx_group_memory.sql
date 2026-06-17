@@ -6,8 +6,8 @@
 CREATE TABLE ctx_group_memory (
     group_id    TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
     content     TEXT NOT NULL DEFAULT '',
-    version     INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    version     BIGINT NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY(group_id)
 );

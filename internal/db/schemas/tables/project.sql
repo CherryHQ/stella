@@ -5,8 +5,8 @@ CREATE TABLE project (
     name TEXT NOT NULL,
     base_dir TEXT NOT NULL,
     description TEXT,
-    archived INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    archived BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(agent_id, user_id, name)
 );

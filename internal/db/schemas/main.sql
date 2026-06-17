@@ -1,58 +1,74 @@
--- atlas:import tables/app_setting.sql
 -- atlas:import tables/agent.sql
--- atlas:import tables/channel.sql
+-- atlas:import tables/app_setting.sql
+-- atlas:import tables/auth_policy.sql
+-- atlas:import tables/ctx_conversation.sql
 -- atlas:import tables/plugin.sql
+-- atlas:import tables/plugin_oauth_provider.sql
+-- atlas:import tables/plugin_override.sql
+-- atlas:import tables/plugin_state.sql
 -- atlas:import tables/provider.sql
+-- atlas:import tables/sched_job.sql
+-- atlas:import tables/auth_user.sql
+-- atlas:import tables/channel.sql
 -- atlas:import tables/channel_agent.sql
+-- atlas:import tables/ctx_message.sql
+-- atlas:import tables/ctx_summary.sql
+-- atlas:import tables/sched_job_run.sql
+-- atlas:import tables/auth_credential.sql
+-- atlas:import tables/auth_identity.sql
+-- atlas:import tables/auth_session.sql
+-- atlas:import tables/auth_user_agent.sql
+-- atlas:import tables/auth_user_token.sql
+-- atlas:import tables/channel_identity.sql
 -- atlas:import tables/ctx_agent_memory.sql
 -- atlas:import tables/ctx_agent_memory_changelog.sql
 -- atlas:import tables/ctx_agent_memory_snapshot.sql
--- atlas:import tables/ctx_conversation.sql
--- atlas:import tables/ctx_message.sql
+-- atlas:import tables/ctx_group_state.sql
+-- atlas:import tables/project.sql
+-- atlas:import tables/recally_article.sql
+-- atlas:import tables/share.sql
+-- atlas:import tables/skill.sql
+-- atlas:import tables/vault_entry.sql
 -- atlas:import tables/ctx_message_part.sql
--- atlas:import tables/ctx_summary.sql
+-- atlas:import tables/ctx_item.sql
 -- atlas:import tables/ctx_summary_message.sql
 -- atlas:import tables/ctx_summary_parent.sql
--- atlas:import tables/ctx_item.sql
--- atlas:import tables/ctx_group_state.sql
--- atlas:import tables/ctx_group_message.sql
--- atlas:import tables/ctx_group_outbox.sql
--- atlas:import tables/ctx_group_dispatch.sql
--- atlas:import tables/ctx_group_memory.sql
+-- atlas:import tables/channel_group_member.sql
 -- atlas:import tables/ctx_group_ingest_cursor.sql
 -- atlas:import tables/ctx_group_ingest_error.sql
--- atlas:import tables/channel_group_member.sql
--- atlas:import tables/sched_job.sql
--- atlas:import tables/sched_job_run.sql
--- atlas:import tables/auth_policy.sql
--- atlas:import tables/auth_user_agent.sql
--- atlas:import tables/auth_user_token.sql
--- atlas:import tables/auth_user.sql
--- atlas:import tables/channel_identity.sql
--- atlas:import tables/auth_identity.sql
--- atlas:import tables/auth_session.sql
--- atlas:import tables/auth_credential.sql
--- Local OIDC provider tables
--- atlas:import tables/share.sql
--- atlas:import tables/plugin_state.sql
--- atlas:import tables/skill.sql
--- atlas:import tables/skill_file.sql
--- atlas:import tables/vault_entry.sql
--- atlas:import tables/plugin_oauth_provider.sql
--- atlas:import tables/recally_article.sql
--- atlas:import tables/recally_feed.sql
+-- atlas:import tables/ctx_group_memory.sql
+-- atlas:import tables/ctx_group_message.sql
+-- atlas:import tables/ctx_group_dispatch.sql
+-- atlas:import tables/ctx_group_outbox.sql
 -- atlas:import tables/recally_digest.sql
--- atlas:import tables/project.sql
--- agent_task and agent_task_run reference each other (active_run_id  task_id).
--- Order here is a readability hint; atlas resolves declaration order itself.
+-- atlas:import tables/recally_feed.sql
+-- atlas:import tables/skill_file.sql
 -- atlas:import tables/agent_goal.sql
--- atlas:import tables/agent_task_run.sql
--- atlas:import tables/agent_task_blocker.sql
--- atlas:import tables/agent_task_criterion.sql
--- atlas:import tables/agent_review.sql
--- atlas:import tables/agent_review_item.sql
 -- atlas:import tables/agent_task.sql
+-- atlas:import tables/agent_task_criterion.sql
 -- atlas:import tables/agent_task_dep.sql
 -- atlas:import tables/agent_task_dispatch_hint.sql
+-- atlas:import tables/agent_task_run.sql
+-- atlas:import tables/agent_review.sql
+-- atlas:import tables/agent_task_blocker.sql
+-- atlas:import tables/agent_review_item.sql
 -- atlas:import tables/agent_task_event.sql
--- atlas:import tables/plugin_override.sql
+
+-- Import order above is a PostgreSQL FK-dependency topological sort: a
+-- referenced table is created before any table that references it. Atlas's
+-- PostgreSQL schema loader applies these files to the dev database in order and
+-- rejects forward references, unlike the former order-tolerant SQLite dev.
+-- (The import block must lead this file; a comment block before the first
+-- -- atlas:import line makes Atlas load an empty schema.)
+--
+-- True FK cycles are broken by deferred ALTER TABLE ... ADD CONSTRAINT
+-- statements in the later-created table's file, not by import order:
+--   auth_user <-> channel_identity                      (notify_identity_id)
+--   agent_goal/agent_task <-> agent_review              (active_review_id)
+--   agent_task <-> agent_task_run                       (active_run_id)
+--   agent_task <-> agent_task_blocker                   (active_blocker_id)
+--
+-- The three fts5 virtual-table files were dropped in the PostgreSQL port; their
+-- search columns are now generated tsvector columns on the base tables
+-- (ctx_message, ctx_summary, recally_article) with GIN + trigram indexes. The
+-- gin_trgm_ops indexes require the pg_trgm extension in the Atlas dev database.

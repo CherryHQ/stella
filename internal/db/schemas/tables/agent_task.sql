@@ -14,20 +14,20 @@ CREATE TABLE agent_task (
     status              TEXT NOT NULL DEFAULT 'draft',
     priority            TEXT NOT NULL DEFAULT 'routine',
     review_policy       TEXT NOT NULL DEFAULT 'none',
-    active_review_id    TEXT REFERENCES agent_review(id) ON DELETE RESTRICT,
-    required            INTEGER NOT NULL DEFAULT 1,
-    retry_count         INTEGER NOT NULL DEFAULT 0,
-    max_retries         INTEGER NOT NULL DEFAULT 3,
-    not_before          TEXT,
-    deadline_at         TEXT,
-    active_run_id       TEXT REFERENCES agent_task_run(id) ON DELETE RESTRICT,
-    active_blocker_id   TEXT REFERENCES agent_task_blocker(id) ON DELETE RESTRICT,
+    active_review_id    TEXT,  -- FK added in agent_review.sql (cycle)
+    required            BOOLEAN NOT NULL DEFAULT true,
+    retry_count         BIGINT NOT NULL DEFAULT 0,
+    max_retries         BIGINT NOT NULL DEFAULT 3,
+    not_before          TIMESTAMPTZ,
+    deadline_at         TIMESTAMPTZ,
+    active_run_id       TEXT,  -- FK added in agent_task_run.sql (cycle)
+    active_blocker_id   TEXT,  -- FK added in agent_task_blocker.sql (cycle)
     context             TEXT NOT NULL DEFAULT '{}',
     output              TEXT NOT NULL DEFAULT '{}',
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    completed_at        TEXT,
-    cancelled_at        TEXT
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at        TIMESTAMPTZ,
+    cancelled_at        TIMESTAMPTZ
 );
 
 CREATE UNIQUE INDEX uniq_agent_task_session ON agent_task(session_id);

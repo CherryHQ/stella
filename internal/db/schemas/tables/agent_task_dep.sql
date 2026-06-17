@@ -7,10 +7,10 @@ CREATE TABLE agent_task_dep (
     dep_task_id     TEXT NOT NULL REFERENCES agent_task(id) ON DELETE CASCADE,
     dep_kind        TEXT NOT NULL DEFAULT 'hard',
     on_failure      TEXT NOT NULL DEFAULT 'block',
-    waived_at       TEXT,
+    waived_at       TIMESTAMPTZ,
     waived_by_user  TEXT REFERENCES auth_user(id) ON DELETE SET NULL,
     waiver_reason   TEXT NOT NULL DEFAULT '',
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (task_id, dep_task_id),
     CHECK (task_id != dep_task_id)
 );

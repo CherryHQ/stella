@@ -15,7 +15,7 @@ CREATE TABLE agent_task_event (
     actor_type      TEXT NOT NULL,
     actor_id        TEXT,
     detail          TEXT NOT NULL DEFAULT '{}',
-    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_agent_task_event_task ON agent_task_event(task_id, created_at DESC);

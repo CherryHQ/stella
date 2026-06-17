@@ -4,13 +4,13 @@ CREATE TABLE auth_user (
     name                TEXT NOT NULL DEFAULT '',
     avatar_url          TEXT NOT NULL DEFAULT '',
     role                TEXT NOT NULL DEFAULT 'user',
-    is_active           INTEGER NOT NULL DEFAULT 1,
+    is_active           BOOLEAN NOT NULL DEFAULT true,
     default_agent_id    TEXT REFERENCES agent(id),
-    notify_identity_id  TEXT REFERENCES channel_identity(id) ON DELETE SET NULL,
+    notify_identity_id  TEXT,  -- FK added in channel_identity.sql (cycle: auth_user <-> channel_identity)
     age_public_key      TEXT NOT NULL DEFAULT '',
     age_private_key     TEXT NOT NULL DEFAULT '',
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_auth_user_email ON auth_user(email);

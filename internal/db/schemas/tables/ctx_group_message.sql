@@ -7,7 +7,7 @@ CREATE TABLE ctx_group_message (
     -- the group this message belongs to.
     group_id            TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
     -- group-monotonic ordering token, allocated from ctx_group_state.next_seq.
-    seq                 INTEGER NOT NULL,
+    seq                 BIGINT NOT NULL,
     -- which bot/channel instance observed this delivery. Audit only: never part of
     -- a unique key (the same message arrives via several bots and must dedup to one
     -- row), and not a reply route (replies go out via the speaking agent's own bot).
@@ -23,7 +23,7 @@ CREATE TABLE ctx_group_message (
     -- platform message id this one replies to; empty/NULL if none.
     reply_to            TEXT,
     -- platform-reported send time (UTC); feeds the high-precision dedup fallback.
-    platform_timestamp  TEXT,
+    platform_timestamp  TIMESTAMPTZ,
     -- dedup fallback key, set only when there is no stable platform_message_id but a
     -- high-precision platform timestamp exists. Never derived from local receive time.
     idempotency_key     TEXT,
@@ -33,7 +33,7 @@ CREATE TABLE ctx_group_message (
     reasoning           TEXT NOT NULL DEFAULT '',
     -- Links to the agent session that produced this response (agent messages only).
     agent_session_id    TEXT NOT NULL DEFAULT '',
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (group_id, seq)
 );
 

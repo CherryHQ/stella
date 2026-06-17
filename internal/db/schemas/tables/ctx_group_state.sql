@@ -15,9 +15,9 @@ CREATE TABLE ctx_group_state (
     platform_thread_id TEXT NOT NULL DEFAULT '',
     -- per-group monotonic ordering allocator. Bumped under this row's write lock:
     -- UPDATE ... SET next_seq = next_seq + 1 RETURNING next_seq (first message = 1).
-    next_seq           INTEGER NOT NULL DEFAULT 0,
-    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    next_seq           BIGINT NOT NULL DEFAULT 0,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- human-readable display name (web groups require it; platform groups may populate later).
     group_name         TEXT NOT NULL DEFAULT '',
     -- web groups only: the user who created this group. NULL for platform-created groups.

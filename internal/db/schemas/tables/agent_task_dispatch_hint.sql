@@ -11,8 +11,8 @@ CREATE TABLE agent_task_dispatch_hint (
     goal_id             TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,
     kind                TEXT NOT NULL,
     executor_agent_id   TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
-    consumed_at         TEXT,
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    consumed_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (
       (task_id IS NOT NULL AND goal_id IS NULL     AND kind IN ('worker','reviewer'))
       OR

@@ -7,8 +7,8 @@ CREATE TABLE auth_identity (
     name             TEXT NOT NULL DEFAULT '',
     avatar_url       TEXT NOT NULL DEFAULT '',
     raw_claims       TEXT NOT NULL DEFAULT '{}',
-    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(provider, provider_subject)
 );
 
