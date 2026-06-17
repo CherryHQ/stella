@@ -195,7 +195,7 @@ export function messageToUIMessage(m: Message): UIMessage {
             parts.push({ type: "reasoning", text: block.thinking, providerMetadata: {} });
           }
           break;
-        case "tool_call":
+        case "tool_call": {
           parts.push({
             type: "dynamic-tool",
             toolName: block.name,
@@ -209,7 +209,19 @@ export function messageToUIMessage(m: Message): UIMessage {
             ...(block.result && !block.result.is_error ? { output: block.result.content } : {}),
             ...(block.result?.is_error ? { errorText: block.result.content } : {}),
           } as UIMessage["parts"][number]);
+          // Re-emit references as a data part so history rehydration feeds the
+          // exact same channel as the live SSE stream — uiMessageToMessage reads
+          // `data-tool-references` for both, so there is one rendering path.
+          const refs = block.result?.references;
+          if (refs && refs.length > 0) {
+            parts.push({
+              type: "data-tool-references",
+              id: block.id,
+              data: { toolCallId: block.id, references: refs },
+            } as unknown as UIMessage["parts"][number]);
+          }
           break;
+        }
       }
     }
   } else if (m.content) {
