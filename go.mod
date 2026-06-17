@@ -11,6 +11,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2
+	github.com/fergusstrange/embedded-postgres v1.34.0
 	github.com/go-co-op/gocron/v2 v2.19.1
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/go-resty/resty/v2 v2.17.2
@@ -134,6 +135,7 @@ require (
 	github.com/vmware-labs/yaml-jsonpath v0.3.2 // indirect
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
+	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/bridges/prometheus v0.67.0 // indirect
