@@ -57,19 +57,25 @@ export function GoalReferenceCard({ reference }: { reference: RenderableReferenc
         }
       />
       {tasks.length > 0 && (
-        <div className="flex items-center gap-3 pl-12 font-mono text-[11px] text-muted-foreground/70">
+        <div className="flex items-center gap-2 pl-12 text-[11px] text-muted-foreground/70">
           <span>{t("references.goalTasks", { count: tasks.length })}</span>
           {done > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <span className={`size-1.5 rounded-full ${statusMeta("done").dot}`} />
-              {done}
-            </span>
+            <>
+              <span aria-hidden>·</span>
+              <span className="inline-flex items-center gap-1">
+                <span className={`size-1.5 rounded-full ${statusMeta("done").dot}`} />
+                {t("references.goalDone", { count: done })}
+              </span>
+            </>
           )}
           {running > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <span className={`size-1.5 rounded-full ${statusMeta("running").dot}`} />
-              {running}
-            </span>
+            <>
+              <span aria-hidden>·</span>
+              <span className="inline-flex items-center gap-1">
+                <span className={`size-1.5 rounded-full ${statusMeta("running").dot}`} />
+                {t("references.goalRunning", { count: running })}
+              </span>
+            </>
           )}
         </div>
       )}

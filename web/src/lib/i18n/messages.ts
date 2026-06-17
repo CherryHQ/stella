@@ -23,6 +23,8 @@ const en = {
   "references.open": "Open",
   "references.deleted": "No longer available",
   "references.goalTasks": "{{count}} tasks",
+  "references.goalDone": "{{count}} done",
+  "references.goalRunning": "{{count}} running",
 
   // Agent IA
   "inbox.needsYou": "Needs you",
@@ -1599,6 +1601,8 @@ const zh: Record<MessageKey, string> = {
   "references.open": "打开",
   "references.deleted": "已不存在",
   "references.goalTasks": "{{count}} 个任务",
+  "references.goalDone": "{{count}} 完成",
+  "references.goalRunning": "{{count}} 进行",
 
   // Agent IA
   "inbox.needsYou": "需要你",

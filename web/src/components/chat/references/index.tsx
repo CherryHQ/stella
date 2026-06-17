@@ -33,7 +33,7 @@ export function RenderableReferenceList({ references }: { references: Renderable
   if (unique.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex max-w-xl flex-col gap-2">
       {unique.map((reference) => {
         const Card = registry[reference.type] ?? GenericReferenceCard;
         return <Card key={`${reference.type}:${reference.id}`} reference={reference} />;
