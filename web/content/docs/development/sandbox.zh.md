@@ -88,6 +88,15 @@ Stella 优先选择显式拒绝而非静默降级：
 - Docker 后端集成测试
 - 已迁移运行时路径的静态绕过回归保护
 
+## 本地运行 Docker 后端
+
+两个 mise 任务会以强制启用 `docker` 沙箱后端的方式启动宿主 `stellad`（通过 `STELLA_SANDBOX_BACKEND=docker`、`STELLA_DOCKER_SANDBOX_MODE=host`）。两者都依赖 `sandbox:docker:build`，因此在首个 agent session 触发 preflight 前，`stella-sandbox:dev` 镜像已构建好：
+
+- `mise run dev:docker` — 完整开发体验：Vite UI 在 `localhost:5173`（把 `/api` 代理到 `:25678` 上的服务器），加上 docker 后端的 API 服务器。需要前端热重载时用这个。
+- `mise run dev:api:docker` — 仅 API 服务器。Go 服务器仍会在 `localhost:25678` 提供最近构建的内嵌 SPA（见 `web/embed.go`），所以你在那里能拿到可用的 UI——只是没有 Vite 热重载。若内嵌产物过期，先跑 `vp build`。
+
+镜像通过 `stella mise reconcile-builtins`（与宿主相同的 `resources/plugins.yaml` reconcile）把 mise 工具链烤在 `/opt/stella`，因此 docker 与 Linux `local` 后端呈现完全一致的 mise 路径。
+
 ## 添加新后端
 
 每个新沙箱后端需要在以下所有位置进行修改——遗漏任何一处都会导致运行时错误：

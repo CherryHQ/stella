@@ -88,6 +88,15 @@ The abstraction is covered by:
 - Docker backend integration tests
 - static bypass regression guards for migrated runtime paths
 
+## Running the Docker Backend Locally
+
+Two mise tasks start a host `stellad` with the `docker` sandbox backend forced on (via `STELLA_SANDBOX_BACKEND=docker`, `STELLA_DOCKER_SANDBOX_MODE=host`). Both depend on `sandbox:docker:build`, so the `stella-sandbox:dev` image is built before the first agent session hits preflight:
+
+- `mise run dev:docker` — full dev experience: the Vite UI at `localhost:5173` (proxying `/api` to the server on `:25678`) plus the docker-backed API server. Use this for frontend hot-reload.
+- `mise run dev:api:docker` — API server only. The Go server still serves the last-built embedded SPA at `localhost:25678` (see `web/embed.go`), so you get a working UI there — just without Vite hot-reload. Run `vp build` first if the embedded bundle is stale.
+
+The image bakes its mise toolchain at `/opt/stella` via `stella mise reconcile-builtins` (the same `resources/plugins.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths.
+
 ## Adding a New Backend
 
 Every new sandbox backend requires changes in all of the following locations — missing any one causes a runtime error:
