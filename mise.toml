@@ -95,17 +95,36 @@ depends = ["build"]
 run = 'STELLA_HOME="$HOME/.stella-dev" $BINARY_D server'
 
 [tasks."dev:docker"]
-description = "Start stella server (web + api) with the docker sandbox backend"
+description = "Start stella server (web + api) with the docker sandbox backend + otel-lgtm"
 depends = ["dev:ui", "dev:api:docker"]
 
 [tasks."dev:api:docker"]
-description = "Start stella API server with the docker sandbox backend (host stellad → stella-sandbox:dev containers)"
-depends = ["build", "sandbox:docker:build"]
+description = "Start stella API server with the docker sandbox backend (host stellad → stella-sandbox:dev containers) + otel-lgtm"
+depends = ["build", "sandbox:docker:build", "dev:otel"]
 # STELLA_SANDBOX_BACKEND forces the docker backend regardless of the Plugins-page
 # selection; mode=host because stellad runs on the host (sandbox-container paths
-# are daemon-visible). Builds the sandbox image first so the first agent session
-# doesn't fail preflight.
+# are daemon-visible). dev:otel brings up the observability stack first; stellad
+# auto-loads $STELLA_HOME/.env (OTEL_* → localhost:4318), so traces flow with no
+# extra flags.
 run = 'STELLA_HOME="$HOME/.stella-dev" STELLA_SANDBOX_BACKEND=docker STELLA_DOCKER_SANDBOX_MODE=host $BINARY_D server'
+
+[tasks."dev:otel"]
+description = "Start the local observability stack (grafana/otel-lgtm) via docker compose"
+# Idempotent: `up -d` is a no-op when otel-lgtm is already running. Warns if the
+# OTLP keys are missing from $STELLA_HOME/.env (otherwise stella exports nothing).
+run = """
+  docker compose -f docker-compose.dev.yml up -d
+  ENV_FILE="${STELLA_HOME:-$HOME/.stella-dev}/.env"
+  if ! grep -q '^OTEL_EXPORTER_OTLP_ENDPOINT=' "$ENV_FILE" 2>/dev/null; then
+    echo "⚠ $ENV_FILE has no OTEL_EXPORTER_OTLP_ENDPOINT; stella will export no telemetry." >&2
+    echo "  Add: OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 (and OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf)" >&2
+  fi
+  echo "otel-lgtm up — Grafana: http://localhost:3000 (Explore → Tempo / Loki)"
+"""
+
+[tasks."dev:otel:down"]
+description = "Stop the local observability stack (grafana/otel-lgtm)"
+run = "docker compose -f docker-compose.dev.yml down"
 
 # ============================================================================
 # Code Quality

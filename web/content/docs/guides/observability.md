@@ -109,6 +109,8 @@ stellad server
 
 Open `http://localhost:3000` (Grafana UI). Use **Explore → Tempo** for trace waterfalls and **Explore → Loki** for logs. If logs carry a `trace_id`, Grafana links them automatically.
 
+> **Working on Stella itself?** Skip the manual `docker run`. `mise run dev:docker` (or `dev:api:docker`) brings up `otel-lgtm` via `docker-compose.dev.yml` as a dependency, and the host `stellad` auto-loads the OTLP keys from `$STELLA_HOME/.env` — so traces and logs flow with no extra flags. Stop the stack with `mise run dev:otel:down`.
+
 `grafana/otel-lgtm` is designed for local development — not production. For production deployments, use a dedicated OTel Collector or Grafana Alloy forwarding to standalone Loki, Tempo, and Mimir instances.
 
 ### Using with Other Backends
