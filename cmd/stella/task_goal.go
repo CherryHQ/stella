@@ -9,6 +9,7 @@ import (
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/cli"
+	"github.com/CherryHQ/stella/internal/renderrefs"
 )
 
 func goalCommand() *ucli.Command {
@@ -158,6 +159,13 @@ func goalCreateCmd() *ucli.Command {
 					return fmt.Errorf("activate goal: %w", err)
 				}
 			}
+			// Best-effort: a failed sentinel write must never fail goal creation.
+			_ = renderrefs.Emit(c.App.ErrWriter, renderrefs.Reference{
+				Type:    "goal",
+				ID:      goal.Id,
+				Intent:  "created",
+				Preview: &renderrefs.Preview{Title: goal.Title, Status: string(goal.Status)},
+			})
 			return printGoal(c, goal)
 		},
 	}

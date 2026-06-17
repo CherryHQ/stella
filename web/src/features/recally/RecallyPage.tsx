@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useI18n } from "@/lib/i18n";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,20 @@ import { ToastAlert } from "./components/ToastAlert";
 
 export function RecallyPage() {
   const { t } = useI18n();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Selected article lives in the URL (`?article=`) so it survives refresh and
+  // back/forward, and so reference cards can deep-link straight to a reader.
+  const navigate = useNavigate();
+  const { article } = useSearch({ from: "/_app/recally" });
+  const selectedId = article ?? null;
+  const setSelectedId = useCallback(
+    (id: string | null) => {
+      void navigate({
+        to: "/recally",
+        search: (prev) => ({ ...prev, article: id ?? undefined }),
+      });
+    },
+    [navigate],
+  );
   const [chatOpen, setChatOpen] = useState(false);
 
   const filters = useRecallyFilters();

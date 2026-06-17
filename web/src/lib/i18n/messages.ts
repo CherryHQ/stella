@@ -22,6 +22,7 @@ const en = {
   "references.article": "Article",
   "references.open": "Open",
   "references.deleted": "No longer available",
+  "references.goalTasks": "{{count}} tasks",
 
   // Agent IA
   "inbox.needsYou": "Needs you",
@@ -1597,6 +1598,7 @@ const zh: Record<MessageKey, string> = {
   "references.article": "文章",
   "references.open": "打开",
   "references.deleted": "已不存在",
+  "references.goalTasks": "{{count}} 个任务",
 
   // Agent IA
   "inbox.needsYou": "需要你",
