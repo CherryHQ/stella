@@ -24,35 +24,6 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	}
 }
 
-func TestOpenSerialConnConfiguresSingleConnection(t *testing.T) {
-	t.Parallel()
-
-	dbPath := filepath.Join(t.TempDir(), "serial.db")
-	db, err := OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	serial, err := OpenSerialConn(dbPath)
-	if err != nil {
-		t.Fatalf("OpenSerialConn: %v", err)
-	}
-	t.Cleanup(func() { _ = serial.Close() })
-
-	if got := serial.Stats().MaxOpenConnections; got != 1 {
-		t.Fatalf("MaxOpenConnections = %d, want 1", got)
-	}
-
-	var foreignKeys int
-	if err := serial.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
-		t.Fatalf("PRAGMA foreign_keys: %v", err)
-	}
-	if foreignKeys != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", foreignKeys)
-	}
-}
-
 func tableExists(t *testing.T, db *sql.DB, name string) bool {
 	t.Helper()
 

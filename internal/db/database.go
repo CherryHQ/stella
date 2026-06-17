@@ -178,30 +178,6 @@ func configurePool(db *sql.DB) {
 	db.SetConnMaxIdleTime(5 * time.Minute)
 }
 
-// OpenSerialConn opens a second handle to an already-open database capped at a
-// single connection. The write-heavy memory provider runs on this handle so its
-// read-modify-write JSON transactions serialize: routing them through one
-// connection means a second BeginTx blocks until the first commits, which
-// prevents two concurrent writers to the same memory row from lost-updating each
-// other. The caller must have run OpenDB first; this handle does not migrate.
-//
-// TODO(Phase 4d): this coarse, global serialization is a SQLite-era carry-over —
-// it serializes every user's memory writes through one connection. Replace it
-// with per-(user,agent) advisory locks (pg_advisory_xact_lock) in the memorywrite
-// transactions so different principals write concurrently, and cover it with a
-// concurrency test on embedded-pg.
-func OpenSerialConn(dsn string) (*sql.DB, error) {
-	db, err := openTracedPG(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("db: open serial conn: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(30 * time.Minute)
-	db.SetConnMaxIdleTime(5 * time.Minute)
-	return db, nil
-}
-
 // migrate applies pending SQL migration files from the embedded migrations
 // directory. Each migration runs in its own transaction (PostgreSQL DDL is
 // transactional, so a failed migration rolls back cleanly) and is tracked in a
