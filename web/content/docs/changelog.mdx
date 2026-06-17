@@ -11,9 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.1] - 2026-06-17
+
+### ✨ Features
+
+- Web: show task and goal execution details. ([#508](https://github.com/CherryHQ/stella/pull/508))
+
 ### 🐛 Bug Fixes
 
 - Sandbox: fix broken `mise` shims (e.g. `gh`, `lark-cli`) in the agent runtime by keeping the per-user toolchain in the `STELLA_HOME` frame so its symlinks resolve under the sandbox. Tools manually installed under v0.49.0 must be reinstalled once. ([#507](https://github.com/CherryHQ/stella/pull/507))
+
+### 📦 Dependencies
+
+- Web: bump frontend deps to clear dependabot security alerts. ([#502](https://github.com/CherryHQ/stella/pull/502))
+
+**Full Changelog**: [v0.49.0...v0.49.1](https://github.com/CherryHQ/stella/compare/v0.49.0...v0.49.1)
 
 ## [0.49.0] - 2026-06-16
 

@@ -11,9 +11,21 @@ icon: History
 
 ## [Unreleased]
 
+## [0.49.1] - 2026-06-17
+
+### ✨ 功能
+
+- Web：展示任务和目标的执行详情。([#508](https://github.com/CherryHQ/stella/pull/508))
+
 ### 🐛 修复
 
 - Sandbox：修复 agent 运行时中损坏的 `mise` shim（如 `gh`、`lark-cli`）——将 per-user 工具链保留在 `STELLA_HOME` 框架下，使其软链在沙箱内可正确解析。在 v0.49.0 下手动安装的工具需重新安装一次。([#507](https://github.com/CherryHQ/stella/pull/507))
+
+### 📦 依赖
+
+- Web：更新前端依赖以消除 dependabot 安全告警。([#502](https://github.com/CherryHQ/stella/pull/502))
+
+**完整变更日志**：[v0.49.0...v0.49.1](https://github.com/CherryHQ/stella/compare/v0.49.0...v0.49.1)
 
 ## [0.49.0] - 2026-06-16
 
