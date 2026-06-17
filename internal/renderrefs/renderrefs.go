@@ -40,9 +40,10 @@ type Preview struct {
 // bearing fields; everything else is a hint.
 type Reference struct {
 	V       int      `json:"v"`
-	Type    string   `json:"type"`             // "task" | "goal" | "recally_article" | future
-	ID      string   `json:"id"`               // entity UUID
-	Intent  string   `json:"intent,omitempty"` // "created" (default emitted) | "referenced"
+	Type    string   `json:"type"`               // "task" | "goal" | "recally_article" | future
+	ID      string   `json:"id"`                 // entity UUID
+	Intent  string   `json:"intent,omitempty"`   // "created" (default emitted) | "referenced"
+	AgentID string   `json:"agent_id,omitempty"` // owning agent, for deep links to agent-scoped pages (task/goal)
 	Preview *Preview `json:"preview,omitempty"`
 }
 

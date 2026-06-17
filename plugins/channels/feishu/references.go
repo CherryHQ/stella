@@ -2,6 +2,8 @@ package feishu
 
 import (
 	"fmt"
+	"net/url"
+	"os"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/renderrefs"
@@ -37,8 +39,39 @@ func appendReferenceSection(response string, refs []renderrefs.Reference, isGrou
 	for _, ref := range refs {
 		b.WriteString(referenceLine(ref, isGroup))
 		b.WriteByte('\n')
+		// An "open" button on its own paragraph so feishucard renders it as a
+		// link button below the line. Omitted when no public URL is buildable.
+		if link := entityURL(ref); link != "" {
+			fmt.Fprintf(&b, "\n{{button label=\"打开 Web UI\" type=\"primary\" url=%q}}\n\n", link)
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// entityURL builds an absolute deep link to the entity's Web UI page, or "" when
+// it cannot be built (no STELLA_BASE_URL, or a task/goal without an owning agent).
+// The web page enforces its own access control, so the link is safe to surface.
+func entityURL(ref renderrefs.Reference) string {
+	base := strings.TrimRight(os.Getenv("STELLA_BASE_URL"), "/")
+	if base == "" {
+		return ""
+	}
+	switch ref.Type {
+	case "task":
+		if ref.AgentID == "" {
+			return ""
+		}
+		return fmt.Sprintf("%s/agents/%s/tasks/%s", base, ref.AgentID, ref.ID)
+	case "goal":
+		if ref.AgentID == "" {
+			return ""
+		}
+		return fmt.Sprintf("%s/agents/%s/tasks/goals/%s", base, ref.AgentID, ref.ID)
+	case "recally_article":
+		return fmt.Sprintf("%s/recally?article=%s", base, url.QueryEscape(ref.ID))
+	default:
+		return ""
+	}
 }
 
 func referenceLine(ref renderrefs.Reference, isGroup bool) string {

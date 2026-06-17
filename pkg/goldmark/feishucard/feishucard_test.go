@@ -268,6 +268,21 @@ func TestButtonSingle(t *testing.T) {
 	}
 }
 
+func TestButtonOpenURL(t *testing.T) {
+	input := "{{button label=\"Open\" url=\"https://stella.example.com/agents/a1/tasks/t1\"}}\n"
+	elems := feishucard.Render(input)
+	if len(elems) != 1 || elems[0]["tag"] != "button" {
+		t.Fatalf("expected 1 button element, got %v", elemTags(elems))
+	}
+	behaviors := elems[0]["behaviors"].([]map[string]any)
+	if len(behaviors) != 1 || behaviors[0]["type"] != "open_url" {
+		t.Fatalf("want open_url behavior, got %v", behaviors)
+	}
+	if behaviors[0]["default_url"] != "https://stella.example.com/agents/a1/tasks/t1" {
+		t.Errorf("default_url = %v", behaviors[0]["default_url"])
+	}
+}
+
 func TestButtonGrouped(t *testing.T) {
 	input := "{{button value=\"yes\" label=\"Yes\"}}\n{{button value=\"no\" label=\"No\"}}\n"
 	elems := feishucard.Render(input)

@@ -2,7 +2,7 @@
 title: Feishu Bot
 ---
 
-Stella includes a Feishu (Lark) bot that connects over WebSocket, so you do not need a public webhook URL. You can chat with your AI assistant in Feishu, send images and documents, and use it in group chats with threading support. Agent-created task, goal, and article references render as compact Feishu cards.
+Stella includes a Feishu (Lark) bot that connects over WebSocket, so you do not need a public webhook URL. You can chat with your AI assistant in Feishu, send images and documents, and use it in group chats with threading support. Agent-created task, goal, and article references render as compact Feishu cards, with an "Open Web UI" button to jump to the item when `STELLA_BASE_URL` is set.
 
 ## Prerequisites
 
