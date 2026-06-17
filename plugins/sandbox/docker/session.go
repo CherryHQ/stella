@@ -254,10 +254,15 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	opts.Env = translateEnvPaths(mergeEnv(policy.Env, nil), mountTable, envMaps)
 
 	// Per-user mise shims go on PATH ahead of the image's system shims so a user's
-	// own tool versions win (mirrors HostEnvBuildPath on the host backends).
+	// own tool versions win (mirrors HostEnvBuildPath on the host backends). Only
+	// the mise tree gets a shims/ entry: ExtraWritableMounts is a generic policy
+	// field, so guard against a future non-mise writable mount contributing a
+	// bogus PATH dir.
 	var toolBinPaths []string
 	for _, tree := range perUserTrees {
-		toolBinPaths = append(toolBinPaths, filepath.Join(tree.Container, "shims"))
+		if filepath.Base(tree.Container) == ".mise-tools" {
+			toolBinPaths = append(toolBinPaths, filepath.Join(tree.Container, "shims"))
+		}
 	}
 	toolCache, err := ensureUserToolCache(ctx, client, f.cfg)
 	if err != nil {
@@ -697,7 +702,7 @@ func mergeEnv(policyEnv, optsEnv map[string]string) map[string]string {
 //   - PATH: callers prepend stella-managed tool dirs (fd/rg/mise/tap shims) that
 //     live on the stella host filesystem. Those paths don't exist in the
 //     container, and passing them overrides the image's ENV PATH that points
-//     at /home/stella/.local/share/mise/shims et al.
+//     at /opt/stella/.mise-tools/shims et al.
 //   - HOME: the container's image-baked HOME (/home/stella) is the right value.
 //     The stella host HOME would point at a dir that isn't mounted.
 var hostOnlyEnvKeys = map[string]struct{}{
@@ -743,7 +748,12 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount, e
 				parts = append(parts, tp)
 			}
 			if len(parts) > 0 {
-				out[k] = strings.Join(parts, string(filepath.ListSeparator))
+				// Join with the container's separator, not the host's: the value
+				// is consumed by mise inside an always-Linux container, so it must
+				// use ":" even when stella runs on a Windows host (where
+				// filepath.ListSeparator is ";"). Splitting above uses the host
+				// separator because the incoming value was joined host-side.
+				out[k] = strings.Join(parts, ":")
 			}
 			continue
 		}
