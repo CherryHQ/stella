@@ -1,27 +1,17 @@
 # Local development observability stack.
 #
-# Brings up grafana/otel-lgtm — Grafana's all-in-one OTel backend (OpenTelemetry
-# Collector + Grafana + Loki + Tempo + Mimir) in one container. A host `stellad`
-# started via `mise run dev:docker` auto-loads $STELLA_HOME/.env and exports OTLP
-# to localhost:4318, so traces and logs land here with no extra wiring.
+# grafana/otel-lgtm — Grafana's all-in-one OTel backend (Collector + Grafana +
+# Loki + Tempo + Mimir) in one container. Brought up automatically by
+# `mise run dev:docker` / `dev:api:docker`, which export OTLP to localhost:4318.
+# Grafana UI: http://localhost:3000 (Explore → Tempo / Loki).
 #
-# Brought up automatically by `mise run dev:otel` (a dependency of the docker dev
-# tasks). Grafana UI: http://localhost:3000 (Explore → Tempo / Loki).
-#
-# This is a dev tool, not the production example — see ./docker-compose.yml for
-# running stellad itself in a container.
+# Dev only — for running stellad itself in a container see ./docker-compose.yml.
 
 services:
   otel-lgtm:
     image: grafana/otel-lgtm
     container_name: otel-lgtm
-    restart: unless-stopped
     ports:
       - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP — matches OTEL_EXPORTER_OTLP_ENDPOINT in $STELLA_HOME/.env
+      - "4318:4318" # OTLP HTTP
       - "3000:3000" # Grafana UI
-    volumes:
-      - otel-lgtm-data:/data
-
-volumes:
-  otel-lgtm-data:
