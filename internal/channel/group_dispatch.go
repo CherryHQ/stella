@@ -93,8 +93,8 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 			Envelope:       envelope,
 			Status:         "pending",
 			AttemptCount:   0,
-			LeaseUntil:     sql.NullString{},
-			NextAttemptAt:  sql.NullString{},
+			LeaseUntil:     sql.NullTime{},
+			NextAttemptAt:  sql.NullTime{},
 			LastError:      "",
 		})
 		if err != nil {
