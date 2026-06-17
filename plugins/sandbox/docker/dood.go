@@ -1,13 +1,25 @@
 package docker
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"strings"
+
+	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
 const dockerSandboxModeEnv = "STELLA_DOCKER_SANDBOX_MODE"
+
+// defaultSandboxServerPort is stellad's default admin/API port (see cmd/stellad
+// gateway). Auto-detected sandbox URLs target it; override the whole URL with
+// STELLA_SANDBOX_SERVER_URL when stellad listens elsewhere.
+const defaultSandboxServerPort = 25678
+
+// lookupHostname reports the current hostname, which Docker defaults to the
+// short container ID. Overridden in tests.
+var lookupHostname = os.Hostname
 
 // lookupDockerSandboxMode reads STELLA_DOCKER_SANDBOX_MODE. Overridden in tests.
 var lookupDockerSandboxMode = func() string {
@@ -22,6 +34,123 @@ var lookupStellaHomeHost = func() string {
 // lookupStellaHomeVolume reads the STELLA_HOME_VOLUME env. Overridden in tests.
 var lookupStellaHomeVolume = func() string {
 	return strings.TrimSpace(os.Getenv("STELLA_HOME_VOLUME"))
+}
+
+// lookupSandboxNetwork reads the STELLA_SANDBOX_NETWORK env. Overridden in tests.
+var lookupSandboxNetwork = func() string {
+	return strings.TrimSpace(os.Getenv("STELLA_SANDBOX_NETWORK"))
+}
+
+// lookupSandboxServerURL reads the STELLA_SANDBOX_SERVER_URL env. Overridden in tests.
+var lookupSandboxServerURL = func() string {
+	return strings.TrimSpace(os.Getenv("STELLA_SANDBOX_SERVER_URL"))
+}
+
+// autodetectServerReachability fills SandboxNetwork/ServerURL by inspecting the
+// container stellad runs in, so DooD sandboxes reach stellad with zero extra
+// configuration: they join the same Docker network and target stellad's address
+// on it instead of their own empty 127.0.0.1 loopback. Best-effort — running on
+// the host, no user-defined network, or a daemon hiccup leaves cfg untouched and
+// the caller falls back to loopback. Explicit env values always win.
+func autodetectServerReachability(ctx context.Context, cfg Config) Config {
+	if cfg.RuntimeMode == DockerSandboxModeHost {
+		// stellad runs on the host, so there is no own-container to inspect.
+		// Reaching the host from a sandbox container needs a host-gateway address
+		// (e.g. host.docker.internal) which is deployment-specific — out of scope
+		// here; set STELLA_SANDBOX_SERVER_URL explicitly if sandboxes need it.
+		return cfg
+	}
+	if cfg.SandboxNetwork != "" && cfg.ServerURL != "" {
+		return cfg // fully configured by env
+	}
+	host, err := lookupHostname()
+	if err != nil {
+		return cfg
+	}
+	client, err := getSharedClient()
+	if err != nil {
+		return cfg
+	}
+	self, err := client.InspectSelf(ctx, host)
+	if err != nil || self == nil {
+		// Silent failure here would surface only as connection-refused inside the
+		// sandbox, which is miserable to debug — point the operator at the override.
+		slog.Warn("docker backend: could not identify stellad's own container for sandbox networking; set STELLA_SANDBOX_NETWORK and STELLA_SANDBOX_SERVER_URL if sandboxes cannot reach stellad",
+			"component", "runner_sandbox", "ref", host, "err", err)
+		return cfg
+	}
+	return applyReachability(cfg, self)
+}
+
+// applyReachability merges a detected self-container into cfg, filling only the
+// fields env did not already set. Pure, so the selection logic is tested without
+// a daemon. Selection: an explicit SandboxNetwork wins (URL host taken from that
+// same network so the two never disagree); otherwise the sole/compose-default
+// user network; otherwise the default bridge by IP as a last resort.
+func applyReachability(cfg Config, self *dockerclient.SelfContainer) Config {
+	if self == nil {
+		return cfg
+	}
+
+	network, host := "", ""
+	switch {
+	case cfg.SandboxNetwork != "":
+		// Honor the operator's network; only fabricate a URL if stellad is
+		// actually on it (else the sandbox would join a network stellad can't be
+		// reached on — a misconfiguration we must not paper over).
+		network = cfg.SandboxNetwork
+		if on := findNetwork(self.Networks, cfg.SandboxNetwork); on != nil {
+			host = self.Name // user-defined network: reach by DNS name (stable)
+		} else if cfg.ServerURL == "" {
+			slog.Warn("docker backend: STELLA_SANDBOX_NETWORK is not a network stellad is on; set STELLA_SANDBOX_SERVER_URL explicitly",
+				"component", "runner_sandbox", "network", cfg.SandboxNetwork)
+		}
+	case len(self.Networks) > 0:
+		chosen := pickUserNetwork(self.Networks)
+		if len(self.Networks) > 1 {
+			slog.Warn("docker backend: stellad is on multiple networks; using one for sandboxes — set STELLA_SANDBOX_NETWORK to override",
+				"component", "runner_sandbox", "network", chosen.Name)
+		}
+		network, host = chosen.Name, self.Name
+	case self.BridgeIP != "":
+		// Bridge-only: keep the sandbox on the default bridge (network stays
+		// empty) and reach stellad by its bridge IP — the bridge has no DNS.
+		host = self.BridgeIP
+	}
+
+	if cfg.SandboxNetwork == "" {
+		cfg.SandboxNetwork = network
+	}
+	if cfg.ServerURL == "" && host != "" {
+		cfg.ServerURL = fmt.Sprintf("http://%s:%d", host, defaultSandboxServerPort)
+	}
+	slog.Info("docker backend: auto-detected sandbox reachability",
+		"component", "runner_sandbox",
+		"network", cfg.SandboxNetwork,
+		"server_url", cfg.ServerURL,
+	)
+	return cfg
+}
+
+// pickUserNetwork prefers the compose project default ("*_default") so sandboxes
+// land on the app network rather than an isolated/internal one; Networks is
+// already sorted, so the first entry is the deterministic fallback.
+func pickUserNetwork(nets []dockerclient.SelfNetwork) dockerclient.SelfNetwork {
+	for _, n := range nets {
+		if strings.HasSuffix(n.Name, "_default") {
+			return n
+		}
+	}
+	return nets[0]
+}
+
+func findNetwork(nets []dockerclient.SelfNetwork, name string) *dockerclient.SelfNetwork {
+	for i := range nets {
+		if nets[i].Name == name {
+			return &nets[i]
+		}
+	}
+	return nil
 }
 
 // applyDockerMode fills and validates the explicit docker sandbox runtime mode.
@@ -40,6 +169,12 @@ func applyDockerMode(cfg Config, stellaHome string) (Config, error) {
 	}
 	if cfg.StellaHomeVolume == "" {
 		cfg.StellaHomeVolume = lookupStellaHomeVolume()
+	}
+	if cfg.SandboxNetwork == "" {
+		cfg.SandboxNetwork = lookupSandboxNetwork()
+	}
+	if cfg.ServerURL == "" {
+		cfg.ServerURL = lookupSandboxServerURL()
 	}
 	if cfg.ContainerPathPrefix == "" && cfg.HostPathPrefix == "" {
 		if hostPath := lookupStellaHomeHost(); hostPath != "" {
