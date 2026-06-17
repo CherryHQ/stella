@@ -89,7 +89,6 @@ func TestSetupUserWorkspace(t *testing.T) {
 	for _, sub := range []string{
 		filepath.Join(userDir, "data", ".agents", "skills"),
 		filepath.Join(userDir, "data", ".agents", "delegates"),
-		filepath.Join(userDir, "data", ".mise-tools"),
 		filepath.Join(userDir, "data", "assets"),
 		filepath.Join(userDir, "agents", "agent-1"),
 	} {

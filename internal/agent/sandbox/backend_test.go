@@ -209,9 +209,11 @@ func TestRunnerFilesystemPolicyGroupUsesGroupSubtree(t *testing.T) {
 	}
 	cfg := Config{GroupID: "g7", UserID: "g7", AgentID: "a1"}
 
-	// The mise tree relocates under the group's data root; the group-keying still
-	// gates validity (a real user with the same raw ID can't share it).
-	if want := filepath.Join(userData, ".mise-tools"); miseUserDirHost(paths, cfg) != want {
+	// The mise tree lives under the group's home in the STELLA_HOME frame (a
+	// sibling of data, not inside it), so it shares the system tree's sandbox root
+	// once STELLA_HOME is remapped. The group-keying still gates validity (a real
+	// user with the same raw ID can't share it).
+	if want := filepath.Join("/stella", "users", "group-g7", ".mise-tools"); miseUserDirHost(paths, cfg) != want {
 		t.Fatalf("miseUserDirHost = %q, want %q", miseUserDirHost(paths, cfg), want)
 	}
 	base := os.TempDir()

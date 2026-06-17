@@ -689,22 +689,25 @@ func TestAdjustPolicy_perUserMiseShimsOnPath(t *testing.T) {
 	}
 }
 
-// TestAdjustPolicy_perUserMiseInUserDataFrame verifies that the per-user mise
-// tree — now under the shared user-data root (UserDataDir/.mise-tools) — is
-// expressed in the /user frame, not the host STELLA_HOME tree: the agent sees its
-// toolchain at /user/.mise-tools and never learns the on-disk users/{id} layout.
-// The system config path stays under the sandbox STELLA_HOME, and the host
-// workspace trusted entry collapses onto /workspace.
-func TestAdjustPolicy_perUserMiseInUserDataFrame(t *testing.T) {
+// TestAdjustPolicy_perUserMiseInStellaHomeFrame verifies that the per-user mise
+// tree — under the STELLA_HOME frame ($STELLA_HOME/users/{id}/.mise-tools, a
+// sibling of the user-data root) — is expressed under the sandbox STELLA_HOME
+// (/opt/stella/users/{id}/.mise-tools), sharing the system tree's root so the
+// relative seed/shim symlinks resolve. The system config path also stays under
+// the sandbox STELLA_HOME, and the host workspace trusted entry collapses onto
+// /workspace. This is the production layout (#505): the tree must NOT land in the
+// /user frame, which would split it from the system tree across sandbox roots.
+func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 	hostSH := "/home/user/.stella"
 	userHome := hostSH + "/users/u1"
 	agentDir := userHome + "/agents/a1"
 	userData := userHome + "/data"
+	miseHome := userHome + "/.mise-tools" // sibling of data, under STELLA_HOME
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: agentDir, UserDataDir: userData},
 		Env: map[string]string{
-			"MISE_DATA_DIR":             userData + "/.mise-tools",
-			"MISE_CACHE_DIR":            userData + "/.mise-tools/cache",
+			"MISE_DATA_DIR":             miseHome,
+			"MISE_CACHE_DIR":            miseHome + "/cache",
 			"MISE_GLOBAL_CONFIG_FILE":   hostSH + "/.mise-tools/configs/_builtin.toml",
 			"MISE_TRUSTED_CONFIG_PATHS": hostSH + "/.mise-tools/configs/_builtin.toml:/workspace:" + agentDir,
 		},
@@ -718,8 +721,8 @@ func TestAdjustPolicy_perUserMiseInUserDataFrame(t *testing.T) {
 	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
 
 	for _, tc := range []struct{ key, want string }{
-		{"MISE_DATA_DIR", "/user/.mise-tools"},
-		{"MISE_CACHE_DIR", "/user/.mise-tools/cache"},
+		{"MISE_DATA_DIR", sandboxSH + "/users/u1/.mise-tools"},
+		{"MISE_CACHE_DIR", sandboxSH + "/users/u1/.mise-tools/cache"},
 		{"MISE_GLOBAL_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
 		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml:/workspace"},
 	} {
@@ -727,10 +730,10 @@ func TestAdjustPolicy_perUserMiseInUserDataFrame(t *testing.T) {
 			t.Errorf("env[%s] = %q, want %q", tc.key, got, tc.want)
 		}
 	}
-	if wantShims := "/user/.mise-tools/shims"; !strings.Contains(adjusted.Env["PATH"], wantShims) {
-		t.Errorf("PATH must include /user-frame shims %q, got %q", wantShims, adjusted.Env["PATH"])
+	if wantShims := sandboxSH + "/users/u1/.mise-tools/shims"; !strings.Contains(adjusted.Env["PATH"], wantShims) {
+		t.Errorf("PATH must include STELLA_HOME-frame shims %q, got %q", wantShims, adjusted.Env["PATH"])
 	}
-	if strings.Contains(adjusted.Env["PATH"], userData) {
+	if strings.Contains(adjusted.Env["PATH"], userData+"/") {
 		t.Errorf("PATH must not leak the host user-data path %q: %q", userData, adjusted.Env["PATH"])
 	}
 }

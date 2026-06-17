@@ -322,7 +322,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 			continue // under /workspace
 		}
 		if userDataReal != "" && remapToSandboxRoot(writable, userDataReal, "/user") != writable {
-			continue // under /user (e.g. the relocated per-user mise tree)
+			continue // under /user (an extra writable mount inside the user-data root)
 		}
 		bwrapArgs = appendWritableBind(bwrapArgs, writable, remapToSandboxStellaHome(writable, stellaHomeHost))
 	}
