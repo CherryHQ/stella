@@ -46,7 +46,7 @@ func (s *OIDCStore) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() er
 	if err != nil {
 		return auth.AuthStores{}, nil, nil, err
 	}
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+	if _, err := conn.ExecContext(ctx, "BEGIN"); err != nil {
 		_ = conn.Close()
 		return auth.AuthStores{}, nil, nil, err
 	}
@@ -100,7 +100,7 @@ var (
 
 func (s *OIDCStore) AssignAgent(ctx context.Context, userID, agentID string) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO auth_user_agent (user_id, agent_id) VALUES (?, ?)`,
+		`INSERT INTO auth_user_agent (user_id, agent_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 		userID, agentID)
 	if err != nil {
 		return fmt.Errorf("assign agent %q to user %s: %w", agentID, userID, err)
@@ -110,7 +110,7 @@ func (s *OIDCStore) AssignAgent(ctx context.Context, userID, agentID string) err
 
 func (s *OIDCStore) RemoveAgent(ctx context.Context, userID, agentID string) error {
 	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM auth_user_agent WHERE user_id=? AND agent_id=?`,
+		`DELETE FROM auth_user_agent WHERE user_id=$1 AND agent_id=$2`,
 		userID, agentID)
 	if err != nil {
 		return fmt.Errorf("remove agent %q from user %s: %w", agentID, userID, err)
@@ -120,7 +120,7 @@ func (s *OIDCStore) RemoveAgent(ctx context.Context, userID, agentID string) err
 
 func (s *OIDCStore) ListUserAgentIDs(ctx context.Context, userID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT agent_id FROM auth_user_agent WHERE user_id=? ORDER BY agent_id`, userID)
+		`SELECT agent_id FROM auth_user_agent WHERE user_id=$1 ORDER BY agent_id`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list user agents for user %s: %w", userID, err)
 	}
@@ -138,7 +138,7 @@ func (s *OIDCStore) ListUserAgentIDs(ctx context.Context, userID string) ([]stri
 
 func (s *OIDCStore) ListAgentUserIDs(ctx context.Context, agentID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT user_id FROM auth_user_agent WHERE agent_id=? ORDER BY user_id`, agentID)
+		`SELECT user_id FROM auth_user_agent WHERE agent_id=$1 ORDER BY user_id`, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("list agent users for agent %q: %w", agentID, err)
 	}
@@ -166,7 +166,7 @@ func (s *OIDCStore) CreateUser(ctx context.Context, u auth.User) (auth.User, err
 		u.Role = auth.RoleUser
 	}
 	const q = `INSERT INTO auth_user (id, email, name, avatar_url, role, age_public_key, age_private_key)
-	           VALUES (?, ?, ?, ?, ?, ?, '') RETURNING id, email, name, avatar_url, role, is_active,
+	           VALUES ($1, $2, $3, $4, $5, $6, '') RETURNING id, email, name, avatar_url, role, is_active,
 	           default_agent_id, notify_identity_id, age_public_key, age_private_key,
 	           created_at, updated_at`
 	row := s.db.QueryRowContext(ctx, q, u.ID, u.Email, u.Name, u.AvatarURL, u.Role, u.AgePublicKey)
@@ -176,7 +176,7 @@ func (s *OIDCStore) CreateUser(ctx context.Context, u auth.User) (auth.User, err
 func (s *OIDCStore) GetUser(ctx context.Context, id string) (auth.User, error) {
 	const q = `SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id,
 	           age_public_key, age_private_key, created_at, updated_at
-	           FROM auth_user WHERE id = ?`
+	           FROM auth_user WHERE id = $1`
 	row := s.db.QueryRowContext(ctx, q, id)
 	return scanUserResult(row)
 }
@@ -184,7 +184,7 @@ func (s *OIDCStore) GetUser(ctx context.Context, id string) (auth.User, error) {
 func (s *OIDCStore) GetUserByEmail(ctx context.Context, email string) (auth.User, error) {
 	const q = `SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id,
 	           age_public_key, age_private_key, created_at, updated_at
-	           FROM auth_user WHERE email = ?`
+	           FROM auth_user WHERE email = $1`
 	row := s.db.QueryRowContext(ctx, q, email)
 	return scanUserResult(row)
 }
@@ -209,7 +209,7 @@ func (s *OIDCStore) ListUsers(ctx context.Context) ([]auth.User, error) {
 func (s *OIDCStore) ListUsersPaged(ctx context.Context, limit, offset int64) ([]auth.User, error) {
 	const q = `SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id,
 	           age_public_key, age_private_key, created_at, updated_at
-	           FROM auth_user ORDER BY created_at ASC LIMIT ? OFFSET ?`
+	           FROM auth_user ORDER BY created_at ASC LIMIT $1 OFFSET $2`
 	return s.queryUsers(ctx, q, limit, offset)
 }
 
@@ -231,7 +231,7 @@ func (s *OIDCStore) queryUsers(ctx context.Context, q string, args ...any) ([]au
 }
 
 func (s *OIDCStore) ListActiveUserIDs(ctx context.Context) ([]string, error) {
-	const q = `SELECT id FROM auth_user WHERE is_active = 1 ORDER BY id`
+	const q = `SELECT id FROM auth_user WHERE is_active = true ORDER BY id`
 	rows, err := s.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
@@ -249,13 +249,13 @@ func (s *OIDCStore) ListActiveUserIDs(ctx context.Context) ([]string, error) {
 }
 
 func (s *OIDCStore) UpdateUser(ctx context.Context, u auth.User) error {
-	const q = `UPDATE auth_user SET name=?, avatar_url=?, updated_at=datetime('now') WHERE id=?`
+	const q = `UPDATE auth_user SET name=$1, avatar_url=$2, updated_at=now() WHERE id=$3`
 	_, err := s.db.ExecContext(ctx, q, u.Name, u.AvatarURL, u.ID)
 	return err
 }
 
 func (s *OIDCStore) DeleteUser(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_user WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_user WHERE id=$1`, id)
 	return err
 }
 
@@ -266,7 +266,7 @@ func (s *OIDCStore) CountUsers(ctx context.Context) (int64, error) {
 }
 
 func (s *OIDCStore) UpdateUserAgeKeys(ctx context.Context, userID, publicKey, privateKey string) error {
-	const q = `UPDATE auth_user SET age_public_key=?, age_private_key=?, updated_at=datetime('now') WHERE id=?`
+	const q = `UPDATE auth_user SET age_public_key=$1, age_private_key=$2, updated_at=now() WHERE id=$3`
 	_, err := s.db.ExecContext(ctx, q, publicKey, privateKey, userID)
 	return err
 }
@@ -281,30 +281,26 @@ func (s *OIDCStore) GetVaultUser(ctx context.Context, id string) (sqlc.VaultUser
 }
 
 func (s *OIDCStore) UpdateUserDefaultAgent(ctx context.Context, userID, agentID string) error {
-	const q = `UPDATE auth_user SET default_agent_id=?, updated_at=datetime('now') WHERE id=?`
+	const q = `UPDATE auth_user SET default_agent_id=$1, updated_at=now() WHERE id=$2`
 	_, err := s.db.ExecContext(ctx, q, agentID, userID)
 	return err
 }
 
 func (s *OIDCStore) UpdateUserNotifyIdentity(ctx context.Context, userID string, identityID *string) error {
-	const q = `UPDATE auth_user SET notify_identity_id=?, updated_at=datetime('now') WHERE id=?`
+	const q = `UPDATE auth_user SET notify_identity_id=$1, updated_at=now() WHERE id=$2`
 	_, err := s.db.ExecContext(ctx, q, identityID, userID)
 	return err
 }
 
 func (s *OIDCStore) UpdateUserRole(ctx context.Context, userID string, role string) error {
-	const q = `UPDATE auth_user SET role = ?, updated_at = datetime('now') WHERE id = ?`
+	const q = `UPDATE auth_user SET role = $1, updated_at = now() WHERE id = $2`
 	_, err := s.db.ExecContext(ctx, q, role, userID)
 	return err
 }
 
 func (s *OIDCStore) UpdateUserActive(ctx context.Context, userID string, isActive bool) error {
-	active := 0
-	if isActive {
-		active = 1
-	}
-	const q = `UPDATE auth_user SET is_active = ?, updated_at = datetime('now') WHERE id = ?`
-	_, err := s.db.ExecContext(ctx, q, active, userID)
+	const q = `UPDATE auth_user SET is_active = $1, updated_at = now() WHERE id = $2`
+	_, err := s.db.ExecContext(ctx, q, isActive, userID)
 	return err
 }
 
@@ -345,7 +341,7 @@ func (s *OIDCStore) CreateLoginIdentity(ctx context.Context, i auth.LoginIdentit
 		return auth.LoginIdentity{}, err
 	}
 	const q = `INSERT INTO auth_identity (id, user_id, provider, provider_subject, email, name, avatar_url, raw_claims)
-	           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	           RETURNING id, user_id, provider, provider_subject, email, name, avatar_url, raw_claims, created_at, updated_at`
 	row := s.db.QueryRowContext(ctx, q,
 		i.ID, i.UserID, i.Provider, i.ProviderSubject,
@@ -356,7 +352,7 @@ func (s *OIDCStore) CreateLoginIdentity(ctx context.Context, i auth.LoginIdentit
 
 func (s *OIDCStore) GetLoginIdentityByProvider(ctx context.Context, provider, providerSubject string) (auth.LoginIdentity, error) {
 	const q = `SELECT id, user_id, provider, provider_subject, email, name, avatar_url, raw_claims, created_at, updated_at
-	           FROM auth_identity WHERE provider=? AND provider_subject=?`
+	           FROM auth_identity WHERE provider=$1 AND provider_subject=$2`
 	row := s.db.QueryRowContext(ctx, q, provider, providerSubject)
 	id, err := scanLoginIdentity(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -367,7 +363,7 @@ func (s *OIDCStore) GetLoginIdentityByProvider(ctx context.Context, provider, pr
 
 func (s *OIDCStore) ListLoginIdentitiesByUser(ctx context.Context, userID string) ([]auth.LoginIdentity, error) {
 	const q = `SELECT id, user_id, provider, provider_subject, email, name, avatar_url, raw_claims, created_at, updated_at
-	           FROM auth_identity WHERE user_id=? ORDER BY created_at ASC`
+	           FROM auth_identity WHERE user_id=$1 ORDER BY created_at ASC`
 	rows, err := s.db.QueryContext(ctx, q, userID)
 	if err != nil {
 		return nil, err
@@ -389,7 +385,7 @@ func (s *OIDCStore) UpdateLoginIdentity(ctx context.Context, i auth.LoginIdentit
 	if err != nil {
 		return err
 	}
-	const q = `UPDATE auth_identity SET email=?, name=?, avatar_url=?, raw_claims=?, updated_at=datetime('now') WHERE id=?`
+	const q = `UPDATE auth_identity SET email=$1, name=$2, avatar_url=$3, raw_claims=$4, updated_at=now() WHERE id=$5`
 	_, err = s.db.ExecContext(ctx, q, i.Email, i.Name, i.AvatarURL, string(claims), i.ID)
 	return err
 }
@@ -417,7 +413,7 @@ func scanLoginIdentity(r rowScanner) (auth.LoginIdentity, error) {
 
 func (s *OIDCStore) CreateChannelIdentity(ctx context.Context, i auth.ChannelIdentity) (auth.ChannelIdentity, error) {
 	const q = `INSERT INTO channel_identity (id, user_id, platform, external_id, name)
-	           VALUES (?, ?, ?, ?, ?)
+	           VALUES ($1, $2, $3, $4, $5)
 	           RETURNING id, user_id, platform, external_id, name, created_at, updated_at`
 	row := s.db.QueryRowContext(ctx, q, i.ID, i.UserID, i.Platform, i.ExternalID, i.Name)
 	return scanChannelIdentity(row)
@@ -425,21 +421,21 @@ func (s *OIDCStore) CreateChannelIdentity(ctx context.Context, i auth.ChannelIde
 
 func (s *OIDCStore) GetChannelIdentity(ctx context.Context, id string) (auth.ChannelIdentity, error) {
 	const q = `SELECT id, user_id, platform, external_id, name, created_at, updated_at
-	           FROM channel_identity WHERE id=?`
+	           FROM channel_identity WHERE id=$1`
 	row := s.db.QueryRowContext(ctx, q, id)
 	return scanChannelIdentity(row)
 }
 
 func (s *OIDCStore) GetChannelIdentityByPlatform(ctx context.Context, platform, externalID string) (auth.ChannelIdentity, error) {
 	const q = `SELECT id, user_id, platform, external_id, name, created_at, updated_at
-	           FROM channel_identity WHERE platform=? AND external_id=?`
+	           FROM channel_identity WHERE platform=$1 AND external_id=$2`
 	row := s.db.QueryRowContext(ctx, q, platform, externalID)
 	return scanChannelIdentity(row)
 }
 
 func (s *OIDCStore) ListChannelIdentitiesByUser(ctx context.Context, userID string) ([]auth.ChannelIdentity, error) {
 	const q = `SELECT id, user_id, platform, external_id, name, created_at, updated_at
-	           FROM channel_identity WHERE user_id=? ORDER BY created_at ASC`
+	           FROM channel_identity WHERE user_id=$1 ORDER BY created_at ASC`
 	rows, err := s.db.QueryContext(ctx, q, userID)
 	if err != nil {
 		return nil, err
@@ -457,13 +453,13 @@ func (s *OIDCStore) ListChannelIdentitiesByUser(ctx context.Context, userID stri
 }
 
 func (s *OIDCStore) UpdateChannelIdentityExternalID(ctx context.Context, id, externalID string) error {
-	const q = `UPDATE channel_identity SET external_id=?, updated_at=datetime('now') WHERE id=?`
+	const q = `UPDATE channel_identity SET external_id=$1, updated_at=now() WHERE id=$2`
 	_, err := s.db.ExecContext(ctx, q, externalID, id)
 	return err
 }
 
 func (s *OIDCStore) DeleteChannelIdentity(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM channel_identity WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM channel_identity WHERE id=$1`, id)
 	return err
 }
 
@@ -484,7 +480,7 @@ func scanChannelIdentity(r rowScanner) (auth.ChannelIdentity, error) {
 func (s *OIDCStore) CreateSession(ctx context.Context, sess auth.Session) (auth.Session, error) {
 	expiresAt := sess.ExpiresAt.UTC().Format(oidcTimeLayout)
 	const q = `INSERT INTO auth_session (id, user_id, token_hash, expires_at)
-	           VALUES (?, ?, ?, ?)
+	           VALUES ($1, $2, $3, $4)
 	           RETURNING id, user_id, token_hash, expires_at, created_at, updated_at`
 	row := s.db.QueryRowContext(ctx, q, sess.ID, sess.UserID, sess.TokenHash, expiresAt)
 	return scanSession(row)
@@ -492,40 +488,40 @@ func (s *OIDCStore) CreateSession(ctx context.Context, sess auth.Session) (auth.
 
 func (s *OIDCStore) GetSessionByTokenHash(ctx context.Context, tokenHash string) (auth.Session, error) {
 	const q = `SELECT id, user_id, token_hash, expires_at, created_at, updated_at
-	           FROM auth_session WHERE token_hash=?`
+	           FROM auth_session WHERE token_hash=$1`
 	row := s.db.QueryRowContext(ctx, q, tokenHash)
 	return scanSession(row)
 }
 
 func (s *OIDCStore) DeleteSession(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_session WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_session WHERE id=$1`, id)
 	return err
 }
 
 func (s *OIDCStore) DeleteExpiredSessions(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_session WHERE expires_at < datetime('now')`)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_session WHERE expires_at < now()`)
 	return err
 }
 
 func (s *OIDCStore) DeleteUserSessions(ctx context.Context, userID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_session WHERE user_id=?`, userID)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_session WHERE user_id=$1`, userID)
 	return err
 }
 
 func (s *OIDCStore) UpdateSessionExpiry(ctx context.Context, id string, expiresAt time.Time) error {
-	const q = `UPDATE auth_session SET expires_at=?, updated_at=datetime('now') WHERE id=?`
+	const q = `UPDATE auth_session SET expires_at=$1, updated_at=now() WHERE id=$2`
 	_, err := s.db.ExecContext(ctx, q, expiresAt.UTC().Format(oidcTimeLayout), id)
 	return err
 }
 
 func (s *OIDCStore) GetSession(ctx context.Context, id string) (auth.Session, error) {
-	const q = `SELECT id, user_id, token_hash, expires_at, created_at, updated_at FROM auth_session WHERE id=?`
+	const q = `SELECT id, user_id, token_hash, expires_at, created_at, updated_at FROM auth_session WHERE id=$1`
 	return scanSession(s.db.QueryRowContext(ctx, q, id))
 }
 
 func (s *OIDCStore) ListSessionsByUser(ctx context.Context, userID string) ([]auth.Session, error) {
 	const q = `SELECT id, user_id, token_hash, expires_at, created_at, updated_at
-	           FROM auth_session WHERE user_id=? AND expires_at > datetime('now')
+	           FROM auth_session WHERE user_id=$1 AND expires_at > now()
 	           ORDER BY created_at DESC`
 	rows, err := s.db.QueryContext(ctx, q, userID)
 	if err != nil {
@@ -560,14 +556,14 @@ func scanSession(r rowScanner) (auth.Session, error) {
 
 func (s *OIDCStore) CreateCredential(ctx context.Context, c auth.Credential) (auth.Credential, error) {
 	const q = `INSERT INTO auth_credential (id, user_id, password_hash)
-	           VALUES (?, ?, ?) RETURNING id, user_id, password_hash, created_at, updated_at`
+	           VALUES ($1, $2, $3) RETURNING id, user_id, password_hash, created_at, updated_at`
 	row := s.db.QueryRowContext(ctx, q, c.ID, c.UserID, c.PasswordHash)
 	return scanCredential(row)
 }
 
 func (s *OIDCStore) GetCredentialByUserID(ctx context.Context, userID string) (auth.Credential, error) {
 	const q = `SELECT id, user_id, password_hash, created_at, updated_at
-	           FROM auth_credential WHERE user_id = ?`
+	           FROM auth_credential WHERE user_id = $1`
 	row := s.db.QueryRowContext(ctx, q, userID)
 	c, err := scanCredential(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -577,7 +573,7 @@ func (s *OIDCStore) GetCredentialByUserID(ctx context.Context, userID string) (a
 }
 
 func (s *OIDCStore) UpdateCredentialHash(ctx context.Context, userID, passwordHash string) error {
-	const q = `UPDATE auth_credential SET password_hash = ?, updated_at = datetime('now') WHERE user_id = ?`
+	const q = `UPDATE auth_credential SET password_hash = $1, updated_at = now() WHERE user_id = $2`
 	res, err := s.db.ExecContext(ctx, q, passwordHash, userID)
 	if err != nil {
 		return fmt.Errorf("auth_credential update: %w", err)
@@ -589,7 +585,7 @@ func (s *OIDCStore) UpdateCredentialHash(ctx context.Context, userID, passwordHa
 }
 
 func (s *OIDCStore) DeleteCredential(ctx context.Context, userID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_credential WHERE user_id = ?`, userID)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_credential WHERE user_id = $1`, userID)
 	return err
 }
 

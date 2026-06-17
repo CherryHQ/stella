@@ -149,8 +149,12 @@ func (s *LinkCodeStore) generateShared(ctx context.Context, code string, userID 
 		return err
 	}
 
-	const stmt = `INSERT OR REPLACE INTO auth_link_codes (code, user_id, platform, expire_at)
-	VALUES (?, ?, ?, ?)`
+	const stmt = `INSERT INTO auth_link_codes (code, user_id, platform, expire_at)
+	VALUES ($1, $2, $3, $4)
+	ON CONFLICT (code) DO UPDATE SET
+		user_id = excluded.user_id,
+		platform = excluded.platform,
+		expire_at = excluded.expire_at`
 	_, err := s.db.ExecContext(ctx, stmt, code, userID, platform, time.Now().Add(linkCodeTTL).Unix())
 	if err != nil {
 		return fmt.Errorf("link code store: insert code: %w", err)
@@ -165,7 +169,7 @@ func (s *LinkCodeStore) consumeShared(ctx context.Context, code string) (string,
 	}
 
 	const stmt = `DELETE FROM auth_link_codes
-	WHERE code = ?
+	WHERE code = $1
 	RETURNING user_id, platform, expire_at`
 
 	var (
@@ -188,7 +192,7 @@ func (s *LinkCodeStore) consumeShared(ctx context.Context, code string) (string,
 }
 
 func (s *LinkCodeStore) deleteExpired(ctx context.Context) error {
-	const stmt = `DELETE FROM auth_link_codes WHERE expire_at <= ?`
+	const stmt = `DELETE FROM auth_link_codes WHERE expire_at <= $1`
 	_, err := s.db.ExecContext(ctx, stmt, time.Now().Unix())
 	if err != nil {
 		return fmt.Errorf("link code store: delete expired: %w", err)
