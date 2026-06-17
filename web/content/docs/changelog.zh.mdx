@@ -11,6 +11,14 @@ icon: History
 
 ## [Unreleased]
 
+## [0.49.3] - 2026-06-17
+
+### ✨ 功能
+
+- 会话：实时流式推送进行中的 turn，并允许所有会话类型接收人类消息，包括内部的 `delegate`/`task`/`scheduler` 会话。新增只读 SSE 端点（`GET /api/agents/{agentId}/sessions/{sessionId}/events`），让 Web UI 观看并非自己发起的 turn——服务端驱动的 scheduler/task turn，或在另一个标签页发起的 turn。([#520](https://github.com/CherryHQ/stella/pull/520))
+
+**Full Changelog**: [v0.49.2...v0.49.3](https://github.com/CherryHQ/stella/compare/v0.49.2...v0.49.3)
+
 ## [0.49.2] - 2026-06-17
 
 ### ✨ 功能
