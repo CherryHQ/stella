@@ -1638,7 +1638,7 @@ func serializeUserRow(row sqlc.CtxMessage) map[string]any {
 	return map[string]any{
 		"id":          row.ID,
 		"role":        "user",
-		"timestamp":   row.CreatedAt,
+		"timestamp":   parseTime(row.CreatedAt),
 		"content":     row.Content,
 		"token_count": row.TokenCount,
 	}
@@ -1674,7 +1674,7 @@ func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, 
 		"id":          rows[start].ID,
 		"role":        "assistant",
 		"blocks":      blocks,
-		"timestamp":   rows[start].CreatedAt,
+		"timestamp":   parseTime(rows[start].CreatedAt),
 		"token_count": totalTokens,
 	}, consumed
 }
@@ -1697,7 +1697,7 @@ func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 	m := map[string]any{
 		"id":          row.ID,
 		"role":        "tool",
-		"timestamp":   row.CreatedAt,
+		"timestamp":   parseTime(row.CreatedAt),
 		"token_count": row.TokenCount,
 	}
 	var env struct {
