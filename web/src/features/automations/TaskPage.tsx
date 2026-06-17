@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { cancelTask, reopenTask, resolveTaskBlocker, waiveTaskDep } from "@/lib/api-client";
-import { taskRunsOptions } from "@/lib/queries/goals";
+import { taskEventsOptions, taskReviewsOptions, taskRunsOptions } from "@/lib/queries/goals";
 import type { TFunction } from "i18next";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -15,6 +15,13 @@ import { taskBlockerOptions, taskDepsOptions, taskOptions } from "./queries";
 import { StatusPill, priorityLabel, statusLabel } from "./lib";
 import { AgentChip, DetailSection, DetailShell, MetaSep } from "./DetailShell";
 import { RunsTimeline } from "./RunsTimeline";
+import {
+  TaskBlockerDetails,
+  TaskDependencySection,
+  TaskEventSection,
+  TaskOutputArtifacts,
+  TaskReviewSection,
+} from "./TaskExecutionDetails";
 
 const BLOCKER_KIND_KEYS: Record<string, MessageKey> = {
   user_input: "hub.blockerKindUserInput",
@@ -42,17 +49,21 @@ export function TaskPage() {
 
   const { data: task, isError } = useQuery(taskOptions(taskId));
   const { data: runs = [] } = useQuery(taskRunsOptions(taskId));
+  const { data: reviews = [] } = useQuery(taskReviewsOptions(taskId));
+  const { data: events = [] } = useQuery(taskEventsOptions(taskId));
   const isBlocked = task?.status === "blocked";
   const { data: blocker } = useQuery(
     taskBlockerOptions(taskId, isBlocked ? task?.active_blocker_id : undefined),
   );
   const isDepFailure = blocker?.kind === "dep_failure";
-  const { data: deps = [] } = useQuery(taskDepsOptions(taskId, isBlocked && isDepFailure));
+  const { data: deps = [] } = useQuery(taskDepsOptions(taskId));
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["task", taskId] });
     void qc.invalidateQueries({ queryKey: ["standalone-tasks"] });
     void qc.invalidateQueries({ queryKey: ["task-runs", taskId] });
+    void qc.invalidateQueries({ queryKey: ["task-reviews", taskId] });
+    void qc.invalidateQueries({ queryKey: ["task-events", taskId] });
     void qc.invalidateQueries({ queryKey: ["task-blocker", taskId] });
     void qc.invalidateQueries({ queryKey: ["task-deps", taskId] });
   }, [qc, taskId]);
@@ -250,7 +261,10 @@ export function TaskPage() {
                         onClick={() =>
                           act(() =>
                             waiveTaskDep({
-                              path: { taskId: task.id, depTaskId: d.dep_task_id },
+                              path: {
+                                taskId: task.id,
+                                depTaskId: d.dep_task_id,
+                              },
                               body: { reason: waiveReason.trim() },
                               throwOnError: true,
                             }),
@@ -284,11 +298,18 @@ export function TaskPage() {
               status: r.status,
               startedAt: r.started_at,
               error: r.error,
+              output: r.result,
               sessionId: r.session_id,
             }))}
           />
         </DetailSection>
       )}
+
+      <TaskOutputArtifacts task={task} />
+      <TaskBlockerDetails blocker={blocker} />
+      <TaskDependencySection agentId={taskAgentId} deps={deps} />
+      <TaskReviewSection reviews={reviews} />
+      <TaskEventSection events={events} />
 
       {task.description && (
         <DetailSection title={t("hub.description")}>
