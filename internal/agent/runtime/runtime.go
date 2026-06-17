@@ -200,6 +200,13 @@ var ErrSessionBusy = agenterr.ErrSessionBusy
 //
 // Only one active turn per session is allowed. A second concurrent Chat on the
 // same session returns ErrSessionBusy immediately.
+// safeClose closes ch, tolerating an already-closed channel. The panic-recovery
+// path in Chat cannot know whether rt.chat closed inner before unwinding.
+func safeClose(ch chan Event) {
+	defer func() { _ = recover() }()
+	close(ch)
+}
+
 func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) <-chan Event {
 	out := make(chan Event, 100)
 
@@ -230,11 +237,13 @@ func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageConte
 		defer rt.active.Delete(info.ID)
 		defer func() {
 			if p := recover(); p != nil {
-				// rt.chat panicked before closing inner. Close it so the
-				// forwarder drains and rt.hub.end runs; otherwise the session
-				// wedges — stuck busy and permanently "live" to SSE watchers.
+				// rt.chat panicked. Close inner so the forwarder drains and
+				// rt.hub.end runs; otherwise the session wedges — stuck busy
+				// and permanently "live" to SSE watchers. The panic may have
+				// unwound through a defer in rt.chat/streamEvents that already
+				// closed inner, so tolerate an already-closed channel.
 				rt.log.Error("chat turn panicked", "session_id", info.ID, "panic", p)
-				close(inner)
+				safeClose(inner)
 			}
 		}()
 		rt.chat(ctx, inner, info, msg, co)
