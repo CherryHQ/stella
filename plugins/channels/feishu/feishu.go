@@ -254,7 +254,7 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 
 	msgType := larkim.MsgTypeText
 	content := textContent(n.Text)
-	if strings.Contains(n.Text, "{{button ") {
+	if cardButtonDirective.MatchString(n.Text) {
 		if card, err := buildCardContent(n.Text); err == nil {
 			msgType = larkim.MsgTypeInteractive
 			content = card

@@ -39,11 +39,27 @@ func mergeReference(a, b renderrefs.Reference) renderrefs.Reference {
 	if a.AgentID == "" {
 		a.AgentID = b.AgentID
 	}
-	if a.Preview == nil {
-		a.Preview = b.Preview
-	}
+	a.Preview = mergePreview(a.Preview, b.Preview)
 	if a.Intent != "created" && b.Intent == "created" {
 		a.Intent = "created"
+	}
+	return a
+}
+
+// mergePreview fills empty Title/Status fields of a from b, so a duplicate that
+// carries only the status doesn't shadow an earlier one that carried the title.
+func mergePreview(a, b *renderrefs.Preview) *renderrefs.Preview {
+	if b == nil {
+		return a
+	}
+	if a == nil {
+		return b
+	}
+	if a.Title == "" {
+		a.Title = b.Title
+	}
+	if a.Status == "" {
+		a.Status = b.Status
 	}
 	return a
 }
@@ -128,21 +144,29 @@ func referenceLine(ref renderrefs.Reference, isGroup bool) string {
 	return line
 }
 
-// inlineSanitizer defuses the markup constructs an attacker could smuggle through
-// an entity title/status: {{button ...}} directives (feishucard scans the whole
-// card for them, so a crafted title could inject a phishing button seen by every
-// group member) and markdown link/image syntax (spoofed clickable text).
-var inlineSanitizer = strings.NewReplacer(
-	"{{", "{ {",
+// bracketSanitizer defuses markdown link/image syntax (spoofed clickable text)
+// an attacker could smuggle through an entity title/status. Brace directives are
+// handled separately by sanitizeInline because a single-pass replacer can't break
+// odd-length runs.
+var bracketSanitizer = strings.NewReplacer(
 	"[", "(",
 	"]", ")",
 )
 
 // sanitizeInline makes agent/user-controlled text safe to interpolate into the
 // reference card's markdown: it collapses whitespace (a newline would break the
-// list item) and neutralizes injectable markup.
+// list item) and neutralizes injectable markup. feishucard scans the whole card
+// for {{button ...}} directives, so a crafted title could otherwise inject a
+// phishing button seen by every group member.
 func sanitizeInline(s string) string {
-	return inlineSanitizer.Replace(strings.Join(strings.Fields(s), " "))
+	s = bracketSanitizer.Replace(strings.Join(strings.Fields(s), " "))
+	// Break every run of "{" so no "{{" directive opener survives. A single
+	// non-overlapping pass leaves odd runs exploitable ("{{{" -> "{ {{"), so loop
+	// until none remain; "{ {" never reintroduces an adjacent pair, so it converges.
+	for strings.Contains(s, "{{") {
+		s = strings.ReplaceAll(s, "{{", "{ {")
+	}
+	return s
 }
 
 func referenceTypeLabel(refType string, isGroup bool) string {

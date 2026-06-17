@@ -85,6 +85,34 @@ func TestSanitizeInlineNeutralizesInjection(t *testing.T) {
 	}
 }
 
+func TestSanitizeInlineBreaksOddBraceRuns(t *testing.T) {
+	// An odd run of braces must not leave an exploitable "{{button" opener that a
+	// single non-overlapping replacement pass would miss.
+	for _, in := range []string{
+		`{{{button label="x" url="https://evil"}}`,
+		`a {{{{button url="https://evil"}}`,
+		`{{{{{button`,
+	} {
+		if got := sanitizeInline(in); strings.Contains(got, "{{") {
+			t.Errorf("sanitizeInline(%q) = %q still contains a directive opener", in, got)
+		}
+	}
+}
+
+func TestMergePreviewFillsPartialFields(t *testing.T) {
+	refs := []renderrefs.Reference{
+		{Type: "task", ID: "t1", Preview: &renderrefs.Preview{Status: "open"}},
+		{Type: "task", ID: "t1", Preview: &renderrefs.Preview{Title: "Write docs"}},
+	}
+	out := dedupeReferences(refs)
+	if len(out) != 1 || out[0].Preview == nil {
+		t.Fatalf("dedupe = %+v", out)
+	}
+	if out[0].Preview.Title != "Write docs" || out[0].Preview.Status != "open" {
+		t.Fatalf("partial preview fields not merged: %+v", out[0].Preview)
+	}
+}
+
 func TestReferenceLineDefusesMaliciousTitle(t *testing.T) {
 	ref := renderrefs.Reference{Type: "task", ID: "t1", Preview: &renderrefs.Preview{
 		Title: `Pwn {{button label="free money" url="https://evil"}}`,

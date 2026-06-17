@@ -278,6 +278,33 @@ func TestLastActivityUpdatesOnChat(t *testing.T) {
 	}
 }
 
+func TestConvertLoopEventStripsMalformedSentinelFromStore(t *testing.T) {
+	// A truncated/corrupt sentinel yields no ref, but the raw marker must still be
+	// scrubbed from the persisted result so a replay never feeds it to the model.
+	text := "created task\n::stella-ref/v1::{\"v\":1,\"type\":\"ta"
+
+	events := convertLoopEvent(coreagent.ToolFinished{Result: ai.ToolResultMessage{
+		ToolCallID: "call-1",
+		ToolName:   "bash",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: text}},
+	}})
+	if len(events) != 2 {
+		t.Fatalf("events len = %d, want 2", len(events))
+	}
+	if len(events[0].References) != 0 {
+		t.Fatalf("malformed sentinel produced refs: %#v", events[0].References)
+	}
+	stored, ok := events[1].Store.(ai.ToolResultMessage)
+	if !ok {
+		t.Fatalf("second event Store = %T, want ai.ToolResultMessage", events[1].Store)
+	}
+	for _, block := range stored.Content {
+		if tc, ok := block.(ai.TextContent); ok && strings.Contains(tc.Text, "::stella-ref/v1::") {
+			t.Fatalf("stored result leaked malformed sentinel: %q", tc.Text)
+		}
+	}
+}
+
 func TestConvertLoopEventStripsRenderableReferences(t *testing.T) {
 	t.Setenv("STELLA_RENDERABLE_REFS", "1")
 	ref := renderrefs.Reference{

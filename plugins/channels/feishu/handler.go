@@ -438,7 +438,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 func (b *Bot) replyText(ctx context.Context, messageID, text string) {
 	msgType := larkim.MsgTypeText
 	content := textContent(text)
-	if strings.Contains(text, "{{button ") {
+	if cardButtonDirective.MatchString(text) {
 		if card, err := buildCardContent(text); err == nil {
 			msgType = larkim.MsgTypeInteractive
 			content = card

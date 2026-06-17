@@ -521,7 +521,6 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 
 	case coreagent.ToolFinished:
 		status := "done"
-		detail := summarizeToolResult(e.Result)
 		if e.Result.IsError {
 			status = "error"
 		}
@@ -533,10 +532,12 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 			}
 		}
 		cleanText, refs := renderrefs.Extract(fullText)
+		// Persist the stripped text whenever Extract removed anything — a real ref
+		// or a malformed/truncated sentinel — so the saved conversation (and any
+		// later replay into the model) never carries a raw sentinel. Summarize the
+		// detail from the same cleaned result for the same reason.
 		stored := e.Result
-		if len(refs) > 0 {
-			// Persist the stripped text so the saved conversation (and any later
-			// replay into the model) never carries the raw sentinel.
+		if cleanText != fullText {
 			stored = cleanToolResult(e.Result, cleanText)
 		}
 		return []Event{
@@ -544,7 +545,7 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 				ID:      e.Result.ToolCallID,
 				Tool:    e.Result.ToolName,
 				Status:  status,
-				Detail:  detail,
+				Detail:  summarizeToolResult(stored),
 				Content: cleanText,
 			}, References: refs},
 			{Store: stored},
