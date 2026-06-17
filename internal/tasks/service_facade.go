@@ -93,11 +93,8 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 		return sqlc.AgentTask{}, fmt.Errorf("mint task session: %w", err)
 	}
 	id := uuid.NewString()
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	required := int64(1)
-	if in.Required != nil && !*in.Required {
-		required = 0
-	}
+	now := time.Now().UTC()
+	required := in.Required == nil || *in.Required
 
 	var task sqlc.AgentTask
 	err = f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
@@ -235,8 +232,8 @@ func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID, agentID, pr
 		AgentID:   nilIfEmpty(agentID),
 		ProjectID: nilIfEmpty(projectID),
 		Status:    nilIfEmpty(status),
-		Limit:     limit,
-		Offset:    offset,
+		Limit:     int32(limit),
+		Offset:    int32(offset),
 	})
 }
 
@@ -273,8 +270,8 @@ func (f *ServiceFacade) ListEvents(ctx context.Context, taskID string, limit, of
 	}
 	return f.q.ListAgentTaskEvents(ctx, sqlc.ListAgentTaskEventsParams{
 		TaskID: nullable(taskID),
-		Limit:  limit,
-		Offset: offset,
+		Limit:  int32(limit),
+		Offset: int32(offset),
 	})
 }
 
@@ -285,8 +282,8 @@ func (f *ServiceFacade) ListRuns(ctx context.Context, taskID string, limit, offs
 	}
 	return f.q.ListAgentTaskRunsByTask(ctx, sqlc.ListAgentTaskRunsByTaskParams{
 		TaskID: nullable(taskID),
-		Limit:  limit,
-		Offset: offset,
+		Limit:  int32(limit),
+		Offset: int32(offset),
 	})
 }
 
@@ -297,8 +294,8 @@ func (f *ServiceFacade) ListDeps(ctx context.Context, taskID string, limit, offs
 	}
 	return f.q.ListAgentTaskDepsWithUpstreamPaged(ctx, sqlc.ListAgentTaskDepsWithUpstreamPagedParams{
 		TaskID: taskID,
-		Limit:  limit,
-		Offset: offset,
+		Limit:  int32(limit),
+		Offset: int32(offset),
 	})
 }
 
@@ -337,8 +334,8 @@ func (f *ServiceFacade) ListReviews(ctx context.Context, taskID string, limit, o
 	}
 	return f.q.ListAgentReviewsByTask(ctx, sqlc.ListAgentReviewsByTaskParams{
 		TaskID: nullable(taskID),
-		Limit:  limit,
-		Offset: offset,
+		Limit:  int32(limit),
+		Offset: int32(offset),
 	})
 }
 
@@ -435,7 +432,7 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 			return sqlc.AgentGoal{}, fmt.Errorf("%w: project_id must belong to the same agent_id", ErrInvalidTaskContext)
 		}
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now().UTC()
 	return f.q.CreateAgentGoal(ctx, sqlc.CreateAgentGoalParams{
 		ID:           uuid.NewString(),
 		UserID:       in.UserID,
@@ -470,7 +467,7 @@ func (f *ServiceFacade) ListGoals(ctx context.Context, userID string, limit, off
 	if limit <= 0 {
 		limit = 50
 	}
-	return f.q.ListAgentGoalsByUser(ctx, sqlc.ListAgentGoalsByUserParams{UserID: userID, Limit: limit, Offset: offset})
+	return f.q.ListAgentGoalsByUser(ctx, sqlc.ListAgentGoalsByUserParams{UserID: userID, Limit: int32(limit), Offset: int32(offset)})
 }
 
 // ListGoalsByAgent returns goals owned by the given user and agent, newest first.
@@ -478,7 +475,7 @@ func (f *ServiceFacade) ListGoalsByAgent(ctx context.Context, userID string, age
 	if limit <= 0 {
 		limit = 50
 	}
-	return f.q.ListAgentGoalsByUserAndAgent(ctx, sqlc.ListAgentGoalsByUserAndAgentParams{UserID: userID, AgentID: agentID, Limit: limit, Offset: offset})
+	return f.q.ListAgentGoalsByUserAndAgent(ctx, sqlc.ListAgentGoalsByUserAndAgentParams{UserID: userID, AgentID: agentID, Limit: int32(limit), Offset: int32(offset)})
 }
 
 // ActivateGoal / CancelGoal are thin shims over TransitionService.
@@ -497,8 +494,8 @@ func (f *ServiceFacade) ListGoalTasks(ctx context.Context, goalID string, limit,
 	}
 	return f.q.ListChildrenByGoalPaged(ctx, sqlc.ListChildrenByGoalPagedParams{
 		GoalID: nullable(goalID),
-		Limit:  limit,
-		Offset: offset,
+		Limit:  int32(limit),
+		Offset: int32(offset),
 	})
 }
 
@@ -509,16 +506,16 @@ func (f *ServiceFacade) ListGoalReviews(ctx context.Context, goalID string, limi
 	}
 	return f.q.ListAgentReviewsByGoal(ctx, sqlc.ListAgentReviewsByGoalParams{
 		GoalID: nullable(goalID),
-		Limit:  limit,
-		Offset: offset,
+		Limit:  int32(limit),
+		Offset: int32(offset),
 	})
 }
 
-func timeOrNull(t time.Time) sql.NullString {
+func timeOrNull(t time.Time) sql.NullTime {
 	if t.IsZero() {
-		return sql.NullString{}
+		return sql.NullTime{}
 	}
-	return sql.NullString{String: t.UTC().Format(time.RFC3339Nano), Valid: true}
+	return sql.NullTime{Time: t.UTC(), Valid: true}
 }
 
 // nilIfEmpty returns nil for an empty string so a sqlc.narg filter matches all

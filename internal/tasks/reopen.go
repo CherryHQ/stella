@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -142,13 +143,13 @@ func (s *TransitionService) ReopenTask(ctx context.Context, taskID string, casca
 // clearActiveForReopen finalizes any open run/blocker/review attached to a
 // downstream task and clears the matching active_*_id pointer. Called inside
 // the reopen tx, before the status transition.
-func (s *TransitionService) clearActiveForReopen(ctx context.Context, q *sqlc.Queries, d sqlc.AgentTask, now string) error {
+func (s *TransitionService) clearActiveForReopen(ctx context.Context, q *sqlc.Queries, d sqlc.AgentTask, now time.Time) error {
 	if d.ActiveRunID.Valid {
 		if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
 			Status:     RunInterrupted,
 			Result:     "",
 			Error:      "reopen cascade",
-			FinishedAt: sql.NullString{String: now, Valid: true},
+			FinishedAt: sql.NullTime{Time: now, Valid: true},
 			UpdatedAt:  now,
 			ID:         d.ActiveRunID.String,
 		}); err != nil {
@@ -162,7 +163,7 @@ func (s *TransitionService) clearActiveForReopen(ctx context.Context, q *sqlc.Qu
 	}
 	if d.ActiveBlockerID.Valid {
 		if _, err := q.CancelAgentTaskBlocker(ctx, sqlc.CancelAgentTaskBlockerParams{
-			ResolvedAt: sql.NullString{String: now, Valid: true},
+			ResolvedAt: sql.NullTime{Time: now, Valid: true},
 			ID:         d.ActiveBlockerID.String,
 		}); err != nil {
 			return fmt.Errorf("cancel blocker: %w", err)
@@ -178,7 +179,7 @@ func (s *TransitionService) clearActiveForReopen(ctx context.Context, q *sqlc.Qu
 			Status:     ReviewCancelled,
 			Summary:    "reopen cascade",
 			Feedback:   "",
-			ResolvedAt: sql.NullString{String: now, Valid: true},
+			ResolvedAt: sql.NullTime{Time: now, Valid: true},
 			UpdatedAt:  now,
 			ID:         d.ActiveReviewID.String,
 		}); err != nil {

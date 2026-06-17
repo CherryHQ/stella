@@ -1,8 +1,6 @@
 package tasks
 
 import (
-	"database/sql"
-
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -48,11 +46,11 @@ func RollupGoal(goal sqlc.AgentGoal, counts sqlc.GoalChildCountsRow, hasOpenSynt
 	}
 	// goal.Status is running, blocked, or failed from here on.
 
-	done := nullFloatToInt(counts.RequiredDone)
-	failed := nullFloatToInt(counts.RequiredFailed)
-	cancelled := nullFloatToInt(counts.RequiredCancelled)
-	blocked := nullFloatToInt(counts.RequiredBlocked)
-	pending := nullFloatToInt(counts.RequiredPending)
+	done := counts.RequiredDone
+	failed := counts.RequiredFailed
+	cancelled := counts.RequiredCancelled
+	blocked := counts.RequiredBlocked
+	pending := counts.RequiredPending
 
 	// No required children yet: the planner may still be inserting tasks when
 	// the dispatcher tick fires, and a goal with only optional children has no
@@ -90,13 +88,4 @@ func RollupGoal(goal sqlc.AgentGoal, counts sqlc.GoalChildCountsRow, hasOpenSynt
 		return GoalNextState{}
 	}
 	return GoalNextState{SpawnSynthesizer: true, Reason: "required_children_done"}
-}
-
-// nullFloatToInt converts a NullFloat64 aggregate (SQLite SUM() returns
-// REAL via sqlc) to a plain int64. NULL => 0.
-func nullFloatToInt(v sql.NullFloat64) int64 {
-	if !v.Valid {
-		return 0
-	}
-	return int64(v.Float64)
 }

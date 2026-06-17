@@ -35,8 +35,8 @@ func NewTransitionService(db *sql.DB, q *sqlc.Queries) *TransitionService {
 // SetClock overrides the clock for tests.
 func (s *TransitionService) SetClock(c func() time.Time) { s.clock = c }
 
-func (s *TransitionService) now() string {
-	return s.clock().UTC().Format(time.RFC3339Nano)
+func (s *TransitionService) now() time.Time {
+	return s.clock().UTC()
 }
 
 func nullable(v string) sql.NullString {
@@ -73,7 +73,7 @@ func (s *TransitionService) appendEvent(ctx context.Context, q *sqlc.Queries, e 
 	if e.ID == "" {
 		e.ID = uuid.NewString()
 	}
-	if e.CreatedAt == "" {
+	if e.CreatedAt.IsZero() {
 		e.CreatedAt = s.now()
 	}
 	if e.ActorType == "" {
@@ -219,9 +219,9 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 		}
 		runID := uuid.NewString()
 		now := s.now()
-		var leaseExpires sql.NullString
+		var leaseExpires sql.NullTime
 		if p.LeaseDuration > 0 {
-			leaseExpires = sql.NullString{String: s.clock().Add(p.LeaseDuration).UTC().Format(time.RFC3339Nano), Valid: true}
+			leaseExpires = sql.NullTime{Time: s.clock().Add(p.LeaseDuration).UTC(), Valid: true}
 		}
 		if task.SessionID == "" {
 			return fmt.Errorf("Claim: task has no worker session")
@@ -235,7 +235,7 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 			AgentID:         nullable(task.AgentID),
 			ExecutorAgentID: nullable(p.ExecutorAgentID),
 			Kind:            RunKindWorker,
-			AttemptNo:       nextAttempt,
+			AttemptNo:       int64(nextAttempt),
 			Status:          RunQueued,
 			SessionID:       sessionID,
 			Input:           "{}",
@@ -243,7 +243,7 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 			WorkerID:        p.WorkerID,
 			// Queued runs have no start time; worker PromoteAgentTaskRun
 			// stamps started_at on the queued->running transition.
-			StartedAt: sql.NullString{},
+			StartedAt: sql.NullTime{},
 			CreatedAt: now,
 			UpdatedAt: now,
 		})
@@ -268,7 +268,7 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 		// replaced underfoot leaves the new hint untouched.
 		if p.HintID != "" {
 			_, _ = q.ConsumeDispatchHint(ctx, sqlc.ConsumeDispatchHintParams{
-				ConsumedAt: sql.NullString{String: now, Valid: true}, ID: p.HintID,
+				ConsumedAt: sql.NullTime{Time: now, Valid: true}, ID: p.HintID,
 			})
 		}
 		if err := s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
@@ -380,7 +380,7 @@ func (s *TransitionService) Block(ctx context.Context, p BlockParams) error {
 		if from == StatusRunning && task.ActiveRunID.Valid {
 			if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
 				Status: RunCancelled, Result: "{}", Error: "blocked",
-				FinishedAt: sql.NullString{String: now, Valid: true},
+				FinishedAt: sql.NullTime{Time: now, Valid: true},
 				UpdatedAt:  now, ID: task.ActiveRunID.String,
 			}); err != nil {
 				return err
@@ -454,7 +454,7 @@ func (s *TransitionService) ResolveBlocker(ctx context.Context, blockerID, resol
 		}
 		n, err := q.ResolveAgentTaskBlocker(ctx, sqlc.ResolveAgentTaskBlockerParams{
 			Resolution: resolution,
-			ResolvedAt: sql.NullString{String: now, Valid: true},
+			ResolvedAt: sql.NullTime{Time: now, Valid: true},
 			ID:         blockerID,
 		})
 		if err != nil {
@@ -500,7 +500,7 @@ func (s *TransitionService) WaiveDep(ctx context.Context, taskID, depTaskID, use
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		now := s.now()
 		n, err := q.WaiveAgentTaskDep(ctx, sqlc.WaiveAgentTaskDepParams{
-			WaivedAt:     sql.NullString{String: now, Valid: true},
+			WaivedAt:     sql.NullTime{Time: now, Valid: true},
 			WaivedByUser: nullable(userID),
 			WaiverReason: reason,
 			TaskID:       taskID,
@@ -517,7 +517,7 @@ func (s *TransitionService) WaiveDep(ctx context.Context, taskID, depTaskID, use
 		if open, err := q.GetOpenBlockerForTask(ctx, taskID); err == nil && open.Kind == BlockerKindDepFailure {
 			if _, err := q.ResolveAgentTaskBlocker(ctx, sqlc.ResolveAgentTaskBlockerParams{
 				Resolution: detailJSON(map[string]any{"waived_dep_task_id": depTaskID, "reason": reason}),
-				ResolvedAt: sql.NullString{String: now, Valid: true},
+				ResolvedAt: sql.NullTime{Time: now, Valid: true},
 				ID:         open.ID,
 			}); err != nil {
 				return err
@@ -580,7 +580,7 @@ func (s *TransitionService) Fail(ctx context.Context, p FailParams) error {
 		if p.RunID != "" {
 			if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
 				Status: runStatus, Result: "{}", Error: p.Reason,
-				FinishedAt: sql.NullString{String: now, Valid: true},
+				FinishedAt: sql.NullTime{Time: now, Valid: true},
 				UpdatedAt:  now, ID: p.RunID,
 			}); err != nil {
 				return err
@@ -670,7 +670,7 @@ func (s *TransitionService) Cancel(ctx context.Context, taskID, reason string, a
 			return ErrInvalidTransition
 		}
 		if err := q.SetAgentTaskCancelled(ctx, sqlc.SetAgentTaskCancelledParams{
-			CancelledAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: taskID,
+			CancelledAt: sql.NullTime{Time: now, Valid: true}, UpdatedAt: now, ID: taskID,
 		}); err != nil {
 			return err
 		}
@@ -678,7 +678,7 @@ func (s *TransitionService) Cancel(ctx context.Context, taskID, reason string, a
 		if task.ActiveRunID.Valid {
 			if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
 				Status: RunCancelled, Result: "{}", Error: reason,
-				FinishedAt: sql.NullString{String: now, Valid: true},
+				FinishedAt: sql.NullTime{Time: now, Valid: true},
 				UpdatedAt:  now, ID: task.ActiveRunID.String,
 			}); err != nil {
 				return err
@@ -691,7 +691,7 @@ func (s *TransitionService) Cancel(ctx context.Context, taskID, reason string, a
 		}
 		if task.ActiveBlockerID.Valid {
 			if _, err := q.CancelAgentTaskBlocker(ctx, sqlc.CancelAgentTaskBlockerParams{
-				ResolvedAt: sql.NullString{String: now, Valid: true}, ID: task.ActiveBlockerID.String,
+				ResolvedAt: sql.NullTime{Time: now, Valid: true}, ID: task.ActiveBlockerID.String,
 			}); err != nil {
 				return err
 			}

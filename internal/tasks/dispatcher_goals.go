@@ -12,7 +12,7 @@ import (
 // Driven from the dispatcher tick.
 func (d *Dispatcher) rollupGoals(ctx context.Context, _ time.Time) {
 	goals, err := d.cfg.Queries.ListAgentGoals(ctx, sqlc.ListAgentGoalsParams{
-		Limit: int64(d.cfg.BatchLimit), Offset: 0,
+		Limit: int32(d.cfg.BatchLimit), Offset: 0,
 	})
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list goals", "err", err)

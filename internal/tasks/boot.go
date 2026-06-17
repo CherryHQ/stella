@@ -176,8 +176,8 @@ func legacySessionMinter(mem memory.Provider, q *sqlc.Queries, _ *slog.Logger) S
 			if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
 				ID: uuid.NewString(), SessionID: sessionID,
 				Title:   sql.NullString{String: "Task", Valid: true},
-				Channel: "task", Kind: "task", ProjectID: nullable(projectID), Archived: 0,
-				LastActive: now.Format("2006-01-02 15:04:05"),
+				Channel: "task", Kind: "task", ProjectID: nullable(projectID), Archived: false,
+				LastActive: now,
 				AgentID:    nullable(agentID), UserID: nullable(userID),
 			}); err != nil {
 				return "", err

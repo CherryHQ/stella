@@ -96,7 +96,7 @@ func (s *TransitionService) CompleteGoal(ctx context.Context, goalID, output str
 			output = goal.Output
 		}
 		if err := q.SetAgentGoalOutput(ctx, sqlc.SetAgentGoalOutputParams{
-			Output: output, CompletedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: goalID,
+			Output: output, CompletedAt: sql.NullTime{Time: now, Valid: true}, UpdatedAt: now, ID: goalID,
 		}); err != nil {
 			return err
 		}
@@ -172,7 +172,7 @@ func (s *TransitionService) CancelGoal(ctx context.Context, goalID, reason strin
 				return fmt.Errorf("cancel child %s: %w", c.ID, err)
 			}
 			if err := q.SetAgentTaskCancelled(ctx, sqlc.SetAgentTaskCancelledParams{
-				CancelledAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: c.ID,
+				CancelledAt: sql.NullTime{Time: now, Valid: true}, UpdatedAt: now, ID: c.ID,
 			}); err != nil {
 				return err
 			}
@@ -286,7 +286,7 @@ func (s *TransitionService) CompleteGoalTx(ctx context.Context, q *sqlc.Queries,
 		return err
 	}
 	if err := q.SetAgentGoalOutput(ctx, sqlc.SetAgentGoalOutputParams{
-		Output: goal.Output, CompletedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: goalID,
+		Output: goal.Output, CompletedAt: sql.NullTime{Time: now, Valid: true}, UpdatedAt: now, ID: goalID,
 	}); err != nil {
 		return err
 	}

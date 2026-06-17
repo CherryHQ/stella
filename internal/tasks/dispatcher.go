@@ -129,8 +129,8 @@ func (d *Dispatcher) isStopped() bool {
 // allows.
 func (d *Dispatcher) interruptStaleRuns(ctx context.Context, now time.Time) {
 	stale, err := d.cfg.Queries.ListStaleAgentTaskRuns(ctx, sqlc.ListStaleAgentTaskRunsParams{
-		LeaseExpiresAt: sql.NullString{String: now.Format(time.RFC3339Nano), Valid: true},
-		Limit:          int64(d.cfg.BatchLimit),
+		LeaseExpiresAt: sql.NullTime{Time: now.UTC(), Valid: true},
+		Limit:          int32(d.cfg.BatchLimit),
 	})
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list stale runs", "err", err)
@@ -162,8 +162,8 @@ func (d *Dispatcher) interruptStaleRuns(ctx context.Context, now time.Time) {
 // on_failure.
 func (d *Dispatcher) propagateDepFailures(ctx context.Context, now time.Time) {
 	candidates, err := d.cfg.Queries.ListReadyCandidates(ctx, sqlc.ListReadyCandidatesParams{
-		NotBefore: sql.NullString{String: now.Format(time.RFC3339Nano), Valid: true},
-		Limit:     int64(d.cfg.BatchLimit),
+		NotBefore: sql.NullTime{Time: now.UTC(), Valid: true},
+		Limit:     int32(d.cfg.BatchLimit),
 	})
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list candidates", "err", err)
@@ -220,8 +220,8 @@ func (d *Dispatcher) failOnDepPropagation(ctx context.Context, taskID, depID, up
 // executor, claims, and spawns a worker.
 func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 	candidates, err := d.cfg.Queries.ListReadyCandidates(ctx, sqlc.ListReadyCandidatesParams{
-		NotBefore: sql.NullString{String: now.Format(time.RFC3339Nano), Valid: true},
-		Limit:     int64(d.cfg.BatchLimit),
+		NotBefore: sql.NullTime{Time: now.UTC(), Valid: true},
+		Limit:     int32(d.cfg.BatchLimit),
 	})
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list candidates", "err", err)

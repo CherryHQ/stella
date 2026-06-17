@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -97,7 +98,7 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 			}
 			if _, err := q.SetAgentReviewDecision(ctx, sqlc.SetAgentReviewDecisionParams{
 				Status: ReviewApproved, Summary: "auto-approved", Feedback: "",
-				ResolvedAt: sql.NullString{String: now, Valid: true},
+				ResolvedAt: sql.NullTime{Time: now, Valid: true},
 				UpdatedAt:  now, ID: reviewID,
 			}); err != nil {
 				return err
@@ -140,7 +141,7 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 		if runID != "" {
 			if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
 				Status: RunCompleted, Result: output, Error: "",
-				FinishedAt: sql.NullString{String: now, Valid: true},
+				FinishedAt: sql.NullTime{Time: now, Valid: true},
 				UpdatedAt:  now, ID: runID,
 			}); err != nil {
 				return err
@@ -148,7 +149,7 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 		}
 		if output != "" {
 			if err := q.SetAgentTaskOutput(ctx, sqlc.SetAgentTaskOutputParams{
-				Output: output, CompletedAt: sql.NullString{}, UpdatedAt: now, ID: taskID,
+				Output: output, CompletedAt: sql.NullTime{}, UpdatedAt: now, ID: taskID,
 			}); err != nil {
 				return err
 			}
@@ -174,7 +175,7 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 // completeTaskInline mirrors Slice 1's Submit body so the policy=none path is
 // identical. Kept inline (not refactored back into Submit) to keep the Phase 9
 // review pipeline visibly separable.
-func (s *TransitionService) completeTaskInline(ctx context.Context, q *sqlc.Queries, taskID, runID, output string, actor Actor, now string) error {
+func (s *TransitionService) completeTaskInline(ctx context.Context, q *sqlc.Queries, taskID, runID, output string, actor Actor, now time.Time) error {
 	if _, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
 		Status: StatusDone, UpdatedAt: now, ID: taskID, Status_2: StatusRunning,
 	}); err != nil {
@@ -182,7 +183,7 @@ func (s *TransitionService) completeTaskInline(ctx context.Context, q *sqlc.Quer
 	}
 	if output != "" {
 		if err := q.SetAgentTaskOutput(ctx, sqlc.SetAgentTaskOutputParams{
-			Output: output, CompletedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: taskID,
+			Output: output, CompletedAt: sql.NullTime{Time: now, Valid: true}, UpdatedAt: now, ID: taskID,
 		}); err != nil {
 			return err
 		}
@@ -190,7 +191,7 @@ func (s *TransitionService) completeTaskInline(ctx context.Context, q *sqlc.Quer
 	if runID != "" {
 		if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
 			Status: RunCompleted, Result: output, Error: "",
-			FinishedAt: sql.NullString{String: now, Valid: true},
+			FinishedAt: sql.NullTime{Time: now, Valid: true},
 			UpdatedAt:  now, ID: runID,
 		}); err != nil {
 			return err
@@ -265,7 +266,7 @@ func (s *TransitionService) decideTaskReviewInTx(ctx context.Context, q *sqlc.Qu
 	now := s.now()
 	if _, err := q.SetAgentReviewDecision(ctx, sqlc.SetAgentReviewDecisionParams{
 		Status: decision, Summary: summary, Feedback: feedback,
-		ResolvedAt: sql.NullString{String: now, Valid: true},
+		ResolvedAt: sql.NullTime{Time: now, Valid: true},
 		UpdatedAt:  now, ID: review.ID,
 	}); err != nil {
 		return err
@@ -295,7 +296,7 @@ func (s *TransitionService) decideTaskReviewInTx(ctx context.Context, q *sqlc.Qu
 	}
 	if nextStatus == StatusDone {
 		_ = q.SetAgentTaskOutput(ctx, sqlc.SetAgentTaskOutputParams{
-			Output: "", CompletedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: taskID,
+			Output: "", CompletedAt: sql.NullTime{Time: now, Valid: true}, UpdatedAt: now, ID: taskID,
 		})
 	}
 	if err := q.SetAgentTaskActiveReview(ctx, sqlc.SetAgentTaskActiveReviewParams{
@@ -326,7 +327,7 @@ func (s *TransitionService) decideGoalReviewInTx(ctx context.Context, q *sqlc.Qu
 	now := s.now()
 	if _, err := q.SetAgentReviewDecision(ctx, sqlc.SetAgentReviewDecisionParams{
 		Status: decision, Summary: summary, Feedback: feedback,
-		ResolvedAt: sql.NullString{String: now, Valid: true},
+		ResolvedAt: sql.NullTime{Time: now, Valid: true},
 		UpdatedAt:  now, ID: review.ID,
 	}); err != nil {
 		return err
@@ -353,7 +354,7 @@ func (s *TransitionService) decideGoalReviewInTx(ctx context.Context, q *sqlc.Qu
 	}
 	if nextStatus == GoalStatusDone {
 		if err := q.SetAgentGoalOutput(ctx, sqlc.SetAgentGoalOutputParams{
-			Output: goal.Output, CompletedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: goalID,
+			Output: goal.Output, CompletedAt: sql.NullTime{Time: now, Valid: true}, UpdatedAt: now, ID: goalID,
 		}); err != nil {
 			return err
 		}
@@ -403,7 +404,7 @@ func (s *TransitionService) EscalateReview(ctx context.Context, reviewID, reason
 		now := s.now()
 		if _, err := q.SetAgentReviewDecision(ctx, sqlc.SetAgentReviewDecisionParams{
 			Status: ReviewEscalated, Summary: reason, Feedback: "",
-			ResolvedAt: sql.NullString{String: now, Valid: true},
+			ResolvedAt: sql.NullTime{Time: now, Valid: true},
 			UpdatedAt:  now, ID: reviewID,
 		}); err != nil {
 			return err
@@ -451,7 +452,7 @@ func (s *TransitionService) EscalateReview(ctx context.Context, reviewID, reason
 }
 
 // insertReview is the shared helper used by Submit's review branches.
-func insertReview(ctx context.Context, q *sqlc.Queries, taskID, submittedRunID, reviewerType, summary, now string) (string, error) {
+func insertReview(ctx context.Context, q *sqlc.Queries, taskID, submittedRunID, reviewerType, summary string, now time.Time) (string, error) {
 	id := uuid.NewString()
 	_, err := q.CreateAgentReview(ctx, sqlc.CreateAgentReviewParams{
 		ID:                    id,

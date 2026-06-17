@@ -67,8 +67,8 @@ func (w *Worker) Run(ctx context.Context, taskID, runID string, actor Actor) (er
 
 	now := w.svc.now()
 	promoted, perr := w.q.PromoteAgentTaskRun(ctx, sqlc.PromoteAgentTaskRunParams{
-		StartedAt:      sql.NullString{String: now, Valid: true},
-		HeartbeatAt:    sql.NullString{String: now, Valid: true},
+		StartedAt:      sql.NullTime{Time: now, Valid: true},
+		HeartbeatAt:    sql.NullTime{Time: now, Valid: true},
 		LeaseExpiresAt: w.leaseUntil(),
 		UpdatedAt:      now,
 		ID:             runID,
@@ -167,7 +167,7 @@ func (w *Worker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, runID st
 			return
 		case <-t.C:
 			_, _ = w.q.HeartbeatAgentTaskRun(ctx, sqlc.HeartbeatAgentTaskRunParams{
-				HeartbeatAt:    sql.NullString{String: w.svc.now(), Valid: true},
+				HeartbeatAt:    sql.NullTime{Time: w.svc.now(), Valid: true},
 				LeaseExpiresAt: w.leaseUntil(),
 				UpdatedAt:      w.svc.now(),
 				ID:             runID,
@@ -176,10 +176,10 @@ func (w *Worker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, runID st
 	}
 }
 
-func (w *Worker) leaseUntil() sql.NullString {
-	return sql.NullString{
-		String: w.svc.clock().Add(w.lease).UTC().Format(time.RFC3339Nano),
-		Valid:  true,
+func (w *Worker) leaseUntil() sql.NullTime {
+	return sql.NullTime{
+		Time:  w.svc.clock().Add(w.lease).UTC(),
+		Valid: true,
 	}
 }
 

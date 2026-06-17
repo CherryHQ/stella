@@ -81,12 +81,12 @@ func Compute(task sqlc.AgentTask, deps []DepEdgeView, now time.Time) Readiness {
 	}
 
 	// not_before gate: schedule a task for the future.
-	if task.NotBefore.Valid && task.NotBefore.String != "" {
-		if t, ok := parseTimestamp(task.NotBefore.String); ok && now.Before(t) {
+	if task.NotBefore.Valid {
+		if t := task.NotBefore.Time.UTC(); now.Before(t) {
 			return Readiness{
 				State:        ReadinessDeferred,
 				Dispatchable: false,
-				Reasons:      []Reason{{Type: "not_before", Detail: task.NotBefore.String}},
+				Reasons:      []Reason{{Type: "not_before", Detail: t.Format(time.RFC3339Nano)}},
 			}
 		}
 	}
@@ -178,16 +178,4 @@ func Compute(task sqlc.AgentTask, deps []DepEdgeView, now time.Time) Readiness {
 	// executor resolution after this point; both are runtime checks, not
 	// state-of-the-task checks, so Compute reports dispatchable.
 	return Readiness{State: ReadinessDispatchable, Dispatchable: true}
-}
-
-// parseTimestamp accepts RFC3339, SQLite "YYYY-MM-DD HH:MM:SS", and the same
-// with a trailing 'Z' or fractional seconds.
-func parseTimestamp(s string) (time.Time, bool) {
-	layouts := []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05"}
-	for _, l := range layouts {
-		if t, err := time.Parse(l, s); err == nil {
-			return t, true
-		}
-	}
-	return time.Time{}, false
 }
