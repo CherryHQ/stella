@@ -78,6 +78,29 @@ func TestExtractIgnoresMidLineMention(t *testing.T) {
 	}
 }
 
+func TestExtractDropsMalformedSentinel(t *testing.T) {
+	// A sentinel whose payload is truncated/corrupt (e.g. clipped by tail
+	// truncation) must be dropped, never surfaced to the user as garbage.
+	cases := []string{
+		marker + `{"v":1,"type":"ta`,            // truncated JSON
+		marker + `{"v":1,"type":"task"}`,        // valid JSON but missing id
+		marker + `not json at all`,              // not JSON
+		"  " + marker + `{"v":1,"type":"task"}`, // leading whitespace, missing id
+	}
+	for _, bad := range cases {
+		clean, refs := Extract("real output\n" + bad + "\nmore output")
+		if len(refs) != 0 {
+			t.Errorf("%q: expected no refs, got %+v", bad, refs)
+		}
+		if strings.Contains(clean, marker) {
+			t.Errorf("%q: malformed sentinel leaked into clean text: %q", bad, clean)
+		}
+		if clean != "real output\nmore output" {
+			t.Errorf("%q: unexpected clean text: %q", bad, clean)
+		}
+	}
+}
+
 func TestExtractMultiple(t *testing.T) {
 	t.Setenv(envVar, "1")
 	var b strings.Builder

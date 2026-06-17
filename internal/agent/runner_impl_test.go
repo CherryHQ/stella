@@ -312,4 +312,16 @@ func TestConvertLoopEventStripsRenderableReferences(t *testing.T) {
 	if len(events[0].References) != 1 || events[0].References[0].ID != "task-1" {
 		t.Fatalf("references = %#v", events[0].References)
 	}
+
+	// The persisted tool result must be stripped too, or a replay would feed the
+	// sentinel back to the model.
+	stored, ok := events[1].Store.(ai.ToolResultMessage)
+	if !ok {
+		t.Fatalf("second event Store = %T, want ai.ToolResultMessage", events[1].Store)
+	}
+	for _, block := range stored.Content {
+		if tc, ok := block.(ai.TextContent); ok && strings.Contains(tc.Text, "::stella-ref/v1::") {
+			t.Fatalf("stored result leaked sentinel: %q", tc.Text)
+		}
+	}
 }

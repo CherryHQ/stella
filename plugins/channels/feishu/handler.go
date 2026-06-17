@@ -431,13 +431,20 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 }
 
 // replyText sends a text reply to a message. When the text contains
-// {{button ...}} directives, sends an interactive card instead.
+// {{button ...}} directives it sends an interactive card — but only if the card
+// actually builds. If the card build fails it degrades to genuine plain text
+// (directives stripped) rather than sending an interactive type with text-shaped
+// content, which Feishu rejects.
 func (b *Bot) replyText(ctx context.Context, messageID, text string) {
 	msgType := larkim.MsgTypeText
 	content := textContent(text)
 	if strings.Contains(text, "{{button ") {
-		msgType = larkim.MsgTypeInteractive
-		content = cardContent(text)
+		if card, err := buildCardContent(text); err == nil {
+			msgType = larkim.MsgTypeInteractive
+			content = card
+		} else {
+			content = textContent(stripCardDirectives(text))
+		}
 	}
 
 	resp, err := b.client.Im.Message.Reply(ctx,

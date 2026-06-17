@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -18,6 +19,31 @@ import (
 func textContent(text string) string {
 	data, _ := json.Marshal(map[string]string{"text": text})
 	return string(data)
+}
+
+var (
+	cardButtonDirective = regexp.MustCompile(`\{\{button\s+([^}]*)\}\}`)
+	cardButtonAttr      = regexp.MustCompile(`(\w+)="([^"]*)"`)
+)
+
+// stripCardDirectives rewrites {{button ...}} directives into readable plain
+// text ("label: url") so a plain-text fallback never shows raw directives. Used
+// when an interactive card can't be built and the reply must degrade to text.
+func stripCardDirectives(text string) string {
+	return cardButtonDirective.ReplaceAllStringFunc(text, func(m string) string {
+		attrs := map[string]string{}
+		for _, a := range cardButtonAttr.FindAllStringSubmatch(m, -1) {
+			attrs[a[1]] = a[2]
+		}
+		switch {
+		case attrs["label"] != "" && attrs["url"] != "":
+			return attrs["label"] + ": " + attrs["url"]
+		case attrs["url"] != "":
+			return attrs["url"]
+		default:
+			return strings.TrimSpace(attrs["label"])
+		}
+	})
 }
 
 var buildCardContent = func(text string) (string, error) {

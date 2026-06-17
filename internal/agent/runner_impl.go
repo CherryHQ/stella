@@ -533,6 +533,12 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 			}
 		}
 		cleanText, refs := renderrefs.Extract(fullText)
+		stored := e.Result
+		if len(refs) > 0 {
+			// Persist the stripped text so the saved conversation (and any later
+			// replay into the model) never carries the raw sentinel.
+			stored = cleanToolResult(e.Result, cleanText)
+		}
 		return []Event{
 			{ToolUse: &ToolUseEvent{
 				ID:      e.Result.ToolCallID,
@@ -541,7 +547,7 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 				Detail:  detail,
 				Content: cleanText,
 			}, References: refs},
-			{Store: e.Result},
+			{Store: stored},
 		}
 
 	case coreagent.AgentErrored:
@@ -549,6 +555,23 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 	}
 
 	return nil
+}
+
+// cleanToolResult returns a copy of result with its first text block replaced by
+// clean, so the persisted tool result carries no renderref sentinel. Other
+// blocks (images, etc.) are shared unchanged.
+func cleanToolResult(result ai.ToolResultMessage, clean string) ai.ToolResultMessage {
+	out := result
+	out.Content = make([]ai.ContentBlock, len(result.Content))
+	copy(out.Content, result.Content)
+	for i, block := range out.Content {
+		if tc, ok := block.(ai.TextContent); ok {
+			tc.Text = clean
+			out.Content[i] = tc
+			break
+		}
+	}
+	return out
 }
 
 // summarizeToolResult returns a short human-readable summary of a tool result.

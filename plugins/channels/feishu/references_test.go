@@ -68,6 +68,86 @@ func TestAppendReferenceSectionAddsOpenButton(t *testing.T) {
 	}
 }
 
+func TestSanitizeInlineNeutralizesInjection(t *testing.T) {
+	cases := map[string]string{
+		`{{button label="x" url="https://evil"}}`: `{ {button label="x" url="https://evil"}}`,
+		"line one\nline two":                      "line one line two",
+		"[click](https://evil)":                   "(click)(https://evil)",
+		"normal title":                            "normal title",
+	}
+	for in, want := range cases {
+		if got := sanitizeInline(in); got != want {
+			t.Errorf("sanitizeInline(%q) = %q, want %q", in, got, want)
+		}
+		if strings.Contains(sanitizeInline(in), "{{button ") {
+			t.Errorf("sanitizeInline(%q) left an injectable button directive", in)
+		}
+	}
+}
+
+func TestReferenceLineDefusesMaliciousTitle(t *testing.T) {
+	ref := renderrefs.Reference{Type: "task", ID: "t1", Preview: &renderrefs.Preview{
+		Title: `Pwn {{button label="free money" url="https://evil"}}`,
+	}}
+	line := referenceLine(ref, false)
+	if strings.Contains(line, "{{button ") {
+		t.Fatalf("malicious title injected a button directive: %q", line)
+	}
+}
+
+func TestEntityURLEscapesAndValidatesScheme(t *testing.T) {
+	t.Setenv("STELLA_BASE_URL", "https://stella.example.com")
+	got := entityURL(renderrefs.Reference{Type: "task", ID: "a/b c", AgentID: "x/y"})
+	if got != "https://stella.example.com/agents/x%2Fy/tasks/a%2Fb%20c" {
+		t.Fatalf("path segments not escaped: %q", got)
+	}
+
+	t.Setenv("STELLA_BASE_URL", "javascript:alert(1)")
+	if got := entityURL(renderrefs.Reference{Type: "task", ID: "t1", AgentID: "a1"}); got != "" {
+		t.Fatalf("non-http base URL must yield no link, got %q", got)
+	}
+}
+
+func TestAppendReferenceSectionCapsCount(t *testing.T) {
+	refs := make([]renderrefs.Reference, 0, maxRenderedRefs+3)
+	for i := range maxRenderedRefs + 3 {
+		refs = append(refs, renderrefs.Reference{Type: "task", ID: string(rune('a' + i)), Preview: &renderrefs.Preview{Title: "T"}})
+	}
+	got := appendReferenceSection("done", refs, false)
+	if strings.Count(got, "📋 Task") != maxRenderedRefs {
+		t.Fatalf("rendered %d cards, want cap %d", strings.Count(got, "📋 Task"), maxRenderedRefs)
+	}
+	if !strings.Contains(got, "_+3 more_") {
+		t.Fatalf("missing overflow summary: %q", got)
+	}
+}
+
+func TestDedupeMergesFields(t *testing.T) {
+	refs := []renderrefs.Reference{
+		{Type: "task", ID: "t1", Intent: "referenced"},
+		{Type: "task", ID: "t1", Intent: "created", AgentID: "a1", Preview: &renderrefs.Preview{Title: "T"}},
+	}
+	out := dedupeReferences(refs)
+	if len(out) != 1 {
+		t.Fatalf("len = %d, want 1", len(out))
+	}
+	if out[0].AgentID != "a1" || out[0].Preview == nil || out[0].Intent != "created" {
+		t.Fatalf("fields not merged from duplicate: %+v", out[0])
+	}
+}
+
+func TestStripCardDirectives(t *testing.T) {
+	in := `See more:
+{{button label="打开 Web UI" url="https://stella.example.com/x"}}`
+	got := stripCardDirectives(in)
+	if strings.Contains(got, "{{button") {
+		t.Fatalf("directive not stripped: %q", got)
+	}
+	if !strings.Contains(got, "打开 Web UI: https://stella.example.com/x") {
+		t.Fatalf("expected label: url form, got %q", got)
+	}
+}
+
 func TestCardContentFallsBackToPlainTextOnBuildFailure(t *testing.T) {
 	old := buildCardContent
 	buildCardContent = func(string) (string, error) { return "", errors.New("boom") }

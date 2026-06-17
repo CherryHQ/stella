@@ -9,21 +9,43 @@ import (
 	"github.com/CherryHQ/stella/internal/renderrefs"
 )
 
+// maxRenderedRefs caps how many reference cards a single reply renders, so a
+// response that touches many entities can't flood the chat or blow past Feishu's
+// per-card element limits. The remainder is summarized as "+N more".
+const maxRenderedRefs = 10
+
 func dedupeReferences(refs []renderrefs.Reference) []renderrefs.Reference {
 	if len(refs) == 0 {
 		return nil
 	}
-	seen := make(map[string]struct{}, len(refs))
+	index := make(map[string]int, len(refs))
 	out := make([]renderrefs.Reference, 0, len(refs))
 	for _, ref := range refs {
 		key := ref.Type + "\x00" + ref.ID
-		if _, ok := seen[key]; ok {
+		if i, ok := index[key]; ok {
+			out[i] = mergeReference(out[i], ref)
 			continue
 		}
-		seen[key] = struct{}{}
+		index[key] = len(out)
 		out = append(out, ref)
 	}
 	return out
+}
+
+// mergeReference fills gaps in the kept reference a from a later duplicate b: a
+// present AgentID (needed for the deep link), a present Preview, and a "created"
+// intent are all more useful than their absence, regardless of arrival order.
+func mergeReference(a, b renderrefs.Reference) renderrefs.Reference {
+	if a.AgentID == "" {
+		a.AgentID = b.AgentID
+	}
+	if a.Preview == nil {
+		a.Preview = b.Preview
+	}
+	if a.Intent != "created" && b.Intent == "created" {
+		a.Intent = "created"
+	}
+	return a
 }
 
 func appendReferenceSection(response string, refs []renderrefs.Reference, isGroup bool) string {
@@ -32,11 +54,16 @@ func appendReferenceSection(response string, refs []renderrefs.Reference, isGrou
 		return response
 	}
 
+	shown := refs
+	if len(shown) > maxRenderedRefs {
+		shown = shown[:maxRenderedRefs]
+	}
+
 	var b strings.Builder
 	b.WriteString(strings.TrimRight(response, "\n"))
 	b.WriteString("\n\n---\n")
 	b.WriteString("**References**\n")
-	for _, ref := range refs {
+	for _, ref := range shown {
 		b.WriteString(referenceLine(ref, isGroup))
 		b.WriteByte('\n')
 		// An "open" button on its own paragraph so feishucard renders it as a
@@ -44,6 +71,9 @@ func appendReferenceSection(response string, refs []renderrefs.Reference, isGrou
 		if link := entityURL(ref); link != "" {
 			fmt.Fprintf(&b, "\n{{button label=\"打开 Web UI\" type=\"primary\" url=%q}}\n\n", link)
 		}
+	}
+	if extra := len(refs) - len(shown); extra > 0 {
+		fmt.Fprintf(&b, "_+%d more_\n", extra)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -53,7 +83,7 @@ func appendReferenceSection(response string, refs []renderrefs.Reference, isGrou
 // The web page enforces its own access control, so the link is safe to surface.
 func entityURL(ref renderrefs.Reference) string {
 	base := strings.TrimRight(os.Getenv("STELLA_BASE_URL"), "/")
-	if base == "" {
+	if base == "" || !validBaseURL(base) {
 		return ""
 	}
 	switch ref.Type {
@@ -61,17 +91,24 @@ func entityURL(ref renderrefs.Reference) string {
 		if ref.AgentID == "" {
 			return ""
 		}
-		return fmt.Sprintf("%s/agents/%s/tasks/%s", base, ref.AgentID, ref.ID)
+		return base + "/agents/" + url.PathEscape(ref.AgentID) + "/tasks/" + url.PathEscape(ref.ID)
 	case "goal":
 		if ref.AgentID == "" {
 			return ""
 		}
-		return fmt.Sprintf("%s/agents/%s/tasks/goals/%s", base, ref.AgentID, ref.ID)
+		return base + "/agents/" + url.PathEscape(ref.AgentID) + "/tasks/goals/" + url.PathEscape(ref.ID)
 	case "recally_article":
-		return fmt.Sprintf("%s/recally?article=%s", base, url.QueryEscape(ref.ID))
+		return base + "/recally?article=" + url.QueryEscape(ref.ID)
 	default:
 		return ""
 	}
+}
+
+// validBaseURL rejects a misconfigured STELLA_BASE_URL whose scheme could turn a
+// card button into a non-web target (javascript:, data:, …).
+func validBaseURL(base string) bool {
+	u, err := url.Parse(base)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 func referenceLine(ref renderrefs.Reference, isGroup bool) string {
@@ -84,11 +121,28 @@ func referenceLine(ref renderrefs.Reference, isGroup bool) string {
 		status = strings.TrimSpace(ref.Preview.Status)
 	}
 	label := referenceTypeLabel(ref.Type, isGroup)
-	line := fmt.Sprintf("- %s **%s**", label, title)
+	line := fmt.Sprintf("- %s **%s**", label, sanitizeInline(title))
 	if status != "" {
-		line += " · " + status
+		line += " · " + sanitizeInline(status)
 	}
 	return line
+}
+
+// inlineSanitizer defuses the markup constructs an attacker could smuggle through
+// an entity title/status: {{button ...}} directives (feishucard scans the whole
+// card for them, so a crafted title could inject a phishing button seen by every
+// group member) and markdown link/image syntax (spoofed clickable text).
+var inlineSanitizer = strings.NewReplacer(
+	"{{", "{ {",
+	"[", "(",
+	"]", ")",
+)
+
+// sanitizeInline makes agent/user-controlled text safe to interpolate into the
+// reference card's markdown: it collapses whitespace (a newline would break the
+// list item) and neutralizes injectable markup.
+func sanitizeInline(s string) string {
+	return inlineSanitizer.Replace(strings.Join(strings.Fields(s), " "))
 }
 
 func referenceTypeLabel(refType string, isGroup bool) string {
