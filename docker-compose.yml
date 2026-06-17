@@ -7,9 +7,13 @@
 #   volume subpath mounts (requires Docker Engine 25+).
 #
 # Quick start:
-#   1. Set your API key in the environment or a .env file.
-#   2. docker compose up -d
-#   3. Open http://localhost:25678 to configure agents and channels.
+#   1. Set STELLA_VAULT_KEY (run `stella vault keygen`) and your API key in the
+#      environment or a .env file.
+#   2. Create the named volumes — they are external on purpose (see the volumes
+#      section), so create them once before the first `up`:
+#        docker volume create stella-data && docker volume create otel-data
+#   3. docker compose up -d
+#   4. Open http://localhost:25678 to configure agents and channels.
 #
 # First-run setup (before running in the background):
 #   docker compose run --rm -p 8080:8080 stella stellad server --port 8080
@@ -27,7 +31,7 @@ services:
       # Host Docker socket so stellad can create sandbox containers
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - STELLA_VAULT_KEY=${STELLA_VAULT_KEY:-AGE-SECRET-KEY-xxx} # stella vault keygen
+      - STELLA_VAULT_KEY=${STELLA_VAULT_KEY:?set STELLA_VAULT_KEY first (run stella vault keygen)}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # Authenticates the boot-time mise reconcile of builtin tools (avoids GitHub rate limits)
@@ -55,6 +59,9 @@ services:
       - otel-data:/data
 
 volumes:
+  # external on purpose: a fixed-name, pre-created volume is shared across
+  # projects/worktrees and survives `docker compose down -v`, so STELLA_HOME data
+  # is never silently recreated. Create them once (see Quick start step 2).
   stella-data:
     external: true
   otel-data:
