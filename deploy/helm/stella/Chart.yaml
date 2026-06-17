@@ -1,0 +1,24 @@
+apiVersion: v2
+name: stella
+description: |
+  Stella — a multi-tenant, multi-user, multi-agent AI assistant platform.
+  This chart runs a single stellad server backed by SQLite on a persistent
+  volume. It is a single-replica StatefulSet by design: SQLite is a
+  single-writer database, so horizontal scaling (HPA, replicas > 1) is not
+  supported until the PostgreSQL backend lands (see issue #477).
+type: application
+home: https://github.com/CherryHQ/stella
+sources:
+  - https://github.com/CherryHQ/stella
+maintainers:
+  - name: CherryHQ
+    url: https://github.com/CherryHQ
+keywords:
+  - ai
+  - agent
+  - assistant
+  - llm
+# Chart version. Bump on every chart change (SemVer).
+version: 0.1.0
+# Tracks the Stella application release this chart was validated against.
+appVersion: "0.49.2"

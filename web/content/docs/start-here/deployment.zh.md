@@ -197,6 +197,10 @@ docker build -t stella .
 docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 ```
 
+## Kubernetes
+
+生产环境的 Kubernetes 部署请使用官方 Helm Chart——它涵盖健康探针、资源限制、持久化存储和 Ingress。参阅 [Kubernetes 指南](/docs/start-here/kubernetes)。
+
 ## 沙箱后端
 
 将 Stella 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。Stella 支持三种沙箱后端：`docker`、`local` 和 `none`。请参阅[沙箱指南](/docs/guides/sandbox)了解如何选择后端、配置 Docker 沙箱模式和排查常见问题。

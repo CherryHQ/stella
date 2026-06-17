@@ -1,0 +1,30 @@
+Stella is deploying. Release: {{ .Release.Name }} (namespace {{ .Release.Namespace }}).
+
+1. Wait for the pod to become ready:
+
+   kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "stella.fullname" . }}
+
+2. Reach the Web UI:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "stella.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+   Then open http://localhost:{{ .Values.service.port }}
+{{- end }}
+
+   Configure providers, channels, and agents from the Web UI on first run.
+
+{{- if not (or .Values.secret.vaultKey .Values.secret.existingSecret) }}
+
+WARNING: no vault key configured. Secrets, OAuth, and plugin keys will fail.
+Generate one with `stella vault keygen` and set secret.vaultKey or secret.existingSecret.
+{{- end }}
+
+Notes:
+- This is a single-replica SQLite deployment. Do NOT scale replicas or enable
+  autoscaling — it will corrupt the database. Multi-replica needs the future
+  PostgreSQL backend (#477).
+- Back up the persistent volume (STELLA_HOME): {{ .Values.persistence.mountPath }}.
+- Sandbox backend: {{ .Values.sandbox.backend }}.

@@ -1,0 +1,37 @@
+{{- if .Values.autoscaling.enabled }}
+{{- if not .Values.autoscaling.acknowledgeSqliteUnsupported }}
+{{- fail "autoscaling scales past one replica, which corrupts the SQLite database. It is unsupported until the PostgreSQL backend lands (#477). If you have migrated off SQLite and understand the risk, set autoscaling.acknowledgeSqliteUnsupported=true." }}
+{{- end }}
+# WARNING: example only. See the note above and in values.yaml — multi-replica
+# is unsafe on the current SQLite backend.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "stella.fullname" . }}
+  labels:
+    {{- include "stella.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: {{ include "stella.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}

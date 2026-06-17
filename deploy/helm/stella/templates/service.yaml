@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "stella.fullname" . }}
+  labels:
+    {{- include "stella.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "stella.selectorLabels" . | nindent 4 }}
+---
+# Headless service required by the StatefulSet for stable network identity.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "stella.fullname" . }}-headless
+  labels:
+    {{- include "stella.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "stella.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,176 @@
+# Default values for the Stella Helm chart.
+# See deploy/helm/stella/README.md and the production deployment doc:
+# https://github.com/CherryHQ/stella/blob/main/web/content/docs/start-here/kubernetes.md
+
+# -- Number of stellad replicas.
+# Keep this at 1. Stella stores all state in a single SQLite database on a
+# ReadWriteOnce volume; running more than one replica corrupts that database.
+# Multi-replica scaling requires the (not-yet-available) PostgreSQL backend.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/cherryhq/stella
+  # -- Overrides the image tag. Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for private registries.
+imagePullSecrets: []
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the fully qualified app name used in resource names.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a dedicated ServiceAccount.
+  create: true
+  # -- Annotations to add to the ServiceAccount (e.g. cloud IAM role bindings).
+  annotations: {}
+  # -- ServiceAccount name. Generated from the release name when empty.
+  name: ""
+
+# -- Extra annotations for the stellad pod.
+podAnnotations: {}
+# -- Extra labels for the stellad pod.
+podLabels: {}
+
+# Pod-level security context.
+# fsGroup makes the persistent volume writable by the non-root `stella` user
+# (uid/gid 1000 in the published image).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Container-level security context.
+# The `local` sandbox backend (bubblewrap) calls unshare(2), which the default
+# RuntimeDefault seccomp profile blocks — hence Unconfined. This mirrors the
+# `--security-opt seccomp=unconfined` used by the Docker deployment. Switch
+# sandbox.backend to "none" if you require RuntimeDefault seccomp and trust the
+# workload (agent tools then run without isolation).
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: Unconfined
+
+sandbox:
+  # -- Agent tool sandbox backend: "local" (bubblewrap isolation, no host
+  # Docker socket needed), "none" (no isolation; trusted workloads only), or
+  # "docker" (Docker-out-of-Docker; needs a host socket — not configured by
+  # this chart). Locking the backend via env makes the UI control read-only.
+  backend: local
+
+service:
+  type: ClusterIP
+  port: 25678
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # annotations:
+  #   nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  hosts:
+    - host: stella.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: stella-tls
+  #    hosts:
+  #      - stella.example.com
+
+# Persistent volume backing STELLA_HOME (SQLite db, vault, skills, user data).
+# Must be ReadWriteOnce. Avoid NFS — SQLite WAL is unreliable over NFS.
+persistence:
+  enabled: true
+  # -- Use an existing PVC instead of the StatefulSet volumeClaimTemplate.
+  existingClaim: ""
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+  # -- Mount path inside the container (also set as STELLA_HOME).
+  mountPath: /home/stella/.stella
+
+# Secret holding STELLA_VAULT_KEY and provider API keys.
+secret:
+  # -- Create the Secret from the values below. Set false to use existingSecret.
+  create: true
+  # -- Reference an existing Secret instead of creating one. Must contain
+  # STELLA_VAULT_KEY and any provider keys you need.
+  existingSecret: ""
+  # -- age secret key for the vault. REQUIRED. Generate with `stella vault keygen`.
+  # Prefer --set-file / existingSecret over committing this to values.
+  vaultKey: ""
+  # -- Provider API keys injected as env vars. At least one is needed for agents
+  # to run (keys can also be set later via the Web UI).
+  apiKeys: {}
+  #   ANTHROPIC_API_KEY: sk-ant-...
+  #   OPENAI_API_KEY: sk-...
+
+# -- Extra non-secret environment variables (e.g. STELLA_BASE_URL, OTEL_*).
+# Rendered into a ConfigMap.
+extraEnv: {}
+#   STELLA_BASE_URL: https://stella.example.com
+#   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+
+# Probes hit GET /api/status (unauthenticated, 200 when the server is up).
+# startupProbe covers slow first-boot DB migration before liveness kicks in.
+startupProbe:
+  enabled: true
+  failureThreshold: 30
+  periodSeconds: 5
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 0
+  periodSeconds: 15
+  timeoutSeconds: 3
+  failureThreshold: 3
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+# Horizontal Pod Autoscaler.
+# DISABLED and unsupported with the current SQLite backend: scaling past one
+# replica corrupts the database. This block is a ready-to-use example for when
+# the PostgreSQL backend (issue #477) makes multi-replica safe. Do NOT enable
+# it on SQLite.
+autoscaling:
+  enabled: false
+  # -- Safety gate. Enabling autoscaling without setting this to true fails the
+  # render, because >1 replica corrupts SQLite. Only set true after migrating
+  # to a shared multi-writer database.
+  acknowledgeSqliteUnsupported: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# -- Node selector for pod scheduling.
+nodeSelector: {}
+# -- Tolerations for pod scheduling.
+tolerations: []
+# -- Affinity rules for pod scheduling.
+affinity: {}
+
+# -- Update strategy for the StatefulSet.
+updateStrategy:
+  type: RollingUpdate

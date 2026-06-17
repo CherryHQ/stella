@@ -197,6 +197,10 @@ docker build -t stella .
 docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 ```
 
+## Kubernetes
+
+For production Kubernetes deployments, use the official Helm chart — it covers health probes, resource limits, persistent storage, and ingress. See the [Kubernetes guide](/docs/start-here/kubernetes).
+
 ## Sandbox Backends
 
 Running Stella inside a Docker container (described above) is separate from using Docker as a sandbox backend for agent tool execution. Stella supports three sandbox backends: `docker`, `local`, and `none`. See the [Sandbox guide](/docs/guides/sandbox) for how to choose a backend, configure Docker sandbox modes, and troubleshoot common issues.

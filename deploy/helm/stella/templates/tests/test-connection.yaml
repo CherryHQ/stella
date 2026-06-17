@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "stella.fullname" . }}-test-connection
+  labels:
+    {{- include "stella.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: status
+      image: curlimages/curl:8.11.0
+      command:
+        - curl
+        - --fail
+        - --silent
+        - --show-error
+        - http://{{ include "stella.fullname" . }}:{{ .Values.service.port }}/api/status
