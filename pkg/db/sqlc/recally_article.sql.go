@@ -378,19 +378,19 @@ const listUnreadArticlesOlderThan = `-- name: ListUnreadArticlesOlderThan :many
 SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv FROM recally_article
 WHERE user_id = $1
   AND status = 'unread'
-  AND saved_at < now() + ($2)::interval
+  AND saved_at < $2
 ORDER BY saved_at ASC
 LIMIT $3
 `
 
 type ListUnreadArticlesOlderThanParams struct {
-	UserID  string `json:"user_id"`
-	Column2 int64  `json:"column_2"`
-	Limit   int32  `json:"limit"`
+	UserID string    `json:"user_id"`
+	Cutoff time.Time `json:"cutoff"`
+	Limit  int32     `json:"limit"`
 }
 
 func (q *Queries) ListUnreadArticlesOlderThan(ctx context.Context, arg ListUnreadArticlesOlderThanParams) ([]RecallyArticle, error) {
-	rows, err := q.db.QueryContext(ctx, listUnreadArticlesOlderThan, arg.UserID, arg.Column2, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listUnreadArticlesOlderThan, arg.UserID, arg.Cutoff, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -512,17 +512,17 @@ func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) 
 const searchArticlesLike = `-- name: SearchArticlesLike :many
 SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv FROM recally_article
 WHERE user_id = $1
-  AND ((title LIKE $2 ESCAPE '\')
-    OR (summary LIKE $2 ESCAPE '\')
-    OR (tags LIKE $2 ESCAPE '\')
-    OR (author LIKE $2 ESCAPE '\'))
+  AND ((title LIKE $2::text ESCAPE '\')
+    OR (summary LIKE $2::text ESCAPE '\')
+    OR (tags LIKE $2::text ESCAPE '\')
+    OR (author LIKE $2::text ESCAPE '\'))
 ORDER BY created_at DESC
 LIMIT $3
 `
 
 type SearchArticlesLikeParams struct {
 	UserID  string `json:"user_id"`
-	Pattern []byte `json:"pattern"`
+	Pattern string `json:"pattern"`
 	Limit   int32  `json:"limit"`
 }
 

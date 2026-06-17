@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"filippo.io/age"
 
@@ -331,8 +332,8 @@ func metaFromEntry(e sqlc.VaultEntry) EntryMeta {
 		UserID:    stringFromNull(e.UserID),
 		AgentID:   stringFromNull(e.AgentID),
 		Name:      e.Name,
-		CreatedAt: e.CreatedAt,
-		UpdatedAt: e.UpdatedAt,
+		CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: e.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 

@@ -79,8 +79,8 @@ func (s *SQLiteStore) ListForAgentContext(ctx context.Context, userID string, ag
 func (s *SQLiteStore) ListByScope(ctx context.Context, scope string, userID string, agentID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
 		Scope:   scope,
-		UserID:  userID,
-		AgentID: agentID,
+		UserID:  sql.NullString{String: userID, Valid: userID != ""},
+		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list by scope %q: %w", scope, err)
@@ -198,19 +198,14 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 		meta = string(sk.Metadata)
 	}
 
-	disabledInt := int64(0)
-	if sk.DisableModelInvocation {
-		disabledInt = 1
-	}
-
 	params := sqlc.CreateSkillParams{
 		ID:                     sk.ID,
 		Scope:                  sk.Scope,
 		Name:                   sk.Name,
 		Description:            sk.Description,
 		Status:                 sk.Status,
-		DisableModelInvocation: disabledInt,
-		Metadata:               meta,
+		DisableModelInvocation: sk.DisableModelInvocation,
+		Metadata:               json.RawMessage(meta),
 	}
 
 	// Set nullable owner fields based on scope.
@@ -255,8 +250,8 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 type resolvedPatch struct {
 	Description            string
 	Status                 string
-	DisableModelInvocation int64
-	Metadata               string
+	DisableModelInvocation bool
+	Metadata               json.RawMessage
 }
 
 func applyPatch(row sqlc.Skill, patch UpdatePatch) resolvedPatch {
@@ -273,14 +268,10 @@ func applyPatch(row sqlc.Skill, patch UpdatePatch) resolvedPatch {
 		r.Status = *patch.Status
 	}
 	if patch.DisableModelInvocation != nil {
-		if *patch.DisableModelInvocation {
-			r.DisableModelInvocation = 1
-		} else {
-			r.DisableModelInvocation = 0
-		}
+		r.DisableModelInvocation = *patch.DisableModelInvocation
 	}
 	if len(patch.Metadata) > 0 {
-		r.Metadata = string(patch.Metadata)
+		r.Metadata = patch.Metadata
 	}
 	return r
 }
@@ -399,10 +390,10 @@ func (s *SQLiteStore) ListKnowledge(ctx context.Context, vc ViewContext, types .
 			Name:          row.Name,
 			Description:   row.Description,
 			Content:       content,
-			KnowledgeType: knowledgeTypeFromMetadata(json.RawMessage(row.Metadata)),
+			KnowledgeType: knowledgeTypeFromMetadata(row.Metadata),
 			Status:        row.Status,
-			CreatedAt:     func() time.Time { t, _ := time.Parse("2006-01-02 15:04:05", row.CreatedAt); return t }(),
-			UpdatedAt:     func() time.Time { t, _ := time.Parse("2006-01-02 15:04:05", row.UpdatedAt); return t }(),
+			CreatedAt:     row.CreatedAt.UTC(),
+			UpdatedAt:     row.UpdatedAt.UTC(),
 		})
 	}
 	return entries, nil
@@ -412,7 +403,7 @@ func (s *SQLiteStore) ListKnowledge(ctx context.Context, vc ViewContext, types .
 // whose created-at timestamp is before the cutoff.
 func (s *SQLiteStore) ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType KnowledgeType, before time.Time) error {
 	if err := s.q.ExpireKnowledgeDraftsByType(ctx, sqlc.ExpireKnowledgeDraftsByTypeParams{
-		KnowledgeType: sql.NullString{String: string(knowledgeType), Valid: true},
+		KnowledgeType: string(knowledgeType),
 		Cutoff:        before.UTC().Format(time.RFC3339),
 	}); err != nil {
 		return fmt.Errorf("skills: expire knowledge drafts by type %q: %w", knowledgeType, err)
@@ -448,12 +439,9 @@ var (
 
 // mapRow converts a sqlc Skill to the domain Skill type.
 func mapRow(r sqlc.Skill) Skill {
-	createdAt, _ := time.Parse("2006-01-02 15:04:05", r.CreatedAt)
-	updatedAt, _ := time.Parse("2006-01-02 15:04:05", r.UpdatedAt)
-
 	meta := json.RawMessage("{}")
-	if r.Metadata != "" {
-		meta = json.RawMessage(r.Metadata)
+	if len(r.Metadata) != 0 {
+		meta = r.Metadata
 	}
 
 	return Skill{
@@ -464,9 +452,9 @@ func mapRow(r sqlc.Skill) Skill {
 		Name:                   r.Name,
 		Description:            r.Description,
 		Status:                 r.Status,
-		DisableModelInvocation: r.DisableModelInvocation != 0,
+		DisableModelInvocation: r.DisableModelInvocation,
 		Metadata:               meta,
-		CreatedAt:              createdAt,
-		UpdatedAt:              updatedAt,
+		CreatedAt:              r.CreatedAt.UTC(),
+		UpdatedAt:              r.UpdatedAt.UTC(),
 	}
 }

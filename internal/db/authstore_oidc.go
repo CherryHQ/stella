@@ -12,8 +12,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-const oidcTimeLayout = "2006-01-02 15:04:05"
-
 // OIDCStore implements auth store interfaces using raw SQL against the OIDC
 // tables (auth_user, auth_identity, auth_session, channel_identity,
 // auth_credential).
@@ -152,11 +150,6 @@ func (s *OIDCStore) ListAgentUserIDs(ctx context.Context, agentID string) ([]str
 		out = append(out, id)
 	}
 	return out, rows.Err()
-}
-
-func parseOIDCTime(s string) time.Time {
-	t, _ := time.ParseInLocation(oidcTimeLayout, s, time.UTC)
-	return t
 }
 
 // ---- UserStore ----
@@ -312,7 +305,7 @@ type rowScanner interface {
 func scanUser(r rowScanner) (auth.User, error) {
 	var u auth.User
 	var defaultAgentID, notifyIdentityID sql.NullString
-	var createdAt, updatedAt string
+	var createdAt, updatedAt time.Time
 	err := r.Scan(
 		&u.ID, &u.Email, &u.Name, &u.AvatarURL,
 		&u.Role, &u.IsActive,
@@ -328,8 +321,8 @@ func scanUser(r rowScanner) (auth.User, error) {
 		id := notifyIdentityID.String
 		u.NotifyIdentityID = &id
 	}
-	u.CreatedAt = parseOIDCTime(createdAt)
-	u.UpdatedAt = parseOIDCTime(updatedAt)
+	u.CreatedAt = createdAt.UTC()
+	u.UpdatedAt = updatedAt.UTC()
 	return u, nil
 }
 
@@ -392,7 +385,8 @@ func (s *OIDCStore) UpdateLoginIdentity(ctx context.Context, i auth.LoginIdentit
 
 func scanLoginIdentity(r rowScanner) (auth.LoginIdentity, error) {
 	var i auth.LoginIdentity
-	var rawClaims, createdAt, updatedAt string
+	var rawClaims string
+	var createdAt, updatedAt time.Time
 	err := r.Scan(
 		&i.ID, &i.UserID, &i.Provider, &i.ProviderSubject,
 		&i.Email, &i.Name, &i.AvatarURL, &rawClaims,
@@ -404,8 +398,8 @@ func scanLoginIdentity(r rowScanner) (auth.LoginIdentity, error) {
 	if rawClaims != "" && rawClaims != "{}" {
 		_ = json.Unmarshal([]byte(rawClaims), &i.RawClaims)
 	}
-	i.CreatedAt = parseOIDCTime(createdAt)
-	i.UpdatedAt = parseOIDCTime(updatedAt)
+	i.CreatedAt = createdAt.UTC()
+	i.UpdatedAt = updatedAt.UTC()
 	return i, nil
 }
 
@@ -465,24 +459,23 @@ func (s *OIDCStore) DeleteChannelIdentity(ctx context.Context, id string) error 
 
 func scanChannelIdentity(r rowScanner) (auth.ChannelIdentity, error) {
 	var ci auth.ChannelIdentity
-	var createdAt, updatedAt string
+	var createdAt, updatedAt time.Time
 	err := r.Scan(&ci.ID, &ci.UserID, &ci.Platform, &ci.ExternalID, &ci.Name, &createdAt, &updatedAt)
 	if err != nil {
 		return auth.ChannelIdentity{}, fmt.Errorf("channel_identity scan: %w", err)
 	}
-	ci.CreatedAt = parseOIDCTime(createdAt)
-	ci.UpdatedAt = parseOIDCTime(updatedAt)
+	ci.CreatedAt = createdAt.UTC()
+	ci.UpdatedAt = updatedAt.UTC()
 	return ci, nil
 }
 
 // ---- SessionStore ----
 
 func (s *OIDCStore) CreateSession(ctx context.Context, sess auth.Session) (auth.Session, error) {
-	expiresAt := sess.ExpiresAt.UTC().Format(oidcTimeLayout)
 	const q = `INSERT INTO auth_session (id, user_id, token_hash, expires_at)
 	           VALUES ($1, $2, $3, $4)
 	           RETURNING id, user_id, token_hash, expires_at, created_at, updated_at`
-	row := s.db.QueryRowContext(ctx, q, sess.ID, sess.UserID, sess.TokenHash, expiresAt)
+	row := s.db.QueryRowContext(ctx, q, sess.ID, sess.UserID, sess.TokenHash, sess.ExpiresAt.UTC())
 	return scanSession(row)
 }
 
@@ -510,7 +503,7 @@ func (s *OIDCStore) DeleteUserSessions(ctx context.Context, userID string) error
 
 func (s *OIDCStore) UpdateSessionExpiry(ctx context.Context, id string, expiresAt time.Time) error {
 	const q = `UPDATE auth_session SET expires_at=$1, updated_at=now() WHERE id=$2`
-	_, err := s.db.ExecContext(ctx, q, expiresAt.UTC().Format(oidcTimeLayout), id)
+	_, err := s.db.ExecContext(ctx, q, expiresAt.UTC(), id)
 	return err
 }
 
@@ -541,14 +534,14 @@ func (s *OIDCStore) ListSessionsByUser(ctx context.Context, userID string) ([]au
 
 func scanSession(r rowScanner) (auth.Session, error) {
 	var sess auth.Session
-	var expiresAt, createdAt, updatedAt string
+	var expiresAt, createdAt, updatedAt time.Time
 	err := r.Scan(&sess.ID, &sess.UserID, &sess.TokenHash, &expiresAt, &createdAt, &updatedAt)
 	if err != nil {
 		return auth.Session{}, fmt.Errorf("auth_session scan: %w", err)
 	}
-	sess.ExpiresAt = parseOIDCTime(expiresAt)
-	sess.CreatedAt = parseOIDCTime(createdAt)
-	sess.UpdatedAt = parseOIDCTime(updatedAt)
+	sess.ExpiresAt = expiresAt.UTC()
+	sess.CreatedAt = createdAt.UTC()
+	sess.UpdatedAt = updatedAt.UTC()
 	return sess, nil
 }
 
@@ -591,11 +584,11 @@ func (s *OIDCStore) DeleteCredential(ctx context.Context, userID string) error {
 
 func scanCredential(r rowScanner) (auth.Credential, error) {
 	var c auth.Credential
-	var createdAt, updatedAt string
+	var createdAt, updatedAt time.Time
 	if err := r.Scan(&c.ID, &c.UserID, &c.PasswordHash, &createdAt, &updatedAt); err != nil {
 		return auth.Credential{}, fmt.Errorf("auth_credential scan: %w", err)
 	}
-	c.CreatedAt = parseOIDCTime(createdAt)
-	c.UpdatedAt = parseOIDCTime(updatedAt)
+	c.CreatedAt = createdAt.UTC()
+	c.UpdatedAt = updatedAt.UTC()
 	return c, nil
 }

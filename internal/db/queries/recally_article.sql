@@ -65,10 +65,10 @@ LIMIT sqlc.arg('limit');
 -- SearchMessagesLike for the sqlc constraints shaping this query.
 SELECT * FROM recally_article
 WHERE user_id = sqlc.arg('user_id')
-  AND ((title LIKE sqlc.arg('pattern') ESCAPE '\')
-    OR (summary LIKE sqlc.arg('pattern') ESCAPE '\')
-    OR (tags LIKE sqlc.arg('pattern') ESCAPE '\')
-    OR (author LIKE sqlc.arg('pattern') ESCAPE '\'))
+  AND ((title LIKE sqlc.arg('pattern')::text ESCAPE '\')
+    OR (summary LIKE sqlc.arg('pattern')::text ESCAPE '\')
+    OR (tags LIKE sqlc.arg('pattern')::text ESCAPE '\')
+    OR (author LIKE sqlc.arg('pattern')::text ESCAPE '\'))
 ORDER BY created_at DESC
 LIMIT sqlc.arg('limit');
 
@@ -86,11 +86,11 @@ ORDER BY saved_at DESC;
 
 -- name: ListUnreadArticlesOlderThan :many
 SELECT * FROM recally_article
-WHERE user_id = $1
+WHERE user_id = sqlc.arg('user_id')
   AND status = 'unread'
-  AND saved_at < now() + ($2)::interval
+  AND saved_at < sqlc.arg('cutoff')
 ORDER BY saved_at ASC
-LIMIT $3;
+LIMIT sqlc.arg('limit');
 
 -- name: GetArticlesSavedThisWeek :many
 SELECT * FROM recally_article

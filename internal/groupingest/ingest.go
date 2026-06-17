@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -177,7 +178,7 @@ func (ing *Ingester) processGroup(ctx context.Context, groupID string, _ int64) 
 	messages, err := ing.q.ListGroupMessagesAfterSeq(ctx, sqlc.ListGroupMessagesAfterSeqParams{
 		GroupID:    groupID,
 		MinSeq:     cursorSeq,
-		BatchLimit: ing.batchSize,
+		BatchLimit: int32(ing.batchSize),
 	})
 	if err != nil {
 		return fmt.Errorf("list messages: %w", err)
@@ -205,7 +206,7 @@ func (ing *Ingester) processGroup(ctx context.Context, groupID string, _ int64) 
 
 		ts := ""
 		if m.PlatformTimestamp.Valid {
-			ts = m.PlatformTimestamp.String
+			ts = m.PlatformTimestamp.Time.UTC().Format(time.RFC3339Nano)
 		}
 		humanMsgs = append(humanMsgs, ChatMessage{
 			Seq:       m.Seq,

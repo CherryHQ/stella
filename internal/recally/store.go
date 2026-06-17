@@ -85,12 +85,12 @@ func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest)
 		Summary:      req.Summary,
 		Tags:         encodeTags(req.Tags),
 		Status:       string(StatusUnread),
-		Starred:      0,
+		Starred:      false,
 		FilePath:     "",
 		Metadata:     encodeMetadata(req.Metadata),
 		PublishedAt:  toNullTime(req.PublishedAt),
-		SavedAt:      time.Now().UTC().Format(time.RFC3339),
-		ReadAt:       sql.NullString{},
+		SavedAt:      time.Now().UTC(),
+		ReadAt:       sql.NullTime{},
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("create article: %w", err)
@@ -173,7 +173,7 @@ func (s *Store) UpdateArticle(ctx context.Context, userID string, articleID stri
 		}
 	}
 	if v, ok := updates["starred"].(bool); ok {
-		starred = boolToInt64(v)
+		starred = v
 	}
 	if v, ok := updates["file_path"].(string); ok {
 		filePath = v
@@ -224,7 +224,7 @@ func (s *Store) ListArticles(ctx context.Context, userID string, filter ArticleF
 	}
 
 	// SQL: (starred = 0 OR starred = ?), so 0 means "don't filter", 1 means "only starred"
-	var starred any = int64(0)
+	var starred int64
 	if filter.Starred != nil && *filter.Starred {
 		starred = int64(1)
 	}
@@ -234,8 +234,8 @@ func (s *Store) ListArticles(ctx context.Context, userID string, filter ArticleF
 		Status:     emptyOrString(string(filter.Status)),
 		SourceType: emptyOrString(string(filter.SourceType)),
 		Starred:    starred,
-		Limit:      limit,
-		Offset:     int64(filter.Offset),
+		Limit:      int32(limit),
+		Offset:     int32(filter.Offset),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list articles: %w", err)
@@ -269,7 +269,7 @@ func (s *Store) SearchArticles(ctx context.Context, userID string, query string,
 		rows, err := s.q.SearchArticlesLike(ctx, sqlc.SearchArticlesLikeParams{
 			UserID:  userID,
 			Pattern: "%" + ftsquery.EscapeLike(text) + "%",
-			Limit:   int64(limit),
+			Limit:   int32(limit),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("search articles like: %w", err)
@@ -285,7 +285,7 @@ func (s *Store) SearchArticles(ctx context.Context, userID string, query string,
 	rows, err := s.q.SearchArticles(ctx, sqlc.SearchArticlesParams{
 		Match:  match,
 		UserID: userID,
-		Limit:  int64(limit),
+		Limit:  int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search articles: %w", err)
@@ -317,10 +317,10 @@ func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL string, k
 		Title:         title,
 		Description:   description,
 		CheckInterval: "1h",
-		LastCheckedAt: sql.NullString{},
+		LastCheckedAt: sql.NullTime{},
 		LastEtag:      "",
 		LastModified:  "",
-		Enabled:       1,
+		Enabled:       true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create feed: %w", err)
@@ -365,8 +365,8 @@ func (s *Store) ListFeeds(ctx context.Context, userID string, limit, offset int)
 	}
 	rows, err := s.q.ListFeeds(ctx, sqlc.ListFeedsParams{
 		UserID: userID,
-		Limit:  int64(limit),
-		Offset: int64(offset),
+		Limit:  int32(limit),
+		Offset: int32(offset),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list feeds: %w", err)
@@ -421,7 +421,7 @@ func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, up
 		lastModified = v
 	}
 	if v, ok := updates["enabled"].(bool); ok {
-		enabled = boolToInt64(v)
+		enabled = v
 	}
 
 	updated, err := s.q.UpdateFeed(ctx, sqlc.UpdateFeedParams{
@@ -466,8 +466,8 @@ func (s *Store) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, tit
 		ArticleID:    sql.NullString{},
 		Attempts:     0,
 		ErrorMsg:     "",
-		DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
-		ProcessedAt:  sql.NullString{},
+		DiscoveredAt: time.Now().UTC(),
+		ProcessedAt:  sql.NullTime{},
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -485,7 +485,7 @@ func (s *Store) ListPendingFeedEntries(ctx context.Context, feedID string, limit
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := s.q.ListPendingEntries(ctx, sqlc.ListPendingEntriesParams{FeedID: feedID, Limit: int64(limit), Offset: int64(offset)})
+	rows, err := s.q.ListPendingEntries(ctx, sqlc.ListPendingEntriesParams{FeedID: feedID, Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, fmt.Errorf("list pending entries: %w", err)
 	}
@@ -597,9 +597,9 @@ func (s *Store) GetDigest(ctx context.Context, userID string) (*Digest, error) {
 
 	// Articles worth revisiting (unread and older than 3 days)
 	revisitRows, err := s.q.ListUnreadArticlesOlderThan(ctx, sqlc.ListUnreadArticlesOlderThanParams{
-		UserID:   userID,
-		Datetime: "-3 days",
-		Limit:    10,
+		UserID: userID,
+		Cutoff: time.Now().UTC().AddDate(0, 0, -3),
+		Limit:  10,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list revisiting articles: %w", err)
@@ -738,8 +738,8 @@ func (s *Store) ListStoredDigests(ctx context.Context, userID string, limit, off
 	}
 	rows, err := s.q.ListDigests(ctx, sqlc.ListDigestsParams{
 		UserID: userID,
-		Limit:  limit,
-		Offset: offset,
+		Limit:  int32(limit),
+		Offset: int32(offset),
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("list digests: %w", err)
@@ -753,7 +753,7 @@ func (s *Store) ListStoredDigests(ctx context.Context, userID string, limit, off
 			SavedYesterdayCount:  r.SavedYesterdayCount,
 			WorthRevisitingCount: r.WorthRevisitingCount,
 			TotalArticles:        r.TotalArticles,
-			CreatedAt:            parseTime(r.CreatedAt),
+			CreatedAt:            r.CreatedAt.UTC(),
 		})
 	}
 	return summaries, total, nil
@@ -785,8 +785,8 @@ func (s *Store) hydrateDigest(ctx context.Context, q *sqlc.Queries, row sqlc.Rec
 		WorthRevisitingCount: row.WorthRevisitingCount,
 		TopTags:              topTags,
 		TotalArticles:        row.TotalArticles,
-		CreatedAt:            parseTime(row.CreatedAt),
-		UpdatedAt:            parseTime(row.UpdatedAt),
+		CreatedAt:            row.CreatedAt.UTC(),
+		UpdatedAt:            row.UpdatedAt.UTC(),
 	}, nil
 }
 
@@ -832,11 +832,11 @@ func toNullString(value *string) sql.NullString {
 	return sql.NullString{String: *value, Valid: true}
 }
 
-func toNullTime(value *time.Time) sql.NullString {
+func toNullTime(value *time.Time) sql.NullTime {
 	if value == nil || value.IsZero() {
-		return sql.NullString{}
+		return sql.NullTime{}
 	}
-	return sql.NullString{String: value.UTC().Format(time.RFC3339), Valid: true}
+	return sql.NullTime{Time: value.UTC(), Valid: true}
 }
 
 func ptrTime(value time.Time) *time.Time {

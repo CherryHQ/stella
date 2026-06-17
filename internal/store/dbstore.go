@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -58,15 +59,11 @@ func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
 	if err != nil {
 		return fmt.Errorf("create provider %q: marshal config: %w", p.ID, err)
 	}
-	enabled := int64(0)
-	if p.Enabled {
-		enabled = 1
-	}
 	if _, err := s.q.CreateProvider(ctx, sqlc.CreateProviderParams{
 		ID:      p.ID,
 		Type:    providerType(p),
 		Name:    providerName(p),
-		Enabled: enabled,
+		Enabled: p.Enabled,
 		Config:  string(configJSON),
 	}); err != nil {
 		return fmt.Errorf("create provider %q: %w", p.ID, err)
@@ -79,14 +76,10 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
 	if err != nil {
 		return fmt.Errorf("update provider %q: marshal config: %w", p.ID, err)
 	}
-	enabled := int64(0)
-	if p.Enabled {
-		enabled = 1
-	}
 	if err := s.q.UpdateProvider(ctx, sqlc.UpdateProviderParams{
 		Type:    providerType(p),
 		Name:    providerName(p),
-		Enabled: enabled,
+		Enabled: p.Enabled,
 		Config:  string(configJSON),
 		ID:      p.ID,
 	}); err != nil {
@@ -165,10 +158,6 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 	if a.ID == "" {
 		a.ID = uuid.NewString()
 	}
-	enabled := int64(0)
-	if a.Enabled {
-		enabled = 1
-	}
 	scope := a.Scope
 	if scope == "" {
 		scope = config.AgentScopeSystem
@@ -196,7 +185,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 		EnabledBuiltinSkills: "[]",
 		Scope:                scope,
 		CreatorID:            a.CreatorID,
-		Enabled:              enabled,
+		Enabled:              a.Enabled,
 	})
 	if err != nil {
 		return fmt.Errorf("create agent %q: %w", a.ID, err)
@@ -205,10 +194,6 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 }
 
 func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
-	enabled := int64(0)
-	if a.Enabled {
-		enabled = 1
-	}
 	scope := a.Scope
 	if scope == "" {
 		scope = config.AgentScopeSystem
@@ -235,7 +220,7 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 		Sandbox:              sandboxJSON,
 		EnabledBuiltinSkills: "[]",
 		Scope:                scope,
-		Enabled:              enabled,
+		Enabled:              a.Enabled,
 	})
 	if err != nil {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
@@ -294,7 +279,7 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 		Name:    ch.Name,
 		Type:    channelType,
 		AgentID: sql.NullString{String: ch.AgentID, Valid: ch.AgentID != ""},
-		Enabled: boolToInt64(ch.Enabled),
+		Enabled: ch.Enabled,
 		Config:  ch.Config,
 	})
 }
@@ -359,15 +344,11 @@ func (s *DBStore) UpsertPlugin(ctx context.Context, p config.Plugin) error {
 	if err != nil {
 		return fmt.Errorf("marshal plugin config %q: %w", p.ID, err)
 	}
-	enabled := int64(0)
-	if p.Enabled {
-		enabled = 1
-	}
 	return s.q.UpsertPlugin(ctx, sqlc.UpsertPluginParams{
 		ID:      p.ID,
 		Kind:    p.Kind,
 		Name:    p.Name,
-		Enabled: enabled,
+		Enabled: p.Enabled,
 		Config:  string(configJSON),
 	})
 }
@@ -420,13 +401,9 @@ func (s *DBStore) ListManifestPluginOverrides(ctx context.Context) ([]config.Man
 }
 
 func (s *DBStore) UpsertManifestPluginOverride(ctx context.Context, ov config.ManifestPluginOverride) error {
-	var enabled sql.NullInt64
+	var enabled sql.NullBool
 	if ov.Enabled != nil {
-		v := int64(0)
-		if *ov.Enabled {
-			v = 1
-		}
-		enabled = sql.NullInt64{Int64: v, Valid: true}
+		enabled = sql.NullBool{Bool: *ov.Enabled, Valid: true}
 	}
 	return s.q.UpsertManifestPluginOverride(ctx, sqlc.UpsertManifestPluginOverrideParams{
 		PluginID:           ov.PluginID,
@@ -445,10 +422,10 @@ func manifestOverrideFromDB(r sqlc.PluginOverride) config.ManifestPluginOverride
 		PluginID:           r.PluginID,
 		SessionEnvVaultKey: r.SessionEnvVaultKey,
 		Config:             r.Config,
-		UpdatedAt:          r.UpdatedAt,
+		UpdatedAt:          r.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	if r.Enabled.Valid {
-		enabled := r.Enabled.Int64 != 0
+		enabled := r.Enabled.Bool
 		out.Enabled = &enabled
 	}
 	return out
@@ -477,7 +454,7 @@ func (s *DBStore) mergedPlugins(ctx context.Context, filter func(config.Plugin) 
 			Config:  map[string]any{},
 		}
 		if ov, ok := overrides[b.ID]; ok {
-			p.Enabled = ov.Enabled == 1
+			p.Enabled = ov.Enabled
 			var cfg map[string]any
 			if ov.Config != "" && ov.Config != "{}" {
 				_ = json.Unmarshal([]byte(ov.Config), &cfg)
@@ -715,7 +692,7 @@ func (s *DBStore) Seed(ctx context.Context) error {
 		Sandbox:              sandboxJSON,
 		EnabledBuiltinSkills: "[]",
 		Scope:                config.AgentScopeSystem,
-		Enabled:              1,
+		Enabled:              true,
 	})
 	if err != nil {
 		return fmt.Errorf("seed: create stella agent: %w", err)
@@ -780,7 +757,7 @@ func (s *DBStore) seedProviders(ctx context.Context) error {
 			ID:      provider.ID,
 			Type:    provider.Type,
 			Name:    provider.Name,
-			Enabled: 0,
+			Enabled: false,
 			Config:  string(configJSON),
 		}); err != nil {
 			return fmt.Errorf("seed: provider %q: %w", name, err)
@@ -824,7 +801,7 @@ func providerFromDB(r sqlc.Provider) config.Provider {
 		ID:      r.ID,
 		Type:    r.Type,
 		Name:    providerDisplayName(r.Name, r.ID),
-		Enabled: r.Enabled == 1,
+		Enabled: r.Enabled,
 		APIKey:  apiKey,
 		BaseURL: baseURL,
 		Models:  providerModelsFromAny(cfg["models"]),
@@ -864,13 +841,6 @@ func providerDisplayName(name, fallback string) string {
 		return name
 	}
 	return fallback
-}
-
-func boolToInt64(value bool) int64 {
-	if value {
-		return 1
-	}
-	return 0
 }
 
 func normalizeProviderModels(models map[string]config.ProviderModel) map[string]config.ProviderModel {
@@ -972,7 +942,7 @@ func agentFromDB(r sqlc.Agent) (config.Agent, error) {
 		Sandbox:             sandboxCfg,
 		Scope:               scope,
 		CreatorID:           r.CreatorID,
-		Enabled:             r.Enabled == 1,
+		Enabled:             r.Enabled,
 	}, nil
 }
 
@@ -1004,7 +974,7 @@ func pluginFromDB(r sqlc.Plugin) config.Plugin {
 		ID:      r.ID,
 		Kind:    r.Kind,
 		Name:    r.Name,
-		Enabled: r.Enabled == 1,
+		Enabled: r.Enabled,
 		Config:  cfg,
 	}
 }
@@ -1023,7 +993,7 @@ func channelFromDB(r sqlc.Channel) config.Channel {
 		Name:    r.Name,
 		Type:    channelType,
 		AgentID: agentID,
-		Enabled: r.Enabled == 1,
+		Enabled: r.Enabled,
 		Config:  r.Config,
 	}
 }
