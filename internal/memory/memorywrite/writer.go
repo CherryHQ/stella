@@ -13,9 +13,18 @@ import (
 
 	"github.com/google/uuid"
 
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// lockMemory serializes concurrent writers for one (user, agent) memory row so
+// the read-modify-write of version + changelog cannot interleave. Under SQLite
+// this was implicit (single writer); under PostgreSQL it needs an explicit
+// transaction-scoped advisory lock, released automatically on commit/rollback.
+func lockMemory(ctx context.Context, tx *sql.Tx, userID, agentID string) error {
+	return appdb.AdvisoryXactLock(ctx, tx, "mem:"+userID+":"+agentID)
+}
 
 // SetProfile writes a profile update within a transaction.
 // It increments the version, reads the before-state, and appends a changelog entry,
@@ -26,6 +35,10 @@ func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string,
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return err
+	}
 
 	qtx := q.WithTx(tx)
 
@@ -85,6 +98,10 @@ func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID strin
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return err
+	}
+
 	qtx := q.WithTx(tx)
 
 	old, err := qtx.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
@@ -141,6 +158,10 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return err
+	}
 
 	qtx := q.WithTx(tx)
 
@@ -205,6 +226,10 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return nil, err
+	}
 
 	qtx := q.WithTx(tx)
 
@@ -275,6 +300,10 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID s
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return nil, err
+	}
 
 	qtx := q.WithTx(tx)
 

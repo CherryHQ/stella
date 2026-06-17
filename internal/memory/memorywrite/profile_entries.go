@@ -37,6 +37,10 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return nil, err
+	}
+
 	qtx := q.WithTx(tx)
 
 	old, err := qtx.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
