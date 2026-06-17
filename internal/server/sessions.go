@@ -25,6 +25,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/renderrefs"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -1700,10 +1701,11 @@ func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 		"token_count": row.TokenCount,
 	}
 	var env struct {
-		ID     string          `json:"id"`
-		Tool   string          `json:"tool"`
-		Result json.RawMessage `json:"result"`
-		Error  string          `json:"error,omitempty"`
+		ID         string                 `json:"id"`
+		Tool       string                 `json:"tool"`
+		Result     json.RawMessage        `json:"result"`
+		Error      string                 `json:"error,omitempty"`
+		References []renderrefs.Reference `json:"references,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(row.Content), &env); err != nil {
 		// Malformed envelope: best-effort — show raw content, no ID to match.
@@ -1721,6 +1723,9 @@ func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 	m["tool_name"] = env.Tool
 	m["content"] = text
 	m["is_error"] = env.Error != ""
+	if len(env.References) > 0 {
+		m["references"] = env.References
+	}
 	return m
 }
 

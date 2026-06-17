@@ -154,6 +154,7 @@ export function mergeToolResults(messages: Message[]): Message[] {
                 tool_call_id: m.tool_call_id!,
                 content: m.content ?? "",
                 is_error: false,
+                ...(m.references && m.references.length > 0 ? { references: m.references } : {}),
               },
             };
           }
