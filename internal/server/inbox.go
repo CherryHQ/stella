@@ -220,7 +220,7 @@ func optionalString(value string) *string {
 }
 
 func taskTargetPath(agentID, taskID string) string {
-	return "/agents/" + agentID + "/automations/tasks/" + taskID
+	return "/agents/" + agentID + "/tasks/" + taskID
 }
 
 func taskRunTargetPath(row sqlc.ListFailedInboxTaskRunsRow) string {
@@ -229,14 +229,14 @@ func taskRunTargetPath(row sqlc.ListFailedInboxTaskRunsRow) string {
 	}
 	// Goal-owned runs have no task; land on the agent's work hub.
 	if row.AgentID.Valid {
-		return "/agents/" + row.AgentID.String + "/automations"
+		return "/agents/" + row.AgentID.String + "/tasks"
 	}
 	return "/agents"
 }
 
 func schedulerRunTargetPath(row sqlc.ListFailedInboxSchedulerRunsRow) string {
 	if row.AgentID.Valid {
-		return "/agents/" + row.AgentID.String + "/automations"
+		return "/agents/" + row.AgentID.String + "/tasks"
 	}
 	return "/agents"
 }

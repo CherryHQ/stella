@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createSession } from "@/lib/api-client/sdk.gen";
 import type { Session } from "@/lib/types";
 import { projectSessionsQueryOptions } from "@/lib/queries/sessions";
-import { OverviewPage } from "@/features/automations/OverviewPage";
+import { OverviewPage } from "@/features/tasks/OverviewPage";
 
 export function ProjectHome() {
   const { agentId, projectId } = useParams({

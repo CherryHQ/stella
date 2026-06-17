@@ -1,5 +1,5 @@
 import { createLazyFileRoute, useParams } from "@tanstack/react-router";
-import { SchedulePage } from "@/features/automations/SchedulePage";
+import { SchedulePage } from "@/features/tasks/SchedulePage";
 
 export const Route = createLazyFileRoute("/_app/agents/$agentId/tasks/schedules/$scheduleId")({
   component: ScheduleKeyed,

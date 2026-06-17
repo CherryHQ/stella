@@ -10,7 +10,7 @@ import {
   emptySchedule,
   scheduleFromString,
   type ScheduleValue,
-} from "@/features/automations/SchedulePicker";
+} from "@/features/tasks/SchedulePicker";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
