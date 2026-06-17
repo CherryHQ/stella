@@ -79,7 +79,7 @@ All commands are `stella task ...` or `stella task goal ...`.
 
 **Create one background task.** Use `stella task create ... --activate`. Add `--project-id <project-id>` for project-scoped work. Without `--activate`, the task stays `draft` and never runs.
 
-**Let the chat render created entities.** When you create a task or goal, the CLI prints a sideband marker on stderr that the chat turns into a rich, clickable card. Run `stella task create` / `stella task goal create` plainly — do not redirect or discard stderr (no `2>/dev/null`), or the user sees a bare ID instead of a card.
+**Let the chat render created entities.** When you create a task or goal, the CLI prints a sideband marker on stderr that the chat turns into a rich, clickable card. Run `stella task create` / `stella task goal create` plainly — do not redirect or discard stderr (no `2>/dev/null`), or the user sees a bare ID instead of a card. The card already shows the title, status, and a link, so do **not** echo the raw ID/title back into your reply text — just say what you did and let the card speak.
 
 **Build a goal.** Create the goal first, optionally with `--project-id`, then create child tasks with `stella task create --goal-id <goal-id> ...`. A task created without `--goal-id` is standalone and will not appear under `stella task goal tasks <goal-id>` or the Web UI goal detail page.
 
