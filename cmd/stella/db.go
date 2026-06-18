@@ -40,9 +40,14 @@ re-run after a failure is safe.`,
 				Usage: "path to the source SQLite database",
 				Value: config.DBPath(),
 			},
+			&ucli.BoolFlag{
+				Name:  "dry-run",
+				Usage: "preview the per-table row counts without writing anything",
+			},
 		},
 		Action: func(c *ucli.Context) error {
 			sqlitePath := c.String("sqlite")
+			dryRun := c.Bool("dry-run")
 
 			// Mirror the server's selection: an explicit DSN targets external
 			// PostgreSQL, otherwise migrate into the managed embedded cluster.
@@ -62,12 +67,20 @@ re-run after a failure is safe.`,
 			}
 			defer func() { _ = pg.Close() }()
 
-			fmt.Printf("Migrating %s -> PostgreSQL...\n", sqlitePath)
-			report, err := appdb.MigrateSQLite(c.Context, sqlitePath, pg)
+			if dryRun {
+				fmt.Printf("Dry run: planning %s -> PostgreSQL...\n", sqlitePath)
+			} else {
+				fmt.Printf("Migrating %s -> PostgreSQL...\n", sqlitePath)
+			}
+			report, err := appdb.MigrateSQLite(c.Context, sqlitePath, pg, dryRun)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Done: copied %d rows across %d tables.\n", report.Total, len(report.Tables))
+			verb := "copied"
+			if dryRun {
+				verb = "would copy"
+			}
+			fmt.Printf("Done: %s %d rows across %d tables.\n", verb, report.Total, len(report.Tables))
 			if report.Sanitized > 0 {
 				fmt.Printf("Note: replaced invalid UTF-8 in %d value(s); review affected rows.\n", report.Sanitized)
 			}

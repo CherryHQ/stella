@@ -24,7 +24,23 @@ func TestMigrateSQLite_RealFixture(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
-	report, err := MigrateSQLite(ctx, fixture, db)
+	// Dry run previews source counts and writes nothing.
+	plan, err := MigrateSQLite(ctx, fixture, db, true)
+	if err != nil {
+		t.Fatalf("MigrateSQLite dry-run: %v", err)
+	}
+	if plan.Total == 0 {
+		t.Error("dry-run reported 0 rows; expected a non-empty plan")
+	}
+	var preWritten int
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM ctx_message").Scan(&preWritten); err != nil {
+		t.Fatalf("post-dry-run count: %v", err)
+	}
+	if preWritten != 0 {
+		t.Errorf("dry-run wrote %d ctx_message rows; expected none", preWritten)
+	}
+
+	report, err := MigrateSQLite(ctx, fixture, db, false)
 	if err != nil {
 		t.Fatalf("MigrateSQLite: %v", err)
 	}
@@ -85,7 +101,7 @@ func TestMigrateSQLite_RealFixture(t *testing.T) {
 	}
 
 	// Idempotent: a second run truncates and reloads to the same totals.
-	report2, err := MigrateSQLite(ctx, fixture, db)
+	report2, err := MigrateSQLite(ctx, fixture, db, false)
 	if err != nil {
 		t.Fatalf("second MigrateSQLite: %v", err)
 	}

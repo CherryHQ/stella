@@ -20,6 +20,12 @@ type MigrateReport struct {
 	Skipped   []string       // target tables with no SQLite source (left empty)
 }
 
+// querier is the read surface shared by *sql.DB and *sql.Tx, so the table list
+// can be read outside a transaction (dry run) or inside one (real load).
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
 // MigrateSQLite copies every row from the legacy SQLite database at sqlitePath
 // into the already-migrated PostgreSQL schema behind pg. The destination schema
 // is the source of truth for what to copy: each PostgreSQL base table pulls from
@@ -27,8 +33,12 @@ type MigrateReport struct {
 // PostgreSQL) are skipped automatically, as are generated columns (tsvector). A
 // target table with no SQLite source is left empty and listed in Skipped.
 //
-// Everything runs in one transaction, so a failure leaves the destination
-// unchanged, and a re-run truncates and reloads to the same state (idempotent).
+// dryRun previews the work — each target table's source row count, plus the
+// no-source tables — without touching the destination. A real run does
+// everything in one transaction, so a failure leaves the destination unchanged,
+// and a re-run truncates and reloads to the same state (idempotent), then
+// verifies every copied count actually persisted.
+//
 // Foreign-key triggers are disabled for the transaction with SET LOCAL
 // session_replication_role (auto-reset at commit/rollback, so nothing leaks back
 // to the pool), which lets tables load in any order without a topological sort.
@@ -36,7 +46,7 @@ type MigrateReport struct {
 // any pre-existing orphan row is carried over as-is rather than failing the
 // migration. Disabling the role requires a superuser DSN (the managed embedded
 // cluster runs as one).
-func MigrateSQLite(ctx context.Context, sqlitePath string, pg *sql.DB) (*MigrateReport, error) {
+func MigrateSQLite(ctx context.Context, sqlitePath string, pg *sql.DB, dryRun bool) (*MigrateReport, error) {
 	src, err := sql.Open("sqlite", sqlitePath)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", sqlitePath, err)
@@ -48,6 +58,10 @@ func MigrateSQLite(ctx context.Context, sqlitePath string, pg *sql.DB) (*Migrate
 	sqliteTables, err := sqliteTableSet(ctx, src)
 	if err != nil {
 		return nil, err
+	}
+
+	if dryRun {
+		return migratePlan(ctx, src, pg, sqliteTables)
 	}
 
 	tx, err := pg.BeginTx(ctx, nil)
@@ -93,6 +107,46 @@ func MigrateSQLite(ctx context.Context, sqlitePath string, pg *sql.DB) (*Migrate
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
+
+	// Cross-engine value checksums are deliberately not used: SQLite and
+	// PostgreSQL render the same datum differently (0/1 vs bool, naive vs zoned
+	// timestamps), so a value hash flags representation, not corruption. Integrity
+	// instead rests on the atomic cast — any unconvertible value aborts the whole
+	// transaction — plus count parity: re-count each table and confirm every
+	// copied row actually persisted.
+	for t, n := range report.Tables {
+		var got int
+		if err := pg.QueryRowContext(ctx, "SELECT count(*) FROM "+quoteIdent(t)).Scan(&got); err != nil {
+			return nil, fmt.Errorf("verify %s: %w", t, err)
+		}
+		if got != n {
+			return nil, fmt.Errorf("verify %s: copied %d rows but %d persisted", t, n, got)
+		}
+	}
+	return report, nil
+}
+
+// migratePlan builds the dry-run report: every target table's SQLite source row
+// count, with no-source tables listed in Skipped. It only reads, so the
+// destination is untouched.
+func migratePlan(ctx context.Context, src *sql.DB, pg querier, sqliteTables map[string]bool) (*MigrateReport, error) {
+	tables, err := pgBaseTables(ctx, pg)
+	if err != nil {
+		return nil, err
+	}
+	report := &MigrateReport{Tables: make(map[string]int, len(tables))}
+	for _, t := range tables {
+		if !sqliteTables[t] {
+			report.Skipped = append(report.Skipped, t)
+			continue
+		}
+		var n int
+		if err := src.QueryRowContext(ctx, "SELECT count(*) FROM "+quoteIdent(t)).Scan(&n); err != nil {
+			return nil, fmt.Errorf("count %s: %w", t, err)
+		}
+		report.Tables[t] = n
+		report.Total += n
+	}
 	return report, nil
 }
 
@@ -117,8 +171,8 @@ func sqliteTableSet(ctx context.Context, src *sql.DB) (map[string]bool, error) {
 
 // pgBaseTables lists the public tables to load, excluding schema_migrations
 // (owned by the migration runner, not user data).
-func pgBaseTables(ctx context.Context, tx *sql.Tx) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `
+func pgBaseTables(ctx context.Context, q querier) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `
 		SELECT tablename FROM pg_tables
 		WHERE schemaname = 'public' AND tablename <> 'schema_migrations'
 		ORDER BY tablename`)
