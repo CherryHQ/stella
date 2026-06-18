@@ -142,7 +142,7 @@ func TestArchiveGoal_TerminalHidesGoalAndChildren(t *testing.T) {
 			t.Fatalf("archived goal returned in default list")
 		}
 	}
-	tasks, err := f.ListTasksByUser(context.Background(), h.userID, h.agentID, "", "", false, 10, 0)
+	tasks, err := f.ListTasksByUser(context.Background(), h.userID, TaskFilter{AgentID: h.agentID}, 10, 0)
 	if err != nil {
 		t.Fatalf("ListTasksByUser: %v", err)
 	}
@@ -433,14 +433,14 @@ func TestUnarchiveTask_RestoresStandaloneTask(t *testing.T) {
 	if err := f.ArchiveTask(context.Background(), tid, SystemActor()); err != nil {
 		t.Fatalf("ArchiveTask: %v", err)
 	}
-	archived, err := f.ListTasksByUser(context.Background(), h.userID, h.agentID, "", "", true, 10, 0)
+	archived, err := f.ListTasksByUser(context.Background(), h.userID, TaskFilter{AgentID: h.agentID, Archived: true}, 10, 0)
 	if err != nil {
 		t.Fatalf("ListTasksByUser(archived): %v", err)
 	}
 	if len(archived) != 1 || archived[0].ID != tid {
 		t.Fatalf("archived filter did not surface the task: %+v", archived)
 	}
-	if active, _ := f.ListTasksByUser(context.Background(), h.userID, h.agentID, "", "", false, 10, 0); len(active) != 0 {
+	if active, _ := f.ListTasksByUser(context.Background(), h.userID, TaskFilter{AgentID: h.agentID}, 10, 0); len(active) != 0 {
 		t.Fatalf("archived task leaked into active list: %+v", active)
 	}
 	if err := f.UnarchiveTask(context.Background(), tid, SystemActor()); err != nil {
@@ -449,7 +449,7 @@ func TestUnarchiveTask_RestoresStandaloneTask(t *testing.T) {
 	if h.getTask(t, tid).ArchivedAt.Valid {
 		t.Fatalf("task still archived after unarchive")
 	}
-	active, err := f.ListTasksByUser(context.Background(), h.userID, h.agentID, "", "", false, 10, 0)
+	active, err := f.ListTasksByUser(context.Background(), h.userID, TaskFilter{AgentID: h.agentID}, 10, 0)
 	if err != nil {
 		t.Fatalf("ListTasksByUser(active): %v", err)
 	}

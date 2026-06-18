@@ -231,24 +231,33 @@ func (f *ServiceFacade) GetTask(ctx context.Context, taskID string) (sqlc.AgentT
 	return t, nil
 }
 
-// ListTasksByUser returns paginated tasks owned by the given user, optionally
-// filtered by agent, project, and status. Empty filter strings match all rows.
-// archived=false lists active tasks (the default); archived=true lists the
-// archived history/restore set.
-func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID, agentID, projectID, status string, archived bool, limit, offset int64) ([]sqlc.AgentTask, error) {
+// TaskFilter narrows a task list. Named fields avoid the transposition footgun
+// of several adjacent string parameters (mirrors GoalFilter); the zero value
+// lists active tasks.
+type TaskFilter struct {
+	AgentID   string
+	ProjectID string
+	Status    string
+	Archived  bool // true lists the archived (history/restore) set instead of active tasks
+}
+
+// ListTasksByUser returns paginated tasks owned by the given user, narrowed by
+// filter. The zero filter lists active tasks; Archived=true lists the archived
+// history/restore set. Empty filter strings match all rows.
+func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID string, filter TaskFilter, limit, offset int64) ([]sqlc.AgentTask, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	var arch any
-	if archived {
+	if filter.Archived {
 		arch = int64(1)
 	}
 	return f.q.ListAgentTasksByUser(ctx, sqlc.ListAgentTasksByUserParams{
 		UserID:    userID,
 		Archived:  arch,
-		AgentID:   nilIfEmpty(agentID),
-		ProjectID: nilIfEmpty(projectID),
-		Status:    nilIfEmpty(status),
+		AgentID:   nilIfEmpty(filter.AgentID),
+		ProjectID: nilIfEmpty(filter.ProjectID),
+		Status:    nilIfEmpty(filter.Status),
 		Limit:     limit,
 		Offset:    offset,
 	})

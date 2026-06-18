@@ -138,7 +138,12 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 	if params.Archived != nil {
 		archived = *params.Archived
 	}
-	rows, err := s.tasksSvc.Facade.ListTasksByUser(r.Context(), info.UserID, agentID, projectID, status, archived, int64(limit+1), int64(offset))
+	rows, err := s.tasksSvc.Facade.ListTasksByUser(r.Context(), info.UserID, tasks.TaskFilter{
+		AgentID:   agentID,
+		ProjectID: projectID,
+		Status:    status,
+		Archived:  archived,
+	}, int64(limit+1), int64(offset))
 	if err != nil {
 		s.taskError(w, err)
 		return
