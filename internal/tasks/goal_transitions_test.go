@@ -572,3 +572,32 @@ func TestUnarchiveTask_ParentGoalArchived_Rejects(t *testing.T) {
 		t.Fatalf("child not restored by goal unarchive")
 	}
 }
+
+// CR-023: a draft child still counts as required_pending in the rollup, so
+// individually archiving one under a live goal would wedge the goal forever.
+func TestArchiveTask_DraftChildOfRunningGoal_Rejected(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusRunning, ReviewPolicyNone)
+	cid := h.createChildTask(t, gid, StatusDraft)
+	if err := f.ArchiveTask(context.Background(), cid, SystemActor()); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("archive draft child of running goal: want ErrInvalidTransition, got %v", err)
+	}
+	if h.getTask(t, cid).ArchivedAt.Valid {
+		t.Fatalf("child archived despite live parent goal")
+	}
+}
+
+// A child of a terminal goal carries no rollup risk and stays individually archivable.
+func TestArchiveTask_ChildOfTerminalGoal_Allowed(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	cid := h.createChildTask(t, gid, StatusDone)
+	if err := f.ArchiveTask(context.Background(), cid, SystemActor()); err != nil {
+		t.Fatalf("archive child of terminal goal: %v", err)
+	}
+	if !h.getTask(t, cid).ArchivedAt.Valid {
+		t.Fatalf("child not archived")
+	}
+}

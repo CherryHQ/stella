@@ -342,7 +342,31 @@ func (f *ServiceFacade) WaiveDep(ctx context.Context, taskID, depTaskID, userID,
 // Re-archiving an already-archived task is a no-op (idempotent), matching HTTP DELETE semantics.
 func (f *ServiceFacade) ArchiveTask(ctx context.Context, taskID string, actor Actor) error {
 	return f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
-		_, err := f.archiveTaskTx(ctx, q, taskID, "", `{"mode":"archive"}`, actor)
+		t, err := q.GetAgentTask(ctx, taskID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrTaskNotFound
+			}
+			return err
+		}
+		if t.ArchivedAt.Valid {
+			return nil
+		}
+		// Individually archiving a goal child while its parent goal is still live
+		// would strand the goal: a draft child stays counted as required_pending
+		// in the rollup (GoalChildCounts ignores archived_at), so hiding it wedges
+		// the goal in 'running' with an invisible blocker. Children are cleared by
+		// archiving the whole goal (which cascades) once it is terminal/archived.
+		if t.GoalID.Valid {
+			goal, err := q.GetAgentGoal(ctx, t.GoalID.String)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if err == nil && !goal.ArchivedAt.Valid && !isTerminalGoalStatus(goal.Status) {
+				return ErrInvalidTransition
+			}
+		}
+		_, err = f.archiveTaskTx(ctx, q, taskID, "", `{"mode":"archive"}`, actor)
 		return err
 	})
 }
