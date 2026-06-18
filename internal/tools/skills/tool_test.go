@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
+	coreskills "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -495,6 +496,87 @@ func TestLoadWithPath(t *testing.T) {
 	}
 	if !strings.Contains(result, "# API Reference") {
 		t.Errorf("expected file content in result, got %q", result)
+	}
+}
+
+func TestLoadMaterializesDBSkillDir(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	skillID, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "system_agent",
+		AgentID:     agentID,
+		Name:        "agent-db-skill",
+		Description: "DB-backed agent skill",
+		Status:      "active",
+	}, map[string]string{
+		pkgplugins.SkillMainFile: "# Agent DB Skill",
+		"scripts/run.sh":         "#!/bin/sh\necho ok\n",
+	})
+	if err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	agentBase := t.TempDir()
+	tool := NewTool(store, "", "").WithSkillDiskLayout(coreskills.SkillDiskLayout{Agent: agentBase})
+	result, err := tool.load(ctx, map[string]any{"name": "agent-db-skill"})
+	if err != nil {
+		t.Fatalf("load skill: %v", err)
+	}
+	wantDir := filepath.Join(agentBase, "agent-db-skill")
+	if !strings.Contains(result, "<skill_dir>"+wantDir+"</skill_dir>") {
+		t.Fatalf("skill_dir not emitted for materialized dir: %q", result)
+	}
+	if got, err := os.ReadFile(filepath.Join(wantDir, "scripts", "run.sh")); err != nil || string(got) != "#!/bin/sh\necho ok\n" {
+		t.Fatalf("materialized script = %q, %v", got, err)
+	}
+
+	stale := filepath.Join(wantDir, "stale.md")
+	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+	if err := tool.materializeDBSkill(ctx, "", ""); err != nil {
+		t.Fatalf("empty materialize should be a no-op: %v", err)
+	}
+	if err := tool.materializeDBSkill(ctx, skillID, wantDir); err != nil {
+		t.Fatalf("materialize skill: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale file exists after materialize: %v", err)
+	}
+}
+
+func TestLoadOmitsSkillDirWhenMaterializeFails(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	_, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "system_agent",
+		AgentID:     agentID,
+		Name:        "unwritable-skill",
+		Description: "DB-backed agent skill",
+		Status:      "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# Still Loads"})
+	if err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	agentBase := t.TempDir()
+	blockingFile := filepath.Join(agentBase, "unwritable-skill")
+	if err := os.WriteFile(blockingFile, []byte("not a dir"), 0o644); err != nil {
+		t.Fatalf("write blocking file: %v", err)
+	}
+
+	tool := NewTool(store, "", "").WithSkillDiskLayout(coreskills.SkillDiskLayout{Agent: agentBase})
+	result, err := tool.load(ctx, map[string]any{"name": "unwritable-skill"})
+	if err != nil {
+		t.Fatalf("load should return DB content when materialization fails: %v", err)
+	}
+	if strings.Contains(result, "<skill_dir>") {
+		t.Fatalf("unexpected skill_dir when materialization fails: %q", result)
+	}
+	if !strings.Contains(result, "# Still Loads") {
+		t.Fatalf("missing DB skill content: %q", result)
 	}
 }
 
