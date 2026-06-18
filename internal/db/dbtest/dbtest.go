@@ -84,7 +84,10 @@ func New(t *testing.T) *sql.DB {
 		t.Fatalf("dbtest: create %s: %v", name, err)
 	}
 
-	db, err := sql.Open("pgx", server.DSNFor(name))
+	// Open through OpenDB so the test handle is configured exactly like the
+	// server's: same pool policy and FTS guarantees. The clone is already
+	// migrated, so OpenDB's migrate step is a no-op.
+	db, err := appdb.OpenDB(server.DSNFor(name))
 	if err != nil {
 		t.Fatalf("dbtest: open %s: %v", name, err)
 	}

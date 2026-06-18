@@ -3,6 +3,8 @@ package db
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
@@ -14,8 +16,9 @@ import (
 // user home, then started on demand. Start it, open the DSN with OpenDB, and
 // Stop it on shutdown.
 type Embedded struct {
-	pg   *embeddedpostgres.EmbeddedPostgres
-	port uint32
+	pg     *embeddedpostgres.EmbeddedPostgres
+	port   uint32
+	tmpDir string // per-instance scratch dir to remove on Stop (ephemeral mode only)
 }
 
 // StartEmbedded boots a PostgreSQL server on the given TCP port and returns a
@@ -38,16 +41,32 @@ func StartEmbedded(dataDir string, port uint32) (*Embedded, error) {
 		Database("stella").
 		Port(port).
 		StartTimeout(45 * time.Second)
+
+	var tmpDir string
 	if dataDir != "" {
 		cfg = cfg.DataPath(dataDir)
+	} else {
+		// Ephemeral mode: give each instance its own extraction and data dirs so
+		// parallel test binaries never share a runtime path (racing the binary
+		// extraction) or a cluster directory. The downloaded archive (BinariesPath)
+		// stays the shared default cache, so only the cheap extraction repeats.
+		d, err := os.MkdirTemp("", "stella-pg-")
+		if err != nil {
+			return nil, fmt.Errorf("db: embedded postgres scratch dir: %w", err)
+		}
+		tmpDir = d
+		cfg = cfg.RuntimePath(filepath.Join(d, "runtime")).DataPath(filepath.Join(d, "data"))
 	}
 
 	pg := embeddedpostgres.NewDatabase(cfg)
 	if err := pg.Start(); err != nil {
+		if tmpDir != "" {
+			_ = os.RemoveAll(tmpDir)
+		}
 		return nil, fmt.Errorf("db: start embedded postgres: %w", err)
 	}
 
-	return &Embedded{pg: pg, port: port}, nil
+	return &Embedded{pg: pg, port: port, tmpDir: tmpDir}, nil
 }
 
 // DSN returns the libpq connection string for the server's default "stella"
@@ -64,8 +83,12 @@ func (e *Embedded) DSNFor(database string) string {
 // Stop shuts the server down. It is safe to call once; a stopped server cannot
 // be restarted (create a new one with StartEmbedded).
 func (e *Embedded) Stop() error {
-	if err := e.pg.Stop(); err != nil {
-		return fmt.Errorf("db: stop embedded postgres: %w", err)
+	stopErr := e.pg.Stop()
+	if e.tmpDir != "" {
+		_ = os.RemoveAll(e.tmpDir)
+	}
+	if stopErr != nil {
+		return fmt.Errorf("db: stop embedded postgres: %w", stopErr)
 	}
 	return nil
 }
