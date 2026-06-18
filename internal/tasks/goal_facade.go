@@ -31,6 +31,45 @@ type CreateGoalInput struct {
 	PlanMode     string // direct | deferred; "" => direct
 }
 
+// normalize applies defaults in place and validates the resolved fields,
+// leaving CreateGoal's body to the durable orchestration. ProjectID ownership
+// is checked separately because it needs the store.
+func (in *CreateGoalInput) normalize() error {
+	if in.UserID == "" || in.Title == "" {
+		return fmt.Errorf("CreateGoal: user_id and title are required")
+	}
+	if in.AgentID == "" {
+		return fmt.Errorf("%w: agent_id is required", ErrInvalidTaskContext)
+	}
+	if in.Priority == "" {
+		in.Priority = PriorityRoutine
+	}
+	if !validPriority(in.Priority) {
+		return fmt.Errorf("CreateGoal: invalid priority %q", in.Priority)
+	}
+	if in.ReviewPolicy == "" {
+		in.ReviewPolicy = ReviewPolicyNone
+	}
+	if !validReviewPolicy(in.ReviewPolicy) {
+		return fmt.Errorf("CreateGoal: invalid review_policy %q", in.ReviewPolicy)
+	}
+	// Goal-level review (auto/agent/human) needs the synthesizer/goal-review
+	// runtime, which is not wired in this build. Only 'none' is supported.
+	if in.ReviewPolicy != ReviewPolicyNone {
+		return fmt.Errorf("%w: goal review_policy %q (only 'none' is supported)", ErrUnsupportedReviewPolicy, in.ReviewPolicy)
+	}
+	if in.Context == "" {
+		in.Context = "{}"
+	}
+	if in.PlanMode == "" {
+		in.PlanMode = PlanModeDirect
+	}
+	if in.PlanMode != PlanModeDirect && in.PlanMode != PlanModeDeferred {
+		return fmt.Errorf("%w: %q (use 'direct' or 'deferred')", ErrInvalidPlanMode, in.PlanMode)
+	}
+	return nil
+}
+
 // CreateGoal inserts an agent_goal row, then seeds its plan per PlanMode (#525).
 // "direct" (the default) auto-creates+accepts+materializes a one-task direct
 // plan and leaves the goal in 'planned', ready to activate. "deferred" leaves
@@ -38,40 +77,8 @@ type CreateGoalInput struct {
 // via CreateGoalPlan before activating. Work tasks are never hand-attached: they
 // come only from a materialized plan (the CreateTask goal_id backdoor is shut).
 func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sqlc.AgentGoal, error) {
-	if in.UserID == "" || in.Title == "" {
-		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: user_id and title are required")
-	}
-	if in.AgentID == "" {
-		return sqlc.AgentGoal{}, fmt.Errorf("%w: agent_id is required", ErrInvalidTaskContext)
-	}
-	priority := in.Priority
-	if priority == "" {
-		priority = PriorityRoutine
-	}
-	if !validPriority(priority) {
-		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: invalid priority %q", priority)
-	}
-	policy := in.ReviewPolicy
-	if policy == "" {
-		policy = ReviewPolicyNone
-	}
-	if !validReviewPolicy(policy) {
-		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: invalid review_policy %q", policy)
-	}
-	// Goal-level review (auto/agent/human) needs the synthesizer/goal-review
-	// runtime, which is not wired in this build. Only 'none' is supported.
-	if policy != ReviewPolicyNone {
-		return sqlc.AgentGoal{}, fmt.Errorf("%w: goal review_policy %q (only 'none' is supported)", ErrUnsupportedReviewPolicy, policy)
-	}
-	if in.Context == "" {
-		in.Context = "{}"
-	}
-	planMode := in.PlanMode
-	if planMode == "" {
-		planMode = PlanModeDirect
-	}
-	if planMode != PlanModeDirect && planMode != PlanModeDeferred {
-		return sqlc.AgentGoal{}, fmt.Errorf("%w: %q (use 'direct' or 'deferred')", ErrInvalidPlanMode, planMode)
+	if err := in.normalize(); err != nil {
+		return sqlc.AgentGoal{}, err
 	}
 	if in.ProjectID != "" {
 		project, err := f.q.GetProject(ctx, sqlc.GetProjectParams{ID: in.ProjectID, UserID: in.UserID})
@@ -94,14 +101,14 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 		Title:        in.Title,
 		Description:  in.Description,
 		Status:       GoalStatusDraft,
-		Priority:     priority,
-		ReviewPolicy: policy,
+		Priority:     in.Priority,
+		ReviewPolicy: in.ReviewPolicy,
 		Context:      in.Context,
 		Output:       "{}",
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	if planMode == PlanModeDeferred {
+	if in.PlanMode == PlanModeDeferred {
 		return f.q.CreateAgentGoal(ctx, goalParams)
 	}
 	// Direct: insert goal + plan + task in one tx, so a failed materialize never
@@ -111,7 +118,7 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 	previewGoal := sqlc.AgentGoal{
 		ID: goalParams.ID, UserID: in.UserID, AgentID: in.AgentID,
 		ProjectID: goalParams.ProjectID, Title: in.Title, Description: in.Description,
-		Priority: priority,
+		Priority: in.Priority,
 	}
 	raw, err := buildDirectPlanContent(previewGoal)
 	if err != nil {
@@ -171,10 +178,6 @@ func (filter GoalFilter) params(userID string, limit, offset int64) sqlc.ListAge
 			terminal = int64(0)
 		}
 	}
-	var search any
-	if filter.Search != "" {
-		search = filter.Search
-	}
 	return sqlc.ListAgentGoalsByUserParams{
 		UserID:    userID,
 		Archived:  archived,
@@ -182,7 +185,7 @@ func (filter GoalFilter) params(userID string, limit, offset int64) sqlc.ListAge
 		ProjectID: nilIfEmpty(filter.ProjectID),
 		Status:    nilIfEmpty(filter.Status),
 		Terminal:  terminal,
-		Search:    search,
+		Search:    nilIfEmpty(filter.Search),
 		Limit:     limit,
 		Offset:    offset,
 	}
