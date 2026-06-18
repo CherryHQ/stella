@@ -8,8 +8,8 @@ import (
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	"github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 const streamEditInterval = time.Second

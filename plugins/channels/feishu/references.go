@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/renderrefs"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 // maxRenderedRefs caps how many reference cards a single reply renders, so a

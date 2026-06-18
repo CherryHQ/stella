@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 // Internal constants matching the DB schema.
@@ -180,11 +180,14 @@ func assistantMessageToRows(m ai.AssistantMessage) []storageRow {
 }
 
 func toolResultToRows(m ai.ToolResultMessage) []storageRow {
-	text := ai.FlattenText(m.Content)
-	// Lift any renderable-reference sentinels out of the tool output once, at
-	// ingest: the cleaned text is what the model and user see; the references
-	// ride along on the envelope so the chat can render cards by entity id.
-	text, refs := renderrefs.Extract(text)
+	// Runner is the single extraction chokepoint, so the common path arrives with
+	// references already on the message and a clean body; scrubRenderableRefs is a
+	// no-op there. The fallback only fires for a legacy/direct tool result that
+	// reached memory with a raw sentinel still in some text block — per block, so
+	// the cleaning also covers the image path's Blocks below, not just the text.
+	content, fallbackRefs := scrubRenderableRefs(m.Content)
+	refs := mergeReferences(m.References, fallbackRefs)
+	text := ai.FlattenText(content)
 	resultJSON, _ := json.Marshal(text)
 	var errStr string
 	if m.IsError {
@@ -197,8 +200,8 @@ func toolResultToRows(m ai.ToolResultMessage) []storageRow {
 		Error:      errStr,
 		References: refs,
 	}
-	if ai.HasImage(m.Content) {
-		envelope.Blocks = contentBlocksToJSON(m.Content)
+	if ai.HasImage(content) {
+		envelope.Blocks = contentBlocksToJSON(content)
 	}
 	data, _ := json.Marshal(envelope)
 	return []storageRow{{role: roleTool, eventType: eventTypeToolResult, content: string(data)}}
@@ -210,6 +213,58 @@ type contentBlockJSON struct {
 	Text     string `json:"text,omitempty"`
 	Data     string `json:"data,omitempty"`
 	MimeType string `json:"mime_type,omitempty"`
+}
+
+// scrubRenderableRefs lifts renderable-reference sentinels out of every text
+// block, returning the cleaned blocks plus the references found. It extracts per
+// block (not over the space-joined flatten) so a sentinel in any block — not just
+// the first — is recovered, and so the cleaned blocks can back both the text body
+// and the persisted image Blocks. Blocks are copied lazily, so the common already-
+// clean path returns the input slice untouched.
+func scrubRenderableRefs(blocks []ai.ContentBlock) ([]ai.ContentBlock, []renderrefs.Reference) {
+	var refs []renderrefs.Reference
+	out := blocks
+	copied := false
+	for i, b := range blocks {
+		tc, ok := b.(ai.TextContent)
+		if !ok {
+			continue
+		}
+		clean, extracted := renderrefs.Extract(tc.Text)
+		if clean == tc.Text && len(extracted) == 0 {
+			continue
+		}
+		if !copied {
+			out = append([]ai.ContentBlock(nil), blocks...)
+			copied = true
+		}
+		tc.Text = clean
+		out[i] = tc
+		refs = append(refs, extracted...)
+	}
+	return out, refs
+}
+
+// mergeReferences appends src onto dst, skipping references already present by
+// (type, id), so a sentinel that survives in both the envelope and the raw text
+// is not double-counted.
+func mergeReferences(dst, src []renderrefs.Reference) []renderrefs.Reference {
+	if len(src) == 0 {
+		return dst
+	}
+	seen := make(map[[2]string]struct{}, len(dst)+len(src))
+	for _, r := range dst {
+		seen[[2]string{r.Type, r.ID}] = struct{}{}
+	}
+	for _, r := range src {
+		key := [2]string{r.Type, r.ID}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		dst = append(dst, r)
+	}
+	return dst
 }
 
 func contentBlocksToJSON(blocks []ai.ContentBlock) []contentBlockJSON {
@@ -359,6 +414,7 @@ func rowToToolResult(msg sqlc.CtxMessage) ai.ToolResultMessage {
 		ToolName:   env.Tool,
 		Content:    content,
 		IsError:    env.Error != "",
+		References: env.References,
 	}
 }
 

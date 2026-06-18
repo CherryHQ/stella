@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -336,8 +336,13 @@ func TestConvertLoopEventStripsRenderableReferences(t *testing.T) {
 	if strings.Contains(events[0].ToolUse.Content, "::stella-ref/v1::") {
 		t.Fatalf("tool content leaked sentinel: %q", events[0].ToolUse.Content)
 	}
-	if len(events[0].References) != 1 || events[0].References[0].ID != "task-1" {
-		t.Fatalf("references = %#v", events[0].References)
+	// References live only on the tool event now; the event-level field is fanned
+	// out later by the coordinator, not set here.
+	if events[0].References != nil {
+		t.Fatalf("event-level references should be unset, got %#v", events[0].References)
+	}
+	if len(events[0].ToolUse.References) != 1 || events[0].ToolUse.References[0].ID != "task-1" {
+		t.Fatalf("tool references = %#v", events[0].ToolUse.References)
 	}
 
 	// The persisted tool result must be stripped too, or a replay would feed the
@@ -350,5 +355,8 @@ func TestConvertLoopEventStripsRenderableReferences(t *testing.T) {
 		if tc, ok := block.(ai.TextContent); ok && strings.Contains(tc.Text, "::stella-ref/v1::") {
 			t.Fatalf("stored result leaked sentinel: %q", tc.Text)
 		}
+	}
+	if len(stored.References) != 1 || stored.References[0].ID != "task-1" {
+		t.Fatalf("stored references = %#v", stored.References)
 	}
 }

@@ -494,13 +494,20 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 	}
 	if evt.ToolUse != nil {
 		out.ToolUse = &pkgchannel.ToolUseEvent{
-			ID:        evt.ToolUse.ID,
-			Tool:      evt.ToolUse.Tool,
-			Status:    evt.ToolUse.Status,
-			Input:     evt.ToolUse.Input,
-			Arguments: evt.ToolUse.Arguments,
-			Detail:    evt.ToolUse.Detail,
-			Content:   evt.ToolUse.Content,
+			ID:         evt.ToolUse.ID,
+			Tool:       evt.ToolUse.Tool,
+			Status:     evt.ToolUse.Status,
+			Input:      evt.ToolUse.Input,
+			Arguments:  evt.ToolUse.Arguments,
+			Detail:     evt.ToolUse.Detail,
+			Content:    evt.ToolUse.Content,
+			References: evt.ToolUse.References,
+		}
+		// Fan the tool's references out to the event-level field so channel
+		// consumers that read Event.References (e.g. Feishu) still receive them
+		// without the runner having to set the same slice twice.
+		if len(evt.ToolUse.References) > 0 {
+			out.References = evt.ToolUse.References
 		}
 	}
 	return out

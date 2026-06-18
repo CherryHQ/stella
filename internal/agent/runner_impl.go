@@ -13,13 +13,13 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 	"github.com/CherryHQ/stella/resources"
@@ -524,6 +524,10 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 		if e.Result.IsError {
 			status = "error"
 		}
+		// Tool results carry a single text block today, so the first one is the
+		// whole body. If a producer ever emits multiple text blocks, a sentinel in
+		// a later block is missed here — LCM's per-block scrub at ingest is the
+		// backstop that still keeps it out of the persisted/replayed text.
 		var fullText string
 		for _, block := range e.Result.Content {
 			if tc, ok := block.(ai.TextContent); ok {
@@ -540,14 +544,19 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 		if cleanText != fullText {
 			stored = cleanToolResult(e.Result, cleanText)
 		}
+		stored.References = refs
+		// References live on the tool event as the single source of truth. The Web
+		// SSE path reads them here; channel consumers (e.g. Feishu) read the event-
+		// level field, which the coordinator fans out from ToolUse.References.
 		return []Event{
 			{ToolUse: &ToolUseEvent{
-				ID:      e.Result.ToolCallID,
-				Tool:    e.Result.ToolName,
-				Status:  status,
-				Detail:  summarizeToolResult(stored),
-				Content: cleanText,
-			}, References: refs},
+				ID:         e.Result.ToolCallID,
+				Tool:       e.Result.ToolName,
+				Status:     status,
+				Detail:     summarizeToolResult(stored),
+				Content:    cleanText,
+				References: refs,
+			}},
 			{Store: stored},
 		}
 

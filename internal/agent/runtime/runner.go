@@ -10,22 +10,23 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // ToolUseEvent describes a tool invocation in progress or completed.
 type ToolUseEvent struct {
-	ID        string
-	Tool      string
-	Status    string
-	Input     string
-	Arguments map[string]any
-	Detail    string
-	Content   string
+	ID         string
+	Tool       string
+	Status     string
+	Input      string
+	Arguments  map[string]any
+	Detail     string
+	Content    string
+	References []renderrefs.Reference
 }
 
 // StepEvent marks the boundary of an agentic step.

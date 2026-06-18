@@ -10,7 +10,7 @@ import (
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/cli"
-	"github.com/CherryHQ/stella/internal/renderrefs"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 func taskAgentID(_ *ucli.Context) (string, error) {
