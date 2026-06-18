@@ -10,6 +10,13 @@ description: >
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
   Also triggers when the user wants to report a bug or file a GitHub issue about stella:
   "report this bug", "create an issue for this", "报告这个 issue", "帮我建个 issue".
+  Read this BEFORE creating, planning, or managing any background task or goal — not only
+  when asked how stella works, but whenever you are about to act: "create a task", "run this
+  in the background", "make a goal", "plan a multi-step goal", "break this into subtasks",
+  "set up a task plan", "add a dependency", "materialize the plan", "review/approve a task",
+  "schedule a task", "创建任务", "建个任务", "后台跑", "创建目标", "拆解成子任务", "多步计划",
+  "制定计划", "物化计划", "加依赖", "审批任务". Read references/tasks.md before authoring a
+  goal plan so you use the correct plan_mode and plan JSON shape instead of guessing.
 ---
 
 # Stella Self-Knowledge
