@@ -101,7 +101,13 @@ export function GoalsPage() {
     [agentId, navigate, rawSearch],
   );
   const setView = useCallback((v: GoalsView) => patch({ view: v }), [patch]);
-  const setMode = useCallback((m: GoalsMode) => patch({ mode: m, page: 1 }), [patch]);
+  // Each mode exposes a different status set (active vs terminal), so a status
+  // carried over from the previous mode would filter against values the new
+  // mode can never contain — a fake-empty list. Clear it on switch (CR-020).
+  const setMode = useCallback(
+    (m: GoalsMode) => patch({ mode: m, page: 1, status: undefined }),
+    [patch],
+  );
   const openGoal = (g: ComponentsGoal) =>
     void navigate({
       to: "/agents/$agentId/tasks/goals/$goalId",
