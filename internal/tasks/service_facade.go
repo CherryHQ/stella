@@ -171,6 +171,12 @@ func (f *ServiceFacade) resolveTaskContext(ctx context.Context, in CreateTaskInp
 		if goal.UserID != in.UserID {
 			return "", "", ErrGoalNotFound
 		}
+		// An archived goal is inert: it must not accept new child tasks, or a
+		// task created under it would be dispatchable while the goal stays
+		// hidden — reviving archived work. Unarchive the goal first (CR-017).
+		if goal.ArchivedAt.Valid {
+			return "", "", fmt.Errorf("%w: goal is archived and accepts no new tasks", ErrInvalidTaskContext)
+		}
 		// A failed goal is recoverable by rollup, but only by reopening or
 		// completing its existing children — not by attaching new work. Keep it
 		// terminal for task creation so a goal cannot sit failed while accepting
@@ -354,6 +360,19 @@ func (f *ServiceFacade) UnarchiveTask(ctx context.Context, taskID string, actor 
 		}
 		if !t.ArchivedAt.Valid {
 			return nil
+		}
+		// Restoring a child while its goal is still archived would resurrect the
+		// task under a hidden parent — an inert goal must stay fully inert. Make
+		// the user unarchive the goal first, which cascades the child back
+		// (CR-018).
+		if t.GoalID.Valid {
+			goal, err := q.GetAgentGoal(ctx, t.GoalID.String)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if err == nil && goal.ArchivedAt.Valid {
+				return ErrInvalidTransition
+			}
 		}
 		now := time.Now().UTC().Format(time.RFC3339Nano)
 		n, err := q.UnarchiveAgentTask(ctx, sqlc.UnarchiveAgentTaskParams{UpdatedAt: now, ID: taskID})

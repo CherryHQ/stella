@@ -530,3 +530,45 @@ func TestGoalEvents_RecordTransitions(t *testing.T) {
 		t.Fatalf("no goal events recorded")
 	}
 }
+
+// CR-017: an archived (draft) goal must not accept new child tasks, or the task
+// would be dispatchable while the goal stays hidden.
+func TestCreateTask_ArchivedGoal_Rejects(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDraft, ReviewPolicyNone)
+	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("ArchiveGoal: %v", err)
+	}
+	_, err := f.CreateTask(context.Background(), CreateTaskInput{
+		UserID: h.userID, AgentID: h.agentID, GoalID: gid, Title: "new work",
+	})
+	if !errors.Is(err, ErrInvalidTaskContext) {
+		t.Fatalf("CreateTask under archived goal: want ErrInvalidTaskContext, got %v", err)
+	}
+}
+
+// CR-018: restoring a child directly must not resurrect it under a still-archived
+// parent goal; unarchiving the goal is the supported restore path.
+func TestUnarchiveTask_ParentGoalArchived_Rejects(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	tid := h.createChildTask(t, gid, StatusDone)
+	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("ArchiveGoal: %v", err)
+	}
+	if err := f.UnarchiveTask(context.Background(), tid, SystemActor()); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("UnarchiveTask under archived goal: want ErrInvalidTransition, got %v", err)
+	}
+	if !h.getTask(t, tid).ArchivedAt.Valid {
+		t.Fatalf("child was unarchived despite archived parent")
+	}
+	// The supported path restores both.
+	if err := f.UnarchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("UnarchiveGoal: %v", err)
+	}
+	if h.getTask(t, tid).ArchivedAt.Valid {
+		t.Fatalf("child not restored by goal unarchive")
+	}
+}
