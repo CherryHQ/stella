@@ -110,8 +110,9 @@ items）仍需 planner runtime，尚未接入——plan 内容由你编写。
 `agent_goal_plan` 行。系统在创建 goal 时一步完成：自动编写一个单项 plan（item 标题取自 goal、
 `role=direct`）、无 review 直接接受（`review_policy=none`）、并物化它。那个以 goal 命名的单个
 child task **就是**这个 plan 的物化产物，不是手动挂上去的 task。只有当你想自己编写多步 plan 时才用
-`deferred`。这个 plan 真实存在、可通过 `GET /api/goals/{id}/plan` 读取，但 Web UI 目前还没有
-plan 视图，所以 direct goal 看起来像"直接建了个任务"。
+`deferred`。这个 plan 真实存在、可通过 `GET /api/goals/{id}/plan` 读取，Web UI 的 goal 详情页也会在
+任务图上方以 **计划** 区块渲染它（每个 item 含 role、依赖和验收标准），因此 direct goal 的单项 plan
+同样可见。
 
 ## Review policy 建议
 

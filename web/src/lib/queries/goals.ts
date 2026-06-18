@@ -1,6 +1,11 @@
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
-import { getGoal, getTaskReadiness, listGoals } from "@/lib/api-client";
-import type { ComponentsDep, ComponentsGoal, ComponentsTask } from "@/lib/api-client/types.gen";
+import { getGoal, getGoalPlan, getTaskReadiness, listGoals } from "@/lib/api-client";
+import type {
+  ComponentsDep,
+  ComponentsGoal,
+  ComponentsGoalPlan,
+  ComponentsTask,
+} from "@/lib/api-client/types.gen";
 import {
   fetchAllGoalTasks,
   fetchAllGoals,
@@ -114,6 +119,23 @@ export function goalOptions(goalId: string) {
         throwOnError: true,
       });
       return data as ComponentsGoal;
+    },
+    enabled: !!goalId,
+  });
+}
+
+// goalPlanOptions fetches the goal's plan. A goal has no plan only while a
+// deferred goal sits in `draft` before its first PUT — the server answers 404
+// there, which we map to null rather than an error so the UI just hides the
+// plan section.
+export function goalPlanOptions(goalId: string) {
+  return queryOptions({
+    queryKey: ["goal-plan", goalId],
+    queryFn: async (): Promise<ComponentsGoalPlan | null> => {
+      const { data, error, response } = await getGoalPlan({ path: { goalId: goalId } });
+      if (response?.status === 404) return null;
+      if (error) throw error;
+      return data ?? null;
     },
     enabled: !!goalId,
   });

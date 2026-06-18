@@ -114,8 +114,9 @@ review (`review_policy=none`), and materializes it in one step inside goal
 creation. The single child task named after the goal **is** that plan's
 materialization — not a hand-attached task. Choose `deferred` only when you want
 to author a multi-step plan yourself. The plan is real and readable via
-`GET /api/goals/{id}/plan`, but the Web UI does not surface a plan view yet, so a
-direct goal looks like it "just made a task."
+`GET /api/goals/{id}/plan`, and the goal detail page in the Web UI renders it as a
+**Plan** section above the task graph (items with role, dependencies, and
+criteria), so a direct goal's single-item plan is visible too.
 
 ## Review policy guidance
 
