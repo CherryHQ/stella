@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { deleteGoal, unarchiveGoal } from "@/lib/api-client";
 import type { ComponentsGoal } from "@/lib/api-client/types.gen";
-import { goalsOptions } from "@/lib/queries/goals";
+import { GOALS_PAGE_SIZE, goalCountsOptions, goalsPageOptions } from "@/lib/queries/goals";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { formatTime } from "@/lib/time";
@@ -46,7 +46,6 @@ const ACTIVE_STATUSES: ComponentsGoal["status"][] = [
   "planning",
   "draft",
 ];
-const PAGE_SIZE = 24;
 
 export function GoalsPage() {
   const { t } = useI18n();
@@ -58,87 +57,71 @@ export function GoalsPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
-  const { data: activeGoals = [], isLoading } = useQuery(goalsOptions(agentId));
-  const { data: archivedGoals = [] } = useQuery(goalsOptions(agentId, true));
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<GoalStatusFilter>("all");
-  const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [acting, setActing] = useState(false);
 
+  // URL params are the source of truth for mode, status, search, and page so the
+  // view is shareable and survives refresh/back-forward.
   const cur: GoalsView = VIEWS.includes(view as GoalsView) ? (view as GoalsView) : "triage";
   const mode: GoalsMode =
     modeParam === "history" ? "history" : modeParam === "archived" ? "archived" : "active";
-  const source = mode === "archived" ? archivedGoals : activeGoals;
-  const setView = useCallback(
-    (v: GoalsView) =>
+  const status = ((rawSearch.status as string) || "all") as GoalStatusFilter;
+  const query = (rawSearch.q as string) || "";
+  const page = Math.max(1, Number(rawSearch.page) || 1);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [acting, setActing] = useState(false);
+
+  // Mode maps to the server's archived/terminal filters: active = non-terminal &
+  // not archived, history = terminal & not archived, archived = archived rows.
+  const archived = mode === "archived";
+  const terminal = mode === "active" ? false : mode === "history" ? true : undefined;
+
+  const { data: counts } = useQuery(goalCountsOptions(agentId));
+  const c = counts ?? { active: 0, history: 0, archived: 0 };
+  const { data: pageData, isLoading } = useQuery(
+    goalsPageOptions({
+      agentId,
+      archived,
+      terminal,
+      status: status === "all" ? undefined : status,
+      q: query || undefined,
+      page,
+    }),
+  );
+  const goals = pageData?.goals ?? [];
+  const total = pageData?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / GOALS_PAGE_SIZE));
+
+  const patch = useCallback(
+    (next: Record<string, unknown>, replace = false) =>
       void navigate({
         to: "/agents/$agentId/tasks/goals",
         params: { agentId },
-        search: { ...rawSearch, view: v } as Record<string, unknown>,
+        search: { ...rawSearch, ...next } as Record<string, unknown>,
+        replace,
       }),
     [agentId, navigate, rawSearch],
   );
-  const setMode = useCallback(
-    (m: GoalsMode) =>
-      void navigate({
-        to: "/agents/$agentId/tasks/goals",
-        params: { agentId },
-        search: { ...rawSearch, mode: m } as Record<string, unknown>,
-      }),
-    [agentId, navigate, rawSearch],
-  );
+  const setView = useCallback((v: GoalsView) => patch({ view: v }), [patch]);
+  const setMode = useCallback((m: GoalsMode) => patch({ mode: m, page: 1 }), [patch]);
   const openGoal = (g: ComponentsGoal) =>
     void navigate({
       to: "/agents/$agentId/tasks/goals/$goalId",
       params: { agentId, goalId: g.id },
     });
 
-  const counts = useMemo(() => {
-    const active = activeGoals.filter((g) => !TERMINAL_STATUSES.includes(g.status)).length;
-    const history = activeGoals.length - active;
-    const needs = activeGoals.filter(goalNeedsYou).length;
-    return { active, history, needs, archived: archivedGoals.length };
-  }, [activeGoals, archivedGoals.length]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return source
-      .filter((g) => {
-        if (mode === "active") return !TERMINAL_STATUSES.includes(g.status);
-        if (mode === "history") return TERMINAL_STATUSES.includes(g.status);
-        return true; // archived mode: the server already scoped to archived rows
-      })
-      .filter((g) => status === "all" || g.status === status)
-      .filter((g) => {
-        if (!q) return true;
-        return [g.title, g.description, g.agent_id, g.project_id]
-          .filter(Boolean)
-          .some((part) => String(part).toLowerCase().includes(q));
-      })
-      .sort(byUpdatedDesc);
-  }, [mode, query, status, source]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageGoals = useMemo(() => {
-    const safePage = Math.min(page, totalPages);
-    const start = (safePage - 1) * PAGE_SIZE;
-    return filtered.slice(start, start + PAGE_SIZE);
-  }, [filtered, page, totalPages]);
-
   // History archives the selected terminal goals; the archived view restores them.
-  // Active goals are never bulk-actionable (they are not yet finished).
-  const selectedActionable = useMemo(() => {
-    if (mode === "history")
-      return filtered.filter((g) => selected.has(g.id) && TERMINAL_STATUSES.includes(g.status));
-    if (mode === "archived") return filtered.filter((g) => selected.has(g.id));
-    return [];
-  }, [filtered, selected, mode]);
+  // The server already scopes each mode, so every selected row on the page is
+  // actionable. Active goals are never bulk-actionable (they are not yet finished).
+  const selectedActionable = useMemo(
+    () => (mode === "active" ? [] : goals.filter((g) => selected.has(g.id))),
+    [goals, selected, mode],
+  );
 
-  useEffect(() => setPage(1), [mode, query, status]);
-  useEffect(() => setSelected(new Set()), [mode, query, status]);
-  // Keep the page in range after a bulk action shrinks the result set (CR-010).
-  useEffect(() => setPage((p) => Math.min(Math.max(1, p), totalPages)), [totalPages]);
+  useEffect(() => setSelected(new Set()), [mode, query, status, page]);
+  // Clamp the page after a bulk action (or a filter change) shrinks the result
+  // set so the pager never points past the last page (CR-010).
+  useEffect(() => {
+    if (page > totalPages) patch({ page: totalPages }, true);
+  }, [page, totalPages, patch]);
 
   const runBulk = useCallback(async () => {
     const ids = selectedActionable.map((g) => g.id);
@@ -152,7 +135,11 @@ export function GoalsPage() {
             : deleteGoal({ path: { goalId }, throwOnError: true }),
         ),
       );
-      await qc.invalidateQueries({ queryKey: ["goals"] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["goals-page"] }),
+        qc.invalidateQueries({ queryKey: ["goals-counts"] }),
+        qc.invalidateQueries({ queryKey: ["goals"] }),
+      ]);
       setSelected(new Set());
     } finally {
       setActing(false);
@@ -179,7 +166,7 @@ export function GoalsPage() {
           onClick={() => setMode("active")}
         >
           {t("goals.modeActive")}
-          <span className="font-mono text-xs text-muted-foreground">{counts.active}</span>
+          <span className="font-mono text-xs text-muted-foreground">{c.active}</span>
         </Button>
         <Button
           size="sm"
@@ -189,7 +176,7 @@ export function GoalsPage() {
         >
           <History />
           <span className="max-sm:hidden">{t("goals.modeHistory")}</span>
-          <span className="font-mono text-xs text-muted-foreground">{counts.history}</span>
+          <span className="font-mono text-xs text-muted-foreground">{c.history}</span>
         </Button>
         <Button
           size="sm"
@@ -199,7 +186,7 @@ export function GoalsPage() {
         >
           <Archive />
           <span className="max-sm:hidden">{t("goals.modeArchived")}</span>
-          <span className="font-mono text-xs text-muted-foreground">{counts.archived}</span>
+          <span className="font-mono text-xs text-muted-foreground">{c.archived}</span>
         </Button>
         {VIEWS.map((v) => {
           const Icon = VIEW_ICON[v];
@@ -223,9 +210,9 @@ export function GoalsPage() {
       setHeaderActions(null);
     };
   }, [
-    counts.active,
-    counts.history,
-    counts.archived,
+    c.active,
+    c.history,
+    c.archived,
     cur,
     mode,
     setHeaderActions,
@@ -242,7 +229,7 @@ export function GoalsPage() {
           <div className="flex items-center justify-center py-20">
             <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
           </div>
-        ) : activeGoals.length === 0 && archivedGoals.length === 0 ? (
+        ) : counts && c.active + c.history + c.archived === 0 ? (
           <Empty />
         ) : (
           <div className="mx-auto max-w-[1140px] px-6 py-6">
@@ -250,20 +237,22 @@ export function GoalsPage() {
               query={query}
               status={status}
               mode={mode}
-              total={filtered.length}
+              total={total}
               selectedActionableCount={selectedActionable.length}
               acting={acting}
-              onQueryChange={setQuery}
-              onStatusChange={setStatus}
+              onQueryChange={(value) => patch({ q: value || undefined, page: 1 }, true)}
+              onStatusChange={(value) =>
+                patch({ status: value === "all" ? undefined : value, page: 1 }, true)
+              }
               onBulkAction={runBulk}
             />
-            {filtered.length === 0 ? (
+            {goals.length === 0 ? (
               <FilteredEmpty />
             ) : (
               <>
                 {cur === "triage" && (
                   <Triage
-                    goals={pageGoals}
+                    goals={goals}
                     onOpen={openGoal}
                     selected={selected}
                     onSelect={setSelected}
@@ -271,7 +260,7 @@ export function GoalsPage() {
                 )}
                 {cur === "board" && (
                   <Board
-                    goals={pageGoals}
+                    goals={goals}
                     onOpen={openGoal}
                     selected={selected}
                     onSelect={setSelected}
@@ -279,7 +268,7 @@ export function GoalsPage() {
                 )}
                 {cur === "table" && (
                   <Table
-                    goals={pageGoals}
+                    goals={goals}
                     onOpen={openGoal}
                     selected={selected}
                     onSelect={setSelected}
@@ -288,8 +277,8 @@ export function GoalsPage() {
                 <Pager
                   page={page}
                   totalPages={totalPages}
-                  total={filtered.length}
-                  onPage={setPage}
+                  total={total}
+                  onPage={(p) => patch({ page: p })}
                 />
               </>
             )}

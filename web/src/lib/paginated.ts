@@ -20,6 +20,15 @@ import type {
 } from "@/lib/api-client/types.gen";
 import type { Message } from "@/lib/types";
 
+// offsetPageToken mirrors the server's AIP-158 offset token (encodeOffsetToken
+// in internal/server/response.go: base64url of the decimal row offset). It lets
+// a numbered pager jump straight to any page without walking cursor tokens.
+// Offset 0 returns "" so the caller omits page_token and starts at the first page.
+export function offsetPageToken(offset: number): string {
+  if (offset <= 0) return "";
+  return btoa(String(offset)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 export async function fetchAllTasks(
   agentId?: string,
   projectId?: string,
