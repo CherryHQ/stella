@@ -56,15 +56,12 @@ func DBPath() string {
 	return filepath.Join(StellaHome(), "stella.db")
 }
 
-// DatabaseURL returns the PostgreSQL connection string the server opens.
-// Priority: STELLA_DATABASE_URL env -> a local default.
-// TODO(Phase 6): when unset, start the managed embedded PostgreSQL runtime and
-// return its DSN instead of this localhost default.
+// DatabaseURL returns an explicitly configured PostgreSQL DSN from
+// STELLA_DATABASE_URL, or "" when none is set. An empty result tells the server
+// to start and manage its own embedded PostgreSQL — the zero-config default, so
+// a fresh install needs no database to be installed or running separately.
 func DatabaseURL() string {
-	if v := os.Getenv("STELLA_DATABASE_URL"); v != "" {
-		return v
-	}
-	return "postgres://localhost:5432/stella?sslmode=disable"
+	return os.Getenv("STELLA_DATABASE_URL")
 }
 
 // ServerURL returns the URL CLI commands should use to talk to the local

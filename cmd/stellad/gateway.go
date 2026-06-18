@@ -109,6 +109,13 @@ func serverAction(c *ucli.Context) error {
 		cancel()
 		s.waitBackgroundTasks()
 		_ = s.poolManager.Close()
+		// Stop the managed PostgreSQL last, once every DB user is done: close the
+		// pool first so the server shuts down without active connections. Only set
+		// in zero-config mode; an external DSN leaves s.embedded nil.
+		if s.embedded != nil {
+			_ = s.db.Close()
+			_ = s.embedded.Stop()
+		}
 	}()
 
 	// Initialize global OTel tracing before any component creates spans.

@@ -60,6 +60,7 @@ the server, or use "stellad service" to manage it as a background service.`,
 type setupResult struct {
 	ctx                      context.Context
 	db                       *sql.DB
+	embedded                 *appdb.Embedded
 	mem                      memory.Provider
 	store                    config.Store
 	pluginHost               *pluginhost.Host
@@ -80,7 +81,28 @@ type setupResult struct {
 }
 
 func setup(parent context.Context, _ bool) (*setupResult, error) {
-	db, err := appdb.OpenDB(config.DatabaseURL())
+	dsn := config.DatabaseURL()
+	var embedded *appdb.Embedded
+	if dsn == "" {
+		// Zero-config default: no external DSN, so run a managed PostgreSQL whose
+		// cluster lives under the stella home and persists across restarts.
+		emb, err := appdb.StartEmbedded(filepath.Join(config.StellaHome(), "postgres"), 0)
+		if err != nil {
+			return nil, fmt.Errorf("start embedded postgres: %w", err)
+		}
+		embedded = emb
+		dsn = emb.DSN()
+	}
+	// Stop the embedded server if setup fails partway. Ownership transfers to the
+	// returned setupResult on the success path (which clears this local), where
+	// shutdown stops it instead.
+	defer func() {
+		if embedded != nil {
+			_ = embedded.Stop()
+		}
+	}()
+
+	db, err := appdb.OpenDB(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -232,9 +254,10 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
 	}
 
-	return &setupResult{
+	result := &setupResult{
 		ctx:                      parent,
 		db:                       db,
+		embedded:                 embedded,
 		mem:                      memProvider,
 		store:                    store,
 		pluginHost:               phost,
@@ -252,7 +275,11 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		cliUserID:                0,
 		oauthRegistry:            ps.oauthRegistry,
 		backgroundTasks:          backgroundTasks,
-	}, nil
+	}
+	// Ownership of the embedded server moves to result; clear the local so the
+	// cleanup defer above becomes a no-op on this success path.
+	embedded = nil
+	return result, nil
 }
 
 func ensureEmbeddedAssets() error {
