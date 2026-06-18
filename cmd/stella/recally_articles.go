@@ -12,7 +12,7 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	"github.com/CherryHQ/stella/internal/cli"
-	"github.com/CherryHQ/stella/internal/renderrefs"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 func recallySaveCommand() *ucli.Command {

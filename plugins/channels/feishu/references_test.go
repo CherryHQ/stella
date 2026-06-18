@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/renderrefs"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 func TestAppendReferenceSectionGroupMinimal(t *testing.T) {

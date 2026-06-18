@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/renderrefs"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 // TextSignatureV1 carries model-generated text signature metadata.

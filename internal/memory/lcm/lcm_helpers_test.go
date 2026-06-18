@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 func TestToInt(t *testing.T) {
@@ -369,6 +369,54 @@ func TestToolResultReferencesRoundTripWithoutSentinel(t *testing.T) {
 	restored := rowToToolResult(sqlc.CtxMessage{Role: roleTool, EventType: eventTypeToolResult, Content: rows[0].content})
 	if len(restored.References) != 1 || restored.References[0].ID != "task-1" {
 		t.Fatalf("restored references = %#v", restored.References)
+	}
+}
+
+func TestToolResultFallbackDedupesReferences(t *testing.T) {
+	// Legacy shape: the envelope already carries the ref AND a raw sentinel still
+	// sits in the text. The fallback must scrub the text without double-counting.
+	sentinel := "::stella-ref/v1::{\"v\":1,\"type\":\"task\",\"id\":\"task-1\"}"
+	rows := toolResultToRows(ai.ToolResultMessage{
+		ToolCallID: "tc1",
+		ToolName:   "bash",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: "created task\n" + sentinel}},
+		References: []renderrefs.Reference{{V: 1, Type: "task", ID: "task-1"}},
+	})
+	var env toolResultEnvelope
+	if err := json.Unmarshal([]byte(rows[0].content), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(env.References) != 1 || env.References[0].ID != "task-1" {
+		t.Fatalf("references should dedupe to one, got %#v", env.References)
+	}
+	if strings.Contains(string(env.Result), "::stella-ref/v1::") {
+		t.Fatalf("result leaked sentinel: %s", env.Result)
+	}
+}
+
+func TestToolResultImageBlocksScrubSentinel(t *testing.T) {
+	// An image result routes replay through Blocks, not Result, so the sentinel
+	// must be stripped from the persisted text block too.
+	sentinel := "::stella-ref/v1::{\"v\":1,\"type\":\"task\",\"id\":\"task-1\"}"
+	rows := toolResultToRows(ai.ToolResultMessage{
+		ToolCallID: "tc1",
+		ToolName:   "bash",
+		Content: []ai.ContentBlock{
+			ai.TextContent{Text: "rendered\n" + sentinel},
+			ai.ImageContent{Data: "AAAA", MimeType: "image/png"},
+		},
+	})
+	var env toolResultEnvelope
+	if err := json.Unmarshal([]byte(rows[0].content), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(env.References) != 1 || env.References[0].ID != "task-1" {
+		t.Fatalf("references = %#v", env.References)
+	}
+	for _, b := range env.Blocks {
+		if strings.Contains(b.Text, "::stella-ref/v1::") {
+			t.Fatalf("image block leaked sentinel: %q", b.Text)
+		}
 	}
 }
 

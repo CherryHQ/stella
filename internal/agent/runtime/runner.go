@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 

@@ -503,6 +503,12 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 			Content:    evt.ToolUse.Content,
 			References: evt.ToolUse.References,
 		}
+		// Fan the tool's references out to the event-level field so channel
+		// consumers that read Event.References (e.g. Feishu) still receive them
+		// without the runner having to set the same slice twice.
+		if len(evt.ToolUse.References) > 0 {
+			out.References = evt.ToolUse.References
+		}
 	}
 	return out
 }

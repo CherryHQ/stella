@@ -8,8 +8,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 // Platform identifiers for each messaging channel.

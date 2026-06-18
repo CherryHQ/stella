@@ -4,15 +4,16 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/renderrefs"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 func TestConvertEventPropagatesReferences(t *testing.T) {
 	refs := []renderrefs.Reference{{V: 1, Type: "goal", ID: "goal-1"}}
+	// The runner sets references only on the tool event; the coordinator fans them
+	// out to the event-level field for channel consumers like Feishu.
 	out := convertEvent(agent.Event{
-		Text:       "done",
-		References: refs,
-		ToolUse:    &agent.ToolUseEvent{ID: "call-1", References: refs},
+		Text:    "done",
+		ToolUse: &agent.ToolUseEvent{ID: "call-1", References: refs},
 	})
 	if out.Text != "done" {
 		t.Fatalf("Text = %q", out.Text)
