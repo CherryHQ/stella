@@ -746,7 +746,18 @@ func (s *TransitionService) addDepInTx(ctx context.Context, q *sqlc.Queries, tas
 	} else if reaches {
 		return ErrCycle
 	}
-	_, err := q.CreateAgentTaskDep(ctx, sqlc.CreateAgentTaskDepParams{
+	// A duplicate edge is a no-op, not a PK error: replan reconcile re-adds the
+	// same edges idempotently (D7), and validation above still runs first.
+	deps, err := q.ListAgentTaskDeps(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	for _, d := range deps {
+		if d.DepTaskID == depTaskID {
+			return nil
+		}
+	}
+	_, err = q.CreateAgentTaskDep(ctx, sqlc.CreateAgentTaskDepParams{
 		TaskID:    taskID,
 		DepTaskID: depTaskID,
 		DepKind:   depKind,

@@ -313,6 +313,65 @@ func (q *Queries) IncrementAgentTaskRetry(ctx context.Context, arg IncrementAgen
 	return err
 }
 
+const listAgentTaskBySourcePlan = `-- name: ListAgentTaskBySourcePlan :many
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, source_plan_id, plan_item_id, detached_at, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task WHERE source_plan_id = ? ORDER BY created_at ASC, id ASC
+`
+
+// ListAgentTaskBySourcePlan returns every task ever materialized from a plan
+// (including detached ones), so reconcile can diff the current plan against them. #525.
+func (q *Queries) ListAgentTaskBySourcePlan(ctx context.Context, sourcePlanID sql.NullString) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentTaskBySourcePlan, sourcePlanID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTask{}
+	for rows.Next() {
+		var i AgentTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.SessionID,
+			&i.GoalID,
+			&i.ProjectID,
+			&i.SourcePlanID,
+			&i.PlanItemID,
+			&i.DetachedAt,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ReviewPolicy,
+			&i.ActiveReviewID,
+			&i.Required,
+			&i.RetryCount,
+			&i.MaxRetries,
+			&i.NotBefore,
+			&i.DeadlineAt,
+			&i.ActiveRunID,
+			&i.ActiveBlockerID,
+			&i.Context,
+			&i.Output,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.CancelledAt,
+			&i.ArchivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgentTasks = `-- name: ListAgentTasks :many
 SELECT id, user_id, agent_id, session_id, goal_id, project_id, source_plan_id, plan_item_id, detached_at, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
@@ -767,6 +826,26 @@ func (q *Queries) SetAgentTaskCancelled(ctx context.Context, arg SetAgentTaskCan
 	return err
 }
 
+const setAgentTaskDetached = `-- name: SetAgentTaskDetached :exec
+UPDATE agent_task
+SET required = 0, detached_at = ?, updated_at = ?
+WHERE id = ?
+`
+
+type SetAgentTaskDetachedParams struct {
+	DetachedAt sql.NullString `json:"detached_at"`
+	UpdatedAt  string         `json:"updated_at"`
+	ID         string         `json:"id"`
+}
+
+// SetAgentTaskDetached marks a removed-with-output plan task as detached: it
+// keeps source_plan_id/plan_item_id (traceability + handoff enforcement) but
+// drops out of rollup's required-child gate via required=0 + detached_at. #525.
+func (q *Queries) SetAgentTaskDetached(ctx context.Context, arg SetAgentTaskDetachedParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentTaskDetached, arg.DetachedAt, arg.UpdatedAt, arg.ID)
+	return err
+}
+
 const setAgentTaskOutput = `-- name: SetAgentTaskOutput :exec
 UPDATE agent_task
 SET output = ?, completed_at = ?, updated_at = ?
@@ -883,4 +962,36 @@ func (q *Queries) UpdateAgentTaskMeta(ctx context.Context, arg UpdateAgentTaskMe
 		arg.ID,
 	)
 	return err
+}
+
+const updateAgentTaskMetaIfPlannable = `-- name: UpdateAgentTaskMetaIfPlannable :execrows
+UPDATE agent_task
+SET title = ?, description = ?, updated_at = ?
+WHERE id = ? AND status IN ('draft', 'ready') AND active_run_id IS NULL
+`
+
+type UpdateAgentTaskMetaIfPlannableParams struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	UpdatedAt   string `json:"updated_at"`
+	ID          string `json:"id"`
+}
+
+// UpdateAgentTaskMetaIfPlannable edits a not-started task's definition during a
+// replan reconcile. The guard closes the claim race (codex BLOCKER 3): the
+// dispatcher can claim a ready task to running between the materializer's read
+// and write, so the update only lands while the task is still draft/ready with no
+// active run. 0 rows affected means it raced to running -> reconcile aborts with
+// ErrPlanItemInFlight. #525.
+func (q *Queries) UpdateAgentTaskMetaIfPlannable(ctx context.Context, arg UpdateAgentTaskMetaIfPlannableParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateAgentTaskMetaIfPlannable,
+		arg.Title,
+		arg.Description,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

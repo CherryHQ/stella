@@ -29,6 +29,11 @@ RETURNING *;
 -- name: GetAgentTask :one
 SELECT * FROM agent_task WHERE id = ?;
 
+-- ListAgentTaskBySourcePlan returns every task ever materialized from a plan
+-- (including detached ones), so reconcile can diff the current plan against them. #525.
+-- name: ListAgentTaskBySourcePlan :many
+SELECT * FROM agent_task WHERE source_plan_id = ? ORDER BY created_at ASC, id ASC;
+
 -- name: ListAgentTasks :many
 SELECT * FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 
@@ -138,6 +143,25 @@ LIMIT ?;
 UPDATE agent_task
 SET title = ?, description = ?, priority = ?, not_before = ?, deadline_at = ?,
     context = ?, updated_at = ?
+WHERE id = ?;
+
+-- UpdateAgentTaskMetaIfPlannable edits a not-started task's definition during a
+-- replan reconcile. The guard closes the claim race (codex BLOCKER 3): the
+-- dispatcher can claim a ready task to running between the materializer's read
+-- and write, so the update only lands while the task is still draft/ready with no
+-- active run. 0 rows affected means it raced to running -> reconcile aborts with
+-- ErrPlanItemInFlight. #525.
+-- name: UpdateAgentTaskMetaIfPlannable :execrows
+UPDATE agent_task
+SET title = ?, description = ?, updated_at = ?
+WHERE id = ? AND status IN ('draft', 'ready') AND active_run_id IS NULL;
+
+-- SetAgentTaskDetached marks a removed-with-output plan task as detached: it
+-- keeps source_plan_id/plan_item_id (traceability + handoff enforcement) but
+-- drops out of rollup's required-child gate via required=0 + detached_at. #525.
+-- name: SetAgentTaskDetached :exec
+UPDATE agent_task
+SET required = 0, detached_at = ?, updated_at = ?
 WHERE id = ?;
 
 -- Transition service uses these. Conditional UPDATE returns affected rows

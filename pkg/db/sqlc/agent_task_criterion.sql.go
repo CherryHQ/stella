@@ -45,6 +45,17 @@ func (q *Queries) CreateAgentTaskCriterion(ctx context.Context, arg CreateAgentT
 	return i, err
 }
 
+const deleteAgentTaskCriteriaByTask = `-- name: DeleteAgentTaskCriteriaByTask :exec
+DELETE FROM agent_task_criterion WHERE task_id = ?
+`
+
+// DeleteAgentTaskCriteriaByTask clears a task's criteria so a replan reconcile
+// can replace them wholesale for a not-started task. #525.
+func (q *Queries) DeleteAgentTaskCriteriaByTask(ctx context.Context, taskID string) error {
+	_, err := q.db.ExecContext(ctx, deleteAgentTaskCriteriaByTask, taskID)
+	return err
+}
+
 const listAgentTaskCriteria = `-- name: ListAgentTaskCriteria :many
 SELECT id, task_id, description, required_flag, position, created_at FROM agent_task_criterion WHERE task_id = ? ORDER BY position
 `

@@ -166,6 +166,13 @@ var (
 
 	// ErrGoalPlanNotFound is returned when a goal has no plan row. #525.
 	ErrGoalPlanNotFound = errors.New("tasks: goal plan not found")
+
+	// ErrPlanItemInFlight is returned by a replan re-materialize when it would
+	// edit the definition of a plan item whose task is already running/done, or
+	// when a not-started task races to running mid-reconcile (constrained replan,
+	// D7a). The whole re-materialize aborts; the user re-plans against the new
+	// state or adds a new item instead of editing the in-flight one. #525.
+	ErrPlanItemInFlight = errors.New("tasks: plan item is in flight")
 )
 
 // IsTerminalStatus reports whether the task status is terminal (no further

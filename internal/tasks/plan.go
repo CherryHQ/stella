@@ -43,6 +43,9 @@ type PlanItem struct {
 	Title string   `json:"title"`
 	Role  string   `json:"role,omitempty"`
 	Deps  []string `json:"deps,omitempty"`
+	// Criteria are the task's acceptance criteria, materialized into
+	// agent_task_criterion rows (optional; order preserved as position).
+	Criteria []string `json:"criteria,omitempty"`
 }
 
 // PlanContent is the parsed form of content_json / pending_content_json.
