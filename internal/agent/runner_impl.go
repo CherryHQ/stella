@@ -540,13 +540,15 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 		if cleanText != fullText {
 			stored = cleanToolResult(e.Result, cleanText)
 		}
+		stored.References = refs
 		return []Event{
 			{ToolUse: &ToolUseEvent{
-				ID:      e.Result.ToolCallID,
-				Tool:    e.Result.ToolName,
-				Status:  status,
-				Detail:  summarizeToolResult(stored),
-				Content: cleanText,
+				ID:         e.Result.ToolCallID,
+				Tool:       e.Result.ToolName,
+				Status:     status,
+				Detail:     summarizeToolResult(stored),
+				Content:    cleanText,
+				References: refs,
 			}, References: refs},
 			{Store: stored},
 		}

@@ -494,13 +494,14 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 	}
 	if evt.ToolUse != nil {
 		out.ToolUse = &pkgchannel.ToolUseEvent{
-			ID:        evt.ToolUse.ID,
-			Tool:      evt.ToolUse.Tool,
-			Status:    evt.ToolUse.Status,
-			Input:     evt.ToolUse.Input,
-			Arguments: evt.ToolUse.Arguments,
-			Detail:    evt.ToolUse.Detail,
-			Content:   evt.ToolUse.Content,
+			ID:         evt.ToolUse.ID,
+			Tool:       evt.ToolUse.Tool,
+			Status:     evt.ToolUse.Status,
+			Input:      evt.ToolUse.Input,
+			Arguments:  evt.ToolUse.Arguments,
+			Detail:     evt.ToolUse.Detail,
+			Content:    evt.ToolUse.Content,
+			References: evt.ToolUse.References,
 		}
 	}
 	return out

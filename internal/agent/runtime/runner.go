@@ -19,13 +19,14 @@ import (
 
 // ToolUseEvent describes a tool invocation in progress or completed.
 type ToolUseEvent struct {
-	ID        string
-	Tool      string
-	Status    string
-	Input     string
-	Arguments map[string]any
-	Detail    string
-	Content   string
+	ID         string
+	Tool       string
+	Status     string
+	Input      string
+	Arguments  map[string]any
+	Detail     string
+	Content    string
+	References []renderrefs.Reference
 }
 
 // StepEvent marks the boundary of an agentic step.

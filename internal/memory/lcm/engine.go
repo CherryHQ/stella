@@ -181,10 +181,17 @@ func assistantMessageToRows(m ai.AssistantMessage) []storageRow {
 
 func toolResultToRows(m ai.ToolResultMessage) []storageRow {
 	text := ai.FlattenText(m.Content)
-	// Lift any renderable-reference sentinels out of the tool output once, at
-	// ingest: the cleaned text is what the model and user see; the references
-	// ride along on the envelope so the chat can render cards by entity id.
-	text, refs := renderrefs.Extract(text)
+	refs := m.References
+	// Runner is the single extraction chokepoint. Keep this fallback to scrub any
+	// legacy/direct tool result that still reaches memory with a sentinel in text.
+	if clean, extracted := renderrefs.Extract(text); clean != text || len(extracted) > 0 {
+		text = clean
+		if len(refs) == 0 {
+			refs = extracted
+		} else if len(extracted) > 0 {
+			refs = append(refs, extracted...)
+		}
+	}
 	resultJSON, _ := json.Marshal(text)
 	var errStr string
 	if m.IsError {
@@ -359,6 +366,7 @@ func rowToToolResult(msg sqlc.CtxMessage) ai.ToolResultMessage {
 		ToolName:   env.Tool,
 		Content:    content,
 		IsError:    env.Error != "",
+		References: env.References,
 	}
 }
 

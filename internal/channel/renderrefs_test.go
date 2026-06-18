@@ -9,11 +9,18 @@ import (
 
 func TestConvertEventPropagatesReferences(t *testing.T) {
 	refs := []renderrefs.Reference{{V: 1, Type: "goal", ID: "goal-1"}}
-	out := convertEvent(agent.Event{Text: "done", References: refs})
+	out := convertEvent(agent.Event{
+		Text:       "done",
+		References: refs,
+		ToolUse:    &agent.ToolUseEvent{ID: "call-1", References: refs},
+	})
 	if out.Text != "done" {
 		t.Fatalf("Text = %q", out.Text)
 	}
 	if len(out.References) != 1 || out.References[0].ID != "goal-1" {
 		t.Fatalf("References = %#v", out.References)
+	}
+	if out.ToolUse == nil || len(out.ToolUse.References) != 1 || out.ToolUse.References[0].ID != "goal-1" {
+		t.Fatalf("ToolUse.References = %#v", out.ToolUse)
 	}
 }

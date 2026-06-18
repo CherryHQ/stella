@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/renderrefs"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -348,6 +349,26 @@ func TestToolResultTextOnlyRoundTrip(t *testing.T) {
 	restored := rowToToolResult(sqlc.CtxMessage{Role: roleTool, EventType: eventTypeToolResult, Content: rows[0].content})
 	if got := ai.FlattenText(restored.Content); got != "output" {
 		t.Errorf("text round-trip = %q, want output", got)
+	}
+}
+
+func TestToolResultReferencesRoundTripWithoutSentinel(t *testing.T) {
+	rows := toolResultToRows(ai.ToolResultMessage{
+		ToolCallID: "tc1",
+		ToolName:   "bash",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: "created task"}},
+		References: []renderrefs.Reference{{V: 1, Type: "task", ID: "task-1"}},
+	})
+	var env toolResultEnvelope
+	if err := json.Unmarshal([]byte(rows[0].content), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(env.References) != 1 || env.References[0].ID != "task-1" {
+		t.Fatalf("stored references = %#v", env.References)
+	}
+	restored := rowToToolResult(sqlc.CtxMessage{Role: roleTool, EventType: eventTypeToolResult, Content: rows[0].content})
+	if len(restored.References) != 1 || restored.References[0].ID != "task-1" {
+		t.Fatalf("restored references = %#v", restored.References)
 	}
 }
 
