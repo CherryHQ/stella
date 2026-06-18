@@ -805,6 +805,10 @@ func taskToAPI(t sqlc.AgentTask) apitypes.Task {
 		v := parseTS(t.CancelledAt.String)
 		out.CancelledAt = &v
 	}
+	if t.ArchivedAt.Valid {
+		v := parseTS(t.ArchivedAt.String)
+		out.ArchivedAt = &v
+	}
 	if m := jsonObject(t.Context); m != nil {
 		out.Context = m
 	}

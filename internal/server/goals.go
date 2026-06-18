@@ -480,6 +480,10 @@ func goalToAPI(g sqlc.AgentGoal) apitypes.Goal {
 		v := parseTS(g.CancelledAt.String)
 		out.CancelledAt = &v
 	}
+	if g.ArchivedAt.Valid {
+		v := parseTS(g.ArchivedAt.String)
+		out.ArchivedAt = &v
+	}
 	if m := jsonObject(g.Context); m != nil {
 		out.Context = m
 	}
