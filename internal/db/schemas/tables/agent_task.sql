@@ -51,3 +51,9 @@ CREATE INDEX idx_agent_task_project           ON agent_task(project_id);
 CREATE UNIQUE INDEX uniq_agent_task_source_plan_item
     ON agent_task(source_plan_id, plan_item_id)
     WHERE source_plan_id IS NOT NULL AND plan_item_id != '';
+-- #525: ListAgentTaskBySourcePlan (the replan-reconcile read) filters by
+-- source_plan_id and orders by created_at,id. The unique index above is partial
+-- on plan_item_id != '' and so unusable here; this serves the seek + the sort.
+CREATE INDEX idx_agent_task_source_plan_created
+    ON agent_task(source_plan_id, created_at ASC, id ASC)
+    WHERE source_plan_id IS NOT NULL;

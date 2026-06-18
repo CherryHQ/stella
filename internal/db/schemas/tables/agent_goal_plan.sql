@@ -25,3 +25,7 @@ CREATE TABLE agent_goal_plan (
 );
 
 CREATE INDEX idx_agent_goal_plan_goal_status ON agent_goal_plan(goal_id, status);
+-- Index every FK (schema rule): these back the ON DELETE SET NULL scans when a
+-- source run or approved review is deleted.
+CREATE INDEX idx_agent_goal_plan_source_run ON agent_goal_plan(source_run_id);
+CREATE INDEX idx_agent_goal_plan_approved_review ON agent_goal_plan(approved_review_id);
