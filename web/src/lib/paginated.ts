@@ -20,6 +20,15 @@ import type {
 } from "@/lib/api-client/types.gen";
 import type { Message } from "@/lib/types";
 
+// offsetPageToken mirrors the server's AIP-158 offset token (encodeOffsetToken
+// in internal/server/response.go: base64url of the decimal row offset). It lets
+// a numbered pager jump straight to any page without walking cursor tokens.
+// Offset 0 returns "" so the caller omits page_token and starts at the first page.
+export function offsetPageToken(offset: number): string {
+  if (offset <= 0) return "";
+  return btoa(String(offset)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 export async function fetchAllTasks(
   agentId?: string,
   projectId?: string,
@@ -37,12 +46,15 @@ export async function fetchAllTasks(
   return all;
 }
 
-export async function fetchAllGoals(agentId?: string): Promise<ComponentsGoal[]> {
+export async function fetchAllGoals(
+  agentId?: string,
+  archived?: boolean,
+): Promise<ComponentsGoal[]> {
   const all: ComponentsGoal[] = [];
   let pageToken: string | undefined;
   do {
     const { data } = await listGoals({
-      query: { agent_id: agentId, page_size: 500, page_token: pageToken },
+      query: { agent_id: agentId, archived, page_size: 500, page_token: pageToken },
       throwOnError: true,
     });
     all.push(...(data?.goals ?? []));

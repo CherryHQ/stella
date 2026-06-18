@@ -209,10 +209,12 @@ Task routes 扁平挂在 `/api/tasks` 下，并通过认证用户上下文限制
 | Method         | Path                                                 | Purpose                                                                                  |
 | -------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `POST`         | `/api/tasks`                                         | 创建 task。                                                                              |
-| `GET`          | `/api/tasks`                                         | 列出 tasks，可按 agent/status 过滤。                                                     |
+| `GET`          | `/api/tasks`                                         | 列出 tasks，可按 agent/status/project 过滤。`archived=true` 返回已归档（恢复）视图。     |
 | `GET`          | `/api/tasks/{id}`                                    | 获取 task。                                                                              |
+| `DELETE`       | `/api/tasks/{id}`                                    | 归档终止/draft task（审计安全软删除，从默认列表隐藏）。幂等。                            |
+| `POST`         | `/api/tasks/{id}/unarchive`                          | 恢复已归档 task 回到默认列表。                                                           |
 | `POST`         | `/api/tasks/{id}/cancel`                             | 取消 task。                                                                              |
-| `POST`         | `/api/tasks/{id}/reopen`                             | 重新打开 done/failed task。                                                              |
+| `POST`         | `/api/tasks/{id}/reopen`                             | 重新打开 done/failed task。已归档 task 会被拒绝——请先 unarchive。                        |
 | `GET`          | `/api/tasks/{id}/readiness`                          | 解释可派发性。                                                                           |
 | `GET`          | `/api/tasks/{id}/events`                             | 审计事件。                                                                               |
 | `GET`          | `/api/tasks/{id}/runs`                               | 执行尝试。                                                                               |

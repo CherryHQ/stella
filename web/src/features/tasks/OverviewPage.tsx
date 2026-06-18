@@ -124,7 +124,12 @@ export function OverviewPage() {
     [goals],
   );
 
-  const previewGoals = useMemo(() => sortedGoals.slice(0, 6), [sortedGoals]);
+  const activeGoals = useMemo(
+    () => sortedGoals.filter((g) => !["done", "failed", "cancelled"].includes(g.status)),
+    [sortedGoals],
+  );
+  const historyGoalsCount = sortedGoals.length - activeGoals.length;
+  const previewGoals = useMemo(() => activeGoals.slice(0, 6), [activeGoals]);
 
   const recentDone = useMemo(() => {
     const items: NeedsYouItem[] = [];
@@ -176,18 +181,24 @@ export function OverviewPage() {
         <section className="mt-8">
           <SectionHead title={t("hub.secNeedsYou")} count={needsYou.length} />
           {needsYou.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("hub.noNeedsYou")}</p>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {needsYou.map((item) => (
-                <NeedsYouCard
-                  key={item.kind === "goal" ? item.goal.id : item.task.id}
-                  item={item}
-                  agentId={agentId}
-                  onOpen={() => openItem(item)}
-                />
-              ))}
+            <div className="rounded-xl border border-border px-4 py-3.5">
+              <p className="text-sm font-medium text-muted-foreground">{t("hub.noNeedsYou")}</p>
+              <p className="mt-1 text-[12.5px] text-muted-foreground">{t("hub.noNeedsYouDesc")}</p>
             </div>
+          ) : (
+            <>
+              <p className="mb-3 text-[12.5px] text-muted-foreground">{t("hub.needsYouHint")}</p>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {needsYou.map((item) => (
+                  <NeedsYouCard
+                    key={item.kind === "goal" ? item.goal.id : item.task.id}
+                    item={item}
+                    agentId={agentId}
+                    onOpen={() => openItem(item)}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </section>
 
@@ -202,28 +213,53 @@ export function OverviewPage() {
         </section>
 
         {/* Goals */}
-        {sortedGoals.length > 0 && (
-          <section className="mt-8">
-            <SectionHead
-              title={t("hub.secGoals")}
-              count={sortedGoals.length}
-              action={
+        <section className="mt-8">
+          <SectionHead
+            title={t("hub.activeWork")}
+            count={activeGoals.length}
+            action={
+              <div className="flex items-center gap-2">
+                {historyGoalsCount > 0 && (
+                  <Button
+                    render={
+                      <Link
+                        to="/agents/$agentId/tasks/goals"
+                        params={{ agentId }}
+                        search={{ mode: "history" }}
+                      />
+                    }
+                    variant="ghost"
+                    size="xs"
+                  >
+                    {t("hub.openHistory")}
+                  </Button>
+                )}
                 <Button
-                  render={<Link to="/agents/$agentId/tasks/goals" params={{ agentId }} />}
+                  render={
+                    <Link
+                      to="/agents/$agentId/tasks/goals"
+                      params={{ agentId }}
+                      search={{ mode: "active" }}
+                    />
+                  }
                   variant="outline"
                   size="xs"
                 >
-                  {t("hub.viewAll")}
+                  {t("hub.openActiveGoals")}
                 </Button>
-              }
-            />
+              </div>
+            }
+          />
+          {activeGoals.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("hub.noActiveGoals")}</p>
+          ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {previewGoals.map((g) => (
                 <GoalCard key={g.id} goal={g} onOpen={() => openItem({ kind: "goal", goal: g })} />
               ))}
             </div>
-          </section>
-        )}
+          )}
+        </section>
 
         {/* Recently completed */}
         {recentDone.length > 0 && (
@@ -447,7 +483,9 @@ function SchedulesTable({ jobs, agentId }: { jobs: SchedulerJob[]; agentId: stri
                   {job.name}
                   {job.template_key && (
                     <Badge size="sm" variant="secondary">
-                      {t("automations.subscriptionBadge", { key: job.template_key })}
+                      {t("automations.subscriptionBadge", {
+                        key: job.template_key,
+                      })}
                     </Badge>
                   )}
                 </span>
@@ -519,9 +557,17 @@ function GoalCard({ goal, onOpen }: { goal: ComponentsGoal; onOpen: () => void }
           {goal.description}
         </div>
       )}
-      {r.total > 0 && <ProgressBar r={r} className="mt-3" />}
+      {r.total > 0 ? (
+        <ProgressBar r={r} className="mt-3" />
+      ) : goal.status === "done" ? (
+        <div className="mt-3 rounded-lg border border-chart-3/25 bg-chart-3/10 px-3 py-2 font-mono text-xs text-chart-3">
+          {t("hub.achievedAt", {
+            time: formatTime(goal.completed_at ?? goal.updated_at),
+          })}
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-x-3.5 font-mono text-xs text-muted-foreground">
-        <span>{t("hub.goalDone", { done: r.done, total: r.total })}</span>
+        {r.total > 0 && <span>{t("hub.goalDone", { done: r.done, total: r.total })}</span>}
         {r.blocked > 0 && (
           <span className="text-chart-4">{t("hub.goalBlocked", { n: r.blocked })}</span>
         )}

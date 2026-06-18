@@ -116,18 +116,28 @@ Task-level review 仍然支持这些 policy：
 
 ## HTTP surface
 
-| Method | Path                                                                                   | Purpose                                                                  |
-| ------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `POST` | `/api/goals`                                                                           | 创建 goal。支持 runtime 中请使用 `review_policy=none`。                  |
-| `GET`  | `/api/goals`                                                                           | 列出 goals。                                                             |
-| `GET`  | `/api/goals/{id}`                                                                      | 获取单个 goal。                                                          |
-| `POST` | `/api/goals/{id}/activate`                                                             | Draft → running；把 draft children 提升到 ready。                        |
-| `POST` | `/api/goals/{id}/cancel`                                                               | 级联取消非终止 children。                                                |
-| `GET`  | `/api/goals/{id}/tasks`                                                                | 列出 child tasks。                                                       |
-| `GET`  | `/api/goals/{id}/reviews`                                                              | Schema 支持，但本版本通过 API validation gate off goal review runtime。  |
-| `POST` | `/api/goals/{id}/reviews/{reviewID}/approve`（以及 reject、request-changes、escalate） | Review decision endpoints 存在，但本版本不创建新的 goal review runtime。 |
+| Method   | Path                                                                                   | Purpose                                                                                                                                                                        |
+| -------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST`   | `/api/goals`                                                                           | 创建 goal。支持 runtime 中请使用 `review_policy=none`。                                                                                                                        |
+| `GET`    | `/api/goals`                                                                           | 列出 goals。过滤参数：`status`、`terminal`（true=done/failed/cancelled，false=活跃）、`archived=true`（恢复视图）、`q`（标题/描述子串）。响应含 `total` 统计全部匹配用于分页。 |
+| `GET`    | `/api/goals/{id}`                                                                      | 获取单个 goal。                                                                                                                                                                |
+| `POST`   | `/api/goals/{id}/activate`                                                             | Draft → running；把 draft children 提升到 ready。                                                                                                                              |
+| `POST`   | `/api/goals/{id}/cancel`                                                               | 级联取消非终止 children。                                                                                                                                                      |
+| `DELETE` | `/api/goals/{id}`                                                                      | 归档终止/draft goal 及其终止/draft children（审计安全，从默认列表隐藏）。                                                                                                      |
+| `POST`   | `/api/goals/{id}/unarchive`                                                            | 恢复已归档 goal 及随其归档的 children 回到默认列表。                                                                                                                           |
+| `GET`    | `/api/goals/{id}/tasks`                                                                | 列出 child tasks。                                                                                                                                                             |
+| `GET`    | `/api/goals/{id}/reviews`                                                              | Schema 支持，但本版本通过 API validation gate off goal review runtime。                                                                                                        |
+| `POST`   | `/api/goals/{id}/reviews/{reviewID}/approve`（以及 reject、request-changes、escalate） | Review decision endpoints 存在，但本版本不创建新的 goal review runtime。                                                                                                       |
 
 任何拒绝 unsupported goal review policy 的行为变化都必须 spec-first。
+
+## 归档与恢复
+
+归档是审计安全的软删除：`DELETE /api/goals/{id}` 写入 `archived_at`，把 goal（及其终止/draft children）从默认列表隐藏，但不删除历史。仅允许从终止或 draft 状态归档，且幂等——重复归档已归档 goal 为 no-op。
+
+已归档 goal 是**惰性**的：所有生命周期转换（activate、complete、fail、cancel、block、unblock）以及 dispatcher rollup 扫描都会拒绝或跳过它，因此隐藏的工作绝不会被悄悄复活。需要再操作时请先 unarchive。
+
+`POST /api/goals/{id}/unarchive` 反向归档，只恢复**本次** goal 归档级联隐藏的 children（记录在 `goal_archive` 事件里），用户此前单独归档的 task 保持隐藏。恢复未归档 goal 为 no-op。独立 task 有对称接口：`DELETE /api/tasks/{id}` 归档、`GET /api/tasks?archived=true` 列出、`POST /api/tasks/{id}/unarchive` 恢复。
 
 ## 后续工作
 

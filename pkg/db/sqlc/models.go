@@ -46,6 +46,7 @@ type AgentGoal struct {
 	UpdatedAt      string         `json:"updated_at"`
 	CompletedAt    sql.NullString `json:"completed_at"`
 	CancelledAt    sql.NullString `json:"cancelled_at"`
+	ArchivedAt     sql.NullString `json:"archived_at"`
 }
 
 type AgentReview struct {
@@ -100,6 +101,7 @@ type AgentTask struct {
 	UpdatedAt       string         `json:"updated_at"`
 	CompletedAt     sql.NullString `json:"completed_at"`
 	CancelledAt     sql.NullString `json:"cancelled_at"`
+	ArchivedAt      sql.NullString `json:"archived_at"`
 }
 
 type AgentTaskBlocker struct {

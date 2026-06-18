@@ -60,6 +60,18 @@ components:
         updated_at: { type: string, format: date-time }
         completed_at: { type: string, format: date-time }
         cancelled_at: { type: string, format: date-time }
+        archived_at:
+          type: string
+          format: date-time
+          description: Set when the goal is hidden from default lists.
+
+    CompleteGoalRequest:
+      type: object
+      properties:
+        output:
+          type: object
+          additionalProperties: {}
+          description: Final goal output/summary recorded when manually marking achieved.
 
     GoalList:
       type: object
@@ -72,6 +84,9 @@ components:
           type: string
           nullable: true
           description: Opaque pagination token; null when no further pages.
+        total:
+          type: integer
+          description: Total goals matching the filter, ignoring pagination. Drives numbered pages and count badges.
 
     CreateGoalRequest:
       type: object

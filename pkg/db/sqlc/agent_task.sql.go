@@ -10,6 +10,24 @@ import (
 	"database/sql"
 )
 
+const archiveAgentTask = `-- name: ArchiveAgentTask :execrows
+UPDATE agent_task SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL
+`
+
+type ArchiveAgentTaskParams struct {
+	ArchivedAt sql.NullString `json:"archived_at"`
+	UpdatedAt  string         `json:"updated_at"`
+	ID         string         `json:"id"`
+}
+
+func (q *Queries) ArchiveAgentTask(ctx context.Context, arg ArchiveAgentTaskParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, archiveAgentTask, arg.ArchivedAt, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const claimAgentTask = `-- name: ClaimAgentTask :execrows
 UPDATE agent_task
 SET status = 'running',
@@ -54,7 +72,7 @@ INSERT INTO agent_task (
     context, output, created_at, updated_at
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at
+RETURNING id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at
 `
 
 type CreateAgentTaskParams struct {
@@ -132,21 +150,13 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		&i.UpdatedAt,
 		&i.CompletedAt,
 		&i.CancelledAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
 
-const deleteAgentTask = `-- name: DeleteAgentTask :exec
-DELETE FROM agent_task WHERE id = ?
-`
-
-func (q *Queries) DeleteAgentTask(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteAgentTask, id)
-	return err
-}
-
 const getAgentTask = `-- name: GetAgentTask :one
-SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ?
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task WHERE id = ?
 `
 
 func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error) {
@@ -178,6 +188,7 @@ func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error
 		&i.UpdatedAt,
 		&i.CompletedAt,
 		&i.CancelledAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -199,7 +210,7 @@ func (q *Queries) IncrementAgentTaskRetry(ctx context.Context, arg IncrementAgen
 }
 
 const listAgentTasks = `-- name: ListAgentTasks :many
-SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentTasksParams struct {
@@ -242,6 +253,7 @@ func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) 
 			&i.UpdatedAt,
 			&i.CompletedAt,
 			&i.CancelledAt,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -257,17 +269,23 @@ func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) 
 }
 
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
-SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task
 WHERE user_id = ?1
-  AND (?2 IS NULL OR agent_id = ?2)
-  AND (?3 IS NULL OR status = ?3)
-  AND (?4 IS NULL OR project_id = ?4)
+  AND (
+    (?2 = 1 AND archived_at IS NOT NULL)
+    OR (?2 IS NULL AND archived_at IS NULL)
+    OR (?2 = 0 AND archived_at IS NULL)
+  )
+  AND (?3 IS NULL OR agent_id = ?3)
+  AND (?4 IS NULL OR status = ?4)
+  AND (?5 IS NULL OR project_id = ?5)
 ORDER BY created_at DESC, id DESC
-LIMIT ?6 OFFSET ?5
+LIMIT ?7 OFFSET ?6
 `
 
 type ListAgentTasksByUserParams struct {
 	UserID    string      `json:"user_id"`
+	Archived  interface{} `json:"archived"`
 	AgentID   interface{} `json:"agent_id"`
 	Status    interface{} `json:"status"`
 	ProjectID interface{} `json:"project_id"`
@@ -275,9 +293,13 @@ type ListAgentTasksByUserParams struct {
 	Limit     int64       `json:"limit"`
 }
 
+// archived narg mirrors ListAgentGoalsByUser: NULL/false yields only active rows
+// (archived_at IS NULL, the default); true yields only archived rows (the
+// history/restore view).
 func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksByUserParams) ([]AgentTask, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentTasksByUser,
 		arg.UserID,
+		arg.Archived,
 		arg.AgentID,
 		arg.Status,
 		arg.ProjectID,
@@ -317,6 +339,7 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksBy
 			&i.UpdatedAt,
 			&i.CompletedAt,
 			&i.CancelledAt,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -409,7 +432,7 @@ func (q *Queries) ListBlockedInboxTasks(ctx context.Context, arg ListBlockedInbo
 }
 
 const listReadyCandidates = `-- name: ListReadyCandidates :many
-SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task
 WHERE status = 'ready'
   AND active_run_id IS NULL
   AND (not_before IS NULL OR not_before <= ?)
@@ -459,6 +482,7 @@ func (q *Queries) ListReadyCandidates(ctx context.Context, arg ListReadyCandidat
 			&i.UpdatedAt,
 			&i.CompletedAt,
 			&i.CancelledAt,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -693,6 +717,23 @@ func (q *Queries) TransitionAgentTaskStatus(ctx context.Context, arg TransitionA
 		arg.ID,
 		arg.Status_2,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const unarchiveAgentTask = `-- name: UnarchiveAgentTask :execrows
+UPDATE agent_task SET archived_at = NULL, updated_at = ? WHERE id = ? AND archived_at IS NOT NULL
+`
+
+type UnarchiveAgentTaskParams struct {
+	UpdatedAt string `json:"updated_at"`
+	ID        string `json:"id"`
+}
+
+func (q *Queries) UnarchiveAgentTask(ctx context.Context, arg UnarchiveAgentTaskParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, unarchiveAgentTask, arg.UpdatedAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}

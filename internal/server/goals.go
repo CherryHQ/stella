@@ -61,12 +61,28 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		}
 		agentID = info.Scoped.AgentID
 	}
-	var rows []sqlc.AgentGoal
-	if agentID != "" {
-		rows, err = s.tasksSvc.Facade.ListGoalsByAgent(r.Context(), info.UserID, agentID, int64(limit+1), int64(offset))
-	} else {
-		rows, err = s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, int64(limit+1), int64(offset))
+	filter := tasks.GoalFilter{AgentID: agentID}
+	if params.ProjectId != nil {
+		filter.ProjectID = *params.ProjectId
 	}
+	if params.Status != nil {
+		filter.Status = *params.Status
+	}
+	if params.Archived != nil {
+		filter.Archived = *params.Archived
+	}
+	if params.Terminal != nil {
+		filter.Terminal = params.Terminal
+	}
+	if params.Q != nil {
+		filter.Search = *params.Q
+	}
+	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, filter, int64(limit+1), int64(offset))
+	if err != nil {
+		s.taskError(w, err)
+		return
+	}
+	total, err := s.tasksSvc.Facade.CountGoals(r.Context(), info.UserID, filter)
 	if err != nil {
 		s.taskError(w, err)
 		return
@@ -76,7 +92,8 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	for _, g := range rows {
 		out = append(out, goalToAPI(g))
 	}
-	list := apitypes.GoalList{Goals: out}
+	totalInt := int(total)
+	list := apitypes.GoalList{Goals: out, Total: &totalInt}
 	if nextToken != "" {
 		list.NextPageToken = &nextToken
 	}
@@ -149,6 +166,81 @@ func (s *Server) GetGoal(w http.ResponseWriter, r *http.Request, goalID string) 
 		return
 	}
 	writeData(w, http.StatusOK, goalToAPI(g))
+}
+
+func (s *Server) DeleteGoal(w http.ResponseWriter, r *http.Request, goalID string) {
+	if !s.tasksReady() {
+		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
+		return
+	}
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	if _, ok := s.loadGoal(r.Context(), w, info.UserID, goalID); !ok {
+		return
+	}
+	if err := s.tasksSvc.Facade.ArchiveGoal(r.Context(), goalID, authActor(r)); err != nil {
+		s.taskError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) UnarchiveGoal(w http.ResponseWriter, r *http.Request, goalID string) {
+	if !s.tasksReady() {
+		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
+		return
+	}
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
+	if !ok {
+		return
+	}
+	if err := s.tasksSvc.Facade.UnarchiveGoal(r.Context(), g.ID, authActor(r)); err != nil {
+		s.taskError(w, err)
+		return
+	}
+	fresh, err := s.tasksSvc.Facade.GetGoal(r.Context(), g.ID)
+	if err != nil {
+		s.taskError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, goalToAPI(fresh))
+}
+
+func (s *Server) CompleteGoal(w http.ResponseWriter, r *http.Request, goalID string) {
+	if !s.tasksReady() {
+		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
+		return
+	}
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
+	if !ok {
+		return
+	}
+	var req apitypes.CompleteGoalRequest
+	_ = decodeJSON(r, &req)
+	output := ""
+	if req.Output != nil {
+		output = marshalContext(req.Output)
+	}
+	if err := s.tasksSvc.Facade.CompleteGoal(r.Context(), g.ID, output, authActor(r)); err != nil {
+		s.taskError(w, err)
+		return
+	}
+	fresh, err := s.tasksSvc.Facade.GetGoal(r.Context(), g.ID)
+	if err != nil {
+		s.taskError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, goalToAPI(fresh))
 }
 
 func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, goalID string) {
@@ -387,6 +479,10 @@ func goalToAPI(g sqlc.AgentGoal) apitypes.Goal {
 	if g.CancelledAt.Valid {
 		v := parseTS(g.CancelledAt.String)
 		out.CancelledAt = &v
+	}
+	if g.ArchivedAt.Valid {
+		v := parseTS(g.ArchivedAt.String)
+		out.ArchivedAt = &v
 	}
 	if m := jsonObject(g.Context); m != nil {
 		out.Context = m

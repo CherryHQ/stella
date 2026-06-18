@@ -116,18 +116,28 @@ Use human task reviews when child task output needs approval. Goal-level synthes
 
 ## HTTP surface
 
-| Method | Path                                                                              | Purpose                                                                                      |
-| ------ | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `POST` | `/api/goals`                                                                      | Create a goal. Use `review_policy=none` in the supported runtime.                            |
-| `GET`  | `/api/goals`                                                                      | List goals.                                                                                  |
-| `GET`  | `/api/goals/{id}`                                                                 | Fetch one goal.                                                                              |
-| `POST` | `/api/goals/{id}/activate`                                                        | Draft → running; promotes draft children to ready.                                           |
-| `POST` | `/api/goals/{id}/cancel`                                                          | Cascade-cancel non-terminal children.                                                        |
-| `GET`  | `/api/goals/{id}/tasks`                                                           | List child tasks.                                                                            |
-| `GET`  | `/api/goals/{id}/reviews`                                                         | Schema-supported, but this release gates the goal review runtime off through API validation. |
-| `POST` | `/api/goals/{id}/reviews/{reviewID}/approve` (+reject, request-changes, escalate) | Review decision endpoints exist, but this release does not create a new goal review runtime. |
+| Method   | Path                                                                              | Purpose                                                                                                                                                                                                         |
+| -------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/goals`                                                                      | Create a goal. Use `review_policy=none` in the supported runtime.                                                                                                                                               |
+| `GET`    | `/api/goals`                                                                      | List goals. Filters: `status`, `terminal` (true=done/failed/cancelled, false=active), `archived=true` (restore view), `q` (title/description substring). `total` in the response counts all matches for paging. |
+| `GET`    | `/api/goals/{id}`                                                                 | Fetch one goal.                                                                                                                                                                                                 |
+| `POST`   | `/api/goals/{id}/activate`                                                        | Draft → running; promotes draft children to ready.                                                                                                                                                              |
+| `POST`   | `/api/goals/{id}/cancel`                                                          | Cascade-cancel non-terminal children.                                                                                                                                                                           |
+| `DELETE` | `/api/goals/{id}`                                                                 | Archive a terminal/draft goal and its terminal/draft children (audit-safe; hides from default lists).                                                                                                           |
+| `POST`   | `/api/goals/{id}/unarchive`                                                       | Restore an archived goal and the children that archive hid, back to default lists.                                                                                                                              |
+| `GET`    | `/api/goals/{id}/tasks`                                                           | List child tasks.                                                                                                                                                                                               |
+| `GET`    | `/api/goals/{id}/reviews`                                                         | Schema-supported, but this release gates the goal review runtime off through API validation.                                                                                                                    |
+| `POST`   | `/api/goals/{id}/reviews/{reviewID}/approve` (+reject, request-changes, escalate) | Review decision endpoints exist, but this release does not create a new goal review runtime.                                                                                                                    |
 
 Any change that rejects unsupported goal review policies must be done spec-first.
+
+## Archiving and restore
+
+Archiving is an audit-safe soft delete: `DELETE /api/goals/{id}` stamps `archived_at` and hides the goal (and its terminal/draft children) from default lists without deleting history. It is only allowed from a terminal or draft status, and is idempotent — re-archiving an already-archived goal is a no-op.
+
+An archived goal is **inert**: every lifecycle transition (activate, complete, fail, cancel, block, unblock) and the dispatcher rollup scan reject or skip it, so hidden work is never silently revived. Unarchive first if you need to act on it again.
+
+`POST /api/goals/{id}/unarchive` reverses the archive. It restores only the children that _this_ goal's archive cascade hid — recorded in the `goal_archive` event — so a task the user archived independently beforehand stays hidden. Restoring a non-archived goal is a no-op. Standalone tasks have the mirror surface: `DELETE /api/tasks/{id}` archives, `GET /api/tasks?archived=true` lists, `POST /api/tasks/{id}/unarchive` restores.
 
 ## Future work
 

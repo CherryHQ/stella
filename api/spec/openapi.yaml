@@ -310,6 +310,8 @@ paths:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks"
   /api/tasks/{taskId}:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}"
+  /api/tasks/{taskId}/unarchive:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1unarchive"
   /api/tasks/{taskId}/cancel:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1cancel"
   /api/tasks/{taskId}/reopen:
@@ -343,8 +345,12 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals"
   /api/goals/{goalId}:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}"
+  /api/goals/{goalId}/unarchive:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1unarchive"
   /api/goals/{goalId}/activate:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1activate"
+  /api/goals/{goalId}/complete:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1complete"
   /api/goals/{goalId}/cancel:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1cancel"
   /api/goals/{goalId}/tasks:
@@ -662,6 +668,9 @@ components:
     }
     Goal: { $ref: "./components.yaml#/components/schemas/Goal" }
     GoalList: { $ref: "./components.yaml#/components/schemas/GoalList" }
+    CompleteGoalRequest: {
+      $ref: "./components.yaml#/components/schemas/CompleteGoalRequest",
+    }
     CreateGoalRequest: {
       $ref: "./components.yaml#/components/schemas/CreateGoalRequest",
     }

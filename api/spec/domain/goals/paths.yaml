@@ -11,6 +11,28 @@ paths:
             required: false,
             schema: { type: string },
           }
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - {
+            name: project_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+        - name: archived
+          in: query
+          required: false
+          description: When true returns only archived goals (the history/restore view) instead of the default active set.
+          schema: { type: boolean }
+        - name: terminal
+          in: query
+          required: false
+          description: When false returns only non-terminal (active) goals; when true only terminal (done/failed/cancelled) goals. Omit for any. Ignored when archived=true.
+          schema: { type: boolean }
+        - name: q
+          in: query
+          required: false
+          description: Case-insensitive substring match against goal title and description.
+          schema: { type: string }
         - {
             name: page_size,
             in: query,
@@ -67,6 +89,38 @@ paths:
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [goals]
+      summary: Archive a goal
+      description: Audit-safe delete; hides terminal/draft goals from default lists without removing history.
+      operationId: deleteGoal
+      responses:
+        "204": { description: archived }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/unarchive:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Restore an archived goal (and its archived children) to default lists
+      operationId: unarchiveGoal
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Goal" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
 
   /api/goals/{goalId}/activate:
     parameters:
@@ -75,6 +129,34 @@ paths:
       tags: [goals]
       summary: Activate a goal (draft → running, promotes draft children to ready)
       operationId: activateGoal
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Goal" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/complete:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Mark a goal achieved
+      operationId: completeGoal
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/CompleteGoalRequest",
+              }
       responses:
         "200":
           description: ok

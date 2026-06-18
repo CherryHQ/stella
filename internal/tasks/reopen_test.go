@@ -62,6 +62,56 @@ func TestReopen_Cascade_Standalone_DownstreamToReady(t *testing.T) {
 	}
 }
 
+func TestReopen_Cascade_SkipsArchivedDownstream(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	a := h.createTask(t, StatusReady)
+	b := h.createTask(t, StatusReady)
+	_ = h.svc.AddDep(context.Background(), b, a, DepKindHard, OnFailureBlock)
+	completeTask(t, h, a)
+	completeTask(t, h, b)
+	if err := f.ArchiveTask(context.Background(), b, SystemActor()); err != nil {
+		t.Fatalf("ArchiveTask: %v", err)
+	}
+	if err := h.svc.ReopenTask(context.Background(), a, true, SystemActor()); err != nil {
+		t.Fatalf("ReopenTask cascade: %v", err)
+	}
+	if got := h.getTask(t, a).Status; got != StatusReady {
+		t.Errorf("a status=%q want ready", got)
+	}
+	// Archived downstream stays inert: not reset, still archived (CR-022).
+	bt := h.getTask(t, b)
+	if !bt.ArchivedAt.Valid {
+		t.Errorf("archived downstream lost archived_at")
+	}
+	if bt.Status != StatusDone {
+		t.Errorf("archived downstream status=%q want done (not resurrected)", bt.Status)
+	}
+}
+
+func TestReopen_NoCascade_ArchivedDownstream_NoConflict(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	a := h.createTask(t, StatusReady)
+	b := h.createTask(t, StatusReady)
+	_ = h.svc.AddDep(context.Background(), b, a, DepKindHard, OnFailureBlock)
+	completeTask(t, h, a)
+	completeTask(t, h, b)
+	if err := f.ArchiveTask(context.Background(), b, SystemActor()); err != nil {
+		t.Fatalf("ArchiveTask: %v", err)
+	}
+	// b is hidden; a done archived downstream must not block the reopen (CR-022).
+	if err := h.svc.ReopenTask(context.Background(), a, false, SystemActor()); err != nil {
+		t.Fatalf("ReopenTask: archived downstream should not conflict, got %v", err)
+	}
+	if got := h.getTask(t, a).Status; got != StatusReady {
+		t.Errorf("a status=%q want ready", got)
+	}
+	if !h.getTask(t, b).ArchivedAt.Valid {
+		t.Errorf("archived downstream lost archived_at")
+	}
+}
+
 func TestReopen_CancelledTask_Rejected(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)

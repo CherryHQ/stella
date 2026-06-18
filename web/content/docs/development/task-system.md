@@ -209,10 +209,12 @@ Task routes are flat under `/api/tasks` and scoped by authenticated user context
 | Method         | Path                                                 | Purpose                                                                                                           |
 | -------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `POST`         | `/api/tasks`                                         | Create a task.                                                                                                    |
-| `GET`          | `/api/tasks`                                         | List tasks, optionally filtered by agent/status.                                                                  |
+| `GET`          | `/api/tasks`                                         | List tasks, optionally filtered by agent/status/project. `archived=true` returns the archived (restore) view.     |
 | `GET`          | `/api/tasks/{id}`                                    | Fetch a task.                                                                                                     |
+| `DELETE`       | `/api/tasks/{id}`                                    | Archive a terminal/draft task (audit-safe soft delete; hidden from default lists). Idempotent.                    |
+| `POST`         | `/api/tasks/{id}/unarchive`                          | Restore an archived task to default lists.                                                                        |
 | `POST`         | `/api/tasks/{id}/cancel`                             | Cancel a task.                                                                                                    |
-| `POST`         | `/api/tasks/{id}/reopen`                             | Reopen done/failed task.                                                                                          |
+| `POST`         | `/api/tasks/{id}/reopen`                             | Reopen done/failed task. Rejected for archived tasks — unarchive first.                                           |
 | `GET`          | `/api/tasks/{id}/readiness`                          | Explain dispatchability.                                                                                          |
 | `GET`          | `/api/tasks/{id}/events`                             | Audit events.                                                                                                     |
 | `GET`          | `/api/tasks/{id}/runs`                               | Run attempts.                                                                                                     |

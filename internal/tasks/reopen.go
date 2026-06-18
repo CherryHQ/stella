@@ -53,6 +53,11 @@ func (s *TransitionService) ReopenTask(ctx context.Context, taskID string, casca
 		default:
 			return ErrInvalidTransition
 		}
+		// Archived tasks are inert; reopening one would resurrect work that is
+		// hidden from default lists (D-archive invariant).
+		if task.ArchivedAt.Valid {
+			return ErrInvalidTransition
+		}
 
 		downstream, err := q.ListReachableDownstream(ctx, taskID)
 		if err != nil {
@@ -63,6 +68,11 @@ func (s *TransitionService) ReopenTask(ctx context.Context, taskID string, casca
 		if !cascade {
 			var conflicts []string
 			for _, d := range downstream {
+				if d.ArchivedAt.Valid {
+					// Archived downstream is hidden and inert; it neither
+					// blocks the reopen nor would be reset by a cascade.
+					continue
+				}
 				switch d.Status {
 				case StatusCancelled:
 					// cancellation is a deliberate stop; doesn't block reopen
@@ -103,6 +113,11 @@ func (s *TransitionService) ReopenTask(ctx context.Context, taskID string, casca
 
 		// Cascade: reset each downstream per ownership rule.
 		for _, d := range downstream {
+			if d.ArchivedAt.Valid {
+				// Resetting an archived task would resurrect work that is
+				// hidden from default lists (D-archive invariant).
+				continue
+			}
 			target := StatusReady
 			if d.GoalID.Valid {
 				// Goal-owned: depends on goal status.

@@ -27,13 +27,15 @@ CREATE TABLE agent_task (
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at        TEXT,
-    cancelled_at        TEXT
+    cancelled_at        TEXT,
+    archived_at         TEXT
 );
 
 CREATE UNIQUE INDEX uniq_agent_task_session ON agent_task(session_id);
 CREATE INDEX idx_agent_task_agent_status_not_before ON agent_task(agent_id, status, not_before);
 CREATE INDEX idx_agent_task_user_agent        ON agent_task(user_id, agent_id);
 CREATE INDEX idx_agent_task_user_created      ON agent_task(user_id, created_at DESC, id DESC);
+CREATE INDEX idx_agent_task_user_archived_created ON agent_task(user_id, archived_at, created_at DESC, id DESC);
 CREATE INDEX idx_agent_task_user_agent_status_created ON agent_task(user_id, agent_id, status, created_at DESC, id DESC);
 CREATE INDEX idx_agent_task_user_agent_project_created ON agent_task(user_id, agent_id, project_id, created_at DESC, id DESC);
 CREATE INDEX idx_agent_task_ready_candidates
