@@ -87,6 +87,6 @@ FROM ctx_summary s
 JOIN ctx_conversation c ON c.id = s.conversation_id
 WHERE c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
-  AND (s.content LIKE sqlc.arg('pattern') ESCAPE '\')
+  AND (s.content ILIKE sqlc.arg('pattern') ESCAPE '\')
 ORDER BY s.created_at DESC
 LIMIT sqlc.arg('limit');

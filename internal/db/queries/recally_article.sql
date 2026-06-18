@@ -65,10 +65,10 @@ LIMIT sqlc.arg('limit');
 -- SearchMessagesLike for the sqlc constraints shaping this query.
 SELECT * FROM recally_article
 WHERE user_id = sqlc.arg('user_id')
-  AND ((title LIKE sqlc.arg('pattern')::text ESCAPE '\')
-    OR (summary LIKE sqlc.arg('pattern')::text ESCAPE '\')
-    OR (tags LIKE sqlc.arg('pattern')::text ESCAPE '\')
-    OR (author LIKE sqlc.arg('pattern')::text ESCAPE '\'))
+  AND ((title ILIKE sqlc.arg('pattern')::text ESCAPE '\')
+    OR (summary ILIKE sqlc.arg('pattern')::text ESCAPE '\')
+    OR (tags ILIKE sqlc.arg('pattern')::text ESCAPE '\')
+    OR (author ILIKE sqlc.arg('pattern')::text ESCAPE '\'))
 ORDER BY created_at DESC
 LIMIT sqlc.arg('limit');
 

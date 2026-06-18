@@ -350,6 +350,17 @@ func TestStore_SearchArticles_CJKAndShortQueryFallback(t *testing.T) {
 	if len(results) != 0 {
 		t.Errorf("Expected fallback to stay user-scoped, got %d hits", len(results))
 	}
+
+	// The Latin fallback must be case-insensitive: SQLite's LIKE ignores ASCII
+	// case, so PostgreSQL's fallback uses ILIKE. A lowercase short query still
+	// finds the uppercase "K8s" token in the saved summary.
+	results, err = store.SearchArticles(ctx, "1", "k8", 10)
+	if err != nil {
+		t.Fatalf("SearchArticles failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 case-insensitive fallback hit for k8, got %d", len(results))
+	}
 }
 
 func TestStore_SearchArticles_NoStaleHitsAfterDeleteAndUpdate(t *testing.T) {

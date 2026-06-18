@@ -551,7 +551,7 @@ FROM ctx_summary s
 JOIN ctx_conversation c ON c.id = s.conversation_id
 WHERE c.user_id = $1
   AND c.agent_id IS NOT DISTINCT FROM $2
-  AND (s.content LIKE $3 ESCAPE '\')
+  AND (s.content ILIKE $3 ESCAPE '\')
 ORDER BY s.created_at DESC
 LIMIT $4
 `

@@ -674,7 +674,7 @@ FROM ctx_message m
 JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE c.user_id = $1
   AND c.agent_id IS NOT DISTINCT FROM $2
-  AND (m.content LIKE $3 ESCAPE '\')
+  AND (m.content ILIKE $3 ESCAPE '\')
 ORDER BY m.created_at DESC
 LIMIT $4
 `

@@ -512,10 +512,10 @@ func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) 
 const searchArticlesLike = `-- name: SearchArticlesLike :many
 SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at, search_tsv FROM recally_article
 WHERE user_id = $1
-  AND ((title LIKE $2::text ESCAPE '\')
-    OR (summary LIKE $2::text ESCAPE '\')
-    OR (tags LIKE $2::text ESCAPE '\')
-    OR (author LIKE $2::text ESCAPE '\'))
+  AND ((title ILIKE $2::text ESCAPE '\')
+    OR (summary ILIKE $2::text ESCAPE '\')
+    OR (tags ILIKE $2::text ESCAPE '\')
+    OR (author ILIKE $2::text ESCAPE '\'))
 ORDER BY created_at DESC
 LIMIT $3
 `

@@ -36,7 +36,7 @@ func newSearchTestEnv(t *testing.T, suffix string) (*sql.DB, memory.Provider, me
 func conversationID(t *testing.T, db *sql.DB, sessionID string) string {
 	t.Helper()
 	var id string
-	if err := db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = ?`, sessionID).Scan(&id); err != nil {
+	if err := db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&id); err != nil {
 		t.Fatalf("conversation id: %v", err)
 	}
 	return id
@@ -45,7 +45,7 @@ func conversationID(t *testing.T, db *sql.DB, sessionID string) string {
 func insertSummary(t *testing.T, db *sql.DB, convID, id, content string) {
 	t.Helper()
 	_, err := db.Exec(`INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count)
-		VALUES (?, ?, 'leaf', 0, ?, 10)`, id, convID, content)
+		VALUES ($1, $2, 'leaf', 0, $3, 10)`, id, convID, content)
 	if err != nil {
 		t.Fatalf("insert summary: %v", err)
 	}
@@ -54,7 +54,7 @@ func insertSummary(t *testing.T, db *sql.DB, convID, id, content string) {
 func insertSummaryAt(t *testing.T, db *sql.DB, convID, id, content, latestAt string) {
 	t.Helper()
 	_, err := db.Exec(`INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, latest_at)
-		VALUES (?, ?, 'leaf', 0, ?, 10, ?)`, id, convID, content, latestAt)
+		VALUES ($1, $2, 'leaf', 0, $3, 10, $4)`, id, convID, content, latestAt)
 	if err != nil {
 		t.Fatalf("insert summary: %v", err)
 	}
@@ -62,7 +62,7 @@ func insertSummaryAt(t *testing.T, db *sql.DB, convID, id, content, latestAt str
 
 func messageIDs(t *testing.T, db *sql.DB, convID string) []string {
 	t.Helper()
-	rows, err := db.Query(`SELECT id FROM ctx_message WHERE conversation_id = ? ORDER BY seq ASC`, convID)
+	rows, err := db.Query(`SELECT id FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC`, convID)
 	if err != nil {
 		t.Fatalf("query message ids: %v", err)
 	}
@@ -80,7 +80,7 @@ func messageIDs(t *testing.T, db *sql.DB, convID string) []string {
 
 func linkSummaryMessage(t *testing.T, db *sql.DB, summaryID, messageID string, ordinal int) {
 	t.Helper()
-	if _, err := db.Exec(`INSERT INTO ctx_summary_message (summary_id, message_id, ordinal) VALUES (?, ?, ?)`,
+	if _, err := db.Exec(`INSERT INTO ctx_summary_message (summary_id, message_id, ordinal) VALUES ($1, $2, $3)`,
 		summaryID, messageID, ordinal); err != nil {
 		t.Fatalf("link summary message: %v", err)
 	}
@@ -222,10 +222,10 @@ func TestSearch_DeleteRemovesFTSHits(t *testing.T) {
 
 	convID := conversationID(t, db, sess.ID)
 	// ctx_item restricts message deletes, so clear the pointer first.
-	if _, err := db.Exec(`DELETE FROM ctx_item WHERE conversation_id = ?`, convID); err != nil {
+	if _, err := db.Exec(`DELETE FROM ctx_item WHERE conversation_id = $1`, convID); err != nil {
 		t.Fatalf("delete items: %v", err)
 	}
-	if _, err := db.Exec(`DELETE FROM ctx_message WHERE conversation_id = ?`, convID); err != nil {
+	if _, err := db.Exec(`DELETE FROM ctx_message WHERE conversation_id = $1`, convID); err != nil {
 		t.Fatalf("delete messages: %v", err)
 	}
 
@@ -321,13 +321,18 @@ func TestSearch_CJKSubstringMatch(t *testing.T) {
 	_, p, sess := newSearchTestEnv(t, "fts-cjk")
 	appendUser(t, p, sess, "今天讨论了部署方案的细节和时间表")
 
-	// 3+ rune CJK query goes through trigram MATCH with snippet highlights.
+	// The 'simple' tsvector parser can't segment space-less CJK, so even a
+	// 3+ rune CJK query routes to the pg_trgm LIKE fallback: it still finds the
+	// substring, but carries Score 0 and no ts_headline snippet highlighting.
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署方案", Scope: memory.SearchScopeMessages})
 	if len(results) != 1 {
 		t.Fatalf("expected 1 hit for 部署方案, got %d", len(results))
 	}
-	if !strings.Contains(results[0].Content, "<<") {
-		t.Errorf("expected snippet highlighting in MATCH path, got %q", results[0].Content)
+	if results[0].Score != 0 {
+		t.Errorf("CJK fallback hit should carry Score 0, got %v", results[0].Score)
+	}
+	if !strings.Contains(results[0].Content, "部署方案") {
+		t.Errorf("expected raw content to contain the query substring, got %q", results[0].Content)
 	}
 }
 
@@ -448,6 +453,22 @@ func TestSearch_LikeFallbackEscapesWildcards(t *testing.T) {
 	}
 	if got := runSearch(t, p, sess, memory.SearchQuery{Text: "_b"}); len(got) != 1 {
 		t.Errorf("query _b: expected 1 literal hit, got %d: %+v", len(got), got)
+	}
+}
+
+func TestSearch_LikeFallbackIsCaseInsensitive(t *testing.T) {
+	db, p, sess := newSearchTestEnv(t, "fts-like-case")
+	convID := conversationID(t, db, sess.ID)
+	appendUser(t, p, sess, "golang runtime notes")
+	insertSummary(t, db, convID, "sum-like-case", "GoLang summary header")
+
+	// "GO" tokenizes below the trigram minimum, so it routes to the LIKE
+	// fallback. SQLite's LIKE is ASCII case-insensitive but PostgreSQL's is not,
+	// so the fallback must use ILIKE to preserve parity: an uppercase query has
+	// to find the lowercase "golang" message and the mixed-case "GoLang" summary.
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "GO", Scope: memory.SearchScopeBoth})
+	if len(results) != 2 {
+		t.Fatalf("expected 2 case-insensitive fallback hits for %q, got %d: %+v", "GO", len(results), results)
 	}
 }
 
