@@ -28,6 +28,7 @@ rolls up from its child tasks; it is not dispatched directly.`,
 			goalTasksCmd(),
 			goalReviewsCmd(),
 			goalReviewCmd(),
+			goalPlanCommand(),
 		},
 	}
 }
@@ -121,6 +122,7 @@ func goalCreateCmd() *ucli.Command {
 			&ucli.StringFlag{Name: "project-id", Usage: "Project/workspace context"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringFlag{Name: "review-policy", Usage: "none (only supported value in this build)"},
+			&ucli.StringFlag{Name: "plan-mode", Usage: "direct (default; auto-plan one task) | deferred (draft for explicit planning)"},
 			&ucli.BoolFlag{Name: "activate", Usage: "Activate (draft -> ready) immediately"},
 			cli.JSONFlag(),
 		},
@@ -144,6 +146,10 @@ func goalCreateCmd() *ucli.Command {
 			if rp := c.String("review-policy"); rp != "" {
 				pol := apitypes.CreateGoalRequestReviewPolicy(rp)
 				body.ReviewPolicy = &pol
+			}
+			if pm := c.String("plan-mode"); pm != "" {
+				mode := apitypes.CreateGoalRequestPlanMode(pm)
+				body.PlanMode = &mode
 			}
 			goal, err := apiclient.Call[apitypes.Goal](func(api *apiclient.Client) (*http.Response, error) {
 				return api.CreateGoal(c.Context, body)

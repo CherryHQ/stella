@@ -907,6 +907,11 @@ components:
           enum: [none]
           description: >-
             Only 'none' is supported in this build. Goal-level review (auto/agent/human) requires the synthesizer/goal-review runtime, which is not yet wired.
+        plan_mode:
+          type: string
+          enum: [direct, deferred]
+          description: >-
+            How the goal's plan is seeded. 'direct' (default) auto-creates, accepts, and materializes a single-task plan so the goal is ready to activate. 'deferred' leaves the goal in 'draft' with no plan for explicit structured planning via the plan endpoints.
         context:
           type: object
           additionalProperties: {}
@@ -915,6 +920,90 @@ components:
       properties:
         reason:
           type: string
+    PlanItem:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        role:
+          type: string
+          enum: [direct, design, impl, verify]
+          description: Item kind. Omit/`direct` for a single-task direct plan.
+        deps:
+          type: array
+          items:
+            type: string
+          description: IDs of items this item depends on (a DAG over item ids).
+        criteria:
+          type: array
+          items:
+            type: string
+          description: Acceptance criteria recorded against the materialized task.
+    PlanContent:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanItem"
+    GoalPlan:
+      type: object
+      required: [
+        id,
+        goal_id,
+        status,
+        review_policy,
+        content,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        goal_id:
+          type: string
+        status:
+          type: string
+          enum: [draft, in_review, accepted, approved]
+        review_policy:
+          type: string
+          enum: [none, human]
+        content:
+          allOf: [{ $ref: "#/components/schemas/PlanContent" }]
+          description: Last materialized plan content.
+        pending_content:
+          allOf: [{ $ref: "#/components/schemas/PlanContent" }]
+          nullable: true
+          description: In-flight edit awaiting accept/review + materialize; null when none.
+        approved_review_id:
+          type: string
+        accepted_at:
+          type: string
+          format: date-time
+        materialized_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PutGoalPlanRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          $ref: "#/components/schemas/PlanContent"
+        review_policy:
+          type: string
+          enum: [none, human]
+          description: >-
+            How the staged plan is accepted. 'none' (default) accepts directly; 'human' requires submit-review + approve before materialize.
     Group:
       type: object
       required: [id, group_name, platform, created_at, updated_at]

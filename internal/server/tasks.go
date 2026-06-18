@@ -50,6 +50,8 @@ func (s *Server) taskError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "blocker_already_closed")
 	case errors.Is(err, tasks.ErrUnsupportedReviewPolicy):
 		writeError(w, http.StatusBadRequest, "unsupported_review_policy")
+	case errors.Is(err, tasks.ErrInvalidPlanMode):
+		writeError(w, http.StatusBadRequest, "invalid_plan_mode")
 	case errors.Is(err, tasks.ErrInvalidTaskContext):
 		writeError(w, http.StatusBadRequest, "invalid_task_context")
 	case errors.Is(err, tasks.ErrPlanMaterializationRequired):
@@ -62,6 +64,22 @@ func (s *Server) taskError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "goal_plan_not_materialized")
 	case errors.Is(err, tasks.ErrInvalidPlan):
 		writeError(w, http.StatusBadRequest, "invalid_plan")
+	case errors.Is(err, tasks.ErrGoalPlanNotFound):
+		writeError(w, http.StatusNotFound, "goal_plan_not_found")
+	case errors.Is(err, tasks.ErrPlanReviewExists):
+		writeError(w, http.StatusConflict, "plan_review_exists")
+	case errors.Is(err, tasks.ErrNoPendingPlanEdit):
+		writeError(w, http.StatusConflict, "no_pending_plan_edit")
+	case errors.Is(err, tasks.ErrPlanNotUnderReview):
+		writeError(w, http.StatusConflict, "plan_not_under_review")
+	case errors.Is(err, tasks.ErrPlanReviewWrongPath):
+		writeError(w, http.StatusConflict, "plan_review_wrong_path")
+	case errors.Is(err, tasks.ErrPlanReviewPolicyMismatch):
+		writeError(w, http.StatusConflict, "plan_review_policy_mismatch")
+	case errors.Is(err, tasks.ErrPlanItemInFlight):
+		writeError(w, http.StatusConflict, "plan_item_in_flight")
+	case errors.Is(err, tasks.ErrPlanChangedDuringMaterialize):
+		writeError(w, http.StatusConflict, "plan_changed_retry")
 	default:
 		var conflict *tasks.ErrReopenConflict
 		if errors.As(err, &conflict) {

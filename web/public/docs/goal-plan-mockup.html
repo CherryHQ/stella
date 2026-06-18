@@ -1,0 +1,917 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Goal 规划门 · UI Mockup</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        --radius: 0.75rem;
+        --background: oklch(0.975 0.008 200);
+        --foreground: oklch(0.2 0.022 220);
+        --card: oklch(1 0 0);
+        --card-foreground: oklch(0.2 0.022 220);
+        --popover: oklch(1 0 0);
+        --primary: oklch(0.55 0.14 172);
+        --primary-foreground: oklch(0.99 0.01 172);
+        --muted: oklch(0.95 0.012 198);
+        --muted-foreground: oklch(0.48 0.025 205);
+        --accent: oklch(0.93 0.05 178);
+        --accent-foreground: oklch(0.43 0.11 178);
+        --border: oklch(0.9 0.012 200);
+        --chart-2: oklch(0.6 0.13 230);
+        --chart-3: oklch(0.68 0.15 150);
+        --chart-4: oklch(0.74 0.15 78);
+        --chart-5: oklch(0.62 0.18 35);
+        --sidebar: oklch(0.965 0.01 198);
+        --destructive: oklch(0.55 0.21 25);
+        --ring: oklch(0.55 0.14 172);
+        --font: "SF Pro Text", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+      }
+      html {
+        font-family: var(--font);
+        color: var(--foreground);
+      }
+      body {
+        background: var(--background);
+      }
+      .mono {
+        font-family: var(--mono);
+      }
+      ::-webkit-scrollbar {
+        width: 9px;
+        height: 9px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 6px;
+      }
+      .dep-line {
+        stroke: var(--border);
+        stroke-width: 1.5;
+        fill: none;
+      }
+    </style>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              background: "var(--background)",
+              foreground: "var(--foreground)",
+              card: "var(--card)",
+              "card-foreground": "var(--card-foreground)",
+              popover: "var(--popover)",
+              muted: "var(--muted)",
+              "muted-foreground": "var(--muted-foreground)",
+              primary: "var(--primary)",
+              "primary-foreground": "var(--primary-foreground)",
+              accent: "var(--accent)",
+              "accent-foreground": "var(--accent-foreground)",
+              border: "var(--border)",
+              sidebar: "var(--sidebar)",
+              c2: "var(--chart-2)",
+              c3: "var(--chart-3)",
+              c4: "var(--chart-4)",
+              c5: "var(--chart-5)",
+              destructive: "var(--destructive)",
+              ring: "var(--ring)",
+            },
+            borderRadius: {
+              lg: "var(--radius)",
+              md: "calc(var(--radius) - 4px)",
+              DEFAULT: "calc(var(--radius) - 4px)",
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { h, render } from "https://esm.sh/preact@10.23.1";
+      import { useState } from "https://esm.sh/preact@10.23.1/hooks";
+      import htm from "https://esm.sh/htm@3.1.1";
+      const html = htm.bind(h);
+
+      // ───────────────────────── status vocabulary ─────────────────────────
+      const STATUS = {
+        draft: { label: "草稿", cls: "bg-muted text-muted-foreground" },
+        planning: { label: "规划中", cls: "bg-c4/15 text-c4" },
+        planned: { label: "已规划", cls: "bg-primary/12 text-primary" },
+        ready: { label: "就绪", cls: "bg-c2/12 text-c2" },
+        running: { label: "运行中", cls: "bg-c2/15 text-c2" },
+        reviewing: { label: "待复审", cls: "bg-c4/15 text-c4" },
+        blocked: { label: "阻塞", cls: "bg-c5/15 text-c5" },
+        done: { label: "完成", cls: "bg-c3/15 text-c3" },
+        failed: { label: "失败", cls: "bg-destructive/12 text-destructive" },
+        in_review: { label: "复审中", cls: "bg-c4/15 text-c4" },
+        accepted: { label: "已接受", cls: "bg-c3/15 text-c3" },
+        approved: { label: "已批准", cls: "bg-c3/15 text-c3" },
+      };
+      // sdlc 纪律：item 的角色只是内容标签，不是 schema 类型
+      const KIND = {
+        design: { label: "设计", cls: "bg-c2/12 text-c2" },
+        impl: { label: "实现", cls: "bg-primary/12 text-primary" },
+        verify: { label: "验证", cls: "bg-c3/12 text-c3" },
+      };
+      const Pill = ({ s, sm }) =>
+        html`<span
+          class=${`inline-flex items-center rounded-full font-medium ${sm ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-0.5 text-[11px]"} ${(STATUS[s] || STATUS.draft).cls}`}
+          >${(STATUS[s] || { label: s }).label}</span
+        >`;
+      const Kind = ({ k }) =>
+        k && KIND[k]
+          ? html`<span class=${`rounded px-1.5 py-0.5 text-[10px] font-medium ${KIND[k].cls}`}
+              >${KIND[k].label}</span
+            >`
+          : null;
+      const Dot = ({ s }) => {
+        const c =
+          {
+            done: "bg-c3",
+            running: "bg-c2",
+            ready: "bg-c2/60",
+            blocked: "bg-c5",
+            failed: "bg-destructive",
+            draft: "bg-muted-foreground/40",
+          }[s] || "bg-muted-foreground/40";
+        return html`<span class=${`inline-block size-2 rounded-full ${c}`}></span>`;
+      };
+
+      // ───────────────────────── sample data ─────────────────────────
+      // 单一计划，无版本。replan = 原地编辑 + 重新物化对账。
+      const goal = {
+        id: "goal_7f",
+        title: "把登录接口迁移到新鉴权",
+        agent: "工程助理",
+        status: "running",
+        objective: "用新的鉴权契约替换 /login，先覆盖服务端，灰度无回归。",
+      };
+      // 当前已接受、已物化的计划（服务端版本）
+      const plan = {
+        review_policy: "human",
+        status: "accepted",
+        materialized: true,
+        items: [
+          {
+            id: "design",
+            kind: "design",
+            title: "设计新鉴权契约",
+            deps: [],
+            required: true,
+            criteria: ["产出 token 交换流程图", "与安全团队对齐 scope"],
+          },
+          {
+            id: "impl-server",
+            kind: "impl",
+            title: "实现服务端鉴权",
+            deps: ["design"],
+            required: true,
+            criteria: ["/login 走新流程", "旧 token 平滑过渡"],
+          },
+          {
+            id: "verify-server",
+            kind: "verify",
+            title: "验证服务端鉴权",
+            deps: ["impl-server"],
+            required: true,
+            criteria: ["契约测试通过", "服务端灰度 5% 无回归"],
+          },
+        ],
+      };
+      // 由当前计划物化出的任务（impl 还在跑）
+      const tasks = [
+        {
+          id: "tsk_a1",
+          item: "design",
+          kind: "design",
+          title: "设计新鉴权契约",
+          status: "done",
+          handoff: {
+            summary: "确定 OAuth2 + 短期 access / 长期 refresh；scope 已与安全对齐。",
+            changed_files: ["docs/auth/contract.md"],
+            decisions: ["refresh 走轮换而非长期有效"],
+            open_questions: [],
+          },
+        },
+        {
+          id: "tsk_b2",
+          item: "impl-server",
+          kind: "impl",
+          title: "实现服务端鉴权",
+          status: "running",
+        },
+        {
+          id: "tsk_c3",
+          item: "verify-server",
+          kind: "verify",
+          title: "验证服务端鉴权",
+          status: "draft",
+          blockedBy: "impl-server",
+        },
+      ];
+      // replan 工作草稿（约束版）：impl-server 在运行 → 不可改定义，改用新增
+      // item 表达 refresh 轮换；移动端两项新增；verify-server 未开始 → 可改。
+      const planEdit = {
+        items: [
+          {
+            id: "design",
+            kind: "design",
+            title: "设计新鉴权契约",
+            deps: [],
+            required: true,
+            change: "unchanged",
+            criteria: ["产出 token 交换流程图", "与安全团队对齐 scope"],
+          },
+          {
+            id: "impl-server",
+            kind: "impl",
+            title: "实现服务端鉴权",
+            deps: ["design"],
+            required: true,
+            change: "locked",
+            diff: "运行中，定义不可改——refresh 轮换改用下方新增 item 表达",
+            criteria: ["/login 走新流程", "旧 token 平滑过渡"],
+          },
+          {
+            id: "impl-refresh",
+            kind: "impl",
+            title: "新增 refresh token 轮换",
+            deps: ["impl-server"],
+            required: true,
+            change: "added",
+            criteria: ["refresh token 轮换上线", "旧 refresh 平滑失效"],
+          },
+          {
+            id: "verify-server",
+            kind: "verify",
+            title: "验证服务端鉴权（含 refresh）",
+            deps: ["impl-server", "impl-refresh"],
+            required: true,
+            change: "modified",
+            diff: "未开始任务，可条件更新：加 refresh 回归项 + 依赖 impl-refresh",
+            criteria: ["契约测试通过", "服务端灰度 5% 无回归", "refresh 轮换回归"],
+          },
+          {
+            id: "impl-mobile",
+            kind: "impl",
+            title: "迁移移动端客户端",
+            deps: ["design"],
+            required: true,
+            change: "added",
+            criteria: ["iOS / Android SDK 切到新鉴权"],
+          },
+          {
+            id: "verify-mobile",
+            kind: "verify",
+            title: "验证移动端鉴权",
+            deps: ["impl-mobile"],
+            required: true,
+            change: "added",
+            criteria: ["移动端 e2e 通过"],
+          },
+        ],
+      };
+      // 第二个 goal：等待人工复审计划
+      const reviewGoal = {
+        id: "goal_22",
+        title: "季度安全审计自动化",
+        agent: "安全助理",
+        status: "planning",
+        plan: {
+          review_policy: "human",
+          status: "in_review",
+          items: [
+            {
+              id: "scan",
+              title: "接入扫描器并归集结果",
+              deps: [],
+              required: true,
+              criteria: ["每日全量扫描", "结果落库"],
+            },
+            {
+              id: "triage",
+              title: "按严重度分诊",
+              deps: ["scan"],
+              required: true,
+              criteria: ["P0/P1 自动建单"],
+            },
+            {
+              id: "report",
+              title: "生成季度报告",
+              deps: ["triage"],
+              required: false,
+              criteria: ["导出 PDF"],
+            },
+          ],
+        },
+      };
+      const goalsList = [
+        { ...reviewGoal, needs: true },
+        { ...goal, needs: false },
+        {
+          id: "goal_88",
+          title: "总结本周技术周报",
+          agent: "写作助理",
+          status: "running",
+          needs: false,
+        },
+        {
+          id: "goal_03",
+          title: "清理过期特性开关",
+          agent: "工程助理",
+          status: "done",
+          needs: false,
+        },
+      ];
+
+      // 计划校验：sdlc 纪律翻译成的可机检不变量（接受/物化前 validatePlan 跑）
+      const CHECKS = [
+        "每个「实现」项都有「验证」项依赖它",
+        "依赖图无环、无孤儿",
+        "至少一个终态项可汇报到 goal",
+      ];
+
+      // ───────────────────────── primitives ─────────────────────────
+      const Btn = ({ variant = "default", sm, onClick, children, disabled }) => {
+        const base =
+          "inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition active:scale-[.98] disabled:opacity-40 disabled:pointer-events-none";
+        const size = sm ? "h-7 px-2.5 text-[12px]" : "h-9 px-3.5 text-[13px]";
+        const v = {
+          default: "bg-primary text-primary-foreground hover:opacity-90",
+          outline: "border border-border bg-card hover:bg-accent/40",
+          ghost: "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
+          danger: "border border-destructive/30 text-destructive hover:bg-destructive/8",
+        }[variant];
+        return html`<button class=${`${base} ${size} ${v}`} onClick=${onClick} disabled=${disabled}>
+          ${children}
+        </button>`;
+      };
+      const Card = ({ children, cls = "" }) =>
+        html`<div class=${`rounded-lg border border-border bg-card ${cls}`}>${children}</div>`;
+      const Crumb = ({ items }) =>
+        html`<div class="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+          ${items.map(
+            (it, i) =>
+              html`<span
+                key=${i}
+                class=${`flex items-center gap-1.5 ${i === items.length - 1 ? "text-foreground font-medium" : ""}`}
+                >${i > 0 && html`<span class="opacity-40">/</span>`}${it}</span
+              >`,
+          )}
+        </div>`;
+
+      // 计划项卡片（复审、计划面板共用）
+      const ItemRow = ({ it, dense }) =>
+        html`<div
+          class=${`rounded-md border border-border bg-background/50 ${dense ? "p-2.5" : "p-3"}`}
+        >
+          <div class="flex items-start gap-2">
+            <span class="mono mt-0.5 rounded bg-muted px-1 text-[10px] text-muted-foreground"
+              >${it.id}</span
+            >
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-[13px] font-medium leading-snug">${it.title}</span>
+                <${Kind} k=${it.kind} />
+                ${!it.required &&
+                html`<span class="text-[10px] text-muted-foreground">(可选)</span>`}
+              </div>
+              ${it.deps?.length
+                ? html`<div class="mono mt-1 text-[10px] text-muted-foreground">
+                    依赖 → ${it.deps.join(", ")}
+                  </div>`
+                : null}
+              <ul class="mt-1.5 space-y-0.5">
+                ${it.criteria.map(
+                  (c, i) =>
+                    html`<li key=${i} class="flex gap-1.5 text-[11px] text-muted-foreground">
+                      <span class="text-primary">✓</span>${c}
+                    </li>`,
+                )}
+              </ul>
+            </div>
+          </div>
+        </div>`;
+
+      const ChecksStrip = () =>
+        html`<div class="rounded-md border border-c3/30 bg-c3/8 p-3">
+          <div class="mb-1.5 text-[11px] font-medium text-c3">
+            计划校验（validatePlan · 接受前必过）
+          </div>
+          <ul class="space-y-1">
+            ${CHECKS.map(
+              (c, i) =>
+                html`<li key=${i} class="flex gap-1.5 text-[11px] text-muted-foreground">
+                  <span class="text-c3">✓</span>${c}
+                </li>`,
+            )}
+          </ul>
+        </div>`;
+
+      // ───────────────────────── app shell ─────────────────────────
+      function Shell({ scene, setScene }) {
+        const nav = [
+          ["goals", "Goals", "◎"],
+          ["detail", "Goal 详情", "▣"],
+          ["review", "计划复审", "✓"],
+          ["replan", "Replan · 重新物化", "⟳"],
+        ];
+        return html` <div class="flex h-screen overflow-hidden text-foreground">
+          <aside class="flex w-[208px] shrink-0 flex-col border-r border-border bg-sidebar">
+            <div class="flex h-14 items-center gap-2 px-4">
+              <div
+                class="grid size-7 place-items-center rounded-md bg-primary text-primary-foreground font-bold"
+              >
+                S
+              </div>
+              <span class="font-semibold tracking-tight">Stella</span>
+            </div>
+            <div
+              class="px-3 pt-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70"
+            >
+              Mockup 场景
+            </div>
+            <nav class="flex flex-col gap-0.5 p-2">
+              ${nav.map(
+                ([k, label, ic]) =>
+                  html`<button
+                    key=${k}
+                    onClick=${() => setScene(k)}
+                    class=${`flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition ${scene === k ? "bg-accent text-accent-foreground font-medium" : "text-muted-foreground hover:bg-accent/40"}`}
+                  >
+                    <span class="mono text-[12px] opacity-70">${ic}</span>${label}
+                  </button>`,
+              )}
+            </nav>
+            <div class="mt-auto p-3 text-[11px] leading-relaxed text-muted-foreground/70">
+              规划门原型 · #525<br />单一计划 · 无版本 · 非真实数据
+            </div>
+          </aside>
+          <main class="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+            ${scene === "goals" && html`<${GoalsScene} go=${setScene} />`}
+            ${scene === "detail" && html`<${DetailScene} go=${setScene} />`}
+            ${scene === "review" && html`<${ReviewScene} go=${setScene} />`}
+            ${scene === "replan" && html`<${ReplanScene} go=${setScene} />`}
+          </main>
+        </div>`;
+      }
+
+      // ───────────────────────── scene: goals list ─────────────────────────
+      function GoalsScene({ go }) {
+        const groups = [
+          ["需要你", goalsList.filter((g) => g.needs)],
+          ["进行中", goalsList.filter((g) => !g.needs && g.status !== "done")],
+          ["已完成", goalsList.filter((g) => g.status === "done")],
+        ];
+        return html` <header
+            class="flex h-14 shrink-0 items-center justify-between border-b border-border px-6"
+          >
+            <${Crumb} items=${["工程助理", "Goals"]} />
+            <${Btn}>+ 新建 Goal<//>
+          </header>
+          <div class="flex-1 overflow-auto px-6 py-5">
+            <div class="mx-auto max-w-3xl space-y-7">
+              ${groups.map(([name, gs]) =>
+                gs.length
+                  ? html`<section key=${name}>
+                      <div
+                        class="mb-2 flex items-center gap-2 text-[12px] font-medium text-muted-foreground"
+                      >
+                        ${name}<span class="rounded-full bg-muted px-1.5 text-[10px]"
+                          >${gs.length}</span
+                        >
+                      </div>
+                      <div class="space-y-2">
+                        ${gs.map(
+                          (g) =>
+                            html`<button
+                              key=${g.id}
+                              onClick=${() => go(g.needs ? "review" : "detail")}
+                              class="flex w-full items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-left transition hover:border-primary/40 hover:shadow-sm"
+                            >
+                              <${Dot} s=${g.status} />
+                              <div class="min-w-0 flex-1">
+                                <div class="truncate text-[14px] font-medium">${g.title}</div>
+                                <div class="mt-0.5 text-[11px] text-muted-foreground">
+                                  ${g.agent}
+                                </div>
+                              </div>
+                              ${g.needs
+                                ? html`<${Pill} s="in_review" />`
+                                : html`<${Pill} s=${g.status} />`}
+                            </button>`,
+                        )}
+                      </div>
+                    </section>`
+                  : null,
+              )}
+            </div>
+          </div>`;
+      }
+
+      // ───────────────────────── plan panel (shared) ─────────────────────────
+      function PlanPanel({ plan, onReplan }) {
+        return html` <div class="flex h-full flex-col">
+          <div class="flex items-center justify-between border-b border-border px-4 py-3">
+            <div class="flex items-center gap-2">
+              <span class="text-[13px] font-semibold">计划</span>
+              <${Pill} s=${plan.status} sm=${true} />
+              ${plan.materialized &&
+              html`<span
+                class="mono rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                >已物化</span
+              >`}
+            </div>
+            ${onReplan &&
+            html`<${Btn} variant="outline" sm=${true} onClick=${onReplan}>⟳ Replan<//>`}
+          </div>
+          <div class="flex-1 space-y-3 overflow-auto p-4">
+            ${plan.items.map((it) => html`<${ItemRow} key=${it.id} it=${it} dense=${true} />`)}
+            <${ChecksStrip} />
+          </div>
+        </div>`;
+      }
+
+      // ───────────────────────── scene: goal detail ─────────────────────────
+      function DetailScene({ go }) {
+        const [openTask, setOpenTask] = useState(null);
+        const r = { done: tasks.filter((t) => t.status === "done").length, total: tasks.length };
+        const pct = Math.round((r.done / r.total) * 100);
+        return html` <header
+            class="flex h-14 shrink-0 items-center justify-between border-b border-border px-6"
+          >
+            <${Crumb}
+              items=${[
+                html`<button onClick=${() => go("goals")} class="hover:text-foreground">
+                  Goals
+                </button>`,
+                goal.title,
+              ]}
+            />
+            <div class="flex items-center gap-2">
+              <${Pill} s=${goal.status} />
+              <${Btn} variant="outline" sm=${true} onClick=${() => go("replan")}>⟳ Replan<//>
+            </div>
+          </header>
+          <div class="flex min-h-0 flex-1">
+            <!-- left: plan -->
+            <div class="w-[360px] shrink-0 border-r border-border">
+              <${PlanPanel} plan=${plan} onReplan=${() => go("replan")} />
+            </div>
+            <!-- center: task graph -->
+            <div class="flex min-w-0 flex-1 flex-col overflow-auto">
+              <div class="border-b border-border px-6 py-4">
+                <div class="text-[13px] text-muted-foreground">${goal.objective}</div>
+                <div class="mt-3 flex items-center gap-3">
+                  <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      class="h-full rounded-full bg-c3 transition-all"
+                      style=${`width:${pct}%`}
+                    ></div>
+                  </div>
+                  <span class="mono text-[11px] text-muted-foreground"
+                    >${r.done}/${r.total} · ${pct}%</span
+                  >
+                </div>
+              </div>
+              <div class="px-6 py-5">
+                <div class="mb-3 text-[12px] font-medium text-muted-foreground">
+                  物化任务图 · 派生自当前计划（幂等键 <span class="mono">plan_id · item_id</span>）
+                </div>
+                <div class="space-y-2.5">
+                  ${tasks.map(
+                    (t) =>
+                      html`<button
+                        key=${t.id}
+                        onClick=${() => setOpenTask(t)}
+                        class="flex w-full items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-left transition hover:border-primary/40"
+                      >
+                        <${Dot} s=${t.status} />
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-center gap-2">
+                            <span class="truncate text-[13px] font-medium">${t.title}</span>
+                            <${Kind} k=${t.kind} />
+                          </div>
+                          <div class="mono mt-0.5 text-[10px] text-muted-foreground">
+                            item: ${t.item}${t.blockedBy ? ` · 等待 ${t.blockedBy}` : ""}
+                          </div>
+                        </div>
+                        <${Pill} s=${t.status} sm=${true} />
+                      </button>`,
+                  )}
+                </div>
+              </div>
+            </div>
+            ${openTask && html`<${TaskDrawer} t=${openTask} close=${() => setOpenTask(null)} />`}
+          </div>`;
+      }
+
+      // ───────────────────────── task drawer (context + handoff) ─────────────────────────
+      function TaskDrawer({ t, close }) {
+        return html` <div class="w-[380px] shrink-0 overflow-auto border-l border-border bg-card">
+          <div class="flex items-center justify-between border-b border-border px-4 py-3">
+            <div class="flex items-center gap-2">
+              <${Pill} s=${t.status} sm=${true} /><span class="text-[13px] font-semibold"
+                >${t.title}</span
+              >
+            </div>
+            <button onClick=${close} class="text-muted-foreground hover:text-foreground">✕</button>
+          </div>
+          <div class="space-y-4 p-4">
+            <div>
+              <div
+                class="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                Context Packet（注入 worker prompt）
+              </div>
+              <div
+                class="mono rounded-md border border-border bg-background/60 p-2.5 text-[11px] leading-relaxed"
+              >
+                goal: ${goal.title}<br />plan item: ${t.item}<br />upstream handoff: design ✓<br />retrieval:
+                full_plan, goal
+              </div>
+            </div>
+            ${t.handoff
+              ? html`<div>
+                  <div
+                    class="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                  >
+                    结构化 Handoff（submit 输出）
+                  </div>
+                  <div
+                    class="space-y-2 rounded-md border border-border bg-background/60 p-3 text-[12px]"
+                  >
+                    <div>
+                      <span class="text-muted-foreground">summary：</span>${t.handoff.summary}
+                    </div>
+                    ${t.handoff.decisions.length
+                      ? html`<div>
+                          <span class="text-muted-foreground">decisions：</span
+                          >${t.handoff.decisions.join("；")}
+                        </div>`
+                      : null}
+                    ${t.handoff.changed_files.length
+                      ? html`<div class="mono text-[11px]">
+                          <span class="text-muted-foreground">changed_files：</span
+                          >${t.handoff.changed_files.join(", ")}
+                        </div>`
+                      : null}
+                  </div>
+                </div>`
+              : html`<div
+                  class="rounded-md border border-dashed border-border p-3 text-[12px] text-muted-foreground"
+                >
+                  任务完成后此处显示结构化 handoff（plan-backed 任务 summary 必填）。
+                </div>`}
+          </div>
+        </div>`;
+      }
+
+      // ───────────────────────── scene: plan review ─────────────────────────
+      function ReviewScene({ go }) {
+        const [done, setDone] = useState(null);
+        const p = reviewGoal.plan;
+        return html`
+          <header class="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
+            <${Crumb} items=${[html`<button onClick=${() => go("goals")} class="hover:text-foreground">Goals</button>`, reviewGoal.title, "计划复审"]} />
+            <${Pill} s="planning" />
+          </header>
+          <div class="flex-1 overflow-auto px-6 py-6">
+            <div class="mx-auto max-w-2xl space-y-4">
+              <div class="rounded-md border border-c4/30 bg-c4/8 px-4 py-2.5 text-[12px] text-c4">
+                这是<strong>计划复审</strong>，批准只把计划置为 approved、goal 留在 <span class="mono">planning</span>，<strong>不会</strong>把 goal 标记完成。
+              </div>
+              <${Card} cls="overflow-hidden">
+                <div class="flex items-center justify-between border-b border-border px-4 py-3">
+                  <div class="flex items-center gap-2"><span class="text-[13px] font-semibold">${reviewGoal.title}</span><${Pill} s=${p.status} sm=${true} /></div>
+                </div>
+                <div class="space-y-2 p-4">
+                  ${p.items.map((it) => html`<${ItemRow} key=${it.id} it=${it} />`)}
+                  <${ChecksStrip} />
+                </div>
+              </${Card}>
+              <textarea placeholder="复审意见（changes_requested / reject 时建议填写）"
+                class="h-20 w-full resize-none rounded-md border border-border bg-card p-3 text-[13px] outline-none focus:ring-2 focus:ring-ring/40"></textarea>
+              ${
+                done
+                  ? html`<div
+                      class=${`rounded-md px-4 py-3 text-[13px] ${done === "approved" ? "bg-c3/12 text-c3" : "bg-c4/12 text-c4"}`}
+                    >
+                      ${done === "approved"
+                        ? "已批准 → 计划 approved，goal 仍 planning，等待物化。"
+                        : "已请求修改 → 计划回到 draft，可编辑后重新提交。"}
+                    </div>`
+                  : html`<div class="flex items-center gap-2">
+                      <${Btn} onClick=${() => setDone("approved")}>✓ 批准计划<//>
+                      <${Btn}
+                        variant="outline"
+                        onClick=${() => {
+                          setDone("changes");
+                        }}
+                        >请求修改<//
+                      >
+                      <${Btn} variant="danger">拒绝<//>
+                      <span class="ml-auto text-[11px] text-muted-foreground"
+                        >批准后 → <span class="mono">ApproveGoalPlanReview</span></span
+                      >
+                    </div>`
+              }
+              ${done === "approved" && html`<div class="flex justify-end"><${Btn} onClick=${() => go("detail")}>下一步：物化并激活 →<//></div>`}
+            </div>
+          </div>`;
+      }
+
+      // ───────────────────────── scene: replan (in-place edit + re-materialize) ─────────────────────────
+      function ReplanScene({ go }) {
+        const [tab, setTab] = useState("editor");
+        const changeStyle = {
+          added: "border-c3/40 bg-c3/8",
+          modified: "border-c4/40 bg-c4/8",
+          unchanged: "border-border bg-background/50",
+          removed: "border-destructive/40 bg-destructive/8",
+          locked: "border-c2/40 bg-c2/8",
+        };
+        const changeTag = {
+          added: html`<span class="rounded bg-c3/15 px-1.5 text-[10px] text-c3">+ 新增</span>`,
+          modified: html`<span class="rounded bg-c4/15 px-1.5 text-[10px] text-c4">~ 修改</span>`,
+          unchanged: html`<span class="rounded bg-muted px-1.5 text-[10px] text-muted-foreground"
+            >不变</span
+          >`,
+          removed: html`<span class="rounded bg-destructive/15 px-1.5 text-[10px] text-destructive"
+            >− 删除</span
+          >`,
+          locked: html`<span class="rounded bg-c2/15 px-1.5 text-[10px] text-c2"
+            >🔒 运行中·不可改</span
+          >`,
+        };
+        // 重新物化对账：拿编辑后的计划 vs 已物化任务逐项对比（约束版）
+        const recon = [
+          ["design", "保留", "已完成，定义未变，任务不动", "text-muted-foreground"],
+          ["impl-server", "锁定", "运行中 → 定义不可改，任务原样保留", "text-c2"],
+          ["impl-refresh", "新建任务", "新增 item → 建 draft 任务，依赖 impl-server", "text-c3"],
+          [
+            "verify-server",
+            "更新定义",
+            "未开始 → 条件更新（被领取则中止 replan、重试）",
+            "text-c4",
+          ],
+          ["impl-mobile", "新建任务", "新增 item → 建 draft 任务，依赖 design", "text-c3"],
+          ["verify-mobile", "新建任务", "新增 item → 依赖 impl-mobile", "text-c3"],
+        ];
+        return html` <header
+            class="flex h-14 shrink-0 items-center justify-between border-b border-border px-6"
+          >
+            <${Crumb}
+              items=${[
+                html`<button onClick=${() => go("detail")} class="hover:text-foreground">
+                  ${goal.title}
+                </button>`,
+                "Replan",
+              ]}
+            />
+            <span class="text-[11px] text-muted-foreground">原地编辑当前计划 · 无新版本</span>
+          </header>
+          <div class="flex min-h-0 flex-1 flex-col">
+            <div class="flex items-center gap-1 border-b border-border px-6">
+              ${[
+                ["editor", "计划编辑器"],
+                ["materialize", "重新物化预览"],
+              ].map(
+                ([k, l]) =>
+                  html`<button
+                    key=${k}
+                    onClick=${() => setTab(k)}
+                    class=${`border-b-2 px-3 py-2.5 text-[13px] ${tab === k ? "border-primary text-foreground font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                  >
+                    ${l}
+                  </button>`,
+              )}
+            </div>
+            <div class="flex-1 overflow-auto px-6 py-5">
+              <div class="mx-auto max-w-2xl">
+                ${tab === "editor" &&
+                html`<div class="space-y-2.5">
+                  <p class="mb-3 text-[12px] text-muted-foreground">
+                    结构化编辑当前计划（非手改 JSON）。增删
+                    item、改标题/验收/依赖。保存即触发重新物化对账；<span class="mono"
+                      >item_id</span
+                    >
+                    保持稳定，复审策略为 human 时改动会重新进入复审。
+                  </p>
+                  ${planEdit.items.map(
+                    (it) =>
+                      html`<div
+                        key=${it.id}
+                        class=${`rounded-md border p-3 ${changeStyle[it.change]}`}
+                      >
+                        <div class="flex items-center gap-2">
+                          <span class="mono rounded bg-muted px-1 text-[10px]">${it.id}</span>
+                          <input
+                            value=${it.title}
+                            readonly=${it.change === "locked"}
+                            class=${`flex-1 rounded border border-border px-2 py-1 text-[13px] outline-none focus:ring-2 focus:ring-ring/30 ${it.change === "locked" ? "bg-muted/60 text-muted-foreground cursor-not-allowed" : "bg-background"}`}
+                          />
+                          <${Kind} k=${it.kind} />
+                          ${changeTag[it.change]}
+                          ${it.change !== "locked" &&
+                          html`<button class="text-muted-foreground hover:text-destructive">
+                            ✕
+                          </button>`}
+                        </div>
+                        ${(it.change === "modified" || it.change === "locked") &&
+                        it.diff &&
+                        html`<div
+                          class=${`mt-1.5 text-[11px] ${it.change === "locked" ? "text-c2" : "text-c4"}`}
+                        >
+                          ${it.diff}
+                        </div>`}
+                        <div
+                          class="mono mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground"
+                        >
+                          依赖：${it.deps.length
+                            ? it.deps.map(
+                                (d) =>
+                                  html`<span class="rounded bg-muted px-1.5 py-0.5">${d}</span>`,
+                              )
+                            : html`<span class="opacity-50">无</span>`}
+                          <span class="ml-2">验收 ${it.criteria.length} 条</span>
+                        </div>
+                      </div>`,
+                  )}
+                  <button
+                    class="w-full rounded-md border border-dashed border-border py-2 text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  >
+                    + 添加 item
+                  </button>
+                </div>`}
+                ${tab === "materialize" &&
+                html`<div class="space-y-3">
+                  <p class="text-[12px] text-muted-foreground">
+                    保存后的重新物化对账。同一计划原地更新，按
+                    <span class="mono">(plan_id, item_id)</span>
+                    逐项对账——已存在任务复用、不重复创建。
+                  </p>
+                  <div class="overflow-hidden rounded-lg border border-border">
+                    ${recon.map(
+                      ([id, action, note, cls], i) =>
+                        html`<div
+                          key=${id}
+                          class=${`flex items-center gap-3 px-4 py-2.5 text-[13px] ${i ? "border-t border-border" : ""}`}
+                        >
+                          <span class="mono w-24 text-muted-foreground">${id}</span>
+                          <span class=${`w-20 font-medium ${cls}`}>${action}</span>
+                          <span class="flex-1 text-[12px] text-muted-foreground">${note}</span>
+                        </div>`,
+                    )}
+                  </div>
+                  <div
+                    class="rounded-md border border-border bg-background/50 p-3 text-[11px] leading-relaxed text-muted-foreground"
+                  >
+                    <span class="font-medium text-foreground">对账规则（约束 replan）</span><br />
+                    可改的只有<strong>未开始</strong>的 item → 条件更新（中途被 dispatcher
+                    领取则整次 replan 中止、提示重试）。<br />
+                    运行中 / 已完成的 item <strong>定义不可改</strong>——要变更就<strong
+                      >新增 item</strong
+                    >
+                    表达（如上面的 impl-refresh）。<br />
+                    新增 item → 建任务；删除 item →
+                    未开始的取消、已产出价值的降级为非必需并保留追溯（不影响 rollup）。
+                  </div>
+                  <div
+                    class="rounded-md border border-primary/30 bg-primary/8 p-3 text-[11px] leading-relaxed text-muted-foreground"
+                  >
+                    <span class="font-medium text-primary">已接受内容保持稳定</span><br />
+                    编辑写入 pending，已运行任务仍按已物化内容执行；运行中/已完成 item
+                    定义不可改（要变更就新增 item）；human
+                    复审策略下改动重新进入复审，批准后在重新物化的同一事务里才
+                    promote——未批准/未物化内容不会进入执行。
+                  </div>
+                </div>`}
+              </div>
+            </div>
+            <div class="flex items-center justify-between border-t border-border px-6 py-3">
+              <span class="text-[11px] text-muted-foreground"
+                >保存 → 校验 <span class="mono">validatePlan</span> · 重新物化 →
+                <span class="mono">MaterializeGoalPlan</span>（对账，非新版本）</span
+              >
+              <div class="flex gap-2">
+                <${Btn} variant="ghost" onClick=${() => go("detail")}>取消<//
+                ><${Btn} onClick=${() => go("detail")}>保存并重新物化<//>
+              </div>
+            </div>
+          </div>`;
+      }
+
+      function App() {
+        const [scene, setScene] = useState("goals");
+        return html`<${Shell} scene=${scene} setScene=${setScene} />`;
+      }
+      render(html`<${App} />`, document.getElementById("app"));
+    </script>
+  </body>
+</html>

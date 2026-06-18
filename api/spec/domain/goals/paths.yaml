@@ -363,3 +363,194 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/plan:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [goals]
+      summary: Get a goal's plan
+      operationId: getGoalPlan
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/GoalPlan" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    put:
+      tags: [goals]
+      summary: Create or replace a goal's pending plan edit
+      operationId: putGoalPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/PutGoalPlanRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/GoalPlan" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/plan/accept:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Accept a goal's pending plan (review_policy=none)
+      operationId: acceptGoalPlan
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/GoalPlan" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/plan/submit-review:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Submit a goal's pending plan edit for human review
+      operationId: submitGoalPlanReview
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Review" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/plan/materialize:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Materialize an accepted/approved plan into the goal's task graph
+      operationId: materializeGoalPlan
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Goal" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/plan/reviews/{reviewId}/approve:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Approve a goal plan review
+      operationId: approveGoalPlanReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/ReviewDecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Review" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/plan/reviews/{reviewId}/reject:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Reject a goal plan review (discards the pending edit)
+      operationId: rejectGoalPlanReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/ReviewDecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Review" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/plan/reviews/{reviewId}/request-changes:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Request changes on a goal plan review (keeps the pending edit)
+      operationId: requestChangesGoalPlanReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/ReviewDecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Review" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
