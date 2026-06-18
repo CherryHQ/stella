@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -226,12 +227,19 @@ func (f *ServiceFacade) GetTask(ctx context.Context, taskID string) (sqlc.AgentT
 
 // ListTasksByUser returns paginated tasks owned by the given user, optionally
 // filtered by agent, project, and status. Empty filter strings match all rows.
-func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID, agentID, projectID, status string, limit, offset int64) ([]sqlc.AgentTask, error) {
+// archived=false lists active tasks (the default); archived=true lists the
+// archived history/restore set.
+func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID, agentID, projectID, status string, archived bool, limit, offset int64) ([]sqlc.AgentTask, error) {
 	if limit <= 0 {
 		limit = 50
 	}
+	var arch any
+	if archived {
+		arch = int64(1)
+	}
 	return f.q.ListAgentTasksByUser(ctx, sqlc.ListAgentTasksByUserParams{
 		UserID:    userID,
+		Archived:  arch,
 		AgentID:   nilIfEmpty(agentID),
 		ProjectID: nilIfEmpty(projectID),
 		Status:    nilIfEmpty(status),
@@ -330,6 +338,41 @@ func (f *ServiceFacade) ArchiveTask(ctx context.Context, taskID string, actor Ac
 	return f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
 		_, err := f.archiveTaskTx(ctx, q, taskID, "", `{"mode":"archive"}`, actor)
 		return err
+	})
+}
+
+// UnarchiveTask restores a standalone archived task to default lists, reversing
+// ArchiveTask. Restoring a non-archived task is a no-op (idempotent).
+func (f *ServiceFacade) UnarchiveTask(ctx context.Context, taskID string, actor Actor) error {
+	return f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
+		t, err := q.GetAgentTask(ctx, taskID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrTaskNotFound
+			}
+			return err
+		}
+		if !t.ArchivedAt.Valid {
+			return nil
+		}
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		n, err := q.UnarchiveAgentTask(ctx, sqlc.UnarchiveAgentTaskParams{UpdatedAt: now, ID: taskID})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return nil
+		}
+		return f.svc.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+			TaskID:     nullable(taskID),
+			GoalID:     t.GoalID,
+			EventType:  "task_unarchive",
+			FromStatus: nullable(t.Status),
+			ToStatus:   nullable(t.Status),
+			ActorType:  actor.Type,
+			ActorID:    nullable(actor.ID),
+			Detail:     `{"mode":"unarchive"}`,
+		})
 	})
 }
 
@@ -520,7 +563,38 @@ type GoalFilter struct {
 	AgentID   string
 	ProjectID string
 	Status    string
-	Archived  bool // true lists the archived (history/restore) set instead of active goals
+	Archived  bool   // true lists the archived (history/restore) set instead of active goals
+	Terminal  *bool  // nil any; false non-terminal (active); true terminal (history). Ignored when Archived.
+	Search    string // case-insensitive substring on title/description; empty matches all
+}
+
+func (filter GoalFilter) params(userID string, limit, offset int64) sqlc.ListAgentGoalsByUserParams {
+	var archived, terminal any
+	if filter.Archived {
+		archived = int64(1)
+	} else if filter.Terminal != nil {
+		// Terminal only narrows the active set; archived rows are listed whole.
+		if *filter.Terminal {
+			terminal = int64(1)
+		} else {
+			terminal = int64(0)
+		}
+	}
+	var search any
+	if filter.Search != "" {
+		search = filter.Search
+	}
+	return sqlc.ListAgentGoalsByUserParams{
+		UserID:    userID,
+		Archived:  archived,
+		AgentID:   nilIfEmpty(filter.AgentID),
+		ProjectID: nilIfEmpty(filter.ProjectID),
+		Status:    nilIfEmpty(filter.Status),
+		Terminal:  terminal,
+		Search:    search,
+		Limit:     limit,
+		Offset:    offset,
+	}
 }
 
 // ListGoals returns goals owned by the given user, newest first.
@@ -528,18 +602,20 @@ func (f *ServiceFacade) ListGoals(ctx context.Context, userID string, filter Goa
 	if limit <= 0 {
 		limit = 50
 	}
-	var archived any
-	if filter.Archived {
-		archived = int64(1)
-	}
-	return f.q.ListAgentGoalsByUser(ctx, sqlc.ListAgentGoalsByUserParams{
-		UserID:    userID,
-		Archived:  archived,
-		AgentID:   nilIfEmpty(filter.AgentID),
-		ProjectID: nilIfEmpty(filter.ProjectID),
-		Status:    nilIfEmpty(filter.Status),
-		Limit:     limit,
-		Offset:    offset,
+	return f.q.ListAgentGoalsByUser(ctx, filter.params(userID, limit, offset))
+}
+
+// CountGoals returns the total goals matching the filter, ignoring pagination.
+func (f *ServiceFacade) CountGoals(ctx context.Context, userID string, filter GoalFilter) (int64, error) {
+	p := filter.params(userID, 0, 0)
+	return f.q.CountAgentGoalsByUser(ctx, sqlc.CountAgentGoalsByUserParams{
+		UserID:    p.UserID,
+		Archived:  p.Archived,
+		AgentID:   p.AgentID,
+		ProjectID: p.ProjectID,
+		Status:    p.Status,
+		Terminal:  p.Terminal,
+		Search:    p.Search,
 	})
 }
 
@@ -569,9 +645,17 @@ func (f *ServiceFacade) ArchiveGoal(ctx context.Context, goalID string, actor Ac
 				return ErrInvalidTransition
 			}
 		}
+		// Record which children THIS cascade actually archived (archiveTaskTx is a
+		// no-op for already-archived ones). UnarchiveGoal restores exactly this
+		// set, so children the user archived independently stay hidden.
+		archivedChildIDs := make([]string, 0, len(children))
 		for _, child := range children {
-			if _, err := f.archiveTaskTx(ctx, q, child.ID, goalID, `{"mode":"archive","parent_goal_archived":true}`, actor); err != nil {
+			archived, err := f.archiveTaskTx(ctx, q, child.ID, goalID, `{"mode":"archive","parent_goal_archived":true}`, actor)
+			if err != nil {
 				return err
+			}
+			if archived {
+				archivedChildIDs = append(archivedChildIDs, child.ID)
 			}
 		}
 		now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -589,7 +673,7 @@ func (f *ServiceFacade) ArchiveGoal(ctx context.Context, goalID string, actor Ac
 			ToStatus:   nullable(g.Status),
 			ActorType:  actor.Type,
 			ActorID:    nullable(actor.ID),
-			Detail:     `{"mode":"archive"}`,
+			Detail:     archiveGoalDetail(archivedChildIDs),
 		})
 	})
 }
@@ -610,8 +694,12 @@ func (f *ServiceFacade) UnarchiveGoal(ctx context.Context, goalID string, actor 
 		if err != nil {
 			return err
 		}
+		restore, err := f.childrenArchivedByGoal(ctx, q, goalID)
+		if err != nil {
+			return err
+		}
 		for _, child := range children {
-			if !child.ArchivedAt.Valid {
+			if !child.ArchivedAt.Valid || !restore[child.ID] {
 				continue
 			}
 			n, err := q.UnarchiveAgentTask(ctx, sqlc.UnarchiveAgentTaskParams{UpdatedAt: now, ID: child.ID})
@@ -651,6 +739,47 @@ func (f *ServiceFacade) UnarchiveGoal(ctx context.Context, goalID string, actor 
 			Detail:     `{"mode":"unarchive"}`,
 		})
 	})
+}
+
+// goalArchiveDetail is the shape of a goal_archive event's detail JSON. The
+// recorded child IDs let UnarchiveGoal reverse exactly this cascade.
+type goalArchiveDetail struct {
+	Mode            string   `json:"mode"`
+	ArchivedTaskIDs []string `json:"archived_task_ids"`
+}
+
+func archiveGoalDetail(archivedChildIDs []string) string {
+	b, err := json.Marshal(goalArchiveDetail{Mode: "archive", ArchivedTaskIDs: archivedChildIDs})
+	if err != nil {
+		// archivedChildIDs is plain strings; marshaling cannot fail.
+		return `{"mode":"archive"}`
+	}
+	return string(b)
+}
+
+// childrenArchivedByGoal returns the set of child task IDs the goal's latest
+// archive cascade hid. Goals archived before this detail was recorded yield an
+// empty set, so their children stay archived on unarchive (safe: never restores
+// a task the user did not expect).
+func (f *ServiceFacade) childrenArchivedByGoal(ctx context.Context, q *sqlc.Queries, goalID string) (map[string]bool, error) {
+	detail, err := q.GetLatestGoalArchiveDetail(ctx, nullable(goalID))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return map[string]bool{}, nil
+		}
+		return nil, err
+	}
+	set := map[string]bool{}
+	if detail != "" {
+		var d goalArchiveDetail
+		if err := json.Unmarshal([]byte(detail), &d); err != nil {
+			return nil, err
+		}
+		for _, id := range d.ArchivedTaskIDs {
+			set[id] = true
+		}
+	}
+	return set, nil
 }
 
 func (f *ServiceFacade) CompleteGoal(ctx context.Context, goalID, output string, actor Actor) error {

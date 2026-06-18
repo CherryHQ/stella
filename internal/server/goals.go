@@ -71,7 +71,18 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	if params.Archived != nil {
 		filter.Archived = *params.Archived
 	}
+	if params.Terminal != nil {
+		filter.Terminal = params.Terminal
+	}
+	if params.Q != nil {
+		filter.Search = *params.Q
+	}
 	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, filter, int64(limit+1), int64(offset))
+	if err != nil {
+		s.taskError(w, err)
+		return
+	}
+	total, err := s.tasksSvc.Facade.CountGoals(r.Context(), info.UserID, filter)
 	if err != nil {
 		s.taskError(w, err)
 		return
@@ -81,7 +92,8 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	for _, g := range rows {
 		out = append(out, goalToAPI(g))
 	}
-	list := apitypes.GoalList{Goals: out}
+	totalInt := int(total)
+	list := apitypes.GoalList{Goals: out, Total: &totalInt}
 	if nextToken != "" {
 		list.NextPageToken = &nextToken
 	}

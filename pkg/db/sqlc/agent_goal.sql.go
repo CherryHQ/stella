@@ -28,6 +28,57 @@ func (q *Queries) ArchiveAgentGoal(ctx context.Context, arg ArchiveAgentGoalPara
 	return result.RowsAffected()
 }
 
+const countAgentGoalsByUser = `-- name: CountAgentGoalsByUser :one
+SELECT COUNT(*) FROM agent_goal
+WHERE user_id = ?1
+  AND (
+    (?2 = 1 AND archived_at IS NOT NULL)
+    OR (?2 IS NULL AND archived_at IS NULL)
+    OR (?2 = 0 AND archived_at IS NULL)
+  )
+  AND (?3 IS NULL OR agent_id = ?3)
+  AND (?4 IS NULL OR status = ?4)
+  AND (?5 IS NULL OR project_id = ?5)
+  AND (
+    ?6 IS NULL
+    OR (?6 = 1 AND status IN ('done', 'failed', 'cancelled'))
+    OR (?6 = 0 AND status NOT IN ('done', 'failed', 'cancelled'))
+  )
+  AND (
+    ?7 IS NULL
+    OR instr(lower(title), lower(?7)) > 0
+    OR instr(lower(description), lower(?7)) > 0
+  )
+`
+
+type CountAgentGoalsByUserParams struct {
+	UserID    string      `json:"user_id"`
+	Archived  interface{} `json:"archived"`
+	AgentID   interface{} `json:"agent_id"`
+	Status    interface{} `json:"status"`
+	ProjectID interface{} `json:"project_id"`
+	Terminal  interface{} `json:"terminal"`
+	Search    interface{} `json:"search"`
+}
+
+// CountAgentGoalsByUser returns the total rows matching the same filters as
+// ListAgentGoalsByUser (ignoring pagination), so the UI can render numbered
+// pages and per-mode count badges from server-side state.
+func (q *Queries) CountAgentGoalsByUser(ctx context.Context, arg CountAgentGoalsByUserParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAgentGoalsByUser,
+		arg.UserID,
+		arg.Archived,
+		arg.AgentID,
+		arg.Status,
+		arg.ProjectID,
+		arg.Terminal,
+		arg.Search,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAgentGoal = `-- name: CreateAgentGoal :one
 
 INSERT INTO agent_goal (
@@ -228,8 +279,18 @@ WHERE user_id = ?1
   AND (?3 IS NULL OR agent_id = ?3)
   AND (?4 IS NULL OR status = ?4)
   AND (?5 IS NULL OR project_id = ?5)
+  AND (
+    ?6 IS NULL
+    OR (?6 = 1 AND status IN ('done', 'failed', 'cancelled'))
+    OR (?6 = 0 AND status NOT IN ('done', 'failed', 'cancelled'))
+  )
+  AND (
+    ?7 IS NULL
+    OR instr(lower(title), lower(?7)) > 0
+    OR instr(lower(description), lower(?7)) > 0
+  )
 ORDER BY created_at DESC, id DESC
-LIMIT ?7 OFFSET ?6
+LIMIT ?9 OFFSET ?8
 `
 
 type ListAgentGoalsByUserParams struct {
@@ -238,12 +299,18 @@ type ListAgentGoalsByUserParams struct {
 	AgentID   interface{} `json:"agent_id"`
 	Status    interface{} `json:"status"`
 	ProjectID interface{} `json:"project_id"`
+	Terminal  interface{} `json:"terminal"`
+	Search    interface{} `json:"search"`
 	Offset    int64       `json:"offset"`
 	Limit     int64       `json:"limit"`
 }
 
 // archived narg: NULL/false yields only active rows (archived_at IS NULL, the
 // default); true yields only archived rows (the history/restore view).
+// terminal narg: NULL matches any status; 1 keeps only terminal goals
+// (done/failed/cancelled, the history view); 0 keeps only non-terminal goals
+// (the active view). search narg is a case-insensitive substring matched against
+// title and description (NULL matches all).
 func (q *Queries) ListAgentGoalsByUser(ctx context.Context, arg ListAgentGoalsByUserParams) ([]AgentGoal, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentGoalsByUser,
 		arg.UserID,
@@ -251,6 +318,8 @@ func (q *Queries) ListAgentGoalsByUser(ctx context.Context, arg ListAgentGoalsBy
 		arg.AgentID,
 		arg.Status,
 		arg.ProjectID,
+		arg.Terminal,
+		arg.Search,
 		arg.Offset,
 		arg.Limit,
 	)

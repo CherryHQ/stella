@@ -18,6 +18,11 @@ paths:
             required: false,
             schema: { type: string },
           }
+        - name: archived
+          in: query
+          required: false
+          description: When true returns only archived tasks (the history/restore view) instead of the default active set.
+          schema: { type: boolean }
         - {
             name: page_size,
             in: query,
@@ -90,6 +95,26 @@ paths:
       operationId: deleteTask
       responses:
         "204": { description: archived }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/tasks/{taskId}/unarchive:
+    parameters:
+      - { name: taskId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [tasks]
+      summary: Restore an archived task to default lists
+      operationId: unarchiveTask
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Task" }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

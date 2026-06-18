@@ -84,6 +84,9 @@ components:
           type: string
           nullable: true
           description: Opaque pagination token; null when no further pages.
+        total:
+          type: integer
+          description: Total goals matching the filter, ignoring pagination. Drives numbered pages and count badges.
 
     CreateGoalRequest:
       type: object

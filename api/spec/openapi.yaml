@@ -310,6 +310,8 @@ paths:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks"
   /api/tasks/{taskId}:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}"
+  /api/tasks/{taskId}/unarchive:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1unarchive"
   /api/tasks/{taskId}/cancel:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1cancel"
   /api/tasks/{taskId}/reopen:

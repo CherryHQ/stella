@@ -271,16 +271,21 @@ func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) 
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
 SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task
 WHERE user_id = ?1
-  AND archived_at IS NULL
-  AND (?2 IS NULL OR agent_id = ?2)
-  AND (?3 IS NULL OR status = ?3)
-  AND (?4 IS NULL OR project_id = ?4)
+  AND (
+    (?2 = 1 AND archived_at IS NOT NULL)
+    OR (?2 IS NULL AND archived_at IS NULL)
+    OR (?2 = 0 AND archived_at IS NULL)
+  )
+  AND (?3 IS NULL OR agent_id = ?3)
+  AND (?4 IS NULL OR status = ?4)
+  AND (?5 IS NULL OR project_id = ?5)
 ORDER BY created_at DESC, id DESC
-LIMIT ?6 OFFSET ?5
+LIMIT ?7 OFFSET ?6
 `
 
 type ListAgentTasksByUserParams struct {
 	UserID    string      `json:"user_id"`
+	Archived  interface{} `json:"archived"`
 	AgentID   interface{} `json:"agent_id"`
 	Status    interface{} `json:"status"`
 	ProjectID interface{} `json:"project_id"`
@@ -288,9 +293,13 @@ type ListAgentTasksByUserParams struct {
 	Limit     int64       `json:"limit"`
 }
 
+// archived narg mirrors ListAgentGoalsByUser: NULL/false yields only active rows
+// (archived_at IS NULL, the default); true yields only archived rows (the
+// history/restore view).
 func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksByUserParams) ([]AgentTask, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentTasksByUser,
 		arg.UserID,
+		arg.Archived,
 		arg.AgentID,
 		arg.Status,
 		arg.ProjectID,

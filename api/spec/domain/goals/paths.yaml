@@ -23,6 +23,16 @@ paths:
           required: false
           description: When true returns only archived goals (the history/restore view) instead of the default active set.
           schema: { type: boolean }
+        - name: terminal
+          in: query
+          required: false
+          description: When false returns only non-terminal (active) goals; when true only terminal (done/failed/cancelled) goals. Omit for any. Ignored when archived=true.
+          schema: { type: boolean }
+        - name: q
+          in: query
+          required: false
+          description: Case-insensitive substring match against goal title and description.
+          schema: { type: string }
         - {
             name: page_size,
             in: query,

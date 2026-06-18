@@ -134,7 +134,11 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 	if params.Status != nil {
 		status = *params.Status
 	}
-	rows, err := s.tasksSvc.Facade.ListTasksByUser(r.Context(), info.UserID, agentID, projectID, status, int64(limit+1), int64(offset))
+	archived := false
+	if params.Archived != nil {
+		archived = *params.Archived
+	}
+	rows, err := s.tasksSvc.Facade.ListTasksByUser(r.Context(), info.UserID, agentID, projectID, status, archived, int64(limit+1), int64(offset))
 	if err != nil {
 		s.taskError(w, err)
 		return
@@ -262,6 +266,30 @@ func (s *Server) DeleteTask(w http.ResponseWriter, r *http.Request, taskID strin
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) UnarchiveTask(w http.ResponseWriter, r *http.Request, taskID string) {
+	if !s.tasksReady() {
+		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
+		return
+	}
+	if requireAuth(w, r) == nil {
+		return
+	}
+	t, ok := s.loadTask(r.Context(), w, taskID)
+	if !ok {
+		return
+	}
+	if err := s.tasksSvc.Facade.UnarchiveTask(r.Context(), t.ID, authActor(r)); err != nil {
+		s.taskError(w, err)
+		return
+	}
+	fresh, err := s.tasksSvc.Facade.GetTask(r.Context(), t.ID)
+	if err != nil {
+		s.taskError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, taskToAPI(fresh))
 }
 
 // ---------------------------------------------------------------------------

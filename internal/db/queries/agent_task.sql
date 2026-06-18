@@ -18,10 +18,17 @@ SELECT * FROM agent_task WHERE id = ?;
 -- name: ListAgentTasks :many
 SELECT * FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 
+-- archived narg mirrors ListAgentGoalsByUser: NULL/false yields only active rows
+-- (archived_at IS NULL, the default); true yields only archived rows (the
+-- history/restore view).
 -- name: ListAgentTasksByUser :many
 SELECT * FROM agent_task
 WHERE user_id = sqlc.arg('user_id')
-  AND archived_at IS NULL
+  AND (
+    (sqlc.narg('archived') = 1 AND archived_at IS NOT NULL)
+    OR (sqlc.narg('archived') IS NULL AND archived_at IS NULL)
+    OR (sqlc.narg('archived') = 0 AND archived_at IS NULL)
+  )
   AND (sqlc.narg('agent_id') IS NULL OR agent_id = sqlc.narg('agent_id'))
   AND (sqlc.narg('status') IS NULL OR status = sqlc.narg('status'))
   AND (sqlc.narg('project_id') IS NULL OR project_id = sqlc.narg('project_id'))

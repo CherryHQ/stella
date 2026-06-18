@@ -142,7 +142,7 @@ func TestArchiveGoal_TerminalHidesGoalAndChildren(t *testing.T) {
 			t.Fatalf("archived goal returned in default list")
 		}
 	}
-	tasks, err := f.ListTasksByUser(context.Background(), h.userID, h.agentID, "", "", 10, 0)
+	tasks, err := f.ListTasksByUser(context.Background(), h.userID, h.agentID, "", "", false, 10, 0)
 	if err != nil {
 		t.Fatalf("ListTasksByUser: %v", err)
 	}
@@ -355,6 +355,163 @@ func TestBlockGoal_RunningToBlocked(t *testing.T) {
 	goal, _ := h.q.GetAgentGoal(context.Background(), gid)
 	if goal.Status != GoalStatusBlocked {
 		t.Errorf("status=%q want blocked", goal.Status)
+	}
+}
+
+// CR-013: a child the user archived on their own must NOT be resurrected when a
+// parent goal is later archived and then unarchived. Only children that the goal
+// archive cascade actually hid are restored.
+func TestUnarchiveGoal_SkipsIndependentlyArchivedChild(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	solo := h.createChildTask(t, gid, StatusDone)    // user archives this one first
+	cascade := h.createChildTask(t, gid, StatusDone) // hidden by the goal archive
+	if err := f.ArchiveTask(context.Background(), solo, SystemActor()); err != nil {
+		t.Fatalf("ArchiveTask(solo): %v", err)
+	}
+	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("ArchiveGoal: %v", err)
+	}
+	if err := f.UnarchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("UnarchiveGoal: %v", err)
+	}
+	if !h.getTask(t, solo).ArchivedAt.Valid {
+		t.Errorf("independently archived child was wrongly restored")
+	}
+	if h.getTask(t, cascade).ArchivedAt.Valid {
+		t.Errorf("cascade-archived child not restored")
+	}
+}
+
+// CR-015: an archived goal is inert — lifecycle transitions must not mutate it.
+func TestArchivedGoal_RejectsLifecycleTransitions(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	archiveDraft := func(t *testing.T) string {
+		gid := h.createGoal(t, GoalStatusDraft, ReviewPolicyNone)
+		if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+			t.Fatalf("ArchiveGoal: %v", err)
+		}
+		return gid
+	}
+	t.Run("complete", func(t *testing.T) {
+		if err := h.svc.CompleteGoal(context.Background(), archiveDraft(t), "{}", SystemActor()); !errors.Is(err, ErrInvalidTransition) {
+			t.Fatalf("got %v want ErrInvalidTransition", err)
+		}
+	})
+	t.Run("fail", func(t *testing.T) {
+		if err := h.svc.FailGoal(context.Background(), archiveDraft(t), "boom", SystemActor()); !errors.Is(err, ErrInvalidTransition) {
+			t.Fatalf("got %v want ErrInvalidTransition", err)
+		}
+	})
+	t.Run("cancel", func(t *testing.T) {
+		if err := h.svc.CancelGoal(context.Background(), archiveDraft(t), "x", SystemActor()); !errors.Is(err, ErrInvalidTransition) {
+			t.Fatalf("got %v want ErrInvalidTransition", err)
+		}
+	})
+	t.Run("unblock", func(t *testing.T) {
+		// failed is archivable and the rollup unblock path; an archived failed
+		// goal must not be revived to running.
+		gid := h.createGoal(t, GoalStatusFailed, ReviewPolicyNone)
+		if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+			t.Fatalf("ArchiveGoal: %v", err)
+		}
+		if err := h.svc.UnblockGoal(context.Background(), gid, "child recovered", SystemActor()); !errors.Is(err, ErrInvalidTransition) {
+			t.Fatalf("got %v want ErrInvalidTransition", err)
+		}
+	})
+}
+
+// CR-016: a standalone archived task is discoverable via the archived filter and
+// restorable via UnarchiveTask, mirroring goals.
+func TestUnarchiveTask_RestoresStandaloneTask(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	tid := h.createChildTask(t, gid, StatusDone)
+	if err := f.ArchiveTask(context.Background(), tid, SystemActor()); err != nil {
+		t.Fatalf("ArchiveTask: %v", err)
+	}
+	archived, err := f.ListTasksByUser(context.Background(), h.userID, h.agentID, "", "", true, 10, 0)
+	if err != nil {
+		t.Fatalf("ListTasksByUser(archived): %v", err)
+	}
+	if len(archived) != 1 || archived[0].ID != tid {
+		t.Fatalf("archived filter did not surface the task: %+v", archived)
+	}
+	if active, _ := f.ListTasksByUser(context.Background(), h.userID, h.agentID, "", "", false, 10, 0); len(active) != 0 {
+		t.Fatalf("archived task leaked into active list: %+v", active)
+	}
+	if err := f.UnarchiveTask(context.Background(), tid, SystemActor()); err != nil {
+		t.Fatalf("UnarchiveTask: %v", err)
+	}
+	if h.getTask(t, tid).ArchivedAt.Valid {
+		t.Fatalf("task still archived after unarchive")
+	}
+	active, err := f.ListTasksByUser(context.Background(), h.userID, h.agentID, "", "", false, 10, 0)
+	if err != nil {
+		t.Fatalf("ListTasksByUser(active): %v", err)
+	}
+	if len(active) != 1 || active[0].ID != tid {
+		t.Fatalf("restored task not in default list: %+v", active)
+	}
+}
+
+func TestUnarchiveTask_NotArchived_NoOp(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	tid := h.createChildTask(t, gid, StatusDone)
+	if err := f.UnarchiveTask(context.Background(), tid, SystemActor()); err != nil {
+		t.Fatalf("UnarchiveTask on non-archived task should be a no-op, got %v", err)
+	}
+}
+
+// CR-014: the Goals page drives filtering/search server-side. Exercise the
+// terminal-group filter, the case-insensitive search, and the matching count.
+func TestListGoals_ServerSideFilterSearchAndCount(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	// Two active (non-terminal) and one terminal goal; titles drive the search.
+	h.createGoal(t, GoalStatusRunning, ReviewPolicyNone)
+	h.createGoal(t, GoalStatusDraft, ReviewPolicyNone)
+	done := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	// Lowercase title vs uppercase query proves the match is case-insensitive.
+	if _, err := h.db.ExecContext(context.Background(),
+		`UPDATE agent_goal SET title = ? WHERE id = ?`, "find the needle", done); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+
+	active := false
+	terminal := true
+	cases := []struct {
+		name   string
+		filter GoalFilter
+		want   int
+	}{
+		{"active-only", GoalFilter{AgentID: h.agentID, Terminal: &active}, 2},
+		{"terminal-only", GoalFilter{AgentID: h.agentID, Terminal: &terminal}, 1},
+		{"search-hit", GoalFilter{AgentID: h.agentID, Search: "NEEDLE"}, 1},
+		{"search-miss", GoalFilter{AgentID: h.agentID, Search: "no-such-goal"}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rows, err := f.ListGoals(context.Background(), h.userID, tc.filter, 50, 0)
+			if err != nil {
+				t.Fatalf("ListGoals: %v", err)
+			}
+			if len(rows) != tc.want {
+				t.Errorf("ListGoals len=%d want %d", len(rows), tc.want)
+			}
+			n, err := f.CountGoals(context.Background(), h.userID, tc.filter)
+			if err != nil {
+				t.Fatalf("CountGoals: %v", err)
+			}
+			if int(n) != tc.want {
+				t.Errorf("CountGoals=%d want %d", n, tc.want)
+			}
+		})
 	}
 }
 

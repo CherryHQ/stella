@@ -10,6 +10,24 @@ import (
 	"database/sql"
 )
 
+const getLatestGoalArchiveDetail = `-- name: GetLatestGoalArchiveDetail :one
+SELECT detail FROM agent_task_event
+WHERE goal_id = ? AND event_type = 'goal_archive'
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+// GetLatestGoalArchiveDetail returns the detail JSON of a goal's most recent
+// goal_archive event. UnarchiveGoal reads the archived_task_ids it recorded so it
+// restores exactly the children that cascade-archived, not ones the user hid on
+// their own. Returns ErrNoRows for goals archived before that detail was recorded.
+func (q *Queries) GetLatestGoalArchiveDetail(ctx context.Context, goalID sql.NullString) (string, error) {
+	row := q.db.QueryRowContext(ctx, getLatestGoalArchiveDetail, goalID)
+	var detail string
+	err := row.Scan(&detail)
+	return detail, err
+}
+
 const insertAgentTaskEvent = `-- name: InsertAgentTaskEvent :one
 
 INSERT INTO agent_task_event (

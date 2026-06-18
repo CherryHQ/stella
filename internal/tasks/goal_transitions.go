@@ -84,6 +84,9 @@ func (s *TransitionService) CompleteGoal(ctx context.Context, goalID, output str
 		if err != nil {
 			return err
 		}
+		if goal.ArchivedAt.Valid {
+			return ErrInvalidTransition
+		}
 		if isQuiescentGoalStatus(goal.Status) {
 			return ErrInvalidTransition
 		}
@@ -121,6 +124,9 @@ func (s *TransitionService) FailGoal(ctx context.Context, goalID, reason string,
 		if err != nil {
 			return err
 		}
+		if goal.ArchivedAt.Valid {
+			return ErrInvalidTransition
+		}
 		if isTerminalGoalStatus(goal.Status) {
 			return ErrInvalidTransition
 		}
@@ -152,6 +158,9 @@ func (s *TransitionService) CancelGoal(ctx context.Context, goalID, reason strin
 		goal, err := getGoalForUpdate(ctx, q, goalID)
 		if err != nil {
 			return err
+		}
+		if goal.ArchivedAt.Valid {
+			return ErrInvalidTransition
 		}
 		if isTerminalGoalStatus(goal.Status) {
 			return ErrInvalidTransition
@@ -222,6 +231,9 @@ func (s *TransitionService) BlockGoal(ctx context.Context, goalID, reason string
 		if err != nil {
 			return err
 		}
+		if goal.ArchivedAt.Valid {
+			return ErrInvalidTransition
+		}
 		if goal.Status != GoalStatusRunning {
 			return ErrInvalidTransition
 		}
@@ -251,6 +263,9 @@ func (s *TransitionService) UnblockGoal(ctx context.Context, goalID, reason stri
 		if err != nil {
 			return err
 		}
+		if goal.ArchivedAt.Valid {
+			return ErrInvalidTransition
+		}
 		if goal.Status != GoalStatusBlocked && goal.Status != GoalStatusFailed {
 			return ErrInvalidTransition
 		}
@@ -277,6 +292,9 @@ func (s *TransitionService) CompleteGoalTx(ctx context.Context, q *sqlc.Queries,
 	goal, err := getGoalForUpdate(ctx, q, goalID)
 	if err != nil {
 		return err
+	}
+	if goal.ArchivedAt.Valid {
+		return ErrInvalidTransition
 	}
 	if isQuiescentGoalStatus(goal.Status) {
 		return ErrInvalidTransition
