@@ -81,7 +81,7 @@ WHERE user_id = sqlc.arg(user_id)
   AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
   AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))
 ORDER BY last_active DESC
-LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+LIMIT NULLIF(sqlc.arg('limit'), -1) OFFSET sqlc.arg('offset');
 
 -- name: ListAgentConversationLastActive :many
 SELECT agent_id, MAX(last_active) AS last_active
@@ -105,7 +105,7 @@ WHERE agent_id = sqlc.arg(agent_id)
   AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
   AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))
 ORDER BY last_active DESC
-LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+LIMIT NULLIF(sqlc.arg('limit'), -1) OFFSET sqlc.arg('offset');
 
 -- name: ListConversationsByKind :many
 SELECT * FROM ctx_conversation WHERE agent_id = $1 AND user_id = $2 AND kind = $3 AND archived = false ORDER BY last_active DESC;

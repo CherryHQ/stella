@@ -375,7 +375,7 @@ WHERE user_id = $1
   AND ($5 = 0 OR project_id IS NULL)
   AND ($6::text IS NULL OR project_id = $6)
 ORDER BY last_active DESC
-LIMIT $8 OFFSET $7
+LIMIT NULLIF($8, -1) OFFSET $7
 `
 
 type ListConversationsFilteredParams struct {
@@ -386,7 +386,7 @@ type ListConversationsFilteredParams struct {
 	ProjectIDIsNull interface{}    `json:"project_id_is_null"`
 	ProjectID       sql.NullString `json:"project_id"`
 	Offset          int32          `json:"offset"`
-	Limit           int32          `json:"limit"`
+	Limit           interface{}    `json:"limit"`
 }
 
 func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConversationsFilteredParams) ([]CtxConversation, error) {
@@ -487,7 +487,7 @@ WHERE agent_id = $1
   AND ($3 = 0 OR project_id IS NULL)
   AND ($4::text IS NULL OR project_id = $4)
 ORDER BY last_active DESC
-LIMIT $6 OFFSET $5
+LIMIT NULLIF($6, -1) OFFSET $5
 `
 
 type ListConversationsForReviewFilteredParams struct {
@@ -496,7 +496,7 @@ type ListConversationsForReviewFilteredParams struct {
 	ProjectIDIsNull interface{}    `json:"project_id_is_null"`
 	ProjectID       sql.NullString `json:"project_id"`
 	Offset          int32          `json:"offset"`
-	Limit           int32          `json:"limit"`
+	Limit           interface{}    `json:"limit"`
 }
 
 func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg ListConversationsForReviewFilteredParams) ([]CtxConversation, error) {
