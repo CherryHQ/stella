@@ -22,6 +22,7 @@ func (h *testHarness) insertGoalReview(t *testing.T, goalID, reviewerType string
 		GoalID:       sql.NullString{String: goalID, Valid: true},
 		ReviewerType: reviewerType,
 		Status:       ReviewRequested,
+		Subject:      ReviewSubjectCompletion,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}); err != nil {

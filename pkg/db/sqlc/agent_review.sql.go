@@ -15,9 +15,9 @@ const createAgentReview = `-- name: CreateAgentReview :one
 INSERT INTO agent_review (
     id, task_id, goal_id, submitted_run_id, reviewer_run_id,
     reviewer_type, reviewer_user_id, escalated_from_review_id,
-    status, summary, feedback, created_at, updated_at
+    status, subject, summary, feedback, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, subject, summary, feedback, created_at, updated_at, resolved_at
 `
 
@@ -31,6 +31,7 @@ type CreateAgentReviewParams struct {
 	ReviewerUserID        sql.NullString `json:"reviewer_user_id"`
 	EscalatedFromReviewID sql.NullString `json:"escalated_from_review_id"`
 	Status                string         `json:"status"`
+	Subject               string         `json:"subject"`
 	Summary               string         `json:"summary"`
 	Feedback              string         `json:"feedback"`
 	CreatedAt             string         `json:"created_at"`
@@ -38,6 +39,9 @@ type CreateAgentReviewParams struct {
 }
 
 // Slice 2: review queries.
+// subject distinguishes a goal-completion review from a plan review (#525 D8a);
+// it defaults to 'completion' in the schema, so task-completion callers may omit
+// it, but plan reviews must pass subject='plan' to stay off the completion path.
 func (q *Queries) CreateAgentReview(ctx context.Context, arg CreateAgentReviewParams) (AgentReview, error) {
 	row := q.db.QueryRowContext(ctx, createAgentReview,
 		arg.ID,
@@ -49,6 +53,7 @@ func (q *Queries) CreateAgentReview(ctx context.Context, arg CreateAgentReviewPa
 		arg.ReviewerUserID,
 		arg.EscalatedFromReviewID,
 		arg.Status,
+		arg.Subject,
 		arg.Summary,
 		arg.Feedback,
 		arg.CreatedAt,
@@ -81,6 +86,43 @@ SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, r
 
 func (q *Queries) GetAgentReview(ctx context.Context, id string) (AgentReview, error) {
 	row := q.db.QueryRowContext(ctx, getAgentReview, id)
+	var i AgentReview
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.GoalID,
+		&i.SubmittedRunID,
+		&i.ReviewerRunID,
+		&i.ReviewerType,
+		&i.ReviewerUserID,
+		&i.EscalatedFromReviewID,
+		&i.Status,
+		&i.Subject,
+		&i.Summary,
+		&i.Feedback,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ResolvedAt,
+	)
+	return i, err
+}
+
+const getOpenReviewForGoalSubject = `-- name: GetOpenReviewForGoalSubject :one
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, subject, summary, feedback, created_at, updated_at, resolved_at FROM agent_review
+WHERE goal_id = ? AND subject = ? AND status IN ('requested','in_progress')
+LIMIT 1
+`
+
+type GetOpenReviewForGoalSubjectParams struct {
+	GoalID  sql.NullString `json:"goal_id"`
+	Subject string         `json:"subject"`
+}
+
+// GetOpenReviewForGoalSubject finds the open review of a given subject on a goal
+// (plan vs completion), so the plan-review path can refuse a second open plan
+// review with a clean error instead of hitting the unique index. #525.
+func (q *Queries) GetOpenReviewForGoalSubject(ctx context.Context, arg GetOpenReviewForGoalSubjectParams) (AgentReview, error) {
+	row := q.db.QueryRowContext(ctx, getOpenReviewForGoalSubject, arg.GoalID, arg.Subject)
 	var i AgentReview
 	err := row.Scan(
 		&i.ID,

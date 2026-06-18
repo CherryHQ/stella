@@ -167,6 +167,12 @@ var (
 	// ErrGoalPlanNotFound is returned when a goal has no plan row. #525.
 	ErrGoalPlanNotFound = errors.New("tasks: goal plan not found")
 
+	// ErrPlanChangedDuringMaterialize is returned by MaterializeGoalPlan when the
+	// plan content changed between the pre-tx session mint and the materialize tx
+	// (a concurrent CreateGoalPlan). Aborting keeps the reconciled task graph and
+	// the promoted content_json from diverging (codex BLOCKER 1). #525.
+	ErrPlanChangedDuringMaterialize = errors.New("tasks: goal plan changed during materialize; retry")
+
 	// ErrInvalidHandoff is returned by Submit when a plan-backed task (one with a
 	// source_plan_id) submits without a handoff summary. Downstream plan items
 	// build their context from upstream handoffs, so a plan task must hand off a

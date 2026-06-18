@@ -1,12 +1,15 @@
 -- Slice 2: review queries.
 
+-- subject distinguishes a goal-completion review from a plan review (#525 D8a);
+-- it defaults to 'completion' in the schema, so task-completion callers may omit
+-- it, but plan reviews must pass subject='plan' to stay off the completion path.
 -- name: CreateAgentReview :one
 INSERT INTO agent_review (
     id, task_id, goal_id, submitted_run_id, reviewer_run_id,
     reviewer_type, reviewer_user_id, escalated_from_review_id,
-    status, summary, feedback, created_at, updated_at
+    status, subject, summary, feedback, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentReview :one
@@ -15,6 +18,14 @@ SELECT * FROM agent_review WHERE id = ?;
 -- name: GetOpenReviewForTask :one
 SELECT * FROM agent_review
 WHERE task_id = ? AND status IN ('requested','in_progress')
+LIMIT 1;
+
+-- GetOpenReviewForGoalSubject finds the open review of a given subject on a goal
+-- (plan vs completion), so the plan-review path can refuse a second open plan
+-- review with a clean error instead of hitting the unique index. #525.
+-- name: GetOpenReviewForGoalSubject :one
+SELECT * FROM agent_review
+WHERE goal_id = ? AND subject = ? AND status IN ('requested','in_progress')
 LIMIT 1;
 
 -- name: ListAgentReviewsByTask :many

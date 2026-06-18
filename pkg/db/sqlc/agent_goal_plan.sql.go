@@ -10,6 +10,19 @@ import (
 	"database/sql"
 )
 
+const clearAgentGoalPlanPending = `-- name: ClearAgentGoalPlanPending :exec
+UPDATE agent_goal_plan
+SET pending_content_json = NULL, updated_at = datetime('now')
+WHERE id = ?
+`
+
+// ClearAgentGoalPlanPending discards an in-flight edit (a rejected replan that
+// should not be kept). content_json stays as the last materialized content. #525.
+func (q *Queries) ClearAgentGoalPlanPending(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, clearAgentGoalPlanPending, id)
+	return err
+}
+
 const createAgentGoalPlan = `-- name: CreateAgentGoalPlan :one
 
 INSERT INTO agent_goal_plan (id, goal_id, status, review_policy, pending_content_json, source_run_id)
@@ -143,6 +156,73 @@ type SetAgentGoalPlanAcceptedParams struct {
 
 func (q *Queries) SetAgentGoalPlanAccepted(ctx context.Context, arg SetAgentGoalPlanAcceptedParams) error {
 	_, err := q.db.ExecContext(ctx, setAgentGoalPlanAccepted, arg.Status, arg.AcceptedAt, arg.ID)
+	return err
+}
+
+const setAgentGoalPlanApproved = `-- name: SetAgentGoalPlanApproved :exec
+UPDATE agent_goal_plan
+SET status = ?, approved_review_id = ?, accepted_at = ?, updated_at = datetime('now')
+WHERE id = ?
+`
+
+type SetAgentGoalPlanApprovedParams struct {
+	Status           string         `json:"status"`
+	ApprovedReviewID sql.NullString `json:"approved_review_id"`
+	AcceptedAt       sql.NullString `json:"accepted_at"`
+	ID               string         `json:"id"`
+}
+
+// SetAgentGoalPlanApproved closes a plan review: status approved + the deciding
+// review + accepted_at, so the next MaterializeGoalPlan can promote it. content_json
+// is untouched; promotion happens only in the materialize tx (2nd-pass B1). #525.
+func (q *Queries) SetAgentGoalPlanApproved(ctx context.Context, arg SetAgentGoalPlanApprovedParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentGoalPlanApproved,
+		arg.Status,
+		arg.ApprovedReviewID,
+		arg.AcceptedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const setAgentGoalPlanInReview = `-- name: SetAgentGoalPlanInReview :execrows
+UPDATE agent_goal_plan
+SET status = ?, updated_at = datetime('now')
+WHERE id = ? AND status = 'draft'
+`
+
+type SetAgentGoalPlanInReviewParams struct {
+	Status string `json:"status"`
+	ID     string `json:"id"`
+}
+
+// SetAgentGoalPlanInReview moves a draft plan with a pending edit into review.
+// Guarded WHERE status='draft' so a second submit on an already in_review plan is
+// a no-op (0 rows), which the caller maps to a refusal. #525.
+func (q *Queries) SetAgentGoalPlanInReview(ctx context.Context, arg SetAgentGoalPlanInReviewParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAgentGoalPlanInReview, arg.Status, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setAgentGoalPlanStatus = `-- name: SetAgentGoalPlanStatus :exec
+UPDATE agent_goal_plan
+SET status = ?, updated_at = datetime('now')
+WHERE id = ?
+`
+
+type SetAgentGoalPlanStatusParams struct {
+	Status string `json:"status"`
+	ID     string `json:"id"`
+}
+
+// SetAgentGoalPlanStatus is the back-to-draft path for a rejected / changes-requested
+// plan review. content_json is never touched here, so a rejected replan leaves the
+// running goal's materialized work exactly as it was. #525.
+func (q *Queries) SetAgentGoalPlanStatus(ctx context.Context, arg SetAgentGoalPlanStatusParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentGoalPlanStatus, arg.Status, arg.ID)
 	return err
 }
 

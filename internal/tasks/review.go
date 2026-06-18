@@ -15,6 +15,19 @@ import (
 var (
 	ErrReviewNotFound = errors.New("tasks: review not found")
 	ErrReviewClosed   = errors.New("tasks: review already resolved")
+	// ErrPlanReviewWrongPath is returned when the generic review-decision API is
+	// called on a plan review; callers must use the dedicated *GoalPlanReview fns
+	// (#525 D8a).
+	ErrPlanReviewWrongPath = errors.New("tasks: plan review must be decided via the goal-plan review API")
+	// ErrPlanNotUnderReview is returned by the plan-review decision fns when the
+	// target review is not an open plan review (#525).
+	ErrPlanNotUnderReview = errors.New("tasks: goal plan is not under review")
+	// ErrPlanReviewExists is returned by SubmitGoalPlanForReview when an open plan
+	// review already exists for the goal (#525).
+	ErrPlanReviewExists = errors.New("tasks: goal already has an open plan review")
+	// ErrNoPendingPlanEdit is returned by SubmitGoalPlanForReview when there is no
+	// pending edit to review (#525).
+	ErrNoPendingPlanEdit = errors.New("tasks: goal plan has no pending edit to review")
 	// ErrUnsupportedReviewPolicy marks a goal review_policy that no runtime in
 	// this build can service. Goals only support 'none'; goal-level review
 	// (auto/agent/human) needs the unwired synthesizer/goal-review runtime.
@@ -56,6 +69,15 @@ const (
 	ReviewerSystem = "system"
 	ReviewerAgent  = "agent"
 	ReviewerHuman  = "human"
+)
+
+// Review subject constants (#525 D8a). A 'completion' review decides whether a
+// task/goal is done; a 'plan' review decides whether a goal's plan is accepted.
+// They are distinct lifecycles: the generic decision path refuses 'plan' rows,
+// and the open-review uniqueness key is subject-aware.
+const (
+	ReviewSubjectCompletion = "completion"
+	ReviewSubjectPlan       = "plan"
 )
 
 // Slice 2 widens task status with this value.
@@ -253,6 +275,14 @@ func (s *TransitionService) decideAnyReview(ctx context.Context, reviewID, decis
 		if review.Status != ReviewRequested && review.Status != ReviewInProgress {
 			return ErrReviewClosed
 		}
+		// A plan review has its own lifecycle (it accepts a plan, it never marks a
+		// goal done). Refuse it on the generic path so public ApproveReview /
+		// RejectReview / RequestChanges can never resolve a plan review through the
+		// completion logic — callers must use the dedicated *GoalPlanReview fns
+		// (#525 D8a / opus B1).
+		if review.Subject == ReviewSubjectPlan {
+			return ErrPlanReviewWrongPath
+		}
 		if review.TaskID.Valid {
 			return s.decideTaskReviewInTx(ctx, q, review, decision, summary, feedback, actor)
 		}
@@ -429,6 +459,7 @@ func (s *TransitionService) EscalateReview(ctx context.Context, reviewID, reason
 			ReviewerUserID:        sql.NullString{},
 			EscalatedFromReviewID: nullable(reviewID),
 			Status:                ReviewRequested,
+			Subject:               review.Subject, // an escalated plan review stays a plan review
 			Summary:               "",
 			Feedback:              "",
 			CreatedAt:             now,
@@ -472,6 +503,7 @@ func insertReview(ctx context.Context, q *sqlc.Queries, taskID, submittedRunID, 
 		ReviewerUserID:        sql.NullString{},
 		EscalatedFromReviewID: sql.NullString{},
 		Status:                ReviewRequested,
+		Subject:               ReviewSubjectCompletion,
 		Summary:               summary,
 		Feedback:              "",
 		CreatedAt:             now,
