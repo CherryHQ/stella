@@ -10,10 +10,10 @@ import {
   fetchAllTaskRuns,
 } from "@/lib/paginated";
 
-export function goalsOptions(agentId: string) {
+export function goalsOptions(agentId: string, archived = false) {
   return queryOptions({
-    queryKey: ["goals", agentId],
-    queryFn: async () => fetchAllGoals(agentId),
+    queryKey: ["goals", agentId, archived ? "archived" : "active"],
+    queryFn: async () => fetchAllGoals(agentId, archived),
     enabled: !!agentId,
   });
 }

@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Archive,
-  Columns3,
-  Inbox,
-  Search,
-  Table as TableIcon,
-} from "lucide-react";
+import { Archive, Columns3, History, Inbox, Search, Table as TableIcon } from "lucide-react";
 import type { TFunction } from "i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { deleteGoal, unarchiveGoal } from "@/lib/api-client";
 import type { ComponentsGoal } from "@/lib/api-client/types.gen";
 import { goalsOptions } from "@/lib/queries/goals";
 import { useI18n } from "@/lib/i18n";
@@ -26,16 +21,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  StatusDot,
-  StatusPill,
-  avatarInitials,
-  goalNeedsYou,
-  statusLabel,
-} from "./lib";
+import { StatusDot, StatusPill, avatarInitials, goalNeedsYou, statusLabel } from "./lib";
 
 export type GoalsView = "triage" | "board" | "table";
-type GoalsMode = "active" | "history";
+type GoalsMode = "active" | "history" | "archived";
 type GoalStatusFilter = "all" | ComponentsGoal["status"];
 
 const VIEWS: GoalsView[] = ["triage", "board", "table"];
@@ -49,11 +38,7 @@ const VIEW_ICON: Record<GoalsView, typeof Inbox> = {
   board: Columns3,
   table: TableIcon,
 };
-const TERMINAL_STATUSES: ComponentsGoal["status"][] = [
-  "done",
-  "failed",
-  "cancelled",
-];
+const TERMINAL_STATUSES: ComponentsGoal["status"][] = ["done", "failed", "cancelled"];
 const ACTIVE_STATUSES: ComponentsGoal["status"][] = [
   "blocked",
   "reviewing",
@@ -71,20 +56,20 @@ export function GoalsPage() {
   const view = rawSearch.view as string | undefined;
   const modeParam = rawSearch.mode as string | undefined;
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
-  const { data: goals = [], isLoading } = useQuery(goalsOptions(agentId));
+  const { data: activeGoals = [], isLoading } = useQuery(goalsOptions(agentId));
+  const { data: archivedGoals = [] } = useQuery(goalsOptions(agentId, true));
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<GoalStatusFilter>("all");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() =>
-    readHiddenGoals(agentId),
-  );
+  const [acting, setActing] = useState(false);
 
-  const cur: GoalsView = VIEWS.includes(view as GoalsView)
-    ? (view as GoalsView)
-    : "triage";
-  const mode: GoalsMode = modeParam === "history" ? "history" : "active";
+  const cur: GoalsView = VIEWS.includes(view as GoalsView) ? (view as GoalsView) : "triage";
+  const mode: GoalsMode =
+    modeParam === "history" ? "history" : modeParam === "archived" ? "archived" : "active";
+  const source = mode === "archived" ? archivedGoals : activeGoals;
   const setView = useCallback(
     (v: GoalsView) =>
       void navigate({
@@ -109,27 +94,21 @@ export function GoalsPage() {
       params: { agentId, goalId: g.id },
     });
 
-  const visibleGoals = useMemo(
-    () => goals.filter((g) => !hiddenIds.has(g.id)),
-    [goals, hiddenIds],
-  );
   const counts = useMemo(() => {
-    const active = visibleGoals.filter(
-      (g) => !TERMINAL_STATUSES.includes(g.status),
-    ).length;
-    const history = visibleGoals.length - active;
-    const needs = visibleGoals.filter(goalNeedsYou).length;
-    return { active, history, needs, hidden: hiddenIds.size };
-  }, [hiddenIds.size, visibleGoals]);
+    const active = activeGoals.filter((g) => !TERMINAL_STATUSES.includes(g.status)).length;
+    const history = activeGoals.length - active;
+    const needs = activeGoals.filter(goalNeedsYou).length;
+    return { active, history, needs, archived: archivedGoals.length };
+  }, [activeGoals, archivedGoals.length]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return visibleGoals
-      .filter((g) =>
-        mode === "active"
-          ? !TERMINAL_STATUSES.includes(g.status)
-          : TERMINAL_STATUSES.includes(g.status),
-      )
+    return source
+      .filter((g) => {
+        if (mode === "active") return !TERMINAL_STATUSES.includes(g.status);
+        if (mode === "history") return TERMINAL_STATUSES.includes(g.status);
+        return true; // archived mode: the server already scoped to archived rows
+      })
       .filter((g) => status === "all" || g.status === status)
       .filter((g) => {
         if (!q) return true;
@@ -138,7 +117,7 @@ export function GoalsPage() {
           .some((part) => String(part).toLowerCase().includes(q));
       })
       .sort(byUpdatedDesc);
-  }, [mode, query, status, visibleGoals]);
+  }, [mode, query, status, source]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageGoals = useMemo(() => {
@@ -146,34 +125,39 @@ export function GoalsPage() {
     const start = (safePage - 1) * PAGE_SIZE;
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, page, totalPages]);
-  const selectedTerminalCount = useMemo(
-    () =>
-      filtered.filter(
-        (g) => selected.has(g.id) && TERMINAL_STATUSES.includes(g.status),
-      ).length,
-    [filtered, selected],
-  );
 
-  useEffect(() => setPage(1), [mode, query, status, hiddenIds]);
+  // History archives the selected terminal goals; the archived view restores them.
+  // Active goals are never bulk-actionable (they are not yet finished).
+  const selectedActionable = useMemo(() => {
+    if (mode === "history")
+      return filtered.filter((g) => selected.has(g.id) && TERMINAL_STATUSES.includes(g.status));
+    if (mode === "archived") return filtered.filter((g) => selected.has(g.id));
+    return [];
+  }, [filtered, selected, mode]);
+
+  useEffect(() => setPage(1), [mode, query, status]);
   useEffect(() => setSelected(new Set()), [mode, query, status]);
-  useEffect(() => setHiddenIds(readHiddenGoals(agentId)), [agentId]);
+  // Keep the page in range after a bulk action shrinks the result set (CR-010).
+  useEffect(() => setPage((p) => Math.min(Math.max(1, p), totalPages)), [totalPages]);
 
-  const hideSelectedTerminal = useCallback(() => {
-    const next = new Set(hiddenIds);
-    for (const g of filtered) {
-      if (selected.has(g.id) && TERMINAL_STATUSES.includes(g.status))
-        next.add(g.id);
+  const runBulk = useCallback(async () => {
+    const ids = selectedActionable.map((g) => g.id);
+    if (!ids.length) return;
+    setActing(true);
+    try {
+      await Promise.all(
+        ids.map((goalId) =>
+          mode === "archived"
+            ? unarchiveGoal({ path: { goalId }, throwOnError: true })
+            : deleteGoal({ path: { goalId }, throwOnError: true }),
+        ),
+      );
+      await qc.invalidateQueries({ queryKey: ["goals"] });
+      setSelected(new Set());
+    } finally {
+      setActing(false);
     }
-    setHiddenIds(next);
-    writeHiddenGoals(agentId, next);
-    setSelected(new Set());
-  }, [agentId, filtered, hiddenIds, selected]);
-
-  const restoreHidden = useCallback(() => {
-    const next = new Set<string>();
-    setHiddenIds(next);
-    writeHiddenGoals(agentId, next);
-  }, [agentId]);
+  }, [mode, qc, selectedActionable]);
 
   useEffect(() => {
     setHeaderTitle(
@@ -195,9 +179,7 @@ export function GoalsPage() {
           onClick={() => setMode("active")}
         >
           {t("goals.modeActive")}
-          <span className="font-mono text-xs text-muted-foreground">
-            {counts.active}
-          </span>
+          <span className="font-mono text-xs text-muted-foreground">{counts.active}</span>
         </Button>
         <Button
           size="sm"
@@ -205,11 +187,19 @@ export function GoalsPage() {
           aria-pressed={mode === "history"}
           onClick={() => setMode("history")}
         >
-          <Archive />
+          <History />
           <span className="max-sm:hidden">{t("goals.modeHistory")}</span>
-          <span className="font-mono text-xs text-muted-foreground">
-            {counts.history}
-          </span>
+          <span className="font-mono text-xs text-muted-foreground">{counts.history}</span>
+        </Button>
+        <Button
+          size="sm"
+          variant={mode === "archived" ? "secondary" : "outline"}
+          aria-pressed={mode === "archived"}
+          onClick={() => setMode("archived")}
+        >
+          <Archive />
+          <span className="max-sm:hidden">{t("goals.modeArchived")}</span>
+          <span className="font-mono text-xs text-muted-foreground">{counts.archived}</span>
         </Button>
         {VIEWS.map((v) => {
           const Icon = VIEW_ICON[v];
@@ -235,6 +225,7 @@ export function GoalsPage() {
   }, [
     counts.active,
     counts.history,
+    counts.archived,
     cur,
     mode,
     setHeaderActions,
@@ -251,7 +242,7 @@ export function GoalsPage() {
           <div className="flex items-center justify-center py-20">
             <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
           </div>
-        ) : goals.length === 0 ? (
+        ) : activeGoals.length === 0 && archivedGoals.length === 0 ? (
           <Empty />
         ) : (
           <div className="mx-auto max-w-[1140px] px-6 py-6">
@@ -260,12 +251,11 @@ export function GoalsPage() {
               status={status}
               mode={mode}
               total={filtered.length}
-              hiddenCount={counts.hidden}
-              selectedTerminalCount={selectedTerminalCount}
+              selectedActionableCount={selectedActionable.length}
+              acting={acting}
               onQueryChange={setQuery}
               onStatusChange={setStatus}
-              onHideSelected={hideSelectedTerminal}
-              onRestoreHidden={restoreHidden}
+              onBulkAction={runBulk}
             />
             {filtered.length === 0 ? (
               <FilteredEmpty />
@@ -315,26 +305,29 @@ function Toolbar({
   status,
   mode,
   total,
-  hiddenCount,
-  selectedTerminalCount,
+  selectedActionableCount,
+  acting,
   onQueryChange,
   onStatusChange,
-  onHideSelected,
-  onRestoreHidden,
+  onBulkAction,
 }: {
   query: string;
   status: GoalStatusFilter;
   mode: GoalsMode;
   total: number;
-  hiddenCount: number;
-  selectedTerminalCount: number;
+  selectedActionableCount: number;
+  acting: boolean;
   onQueryChange: (value: string) => void;
   onStatusChange: (value: GoalStatusFilter) => void;
-  onHideSelected: () => void;
-  onRestoreHidden: () => void;
+  onBulkAction: () => void;
 }) {
   const { t } = useI18n();
-  const statusOptions = mode === "active" ? ACTIVE_STATUSES : TERMINAL_STATUSES;
+  const statusOptions =
+    mode === "active"
+      ? ACTIVE_STATUSES
+      : mode === "history"
+        ? TERMINAL_STATUSES
+        : ([...TERMINAL_STATUSES, "draft"] as ComponentsGoal["status"][]);
   return (
     <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-border bg-card p-3 sm:flex-row sm:items-center">
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -347,10 +340,7 @@ function Toolbar({
           size="sm"
         />
       </div>
-      <Select
-        value={status}
-        onValueChange={(value) => onStatusChange(value as GoalStatusFilter)}
-      >
+      <Select value={status} onValueChange={(value) => onStatusChange(value as GoalStatusFilter)}>
         <SelectTrigger size="sm" className="w-full sm:w-44">
           <SelectValue placeholder={t("goals.statusAll")} />
         </SelectTrigger>
@@ -367,17 +357,17 @@ function Toolbar({
         <span className="font-mono text-xs text-muted-foreground">
           {t("goals.filteredCount", { count: total })}
         </span>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={selectedTerminalCount === 0}
-          onClick={onHideSelected}
-        >
-          {t("goals.hideSelected", { count: selectedTerminalCount })}
-        </Button>
-        {hiddenCount > 0 && (
-          <Button variant="ghost" size="sm" onClick={onRestoreHidden}>
-            {t("goals.restoreHidden", { count: hiddenCount })}
+        {mode !== "active" && (
+          <Button
+            variant="outline"
+            size="sm"
+            loading={acting}
+            disabled={selectedActionableCount === 0}
+            onClick={onBulkAction}
+          >
+            {mode === "archived"
+              ? t("goals.restoreSelected", { count: selectedActionableCount })
+              : t("goals.archiveSelected", { count: selectedActionableCount })}
           </Button>
         )}
       </div>
@@ -389,12 +379,8 @@ function Empty() {
   const { t } = useI18n();
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
-      <p className="text-sm font-medium text-muted-foreground">
-        {t("goals.empty")}
-      </p>
-      <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-        {t("goals.emptyDesc")}
-      </p>
+      <p className="text-sm font-medium text-muted-foreground">{t("goals.empty")}</p>
+      <p className="mt-1 max-w-xs text-xs text-muted-foreground">{t("goals.emptyDesc")}</p>
     </div>
   );
 }
@@ -403,12 +389,8 @@ function FilteredEmpty() {
   const { t } = useI18n();
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-border py-16 text-center">
-      <p className="text-sm font-medium text-muted-foreground">
-        {t("goals.noMatches")}
-      </p>
-      <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-        {t("goals.noMatchesDesc")}
-      </p>
+      <p className="text-sm font-medium text-muted-foreground">{t("goals.noMatches")}</p>
+      <p className="mt-1 max-w-sm text-xs text-muted-foreground">{t("goals.noMatchesDesc")}</p>
     </div>
   );
 }
@@ -435,11 +417,7 @@ interface ViewProps {
   onSelect: (next: Set<string>) => void;
 }
 
-function toggleSelected(
-  selected: Set<string>,
-  id: string,
-  onSelect: (next: Set<string>) => void,
-) {
+function toggleSelected(selected: Set<string>, id: string, onSelect: (next: Set<string>) => void) {
   const next = new Set(selected);
   if (next.has(id)) next.delete(id);
   else next.add(id);
@@ -450,32 +428,15 @@ function Triage({ goals, onOpen, selected, onSelect }: ViewProps) {
   const { t } = useI18n();
   const needs = goals.filter(goalNeedsYou).sort(byUpdatedDesc);
   const prog = goals
-    .filter(
-      (g) =>
-        g.status === "running" ||
-        g.status === "planning" ||
-        g.status === "draft",
-    )
+    .filter((g) => g.status === "running" || g.status === "planning" || g.status === "draft")
     .sort(byUpdatedDesc);
-  const closed = goals
-    .filter((g) => TERMINAL_STATUSES.includes(g.status))
-    .sort(byUpdatedDesc);
+  const closed = goals.filter((g) => TERMINAL_STATUSES.includes(g.status)).sort(byUpdatedDesc);
 
-  const Section = ({
-    label,
-    arr,
-    dim,
-  }: {
-    label: string;
-    arr: ComponentsGoal[];
-    dim?: boolean;
-  }) =>
+  const Section = ({ label, arr, dim }: { label: string; arr: ComponentsGoal[]; dim?: boolean }) =>
     arr.length ? (
       <section className="mb-7">
         <div className="mb-3 flex items-center gap-2.5">
-          <span className="font-mono text-xs font-semibold text-muted-foreground">
-            {label}
-          </span>
+          <span className="font-mono text-xs font-semibold text-muted-foreground">{label}</span>
           <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">
             {arr.length}
           </span>
@@ -529,11 +490,7 @@ function Row({
         dim && "opacity-65 hover:opacity-100",
       )}
     >
-      <Checkbox
-        checked={selected}
-        onCheckedChange={onSelect}
-        aria-label={t("goals.selectGoal")}
-      />
+      <Checkbox checked={selected} onCheckedChange={onSelect} aria-label={t("goals.selectGoal")} />
       <button
         type="button"
         onClick={() => onOpen(g)}
@@ -542,9 +499,7 @@ function Row({
         <StatusPill status={g.status} label={statusLabel(t, g.status)} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-serif text-[15px] font-semibold">
-              {g.title}
-            </span>
+            <span className="truncate font-serif text-[15px] font-semibold">{g.title}</span>
             {g.status === "done" && (
               <span className="rounded-md border border-chart-3/25 bg-chart-3/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-3">
                 {t("goals.achieved")}
@@ -603,15 +558,10 @@ function Board({ goals, onOpen, selected, onSelect }: ViewProps) {
       {BOARD_COLS.map((col) => {
         const items = goals.filter(col.match).sort(byUpdatedDesc);
         return (
-          <div
-            key={col.labelKey}
-            className="min-h-[180px] rounded-2xl bg-muted p-2.5"
-          >
+          <div key={col.labelKey} className="min-h-[180px] rounded-2xl bg-muted p-2.5">
             <div className="flex items-center gap-2 px-1.5 pb-2.5 pt-1">
               <StatusDot status={col.status} />
-              <span className="font-mono text-xs font-semibold">
-                {t(col.labelKey)}
-              </span>
+              <span className="font-mono text-xs font-semibold">{t(col.labelKey)}</span>
               <span className="ml-auto font-mono text-xs text-muted-foreground">
                 {items.length}
               </span>
@@ -625,9 +575,7 @@ function Board({ goals, onOpen, selected, onSelect }: ViewProps) {
                   <div className="mb-2 flex items-center gap-2">
                     <Checkbox
                       checked={selected.has(g.id)}
-                      onCheckedChange={() =>
-                        toggleSelected(selected, g.id, onSelect)
-                      }
+                      onCheckedChange={() => toggleSelected(selected, g.id, onSelect)}
                       aria-label={t("goals.selectGoal")}
                     />
                     <button
@@ -641,10 +589,7 @@ function Board({ goals, onOpen, selected, onSelect }: ViewProps) {
                     </button>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <StatusPill
-                      status={g.status}
-                      label={statusLabel(t, g.status)}
-                    />
+                    <StatusPill status={g.status} label={statusLabel(t, g.status)} />
                     {g.status === "done" && (
                       <span className="rounded-md border border-chart-3/25 bg-chart-3/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-3">
                         {t("goals.achieved")}
@@ -664,9 +609,7 @@ function Board({ goals, onOpen, selected, onSelect }: ViewProps) {
                 </div>
               ))}
               {!items.length && (
-                <div className="py-5 text-center text-xs text-muted-foreground">
-                  —
-                </div>
+                <div className="py-5 text-center text-xs text-muted-foreground">—</div>
               )}
             </div>
           </div>
@@ -698,51 +641,27 @@ function Table({ goals, onOpen, selected, onSelect }: ViewProps) {
         <thead>
           <tr className="border-b border-border bg-muted/50 text-left font-mono text-[10.5px] text-muted-foreground">
             <th className="w-[42px] px-3.5 py-2.5 font-semibold" />
-            <th className="w-[120px] px-3.5 py-2.5 font-semibold">
-              {t("goals.colStatus")}
-            </th>
-            <th className="px-3.5 py-2.5 font-semibold">
-              {t("goals.colGoal")}
-            </th>
-            <th className="w-[120px] px-3.5 py-2.5 font-semibold">
-              {t("goals.colAttention")}
-            </th>
-            <th className="w-[150px] px-3.5 py-2.5 font-semibold">
-              {t("goals.colAgent")}
-            </th>
-            <th className="w-[90px] px-3.5 py-2.5 font-semibold">
-              {t("goals.colUpdated")}
-            </th>
+            <th className="w-[120px] px-3.5 py-2.5 font-semibold">{t("goals.colStatus")}</th>
+            <th className="px-3.5 py-2.5 font-semibold">{t("goals.colGoal")}</th>
+            <th className="w-[120px] px-3.5 py-2.5 font-semibold">{t("goals.colAttention")}</th>
+            <th className="w-[150px] px-3.5 py-2.5 font-semibold">{t("goals.colAgent")}</th>
+            <th className="w-[90px] px-3.5 py-2.5 font-semibold">{t("goals.colUpdated")}</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((g) => (
-            <tr
-              key={g.id}
-              className="border-b border-border last:border-0 hover:bg-accent/40"
-            >
+            <tr key={g.id} className="border-b border-border last:border-0 hover:bg-accent/40">
               <td className="px-3.5 py-3">
                 <Checkbox
                   checked={selected.has(g.id)}
-                  onCheckedChange={() =>
-                    toggleSelected(selected, g.id, onSelect)
-                  }
+                  onCheckedChange={() => toggleSelected(selected, g.id, onSelect)}
                   aria-label={t("goals.selectGoal")}
                 />
               </td>
-              <td
-                className="cursor-pointer px-3.5 py-3"
-                onClick={() => onOpen(g)}
-              >
-                <StatusPill
-                  status={g.status}
-                  label={statusLabel(t, g.status)}
-                />
+              <td className="cursor-pointer px-3.5 py-3" onClick={() => onOpen(g)}>
+                <StatusPill status={g.status} label={statusLabel(t, g.status)} />
               </td>
-              <td
-                className="cursor-pointer px-3.5 py-3"
-                onClick={() => onOpen(g)}
-              >
+              <td className="cursor-pointer px-3.5 py-3" onClick={() => onOpen(g)}>
                 <div className="font-medium">{g.title}</div>
                 {g.description && (
                   <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
@@ -753,9 +672,7 @@ function Table({ goals, onOpen, selected, onSelect }: ViewProps) {
               <td className="px-3.5 py-3">
                 {goalNeedsYou(g) ? (
                   <span className="rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs font-medium text-primary">
-                    {g.status === "blocked"
-                      ? t("goals.actUnblock")
-                      : t("goals.actReview")}
+                    {g.status === "blocked" ? t("goals.actUnblock") : t("goals.actReview")}
                   </span>
                 ) : g.status === "done" ? (
                   <span className="rounded-md border border-chart-3/25 bg-chart-3/10 px-2 py-0.5 font-mono text-xs font-medium text-chart-3">
@@ -766,9 +683,7 @@ function Table({ goals, onOpen, selected, onSelect }: ViewProps) {
                     urgent
                   </span>
                 ) : (
-                  <span className="font-mono text-xs text-muted-foreground">
-                    —
-                  </span>
+                  <span className="font-mono text-xs text-muted-foreground">—</span>
                 )}
               </td>
               <td className="px-3.5 py-3">
@@ -779,9 +694,7 @@ function Table({ goals, onOpen, selected, onSelect }: ViewProps) {
                     </span>
                   </span>
                 ) : (
-                  <span className="font-mono text-xs text-muted-foreground">
-                    —
-                  </span>
+                  <span className="font-mono text-xs text-muted-foreground">—</span>
                 )}
               </td>
               <td className="px-3.5 py-3">
@@ -816,12 +729,7 @@ function Pager({
         {t("goals.pageStatus", { page, totalPages, total })}
       </span>
       <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page <= 1}
-          onClick={() => onPage(page - 1)}
-        >
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
           {t("common.back")}
         </Button>
         <Button
@@ -834,30 +742,5 @@ function Pager({
         </Button>
       </div>
     </div>
-  );
-}
-
-function hiddenStorageKey(agentId: string): string {
-  return `stella:hidden-goals:${agentId}`;
-}
-
-function readHiddenGoals(agentId: string): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(hiddenStorageKey(agentId));
-    const parsed = raw ? (JSON.parse(raw) as string[]) : [];
-    return new Set(
-      Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [],
-    );
-  } catch {
-    return new Set();
-  }
-}
-
-function writeHiddenGoals(agentId: string, ids: Set<string>) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(
-    hiddenStorageKey(agentId),
-    JSON.stringify([...ids]),
   );
 }

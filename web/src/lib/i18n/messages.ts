@@ -113,16 +113,13 @@ const en = {
   "login.hasAccount": "Already have an account?",
   "login.signUpLink": "Sign up",
   "login.signInLink": "Sign in",
-  "login.noProviders":
-    "No login providers configured. Contact your administrator.",
-  "login.providersUnavailable":
-    "Authentication providers are unavailable. Try again later.",
+  "login.noProviders": "No login providers configured. Contact your administrator.",
+  "login.providersUnavailable": "Authentication providers are unavailable. Try again later.",
   "login.orContinueWith": "Or continue with",
   "login.signupSubtitle": "Create an account to get started",
   "login.noLocalRegistration":
     "Local registration is not available. Please contact your administrator.",
-  "login.registrationDisabled":
-    "Registration is currently disabled on this instance.",
+  "login.registrationDisabled": "Registration is currently disabled on this instance.",
   "login.passwordTooShort": "Password must be at least 8 characters long",
   "login.passwordMismatch": "Passwords do not match",
 
@@ -158,8 +155,7 @@ const en = {
 
   // About
   "about.title": "About",
-  "about.description":
-    "Version and runtime information for this Stella instance.",
+  "about.description": "Version and runtime information for this Stella instance.",
   "about.status": "Status",
   "about.version": "Version",
   "about.commit": "Commit",
@@ -180,8 +176,7 @@ const en = {
   "agents.noAgents": "No agents yet",
   "agents.noAgentsDesc": "Create your first agent to get started.",
   "agents.deleteConfirm": "Delete agent?",
-  "agents.deleteConfirmDesc":
-    "This will permanently delete {{name}} and all associated data.",
+  "agents.deleteConfirmDesc": "This will permanently delete {{name}} and all associated data.",
   "agents.deleted": "Agent deleted",
   "agents.deleteFailed": "Failed to delete agent",
   "agents.created": "Agent created",
@@ -241,14 +236,12 @@ const en = {
   "agents.form.enabled": "Enabled",
   "agents.form.soulPreset": "Soul preset",
   "agents.form.soul": "Soul",
-  "agents.form.soulDesc":
-    "Default personality for all users. Each user can override their own.",
+  "agents.form.soulDesc": "Default personality for all users. Each user can override their own.",
   "agents.form.soulPlaceholder": "Personality and behavior tone…",
   "agents.form.networkPolicy": "Network policy",
   "agents.form.networkMode": "Network mode",
   "agents.form.allowlist": "Allowlist",
-  "agents.form.allowlistHint":
-    "Runtime whitelist support depends on your sandbox backend version.",
+  "agents.form.allowlistHint": "Runtime whitelist support depends on your sandbox backend version.",
   "agents.users.desc": "Manage user access for restricted-scope agents.",
   "agents.users.selectUser": "Select user…",
   "agents.skills.searchPlaceholder": "Search skills…",
@@ -276,24 +269,21 @@ const en = {
   "agents.skills.userScope": "Installed for you in this agent.",
   "agents.skills.agentScope": "Installed for this agent.",
   "agents.skills.addSkill": "Add a skill",
-  "agents.skills.addSkillDesc":
-    "Install from the catalog or upload your own skill bundle.",
+  "agents.skills.addSkillDesc": "Install from the catalog or upload your own skill bundle.",
   "agents.skills.installTarget": "Install target",
   "agents.skills.onlyThisAgent": "Only this agent",
   "agents.skills.myProfile": "My profile",
   "agents.skills.agentOnlyHint":
     "Agent-only install is available after the agent is saved, and only for admins.",
   "agents.skills.browseCatalog": "Browse catalog",
-  "agents.skills.browseCatalogDesc":
-    "Search public skills and install in one click.",
+  "agents.skills.browseCatalogDesc": "Search public skills and install in one click.",
   "agents.skills.noSkillsFound": "No skills found for that search.",
   "agents.skills.startTyping": "Start typing to search the catalog.",
   "agents.skills.installFromSource": "Or install from source",
   "agents.skills.uploadZip": "Upload zip",
   "agents.skills.uploadDesc": "Import a skill you already have on disk.",
   "agents.skills.chooseZip": "Choose a .zip file",
-  "agents.skills.zipRequirement":
-    "Must contain exactly one skill folder with SKILL.md.",
+  "agents.skills.zipRequirement": "Must contain exactly one skill folder with SKILL.md.",
   "agents.skills.browseFiles": "Browse files",
   "agents.skills.uploadSkill": "Upload skill",
   "agents.template.startFrom": "Start from a template",
@@ -312,8 +302,7 @@ const en = {
   "channels.title": "Channels",
   "channels.new": "New Channel",
   "channels.noChannels": "No channels configured",
-  "channels.noChannelsDesc":
-    "Add a channel to connect stella to messaging platforms.",
+  "channels.noChannelsDesc": "Add a channel to connect stella to messaging platforms.",
   "channels.type": "Type",
   "channels.enabled": "Enabled",
   "channels.disabled": "Disabled",
@@ -324,15 +313,13 @@ const en = {
   "channels.updated": "Channel updated",
   "channels.updateFailed": "Failed to update channel",
   "channels.deleteConfirm": "Delete channel?",
-  "channels.deleteConfirmDesc":
-    "This will permanently delete the channel {{name}}.",
+  "channels.deleteConfirmDesc": "This will permanently delete the channel {{name}}.",
 
   // Credentials
   "credentials.title": "Credentials",
   "credentials.new": "New Credential",
   "credentials.noCredentials": "No credentials stored",
-  "credentials.noCredentialsDesc":
-    "Add credentials to authenticate with external services.",
+  "credentials.noCredentialsDesc": "Add credentials to authenticate with external services.",
   "credentials.key": "Key",
   "credentials.value": "Value",
   "credentials.deleted": "Credential deleted",
@@ -342,8 +329,7 @@ const en = {
   "credentials.updated": "Credential updated",
   "credentials.updateFailed": "Failed to update credential",
   "credentials.deleteConfirm": "Delete credential?",
-  "credentials.deleteConfirmDesc":
-    "This will permanently delete the credential {{key}}.",
+  "credentials.deleteConfirmDesc": "This will permanently delete the credential {{key}}.",
 
   // Plugins
   "plugins.title": "Plugins",
@@ -388,8 +374,7 @@ const en = {
   "providers.updated": "Provider updated",
   "providers.updateFailed": "Failed to update provider",
   "providers.deleteConfirm": "Delete provider?",
-  "providers.deleteConfirmDesc":
-    "This will permanently delete the provider {{name}}.",
+  "providers.deleteConfirmDesc": "This will permanently delete the provider {{name}}.",
   "providers.enabled": "Enabled",
   "providers.updateModel": "Update model",
   "providers.addModel": "Add model",
@@ -407,16 +392,14 @@ const en = {
   "providers.maxTokens": "Max tokens",
   "providers.reasoning": "Reasoning",
   "providers.reasoningDesc": "Stores the provider-facing reasoning flag.",
-  "providers.enabledDesc":
-    "Persist model availability on this provider instance.",
+  "providers.enabledDesc": "Persist model availability on this provider instance.",
   "providers.costInput": "Cost input",
   "providers.costOutput": "Cost output",
   "providers.costCacheRead": "Cost cache read",
   "providers.costCacheWrite": "Cost cache write",
   "providers.modelsHint":
     "Toggle models on or off, then save. Custom models can be edited with the form or in the advanced JSON editor.",
-  "providers.noModels":
-    "No models yet. Fetch from the provider or add custom models above.",
+  "providers.noModels": "No models yet. Fetch from the provider or add custom models above.",
   "providers.fetchModels": "Fetch models",
   "providers.fetching": "Fetching...",
   "providers.modelsAvailable": "{{count}} models available",
@@ -440,8 +423,7 @@ const en = {
   "scheduler.title": "Scheduler",
   "scheduler.new": "New Task",
   "scheduler.noTasks": "No scheduled tasks",
-  "scheduler.noTasksDesc":
-    "Create a scheduled task to automate recurring work.",
+  "scheduler.noTasksDesc": "Create a scheduled task to automate recurring work.",
   "scheduler.cron": "Cron Expression",
   "scheduler.nextRun": "Next Run",
   "scheduler.lastRun": "Last Run",
@@ -452,8 +434,7 @@ const en = {
   "scheduler.createFailed": "Failed to create task",
   "scheduler.updated": "Task updated",
   "scheduler.updateFailed": "Failed to update task",
-  "scheduler.deleteConfirmDesc":
-    "This will permanently delete the task {{name}}.",
+  "scheduler.deleteConfirmDesc": "This will permanently delete the task {{name}}.",
   "scheduler.running": "Running…",
 
   // Users
@@ -470,11 +451,9 @@ const en = {
   "users.updated": "User updated",
   "users.updateFailed": "Failed to update user",
   "users.deleteConfirm": "Delete user?",
-  "users.deleteConfirmDesc":
-    "This will permanently delete the user {{username}}.",
+  "users.deleteConfirmDesc": "This will permanently delete the user {{username}}.",
   "users.resetPassword": "Reset Password",
-  "users.desc":
-    "Manage authentication, roles, linked accounts, and memory databases.",
+  "users.desc": "Manage authentication, roles, linked accounts, and memory databases.",
   "users.admins": "Admins",
   "users.users": "Users",
   "users.active": "Active",
@@ -490,13 +469,11 @@ const en = {
   "users.unlinkIdentity": "Unlink {{platform}} identity?",
   "users.identityUnlinked": "Identity unlinked",
   "users.notifyChannel": "Notify channel",
-  "users.notifyChannelDesc":
-    "Which channel receives scheduler and tool notifications.",
+  "users.notifyChannelDesc": "Which channel receives scheduler and tool notifications.",
   "users.autoFirst": "Auto (first linked)",
   "users.notifyUpdated": "Notify channel updated",
   "users.agentAssignments": "Agent assignments",
-  "users.noAgentAssignments":
-    "No agent assignments (has access to all system-scope agents).",
+  "users.noAgentAssignments": "No agent assignments (has access to all system-scope agents).",
   "users.agentAssigned": "Agent assigned",
   "users.agentRemoved": "Agent removed",
   "users.selectAgent": "Select agent...",
@@ -519,8 +496,7 @@ const en = {
   "sessions.deleted": "Session deleted",
   "sessions.deleteFailed": "Failed to delete session",
   "sessions.deleteConfirm": "Delete session?",
-  "sessions.deleteConfirmDesc":
-    "This will permanently delete this session and all its messages.",
+  "sessions.deleteConfirmDesc": "This will permanently delete this session and all its messages.",
   "sessions.search": "Search sessions…",
   "sessions.composer.placeholder": "Message…",
   "sessions.composer.send": "Send",
@@ -675,17 +651,13 @@ const en = {
   "automations.tab.log": "Log",
   "automations.now.title": "Tasks",
   "automations.tasks.title": "Tasks",
-  "automations.now.description":
-    "Tasks Stella is doing or waiting for you to review.",
-  "automations.tasks.description":
-    "Tasks Stella is doing or waiting for you to review.",
+  "automations.now.description": "Tasks Stella is doing or waiting for you to review.",
+  "automations.tasks.description": "Tasks Stella is doing or waiting for you to review.",
   "automations.scheduler.title": "Scheduler",
-  "automations.scheduler.description":
-    "Things Stella should start later or repeat automatically.",
+  "automations.scheduler.description": "Things Stella should start later or repeat automatically.",
   "automations.scheduler.empty": "No schedules yet.",
   "automations.log.title": "Log",
-  "automations.log.description":
-    "What ran, when it ran, and whether it succeeded.",
+  "automations.log.description": "What ran, when it ran, and whether it succeeded.",
   "automations.log.empty": "No recent automation history yet.",
   "automations.refreshing": "Refreshing…",
   "automations.newWork": "New task",
@@ -707,8 +679,7 @@ const en = {
   "automations.empty.failures": "No failed tasks.",
   "automations.detail.task": "Task detail",
   "automations.select.title": "Select an item",
-  "automations.select.description":
-    "Pick a task, scheduler item, or log entry to inspect it here.",
+  "automations.select.description": "Pick a task, scheduler item, or log entry to inspect it here.",
   "automations.confirm.deleteTask": "Delete this task?",
   "automations.confirm.deleteSchedule": "Delete this schedule?",
 
@@ -724,8 +695,7 @@ const en = {
   "sessions.sidebar.renameRequired": "Thread name is required.",
   "sessions.sidebar.renameFailed": "Failed to rename thread",
   "sessions.sidebar.deleteThreadConfirm": "Delete this thread?",
-  "sessions.sidebar.deleteProjectConfirm":
-    "Delete this project? Sessions will be kept.",
+  "sessions.sidebar.deleteProjectConfirm": "Delete this project? Sessions will be kept.",
 
   // Sessions panel — automation
 
@@ -746,8 +716,7 @@ const en = {
 
   // Sessions panel — memory
   "sessions.memory.title": "User Profile",
-  "sessions.memory.context":
-    "Persistent context this agent will remember across conversations.",
+  "sessions.memory.context": "Persistent context this agent will remember across conversations.",
   "sessions.memory.empty": "No memory yet.",
   "sessions.memory.placeholder":
     "What should this agent remember? Use natural language or bullet points.",
@@ -755,30 +724,24 @@ const en = {
 
   // Sessions panel — soul
   "sessions.soul.title": "Agent Soul",
-  "sessions.soul.subtitle":
-    "Default personality and behavior tone for this agent.",
+  "sessions.soul.subtitle": "Default personality and behavior tone for this agent.",
   "sessions.soul.empty": "No soul configured.",
-  "sessions.soul.placeholder":
-    "Describe the agent's personality, tone, and behavior…",
+  "sessions.soul.placeholder": "Describe the agent's personality, tone, and behavior…",
   "sessions.soul.saving": "Saving…",
 
   // Memories
   "memories.title": "Memories",
   "memories.soul.title": "Agent Soul",
-  "memories.soul.description":
-    "The agent's personality, tone, and default behavior.",
+  "memories.soul.description": "The agent's personality, tone, and default behavior.",
   "memories.soul.empty": "No soul configured yet.",
-  "memories.soul.placeholder":
-    "Describe the agent's personality, tone, and behavior…",
+  "memories.soul.placeholder": "Describe the agent's personality, tone, and behavior…",
   "memories.profile.title": "User Profile",
-  "memories.profile.description":
-    "Persistent context this agent remembers about you.",
+  "memories.profile.description": "Persistent context this agent remembers about you.",
   "memories.profile.empty": "No profile memory yet.",
   "memories.profile.placeholder":
     "What should this agent remember? Use natural language or bullet points.",
   "memories.constraints.title": "Constraints",
-  "memories.constraints.description":
-    "Hard rules the agent must always follow.",
+  "memories.constraints.description": "Hard rules the agent must always follow.",
   "memories.constraints.empty":
     "No constraints set. Constraints are hard rules the agent must always follow.",
   "memories.constraints.error": "Failed to load constraints.",
@@ -794,8 +757,7 @@ const en = {
   "sessions.task.subtitle": "The agent will work on this task asynchronously.",
   "sessions.task.creating": "Creating…",
   "sessions.task.createBtn": "Create task",
-  "sessions.task.descPlaceholder":
-    "Additional context, constraints, or acceptance criteria…",
+  "sessions.task.descPlaceholder": "Additional context, constraints, or acceptance criteria…",
   "sessions.task.priorityRoutineDesc": "Routine — handle when possible",
   "sessions.task.priorityUrgentDesc": "Urgent — prioritize immediately",
 
@@ -853,14 +815,14 @@ const en = {
   "goals.noEvents": "No events yet.",
   "goals.modeActive": "Active",
   "goals.modeHistory": "History",
+  "goals.modeArchived": "Archived",
   "goals.searchPlaceholder": "Search goals…",
   "goals.statusAll": "All statuses",
   "goals.filteredCount": "{{count}} shown",
-  "goals.hideSelected": "Hide {{count}} closed",
-  "goals.restoreHidden": "Restore {{count}} hidden",
+  "goals.archiveSelected": "Archive {{count}} selected",
+  "goals.restoreSelected": "Restore {{count}} selected",
   "goals.noMatches": "No matching goals",
-  "goals.noMatchesDesc":
-    "Try a different search, status, or active/history view.",
+  "goals.noMatchesDesc": "Try a different search, status, or active/history view.",
   "goals.selectGoal": "Select goal",
   "goals.achieved": "Achieved",
   "goals.hookAchieved": "Achieved {{time}}",
@@ -874,10 +836,8 @@ const en = {
     "Start here: blocked goals, reviews, and failed tasks are the only things demanding action.",
   "hub.openActiveGoals": "Open active goals",
   "hub.openHistory": "Open history",
-  "hub.noNeedsYouDesc":
-    "Active work is still running; nothing is blocked or waiting on review.",
-  "hub.noActiveGoals":
-    "No active goals. History stays one click away when you need receipts.",
+  "hub.noNeedsYouDesc": "Active work is still running; nothing is blocked or waiting on review.",
+  "hub.noActiveGoals": "No active goals. History stays one click away when you need receipts.",
   "hub.achievedAt": "Achieved {{time}}",
 
   // Automations hub (unified page)
@@ -971,8 +931,7 @@ const en = {
   "hub.blockerKindToolError": "Tool error",
   "hub.blockerKindPolicyHold": "Policy hold",
   "hub.blockerKindDepFailure": "Upstream dependency failed",
-  "hub.blockerAnswerPlaceholder":
-    "Write your answer; the agent resumes with it…",
+  "hub.blockerAnswerPlaceholder": "Write your answer; the agent resumes with it…",
   "hub.resolveBlocker": "Resolve & resume",
   "hub.failedDeps": "Failed dependencies",
   "hub.waiveDep": "Waive",
@@ -1056,11 +1015,9 @@ const en = {
   "credentials.scope.userAgent.desc":
     "Injected only when you use the selected agent. Highest priority.",
   "credentials.scope.system.label": "Global · all agents",
-  "credentials.scope.system.desc":
-    "Shared by all users. Lowest priority. Admin only.",
+  "credentials.scope.system.desc": "Shared by all users. Lowest priority. Admin only.",
   "credentials.scope.systemAgent.label": "Global · specific agent",
-  "credentials.scope.systemAgent.desc":
-    "Shared by all users of the selected agent. Admin only.",
+  "credentials.scope.systemAgent.desc": "Shared by all users of the selected agent. Admin only.",
   "credentials.scope.reserved": "Managed by stella · read-only",
   "credentials.scope.agentMissing": "Select an agent for this scope.",
   "credentials.scope.priorityTitle": "Priority — higher overrides lower",
@@ -1105,15 +1062,13 @@ const en = {
   "credentials.oauth.clientIdRequired": "Client ID is required",
   "credentials.oauth.error": "OAuth error",
   "credentials.oauth.connectedSuccess": "{{provider}} connected successfully",
-  "credentials.oauth.authorizationState":
-    "{{provider}} authorization {{state}}",
+  "credentials.oauth.authorizationState": "{{provider}} authorization {{state}}",
   "credentials.oauth.disconnectConfirm": "Disconnect {{provider}} credentials?",
   "credentials.oauth.disconnected": "{{provider}} disconnected",
   "credentials.oauth.disconnectFailed": "Failed to disconnect",
   "credentials.oauth.configSaved": "{{provider}} credentials saved",
   "credentials.oauth.configSaveFailed": "Failed to save config",
-  "credentials.oauth.resetConfirm":
-    "Reset {{provider}} credentials to defaults?",
+  "credentials.oauth.resetConfirm": "Reset {{provider}} credentials to defaults?",
   "credentials.oauth.configReset": "{{provider}} credentials reset to defaults",
   "credentials.oauth.configResetFailed": "Failed to reset config",
   "credentials.email.default": "Default",
@@ -1188,19 +1143,15 @@ const en = {
   "skills.scope.current": "current",
   "skills.scope.agentMissing": "Select an agent for this scope.",
   "skills.scope.user.label": "Mine · all agents",
-  "skills.scope.user.desc":
-    "Skills you added — available across all of your agents.",
+  "skills.scope.user.desc": "Skills you added — available across all of your agents.",
   "skills.scope.userAgent.label": "Mine · this agent",
-  "skills.scope.userAgent.desc":
-    "Skills you added — active only in this agent. Highest priority.",
+  "skills.scope.userAgent.desc": "Skills you added — active only in this agent. Highest priority.",
   "skills.scope.system.label": "System · all agents",
-  "skills.scope.system.desc":
-    "Preset skills — available in every agent. Lowest priority.",
+  "skills.scope.system.desc": "Preset skills — available in every agent. Lowest priority.",
   "skills.scope.systemAgent.label": "System · this agent",
   "skills.scope.systemAgent.desc": "Preset skills — active only in this agent.",
   "skills.scope.project.label": "Project",
-  "skills.scope.project.desc":
-    "Managed in the project's filesystem. Read-only here.",
+  "skills.scope.project.desc": "Managed in the project's filesystem. Read-only here.",
 
   // Login (additions)
   "login.email": "Email",
@@ -1226,13 +1177,11 @@ const en = {
   "sessions.inspector.tools": "Tools",
   "sessions.inspector.prompt": "Prompt",
   "sessions.inspector.inspector": "Inspector",
-  "sessions.inspector.sessionWorkspace":
-    "Session workspace, work queue, and context",
+  "sessions.inspector.sessionWorkspace": "Session workspace, work queue, and context",
   "sessions.skill.installSkill": "Install a skill",
   "sessions.skill.catalog": "Catalog",
   "sessions.skill.searchSkills": "Search skills...",
-  "sessions.skill.searchPublic":
-    "Search public skills and install one into the selected target.",
+  "sessions.skill.searchPublic": "Search public skills and install one into the selected target.",
   "sessions.skill.noSkillsFound": "No skills found for that search.",
   "sessions.skill.searchCatalog": "Search the catalog",
   "sessions.skill.resultsAppear": "Results appear here as you type.",
@@ -1245,8 +1194,7 @@ const en = {
   "sessions.skill.myProfile": "My profile",
   "sessions.skill.thisAgent": "This agent",
   "sessions.skill.adminOnly": "Agent installs are available to admins.",
-  "sessions.skill.catalogDesc":
-    "Search the catalog or import a zip bundle into Stella.",
+  "sessions.skill.catalogDesc": "Search the catalog or import a zip bundle into Stella.",
   "sessions.sidebar.newProject": "New Project",
   "sessions.sidebar.projectName": "Project name",
   "sessions.sidebar.selectFolder": "Select a workspace folder for this agent.",
@@ -1271,11 +1219,9 @@ const en = {
   "sessions.skillsList.project": "Project",
   "sessions.skillsList.userDesc": "Your personal skills, visible only to you",
   "sessions.skillsList.user_agentDesc": "Your skills for this agent only",
-  "sessions.skillsList.system_agentDesc":
-    "Shared with everyone who uses this agent",
+  "sessions.skillsList.system_agentDesc": "Shared with everyone who uses this agent",
   "sessions.skillsList.systemDesc": "Built into Stella, read-only",
-  "sessions.skillsList.projectDesc":
-    "Loaded from the project directory, managed via files",
+  "sessions.skillsList.projectDesc": "Loaded from the project directory, managed via files",
   "sessions.skillsList.noAgentSkills": "No agent-level skills installed.",
   "sessions.skillsList.noSystemSkills": "No system skills.",
   "sessions.skillsList.noProjectSkills": "No skills in the project directory.",
@@ -1293,10 +1239,8 @@ const en = {
   "sessions.skillsList.githubSkill": "Skill",
   "sessions.skillsList.githubSkillPlaceholder": "skill name within the repo",
   "sessions.skillsList.githubVersion": "Version (optional)",
-  "sessions.skillsList.githubVersionPlaceholder":
-    "tag or branch — blank uses the default branch",
-  "sessions.skillsList.githubHint":
-    "Private repos require a connected GitHub account.",
+  "sessions.skillsList.githubVersionPlaceholder": "tag or branch — blank uses the default branch",
+  "sessions.skillsList.githubHint": "Private repos require a connected GitHub account.",
   "sessions.skillsList.upgradeCheck": "Check for updates",
   "sessions.skillsList.upgradeDone": "Updated to {version}",
   "sessions.skillsList.upgradeUpToDate": "Already up to date",
@@ -1310,16 +1254,14 @@ const en = {
   "sessions.skillsList.scope": "Scope",
   "sessions.skillsList.status": "Status",
   "sessions.skillsList.versionLabel": "Version",
-  "sessions.skillsList.versionHint":
-    "Recorded tag, branch, or commit. Cleared if left blank.",
+  "sessions.skillsList.versionHint": "Recorded tag, branch, or commit. Cleared if left blank.",
   "sessions.skillsList.modelInvocation": "Model invocation",
   "sessions.skillsList.fileCount": "Files",
   "sessions.skillsList.readonlyNote": "This skill is read-only at this scope.",
   "sessions.skillsList.statusActive": "Active",
   "sessions.skillsList.statusDraft": "Draft",
   "sessions.skillsList.statusDeprecated": "Deprecated",
-  "sessions.skillsList.modelInvocationHint":
-    "Allow the model to call this skill automatically.",
+  "sessions.skillsList.modelInvocationHint": "Allow the model to call this skill automatically.",
   "sessions.skillsList.deleteSkill": "Delete skill",
   "sessions.skillsList.deleteConfirm": "Delete this skill?",
   "sessions.skillsList.deleteConfirmDesc":
@@ -1358,8 +1300,7 @@ const en = {
     "Search the mise registry by name, or type a mise key (e.g. github:owner/repo). Stella installs it and keeps it in sync.",
   "plugins.searchRegistry": "Search a tool name or mise key…",
   "plugins.searchingRegistry": "Searching…",
-  "plugins.noRegistryMatches":
-    "No matches. You can still add a mise key directly.",
+  "plugins.noRegistryMatches": "No matches. You can still add a mise key directly.",
   "plugins.useDirectKey": 'Use "{{key}}" as a mise key',
   "plugins.miseKey": "mise key",
   "plugins.cliToolName": "Name",
@@ -1505,8 +1446,7 @@ const en = {
   "plugins.displayName": "Display name",
   "plugins.binaries": "Binaries",
   "plugins.addBinary": "+ Add binary",
-  "plugins.noBinaries":
-    "No binaries declared. Add one to install a CLI from a GitHub release.",
+  "plugins.noBinaries": "No binaries declared. Add one to install a CLI from a GitHub release.",
   "plugins.binaryN": "Binary {{n}}",
   "plugins.githubRepoLabel": "GitHub repo (owner/repo)",
   "plugins.binPath": "Bin path",
@@ -1519,8 +1459,7 @@ const en = {
   "plugins.sourceLabel": "Source",
   "plugins.valueStaticOnly": "Value (static only)",
   "plugins.oauthProvider": "OAuth provider",
-  "plugins.overrideDesc":
-    "Override the manifest definition. Binaries sync on save.",
+  "plugins.overrideDesc": "Override the manifest definition. Binaries sync on save.",
   "plugins.exeOverride": "Exe override",
   "plugins.nameLabel": "Name",
   "plugins.descriptionLabel": "Description",
@@ -1545,14 +1484,12 @@ const en = {
   "channels.channelIdPlaceholder": "e.g. feishu-coder",
   "channels.channelIdDesc":
     'Must not match the platform ID (e.g. not "telegram" for a Telegram channel).',
-  "channels.weixinChannelIdDesc":
-    'WeChat is singleton-only; the channel ID is fixed to "weixin".',
+  "channels.weixinChannelIdDesc": 'WeChat is singleton-only; the channel ID is fixed to "weixin".',
   "channels.configuration": "Configuration",
   "channels.boundAgent": "Bound agent",
   "channels.boundAgentDesc":
     "Messages received by this bot are routed to this agent. Each agent can only have one channel per platform.",
-  "channels.noAvailableAgents":
-    "No enabled agents are available for this platform.",
+  "channels.noAvailableAgents": "No enabled agents are available for this platform.",
   "channels.selectAgent": "Select agent...",
   "channels.manualFeishuSetup": "I already have a Feishu app",
   "channels.manualWeixinSetup": "I already have WeChat iLink credentials",
@@ -1567,13 +1504,11 @@ const en = {
     "Scan with the Feishu mobile app, then confirm the app creation request.",
   "channels.scanFeishuQrAlt": "Feishu bot registration QR code",
   "channels.scanWeixinTitle": "Create WeChat bot",
-  "channels.scanWeixinDesc":
-    "Scan with the WeChat mobile app, then confirm bot creation.",
+  "channels.scanWeixinDesc": "Scan with the WeChat mobile app, then confirm bot creation.",
   "channels.scanWeixinQrAlt": "WeChat bot registration QR code",
   "channels.scanNeedsName": "Enter a name before starting QR setup.",
   "channels.scanNeedsId": "Enter a channel ID before starting QR setup.",
-  "channels.scanNeedsAgent":
-    "Bind this channel to an agent before starting QR setup.",
+  "channels.scanNeedsAgent": "Bind this channel to an agent before starting QR setup.",
   "channels.scanExpired": "QR code expired. Try again.",
   "channels.waiting": "Waiting",
 
@@ -1635,8 +1570,7 @@ const en = {
 
   // Workspace share dialog
   "sessions.workspace.shareArtifact": "Share artifact",
-  "sessions.workspace.shareDesc":
-    "Create a public, read-only snapshot link for {{file}}.",
+  "sessions.workspace.shareDesc": "Create a public, read-only snapshot link for {{file}}.",
   "sessions.workspace.thisFile": "this file",
   "sessions.workspace.expiration": "Expiration",
   "sessions.workspace.1hour": "1 hour",
@@ -1929,8 +1863,7 @@ const zh: Record<MessageKey, string> = {
   "agents.skills.deleteFile": "删除文件",
   "agents.skills.disableModelInvocation": "禁用模型调用",
   "agents.skills.noMatch": "没有技能匹配此筛选条件。",
-  "agents.skills.saveFirst":
-    "如果要添加或自定义智能体专用技能，请先保存智能体。",
+  "agents.skills.saveFirst": "如果要添加或自定义智能体专用技能，请先保存智能体。",
   "agents.skills.noDescription": "暂无描述。",
   "agents.skills.noContent": "暂无内容。",
   "agents.skills.systemScope": "系统技能，此处只读。",
@@ -1954,8 +1887,7 @@ const zh: Record<MessageKey, string> = {
   "agents.skills.browseFiles": "浏览文件",
   "agents.skills.uploadSkill": "上传技能",
   "agents.template.startFrom": "从模板开始",
-  "agents.template.templateDesc":
-    "模板会预填系统提示词、技能和模型。保存前可以编辑所有内容。",
+  "agents.template.templateDesc": "模板会预填系统提示词、技能和模型。保存前可以编辑所有内容。",
   "agents.template.blank": "空白",
   "agents.template.blankSlate": "空白模板",
   "agents.template.blankDesc": "从零开始自行配置所有内容。",
@@ -2064,8 +1996,7 @@ const zh: Record<MessageKey, string> = {
   "providers.costOutput": "输出成本",
   "providers.costCacheRead": "缓存读取成本",
   "providers.costCacheWrite": "缓存写入成本",
-  "providers.modelsHint":
-    "开关模型后点击保存。自定义模型可通过表单或高级 JSON 编辑器编辑。",
+  "providers.modelsHint": "开关模型后点击保存。自定义模型可通过表单或高级 JSON 编辑器编辑。",
   "providers.noModels": "暂无模型。从提供商获取或添加自定义模型。",
   "providers.fetchModels": "获取模型",
   "providers.fetching": "获取中...",
@@ -2385,8 +2316,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.memory.title": "用户档案",
   "sessions.memory.context": "此 agent 在所有对话中都会记住的持久上下文。",
   "sessions.memory.empty": "暂无记忆。",
-  "sessions.memory.placeholder":
-    "该 agent 应该记住什么？用自然语言或要点列表。",
+  "sessions.memory.placeholder": "该 agent 应该记住什么？用自然语言或要点列表。",
   "sessions.memory.saving": "保存中…",
 
   // Sessions panel — soul
@@ -2405,8 +2335,7 @@ const zh: Record<MessageKey, string> = {
   "memories.profile.title": "用户档案",
   "memories.profile.description": "该 agent 会持续记住的你的上下文。",
   "memories.profile.empty": "还没有用户档案记忆。",
-  "memories.profile.placeholder":
-    "该 agent 应该记住什么？用自然语言或要点列表。",
+  "memories.profile.placeholder": "该 agent 应该记住什么？用自然语言或要点列表。",
   "memories.constraints.title": "约束",
   "memories.constraints.description": "Agent 必须始终遵守的硬规则。",
   "memories.constraints.empty": "暂无约束。约束是 agent 必须始终遵守的硬规则。",
@@ -2481,11 +2410,12 @@ const zh: Record<MessageKey, string> = {
   "goals.noEvents": "暂无事件。",
   "goals.modeActive": "活跃",
   "goals.modeHistory": "历史",
+  "goals.modeArchived": "已归档",
   "goals.searchPlaceholder": "搜索目标…",
   "goals.statusAll": "全部状态",
   "goals.filteredCount": "显示 {{count}} 个",
-  "goals.hideSelected": "隐藏 {{count}} 个已关闭",
-  "goals.restoreHidden": "恢复 {{count}} 个隐藏项",
+  "goals.archiveSelected": "归档选中 {{count}} 个",
+  "goals.restoreSelected": "恢复选中 {{count}} 个",
   "goals.noMatches": "没有匹配的目标",
   "goals.noMatchesDesc": "换个搜索词、状态，或切换活跃/历史视图。",
   "goals.selectGoal": "选择目标",
@@ -2497,8 +2427,7 @@ const zh: Record<MessageKey, string> = {
   "goals.pageStatus": "第 {{page}}/{{totalPages}} 页 · 共 {{total}} 个",
   "hub.activeWork": "活跃工作",
   "hub.historyArchive": "历史归档",
-  "hub.needsYouHint":
-    "先看这里：阻塞目标、审批和失败任务才是真正需要你处理的事项。",
+  "hub.needsYouHint": "先看这里：阻塞目标、审批和失败任务才是真正需要你处理的事项。",
   "hub.openActiveGoals": "打开活跃目标",
   "hub.openHistory": "打开历史",
   "hub.noNeedsYouDesc": "活跃工作仍在运行；目前没有阻塞或等待审批。",
@@ -2677,13 +2606,11 @@ const zh: Record<MessageKey, string> = {
   "credentials.scope.user.label": "我的 · 所有 Agent",
   "credentials.scope.user.desc": "注入到你所有 agent 的会话中。",
   "credentials.scope.userAgent.label": "我的 · 指定 Agent",
-  "credentials.scope.userAgent.desc":
-    "仅在你使用所选 agent 时注入，优先级最高。",
+  "credentials.scope.userAgent.desc": "仅在你使用所选 agent 时注入，优先级最高。",
   "credentials.scope.system.label": "全局 · 所有 Agent",
   "credentials.scope.system.desc": "所有用户共享，优先级最低。仅管理员。",
   "credentials.scope.systemAgent.label": "全局 · 指定 Agent",
-  "credentials.scope.systemAgent.desc":
-    "所有用户使用所选 agent 时共享。仅管理员。",
+  "credentials.scope.systemAgent.desc": "所有用户使用所选 agent 时共享。仅管理员。",
   "credentials.scope.reserved": "由 stella 托管 · 只读",
   "credentials.scope.agentMissing": "请为该范围选择一个 agent。",
   "credentials.scope.priorityTitle": "优先级 — 上覆盖下",
@@ -2811,8 +2738,7 @@ const zh: Record<MessageKey, string> = {
   "skills.scope.user.label": "我的 · 全部智能体",
   "skills.scope.user.desc": "你添加的技能，在你的每个智能体中都可用。",
   "skills.scope.userAgent.label": "我的 · 仅此智能体",
-  "skills.scope.userAgent.desc":
-    "你添加的技能，只在当前这个智能体中生效。优先级最高。",
+  "skills.scope.userAgent.desc": "你添加的技能，只在当前这个智能体中生效。优先级最高。",
   "skills.scope.system.label": "系统 · 全部智能体",
   "skills.scope.system.desc": "系统预设技能，所有智能体通用。优先级最低。",
   "skills.scope.systemAgent.label": "系统 · 仅此智能体",
@@ -2901,8 +2827,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.skillsList.githubSkill": "技能",
   "sessions.skillsList.githubSkillPlaceholder": "仓库内的技能名",
   "sessions.skillsList.githubVersion": "版本（可选）",
-  "sessions.skillsList.githubVersionPlaceholder":
-    "tag 或 branch — 留空用默认分支",
+  "sessions.skillsList.githubVersionPlaceholder": "tag 或 branch — 留空用默认分支",
   "sessions.skillsList.githubHint": "私有仓库需要已连接 GitHub 账号。",
   "sessions.skillsList.upgradeCheck": "检查更新",
   "sessions.skillsList.upgradeDone": "已更新到 {version}",
@@ -2913,8 +2838,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.skillsList.scopeFilter": "范围",
   "sessions.skillsList.uploadZip": "上传 ZIP",
   "sessions.skillsList.searchPlaceholder": "搜索技能…",
-  "sessions.skillsList.stats":
-    "{{total}} 项技能 · {{callable}} 项可自动调用 · {{readonly}} 项只读",
+  "sessions.skillsList.stats": "{{total}} 项技能 · {{callable}} 项可自动调用 · {{readonly}} 项只读",
   "sessions.skillsList.readonly": "只读",
   "sessions.skillsList.manual": "手动",
   "sessions.skillsList.auto": "自动",
@@ -2922,8 +2846,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.skillsList.scope": "作用域",
   "sessions.skillsList.status": "状态",
   "sessions.skillsList.versionLabel": "版本",
-  "sessions.skillsList.versionHint":
-    "记录的 tag、branch 或 commit。留空则清除。",
+  "sessions.skillsList.versionHint": "记录的 tag、branch 或 commit。留空则清除。",
   "sessions.skillsList.modelInvocation": "模型调用",
   "sessions.skillsList.fileCount": "文件数",
   "sessions.skillsList.readonlyNote": "此作用域的技能为只读。",
@@ -2933,8 +2856,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.skillsList.modelInvocationHint": "允许模型自动调用此技能。",
   "sessions.skillsList.deleteSkill": "删除技能",
   "sessions.skillsList.deleteConfirm": "删除此技能？",
-  "sessions.skillsList.deleteConfirmDesc":
-    "将永久删除 {{name}} 及其文件，此操作无法撤销。",
+  "sessions.skillsList.deleteConfirmDesc": "将永久删除 {{name}} 及其文件，此操作无法撤销。",
   "sessions.skillsList.saved": "设置已保存",
   "sessions.skillsList.emptyFile": "此文件为空。",
   "sessions.skillsList.name": "名称",
@@ -2963,8 +2885,7 @@ const zh: Record<MessageKey, string> = {
 
   // Plugins (additions)
   "plugins.addTool": "添加工具",
-  "plugins.addToolDesc":
-    "声明 GitHub 发布二进制文件。Stella 将其写入 plugins.yaml 并自动同步。",
+  "plugins.addToolDesc": "声明 GitHub 发布二进制文件。Stella 将其写入 plugins.yaml 并自动同步。",
   "plugins.addCliToolDesc":
     "按名称搜索 mise 注册表，或直接输入 mise 标识（如 github:owner/repo）。Stella 会自动安装并保持同步。",
   "plugins.searchRegistry": "搜索工具名称或 mise 标识…",
@@ -3149,8 +3070,7 @@ const zh: Record<MessageKey, string> = {
   "channels.namePlaceholder": "例如：飞书编码助手",
   "channels.channelId": "频道 ID",
   "channels.channelIdPlaceholder": "例如：feishu-coder",
-  "channels.channelIdDesc":
-    '不能和平台 ID 相同（例如 Telegram 频道不能填写 "telegram"）。',
+  "channels.channelIdDesc": '不能和平台 ID 相同（例如 Telegram 频道不能填写 "telegram"）。',
   "channels.weixinChannelIdDesc": '微信是单例频道；频道 ID 固定为 "weixin"。',
   "channels.configuration": "配置",
   "channels.boundAgent": "绑定 Agent",

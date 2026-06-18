@@ -37,12 +37,15 @@ export async function fetchAllTasks(
   return all;
 }
 
-export async function fetchAllGoals(agentId?: string): Promise<ComponentsGoal[]> {
+export async function fetchAllGoals(
+  agentId?: string,
+  archived?: boolean,
+): Promise<ComponentsGoal[]> {
   const all: ComponentsGoal[] = [];
   let pageToken: string | undefined;
   do {
     const { data } = await listGoals({
-      query: { agent_id: agentId, page_size: 500, page_token: pageToken },
+      query: { agent_id: agentId, archived, page_size: 500, page_token: pageToken },
       throwOnError: true,
     });
     all.push(...(data?.goals ?? []));
