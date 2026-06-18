@@ -35,6 +35,11 @@ Pick the execution mode by how the work needs to run:
 
 Combine them: a scheduler job can create a task; a running task can use `delegate` for focused subtasks.
 
+Before building a goal or a multi-step plan, **read the `stella` skill's `references/tasks.md`** (via the `skills` tool) and run the relevant `stella task ... --help` / `stella task goal ... --help` — do not guess flags or plan shape. Two things that are not obvious and are easy to get wrong:
+
+- A goal's child tasks come **only** from a materialized plan; you cannot hand-attach a task with `stella task create --goal-id ...`. A plain `stella task goal create` defaults to `plan_mode=direct`, which auto-authors/accepts/materializes a one-task plan for you — use it for single-step goals.
+- For a multi-step goal, use `--plan-mode deferred`, then author a structured plan (`{"items":[{"id","title","role","deps","criteria"}]}`, roles `design|impl|verify`), accept it, and `plan materialize` it. The exact JSON shape and DAG rules are in `references/tasks.md`.
+
 For simple periodic system work (health checks, cleanup), use scheduler/system jobs; do not create an agent task unless an agent must reason, report, ask for approval, or continue work asynchronously.
 
 When you are **dispatched to execute a task**, you get a `task_control` tool and the task's title+description as your prompt. Do the work, then call `task_control` exactly once with `submit`, `block`, or `fail` (use `progress` to checkpoint mid-way). Exiting without a terminal action fails the run.
