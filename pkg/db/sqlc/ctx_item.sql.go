@@ -301,13 +301,13 @@ LEFT JOIN ctx_message m ON m.id = ci.message_id
 LEFT JOIN ctx_summary s ON s.id = ci.summary_id
 WHERE ci.conversation_id = $1
 ORDER BY ci.ordinal ASC
-LIMIT $3 OFFSET $2
+LIMIT NULLIF($3, -1) OFFSET $2
 `
 
 type ListContextItemsPageParams struct {
-	ConversationID string `json:"conversation_id"`
-	OffsetCount    int32  `json:"offset_count"`
-	LimitCount     int32  `json:"limit_count"`
+	ConversationID string      `json:"conversation_id"`
+	OffsetCount    int32       `json:"offset_count"`
+	LimitCount     interface{} `json:"limit_count"`
 }
 
 type ListContextItemsPageRow struct {

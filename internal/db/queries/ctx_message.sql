@@ -39,8 +39,8 @@ WITH ordered AS (
         lag(role) OVER (ORDER BY seq ASC) AS prev_role
     FROM ctx_message
     WHERE conversation_id = sqlc.arg('conversation_id')
-      AND (sqlc.narg('after') IS NULL OR created_at >= sqlc.narg('after'))
-      AND (sqlc.narg('before') IS NULL OR created_at <= sqlc.narg('before'))
+      AND (sqlc.narg('after')::timestamptz IS NULL OR created_at >= sqlc.narg('after'))
+      AND (sqlc.narg('before')::timestamptz IS NULL OR created_at <= sqlc.narg('before'))
 ), grouped AS (
     SELECT
         *,

@@ -13,7 +13,7 @@ type VaultUser struct {
 
 // GetVaultUser returns the age key fields for a user. Satisfies vault.UserKeyReader.
 func (q *Queries) GetVaultUser(ctx context.Context, id string) (VaultUser, error) {
-	const qry = `SELECT age_public_key, age_private_key FROM auth_user WHERE id = ? LIMIT 1`
+	const qry = `SELECT age_public_key, age_private_key FROM auth_user WHERE id = $1 LIMIT 1`
 	var v VaultUser
 	row := q.db.QueryRowContext(ctx, qry, id)
 	if err := row.Scan(&v.AgePublicKey, &v.AgePrivateKey); err != nil {

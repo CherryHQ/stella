@@ -223,14 +223,14 @@ func (q *Queries) ListAgentConversationLastActive(ctx context.Context, userID sq
 const listConversations = `-- name: ListConversations :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
 WHERE user_id = $1
-  AND ($2 IS NULL OR agent_id = $2)
+  AND ($2::text IS NULL OR agent_id = $2)
   AND archived = false
 ORDER BY last_active DESC
 `
 
 type ListConversationsParams struct {
 	UserID  sql.NullString `json:"user_id"`
-	AgentID interface{}    `json:"agent_id"`
+	AgentID sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsParams) ([]CtxConversation, error) {
@@ -273,13 +273,13 @@ func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsPa
 const listConversationsAll = `-- name: ListConversationsAll :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
 WHERE user_id = $1
-  AND ($2 IS NULL OR agent_id = $2)
+  AND ($2::text IS NULL OR agent_id = $2)
 ORDER BY last_active DESC
 `
 
 type ListConversationsAllParams struct {
 	UserID  sql.NullString `json:"user_id"`
-	AgentID interface{}    `json:"agent_id"`
+	AgentID sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversationsAllParams) ([]CtxConversation, error) {
@@ -371,9 +371,9 @@ SELECT id, session_id, title, channel, kind, project_id, archived, last_active, 
 WHERE user_id = $1
   AND agent_id IS NOT DISTINCT FROM $2
   AND ($3 != 0 OR archived = false)
-  AND ($4 IS NULL OR kind = $4)
+  AND ($4::text IS NULL OR kind = $4)
   AND ($5 = 0 OR project_id IS NULL)
-  AND ($6 IS NULL OR project_id = $6)
+  AND ($6::text IS NULL OR project_id = $6)
 ORDER BY last_active DESC
 LIMIT $8 OFFSET $7
 `
@@ -382,9 +382,9 @@ type ListConversationsFilteredParams struct {
 	UserID          sql.NullString `json:"user_id"`
 	AgentID         sql.NullString `json:"agent_id"`
 	IncludeArchived interface{}    `json:"include_archived"`
-	Kind            interface{}    `json:"kind"`
+	Kind            sql.NullString `json:"kind"`
 	ProjectIDIsNull interface{}    `json:"project_id_is_null"`
-	ProjectID       interface{}    `json:"project_id"`
+	ProjectID       sql.NullString `json:"project_id"`
 	Offset          int32          `json:"offset"`
 	Limit           int32          `json:"limit"`
 }
@@ -483,18 +483,18 @@ const listConversationsForReviewFiltered = `-- name: ListConversationsForReviewF
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
 WHERE agent_id = $1
   AND archived = false
-  AND ($2 IS NULL OR kind = $2)
+  AND ($2::text IS NULL OR kind = $2)
   AND ($3 = 0 OR project_id IS NULL)
-  AND ($4 IS NULL OR project_id = $4)
+  AND ($4::text IS NULL OR project_id = $4)
 ORDER BY last_active DESC
 LIMIT $6 OFFSET $5
 `
 
 type ListConversationsForReviewFilteredParams struct {
 	AgentID         sql.NullString `json:"agent_id"`
-	Kind            interface{}    `json:"kind"`
+	Kind            sql.NullString `json:"kind"`
 	ProjectIDIsNull interface{}    `json:"project_id_is_null"`
-	ProjectID       interface{}    `json:"project_id"`
+	ProjectID       sql.NullString `json:"project_id"`
 	Offset          int32          `json:"offset"`
 	Limit           int32          `json:"limit"`
 }
@@ -585,13 +585,13 @@ const updateConversationInfoBySessionID = `-- name: UpdateConversationInfoBySess
 UPDATE ctx_conversation
 SET
   title = CASE
-    WHEN $1 IS NOT NULL AND (title IS NULL OR title != $1) THEN $1
+    WHEN $1::text IS NOT NULL AND (title IS NULL OR title != $1) THEN $1
     ELSE title
   END,
   archived = CASE WHEN archived != $2 THEN $2 ELSE archived END,
-  kind = CASE WHEN $3 IS NOT NULL AND kind != $3 THEN $3 ELSE kind END,
+  kind = CASE WHEN $3::text IS NOT NULL AND kind != $3 THEN $3 ELSE kind END,
   project_id = CASE
-    WHEN $4 IS NOT NULL AND (project_id IS NULL OR project_id != $4) THEN $4
+    WHEN $4::text IS NOT NULL AND (project_id IS NULL OR project_id != $4) THEN $4
     ELSE project_id
   END,
   last_active = now(),

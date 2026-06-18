@@ -122,11 +122,11 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 	})
 }
 
-func nullableStringParam(value *string) any {
+func nullableStringParam(value *string) sql.NullString {
 	if value == nil || *value == "" {
-		return nil
+		return sql.NullString{}
 	}
-	return *value
+	return sql.NullString{String: *value, Valid: true}
 }
 
 func blockedInboxItem(row sqlc.ListBlockedInboxTasksRow) apitypes.InboxItem {

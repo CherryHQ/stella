@@ -135,7 +135,7 @@ func (q *Queries) ExpireKnowledgeDraftsByType(ctx context.Context, arg ExpireKno
 const getSkill = `-- name: GetSkill :one
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
 WHERE id = $1
-  AND (($2 IS NULL AND $3 IS NULL)
+  AND (($2::text IS NULL AND $3::text IS NULL)
     OR scope='system'
     OR (scope='system_agent' AND agent_id=$2)
     OR (scope='user'         AND user_id=$3)
@@ -143,9 +143,9 @@ WHERE id = $1
 `
 
 type GetSkillParams struct {
-	ID      string      `json:"id"`
-	AgentID interface{} `json:"agent_id"`
-	UserID  interface{} `json:"user_id"`
+	ID      string         `json:"id"`
+	AgentID sql.NullString `json:"agent_id"`
+	UserID  sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) GetSkill(ctx context.Context, arg GetSkillParams) (Skill, error) {

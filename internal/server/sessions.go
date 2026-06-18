@@ -762,8 +762,8 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 	case limit > 0:
 		pageRows, err := s.q.ListMessagesByLogicalPage(r.Context(), sqlc.ListMessagesByLogicalPageParams{
 			ConversationID: conv.ID,
-			After:          nilIfStringPtr(params.After),
-			Before:         nilIfStringPtr(params.Before),
+			After:          nullTimeFromStringPtr(params.After),
+			Before:         nullTimeFromStringPtr(params.Before),
 			Limit:          int32(limit),
 			Offset:         int32(skip),
 		})
@@ -1571,11 +1571,11 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	writeData(w, http.StatusOK, map[string]string{"system_prompt": systemPrompt})
 }
 
-func nilIfStringPtr(p *string) any {
+func nullTimeFromStringPtr(p *string) sql.NullTime {
 	if p == nil {
-		return nil
+		return sql.NullTime{}
 	}
-	return *p
+	return sql.NullTime{Time: parseTime(*p), Valid: true}
 }
 
 func logicalPageRowsToMessages(rows []sqlc.ListMessagesByLogicalPageRow) []sqlc.CtxMessage {

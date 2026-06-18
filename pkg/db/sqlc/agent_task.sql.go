@@ -260,20 +260,20 @@ func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) 
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
 SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
 WHERE user_id = $1
-  AND ($2 IS NULL OR agent_id = $2)
-  AND ($3 IS NULL OR status = $3)
-  AND ($4 IS NULL OR project_id = $4)
+  AND ($2::text IS NULL OR agent_id = $2)
+  AND ($3::text IS NULL OR status = $3)
+  AND ($4::text IS NULL OR project_id = $4)
 ORDER BY created_at DESC, id DESC
 LIMIT $6 OFFSET $5
 `
 
 type ListAgentTasksByUserParams struct {
-	UserID    string      `json:"user_id"`
-	AgentID   interface{} `json:"agent_id"`
-	Status    interface{} `json:"status"`
-	ProjectID interface{} `json:"project_id"`
-	Offset    int32       `json:"offset"`
-	Limit     int32       `json:"limit"`
+	UserID    string         `json:"user_id"`
+	AgentID   sql.NullString `json:"agent_id"`
+	Status    sql.NullString `json:"status"`
+	ProjectID sql.NullString `json:"project_id"`
+	Offset    int32          `json:"offset"`
+	Limit     int32          `json:"limit"`
 }
 
 func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksByUserParams) ([]AgentTask, error) {
@@ -344,7 +344,7 @@ FROM agent_task t
 JOIN agent_task_blocker b ON b.id = t.active_blocker_id
 WHERE t.user_id = $2
   AND b.status = 'open'
-  AND ($3 IS NULL OR t.agent_id = $3)
+  AND ($3::text IS NULL OR t.agent_id = $3)
 
 UNION ALL
 
@@ -359,15 +359,15 @@ FROM agent_task t
 JOIN agent_task_blocker b ON b.task_id = t.id AND b.status = 'open'
 WHERE t.user_id = $2
   AND t.active_blocker_id IS NULL
-  AND ($3 IS NULL OR t.agent_id = $3)
+  AND ($3::text IS NULL OR t.agent_id = $3)
 ORDER BY created_at DESC
 LIMIT $1
 `
 
 type ListBlockedInboxTasksParams struct {
-	LimitCount int32       `json:"limit_count"`
-	UserID     string      `json:"user_id"`
-	AgentID    interface{} `json:"agent_id"`
+	LimitCount int32          `json:"limit_count"`
+	UserID     string         `json:"user_id"`
+	AgentID    sql.NullString `json:"agent_id"`
 }
 
 type ListBlockedInboxTasksRow struct {
@@ -489,7 +489,7 @@ WHERE t.user_id = $2
   AND t.status = 'reviewing'
   AND r.status IN ('requested', 'in_progress')
   AND r.reviewer_type = 'human'
-  AND ($3 IS NULL OR t.agent_id = $3)
+  AND ($3::text IS NULL OR t.agent_id = $3)
 
 UNION ALL
 
@@ -508,15 +508,15 @@ JOIN agent_review r ON r.task_id = t.id
 WHERE t.user_id = $2
   AND t.status = 'reviewing'
   AND t.active_review_id IS NULL
-  AND ($3 IS NULL OR t.agent_id = $3)
+  AND ($3::text IS NULL OR t.agent_id = $3)
 ORDER BY created_at DESC
 LIMIT $1
 `
 
 type ListReviewInboxTasksParams struct {
-	LimitCount int32       `json:"limit_count"`
-	UserID     string      `json:"user_id"`
-	AgentID    interface{} `json:"agent_id"`
+	LimitCount int32          `json:"limit_count"`
+	UserID     string         `json:"user_id"`
+	AgentID    sql.NullString `json:"agent_id"`
 }
 
 type ListReviewInboxTasksRow struct {

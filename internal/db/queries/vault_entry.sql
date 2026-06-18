@@ -44,14 +44,14 @@ WHERE scope = sqlc.arg(scope)
 -- name: UpsertVaultEntry :exec
 INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext)
 VALUES ($1, 'user', $2, NULL, $3, $4)
-ON CONFLICT DO UPDATE SET
+ON CONFLICT (scope, (COALESCE(user_id, ''::text)), (COALESCE(agent_id, ''::text)), name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
     updated_at = now();
 
 -- name: UpsertVaultEntryByScope :exec
 INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext)
 VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT DO UPDATE SET
+ON CONFLICT (scope, (COALESCE(user_id, ''::text)), (COALESCE(agent_id, ''::text)), name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
     updated_at = now();
 

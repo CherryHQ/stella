@@ -639,7 +639,7 @@ func (s *Service) ListJobRuns(ctx context.Context, jobID string, limit int) ([]J
 	}
 	rows, err := s.q.ListSchedJobRuns(ctx, sqlc.ListSchedJobRunsParams{
 		JobID:  jobID,
-		UserID: nil,
+		UserID: sql.NullString{},
 		Limit:  int32(limit),
 		Offset: 0,
 	})

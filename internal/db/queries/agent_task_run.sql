@@ -81,6 +81,6 @@ WHERE r.user_id = sqlc.arg(user_id)
   -- that retried to success leaves stale 'failed' runs that should not nag.
   -- Goal-owned runs have no task (r.task_id IS NULL) and are always kept.
   AND (r.task_id IS NULL OR t.status = 'failed')
-  AND (sqlc.narg(agent_id) IS NULL OR r.agent_id = sqlc.narg(agent_id))
+  AND (sqlc.narg(agent_id)::text IS NULL OR r.agent_id = sqlc.narg(agent_id))
 ORDER BY r.finished_at DESC, r.id DESC
 LIMIT sqlc.arg(limit_count);

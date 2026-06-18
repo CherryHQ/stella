@@ -520,9 +520,6 @@ func timeOrNull(t time.Time) sql.NullTime {
 
 // nilIfEmpty returns nil for an empty string so a sqlc.narg filter matches all
 // rows; otherwise it returns the value to filter on.
-func nilIfEmpty(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
+func nilIfEmpty(s string) sql.NullString {
+	return sql.NullString{String: s, Valid: s != ""}
 }

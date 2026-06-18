@@ -44,13 +44,13 @@ WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agen
 UPDATE ctx_conversation
 SET
   title = CASE
-    WHEN sqlc.narg(title) IS NOT NULL AND (title IS NULL OR title != sqlc.narg(title)) THEN sqlc.narg(title)
+    WHEN sqlc.narg(title)::text IS NOT NULL AND (title IS NULL OR title != sqlc.narg(title)) THEN sqlc.narg(title)
     ELSE title
   END,
   archived = CASE WHEN archived != sqlc.arg(archived) THEN sqlc.arg(archived) ELSE archived END,
-  kind = CASE WHEN sqlc.narg(kind) IS NOT NULL AND kind != sqlc.narg(kind) THEN sqlc.narg(kind) ELSE kind END,
+  kind = CASE WHEN sqlc.narg(kind)::text IS NOT NULL AND kind != sqlc.narg(kind) THEN sqlc.narg(kind) ELSE kind END,
   project_id = CASE
-    WHEN sqlc.narg(project_id) IS NOT NULL AND (project_id IS NULL OR project_id != sqlc.narg(project_id)) THEN sqlc.narg(project_id)
+    WHEN sqlc.narg(project_id)::text IS NOT NULL AND (project_id IS NULL OR project_id != sqlc.narg(project_id)) THEN sqlc.narg(project_id)
     ELSE project_id
   END,
   last_active = now(),
@@ -62,14 +62,14 @@ WHERE session_id = sqlc.arg(session_id)
 -- name: ListConversations :many
 SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)
-  AND (sqlc.narg(agent_id) IS NULL OR agent_id = sqlc.narg(agent_id))
+  AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id))
   AND archived = false
 ORDER BY last_active DESC;
 
 -- name: ListConversationsAll :many
 SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)
-  AND (sqlc.narg(agent_id) IS NULL OR agent_id = sqlc.narg(agent_id))
+  AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id))
 ORDER BY last_active DESC;
 
 -- name: ListConversationsFiltered :many
@@ -77,9 +77,9 @@ SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)
   AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
   AND (sqlc.arg(include_archived) != 0 OR archived = false)
-  AND (sqlc.narg(kind) IS NULL OR kind = sqlc.narg(kind))
+  AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))
   AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
-  AND (sqlc.narg(project_id) IS NULL OR project_id = sqlc.narg(project_id))
+  AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))
 ORDER BY last_active DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
@@ -101,9 +101,9 @@ ORDER BY last_active DESC;
 SELECT * FROM ctx_conversation
 WHERE agent_id = sqlc.arg(agent_id)
   AND archived = false
-  AND (sqlc.narg(kind) IS NULL OR kind = sqlc.narg(kind))
+  AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))
   AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
-  AND (sqlc.narg(project_id) IS NULL OR project_id = sqlc.narg(project_id))
+  AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))
 ORDER BY last_active DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 

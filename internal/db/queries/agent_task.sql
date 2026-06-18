@@ -21,9 +21,9 @@ SELECT * FROM agent_task ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2;
 -- name: ListAgentTasksByUser :many
 SELECT * FROM agent_task
 WHERE user_id = sqlc.arg('user_id')
-  AND (sqlc.narg('agent_id') IS NULL OR agent_id = sqlc.narg('agent_id'))
-  AND (sqlc.narg('status') IS NULL OR status = sqlc.narg('status'))
-  AND (sqlc.narg('project_id') IS NULL OR project_id = sqlc.narg('project_id'))
+  AND (sqlc.narg('agent_id')::text IS NULL OR agent_id = sqlc.narg('agent_id'))
+  AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
+  AND (sqlc.narg('project_id')::text IS NULL OR project_id = sqlc.narg('project_id'))
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
@@ -39,7 +39,7 @@ FROM agent_task t
 JOIN agent_task_blocker b ON b.id = t.active_blocker_id
 WHERE t.user_id = sqlc.arg(user_id)
   AND b.status = 'open'
-  AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
+  AND (sqlc.narg(agent_id)::text IS NULL OR t.agent_id = sqlc.narg(agent_id))
 
 UNION ALL
 
@@ -54,7 +54,7 @@ FROM agent_task t
 JOIN agent_task_blocker b ON b.task_id = t.id AND b.status = 'open'
 WHERE t.user_id = sqlc.arg(user_id)
   AND t.active_blocker_id IS NULL
-  AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
+  AND (sqlc.narg(agent_id)::text IS NULL OR t.agent_id = sqlc.narg(agent_id))
 ORDER BY created_at DESC
 LIMIT sqlc.arg(limit_count);
 
@@ -76,7 +76,7 @@ WHERE t.user_id = sqlc.arg(user_id)
   AND t.status = 'reviewing'
   AND r.status IN ('requested', 'in_progress')
   AND r.reviewer_type = 'human'
-  AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
+  AND (sqlc.narg(agent_id)::text IS NULL OR t.agent_id = sqlc.narg(agent_id))
 
 UNION ALL
 
@@ -95,7 +95,7 @@ JOIN agent_review r ON r.task_id = t.id
 WHERE t.user_id = sqlc.arg(user_id)
   AND t.status = 'reviewing'
   AND t.active_review_id IS NULL
-  AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
+  AND (sqlc.narg(agent_id)::text IS NULL OR t.agent_id = sqlc.narg(agent_id))
 ORDER BY created_at DESC
 LIMIT sqlc.arg(limit_count);
 

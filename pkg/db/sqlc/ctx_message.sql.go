@@ -496,8 +496,8 @@ WITH ordered AS (
         lag(role) OVER (ORDER BY seq ASC) AS prev_role
     FROM ctx_message
     WHERE conversation_id = $1
-      AND ($2 IS NULL OR created_at >= $2)
-      AND ($3 IS NULL OR created_at <= $3)
+      AND ($2::timestamptz IS NULL OR created_at >= $2)
+      AND ($3::timestamptz IS NULL OR created_at <= $3)
 ), grouped AS (
     SELECT
         id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv, prev_role,
@@ -518,11 +518,11 @@ ORDER BY seq ASC
 `
 
 type ListMessagesByLogicalPageParams struct {
-	ConversationID string      `json:"conversation_id"`
-	After          interface{} `json:"after"`
-	Before         interface{} `json:"before"`
-	Offset         int32       `json:"offset"`
-	Limit          int32       `json:"limit"`
+	ConversationID string       `json:"conversation_id"`
+	After          sql.NullTime `json:"after"`
+	Before         sql.NullTime `json:"before"`
+	Offset         int32        `json:"offset"`
+	Limit          int32        `json:"limit"`
 }
 
 type ListMessagesByLogicalPageRow struct {

@@ -326,16 +326,16 @@ WHERE r.user_id = $1
   -- that retried to success leaves stale 'failed' runs that should not nag.
   -- Goal-owned runs have no task (r.task_id IS NULL) and are always kept.
   AND (r.task_id IS NULL OR t.status = 'failed')
-  AND ($3 IS NULL OR r.agent_id = $3)
+  AND ($3::text IS NULL OR r.agent_id = $3)
 ORDER BY r.finished_at DESC, r.id DESC
 LIMIT $4
 `
 
 type ListFailedInboxTaskRunsParams struct {
-	UserID     string       `json:"user_id"`
-	Since      sql.NullTime `json:"since"`
-	AgentID    interface{}  `json:"agent_id"`
-	LimitCount int32        `json:"limit_count"`
+	UserID     string         `json:"user_id"`
+	Since      sql.NullTime   `json:"since"`
+	AgentID    sql.NullString `json:"agent_id"`
+	LimitCount int32          `json:"limit_count"`
 }
 
 type ListFailedInboxTaskRunsRow struct {

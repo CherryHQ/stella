@@ -392,7 +392,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 	}
 	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
 		JobID:  jobID,
-		UserID: nil,
+		UserID: sql.NullString{},
 		Limit:  int32(limit + 1),
 		Offset: int32(offset),
 	})

@@ -106,7 +106,7 @@ JOIN sched_job j ON j.id = r.job_id
 WHERE r.user_id = $1
   AND r.status = 'failed'
   AND r.finished_at >= $2
-  AND ($3 IS NULL OR j.agent_id = $3)
+  AND ($3::text IS NULL OR j.agent_id = $3)
 ORDER BY r.finished_at DESC, r.id DESC
 LIMIT $4
 `
@@ -114,7 +114,7 @@ LIMIT $4
 type ListFailedInboxSchedulerRunsParams struct {
 	UserID     sql.NullString `json:"user_id"`
 	Since      sql.NullTime   `json:"since"`
-	AgentID    interface{}    `json:"agent_id"`
+	AgentID    sql.NullString `json:"agent_id"`
 	LimitCount int32          `json:"limit_count"`
 }
 
@@ -167,16 +167,16 @@ func (q *Queries) ListFailedInboxSchedulerRuns(ctx context.Context, arg ListFail
 const listSchedJobRuns = `-- name: ListSchedJobRuns :many
 SELECT id, job_id, session_id, status, started_at, finished_at, error, output, user_id FROM sched_job_run
 WHERE job_id = $1
-  AND ($2 IS NULL OR user_id = $2)
+  AND ($2::text IS NULL OR user_id = $2)
 ORDER BY started_at DESC, id DESC
 LIMIT $4 OFFSET $3
 `
 
 type ListSchedJobRunsParams struct {
-	JobID  string      `json:"job_id"`
-	UserID interface{} `json:"user_id"`
-	Offset int32       `json:"offset"`
-	Limit  int32       `json:"limit"`
+	JobID  string         `json:"job_id"`
+	UserID sql.NullString `json:"user_id"`
+	Offset int32          `json:"offset"`
+	Limit  int32          `json:"limit"`
 }
 
 func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsParams) ([]SchedJobRun, error) {

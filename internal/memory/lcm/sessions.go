@@ -134,9 +134,9 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 		UserID:          sql.NullString{String: userID, Valid: true},
 		AgentID:         nullAgent(agentIDValue),
 		IncludeArchived: boolToInt(opts.IncludeArchived),
-		Kind:            optionalString(opts.Kind),
+		Kind:            optionalNullString(opts.Kind),
 		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
-		ProjectID:       optionalString(opts.ProjectID),
+		ProjectID:       optionalNullString(opts.ProjectID),
 		Offset:          nonNegativeOffset(opts.Offset),
 		Limit:           listLimit(opts.Limit),
 	})
@@ -153,9 +153,9 @@ func (p *Provider) ListInfoForReview(ctx context.Context, opts memory.ListOption
 	}
 	convs, err := p.q.ListConversationsForReviewFiltered(ctx, sqlc.ListConversationsForReviewFilteredParams{
 		AgentID:         nullAgent(opts.AgentID),
-		Kind:            optionalString(opts.Kind),
+		Kind:            optionalNullString(opts.Kind),
 		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
-		ProjectID:       optionalString(opts.ProjectID),
+		ProjectID:       optionalNullString(opts.ProjectID),
 		Offset:          nonNegativeOffset(opts.Offset),
 		Limit:           listLimit(opts.Limit),
 	})
@@ -197,13 +197,6 @@ func convsToSessionInfo(convs []sqlc.CtxConversation) []memory.SessionInfo {
 		result = append(result, convToSessionInfo(conv))
 	}
 	return result
-}
-
-func optionalString(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
 }
 
 func optionalNullString(s string) sql.NullString {

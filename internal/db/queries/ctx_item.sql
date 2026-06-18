@@ -36,7 +36,7 @@ LEFT JOIN ctx_message m ON m.id = ci.message_id
 LEFT JOIN ctx_summary s ON s.id = ci.summary_id
 WHERE ci.conversation_id = sqlc.arg('conversation_id')
 ORDER BY ci.ordinal ASC
-LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+LIMIT NULLIF(sqlc.arg(limit_count), -1) OFFSET sqlc.arg(offset_count);
 
 -- name: GetContextItemCount :one
 SELECT COUNT(*) FROM ctx_item WHERE conversation_id = $1;

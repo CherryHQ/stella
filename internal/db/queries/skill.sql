@@ -6,7 +6,7 @@ RETURNING *;
 -- name: GetSkill :one
 SELECT * FROM skill
 WHERE id = sqlc.arg(id)
-  AND ((sqlc.narg(agent_id) IS NULL AND sqlc.narg(user_id) IS NULL)
+  AND ((sqlc.narg(agent_id)::text IS NULL AND sqlc.narg(user_id)::text IS NULL)
     OR scope='system'
     OR (scope='system_agent' AND agent_id=sqlc.narg(agent_id))
     OR (scope='user'         AND user_id=sqlc.narg(user_id))
