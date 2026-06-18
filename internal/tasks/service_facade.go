@@ -601,7 +601,7 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 		planMode = PlanModeDirect
 	}
 	if planMode != PlanModeDirect && planMode != PlanModeDeferred {
-		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: invalid plan_mode %q", planMode)
+		return sqlc.AgentGoal{}, fmt.Errorf("%w: %q (use 'direct' or 'deferred')", ErrInvalidPlanMode, planMode)
 	}
 	if in.ProjectID != "" {
 		project, err := f.q.GetProject(ctx, sqlc.GetProjectParams{ID: in.ProjectID, UserID: in.UserID})

@@ -144,6 +144,9 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	if req.ReviewPolicy != nil {
 		in.ReviewPolicy = string(*req.ReviewPolicy)
 	}
+	if req.PlanMode != nil {
+		in.PlanMode = string(*req.PlanMode)
+	}
 	g, err := s.tasksSvc.Facade.CreateGoal(r.Context(), in)
 	if err != nil {
 		s.taskError(w, err)

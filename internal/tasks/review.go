@@ -28,11 +28,19 @@ var (
 	// ErrNoPendingPlanEdit is returned by SubmitGoalPlanForReview when there is no
 	// pending edit to review (#525).
 	ErrNoPendingPlanEdit = errors.New("tasks: goal plan has no pending edit to review")
+	// ErrPlanReviewPolicyMismatch is returned when a plan-lifecycle call does not
+	// match the plan's review_policy: AcceptGoalPlan on a human-policy plan, or
+	// SubmitGoalPlanForReview on a none-policy plan (#525).
+	ErrPlanReviewPolicyMismatch = errors.New("tasks: plan review_policy does not match this operation")
 	// ErrUnsupportedReviewPolicy marks a goal review_policy that no runtime in
 	// this build can service. Goals only support 'none'; goal-level review
 	// (auto/agent/human) needs the unwired synthesizer/goal-review runtime.
 	// The API maps this to a 400 validation error.
 	ErrUnsupportedReviewPolicy = errors.New("tasks: unsupported review_policy")
+
+	// ErrInvalidPlanMode is returned by CreateGoal when plan_mode is neither
+	// "direct" nor "deferred". The API maps this to a 400 validation error.
+	ErrInvalidPlanMode = errors.New("tasks: invalid plan_mode")
 )
 
 // Review status constants.

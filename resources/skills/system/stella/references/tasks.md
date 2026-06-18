@@ -17,12 +17,14 @@ Supported now:
 
 Not supported now:
 
-- Automatic goal planning / auto-splitting into child tasks.
+- Automatic LLM goal planning / auto-splitting into child tasks.
 - Goal final synthesis.
 - Goal-level review runtime.
 - Agent-performed review (`review_policy=agent`).
 
-Do not promise automatic planning. If a user wants a multi-step goal, create the child tasks explicitly and attach them with `--goal-id`.
+A goal's child tasks come **only** from a materialized plan — you cannot hand-attach
+a task to a goal (`stella task create --goal-id ...` is rejected). For a multi-step
+goal, write a structured plan and materialize it (see Goals below).
 
 ## The two roles you play
 
@@ -124,11 +126,21 @@ Use a goal when multiple tasks serve one objective and you want a single rollup.
 
 Supported goal workflow:
 
-1. `stella task goal create --title "..." --review-policy none`
-2. `stella task create --goal-id <goal-id> --title "..." ...`
-3. Add dependencies between child tasks when needed.
-4. Activate the goal/tasks.
-5. Inspect with `goal get` and `goal tasks`.
+- **Single-step goal (default).** `stella task goal create --title "..."` seeds a
+  one-task `direct` plan, accepts and materializes it automatically, and leaves the
+  goal `planned`. Add `--activate` to start it immediately.
+- **Multi-step goal.** `stella task goal create --title "..." --plan-mode deferred`
+  leaves the goal at `draft` with no plan. Then:
+  1. `stella task goal plan set <goal-id> --file plan.json` — stage a structured
+     plan (`{"items":[{"id","title","role","deps","criteria"}]}`; roles
+     `design|impl|verify`). Add `--review-policy human` to require human approval.
+  2. Accept it: `stella task goal plan accept <goal-id>` (review_policy none), or
+     `plan submit-review` then `plan review approve <goal-id> <review-id>` (human).
+  3. `stella task goal plan materialize <goal-id>` — builds the task graph; goal → `planned`.
+  4. `stella task goal activate <goal-id>`.
+- Inspect with `goal get`, `goal tasks`, and `goal plan get`.
+
+Run `stella task goal plan --help` for the full command set.
 
 Goal rollup:
 
@@ -138,7 +150,10 @@ Goal rollup:
 - pending child work → goal remains running
 - blocked goal recovers → when the blocking child's blocker is resolved or its failed dependency is waived, the goal returns to running on the next rollup; no separate goal-unblock command is needed
 
-Caveat: Stella does **not** auto-split a goal into child tasks yet. Planner and synthesizer runtimes are not supported. You create and attach the child tasks explicitly.
+Caveat: Stella does **not** auto-split a goal with an LLM yet. Planner and
+synthesizer runtimes are not supported — you author the plan content. The plan
+gate is enforced, though: child tasks exist only after `plan materialize`, never by
+hand-attaching to a goal.
 
 ## Worker: the `task_control` contract
 

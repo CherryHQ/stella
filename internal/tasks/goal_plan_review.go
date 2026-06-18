@@ -26,6 +26,12 @@ import (
 // draft -> planning; content_json (last materialized) is untouched. The edit is
 // realized later by AcceptGoalPlan (review_policy none) or the review path, then
 // MaterializeGoalPlan.
+// GetGoalPlan returns a goal's single plan row, or ErrGoalPlanNotFound when the
+// goal has no plan (a deferred goal before its first CreateGoalPlan).
+func (f *ServiceFacade) GetGoalPlan(ctx context.Context, goalID string) (sqlc.AgentGoalPlan, error) {
+	return loadGoalPlan(ctx, f.q, goalID)
+}
+
 func (f *ServiceFacade) CreateGoalPlan(ctx context.Context, goalID string, content PlanContent, reviewPolicy string, actor Actor) error {
 	if reviewPolicy == "" {
 		reviewPolicy = ReviewPolicyNone
@@ -88,7 +94,7 @@ func (f *ServiceFacade) AcceptGoalPlan(ctx context.Context, goalID string, actor
 			return err
 		}
 		if plan.ReviewPolicy != ReviewPolicyNone {
-			return fmt.Errorf("AcceptGoalPlan: plan review_policy is %q, use SubmitGoalPlanForReview", plan.ReviewPolicy)
+			return fmt.Errorf("%w: AcceptGoalPlan needs none, plan is %q (use SubmitGoalPlanForReview)", ErrPlanReviewPolicyMismatch, plan.ReviewPolicy)
 		}
 		content, err := parsePlanContent(pendingOrContent(plan))
 		if err != nil {
@@ -181,7 +187,7 @@ func (f *ServiceFacade) SubmitGoalPlanForReview(ctx context.Context, goalID stri
 			return err
 		}
 		if plan.ReviewPolicy != ReviewPolicyHuman {
-			return fmt.Errorf("SubmitGoalPlanForReview: plan review_policy is %q, not human", plan.ReviewPolicy)
+			return fmt.Errorf("%w: SubmitGoalPlanForReview needs human, plan is %q (use AcceptGoalPlan)", ErrPlanReviewPolicyMismatch, plan.ReviewPolicy)
 		}
 		if !plan.PendingContentJson.Valid {
 			return ErrNoPendingPlanEdit

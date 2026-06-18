@@ -365,6 +365,20 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1reviews~1{reviewId}~1request-changes"
   /api/goals/{goalId}/reviews/{reviewId}/escalate:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1reviews~1{reviewId}~1escalate"
+  /api/goals/{goalId}/plan:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan"
+  /api/goals/{goalId}/plan/accept:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1accept"
+  /api/goals/{goalId}/plan/submit-review:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1submit-review"
+  /api/goals/{goalId}/plan/materialize:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1materialize"
+  /api/goals/{goalId}/plan/reviews/{reviewId}/approve:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1reviews~1{reviewId}~1approve"
+  /api/goals/{goalId}/plan/reviews/{reviewId}/reject:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1reviews~1{reviewId}~1reject"
+  /api/goals/{goalId}/plan/reviews/{reviewId}/request-changes:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1reviews~1{reviewId}~1request-changes"
   # ── Groups ─────────────────────────────────────────────────────────────────
   /api/groups:
     $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups"
@@ -676,6 +690,18 @@ components:
     }
     CancelGoalRequest: {
       $ref: "./components.yaml#/components/schemas/CancelGoalRequest",
+    }
+    PlanItem: {
+      $ref: "./components.yaml#/components/schemas/PlanItem",
+    }
+    PlanContent: {
+      $ref: "./components.yaml#/components/schemas/PlanContent",
+    }
+    GoalPlan: {
+      $ref: "./components.yaml#/components/schemas/GoalPlan",
+    }
+    PutGoalPlanRequest: {
+      $ref: "./components.yaml#/components/schemas/PutGoalPlanRequest",
     }
     ConstraintEntry: {
       $ref: "./components.yaml#/components/schemas/ConstraintEntry",
