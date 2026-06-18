@@ -407,24 +407,8 @@ func (f *ServiceFacade) UnarchiveTask(ctx context.Context, taskID string, actor 
 				return ErrInvalidTransition
 			}
 		}
-		now := time.Now().UTC().Format(time.RFC3339Nano)
-		n, err := q.UnarchiveAgentTask(ctx, sqlc.UnarchiveAgentTaskParams{UpdatedAt: now, ID: taskID})
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return nil
-		}
-		return f.svc.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-			TaskID:     nullable(taskID),
-			GoalID:     t.GoalID,
-			EventType:  "task_unarchive",
-			FromStatus: nullable(t.Status),
-			ToStatus:   nullable(t.Status),
-			ActorType:  actor.Type,
-			ActorID:    nullable(actor.ID),
-			Detail:     `{"mode":"unarchive"}`,
-		})
+		_, err = f.unarchiveTaskTx(ctx, q, taskID, t.GoalID.String, `{"mode":"unarchive"}`, actor)
+		return err
 	})
 }
 
@@ -460,6 +444,40 @@ func (f *ServiceFacade) archiveTaskTx(ctx context.Context, q *sqlc.Queries, task
 		TaskID:     nullable(taskID),
 		GoalID:     nullable(goalID),
 		EventType:  "task_archive",
+		FromStatus: nullable(t.Status),
+		ToStatus:   nullable(t.Status),
+		ActorType:  actor.Type,
+		ActorID:    nullable(actor.ID),
+		Detail:     detail,
+	})
+}
+
+// unarchiveTaskTx clears archived_at on one task inside an open tx and records a
+// task_unarchive event. Returns whether a row changed; an already-active task is
+// a no-op (false, nil). Mirrors archiveTaskTx.
+func (f *ServiceFacade) unarchiveTaskTx(ctx context.Context, q *sqlc.Queries, taskID, goalID, detail string, actor Actor) (bool, error) {
+	t, err := q.GetAgentTask(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, ErrTaskNotFound
+		}
+		return false, err
+	}
+	if !t.ArchivedAt.Valid {
+		return false, nil
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	n, err := q.UnarchiveAgentTask(ctx, sqlc.UnarchiveAgentTaskParams{UpdatedAt: now, ID: taskID})
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return false, nil
+	}
+	return true, f.svc.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+		TaskID:     nullable(taskID),
+		GoalID:     nullable(goalID),
+		EventType:  "task_unarchive",
 		FromStatus: nullable(t.Status),
 		ToStatus:   nullable(t.Status),
 		ActorType:  actor.Type,
@@ -754,23 +772,7 @@ func (f *ServiceFacade) UnarchiveGoal(ctx context.Context, goalID string, actor 
 			if !child.ArchivedAt.Valid || !restore[child.ID] {
 				continue
 			}
-			n, err := q.UnarchiveAgentTask(ctx, sqlc.UnarchiveAgentTaskParams{UpdatedAt: now, ID: child.ID})
-			if err != nil {
-				return err
-			}
-			if n == 0 {
-				continue
-			}
-			if err := f.svc.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-				TaskID:     nullable(child.ID),
-				GoalID:     nullable(goalID),
-				EventType:  "task_unarchive",
-				FromStatus: nullable(child.Status),
-				ToStatus:   nullable(child.Status),
-				ActorType:  actor.Type,
-				ActorID:    nullable(actor.ID),
-				Detail:     `{"mode":"unarchive","parent_goal_unarchived":true}`,
-			}); err != nil {
+			if _, err := f.unarchiveTaskTx(ctx, q, child.ID, goalID, `{"mode":"unarchive","parent_goal_unarchived":true}`, actor); err != nil {
 				return err
 			}
 		}
