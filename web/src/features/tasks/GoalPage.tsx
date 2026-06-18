@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import {
@@ -7,9 +7,14 @@ import {
   approveGoalReview,
   requestChangesGoalReview,
   listGoalReviews,
+  acceptGoalPlan,
+  submitGoalPlanReview,
+  approveGoalPlanReview,
+  requestChangesGoalPlanReview,
+  materializeGoalPlan,
 } from "@/lib/api-client";
-import type { ComponentsReview } from "@/lib/api-client/types.gen";
-import { goalOptions, goalGraphOptions } from "@/lib/queries/goals";
+import type { ComponentsGoalPlan, ComponentsReview } from "@/lib/api-client/types.gen";
+import { goalOptions, goalGraphOptions, goalPlanOptions } from "@/lib/queries/goals";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -26,6 +31,7 @@ import {
   statusMeta,
 } from "./lib";
 import { AgentChip, DetailSection, DetailShell, MetaSep } from "./DetailShell";
+import { PlanSection } from "./PlanView";
 
 const GoalDetailPage = lazy(() =>
   import("./GoalDetailPage").then((m) => ({ default: m.GoalDetailPage })),
@@ -42,6 +48,7 @@ export function GoalPage() {
   const [acting, setActing] = useState(false);
 
   const { data: goal, isError } = useQuery(goalOptions(goalId));
+  const { data: plan } = useQuery(goalPlanOptions(goalId));
   const { data: graph } = useQuery(goalGraphOptions(goalId));
   const tasks = graph?.tasks ?? [];
   const deps = graph?.deps ?? [];
@@ -56,6 +63,7 @@ export function GoalPage() {
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["goals"] });
     void qc.invalidateQueries({ queryKey: ["goal", goalId] });
+    void qc.invalidateQueries({ queryKey: ["goal-plan", goalId] });
     void qc.invalidateQueries({ queryKey: ["goal-graph", goalId] });
   }, [qc, goalId]);
 
@@ -99,7 +107,7 @@ export function GoalPage() {
       pill={<StatusPill status={goal.status} label={statusLabel(t, goal.status)} />}
       actions={
         <>
-          {goal.status === "draft" && (
+          {goal.status === "planned" && (
             <Button
               size="sm"
               loading={acting}
@@ -142,6 +150,21 @@ export function GoalPage() {
         <MetaSep />
         <span>{t("hub.createdAt", { time: formatTime(goal.created_at) })}</span>
       </div>
+
+      {plan && ["draft", "planning", "planned"].includes(goal.status) && (
+        <div className="mt-6">
+          <PlanSection plan={plan} t={t} />
+          {goal.status === "planning" && (
+            <GoalPlanActions
+              goalId={goal.id}
+              activeReviewId={goal.active_review_id}
+              plan={plan}
+              acting={acting}
+              run={act}
+            />
+          )}
+        </div>
+      )}
 
       {goal.status === "reviewing" && (
         <div className="mt-5 flex flex-wrap gap-2">
@@ -234,6 +257,86 @@ export function GoalPage() {
       </Dialog>
     </DetailShell>
   );
+}
+
+// GoalPlanActions surfaces the single next step that moves a planning goal's
+// plan forward: accept (or submit for review) the staged draft, decide an open
+// plan review, then materialize. Once materialized the goal becomes `planned`
+// and the header's Activate button takes over.
+function GoalPlanActions({
+  goalId,
+  activeReviewId,
+  plan,
+  acting,
+  run,
+}: {
+  goalId: string;
+  activeReviewId?: string;
+  plan: ComponentsGoalPlan;
+  acting: boolean;
+  run: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const { t } = useI18n();
+  const path = { goalId };
+
+  let buttons: ReactNode;
+  if (plan.status === "draft") {
+    buttons =
+      plan.review_policy === "human" ? (
+        <Button
+          size="sm"
+          loading={acting}
+          onClick={() => run(() => submitGoalPlanReview({ path, throwOnError: true }))}
+        >
+          {t("goals.planSubmitReview")}
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          loading={acting}
+          onClick={() => run(() => acceptGoalPlan({ path, throwOnError: true }))}
+        >
+          {t("goals.planAccept")}
+        </Button>
+      );
+  } else if (plan.status === "in_review") {
+    if (!activeReviewId) return null;
+    const reviewPath = { goalId, reviewId: activeReviewId };
+    buttons = (
+      <>
+        <Button
+          size="sm"
+          loading={acting}
+          onClick={() => run(() => approveGoalPlanReview({ path: reviewPath, throwOnError: true }))}
+        >
+          {t("goals.planApprove")}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          loading={acting}
+          onClick={() =>
+            run(() => requestChangesGoalPlanReview({ path: reviewPath, throwOnError: true }))
+          }
+        >
+          {t("goals.requestChanges")}
+        </Button>
+      </>
+    );
+  } else {
+    // accepted | approved — ready to build the task graph.
+    buttons = (
+      <Button
+        size="sm"
+        loading={acting}
+        onClick={() => run(() => materializeGoalPlan({ path, throwOnError: true }))}
+      >
+        {t("goals.planMaterialize")}
+      </Button>
+    );
+  }
+
+  return <div className="mt-3 flex flex-wrap gap-2">{buttons}</div>;
 }
 
 function ReviewActions({ goalId, onDone }: { goalId: string; onDone: () => void }) {
