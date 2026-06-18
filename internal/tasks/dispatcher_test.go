@@ -159,6 +159,35 @@ func TestDispatcher_StaleRunGetsInterrupted(t *testing.T) {
 	}
 }
 
+// TestDispatcher_ActiveRunSurvivesLeaseExpiry proves the in-process guard: a run
+// this process is actively executing is never reaped as "lease expired", even
+// with a long-past lease (the heartbeat lost the contended SQLite writer). Only
+// genuinely orphaned runs fall through to reclaim.
+func TestDispatcher_ActiveRunSurvivesLeaseExpiry(t *testing.T) {
+	noTerminal := executorFunc(func(_ context.Context, _ Request) (Result, error) {
+		return Result{Action: TerminalNone}, nil
+	})
+	h, d := newDispatcherHarness(t, noTerminal)
+	id := h.createTask(t, StatusReady)
+	res, err := h.svc.Claim(context.Background(), ClaimParams{
+		TaskID: id, SessionID: "sess", LeaseDuration: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	// Mark the run active (as spawnWorker would) and expire its lease.
+	d.inc(res.RunID)
+	past := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	if _, err := h.db.Exec(`UPDATE agent_task_run SET lease_expires_at = ?, status = 'running' WHERE id = ?`, past, res.RunID); err != nil {
+		t.Fatalf("force stale: %v", err)
+	}
+	d.Tick(context.Background())
+	run, _ := h.q.GetAgentTaskRun(context.Background(), res.RunID)
+	if run.Status != RunRunning {
+		t.Errorf("active run status=%q want still running (guard should skip reap)", run.Status)
+	}
+}
+
 // TestDispatcher_RetryReusesSessionNoOrphan proves a retried task reuses its
 // persisted session instead of minting a fresh one each dispatch — the
 // orphan-session half of CR-002.

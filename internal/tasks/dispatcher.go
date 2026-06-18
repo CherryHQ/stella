@@ -48,9 +48,16 @@ type DispatcherConfig struct {
 type Dispatcher struct {
 	cfg DispatcherConfig
 
-	mu      sync.Mutex
-	running int // live worker count
-	wg      sync.WaitGroup
+	mu sync.Mutex
+	// active is the set of run IDs this process is executing right now. A run in
+	// this set must never be reaped as "lease expired": the worker is alive and
+	// working it, regardless of whether its heartbeat won the contended SQLite
+	// writer. The DB lease stays as the crash/restart recovery backstop (an empty
+	// set after restart lets the prior process's orphaned runs be reclaimed).
+	// NOTE: single-process only. Multi-replica reclaim keys off per-replica
+	// liveness + run ownership, not this in-memory set — wire that with Postgres.
+	active map[string]bool
+	wg     sync.WaitGroup
 
 	stopCh  chan struct{}
 	stopped bool
@@ -76,6 +83,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	}
 	return &Dispatcher{
 		cfg:    cfg,
+		active: map[string]bool{},
 		stopCh: make(chan struct{}),
 	}
 }
@@ -142,6 +150,14 @@ func (d *Dispatcher) interruptStaleRuns(ctx context.Context, now time.Time) {
 			taskID = r.TaskID.String
 		}
 		if taskID == "" {
+			continue
+		}
+		// Never reap a run this process is actively executing: the worker is
+		// alive and working it, even if its heartbeat lost the contended SQLite
+		// writer and let the lease lapse. Only genuinely orphaned runs (this
+		// process never started them, or it crashed/restarted) fall through to
+		// reclaim. (Single-process guard; see Dispatcher.active.)
+		if d.isActive(r.ID) {
 			continue
 		}
 		// Fail() finalizes the run row; override the final status to
@@ -348,25 +364,32 @@ func (d *Dispatcher) emitProtocolError(ctx context.Context, taskID, reason strin
 func (d *Dispatcher) underCap() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.running < d.cfg.MaxWorkers
+	return len(d.active) < d.cfg.MaxWorkers
 }
 
-func (d *Dispatcher) inc() {
+func (d *Dispatcher) inc(runID string) {
 	d.mu.Lock()
-	d.running++
+	d.active[runID] = true
 	d.mu.Unlock()
 }
 
-func (d *Dispatcher) dec() {
+func (d *Dispatcher) dec(runID string) {
 	d.mu.Lock()
-	d.running--
+	delete(d.active, runID)
 	d.mu.Unlock()
+}
+
+// isActive reports whether this process is currently executing the given run.
+func (d *Dispatcher) isActive(runID string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.active[runID]
 }
 
 func (d *Dispatcher) spawnWorker(ctx context.Context, taskID, runID string) {
-	d.inc()
+	d.inc(runID)
 	d.wg.Go(func() {
-		defer d.dec()
+		defer d.dec(runID)
 		w := NewWorker(d.cfg.Service, d.cfg.Queries, d.cfg.Executor)
 		if err := w.Run(ctx, taskID, runID, SystemActor()); err != nil {
 			d.cfg.Logger.Warn("dispatcher: worker returned error", "task", taskID, "err", err)

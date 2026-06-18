@@ -181,12 +181,24 @@ func (w *Worker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, runID st
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			_, _ = w.q.HeartbeatAgentTaskRun(ctx, sqlc.HeartbeatAgentTaskRunParams{
+			n, err := w.q.HeartbeatAgentTaskRun(ctx, sqlc.HeartbeatAgentTaskRunParams{
 				HeartbeatAt:    sql.NullString{String: w.svc.now(), Valid: true},
 				LeaseExpiresAt: w.leaseUntil(),
 				UpdatedAt:      w.svc.now(),
 				ID:             runID,
 			})
+			if err != nil {
+				// A missed beat (e.g. SQLITE_BUSY) silently shortens the lease;
+				// log it so a lease expiry can be traced to a failed heartbeat.
+				w.log.Warn("worker: heartbeat write failed", "run_id", runID, "err", err)
+				continue
+			}
+			if n == 0 {
+				// The run is no longer 'running' — it was interrupted (lease
+				// reaped by the dispatcher) or finalized out from under us. The
+				// executor keeps going but its terminal write will lose the race.
+				w.log.Warn("worker: heartbeat found no running run; lease likely already reaped", "run_id", runID)
+			}
 		}
 	}
 }
