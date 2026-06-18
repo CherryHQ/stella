@@ -149,6 +149,23 @@ var (
 	// fails a structural invariant (empty, dangling dep, cycle, missing
 	// impl->verify, etc.). Issue #525.
 	ErrInvalidPlan = errors.New("tasks: invalid plan")
+
+	// ErrPlanMaterializationRequired is returned when goal work is requested
+	// without a materialized plan: a public CreateTask carrying a goal_id (work
+	// tasks come only from the materializer), or ActivateGoal on a goal that has
+	// no accepted+materialized plan (e.g. a deferred goal still in draft). #525.
+	ErrPlanMaterializationRequired = errors.New("tasks: goal work requires a materialized plan")
+
+	// ErrAcceptedPlanRequired is returned by ActivateGoal when the goal's plan
+	// has not been accepted. #525.
+	ErrAcceptedPlanRequired = errors.New("tasks: goal plan is not accepted")
+
+	// ErrPlanNotMaterialized is returned by ActivateGoal when the goal's plan is
+	// accepted but has never been materialized (materialized_at IS NULL). #525.
+	ErrPlanNotMaterialized = errors.New("tasks: goal plan is not materialized")
+
+	// ErrGoalPlanNotFound is returned when a goal has no plan row. #525.
+	ErrGoalPlanNotFound = errors.New("tasks: goal plan not found")
 )
 
 // IsTerminalStatus reports whether the task status is terminal (no further

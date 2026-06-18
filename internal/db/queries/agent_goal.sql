@@ -88,6 +88,14 @@ UPDATE agent_goal
 SET status = ?, updated_at = ?
 WHERE id = ? AND status = ?;
 
+-- PromoteAgentGoalToPlanned promotes a goal to 'planned' only from a pre-run
+-- state, so a replan re-materialize on a running goal is a no-op (0 rows), not a
+-- regression to planned (opus B2). #525.
+-- name: PromoteAgentGoalToPlanned :execrows
+UPDATE agent_goal
+SET status = 'planned', updated_at = ?
+WHERE id = ? AND status IN ('draft', 'planning');
+
 -- name: SetAgentGoalActiveReview :exec
 UPDATE agent_goal SET active_review_id = ?, updated_at = ? WHERE id = ?;
 

@@ -578,6 +578,28 @@ func (q *Queries) ListGoalSynthesisCandidates(ctx context.Context, limit int64) 
 	return items, nil
 }
 
+const promoteAgentGoalToPlanned = `-- name: PromoteAgentGoalToPlanned :execrows
+UPDATE agent_goal
+SET status = 'planned', updated_at = ?
+WHERE id = ? AND status IN ('draft', 'planning')
+`
+
+type PromoteAgentGoalToPlannedParams struct {
+	UpdatedAt string `json:"updated_at"`
+	ID        string `json:"id"`
+}
+
+// PromoteAgentGoalToPlanned promotes a goal to 'planned' only from a pre-run
+// state, so a replan re-materialize on a running goal is a no-op (0 rows), not a
+// regression to planned (opus B2). #525.
+func (q *Queries) PromoteAgentGoalToPlanned(ctx context.Context, arg PromoteAgentGoalToPlannedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, promoteAgentGoalToPlanned, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setAgentGoalActiveReview = `-- name: SetAgentGoalActiveReview :exec
 UPDATE agent_goal SET active_review_id = ?, updated_at = ? WHERE id = ?
 `

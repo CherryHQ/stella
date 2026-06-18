@@ -52,6 +52,16 @@ func (s *Server) taskError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "unsupported_review_policy")
 	case errors.Is(err, tasks.ErrInvalidTaskContext):
 		writeError(w, http.StatusBadRequest, "invalid_task_context")
+	case errors.Is(err, tasks.ErrPlanMaterializationRequired):
+		// Goal work tasks come only from a materialized plan; a goal_id on a
+		// public task create is rejected here (#525).
+		writeError(w, http.StatusBadRequest, "goal_tasks_require_plan")
+	case errors.Is(err, tasks.ErrAcceptedPlanRequired):
+		writeError(w, http.StatusConflict, "goal_plan_not_accepted")
+	case errors.Is(err, tasks.ErrPlanNotMaterialized):
+		writeError(w, http.StatusConflict, "goal_plan_not_materialized")
+	case errors.Is(err, tasks.ErrInvalidPlan):
+		writeError(w, http.StatusBadRequest, "invalid_plan")
 	default:
 		var conflict *tasks.ErrReopenConflict
 		if errors.As(err, &conflict) {

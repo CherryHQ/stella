@@ -43,6 +43,7 @@ const ACTIVE_STATUSES: ComponentsGoal["status"][] = [
   "blocked",
   "reviewing",
   "running",
+  "planned",
   "planning",
   "draft",
 ];
@@ -426,7 +427,13 @@ function Triage({ goals, onOpen, selected, onSelect }: ViewProps) {
   const { t } = useI18n();
   const needs = goals.filter(goalNeedsYou).sort(byUpdatedDesc);
   const prog = goals
-    .filter((g) => g.status === "running" || g.status === "planning" || g.status === "draft")
+    .filter(
+      (g) =>
+        g.status === "running" ||
+        g.status === "planned" ||
+        g.status === "planning" ||
+        g.status === "draft",
+    )
     .sort(byUpdatedDesc);
   const closed = goals.filter((g) => TERMINAL_STATUSES.includes(g.status)).sort(byUpdatedDesc);
 
@@ -534,7 +541,7 @@ const BOARD_COLS: {
   {
     labelKey: "goals.colPlanning",
     status: "draft",
-    match: (g) => ["draft", "planning"].includes(g.status),
+    match: (g) => ["draft", "planning", "planned"].includes(g.status),
   },
   {
     labelKey: "goals.colRunning",
@@ -621,6 +628,7 @@ const TABLE_ORDER = [
   "blocked",
   "reviewing",
   "running",
+  "planned",
   "planning",
   "draft",
   "failed",

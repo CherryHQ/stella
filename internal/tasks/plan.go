@@ -16,6 +16,15 @@ const (
 	PlanStatusAccepted = "accepted"
 )
 
+// Plan modes select how CreateGoal seeds a goal's plan. "direct" auto-creates,
+// accepts, and materializes a one-task direct plan so the goal lands in
+// 'planned' ready to activate; "deferred" leaves the goal in 'draft' with no
+// plan row, so a later CreateGoalPlan is the first and only insert.
+const (
+	PlanModeDirect   = "direct"
+	PlanModeDeferred = "deferred"
+)
+
 // Plan item roles (a content-level label inside content_json, not a DB column).
 // "direct" tags the single item of a direct plan; design/impl/verify shape a
 // structured plan. Ordering comes entirely from item deps, never from the role.

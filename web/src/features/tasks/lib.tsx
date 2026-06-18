@@ -9,6 +9,7 @@ export type Status =
   | "draft"
   | "ready"
   | "planning"
+  | "planned"
   | "running"
   | "blocked"
   | "reviewing"
@@ -34,6 +35,13 @@ const STATUS_META: Record<string, StatusMeta> = {
     bar: "bg-chart-2",
   },
   planning: {
+    dot: "bg-chart-2",
+    pill: "bg-chart-2/10 text-chart-2 border-chart-2/25",
+    bar: "bg-chart-2",
+  },
+  // planned: accepted+materialized, awaiting activation — a pre-run state shown
+  // alongside planning (#525).
+  planned: {
     dot: "bg-chart-2",
     pill: "bg-chart-2/10 text-chart-2 border-chart-2/25",
     bar: "bg-chart-2",

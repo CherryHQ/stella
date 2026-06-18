@@ -63,7 +63,10 @@ func TestTasks_CreateGetRoundTrip(t *testing.T) {
 	}
 }
 
-func TestTasks_CreateWithGoalIDLinksGoalChild(t *testing.T) {
+// #525: a goal_id on a public task create is rejected at the HTTP boundary —
+// goal work tasks come only from a materialized plan. The direct goal already
+// owns its one materialized child; hand-attaching another is the gate error.
+func TestTasks_CreateWithGoalID_Rejected(t *testing.T) {
 	env := setupAdmin(t)
 	withTasks(t, env)
 	agents, err := env.store.ListAgents(context.Background())
@@ -84,17 +87,11 @@ func TestTasks_CreateWithGoalIDLinksGoalChild(t *testing.T) {
 
 	taskBody := apitypes.CreateTaskRequest{Title: "child", AgentId: &agentID, GoalId: &goal.Id}
 	rr = doRequest(t, env, http.MethodPost, "/api/tasks", taskBody)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("create task: status=%d body=%s", rr.Code, rr.Body.String())
-	}
-	var task apitypes.Task
-	if err := json.Unmarshal(rr.Body.Bytes(), &task); err != nil {
-		t.Fatalf("decode task: %v", err)
-	}
-	if task.GoalId == nil || *task.GoalId != goal.Id {
-		t.Fatalf("task goal_id = %v, want %s", task.GoalId, goal.Id)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("create task with goal_id: status=%d body=%s, want 400", rr.Code, rr.Body.String())
 	}
 
+	// The direct goal still owns exactly its one materialized child.
 	rr = doRequest(t, env, http.MethodGet, "/api/goals/"+goal.Id+"/tasks", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list goal tasks: status=%d body=%s", rr.Code, rr.Body.String())
@@ -103,8 +100,8 @@ func TestTasks_CreateWithGoalIDLinksGoalChild(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if len(list.Tasks) != 1 || list.Tasks[0].Id != task.Id {
-		t.Fatalf("goal tasks = %+v, want task %s", list.Tasks, task.Id)
+	if len(list.Tasks) != 1 {
+		t.Fatalf("goal tasks = %+v, want exactly the 1 materialized child", list.Tasks)
 	}
 }
 
@@ -361,7 +358,9 @@ func TestGoals_CreateGetRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &goal); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if goal.Id == "" || goal.Status != "draft" {
+	// A direct-mode goal (the default) is created behind an accepted+materialized
+	// plan, so it lands in 'planned' rather than 'draft' (#525).
+	if goal.Id == "" || goal.Status != "planned" {
 		t.Fatalf("unexpected goal: %+v", goal)
 	}
 

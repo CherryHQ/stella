@@ -85,8 +85,9 @@ export function OverviewPage() {
 
   const runningCount = useMemo(
     () =>
-      goals.filter((g) => g.status === "running" || g.status === "planning").length +
-      tasks.filter((task) => task.status === "running").length,
+      goals.filter(
+        (g) => g.status === "running" || g.status === "planning" || g.status === "planned",
+      ).length + tasks.filter((task) => task.status === "running").length,
     [goals, tasks],
   );
 

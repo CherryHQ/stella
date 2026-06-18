@@ -64,6 +64,104 @@ func (q *Queries) CountRunningAgentTasks(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const createAgentPlanTask = `-- name: CreateAgentPlanTask :one
+INSERT INTO agent_task (
+    id, user_id, agent_id, session_id, goal_id, project_id,
+    source_plan_id, plan_item_id,
+    title, description, status, priority,
+    required, retry_count, max_retries, not_before, deadline_at,
+    context, output, created_at, updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, user_id, agent_id, session_id, goal_id, project_id, source_plan_id, plan_item_id, detached_at, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at
+`
+
+type CreateAgentPlanTaskParams struct {
+	ID           string         `json:"id"`
+	UserID       string         `json:"user_id"`
+	AgentID      string         `json:"agent_id"`
+	SessionID    string         `json:"session_id"`
+	GoalID       sql.NullString `json:"goal_id"`
+	ProjectID    sql.NullString `json:"project_id"`
+	SourcePlanID sql.NullString `json:"source_plan_id"`
+	PlanItemID   string         `json:"plan_item_id"`
+	Title        string         `json:"title"`
+	Description  string         `json:"description"`
+	Status       string         `json:"status"`
+	Priority     string         `json:"priority"`
+	Required     int64          `json:"required"`
+	RetryCount   int64          `json:"retry_count"`
+	MaxRetries   int64          `json:"max_retries"`
+	NotBefore    sql.NullString `json:"not_before"`
+	DeadlineAt   sql.NullString `json:"deadline_at"`
+	Context      string         `json:"context"`
+	Output       string         `json:"output"`
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
+}
+
+// CreateAgentPlanTask is the materializer's create: a plan-backed work task that
+// carries source_plan_id + plan_item_id traceability. Public CreateTask must not
+// set these; work tasks come only from the materializer. #525.
+func (q *Queries) CreateAgentPlanTask(ctx context.Context, arg CreateAgentPlanTaskParams) (AgentTask, error) {
+	row := q.db.QueryRowContext(ctx, createAgentPlanTask,
+		arg.ID,
+		arg.UserID,
+		arg.AgentID,
+		arg.SessionID,
+		arg.GoalID,
+		arg.ProjectID,
+		arg.SourcePlanID,
+		arg.PlanItemID,
+		arg.Title,
+		arg.Description,
+		arg.Status,
+		arg.Priority,
+		arg.Required,
+		arg.RetryCount,
+		arg.MaxRetries,
+		arg.NotBefore,
+		arg.DeadlineAt,
+		arg.Context,
+		arg.Output,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	var i AgentTask
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.AgentID,
+		&i.SessionID,
+		&i.GoalID,
+		&i.ProjectID,
+		&i.SourcePlanID,
+		&i.PlanItemID,
+		&i.DetachedAt,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Priority,
+		&i.ReviewPolicy,
+		&i.ActiveReviewID,
+		&i.Required,
+		&i.RetryCount,
+		&i.MaxRetries,
+		&i.NotBefore,
+		&i.DeadlineAt,
+		&i.ActiveRunID,
+		&i.ActiveBlockerID,
+		&i.Context,
+		&i.Output,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+		&i.CancelledAt,
+		&i.ArchivedAt,
+	)
+	return i, err
+}
+
 const createAgentTask = `-- name: CreateAgentTask :one
 
 INSERT INTO agent_task (

@@ -12,6 +12,20 @@ INSERT INTO agent_task (
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
+-- CreateAgentPlanTask is the materializer's create: a plan-backed work task that
+-- carries source_plan_id + plan_item_id traceability. Public CreateTask must not
+-- set these; work tasks come only from the materializer. #525.
+-- name: CreateAgentPlanTask :one
+INSERT INTO agent_task (
+    id, user_id, agent_id, session_id, goal_id, project_id,
+    source_plan_id, plan_item_id,
+    title, description, status, priority,
+    required, retry_count, max_retries, not_before, deadline_at,
+    context, output, created_at, updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING *;
+
 -- name: GetAgentTask :one
 SELECT * FROM agent_task WHERE id = ?;
 

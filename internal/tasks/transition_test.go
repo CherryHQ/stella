@@ -81,8 +81,21 @@ func (h *testHarness) createTaskSession(t *testing.T, title string) string {
 	return sessionID
 }
 
-func testSessionMinter(ctx context.Context, userID, agentID, projectID string) (string, error) {
-	return "task-" + uuid.NewString(), nil
+// sessionMinter returns a SessionMinter that seeds a real ctx_conversation row,
+// so a task created through the facade satisfies the agent_task.session_id FK
+// (the materializer inserts real tasks, unlike the older raw-SQL seeders).
+func (h *testHarness) sessionMinter() SessionMinter {
+	return func(ctx context.Context, userID, agentID, projectID string) (string, error) {
+		sessionID := "task-" + uuid.NewString()
+		now := time.Now().UTC().Format("2006-01-02 15:04:05")
+		if _, err := h.db.ExecContext(ctx, `
+			INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active, created_at, updated_at)
+			VALUES (?, ?, ?, 'task', 'task', ?, ?, ?, ?, ?)`,
+			uuid.NewString(), sessionID, "minted", agentID, userID, now, now, now); err != nil {
+			return "", err
+		}
+		return sessionID, nil
+	}
 }
 
 func (h *testHarness) getTask(t *testing.T, id string) sqlc.AgentTask {

@@ -12,21 +12,27 @@ import (
 // ErrGoalNotFound is returned by goal transitions when the row is missing.
 var ErrGoalNotFound = errors.New("tasks: goal not found")
 
-// ActivateGoal moves a goal from draft to running and transitions every draft
-// child task to ready in the same transaction. The dispatcher picks the
-// children up next tick.
+// ActivateGoal promotes a goal from 'planned' to 'running' and flips every draft
+// child task to ready in the same transaction; the dispatcher picks them up next
+// tick. The accepted-plan gate (#525, D6) guards the promotion: a goal may only
+// run behind an accepted, materialized plan that produced at least one required
+// child, so a goal never reaches 'running' with no work attached. Error ordering
+// (codex SF2): archived/terminal/running stay ErrInvalidTransition; a draft or
+// plan-less (deferred) goal maps to ErrPlanMaterializationRequired so the caller
+// learns it must plan first, not that it raced a transition.
 func (s *TransitionService) ActivateGoal(ctx context.Context, goalID string, actor Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		goal, err := getGoalForUpdate(ctx, q, goalID)
 		if err != nil {
 			return err
 		}
-		if goal.Status != GoalStatusDraft {
-			return ErrInvalidTransition
-		}
 		// Archived goals are inert; reactivating one would resurrect work that is
 		// hidden from default lists (D-archive invariant).
 		if goal.ArchivedAt.Valid {
+			return ErrInvalidTransition
+		}
+		// Genuinely illegal start states: already terminal or already running.
+		if isTerminalGoalStatus(goal.Status) || goal.Status == GoalStatusRunning {
 			return ErrInvalidTransition
 		}
 		// Defense in depth against rows that predate goal review gating: a goal
@@ -35,9 +41,36 @@ func (s *TransitionService) ActivateGoal(ctx context.Context, goalID string, act
 		if goal.ReviewPolicy != ReviewPolicyNone {
 			return fmt.Errorf("%w: goal review_policy %q (only 'none' is supported)", ErrUnsupportedReviewPolicy, goal.ReviewPolicy)
 		}
+		// Accepted-plan gate. Load the plan first so a draft/no-plan goal surfaces
+		// the "plan first" error rather than a generic transition failure.
+		plan, err := q.GetAgentGoalPlanByGoal(ctx, goalID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrPlanMaterializationRequired
+			}
+			return err
+		}
+		if !plan.AcceptedAt.Valid {
+			return ErrAcceptedPlanRequired
+		}
+		if !plan.MaterializedAt.Valid {
+			return ErrPlanNotMaterialized
+		}
+		counts, err := q.GoalChildCounts(ctx, sql.NullString{String: goalID, Valid: true})
+		if err != nil {
+			return fmt.Errorf("goal child counts: %w", err)
+		}
+		if counts.Total == 0 {
+			return ErrPlanMaterializationRequired
+		}
+		// After the gate the goal must be in 'planned' (materialize promotes it
+		// there); anything else is an illegal start state.
+		if goal.Status != GoalStatusPlanned {
+			return ErrInvalidTransition
+		}
 		now := s.now()
 		n, err := q.TransitionAgentGoalStatus(ctx, sqlc.TransitionAgentGoalStatusParams{
-			Status: GoalStatusRunning, UpdatedAt: now, ID: goalID, Status_2: GoalStatusDraft,
+			Status: GoalStatusRunning, UpdatedAt: now, ID: goalID, Status_2: GoalStatusPlanned,
 		})
 		if err != nil {
 			return err
@@ -71,7 +104,7 @@ func (s *TransitionService) ActivateGoal(ctx context.Context, goalID string, act
 				return err
 			}
 		}
-		return s.appendGoalEvent(ctx, q, goalID, "goal_activate", GoalStatusDraft, GoalStatusRunning, actor, nil)
+		return s.appendGoalEvent(ctx, q, goalID, "goal_activate", GoalStatusPlanned, GoalStatusRunning, actor, nil)
 	})
 }
 

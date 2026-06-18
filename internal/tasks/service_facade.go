@@ -69,6 +69,12 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 	if in.UserID == "" || in.Title == "" {
 		return sqlc.AgentTask{}, fmt.Errorf("CreateTask: user_id and title are required")
 	}
+	// D5 backdoor shut (#525): goal work tasks come only from a materialized
+	// plan, never hand-attached. A goal_id here would let a caller seed children
+	// outside the gate, so reject it and point at the plan path.
+	if in.GoalID != "" {
+		return sqlc.AgentTask{}, ErrPlanMaterializationRequired
+	}
 	priority := in.Priority
 	if priority == "" {
 		priority = PriorityRoutine
@@ -552,10 +558,15 @@ type CreateGoalInput struct {
 	Priority     string
 	ReviewPolicy string
 	Context      string
+	PlanMode     string // direct | deferred; "" => direct
 }
 
-// CreateGoal inserts an agent_goal row in 'draft'. Goal planning/synthesis is
-// not dispatched in this release; callers create child tasks explicitly.
+// CreateGoal inserts an agent_goal row, then seeds its plan per PlanMode (#525).
+// "direct" (the default) auto-creates+accepts+materializes a one-task direct
+// plan and leaves the goal in 'planned', ready to activate. "deferred" leaves
+// the goal in 'draft' with no plan row, for a caller that will plan explicitly
+// via CreateGoalPlan before activating. Work tasks are never hand-attached: they
+// come only from a materialized plan (the CreateTask goal_id backdoor is shut).
 func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sqlc.AgentGoal, error) {
 	if in.UserID == "" || in.Title == "" {
 		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: user_id and title are required")
@@ -585,6 +596,13 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 	if in.Context == "" {
 		in.Context = "{}"
 	}
+	planMode := in.PlanMode
+	if planMode == "" {
+		planMode = PlanModeDirect
+	}
+	if planMode != PlanModeDirect && planMode != PlanModeDeferred {
+		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: invalid plan_mode %q", planMode)
+	}
 	if in.ProjectID != "" {
 		project, err := f.q.GetProject(ctx, sqlc.GetProjectParams{ID: in.ProjectID, UserID: in.UserID})
 		if err != nil {
@@ -598,7 +616,7 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 		}
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	return f.q.CreateAgentGoal(ctx, sqlc.CreateAgentGoalParams{
+	goalParams := sqlc.CreateAgentGoalParams{
 		ID:           uuid.NewString(),
 		UserID:       in.UserID,
 		AgentID:      in.AgentID,
@@ -612,7 +630,40 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 		Output:       "{}",
 		CreatedAt:    now,
 		UpdatedAt:    now,
+	}
+	if planMode == PlanModeDeferred {
+		return f.q.CreateAgentGoal(ctx, goalParams)
+	}
+	// Direct: insert goal + plan + task in one tx, so a failed materialize never
+	// leaves a draft/no-plan ghost goal (codex SF). The session is pre-minted
+	// outside the tx (SQLite single-writer). The goal lands in 'planned' with one
+	// ready-on-activate child — never a child-less running window.
+	previewGoal := sqlc.AgentGoal{
+		ID: goalParams.ID, UserID: in.UserID, AgentID: in.AgentID,
+		ProjectID: goalParams.ProjectID, Title: in.Title, Description: in.Description,
+		Priority: priority,
+	}
+	raw, err := buildDirectPlanContent(previewGoal)
+	if err != nil {
+		return sqlc.AgentGoal{}, err
+	}
+	sessions, err := f.mintDirectPlanSession(ctx, previewGoal)
+	if err != nil {
+		return sqlc.AgentGoal{}, err
+	}
+	var goal sqlc.AgentGoal
+	err = f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
+		var err error
+		goal, err = q.CreateAgentGoal(ctx, goalParams)
+		if err != nil {
+			return err
+		}
+		return f.createAndAcceptDirectPlanInTx(ctx, q, goal, raw, sessions, now)
 	})
+	if err != nil {
+		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: %w", err)
+	}
+	return f.GetGoal(ctx, goal.ID)
 }
 
 // GetGoal returns one goal by ID.

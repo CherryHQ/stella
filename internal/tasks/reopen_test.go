@@ -64,7 +64,7 @@ func TestReopen_Cascade_Standalone_DownstreamToReady(t *testing.T) {
 
 func TestReopen_Cascade_SkipsArchivedDownstream(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	a := h.createTask(t, StatusReady)
 	b := h.createTask(t, StatusReady)
 	_ = h.svc.AddDep(context.Background(), b, a, DepKindHard, OnFailureBlock)
@@ -91,7 +91,7 @@ func TestReopen_Cascade_SkipsArchivedDownstream(t *testing.T) {
 
 func TestReopen_NoCascade_ArchivedDownstream_NoConflict(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	a := h.createTask(t, StatusReady)
 	b := h.createTask(t, StatusReady)
 	_ = h.svc.AddDep(context.Background(), b, a, DepKindHard, OnFailureBlock)

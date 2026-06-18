@@ -45,15 +45,38 @@ func (h *testHarness) createChildTask(t *testing.T, goalID, status string) strin
 	return id
 }
 
-func TestActivateGoal_DraftToRunning_PromotesDraftChildren(t *testing.T) {
+// firstChild returns the single (or earliest) child task of a goal, used to
+// reach a materialized direct-plan task without knowing its generated id.
+func (h *testHarness) firstChild(t *testing.T, goalID string) string {
+	t.Helper()
+	children, err := h.q.ListChildrenByGoal(context.Background(), sql.NullString{String: goalID, Valid: true})
+	if err != nil {
+		t.Fatalf("list children: %v", err)
+	}
+	if len(children) == 0 {
+		t.Fatalf("goal %s has no children", goalID)
+	}
+	return children[0].ID
+}
+
+func TestActivateGoal_PlannedToRunning_PromotesDraftChildren(t *testing.T) {
 	h := newHarness(t)
-	gid := h.createGoal(t, GoalStatusDraft, ReviewPolicyNone)
-	c1 := h.createChildTask(t, gid, StatusDraft)
-	c2 := h.createChildTask(t, gid, StatusReady) // already ready; should stay
-	if err := h.svc.ActivateGoal(context.Background(), gid, SystemActor()); err != nil {
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
+	// A direct goal lands in 'planned' behind an accepted+materialized plan with
+	// one draft child (#525); only then may it activate.
+	g, err := f.CreateGoal(context.Background(), CreateGoalInput{UserID: h.userID, AgentID: h.agentID, Title: "g"})
+	if err != nil {
+		t.Fatalf("CreateGoal: %v", err)
+	}
+	if g.Status != GoalStatusPlanned {
+		t.Fatalf("goal status=%q want planned after direct create", g.Status)
+	}
+	c1 := h.firstChild(t, g.ID)                   // materialized child, in draft
+	c2 := h.createChildTask(t, g.ID, StatusReady) // already ready; should stay
+	if err := h.svc.ActivateGoal(context.Background(), g.ID, SystemActor()); err != nil {
 		t.Fatalf("ActivateGoal: %v", err)
 	}
-	goal, _ := h.q.GetAgentGoal(context.Background(), gid)
+	goal, _ := h.q.GetAgentGoal(context.Background(), g.ID)
 	if goal.Status != GoalStatusRunning {
 		t.Errorf("goal status=%q want running", goal.Status)
 	}
@@ -91,7 +114,7 @@ func TestActivateGoal_NonNonePolicy_Rejected(t *testing.T) {
 
 func TestCreateGoal_NonNonePolicy_Rejected(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	for _, policy := range []string{ReviewPolicyAuto, ReviewPolicyAgent, ReviewPolicyHuman} {
 		_, err := f.CreateGoal(context.Background(), CreateGoalInput{
 			UserID: h.userID, AgentID: h.agentID, Title: "g", ReviewPolicy: policy,
@@ -104,7 +127,7 @@ func TestCreateGoal_NonNonePolicy_Rejected(t *testing.T) {
 
 func TestCreateGoal_NonePolicy_OK(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	g, err := f.CreateGoal(context.Background(), CreateGoalInput{UserID: h.userID, AgentID: h.agentID, Title: "g"})
 	if err != nil {
 		t.Fatalf("CreateGoal(none): %v", err)
@@ -116,7 +139,7 @@ func TestCreateGoal_NonePolicy_OK(t *testing.T) {
 
 func TestArchiveGoal_TerminalHidesGoalAndChildren(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	childID := h.createChildTask(t, gid, StatusDone)
 	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
@@ -155,7 +178,7 @@ func TestArchiveGoal_TerminalHidesGoalAndChildren(t *testing.T) {
 
 func TestArchiveGoal_RunningChildRejected(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	h.createChildTask(t, gid, StatusRunning)
 	err := f.ArchiveGoal(context.Background(), gid, SystemActor())
@@ -168,7 +191,7 @@ func TestArchiveGoal_RunningChildRejected(t *testing.T) {
 // not-found just because archived_at is already set.
 func TestArchiveGoal_Idempotent(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
 		t.Fatalf("first ArchiveGoal: %v", err)
@@ -180,7 +203,7 @@ func TestArchiveGoal_Idempotent(t *testing.T) {
 
 func TestArchiveTask_Idempotent(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	tid := h.createChildTask(t, gid, StatusDone)
 	if err := f.ArchiveTask(context.Background(), tid, SystemActor()); err != nil {
@@ -195,7 +218,7 @@ func TestArchiveTask_Idempotent(t *testing.T) {
 // filter surfaces the goal for the history/restore view.
 func TestUnarchiveGoal_RestoresGoalAndChildren(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	childID := h.createChildTask(t, gid, StatusDone)
 	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
@@ -230,7 +253,7 @@ func TestUnarchiveGoal_RestoresGoalAndChildren(t *testing.T) {
 
 func TestUnarchiveGoal_NotArchived_NoOp(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	if err := f.UnarchiveGoal(context.Background(), gid, SystemActor()); err != nil {
 		t.Fatalf("UnarchiveGoal on non-archived goal should be a no-op, got %v", err)
@@ -241,7 +264,7 @@ func TestUnarchiveGoal_NotArchived_NoOp(t *testing.T) {
 // hidden from default lists.
 func TestActivateGoal_Archived_Rejects(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDraft, ReviewPolicyNone)
 	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
 		t.Fatalf("ArchiveGoal: %v", err)
@@ -258,7 +281,7 @@ func TestActivateGoal_Archived_Rejects(t *testing.T) {
 
 func TestReopenTask_Archived_Rejects(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	tid := h.createChildTask(t, gid, StatusDone)
 	if err := f.ArchiveTask(context.Background(), tid, SystemActor()); err != nil {
@@ -274,7 +297,7 @@ func TestReopenTask_Archived_Rejects(t *testing.T) {
 // recoverable) failed goal is never silently revived to running.
 func TestListAgentGoals_ExcludesArchived(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusFailed, ReviewPolicyNone)
 	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
 		t.Fatalf("ArchiveGoal: %v", err)
@@ -363,7 +386,7 @@ func TestBlockGoal_RunningToBlocked(t *testing.T) {
 // archive cascade actually hid are restored.
 func TestUnarchiveGoal_SkipsIndependentlyArchivedChild(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	solo := h.createChildTask(t, gid, StatusDone)    // user archives this one first
 	cascade := h.createChildTask(t, gid, StatusDone) // hidden by the goal archive
@@ -387,7 +410,7 @@ func TestUnarchiveGoal_SkipsIndependentlyArchivedChild(t *testing.T) {
 // CR-015: an archived goal is inert — lifecycle transitions must not mutate it.
 func TestArchivedGoal_RejectsLifecycleTransitions(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	archiveDraft := func(t *testing.T) string {
 		gid := h.createGoal(t, GoalStatusDraft, ReviewPolicyNone)
 		if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
@@ -427,7 +450,7 @@ func TestArchivedGoal_RejectsLifecycleTransitions(t *testing.T) {
 // restorable via UnarchiveTask, mirroring goals.
 func TestUnarchiveTask_RestoresStandaloneTask(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	tid := h.createChildTask(t, gid, StatusDone)
 	if err := f.ArchiveTask(context.Background(), tid, SystemActor()); err != nil {
@@ -460,7 +483,7 @@ func TestUnarchiveTask_RestoresStandaloneTask(t *testing.T) {
 
 func TestUnarchiveTask_NotArchived_NoOp(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	tid := h.createChildTask(t, gid, StatusDone)
 	if err := f.UnarchiveTask(context.Background(), tid, SystemActor()); err != nil {
@@ -472,7 +495,7 @@ func TestUnarchiveTask_NotArchived_NoOp(t *testing.T) {
 // terminal-group filter, the case-insensitive search, and the matching count.
 func TestListGoals_ServerSideFilterSearchAndCount(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	// Two active (non-terminal) and one terminal goal; titles drive the search.
 	h.createGoal(t, GoalStatusRunning, ReviewPolicyNone)
 	h.createGoal(t, GoalStatusDraft, ReviewPolicyNone)
@@ -518,7 +541,12 @@ func TestListGoals_ServerSideFilterSearchAndCount(t *testing.T) {
 // Sanity: events written by goal transitions list cleanly.
 func TestGoalEvents_RecordTransitions(t *testing.T) {
 	h := newHarness(t)
-	gid := h.createGoal(t, GoalStatusDraft, ReviewPolicyNone)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
+	g, err := f.CreateGoal(context.Background(), CreateGoalInput{UserID: h.userID, AgentID: h.agentID, Title: "g"})
+	if err != nil {
+		t.Fatalf("CreateGoal: %v", err)
+	}
+	gid := g.ID
 	if err := h.svc.ActivateGoal(context.Background(), gid, SystemActor()); err != nil {
 		t.Fatalf("ActivateGoal: %v", err)
 	}
@@ -531,20 +559,18 @@ func TestGoalEvents_RecordTransitions(t *testing.T) {
 	}
 }
 
-// CR-017: an archived (draft) goal must not accept new child tasks, or the task
-// would be dispatchable while the goal stays hidden.
-func TestCreateTask_ArchivedGoal_Rejects(t *testing.T) {
+// #525: the accepted-plan gate forbids hand-attaching work to any goal — work
+// tasks come only from a materialized plan. This subsumes CR-017 (no tasks under
+// an archived goal): a goal_id on a public CreateTask is rejected outright.
+func TestCreateTask_WithGoalID_Rejects(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDraft, ReviewPolicyNone)
-	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
-		t.Fatalf("ArchiveGoal: %v", err)
-	}
 	_, err := f.CreateTask(context.Background(), CreateTaskInput{
 		UserID: h.userID, AgentID: h.agentID, GoalID: gid, Title: "new work",
 	})
-	if !errors.Is(err, ErrInvalidTaskContext) {
-		t.Fatalf("CreateTask under archived goal: want ErrInvalidTaskContext, got %v", err)
+	if !errors.Is(err, ErrPlanMaterializationRequired) {
+		t.Fatalf("CreateTask with goal_id: want ErrPlanMaterializationRequired, got %v", err)
 	}
 }
 
@@ -552,7 +578,7 @@ func TestCreateTask_ArchivedGoal_Rejects(t *testing.T) {
 // parent goal; unarchiving the goal is the supported restore path.
 func TestUnarchiveTask_ParentGoalArchived_Rejects(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	tid := h.createChildTask(t, gid, StatusDone)
 	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
@@ -577,7 +603,7 @@ func TestUnarchiveTask_ParentGoalArchived_Rejects(t *testing.T) {
 // individually archiving one under a live goal would wedge the goal forever.
 func TestArchiveTask_DraftChildOfRunningGoal_Rejected(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusRunning, ReviewPolicyNone)
 	cid := h.createChildTask(t, gid, StatusDraft)
 	if err := f.ArchiveTask(context.Background(), cid, SystemActor()); !errors.Is(err, ErrInvalidTransition) {
@@ -591,7 +617,7 @@ func TestArchiveTask_DraftChildOfRunningGoal_Rejected(t *testing.T) {
 // A child of a terminal goal carries no rollup risk and stays individually archivable.
 func TestArchiveTask_ChildOfTerminalGoal_Allowed(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
 	cid := h.createChildTask(t, gid, StatusDone)
 	if err := f.ArchiveTask(context.Background(), cid, SystemActor()); err != nil {
