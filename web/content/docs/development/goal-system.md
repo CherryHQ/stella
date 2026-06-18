@@ -107,6 +107,16 @@ This is deliberate: work always traces to an accepted plan. Automatic LLM planni
 (returning structured items from a prompt) still requires a planner runtime and is
 not wired yet — you author the plan content.
 
+**What `direct` actually does (the default).** A direct goal is _not_ a "no plan"
+shortcut — it still owns a real `agent_goal_plan` row. The system authors a
+one-item plan (item titled after the goal, `role=direct`), accepts it without
+review (`review_policy=none`), and materializes it in one step inside goal
+creation. The single child task named after the goal **is** that plan's
+materialization — not a hand-attached task. Choose `deferred` only when you want
+to author a multi-step plan yourself. The plan is real and readable via
+`GET /api/goals/{id}/plan`, but the Web UI does not surface a plan view yet, so a
+direct goal looks like it "just made a task."
+
 ## Review policy guidance
 
 For now, use `review_policy=none` on goals.

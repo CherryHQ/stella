@@ -126,9 +126,12 @@ Use a goal when multiple tasks serve one objective and you want a single rollup.
 
 Supported goal workflow:
 
-- **Single-step goal (default).** `stella task goal create --title "..."` seeds a
-  one-task `direct` plan, accepts and materializes it automatically, and leaves the
-  goal `planned`. Add `--activate` to start it immediately.
+- **Single-step goal (default).** `stella task goal create --title "..."` still
+  creates a real plan — the system authors a one-item `direct` plan (titled after
+  the goal), accepts it without review, and materializes it automatically, leaving
+  the goal `planned`. The single child task named after the goal **is** that plan's
+  materialization, not a hand-attached task. Add `--activate` to start it immediately.
+  (The plan is readable via `goal plan get` but is not shown in the Web UI yet.)
 - **Multi-step goal.** `stella task goal create --title "..." --plan-mode deferred`
   leaves the goal at `draft` with no plan. Then:
   1. `stella task goal plan set <goal-id> --file plan.json` — stage a structured
