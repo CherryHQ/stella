@@ -36,6 +36,7 @@ components:
             [
               draft,
               planning,
+              planned,
               running,
               blocked,
               reviewing,

@@ -51,6 +51,8 @@
 -- atlas:import tables/agent_task_criterion.sql
 -- atlas:import tables/agent_review.sql
 -- atlas:import tables/agent_review_item.sql
+-- agent_goal_plan references agent_goal/agent_task_run/agent_review; agent_task references it back.
+-- atlas:import tables/agent_goal_plan.sql
 -- atlas:import tables/agent_task.sql
 -- atlas:import tables/agent_task_dep.sql
 -- atlas:import tables/agent_task_dispatch_hint.sql

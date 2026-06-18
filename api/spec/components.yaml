@@ -826,6 +826,7 @@ components:
           enum: [
             draft,
             planning,
+            planned,
             running,
             blocked,
             reviewing,

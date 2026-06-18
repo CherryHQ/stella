@@ -13,6 +13,7 @@ CREATE TABLE agent_review (
     reviewer_user_id            TEXT REFERENCES auth_user(id) ON DELETE SET NULL,
     escalated_from_review_id    TEXT REFERENCES agent_review(id) ON DELETE SET NULL,
     status                      TEXT NOT NULL DEFAULT 'requested',
+    subject                     TEXT NOT NULL DEFAULT 'completion',  -- #525: 'completion' | 'plan' (D8a) — keeps plan reviews off the goal-completion path
     summary                     TEXT NOT NULL DEFAULT '',
     feedback                    TEXT NOT NULL DEFAULT '',
     created_at                  TEXT NOT NULL DEFAULT (datetime('now')),

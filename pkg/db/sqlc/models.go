@@ -49,6 +49,21 @@ type AgentGoal struct {
 	ArchivedAt     sql.NullString `json:"archived_at"`
 }
 
+type AgentGoalPlan struct {
+	ID                 string         `json:"id"`
+	GoalID             string         `json:"goal_id"`
+	Status             string         `json:"status"`
+	ReviewPolicy       string         `json:"review_policy"`
+	ContentJson        string         `json:"content_json"`
+	PendingContentJson sql.NullString `json:"pending_content_json"`
+	SourceRunID        sql.NullString `json:"source_run_id"`
+	ApprovedReviewID   sql.NullString `json:"approved_review_id"`
+	AcceptedAt         sql.NullString `json:"accepted_at"`
+	MaterializedAt     sql.NullString `json:"materialized_at"`
+	CreatedAt          string         `json:"created_at"`
+	UpdatedAt          string         `json:"updated_at"`
+}
+
 type AgentReview struct {
 	ID                    string         `json:"id"`
 	TaskID                sql.NullString `json:"task_id"`
@@ -59,6 +74,7 @@ type AgentReview struct {
 	ReviewerUserID        sql.NullString `json:"reviewer_user_id"`
 	EscalatedFromReviewID sql.NullString `json:"escalated_from_review_id"`
 	Status                string         `json:"status"`
+	Subject               string         `json:"subject"`
 	Summary               string         `json:"summary"`
 	Feedback              string         `json:"feedback"`
 	CreatedAt             string         `json:"created_at"`
@@ -82,6 +98,9 @@ type AgentTask struct {
 	SessionID       string         `json:"session_id"`
 	GoalID          sql.NullString `json:"goal_id"`
 	ProjectID       sql.NullString `json:"project_id"`
+	SourcePlanID    sql.NullString `json:"source_plan_id"`
+	PlanItemID      string         `json:"plan_item_id"`
+	DetachedAt      sql.NullString `json:"detached_at"`
 	Title           string         `json:"title"`
 	Description     string         `json:"description"`
 	Status          string         `json:"status"`

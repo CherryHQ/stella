@@ -1,0 +1,27 @@
+-- Issue #525: the accepted-plan gate. One plan row per goal (goal_id UNIQUE),
+-- edited in place — no versioning, no supersede chain. A goal reaches 'planned'
+-- (and may be activated) only once its plan has been accepted AND materialized
+-- into work tasks; work tasks come solely from the materializer, never manual
+-- CreateTask. See plan.md D1/D2/D6.
+--
+-- Two content slots: content_json is the last materialized content (written only
+-- inside MaterializeGoalPlan's tx); pending_content_json is the in-flight edit
+-- (create draft or replan). Promote pending -> content happens only at materialize
+-- so a running goal keeps executing the accepted content while an edit is staged.
+
+CREATE TABLE agent_goal_plan (
+    id                   TEXT NOT NULL PRIMARY KEY,
+    goal_id              TEXT NOT NULL UNIQUE REFERENCES agent_goal(id) ON DELETE CASCADE,
+    status               TEXT NOT NULL DEFAULT 'draft',  -- valid values enforced in Go
+    review_policy        TEXT NOT NULL DEFAULT 'none',   -- valid values enforced in Go
+    content_json         TEXT NOT NULL DEFAULT '{}',     -- last materialized content
+    pending_content_json TEXT,                           -- in-flight edit; NULL when none
+    source_run_id        TEXT REFERENCES agent_task_run(id) ON DELETE SET NULL,
+    approved_review_id   TEXT REFERENCES agent_review(id) ON DELETE SET NULL,
+    accepted_at          TEXT,
+    materialized_at      TEXT,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_agent_goal_plan_goal_status ON agent_goal_plan(goal_id, status);

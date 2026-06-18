@@ -9,6 +9,9 @@ CREATE TABLE agent_task (
     session_id          TEXT NOT NULL REFERENCES ctx_conversation(session_id) ON DELETE RESTRICT, -- durable worker session
     goal_id             TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,        -- Slice 3
     project_id          TEXT REFERENCES project(id) ON DELETE SET NULL,
+    source_plan_id      TEXT REFERENCES agent_goal_plan(id) ON DELETE SET NULL,  -- #525: materialized from this plan
+    plan_item_id        TEXT NOT NULL DEFAULT '',                                 -- #525: plan item this task realizes
+    detached_at         TEXT,                                                     -- #525: replan removed the item but task has output
     title               TEXT NOT NULL,
     description         TEXT NOT NULL DEFAULT '',
     status              TEXT NOT NULL DEFAULT 'draft',
@@ -44,3 +47,7 @@ CREATE INDEX idx_agent_task_ready_candidates
 CREATE INDEX idx_agent_task_session           ON agent_task(session_id);
 CREATE INDEX idx_agent_task_goal              ON agent_task(goal_id);
 CREATE INDEX idx_agent_task_project           ON agent_task(project_id);
+-- #525: one task per (plan, plan item); the materializer Gets-then-creates by this key.
+CREATE UNIQUE INDEX uniq_agent_task_source_plan_item
+    ON agent_task(source_plan_id, plan_item_id)
+    WHERE source_plan_id IS NOT NULL AND plan_item_id != '';

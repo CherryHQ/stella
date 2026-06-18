@@ -18,7 +18,7 @@ INSERT INTO agent_review (
     status, summary, feedback, created_at, updated_at
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at
+RETURNING id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, subject, summary, feedback, created_at, updated_at, resolved_at
 `
 
 type CreateAgentReviewParams struct {
@@ -65,6 +65,7 @@ func (q *Queries) CreateAgentReview(ctx context.Context, arg CreateAgentReviewPa
 		&i.ReviewerUserID,
 		&i.EscalatedFromReviewID,
 		&i.Status,
+		&i.Subject,
 		&i.Summary,
 		&i.Feedback,
 		&i.CreatedAt,
@@ -75,7 +76,7 @@ func (q *Queries) CreateAgentReview(ctx context.Context, arg CreateAgentReviewPa
 }
 
 const getAgentReview = `-- name: GetAgentReview :one
-SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE id = ?
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, subject, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE id = ?
 `
 
 func (q *Queries) GetAgentReview(ctx context.Context, id string) (AgentReview, error) {
@@ -91,6 +92,7 @@ func (q *Queries) GetAgentReview(ctx context.Context, id string) (AgentReview, e
 		&i.ReviewerUserID,
 		&i.EscalatedFromReviewID,
 		&i.Status,
+		&i.Subject,
 		&i.Summary,
 		&i.Feedback,
 		&i.CreatedAt,
@@ -101,7 +103,7 @@ func (q *Queries) GetAgentReview(ctx context.Context, id string) (AgentReview, e
 }
 
 const getOpenReviewForTask = `-- name: GetOpenReviewForTask :one
-SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, subject, summary, feedback, created_at, updated_at, resolved_at FROM agent_review
 WHERE task_id = ? AND status IN ('requested','in_progress')
 LIMIT 1
 `
@@ -119,6 +121,7 @@ func (q *Queries) GetOpenReviewForTask(ctx context.Context, taskID sql.NullStrin
 		&i.ReviewerUserID,
 		&i.EscalatedFromReviewID,
 		&i.Status,
+		&i.Subject,
 		&i.Summary,
 		&i.Feedback,
 		&i.CreatedAt,
@@ -129,7 +132,7 @@ func (q *Queries) GetOpenReviewForTask(ctx context.Context, taskID sql.NullStrin
 }
 
 const listAgentReviewsByGoal = `-- name: ListAgentReviewsByGoal :many
-SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, subject, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentReviewsByGoalParams struct {
@@ -157,6 +160,7 @@ func (q *Queries) ListAgentReviewsByGoal(ctx context.Context, arg ListAgentRevie
 			&i.ReviewerUserID,
 			&i.EscalatedFromReviewID,
 			&i.Status,
+			&i.Subject,
 			&i.Summary,
 			&i.Feedback,
 			&i.CreatedAt,
@@ -177,7 +181,7 @@ func (q *Queries) ListAgentReviewsByGoal(ctx context.Context, arg ListAgentRevie
 }
 
 const listAgentReviewsByTask = `-- name: ListAgentReviewsByTask :many
-SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE task_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, subject, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE task_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentReviewsByTaskParams struct {
@@ -205,6 +209,7 @@ func (q *Queries) ListAgentReviewsByTask(ctx context.Context, arg ListAgentRevie
 			&i.ReviewerUserID,
 			&i.EscalatedFromReviewID,
 			&i.Status,
+			&i.Subject,
 			&i.Summary,
 			&i.Feedback,
 			&i.CreatedAt,
@@ -225,7 +230,7 @@ func (q *Queries) ListAgentReviewsByTask(ctx context.Context, arg ListAgentRevie
 }
 
 const listOpenAgentReviewsForDispatch = `-- name: ListOpenAgentReviewsForDispatch :many
-SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, subject, summary, feedback, created_at, updated_at, resolved_at FROM agent_review
 WHERE status IN ('requested','in_progress')
   AND reviewer_type = 'agent'
   AND reviewer_run_id IS NULL
@@ -253,6 +258,7 @@ func (q *Queries) ListOpenAgentReviewsForDispatch(ctx context.Context, limit int
 			&i.ReviewerUserID,
 			&i.EscalatedFromReviewID,
 			&i.Status,
+			&i.Subject,
 			&i.Summary,
 			&i.Feedback,
 			&i.CreatedAt,

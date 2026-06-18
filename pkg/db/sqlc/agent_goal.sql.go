@@ -363,7 +363,7 @@ func (q *Queries) ListAgentGoalsByUser(ctx context.Context, arg ListAgentGoalsBy
 }
 
 const listChildrenByGoal = `-- name: ListChildrenByGoal :many
-SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, source_plan_id, plan_item_id, detached_at, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC
 `
 
 func (q *Queries) ListChildrenByGoal(ctx context.Context, goalID sql.NullString) ([]AgentTask, error) {
@@ -382,6 +382,9 @@ func (q *Queries) ListChildrenByGoal(ctx context.Context, goalID sql.NullString)
 			&i.SessionID,
 			&i.GoalID,
 			&i.ProjectID,
+			&i.SourcePlanID,
+			&i.PlanItemID,
+			&i.DetachedAt,
 			&i.Title,
 			&i.Description,
 			&i.Status,
@@ -417,7 +420,7 @@ func (q *Queries) ListChildrenByGoal(ctx context.Context, goalID sql.NullString)
 }
 
 const listChildrenByGoalPaged = `-- name: ListChildrenByGoalPaged :many
-SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, source_plan_id, plan_item_id, detached_at, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?
 `
 
 type ListChildrenByGoalPagedParams struct {
@@ -442,6 +445,9 @@ func (q *Queries) ListChildrenByGoalPaged(ctx context.Context, arg ListChildrenB
 			&i.SessionID,
 			&i.GoalID,
 			&i.ProjectID,
+			&i.SourcePlanID,
+			&i.PlanItemID,
+			&i.DetachedAt,
 			&i.Title,
 			&i.Description,
 			&i.Status,

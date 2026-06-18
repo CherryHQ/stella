@@ -144,6 +144,11 @@ var (
 	// ErrAlreadyClosed is returned when attempting to resolve a blocker that
 	// is not in the 'open' state.
 	ErrAlreadyClosed = errors.New("tasks: blocker is not open")
+
+	// ErrInvalidPlan is returned by validatePlan when a goal plan's content
+	// fails a structural invariant (empty, dangling dep, cycle, missing
+	// impl->verify, etc.). Issue #525.
+	ErrInvalidPlan = errors.New("tasks: invalid plan")
 )
 
 // IsTerminalStatus reports whether the task status is terminal (no further

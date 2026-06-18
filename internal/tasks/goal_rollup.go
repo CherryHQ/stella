@@ -10,6 +10,7 @@ import (
 const (
 	GoalStatusDraft     = "draft"
 	GoalStatusPlanning  = "planning"
+	GoalStatusPlanned   = "planned"
 	GoalStatusRunning   = "running"
 	GoalStatusBlocked   = "blocked"
 	GoalStatusReviewing = "reviewing"
@@ -43,7 +44,7 @@ func RollupGoal(goal sqlc.AgentGoal, counts sqlc.GoalChildCountsRow, hasOpenSynt
 	// later reopened, retried, or completed.
 	switch goal.Status {
 	case GoalStatusDone, GoalStatusCancelled,
-		GoalStatusReviewing, GoalStatusDraft, GoalStatusPlanning:
+		GoalStatusReviewing, GoalStatusDraft, GoalStatusPlanning, GoalStatusPlanned:
 		return GoalNextState{}
 	}
 	// goal.Status is running, blocked, or failed from here on.
