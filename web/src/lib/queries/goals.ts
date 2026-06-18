@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { getGoal, getTaskReadiness, listGoals } from "@/lib/api-client";
 import type { ComponentsDep, ComponentsGoal, ComponentsTask } from "@/lib/api-client/types.gen";
 import {
@@ -73,6 +73,10 @@ export function goalsPageOptions(p: GoalsPageParams) {
       return { goals: data?.goals ?? [], total: data?.total ?? 0 };
     },
     enabled: !!p.agentId,
+    // Keep the previous page's data (and its total) on screen while the next
+    // page loads, so the pager's total never transiently drops to 0 and bounces
+    // the user back to page 1 (CR-019).
+    placeholderData: keepPreviousData,
   });
 }
 

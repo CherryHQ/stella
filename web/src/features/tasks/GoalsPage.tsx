@@ -120,8 +120,11 @@ export function GoalsPage() {
   // Clamp the page after a bulk action (or a filter change) shrinks the result
   // set so the pager never points past the last page (CR-010).
   useEffect(() => {
-    if (page > totalPages) patch({ page: totalPages }, true);
-  }, [page, totalPages, patch]);
+    // Only clamp once a real total is loaded; clamping while isLoading would
+    // bounce a cold deep-link to ?page=N back to page 1 before its data arrives
+    // (CR-019).
+    if (!isLoading && page > totalPages) patch({ page: totalPages }, true);
+  }, [isLoading, page, totalPages, patch]);
 
   const runBulk = useCallback(async () => {
     const ids = selectedActionable.map((g) => g.id);
