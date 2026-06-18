@@ -3,21 +3,16 @@ package memorywrite_test
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func openTestDB(t *testing.T) (*sql.DB, *sqlc.Queries) {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 	return db, sqlc.New(db)
 }
 

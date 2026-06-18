@@ -36,7 +36,7 @@ func TestDispatcher_RollupGoals_FailedGoalRecoversWhenChildCompletes(t *testing.
 
 	// Operational failure was reconciled elsewhere: the child is now complete.
 	if _, err := h.db.ExecContext(context.Background(),
-		`UPDATE agent_task SET status = 'done' WHERE id = ?`, child); err != nil {
+		`UPDATE agent_task SET status = 'done' WHERE id = $1`, child); err != nil {
 		t.Fatalf("complete child: %v", err)
 	}
 
@@ -71,7 +71,7 @@ func TestDispatcher_RollupGoals_FailedGoalRecoversToRunningWhenChildReopens(t *t
 
 	// The failed child is reopened and returns to ready (pending), not done.
 	if _, err := h.db.ExecContext(context.Background(),
-		`UPDATE agent_task SET status = 'ready' WHERE id = ?`, child); err != nil {
+		`UPDATE agent_task SET status = 'ready' WHERE id = $1`, child); err != nil {
 		t.Fatalf("reopen child: %v", err)
 	}
 
@@ -131,7 +131,7 @@ func TestDispatcher_RollupGoals_BlockedGoalRecoversWhenChildUnblocks(t *testing.
 
 	// Child blocker resolved: the child task returns to ready.
 	if _, err := h.db.ExecContext(context.Background(),
-		`UPDATE agent_task SET status = 'ready' WHERE id = ?`, child); err != nil {
+		`UPDATE agent_task SET status = 'ready' WHERE id = $1`, child); err != nil {
 		t.Fatalf("unblock child: %v", err)
 	}
 

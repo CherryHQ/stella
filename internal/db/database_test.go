@@ -3,21 +3,13 @@ package db
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
-
-	_ "modernc.org/sqlite"
 )
 
 func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	t.Parallel()
 
-	dbPath := filepath.Join(t.TempDir(), "fresh.db")
-	db, err := OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := newTestDB(t)
 
 	if tableExists(t, db, "feishu_tokens") {
 		t.Fatal("feishu_tokens table should not exist after fresh install migrations")
@@ -27,14 +19,11 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 func tableExists(t *testing.T, db *sql.DB, name string) bool {
 	t.Helper()
 
-	var count int
-	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
-		name,
-	).Scan(&count); err != nil {
-		t.Fatalf("query sqlite_master for %s: %v", name, err)
+	var exists bool
+	if err := db.QueryRow("SELECT to_regclass($1) IS NOT NULL", name).Scan(&exists); err != nil {
+		t.Fatalf("check table %s exists: %v", name, err)
 	}
-	return count > 0
+	return exists
 }
 
 func TestSpanName(t *testing.T) {

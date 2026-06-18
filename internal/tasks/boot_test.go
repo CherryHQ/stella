@@ -14,7 +14,7 @@ func (h *testHarness) seedAgent(t *testing.T, name string) string {
 	t.Helper()
 	id := uuid.NewString()
 	if _, err := h.db.ExecContext(context.Background(),
-		`INSERT INTO agent (id, name, workspace) VALUES (?, ?, '/tmp')`,
+		`INSERT INTO agent (id, name, workspace) VALUES ($1, $2, '/tmp')`,
 		id, name); err != nil {
 		t.Fatalf("seed agent %s: %v", name, err)
 	}

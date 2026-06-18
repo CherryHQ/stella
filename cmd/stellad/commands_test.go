@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -16,6 +16,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 type commandTestProvider struct{}
 
@@ -141,11 +143,7 @@ func setupCommandTestStellaHome(t *testing.T) string {
 
 func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 	setupCommandTestStellaHome(t)
-	db, err := appdb.OpenDB(config.DBPath())
-	if err != nil {
-		t.Fatalf("open database: %v", err)
-	}
-	defer func() { _ = db.Close() }()
+	db := dbtest.New(t)
 	store := cfgstore.NewDBStore(db)
 	ctx := context.Background()
 	if err := store.Seed(ctx); err != nil {

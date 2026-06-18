@@ -7,14 +7,10 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -23,6 +19,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -39,61 +36,11 @@ import (
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 )
 
-// templateDBOnce builds a fully-migrated and seeded SQLite template DB once.
-// Each test copies the file instead of re-running 48 migrations from scratch.
-var (
-	templateDBOnce sync.Once
-	templateDBPath string
-)
-
 func TestMain(m *testing.M) {
-	resetBcryptCost := auth.SetBcryptCostForTesting(bcrypt.MinCost)
-	code := m.Run()
-	resetBcryptCost()
-	os.Exit(code)
-}
-
-func ensureTemplateDB() string {
-	templateDBOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "stella_srv_tmpl_*")
-		if err != nil {
-			panic(fmt.Sprintf("ensureTemplateDB: MkdirTemp: %v", err))
-		}
-		path := filepath.Join(dir, "template.db")
-		db, err := appdb.OpenDB(path)
-		if err != nil {
-			panic(fmt.Sprintf("ensureTemplateDB: OpenDB: %v", err))
-		}
-		store := cfgstore.NewDBStore(db)
-		if err := store.Seed(context.Background()); err != nil {
-			panic(fmt.Sprintf("ensureTemplateDB: Seed: %v", err))
-		}
-		if err := db.Close(); err != nil {
-			panic(fmt.Sprintf("ensureTemplateDB: Close: %v", err))
-		}
-		templateDBPath = path
-	})
-	return templateDBPath
-}
-
-func copyTemplateDB(t *testing.T) string {
-	t.Helper()
-	src := ensureTemplateDB()
-	dst := filepath.Join(t.TempDir(), "test.db")
-	in, err := os.Open(src)
-	if err != nil {
-		t.Fatalf("copyTemplateDB: open src: %v", err)
-	}
-	defer func() { _ = in.Close() }()
-	out, err := os.Create(dst)
-	if err != nil {
-		t.Fatalf("copyTemplateDB: create dst: %v", err)
-	}
-	defer func() { _ = out.Close() }()
-	if _, err := io.Copy(out, in); err != nil {
-		t.Fatalf("copyTemplateDB: copy: %v", err)
-	}
-	return dst
+	// Lower bcrypt cost for the whole package before handing the run+exit to
+	// dbtest.Main, which stops the shared embedded Postgres server afterward.
+	auth.SetBcryptCostForTesting(bcrypt.MinCost)
+	dbtest.Main(m)
 }
 
 type testEnv struct {
@@ -120,12 +67,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	t.Setenv("STELLA_HOME", filepath.Join(t.TempDir(), "stella-home"))
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
-	dbPath := copyTemplateDB(t)
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	store := cfgstore.NewDBStore(db)
 	ctx := context.Background()

@@ -3,23 +3,18 @@ package scheduler
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return dbtest.New(t)
 }
 
 // newTestService wraps New.
@@ -136,33 +131,23 @@ func TestRemoveJobNotFound(t *testing.T) {
 }
 
 func TestJobPersistenceAcrossRestart(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db := dbtest.New(t)
 
 	// Create and add a job.
-	db1, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	svc1 := newTestService(t, db1)
+	svc1 := newTestService(t, db)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	job := addTestJob(t, svc1, "persist-test", "check weather", Schedule{Cron: "0 9 * * *"}, "")
 	_ = svc1.Stop()
-	_ = db1.Close()
 
 	// Create a new service from the same database.
-	db2, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	svc2 := newTestService(t, db2)
+	svc2 := newTestService(t, db)
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer func() {
 		_ = svc2.Stop()
-		_ = db2.Close()
 	}()
 
 	jobs := svc2.ListJobs()
@@ -178,31 +163,21 @@ func TestJobPersistenceAcrossRestart(t *testing.T) {
 }
 
 func TestStartEphemeralSkipsPersistedJobs(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db := dbtest.New(t)
 
-	db1, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	svc1 := newTestService(t, db1)
+	svc1 := newTestService(t, db)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	addTestJob(t, svc1, "persist-test", "check weather", Schedule{Every: "1h"}, "")
 	_ = svc1.Stop()
-	_ = db1.Close()
 
-	db2, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	svc2 := newTestService(t, db2)
+	svc2 := newTestService(t, db)
 	if err := svc2.StartEphemeral(context.Background()); err != nil {
 		t.Fatalf("StartEphemeral: %v", err)
 	}
 	defer func() {
 		_ = svc2.Stop()
-		_ = db2.Close()
 	}()
 
 	if jobs := svc2.ListJobs(); len(jobs) != 0 {
@@ -333,14 +308,10 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 }
 
 func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db := dbtest.New(t)
 
 	// Create a service and add a one-time job in the future.
-	db1, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	svc1 := newTestService(t, db1)
+	svc1 := newTestService(t, db)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -350,24 +321,18 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 
 	// Manually tamper the job to have a past timestamp to simulate missed window.
 	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
-	_, err = db1.Exec("UPDATE sched_job SET schedule_at = ? WHERE name = ?", pastTime, "restart-test")
+	_, err := db.Exec("UPDATE sched_job SET schedule_at = $1 WHERE name = $2", pastTime, "restart-test")
 	if err != nil {
 		t.Fatalf("update schedule_at: %v", err)
 	}
-	_ = db1.Close()
 
 	// Restart: the past one-time job should be loaded but not scheduled (silently skipped).
-	db2, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	svc2 := newTestService(t, db2)
+	svc2 := newTestService(t, db)
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer func() {
 		_ = svc2.Stop()
-		_ = db2.Close()
 	}()
 
 	// Job is still in the list (persisted) but not scheduled with gocron.
@@ -490,13 +455,9 @@ func TestEnsureJobUpdatesExisting(t *testing.T) {
 }
 
 func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db := dbtest.New(t)
 
-	db1, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	svc1 := newTestService(t, db1)
+	svc1 := newTestService(t, db)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -505,19 +466,13 @@ func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
 		t.Fatalf("EnsureJob: %v", err)
 	}
 	_ = svc1.Stop()
-	_ = db1.Close()
 
-	db2, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	svc2 := newTestService(t, db2)
+	svc2 := newTestService(t, db)
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer func() {
 		_ = svc2.Stop()
-		_ = db2.Close()
 	}()
 
 	job2, err := svc2.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)

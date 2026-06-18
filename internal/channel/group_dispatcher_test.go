@@ -5,12 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -63,11 +62,7 @@ type dispatcherFixture struct {
 
 func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFixture {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 	q := sqlc.New(db)
 	ctx := context.Background()
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
@@ -415,7 +410,7 @@ func TestGroupDispatcherZeroRespondersCompletesOutbox(t *testing.T) {
 
 func TestGroupDispatcherPlatformMentionModeDoesNotUseObserverFallback(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-1' WHERE id = ?`, fx.message.ID); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-1' WHERE id = $1`, fx.message.ID); err != nil {
 		t.Fatalf("set source channel: %v", err)
 	}
 	if _, err := fx.db.ExecContext(context.Background(), `UPDATE channel SET config = '{"group_mode":"mention"}' WHERE id = 'ch-1'`); err != nil {
@@ -464,7 +459,7 @@ func TestGroupDispatcherPlatformAlwaysModeUsesMemberFallback(t *testing.T) {
 	secondPublisher := &recordingGroupPublisher{}
 	fx.d.publishers.Register("ch-1", firstPublisher)
 	fx.d.publishers.Register("ch-2", secondPublisher)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-2' WHERE id = ?`, fx.message.ID); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-2' WHERE id = $1`, fx.message.ID); err != nil {
 		t.Fatalf("set source channel: %v", err)
 	}
 	if _, err := fx.db.ExecContext(context.Background(), `UPDATE channel SET config = '{"group_mode":"always"}' WHERE id = 'ch-1'`); err != nil {
@@ -622,7 +617,10 @@ func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `CREATE TRIGGER fail_agent_writeback BEFORE INSERT ON ctx_group_message WHEN NEW.actor_type = 'agent' BEGIN SELECT RAISE(FAIL, 'fail agent writeback'); END;`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `CREATE FUNCTION fail_agent_writeback_fn() RETURNS trigger AS $$ BEGIN IF NEW.actor_type = 'agent' THEN RAISE EXCEPTION 'fail agent writeback'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;`); err != nil {
+		t.Fatalf("create trigger function: %v", err)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `CREATE TRIGGER fail_agent_writeback BEFORE INSERT ON ctx_group_message FOR EACH ROW EXECUTE FUNCTION fail_agent_writeback_fn();`); err != nil {
 		t.Fatalf("create trigger: %v", err)
 	}
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
@@ -642,7 +640,7 @@ func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.
 	if got := countAgentGroupMessages(t, fx.db); got != 0 {
 		t.Fatalf("agent messages = %d, want failed transaction to append none", got)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `DROP TRIGGER fail_agent_writeback`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `DROP TRIGGER fail_agent_writeback ON ctx_group_message`); err != nil {
 		t.Fatalf("drop trigger: %v", err)
 	}
 	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'dispatch-1'`); err != nil {
@@ -866,7 +864,7 @@ func TestGroupDispatcherHeartbeatDoesNotExtendAfterOwnershipLoss(t *testing.T) {
 		})
 	}, nil)
 	defer stop()
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET attempt_count = attempt_count + 1 WHERE id = ?`, claimed.ID); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET attempt_count = attempt_count + 1 WHERE id = $1`, claimed.ID); err != nil {
 		t.Fatalf("simulate ownership loss: %v", err)
 	}
 	afterLoss, err := fx.q.GetGroupOutbox(context.Background(), claimed.ID)
@@ -912,7 +910,7 @@ func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("publisher did not start")
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET attempt_count = attempt_count + 1 WHERE id = ?`, "dispatch-1"); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET attempt_count = attempt_count + 1 WHERE id = $1`, "dispatch-1"); err != nil {
 		t.Fatalf("simulate dispatch ownership loss: %v", err)
 	}
 	select {
@@ -993,7 +991,7 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 
 func dispatchAgentsByMessage(t *testing.T, db *sql.DB, messageID string) []string {
 	t.Helper()
-	rows, err := db.QueryContext(context.Background(), `SELECT agent_id FROM ctx_group_dispatch WHERE group_message_id = ? ORDER BY agent_id`, messageID)
+	rows, err := db.QueryContext(context.Background(), `SELECT agent_id FROM ctx_group_dispatch WHERE group_message_id = $1 ORDER BY agent_id`, messageID)
 	if err != nil {
 		t.Fatalf("query dispatch agents: %v", err)
 	}
@@ -1019,7 +1017,7 @@ func dispatchAgentsByMessage(t *testing.T, db *sql.DB, messageID string) []strin
 func dispatchStatusByMessage(t *testing.T, db *sql.DB, messageID string) string {
 	t.Helper()
 	var status string
-	if err := db.QueryRowContext(context.Background(), `SELECT status FROM ctx_group_dispatch WHERE group_message_id = ?`, messageID).Scan(&status); err != nil {
+	if err := db.QueryRowContext(context.Background(), `SELECT status FROM ctx_group_dispatch WHERE group_message_id = $1`, messageID).Scan(&status); err != nil {
 		t.Fatalf("query dispatch status: %v", err)
 	}
 	return status
@@ -1088,7 +1086,7 @@ func TestWrapGroupResponseStreamBuffersCompleteStream(t *testing.T) {
 
 func setGroupNextSeq(t *testing.T, db *sql.DB, groupID string, seq int64) {
 	t.Helper()
-	if _, err := db.ExecContext(context.Background(), `UPDATE ctx_group_state SET next_seq = ? WHERE id = ?`, seq, groupID); err != nil {
+	if _, err := db.ExecContext(context.Background(), `UPDATE ctx_group_state SET next_seq = $1 WHERE id = $2`, seq, groupID); err != nil {
 		t.Fatalf("set group next seq: %v", err)
 	}
 }

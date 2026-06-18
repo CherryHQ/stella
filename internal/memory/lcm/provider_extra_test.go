@@ -4,13 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -18,22 +17,14 @@ import (
 
 func newLCMTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
+	db := dbtest.New(t)
 
-	db, err := appdb.OpenDB(dbPath)
+	_, err := db.Exec(`INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
+		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', '', true)`)
 	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-
-	_, err = db.Exec(`INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
-		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', '', 1)`)
-	if err != nil {
-		_ = db.Close()
 		t.Fatalf("seed agent: %v", err)
 	}
 	if _, err = db.Exec(`INSERT INTO auth_user (id, email) VALUES ('1', 'user-1@test.local')`); err != nil {
-		_ = db.Close()
 		t.Fatalf("seed user: %v", err)
 	}
 	return db
@@ -111,12 +102,12 @@ func TestLCMProvider_StatsUsesConversationTimeBounds(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `
 		UPDATE ctx_message
 		SET created_at = CASE seq
-			WHEN 1 THEN ?
+			WHEN 1 THEN $1
 			WHEN 2 THEN '2024-01-02 02:03:04'
-			WHEN 3 THEN ?
+			WHEN 3 THEN $2
 			ELSE created_at
 		END
-		WHERE conversation_id = (SELECT id FROM ctx_conversation WHERE session_id = ?)
+		WHERE conversation_id = (SELECT id FROM ctx_conversation WHERE session_id = $3)
 	`, oldest, newest, sess.ID); err != nil {
 		t.Fatalf("set message timestamps: %v", err)
 	}

@@ -3,13 +3,14 @@ package auth_test
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 func TestLinkCodeGenerate(t *testing.T) {
 	store := auth.NewLinkCodeStore()
@@ -51,23 +52,13 @@ func TestLinkCodeConsume(t *testing.T) {
 }
 
 func TestSharedLinkCodeConsumeAcrossStores(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "linkcodes.db")
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	db2, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB second handle: %v", err)
-	}
-	t.Cleanup(func() { _ = db2.Close() })
+	db := dbtest.New(t)
 
 	issuer, err := auth.NewSharedLinkCodeStore(context.Background(), db)
 	if err != nil {
 		t.Fatalf("NewSharedLinkCodeStore issuer: %v", err)
 	}
-	consumer, err := auth.NewSharedLinkCodeStore(context.Background(), db2)
+	consumer, err := auth.NewSharedLinkCodeStore(context.Background(), db)
 	if err != nil {
 		t.Fatalf("NewSharedLinkCodeStore consumer: %v", err)
 	}

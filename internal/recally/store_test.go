@@ -3,184 +3,26 @@ package recally
 import (
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
-// recallyArticleFTSSchema is the SQLite FTS5 DDL these store tests assemble by
-// hand. It was previously exported from internal/db as RecallyArticleFTSSchema,
-// but the PostgreSQL schema port removed that symbol (PG uses generated
-// tsvector columns, not fts5 virtual tables). The DDL is kept here verbatim so
-// the test's runtime-managed index and triggers behave exactly as before.
-const recallyArticleFTSSchema = `
-CREATE VIRTUAL TABLE IF NOT EXISTS recally_article_fts USING fts5(
-    title,
-    summary,
-    tags,
-    author,
-    content='recally_article',
-    content_rowid='rowid',
-    tokenize='trigram'
-);
-
-CREATE TRIGGER IF NOT EXISTS recally_article_fts_ai AFTER INSERT ON recally_article BEGIN
-    INSERT INTO recally_article_fts(rowid, title, summary, tags, author)
-    VALUES (new.rowid, new.title, new.summary, new.tags, new.author);
-END;
-
-CREATE TRIGGER IF NOT EXISTS recally_article_fts_ad AFTER DELETE ON recally_article BEGIN
-    INSERT INTO recally_article_fts(recally_article_fts, rowid, title, summary, tags, author)
-    VALUES ('delete', old.rowid, old.title, old.summary, old.tags, old.author);
-END;
-
-CREATE TRIGGER IF NOT EXISTS recally_article_fts_au AFTER UPDATE OF title, summary, tags, author ON recally_article BEGIN
-    INSERT INTO recally_article_fts(recally_article_fts, rowid, title, summary, tags, author)
-    VALUES ('delete', old.rowid, old.title, old.summary, old.tags, old.author);
-    INSERT INTO recally_article_fts(rowid, title, summary, tags, author)
-    VALUES (new.rowid, new.title, new.summary, new.tags, new.author);
-END;
-`
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
 
-	// Create temp directory for test database
-	tempDir, err := os.MkdirTemp("", "recally-store-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
+	db := dbtest.New(t)
 
-	dbPath := filepath.Join(tempDir, "test.db")
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-			t.Fatalf("Failed to clean up temp dir after open error: %v", removeErr)
-		}
-		t.Fatalf("Failed to open test database: %v", err)
-	}
-
-	// Create tables
-	schema := `
-CREATE TABLE IF NOT EXISTS auth_users (
-    id INTEGER PRIMARY KEY,
-    username TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'user',
-    is_active INTEGER NOT NULL DEFAULT 1,
-    age_public_key TEXT NOT NULL DEFAULT '',
-    age_private_key TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS recally_article (
-    id TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    agent_id TEXT,
-    url TEXT NOT NULL,
-    canonical_url TEXT NOT NULL,
-    source_type TEXT NOT NULL DEFAULT 'web',
-    title TEXT NOT NULL DEFAULT '',
-    author TEXT NOT NULL DEFAULT '',
-    summary TEXT NOT NULL DEFAULT '',
-    tags TEXT NOT NULL DEFAULT '[]',
-    status TEXT NOT NULL DEFAULT 'unread',
-    starred INTEGER NOT NULL DEFAULT 0,
-    file_path TEXT NOT NULL DEFAULT '',
-    metadata TEXT NOT NULL DEFAULT '{}',
-    published_at TEXT,
-    saved_at TEXT NOT NULL DEFAULT (datetime('now')),
-    read_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_article_user_canonical ON recally_article (user_id, canonical_url);
-
-CREATE TABLE IF NOT EXISTS recally_feed (
-    id TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    agent_id TEXT,
-    url TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'rss',
-    metadata TEXT NOT NULL DEFAULT '{}',
-    title TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT '',
-    check_interval TEXT NOT NULL DEFAULT '1h',
-    last_checked_at TEXT,
-    last_etag TEXT NOT NULL DEFAULT '',
-    last_modified TEXT NOT NULL DEFAULT '',
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_feed_user_url ON recally_feed (user_id, url);
-
-CREATE TABLE IF NOT EXISTS recally_feed_entry (
-    id TEXT PRIMARY KEY,
-    feed_id TEXT NOT NULL,
-    guid TEXT NOT NULL,
-    url TEXT NOT NULL DEFAULT '',
-    title TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'pending',
-    article_id TEXT,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    error_msg TEXT NOT NULL DEFAULT '',
-    discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
-    processed_at TEXT
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_feed_entry_feed_guid ON recally_feed_entry (feed_id, guid);
-`
-
-	if _, err := db.Exec(schema); err != nil {
-		if closeErr := db.Close(); closeErr != nil {
-			t.Fatalf("Failed to close test database: %v", closeErr)
-		}
-		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-			t.Fatalf("Failed to remove temp dir: %v", removeErr)
-		}
-		t.Fatalf("Failed to create schema: %v", err)
-	}
-
-	// Article search runs against the runtime-managed FTS5 index; apply the
-	// same DDL OpenDB would so triggers keep the index in sync.
-	if _, err := db.Exec(recallyArticleFTSSchema); err != nil {
-		if closeErr := db.Close(); closeErr != nil {
-			t.Fatalf("Failed to close test database: %v", closeErr)
-		}
-		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-			t.Fatalf("Failed to remove temp dir: %v", removeErr)
-		}
-		t.Fatalf("Failed to create FTS schema: %v", err)
-	}
-
-	// Insert a test user
-	if _, err := db.Exec(`INSERT INTO auth_users (id, username, password_hash) VALUES (1, 'testuser', 'hash')`); err != nil {
-		if closeErr := db.Close(); closeErr != nil {
-			t.Fatalf("Failed to close test database: %v", closeErr)
-		}
-		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-			t.Fatalf("Failed to remove temp dir: %v", removeErr)
-		}
+	// recally_article.user_id has a FK to auth_user(id); the tests save as user
+	// "1", so that row must exist before any insert.
+	if _, err := db.Exec(`INSERT INTO auth_user (id, email) VALUES ('1', 'testuser@example.com')`); err != nil {
 		t.Fatalf("Failed to insert test user: %v", err)
 	}
 
-	cleanup := func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("Failed to close test database: %v", err)
-		}
-		if err := os.RemoveAll(tempDir); err != nil {
-			t.Fatalf("Failed to remove temp dir: %v", err)
-		}
-	}
-
-	return db, cleanup
+	return db, func() {}
 }
 
 func TestStore_SaveArticle(t *testing.T) {
@@ -711,8 +553,17 @@ func TestStore_FeedEntries(t *testing.T) {
 		t.Errorf("Expected 3 pending entries, got %d", len(pending))
 	}
 
-	// Mark entry as saved
-	articleID := "article-123"
+	// Mark entry as saved. recally_feed_entry.article_id has a FK to
+	// recally_article(id), so the referenced article must really exist.
+	savedArticle, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+		URL:        "https://example.com/feed-saved",
+		SourceType: SourceTypeWeb,
+		Title:      "Feed Saved Article",
+	})
+	if err != nil {
+		t.Fatalf("SaveArticle failed: %v", err)
+	}
+	articleID := savedArticle.ID
 	updated, err := store.MarkFeedEntry(ctx, feed.ID, pending[0].ID, EntryStatusSaved, &articleID, "")
 	if err != nil {
 		t.Fatalf("MarkFeedEntry failed: %v", err)

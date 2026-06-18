@@ -3,19 +3,17 @@ package local
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 func newTestService(t *testing.T, cfg *Config) (*Service, *appdb.OIDCStore) {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 	store := appdb.NewOIDCStore(db)
 	return NewService(cfg, store, store), store
 }

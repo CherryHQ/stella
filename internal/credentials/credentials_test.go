@@ -2,15 +2,16 @@ package credentials_test
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // --- helpers ---
 
@@ -189,11 +190,7 @@ func TestSetOAuthProviderConfigNilDB(t *testing.T) {
 }
 
 func TestSetAndGetOAuthProviderConfig(t *testing.T) {
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	svc := credentials.NewService(nil, pkgdb.New(db), oauth.NewFlowStore(), "http://localhost:8080")
 	ctx := context.Background()

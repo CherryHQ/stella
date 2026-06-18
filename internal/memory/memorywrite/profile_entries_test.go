@@ -15,7 +15,7 @@ func seedUserAgent(t *testing.T, db *sql.DB) {
 	if _, err := db.Exec(`INSERT INTO auth_user (id, email) VALUES ('u1', 'u1@test.local')`); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled) VALUES ('a1', 'agent1', '', '', '', '', '/tmp', 'user', 'u1', 1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled) VALUES ('a1', 'agent1', '', '', '', '', '/tmp', 'user', 'u1', true)`); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 }

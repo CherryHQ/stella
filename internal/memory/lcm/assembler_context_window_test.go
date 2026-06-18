@@ -19,7 +19,7 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 	ctx := context.Background()
 	q := sqlc.New(db)
 	convID := "conv-context-window-loader"
-	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES (?, ?, 'test', 'chat')`, convID, "sess-context-window-loader"); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, "sess-context-window-loader"); err != nil {
 		t.Fatalf("insert conversation: %v", err)
 	}
 

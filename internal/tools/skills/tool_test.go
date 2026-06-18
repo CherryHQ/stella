@@ -16,11 +16,14 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // testSkillStore is a minimal pkgplugins.SkillStore backed directly by sqlc.
 // It avoids the import cycle internal/skills → internal/tools/skills → internal/skills.
@@ -31,11 +34,7 @@ type testSkillStore struct {
 
 func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	ctx := context.Background()
 	oidcStore := appdb.NewOIDCStore(db)
@@ -175,7 +174,7 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 }
 
 func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
-	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: nil, UserID: nil})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: sql.NullString{}, UserID: sql.NullString{}})
 	if err != nil {
 		return err
 	}
@@ -219,7 +218,7 @@ func (s *testSkillStore) DeleteFile(ctx context.Context, skillID, path string) e
 }
 
 func (s *testSkillStore) Delete(ctx context.Context, id string) error {
-	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: nil, UserID: nil})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: sql.NullString{}, UserID: sql.NullString{}})
 	if err != nil {
 		return err
 	}

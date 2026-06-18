@@ -12,7 +12,7 @@ import (
 
 func forceTaskStatus(t *testing.T, h *testHarness, id, status string) {
 	t.Helper()
-	if _, err := h.db.Exec(`UPDATE agent_task SET status = ? WHERE id = ?`, status, id); err != nil {
+	if _, err := h.db.Exec(`UPDATE agent_task SET status = $1 WHERE id = $2`, status, id); err != nil {
 		t.Fatalf("force status: %v", err)
 	}
 }

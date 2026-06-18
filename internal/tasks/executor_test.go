@@ -101,7 +101,7 @@ func TestTerminalRecorder_FirstWins(t *testing.T) {
 func runExecutorTurns(t *testing.T, h *testHarness, turns ...turnFn) (Result, error) {
 	t.Helper()
 	taskID, runID := claimSetup(t, h)
-	if _, err := h.db.Exec(`UPDATE agent_task_run SET executor_agent_id = ? WHERE id = ?`, h.agentID, runID); err != nil {
+	if _, err := h.db.Exec(`UPDATE agent_task_run SET executor_agent_id = $1 WHERE id = $2`, h.agentID, runID); err != nil {
 		t.Fatalf("set executor: %v", err)
 	}
 	run, err := h.q.GetAgentTaskRun(context.Background(), runID)
@@ -266,7 +266,7 @@ func TestWorkerExecutor_NoExecutorAgent_NonRetryableFail(t *testing.T) {
 func TestWorkerExecutor_ChatError_RetryableFail(t *testing.T) {
 	h := newHarness(t)
 	taskID, runID := claimSetup(t, h)
-	_, _ = h.db.Exec(`UPDATE agent_task_run SET executor_agent_id = ? WHERE id = ?`, h.agentID, runID)
+	_, _ = h.db.Exec(`UPDATE agent_task_run SET executor_agent_id = $1 WHERE id = $2`, h.agentID, runID)
 	run, _ := h.q.GetAgentTaskRun(context.Background(), runID)
 	task := h.getTask(t, taskID)
 	chat := func(_ context.Context, _ TaskChatParams) <-chan agent.Event {

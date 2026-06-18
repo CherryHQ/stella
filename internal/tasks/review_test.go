@@ -11,7 +11,7 @@ import (
 // setReviewPolicy is a test helper that sets the task's review_policy directly.
 func setReviewPolicy(t *testing.T, h *testHarness, taskID, policy string) {
 	t.Helper()
-	if _, err := h.db.Exec(`UPDATE agent_task SET review_policy = ? WHERE id = ?`, policy, taskID); err != nil {
+	if _, err := h.db.Exec(`UPDATE agent_task SET review_policy = $1 WHERE id = $2`, policy, taskID); err != nil {
 		t.Fatalf("set review policy: %v", err)
 	}
 }

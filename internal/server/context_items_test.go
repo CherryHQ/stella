@@ -39,7 +39,7 @@ func TestSessionContextItemsAndSummaryEndpoints(t *testing.T) {
 	}
 
 	var conversationID string
-	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = ?`, sessionID).Scan(&conversationID); err != nil {
+	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
 		t.Fatalf("load conversation: %v", err)
 	}
 	seedContextItems(t, env, conversationID)
@@ -107,14 +107,14 @@ func TestSessionContextItemsFallbackUsesMessagePaging(t *testing.T) {
 	}
 
 	var conversationID string
-	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = ?`, sessionID).Scan(&conversationID); err != nil {
+	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
 		t.Fatalf("load conversation: %v", err)
 	}
 	if _, err := env.db.Exec(`
 		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
 		VALUES
-		('fallback-msg-1', ?, 1, 'user', 'text', 'first', 10, '2026-06-10 02:00:00'),
-		('fallback-msg-2', ?, 2, 'assistant', 'text', 'second', 20, '2026-06-10 02:01:00')
+		('fallback-msg-1', $1, 1, 'user', 'text', 'first', 10, '2026-06-10 02:00:00'),
+		('fallback-msg-2', $2, 2, 'assistant', 'text', 'second', 20, '2026-06-10 02:01:00')
 	`, conversationID, conversationID); err != nil {
 		t.Fatalf("seed fallback messages: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestSessionSummaryCondensedAggregatesChildren(t *testing.T) {
 		t.Fatalf("SaveInfo: %v", err)
 	}
 	var conversationID string
-	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = ?`, sessionID).Scan(&conversationID); err != nil {
+	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
 		t.Fatalf("load conversation: %v", err)
 	}
 	mustExec := func(query string, args ...any) {
@@ -181,10 +181,10 @@ func TestSessionSummaryCondensedAggregatesChildren(t *testing.T) {
 	mustExec(`
 		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
 		VALUES
-		('cm-1', ?, 1, 'user', 'text', 'one', 10, '2026-06-10 03:00:00'),
-		('cm-2', ?, 2, 'assistant', 'text', 'two', 10, '2026-06-10 03:01:00'),
-		('cm-3', ?, 3, 'user', 'text', 'three', 10, '2026-06-10 03:02:00'),
-		('cm-4', ?, 4, 'assistant', 'text', 'four', 10, '2026-06-10 03:03:00')
+		('cm-1', $1, 1, 'user', 'text', 'one', 10, '2026-06-10 03:00:00'),
+		('cm-2', $2, 2, 'assistant', 'text', 'two', 10, '2026-06-10 03:01:00'),
+		('cm-3', $3, 3, 'user', 'text', 'three', 10, '2026-06-10 03:02:00'),
+		('cm-4', $4, 4, 'assistant', 'text', 'four', 10, '2026-06-10 03:03:00')
 	`, conversationID, conversationID, conversationID, conversationID)
 	mustExec(`
 		INSERT INTO ctx_summary (
@@ -192,9 +192,9 @@ func TestSessionSummaryCondensedAggregatesChildren(t *testing.T) {
 			descendant_count, descendant_token_count, source_message_token_count, created_at
 		)
 		VALUES
-		('leaf-a', ?, 'epoch', 1, 'leaf a', 10, '2026-06-10 03:00:00', '2026-06-10 03:01:00', 2, 20, 20, '2026-06-10 03:04:00'),
-		('leaf-b', ?, 'epoch', 1, 'leaf b', 10, '2026-06-10 03:02:00', '2026-06-10 03:03:00', 2, 20, 20, '2026-06-10 03:05:00'),
-		('cond-1', ?, 'epoch', 2, 'condensed', 12, '2026-06-10 03:00:00', '2026-06-10 03:03:00', 4, 40, 40, '2026-06-10 03:06:00')
+		('leaf-a', $1, 'epoch', 1, 'leaf a', 10, '2026-06-10 03:00:00', '2026-06-10 03:01:00', 2, 20, 20, '2026-06-10 03:04:00'),
+		('leaf-b', $2, 'epoch', 1, 'leaf b', 10, '2026-06-10 03:02:00', '2026-06-10 03:03:00', 2, 20, 20, '2026-06-10 03:05:00'),
+		('cond-1', $3, 'epoch', 2, 'condensed', 12, '2026-06-10 03:00:00', '2026-06-10 03:03:00', 4, 40, 40, '2026-06-10 03:06:00')
 	`, conversationID, conversationID, conversationID)
 	mustExec(`
 		INSERT INTO ctx_summary_message (summary_id, message_id, ordinal)
@@ -242,7 +242,7 @@ func TestSessionContextItemsPageTokenEdgeCases(t *testing.T) {
 		t.Fatalf("SaveInfo: %v", err)
 	}
 	var conversationID string
-	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = ?`, sessionID).Scan(&conversationID); err != nil {
+	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
 		t.Fatalf("load conversation: %v", err)
 	}
 	seedContextItems(t, env, conversationID)
@@ -313,16 +313,16 @@ func seedContextItems(t *testing.T, env *testEnv, conversationID string) {
 	mustExec(`
 		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
 		VALUES
-		('msg-1', ?, 1, 'user', 'text', 'hello', 10, '2026-06-10 01:00:00'),
-		('msg-2', ?, 2, 'assistant', 'text', 'first', 20, '2026-06-10 01:01:00'),
-		('msg-3', ?, 3, 'assistant', 'text', 'second', 30, '2026-06-10 01:02:00')
+		('msg-1', $1, 1, 'user', 'text', 'hello', 10, '2026-06-10 01:00:00'),
+		('msg-2', $2, 2, 'assistant', 'text', 'first', 20, '2026-06-10 01:01:00'),
+		('msg-3', $3, 3, 'assistant', 'text', 'second', 30, '2026-06-10 01:02:00')
 	`, conversationID, conversationID, conversationID)
 	mustExec(`
 		INSERT INTO ctx_summary (
 			id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at,
 			descendant_count, descendant_token_count, source_message_token_count, created_at
 		)
-		VALUES ('sum-1', ?, 'epoch', 1, 'assistant summary', 25, '2026-06-10 01:01:00', '2026-06-10 01:02:00', 2, 50, 50, '2026-06-10 01:03:00')
+		VALUES ('sum-1', $1, 'epoch', 1, 'assistant summary', 25, '2026-06-10 01:01:00', '2026-06-10 01:02:00', 2, 50, 50, '2026-06-10 01:03:00')
 	`, conversationID)
 	mustExec(`
 		INSERT INTO ctx_summary_message (summary_id, message_id, ordinal)
@@ -331,8 +331,8 @@ func seedContextItems(t *testing.T, env *testEnv, conversationID string) {
 	mustExec(`
 		INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, summary_id, event_type)
 		VALUES
-		(?, 1, 'message', 'msg-1', NULL, 'text'),
-		(?, 2, 'summary', NULL, 'sum-1', 'summary'),
-		(?, 3, 'message', 'msg-3', NULL, 'text')
+		($1, 1, 'message', 'msg-1', NULL, 'text'),
+		($2, 2, 'summary', NULL, 'sum-1', 'summary'),
+		($3, 3, 'message', 'msg-3', NULL, 'text')
 	`, conversationID, conversationID, conversationID)
 }

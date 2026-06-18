@@ -4,15 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // testHarness wires a fresh SQLite + seeded org/user/agent + TransitionService.
 type testHarness struct {
@@ -26,22 +27,17 @@ type testHarness struct {
 
 func newHarness(t *testing.T) *testHarness {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "tasks.db")
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 	ctx := context.Background()
 	userID := uuid.NewString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO auth_user (id, email) VALUES (?, ?)`,
+		`INSERT INTO auth_user (id, email) VALUES ($1, $2)`,
 		userID, "test-"+userID[:8]+"@example.com"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 	agentID := uuid.NewString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO agent (id, name, workspace) VALUES (?, 'test-agent', '/tmp')`,
+		`INSERT INTO agent (id, name, workspace) VALUES ($1, 'test-agent', '/tmp')`,
 		agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
@@ -74,7 +70,7 @@ func (h *testHarness) createTaskSession(t *testing.T, title string) string {
 	now := time.Now().UTC().Format("2006-01-02 15:04:05")
 	if _, err := h.db.ExecContext(context.Background(), `
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active, created_at, updated_at)
-		VALUES (?, ?, ?, 'task', 'task', ?, ?, ?, ?, ?)`,
+		VALUES ($1, $2, $3, 'task', 'task', $4, $5, $6, $7, $8)`,
 		uuid.NewString(), sessionID, title, h.agentID, h.userID, now, now, now); err != nil {
 		t.Fatalf("create task session: %v", err)
 	}
@@ -340,7 +336,7 @@ func TestFail_BudgetExhausted_GoesTerminal(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
 	// Force retry budget low: set max_retries=1 via direct UPDATE (test plumbing).
-	if _, err := h.db.Exec(`UPDATE agent_task SET max_retries = 1 WHERE id = ?`, id); err != nil {
+	if _, err := h.db.Exec(`UPDATE agent_task SET max_retries = 1 WHERE id = $1`, id); err != nil {
 		t.Fatalf("set max_retries: %v", err)
 	}
 	// First fail: should retry.
@@ -632,7 +628,7 @@ func TestInvariant_AtMostOneActiveWorkerRun(t *testing.T) {
 	// And the uniqueness index must reject any raw INSERT too.
 	_, err = h.db.Exec(`INSERT INTO agent_task_run
 		(id, task_id, user_id, kind, attempt_no, status, session_id, created_at, updated_at)
-		VALUES (?, ?, ?, 'worker', 99, 'running', 's', ?, ?)`,
+		VALUES ($1, $2, $3, 'worker', 99, 'running', 's', $4, $5)`,
 		uuid.NewString(), id, h.userID, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339))
 	if err == nil {
 		t.Errorf("uniq_active_worker_run should reject second active run")
@@ -647,7 +643,7 @@ func TestInvariant_AtMostOneOpenBlocker(t *testing.T) {
 		t.Fatalf("Block: %v", err)
 	}
 	// Raw INSERT of a second open blocker must violate the partial unique index.
-	_, err := h.db.Exec(`INSERT INTO agent_task_blocker (id, task_id, kind, status, created_at) VALUES (?, ?, 'user_input', 'open', ?)`,
+	_, err := h.db.Exec(`INSERT INTO agent_task_blocker (id, task_id, kind, status, created_at) VALUES ($1, $2, 'user_input', 'open', $3)`,
 		uuid.NewString(), id, time.Now().Format(time.RFC3339))
 	if err == nil {
 		t.Errorf("uniq_open_blocker_per_task should reject second open row")

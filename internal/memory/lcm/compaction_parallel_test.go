@@ -235,7 +235,7 @@ func listSummariesByOrdinal(t *testing.T, ctx context.Context, q *sqlc.Queries, 
 func countSummaries(t *testing.T, ctx context.Context, db *sql.DB, convID, kind string) int {
 	t.Helper()
 	var count int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ctx_summary WHERE conversation_id = ? AND kind = ?`, convID, kind).Scan(&count); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ctx_summary WHERE conversation_id = $1 AND kind = $2`, convID, kind).Scan(&count); err != nil {
 		t.Fatalf("count summaries: %v", err)
 	}
 	return count

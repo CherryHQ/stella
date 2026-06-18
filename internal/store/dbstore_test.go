@@ -3,13 +3,14 @@ package store_test
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/store"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 func testCtx() context.Context {
 	return context.Background()
@@ -23,12 +24,7 @@ func setupDBStore(t *testing.T) *store.DBStore {
 
 func setupDBStoreWithDB(t *testing.T) (*store.DBStore, *sql.DB) {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 	s := store.NewDBStore(db)
 	return s, db
 }

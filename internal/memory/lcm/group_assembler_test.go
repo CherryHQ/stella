@@ -4,11 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -17,12 +16,7 @@ import (
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return dbtest.New(t)
 }
 
 func groupSess(agentID, groupID string) memory.Session {
@@ -262,7 +256,7 @@ func TestGroupAssemble_DedupsPersistedInjectedOutsideBudget(t *testing.T) {
 		t.Fatalf("retry assemble: %v", err)
 	}
 	var count int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ctx_message WHERE role = 'user' AND content = ?`, "[seq:1 user1]: already persisted").Scan(&count); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ctx_message WHERE role = 'user' AND content = $1`, "[seq:1 user1]: already persisted").Scan(&count); err != nil {
 		t.Fatalf("count persisted injected: %v", err)
 	}
 	if count != 1 {

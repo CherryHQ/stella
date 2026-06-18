@@ -142,7 +142,7 @@ func TestDispatcher_StaleRunGetsInterrupted(t *testing.T) {
 	}
 	// Force lease into the past.
 	past := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
-	_, err = h.db.Exec(`UPDATE agent_task_run SET lease_expires_at = ?, status = 'running' WHERE id = ?`, past, res.RunID)
+	_, err = h.db.Exec(`UPDATE agent_task_run SET lease_expires_at = $1, status = 'running' WHERE id = $2`, past, res.RunID)
 	if err != nil {
 		t.Fatalf("force stale: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestDispatcher_DepFailurePropagatesAsBlock(t *testing.T) {
 	if err := h.svc.Cancel(context.Background(), upstream, "test", SystemActor()); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
-	_, _ = h.db.Exec(`UPDATE agent_task SET status = 'failed' WHERE id = ?`, upstream)
+	_, _ = h.db.Exec(`UPDATE agent_task SET status = 'failed' WHERE id = $1`, upstream)
 	downstream := h.createTask(t, StatusReady)
 	if err := h.svc.AddDep(context.Background(), downstream, upstream, DepKindHard, OnFailureBlock); err != nil {
 		t.Fatalf("AddDep: %v", err)
@@ -232,7 +232,7 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 	// table FK is ON DELETE CASCADE → agent; we just need any agent id
 	// to exist.)
 	hintAgent := uuid.NewString()
-	if _, err := h.db.Exec(`INSERT INTO agent (id, name, workspace) VALUES (?, 'hint-agent', '/tmp')`,
+	if _, err := h.db.Exec(`INSERT INTO agent (id, name, workspace) VALUES ($1, 'hint-agent', '/tmp')`,
 		hintAgent); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 	if hint.ID == "" {
 		// Live hint query returns sql.ErrNoRows for consumed hints; the empty
 		// row above is from an err branch we ignore. Verify directly:
-		row := h.db.QueryRow(`SELECT consumed_at FROM agent_task_dispatch_hint WHERE task_id = ?`, id)
+		row := h.db.QueryRow(`SELECT consumed_at FROM agent_task_dispatch_hint WHERE task_id = $1`, id)
 		var consumed sql.NullString
 		_ = row.Scan(&consumed)
 		if !consumed.Valid {

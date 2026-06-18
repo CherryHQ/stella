@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -12,17 +11,16 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
-// newTestStore opens a fresh in-tmpdir SQLite DB and returns a Store plus a context.
+func TestMain(m *testing.M) { dbtest.Main(m) }
+
+// newTestStore opens a fresh isolated PostgreSQL DB and returns a Store plus a context.
 func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB, context.Context) {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 	return New(db), db, context.Background()
 }
 
@@ -265,7 +263,7 @@ func TestScopeOwnerCheckConstraint(t *testing.T) {
 	for _, b := range bad {
 		t.Run(b.name, func(t *testing.T) {
 			_, err := db.ExecContext(ctx,
-				"INSERT INTO skill (id, scope, user_id, agent_id, name, description, status) VALUES (?, ?, ?, ?, ?, 'd', 'active')",
+				"INSERT INTO skill (id, scope, user_id, agent_id, name, description, status) VALUES ($1, $2, $3, $4, $5, 'd', 'active')",
 				uuid.NewString(), b.scope, b.userID, b.agentID, b.name)
 			if err == nil {
 				t.Fatalf("expected CHECK constraint violation for %s/%s", b.scope, b.name)
@@ -480,7 +478,7 @@ func TestDeleteCascadesSkillFiles(t *testing.T) {
 
 	// Skill row gone.
 	var skillCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill WHERE id=?", id).Scan(&skillCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill WHERE id=$1", id).Scan(&skillCount); err != nil {
 		t.Fatalf("count skills: %v", err)
 	}
 	if skillCount != 0 {
@@ -489,7 +487,7 @@ func TestDeleteCascadesSkillFiles(t *testing.T) {
 
 	// Skill files cascade-deleted.
 	var fileCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill_file WHERE skill_id=?", id).Scan(&fileCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill_file WHERE skill_id=$1", id).Scan(&fileCount); err != nil {
 		t.Fatalf("count skill_file: %v", err)
 	}
 	if fileCount != 0 {

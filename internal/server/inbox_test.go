@@ -27,7 +27,7 @@ func TestListAgentsIncludesLastActive(t *testing.T) {
 
 	_, err := env.db.Exec(`
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-		VALUES (?, ?, 'main', 'web', 'main', ?, ?, ?)
+		VALUES ($1, $2, 'main', 'web', 'main', $3, $4, $5)
 	`, uuid.NewString(), "last-active-session", agentID, env.adminUser.ID, lastActive)
 	if err != nil {
 		t.Fatalf("seed conversation: %v", err)
@@ -163,26 +163,26 @@ func TestListInboxExcludesNonActionableReviews(t *testing.T) {
 		created := inboxTS(-1 * time.Hour)
 		_, err := env.db.ExecContext(ctx, `
 			INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-			VALUES (?, ?, ?, 'task', 'task', ?, ?, ?)
+			VALUES ($1, $2, $3, 'task', 'task', $4, $5, $6)
 		`, uuid.NewString(), "task:"+taskID, taskID, agentID, userID, created)
 		if err != nil {
 			t.Fatalf("seed conversation %s: %v", taskID, err)
 		}
 		_, err = env.db.ExecContext(ctx, `
 			INSERT INTO agent_task (id, user_id, agent_id, session_id, title, status, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		`, taskID, userID, agentID, "task:"+taskID, taskID, taskStatus, created, created)
 		if err != nil {
 			t.Fatalf("seed task %s: %v", taskID, err)
 		}
 		_, err = env.db.ExecContext(ctx, `
 			INSERT INTO agent_review (id, task_id, reviewer_type, status, summary, created_at, updated_at)
-			VALUES (?, ?, ?, 'requested', 'check', ?, ?)
+			VALUES ($1, $2, $3, 'requested', 'check', $4, $5)
 		`, reviewID, taskID, reviewerType, created, created)
 		if err != nil {
 			t.Fatalf("seed review %s: %v", reviewID, err)
 		}
-		_, err = env.db.ExecContext(ctx, `UPDATE agent_task SET active_review_id = ? WHERE id = ?`, reviewID, taskID)
+		_, err = env.db.ExecContext(ctx, `UPDATE agent_task SET active_review_id = $1 WHERE id = $2`, reviewID, taskID)
 		if err != nil {
 			t.Fatalf("link review %s: %v", reviewID, err)
 		}
@@ -219,7 +219,7 @@ func TestListInboxExcludesFailedRunsOfRecoveredTask(t *testing.T) {
 	created := inboxTS(-2 * time.Hour)
 	_, err := env.db.ExecContext(ctx, `
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-		VALUES (?, 'task:recovered', 'Recovered task', 'task', 'task', ?, ?, ?)
+		VALUES ($1, 'task:recovered', 'Recovered task', 'task', 'task', $2, $3, $4)
 	`, uuid.NewString(), agentID, userID, created)
 	if err != nil {
 		t.Fatalf("seed conversation: %v", err)
@@ -227,7 +227,7 @@ func TestListInboxExcludesFailedRunsOfRecoveredTask(t *testing.T) {
 	// Task ultimately succeeded.
 	_, err = env.db.ExecContext(ctx, `
 		INSERT INTO agent_task (id, user_id, agent_id, session_id, title, status, created_at, updated_at)
-		VALUES ('task-recovered', ?, ?, 'task:recovered', 'Recovered task', 'done', ?, ?)
+		VALUES ('task-recovered', $1, $2, 'task:recovered', 'Recovered task', 'done', $3, $4)
 	`, userID, agentID, created, created)
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
@@ -239,8 +239,8 @@ func TestListInboxExcludesFailedRunsOfRecoveredTask(t *testing.T) {
 			error, started_at, finished_at, created_at, updated_at
 		)
 		VALUES (
-			'run-recovered', 'task-recovered', ?, ?, 'worker', 1, 'failed', 'task:recovered',
-			'transient boom', ?, ?, ?, ?
+			'run-recovered', 'task-recovered', $1, $2, 'worker', 1, 'failed', 'task:recovered',
+			'transient boom', $3, $4, $5, $6
 		)
 	`, userID, agentID,
 		inboxTS(-2*time.Hour),
@@ -272,14 +272,14 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 		t.Helper()
 		_, err := env.db.ExecContext(ctx, `
 			INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-			VALUES (?, ?, ?, 'task', 'task', ?, ?, ?)
+			VALUES ($1, $2, $3, 'task', 'task', $4, $5, $6)
 		`, uuid.NewString(), sessionID, title, agentID, userID, createdAt)
 		if err != nil {
 			t.Fatalf("seed conversation %s: %v", sessionID, err)
 		}
 		_, err = env.db.ExecContext(ctx, `
 			INSERT INTO agent_task (id, user_id, agent_id, session_id, title, status, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		`, taskID, userID, agentID, sessionID, title, status, createdAt, createdAt)
 		if err != nil {
 			t.Fatalf("seed task %s: %v", taskID, err)
@@ -289,7 +289,7 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 	insertTask("task-blocked", "task:block", "Blocked task", "blocked", inboxTS(-7*time.Hour))
 	_, err := env.db.ExecContext(ctx, `
 		INSERT INTO agent_task_blocker (id, task_id, kind, status, question, created_at)
-		VALUES ('blocker-1', 'task-blocked', 'input', 'open', 'Need a choice', ?)
+		VALUES ('blocker-1', 'task-blocked', 'input', 'open', 'Need a choice', $1)
 	`, inboxTS(-4*time.Hour))
 	if err != nil {
 		t.Fatalf("seed blocker: %v", err)
@@ -302,7 +302,7 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 	insertTask("task-review", "task:review", "Review task", "reviewing", inboxTS(-6*time.Hour))
 	_, err = env.db.ExecContext(ctx, `
 		INSERT INTO agent_review (id, task_id, reviewer_type, status, summary, created_at, updated_at)
-		VALUES ('review-1', 'task-review', 'human', 'requested', 'Check output', ?, ?)
+		VALUES ('review-1', 'task-review', 'human', 'requested', 'Check output', $1, $2)
 	`, inboxTS(-5*time.Hour), inboxTS(-5*time.Hour))
 	if err != nil {
 		t.Fatalf("seed review: %v", err)
@@ -321,8 +321,8 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 			error, started_at, finished_at, created_at, updated_at
 		)
 		VALUES (
-			'run-1', 'task-failed', ?, ?, 'worker', 1, 'failed', 'task:failed',
-			'boom', ?, ?, ?, ?
+			'run-1', 'task-failed', $1, $2, 'worker', 1, 'failed', 'task:failed',
+			'boom', $3, $4, $5, $6
 		)
 	`, userID, agentID,
 		inboxTS(-7*time.Hour),
@@ -336,14 +336,14 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 		INSERT INTO sched_job (
 			id, name, agent_id, user_id, created_at, updated_at
 		)
-		VALUES ('job-1', 'Daily check', ?, ?, ?, ?)
+		VALUES ('job-1', 'Daily check', $1, $2, $3, $4)
 	`, agentID, userID, inboxTS(-8*time.Hour), inboxTS(-8*time.Hour))
 	if err != nil {
 		t.Fatalf("seed sched job: %v", err)
 	}
 	_, err = env.db.ExecContext(ctx, `
 		INSERT INTO sched_job_run (id, job_id, status, started_at, finished_at, error, user_id)
-		VALUES ('sched-run-1', 'job-1', 'failed', ?, ?, 'schedule boom', ?)
+		VALUES ('sched-run-1', 'job-1', 'failed', $1, $2, 'schedule boom', $3)
 	`, inboxTS(-3*time.Hour), inboxTS(-2*time.Hour), userID)
 	if err != nil {
 		t.Fatalf("seed sched run: %v", err)

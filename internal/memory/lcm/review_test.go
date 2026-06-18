@@ -24,7 +24,7 @@ func TestBuildReviewContext_BudgetsSummariesBeforeMessages(t *testing.T) {
 	ctx := context.Background()
 	convID := "review-budget-conv"
 	sess := memory.Session{ID: "review-budget-session", UserID: "user-1", AgentID: "agent-1", Channel: "test"}
-	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id) VALUES (?, ?, 'test', 'chat', ?, ?)`, convID, sess.ID, sess.AgentID, sess.UserID); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id) VALUES ($1, $2, 'test', 'chat', $3, $4)`, convID, sess.ID, sess.AgentID, sess.UserID); err != nil {
 		t.Fatalf("insert conversation: %v", err)
 	}
 
@@ -32,14 +32,14 @@ func TestBuildReviewContext_BudgetsSummariesBeforeMessages(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		if _, err := db.ExecContext(ctx, `
 			INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, created_at)
-			VALUES (?, ?, ?, 0, ?, 60000, ?)
+			VALUES ($1, $2, $3, 0, $4, 60000, $5)
 		`, fmt.Sprintf("summary-%d", i), convID, kindLeaf, fmt.Sprintf("summary %d %s", i, large), fmt.Sprintf("2026-01-01 00:00:0%d", i)); err != nil {
 			t.Fatalf("insert summary %d: %v", i, err)
 		}
 	}
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
-		VALUES ('msg-review', ?, 1, 'user', 'text', 'recent review message', 5, '2026-01-02 00:00:00')
+		VALUES ('msg-review', $1, 1, 'user', 'text', 'recent review message', 5, '2026-01-02 00:00:00')
 	`, convID); err != nil {
 		t.Fatalf("insert message: %v", err)
 	}

@@ -37,7 +37,7 @@ func (h *testHarness) createChildTask(t *testing.T, goalID, status string) strin
 	if _, err := h.db.ExecContext(context.Background(), `
 		INSERT INTO agent_task (id, user_id, agent_id, session_id, goal_id, title, status, priority,
 		    required, retry_count, max_retries, context, output, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 'routine', 1, 0, 3, '{}', '{}', ?, ?)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'routine', true, 0, 3, '{}', '{}', $8, $9)`,
 		id, h.userID, h.agentID, sessionID, goalID, "child-"+id[:8], status, now, now,
 	); err != nil {
 		t.Fatalf("create child: %v", err)

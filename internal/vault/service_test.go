@@ -3,7 +3,6 @@ package vault_test
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 
 	"filippo.io/age"
@@ -11,9 +10,12 @@ import (
 
 	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // vaultTestDB combines OIDCStore (for auth_user) with sqlc.Queries (for vault_entry).
 type vaultTestDB struct {
@@ -61,11 +63,7 @@ func testService(t *testing.T) (*vault.Service, *appdb.OIDCStore, string) {
 func testServiceWithQueries(t *testing.T) (*vault.Service, *appdb.OIDCStore, string, *sqlc.Queries) {
 	t.Helper()
 
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "vault_test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	oidc := appdb.NewOIDCStore(db)
 	q := sqlc.New(db)
@@ -291,15 +289,11 @@ func userIDForScope(scope string, userID string) string {
 
 func TestNewServiceInvalidKey(t *testing.T) {
 	t.Parallel()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "invalid_key_test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	oidc := appdb.NewOIDCStore(db)
 	testDB := &vaultTestDB{oidc: oidc, q: sqlc.New(db)}
-	_, err = vault.NewService(testDB, "not-a-valid-age-key")
+	_, err := vault.NewService(testDB, "not-a-valid-age-key")
 	if err == nil {
 		t.Fatal("NewService with invalid key should fail")
 	}
@@ -307,11 +301,7 @@ func TestNewServiceInvalidKey(t *testing.T) {
 
 func TestSetNoAgeKeys(t *testing.T) {
 	t.Parallel()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "no_keys_test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	oidc := appdb.NewOIDCStore(db)
 	q := sqlc.New(db)
@@ -388,11 +378,7 @@ func sqlcNullString(value string) sql.NullString {
 
 func TestLoadEnvNoAgeKeys(t *testing.T) {
 	t.Parallel()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "loadenv_nokeys_test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	oidc := appdb.NewOIDCStore(db)
 	q := sqlc.New(db)

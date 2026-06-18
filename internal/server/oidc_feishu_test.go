@@ -2,21 +2,17 @@ package server
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
 func TestLinkFeishuChannelIdentityFromLogin(t *testing.T) {
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	defer func() { _ = db.Close() }()
+	db := dbtest.New(t)
 	store := appdb.NewOIDCStore(db)
 	user, err := store.CreateUser(context.Background(), auth.User{
 		ID:    uuid.NewString(),
@@ -45,11 +41,7 @@ func TestLinkFeishuChannelIdentityFromLogin(t *testing.T) {
 }
 
 func TestLinkFeishuChannelIdentityDoesNotOverrideExistingUser(t *testing.T) {
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	defer func() { _ = db.Close() }()
+	db := dbtest.New(t)
 	store := appdb.NewOIDCStore(db)
 	owner, err := store.CreateUser(context.Background(), auth.User{
 		ID:    uuid.NewString(),

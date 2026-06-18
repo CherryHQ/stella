@@ -115,7 +115,7 @@ func TestSemanticDispatchUnresolvedMentionBypassesArbiter(t *testing.T) {
 
 func TestSemanticDispatchWebNonMemberMentionTextUsesArbiter(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET content = '@non-member hello' WHERE id = ?`, fx.message.ID); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET content = '@non-member hello' WHERE id = $1`, fx.message.ID); err != nil {
 		t.Fatalf("set message content: %v", err)
 	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: true, RespondingAgents: []string{"agent-1"}}}
@@ -234,7 +234,7 @@ func TestSemanticDispatchPassesOwnerAndMembers(t *testing.T) {
 func TestSemanticDispatchUsesSystemPromptAsSummary(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	const prompt = "You are a helpful coding assistant"
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE agent SET system_prompt = ? WHERE id = 'agent-1'`, prompt); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE agent SET system_prompt = $1 WHERE id = 'agent-1'`, prompt); err != nil {
 		t.Fatalf("set system prompt: %v", err)
 	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: false}}
