@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"github.com/XSAM/otelsql"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -44,11 +45,6 @@ func OpenDB(dsn string) (*sql.DB, error) {
 	if err := migrate(db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("db: migrate: %w", err)
-	}
-
-	if err := ensureFTS(db); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("db: fts: %w", err)
 	}
 
 	return db, nil
@@ -133,7 +129,22 @@ func stripLeadingComments(q string) string {
 }
 
 func openTracedPG(dsn string) (*sql.DB, error) {
-	return otelsql.Open("pgx", dsn, pgTraceOptions()...)
+	connConfig, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse dsn: %w", err)
+	}
+	// Pin every session to UTC. The codebase stores and compares UTC throughout
+	// (time.Now().UTC(), "... AT TIME ZONE 'UTC'"), but PostgreSQL interprets a
+	// zoneless timestamp literal in the session's time zone — which otherwise
+	// inherits the host's local zone. Without this, the same row round-trips
+	// differently on a UTC CI box and a +08 dev box. timezone=UTC rides in the
+	// startup packet, so it holds from the first statement on every connection.
+	connConfig.RuntimeParams["timezone"] = "UTC"
+	// GetConnector binds this exact config without registering it in stdlib's
+	// process-global DSN map, so repeated OpenDB calls (one per test database,
+	// plus any runtime re-open) don't leak registry entries that can never be
+	// unregistered while the pool stays live.
+	return otelsql.OpenDB(stdlib.GetConnector(*connConfig), pgTraceOptions()...), nil
 }
 
 func pgTraceOptions() []otelsql.Option {
