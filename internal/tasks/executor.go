@@ -282,56 +282,6 @@ func (e *workerExecutor) latestResolution(ctx context.Context, taskID string) st
 	return "The user resolved your earlier blocker with:\n" + answer
 }
 
-// buildTaskPrompt assembles the worker turn. The terminal task_control rule is
-// repeated in the user message because workers run as normal agents with extra
-// tools; relying on the tool description alone makes protocol errors too easy.
-// packet is nil for standalone tasks, leaving their prompt unchanged.
-func buildTaskPrompt(task sqlc.AgentTask, resolution string, packet *GoalContextPacket) string {
-	body := task.Title
-	if task.Description != "" {
-		body += "\n\n" + task.Description
-	}
-	prompt := `You are executing a durable Stella task.
-
-Protocol:
-- You may use tools normally while working.
-- Before ending this turn, you MUST call task_control exactly once with one terminal action:
-  - action="submit" with output when the task is complete.
-  - action="block" with kind/question when you need input or an external dependency.
-  - action="fail" with reason/retryable when the task cannot be completed.
-- Do not just answer in chat. A final text response without task_control is treated as a protocol failure and the task will be retried or failed.
-
-Task:
-` + body
-	if packet != nil {
-		prompt += "\n\n" + packet.Render()
-	}
-	if resolution != "" {
-		prompt += "\n\n" + resolution
-	}
-	return prompt
-}
-
-// buildRepairPrompt is the single bounded correction turn for a worker that
-// answered in plain text without calling task_control. It echoes the prior
-// answer as context and demands exactly one terminal action — it never submits
-// the text automatically (D5).
-func buildRepairPrompt(priorText string) string {
-	return `Your previous response did not call task_control, so this task is not yet resolved.
-
-Your previous message was:
-"""
-` + priorText + `
-"""
-
-You MUST now call task_control exactly once with one terminal action:
-  - action="submit" with output if the task is complete.
-  - action="block" with kind/question if you need input or an external dependency.
-  - action="fail" with reason/retryable if the task cannot be completed.
-
-Do not answer in plain text again.`
-}
-
 // recordingControlTool is the agent-facing task_control tool. progress
 // persists immediately into agent_task.context; submit/block/fail record one
 // terminal action into the recorder for the worker to apply.

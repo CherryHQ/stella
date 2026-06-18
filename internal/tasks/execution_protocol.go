@@ -8,12 +8,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// goal_context.go builds the execution context packet a plan-backed task's worker
-// turn needs (#525 Phase 4): the goal it serves, the accepted plan's shape, the
-// task's own slice, and the handoff summaries of its direct upstream tasks. It
-// reads the plan's *accepted* content (content_json), never the in-flight
-// pending edit, so a running task's prompt is stable against a concurrent replan
-// (BLOCKER 1).
+// execution_protocol.go owns the worker-facing task execution contract: how a
+// task prompt is assembled, how goal-plan context and upstream handoffs enter
+// that prompt, and what a plan-backed task must submit for downstream work.
+// Keeping these rules together makes the protocol readable as one module
+// instead of scattering it across executor/review/worker code.
 
 // GoalContextPacket is the compact working context injected into a plan-backed
 // task's prompt. It is nil for standalone tasks, which keep their original
@@ -146,6 +145,56 @@ func (p *GoalContextPacket) Render() string {
 	}
 	b.WriteString("\nWhen you submit, include handoff.summary describing what you produced for downstream items. next_recommendations are advisory; do not create tasks.")
 	return b.String()
+}
+
+// buildTaskPrompt assembles the worker turn. The terminal task_control rule is
+// repeated in the user message because workers run as normal agents with extra
+// tools; relying on the tool description alone makes protocol errors too easy.
+// packet is nil for standalone tasks, leaving their prompt unchanged.
+func buildTaskPrompt(task sqlc.AgentTask, resolution string, packet *GoalContextPacket) string {
+	body := task.Title
+	if task.Description != "" {
+		body += "\n\n" + task.Description
+	}
+	prompt := `You are executing a durable Stella task.
+
+Protocol:
+- You may use tools normally while working.
+- Before ending this turn, you MUST call task_control exactly once with one terminal action:
+  - action="submit" with output when the task is complete.
+  - action="block" with kind/question when you need input or an external dependency.
+  - action="fail" with reason/retryable when the task cannot be completed.
+- Do not just answer in chat. A final text response without task_control is treated as a protocol failure and the task will be retried or failed.
+
+Task:
+` + body
+	if packet != nil {
+		prompt += "\n\n" + packet.Render()
+	}
+	if resolution != "" {
+		prompt += "\n\n" + resolution
+	}
+	return prompt
+}
+
+// buildRepairPrompt is the single bounded correction turn for a worker that
+// answered in plain text without calling task_control. It echoes the prior
+// answer as context and demands exactly one terminal action — it never submits
+// the text automatically (D5).
+func buildRepairPrompt(priorText string) string {
+	return `Your previous response did not call task_control, so this task is not yet resolved.
+
+Your previous message was:
+"""
+` + priorText + `
+"""
+
+You MUST now call task_control exactly once with one terminal action:
+  - action="submit" with output if the task is complete.
+  - action="block" with kind/question if you need input or an external dependency.
+  - action="fail" with reason/retryable if the task cannot be completed.
+
+Do not answer in plain text again.`
 }
 
 // handoffSummary extracts handoff.summary from a task's output JSON, or "" when
