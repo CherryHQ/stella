@@ -18,8 +18,8 @@ var ErrGoalNotFound = errors.New("tasks: goal not found")
 // run behind an accepted, materialized plan that produced at least one required
 // child, so a goal never reaches 'running' with no work attached. Error ordering
 // (codex SF2): archived/terminal/running stay ErrInvalidTransition; a draft or
-// plan-less (deferred) goal maps to ErrPlanMaterializationRequired so the caller
-// learns it must plan first, not that it raced a transition.
+// plan-less (deferred) goal maps to ErrGoalPlanRequired so the caller learns it
+// must plan first, not that it raced a transition.
 func (s *TransitionService) ActivateGoal(ctx context.Context, goalID string, actor Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		return s.activateGoalInTx(ctx, q, goalID, actor)
@@ -56,7 +56,7 @@ func (s *TransitionService) activateGoalInTx(ctx context.Context, q *sqlc.Querie
 	plan, err := q.GetAgentGoalPlanByGoal(ctx, goalID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrPlanMaterializationRequired
+			return ErrGoalPlanRequired
 		}
 		return err
 	}
@@ -71,7 +71,7 @@ func (s *TransitionService) activateGoalInTx(ctx context.Context, q *sqlc.Querie
 		return fmt.Errorf("goal child counts: %w", err)
 	}
 	if counts.Total == 0 {
-		return ErrPlanMaterializationRequired
+		return ErrGoalPlanRequired
 	}
 	// After the gate the goal must be in 'planned' (materialize promotes it
 	// there); anything else is an illegal start state.

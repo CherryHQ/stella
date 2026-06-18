@@ -150,11 +150,17 @@ var (
 	// impl->verify, etc.). Issue #525.
 	ErrInvalidPlan = errors.New("tasks: invalid plan")
 
-	// ErrPlanMaterializationRequired is returned when goal work is requested
-	// without a materialized plan: a public CreateTask carrying a goal_id (work
-	// tasks come only from the materializer), or ActivateGoal on a goal that has
-	// no accepted+materialized plan (e.g. a deferred goal still in draft). #525.
+	// ErrPlanMaterializationRequired is returned when a public CreateTask carries a
+	// goal_id: goal work tasks come only from the materializer, never hand-attached.
+	// (ActivateGoal-before-plan has its own ErrGoalPlanRequired so the two cases
+	// surface distinct, accurate guidance.) #525.
 	ErrPlanMaterializationRequired = errors.New("tasks: goal work requires a materialized plan")
+
+	// ErrGoalPlanRequired is returned by ActivateGoal when the goal cannot run
+	// because it has no materialized plan yet to activate — a deferred goal still
+	// in draft, or a plan that materialized no required child. Distinct from
+	// ErrPlanMaterializationRequired (the CreateTask goal_id backdoor). #525.
+	ErrGoalPlanRequired = errors.New("tasks: goal requires a materialized plan before activation")
 
 	// ErrAcceptedPlanRequired is returned by ActivateGoal when the goal's plan
 	// has not been accepted. #525.

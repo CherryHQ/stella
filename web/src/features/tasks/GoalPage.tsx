@@ -32,6 +32,7 @@ import {
 } from "./lib";
 import { AgentChip, DetailSection, DetailShell, MetaSep } from "./DetailShell";
 import { PlanSection } from "./PlanView";
+import { GoalPlanEditor } from "./GoalPlanEditor";
 
 const GoalDetailPage = lazy(() =>
   import("./GoalDetailPage").then((m) => ({ default: m.GoalDetailPage })),
@@ -45,6 +46,7 @@ export function GoalPage() {
   };
   const qc = useQueryClient();
   const [dagOpen, setDagOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [acting, setActing] = useState(false);
 
   const { data: goal, isError } = useQuery(goalOptions(goalId));
@@ -151,18 +153,41 @@ export function GoalPage() {
         <span>{t("hub.createdAt", { time: formatTime(goal.created_at) })}</span>
       </div>
 
-      {plan && ["draft", "planning", "planned"].includes(goal.status) && (
+      {/* Plan authoring stays open for the whole non-terminal life of a goal, so
+          a running goal can be replanned from the UI exactly as the CLI allows
+          (CreateGoalPlan rejects only terminal goals). Pre-run states render the
+          full plan; once running the progress/DAG below carries the detail, so we
+          show just the replan entry here. */}
+      {!["done", "failed", "cancelled"].includes(goal.status) && (
         <div className="mt-6">
-          <PlanSection plan={plan} t={t} />
-          {goal.status === "planning" && (
-            <GoalPlanActions
-              goalId={goal.id}
-              activeReviewId={goal.active_review_id}
-              plan={plan}
-              acting={acting}
-              run={act}
-            />
-          )}
+          {["draft", "planning", "planned"].includes(goal.status) &&
+            (plan ? (
+              <PlanSection plan={plan} t={t} />
+            ) : (
+              goal.status === "draft" && (
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  {t("goals.planNoPlanYet")}
+                </p>
+              )
+            ))}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {plan && (
+              <GoalPlanActions
+                goalId={goal.id}
+                activeReviewId={goal.active_review_id}
+                plan={plan}
+                acting={acting}
+                run={act}
+              />
+            )}
+            <Button
+              variant={plan ? "outline" : "default"}
+              size="sm"
+              onClick={() => setEditorOpen(true)}
+            >
+              {plan ? t("goals.planEdit") : t("goals.planCreate")}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -235,6 +260,15 @@ export function GoalPage() {
         </div>
       )}
 
+      <GoalPlanEditor
+        goalId={goal.id}
+        plan={plan ?? null}
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        onSaved={invalidate}
+        t={t}
+      />
+
       <Dialog open={dagOpen} onOpenChange={setDagOpen}>
         <DialogPopup className="h-[85vh] max-w-[90vw] overflow-hidden p-0">
           <div className="flex h-full flex-col">
@@ -259,10 +293,11 @@ export function GoalPage() {
   );
 }
 
-// GoalPlanActions surfaces the single next step that moves a planning goal's
-// plan forward: accept (or submit for review) the staged draft, decide an open
-// plan review, then materialize. Once materialized the goal becomes `planned`
-// and the header's Activate button takes over.
+// GoalPlanActions surfaces the single next step that moves a goal's pending plan
+// edit forward: accept (or submit for review) the staged draft, decide an open
+// plan review, then materialize. It is driven by the plan's pending state, not the
+// goal status, so it works for a goal's first plan and for a replan staged on an
+// already running goal alike; with no pending edit it renders nothing.
 function GoalPlanActions({
   goalId,
   activeReviewId,
@@ -278,6 +313,11 @@ function GoalPlanActions({
 }) {
   const { t } = useI18n();
   const path = { goalId };
+
+  // A draft plan with no staged edit has nothing to accept/submit (e.g. a human
+  // review was rejected and cleared the pending content). Surface no broken
+  // action — the goal's "Edit plan" button is the way forward (#5).
+  if (plan.status === "draft" && !plan.pending_content) return null;
 
   let buttons: ReactNode;
   if (plan.status === "draft") {
@@ -324,7 +364,11 @@ function GoalPlanActions({
       </>
     );
   } else {
-    // accepted | approved — ready to build the task graph.
+    // accepted | approved. A staged edit (pending_content) is what's waiting to
+    // be materialized — either a goal's first plan or a replan on an already
+    // running goal. With nothing pending the plan is already built, so there's no
+    // action to surface (Activate / progress takes over).
+    if (!plan.pending_content) return null;
     buttons = (
       <Button
         size="sm"
@@ -336,7 +380,7 @@ function GoalPlanActions({
     );
   }
 
-  return <div className="mt-3 flex flex-wrap gap-2">{buttons}</div>;
+  return <>{buttons}</>;
 }
 
 function ReviewActions({ goalId, onDone }: { goalId: string; onDone: () => void }) {

@@ -58,6 +58,10 @@ func (s *Server) taskError(w http.ResponseWriter, err error) {
 		// Goal work tasks come only from a materialized plan; a goal_id on a
 		// public task create is rejected here (#525).
 		writeError(w, http.StatusBadRequest, "goal_tasks_require_plan")
+	case errors.Is(err, tasks.ErrGoalPlanRequired):
+		// Activate was called on a goal with no materialized plan to run yet
+		// (e.g. a deferred goal still in draft) — plan + materialize first.
+		writeError(w, http.StatusConflict, "goal_plan_required")
 	case errors.Is(err, tasks.ErrAcceptedPlanRequired):
 		writeError(w, http.StatusConflict, "goal_plan_not_accepted")
 	case errors.Is(err, tasks.ErrPlanNotMaterialized):
