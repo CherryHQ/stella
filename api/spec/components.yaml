@@ -911,7 +911,7 @@ components:
           type: string
           enum: [direct, deferred]
           description: >-
-            How the goal's plan is seeded. 'direct' (default) auto-creates, accepts, and materializes a single-task plan so the goal is ready to activate. 'deferred' leaves the goal in 'draft' with no plan for explicit structured planning via the plan endpoints.
+            How the goal's plan is seeded. 'direct' (default) auto-creates, accepts, materializes, AND activates a single-task plan, so the goal lands in 'running' and starts immediately ("direct" = just do it). 'deferred' leaves the goal in 'draft' with no plan for explicit structured planning via the plan endpoints, then accept, materialize, and activate.
         context:
           type: object
           additionalProperties: {}

@@ -6,9 +6,11 @@ import (
 	"testing"
 )
 
-// Direct CreateGoal must land the goal in 'planned' behind an accepted +
-// materialized plan with exactly one child task (#525 Phase 2 acceptance).
-func TestCreateGoal_Direct_MaterializesOnePlannedChild(t *testing.T) {
+// Direct CreateGoal ("just do it") must land the goal in 'running' behind an
+// accepted + materialized plan with exactly one ready child task — it
+// auto-activates in the create tx, no separate activate step (#525 + direct
+// auto-run).
+func TestCreateGoal_Direct_MaterializesAndRunsOneChild(t *testing.T) {
 	h := newHarness(t)
 	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
 	ctx := context.Background()
@@ -17,8 +19,8 @@ func TestCreateGoal_Direct_MaterializesOnePlannedChild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateGoal: %v", err)
 	}
-	if g.Status != GoalStatusPlanned {
-		t.Fatalf("goal status=%q want planned", g.Status)
+	if g.Status != GoalStatusRunning {
+		t.Fatalf("goal status=%q want running", g.Status)
 	}
 
 	plan, err := h.q.GetAgentGoalPlanByGoal(ctx, g.ID)
@@ -43,19 +45,16 @@ func TestCreateGoal_Direct_MaterializesOnePlannedChild(t *testing.T) {
 		t.Fatalf("children=%d want 1", len(children))
 	}
 	c := children[0]
-	if c.Status != StatusDraft {
-		t.Errorf("child status=%q want draft (ready only after activate)", c.Status)
+	if c.Status != StatusReady {
+		t.Errorf("child status=%q want ready (auto-activated)", c.Status)
 	}
 	if !c.SourcePlanID.Valid || c.SourcePlanID.String != plan.ID || c.PlanItemID != directPlanItemID {
 		t.Errorf("child traceability = (%v,%q) want (%s,%s)", c.SourcePlanID, c.PlanItemID, plan.ID, directPlanItemID)
 	}
 
-	// Activate promotes planned -> running and flips the child to ready.
-	if err := h.svc.ActivateGoal(ctx, g.ID, SystemActor()); err != nil {
-		t.Fatalf("ActivateGoal: %v", err)
-	}
-	if got := h.getTask(t, c.ID).Status; got != StatusReady {
-		t.Errorf("child status=%q want ready after activate", got)
+	// Re-activating an already-running goal is a no-op error, not a double-run.
+	if err := h.svc.ActivateGoal(ctx, g.ID, SystemActor()); !errors.Is(err, ErrInvalidTransition) {
+		t.Errorf("ActivateGoal on running goal: got %v want ErrInvalidTransition", err)
 	}
 }
 

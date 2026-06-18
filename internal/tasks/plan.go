@@ -17,9 +17,10 @@ const (
 )
 
 // Plan modes select how CreateGoal seeds a goal's plan. "direct" auto-creates,
-// accepts, and materializes a one-task direct plan so the goal lands in
-// 'planned' ready to activate; "deferred" leaves the goal in 'draft' with no
-// plan row, so a later CreateGoalPlan is the first and only insert.
+// accepts, materializes, AND activates a one-task direct plan so the goal lands
+// in 'running' and starts immediately ("direct" = just do it); "deferred" leaves
+// the goal in 'draft' with no plan row, so a later CreateGoalPlan is the first
+// and only insert.
 const (
 	PlanModeDirect   = "direct"
 	PlanModeDeferred = "deferred"

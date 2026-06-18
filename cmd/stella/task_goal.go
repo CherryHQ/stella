@@ -122,8 +122,7 @@ func goalCreateCmd() *ucli.Command {
 			&ucli.StringFlag{Name: "project-id", Usage: "Project/workspace context"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringFlag{Name: "review-policy", Usage: "none (only supported value in this build)"},
-			&ucli.StringFlag{Name: "plan-mode", Usage: "direct (default; auto-plan one task) | deferred (draft for explicit planning)"},
-			&ucli.BoolFlag{Name: "activate", Usage: "Activate (draft -> ready) immediately"},
+			&ucli.StringFlag{Name: "plan-mode", Usage: "direct (default; plan + run one task immediately) | deferred (draft for explicit multi-step planning, then plan/accept/materialize/activate)"},
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
@@ -157,14 +156,9 @@ func goalCreateCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("create goal: %w", err)
 			}
-			if c.Bool("activate") {
-				goal, err = apiclient.Call[apitypes.Goal](func(api *apiclient.Client) (*http.Response, error) {
-					return api.ActivateGoal(c.Context, goal.Id)
-				})
-				if err != nil {
-					return fmt.Errorf("activate goal: %w", err)
-				}
-			}
+			// A direct goal (the default) is already 'running' on create; a deferred
+			// goal needs an explicit plan/accept/materialize/activate, so there is no
+			// activate-on-create shortcut here.
 			// Best-effort: a failed sentinel write must never fail goal creation.
 			_ = renderrefs.Emit(c.App.ErrWriter, renderrefs.Reference{
 				Type:    "goal",
@@ -181,7 +175,7 @@ func goalCreateCmd() *ucli.Command {
 func goalActivateCmd() *ucli.Command {
 	return &ucli.Command{
 		Name:      "activate",
-		Usage:     "Activate a draft goal",
+		Usage:     "Activate a planned goal (planned -> running); for a deferred goal after its plan is materialized",
 		ArgsUsage: "<goal-id>",
 		Flags:     []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {

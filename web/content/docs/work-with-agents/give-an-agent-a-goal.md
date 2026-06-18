@@ -43,8 +43,8 @@ That is why you can give a normal request instead of manually driving every step
 
 ## Use tasks for larger goals
 
-If the goal has multiple steps, ask the agent to track it as explicit tasks:
+If the goal has multiple steps, ask the agent to track it as a goal with a plan:
 
-> Create a goal for this work, then create the child tasks, dependencies, and human review points we need to track it.
+> Create a goal for this work with a multi-step plan — the steps, their dependencies, and any human review points we need — then run it.
 
-Use chat for context and decisions. Use the task UI for execution state. Automatic goal splitting is not part of this release, so the task list should be created explicitly.
+The agent authors a plan and the system materializes it into the child tasks (you cannot hand-attach tasks to a goal). A single-step goal runs immediately; a multi-step goal is planned, then activated. Use chat for context and decisions, and the task UI for execution state. Automatic LLM goal-splitting is not part of this release, so the agent writes the plan explicitly.

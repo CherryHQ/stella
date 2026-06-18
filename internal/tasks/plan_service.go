@@ -26,9 +26,9 @@ const directPlanItemID = "main"
 
 // CreateAndAcceptDirectPlan writes a goal's direct plan, accepts it (review
 // policy none), and materializes it — yielding exactly one work task — leaving
-// the goal in 'planned'. This is the gate's happy path for a direct goal:
-// afterwards ActivateGoal can promote planned -> running with a real ready
-// child, so there is no empty-running window (codex BLOCKER 1).
+// the goal in 'planned'. This is the direct-replan entry point; it does NOT
+// activate (the create path activates in its own tx). The goal reaches 'planned'
+// behind a real ready-on-activate child, so there is no empty-running window.
 func (f *ServiceFacade) CreateAndAcceptDirectPlan(ctx context.Context, goal sqlc.AgentGoal) error {
 	raw, err := buildDirectPlanContent(goal)
 	if err != nil {

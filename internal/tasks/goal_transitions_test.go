@@ -62,14 +62,15 @@ func (h *testHarness) firstChild(t *testing.T, goalID string) string {
 func TestActivateGoal_PlannedToRunning_PromotesDraftChildren(t *testing.T) {
 	h := newHarness(t)
 	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
-	// A direct goal lands in 'planned' behind an accepted+materialized plan with
-	// one draft child (#525); only then may it activate.
-	g, err := f.CreateGoal(context.Background(), CreateGoalInput{UserID: h.userID, AgentID: h.agentID, Title: "g"})
-	if err != nil {
-		t.Fatalf("CreateGoal: %v", err)
+	// A deferred goal materialized (but not yet activated) lands in 'planned' with
+	// one draft child; only then may ActivateGoal promote it. (Direct goals
+	// auto-activate on create, so they can't exercise the planned->running step.)
+	g := h.deferredGoal(t, f)
+	if err := h.materializeStructured(f, g.ID, PlanContent{Items: []PlanItem{{ID: "main", Title: "g", Role: PlanRoleDirect}}}); err != nil {
+		t.Fatalf("materializeStructured: %v", err)
 	}
-	if g.Status != GoalStatusPlanned {
-		t.Fatalf("goal status=%q want planned after direct create", g.Status)
+	if got := h.goalStatus(t, g.ID); got != GoalStatusPlanned {
+		t.Fatalf("goal status=%q want planned after materialize", got)
 	}
 	c1 := h.firstChild(t, g.ID)                   // materialized child, in draft
 	c2 := h.createChildTask(t, g.ID, StatusReady) // already ready; should stay
@@ -547,9 +548,7 @@ func TestGoalEvents_RecordTransitions(t *testing.T) {
 		t.Fatalf("CreateGoal: %v", err)
 	}
 	gid := g.ID
-	if err := h.svc.ActivateGoal(context.Background(), gid, SystemActor()); err != nil {
-		t.Fatalf("ActivateGoal: %v", err)
-	}
+	// Direct create auto-activates, so the goal_activate event is already recorded.
 	events, err := h.q.ListAgentTaskEventsByGoal(context.Background(), sql.NullString{String: gid, Valid: true})
 	if err != nil {
 		t.Fatalf("list goal events: %v", err)

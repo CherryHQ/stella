@@ -72,10 +72,12 @@ func (in *CreateGoalInput) normalize() error {
 
 // CreateGoal inserts an agent_goal row, then seeds its plan per PlanMode (#525).
 // "direct" (the default) auto-creates+accepts+materializes a one-task direct
-// plan and leaves the goal in 'planned', ready to activate. "deferred" leaves
+// plan AND activates the goal, so it lands in 'running' and executes on creation
+// — "direct" means "just do it", no separate activate step. "deferred" leaves
 // the goal in 'draft' with no plan row, for a caller that will plan explicitly
-// via CreateGoalPlan before activating. Work tasks are never hand-attached: they
-// come only from a materialized plan (the CreateTask goal_id backdoor is shut).
+// via CreateGoalPlan, materialize, and activate. Work tasks are never
+// hand-attached: they come only from a materialized plan (the CreateTask goal_id
+// backdoor is shut).
 func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sqlc.AgentGoal, error) {
 	if err := in.normalize(); err != nil {
 		return sqlc.AgentGoal{}, err
@@ -111,10 +113,10 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 	if in.PlanMode == PlanModeDeferred {
 		return f.q.CreateAgentGoal(ctx, goalParams)
 	}
-	// Direct: insert goal + plan + task in one tx, so a failed materialize never
-	// leaves a draft/no-plan ghost goal (codex SF). The session is pre-minted
-	// outside the tx (SQLite single-writer). The goal lands in 'planned' with one
-	// ready-on-activate child — never a child-less running window.
+	// Direct: insert goal + plan + task + activate in one tx, so a failed step
+	// never leaves a draft/no-plan ghost goal (codex SF). The session is pre-minted
+	// outside the tx (SQLite single-writer). The goal lands in 'running' with one
+	// ready child — never a child-less running window.
 	previewGoal := sqlc.AgentGoal{
 		ID: goalParams.ID, UserID: in.UserID, AgentID: in.AgentID,
 		ProjectID: goalParams.ProjectID, Title: in.Title, Description: in.Description,
@@ -135,7 +137,13 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 		if err != nil {
 			return err
 		}
-		return f.createAndAcceptDirectPlanInTx(ctx, q, goal, raw, sessions, now)
+		if err := f.createAndAcceptDirectPlanInTx(ctx, q, goal, raw, sessions, now); err != nil {
+			return err
+		}
+		// "direct" means "just do it": the goal is materialized and 'planned', so
+		// activate it in the same tx to run on creation. A deferred goal returns
+		// earlier and stays 'draft' for explicit planning + activation.
+		return f.svc.activateGoalInTx(ctx, q, goal.ID, Actor{Type: ActorUser, ID: in.UserID})
 	})
 	if err != nil {
 		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: %w", err)

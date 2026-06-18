@@ -11,36 +11,48 @@ It is not an automatic LLM planning system yet. Stella does not synthesize a fin
 
 ## Current support matrix
 
-| Feature                      | Status                                                    |
-| ---------------------------- | --------------------------------------------------------- |
-| Create/list/get goals        | Supported.                                                |
-| Attach tasks to a goal       | Supported via `agent_task.goal_id`.                       |
-| List child tasks             | Supported.                                                |
-| Activate goal                | Supported: draft goal → running, draft children → ready.  |
-| Rollup from child task state | Supported for `review_policy=none`.                       |
-| Cancel goal                  | Supported: cascade-cancels non-terminal children.         |
-| Automatic planner            | Not supported. Create child tasks explicitly.             |
-| Final synthesizer            | Not supported. Do not rely on goal `review_policy!=none`. |
-| Goal agent review            | Not supported.                                            |
-| Agent reviewer runs          | Not supported.                                            |
+| Feature                      | Status                                                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Create/list/get goals        | Supported.                                                                                                           |
+| Child tasks from a plan      | Supported: child tasks come **only** from a materialized plan, never hand-attached.                                  |
+| List child tasks             | Supported.                                                                                                           |
+| Activate goal                | Supported: `planned` goal → running, draft children → ready.                                                         |
+| Direct goal auto-run         | Supported: `plan_mode=direct` (default) plans, materializes, **and activates** on create — the goal lands `running`. |
+| Rollup from child task state | Supported for `review_policy=none`.                                                                                  |
+| Cancel goal                  | Supported: cascade-cancels non-terminal children.                                                                    |
+| Automatic LLM planner        | Not supported. You author the plan content; the materializer turns it into tasks.                                    |
+| Final synthesizer            | Not supported. Do not rely on goal `review_policy!=none`.                                                            |
+| Goal agent review            | Not supported.                                                                                                       |
+| Agent reviewer runs          | Not supported.                                                                                                       |
 
 ## Mental model
 
-| Concept                  | Purpose                                                                                                                                                           |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent_goal`             | Container for a related set of tasks. Stores required owner agent, optional project, status, priority, review policy, context, output, and active review pointer. |
-| `agent_task.goal_id`     | Optional link from a task to one goal. Standalone tasks have no goal. Child tasks inherit/validate the goal's agent and project context.                          |
-| `agent_task_run.goal_id` | Schema support for future goal-targeted planner/synthesizer runs. Dispatcher scan paths are removed in this release.                                              |
-| `agent_review.goal_id`   | Schema support for future goal-parented reviews. API validation gates this off in this release.                                                                   |
+| Concept                  | Purpose                                                                                                                                                                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_goal`             | Container for a related set of tasks. Stores required owner agent, optional project, status, priority, review policy, context, output, and active review pointer.                                                                   |
+| `agent_task.goal_id`     | Link from a child task to its goal, written **only** by the plan materializer — the public `POST /api/tasks` rejects a `goal_id`. Standalone tasks have no goal. Child tasks inherit/validate the goal's agent and project context. |
+| `agent_task_run.goal_id` | Schema support for future goal-targeted planner/synthesizer runs. Dispatcher scan paths are removed in this release.                                                                                                                |
+| `agent_review.goal_id`   | Schema support for future goal-parented reviews. API validation gates this off in this release.                                                                                                                                     |
 
 ## Supported lifecycle
 
-Supported container mode:
+A goal moves through the plan gate before it runs. The path depends on `plan_mode`:
+
+- **`direct`** (default — "just do it"): create authors + accepts + materializes a
+  one-task plan **and activates the goal**, all in one transaction. The goal lands
+  in `running` with its single child task `ready`. No separate activate step.
+- **`deferred`**: create leaves the goal in `draft` with no plan. You then author a
+  plan (`planning`), accept or human-approve it, materialize it (`planned`), and
+  activate it (`running`).
 
 ```mermaid
 stateDiagram-v2
-    [*] --> draft
-    draft --> running: ActivateGoal
+    [*] --> draft: CreateGoal (deferred)
+    [*] --> running: CreateGoal (direct — auto plan+materialize+activate)
+    draft --> planning: PUT plan
+    planning --> planning: accept / submit-review + approve
+    planning --> planned: materialize
+    planned --> running: ActivateGoal
     running --> done: all required children done
     running --> failed: required child failed
     running --> blocked: required child blocked
@@ -48,6 +60,7 @@ stateDiagram-v2
     failed --> running: required child reopened (UnblockGoal)
     failed --> done: required child completed (CompleteGoal)
     draft --> cancelled: CancelGoal
+    planned --> cancelled: CancelGoal
     running --> cancelled: CancelGoal
     blocked --> cancelled: CancelGoal
     done --> [*]
@@ -55,7 +68,12 @@ stateDiagram-v2
     cancelled --> [*]
 ```
 
-Activation promotes draft child tasks to ready in the same transaction. The dispatcher then picks up those tasks through the normal task readiness path.
+`ActivateGoal` (explicit for deferred, automatic for direct) promotes the goal
+`planned → running` and flips its draft child tasks to ready in the same
+transaction. The dispatcher then picks up those tasks through the normal task
+readiness path. Note the dispatcher never auto-activates a `planned` goal — a
+deferred goal waits at `planned` until something calls activate, which is the gate
+that lets you review the materialized task graph before work starts.
 
 ## Rollup
 
@@ -94,14 +112,16 @@ Planner, synthesizer, and agent-reviewer dispatch scan paths are removed rather 
 A goal does not create child tasks by itself, and tasks cannot be hand-attached to a
 goal (`POST /api/tasks` with a `goal_id` is rejected). The supported workflow is:
 
-1. Create a goal. `plan_mode=direct` (default) seeds, accepts, and materializes a
-   one-task plan automatically; `plan_mode=deferred` leaves it `draft` for step 2.
+1. Create a goal. `plan_mode=direct` (default) seeds, accepts, materializes, **and
+   activates** a one-task plan automatically — the goal lands `running` and its child
+   task starts. `plan_mode=deferred` leaves it `draft` for steps 2–5.
 2. `PUT /api/goals/{id}/plan` — stage a structured `PlanContent` (items with
-   `role` design/impl/verify, `deps`, `criteria`).
+   `role` design/impl/verify, `deps`, `criteria`). Goal → `planning`.
 3. Accept it: `plan/accept` (`review_policy=none`), or `plan/submit-review` then a
-   plan-review approve (`review_policy=human`).
+   plan-review approve (`review_policy=human`). The goal stays `planning`.
 4. `plan/materialize` — reconciles the plan into the child task graph; goal → `planned`.
-5. Activate the goal; the worker runtime executes child tasks and rollup updates the goal.
+5. Activate the goal (`planned → running`); the worker runtime executes child tasks
+   and rollup updates the goal.
 
 This is deliberate: work always traces to an accepted plan. Automatic LLM planning
 (returning structured items from a prompt) still requires a planner runtime and is
@@ -110,13 +130,15 @@ not wired yet — you author the plan content.
 **What `direct` actually does (the default).** A direct goal is _not_ a "no plan"
 shortcut — it still owns a real `agent_goal_plan` row. The system authors a
 one-item plan (item titled after the goal, `role=direct`), accepts it without
-review (`review_policy=none`), and materializes it in one step inside goal
-creation. The single child task named after the goal **is** that plan's
-materialization — not a hand-attached task. Choose `deferred` only when you want
-to author a multi-step plan yourself. The plan is real and readable via
-`GET /api/goals/{id}/plan`, and the goal detail page in the Web UI renders it as a
-**Plan** section above the task graph (items with role, dependencies, and
-criteria), so a direct goal's single-item plan is visible too.
+review (`review_policy=none`), materializes it, **and activates the goal** — all in
+one transaction inside goal creation. So a direct goal lands in `running` with its
+single child task `ready` and starts immediately; "direct" means "just do it", with
+no separate activate call. The single child task named after the goal **is** that
+plan's materialization — not a hand-attached task. Choose `deferred` only when you
+want to author a multi-step plan yourself and gate it at `planned` before running.
+The plan is real and readable via `GET /api/goals/{id}/plan`, and the goal detail
+page in the Web UI renders it as a **Plan** section above the task graph (items with
+role, dependencies, and criteria), so a direct goal's single-item plan is visible too.
 
 ## Review policy guidance
 
@@ -132,24 +154,24 @@ Use human task reviews when child task output needs approval. Goal-level synthes
 
 ## HTTP surface
 
-| Method   | Path                                                                              | Purpose                                                                                                                                                                                                         |
-| -------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST`   | `/api/goals`                                                                      | Create a goal. Use `review_policy=none` in the supported runtime. `plan_mode=direct` (default) auto-plans/materializes one task; `plan_mode=deferred` leaves it `draft` for explicit planning.                  |
-| `GET`    | `/api/goals`                                                                      | List goals. Filters: `status`, `terminal` (true=done/failed/cancelled, false=active), `archived=true` (restore view), `q` (title/description substring). `total` in the response counts all matches for paging. |
-| `GET`    | `/api/goals/{id}`                                                                 | Fetch one goal.                                                                                                                                                                                                 |
-| `POST`   | `/api/goals/{id}/activate`                                                        | Draft → running; promotes draft children to ready.                                                                                                                                                              |
-| `POST`   | `/api/goals/{id}/cancel`                                                          | Cascade-cancel non-terminal children.                                                                                                                                                                           |
-| `DELETE` | `/api/goals/{id}`                                                                 | Archive a terminal/draft goal and its terminal/draft children (audit-safe; hides from default lists).                                                                                                           |
-| `POST`   | `/api/goals/{id}/unarchive`                                                       | Restore an archived goal and the children that archive hid, back to default lists.                                                                                                                              |
-| `GET`    | `/api/goals/{id}/tasks`                                                           | List child tasks.                                                                                                                                                                                               |
-| `GET`    | `/api/goals/{id}/reviews`                                                         | Schema-supported, but this release gates the goal review runtime off through API validation.                                                                                                                    |
-| `POST`   | `/api/goals/{id}/reviews/{reviewID}/approve` (+reject, request-changes, escalate) | Review decision endpoints exist, but this release does not create a new goal review runtime.                                                                                                                    |
-| `GET`    | `/api/goals/{id}/plan`                                                            | Fetch the goal's plan (404 before the first `PUT`).                                                                                                                                                             |
-| `PUT`    | `/api/goals/{id}/plan`                                                            | Create or replace the pending plan edit (`content` + `review_policy` none\|human). Refused while a plan review is open.                                                                                         |
-| `POST`   | `/api/goals/{id}/plan/accept`                                                     | Accept the pending plan without review (`review_policy=none`). Does not promote — materialize does.                                                                                                             |
-| `POST`   | `/api/goals/{id}/plan/submit-review`                                              | Open a human plan review (`review_policy=human`); returns the `subject='plan'` review.                                                                                                                          |
-| `POST`   | `/api/goals/{id}/plan/reviews/{reviewID}/approve` (+reject, request-changes)      | Decide a plan review. Dedicated path — the generic goal-review API refuses `subject='plan'`.                                                                                                                    |
-| `POST`   | `/api/goals/{id}/plan/materialize`                                                | Materialize an accepted/approved plan into the task graph; goal → `planned`.                                                                                                                                    |
+| Method   | Path                                                                              | Purpose                                                                                                                                                                                                                                   |
+| -------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/goals`                                                                      | Create a goal. Use `review_policy=none` in the supported runtime. `plan_mode=direct` (default) auto-plans, materializes, and activates one task — the goal lands `running`; `plan_mode=deferred` leaves it `draft` for explicit planning. |
+| `GET`    | `/api/goals`                                                                      | List goals. Filters: `status`, `terminal` (true=done/failed/cancelled, false=active), `archived=true` (restore view), `q` (title/description substring). `total` in the response counts all matches for paging.                           |
+| `GET`    | `/api/goals/{id}`                                                                 | Fetch one goal.                                                                                                                                                                                                                           |
+| `POST`   | `/api/goals/{id}/activate`                                                        | `planned` → running; promotes draft children to ready. (Direct goals are already activated on create; this is the explicit step for deferred goals after materialize.)                                                                    |
+| `POST`   | `/api/goals/{id}/cancel`                                                          | Cascade-cancel non-terminal children.                                                                                                                                                                                                     |
+| `DELETE` | `/api/goals/{id}`                                                                 | Archive a terminal/draft goal and its terminal/draft children (audit-safe; hides from default lists).                                                                                                                                     |
+| `POST`   | `/api/goals/{id}/unarchive`                                                       | Restore an archived goal and the children that archive hid, back to default lists.                                                                                                                                                        |
+| `GET`    | `/api/goals/{id}/tasks`                                                           | List child tasks.                                                                                                                                                                                                                         |
+| `GET`    | `/api/goals/{id}/reviews`                                                         | Schema-supported, but this release gates the goal review runtime off through API validation.                                                                                                                                              |
+| `POST`   | `/api/goals/{id}/reviews/{reviewID}/approve` (+reject, request-changes, escalate) | Review decision endpoints exist, but this release does not create a new goal review runtime.                                                                                                                                              |
+| `GET`    | `/api/goals/{id}/plan`                                                            | Fetch the goal's plan (404 before the first `PUT`).                                                                                                                                                                                       |
+| `PUT`    | `/api/goals/{id}/plan`                                                            | Create or replace the pending plan edit (`content` + `review_policy` none\|human). Refused while a plan review is open.                                                                                                                   |
+| `POST`   | `/api/goals/{id}/plan/accept`                                                     | Accept the pending plan without review (`review_policy=none`). Does not promote — materialize does.                                                                                                                                       |
+| `POST`   | `/api/goals/{id}/plan/submit-review`                                              | Open a human plan review (`review_policy=human`); returns the `subject='plan'` review.                                                                                                                                                    |
+| `POST`   | `/api/goals/{id}/plan/reviews/{reviewID}/approve` (+reject, request-changes)      | Decide a plan review. Dedicated path — the generic goal-review API refuses `subject='plan'`.                                                                                                                                              |
+| `POST`   | `/api/goals/{id}/plan/materialize`                                                | Materialize an accepted/approved plan into the task graph; goal → `planned`.                                                                                                                                                              |
 
 Any change that rejects unsupported goal review policies must be done spec-first.
 

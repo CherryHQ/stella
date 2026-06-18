@@ -1,4 +1,6 @@
 bin/
+/stella
+/stellad
 cover.out
 coverage.out
 coverage-*.*

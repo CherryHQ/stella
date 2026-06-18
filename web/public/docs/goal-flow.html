@@ -835,10 +835,10 @@
           <strong style="color: var(--accent-amber)">planned</strong> = accepted 计划存在
           <em>且已物化</em>。关键不变式：只有 <code>MaterializeGoalPlan</code> 能把 goal 置为
           <code>planned</code>；<code>Accept</code> / <code>Approve</code> 一律把 goal 留在
-          <code>planning</code>。direct 路径在同一事务里 accept + 物化，瞬间到
-          <code>planned</code>； <code>reviewing</code> 仅当 task
-          <code>review_policy ≠ none</code> 时出现，否则 <code>Submit</code> 直接
-          <code>running → done</code>。
+          <code>planning</code>。direct 路径在同一事务里 accept + 物化 + 激活，瞬间从
+          <code>planned</code> 直达 <code>running</code>（"direct" = 直接做，无需单独 activate）；
+          <code>reviewing</code> 仅当 task <code>review_policy ≠ none</code> 时出现，否则
+          <code>Submit</code> 直接 <code>running → done</code>。
         </p>
 
         <!-- Cross-lane couplings -->
@@ -852,7 +852,10 @@
           <tr>
             <td style="color: var(--accent-green)">CreateGoal(direct)</td>
             <td>Plan: ∅ → accepted → materialized</td>
-            <td>同事务把 Goal 推到 <code>planned</code>，并物化出 1 个 Task(<code>draft</code>)</td>
+            <td>
+              同事务把 Goal 一路推到 <code>running</code>（accept+物化+激活），并物化出 1 个
+              Task(<code>ready</code>)
+            </td>
           </tr>
           <tr>
             <td style="color: var(--accent-green)">MaterializeGoalPlan</td>
@@ -1042,7 +1045,7 @@
     Title:    "把登录接口迁移到新鉴权",
     PlanMode: tasks.PlanModeDeferred, <span class="cm">← direct(默认) | deferred</span>
 })
-<span class="cm">// direct  → 自动 建+accept+物化 direct 计划 → goal=planned</span>
+<span class="cm">// direct  → 自动 建+accept+物化+激活 direct 计划 → goal=running</span>
 <span class="cm">// deferred → goal=draft，等待显式 CreateGoalPlan</span></pre>
             </div>
             <div class="decision-tree">
@@ -1050,8 +1053,9 @@
               <div class="decision-branch">
                 <span class="decision-condition">direct（默认）</span>
                 <span class="decision-result">
-                  同事务 <code>CreateAndAcceptDirectPlan</code>：一条 item 的计划 → accept →
-                  物化一个 task → goal <code>planned</code>。轻量 UX 不回归。
+                  同事务：一条 item 的计划 → accept → 物化一个 task → 激活 → goal
+                  <code>running</code>，child task <code>ready</code> 立即开始。"direct" =
+                  直接做，无需单独 activate。
                 </span>
               </div>
               <div class="decision-branch">

@@ -22,90 +22,99 @@ var ErrGoalNotFound = errors.New("tasks: goal not found")
 // learns it must plan first, not that it raced a transition.
 func (s *TransitionService) ActivateGoal(ctx context.Context, goalID string, actor Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		goal, err := getGoalForUpdate(ctx, q, goalID)
-		if err != nil {
-			return err
-		}
-		// Archived goals are inert; reactivating one would resurrect work that is
-		// hidden from default lists (D-archive invariant).
-		if goal.ArchivedAt.Valid {
-			return ErrInvalidTransition
-		}
-		// Genuinely illegal start states: already terminal or already running.
-		if isTerminalGoalStatus(goal.Status) || goal.Status == GoalStatusRunning {
-			return ErrInvalidTransition
-		}
-		// Defense in depth against rows that predate goal review gating: a goal
-		// whose review_policy needs the unwired synthesizer/review runtime must
-		// not activate. CreateGoal already rejects non-none at creation.
-		if goal.ReviewPolicy != ReviewPolicyNone {
-			return fmt.Errorf("%w: goal review_policy %q (only 'none' is supported)", ErrUnsupportedReviewPolicy, goal.ReviewPolicy)
-		}
-		// Accepted-plan gate. Load the plan first so a draft/no-plan goal surfaces
-		// the "plan first" error rather than a generic transition failure.
-		plan, err := q.GetAgentGoalPlanByGoal(ctx, goalID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrPlanMaterializationRequired
-			}
-			return err
-		}
-		if !plan.AcceptedAt.Valid {
-			return ErrAcceptedPlanRequired
-		}
-		if !plan.MaterializedAt.Valid {
-			return ErrPlanNotMaterialized
-		}
-		counts, err := q.GoalChildCounts(ctx, sql.NullString{String: goalID, Valid: true})
-		if err != nil {
-			return fmt.Errorf("goal child counts: %w", err)
-		}
-		if counts.Total == 0 {
+		return s.activateGoalInTx(ctx, q, goalID, actor)
+	})
+}
+
+// activateGoalInTx is ActivateGoal's body, callable inside an existing tx. The
+// direct-goal create path (CreateGoal) reuses it to promote the freshly
+// materialized goal to 'running' in the same transaction, so a default `direct`
+// goal runs on creation instead of stalling at 'planned' waiting for a separate
+// activate call.
+func (s *TransitionService) activateGoalInTx(ctx context.Context, q *sqlc.Queries, goalID string, actor Actor) error {
+	goal, err := getGoalForUpdate(ctx, q, goalID)
+	if err != nil {
+		return err
+	}
+	// Archived goals are inert; reactivating one would resurrect work that is
+	// hidden from default lists (D-archive invariant).
+	if goal.ArchivedAt.Valid {
+		return ErrInvalidTransition
+	}
+	// Genuinely illegal start states: already terminal or already running.
+	if isTerminalGoalStatus(goal.Status) || goal.Status == GoalStatusRunning {
+		return ErrInvalidTransition
+	}
+	// Defense in depth against rows that predate goal review gating: a goal
+	// whose review_policy needs the unwired synthesizer/review runtime must
+	// not activate. CreateGoal already rejects non-none at creation.
+	if goal.ReviewPolicy != ReviewPolicyNone {
+		return fmt.Errorf("%w: goal review_policy %q (only 'none' is supported)", ErrUnsupportedReviewPolicy, goal.ReviewPolicy)
+	}
+	// Accepted-plan gate. Load the plan first so a draft/no-plan goal surfaces
+	// the "plan first" error rather than a generic transition failure.
+	plan, err := q.GetAgentGoalPlanByGoal(ctx, goalID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrPlanMaterializationRequired
 		}
-		// After the gate the goal must be in 'planned' (materialize promotes it
-		// there); anything else is an illegal start state.
-		if goal.Status != GoalStatusPlanned {
-			return ErrInvalidTransition
+		return err
+	}
+	if !plan.AcceptedAt.Valid {
+		return ErrAcceptedPlanRequired
+	}
+	if !plan.MaterializedAt.Valid {
+		return ErrPlanNotMaterialized
+	}
+	counts, err := q.GoalChildCounts(ctx, sql.NullString{String: goalID, Valid: true})
+	if err != nil {
+		return fmt.Errorf("goal child counts: %w", err)
+	}
+	if counts.Total == 0 {
+		return ErrPlanMaterializationRequired
+	}
+	// After the gate the goal must be in 'planned' (materialize promotes it
+	// there); anything else is an illegal start state.
+	if goal.Status != GoalStatusPlanned {
+		return ErrInvalidTransition
+	}
+	now := s.now()
+	n, err := q.TransitionAgentGoalStatus(ctx, sqlc.TransitionAgentGoalStatusParams{
+		Status: GoalStatusRunning, UpdatedAt: now, ID: goalID, Status_2: GoalStatusPlanned,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrInvalidTransition
+	}
+	children, err := q.ListChildrenByGoal(ctx, sql.NullString{String: goalID, Valid: true})
+	if err != nil {
+		return fmt.Errorf("list children: %w", err)
+	}
+	for _, c := range children {
+		if c.Status != StatusDraft || c.ArchivedAt.Valid {
+			continue
 		}
-		now := s.now()
-		n, err := q.TransitionAgentGoalStatus(ctx, sqlc.TransitionAgentGoalStatusParams{
-			Status: GoalStatusRunning, UpdatedAt: now, ID: goalID, Status_2: GoalStatusPlanned,
-		})
-		if err != nil {
+		if _, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
+			Status: StatusReady, UpdatedAt: now, ID: c.ID, Status_2: StatusDraft,
+		}); err != nil {
+			return fmt.Errorf("activate child %s: %w", c.ID, err)
+		}
+		if err := s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+			TaskID:     nullable(c.ID),
+			GoalID:     nullable(goalID),
+			EventType:  "activate",
+			FromStatus: nullable(StatusDraft),
+			ToStatus:   nullable(StatusReady),
+			ActorType:  actorTypeOrSystem(actor),
+			ActorID:    nullable(actor.ID),
+			Detail:     detailJSON(map[string]any{"goal_activation": true}),
+		}); err != nil {
 			return err
 		}
-		if n == 0 {
-			return ErrInvalidTransition
-		}
-		children, err := q.ListChildrenByGoal(ctx, sql.NullString{String: goalID, Valid: true})
-		if err != nil {
-			return fmt.Errorf("list children: %w", err)
-		}
-		for _, c := range children {
-			if c.Status != StatusDraft || c.ArchivedAt.Valid {
-				continue
-			}
-			if _, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
-				Status: StatusReady, UpdatedAt: now, ID: c.ID, Status_2: StatusDraft,
-			}); err != nil {
-				return fmt.Errorf("activate child %s: %w", c.ID, err)
-			}
-			if err := s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-				TaskID:     nullable(c.ID),
-				GoalID:     nullable(goalID),
-				EventType:  "activate",
-				FromStatus: nullable(StatusDraft),
-				ToStatus:   nullable(StatusReady),
-				ActorType:  actorTypeOrSystem(actor),
-				ActorID:    nullable(actor.ID),
-				Detail:     detailJSON(map[string]any{"goal_activation": true}),
-			}); err != nil {
-				return err
-			}
-		}
-		return s.appendGoalEvent(ctx, q, goalID, "goal_activate", GoalStatusPlanned, GoalStatusRunning, actor, nil)
-	})
+	}
+	return s.appendGoalEvent(ctx, q, goalID, "goal_activate", GoalStatusPlanned, GoalStatusRunning, actor, nil)
 }
 
 // CompleteGoal moves a non-terminal goal to done and stamps completed_at.

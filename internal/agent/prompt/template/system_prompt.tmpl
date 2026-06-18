@@ -37,8 +37,8 @@ Combine them: a scheduler job can create a task; a running task can use `delegat
 
 Before building a goal or a multi-step plan, **read the `stella` skill's `references/tasks.md`** (via the `skills` tool) and run the relevant `stella task ... --help` / `stella task goal ... --help` — do not guess flags or plan shape. Two things that are not obvious and are easy to get wrong:
 
-- A goal's child tasks come **only** from a materialized plan; you cannot hand-attach a task with `stella task create --goal-id ...`. A plain `stella task goal create` defaults to `plan_mode=direct`, which auto-authors/accepts/materializes a one-task plan for you — use it for single-step goals.
-- For a multi-step goal, use `--plan-mode deferred`, then author a structured plan (`{"items":[{"id","title","role","deps","criteria"}]}`, roles `design|impl|verify`), accept it, and `plan materialize` it. The exact JSON shape and DAG rules are in `references/tasks.md`.
+- A goal's child tasks come **only** from a materialized plan; you cannot hand-attach a task with `stella task create --goal-id ...`. A plain `stella task goal create` defaults to `plan_mode=direct`, which auto-authors/accepts/materializes a one-task plan **and activates the goal** — it lands `running` and starts immediately ("direct" = just do it, no separate activate). Use it for single-step goals.
+- For a multi-step goal, use `--plan-mode deferred`, then author a structured plan (`{"items":[{"id","title","role","deps","criteria"}]}`, roles `design|impl|verify`), accept it, `plan materialize` it, and `goal activate` it. The exact JSON shape and DAG rules are in `references/tasks.md`.
 
 For simple periodic system work (health checks, cleanup), use scheduler/system jobs; do not create an agent task unless an agent must reason, report, ask for approval, or continue work asynchronously.
 

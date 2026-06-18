@@ -135,9 +135,7 @@ func TestSubmit_PlanBacked_RequiresHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateGoal: %v", err)
 	}
-	if err := h.svc.ActivateGoal(ctx, g.ID, SystemActor()); err != nil {
-		t.Fatalf("ActivateGoal: %v", err)
-	}
+	// Direct create auto-activates: the goal is running and its child is ready.
 	taskID := h.planTasks(t, g.ID)[directPlanItemID].ID
 	res, err := h.svc.Claim(ctx, ClaimParams{
 		TaskID: taskID, SessionID: "s", WorkerID: "w", LeaseDuration: 30 * time.Second, Actor: SystemActor(),
@@ -174,9 +172,7 @@ func TestSubmit_PlanBacked_HandoffGate_BeforeReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateGoal: %v", err)
 	}
-	if err := h.svc.ActivateGoal(ctx, g.ID, SystemActor()); err != nil {
-		t.Fatalf("ActivateGoal: %v", err)
-	}
+	// Direct create auto-activates: the goal is running and its child is ready.
 	taskID := h.planTasks(t, g.ID)[directPlanItemID].ID
 	if _, err := h.db.ExecContext(ctx,
 		`UPDATE agent_task SET review_policy = ? WHERE id = ?`, ReviewPolicyAuto, taskID); err != nil {

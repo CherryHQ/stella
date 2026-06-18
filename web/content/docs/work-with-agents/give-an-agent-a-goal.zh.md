@@ -43,8 +43,8 @@ Agent 可以追问，但清楚的结果会节省时间。
 
 ## 大 goal 使用任务系统
 
-如果 goal 有多个步骤，可以让 Agent 用显式 tasks 追踪它：
+如果 goal 有多个步骤，可以让 Agent 用「带 plan 的 goal」来追踪它：
 
-> 为这件事创建一个 goal，然后创建需要追踪的子 tasks、依赖关系和人工 review 节点。
+> 为这件事创建一个带多步 plan 的 goal——列出步骤、依赖关系和需要的人工 review 节点——然后运行它。
 
-用聊天提供上下文和决策；用任务 UI 查看执行状态。本版本不包含自动 goal 拆分，所以任务列表需要显式创建。
+Agent 编写 plan，系统把它物化成子 tasks（你不能手动把 task 挂到 goal 上）。单步 goal 创建即运行；多步 goal 先规划、再激活。用聊天提供上下文和决策，用任务 UI 查看执行状态。本版本不包含自动 LLM goal 拆分，所以由 Agent 显式编写 plan。

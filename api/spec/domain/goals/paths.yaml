@@ -127,7 +127,7 @@ paths:
       - { name: goalId, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
-      summary: Activate a goal (draft → running, promotes draft children to ready)
+      summary: Activate a planned goal (planned → running, promotes draft children to ready; direct goals are already activated on create)
       operationId: activateGoal
       responses:
         "200":

@@ -359,8 +359,8 @@ func TestGoals_CreateGetRoundTrip(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	// A direct-mode goal (the default) is created behind an accepted+materialized
-	// plan, so it lands in 'planned' rather than 'draft' (#525).
-	if goal.Id == "" || goal.Status != "planned" {
+	// plan AND auto-activated, so it lands in 'running' ("direct" = just do it).
+	if goal.Id == "" || goal.Status != "running" {
 		t.Fatalf("unexpected goal: %+v", goal)
 	}
 
@@ -409,17 +409,25 @@ func TestGoals_ListFiltersByAgentID(t *testing.T) {
 	}
 }
 
-func TestGoals_Activate_DraftToRunning(t *testing.T) {
+// A deferred goal driven to 'planned' (plan -> accept -> materialize) activates
+// to 'running' over HTTP. Direct goals auto-activate on create, so the explicit
+// activate endpoint is exercised through the deferred path.
+func TestGoals_Activate_PlannedToRunning(t *testing.T) {
 	env := setupAdmin(t)
 	withTasks(t, env)
-	rr := doRequest(t, env, http.MethodPost, "/api/goals", goalCreateBody(t, env, "x"))
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	g := createDeferredGoal(t, env, "x")
+	put := apitypes.PutGoalPlanRequest{Content: structuredPlanContent()}
+	if rr := doRequest(t, env, http.MethodPut, "/api/goals/"+g.Id+"/plan", put); rr.Code != http.StatusOK {
+		t.Fatalf("put plan: %d %s", rr.Code, rr.Body.String())
 	}
-	var goal apitypes.Goal
-	_ = json.Unmarshal(rr.Body.Bytes(), &goal)
+	if rr := doRequest(t, env, http.MethodPost, "/api/goals/"+g.Id+"/plan/accept", nil); rr.Code != http.StatusOK {
+		t.Fatalf("accept: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPost, "/api/goals/"+g.Id+"/plan/materialize", nil); rr.Code != http.StatusOK {
+		t.Fatalf("materialize: %d %s", rr.Code, rr.Body.String())
+	}
 
-	rr = doRequest(t, env, http.MethodPost, "/api/goals/"+goal.Id+"/activate", nil)
+	rr := doRequest(t, env, http.MethodPost, "/api/goals/"+g.Id+"/activate", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("activate: %d %s", rr.Code, rr.Body.String())
 	}

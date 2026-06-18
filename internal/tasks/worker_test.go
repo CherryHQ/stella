@@ -93,9 +93,7 @@ func TestWorker_PlanBackedSubmit_MissingHandoff_RetryableProtocolError(t *testin
 	if err != nil {
 		t.Fatalf("CreateGoal: %v", err)
 	}
-	if err := h.svc.ActivateGoal(ctx, g.ID, SystemActor()); err != nil {
-		t.Fatalf("ActivateGoal: %v", err)
-	}
+	// Direct create auto-activates: the goal is running and its child is ready.
 	id := h.planTasks(t, g.ID)[directPlanItemID].ID
 	res, err := h.svc.Claim(ctx, ClaimParams{TaskID: id, SessionID: "s", WorkerID: "w", LeaseDuration: 60 * time.Second})
 	if err != nil {

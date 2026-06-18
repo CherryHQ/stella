@@ -11,36 +11,46 @@ description: 由子任务和任务汇总支持的 goal 容器。本版本 gate o
 
 ## 当前支持矩阵
 
-| 功能                   | 状态                                                 |
-| ---------------------- | ---------------------------------------------------- |
-| 创建/列出/获取 goals   | 支持。                                               |
-| 将 task 挂到 goal      | 支持，通过 `agent_task.goal_id`。                    |
-| 列出 child tasks       | 支持。                                               |
-| 激活 goal              | 支持：draft goal → running，draft children → ready。 |
-| 从 child task 状态汇总 | 支持 `review_policy=none`。                          |
-| 取消 goal              | 支持：级联取消非终止 child tasks。                   |
-| 自动 planner           | 不支持。请显式创建 child tasks。                     |
-| 最终 synthesizer       | 不支持。不要依赖 goal `review_policy!=none`。        |
-| Goal agent review      | 不支持。                                             |
-| Agent reviewer runs    | 不支持。                                             |
+| 功能                     | 状态                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| 创建/列出/获取 goals     | 支持。                                                                                |
+| 从 plan 产生 child tasks | 支持：child tasks **只能**来自已物化的 plan，绝不能手动挂载。                         |
+| 列出 child tasks         | 支持。                                                                                |
+| 激活 goal                | 支持：`planned` goal → running，draft children → ready。                              |
+| direct goal 自动执行     | 支持：`plan_mode=direct`（默认）在创建时规划、物化**并激活**——goal 直接落 `running`。 |
+| 从 child task 状态汇总   | 支持 `review_policy=none`。                                                           |
+| 取消 goal                | 支持：级联取消非终止 child tasks。                                                    |
+| 自动 LLM planner         | 不支持。plan 内容由你编写，materializer 把它变成 tasks。                              |
+| 最终 synthesizer         | 不支持。不要依赖 goal `review_policy!=none`。                                         |
+| Goal agent review        | 不支持。                                                                              |
+| Agent reviewer runs      | 不支持。                                                                              |
 
 ## 心智模型
 
-| 概念                     | 作用                                                                                                                                |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `agent_goal`             | 一组相关 tasks 的容器。存储必填 owner agent、可选 project、status、priority、review policy、context、output 和 active review 指针。 |
-| `agent_task.goal_id`     | 从 task 到一个 goal 的可选链接。Standalone task 没有 goal。Child task 会继承/校验 goal 的 agent 和 project context。                |
-| `agent_task_run.goal_id` | Schema 支持未来 goal-targeted planner/synthesizer runs；本版本删除 dispatcher scan paths。                                          |
-| `agent_review.goal_id`   | Schema 支持未来 goal-parented reviews；本版本通过 API validation gate off。                                                         |
+| 概念                     | 作用                                                                                                                                                                                          |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_goal`             | 一组相关 tasks 的容器。存储必填 owner agent、可选 project、status、priority、review policy、context、output 和 active review 指针。                                                           |
+| `agent_task.goal_id`     | child task 到其 goal 的链接，**仅由** plan materializer 写入——公开的 `POST /api/tasks` 会拒绝 `goal_id`。Standalone task 没有 goal。Child task 会继承/校验 goal 的 agent 和 project context。 |
+| `agent_task_run.goal_id` | Schema 支持未来 goal-targeted planner/synthesizer runs；本版本删除 dispatcher scan paths。                                                                                                    |
+| `agent_review.goal_id`   | Schema 支持未来 goal-parented reviews；本版本通过 API validation gate off。                                                                                                                   |
 
 ## 支持的生命周期
 
-支持的容器模式：
+Goal 在运行前要先过 plan gate，路径取决于 `plan_mode`：
+
+- **`direct`**（默认——"直接做"）：创建时一个事务内完成编写 + 接受 + 物化单任务 plan
+  **并激活 goal**。Goal 直接落在 `running`，其唯一 child task 为 `ready`，无需单独激活。
+- **`deferred`**：创建后 goal 停在 `draft` 且无 plan。你再编写 plan（`planning`）、
+  接受或人工批准、物化（`planned`）、激活（`running`）。
 
 ```mermaid
 stateDiagram-v2
-    [*] --> draft
-    draft --> running: ActivateGoal
+    [*] --> draft: CreateGoal (deferred)
+    [*] --> running: CreateGoal (direct——自动 plan+物化+激活)
+    draft --> planning: PUT plan
+    planning --> planning: accept / submit-review + approve
+    planning --> planned: materialize
+    planned --> running: ActivateGoal
     running --> done: 所有 required children 完成
     running --> failed: required child 失败
     running --> blocked: required child 被阻塞
@@ -48,6 +58,7 @@ stateDiagram-v2
     failed --> running: required child 被重开 (UnblockGoal)
     failed --> done: required child 完成 (CompleteGoal)
     draft --> cancelled: CancelGoal
+    planned --> cancelled: CancelGoal
     running --> cancelled: CancelGoal
     blocked --> cancelled: CancelGoal
     done --> [*]
@@ -55,7 +66,10 @@ stateDiagram-v2
     cancelled --> [*]
 ```
 
-Activation 会在同一个事务中把 draft child tasks 提升到 ready。随后 dispatcher 通过普通 task readiness 路径派发这些 tasks。
+`ActivateGoal`（deferred 显式调用，direct 自动）把 goal 从 `planned → running` 提升，
+并在同一事务中把 draft child tasks 翻成 ready。随后 dispatcher 通过普通 task readiness
+路径派发这些 tasks。注意 dispatcher 绝不自动激活 `planned` goal——deferred goal 会停在
+`planned` 直到有人调用 activate，这正是让你在工作开始前审视已物化任务图的 gate。
 
 ## Rollup
 
@@ -94,25 +108,27 @@ Planner、synthesizer 和 agent-reviewer dispatch scan paths 已删除，不再�
 Goal 不会自己创建 child tasks，也不能手动把 task 挂到 goal 上（`POST /api/tasks` 带
 `goal_id` 会被拒绝）。支持的流程是：
 
-1. 创建 goal。`plan_mode=direct`（默认）自动 seed、接受并物化一个单任务 plan；
-   `plan_mode=deferred` 留在 `draft` 走第 2 步。
+1. 创建 goal。`plan_mode=direct`（默认）自动 seed、接受、物化**并激活**一个单任务
+   plan——goal 直接落 `running`,其 child task 立即开始；`plan_mode=deferred` 留在
+   `draft` 走第 2–5 步。
 2. `PUT /api/goals/{id}/plan` —— 暂存结构化 `PlanContent`（items 带 `role`
-   design/impl/verify、`deps`、`criteria`）。
+   design/impl/verify、`deps`、`criteria`）。goal → `planning`。
 3. 接受它：`plan/accept`（`review_policy=none`），或 `plan/submit-review` 后做一次
-   plan-review approve（`review_policy=human`）。
+   plan-review approve（`review_policy=human`）。goal 仍为 `planning`。
 4. `plan/materialize` —— 把 plan 调和为 child task 图；goal → `planned`。
-5. 激活 goal；worker runtime 执行 child tasks，rollup 更新 goal。
+5. 激活 goal（`planned → running`）；worker runtime 执行 child tasks，rollup 更新 goal。
 
 这是刻意选择：工作始终可追溯到一个已接受的 plan。自动 LLM 规划（从 prompt 返回结构化
 items）仍需 planner runtime，尚未接入——plan 内容由你编写。
 
 **`direct`（默认）到底做了什么。** direct goal **不是**"不走 plan"的捷径——它依然拥有一个真实的
-`agent_goal_plan` 行。系统在创建 goal 时一步完成：自动编写一个单项 plan（item 标题取自 goal、
-`role=direct`）、无 review 直接接受（`review_policy=none`）、并物化它。那个以 goal 命名的单个
-child task **就是**这个 plan 的物化产物，不是手动挂上去的 task。只有当你想自己编写多步 plan 时才用
-`deferred`。这个 plan 真实存在、可通过 `GET /api/goals/{id}/plan` 读取，Web UI 的 goal 详情页也会在
-任务图上方以 **计划** 区块渲染它（每个 item 含 role、依赖和验收标准），因此 direct goal 的单项 plan
-同样可见。
+`agent_goal_plan` 行。系统在创建 goal 时一个事务内一步完成：自动编写一个单项 plan（item 标题取自
+goal、`role=direct`）、无 review 直接接受（`review_policy=none`）、物化它、**并激活 goal**。所以
+direct goal 直接落在 `running`，其唯一 child task 为 `ready` 并立即开始；"direct" 就是"直接做"，
+不需要单独的 activate 调用。那个以 goal 命名的单个 child task **就是**这个 plan 的物化产物,不是
+手动挂上去的 task。只有当你想自己编写多步 plan、并在运行前用 `planned` gate 把关时才用 `deferred`。
+这个 plan 真实存在、可通过 `GET /api/goals/{id}/plan` 读取，Web UI 的 goal 详情页也会在任务图上方
+以 **计划** 区块渲染它（每个 item 含 role、依赖和验收标准），因此 direct goal 的单项 plan 同样可见。
 
 ## Review policy 建议
 
@@ -128,24 +144,24 @@ Task-level review 仍然支持这些 policy：
 
 ## HTTP surface
 
-| Method   | Path                                                                                   | Purpose                                                                                                                                                                        |
-| -------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `POST`   | `/api/goals`                                                                           | 创建 goal。支持 runtime 中请使用 `review_policy=none`。`plan_mode=direct`（默认）自动规划并物化单个任务；`plan_mode=deferred` 留在 `draft` 供显式规划。                        |
-| `GET`    | `/api/goals`                                                                           | 列出 goals。过滤参数：`status`、`terminal`（true=done/failed/cancelled，false=活跃）、`archived=true`（恢复视图）、`q`（标题/描述子串）。响应含 `total` 统计全部匹配用于分页。 |
-| `GET`    | `/api/goals/{id}`                                                                      | 获取单个 goal。                                                                                                                                                                |
-| `POST`   | `/api/goals/{id}/activate`                                                             | Draft → running；把 draft children 提升到 ready。                                                                                                                              |
-| `POST`   | `/api/goals/{id}/cancel`                                                               | 级联取消非终止 children。                                                                                                                                                      |
-| `DELETE` | `/api/goals/{id}`                                                                      | 归档终止/draft goal 及其终止/draft children（审计安全，从默认列表隐藏）。                                                                                                      |
-| `POST`   | `/api/goals/{id}/unarchive`                                                            | 恢复已归档 goal 及随其归档的 children 回到默认列表。                                                                                                                           |
-| `GET`    | `/api/goals/{id}/tasks`                                                                | 列出 child tasks。                                                                                                                                                             |
-| `GET`    | `/api/goals/{id}/reviews`                                                              | Schema 支持，但本版本通过 API validation gate off goal review runtime。                                                                                                        |
-| `POST`   | `/api/goals/{id}/reviews/{reviewID}/approve`（以及 reject、request-changes、escalate） | Review decision endpoints 存在，但本版本不创建新的 goal review runtime。                                                                                                       |
-| `GET`    | `/api/goals/{id}/plan`                                                                 | 获取 goal 的 plan（首次 `PUT` 前返回 404）。                                                                                                                                   |
-| `PUT`    | `/api/goals/{id}/plan`                                                                 | 创建或替换 pending plan edit（`content` + `review_policy` none\|human）。plan 处于 in_review 时拒绝。                                                                          |
-| `POST`   | `/api/goals/{id}/plan/accept`                                                          | 无评审接受 pending plan（`review_policy=none`）。不提升——由 materialize 提升。                                                                                                 |
-| `POST`   | `/api/goals/{id}/plan/submit-review`                                                   | 开启人工 plan 评审（`review_policy=human`）；返回 `subject='plan'` 的 review。                                                                                                 |
-| `POST`   | `/api/goals/{id}/plan/reviews/{reviewID}/approve`（以及 reject、request-changes）      | 决定 plan 评审。专用路径——通用 goal-review API 拒绝 `subject='plan'`。                                                                                                         |
-| `POST`   | `/api/goals/{id}/plan/materialize`                                                     | 将 accepted/approved 的 plan 物化为任务图；goal → `planned`。                                                                                                                  |
+| Method   | Path                                                                                   | Purpose                                                                                                                                                                              |
+| -------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST`   | `/api/goals`                                                                           | 创建 goal。支持 runtime 中请使用 `review_policy=none`。`plan_mode=direct`（默认）自动规划、物化并激活单个任务——goal 直接落 `running`；`plan_mode=deferred` 留在 `draft` 供显式规划。 |
+| `GET`    | `/api/goals`                                                                           | 列出 goals。过滤参数：`status`、`terminal`（true=done/failed/cancelled，false=活跃）、`archived=true`（恢复视图）、`q`（标题/描述子串）。响应含 `total` 统计全部匹配用于分页。       |
+| `GET`    | `/api/goals/{id}`                                                                      | 获取单个 goal。                                                                                                                                                                      |
+| `POST`   | `/api/goals/{id}/activate`                                                             | `planned` → running；把 draft children 提升到 ready。（direct goal 创建时已激活；这是 deferred goal 物化后的显式步骤。）                                                             |
+| `POST`   | `/api/goals/{id}/cancel`                                                               | 级联取消非终止 children。                                                                                                                                                            |
+| `DELETE` | `/api/goals/{id}`                                                                      | 归档终止/draft goal 及其终止/draft children（审计安全，从默认列表隐藏）。                                                                                                            |
+| `POST`   | `/api/goals/{id}/unarchive`                                                            | 恢复已归档 goal 及随其归档的 children 回到默认列表。                                                                                                                                 |
+| `GET`    | `/api/goals/{id}/tasks`                                                                | 列出 child tasks。                                                                                                                                                                   |
+| `GET`    | `/api/goals/{id}/reviews`                                                              | Schema 支持，但本版本通过 API validation gate off goal review runtime。                                                                                                              |
+| `POST`   | `/api/goals/{id}/reviews/{reviewID}/approve`（以及 reject、request-changes、escalate） | Review decision endpoints 存在，但本版本不创建新的 goal review runtime。                                                                                                             |
+| `GET`    | `/api/goals/{id}/plan`                                                                 | 获取 goal 的 plan（首次 `PUT` 前返回 404）。                                                                                                                                         |
+| `PUT`    | `/api/goals/{id}/plan`                                                                 | 创建或替换 pending plan edit（`content` + `review_policy` none\|human）。plan 处于 in_review 时拒绝。                                                                                |
+| `POST`   | `/api/goals/{id}/plan/accept`                                                          | 无评审接受 pending plan（`review_policy=none`）。不提升——由 materialize 提升。                                                                                                       |
+| `POST`   | `/api/goals/{id}/plan/submit-review`                                                   | 开启人工 plan 评审（`review_policy=human`）；返回 `subject='plan'` 的 review。                                                                                                       |
+| `POST`   | `/api/goals/{id}/plan/reviews/{reviewID}/approve`（以及 reject、request-changes）      | 决定 plan 评审。专用路径——通用 goal-review API 拒绝 `subject='plan'`。                                                                                                               |
+| `POST`   | `/api/goals/{id}/plan/materialize`                                                     | 将 accepted/approved 的 plan 物化为任务图；goal → `planned`。                                                                                                                        |
 
 任何拒绝 unsupported goal review policy 的行为变化都必须 spec-first。
 
