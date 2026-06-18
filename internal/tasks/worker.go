@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -122,7 +123,21 @@ func (w *Worker) applyResult(taskID, runID string, actor Actor, res Result) erro
 	ctx := context.Background()
 	switch res.Action {
 	case TerminalSubmit:
-		return w.svc.Submit(ctx, taskID, runID, detailJSON(res.Output), actor)
+		err := w.svc.Submit(ctx, taskID, runID, detailJSON(res.Output), actor)
+		if errors.Is(err, ErrInvalidHandoff) {
+			// The submit rolled back (still running). A missing handoff is a
+			// protocol miss, not task failure: retry so the agent re-submits with
+			// a handoff summary, and record it for the inbox like other misses.
+			reason := "plan-backed task submitted without handoff.summary"
+			if ferr := w.svc.Fail(ctx, FailParams{
+				TaskID: taskID, RunID: runID, Reason: reason, Retryable: true, Actor: actor,
+			}); ferr != nil {
+				w.log.Warn("worker: fail bookkeeping returned error", "err", ferr)
+			}
+			w.appendProtocolError(taskID, runID, reason, false, actor)
+			return nil
+		}
+		return err
 	case TerminalBlock:
 		b := res.Blocker
 		if b == nil {

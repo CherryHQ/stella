@@ -167,6 +167,13 @@ var (
 	// ErrGoalPlanNotFound is returned when a goal has no plan row. #525.
 	ErrGoalPlanNotFound = errors.New("tasks: goal plan not found")
 
+	// ErrInvalidHandoff is returned by Submit when a plan-backed task (one with a
+	// source_plan_id) submits without a handoff summary. Downstream plan items
+	// build their context from upstream handoffs, so a plan task must hand off a
+	// summary; the worker turns this into a retryable protocol_error so the agent
+	// retries with a proper handoff. Standalone tasks are unaffected. #525.
+	ErrInvalidHandoff = errors.New("tasks: plan-backed task submit requires a handoff summary")
+
 	// ErrPlanItemInFlight is returned by a replan re-materialize when it would
 	// edit the definition of a plan item whose task is already running/done, or
 	// when a not-started task races to running mid-reconcile (constrained replan,

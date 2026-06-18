@@ -129,10 +129,11 @@ func (r *terminalRecorder) snapshot() (Result, bool) {
 // persists the transcript to the task session), and pumps the chat loop until
 // a terminal action fires or the channel closes.
 type workerExecutor struct {
-	chat TaskChatFunc
-	q    *sqlc.Queries
-	svc  *TransitionService
-	log  *slog.Logger
+	chat    TaskChatFunc
+	q       *sqlc.Queries
+	svc     *TransitionService
+	packets *GoalContextPacketBuilder
+	log     *slog.Logger
 }
 
 // newWorkerExecutor builds the default agent-backed worker executor. q and svc
@@ -141,7 +142,7 @@ func newWorkerExecutor(chat TaskChatFunc, q *sqlc.Queries, svc *TransitionServic
 	if log == nil {
 		log = slog.Default().With("component", "tasks/worker-executor")
 	}
-	return &workerExecutor{chat: chat, q: q, svc: svc, log: log}
+	return &workerExecutor{chat: chat, q: q, svc: svc, packets: NewGoalContextPacketBuilder(q), log: log}
 }
 
 // Execute runs one worker turn. All outcomes are encoded in Result so the
@@ -179,8 +180,17 @@ func (e *workerExecutor) Execute(ctx context.Context, req Request) (Result, erro
 		})
 	}
 
-	// First turn.
-	text, res, done, fail := e.runTurn(ctx, turn(buildTaskPrompt(*req.Task, e.latestResolution(ctx, req.Task.ID))), rec)
+	// First turn. The goal-context packet is advisory: a build error degrades to
+	// no packet (the standalone prompt) rather than failing the run.
+	var packet *GoalContextPacket
+	if e.packets != nil {
+		var perr error
+		if packet, perr = e.packets.Build(ctx, req.Task.ID); perr != nil {
+			e.log.Warn("worker executor: goal context build failed", "task_id", req.Task.ID, "err", perr)
+			packet = nil
+		}
+	}
+	text, res, done, fail := e.runTurn(ctx, turn(buildTaskPrompt(*req.Task, e.latestResolution(ctx, req.Task.ID), packet)), rec)
 	if fail != nil {
 		return *fail, nil
 	}
@@ -275,7 +285,8 @@ func (e *workerExecutor) latestResolution(ctx context.Context, taskID string) st
 // buildTaskPrompt assembles the worker turn. The terminal task_control rule is
 // repeated in the user message because workers run as normal agents with extra
 // tools; relying on the tool description alone makes protocol errors too easy.
-func buildTaskPrompt(task sqlc.AgentTask, resolution string) string {
+// packet is nil for standalone tasks, leaving their prompt unchanged.
+func buildTaskPrompt(task sqlc.AgentTask, resolution string, packet *GoalContextPacket) string {
 	body := task.Title
 	if task.Description != "" {
 		body += "\n\n" + task.Description
@@ -292,6 +303,9 @@ Protocol:
 
 Task:
 ` + body
+	if packet != nil {
+		prompt += "\n\n" + packet.Render()
+	}
 	if resolution != "" {
 		prompt += "\n\n" + resolution
 	}

@@ -81,6 +81,15 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 		if !runIdentityMatches(task, runID) {
 			return ErrInvalidTransition
 		}
+		// Plan-backed tasks must hand off a summary so downstream items have
+		// context to build on (#525 Phase 4). Checked before any state change and
+		// independent of review policy; the worker turns it into a retryable
+		// protocol_error. Standalone tasks (no source plan) are unaffected.
+		if task.SourcePlanID.Valid {
+			if err := requireHandoff(output); err != nil {
+				return err
+			}
+		}
 		now := s.now()
 		policy := task.ReviewPolicy
 

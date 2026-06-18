@@ -82,6 +82,58 @@ func TestWorker_FailRetryable_ReturnsToReady(t *testing.T) {
 	}
 }
 
+// Phase 4 (#525): a plan-backed submit without a handoff summary is a protocol
+// miss — the worker converts the Submit's ErrInvalidHandoff into a retryable
+// fail plus a protocol_error event, so the agent re-runs and re-submits properly.
+func TestWorker_PlanBackedSubmit_MissingHandoff_RetryableProtocolError(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
+	ctx := context.Background()
+	g, err := f.CreateGoal(ctx, CreateGoalInput{UserID: h.userID, AgentID: h.agentID, Title: "ship"})
+	if err != nil {
+		t.Fatalf("CreateGoal: %v", err)
+	}
+	if err := h.svc.ActivateGoal(ctx, g.ID, SystemActor()); err != nil {
+		t.Fatalf("ActivateGoal: %v", err)
+	}
+	id := h.planTasks(t, g.ID)[directPlanItemID].ID
+	res, err := h.svc.Claim(ctx, ClaimParams{TaskID: id, SessionID: "s", WorkerID: "w", LeaseDuration: 60 * time.Second})
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
+		return Result{Action: TerminalSubmit, Output: map[string]any{"result": "no handoff"}}, nil
+	})
+	w := NewWorker(h.svc, h.q, exec)
+	w.SetHeartbeat(0)
+	if err := w.Run(ctx, id, res.RunID, SystemActor()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	task := h.getTask(t, id)
+	if task.Status != StatusReady {
+		t.Errorf("status=%q want ready (retryable handoff miss)", task.Status)
+	}
+	if task.ActiveRunID.Valid {
+		t.Errorf("active_run_id=%v want cleared", task.ActiveRunID)
+	}
+	if task.RetryCount != 1 {
+		t.Errorf("retry_count=%d want 1", task.RetryCount)
+	}
+	if run, _ := h.q.GetAgentTaskRun(ctx, res.RunID); run.Status != RunFailed {
+		t.Errorf("run status=%q want failed", run.Status)
+	}
+	events, _ := h.q.ListAgentTaskEventsByRun(ctx, nullable(res.RunID))
+	found := false
+	for _, e := range events {
+		if e.EventType == "protocol_error" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected protocol_error event, got %+v", events)
+	}
+}
+
 // HP5: executor reports no terminal action → protocol_error event, run failed,
 // task retried per budget.
 func TestWorker_ProtocolFallback_NoTerminal(t *testing.T) {
