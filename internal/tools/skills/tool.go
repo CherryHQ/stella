@@ -1,10 +1,14 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -291,11 +295,20 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	}
 
 	// For DB skills without a dir from the service, resolve the disk path the
-	// writer materialized them to (the layout is the shared authority).
+	// writer materialized them to (the layout is the shared authority). Materialize
+	// on load as a repair path for existing rows that predate disk mirroring or were
+	// created through a non-syncing store; <skill_dir> must be executable, not a
+	// theoretical address.
 	if skillDir == "" {
 		rs, _ := t.svc.Resolve(ctx, name, vc, projectRoot)
 		if rs != nil {
 			skillDir = t.layout.Dir(rs.Scope, rs.Name)
+			if skillDir != "" && !dbSkillDirReady(skillDir) {
+				if err := t.materializeDBSkill(ctx, rs.ID, skillDir); err != nil {
+					slog.WarnContext(ctx, "skills load: failed to materialize DB skill", "skill", rs.Name, "dir", skillDir, "err", err)
+					skillDir = ""
+				}
+			}
 		}
 	}
 
@@ -318,6 +331,85 @@ type installedSkill struct {
 	Status      string `json:"status"`
 	Scope       string `json:"scope"`
 	Removable   bool   `json:"removable"`
+}
+
+func (t *Tool) materializeDBSkill(ctx context.Context, skillID, skillDir string) error {
+	if t.store == nil || skillID == "" || skillDir == "" {
+		return nil
+	}
+	paths, err := t.store.ListFiles(ctx, skillID)
+	if err != nil {
+		return fmt.Errorf("materialize skill files: %w", err)
+	}
+	seen := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		content, err := t.store.LoadFile(ctx, skillID, p)
+		if err != nil {
+			return fmt.Errorf("materialize skill file %q: %w", p, err)
+		}
+		diskPath, err := safeSkillDiskPath(skillDir, filepath.FromSlash(p))
+		if err != nil {
+			return fmt.Errorf("materialize skill file %q: %w", p, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(diskPath), 0o755); err != nil {
+			return fmt.Errorf("materialize skill file %q: %w", p, err)
+		}
+		data := []byte(content)
+		if existing, err := readDiskFile(diskPath); err == nil && bytes.Equal(existing, data) {
+			// Already current.
+		} else if err := os.WriteFile(diskPath, data, 0o644); err != nil {
+			return fmt.Errorf("materialize skill file %q: %w", p, err)
+		}
+		rel, err := filepath.Rel(skillDir, diskPath)
+		if err != nil {
+			return fmt.Errorf("materialize skill file %q: %w", p, err)
+		}
+		seen[filepath.ToSlash(rel)] = struct{}{}
+	}
+	if err := filepath.WalkDir(skillDir, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() {
+			return walkErr
+		}
+		rel, err := filepath.Rel(skillDir, p)
+		if err != nil {
+			return err
+		}
+		if _, ok := seen[filepath.ToSlash(rel)]; !ok {
+			_ = os.Remove(p)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("materialize skill files: prune stale files: %w", err)
+	}
+	return nil
+}
+
+func dbSkillDirReady(skillDir string) bool {
+	f, err := os.Open(filepath.Join(skillDir, pkgplugins.SkillMainFile))
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	return true
+}
+
+func readDiskFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close() //nolint:errcheck
+	return io.ReadAll(f)
+}
+
+func safeSkillDiskPath(base string, parts ...string) (string, error) {
+	joined := filepath.Join(append([]string{base}, parts...)...)
+	cleaned := filepath.Clean(joined)
+	base = filepath.Clean(base)
+	if cleaned != base && !strings.HasPrefix(cleaned, base+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q escapes base %q", cleaned, base)
+	}
+	return cleaned, nil
 }
 
 func (t *Tool) list(ctx context.Context) (string, error) {

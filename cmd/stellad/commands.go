@@ -100,6 +100,9 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	}
 
 	ss := setupSkillStores(db)
+	if err := ss.diskSync.SyncAllToDisk(parent); err != nil {
+		return nil, fmt.Errorf("sync DB skills to disk: %w", err)
+	}
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
