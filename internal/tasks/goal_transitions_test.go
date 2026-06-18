@@ -133,7 +133,7 @@ func TestArchiveGoal_TerminalHidesGoalAndChildren(t *testing.T) {
 	if !child.ArchivedAt.Valid {
 		t.Fatalf("child archived_at not set")
 	}
-	goals, err := f.ListGoals(context.Background(), h.userID, h.agentID, "", "", 10, 0)
+	goals, err := f.ListGoals(context.Background(), h.userID, GoalFilter{AgentID: h.agentID}, 10, 0)
 	if err != nil {
 		t.Fatalf("ListGoals: %v", err)
 	}
@@ -161,6 +161,132 @@ func TestArchiveGoal_RunningChildRejected(t *testing.T) {
 	err := f.ArchiveGoal(context.Background(), gid, SystemActor())
 	if !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("got %v want ErrInvalidTransition", err)
+	}
+}
+
+// Re-archiving is idempotent: a second DELETE must not surface a spurious
+// not-found just because archived_at is already set.
+func TestArchiveGoal_Idempotent(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("first ArchiveGoal: %v", err)
+	}
+	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("second ArchiveGoal should be a no-op, got %v", err)
+	}
+}
+
+func TestArchiveTask_Idempotent(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	tid := h.createChildTask(t, gid, StatusDone)
+	if err := f.ArchiveTask(context.Background(), tid, SystemActor()); err != nil {
+		t.Fatalf("first ArchiveTask: %v", err)
+	}
+	if err := f.ArchiveTask(context.Background(), tid, SystemActor()); err != nil {
+		t.Fatalf("second ArchiveTask should be a no-op, got %v", err)
+	}
+}
+
+// UnarchiveGoal restores the goal and its archived children, and the archived
+// filter surfaces the goal for the history/restore view.
+func TestUnarchiveGoal_RestoresGoalAndChildren(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	childID := h.createChildTask(t, gid, StatusDone)
+	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("ArchiveGoal: %v", err)
+	}
+	// Archived filter must surface it; default filter must not.
+	archived, err := f.ListGoals(context.Background(), h.userID, GoalFilter{AgentID: h.agentID, Archived: true}, 10, 0)
+	if err != nil {
+		t.Fatalf("ListGoals(archived): %v", err)
+	}
+	if len(archived) != 1 || archived[0].ID != gid {
+		t.Fatalf("archived filter did not return the archived goal: %+v", archived)
+	}
+	if err := f.UnarchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("UnarchiveGoal: %v", err)
+	}
+	goal, _ := h.q.GetAgentGoal(context.Background(), gid)
+	if goal.ArchivedAt.Valid {
+		t.Fatalf("goal still archived after unarchive")
+	}
+	if h.getTask(t, childID).ArchivedAt.Valid {
+		t.Fatalf("child still archived after unarchive")
+	}
+	active, err := f.ListGoals(context.Background(), h.userID, GoalFilter{AgentID: h.agentID}, 10, 0)
+	if err != nil {
+		t.Fatalf("ListGoals(active): %v", err)
+	}
+	if len(active) != 1 || active[0].ID != gid {
+		t.Fatalf("restored goal not in default list: %+v", active)
+	}
+}
+
+func TestUnarchiveGoal_NotArchived_NoOp(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	if err := f.UnarchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("UnarchiveGoal on non-archived goal should be a no-op, got %v", err)
+	}
+}
+
+// An archived goal must stay inert: reactivation may not resurrect work that is
+// hidden from default lists.
+func TestActivateGoal_Archived_Rejects(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDraft, ReviewPolicyNone)
+	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("ArchiveGoal: %v", err)
+	}
+	err := h.svc.ActivateGoal(context.Background(), gid, SystemActor())
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("got %v want ErrInvalidTransition", err)
+	}
+	goal, _ := h.q.GetAgentGoal(context.Background(), gid)
+	if goal.Status != GoalStatusDraft {
+		t.Errorf("goal status=%q want draft (activation rejected)", goal.Status)
+	}
+}
+
+func TestReopenTask_Archived_Rejects(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusDone, ReviewPolicyNone)
+	tid := h.createChildTask(t, gid, StatusDone)
+	if err := f.ArchiveTask(context.Background(), tid, SystemActor()); err != nil {
+		t.Fatalf("ArchiveTask: %v", err)
+	}
+	err := h.svc.ReopenTask(context.Background(), tid, false, SystemActor())
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("got %v want ErrInvalidTransition", err)
+	}
+}
+
+// The dispatcher rollup scan must skip archived goals so an archived (but
+// recoverable) failed goal is never silently revived to running.
+func TestListAgentGoals_ExcludesArchived(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	gid := h.createGoal(t, GoalStatusFailed, ReviewPolicyNone)
+	if err := f.ArchiveGoal(context.Background(), gid, SystemActor()); err != nil {
+		t.Fatalf("ArchiveGoal: %v", err)
+	}
+	goals, err := h.q.ListAgentGoals(context.Background(), sqlc.ListAgentGoalsParams{Limit: 100, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListAgentGoals: %v", err)
+	}
+	for _, g := range goals {
+		if g.ID == gid {
+			t.Fatalf("archived failed goal returned in rollup scan")
+		}
 	}
 }
 

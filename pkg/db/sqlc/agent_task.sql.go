@@ -714,6 +714,23 @@ func (q *Queries) TransitionAgentTaskStatus(ctx context.Context, arg TransitionA
 	return result.RowsAffected()
 }
 
+const unarchiveAgentTask = `-- name: UnarchiveAgentTask :execrows
+UPDATE agent_task SET archived_at = NULL, updated_at = ? WHERE id = ? AND archived_at IS NOT NULL
+`
+
+type UnarchiveAgentTaskParams struct {
+	UpdatedAt string `json:"updated_at"`
+	ID        string `json:"id"`
+}
+
+func (q *Queries) UnarchiveAgentTask(ctx context.Context, arg UnarchiveAgentTaskParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, unarchiveAgentTask, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateAgentTaskMeta = `-- name: UpdateAgentTaskMeta :exec
 UPDATE agent_task
 SET title = ?, description = ?, priority = ?, not_before = ?, deadline_at = ?,

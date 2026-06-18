@@ -24,6 +24,11 @@ func (s *TransitionService) ActivateGoal(ctx context.Context, goalID string, act
 		if goal.Status != GoalStatusDraft {
 			return ErrInvalidTransition
 		}
+		// Archived goals are inert; reactivating one would resurrect work that is
+		// hidden from default lists (D-archive invariant).
+		if goal.ArchivedAt.Valid {
+			return ErrInvalidTransition
+		}
 		// Defense in depth against rows that predate goal review gating: a goal
 		// whose review_policy needs the unwired synthesizer/review runtime must
 		// not activate. CreateGoal already rejects non-none at creation.
@@ -45,7 +50,7 @@ func (s *TransitionService) ActivateGoal(ctx context.Context, goalID string, act
 			return fmt.Errorf("list children: %w", err)
 		}
 		for _, c := range children {
-			if c.Status != StatusDraft {
+			if c.Status != StatusDraft || c.ArchivedAt.Valid {
 				continue
 			}
 			if _, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{

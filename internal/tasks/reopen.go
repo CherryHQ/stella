@@ -53,6 +53,11 @@ func (s *TransitionService) ReopenTask(ctx context.Context, taskID string, casca
 		default:
 			return ErrInvalidTransition
 		}
+		// Archived tasks are inert; reopening one would resurrect work that is
+		// hidden from default lists (D-archive invariant).
+		if task.ArchivedAt.Valid {
+			return ErrInvalidTransition
+		}
 
 		downstream, err := q.ListReachableDownstream(ctx, taskID)
 		if err != nil {

@@ -325,35 +325,51 @@ func (f *ServiceFacade) WaiveDep(ctx context.Context, taskID, depTaskID, userID,
 }
 
 // ArchiveTask hides a terminal/draft task from default lists while preserving audit data.
+// Re-archiving an already-archived task is a no-op (idempotent), matching HTTP DELETE semantics.
 func (f *ServiceFacade) ArchiveTask(ctx context.Context, taskID string, actor Actor) error {
-	t, err := f.q.GetAgentTask(ctx, taskID)
+	return f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
+		_, err := f.archiveTaskTx(ctx, q, taskID, "", `{"mode":"archive"}`, actor)
+		return err
+	})
+}
+
+// archiveTaskTx archives one task inside an open tx. The status fetch and check
+// happen in-tx so a concurrent transition (e.g. draft→ready) that committed
+// before this write is respected instead of being silently overwritten. Returns
+// whether a row was archived; an already-archived task is a no-op (false, nil),
+// while a non-archivable status aborts with ErrInvalidTransition (the caller's
+// signal to abort an enclosing goal archive).
+func (f *ServiceFacade) archiveTaskTx(ctx context.Context, q *sqlc.Queries, taskID, goalID, detail string, actor Actor) (bool, error) {
+	t, err := q.GetAgentTask(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrTaskNotFound
+			return false, ErrTaskNotFound
 		}
-		return err
+		return false, err
+	}
+	if t.ArchivedAt.Valid {
+		return false, nil
 	}
 	if !isArchivableTaskStatus(t.Status) {
-		return ErrInvalidTransition
+		return false, ErrInvalidTransition
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	return f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
-		n, err := q.ArchiveAgentTask(ctx, sqlc.ArchiveAgentTaskParams{ArchivedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: taskID})
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return ErrTaskNotFound
-		}
-		return f.svc.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-			TaskID:     nullable(taskID),
-			EventType:  "task_archive",
-			FromStatus: nullable(t.Status),
-			ToStatus:   nullable(t.Status),
-			ActorType:  actor.Type,
-			ActorID:    nullable(actor.ID),
-			Detail:     `{"mode":"archive"}`,
-		})
+	n, err := q.ArchiveAgentTask(ctx, sqlc.ArchiveAgentTaskParams{ArchivedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: taskID})
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return false, nil
+	}
+	return true, f.svc.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+		TaskID:     nullable(taskID),
+		GoalID:     nullable(goalID),
+		EventType:  "task_archive",
+		FromStatus: nullable(t.Status),
+		ToStatus:   nullable(t.Status),
+		ActorType:  actor.Type,
+		ActorID:    nullable(actor.ID),
+		Detail:     detail,
 	})
 }
 
@@ -498,73 +514,73 @@ func (f *ServiceFacade) GetGoal(ctx context.Context, goalID string) (sqlc.AgentG
 	return g, nil
 }
 
+// GoalFilter narrows a goal list. Named fields avoid the transposition footgun
+// of several adjacent string parameters; the zero value lists active goals.
+type GoalFilter struct {
+	AgentID   string
+	ProjectID string
+	Status    string
+	Archived  bool // true lists the archived (history/restore) set instead of active goals
+}
+
 // ListGoals returns goals owned by the given user, newest first.
-func (f *ServiceFacade) ListGoals(ctx context.Context, userID, agentID, projectID, status string, limit, offset int64) ([]sqlc.AgentGoal, error) {
+func (f *ServiceFacade) ListGoals(ctx context.Context, userID string, filter GoalFilter, limit, offset int64) ([]sqlc.AgentGoal, error) {
 	if limit <= 0 {
 		limit = 50
 	}
+	var archived any
+	if filter.Archived {
+		archived = int64(1)
+	}
 	return f.q.ListAgentGoalsByUser(ctx, sqlc.ListAgentGoalsByUserParams{
 		UserID:    userID,
-		AgentID:   nilIfEmpty(agentID),
-		ProjectID: nilIfEmpty(projectID),
-		Status:    nilIfEmpty(status),
+		Archived:  archived,
+		AgentID:   nilIfEmpty(filter.AgentID),
+		ProjectID: nilIfEmpty(filter.ProjectID),
+		Status:    nilIfEmpty(filter.Status),
 		Limit:     limit,
 		Offset:    offset,
 	})
 }
 
 // ArchiveGoal hides a terminal/draft goal and its terminal/draft children from default lists while preserving audit data.
+// All status fetches and checks run inside the tx so a concurrent transition is
+// respected; re-archiving an already-archived goal is a no-op (idempotent).
 func (f *ServiceFacade) ArchiveGoal(ctx context.Context, goalID string, actor Actor) error {
-	g, err := f.q.GetAgentGoal(ctx, goalID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrGoalNotFound
+	return f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
+		g, err := getGoalForUpdate(ctx, q, goalID)
+		if err != nil {
+			return err
 		}
-		return err
-	}
-	if !isArchivableGoalStatus(g.Status) {
-		return ErrInvalidTransition
-	}
-	children, err := f.q.ListChildrenByGoal(ctx, nullable(goalID))
-	if err != nil {
-		return err
-	}
-	for _, child := range children {
-		if !isArchivableTaskStatus(child.Status) {
+		if g.ArchivedAt.Valid {
+			return nil
+		}
+		if !isArchivableGoalStatus(g.Status) {
 			return ErrInvalidTransition
 		}
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	return f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
+		children, err := q.ListChildrenByGoal(ctx, nullable(goalID))
+		if err != nil {
+			return err
+		}
+		// Validate every child up front so an active child aborts the whole
+		// operation before any row is archived (all-or-nothing).
 		for _, child := range children {
-			if child.ArchivedAt.Valid {
-				continue
-			}
-			n, err := q.ArchiveAgentTask(ctx, sqlc.ArchiveAgentTaskParams{ArchivedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: child.ID})
-			if err != nil {
-				return err
-			}
-			if n > 0 {
-				if err := f.svc.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-					TaskID:     nullable(child.ID),
-					GoalID:     nullable(goalID),
-					EventType:  "task_archive",
-					FromStatus: nullable(child.Status),
-					ToStatus:   nullable(child.Status),
-					ActorType:  actor.Type,
-					ActorID:    nullable(actor.ID),
-					Detail:     `{"mode":"archive","parent_goal_archived":true}`,
-				}); err != nil {
-					return err
-				}
+			if !child.ArchivedAt.Valid && !isArchivableTaskStatus(child.Status) {
+				return ErrInvalidTransition
 			}
 		}
+		for _, child := range children {
+			if _, err := f.archiveTaskTx(ctx, q, child.ID, goalID, `{"mode":"archive","parent_goal_archived":true}`, actor); err != nil {
+				return err
+			}
+		}
+		now := time.Now().UTC().Format(time.RFC3339Nano)
 		n, err := q.ArchiveAgentGoal(ctx, sqlc.ArchiveAgentGoalParams{ArchivedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: goalID})
 		if err != nil {
 			return err
 		}
 		if n == 0 {
-			return ErrGoalNotFound
+			return nil
 		}
 		return f.svc.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
 			GoalID:     nullable(goalID),
@@ -574,6 +590,65 @@ func (f *ServiceFacade) ArchiveGoal(ctx context.Context, goalID string, actor Ac
 			ActorType:  actor.Type,
 			ActorID:    nullable(actor.ID),
 			Detail:     `{"mode":"archive"}`,
+		})
+	})
+}
+
+// UnarchiveGoal restores an archived goal and its archived children to default
+// lists, reversing ArchiveGoal. Restoring an already-active goal is a no-op.
+func (f *ServiceFacade) UnarchiveGoal(ctx context.Context, goalID string, actor Actor) error {
+	return f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
+		g, err := getGoalForUpdate(ctx, q, goalID)
+		if err != nil {
+			return err
+		}
+		if !g.ArchivedAt.Valid {
+			return nil
+		}
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		children, err := q.ListChildrenByGoal(ctx, nullable(goalID))
+		if err != nil {
+			return err
+		}
+		for _, child := range children {
+			if !child.ArchivedAt.Valid {
+				continue
+			}
+			n, err := q.UnarchiveAgentTask(ctx, sqlc.UnarchiveAgentTaskParams{UpdatedAt: now, ID: child.ID})
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				continue
+			}
+			if err := f.svc.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+				TaskID:     nullable(child.ID),
+				GoalID:     nullable(goalID),
+				EventType:  "task_unarchive",
+				FromStatus: nullable(child.Status),
+				ToStatus:   nullable(child.Status),
+				ActorType:  actor.Type,
+				ActorID:    nullable(actor.ID),
+				Detail:     `{"mode":"unarchive","parent_goal_unarchived":true}`,
+			}); err != nil {
+				return err
+			}
+		}
+		n, err := q.UnarchiveAgentGoal(ctx, sqlc.UnarchiveAgentGoalParams{UpdatedAt: now, ID: goalID})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return nil
+		}
+		return f.svc.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+			GoalID:     nullable(goalID),
+			EventType:  "goal_unarchive",
+			FromStatus: nullable(g.Status),
+			ToStatus:   nullable(g.Status),
+			ActorType:  actor.Type,
+			ActorID:    nullable(actor.ID),
+			Detail:     `{"mode":"unarchive"}`,
 		})
 	})
 }

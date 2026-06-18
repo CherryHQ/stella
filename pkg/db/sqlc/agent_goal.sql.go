@@ -162,6 +162,7 @@ func (q *Queries) GoalChildCounts(ctx context.Context, goalID sql.NullString) (G
 const listAgentGoals = `-- name: ListAgentGoals :many
 SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_goal
 WHERE status NOT IN ('done', 'cancelled')
+  AND archived_at IS NULL
 ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
 
@@ -173,6 +174,8 @@ type ListAgentGoalsParams struct {
 // Dispatcher rollup scan. Skip quiescent goals (done/cancelled) so the bounded
 // window is spent only on goals rollup can still act on (running/blocked/failed
 // and pre-run states). failed is intentionally included - it is recoverable.
+// Archived goals are inert: excluding them stops rollup from silently recovering
+// an archived failed goal back to running while it stays hidden from default lists.
 func (q *Queries) ListAgentGoals(ctx context.Context, arg ListAgentGoalsParams) ([]AgentGoal, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentGoals, arg.Limit, arg.Offset)
 	if err != nil {
@@ -217,16 +220,21 @@ func (q *Queries) ListAgentGoals(ctx context.Context, arg ListAgentGoalsParams) 
 const listAgentGoalsByUser = `-- name: ListAgentGoalsByUser :many
 SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at, archived_at FROM agent_goal
 WHERE user_id = ?1
-  AND archived_at IS NULL
-  AND (?2 IS NULL OR agent_id = ?2)
-  AND (?3 IS NULL OR status = ?3)
-  AND (?4 IS NULL OR project_id = ?4)
+  AND (
+    (?2 = 1 AND archived_at IS NOT NULL)
+    OR (?2 IS NULL AND archived_at IS NULL)
+    OR (?2 = 0 AND archived_at IS NULL)
+  )
+  AND (?3 IS NULL OR agent_id = ?3)
+  AND (?4 IS NULL OR status = ?4)
+  AND (?5 IS NULL OR project_id = ?5)
 ORDER BY created_at DESC, id DESC
-LIMIT ?6 OFFSET ?5
+LIMIT ?7 OFFSET ?6
 `
 
 type ListAgentGoalsByUserParams struct {
 	UserID    string      `json:"user_id"`
+	Archived  interface{} `json:"archived"`
 	AgentID   interface{} `json:"agent_id"`
 	Status    interface{} `json:"status"`
 	ProjectID interface{} `json:"project_id"`
@@ -234,9 +242,12 @@ type ListAgentGoalsByUserParams struct {
 	Limit     int64       `json:"limit"`
 }
 
+// archived narg: NULL/false yields only active rows (archived_at IS NULL, the
+// default); true yields only archived rows (the history/restore view).
 func (q *Queries) ListAgentGoalsByUser(ctx context.Context, arg ListAgentGoalsByUserParams) ([]AgentGoal, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentGoalsByUser,
 		arg.UserID,
+		arg.Archived,
 		arg.AgentID,
 		arg.Status,
 		arg.ProjectID,
@@ -548,6 +559,23 @@ func (q *Queries) TransitionAgentGoalStatus(ctx context.Context, arg TransitionA
 		arg.ID,
 		arg.Status_2,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const unarchiveAgentGoal = `-- name: UnarchiveAgentGoal :execrows
+UPDATE agent_goal SET archived_at = NULL, updated_at = ? WHERE id = ? AND archived_at IS NOT NULL
+`
+
+type UnarchiveAgentGoalParams struct {
+	UpdatedAt string `json:"updated_at"`
+	ID        string `json:"id"`
+}
+
+func (q *Queries) UnarchiveAgentGoal(ctx context.Context, arg UnarchiveAgentGoalParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, unarchiveAgentGoal, arg.UpdatedAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}

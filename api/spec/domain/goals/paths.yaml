@@ -18,6 +18,11 @@ paths:
             required: false,
             schema: { type: string },
           }
+        - name: archived
+          in: query
+          required: false
+          description: When true returns only archived goals (the history/restore view) instead of the default active set.
+          schema: { type: boolean }
         - {
             name: page_size,
             in: query,
@@ -81,6 +86,26 @@ paths:
       operationId: deleteGoal
       responses:
         "204": { description: archived }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{goalId}/unarchive:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Restore an archived goal (and its archived children) to default lists
+      operationId: unarchiveGoal
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Goal" }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

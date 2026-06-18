@@ -14,15 +14,24 @@ SELECT * FROM agent_goal WHERE id = ?;
 -- Dispatcher rollup scan. Skip quiescent goals (done/cancelled) so the bounded
 -- window is spent only on goals rollup can still act on (running/blocked/failed
 -- and pre-run states). failed is intentionally included - it is recoverable.
+-- Archived goals are inert: excluding them stops rollup from silently recovering
+-- an archived failed goal back to running while it stays hidden from default lists.
 -- name: ListAgentGoals :many
 SELECT * FROM agent_goal
 WHERE status NOT IN ('done', 'cancelled')
+  AND archived_at IS NULL
 ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 
 -- name: ListAgentGoalsByUser :many
+-- archived narg: NULL/false yields only active rows (archived_at IS NULL, the
+-- default); true yields only archived rows (the history/restore view).
 SELECT * FROM agent_goal
 WHERE user_id = sqlc.arg('user_id')
-  AND archived_at IS NULL
+  AND (
+    (sqlc.narg('archived') = 1 AND archived_at IS NOT NULL)
+    OR (sqlc.narg('archived') IS NULL AND archived_at IS NULL)
+    OR (sqlc.narg('archived') = 0 AND archived_at IS NULL)
+  )
   AND (sqlc.narg('agent_id') IS NULL OR agent_id = sqlc.narg('agent_id'))
   AND (sqlc.narg('status') IS NULL OR status = sqlc.narg('status'))
   AND (sqlc.narg('project_id') IS NULL OR project_id = sqlc.narg('project_id'))
@@ -31,6 +40,9 @@ LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: ArchiveAgentGoal :execrows
 UPDATE agent_goal SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL;
+
+-- name: UnarchiveAgentGoal :execrows
+UPDATE agent_goal SET archived_at = NULL, updated_at = ? WHERE id = ? AND archived_at IS NOT NULL;
 
 -- name: TransitionAgentGoalStatus :execrows
 UPDATE agent_goal

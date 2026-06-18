@@ -174,3 +174,6 @@ WHERE id = ?;
 
 -- name: ArchiveAgentTask :execrows
 UPDATE agent_task SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL;
+
+-- name: UnarchiveAgentTask :execrows
+UPDATE agent_task SET archived_at = NULL, updated_at = ? WHERE id = ? AND archived_at IS NOT NULL;

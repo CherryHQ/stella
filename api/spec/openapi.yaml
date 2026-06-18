@@ -343,6 +343,8 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals"
   /api/goals/{goalId}:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}"
+  /api/goals/{goalId}/unarchive:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1unarchive"
   /api/goals/{goalId}/activate:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1activate"
   /api/goals/{goalId}/complete:

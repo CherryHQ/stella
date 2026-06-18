@@ -26,6 +26,7 @@ CREATE TABLE agent_goal (
 CREATE INDEX idx_agent_goal_agent_project ON agent_goal(agent_id, project_id);
 CREATE INDEX idx_agent_goal_project       ON agent_goal(project_id);
 CREATE INDEX idx_agent_goal_user_created  ON agent_goal(user_id, created_at DESC, id DESC);
+CREATE INDEX idx_agent_goal_user_archived_created ON agent_goal(user_id, archived_at, created_at DESC, id DESC);
 CREATE INDEX idx_agent_goal_planning_candidates
     ON agent_goal(priority DESC, created_at ASC)
     WHERE status = 'draft';
