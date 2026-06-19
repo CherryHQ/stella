@@ -8,6 +8,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/deliverable"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -43,28 +44,10 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 	since := time.Now().UTC().Add(-inboxRecentFailureWindow).Format("2006-01-02 15:04:05")
 	ctx := r.Context()
 
-	blocked, err := s.q.ListBlockedInboxTasks(ctx, sqlc.ListBlockedInboxTasksParams{
+	deliverables, err := s.q.ListInboxDeliverables(ctx, sqlc.ListInboxDeliverablesParams{
 		UserID:     info.UserID,
 		AgentID:    agentID,
-		LimitCount: limit,
-	})
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	reviews, err := s.q.ListReviewInboxTasks(ctx, sqlc.ListReviewInboxTasksParams{
-		UserID:     info.UserID,
-		AgentID:    agentID,
-		LimitCount: limit,
-	})
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	taskRuns, err := s.q.ListFailedInboxTaskRuns(ctx, sqlc.ListFailedInboxTaskRunsParams{
-		UserID:     info.UserID,
-		Since:      sql.NullString{String: since, Valid: true},
-		AgentID:    agentID,
+		Since:      since,
 		LimitCount: limit,
 	})
 	if err != nil {
@@ -82,15 +65,9 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 
-	items := make([]apitypes.InboxItem, 0, len(blocked)+len(reviews)+len(taskRuns)+len(schedulerRuns))
-	for _, row := range blocked {
-		items = append(items, blockedInboxItem(row))
-	}
-	for _, row := range reviews {
-		items = append(items, reviewInboxItem(row))
-	}
-	for _, row := range taskRuns {
-		items = append(items, failedTaskRunInboxItem(row))
+	items := make([]apitypes.InboxItem, 0, len(deliverables)+len(schedulerRuns))
+	for _, row := range deliverables {
+		items = append(items, deliverableInboxItem(row))
 	}
 	for _, row := range schedulerRuns {
 		items = append(items, failedSchedulerRunInboxItem(row))
@@ -129,53 +106,39 @@ func nullableStringParam(value *string) any {
 	return *value
 }
 
-func blockedInboxItem(row sqlc.ListBlockedInboxTasksRow) apitypes.InboxItem {
+// deliverableInboxItem renders a blocked or terminally-failed deliverable as an
+// inbox entry. The kind and detail are derived from lifecycle/block_reason — the
+// deliverable model has no per-block message, so the reason IS the detail.
+func deliverableInboxItem(row sqlc.ListInboxDeliverablesRow) apitypes.InboxItem {
+	kind, prefix, detail := inboxFacetForDeliverable(row.Lifecycle, row.BlockReason)
 	return apitypes.InboxItem{
-		Id:         "blocked:" + row.TaskID,
-		Kind:       apitypes.InboxItemKindBlocked,
+		Id:         prefix + ":" + row.ID,
+		Kind:       kind,
 		Title:      row.Title,
-		Detail:     optionalString(row.Question),
+		Detail:     &detail,
 		AgentId:    &row.AgentID,
 		ProjectId:  nullableStringPtr(row.ProjectID),
-		SourceType: apitypes.InboxItemSourceTypeTask,
-		SourceId:   row.TaskID,
-		TargetPath: taskTargetPath(row.AgentID, row.TaskID),
-		CreatedAt:  parseTime(row.CreatedAt),
+		SourceType: apitypes.InboxItemSourceTypeDeliverable,
+		SourceId:   row.ID,
+		TargetPath: deliverableTargetPath(row.AgentID, row.ID),
+		CreatedAt:  parseTime(row.UpdatedAt),
 	}
 }
 
-func reviewInboxItem(row sqlc.ListReviewInboxTasksRow) apitypes.InboxItem {
-	return apitypes.InboxItem{
-		Id:         "review:" + row.ReviewID,
-		Kind:       apitypes.InboxItemKindReview,
-		Title:      row.Title,
-		Detail:     optionalString(row.Summary),
-		AgentId:    &row.AgentID,
-		ProjectId:  nullableStringPtr(row.ProjectID),
-		SourceType: apitypes.InboxItemSourceTypeTask,
-		SourceId:   row.TaskID,
-		TargetPath: taskTargetPath(row.AgentID, row.TaskID),
-		CreatedAt:  parseTime(row.CreatedAt),
-	}
-}
-
-func failedTaskRunInboxItem(row sqlc.ListFailedInboxTaskRunsRow) apitypes.InboxItem {
-	createdAt := parseTimePtr(row.FinishedAt)
-	if createdAt == nil {
-		t := parseTime(row.CreatedAt)
-		createdAt = &t
-	}
-	return apitypes.InboxItem{
-		Id:         "task-run:" + row.RunID,
-		Kind:       apitypes.InboxItemKindFailed,
-		Title:      nullableStringValue(row.Title, "Task run failed"),
-		Detail:     optionalString(row.Error),
-		AgentId:    nullableStringPtr(row.AgentID),
-		ProjectId:  nullableStringPtr(row.ProjectID),
-		SourceType: apitypes.InboxItemSourceTypeTaskRun,
-		SourceId:   row.RunID,
-		TargetPath: taskRunTargetPath(row),
-		CreatedAt:  *createdAt,
+// inboxFacetForDeliverable maps a deliverable's lifecycle/block_reason to its
+// inbox kind, id prefix, and a human-readable detail line.
+func inboxFacetForDeliverable(lifecycle, blockReason string) (apitypes.InboxItemKind, string, string) {
+	switch {
+	case lifecycle == deliverable.LifecycleBlocked && blockReason == deliverable.BlockNeedsVerdict:
+		return apitypes.InboxItemKindReview, "review", "Awaiting your verdict"
+	case lifecycle == deliverable.LifecycleBlocked && blockReason == deliverable.BlockBudgetExhausted:
+		return apitypes.InboxItemKindBlocked, "blocked", "Attempt budget exhausted"
+	case lifecycle == deliverable.LifecycleBlocked:
+		return apitypes.InboxItemKindBlocked, "blocked", "Blocked on a dependency"
+	case lifecycle == deliverable.LifecycleAbandoned:
+		return apitypes.InboxItemKindFailed, "failed", "Abandoned after budget exhaustion"
+	default: // rejected_final
+		return apitypes.InboxItemKindFailed, "failed", "Rejected with no rework path left"
 	}
 }
 
@@ -205,13 +168,6 @@ func nullableStringPtr(ns sql.NullString) *string {
 	return &ns.String
 }
 
-func nullableStringValue(ns sql.NullString, fallback string) string {
-	if !ns.Valid || ns.String == "" {
-		return fallback
-	}
-	return ns.String
-}
-
 func optionalString(value string) *string {
 	if value == "" {
 		return nil
@@ -219,19 +175,8 @@ func optionalString(value string) *string {
 	return &value
 }
 
-func taskTargetPath(agentID, taskID string) string {
-	return "/agents/" + agentID + "/tasks/" + taskID
-}
-
-func taskRunTargetPath(row sqlc.ListFailedInboxTaskRunsRow) string {
-	if row.AgentID.Valid && row.TaskID.Valid {
-		return taskTargetPath(row.AgentID.String, row.TaskID.String)
-	}
-	// Goal-owned runs have no task; land on the agent's work hub.
-	if row.AgentID.Valid {
-		return "/agents/" + row.AgentID.String + "/tasks"
-	}
-	return "/agents"
+func deliverableTargetPath(agentID, deliverableID string) string {
+	return "/agents/" + agentID + "/deliverables/" + deliverableID
 }
 
 func schedulerRunTargetPath(row sqlc.ListFailedInboxSchedulerRunsRow) string {

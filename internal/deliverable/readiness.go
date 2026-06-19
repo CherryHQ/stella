@@ -1,0 +1,139 @@
+package deliverable
+
+import (
+	"time"
+
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+)
+
+// Readiness states. dispatchable is the only state the dispatcher claims on;
+// the rest are diagnostic (surfaced via the readiness API to explain "why
+// isn't this running?").
+const (
+	ReadinessDispatchable = "dispatchable"
+	ReadinessWaitingDeps  = "waiting_deps"
+	ReadinessBlocked      = "blocked"
+	ReadinessActive       = "active"
+	ReadinessTerminal     = "terminal"
+	ReadinessDraft        = "draft"
+	ReadinessComposite    = "composite" // a composite is driven by rollup, not claimed
+	ReadinessUnknown      = "unknown"
+)
+
+// Reason explains a readiness state, e.g. an unsatisfied upstream edge.
+type Reason struct {
+	Type       string // upstream_not_accepted, upstream_failed_block, soft_upstream_pending, ...
+	UpstreamID string
+	Detail     string
+}
+
+// Readiness is the computed dispatchability view of a deliverable at a moment.
+// Pure function over (deliverable row, edges with upstream state pre-joined,
+// now).
+type Readiness struct {
+	State        string
+	Dispatchable bool
+	Reasons      []Reason
+}
+
+// Compute returns the readiness of a deliverable given its upstream edges (with
+// upstream lifecycle pre-joined) at time now. PURE: no DB calls, no side
+// effects, no clock reads beyond now. An edge means an accepted-output
+// dependency — a hard edge is satisfied only when the upstream is 'accepted'
+// (or the edge is waived); a soft edge is advisory and never blocks.
+//
+// now is reserved for future deferral gates (not_before equivalents); it is
+// accepted now so the signature is stable when those land.
+func Compute(d sqlc.AgentDlvDeliverable, edges []sqlc.ListEdgeWithUpstreamStateRow, now time.Time) Readiness {
+	_ = now
+	switch d.Lifecycle {
+	case LifecycleDraft:
+		return Readiness{State: ReadinessDraft}
+	case LifecycleActive:
+		return Readiness{State: ReadinessActive}
+	case LifecycleBlocked:
+		return Readiness{State: ReadinessBlocked, Reasons: []Reason{{Type: "blocked", Detail: d.BlockReason}}}
+	case LifecycleAccepted, LifecycleRejectedFinal, LifecycleAbandoned, LifecycleCancelled:
+		return Readiness{State: ReadinessTerminal}
+	case LifecycleReady:
+		// fall through to edge evaluation
+	default:
+		return Readiness{State: ReadinessUnknown, Reasons: []Reason{{Type: "unknown_lifecycle", Detail: d.Lifecycle}}}
+	}
+
+	// Only leaves are claimed; a ready composite is gated by rollup, not edges.
+	if d.Kind == KindComposite {
+		return Readiness{State: ReadinessComposite}
+	}
+
+	var reasons []Reason
+	depBlocked := false
+	for _, e := range edges {
+		waived := e.WaivedAt.Valid && e.WaivedAt.String != ""
+		accepted := e.UpstreamLifecycle == LifecycleAccepted
+		switch e.EdgeKind {
+		case EdgeHard:
+			if accepted || waived {
+				continue // satisfied
+			}
+			if isUpstreamFailed(e.UpstreamLifecycle) {
+				switch e.OnFailure {
+				case OnFailureIgnore:
+					// satisfied without action
+				case OnFailureFail:
+					reasons = append(reasons, Reason{Type: "upstream_failed_propagate", UpstreamID: e.UpstreamID, Detail: e.UpstreamLifecycle})
+					depBlocked = true
+				default: // block (and unknown ⇒ fail-safe block)
+					reasons = append(reasons, Reason{Type: "upstream_failed_block", UpstreamID: e.UpstreamID, Detail: e.UpstreamLifecycle})
+					depBlocked = true
+				}
+				continue
+			}
+			// upstream still in progress
+			reasons = append(reasons, Reason{Type: "upstream_not_accepted", UpstreamID: e.UpstreamID, Detail: e.UpstreamLifecycle})
+		case EdgeSoft:
+			// Advisory: a soft upstream never blocks dispatch. Surface a
+			// diagnostic only, do not flip dispatchable.
+			if !accepted && !waived && !IsTerminalLifecycle(e.UpstreamLifecycle) {
+				reasons = append(reasons, Reason{Type: "soft_upstream_pending", UpstreamID: e.UpstreamID, Detail: e.UpstreamLifecycle})
+			}
+		default:
+			// Unknown edge kind: fail-closed so a malformed edge never lets a
+			// downstream dispatch before its upstream settles.
+			if !accepted && !waived {
+				reasons = append(reasons, Reason{Type: "upstream_not_accepted", UpstreamID: e.UpstreamID, Detail: e.UpstreamLifecycle})
+			}
+		}
+	}
+
+	if depBlocked {
+		return Readiness{State: ReadinessBlocked, Reasons: reasons}
+	}
+	if hasHardWait(reasons) {
+		return Readiness{State: ReadinessWaitingDeps, Reasons: reasons}
+	}
+	// Soft-only diagnostics do not block dispatch.
+	return Readiness{State: ReadinessDispatchable, Dispatchable: true, Reasons: reasons}
+}
+
+// isUpstreamFailed reports whether an upstream lifecycle is terminal-bad, so a
+// hard downstream must apply its on_failure policy.
+func isUpstreamFailed(lc string) bool {
+	switch lc {
+	case LifecycleRejectedFinal, LifecycleAbandoned, LifecycleCancelled:
+		return true
+	}
+	return false
+}
+
+// hasHardWait reports whether any reason represents an unsatisfied hard edge
+// (so the deliverable is waiting, not dispatchable). Soft diagnostics are
+// excluded.
+func hasHardWait(reasons []Reason) bool {
+	for _, r := range reasons {
+		if r.Type == "upstream_not_accepted" {
+			return true
+		}
+	}
+	return false
+}

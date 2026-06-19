@@ -41,10 +41,12 @@ A shared agent brings its own context:
 
 That is why you can give a normal request instead of manually driving every step.
 
-## Use tasks for larger goals
+## Larger goals become deliverables
 
-If the goal has multiple steps, ask the agent to track it as a goal with a plan:
+A goal you hand off isn't just a chat reply — it becomes a **deliverable** the agent drives to acceptance. For a multi-step objective, say so and state how "done" should look:
 
-> Create a goal for this work with a multi-step plan — the steps, their dependencies, and any human review points we need — then run it.
+> Create a deliverable for this work, decompose it into the steps and their dependencies, include the human sign-off points we need, then run it. Accepted when the packet is complete and exceptions are approved.
 
-The agent authors a plan and the system materializes it into the child tasks (you cannot hand-attach tasks to a goal). A single-step goal runs immediately; a multi-step goal is planned, then activated. Use chat for context and decisions, and the task UI for execution state. Automatic LLM goal-splitting is not part of this release, so the agent writes the plan explicitly.
+The agent decomposes a composite deliverable into child deliverables and runs each to acceptance, reworking against the gaps until the acceptance contract passes. A direct (single-step) deliverable runs immediately; a decomposed one is planned first, then activated. Completion is **derived** from the contract — the agent never marks it done itself.
+
+Use chat for context and decisions; watch execution on the **Deliverables** tab of the agent. See [Deliverables](/docs/task-system/overview) for the full model.

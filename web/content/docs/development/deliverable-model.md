@@ -1,47 +1,42 @@
 ---
-title: Deliverable model (SDLC target)
-description: The proposed target architecture that turns goal/plan/task from a forward-only pipeline into an iterative SDLC — one recursive Deliverable abstraction with derived completion, a layered acceptance contract, and a bounded convergence loop.
+title: Deliverable model
+description: The shipped execution architecture — one recursive Deliverable abstraction with derived completion, a layered acceptance contract, and a bounded convergence loop that iterates work to correctness instead of running a forward-only pipeline once.
 ---
 
-> **Status: proposed direction, not shipped.** This page is the north star for evolving the
-> execution core. The current behavior is documented in [Goal system](./goal-system) and
-> [Task system](./task-system); this page explains where that model is wrong for a real SDLC
-> and the clean target both an internal design pass and an independent adversarial review
-> converged on. Build toward it; do not assume any of it exists yet.
+This page is the canonical explainer for how Stella schedules and converges work. The
+execution core is one recursive **Deliverable** abstraction: a root deliverable is the user's
+objective, child deliverables are its sub-deliverables, and the same shape repeats all the way
+down. Completion is _derived_ from each deliverable's acceptance contract, not asserted by the
+agent, and work iterates through a bounded convergence loop until accepted.
 
-## The problem: a pipeline pretending to be an SDLC
+## Why a recursive Deliverable, not a pipeline
 
-Today a structured goal materializes into a forward-only dependency DAG of `agent_task` rows
-whose items may be labeled `design` / `impl` / `verify` — though ordering comes from the
-dependency edges, not the role label, and validation only requires each `impl` to have a
-downstream `verify` (a direct goal is a single `direct` item). It runs the DAG once. This is a
+An earlier execution core ran a forward-only dependency DAG once and called it done. That is a
 **pipeline**, not a software development lifecycle, because the lifecycle's defining property —
-_iterate until correct_ — is missing. Four things sit in the wrong place:
+_iterate until correct_ — is missing. The Deliverable model fixes four structural flaws that a
+run-once pipeline carries:
 
-1. **`done` is a state the agent sets.** On the common `none`/`auto` paths a `task_control
-submit` call drives a task straight to `done` (`internal/tasks/review.go`); an `agent` or
-   `human` review policy delays it through a `reviewing` step, but that still reviews the
-   submitted output rather than deriving completion from the work's own acceptance contract.
-   Completion is an assertion by the worker (or a reviewer's yes/no), not something the system
-   derives from the work's intent.
-2. **Acceptance criteria are detached, advisory metadata.** `PlanItem.Criteria` is written to
-   rows the completion path never reads (`internal/tasks/plan_service.go`). Nothing checks
-   them; nothing injects them into a prompt.
-3. **`verify` is a sibling node in the DAG.** A verify task can pass while the `impl` it
-   "verifies" is broken — they are independent nodes wired only by a forward dependency edge.
-4. **Iteration is an exception path.** Ordinary automatic execution never feeds verify gaps
-   back into `impl`; a failed required child rolls the goal to `failed`, and recovery requires
-   explicit lifecycle intervention such as `ReopenTask`. Rework — the heart of an SDLC — is
-   handled as failure recovery instead of as the normal way work converges.
+1. **`done` must not be a state the agent sets.** When the worker (or a reviewer's yes/no)
+   asserts completion, the system trusts an assertion instead of deriving completion from the
+   work's own acceptance contract. The Deliverable model derives completion from the work's
+   intent — see [Completion is derived, never asserted](#completion-is-derived-never-asserted).
+2. **Acceptance criteria must not be detached, advisory metadata.** Criteria that nothing
+   checks and nothing injects into a prompt are decoration. The acceptance contract makes them
+   binding — see [The acceptance contract](#the-acceptance-contract).
+3. **`verify` must not be a sibling node.** A verify node can pass while the work it "verifies"
+   is broken when the two are wired only by a forward dependency edge. Verification is instead
+   every deliverable's own acceptance evaluation.
+4. **Iteration must be the normal path, not an exception.** Treating rework as failure
+   recovery — a failed child rolling the objective to `failed`, then a manual reopen — gets the
+   SDLC backwards. Rework is how work converges; it is the next attempt in the loop.
 
-The consequence is three parallel state machines (goal `draft/planning/planned/running/…`,
-plan `draft/in_review/accepted/approved`, task `draft/ready/running/…`) with overlapping but
-inconsistent statuses. A caller must understand all three to reason about progress. That is a
-shallow design.
+The payoff is one state machine instead of three overlapping, inconsistent ones (an objective,
+a plan, and a task each carrying their own statuses). A caller reasons about progress through a
+single recursive concept. That is a deep design.
 
 ## The core abstraction: one recursive Deliverable
 
-The whole model collapses into a single deep module applied recursively.
+The whole model is a single deep module applied recursively.
 
 > Stella schedules **deliverables**. Agents produce **evidence** through **attempts**. The
 > system **evaluates** evidence against the deliverable's **acceptance contract**, iterates
@@ -49,10 +44,11 @@ The whole model collapses into a single deep module applied recursively.
 > deliverables.
 
 A **Deliverable** owns its intent, its decomposition, its acceptance, its attempts, and its
-convergence. A goal is a root deliverable; its children are deliverables; theirs are too —
-the same shape all the way down. `plan` is not a peer object, it is a deliverable's
-_decomposition version_. `task`/`run` is not a peer object, it is a deliverable's _attempt_.
-`review` is not a peer object, it is an _acceptance evidence source_.
+convergence. A root deliverable is the user's objective; its children are deliverables; theirs
+are too — the same shape all the way down. `kind` distinguishes a **leaf** (worker-executed)
+from a **composite** (decomposed into children). A decomposition is not a peer object, it is a
+deliverable's _revision_. An attempt is not a peer object, it is the deliverable's _execution
+episode_. A review is not a peer object, it is an _acceptance evidence source_.
 
 ### Runtime entities
 
@@ -65,7 +61,7 @@ is over-modeling.
 | `deliverable_edge`                  | Accepted-output dependency between sibling deliverables (`hard` blocks; `soft` is advisory context).                                                                       |
 | `attempt`                           | One execution episode: a persistent agent session, the frozen input context, and the submitted evidence (evidence folds into the attempt — it is not its own table).       |
 | `acceptance_event`                  | Append-only record of a deterministic check result or a judgment verdict. Deliverable acceptance state is a **cached projection** over these events, not a mutable column. |
-| `deliverable_revision` _(optional)_ | A decomposition version (the former `plan`). Not a day-one runtime entity; needed only when multi-level decomposition is turned on.                                        |
+| `deliverable_revision` _(optional)_ | A decomposition version. Used for multi-level decomposition; a leaf deliverable carries none.                                                                              |
 
 `acceptance_event` being append-only (not a mutable evaluation table) is friendlier to audit
 and to projection rebuilds — see [Scalability](#simplicity-and-scalability).
@@ -91,10 +87,9 @@ There are two kinds of acceptance, and the boundary between _derived_ and _asser
   ```
 
 So the line is: **asserted** = the verdict, its rationale, scope, authority, and timestamp;
-**derived** = acceptance state, completion, and downstream readiness. The codebase already has
-the right shape for this — the executor returns a `Result` and the service owns the durable
-transition (`internal/tasks/executor.go`, `internal/tasks/worker.go`). The only leak is that
-`Submit` treats _submit_ as _done_.
+**derived** = acceptance state, completion, and downstream readiness. The executor returns a
+`Result`; the service owns the durable transition. A submit records evidence and triggers
+acceptance — it never sets `done` directly.
 
 ### The acceptance contract
 
@@ -150,13 +145,13 @@ produced X, acceptance rejected with gaps Y, attempt 2 produced Z, accepted.
 
 ## Recursion gives decomposition and final acceptance for free
 
-A non-leaf deliverable produces a **decomposition** (the former plan) as the output of an
-attempt, gated by a review policy (`none` auto-accepts; `human` awaits approval — the old
-plan-review FSM, now scoped to the decomposition). Once accepted, child deliverables and their
-edges are materialized, and each child runs its own convergence loop.
+A composite deliverable produces a **decomposition** as the output of an attempt, gated by a
+review policy (`none` auto-accepts; `human` awaits approval — the plan-review gate, scoped to
+the decomposition). Once accepted, child deliverables and their edges are materialized, and
+each child runs its own convergence loop.
 
 When all required children are accepted, the parent runs **its own** acceptance evaluation.
-That step _is_ the goal-level final acceptance / synthesizer — not a special, separately-built
+That step _is_ the root-level final acceptance / synthesizer — not a special, separate
 feature, but the same acceptance gate every leaf has, applied at the root. The synthesizer
 falls out of the recursion.
 
@@ -176,45 +171,47 @@ criterion:
 This is why `verify`, `design`, and `impl` stop being node _types_: verification is every
 deliverable's acceptance evaluator, and design/impl are at most categories or internal phases.
 
-## What today's model gets right and keeps
+## The load-bearing invariants
 
-This is a re-rooting, not a teardown. These are already correct and survive unchanged in
-spirit:
+A few rules hold the model together. They are deliberately small and apply at every level of
+the recursion:
 
-- **The plan gate** — never run undecomposed work. Today it is spread across `ActivateGoal`,
-  the plan, and child counts; it becomes a single rule on the deliverable lifecycle
-  (`ready → active` requires a leaf with a contract, or an accepted decomposition with ≥1
-  materialized child).
-- **The dependency DAG** — kept, but its edges mean _accepted-output_ dependency, not
+- **The plan gate** — never run undecomposed work. `ready → active` requires either a leaf
+  with a contract, or an accepted decomposition with ≥1 materialized child. It is one rule on
+  the deliverable lifecycle, not three checks spread across an objective, a plan, and child
+  counts.
+- **The dependency DAG** — `deliverable_edge` carries _accepted-output_ dependency, not
   procedural order.
-- **Handoff** — downstream context from upstream output is right; strengthen it so only
-  _accepted_ output flows downstream.
+- **Handoff** — only _accepted_ output flows downstream; an in-flight attempt's evidence never
+  leaks into a dependent's input.
 - **The executor boundary** — the agent returns a result; the service owns durable state.
-- **Persistent sessions** and the **pending-vs-accepted content isolation** that keeps an
-  in-flight edit out of a running prompt.
+- **Persistent sessions** and **pending-vs-accepted content isolation** keep an in-flight edit
+  out of a running prompt.
 
-### Concept mapping
+### Vocabulary
 
-| Today                          | Target                                                   |
-| ------------------------------ | -------------------------------------------------------- |
-| `agent_goal` (root)            | `deliverable`, `parent_id = NULL`                        |
-| goal child statuses            | `deliverable` lifecycle state (derived)                  |
-| `agent_goal_plan`              | `deliverable_revision` (decomposition version)           |
-| plan status / `review_policy`  | decomposition status / review policy                     |
-| plan content items             | proposed child deliverables                              |
-| `agent_task`                   | leaf `deliverable`                                       |
-| task `running`                 | `attempt` running                                        |
-| task `done` (asserted)         | `deliverable` accepted (**derived**)                     |
-| task failed — transient        | `attempt` interrupted → new attempt                      |
-| task failed — semantic         | acceptance rejected → next attempt, or blocked at budget |
-| `criteria []string` (advisory) | `acceptance_contract` items (binding)                    |
-| `verify` task (sibling node)   | the deliverable's acceptance evaluation                  |
-| `design` / `impl` role         | deliverable category / internal phase                    |
-| `handoff.summary`              | attempt evidence summary                                 |
-| review `subject=plan`          | decomposition review                                     |
-| review `subject=completion`    | judgment items in the acceptance contract                |
-| synthesizer (stubbed)          | the parent deliverable's acceptance evaluation           |
-| `ReopenTask` (manual rework)   | the next attempt in the convergence loop (automatic)     |
+The recursion folds several once-separate concepts into the single Deliverable abstraction:
+
+| Concept                  | In the Deliverable model                                 |
+| ------------------------ | -------------------------------------------------------- |
+| user objective (root)    | `deliverable`, `parent_id = NULL`                        |
+| sub-objective / sub-task | child `deliverable`                                      |
+| objective lifecycle      | `deliverable` lifecycle state (derived)                  |
+| plan                     | `deliverable_revision` (decomposition version)           |
+| plan items               | proposed child deliverables                              |
+| worker-executed task     | leaf `deliverable`                                       |
+| task running             | `attempt` running                                        |
+| task done                | `deliverable` accepted (**derived**)                     |
+| transient task failure   | `attempt` interrupted → new attempt                      |
+| semantic task failure    | acceptance rejected → next attempt, or blocked at budget |
+| acceptance criteria      | `acceptance_contract` items (binding, machine-checked)   |
+| verify step              | the deliverable's acceptance evaluation                  |
+| design / impl role       | deliverable category / internal phase                    |
+| handoff summary          | attempt evidence summary                                 |
+| plan review              | decomposition review                                     |
+| completion review        | judgment items in the acceptance contract                |
+| synthesizer              | the parent deliverable's acceptance evaluation           |
+| rework / reopen          | the next attempt in the convergence loop (automatic)     |
 
 ## Simplicity and scalability
 
@@ -253,20 +250,16 @@ repo-tree hash + env hash + upstream accepted-output hashes`. Miss one and the c
    producing good decompositions and contracts; a bad plan propagates, and clean architecture
    cannot fix it.
 
-## Building toward it without over-building
+## What the leaf runtime delivers, and what recursion adds
 
-The target is the north star; do not pour all the concrete at once. The correct first cut is a
-**leaf-first deliverable runtime** — and it must be named `Deliverable` from day one. Bolting
-acceptance/check/rework fields onto `agent_task` is throwaway work that keeps `task` as the
-core concept and trades new debt for old.
+The model lands as a **leaf-first deliverable runtime** with recursion layered on top — the
+same concept, just more depth turned on. The leaf runtime alone carries most of the SDLC value:
 
-The first cut, a true subset of the target:
+- `deliverable` (leaf), `attempt`, `acceptance_event`, and a `deliverable` projection give
+  derived completion, a real acceptance gate, and a bounded convergence loop with executable
+  checks — without any recursive decomposition.
+- `parent_id` is nullable and `deliverable_edge` is present; multi-level decomposition opens a
+  capability on top of the same entities — it does not change a concept.
 
-- `deliverable` (leaf only), `attempt`, `acceptance_event`, and a `deliverable` projection.
-- Keep `parent_id` nullable and the `deliverable_edge` table present, with recursion turned
-  off. Growing to multi-level trees later opens a capability — it does not change a concept.
-
-This first cut already delivers ~80% of the SDLC value: derived completion, a real acceptance
-gate, and a bounded convergence loop with executable checks — without touching recursive
-decomposition. The one non-negotiable rule that keeps it clean: **acceptance, evidence, and
-the projection are a deep module; nothing outside it may set `done`.**
+The one non-negotiable rule that keeps the runtime clean: **acceptance, evidence, and the
+projection are a deep module; nothing outside it may set `done`.**

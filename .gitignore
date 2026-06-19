@@ -10,6 +10,7 @@ web/static/dist/
 web/node_modules/
 handoff.md
 plan.md
+/.plan/
 
 # Generated code (produced by mise run generate)
 api/types/gen.go

@@ -14,8 +14,8 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
-// resolveAgentID runs a throwaway command so taskAgentID gets a real context,
-// then returns its result.
+// resolveAgentID runs a throwaway command so scopedAgentIDFromEnv resolves under
+// a real run, then returns its result.
 func resolveAgentID(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var got string
@@ -25,7 +25,7 @@ func resolveAgentID(t *testing.T, args ...string) (string, error) {
 	app.Commands = []*ucli.Command{{
 		Name: "probe",
 		Action: func(c *ucli.Context) error {
-			got, gotErr = taskAgentID(c)
+			got, gotErr = scopedAgentIDFromEnv()
 			return nil
 		},
 	}}

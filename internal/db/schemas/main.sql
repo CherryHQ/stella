@@ -43,18 +43,12 @@
 -- atlas:import tables/recally_feed.sql
 -- atlas:import tables/recally_digest.sql
 -- atlas:import tables/project.sql
--- agent_task and agent_task_run reference each other (active_run_id  task_id).
--- Order here is a readability hint; atlas resolves declaration order itself.
--- atlas:import tables/agent_goal.sql
--- atlas:import tables/agent_task_run.sql
--- atlas:import tables/agent_task_blocker.sql
--- atlas:import tables/agent_task_criterion.sql
--- atlas:import tables/agent_review.sql
--- atlas:import tables/agent_review_item.sql
--- agent_goal_plan references agent_goal/agent_task_run/agent_review; agent_task references it back.
--- atlas:import tables/agent_goal_plan.sql
--- atlas:import tables/agent_task.sql
--- atlas:import tables/agent_task_dep.sql
--- atlas:import tables/agent_task_dispatch_hint.sql
--- atlas:import tables/agent_task_event.sql
+-- Deliverable execution core (recursive). deliverable/attempt/revision reference
+-- each other (active_attempt_id, parent_id/root_id, accepted_revision_id); atlas
+-- resolves declaration order itself.
+-- atlas:import tables/agent_dlv_deliverable.sql
+-- atlas:import tables/agent_dlv_attempt.sql
+-- atlas:import tables/agent_dlv_edge.sql
+-- atlas:import tables/agent_dlv_acceptance_event.sql
+-- atlas:import tables/agent_dlv_revision.sql
 -- atlas:import tables/plugin_override.sql

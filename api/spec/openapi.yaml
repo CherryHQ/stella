@@ -54,7 +54,7 @@ tags:
   - name: auth
   - name: plugins
   - name: status
-  - name: tasks
+  - name: deliverables
   - name: projects
   - name: inbox
 paths:
@@ -305,82 +305,53 @@ paths:
     $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentId}~1scheduler~1jobs~1{jobId}~1run"
   /api/agents/{agentId}/scheduler/jobs/{jobId}/runs:
     $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentId}~1scheduler~1jobs~1{jobId}~1runs"
-  # ── Tasks ──────────────────────────────────────────────────────────────────
-  /api/tasks:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks"
-  /api/tasks/{taskId}:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}"
-  /api/tasks/{taskId}/unarchive:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1unarchive"
-  /api/tasks/{taskId}/cancel:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1cancel"
-  /api/tasks/{taskId}/reopen:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1reopen"
-  /api/tasks/{taskId}/readiness:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1readiness"
-  /api/tasks/{taskId}/events:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1events"
-  /api/tasks/{taskId}/runs:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1runs"
-  /api/tasks/{taskId}/deps:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1deps"
-  /api/tasks/{taskId}/deps/{depTaskId}/waive:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1deps~1{depTaskId}~1waive"
-  /api/tasks/{taskId}/blockers/{blockerId}:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1blockers~1{blockerId}"
-  /api/tasks/{taskId}/blockers/{blockerId}/resolve:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1blockers~1{blockerId}~1resolve"
-  /api/tasks/{taskId}/reviews:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1reviews"
-  /api/tasks/{taskId}/reviews/{reviewId}/approve:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1reviews~1{reviewId}~1approve"
-  /api/tasks/{taskId}/reviews/{reviewId}/reject:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1reviews~1{reviewId}~1reject"
-  /api/tasks/{taskId}/reviews/{reviewId}/request-changes:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1reviews~1{reviewId}~1request-changes"
-  /api/tasks/{taskId}/reviews/{reviewId}/escalate:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1reviews~1{reviewId}~1escalate"
-  # ── Goals ──────────────────────────────────────────────────────────────────
-  /api/goals:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals"
-  /api/goals/{goalId}:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}"
-  /api/goals/{goalId}/unarchive:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1unarchive"
-  /api/goals/{goalId}/activate:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1activate"
-  /api/goals/{goalId}/complete:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1complete"
-  /api/goals/{goalId}/cancel:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1cancel"
-  /api/goals/{goalId}/tasks:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1tasks"
-  /api/goals/{goalId}/reviews:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1reviews"
-  /api/goals/{goalId}/reviews/{reviewId}/approve:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1reviews~1{reviewId}~1approve"
-  /api/goals/{goalId}/reviews/{reviewId}/reject:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1reviews~1{reviewId}~1reject"
-  /api/goals/{goalId}/reviews/{reviewId}/request-changes:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1reviews~1{reviewId}~1request-changes"
-  /api/goals/{goalId}/reviews/{reviewId}/escalate:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1reviews~1{reviewId}~1escalate"
-  /api/goals/{goalId}/plan:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan"
-  /api/goals/{goalId}/plan/accept:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1accept"
-  /api/goals/{goalId}/plan/submit-review:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1submit-review"
-  /api/goals/{goalId}/plan/materialize:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1materialize"
-  /api/goals/{goalId}/plan/start:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1start"
-  /api/goals/{goalId}/plan/reviews/{reviewId}/approve:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1reviews~1{reviewId}~1approve"
-  /api/goals/{goalId}/plan/reviews/{reviewId}/reject:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1reviews~1{reviewId}~1reject"
-  /api/goals/{goalId}/plan/reviews/{reviewId}/request-changes:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1reviews~1{reviewId}~1request-changes"
+  # ── Deliverables ─────────────────────────────────────────────────────────
+  /api/deliverables:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables"
+  /api/deliverables/{id}:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}"
+  /api/deliverables/{id}/activate:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1activate"
+  /api/deliverables/{id}/cancel:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1cancel"
+  /api/deliverables/{id}/abandon:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1abandon"
+  /api/deliverables/{id}/reattempt:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1reattempt"
+  /api/deliverables/{id}/unarchive:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1unarchive"
+  /api/deliverables/{id}/readiness:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1readiness"
+  /api/deliverables/{id}/children:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1children"
+  /api/deliverables/{id}/attempts:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1attempts"
+  /api/deliverables/{id}/attempts/{attemptId}:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1attempts~1{attemptId}"
+  /api/deliverables/{id}/acceptance-events:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1acceptance-events"
+  /api/deliverables/{id}/verdict:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1verdict"
+  /api/deliverables/{id}/edges:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1edges"
+  /api/deliverables/{id}/edges/{upstreamId}/waive:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1edges~1{upstreamId}~1waive"
+  /api/deliverables/{id}/revisions:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1revisions"
+  /api/deliverables/{id}/revisions/start:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1revisions~1start"
+  /api/deliverables/{id}/revisions/{revId}/accept:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1revisions~1{revId}~1accept"
+  /api/deliverables/{id}/revisions/{revId}/submit-review:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1revisions~1{revId}~1submit-review"
+  /api/deliverables/{id}/revisions/{revId}/approve:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1revisions~1{revId}~1approve"
+  /api/deliverables/{id}/revisions/{revId}/reject:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1revisions~1{revId}~1reject"
+  /api/deliverables/{id}/revisions/{revId}/request-changes:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1revisions~1{revId}~1request-changes"
+  /api/deliverables/{id}/revisions/{revId}/materialize:
+    $ref: "./domain/deliverables/paths.yaml#/paths/~1api~1deliverables~1{id}~1revisions~1{revId}~1materialize"
   # ── Groups ─────────────────────────────────────────────────────────────────
   /api/groups:
     $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups"
@@ -643,67 +614,70 @@ components:
     ManifestPlugin: {
       $ref: "./components.yaml#/components/schemas/ManifestPlugin",
     }
-    Task: { $ref: "./components.yaml#/components/schemas/Task" }
-    TaskList: { $ref: "./components.yaml#/components/schemas/TaskList" }
-    CreateTaskRequest: {
-      $ref: "./components.yaml#/components/schemas/CreateTaskRequest",
+    Deliverable: { $ref: "./components.yaml#/components/schemas/Deliverable" }
+    DeliverableList: {
+      $ref: "./components.yaml#/components/schemas/DeliverableList",
+    }
+    CreateDeliverableRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateDeliverableRequest",
+    }
+    UpdateDeliverableRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateDeliverableRequest",
     }
     CancelRequest: {
       $ref: "./components.yaml#/components/schemas/CancelRequest",
     }
-    ReopenRequest: {
-      $ref: "./components.yaml#/components/schemas/ReopenRequest",
+    AbandonRequest: {
+      $ref: "./components.yaml#/components/schemas/AbandonRequest",
+    }
+    AcceptanceContract: {
+      $ref: "./components.yaml#/components/schemas/AcceptanceContract",
+    }
+    AcceptanceItem: {
+      $ref: "./components.yaml#/components/schemas/AcceptanceItem",
+    }
+    ConvergencePolicy: {
+      $ref: "./components.yaml#/components/schemas/ConvergencePolicy",
+    }
+    Attempt: { $ref: "./components.yaml#/components/schemas/Attempt" }
+    AttemptList: { $ref: "./components.yaml#/components/schemas/AttemptList" }
+    AcceptanceEvent: {
+      $ref: "./components.yaml#/components/schemas/AcceptanceEvent",
+    }
+    AcceptanceEventList: {
+      $ref: "./components.yaml#/components/schemas/AcceptanceEventList",
+    }
+    VerdictRequest: {
+      $ref: "./components.yaml#/components/schemas/VerdictRequest",
+    }
+    Edge: { $ref: "./components.yaml#/components/schemas/Edge" }
+    EdgeList: { $ref: "./components.yaml#/components/schemas/EdgeList" }
+    AddEdgeRequest: {
+      $ref: "./components.yaml#/components/schemas/AddEdgeRequest",
+    }
+    WaiveRequest: {
+      $ref: "./components.yaml#/components/schemas/WaiveRequest",
+    }
+    Revision: { $ref: "./components.yaml#/components/schemas/Revision" }
+    RevisionList: { $ref: "./components.yaml#/components/schemas/RevisionList" }
+    DecompositionContent: {
+      $ref: "./components.yaml#/components/schemas/DecompositionContent",
+    }
+    ProposedChild: {
+      $ref: "./components.yaml#/components/schemas/ProposedChild",
+    }
+    ProposedEdge: {
+      $ref: "./components.yaml#/components/schemas/ProposedEdge",
+    }
+    DecisionRequest: {
+      $ref: "./components.yaml#/components/schemas/DecisionRequest",
+    }
+    DecompositionSession: {
+      $ref: "./components.yaml#/components/schemas/DecompositionSession",
     }
     Readiness: { $ref: "./components.yaml#/components/schemas/Readiness" }
     ReadinessReason: {
       $ref: "./components.yaml#/components/schemas/ReadinessReason",
-    }
-    Run: { $ref: "./components.yaml#/components/schemas/Run" }
-    RunList: { $ref: "./components.yaml#/components/schemas/RunList" }
-    Event: { $ref: "./components.yaml#/components/schemas/Event" }
-    EventList: { $ref: "./components.yaml#/components/schemas/EventList" }
-    Dep: { $ref: "./components.yaml#/components/schemas/Dep" }
-    DepList: { $ref: "./components.yaml#/components/schemas/DepList" }
-    DepInput: { $ref: "./components.yaml#/components/schemas/DepInput" }
-    AddDepRequest: {
-      $ref: "./components.yaml#/components/schemas/AddDepRequest",
-    }
-    WaiveDepRequest: {
-      $ref: "./components.yaml#/components/schemas/WaiveDepRequest",
-    }
-    ResolveBlockerRequest: {
-      $ref: "./components.yaml#/components/schemas/ResolveBlockerRequest",
-    }
-    Review: { $ref: "./components.yaml#/components/schemas/Review" }
-    ReviewList: { $ref: "./components.yaml#/components/schemas/ReviewList" }
-    ReviewDecisionRequest: {
-      $ref: "./components.yaml#/components/schemas/ReviewDecisionRequest",
-    }
-    EscalateReviewRequest: {
-      $ref: "./components.yaml#/components/schemas/EscalateReviewRequest",
-    }
-    Goal: { $ref: "./components.yaml#/components/schemas/Goal" }
-    GoalList: { $ref: "./components.yaml#/components/schemas/GoalList" }
-    CompleteGoalRequest: {
-      $ref: "./components.yaml#/components/schemas/CompleteGoalRequest",
-    }
-    CreateGoalRequest: {
-      $ref: "./components.yaml#/components/schemas/CreateGoalRequest",
-    }
-    CancelGoalRequest: {
-      $ref: "./components.yaml#/components/schemas/CancelGoalRequest",
-    }
-    PlanItem: {
-      $ref: "./components.yaml#/components/schemas/PlanItem",
-    }
-    PlanContent: {
-      $ref: "./components.yaml#/components/schemas/PlanContent",
-    }
-    GoalPlan: {
-      $ref: "./components.yaml#/components/schemas/GoalPlan",
-    }
-    PutGoalPlanRequest: {
-      $ref: "./components.yaml#/components/schemas/PutGoalPlanRequest",
     }
     ConstraintEntry: {
       $ref: "./components.yaml#/components/schemas/ConstraintEntry",

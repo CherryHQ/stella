@@ -3,20 +3,18 @@ name: stella
 description: >
   Self-knowledge about stella, the self-hosted AI assistant. Use when the user asks about
   stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu/WeChat),
-  memory system (LCM), scheduled jobs, background tasks, goals, task workers/reviews/dependencies,
+  memory system (LCM), scheduled jobs, deliverables (objectives that converge through acceptance), workers/decomposition/dependencies,
   skills, plugins, session compaction, notifications,
   self-update, multi-agent, multi-user, or general "how does stella work" / "help me get started" questions.
   Also triggers on "change my model", "set up telegram", "set up wechat", "configure provider", "update stella",
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
   Also triggers when the user wants to report a bug or file a GitHub issue about stella:
   "report this bug", "create an issue for this", "报告这个 issue", "帮我建个 issue".
-  Read this BEFORE creating, planning, or managing any background task or goal — not only
-  when asked how stella works, but whenever you are about to act: "create a task", "run this
-  in the background", "make a goal", "plan a multi-step goal", "break this into subtasks",
-  "set up a task plan", "add a dependency", "materialize the plan", "review/approve a task",
-  "schedule a task", "创建任务", "建个任务", "后台跑", "创建目标", "拆解成子任务", "多步计划",
-  "制定计划", "物化计划", "加依赖", "审批任务". Read references/tasks.md before authoring a
-  goal plan so you use the correct plan_mode and plan JSON shape instead of guessing.
+  Read this BEFORE working on any deliverable — not only when asked how stella works, but
+  whenever you are about to act on one: "run this in the background", "what's the status of
+  this deliverable", "why is this blocked", "decompose this", "review/accept this",
+  "后台跑", "拆解成子交付物", "为什么卡住了", "验收". Read references/tasks.md for how a
+  deliverable converges through its acceptance contract and what your worker contract is.
 ---
 
 # Stella Self-Knowledge
@@ -58,14 +56,14 @@ Project context (AGENTS.md files) is appended after these layers.
 
 Read the relevant reference file for detailed guidance:
 
-| Topic         | Reference                                                  | When to read                                                                                          |
-| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                   |
-| Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                  |
-| Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                           |
-| Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                            |
-| Tasks & goals | [references/tasks.md](references/tasks.md)                 | Goal/task system: manager CLI vs worker `task_control`, lifecycle, deps, readiness, reviews, blockers |
-| Report issue  | [references/report-issue.md](references/report-issue.md)   | User asks to report a bug / file a GitHub issue about stella                                          |
+| Topic         | Reference                                                  | When to read                                                                                                               |
+| ------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                                        |
+| Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                                       |
+| Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                                                |
+| Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                                                 |
+| Deliverables  | [references/tasks.md](references/tasks.md)                 | Deliverable model: root/child, leaf/composite, derived acceptance, convergence, worker `deliverable_control`, deps, blocks |
+| Report issue  | [references/report-issue.md](references/report-issue.md)   | User asks to report a bug / file a GitHub issue about stella                                                               |
 
 ## In-chat commands
 
@@ -90,12 +88,10 @@ stella vault      list/get/set/delete        # user secrets; Web UI also support
 stella oauth      providers/connect/status/disconnect
 stella share      artifact/article
 stella scheduler  add/list/remove
-stella task       list/get/create/cancel/reopen/readiness/events/runs/deps/dep/blocker/reviews/review
-stella task goal  list/get/create/activate/cancel/tasks/reviews/review
 stella version                  # Print version
 ```
 
-For when to use tasks/goals and how to combine the subcommands, read [references/tasks.md](references/tasks.md).
+Deliverables have no CLI: they are authored and driven from the Web UI (Tasks tab) and its HTTP API. You participate only as a dispatched worker via the `deliverable_control` tool — read [references/tasks.md](references/tasks.md) for the deliverable model and your worker contract.
 
 ## Delegation
 
@@ -127,7 +123,7 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 ## Memory, scheduler, notifications
 
-Memory is an agent tool; task, scheduler, skills, vault, oauth, and notifications are managed via the `stella` CLI (use `bash` to call them). Briefly:
+Memory is an agent tool; scheduler, skills, vault, oauth, and notifications are managed via the `stella` CLI (use `bash` to call them); deliverables are managed from the Web UI. Briefly:
 
 - **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in SQLite and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
 - **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (active facts/time-bound context). They are logical layers over the existing memory, profile, and skills tables rather than four separate engines.
@@ -137,7 +133,7 @@ Memory is an agent tool; task, scheduler, skills, vault, oauth, and notification
 - **Knowledge**: The skills table can store `knowledge_type=skill|fact|context`. `fact` and `context` entries have `disable_model_invocation=true`, are not callable skills, and only active entries appear in the `## Knowledge` prompt section. Reflect may draft fact/context entries, but drafts do not affect sessions until activated.
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
 - **Memory retrieval**: The `memory` tool provides `search` (keyword search spanning all of this user+agent's past sessions; each hit carries its origin session and content timestamp), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
-- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, `task` for async persistent work that can pause/resume/request review, and `scheduler` for one-time or recurring time triggers. Scheduler jobs can create async tasks for long-running/reviewable work; async tasks can use `delegate` for short focused subtasks.
+- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **deliverables** for async persistent work that converges through an acceptance contract (authored from the Web UI; you act as a dispatched worker), and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks.
 - **Scheduler**: `stella scheduler` CLI -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the Web UI (Tasks tab → New Schedule → From template) or `POST /api/agents/{agentId}/scheduler/jobs` with `template_key` to subscribe. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.

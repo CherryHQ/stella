@@ -1,23 +1,5 @@
-import {
-  getSessionMessages,
-  listGoals,
-  listGoalTasks,
-  listSchedulerJobRuns,
-  listTaskDeps,
-  listTaskEvents,
-  listTaskReviews,
-  listTaskRuns,
-  listTasks,
-} from "@/lib/api-client";
-import type {
-  ComponentsDep,
-  ComponentsEvent,
-  ComponentsGoal,
-  ComponentsReview,
-  ComponentsRun,
-  ComponentsTask,
-  JobRun,
-} from "@/lib/api-client/types.gen";
+import { getSessionMessages, listDeliverables, listSchedulerJobRuns } from "@/lib/api-client";
+import type { ComponentsDeliverable, JobRun } from "@/lib/api-client/types.gen";
 import type { Message } from "@/lib/types";
 
 // offsetPageToken mirrors the server's AIP-158 offset token (encodeOffsetToken
@@ -29,110 +11,37 @@ export function offsetPageToken(offset: number): string {
   return btoa(String(offset)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export async function fetchAllTasks(
-  agentId?: string,
-  projectId?: string,
-): Promise<ComponentsTask[]> {
-  const all: ComponentsTask[] = [];
-  let pageToken: string | undefined;
-  do {
-    const { data } = await listTasks({
-      query: { agent_id: agentId, project_id: projectId, page_size: 500, page_token: pageToken },
-      throwOnError: true,
-    });
-    all.push(...(data?.tasks ?? []));
-    pageToken = data?.next_page_token ?? undefined;
-  } while (pageToken);
-  return all;
-}
-
-export async function fetchAllGoals(
+// fetchAllDeliverables walks every page of root deliverables for one agent —
+// for aggregate views (the overview hub) that need the whole set rather than a
+// single server page. The list page uses deliverablesPageOptions instead.
+export async function fetchAllDeliverables(
   agentId?: string,
   archived?: boolean,
-): Promise<ComponentsGoal[]> {
-  const all: ComponentsGoal[] = [];
+): Promise<ComponentsDeliverable[]> {
+  const all: ComponentsDeliverable[] = [];
   let pageToken: string | undefined;
   do {
-    const { data } = await listGoals({
+    const { data } = await listDeliverables({
       query: { agent_id: agentId, archived, page_size: 500, page_token: pageToken },
       throwOnError: true,
     });
-    all.push(...(data?.goals ?? []));
+    all.push(...(data?.deliverables ?? []));
     pageToken = data?.next_page_token ?? undefined;
   } while (pageToken);
   return all;
 }
 
-export async function fetchAllGoalTasks(goalId: string): Promise<ComponentsTask[]> {
-  const all: ComponentsTask[] = [];
+// fetchAllSubtree walks the whole root_id family (every node in one tree) for
+// graph/tree views that render the full decomposition at once.
+export async function fetchAllSubtree(rootId: string): Promise<ComponentsDeliverable[]> {
+  const all: ComponentsDeliverable[] = [];
   let pageToken: string | undefined;
   do {
-    const { data } = await listGoalTasks({
-      path: { goalId },
-      query: { page_size: 500, page_token: pageToken },
+    const { data } = await listDeliverables({
+      query: { root: rootId, page_size: 500, page_token: pageToken },
       throwOnError: true,
     });
-    all.push(...(data?.tasks ?? []));
-    pageToken = data?.next_page_token ?? undefined;
-  } while (pageToken);
-  return all;
-}
-
-export async function fetchAllTaskDeps(taskId: string): Promise<ComponentsDep[]> {
-  const all: ComponentsDep[] = [];
-  let pageToken: string | undefined;
-  do {
-    const { data } = await listTaskDeps({
-      path: { taskId },
-      query: { page_size: 500, page_token: pageToken },
-      throwOnError: true,
-    });
-    all.push(...(data?.deps ?? []));
-    pageToken = data?.next_page_token ?? undefined;
-  } while (pageToken);
-  return all;
-}
-
-export async function fetchAllTaskRuns(taskId: string): Promise<ComponentsRun[]> {
-  const all: ComponentsRun[] = [];
-  let pageToken: string | undefined;
-  do {
-    const { data } = await listTaskRuns({
-      path: { taskId },
-      query: { page_size: 500, page_token: pageToken },
-      throwOnError: true,
-    });
-    all.push(...(data?.runs ?? []));
-    pageToken = data?.next_page_token ?? undefined;
-  } while (pageToken);
-  return all;
-}
-
-export async function fetchAllTaskReviews(taskId: string): Promise<ComponentsReview[]> {
-  const all: ComponentsReview[] = [];
-  let pageToken: string | undefined;
-  do {
-    const { data } = await listTaskReviews({
-      path: { taskId },
-      query: { page_size: 500, page_token: pageToken },
-      throwOnError: true,
-    });
-    all.push(...(data?.reviews ?? []));
-    pageToken = data?.next_page_token ?? undefined;
-  } while (pageToken);
-  return all;
-}
-
-export async function fetchAllTaskEvents(taskId: string): Promise<ComponentsEvent[]> {
-  const all: ComponentsEvent[] = [];
-  let pageToken: string | undefined;
-  do {
-    const { data } = await listTaskEvents({
-      path: { taskId },
-      query: { page_size: 500, page_token: pageToken },
-      throwOnError: true,
-    });
-    all.push(...(data?.events ?? []));
+    all.push(...(data?.deliverables ?? []));
     pageToken = data?.next_page_token ?? undefined;
   } while (pageToken);
   return all;

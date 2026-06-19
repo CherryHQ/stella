@@ -687,6 +687,656 @@ components:
         next_page_token:
           type: string
           nullable: true
+    # ── Core resource ────────────────────────────────────────────────────────
+    Deliverable:
+      type: object
+      description: >-
+        One node in the recursive deliverable tree. A root (parent_id null) is a goal; a child is a former task. Completion is DERIVED: acceptance_state is a cached projection over the append-only acceptance-event ledger, never an asserted flag.
+      required: [
+        id,
+        user_id,
+        agent_id,
+        root_id,
+        depth,
+        position,
+        session_id,
+        title,
+        kind,
+        priority,
+        required,
+        lifecycle,
+        acceptance_state,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        agent_id:
+          type: string
+          description: Owner/manager agent context.
+        project_id:
+          type: string
+          nullable: true
+          description: Optional project/workspace context.
+        parent_id:
+          type: string
+          nullable: true
+          description: Parent composite id; null for a root (goal).
+        root_id:
+          type: string
+          description: The tree's root id (= id for a root).
+        depth:
+          type: integer
+        position:
+          type: integer
+        session_id:
+          type: string
+        title:
+          type: string
+        intent:
+          type: string
+          description: What "done" means — the deliverable's acceptance target in prose.
+        kind:
+          type: string
+          enum: [leaf, composite]
+          description: A leaf is executed by a worker; a composite is decomposed into children.
+        priority:
+          type: string
+          enum: [routine, urgent]
+        required:
+          type: boolean
+          description: Whether this child gates its parent's acceptance.
+        acceptance_contract:
+          allOf: [{ $ref: "#/components/schemas/AcceptanceContract" }]
+          nullable: true
+          description: Composite policy tree gating acceptance; empty/absent ⇒ trivial auto-accept.
+        convergence_policy:
+          allOf: [{ $ref: "#/components/schemas/ConvergencePolicy" }]
+          nullable: true
+        review_policy:
+          type: string
+          enum: [none, human]
+        lifecycle:
+          type: string
+          enum: [
+            draft,
+            ready,
+            active,
+            blocked,
+            accepted,
+            rejected_final,
+            abandoned,
+            cancelled,
+          ]
+        block_reason:
+          type: string
+          enum: ["", budget_exhausted, needs_verdict, dep]
+          description: Meaningful only when lifecycle=blocked.
+        acceptance_state:
+          type: string
+          enum: [pending, passed, failed]
+          description: Cached projection of the acceptance fold.
+        accepted_output:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          description: Frozen output, set when lifecycle=accepted.
+        acceptance_seq:
+          type: integer
+        active_attempt_id:
+          type: string
+          nullable: true
+          description: The in-flight attempt; cleared while a human verdict is pending.
+        attempt_count:
+          type: integer
+        required_total:
+          type: integer
+        required_accepted:
+          type: integer
+        required_failed:
+          type: integer
+        required_blocked:
+          type: integer
+        accepted_revision_id:
+          type: string
+          nullable: true
+          description: The decomposition revision whose children this composite was materialized from.
+        context:
+          type: object
+          additionalProperties: {}
+        dispatch_hint:
+          type: object
+          additionalProperties: {}
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        accepted_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set when the deliverable is hidden from default lists.
+    DeliverableList:
+      type: object
+      required: [deliverables]
+      properties:
+        deliverables:
+          type: array
+          items:
+            $ref: "#/components/schemas/Deliverable"
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+        total:
+          type: integer
+          description: Total deliverables matching the filter, ignoring pagination.
+    CreateDeliverableRequest:
+      type: object
+      required: [title, agent_id]
+      properties:
+        title:
+          type: string
+        intent:
+          type: string
+          description: What "done" means for this deliverable.
+        agent_id:
+          type: string
+        project_id:
+          type: string
+          description: Optional project/workspace context. Must belong to the caller and agent.
+        kind:
+          type: string
+          enum: [leaf, composite]
+          description: >-
+            'leaf' (default) is a directly-executed goal; 'composite' is decomposed via the revisions endpoints before it can activate.
+        priority:
+          type: string
+          enum: [routine, urgent]
+        review_policy:
+          type: string
+          enum: [none, human]
+        acceptance_contract:
+          allOf: [{ $ref: "#/components/schemas/AcceptanceContract" }]
+          description: Optional acceptance gate; omit for trivial auto-accept.
+        convergence_policy:
+          allOf: [{ $ref: "#/components/schemas/ConvergencePolicy" }]
+        activate:
+          type: boolean
+          description: >-
+            When true the new deliverable is activated immediately after create (direct run). Only a leaf with a satisfied plan gate can activate; a composite must be planned first, so 'activate' is ignored for it.
+    UpdateDeliverableRequest:
+      type: object
+      description: Partial metadata edit; omitted fields are left unchanged.
+      properties:
+        title:
+          type: string
+        intent:
+          type: string
+        priority:
+          type: string
+          enum: [routine, urgent]
+        review_policy:
+          type: string
+          enum: [none, human]
+        acceptance_contract:
+          $ref: "#/components/schemas/AcceptanceContract"
+        convergence_policy:
+          $ref: "#/components/schemas/ConvergencePolicy"
+    CancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    AbandonRequest:
+      type: object
+      description: Human give-up on a budget-exhausted block.
+      properties:
+        reason:
+          type: string
+    # ── Acceptance contract (policy tree) ────────────────────────────────────
+    AcceptanceContract:
+      type: object
+      description: >-
+        The composite policy tree of deterministic + judgment items that gates acceptance. An empty contract (no items) is the trivial auto-accept.
+      properties:
+        policy:
+          type: string
+          enum: [deterministic_then_judgment, all, any]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AcceptanceItem"
+    AcceptanceItem:
+      type: object
+      required: [id, kind]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [deterministic, judgment]
+        required:
+          type: boolean
+          description: A non-required item is advisory and does not gate acceptance.
+        command:
+          type: string
+          description: Deterministic check command (run in the sandbox).
+        expect_exit:
+          type: integer
+          description: Expected exit code for a deterministic check (default 0).
+        authority:
+          type: string
+          enum: [agent, human]
+          description: Who renders a judgment verdict.
+        rubric:
+          type: string
+          description: Agent reviewer prompt.
+        prompt:
+          type: string
+          description: Human verdict prompt.
+    ConvergencePolicy:
+      type: object
+      description: Bounds the rework loop and recursion depth.
+      properties:
+        max_attempts:
+          type: integer
+          description: Rework budget; exhaustion ⇒ blocked(budget_exhausted). Default 3.
+        escalation:
+          type: string
+          enum: [block, abandon]
+        max_depth:
+          type: integer
+          description: Recursion ceiling. Default 4.
+        max_concurrent:
+          type: integer
+          description: Per-root breadth-of-fanout cap. Default 8.
+    # ── Attempts (per-attempt execution episodes) ────────────────────────────
+    Attempt:
+      type: object
+      required: [
+        id,
+        deliverable_id,
+        purpose,
+        attempt_no,
+        status,
+        session_id,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        deliverable_id:
+          type: string
+        user_id:
+          type: string
+        agent_id:
+          type: string
+          nullable: true
+        executor_agent_id:
+          type: string
+          nullable: true
+        session_id:
+          type: string
+        purpose:
+          type: string
+          enum: [execution, decomposition, review]
+        attempt_no:
+          type: integer
+        status:
+          type: string
+          enum: [queued, running, submitted, interrupted, failed, cancelled]
+        input_context:
+          type: object
+          additionalProperties: {}
+        evidence:
+          type: object
+          additionalProperties: {}
+        output:
+          type: object
+          additionalProperties: {}
+        revision_id:
+          type: string
+          nullable: true
+        gaps:
+          type: object
+          additionalProperties: {}
+        error:
+          type: string
+        worker_id:
+          type: string
+        heartbeat_at:
+          type: string
+          format: date-time
+          nullable: true
+        lease_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AttemptList:
+      type: object
+      required: [attempts]
+      properties:
+        attempts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attempt"
+    # ── Acceptance events (the append-only ledger) ───────────────────────────
+    AcceptanceEvent:
+      type: object
+      required: [
+        id,
+        deliverable_id,
+        seq,
+        item_id,
+        item_kind,
+        result,
+        authority,
+        created_at,
+      ]
+      properties:
+        id:
+          type: string
+        deliverable_id:
+          type: string
+        attempt_id:
+          type: string
+          nullable: true
+        seq:
+          type: integer
+        item_id:
+          type: string
+        item_kind:
+          type: string
+          enum: [deterministic, judgment]
+        result:
+          type: string
+          enum: [pass, fail]
+        command:
+          type: string
+        exit_code:
+          type: integer
+          nullable: true
+        cache_key:
+          type: string
+        authority:
+          type: string
+          enum: [system, agent, human]
+        reviewer_user_id:
+          type: string
+          nullable: true
+        reviewer_attempt_id:
+          type: string
+          nullable: true
+        rationale:
+          type: string
+        scope:
+          type: string
+        scope_hash:
+          type: string
+        detail:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    AcceptanceEventList:
+      type: object
+      required: [acceptance_events]
+      properties:
+        acceptance_events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AcceptanceEvent"
+    VerdictRequest:
+      type: object
+      description: A human judgment-as-evidence verdict against a contract item; re-folds acceptance.
+      required: [item_id, result]
+      properties:
+        item_id:
+          type: string
+        result:
+          type: string
+          enum: [pass, fail]
+        rationale:
+          type: string
+        scope:
+          type: string
+        scope_hash:
+          type: string
+          description: The accepted-output/artifact hash the verdict covers (staleness anchor).
+    # ── Edges (sibling dependencies) ─────────────────────────────────────────
+    Edge:
+      type: object
+      required: [deliverable_id, upstream_id, edge_kind, on_failure, created_at]
+      properties:
+        deliverable_id:
+          type: string
+        upstream_id:
+          type: string
+        edge_kind:
+          type: string
+          enum: [hard, soft]
+        on_failure:
+          type: string
+          enum: [block, fail, ignore]
+        waived_at:
+          type: string
+          format: date-time
+          nullable: true
+        waived_by_user:
+          type: string
+          nullable: true
+        waiver_reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    EdgeList:
+      type: object
+      required: [edges]
+      properties:
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/Edge"
+    AddEdgeRequest:
+      type: object
+      required: [upstream_id]
+      properties:
+        upstream_id:
+          type: string
+        kind:
+          type: string
+          enum: [hard, soft]
+          description: Default 'hard'.
+        on_failure:
+          type: string
+          enum: [block, fail, ignore]
+          description: Default 'block'.
+    WaiveRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    # ── Revisions (decomposition proposals) ──────────────────────────────────
+    Revision:
+      type: object
+      required: [
+        id,
+        deliverable_id,
+        revision_no,
+        status,
+        review_policy,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        deliverable_id:
+          type: string
+        revision_no:
+          type: integer
+        status:
+          type: string
+          enum: [draft, in_review, accepted, rejected, superseded]
+        review_policy:
+          type: string
+          enum: [none, human]
+        content:
+          allOf: [{ $ref: "#/components/schemas/DecompositionContent" }]
+          nullable: true
+        source_attempt_id:
+          type: string
+          nullable: true
+        planning_session_id:
+          type: string
+          nullable: true
+        accepted_at:
+          type: string
+          format: date-time
+          nullable: true
+        materialized_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RevisionList:
+      type: object
+      required: [revisions]
+      properties:
+        revisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Revision"
+    DecompositionContent:
+      type: object
+      description: A revision's proposed children + sibling edges.
+      required: [children]
+      properties:
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProposedChild"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProposedEdge"
+    ProposedChild:
+      type: object
+      required: [key, title]
+      properties:
+        key:
+          type: string
+          description: Stable id within the revision; the materialize idempotency anchor.
+        title:
+          type: string
+        intent:
+          type: string
+        kind:
+          type: string
+          enum: [leaf, composite]
+        required:
+          type: boolean
+        acceptance_contract:
+          $ref: "#/components/schemas/AcceptanceContract"
+        convergence_policy:
+          $ref: "#/components/schemas/ConvergencePolicy"
+        review_policy:
+          type: string
+          enum: [none, human]
+    ProposedEdge:
+      type: object
+      required: [downstream_key, upstream_key]
+      properties:
+        downstream_key:
+          type: string
+        upstream_key:
+          type: string
+        kind:
+          type: string
+          enum: [hard, soft]
+        on_failure:
+          type: string
+          enum: [block, fail, ignore]
+    DecisionRequest:
+      type: object
+      description: A review decision (approve/reject/request-changes) note.
+      properties:
+        reason:
+          type: string
+    DecompositionSession:
+      type: object
+      required: [planning_session_id]
+      properties:
+        planning_session_id:
+          type: string
+          description: The dedicated session the composite is decomposed in.
+    # ── Readiness (computed dispatchability view) ────────────────────────────
+    Readiness:
+      type: object
+      required: [state, dispatchable]
+      properties:
+        state:
+          type: string
+          enum: [
+            dispatchable,
+            waiting_deps,
+            blocked,
+            active,
+            terminal,
+            draft,
+            composite,
+            unknown,
+          ]
+        dispatchable:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReadinessReason"
+    ReadinessReason:
+      type: object
+      properties:
+        type:
+          type: string
+        upstream_id:
+          type: string
+        detail:
+          type: string
     EmailFolderList:
       type: object
       required: [folders]
@@ -793,229 +1443,6 @@ components:
       properties:
         seen:
           type: boolean
-    Goal:
-      type: object
-      required: [
-        id,
-        user_id,
-        agent_id,
-        title,
-        status,
-        priority,
-        review_policy,
-        created_at,
-        updated_at,
-      ]
-      properties:
-        id:
-          type: string
-        user_id:
-          type: string
-        agent_id:
-          type: string
-          description: Owner/manager agent context.
-        project_id:
-          type: string
-          description: Optional project/workspace context.
-        title:
-          type: string
-        description:
-          type: string
-        status:
-          type: string
-          enum: [
-            draft,
-            planning,
-            planned,
-            running,
-            blocked,
-            reviewing,
-            done,
-            failed,
-            cancelled,
-          ]
-        priority:
-          type: string
-          enum: [routine, urgent]
-        review_policy:
-          type: string
-          enum: [none, auto, agent, human]
-        active_review_id:
-          type: string
-        context:
-          type: object
-          additionalProperties: {}
-        output:
-          type: object
-          additionalProperties: {}
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        completed_at:
-          type: string
-          format: date-time
-        cancelled_at:
-          type: string
-          format: date-time
-        archived_at:
-          type: string
-          format: date-time
-          description: Set when the goal is hidden from default lists.
-    CompleteGoalRequest:
-      type: object
-      properties:
-        output:
-          type: object
-          additionalProperties: {}
-          description: Final goal output/summary recorded when manually marking achieved.
-    GoalList:
-      type: object
-      required: [goals]
-      properties:
-        goals:
-          type: array
-          items:
-            $ref: "#/components/schemas/Goal"
-        next_page_token:
-          type: string
-          nullable: true
-          description: Opaque pagination token; null when no further pages.
-        total:
-          type: integer
-          description: Total goals matching the filter, ignoring pagination. Drives numbered pages and count badges.
-    CreateGoalRequest:
-      type: object
-      required: [title, agent_id]
-      properties:
-        title:
-          type: string
-        description:
-          type: string
-        priority:
-          type: string
-          enum: [routine, urgent]
-        agent_id:
-          type: string
-        project_id:
-          type: string
-          description: Optional project/workspace context. Must belong to the caller and agent.
-        review_policy:
-          type: string
-          enum: [none]
-          description: >-
-            Only 'none' is supported in this build. Goal-level review (auto/agent/human) requires the synthesizer/goal-review runtime, which is not yet wired.
-        plan_mode:
-          type: string
-          enum: [direct, deferred]
-          description: >-
-            How the goal's plan is seeded. 'direct' (default) auto-creates, accepts, materializes, AND activates a single-task plan, so the goal lands in 'running' and starts immediately ("direct" = just do it). 'deferred' leaves the goal in 'draft' with no plan for explicit structured planning via the plan endpoints, then accept, materialize, and activate.
-        context:
-          type: object
-          additionalProperties: {}
-    CancelGoalRequest:
-      type: object
-      properties:
-        reason:
-          type: string
-    PlanItem:
-      type: object
-      required: [id, title]
-      properties:
-        id:
-          type: string
-        title:
-          type: string
-        role:
-          type: string
-          enum: [direct, design, impl, verify]
-          description: Item kind. Omit/`direct` for a single-task direct plan.
-        deps:
-          type: array
-          items:
-            type: string
-          description: IDs of items this item depends on (a DAG over item ids).
-        criteria:
-          type: array
-          items:
-            type: string
-          description: Acceptance criteria recorded against the materialized task.
-    PlanContent:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/PlanItem"
-    GoalPlan:
-      type: object
-      required: [
-        id,
-        goal_id,
-        status,
-        review_policy,
-        content,
-        created_at,
-        updated_at,
-      ]
-      properties:
-        id:
-          type: string
-        goal_id:
-          type: string
-        status:
-          type: string
-          enum: [draft, in_review, accepted, approved]
-        review_policy:
-          type: string
-          enum: [none, human]
-        content:
-          allOf: [{ $ref: "#/components/schemas/PlanContent" }]
-          description: Last materialized plan content.
-        pending_content:
-          allOf: [{ $ref: "#/components/schemas/PlanContent" }]
-          nullable: true
-          description: In-flight edit awaiting accept/review + materialize; null when none.
-        approved_review_id:
-          type: string
-        planning_session_id:
-          type: string
-          nullable: true
-          description: >-
-            The dedicated session this goal is planned in, where an agent authors and the user refines the plan by chatting. Null until planning starts.
-        accepted_at:
-          type: string
-          format: date-time
-        materialized_at:
-          type: string
-          format: date-time
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-    GoalPlanningSession:
-      type: object
-      required: [session_id]
-      properties:
-        session_id:
-          type: string
-          description: The goal's dedicated planning session to open and chat in.
-    PutGoalPlanRequest:
-      type: object
-      required: [content]
-      properties:
-        content:
-          $ref: "#/components/schemas/PlanContent"
-        review_policy:
-          type: string
-          enum: [none, human]
-          description: >-
-            How the staged plan is accepted. 'none' (default) accepts directly; 'human' requires submit-review + approve before materialize.
     Group:
       type: object
       required: [id, group_name, platform, created_at, updated_at]
@@ -1170,7 +1597,7 @@ components:
           nullable: true
         source_type:
           type: string
-          enum: [task, task_run, scheduler_run]
+          enum: [deliverable, scheduler_run]
         source_id:
           type: string
         target_path:
@@ -2905,517 +3332,6 @@ components:
           $ref: "#/components/schemas/StatusDatabase"
         plugins:
           $ref: "#/components/schemas/StatusPlugins"
-    Task:
-      type: object
-      required: [
-        id,
-        user_id,
-        agent_id,
-        session_id,
-        title,
-        status,
-        priority,
-        review_policy,
-        required,
-        retry_count,
-        max_retries,
-        created_at,
-        updated_at,
-      ]
-      properties:
-        id:
-          type: string
-        user_id:
-          type: string
-        agent_id:
-          type: string
-          description: Owner/manager agent context.
-        session_id:
-          type: string
-          description: Durable worker session for this task.
-        goal_id:
-          type: string
-          description: Optional parent goal.
-        project_id:
-          type: string
-          description: Optional project/workspace context.
-        title:
-          type: string
-        description:
-          type: string
-        status:
-          type: string
-          enum: [
-            draft,
-            ready,
-            running,
-            blocked,
-            reviewing,
-            done,
-            failed,
-            cancelled,
-          ]
-        priority:
-          type: string
-          enum: [routine, urgent]
-        review_policy:
-          type: string
-          enum: [none, auto, agent, human]
-        required:
-          type: boolean
-        retry_count:
-          type: integer
-          format: int64
-        max_retries:
-          type: integer
-          format: int64
-        not_before:
-          type: string
-          format: date-time
-        deadline_at:
-          type: string
-          format: date-time
-        active_run_id:
-          type: string
-        active_blocker_id:
-          type: string
-        active_review_id:
-          type: string
-        context:
-          type: object
-          additionalProperties: {}
-          description: Task-level metadata checkpoint (JSON object).
-        output:
-          type: object
-          additionalProperties: {}
-          description: Final output set by the worker on submit (JSON object).
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        completed_at:
-          type: string
-          format: date-time
-        cancelled_at:
-          type: string
-          format: date-time
-        archived_at:
-          type: string
-          format: date-time
-          description: Set when the task is hidden from default lists.
-    TaskList:
-      type: object
-      required: [tasks]
-      properties:
-        tasks:
-          type: array
-          items:
-            $ref: "#/components/schemas/Task"
-        next_page_token:
-          type: string
-          nullable: true
-          description: Opaque pagination token; null when no further pages.
-    DepInput:
-      type: object
-      required: [dep_task_id]
-      properties:
-        dep_task_id:
-          type: string
-        kind:
-          type: string
-          enum: [hard, soft]
-          description: Defaults to hard when omitted.
-        on_failure:
-          type: string
-          enum: [block, fail, ignore]
-          description: Defaults to block when omitted.
-    CreateTaskRequest:
-      type: object
-      required: [title]
-      properties:
-        title:
-          type: string
-        description:
-          type: string
-        priority:
-          type: string
-          enum: [routine, urgent]
-        agent_id:
-          type: string
-          description: Owner/manager agent context. Required unless inherited from goal_id.
-        goal_id:
-          type: string
-          description: Optional parent goal. When set, it must belong to the caller and the same agent.
-        project_id:
-          type: string
-          description: Optional project/workspace context. Must belong to the caller and resolved agent.
-        executor_agent_id:
-          type: string
-          description: Explicit executor (D13); written as a dispatch hint.
-        required:
-          type: boolean
-          description: Defaults to true when omitted; false marks the task as optional.
-        max_retries:
-          type: integer
-          format: int64
-        not_before:
-          type: string
-          format: date-time
-        deadline_at:
-          type: string
-          format: date-time
-        context:
-          type: object
-          additionalProperties: {}
-        deps:
-          type: array
-          items:
-            $ref: "#/components/schemas/DepInput"
-        activate_on_create:
-          type: boolean
-          description: If true, immediately transitions draft → ready.
-    CancelRequest:
-      type: object
-      properties:
-        reason:
-          type: string
-    Readiness:
-      type: object
-      required: [state, dispatchable]
-      properties:
-        state:
-          type: string
-          enum: [
-            dispatchable,
-            waiting_deps,
-            deferred,
-            throttled,
-            running,
-            blocked,
-            terminal,
-            draft,
-            reviewing,
-            unknown,
-          ]
-        dispatchable:
-          type: boolean
-        reasons:
-          type: array
-          items:
-            $ref: "#/components/schemas/ReadinessReason"
-    ReadinessReason:
-      type: object
-      required: [type]
-      properties:
-        type:
-          type: string
-        upstream_id:
-          type: string
-        detail:
-          type: string
-    Run:
-      type: object
-      required: [
-        id,
-        task_id,
-        user_id,
-        kind,
-        attempt_no,
-        status,
-        session_id,
-        created_at,
-        updated_at,
-      ]
-      properties:
-        id:
-          type: string
-        task_id:
-          type: string
-        user_id:
-          type: string
-        agent_id:
-          type: string
-        executor_agent_id:
-          type: string
-        kind:
-          type: string
-          enum: [worker, reviewer, planner, synthesizer]
-        attempt_no:
-          type: integer
-          format: int64
-        status:
-          type: string
-          enum: [
-            queued,
-            running,
-            completed,
-            failed,
-            cancelled,
-            interrupted,
-            timed_out,
-          ]
-        session_id:
-          type: string
-        input:
-          type: string
-        result:
-          type: string
-        error:
-          type: string
-        worker_id:
-          type: string
-        heartbeat_at:
-          type: string
-          format: date-time
-        lease_expires_at:
-          type: string
-          format: date-time
-        started_at:
-          type: string
-          format: date-time
-        finished_at:
-          type: string
-          format: date-time
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-    RunList:
-      type: object
-      required: [runs]
-      properties:
-        runs:
-          type: array
-          items:
-            $ref: "#/components/schemas/Run"
-        next_page_token:
-          type: string
-          nullable: true
-          description: Opaque pagination token; null when no further pages.
-    Event:
-      type: object
-      required: [id, event_type, actor_type, created_at]
-      properties:
-        id:
-          type: string
-        task_id:
-          type: string
-        run_id:
-          type: string
-        review_id:
-          type: string
-        event_type:
-          type: string
-        from_status:
-          type: string
-        to_status:
-          type: string
-        actor_type:
-          type: string
-          enum: [system, user, agent, worker, reviewer, planner, synthesizer]
-        actor_id:
-          type: string
-        detail:
-          type: object
-          additionalProperties: {}
-        created_at:
-          type: string
-          format: date-time
-    EventList:
-      type: object
-      required: [events]
-      properties:
-        events:
-          type: array
-          items:
-            $ref: "#/components/schemas/Event"
-        next_page_token:
-          type: string
-          nullable: true
-          description: Opaque pagination token; null when no further pages.
-    Dep:
-      type: object
-      required: [task_id, dep_task_id, dep_kind, on_failure, created_at]
-      properties:
-        task_id:
-          type: string
-        dep_task_id:
-          type: string
-        dep_kind:
-          type: string
-          enum: [hard, soft]
-        on_failure:
-          type: string
-          enum: [block, fail, ignore]
-        waived_at:
-          type: string
-          format: date-time
-        waived_by:
-          type: string
-        waiver_reason:
-          type: string
-        upstream_status:
-          type: string
-          description: Convenience-joined current status of the upstream task.
-        created_at:
-          type: string
-          format: date-time
-    DepList:
-      type: object
-      required: [deps]
-      properties:
-        deps:
-          type: array
-          items:
-            $ref: "#/components/schemas/Dep"
-        next_page_token:
-          type: string
-          nullable: true
-          description: Opaque pagination token; null when no further pages.
-    AddDepRequest:
-      type: object
-      required: [dep_task_id]
-      properties:
-        dep_task_id:
-          type: string
-        kind:
-          type: string
-          enum: [hard, soft]
-        on_failure:
-          type: string
-          enum: [block, fail, ignore]
-    WaiveDepRequest:
-      type: object
-      properties:
-        reason:
-          type: string
-    Blocker:
-      type: object
-      required: [id, task_id, kind, status, question, created_at]
-      properties:
-        id:
-          type: string
-        task_id:
-          type: string
-        kind:
-          type: string
-          enum: [
-            user_input,
-            external_dependency,
-            tool_error,
-            policy_hold,
-            dep_failure,
-          ]
-        status:
-          type: string
-          enum: [open, resolved, cancelled]
-        question:
-          type: string
-        detail:
-          type: string
-          description: JSON blob with blocker context.
-        resolution:
-          type: string
-          description: Answer recorded when the blocker was resolved.
-        created_at:
-          type: string
-          format: date-time
-        resolved_at:
-          type: string
-          format: date-time
-    ResolveBlockerRequest:
-      type: object
-      properties:
-        resolution:
-          type: string
-    ReopenRequest:
-      type: object
-      properties:
-        cascade:
-          type: boolean
-          description: Cascade-reset reachable downstream tasks per ownership rules.
-    Review:
-      type: object
-      required: [
-        id,
-        reviewer_type,
-        status,
-        summary,
-        feedback,
-        created_at,
-        updated_at,
-      ]
-      properties:
-        id:
-          type: string
-        task_id:
-          type: string
-        goal_id:
-          type: string
-        submitted_run_id:
-          type: string
-        reviewer_run_id:
-          type: string
-        reviewer_type:
-          type: string
-          enum: [system, agent, human]
-        reviewer_user_id:
-          type: string
-        escalated_from_review_id:
-          type: string
-        status:
-          type: string
-          enum: [
-            requested,
-            in_progress,
-            approved,
-            changes_requested,
-            rejected,
-            escalated,
-            cancelled,
-          ]
-        summary:
-          type: string
-        feedback:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        resolved_at:
-          type: string
-          format: date-time
-    ReviewList:
-      type: object
-      required: [reviews]
-      properties:
-        reviews:
-          type: array
-          items:
-            $ref: "#/components/schemas/Review"
-        next_page_token:
-          type: string
-          nullable: true
-          description: Opaque pagination token; null when no further pages.
-    ReviewDecisionRequest:
-      type: object
-      properties:
-        summary:
-          type: string
-        feedback:
-          type: string
-          description: Ignored on approve; required (by convention) on reject and request_changes.
-    EscalateReviewRequest:
-      type: object
-      properties:
-        reason:
-          type: string
     Tool:
       type: object
       required: [name, description, category]

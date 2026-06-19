@@ -1,48 +1,43 @@
 ---
-title: Deliverable 模型（SDLC 目标架构）
-description: 把 goal/plan/task 从前向流水线演进成迭代式 SDLC 的目标架构提案——一个递归的 Deliverable 抽象，配合派生式完成、分层验收契约与有界收敛循环。
+title: Deliverable 模型
+description: 已落地的执行架构——一个递归的 Deliverable 抽象，配合派生式完成、分层验收契约与有界收敛循环，把工作迭代到正确，而非把前向流水线只跑一遍。
 ---
 
-> **状态：方向提案，尚未实现。** 本页是执行核心演进的北极星。当前行为见
-> [Goal system](./goal-system) 与 [Task system](./task-system)；本页解释那个模型在真实 SDLC
-> 下错在哪，以及一次内部设计与一次独立对抗式评审共同收敛出的干净目标。朝它建设，但不要假设其中
-> 任何部分已经存在。
+本页是 Stella 如何调度并收敛工作的权威说明。执行核心是一个递归的 **Deliverable** 抽象：根
+deliverable 是用户的目标，子 deliverable 是它的子交付物，同一个形状一路向下重复。完成是从每个
+deliverable 的验收契约*派生*出来的，不由 agent 断言；工作通过有界收敛循环迭代，直到被接受。
 
-## 问题：一个假装成 SDLC 的流水线
+## 为什么是递归 Deliverable，而非流水线
 
-今天一个结构化 goal 物化成 `agent_task` 行的前向依赖 DAG，其 item 可被标注为 `design` / `impl` /
-`verify`——但顺序来自依赖边、不是 role 标签，校验也只要求每个 `impl` 有一个下游 `verify`（direct
-goal 是单个 `direct` item）。然后把这个 DAG **跑一遍**。这是**流水线**，不是软件开发生命周期，因
-为生命周期的定义性特征——_迭代到正确为止_——缺席了。有四样东西摆错了位置：
+早期的执行核心把一个前向依赖 DAG 跑一遍就算完。那是**流水线**，不是软件开发生命周期，因为生命周
+期的定义性特征——_迭代到正确为止_——缺席了。Deliverable 模型修掉跑一遍的流水线带来的四个结构性
+缺陷：
 
-1. **`done` 是 agent 设的状态。** 在常见的 `none`/`auto` 路径上，一次 `task_control submit` 直接把
-   task 推到 `done`（`internal/tasks/review.go`）；`agent` 或 `human` review policy 会经一个
-   `reviewing` 步骤延后它，但那仍然是审查提交的 output，而不是从工作自身的验收契约派生完成。完成是
-   worker 的断言（或 reviewer 的是/否），不是系统从工作意图派生出来的。
-2. **验收标准是游离的 advisory 元数据。** `PlanItem.Criteria` 写进完成路径从不读取的行
-   （`internal/tasks/plan_service.go`）。没人核对它，也没人把它注入 prompt。
-3. **`verify` 是 DAG 里的兄弟节点。** verify task 可以在它"验证"的 `impl` 是坏的情况下通过——
-   它俩是独立节点，只靠一条前向依赖边相连。
-4. **迭代是异常路径。** 普通的自动执行从不把 verify 的 gaps 喂回 `impl`；一个必需子项失败会把 goal
-   翻成 `failed`，恢复需要显式的 lifecycle 干预，例如 `ReopenTask`。返工——SDLC 的核心——被当成失败
-   恢复来处理，而不是工作收敛的常态。
+1. **`done` 不该是 agent 设的状态。** 一旦由 worker（或 reviewer 的是/否）断言完成，系统就在信任
+   一个断言，而不是从工作自身的验收契约派生完成。Deliverable 模型从工作意图派生完成——见
+   [完成是派生的，从不被断言](#完成是派生的从不被断言)。
+2. **验收标准不该是游离的 advisory 元数据。** 没人核对、也没人注入 prompt 的标准只是装饰。验收契约
+   让它们变成绑定——见[验收契约](#验收契约)。
+3. **`verify` 不该是兄弟节点。** 当 verify 节点与它"验证"的工作只靠一条前向依赖边相连时，前者能在
+   后者是坏的情况下通过。验证改为每个 deliverable 自己的验收评估。
+4. **迭代必须是常态路径，不是异常。** 把返工当成失败恢复——一个子项失败把目标翻成 `failed`、再手动
+   reopen——把 SDLC 弄反了。返工就是工作收敛的方式；它是循环里的下一轮 attempt。
 
-后果是三个平行状态机（goal `draft/planning/planned/running/…`、plan
-`draft/in_review/accepted/approved`、task `draft/ready/running/…`），状态集重叠却不一致。调用者
-必须同时理解三者才能推断进度。这是浅设计。
+回报是用一个状态机替掉三个重叠且不一致的状态机（目标、plan、task 各自带着自己的状态集）。调用者
+通过一个递归概念就能推断进度。这是深设计。
 
 ## 核心抽象：一个递归的 Deliverable
 
-整个模型塌缩成一个**递归应用的深模块**。
+整个模型就是一个**递归应用的深模块**。
 
 > Stella 调度 **deliverable**。Agent 通过 **attempt** 产出 **evidence**。系统拿 evidence 对照
 > deliverable 的 **acceptance contract** 评估，迭代直到 accepted / blocked / abandoned，并**只把
 > 已验收的 output** 暴露给依赖它的 deliverable。
 
-一个 **Deliverable** 拥有自己的意图、分解、验收、尝试与收敛。goal 是根 deliverable；它的 children
-是 deliverable；再下一层也是——同一个形状一路到底。`plan` 不是 peer object，是 deliverable 的
-_分解版本_。`task`/`run` 不是 peer object，是 deliverable 的 _attempt_。`review` 不是 peer
-object，是 _验收证据来源_。
+一个 **Deliverable** 拥有自己的意图、分解、验收、尝试与收敛。根 deliverable 是用户的目标；它的
+children 是 deliverable；再下一层也是——同一个形状一路到底。`kind` 区分**叶子**（worker 执行）与
+**复合**（分解为子项）。分解不是 peer object，是 deliverable 的 _revision_。attempt 不是 peer
+object，是 deliverable 的 _执行 episode_。review 不是 peer object，是 _验收证据来源_。
 
 ### 运行实体
 
@@ -54,7 +49,7 @@ object，是 _验收证据来源_。
 | `deliverable_edge`              | 兄弟 deliverable 间的 accepted-output 依赖（`hard` 阻塞；`soft` 是建议性上下文）。                                      |
 | `attempt`                       | 一次执行 episode：一个持久 agent session、冻结的输入上下文、提交的 evidence（evidence 折进 attempt，不单独建表）。      |
 | `acceptance_event`              | 确定性 check 结果或判断性 verdict 的 append-only 记录。Deliverable 的验收状态是这些事件之上的**缓存投影**，不是可变列。 |
-| `deliverable_revision` _(可选)_ | 一个分解版本（即旧的 `plan`）。不是第一天的运行实体；仅在打开多层分解时才需要。                                         |
+| `deliverable_revision` _(可选)_ | 一个分解版本。用于多层分解；叶子 deliverable 不带它。                                                                   |
 
 `acceptance_event` 做成 append-only（而非可变的评估表）对审计与投影重建更友好——见
 [简单性与可扩展性](#简单性与可扩展性)。
@@ -77,9 +72,8 @@ agent 永远不设 `done`。它提交 **evidence**；系统**派生**验收。
   ```
 
 所以边界是：**asserted** = verdict 及其 rationale、scope、authority、timestamp；**derived** =
-验收状态、完成、下游就绪。代码库已有正确形状——executor 返回 `Result`、service 拥有持久转换
-（`internal/tasks/executor.go`、`internal/tasks/worker.go`）。唯一的泄漏是 `Submit` 把 _submit_
-当成 _done_。
+验收状态、完成、下游就绪。executor 返回 `Result`；service 拥有持久转换。submit 记录 evidence 并触发
+验收——它从不直接设 `done`。
 
 ### 验收契约
 
@@ -131,12 +125,12 @@ evidence 都保留，审计链清晰：attempt 1 产出 X，验收以 gaps Y 拒
 
 ## 递归白送分解与终审
 
-非叶子 deliverable 由一次 attempt 产出一个 **decomposition**（即旧的 plan），由 review policy 把关
-（`none` 自动接受；`human` 等待批准——旧的 plan-review FSM，现归到 decomposition）。一旦接受，子
-deliverable 及其边被物化，每个子项跑自己的收敛循环。
+复合 deliverable 由一次 attempt 产出一个 **decomposition**，由 review policy 把关（`none` 自动接
+受；`human` 等待批准——plan-review 闸，归到 decomposition）。一旦接受，子 deliverable 及其边被物
+化，每个子项跑自己的收敛循环。
 
-当所有必需子项都 accepted，父项跑**它自己的**验收评估。这一步*就是* goal 级终审 / synthesizer
-——不是一个特殊、单独建的特性，而是每个叶子都有的同一个验收闸，应用在根上。synthesizer 从递归里
+当所有必需子项都 accepted，父项跑**它自己的**验收评估。这一步*就是*根级终审 / synthesizer
+——不是一个特殊、单独的特性，而是每个叶子都有的同一个验收闸，应用在根上。synthesizer 从递归里
 掉出来。
 
 ### 一个 deliverable 还是两个
@@ -153,40 +147,43 @@ deliverable 及其边被物化，每个子项跑自己的收敛循环。
 这正是 `verify`、`design`、`impl` 不再是节点*类型*的原因：验证是每个 deliverable 的验收评估器，而
 design/impl 最多是 category 或内部阶段。
 
-## 今天的模型有哪些对、要保留
+## 载重不变式
 
-这是一次重新生根，不是推倒。以下已经正确，其精神原样存活：
+几条规则把模型钉在一起。它们刻意做小，且在递归的每一层都成立：
 
-- **plan gate**——绝不跑未分解的工作。今天它散在 `ActivateGoal`、plan、子项计数三处；它变成
-  deliverable lifecycle 上的一条规则（`ready → active` 要求"带契约的叶子"或"已接受、已物化 ≥1
-  子项的分解"）。
-- **依赖 DAG**——保留，但边的含义是 _accepted-output_ 依赖，不是过程顺序。
-- **Handoff**——下游从上游 output 取上下文是对的；强化它，使**只有 accepted output** 才往下游流。
+- **plan gate**——绝不跑未分解的工作。`ready → active` 要求"带契约的叶子"或"已接受、已物化 ≥1
+  子项的分解"。它是 deliverable lifecycle 上的一条规则，而不是散在目标、plan、子项计数三处的三次
+  检查。
+- **依赖 DAG**——`deliverable_edge` 承载 _accepted-output_ 依赖，不是过程顺序。
+- **Handoff**——**只有 accepted output** 才往下游流；在途 attempt 的 evidence 永不泄漏进依赖项的
+  输入。
 - **executor 边界**——agent 返回结果；service 拥有持久状态。
 - **持久 session** 与 **pending-vs-accepted 内容隔离**——让在途编辑不进入正在运行的 prompt。
 
-### 概念映射
+### 词汇
 
-| 今天                            | 目标                                       |
-| ------------------------------- | ------------------------------------------ |
-| `agent_goal`（根）              | `deliverable`，`parent_id = NULL`          |
-| goal 子状态                     | `deliverable` lifecycle 状态（派生）       |
-| `agent_goal_plan`               | `deliverable_revision`（分解版本）         |
-| plan status / `review_policy`   | decomposition status / review policy       |
-| plan 内容 items                 | 提案子 deliverable                         |
-| `agent_task`                    | 叶子 `deliverable`                         |
-| task `running`                  | `attempt` running                          |
-| task `done`（断言）             | `deliverable` accepted（**派生**）         |
-| task failed——瞬时               | `attempt` interrupted → 新 attempt         |
-| task failed——语义               | 验收 rejected → 下一轮，或耗尽预算 blocked |
-| `criteria []string`（advisory） | `acceptance_contract` 项（绑定）           |
-| `verify` task（兄弟节点）       | 该 deliverable 的验收评估                  |
-| `design` / `impl` role          | deliverable category / 内部阶段            |
-| `handoff.summary`               | attempt evidence 摘要                      |
-| review `subject=plan`           | decomposition 评审                         |
-| review `subject=completion`     | 验收契约里的 judgment 项                   |
-| synthesizer（stub）             | 父 deliverable 的验收评估                  |
-| `ReopenTask`（手动返工）        | 收敛循环的下一轮 attempt（自动）           |
+递归把若干曾经分立的概念折进单一的 Deliverable 抽象：
+
+| 概念               | 在 Deliverable 模型里                      |
+| ------------------ | ------------------------------------------ |
+| 用户目标（根）     | `deliverable`，`parent_id = NULL`          |
+| 子目标 / 子任务    | 子 `deliverable`                           |
+| 目标 lifecycle     | `deliverable` lifecycle 状态（派生）       |
+| plan               | `deliverable_revision`（分解版本）         |
+| plan items         | 提案子 deliverable                         |
+| worker 执行的 task | 叶子 `deliverable`                         |
+| task running       | `attempt` running                          |
+| task done          | `deliverable` accepted（**派生**）         |
+| 瞬时 task 失败     | `attempt` interrupted → 新 attempt         |
+| 语义 task 失败     | 验收 rejected → 下一轮，或耗尽预算 blocked |
+| 验收标准           | `acceptance_contract` 项（绑定、机器核对） |
+| verify 步骤        | 该 deliverable 的验收评估                  |
+| design / impl role | deliverable category / 内部阶段            |
+| handoff 摘要       | attempt evidence 摘要                      |
+| plan 评审          | decomposition 评审                         |
+| completion 评审    | 验收契约里的 judgment 项                   |
+| synthesizer        | 父 deliverable 的验收评估                  |
+| 返工 / reopen      | 收敛循环的下一轮 attempt（自动）           |
 
 ## 简单性与可扩展性
 
@@ -214,18 +211,14 @@ accepted-output DAG 天然并行。真正的天花板不在模型：
 5. **分解质量是自治的天花板。** 整个结构押在 agent 产出好的分解与契约上；烂 plan 会传染，干净架构
    救不了它。
 
-## 朝它建设而不过度建设
+## 叶子运行时交付了什么，递归又加了什么
 
-目标是北极星；别一次浇完所有水泥。正确的第一刀是**leaf-first 的 deliverable 运行时**——而且必须
-从第一天就叫 `Deliverable`。给 `agent_task` 加 acceptance/check/rework 字段是 throwaway，会继续把
-`task` 当核心概念，用新债换旧债。
+模型落地为一个**leaf-first 的 deliverable 运行时**，递归叠在其上——同一个概念，只是打开更多深度。
+仅叶子运行时本身就承载了大部分 SDLC 价值：
 
-第一刀，目标的真子集：
+- `deliverable`（叶子）、`attempt`、`acceptance_event` 与一个 `deliverable` 投影，给出派生完成、真
+  正的验收闸、带可执行 check 的有界收敛循环——不碰任何递归分解。
+- `parent_id` 可空、`deliverable_edge` 表存在；多层分解在同一组实体之上打开一个能力——不改概念。
 
-- `deliverable`（仅叶子）、`attempt`、`acceptance_event`，以及一个 `deliverable` 投影。
-- 保留 `parent_id` 可空、`deliverable_edge` 表存在，但递归先关掉。日后长成多层树只是打开能力，不
-  改概念。
-
-这一刀已经交付约 80% 的 SDLC 价值：派生完成、真正的验收闸、带可执行 check 的有界收敛循环——且不碰
-递归分解。让它保持干净的那条不可妥协的规则：**acceptance、evidence 与投影是一个深模块；它之外的任
-何东西都不得设 `done`。**
+让运行时保持干净的那条不可妥协的规则：**acceptance、evidence 与投影是一个深模块；它之外的任何东西
+都不得设 `done`。**

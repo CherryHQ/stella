@@ -1,186 +1,65 @@
-# Goal / task system
+# Deliverable model
 
-Durable, async work that survives restarts. Use this system for work that outlives a single conversation: long research, multi-step builds, work that may pause for input, and work that needs human approval before it counts as done.
+Durable, async work that survives restarts and is **accepted, not just finished**. Use this for work that outlives a single conversation: long research, multi-step builds, work that may pause for input, and work that needs an acceptance contract met before it counts as done.
 
-This file is about **when to reach for which command and how to chain them**. It does not spell out every flag — run `stella task <subcommand> --help` and `stella task goal <subcommand> --help` before invoking commands.
+A **deliverable** is one recursive entity. A **root** deliverable is the user's objective. A **composite** deliverable decomposes into **child** deliverables (same shape, all the way down); a **leaf** is executed directly by a worker. `kind ∈ {leaf, composite}`.
 
-## Current supported shape
+Completion is **derived, never asserted**. A deliverable converges through a bounded rework loop until its acceptance contract passes — you never mark one done by hand. The worker submits evidence; the acceptance contract decides; if it falls short, the worker is dispatched again with the gaps to repair.
 
-Supported now:
+## Who authors deliverables
 
-- Standalone tasks.
-- Goals as containers for explicitly created child tasks.
-- Task dependencies.
-- Worker execution with `task_control`.
-- Task review policies: `none`, `auto`, `human`.
-- Goal rollup when the goal uses `review_policy=none`.
+Deliverables are created and steered by the **user from the Web UI** (Tasks tab), which calls the deliverable HTTP API. There is no agent-facing CLI for authoring, activating, or accepting them. Do not reach for a `stella task` command — it does not exist. Your only role in this system is **worker**: the dispatcher hands you one deliverable to execute or decompose.
 
-Not supported now:
-
-- Automatic LLM goal planning / auto-splitting into child tasks.
-- Goal final synthesis.
-- Goal-level review runtime.
-- Agent-performed review (`review_policy=agent`).
-
-A goal's child tasks come **only** from a materialized plan — you cannot hand-attach
-a task to a goal (`stella task create --goal-id ...` is rejected). For a multi-step
-goal, write a structured plan and materialize it (see Goals below).
-
-## The two roles you play
-
-You touch this system from two different sides. Know which one you're in.
-
-1. **Manager** — normal conversation. You create and steer work with the `stella task` CLI via `bash`. You queue work, wire dependencies, check status, resolve blockers, and decide reviews.
-2. **Worker** — you were dispatched to execute one task. The task title and description arrive as your prompt, and you get a `task_control` tool.
-
-If you see a `task_control` tool in your toolset, you are a worker. Otherwise you are a manager.
-
-## Pick the right primitive
-
-Before creating a task, check you actually need one:
+Before reaching for a deliverable at all, check you actually need one:
 
 - `delegate` — synchronous focused subtask in a persistent child session, returns inline. Use this first for short research, review, or drafting.
-- `task` — async, durable, survives restarts, can block on input, can require review. Use this when work outlives the current conversation or needs an approval gate.
-- `goal` — container for related tasks. Use it when several tasks serve one objective and you need rollup status.
-- `scheduler` — time trigger, not the work itself. For long or reviewable scheduled work, schedule a prompt that creates a task.
-
-## Concept model
-
-```text
-goal ──rolls up from──▶ task ──one attempt──▶ run
-                          │
-                          ├─ dep edge ──▶ another task   (DAG)
-                          ├─ blocker   ──▶ why it paused
-                          └─ review    ──▶ approval gate before done
-```
-
-- **Goal** — container; status rolls up from child tasks. Managed under `stella task goal`.
-- **Task** — smallest executable unit, with a strict lifecycle status.
-- **Run** — one execution attempt; records the task's worker session, heartbeat, and lease.
-- **Dep edge** — DAG link, `hard` or `soft`, with an `on_failure` policy.
-- **Blocker** — why a task is paused; at most one open blocker per task.
-- **Review** — approval gate before `done`; task policy decides who reviews.
-
-Tasks and goals require the scoped sandbox `STELLA_TOKEN` that Stella injects inside agent sessions. Do not pass or invent an agent ID; the CLI reads the token claims and the server verifies them. A task always has a durable worker session minted at creation time. Use `--project-id` only when the command exposes it as a work-context field.
+- **deliverable** — async, durable, survives restarts, can block on input, converges through an acceptance contract. This is for work the user tracks to acceptance, authored from the Web UI.
+- `scheduler` — a time trigger, not the work itself. For long or reviewable scheduled work, schedule a prompt rather than the work inline.
 
 ## Lifecycle
 
+Every deliverable — root or child, leaf or composite — runs through one state machine:
+
 ```text
-draft ──activate──▶ ready ──claim──▶ running ──submit──▶ (review?) ──▶ done
-  │                   │                │
-  │                   │                ├─ block ──▶ blocked ──resolve/waive──▶ ready
-  │                   │                └─ fail ───▶ ready (retry) or failed
+draft ──activate──▶ ready ──claim──▶ active ──submit──▶ (acceptance fold)
+  │                   │                │                      │
+  │                   │                ├─ block ─▶ blocked ───┤ pass ─▶ accepted (terminal-good)
+  │                   │                │             │        └ fail ─▶ active (rework) or
+  │                   │                │             └─resolve─▶ ready    rejected_final / abandoned
   └─ cancel ──▶ cancelled
 ```
 
-A task does nothing until activated. `ready` means eligible for readiness checks, not necessarily running now.
+- `accepted` — terminal-good; the accepted output is frozen.
+- `rejected_final` — a verdict said no with no rework path left.
+- `abandoned` — convergence budget exhausted and the policy gave up.
+- `blocked` is **recoverable**, not terminal. Block reasons: `budget_exhausted` > `needs_verdict` > `dep`.
 
-## Manager playbooks
+Acceptance is a separate projection from lifecycle: `pending | passed | failed`. A deliverable reaches `accepted` only when its contract's acceptance fold passes.
 
-All commands are `stella task ...` or `stella task goal ...`.
+## Composition and dependencies
 
-**Create one background task.** Use `stella task create ... --activate`. Add `--project-id <project-id>` for project-scoped work. Without `--activate`, the task stays `draft` and never runs.
+A composite holds child deliverables produced by a **decomposition** (the only way children come into being — you cannot hand-attach a child). Siblings can declare dependency **edges**: `hard` blocks readiness, `soft` is advisory. Only an upstream's **accepted** output flows downstream. Rollup is automatic:
 
-**Let the chat render created entities.** When you create a task or goal, the CLI prints a sideband marker on stderr that the chat turns into a rich, clickable card. Run `stella task create` / `stella task goal create` plainly — do not redirect or discard stderr (no `2>/dev/null`), or the user sees a bare ID instead of a card. The card already shows the title, status, and a link, so do **not** echo the raw ID/title back into your reply text — just say what you did and let the card speak.
+- all required children accepted → composite's acceptance can pass
+- a required child `rejected_final`/`abandoned` → parent fails or blocks
+- a required child blocked → parent blocks
+- a blocked parent recovers when the blocking child clears
 
-**Build a goal.** Create the goal first, optionally with `--project-id`, then create child tasks with `stella task create --goal-id <goal-id> ...`. A task created without `--goal-id` is standalone and will not appear under `stella task goal tasks <goal-id>` or the Web UI goal detail page.
+## Worker: the `deliverable_control` contract
 
-**Build a dependency graph.** Create upstream tasks first, note their IDs, then create downstream tasks with `--dep <upstream-id>` or add edges later with `stella task dep add`. Default dependency behavior is `hard` + `block`: downstream waits for upstream success.
+If you see a `deliverable_control` tool in your toolset, you are a worker. The deliverable's intent and acceptance criteria arrive as your prompt. Do the work, then call `deliverable_control` **exactly once** with one terminal action:
 
-**Activate after wiring.** For multi-task work, wire the goal/tasks/deps first, then activate. Draft child tasks under an activated goal are promoted to ready.
-
-**Check status.** Use `list` to scan, `get <id>` for detail, `events <id>` for audit history, and `runs <id>` for attempts.
-
-**Use the Web UI when the user asks to inspect work visually.** The agent **Tasks** tab shows one-time tasks, scheduled work, and goals together. Project pages open task-first and keep project task rows, the project main conversation, task sessions, and workspace files adjacent.
-
-**Explain why a task is not running.** Use `readiness <id>`. It distinguishes waiting dependencies, blockers, future `not_before`, throttling, terminal state, and missing executor context.
-
-**Answer a blocker.** Use `get <id>` to read the blocker and find `active_blocker`, then resolve it with `blocker resolve --resolution "..."`. Always pass `--resolution`: the answer is delivered to the worker when the task resumes, so an empty resolution makes the worker re-ask the same question. If the blocker is `dep_failure`, do not use generic resolve; waive the dependency with `dep waive <id> <dep-task-id> --reason "..."`.
-
-**Review task output.** Supported task review policies are `none`, `auto`, and `human`. Use `reviews <id>` to list review rows and `review approve|reject|request-changes` to decide. Do not use `review_policy=agent`; agent reviewer runtime is not supported.
-
-**Retry or undo.** `cancel` stops a task. `reopen` brings a `done` or `failed` task back; use cascade only when you intentionally want to reset downstream work.
-
-## Reviews
-
-A worker's `submit` routes on the task's `review_policy`:
-
-- `none` → task becomes `done`, no review row.
-- `auto` → system-approved review row for audit, then `done`.
-- `human` → opens human review; task stays `reviewing` until a human decides.
-
-Unsupported:
-
-- `agent` → do not use. Agent reviewer runtime is not available.
-- Goal-level review → do not use yet. Keep goal `review_policy=none`.
-
-Decision effects:
-
-- `approve` — task moves toward `done`.
-- `reject` — task becomes `failed`.
-- `request-changes` — task returns to `ready` for rework if retry budget allows; otherwise `failed`.
-
-## Goals
-
-Use a goal when multiple tasks serve one objective and you want a single rollup.
-
-Supported goal workflow:
-
-- **Single-step goal (default).** `stella task goal create --title "..."` creates a
-  real plan AND runs it — "direct" means "just do it". The system authors a one-item
-  `direct` plan (titled after the goal), accepts it without review, materializes it,
-  and activates the goal in one step, so the goal lands `running` and its single child
-  task starts immediately. That child task **is** the plan's materialization, not a
-  hand-attached task. No `--activate` step is needed. The plan is readable via
-  `goal plan get` and shown as a Plan section on the Web UI goal detail page.
-- **Multi-step goal.** `stella task goal create --title "..." --plan-mode deferred`
-  leaves the goal at `draft` with no plan. Plan it in a **dedicated planning
-  session** so the user can re-open it later and refine the plan by chatting:
-  1. `stella task goal plan start <goal-id>` — opens (and binds, reusing on
-     re-run) the goal's planning session and prints its id. `delegate` the
-     planning into that session id; the sub-agent works out the plan and writes
-     it with `stella task goal plan set <goal-id> --file plan.json` — a structured
-     plan (`{"items":[{"id","title","role","deps","criteria"}]}`; roles
-     `design|impl|verify`). Add `--review-policy human` to require human approval.
-     Plan inside this session rather than authoring the JSON inline: the web UI
-     re-opens the same session for the user to revise the plan conversationally.
-  2. Accept it: `stella task goal plan accept <goal-id>` (review_policy none), or
-     `plan submit-review` then `plan review approve <goal-id> <review-id>` (human).
-  3. `stella task goal plan materialize <goal-id>` — builds the task graph; goal → `planned`.
-  4. `stella task goal activate <goal-id>`.
-- Inspect with `goal get`, `goal tasks`, and `goal plan get` (shows the planning session).
-
-Run `stella task goal plan --help` for the full command set.
-
-Goal rollup:
-
-- all required children done → goal done
-- required child failed → goal failed
-- required child blocked → goal blocked
-- pending child work → goal remains running
-- blocked goal recovers → when the blocking child's blocker is resolved or its failed dependency is waived, the goal returns to running on the next rollup; no separate goal-unblock command is needed
-
-Caveat: Stella does **not** auto-split a goal with an LLM yet. Planner and
-synthesizer runtimes are not supported — you author the plan content. The plan
-gate is enforced, though: child tasks exist only after `plan materialize`, never by
-hand-attaching to a goal.
-
-## Worker: the `task_control` contract
-
-When dispatched, do the work and call `task_control` exactly once with a terminal action:
-
-- `progress` — shallow-merge a `patch` into `task.context`. Optional, repeatable, not terminal.
-- `submit` — provide `output` JSON when the task is complete.
-- `block` — pause because you need input or an external dependency. Include `kind` and `question`.
-- `fail` — report `reason` and `retryable`.
+- `submit` — provide `evidence` (summary + optional artifacts) and `output` when the work meets the acceptance criteria.
+- `block` — pause with `kind`/`question` when you need input or an external dependency.
+- `fail` — report `reason`/`retryable` when the work cannot be completed.
+- `decompose` — **only when dispatched to plan a composite** — return a `decomposition` `{children, edges}`. Each child needs `key`, `title`, `intent`, `kind` (`leaf|composite`), `required`, and `acceptance_contract`; edges declare hard/soft deps by child key. If the deliverable cannot be decomposed, use `fail` instead.
 
 Rules:
 
-- Always end with `submit`, `block`, or `fail`.
-- Returning text without a terminal action is a protocol error and the run may be retried.
-- Block only when you truly need a human or external dependency.
-- Do not fake completion just to avoid blocking.
+- Always end with a terminal action. A final text response without `deliverable_control` is a protocol failure; you get exactly one repair turn, then the attempt fails.
+- `submit` does **not** mark the deliverable done — the acceptance contract decides. If your previous attempt fell short, the gaps come back in the next prompt; address them.
+- Block only when you truly need a human or external dependency. Do not fake completion to avoid blocking.
 
 ## Recovery
 
-Runs carry a lease and heartbeat. If a worker crashes or Stella restarts, the lease expires and the dispatcher can reclaim the task if retry budget remains. Progress and terminal state are durable because they are written to the task database.
+Attempts carry a lease and heartbeat. If a worker crashes or Stella restarts, the lease expires and the dispatcher reclaims the deliverable if the convergence budget remains. Submitted evidence and terminal state are durable because they are written to the deliverable's append-only acceptance ledger.

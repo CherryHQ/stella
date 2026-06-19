@@ -1,0 +1,699 @@
+paths:
+  /api/deliverables:
+    get:
+      tags: [deliverables]
+      summary: List deliverables
+      description: >-
+        Lists root deliverables (goals) by default. `?parent={id}` lists a
+        composite's direct children; `?root={id}` lists a whole tree.
+      operationId: listDeliverables
+      parameters:
+        - name: agent_id
+          in: query
+          required: false
+          description: Scope the root list to one managing agent.
+          schema: { type: string }
+        - name: terminal
+          in: query
+          required: false
+          description: >-
+            Split active vs history: false returns non-terminal roots, true
+            returns terminal ones (accepted/rejected_final/abandoned/cancelled).
+            Omit for both.
+          schema: { type: boolean }
+        - name: q
+          in: query
+          required: false
+          description: Case-insensitive substring match on title/intent.
+          schema: { type: string }
+        - name: parent
+          in: query
+          required: false
+          description: List the direct children of this composite instead of roots.
+          schema: { type: string }
+        - name: root
+          in: query
+          required: false
+          description: List every deliverable in this tree (the root_id family).
+          schema: { type: string }
+        - name: lifecycle
+          in: query
+          required: false
+          schema: { type: string }
+        - name: project_id
+          in: query
+          required: false
+          schema: { type: string }
+        - name: archived
+          in: query
+          required: false
+          description: When true returns only archived deliverables (the history/restore view).
+          schema: { type: boolean }
+        - {
+            name: page_size,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - { name: page_token, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/DeliverableList",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+    post:
+      tags: [deliverables]
+      summary: Create a deliverable (root goal)
+      operationId: createDeliverable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/CreateDeliverableRequest",
+              }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Deliverable",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [deliverables]
+      summary: Get a deliverable
+      operationId: getDeliverable
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Deliverable",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    patch:
+      tags: [deliverables]
+      summary: Update a deliverable's metadata
+      operationId: updateDeliverable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/UpdateDeliverableRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Deliverable",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [deliverables]
+      summary: Archive a deliverable
+      description: Audit-safe delete; hides terminal/draft deliverables from default lists without removing history.
+      operationId: deleteDeliverable
+      responses:
+        "204": { description: archived }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/activate:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Activate a deliverable (plan gate; draft → ready)
+      operationId: activateDeliverable
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Deliverable",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/cancel:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Cancel a deliverable (cascades to the non-terminal subtree)
+      operationId: cancelDeliverable
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/CancelRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Deliverable",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/abandon:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Abandon a budget-exhausted deliverable (human give-up)
+      operationId: abandonDeliverable
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/AbandonRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Deliverable",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/reattempt:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Reattempt a blocked deliverable (raise budget / resume)
+      operationId: reattemptDeliverable
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Deliverable",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/unarchive:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Restore an archived deliverable to default lists
+      operationId: unarchiveDeliverable
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Deliverable",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/readiness:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [deliverables]
+      summary: Get a deliverable's computed dispatchability view
+      operationId: getDeliverableReadiness
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Readiness" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/deliverables/{id}/children:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [deliverables]
+      summary: List a composite's direct children
+      operationId: listDeliverableChildren
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/DeliverableList",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/deliverables/{id}/attempts:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [deliverables]
+      summary: List a deliverable's attempts (newest first)
+      operationId: listAttempts
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/AttemptList",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/deliverables/{id}/attempts/{attemptId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: attemptId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [deliverables]
+      summary: Get one attempt
+      operationId: getAttempt
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Attempt" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/deliverables/{id}/acceptance-events:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [deliverables]
+      summary: List a deliverable's acceptance ledger (the audit trail, in fold order)
+      operationId: listAcceptanceEvents
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/AcceptanceEventList",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/deliverables/{id}/verdict:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Submit a human verdict against a contract item (re-folds acceptance)
+      operationId: submitVerdict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/VerdictRequest",
+              }
+      responses:
+        "201":
+          description: recorded
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/AcceptanceEvent",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/edges:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [deliverables]
+      summary: List a deliverable's upstream dependency edges
+      operationId: listEdges
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/EdgeList" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [deliverables]
+      summary: Add an upstream dependency edge (cycle-checked)
+      operationId: addEdge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/AddEdgeRequest",
+              }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Edge" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/edges/{upstreamId}/waive:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: upstreamId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Waive a hard edge so a blocked(dep) downstream can proceed
+      operationId: waiveEdge
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              { $ref: "../../components.yaml#/components/schemas/WaiveRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Edge" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/revisions:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [deliverables]
+      summary: List a composite's decomposition revisions (newest first)
+      operationId: listRevisions
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/RevisionList",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    put:
+      tags: [deliverables]
+      summary: Author/stage a decomposition edit as a new draft revision
+      operationId: putRevision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/DecompositionContent",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/revisions/start:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Begin a composite's decomposition in a dedicated planning session
+      operationId: startDecomposition
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/DecompositionSession",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/revisions/{revId}/accept:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Accept a draft revision (review_policy=none)
+      operationId: acceptRevision
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/revisions/{revId}/submit-review:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Submit a draft revision for human review (→ in_review)
+      operationId: submitRevisionReview
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/revisions/{revId}/approve:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Approve an in_review revision (human approval)
+      operationId: approveRevision
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/DecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/revisions/{revId}/reject:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Reject an in_review revision (composite stays active for rework)
+      operationId: rejectRevision
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/DecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/revisions/{revId}/request-changes:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Request changes on an in_review revision (back to draft)
+      operationId: requestChangesRevision
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/DecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/deliverables/{id}/revisions/{revId}/materialize:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [deliverables]
+      summary: Materialize an accepted revision into the composite's children
+      operationId: materializeRevision
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/DeliverableList",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
