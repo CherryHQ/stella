@@ -8,12 +8,17 @@ Completion is **derived, never asserted**. A deliverable converges through a bou
 
 ## Who authors deliverables
 
-Deliverables are created and steered by the **user from the Web UI** (Tasks tab), which calls the deliverable HTTP API. There is no agent-facing CLI for authoring, activating, or accepting them. Do not reach for a `stella task` command — it does not exist. Your only role in this system is **worker**: the dispatcher hands you one deliverable to execute or decompose.
+Two surfaces author deliverables, both over the same deliverable HTTP API:
+
+- **You, the agent** — via the `stella goal` CLI (alias `stella task`). `stella goal create --title ... --intent ...` creates a root goal and, by default, activates it for a direct background run: the dispatcher claims and executes it on its own, with no further prompting. This is how you schedule and pursue long-running work yourself — give yourself a goal that outlives the current conversation, then check back with `stella goal list`/`get`. See `stella goal --help` for create/list/get/cancel.
+- **The user** — from the Web UI (Tasks tab).
+
+Authoring and working are separate roles: once a deliverable is active you may also be handed it as a **worker** (see the `deliverable_control` contract below).
 
 Before reaching for a deliverable at all, check you actually need one:
 
 - `delegate` — synchronous focused subtask in a persistent child session, returns inline. Use this first for short research, review, or drafting.
-- **deliverable** — async, durable, survives restarts, can block on input, converges through an acceptance contract. This is for work the user tracks to acceptance, authored from the Web UI.
+- **deliverable** — async, durable, survives restarts, can block on input, converges through an acceptance contract. This is for work tracked to acceptance: create it yourself with `stella goal create`, or the user authors it from the Web UI.
 - `scheduler` — a time trigger, not the work itself. For long or reviewable scheduled work, schedule a prompt rather than the work inline.
 
 ## Lifecycle
