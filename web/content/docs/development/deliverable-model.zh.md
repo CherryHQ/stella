@@ -1,11 +1,17 @@
 ---
 title: Deliverable 模型
-description: 已落地的执行架构——一个递归的 Deliverable 抽象，配合派生式完成、分层验收契约与有界收敛循环，把工作迭代到正确，而非把前向流水线只跑一遍。
+description: 执行架构——一个递归的 Deliverable 抽象，配合派生式完成、分层验收契约与有界收敛循环，把工作迭代到正确，而非把前向流水线只跑一遍。
 ---
 
 本页是 Stella 如何调度并收敛工作的权威说明。执行核心是一个递归的 **Deliverable** 抽象：根
 deliverable 是用户的目标，子 deliverable 是它的子交付物，同一个形状一路向下重复。完成是从每个
 deliverable 的验收契约*派生*出来的，不由 agent 断言；工作通过有界收敛循环迭代，直到被接受。
+
+> **状态说明。** **leaf** 运行时——单个 deliverable 的收敛循环(attempt、验收 fold、派生完成、
+> handoff)——已落地,也是当下承载绝大部分 SDLC 价值的部分。**composite / 递归**路径(分解 →
+> 物化 → 子节点执行 → 父节点 rollup)在本页有完整建模,但尚未端到端接通;补齐这一闭环是已跟踪的
+> follow-up([#542](https://github.com/CherryHQ/stella/issues/542))。下文的递归相关章节请按
+> *目标设计*阅读,而非已落地行为。
 
 ## 为什么是递归 Deliverable，而非流水线
 

@@ -1,6 +1,6 @@
 ---
 title: Deliverable model
-description: The shipped execution architecture — one recursive Deliverable abstraction with derived completion, a layered acceptance contract, and a bounded convergence loop that iterates work to correctness instead of running a forward-only pipeline once.
+description: The execution architecture — one recursive Deliverable abstraction with derived completion, a layered acceptance contract, and a bounded convergence loop that iterates work to correctness instead of running a forward-only pipeline once.
 ---
 
 This page is the canonical explainer for how Stella schedules and converges work. The
@@ -8,6 +8,13 @@ execution core is one recursive **Deliverable** abstraction: a root deliverable 
 objective, child deliverables are its sub-deliverables, and the same shape repeats all the way
 down. Completion is _derived_ from each deliverable's acceptance contract, not asserted by the
 agent, and work iterates through a bounded convergence loop until accepted.
+
+> **Status.** The **leaf** runtime — a single deliverable's convergence loop (attempts,
+> acceptance fold, derived completion, handoff) — is shipped and is what carries most of the
+> SDLC value today. The **composite / recursive** path (decomposition → materialize → child
+> execution → parent rollup) is modeled here but not yet wired end-to-end; closing that loop is
+> a tracked follow-up ([#542](https://github.com/CherryHQ/stella/issues/542)). Read the
+> recursion sections below as the target design, not shipped behavior.
 
 ## Why a recursive Deliverable, not a pipeline
 
