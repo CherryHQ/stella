@@ -399,23 +399,23 @@ func TestLcl_BudgetExhaustedReattemptAbandon(t *testing.T) {
 	}
 }
 
-// TestLcl_WorkerReportedFailureStaysNonTerminal asserts the worker's
-// finalize-failed branch (§5 step 7): an executor-reported Failed result
-// finalizes the attempt and clears the active pointer but applies NO terminal
-// lifecycle move — the convergence budget branch is the dispatcher's job. With
-// budget remaining the deliverable must not go terminal, and attempt_count is
-// bumped (the attempt was minted at claim).
-func TestLcl_WorkerReportedFailureStaysNonTerminal(t *testing.T) {
+// TestLcl_WorkerReportedFailureReopensToReady asserts a worker-reported Failed
+// result routes through convergence (§5 step 7, issue #543): the attempt is
+// finalized failed AND, with budget remaining, the deliverable returns to READY
+// for the next claim — it does NOT strand 'active' with no live attempt. The old
+// behavior (bare-clear the active pointer, leave it 'active') would hang forever
+// because the dispatcher only re-claims 'ready' leaves.
+func TestLcl_WorkerReportedFailureReopensToReady(t *testing.T) {
 	h := newHarness(t)
-	d := h.createRoot(KindLeaf, AcceptanceContract{})
+	d := h.createRoot(KindLeaf, AcceptanceContract{}) // default budget 3
 	h.activate(d.ID)
 
 	h.exec.fn = lcl_fail("transient")
 	attID := h.runLeaf(d.ID)
 
 	got := h.get(d.ID)
-	if IsTerminalLifecycle(got.Lifecycle) {
-		t.Fatalf("after worker-reported failure lifecycle=%q is terminal; want recoverable", got.Lifecycle)
+	if got.Lifecycle != LifecycleReady {
+		t.Fatalf("after worker-reported failure lifecycle=%q want ready (reopened for rework, not stranded active)", got.Lifecycle)
 	}
 	if got.ActiveAttemptID.Valid && got.ActiveAttemptID.String != "" {
 		t.Fatalf("active_attempt_id=%q want cleared after failed attempt", got.ActiveAttemptID.String)
@@ -429,6 +429,69 @@ func TestLcl_WorkerReportedFailureStaysNonTerminal(t *testing.T) {
 	}
 	if att.Status != AttemptFailed {
 		t.Fatalf("attempt status=%q want failed", att.Status)
+	}
+}
+
+// TestLcl_WorkerReportedFailureBudgetOutBlocks asserts the budget-out side of the
+// same path (issue #543): a worker-reported failure on a MaxAttempts=1 leaf has no
+// rework budget, so convergence parks it blocked(budget_exhausted) — visible to a
+// human — rather than stranding it 'active'.
+func TestLcl_WorkerReportedFailureBudgetOutBlocks(t *testing.T) {
+	h := newHarness(t)
+	d, err := h.svc.CreateRoot(context.Background(), CreateInput{
+		UserID:      h.userID,
+		AgentID:     h.agentID,
+		Title:       "root",
+		Intent:      "budget 1",
+		Kind:        KindLeaf,
+		Required:    true,
+		Contract:    AcceptanceContract{},
+		Convergence: ConvergencePolicy{MaxAttempts: 1},
+	})
+	if err != nil {
+		t.Fatalf("createRoot: %v", err)
+	}
+	h.activate(d.ID)
+
+	h.exec.fn = lcl_fail("boom")
+	h.runLeaf(d.ID)
+
+	got := h.get(d.ID)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockBudgetExhausted {
+		t.Fatalf("after budget-out failure lifecycle=%q reason=%q want blocked/budget_exhausted", got.Lifecycle, got.BlockReason)
+	}
+}
+
+// TestLcl_MissingCheckRunnerFailsAttempt asserts the deterministic-strand guard
+// (issue #543): a leaf with a REQUIRED deterministic item run by a service with NO
+// CheckRunner cannot evaluate the gate, so the worker fails the attempt instead of
+// submitting into a pending strand — the deliverable reopens to ready (budget
+// left) rather than hanging 'active' on a never-satisfiable item. (The base
+// harness service wires no CheckRunner; lcl_newRig is the one that does.)
+func TestLcl_MissingCheckRunnerFailsAttempt(t *testing.T) {
+	h := newHarness(t)
+	d := h.createRoot(KindLeaf, AcceptanceContract{
+		Policy: PolicyDetThenJudgment,
+		Items: []AcceptanceItem{
+			{ID: "build", Kind: ItemDeterministic, Required: true, Command: "true"},
+		},
+	})
+	h.activate(d.ID)
+
+	// Default scripted executor submits an output; with no CheckRunner the required
+	// deterministic item can never produce an event.
+	attID := h.runLeaf(d.ID)
+
+	got := h.get(d.ID)
+	if got.Lifecycle != LifecycleReady {
+		t.Fatalf("missing-check-runner lifecycle=%q want ready (attempt failed, reopened), not stranded active", got.Lifecycle)
+	}
+	att, err := h.q.GetAttempt(context.Background(), attID)
+	if err != nil {
+		t.Fatalf("get attempt: %v", err)
+	}
+	if att.Status != AttemptFailed {
+		t.Fatalf("attempt status=%q want failed (check could not be evaluated)", att.Status)
 	}
 }
 

@@ -138,7 +138,15 @@ func (w *Worker) applyResult(deliverableID string, dlv sqlc.AgentDlvDeliverable,
 		// Run deterministic checks (sandbox IO, no SQLite writer held), append
 		// each as an acceptance_event, then apply the one submit transition.
 		// Submit folds the now-complete ledger via applyAcceptance.
-		w.runChecks(ctx, dlv, att, res.Output)
+		if cerr := w.runChecks(ctx, dlv, att, res.Output); cerr != nil {
+			// A required deterministic gate could not be evaluated (no runner, a
+			// sandbox error, or a failed append). Submitting now would strand the
+			// deliverable 'active' on a pending item with no future event source
+			// (issue #543); fail the attempt so convergence retries within budget
+			// and ultimately blocks for a human if it persists.
+			w.failAttempt(deliverableID, att.ID, "deterministic check could not be evaluated: "+cerr.Error())
+			return nil //nolint:nilerr // failAttempt records the failure transition; applyResult succeeded
+		}
 		err := w.svc.Submit(ctx, att.ID, res.Evidence, res.Output)
 		if errors.Is(err, ErrInvalidEvidence) {
 			// An empty handoff on a non-root deliverable is a protocol miss, not
@@ -177,40 +185,56 @@ func (w *Worker) applyResult(deliverableID string, dlv sqlc.AgentDlvDeliverable,
 // CheckRunner and appends each result as an acceptance_event in its own service
 // tx, BEFORE the submit fold reads the ledger. Sandbox IO must never hold the
 // SQLite writer, so each check runs outside any tx and only its result row is
-// written transactionally. A nil runner or a non-deterministic contract is a
-// no-op (judgment items are routed by the fold, not run here).
-func (w *Worker) runChecks(ctx context.Context, dlv sqlc.AgentDlvDeliverable, att sqlc.AgentDlvAttempt, out AttemptOutput) {
-	if w.checks == nil {
-		return
-	}
+// written transactionally.
+//
+// It returns an error when a REQUIRED deterministic item cannot be evaluated (no
+// runner configured, a runner error, or a failed event append). A missing event
+// would leave that item pending and strand the deliverable 'active' forever
+// (issue #543), so the caller fails the attempt instead — convergence then
+// retries within budget and ultimately blocks for a human. A legitimate check
+// FAIL is a recorded event, not an error. A contract with no required
+// deterministic item is a no-op (judgment items are routed by the fold).
+func (w *Worker) runChecks(ctx context.Context, dlv sqlc.AgentDlvDeliverable, att sqlc.AgentDlvAttempt, out AttemptOutput) error {
 	var contract AcceptanceContract
 	if err := unmarshalJSON(dlv.AcceptanceContract, &contract); err != nil {
+		// An unparseable contract has no runnable checks; the fold treats it as
+		// trivial. Don't fail the attempt on a malformed column.
 		w.log.Warn("worker: unmarshal contract for checks failed", "deliverable_id", dlv.ID, "err", err)
-		return
+		return nil
+	}
+	var required []AcceptanceItem
+	for _, item := range contract.Items {
+		if item.Kind == ItemDeterministic && item.Required {
+			required = append(required, item)
+		}
+	}
+	if len(required) == 0 {
+		return nil
+	}
+	if w.checks == nil {
+		return fmt.Errorf("no check runner for %d required deterministic item(s)", len(required))
 	}
 	env := w.checkEnv(ctx, dlv)
-	for _, item := range contract.Items {
-		if item.Kind != ItemDeterministic || !item.Required {
-			continue
-		}
+	for _, item := range required {
 		cr, err := w.checks.Run(ctx, item, env)
 		if err != nil {
-			// A runner error leaves the item with no event → the fold reads it as
-			// pending and the deliverable waits rather than passing on a phantom
-			// check. Record nothing; log for tracing.
-			w.log.Warn("worker: deterministic check run failed", "deliverable_id", dlv.ID, "item_id", item.ID, "err", err)
-			continue
+			return fmt.Errorf("run deterministic check %q: %w", item.ID, err)
 		}
-		w.appendCheckEvent(ctx, dlv.ID, att.ID, item, cr)
+		if err := w.appendCheckEvent(ctx, dlv.ID, att.ID, item, cr); err != nil {
+			return fmt.Errorf("record deterministic check %q: %w", item.ID, err)
+		}
 	}
+	return nil
 }
 
 // appendCheckEvent writes one deterministic acceptance_event in a single
 // service tx (the service owns every durable write). The event carries the
 // item id/command, exit code, cache_key, system authority, and a truncated
-// stdout in detail. Best-effort: a write failure leaves the item pending so the
-// fold waits rather than mis-deciding.
-func (w *Worker) appendCheckEvent(ctx context.Context, deliverableID, attemptID string, item AcceptanceItem, cr CheckResult) {
+// stdout in detail. Returns an error on a write failure so runChecks can fail the
+// attempt rather than strand the item pending (issue #543). A duplicate event
+// (same deliverable/attempt/item/cache_key) is deduped by appendAcceptanceEvent
+// and returns nil.
+func (w *Worker) appendCheckEvent(ctx context.Context, deliverableID, attemptID string, item AcceptanceItem, cr CheckResult) error {
 	result := ResultFail
 	if cr.Pass {
 		result = ResultPass
@@ -237,6 +261,7 @@ func (w *Worker) appendCheckEvent(ctx context.Context, deliverableID, attemptID 
 	if err != nil {
 		w.log.Warn("worker: append check acceptance_event failed", "deliverable_id", deliverableID, "item_id", item.ID, "err", err)
 	}
+	return err
 }
 
 // checkEnv assembles the provenance the cache key folds. RepoTreeHash/EnvHash
@@ -276,25 +301,15 @@ func (w *Worker) attemptInput(att sqlc.AgentDlvAttempt) AttemptInput {
 	return in
 }
 
-// failAttempt records the single failed-attempt transition: finalize the
-// attempt row failed and clear the deliverable's active_attempt_id so the
-// dispatcher's convergence tick can mint the next attempt (or block/abandon on
-// budget). Best-effort with a fresh context so a cancelled dispatch still
-// records the outcome. It writes no acceptance_state/counters — convergence
-// owns the lifecycle decision.
+// failAttempt records a worker-reported failure through the service convergence
+// seam (FailAttempt): finalize the attempt failed AND apply the single lifecycle
+// move (reopen-for-rework within budget, else block/abandon/reject), so the
+// deliverable never strands 'active' with no live attempt (issue #543). Uses a
+// fresh context so a cancelled dispatch still records the outcome. ErrInvalidTransition
+// is benign — the attempt was already reaped/raced and the deliverable recovered.
 func (w *Worker) failAttempt(deliverableID, attemptID, reason string) {
 	ctx := context.Background()
-	err := w.svc.withTx(ctx, func(qtx *sqlc.Queries) error {
-		if _, e := qtx.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-			ToStatus: AttemptFailed,
-			Error:    reason,
-			ID:       attemptID,
-		}); e != nil {
-			return e
-		}
-		return qtx.ClearDeliverableActiveAttempt(ctx, deliverableID)
-	})
-	if err != nil {
+	if err := w.svc.FailAttempt(ctx, attemptID, reason); err != nil && !errors.Is(err, ErrInvalidTransition) {
 		w.log.Warn("worker: finalize failed attempt failed", "deliverable_id", deliverableID, "attempt_id", attemptID, "err", err)
 	}
 }

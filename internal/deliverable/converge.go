@@ -225,6 +225,68 @@ func (s *DeliverableService) Submit(ctx context.Context, attemptID string, ev At
 	})
 }
 
+// FailAttempt finalizes a worker-reported failed attempt AND applies the single
+// convergence transition, so the deliverable never strands 'active' with no live
+// attempt (issue #543). It mirrors ReapAttempt but is the executor-failure entry
+// (agent reported fail / produced no action / empty handoff / panic), so the
+// attempt is recorded 'failed' rather than 'interrupted'. One tx.
+//
+//   - execution attempt → branchOnFailure: budget left reopens to ready (rework =
+//     next attempt, the failure reason rides as a gap); budget out blocks/abandons/
+//     rejects per policy. A failed attempt consumes one budget unit (same as a fold
+//     failure), so a persistently failing agent parks at blocked, never loops.
+//   - decomposition attempt → release the composite to draft so a new
+//     BeginDecomposition can re-mint (mirror ReapAttempt's decomposition branch).
+//
+// A 0-row FinalizeAttempt means the attempt is no longer queued/running (already
+// reaped/raced); the tx rolls back and the caller treats ErrInvalidTransition as a
+// no-op (the deliverable already recovered).
+func (s *DeliverableService) FailAttempt(ctx context.Context, attemptID, reason string) error {
+	return s.withTx(ctx, func(q *sqlc.Queries) error {
+		att, err := q.GetAttempt(ctx, attemptID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		rows, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
+			ToStatus: AttemptFailed,
+			Error:    reason,
+			ID:       attemptID,
+		})
+		if err != nil {
+			return fmt.Errorf("finalize failed attempt: %w", err)
+		}
+		if rows == 0 {
+			return ErrInvalidTransition
+		}
+		d, err := getDeliverable(ctx, q, att.DeliverableID)
+		if err != nil {
+			return err
+		}
+		if att.Purpose == PurposeDecomposition {
+			if err := q.ClearDeliverableActiveAttempt(ctx, d.ID); err != nil {
+				return fmt.Errorf("clear active attempt: %w", err)
+			}
+			drows, err := q.TransitionDeliverableLifecycle(ctx, sqlc.TransitionDeliverableLifecycleParams{
+				ToLifecycle:   LifecycleDraft,
+				BlockReason:   "",
+				ID:            d.ID,
+				FromLifecycle: LifecycleActive,
+			})
+			if err != nil {
+				return fmt.Errorf("fail decomposition: %w", err)
+			}
+			if drows == 0 {
+				return ErrInvalidTransition
+			}
+			return nil
+		}
+		return s.branchOnFailure(ctx, q, d, attemptID, Evaluation{Gaps: []Gap{{Reason: reason}}})
+	})
+}
+
 // applyAcceptance is the re-fold entry point used after a verdict arrives or a
 // check event is appended outside Submit (contract §4.3). It opens its own tx,
 // derives the projection over the full ledger and applies exactly one transition.
