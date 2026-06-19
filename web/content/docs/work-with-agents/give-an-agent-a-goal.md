@@ -41,12 +41,12 @@ A shared agent brings its own context:
 
 That is why you can give a normal request instead of manually driving every step.
 
-## Larger goals become deliverables
+## Larger goals become tracked Goals
 
-A goal you hand off isn't just a chat reply — it becomes a **deliverable** the agent drives to acceptance. For a multi-step objective, say so and state how "done" should look:
+A goal you hand off isn't just a chat reply — it becomes a tracked **Goal** the agent drives to acceptance. For a multi-step objective, say so and state how "done" should look:
 
-> Create a deliverable for this work, decompose it into the steps and their dependencies, include the human sign-off points we need, then run it. Accepted when the packet is complete and exceptions are approved.
+> Create a goal for this work, decompose it into the steps and their dependencies, include the human sign-off points we need, then run it. Accepted when the packet is complete and exceptions are approved.
 
-The agent decomposes a composite deliverable into child deliverables and runs each to acceptance, reworking against the gaps until the acceptance contract passes. A direct (single-step) deliverable runs immediately; a decomposed one is planned first, then activated. Completion is **derived** from the contract — the agent never marks it done itself.
+The agent decomposes a composite goal into child goals and runs each to acceptance, reworking against the gaps until the acceptance contract passes. A direct (single-step) goal runs immediately; a decomposed one is planned first, then activated. Completion is **derived** from the contract — the agent never marks it done itself.
 
-Use chat for context and decisions; watch execution on the **Deliverables** tab of the agent. See [Deliverables](/docs/task-system/overview) for the full model.
+Use chat for context and decisions; watch execution on the **Goals** tab of the agent. See [Goals](/docs/task-system/overview) for the full model.

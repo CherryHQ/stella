@@ -8,7 +8,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/deliverable"
+	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -44,7 +44,7 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 	since := time.Now().UTC().Add(-inboxRecentFailureWindow).Format("2006-01-02 15:04:05")
 	ctx := r.Context()
 
-	deliverables, err := s.q.ListInboxDeliverables(ctx, sqlc.ListInboxDeliverablesParams{
+	goals, err := s.q.ListInboxGoals(ctx, sqlc.ListInboxGoalsParams{
 		UserID:     info.UserID,
 		AgentID:    agentID,
 		Since:      since,
@@ -65,9 +65,9 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 
-	items := make([]apitypes.InboxItem, 0, len(deliverables)+len(schedulerRuns))
-	for _, row := range deliverables {
-		items = append(items, deliverableInboxItem(row))
+	items := make([]apitypes.InboxItem, 0, len(goals)+len(schedulerRuns))
+	for _, row := range goals {
+		items = append(items, goalInboxItem(row))
 	}
 	for _, row := range schedulerRuns {
 		items = append(items, failedSchedulerRunInboxItem(row))
@@ -106,11 +106,11 @@ func nullableStringParam(value *string) any {
 	return *value
 }
 
-// deliverableInboxItem renders a blocked or terminally-failed deliverable as an
+// goalInboxItem renders a blocked or terminally-failed goal as an
 // inbox entry. The kind and detail are derived from lifecycle/block_reason — the
-// deliverable model has no per-block message, so the reason IS the detail.
-func deliverableInboxItem(row sqlc.ListInboxDeliverablesRow) apitypes.InboxItem {
-	kind, prefix, detail := inboxFacetForDeliverable(row.Lifecycle, row.BlockReason)
+// goal model has no per-block message, so the reason IS the detail.
+func goalInboxItem(row sqlc.ListInboxGoalsRow) apitypes.InboxItem {
+	kind, prefix, detail := inboxFacetForGoal(row.Lifecycle, row.BlockReason)
 	return apitypes.InboxItem{
 		Id:         prefix + ":" + row.ID,
 		Kind:       kind,
@@ -118,24 +118,24 @@ func deliverableInboxItem(row sqlc.ListInboxDeliverablesRow) apitypes.InboxItem 
 		Detail:     &detail,
 		AgentId:    &row.AgentID,
 		ProjectId:  nullableStringPtr(row.ProjectID),
-		SourceType: apitypes.InboxItemSourceTypeDeliverable,
+		SourceType: apitypes.InboxItemSourceTypeGoal,
 		SourceId:   row.ID,
-		TargetPath: deliverableTargetPath(row.AgentID, row.ID),
+		TargetPath: goalTargetPath(row.AgentID, row.ID),
 		CreatedAt:  parseTime(row.UpdatedAt),
 	}
 }
 
-// inboxFacetForDeliverable maps a deliverable's lifecycle/block_reason to its
+// inboxFacetForGoal maps a goal's lifecycle/block_reason to its
 // inbox kind, id prefix, and a human-readable detail line.
-func inboxFacetForDeliverable(lifecycle, blockReason string) (apitypes.InboxItemKind, string, string) {
+func inboxFacetForGoal(lifecycle, blockReason string) (apitypes.InboxItemKind, string, string) {
 	switch {
-	case lifecycle == deliverable.LifecycleBlocked && blockReason == deliverable.BlockNeedsVerdict:
+	case lifecycle == goal.LifecycleBlocked && blockReason == goal.BlockNeedsVerdict:
 		return apitypes.InboxItemKindReview, "review", "Awaiting your verdict"
-	case lifecycle == deliverable.LifecycleBlocked && blockReason == deliverable.BlockBudgetExhausted:
+	case lifecycle == goal.LifecycleBlocked && blockReason == goal.BlockBudgetExhausted:
 		return apitypes.InboxItemKindBlocked, "blocked", "Attempt budget exhausted"
-	case lifecycle == deliverable.LifecycleBlocked:
+	case lifecycle == goal.LifecycleBlocked:
 		return apitypes.InboxItemKindBlocked, "blocked", "Blocked on a dependency"
-	case lifecycle == deliverable.LifecycleAbandoned:
+	case lifecycle == goal.LifecycleAbandoned:
 		return apitypes.InboxItemKindFailed, "failed", "Abandoned after budget exhaustion"
 	default: // rejected_final
 		return apitypes.InboxItemKindFailed, "failed", "Rejected with no rework path left"
@@ -175,8 +175,8 @@ func optionalString(value string) *string {
 	return &value
 }
 
-func deliverableTargetPath(agentID, deliverableID string) string {
-	return "/agents/" + agentID + "/deliverables/" + deliverableID
+func goalTargetPath(agentID, goalID string) string {
+	return "/agents/" + agentID + "/goals/" + goalID
 }
 
 func schedulerRunTargetPath(row sqlc.ListFailedInboxSchedulerRunsRow) string {

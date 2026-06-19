@@ -4,14 +4,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createSession } from "@/lib/api-client/sdk.gen";
 import type { Session } from "@/lib/types";
 import { projectSessionsQueryOptions } from "@/lib/queries/sessions";
-import { OverviewPage } from "@/features/deliverables/OverviewPage";
+import { OverviewPage } from "@/features/goals/OverviewPage";
 
 export function ProjectHome() {
   const { agentId, projectId } = useParams({
     from: "/_app/agents/$agentId/projects/$projectId/",
   });
   const { tab: rawTab } = useSearch({ from: "/_app/agents/$agentId/projects/$projectId/" });
-  const tab = rawTab === "tasks" ? "tasks" : "conversation";
+  const tab = rawTab === "goals" ? "goals" : "conversation";
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const creating = useRef(false);
@@ -58,7 +58,7 @@ export function ProjectHome() {
       });
   }, [mainSession, sessionsQuery.isSuccess, agentId, projectId, queryClient, navigate, tab]);
 
-  if (tab === "tasks") return <OverviewPage />;
+  if (tab === "goals") return <OverviewPage />;
 
   return (
     <div className="flex flex-1 items-center justify-center bg-card/70">

@@ -1,5 +1,5 @@
-import { getSessionMessages, listDeliverables, listSchedulerJobRuns } from "@/lib/api-client";
-import type { ComponentsDeliverable, JobRun } from "@/lib/api-client/types.gen";
+import { getSessionMessages, listGoals, listSchedulerJobRuns } from "@/lib/api-client";
+import type { ComponentsGoal, JobRun } from "@/lib/api-client/types.gen";
 import type { Message } from "@/lib/types";
 
 // offsetPageToken mirrors the server's AIP-158 offset token (encodeOffsetToken
@@ -11,21 +11,21 @@ export function offsetPageToken(offset: number): string {
   return btoa(String(offset)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-// fetchAllDeliverables walks every page of root deliverables for one agent —
+// fetchAllGoals walks every page of root goals for one agent —
 // for aggregate views (the overview hub) that need the whole set rather than a
-// single server page. The list page uses deliverablesPageOptions instead.
-export async function fetchAllDeliverables(
+// single server page. The list page uses goalsPageOptions instead.
+export async function fetchAllGoals(
   agentId?: string,
   archived?: boolean,
-): Promise<ComponentsDeliverable[]> {
-  const all: ComponentsDeliverable[] = [];
+): Promise<ComponentsGoal[]> {
+  const all: ComponentsGoal[] = [];
   let pageToken: string | undefined;
   do {
-    const { data } = await listDeliverables({
+    const { data } = await listGoals({
       query: { agent_id: agentId, archived, page_size: 500, page_token: pageToken },
       throwOnError: true,
     });
-    all.push(...(data?.deliverables ?? []));
+    all.push(...(data?.goals ?? []));
     pageToken = data?.next_page_token ?? undefined;
   } while (pageToken);
   return all;
@@ -33,15 +33,15 @@ export async function fetchAllDeliverables(
 
 // fetchAllSubtree walks the whole root_id family (every node in one tree) for
 // graph/tree views that render the full decomposition at once.
-export async function fetchAllSubtree(rootId: string): Promise<ComponentsDeliverable[]> {
-  const all: ComponentsDeliverable[] = [];
+export async function fetchAllSubtree(rootId: string): Promise<ComponentsGoal[]> {
+  const all: ComponentsGoal[] = [];
   let pageToken: string | undefined;
   do {
-    const { data } = await listDeliverables({
+    const { data } = await listGoals({
       query: { root: rootId, page_size: 500, page_token: pageToken },
       throwOnError: true,
     });
-    all.push(...(data?.deliverables ?? []));
+    all.push(...(data?.goals ?? []));
     pageToken = data?.next_page_token ?? undefined;
   } while (pageToken);
   return all;

@@ -43,12 +43,12 @@
 -- atlas:import tables/recally_feed.sql
 -- atlas:import tables/recally_digest.sql
 -- atlas:import tables/project.sql
--- Deliverable execution core (recursive). deliverable/attempt/revision reference
+-- Goal execution core (recursive). goal/attempt/revision reference
 -- each other (active_attempt_id, parent_id/root_id, accepted_revision_id); atlas
 -- resolves declaration order itself.
--- atlas:import tables/agent_dlv_deliverable.sql
--- atlas:import tables/agent_dlv_attempt.sql
--- atlas:import tables/agent_dlv_edge.sql
--- atlas:import tables/agent_dlv_acceptance_event.sql
--- atlas:import tables/agent_dlv_revision.sql
+-- atlas:import tables/agent_goal.sql
+-- atlas:import tables/agent_goal_attempt.sql
+-- atlas:import tables/agent_goal_edge.sql
+-- atlas:import tables/agent_goal_acceptance_event.sql
+-- atlas:import tables/agent_goal_revision.sql
 -- atlas:import tables/plugin_override.sql

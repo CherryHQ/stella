@@ -29,53 +29,7 @@ type Agent struct {
 	UpdatedAt            string `json:"updated_at"`
 }
 
-type AgentDlvAcceptanceEvent struct {
-	ID                string         `json:"id"`
-	DeliverableID     string         `json:"deliverable_id"`
-	AttemptID         sql.NullString `json:"attempt_id"`
-	Seq               int64          `json:"seq"`
-	ItemID            string         `json:"item_id"`
-	ItemKind          string         `json:"item_kind"`
-	Result            string         `json:"result"`
-	Command           string         `json:"command"`
-	ExitCode          sql.NullInt64  `json:"exit_code"`
-	CacheKey          string         `json:"cache_key"`
-	Authority         string         `json:"authority"`
-	ReviewerUserID    sql.NullString `json:"reviewer_user_id"`
-	ReviewerAttemptID sql.NullString `json:"reviewer_attempt_id"`
-	Rationale         string         `json:"rationale"`
-	Scope             string         `json:"scope"`
-	ScopeHash         string         `json:"scope_hash"`
-	Detail            string         `json:"detail"`
-	CreatedAt         string         `json:"created_at"`
-}
-
-type AgentDlvAttempt struct {
-	ID              string         `json:"id"`
-	DeliverableID   string         `json:"deliverable_id"`
-	UserID          string         `json:"user_id"`
-	AgentID         sql.NullString `json:"agent_id"`
-	ExecutorAgentID sql.NullString `json:"executor_agent_id"`
-	SessionID       string         `json:"session_id"`
-	Purpose         string         `json:"purpose"`
-	AttemptNo       int64          `json:"attempt_no"`
-	Status          string         `json:"status"`
-	InputContext    string         `json:"input_context"`
-	Evidence        string         `json:"evidence"`
-	Output          string         `json:"output"`
-	RevisionID      sql.NullString `json:"revision_id"`
-	Gaps            string         `json:"gaps"`
-	Error           string         `json:"error"`
-	HeartbeatAt     sql.NullString `json:"heartbeat_at"`
-	LeaseExpiresAt  sql.NullString `json:"lease_expires_at"`
-	WorkerID        string         `json:"worker_id"`
-	StartedAt       sql.NullString `json:"started_at"`
-	FinishedAt      sql.NullString `json:"finished_at"`
-	CreatedAt       string         `json:"created_at"`
-	UpdatedAt       string         `json:"updated_at"`
-}
-
-type AgentDlvDeliverable struct {
+type AgentGoal struct {
 	ID                 string         `json:"id"`
 	UserID             string         `json:"user_id"`
 	AgentID            string         `json:"agent_id"`
@@ -114,20 +68,66 @@ type AgentDlvDeliverable struct {
 	ArchivedAt         sql.NullString `json:"archived_at"`
 }
 
-type AgentDlvEdge struct {
-	DeliverableID string         `json:"deliverable_id"`
-	UpstreamID    string         `json:"upstream_id"`
-	EdgeKind      string         `json:"edge_kind"`
-	OnFailure     string         `json:"on_failure"`
-	WaivedAt      sql.NullString `json:"waived_at"`
-	WaivedByUser  sql.NullString `json:"waived_by_user"`
-	WaiverReason  string         `json:"waiver_reason"`
-	CreatedAt     string         `json:"created_at"`
+type AgentGoalAcceptanceEvent struct {
+	ID                string         `json:"id"`
+	GoalID            string         `json:"goal_id"`
+	AttemptID         sql.NullString `json:"attempt_id"`
+	Seq               int64          `json:"seq"`
+	ItemID            string         `json:"item_id"`
+	ItemKind          string         `json:"item_kind"`
+	Result            string         `json:"result"`
+	Command           string         `json:"command"`
+	ExitCode          sql.NullInt64  `json:"exit_code"`
+	CacheKey          string         `json:"cache_key"`
+	Authority         string         `json:"authority"`
+	ReviewerUserID    sql.NullString `json:"reviewer_user_id"`
+	ReviewerAttemptID sql.NullString `json:"reviewer_attempt_id"`
+	Rationale         string         `json:"rationale"`
+	Scope             string         `json:"scope"`
+	ScopeHash         string         `json:"scope_hash"`
+	Detail            string         `json:"detail"`
+	CreatedAt         string         `json:"created_at"`
 }
 
-type AgentDlvRevision struct {
+type AgentGoalAttempt struct {
+	ID              string         `json:"id"`
+	GoalID          string         `json:"goal_id"`
+	UserID          string         `json:"user_id"`
+	AgentID         sql.NullString `json:"agent_id"`
+	ExecutorAgentID sql.NullString `json:"executor_agent_id"`
+	SessionID       string         `json:"session_id"`
+	Purpose         string         `json:"purpose"`
+	AttemptNo       int64          `json:"attempt_no"`
+	Status          string         `json:"status"`
+	InputContext    string         `json:"input_context"`
+	Evidence        string         `json:"evidence"`
+	Output          string         `json:"output"`
+	RevisionID      sql.NullString `json:"revision_id"`
+	Gaps            string         `json:"gaps"`
+	Error           string         `json:"error"`
+	HeartbeatAt     sql.NullString `json:"heartbeat_at"`
+	LeaseExpiresAt  sql.NullString `json:"lease_expires_at"`
+	WorkerID        string         `json:"worker_id"`
+	StartedAt       sql.NullString `json:"started_at"`
+	FinishedAt      sql.NullString `json:"finished_at"`
+	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at"`
+}
+
+type AgentGoalEdge struct {
+	GoalID       string         `json:"goal_id"`
+	UpstreamID   string         `json:"upstream_id"`
+	EdgeKind     string         `json:"edge_kind"`
+	OnFailure    string         `json:"on_failure"`
+	WaivedAt     sql.NullString `json:"waived_at"`
+	WaivedByUser sql.NullString `json:"waived_by_user"`
+	WaiverReason string         `json:"waiver_reason"`
+	CreatedAt    string         `json:"created_at"`
+}
+
+type AgentGoalRevision struct {
 	ID                string         `json:"id"`
-	DeliverableID     string         `json:"deliverable_id"`
+	GoalID            string         `json:"goal_id"`
 	RevisionNo        int64          `json:"revision_no"`
 	Status            string         `json:"status"`
 	ReviewPolicy      string         `json:"review_policy"`

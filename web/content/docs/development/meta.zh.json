@@ -13,6 +13,6 @@
     "group-chat-dataflow",
     "session-compaction",
     "plugin-system",
-    "deliverable-model"
+    "goal-model"
   ]
 }

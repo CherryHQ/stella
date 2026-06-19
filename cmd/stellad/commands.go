@@ -18,7 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/deliverable"
+	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/observability"
@@ -66,7 +66,7 @@ type setupResult struct {
 	channelRuntimeServices   *pluginhost.ChannelPlatform
 	poolManager              *agent.PoolManager
 	schedulerSvc             *scheduler.Service
-	deliverableSvc           *deliverable.Service
+	goalSvc                  *goal.Service
 	builtinTools             []pkgtools.Tool
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
@@ -181,10 +181,10 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
-	deliverableSvc := deliverable.Boot(deliverable.BootConfig{
+	goalSvc := goal.Boot(goal.BootConfig{
 		DB:       db,
 		Services: &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
-		Chat: func(ctx context.Context, p deliverable.TaskChatParams) <-chan agent.Event {
+		Chat: func(ctx context.Context, p goal.TaskChatParams) <-chan agent.Event {
 			var svc *agent.Service
 			if poolMgr != nil {
 				svc = poolMgr.GetService(p.AgentID)
@@ -251,7 +251,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		channelRuntimeServices:   ps.channelRuntimeServices,
 		poolManager:              poolMgr,
 		schedulerSvc:             schedulerSvc,
-		deliverableSvc:           deliverableSvc,
+		goalSvc:                  goalSvc,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
 		pluginToolsBuilder:       pluginToolsBuilder,

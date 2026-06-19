@@ -150,22 +150,22 @@ func TestListInboxAggregatesAttentionItems(t *testing.T) {
 	}
 }
 
-// Only deliverables that are blocked or recently terminal belong in the inbox.
-// Draft/ready/active/accepted deliverables and stale failures must stay out.
-func TestListInboxExcludesNonActionableDeliverables(t *testing.T) {
+// Only goals that are blocked or recently terminal belong in the inbox.
+// Draft/ready/active/accepted goals and stale failures must stay out.
+func TestListInboxExcludesNonActionableGoals(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
-	seed := newDeliverableSeeder(t, env, agentID)
+	seed := newGoalSeeder(t, env, agentID)
 
 	// Non-actionable lifecycles never surface.
-	seed.deliverable("dlv-draft", "draft", "", "passed-unused", inboxTS(-1*time.Hour))
-	seed.deliverable("dlv-ready", "ready", "", "pending", inboxTS(-1*time.Hour))
-	seed.deliverable("dlv-active", "active", "", "pending", inboxTS(-1*time.Hour))
-	seed.accepted("dlv-accepted", inboxTS(-1*time.Hour))
+	seed.goal("goal-draft", "draft", "", "passed-unused", inboxTS(-1*time.Hour))
+	seed.goal("goal-ready", "ready", "", "pending", inboxTS(-1*time.Hour))
+	seed.goal("goal-active", "active", "", "pending", inboxTS(-1*time.Hour))
+	seed.accepted("goal-accepted", inboxTS(-1*time.Hour))
 	// A terminal failure older than the recency window is no longer nagging.
-	seed.deliverable("dlv-stale-fail", "rejected_final", "", "failed", inboxTS(-10*24*time.Hour))
+	seed.goal("goal-stale-fail", "rejected_final", "", "failed", inboxTS(-10*24*time.Hour))
 	// Only this one is actionable.
-	seed.deliverable("dlv-open-block", "blocked", "dep", "pending", inboxTS(-1*time.Hour))
+	seed.goal("goal-open-block", "blocked", "dep", "pending", inboxTS(-1*time.Hour))
 
 	rr := doRequest(t, env, http.MethodGet, "/api/inbox?page_size=100", nil)
 	if rr.Code != http.StatusOK {
@@ -178,8 +178,8 @@ func TestListInboxExcludesNonActionableDeliverables(t *testing.T) {
 	if len(list.Items) != 1 {
 		t.Fatalf("items len = %d, want only the open block: %+v", len(list.Items), list.Items)
 	}
-	if list.Items[0].Id != "blocked:dlv-open-block" {
-		t.Fatalf("item = %s, want blocked:dlv-open-block", list.Items[0].Id)
+	if list.Items[0].Id != "blocked:goal-open-block" {
+		t.Fatalf("item = %s, want blocked:goal-open-block", list.Items[0].Id)
 	}
 }
 
@@ -187,14 +187,14 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 	t.Helper()
 	ctx := context.Background()
 	userID := env.adminUser.ID
-	seed := newDeliverableSeeder(t, env, agentID)
+	seed := newGoalSeeder(t, env, agentID)
 
-	// One of each inbox kind from deliverables, plus a failed scheduler run.
+	// One of each inbox kind from goals, plus a failed scheduler run.
 	// Timestamps are staggered so the newest three (failed scheduler, blocked,
 	// review) land on page one and exercise all three kinds.
-	seed.deliverable("dlv-blocked", "blocked", "dep", "pending", inboxTS(-3*time.Hour))
-	seed.deliverable("dlv-review", "blocked", "needs_verdict", "pending", inboxTS(-4*time.Hour))
-	seed.deliverable("dlv-failed", "rejected_final", "", "failed", inboxTS(-6*time.Hour))
+	seed.goal("goal-blocked", "blocked", "dep", "pending", inboxTS(-3*time.Hour))
+	seed.goal("goal-review", "blocked", "needs_verdict", "pending", inboxTS(-4*time.Hour))
+	seed.goal("goal-failed", "rejected_final", "", "failed", inboxTS(-6*time.Hour))
 
 	_, err := env.db.ExecContext(ctx, `
 		INSERT INTO sched_job (
@@ -214,35 +214,35 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 	}
 }
 
-// deliverableSeeder inserts root deliverables (each with its own persistent
+// goalSeeder inserts root goals (each with its own persistent
 // session) directly, bypassing the service so tests can pin lifecycle states.
-type deliverableSeeder struct {
+type goalSeeder struct {
 	t       *testing.T
 	env     *testEnv
 	agentID string
 }
 
-func newDeliverableSeeder(t *testing.T, env *testEnv, agentID string) *deliverableSeeder {
-	return &deliverableSeeder{t: t, env: env, agentID: agentID}
+func newGoalSeeder(t *testing.T, env *testEnv, agentID string) *goalSeeder {
+	return &goalSeeder{t: t, env: env, agentID: agentID}
 }
 
-// deliverable seeds a root deliverable with the given lifecycle/block_reason.
-func (s *deliverableSeeder) deliverable(id, lifecycle, blockReason, acceptanceState, updatedAt string) {
+// goal seeds a root goal with the given lifecycle/block_reason.
+func (s *goalSeeder) goal(id, lifecycle, blockReason, acceptanceState, updatedAt string) {
 	s.insert(id, lifecycle, blockReason, acceptanceState, nil, updatedAt)
 }
 
 // accepted seeds an accepted root, satisfying the schema's anti-drift CHECK
 // (acceptance_state='passed' AND accepted_output IS NOT NULL).
-func (s *deliverableSeeder) accepted(id, updatedAt string) {
+func (s *goalSeeder) accepted(id, updatedAt string) {
 	output := "done"
 	s.insert(id, "accepted", "", "passed", &output, updatedAt)
 }
 
-func (s *deliverableSeeder) insert(id, lifecycle, blockReason, acceptanceState string, acceptedOutput *string, updatedAt string) {
+func (s *goalSeeder) insert(id, lifecycle, blockReason, acceptanceState string, acceptedOutput *string, updatedAt string) {
 	s.t.Helper()
 	ctx := context.Background()
 	userID := s.env.adminUser.ID
-	sessionID := "dlv-session:" + id
+	sessionID := "goal-session:" + id
 	_, err := s.env.db.ExecContext(ctx, `
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
 		VALUES (?, ?, ?, 'task', 'task', ?, ?, ?)
@@ -251,7 +251,7 @@ func (s *deliverableSeeder) insert(id, lifecycle, blockReason, acceptanceState s
 		s.t.Fatalf("seed conversation %s: %v", sessionID, err)
 	}
 	_, err = s.env.db.ExecContext(ctx, `
-		INSERT INTO agent_dlv_deliverable (
+		INSERT INTO agent_goal (
 			id, user_id, agent_id, root_id, session_id, title,
 			lifecycle, block_reason, acceptance_state, accepted_output,
 			created_at, updated_at
@@ -261,6 +261,6 @@ func (s *deliverableSeeder) insert(id, lifecycle, blockReason, acceptanceState s
 		lifecycle, blockReason, acceptanceState, acceptedOutput,
 		updatedAt, updatedAt)
 	if err != nil {
-		s.t.Fatalf("seed deliverable %s: %v", id, err)
+		s.t.Fatalf("seed goal %s: %v", id, err)
 	}
 }

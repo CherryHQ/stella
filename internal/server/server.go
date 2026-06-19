@@ -18,8 +18,8 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
-	"github.com/CherryHQ/stella/internal/deliverable"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -48,7 +48,7 @@ type Server struct {
 	credSvc        *credentials.Service // shared credentials service
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
-	deliverableSvc *deliverable.Service // optional; if nil, deliverable endpoints return 503
+	goalSvc        *goal.Service        // optional; if nil, goal endpoints return 503
 	startedAt      time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider

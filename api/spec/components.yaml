@@ -687,11 +687,117 @@ components:
         next_page_token:
           type: string
           nullable: true
+    EmailFolderList:
+      type: object
+      required: [folders]
+      properties:
+        folders:
+          type: array
+          items:
+            type: string
+    EmailEnvelope:
+      type: object
+      required: [uid, from, subject, date]
+      properties:
+        uid:
+          type: integer
+        message_id:
+          type: string
+        from:
+          type: string
+        from_name:
+          type: string
+        from_addr:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        date:
+          type: string
+          format: date-time
+        flags:
+          type: array
+          items:
+            type: string
+        has_attachments:
+          type: boolean
+        size:
+          type: integer
+    EmailEnvelopeList:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailEnvelope"
+    EmailMessage:
+      allOf:
+        - $ref: "#/components/schemas/EmailEnvelope"
+        - type: object
+          properties:
+            text_body: { type: string }
+            html_body: { type: string }
+            attachments:
+              type: array
+              items: { $ref: "#/components/schemas/EmailAttachmentInfo" }
+    EmailAttachmentInfo:
+      type: object
+      properties:
+        filename:
+          type: string
+        size:
+          type: integer
+        mime_type:
+          type: string
+    EmailSendRequest:
+      type: object
+      required: [to, subject, body]
+      properties:
+        to:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+        cc:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        bcc:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        subject:
+          type: string
+          minLength: 1
+        body:
+          type: string
+          minLength: 1
+        html:
+          type: boolean
+        from:
+          type: string
+        reply_to:
+          type: string
+        in_reply_to:
+          type: string
+    EmailMarkRequest:
+      type: object
+      required: [seen]
+      properties:
+        seen:
+          type: boolean
     # ── Core resource ────────────────────────────────────────────────────────
-    Deliverable:
+    Goal:
       type: object
       description: >-
-        One node in the recursive deliverable tree. A root (parent_id null) is a goal; a child is a former task. Completion is DERIVED: acceptance_state is a cached projection over the append-only acceptance-event ledger, never an asserted flag.
+        One node in the recursive goal tree. A root (parent_id null) is a goal; a child is a former task. Completion is DERIVED: acceptance_state is a cached projection over the append-only acceptance-event ledger, never an asserted flag.
       required: [
         id,
         user_id,
@@ -738,7 +844,7 @@ components:
           type: string
         intent:
           type: string
-          description: What "done" means — the deliverable's acceptance target in prose.
+          description: What "done" means — the goal's acceptance target in prose.
         kind:
           type: string
           enum: [leaf, composite]
@@ -828,23 +934,23 @@ components:
           type: string
           format: date-time
           nullable: true
-          description: Set when the deliverable is hidden from default lists.
-    DeliverableList:
+          description: Set when the goal is hidden from default lists.
+    GoalList:
       type: object
-      required: [deliverables]
+      required: [goals]
       properties:
-        deliverables:
+        goals:
           type: array
           items:
-            $ref: "#/components/schemas/Deliverable"
+            $ref: "#/components/schemas/Goal"
         next_page_token:
           type: string
           nullable: true
           description: Opaque pagination token; null when no further pages.
         total:
           type: integer
-          description: Total deliverables matching the filter, ignoring pagination.
-    CreateDeliverableRequest:
+          description: Total goals matching the filter, ignoring pagination.
+    CreateGoalRequest:
       type: object
       required: [title, agent_id]
       properties:
@@ -852,7 +958,7 @@ components:
           type: string
         intent:
           type: string
-          description: What "done" means for this deliverable.
+          description: What "done" means for this goal.
         agent_id:
           type: string
         project_id:
@@ -877,8 +983,8 @@ components:
         activate:
           type: boolean
           description: >-
-            When true the new deliverable is activated immediately after create (direct run). Only a leaf with a satisfied plan gate can activate; a composite must be planned first, so 'activate' is ignored for it.
-    UpdateDeliverableRequest:
+            When true the new goal is activated immediately after create (direct run). Only a leaf with a satisfied plan gate can activate; a composite must be planned first, so 'activate' is ignored for it.
+    UpdateGoalRequest:
       type: object
       description: Partial metadata edit; omitted fields are left unchanged.
       properties:
@@ -969,7 +1075,7 @@ components:
       type: object
       required: [
         id,
-        deliverable_id,
+        goal_id,
         purpose,
         attempt_no,
         status,
@@ -980,7 +1086,7 @@ components:
       properties:
         id:
           type: string
-        deliverable_id:
+        goal_id:
           type: string
         user_id:
           type: string
@@ -1054,7 +1160,7 @@ components:
       type: object
       required: [
         id,
-        deliverable_id,
+        goal_id,
         seq,
         item_id,
         item_kind,
@@ -1065,7 +1171,7 @@ components:
       properties:
         id:
           type: string
-        deliverable_id:
+        goal_id:
           type: string
         attempt_id:
           type: string
@@ -1135,9 +1241,9 @@ components:
     # ── Edges (sibling dependencies) ─────────────────────────────────────────
     Edge:
       type: object
-      required: [deliverable_id, upstream_id, edge_kind, on_failure, created_at]
+      required: [goal_id, upstream_id, edge_kind, on_failure, created_at]
       properties:
-        deliverable_id:
+        goal_id:
           type: string
         upstream_id:
           type: string
@@ -1191,7 +1297,7 @@ components:
       type: object
       required: [
         id,
-        deliverable_id,
+        goal_id,
         revision_no,
         status,
         review_policy,
@@ -1201,7 +1307,7 @@ components:
       properties:
         id:
           type: string
-        deliverable_id:
+        goal_id:
           type: string
         revision_no:
           type: integer
@@ -1337,112 +1443,6 @@ components:
           type: string
         detail:
           type: string
-    EmailFolderList:
-      type: object
-      required: [folders]
-      properties:
-        folders:
-          type: array
-          items:
-            type: string
-    EmailEnvelope:
-      type: object
-      required: [uid, from, subject, date]
-      properties:
-        uid:
-          type: integer
-        message_id:
-          type: string
-        from:
-          type: string
-        from_name:
-          type: string
-        from_addr:
-          type: string
-        to:
-          type: array
-          items:
-            type: string
-        subject:
-          type: string
-        date:
-          type: string
-          format: date-time
-        flags:
-          type: array
-          items:
-            type: string
-        has_attachments:
-          type: boolean
-        size:
-          type: integer
-    EmailEnvelopeList:
-      type: object
-      required: [messages]
-      properties:
-        messages:
-          type: array
-          items:
-            $ref: "#/components/schemas/EmailEnvelope"
-    EmailMessage:
-      allOf:
-        - $ref: "#/components/schemas/EmailEnvelope"
-        - type: object
-          properties:
-            text_body: { type: string }
-            html_body: { type: string }
-            attachments:
-              type: array
-              items: { $ref: "#/components/schemas/EmailAttachmentInfo" }
-    EmailAttachmentInfo:
-      type: object
-      properties:
-        filename:
-          type: string
-        size:
-          type: integer
-        mime_type:
-          type: string
-    EmailSendRequest:
-      type: object
-      required: [to, subject, body]
-      properties:
-        to:
-          type: array
-          minItems: 1
-          items:
-            type: string
-            minLength: 1
-        cc:
-          type: array
-          items:
-            type: string
-            minLength: 1
-        bcc:
-          type: array
-          items:
-            type: string
-            minLength: 1
-        subject:
-          type: string
-          minLength: 1
-        body:
-          type: string
-          minLength: 1
-        html:
-          type: boolean
-        from:
-          type: string
-        reply_to:
-          type: string
-        in_reply_to:
-          type: string
-    EmailMarkRequest:
-      type: object
-      required: [seen]
-      properties:
-        seen:
-          type: boolean
     Group:
       type: object
       required: [id, group_name, platform, created_at, updated_at]
@@ -1597,7 +1597,7 @@ components:
           nullable: true
         source_type:
           type: string
-          enum: [deliverable, scheduler_run]
+          enum: [goal, scheduler_run]
         source_id:
           type: string
         target_path:

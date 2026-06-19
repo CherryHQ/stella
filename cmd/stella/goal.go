@@ -12,12 +12,12 @@ import (
 )
 
 // goal.go is the agent-facing surface for durable, self-driven work. A goal is
-// a root deliverable: async work that survives restarts and converges to an
+// a root goal: async work that survives restarts and converges to an
 // acceptance contract. Creating one with --activate (the default) hands the
 // goal to the background dispatcher, which claims and runs it without further
 // prompting — this is how an agent schedules and pursues work that outlives the
 // current conversation. Like every other stella CLI command, it is a thin
-// client over the deliverable HTTP API.
+// client over the goal HTTP API.
 
 func goalCommand() *ucli.Command {
 	return &ucli.Command{
@@ -65,7 +65,7 @@ clear, self-contained intent describing what "done" means.`,
 				return err
 			}
 			activate := c.Bool("activate")
-			body := apiclient.CreateDeliverableJSONRequestBody{
+			body := apiclient.CreateGoalJSONRequestBody{
 				Title:    c.String("title"),
 				AgentId:  agentID,
 				Activate: &activate,
@@ -74,16 +74,16 @@ clear, self-contained intent describing what "done" means.`,
 				body.Intent = &v
 			}
 			if v := c.String("kind"); v != "" {
-				k := apitypes.CreateDeliverableRequestKind(v)
+				k := apitypes.CreateGoalRequestKind(v)
 				body.Kind = &k
 			}
 			if v := c.String("priority"); v != "" {
-				p := apitypes.CreateDeliverableRequestPriority(v)
+				p := apitypes.CreateGoalRequestPriority(v)
 				body.Priority = &p
 			}
 
-			d, err := apiclient.Call[apiclient.Deliverable](func(api *apiclient.Client) (*http.Response, error) {
-				return api.CreateDeliverable(c.Context, body)
+			d, err := apiclient.Call[apiclient.Goal](func(api *apiclient.Client) (*http.Response, error) {
+				return api.CreateGoal(c.Context, body)
 			})
 			if err != nil {
 				return err
@@ -112,7 +112,7 @@ func goalListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			params := &apiclient.ListDeliverablesParams{AgentId: &agentID}
+			params := &apiclient.ListGoalsParams{AgentId: &agentID}
 			if c.IsSet("terminal") {
 				params.Terminal = apiclient.Ptr(c.Bool("terminal"))
 			}
@@ -120,8 +120,8 @@ func goalListCommand() *ucli.Command {
 				params.Q = &v
 			}
 
-			list, err := apiclient.Call[apiclient.DeliverableList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListDeliverables(c.Context, params)
+			list, err := apiclient.Call[apiclient.GoalList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListGoals(c.Context, params)
 			})
 			if err != nil {
 				return err
@@ -130,12 +130,12 @@ func goalListCommand() *ucli.Command {
 				return cli.PrintJSON(c, list)
 			}
 			o := cli.Stdout(c)
-			if len(list.Deliverables) == 0 {
+			if len(list.Goals) == 0 {
 				o.Println("No goals.")
 				return o.Err()
 			}
 			o.Printf("%-10s  %-28s  %-10s  %-14s  %s\n", "ID", "TITLE", "KIND", "LIFECYCLE", "ACCEPTANCE")
-			for _, d := range list.Deliverables {
+			for _, d := range list.Goals {
 				o.Printf("%-10s  %-28s  %-10s  %-14s  %s\n",
 					cli.ShortID(d.Id), cli.Truncate(d.Title, 28), string(d.Kind), string(d.Lifecycle), string(d.AcceptanceState))
 			}
@@ -157,8 +157,8 @@ func goalGetCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella goal get <goal-id>")
 			}
-			d, err := apiclient.Call[apiclient.Deliverable](func(api *apiclient.Client) (*http.Response, error) {
-				return api.GetDeliverable(c.Context, id)
+			d, err := apiclient.Call[apiclient.Goal](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetGoal(c.Context, id)
 			})
 			if err != nil {
 				return err
@@ -197,12 +197,12 @@ func goalCancelCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella goal cancel <goal-id>")
 			}
-			var body apiclient.CancelDeliverableJSONRequestBody
+			var body apiclient.CancelGoalJSONRequestBody
 			if v := c.String("reason"); v != "" {
 				body.Reason = &v
 			}
-			d, err := apiclient.Call[apiclient.Deliverable](func(api *apiclient.Client) (*http.Response, error) {
-				return api.CancelDeliverable(c.Context, id, body)
+			d, err := apiclient.Call[apiclient.Goal](func(api *apiclient.Client) (*http.Response, error) {
+				return api.CancelGoal(c.Context, id, body)
 			})
 			if err != nil {
 				return err

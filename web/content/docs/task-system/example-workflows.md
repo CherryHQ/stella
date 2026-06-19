@@ -2,11 +2,11 @@
 title: Example Workflows
 ---
 
-These examples show how to frame larger objectives as deliverables. You describe the root outcome and its acceptance bar; the agent decomposes a composite deliverable into children, drives each to acceptance, and reworks against the gaps until the contract passes.
+These examples show how to frame larger objectives as goals. You describe the root outcome and its acceptance bar; the agent decomposes a composite goal into children, drives each to acceptance, and reworks against the gaps until the contract passes.
 
 ## Finance reimbursement review
 
-Root deliverable:
+Root goal:
 
 > Audit the reimbursement packet for this client dinner and prepare finance review if needed. Accepted when every line is policy-checked, exceptions are flagged, and the packet is ready for finance.
 
@@ -33,7 +33,7 @@ Judgment gates:
 
 ## HR hiring loop
 
-Root deliverable:
+Root goal:
 
 > Screen these candidates for the backend role and prepare the hiring panel review. Accepted when each candidate is scored against the rubric and the panel packet is complete.
 
@@ -60,7 +60,7 @@ Judgment gates:
 
 ## Engineering release
 
-Root deliverable:
+Root goal:
 
 > Plan the billing workflow release and track every blocker before launch. Accepted when implementation and verification pass and launch is approved.
 
@@ -76,7 +76,7 @@ The agent might decompose it into children:
 Useful dependencies:
 
 - Implementation consumes the affected-service analysis.
-- Verification consumes the accepted implementation — and its checks (build, tests) are the implementation deliverable's own acceptance contract, run automatically and reworked on failure.
+- Verification consumes the accepted implementation — and its checks (build, tests) are the implementation goal's own acceptance contract, run automatically and reworked on failure.
 - Launch approval consumes the verification results.
 
 Judgment gates:

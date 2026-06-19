@@ -1,18 +1,17 @@
 import type { RenderableReference } from "@/lib/types";
 import { ArticleReferenceCard } from "./ArticleReferenceCard";
 import { GenericReferenceCard } from "./GenericReferenceCard";
-import { DeliverableReferenceCard } from "./DeliverableReferenceCard";
+import { GoalReferenceCard } from "./GoalReferenceCard";
 
 /**
  * Per-type card registry. Each renderer owns its own hydration and Open target;
  * the registry only maps a reference `type` to its card. Unknown types fall back
- * to {@link GenericReferenceCard}. Goals and tasks are both deliverables now, so
+ * to {@link GenericReferenceCard}. Goals and tasks are both goals now, so
  * the legacy `task`/`goal` types resolve to the same card.
  */
 const registry: Record<string, React.ComponentType<{ reference: RenderableReference }>> = {
-  deliverable: DeliverableReferenceCard,
-  task: DeliverableReferenceCard,
-  goal: DeliverableReferenceCard,
+  goal: GoalReferenceCard,
+  task: GoalReferenceCard,
   recally_article: ArticleReferenceCard,
 };
 

@@ -1,0 +1,1141 @@
+package server
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+
+	apiserver "github.com/CherryHQ/stella/api/server"
+	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+)
+
+// SetGoalService wires the goal system into the admin server.
+// When unset, every /api/goals route returns 503.
+func (s *Server) SetGoalService(svc *goal.Service) {
+	s.goalSvc = svc
+}
+
+func (s *Server) goalsReady() bool { return s.goalSvc != nil }
+
+// goalAuth gates a handler on the goal system being wired and an
+// authenticated caller, returning the caller's user id.
+func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if !s.goalsReady() {
+		writeError(w, http.StatusServiceUnavailable, "goals unavailable")
+		return "", false
+	}
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return "", false
+	}
+	return info.UserID, true
+}
+
+// goalError maps the package's sentinel errors to HTTP status codes:
+// not-found → 404, validation → 400, lifecycle/guard → 409, else 500.
+func goalError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, goal.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found")
+	case errors.Is(err, goal.ErrInvalidContract),
+		errors.Is(err, goal.ErrInvalidDecomposition),
+		errors.Is(err, goal.ErrDepthExceeded),
+		errors.Is(err, goal.ErrCycle),
+		errors.Is(err, goal.ErrInvalidEvidence),
+		errors.Is(err, goal.ErrInvalidVerdict):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, goal.ErrInvalidTransition),
+		errors.Is(err, goal.ErrPlanGate),
+		errors.Is(err, goal.ErrBudgetExhausted),
+		errors.Is(err, goal.ErrConcurrencyCap),
+		errors.Is(err, goal.ErrStaleProjection):
+		writeError(w, http.StatusConflict, err.Error())
+	default:
+		writeError(w, http.StatusInternalServerError, "internal error")
+	}
+}
+
+// loadGoal fetches a goal by id, enforcing ownership. A row owned
+// by another user is reported as 404 to avoid leaking its existence; a scoped
+// token whose agent differs is 403. Returns false (after writing the error) on
+// any miss.
+func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, id string) (sqlc.AgentGoal, bool) {
+	d, err := s.goalSvc.GetGoal(ctx, id)
+	if err != nil {
+		if errors.Is(err, goal.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found")
+			return sqlc.AgentGoal{}, false
+		}
+		goalError(w, err)
+		return sqlc.AgentGoal{}, false
+	}
+	if d.UserID != userID {
+		writeError(w, http.StatusNotFound, "not_found")
+		return sqlc.AgentGoal{}, false
+	}
+	if info := UserFromContext(ctx); info != nil && info.Scoped != nil && d.AgentID != info.Scoped.AgentID {
+		writeError(w, http.StatusForbidden, "permission denied")
+		return sqlc.AgentGoal{}, false
+	}
+	return d, true
+}
+
+// loadRevision fetches a revision and enforces that it belongs to the given
+// goal (path parentage), reporting a mismatch/miss as 404.
+func (s *Server) loadRevision(ctx context.Context, w http.ResponseWriter, d sqlc.AgentGoal, revID string) (sqlc.AgentGoalRevision, bool) {
+	rev, err := s.goalSvc.GetRevision(ctx, revID)
+	if err != nil || rev.GoalID != d.ID {
+		writeError(w, http.StatusNotFound, "not_found")
+		return sqlc.AgentGoalRevision{}, false
+	}
+	return rev, true
+}
+
+// ── List / CRUD ──────────────────────────────────────────────────────────────
+
+// ListGoals lists root goals (goals) by default; `?parent={id}`
+// lists a composite's children and `?root={id}` lists a whole tree.
+func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiserver.ListGoalsParams) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+
+	if params.Parent != nil {
+		if _, ok := s.loadGoal(ctx, w, userID, *params.Parent); !ok {
+			return
+		}
+		rows, err := s.goalSvc.ListChildren(ctx, *params.Parent)
+		if err != nil {
+			goalError(w, err)
+			return
+		}
+		writeData(w, http.StatusOK, goalListAPI(rows, "", nil))
+		return
+	}
+	if params.Root != nil {
+		if _, ok := s.loadGoal(ctx, w, userID, *params.Root); !ok {
+			return
+		}
+		rows, err := s.goalSvc.ListSubtree(ctx, *params.Root)
+		if err != nil {
+			goalError(w, err)
+			return
+		}
+		writeData(w, http.StatusOK, goalListAPI(rows, "", nil))
+		return
+	}
+
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	filter := goal.GoalFilter{}
+	if params.AgentId != nil {
+		filter.AgentID = *params.AgentId
+	}
+	if params.Lifecycle != nil {
+		filter.Lifecycle = *params.Lifecycle
+	}
+	if params.ProjectId != nil {
+		filter.ProjectID = *params.ProjectId
+	}
+	if params.Terminal != nil {
+		filter.Terminal = params.Terminal
+	}
+	if params.Q != nil {
+		filter.Q = *params.Q
+	}
+	if params.Archived != nil {
+		filter.Archived = *params.Archived
+	}
+	rows, err := s.goalSvc.ListGoals(ctx, userID, filter, int64(limit+1), int64(offset))
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	page, next := nextPageTokenForRows(rows, limit, offset)
+	var total *int
+	if n, err := s.goalSvc.CountGoals(ctx, userID, filter); err == nil {
+		v := int(n)
+		total = &v
+	}
+	writeData(w, http.StatusOK, goalListAPI(page, next, total))
+}
+
+// CreateGoal mints a root goal (goal). With activate=true a leaf is
+// activated immediately (direct run); the flag is ignored for a composite, which
+// must be planned via the revisions endpoints first.
+func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	var body apitypes.CreateGoalRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Title == "" || body.AgentId == "" {
+		writeError(w, http.StatusBadRequest, "title and agent_id are required")
+		return
+	}
+	in := goal.CreateInput{UserID: userID, AgentID: body.AgentId, Title: body.Title}
+	if body.Intent != nil {
+		in.Intent = *body.Intent
+	}
+	if body.ProjectId != nil {
+		in.ProjectID = *body.ProjectId
+	}
+	if body.Kind != nil {
+		in.Kind = string(*body.Kind)
+	}
+	if body.Priority != nil {
+		in.Priority = string(*body.Priority)
+	}
+	if body.ReviewPolicy != nil {
+		in.ReviewPolicy = string(*body.ReviewPolicy)
+	}
+	if body.AcceptanceContract != nil {
+		in.Contract = toContract(*body.AcceptanceContract)
+	}
+	if body.ConvergencePolicy != nil {
+		in.Convergence = toConvergence(*body.ConvergencePolicy)
+	}
+	created, err := s.goalSvc.CreateGoal(ctx, in)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	if body.Activate != nil && *body.Activate && created.Kind == goal.KindLeaf {
+		activated, err := s.goalSvc.Activate(ctx, created.ID)
+		if err != nil {
+			goalError(w, err)
+			return
+		}
+		created = activated
+	}
+	writeData(w, http.StatusCreated, goalToAPI(created))
+}
+
+// GetGoal returns one goal.
+func (s *Server) GetGoal(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	d, ok := s.loadGoal(r.Context(), w, userID, id)
+	if !ok {
+		return
+	}
+	writeData(w, http.StatusOK, goalToAPI(d))
+}
+
+// UpdateGoal applies a partial metadata edit (PATCH).
+func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	var body apitypes.UpdateGoalRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent}
+	if body.Priority != nil {
+		v := string(*body.Priority)
+		in.Priority = &v
+	}
+	if body.ReviewPolicy != nil {
+		v := string(*body.ReviewPolicy)
+		in.ReviewPolicy = &v
+	}
+	if body.AcceptanceContract != nil {
+		c := toContract(*body.AcceptanceContract)
+		in.Contract = &c
+	}
+	if body.ConvergencePolicy != nil {
+		c := toConvergence(*body.ConvergencePolicy)
+		in.Convergence = &c
+	}
+	updated, err := s.goalSvc.UpdateGoal(ctx, id, in)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, goalToAPI(updated))
+}
+
+// DeleteGoal archives a goal (audit-safe delete).
+func (s *Server) DeleteGoal(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	if err := s.goalSvc.Archive(ctx, id); err != nil {
+		goalError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Lifecycle commands ───────────────────────────────────────────────────────
+
+// ActivateGoal runs the plan gate (draft → ready).
+func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	d, err := s.goalSvc.Activate(ctx, id)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, goalToAPI(d))
+}
+
+// CancelGoal cancels a goal, cascading over its non-terminal subtree.
+func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	var body apitypes.CancelRequest
+	if !decodeOptionalBody(w, r, &body) {
+		return
+	}
+	if err := s.goalSvc.Cancel(ctx, id, derefStr(body.Reason), goal.UserActor(userID)); err != nil {
+		goalError(w, err)
+		return
+	}
+	s.respondGoal(ctx, w, id)
+}
+
+// AbandonGoal is the human give-up on a budget-exhausted block.
+func (s *Server) AbandonGoal(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	var body apitypes.AbandonRequest
+	if !decodeOptionalBody(w, r, &body) {
+		return
+	}
+	if err := s.goalSvc.Abandon(ctx, id, derefStr(body.Reason), goal.UserActor(userID)); err != nil {
+		goalError(w, err)
+		return
+	}
+	s.respondGoal(ctx, w, id)
+}
+
+// ReattemptGoal raises the budget on a blocked goal and resumes it.
+func (s *Server) ReattemptGoal(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	if err := s.goalSvc.Reattempt(ctx, id, goal.UserActor(userID)); err != nil {
+		goalError(w, err)
+		return
+	}
+	s.respondGoal(ctx, w, id)
+}
+
+// UnarchiveGoal restores an archived goal to default lists.
+func (s *Server) UnarchiveGoal(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	if err := s.goalSvc.Unarchive(ctx, id); err != nil {
+		goalError(w, err)
+		return
+	}
+	s.respondGoal(ctx, w, id)
+}
+
+// GetGoalReadiness returns the computed dispatchability view.
+func (s *Server) GetGoalReadiness(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	rd, err := s.goalSvc.GetReadiness(ctx, id)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, readinessToAPI(rd))
+}
+
+// ── Sub-resource reads ───────────────────────────────────────────────────────
+
+// ListGoalChildren lists a composite's direct children.
+func (s *Server) ListGoalChildren(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	rows, err := s.goalSvc.ListChildren(ctx, id)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, goalListAPI(rows, "", nil))
+}
+
+// ListAttempts lists a goal's attempts (newest first).
+func (s *Server) ListAttempts(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	rows, err := s.goalSvc.ListAttempts(ctx, id)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	out := make([]apitypes.Attempt, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, attemptToAPI(a))
+	}
+	writeData(w, http.StatusOK, apitypes.AttemptList{Attempts: out})
+}
+
+// GetAttempt returns one attempt, scoped to its goal.
+func (s *Server) GetAttempt(w http.ResponseWriter, r *http.Request, id string, attemptId string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	a, err := s.goalSvc.GetAttempt(ctx, attemptId)
+	if err != nil || a.GoalID != id {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	writeData(w, http.StatusOK, attemptToAPI(a))
+}
+
+// ListAcceptanceEvents lists the acceptance ledger (audit trail, in fold order).
+func (s *Server) ListAcceptanceEvents(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	rows, err := s.goalSvc.ListAcceptanceEvents(ctx, id)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, acceptanceEventListAPI(rows))
+}
+
+// ── Verdict + edges ──────────────────────────────────────────────────────────
+
+// SubmitVerdict appends a human verdict against a contract item and re-folds.
+func (s *Server) SubmitVerdict(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	var body apitypes.VerdictRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	in := goal.VerdictInput{
+		GoalID:         id,
+		ItemID:         body.ItemId,
+		Result:         string(body.Result),
+		Rationale:      derefStr(body.Rationale),
+		Scope:          derefStr(body.Scope),
+		ScopeHash:      derefStr(body.ScopeHash),
+		ReviewerUserID: userID,
+	}
+	if err := s.goalSvc.SubmitVerdict(ctx, in); err != nil {
+		goalError(w, err)
+		return
+	}
+	// The verdict is the highest-seq event after the append; surface it.
+	events, err := s.goalSvc.ListAcceptanceEvents(ctx, id)
+	if err != nil || len(events) == 0 {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusCreated, acceptanceEventToAPI(events[len(events)-1]))
+}
+
+// ListEdges lists a goal's upstream dependency edges.
+func (s *Server) ListEdges(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	rows, err := s.goalSvc.ListEdges(ctx, id)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, edgeListAPI(rows))
+}
+
+// AddEdge inserts an upstream dependency edge (cycle-checked).
+func (s *Server) AddEdge(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	var body apitypes.AddEdgeRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.UpstreamId == "" {
+		writeError(w, http.StatusBadRequest, "upstream_id is required")
+		return
+	}
+	// The upstream is caller-supplied — gate it through the same ownership check
+	// as the downstream, or a caller could wire in another tenant's goal
+	// and pull its frozen accepted_output into their own attempt's input context.
+	if _, ok := s.loadGoal(ctx, w, userID, body.UpstreamId); !ok {
+		return
+	}
+	kind := goal.EdgeHard
+	if body.Kind != nil {
+		kind = string(*body.Kind)
+	}
+	onFailure := goal.OnFailureBlock
+	if body.OnFailure != nil {
+		onFailure = string(*body.OnFailure)
+	}
+	edge, err := s.goalSvc.AddEdge(ctx, id, body.UpstreamId, kind, onFailure)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusCreated, edgeToAPI(edge))
+}
+
+// WaiveEdge waives a hard edge so a blocked(dep) downstream can proceed.
+func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, upstreamId string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	var body apitypes.WaiveRequest
+	if !decodeOptionalBody(w, r, &body) {
+		return
+	}
+	if err := s.goalSvc.WaiveEdge(ctx, id, upstreamId, derefStr(body.Reason), goal.UserActor(userID)); err != nil {
+		goalError(w, err)
+		return
+	}
+	edges, err := s.goalSvc.ListEdges(ctx, id)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	for _, e := range edges {
+		if e.UpstreamID == upstreamId {
+			writeData(w, http.StatusOK, edgeToAPI(e))
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, "not_found")
+}
+
+// ── Revisions (decomposition) ────────────────────────────────────────────────
+
+// ListRevisions lists a composite's decomposition revisions (newest first).
+func (s *Server) ListRevisions(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	rows, err := s.goalSvc.ListRevisions(ctx, id)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, revisionListAPI(rows))
+}
+
+// PutRevision authors/stages a decomposition edit as a new draft revision.
+func (s *Server) PutRevision(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	var body apitypes.DecompositionContent
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	rev, err := s.goalSvc.PutRevision(ctx, id, toDecomposition(body), "")
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, revisionToAPI(rev))
+}
+
+// StartDecomposition begins a composite's decomposition in a planning session.
+func (s *Server) StartDecomposition(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	att, err := s.goalSvc.StartDecomposition(ctx, id)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, apitypes.DecompositionSession{PlanningSessionId: att.SessionID})
+}
+
+// AcceptRevision auto-accepts a draft revision (review_policy=none).
+func (s *Server) AcceptRevision(w http.ResponseWriter, r *http.Request, id string, revId string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	d, ok := s.loadGoal(ctx, w, userID, id)
+	if !ok {
+		return
+	}
+	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
+		return
+	}
+	rev, err := s.goalSvc.AcceptRevision(ctx, revId, goal.UserActor(userID))
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, revisionToAPI(rev))
+}
+
+// SubmitRevisionReview moves a draft revision into human review.
+func (s *Server) SubmitRevisionReview(w http.ResponseWriter, r *http.Request, id string, revId string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	d, ok := s.loadGoal(ctx, w, userID, id)
+	if !ok {
+		return
+	}
+	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
+		return
+	}
+	rev, err := s.goalSvc.SubmitRevisionReview(ctx, revId)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, revisionToAPI(rev))
+}
+
+// ApproveRevision accepts an in_review revision (human approval).
+func (s *Server) ApproveRevision(w http.ResponseWriter, r *http.Request, id string, revId string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	d, ok := s.loadGoal(ctx, w, userID, id)
+	if !ok {
+		return
+	}
+	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
+		return
+	}
+	var body apitypes.DecisionRequest
+	if !decodeOptionalBody(w, r, &body) {
+		return
+	}
+	rev, err := s.goalSvc.ApproveRevision(ctx, revId, goal.UserActor(userID))
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, revisionToAPI(rev))
+}
+
+// RejectRevision rejects an in_review revision (composite stays active for rework).
+func (s *Server) RejectRevision(w http.ResponseWriter, r *http.Request, id string, revId string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	d, ok := s.loadGoal(ctx, w, userID, id)
+	if !ok {
+		return
+	}
+	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
+		return
+	}
+	var body apitypes.DecisionRequest
+	if !decodeOptionalBody(w, r, &body) {
+		return
+	}
+	rev, err := s.goalSvc.RejectRevision(ctx, revId, derefStr(body.Reason), goal.UserActor(userID))
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, revisionToAPI(rev))
+}
+
+// RequestChangesRevision sends an in_review revision back to draft for edits.
+func (s *Server) RequestChangesRevision(w http.ResponseWriter, r *http.Request, id string, revId string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	d, ok := s.loadGoal(ctx, w, userID, id)
+	if !ok {
+		return
+	}
+	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
+		return
+	}
+	var body apitypes.DecisionRequest
+	if !decodeOptionalBody(w, r, &body) {
+		return
+	}
+	rev, err := s.goalSvc.RequestChangesRevision(ctx, revId, derefStr(body.Reason), goal.UserActor(userID))
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, revisionToAPI(rev))
+}
+
+// MaterializeRevision creates the revision's children + edges and lists them.
+func (s *Server) MaterializeRevision(w http.ResponseWriter, r *http.Request, id string, revId string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	d, ok := s.loadGoal(ctx, w, userID, id)
+	if !ok {
+		return
+	}
+	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
+		return
+	}
+	children, err := s.goalSvc.MaterializeRevision(ctx, revId)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, goalListAPI(children, "", nil))
+}
+
+// ── Shared helpers ───────────────────────────────────────────────────────────
+
+// respondGoal re-fetches a goal and writes it; used by the
+// command handlers whose service method returns only an error.
+func (s *Server) respondGoal(ctx context.Context, w http.ResponseWriter, id string) {
+	d, err := s.goalSvc.GetGoal(ctx, id)
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, goalToAPI(d))
+}
+
+// decodeOptionalBody decodes an optional request body, tolerating an empty body
+// (EOF) but rejecting malformed JSON with a 400. Returns false (after writing the
+// error) only on malformed input.
+func decodeOptionalBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if err := decodeJSON(r, dst); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return false
+	}
+	return true
+}
+
+// ── Type conversions: request → package domain ───────────────────────────────
+
+func toContract(c apitypes.AcceptanceContract) goal.AcceptanceContract {
+	var out goal.AcceptanceContract
+	jsonRoundTrip(c, &out)
+	return out
+}
+
+func toConvergence(c apitypes.ConvergencePolicy) goal.ConvergencePolicy {
+	var out goal.ConvergencePolicy
+	jsonRoundTrip(c, &out)
+	return out
+}
+
+func toDecomposition(c apitypes.DecompositionContent) goal.DecompositionContent {
+	var out goal.DecompositionContent
+	jsonRoundTrip(c, &out)
+	return out
+}
+
+// jsonRoundTrip copies between two JSON-tag-compatible shapes (api ⇄ domain).
+func jsonRoundTrip(src, dst any) {
+	b, err := json.Marshal(src)
+	if err != nil {
+		return
+	}
+	_ = json.Unmarshal(b, dst)
+}
+
+// ── Row → API mappers ────────────────────────────────────────────────────────
+
+func goalListAPI(rows []sqlc.AgentGoal, nextToken string, total *int) apitypes.GoalList {
+	items := make([]apitypes.Goal, 0, len(rows))
+	for _, d := range rows {
+		items = append(items, goalToAPI(d))
+	}
+	out := apitypes.GoalList{Goals: items, Total: total}
+	if nextToken != "" {
+		out.NextPageToken = &nextToken
+	}
+	return out
+}
+
+func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
+	out := apitypes.Goal{
+		Id:                 d.ID,
+		UserId:             d.UserID,
+		AgentId:            d.AgentID,
+		RootId:             d.RootID,
+		Depth:              int(d.Depth),
+		Position:           int(d.Position),
+		SessionId:          d.SessionID,
+		Title:              d.Title,
+		Kind:               apitypes.GoalKind(d.Kind),
+		Priority:           apitypes.GoalPriority(d.Priority),
+		Required:           d.Required == 1,
+		Lifecycle:          apitypes.GoalLifecycle(d.Lifecycle),
+		AcceptanceState:    apitypes.GoalAcceptanceState(d.AcceptanceState),
+		CreatedAt:          parseTime(d.CreatedAt),
+		UpdatedAt:          parseTime(d.UpdatedAt),
+		Intent:             optStr(d.Intent),
+		AcceptanceSeq:      iptr(d.AcceptanceSeq),
+		AttemptCount:       iptr(d.AttemptCount),
+		RequiredTotal:      iptr(d.RequiredTotal),
+		RequiredAccepted:   iptr(d.RequiredAccepted),
+		RequiredFailed:     iptr(d.RequiredFailed),
+		RequiredBlocked:    iptr(d.RequiredBlocked),
+		AcceptanceContract: parseAcceptanceContract(d.AcceptanceContract),
+		ConvergencePolicy:  parseConvergencePolicy(d.ConvergencePolicy),
+		Context:            jsonObject(d.Context),
+		DispatchHint:       jsonObject(d.DispatchHint),
+		ProjectId:          nullToPtr(d.ProjectID),
+		ParentId:           nullToPtr(d.ParentID),
+		ActiveAttemptId:    nullToPtr(d.ActiveAttemptID),
+		AcceptedRevisionId: nullToPtr(d.AcceptedRevisionID),
+		AcceptedAt:         parseTimePtr(d.AcceptedAt),
+		CancelledAt:        parseTimePtr(d.CancelledAt),
+		ArchivedAt:         parseTimePtr(d.ArchivedAt),
+	}
+	if d.ReviewPolicy != "" {
+		rp := apitypes.GoalReviewPolicy(d.ReviewPolicy)
+		out.ReviewPolicy = &rp
+	}
+	if d.BlockReason != "" {
+		br := apitypes.GoalBlockReason(d.BlockReason)
+		out.BlockReason = &br
+	}
+	if d.AcceptedOutput.Valid {
+		out.AcceptedOutput = jsonObject(d.AcceptedOutput.String)
+	}
+	return out
+}
+
+func attemptToAPI(a sqlc.AgentGoalAttempt) apitypes.Attempt {
+	return apitypes.Attempt{
+		Id:              a.ID,
+		GoalId:          a.GoalID,
+		SessionId:       a.SessionID,
+		Purpose:         apitypes.AttemptPurpose(a.Purpose),
+		AttemptNo:       int(a.AttemptNo),
+		Status:          apitypes.AttemptStatus(a.Status),
+		CreatedAt:       parseTime(a.CreatedAt),
+		UpdatedAt:       parseTime(a.UpdatedAt),
+		UserId:          optStr(a.UserID),
+		Error:           optStr(a.Error),
+		WorkerId:        optStr(a.WorkerID),
+		AgentId:         nullToPtr(a.AgentID),
+		ExecutorAgentId: nullToPtr(a.ExecutorAgentID),
+		RevisionId:      nullToPtr(a.RevisionID),
+		InputContext:    jsonObject(a.InputContext),
+		Evidence:        jsonObject(a.Evidence),
+		Output:          jsonObject(a.Output),
+		Gaps:            jsonObject(a.Gaps),
+		HeartbeatAt:     parseTimePtr(a.HeartbeatAt),
+		LeaseExpiresAt:  parseTimePtr(a.LeaseExpiresAt),
+		StartedAt:       parseTimePtr(a.StartedAt),
+		FinishedAt:      parseTimePtr(a.FinishedAt),
+	}
+}
+
+func acceptanceEventListAPI(rows []sqlc.AgentGoalAcceptanceEvent) apitypes.AcceptanceEventList {
+	out := make([]apitypes.AcceptanceEvent, 0, len(rows))
+	for _, e := range rows {
+		out = append(out, acceptanceEventToAPI(e))
+	}
+	return apitypes.AcceptanceEventList{AcceptanceEvents: out}
+}
+
+func acceptanceEventToAPI(e sqlc.AgentGoalAcceptanceEvent) apitypes.AcceptanceEvent {
+	out := apitypes.AcceptanceEvent{
+		Id:                e.ID,
+		GoalId:            e.GoalID,
+		Seq:               int(e.Seq),
+		ItemId:            e.ItemID,
+		ItemKind:          apitypes.AcceptanceEventItemKind(e.ItemKind),
+		Result:            apitypes.AcceptanceEventResult(e.Result),
+		Authority:         apitypes.AcceptanceEventAuthority(e.Authority),
+		CreatedAt:         parseTime(e.CreatedAt),
+		AttemptId:         nullToPtr(e.AttemptID),
+		Command:           optStr(e.Command),
+		CacheKey:          optStr(e.CacheKey),
+		ReviewerUserId:    nullToPtr(e.ReviewerUserID),
+		ReviewerAttemptId: nullToPtr(e.ReviewerAttemptID),
+		Rationale:         optStr(e.Rationale),
+		Scope:             optStr(e.Scope),
+		ScopeHash:         optStr(e.ScopeHash),
+		Detail:            optStr(e.Detail),
+	}
+	if e.ExitCode.Valid {
+		x := int(e.ExitCode.Int64)
+		out.ExitCode = &x
+	}
+	return out
+}
+
+func edgeListAPI(rows []sqlc.AgentGoalEdge) apitypes.EdgeList {
+	out := make([]apitypes.Edge, 0, len(rows))
+	for _, e := range rows {
+		out = append(out, edgeToAPI(e))
+	}
+	return apitypes.EdgeList{Edges: out}
+}
+
+func edgeToAPI(e sqlc.AgentGoalEdge) apitypes.Edge {
+	return apitypes.Edge{
+		GoalId:       e.GoalID,
+		UpstreamId:   e.UpstreamID,
+		EdgeKind:     apitypes.EdgeEdgeKind(e.EdgeKind),
+		OnFailure:    apitypes.EdgeOnFailure(e.OnFailure),
+		CreatedAt:    parseTime(e.CreatedAt),
+		WaivedAt:     parseTimePtr(e.WaivedAt),
+		WaivedByUser: nullToPtr(e.WaivedByUser),
+		WaiverReason: optStr(e.WaiverReason),
+	}
+}
+
+func revisionListAPI(rows []sqlc.AgentGoalRevision) apitypes.RevisionList {
+	out := make([]apitypes.Revision, 0, len(rows))
+	for _, rev := range rows {
+		out = append(out, revisionToAPI(rev))
+	}
+	return apitypes.RevisionList{Revisions: out}
+}
+
+func revisionToAPI(r sqlc.AgentGoalRevision) apitypes.Revision {
+	return apitypes.Revision{
+		Id:                r.ID,
+		GoalId:            r.GoalID,
+		RevisionNo:        int(r.RevisionNo),
+		Status:            apitypes.RevisionStatus(r.Status),
+		ReviewPolicy:      apitypes.RevisionReviewPolicy(r.ReviewPolicy),
+		CreatedAt:         parseTime(r.CreatedAt),
+		UpdatedAt:         parseTime(r.UpdatedAt),
+		Content:           parseDecompositionContent(r.Content),
+		SourceAttemptId:   nullToPtr(r.SourceAttemptID),
+		PlanningSessionId: nullToPtr(r.PlanningSessionID),
+		AcceptedAt:        parseTimePtr(r.AcceptedAt),
+		MaterializedAt:    parseTimePtr(r.MaterializedAt),
+	}
+}
+
+func readinessToAPI(r goal.Readiness) apitypes.Readiness {
+	out := apitypes.Readiness{
+		State:        apitypes.ReadinessState(r.State),
+		Dispatchable: r.Dispatchable,
+	}
+	if len(r.Reasons) > 0 {
+		reasons := make([]apitypes.ReadinessReason, 0, len(r.Reasons))
+		for _, rs := range r.Reasons {
+			reasons = append(reasons, apitypes.ReadinessReason{
+				Type:       optStr(rs.Type),
+				UpstreamId: optStr(rs.UpstreamID),
+				Detail:     optStr(rs.Detail),
+			})
+		}
+		out.Reasons = &reasons
+	}
+	return out
+}
+
+// parseAcceptanceContract / parseConvergencePolicy / parseDecompositionContent
+// decode a stored TEXT JSON column into the typed API shape, returning nil for an
+// empty/trivial value so the field is omitted.
+func parseAcceptanceContract(s string) *apitypes.AcceptanceContract {
+	if s == "" || s == "{}" {
+		return nil
+	}
+	var c apitypes.AcceptanceContract
+	if err := json.Unmarshal([]byte(s), &c); err != nil {
+		return nil
+	}
+	if c.Policy == nil && (c.Items == nil || len(*c.Items) == 0) {
+		return nil
+	}
+	return &c
+}
+
+func parseConvergencePolicy(s string) *apitypes.ConvergencePolicy {
+	if s == "" || s == "{}" {
+		return nil
+	}
+	var c apitypes.ConvergencePolicy
+	if err := json.Unmarshal([]byte(s), &c); err != nil {
+		return nil
+	}
+	return &c
+}
+
+func parseDecompositionContent(s string) *apitypes.DecompositionContent {
+	if s == "" || s == "{}" {
+		return nil
+	}
+	var c apitypes.DecompositionContent
+	if err := json.Unmarshal([]byte(s), &c); err != nil {
+		return nil
+	}
+	return &c
+}
+
+// ── Small pointer/value helpers ──────────────────────────────────────────────
+
+func optStr(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+func iptr(v int64) *int {
+	x := int(v)
+	return &x
+}
+
+func nullToPtr(ns sql.NullString) *string {
+	if !ns.Valid || ns.String == "" {
+		return nil
+	}
+	v := ns.String
+	return &v
+}
+
+func jsonObject(s string) *map[string]any {
+	if s == "" || s == "{}" {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return nil
+	}
+	return &m
+}
