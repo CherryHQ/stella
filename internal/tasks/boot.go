@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -65,6 +66,9 @@ func New(cfg BootConfig) *Service {
 		newSession = legacySessionMinter(cfg.Memory, q, logger)
 	}
 	facade := NewServiceFacade(cfg.DB, q, svc, newSession)
+	if cfg.Services != nil {
+		facade.newPlanningSession = registryPlanningSessionMinter(cfg.Services, logger)
+	}
 
 	disp := NewDispatcher(DispatcherConfig{
 		Service:    svc,
@@ -147,6 +151,30 @@ func registrySessionMinter(sm agent.ServiceManager, _ *slog.Logger) SessionMinte
 			return "", fmt.Errorf("no service for executor agent %q", agentID)
 		}
 		info, err := svc.MintTaskSession(ctx, userID, agentID, projectID)
+		if err != nil {
+			return "", err
+		}
+		return info.ID, nil
+	}
+}
+
+// registryPlanningSessionMinter creates the dedicated planning session a goal is
+// planned in. Unlike worker sessions it uses KindDelegate/ChannelDelegate so the
+// owning agent can resume it through the delegate tool, and the user can re-open
+// it from the UI to refine the plan by chatting (#525 planning sessions).
+func registryPlanningSessionMinter(sm agent.ServiceManager, _ *slog.Logger) SessionMinter {
+	return func(ctx context.Context, userID, agentID, projectID string) (string, error) {
+		if userID == "" {
+			return "", fmt.Errorf("goal has no user_id; cannot mint planning session")
+		}
+		if agentID == "" {
+			return "", fmt.Errorf("goal has no agent_id; cannot mint planning session")
+		}
+		svc := sm.GetService(agentID)
+		if svc == nil {
+			return "", fmt.Errorf("no service for goal agent %q", agentID)
+		}
+		info, err := svc.NewSession(ctx, userID, agentID, projectID, session.KindDelegate, session.ChannelDelegate)
 		if err != nil {
 			return "", err
 		}

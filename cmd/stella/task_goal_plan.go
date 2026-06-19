@@ -26,6 +26,7 @@ Stage a plan with 'set', accept it directly ('accept', review_policy=none) or vi
 human review ('submit-review' + 'review approve'), then 'materialize' it.`,
 		Subcommands: []*ucli.Command{
 			goalPlanGetCmd(),
+			goalPlanStartCmd(),
 			goalPlanSetCmd(),
 			goalPlanAcceptCmd(),
 			goalPlanSubmitReviewCmd(),
@@ -53,6 +54,37 @@ func goalPlanGetCmd() *ucli.Command {
 				return fmt.Errorf("get plan: %w", err)
 			}
 			return printPlan(c, plan)
+		},
+	}
+}
+
+func goalPlanStartCmd() *ucli.Command {
+	return &ucli.Command{
+		Name:      "start",
+		Usage:     "Open the goal's dedicated planning session",
+		ArgsUsage: "<goal-id>",
+		Description: `Opens (creating on first call, reusing thereafter) the session a goal is
+planned in, and prints its id. Delegate planning into this session and author
+the plan there with 'stella task goal plan set'; the user re-opens the same
+session from the web UI to refine the plan by chatting.`,
+		Flags: []ucli.Flag{cli.JSONFlag()},
+		Action: func(c *ucli.Context) error {
+			id := c.Args().First()
+			if id == "" {
+				return fmt.Errorf("goal id is required")
+			}
+			sess, err := apiclient.Call[apitypes.GoalPlanningSession](func(api *apiclient.Client) (*http.Response, error) {
+				return api.StartGoalPlanning(c.Context, id)
+			})
+			if err != nil {
+				return fmt.Errorf("start planning: %w", err)
+			}
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, sess)
+			}
+			o := cli.Stdout(c)
+			o.Printf("planning session: %s\n", sess.SessionId)
+			return o.Err()
 		},
 	}
 }
@@ -230,6 +262,9 @@ func printPlan(c *ucli.Context, p apitypes.GoalPlan) error {
 	o.Printf("goal:         %s\n", p.GoalId)
 	o.Printf("status:       %s\n", p.Status)
 	o.Printf("review:       %s\n", p.ReviewPolicy)
+	if p.PlanningSessionId != nil && *p.PlanningSessionId != "" {
+		o.Printf("planning sess: %s\n", *p.PlanningSessionId)
+	}
 	o.Printf("items:        %d\n", len(p.Content.Items))
 	if p.PendingContent != nil {
 		o.Printf("pending:      %d items\n", len(p.PendingContent.Items))

@@ -373,6 +373,8 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1submit-review"
   /api/goals/{goalId}/plan/materialize:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1materialize"
+  /api/goals/{goalId}/plan/start:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1start"
   /api/goals/{goalId}/plan/reviews/{reviewId}/approve:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1plan~1reviews~1{reviewId}~1approve"
   /api/goals/{goalId}/plan/reviews/{reviewId}/reject:

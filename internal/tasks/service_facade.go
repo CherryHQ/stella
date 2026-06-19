@@ -25,6 +25,11 @@ type ServiceFacade struct {
 	q          *sqlc.Queries
 	db         *sql.DB
 	newSession SessionMinter
+	// newPlanningSession mints the dedicated delegate session a goal is planned
+	// in (StartGoalPlanning). Optional: wired only on the registry-backed path
+	// (boot.go); nil on the legacy/test path, where StartGoalPlanning errors
+	// clearly rather than minting a wrong-kind session.
+	newPlanningSession SessionMinter
 }
 
 // ErrInvalidTaskContext marks invalid task/goal ownership context at the write boundary.

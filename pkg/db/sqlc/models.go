@@ -58,6 +58,7 @@ type AgentGoalPlan struct {
 	PendingContentJson sql.NullString `json:"pending_content_json"`
 	SourceRunID        sql.NullString `json:"source_run_id"`
 	ApprovedReviewID   sql.NullString `json:"approved_review_id"`
+	PlanningSessionID  sql.NullString `json:"planning_session_id"`
 	AcceptedAt         sql.NullString `json:"accepted_at"`
 	MaterializedAt     sql.NullString `json:"materialized_at"`
 	CreatedAt          string         `json:"created_at"`

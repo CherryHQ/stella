@@ -30,6 +30,20 @@ ON CONFLICT(goal_id) DO UPDATE SET
     source_run_id = excluded.source_run_id,
     updated_at = datetime('now');
 
+-- SetAgentGoalPlanPlanningSession binds the dedicated planning session a goal is
+-- planned in. It doubles as the plan-row creator for a deferred goal that has no
+-- plan yet: INSERT seeds a draft row (status/review_policy/content_json take their
+-- schema defaults). The bind is first-writer-wins: COALESCE keeps an already-bound
+-- session, so two concurrent StartGoalPlanning calls converge on one session
+-- (the loser's minted session is harmlessly orphaned) rather than splitting the
+-- planning conversation. content_json / pending_content_json are never touched. #525.
+-- name: SetAgentGoalPlanPlanningSession :exec
+INSERT INTO agent_goal_plan (id, goal_id, planning_session_id)
+VALUES (?, ?, ?)
+ON CONFLICT(goal_id) DO UPDATE SET
+    planning_session_id = COALESCE(agent_goal_plan.planning_session_id, excluded.planning_session_id),
+    updated_at = datetime('now');
+
 -- name: SetAgentGoalPlanAccepted :exec
 UPDATE agent_goal_plan
 SET status = ?, accepted_at = ?, updated_at = datetime('now')

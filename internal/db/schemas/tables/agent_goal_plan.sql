@@ -18,6 +18,12 @@ CREATE TABLE agent_goal_plan (
     pending_content_json TEXT,                           -- in-flight edit; NULL when none
     source_run_id        TEXT REFERENCES agent_task_run(id) ON DELETE SET NULL,
     approved_review_id   TEXT REFERENCES agent_review(id) ON DELETE SET NULL,
+    -- The dedicated planning session a deferred goal is planned in: an agent
+    -- delegates planning into this child session, the user re-opens it from the
+    -- UI to refine the plan by chatting. References ctx_conversation.session_id
+    -- (the app-facing session id minters return), not the surrogate id PK. SET
+    -- NULL if the session is purged.
+    planning_session_id  TEXT REFERENCES ctx_conversation(session_id) ON DELETE SET NULL,
     accepted_at          TEXT,
     materialized_at      TEXT,
     created_at           TEXT NOT NULL DEFAULT (datetime('now')),
@@ -29,3 +35,4 @@ CREATE INDEX idx_agent_goal_plan_goal_status ON agent_goal_plan(goal_id, status)
 -- source run or approved review is deleted.
 CREATE INDEX idx_agent_goal_plan_source_run ON agent_goal_plan(source_run_id);
 CREATE INDEX idx_agent_goal_plan_approved_review ON agent_goal_plan(approved_review_id);
+CREATE INDEX idx_agent_goal_plan_planning_session ON agent_goal_plan(planning_session_id);

@@ -981,6 +981,11 @@ components:
           description: In-flight edit awaiting accept/review + materialize; null when none.
         approved_review_id:
           type: string
+        planning_session_id:
+          type: string
+          nullable: true
+          description: >-
+            The dedicated session this goal is planned in, where an agent authors and the user refines the plan by chatting. Null until planning starts.
         accepted_at:
           type: string
           format: date-time
@@ -993,6 +998,13 @@ components:
         updated_at:
           type: string
           format: date-time
+    GoalPlanningSession:
+      type: object
+      required: [session_id]
+      properties:
+        session_id:
+          type: string
+          description: The goal's dedicated planning session to open and chat in.
     PutGoalPlanRequest:
       type: object
       required: [content]

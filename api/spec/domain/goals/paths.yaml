@@ -468,6 +468,32 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
+  /api/goals/{goalId}/plan/start:
+    parameters:
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Open (or create) the goal's dedicated planning session
+      description: >-
+        Returns the session a goal is planned in, creating and binding one on the
+        first call and returning the same session thereafter — so the UI can open
+        a chat to author or refine the plan, continuing where it left off.
+      operationId: startGoalPlanning
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/GoalPlanningSession",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
   /api/goals/{goalId}/plan/reviews/{reviewId}/approve:
     parameters:
       - { name: goalId, in: path, required: true, schema: { type: string } }

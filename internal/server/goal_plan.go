@@ -95,6 +95,30 @@ func (s *Server) AcceptGoalPlan(w http.ResponseWriter, r *http.Request, goalID s
 	s.writeFreshPlan(w, r, g.ID)
 }
 
+// StartGoalPlanning opens (or creates) the goal's dedicated planning session and
+// returns its id so the UI can mount a chat to author/refine the plan. Idempotent:
+// a goal that already has a planning session gets the same one back.
+func (s *Server) StartGoalPlanning(w http.ResponseWriter, r *http.Request, goalID string) {
+	if !s.tasksReady() {
+		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
+		return
+	}
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
+	if !ok {
+		return
+	}
+	sid, err := s.tasksSvc.Facade.StartGoalPlanning(r.Context(), g.ID)
+	if err != nil {
+		s.taskError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, apitypes.GoalPlanningSession{SessionId: sid})
+}
+
 func (s *Server) MaterializeGoalPlan(w http.ResponseWriter, r *http.Request, goalID string) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
@@ -242,6 +266,10 @@ func planToAPI(p sqlc.AgentGoalPlan) (apitypes.GoalPlan, error) {
 	if p.ApprovedReviewID.Valid {
 		v := p.ApprovedReviewID.String
 		out.ApprovedReviewId = &v
+	}
+	if p.PlanningSessionID.Valid {
+		v := p.PlanningSessionID.String
+		out.PlanningSessionId = &v
 	}
 	if p.AcceptedAt.Valid {
 		v := parseTS(p.AcceptedAt.String)

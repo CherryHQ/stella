@@ -27,7 +27,7 @@ const createAgentGoalPlan = `-- name: CreateAgentGoalPlan :one
 
 INSERT INTO agent_goal_plan (id, goal_id, status, review_policy, pending_content_json, source_run_id)
 VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, goal_id, status, review_policy, content_json, pending_content_json, source_run_id, approved_review_id, accepted_at, materialized_at, created_at, updated_at
+RETURNING id, goal_id, status, review_policy, content_json, pending_content_json, source_run_id, approved_review_id, planning_session_id, accepted_at, materialized_at, created_at, updated_at
 `
 
 type CreateAgentGoalPlanParams struct {
@@ -62,6 +62,7 @@ func (q *Queries) CreateAgentGoalPlan(ctx context.Context, arg CreateAgentGoalPl
 		&i.PendingContentJson,
 		&i.SourceRunID,
 		&i.ApprovedReviewID,
+		&i.PlanningSessionID,
 		&i.AcceptedAt,
 		&i.MaterializedAt,
 		&i.CreatedAt,
@@ -71,7 +72,7 @@ func (q *Queries) CreateAgentGoalPlan(ctx context.Context, arg CreateAgentGoalPl
 }
 
 const getAgentGoalPlan = `-- name: GetAgentGoalPlan :one
-SELECT id, goal_id, status, review_policy, content_json, pending_content_json, source_run_id, approved_review_id, accepted_at, materialized_at, created_at, updated_at FROM agent_goal_plan WHERE id = ?
+SELECT id, goal_id, status, review_policy, content_json, pending_content_json, source_run_id, approved_review_id, planning_session_id, accepted_at, materialized_at, created_at, updated_at FROM agent_goal_plan WHERE id = ?
 `
 
 func (q *Queries) GetAgentGoalPlan(ctx context.Context, id string) (AgentGoalPlan, error) {
@@ -86,6 +87,7 @@ func (q *Queries) GetAgentGoalPlan(ctx context.Context, id string) (AgentGoalPla
 		&i.PendingContentJson,
 		&i.SourceRunID,
 		&i.ApprovedReviewID,
+		&i.PlanningSessionID,
 		&i.AcceptedAt,
 		&i.MaterializedAt,
 		&i.CreatedAt,
@@ -95,7 +97,7 @@ func (q *Queries) GetAgentGoalPlan(ctx context.Context, id string) (AgentGoalPla
 }
 
 const getAgentGoalPlanByGoal = `-- name: GetAgentGoalPlanByGoal :one
-SELECT id, goal_id, status, review_policy, content_json, pending_content_json, source_run_id, approved_review_id, accepted_at, materialized_at, created_at, updated_at FROM agent_goal_plan WHERE goal_id = ?
+SELECT id, goal_id, status, review_policy, content_json, pending_content_json, source_run_id, approved_review_id, planning_session_id, accepted_at, materialized_at, created_at, updated_at FROM agent_goal_plan WHERE goal_id = ?
 `
 
 func (q *Queries) GetAgentGoalPlanByGoal(ctx context.Context, goalID string) (AgentGoalPlan, error) {
@@ -110,6 +112,7 @@ func (q *Queries) GetAgentGoalPlanByGoal(ctx context.Context, goalID string) (Ag
 		&i.PendingContentJson,
 		&i.SourceRunID,
 		&i.ApprovedReviewID,
+		&i.PlanningSessionID,
 		&i.AcceptedAt,
 		&i.MaterializedAt,
 		&i.CreatedAt,
@@ -205,6 +208,32 @@ func (q *Queries) SetAgentGoalPlanInReview(ctx context.Context, arg SetAgentGoal
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setAgentGoalPlanPlanningSession = `-- name: SetAgentGoalPlanPlanningSession :exec
+INSERT INTO agent_goal_plan (id, goal_id, planning_session_id)
+VALUES (?, ?, ?)
+ON CONFLICT(goal_id) DO UPDATE SET
+    planning_session_id = COALESCE(agent_goal_plan.planning_session_id, excluded.planning_session_id),
+    updated_at = datetime('now')
+`
+
+type SetAgentGoalPlanPlanningSessionParams struct {
+	ID                string         `json:"id"`
+	GoalID            string         `json:"goal_id"`
+	PlanningSessionID sql.NullString `json:"planning_session_id"`
+}
+
+// SetAgentGoalPlanPlanningSession binds the dedicated planning session a goal is
+// planned in. It doubles as the plan-row creator for a deferred goal that has no
+// plan yet: INSERT seeds a draft row (status/review_policy/content_json take their
+// schema defaults). The bind is first-writer-wins: COALESCE keeps an already-bound
+// session, so two concurrent StartGoalPlanning calls converge on one session
+// (the loser's minted session is harmlessly orphaned) rather than splitting the
+// planning conversation. content_json / pending_content_json are never touched. #525.
+func (q *Queries) SetAgentGoalPlanPlanningSession(ctx context.Context, arg SetAgentGoalPlanPlanningSessionParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentGoalPlanPlanningSession, arg.ID, arg.GoalID, arg.PlanningSessionID)
+	return err
 }
 
 const setAgentGoalPlanStatus = `-- name: SetAgentGoalPlanStatus :exec

@@ -271,6 +271,67 @@ func TestReplanUnderReview_RunningGoal_Reject_LeavesUntouched(t *testing.T) {
 }
 
 // goalStatus and plan are small accessors for Phase 5 assertions.
+// StartGoalPlanning binds a dedicated planning session to the goal, creating the
+// plan row lazily, and is idempotent: re-opening returns the same session so the
+// planning conversation continues where it left off. It must not move the goal's
+// status — staging content via CreateGoalPlan is what promotes draft -> planning.
+func TestStartGoalPlanning_BindsLazilyAndReuses(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
+	f.newPlanningSession = h.sessionMinter()
+	ctx := context.Background()
+	g := h.deferredGoal(t, f)
+
+	sid, err := f.StartGoalPlanning(ctx, g.ID)
+	if err != nil {
+		t.Fatalf("StartGoalPlanning: %v", err)
+	}
+	if sid == "" {
+		t.Fatal("StartGoalPlanning returned empty session id")
+	}
+	plan := h.plan(t, g.ID) // created lazily
+	if !plan.PlanningSessionID.Valid || plan.PlanningSessionID.String != sid {
+		t.Errorf("planning_session_id=%v want %q", plan.PlanningSessionID, sid)
+	}
+	if got := h.goalStatus(t, g.ID); got != GoalStatusDraft {
+		t.Errorf("goal status=%q want draft (StartGoalPlanning must not move it)", got)
+	}
+	again, err := f.StartGoalPlanning(ctx, g.ID)
+	if err != nil {
+		t.Fatalf("StartGoalPlanning reuse: %v", err)
+	}
+	if again != sid {
+		t.Errorf("reuse returned %q want the same session %q", again, sid)
+	}
+}
+
+// StartGoalPlanning on a goal that already has a staged plan binds the session
+// without disturbing the pending edit — the upsert only writes planning_session_id.
+func TestStartGoalPlanning_PreservesPendingPlan(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc, h.sessionMinter())
+	f.newPlanningSession = h.sessionMinter()
+	ctx := context.Background()
+	g := h.deferredGoal(t, f)
+	if err := f.CreateGoalPlan(ctx, g.ID, structuredPlan(), ReviewPolicyNone, SystemActor()); err != nil {
+		t.Fatalf("CreateGoalPlan: %v", err)
+	}
+
+	if _, err := f.StartGoalPlanning(ctx, g.ID); err != nil {
+		t.Fatalf("StartGoalPlanning: %v", err)
+	}
+	plan := h.plan(t, g.ID)
+	if !plan.PlanningSessionID.Valid {
+		t.Error("planning session not bound")
+	}
+	if !plan.PendingContentJson.Valid {
+		t.Error("StartGoalPlanning wiped the pending plan edit")
+	}
+	if got := h.goalStatus(t, g.ID); got != GoalStatusPlanning {
+		t.Errorf("goal status=%q want planning (unchanged by StartGoalPlanning)", got)
+	}
+}
+
 func (h *testHarness) goalStatus(t *testing.T, goalID string) string {
 	t.Helper()
 	g, err := h.q.GetAgentGoal(context.Background(), goalID)

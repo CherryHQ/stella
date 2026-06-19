@@ -262,6 +262,7 @@ export function GoalPage() {
 
       <GoalPlanEditor
         goalId={goal.id}
+        agentId={goal.agent_id || agentId}
         plan={plan ?? null}
         open={editorOpen}
         onOpenChange={setEditorOpen}

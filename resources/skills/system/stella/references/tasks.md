@@ -134,15 +134,21 @@ Supported goal workflow:
   hand-attached task. No `--activate` step is needed. The plan is readable via
   `goal plan get` and shown as a Plan section on the Web UI goal detail page.
 - **Multi-step goal.** `stella task goal create --title "..." --plan-mode deferred`
-  leaves the goal at `draft` with no plan. Then:
-  1. `stella task goal plan set <goal-id> --file plan.json` — stage a structured
+  leaves the goal at `draft` with no plan. Plan it in a **dedicated planning
+  session** so the user can re-open it later and refine the plan by chatting:
+  1. `stella task goal plan start <goal-id>` — opens (and binds, reusing on
+     re-run) the goal's planning session and prints its id. `delegate` the
+     planning into that session id; the sub-agent works out the plan and writes
+     it with `stella task goal plan set <goal-id> --file plan.json` — a structured
      plan (`{"items":[{"id","title","role","deps","criteria"}]}`; roles
      `design|impl|verify`). Add `--review-policy human` to require human approval.
+     Plan inside this session rather than authoring the JSON inline: the web UI
+     re-opens the same session for the user to revise the plan conversationally.
   2. Accept it: `stella task goal plan accept <goal-id>` (review_policy none), or
      `plan submit-review` then `plan review approve <goal-id> <review-id>` (human).
   3. `stella task goal plan materialize <goal-id>` — builds the task graph; goal → `planned`.
   4. `stella task goal activate <goal-id>`.
-- Inspect with `goal get`, `goal tasks`, and `goal plan get`.
+- Inspect with `goal get`, `goal tasks`, and `goal plan get` (shows the planning session).
 
 Run `stella task goal plan --help` for the full command set.
 

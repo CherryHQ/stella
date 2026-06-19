@@ -1,4 +1,4 @@
-h1:yU1rCt8/jslbzTa9nwp7hCKEDbOYMsZSoO0PC92YXC0=
+h1:kpX7MUTHIYB/jKaenNvGYGbp6uxDwKlpwQltMoKQOxg=
 20260531120105_initial.sql h1:yFv08NKwCabgVkvWoSNzba6WMXjbXrI9xHctaJBir/8=
 20260601060943_add_config_to_plugin_override.sql h1:q2MIJRzEYGDQyjnLeFUrQ0zbnvdgxBh/MRANwRmPFn4=
 20260602031701_add-channel-name.sql h1:1ZGYJvwMOOShxLGIN9SJihmcfQtFRpTPXHhOWDv29fc=
@@ -24,3 +24,4 @@ h1:yU1rCt8/jslbzTa9nwp7hCKEDbOYMsZSoO0PC92YXC0=
 20260615140513_scoped_skills.sql h1:mS1wbB+WjyAyTbb8uRJOgykNy1rgLwWncoFkjTdzNU0=
 20260617170000_add_task_goal_archive.sql h1:bvj2IDkJSBoeUTmwKnl9Yd16iUaGiN56dizeqb5Y/hU=
 20260618143402_goal_plan_gate.sql h1:zlp2Bawe5KGs32gYUELEYbHZwWLv68ZfyPKbVG1qLvc=
+20260619022012_add_goal_plan_planning_session.sql h1:ndHChTaWlQavusy35atFua3sH7I6+N8F9z4hvTsn57Q=

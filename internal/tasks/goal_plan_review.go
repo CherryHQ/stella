@@ -32,6 +32,61 @@ func (f *ServiceFacade) GetGoalPlan(ctx context.Context, goalID string) (sqlc.Ag
 	return loadGoalPlan(ctx, f.q, goalID)
 }
 
+// StartGoalPlanning returns the dedicated planning session a goal is planned in,
+// creating and binding one on first call. The session is a persistent delegate
+// session: the owning agent delegates planning into it (authoring the plan via
+// the CLI), and the user re-opens it from the UI to refine the plan by chatting.
+// Re-opening a goal that already has a planning session returns the same session,
+// so the conversation continues where it left off — a replan on a planned/running
+// goal keeps the same thread. The plan row is created lazily here (draft, empty)
+// when the goal has none yet, so plan content can be staged into it later. The
+// goal status is untouched; staging content via CreateGoalPlan is what moves a
+// draft goal to planning. Refuses a terminal goal.
+func (f *ServiceFacade) StartGoalPlanning(ctx context.Context, goalID string) (string, error) {
+	goal, err := f.q.GetAgentGoal(ctx, goalID)
+	if err != nil {
+		return "", err
+	}
+	if isTerminalGoalStatus(goal.Status) {
+		return "", fmt.Errorf("%w: goal is %s", ErrInvalidTransition, goal.Status)
+	}
+	plan, err := f.q.GetAgentGoalPlanByGoal(ctx, goalID)
+	switch {
+	case err == nil && plan.PlanningSessionID.Valid:
+		return plan.PlanningSessionID.String, nil
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return "", err
+	}
+	if f.newPlanningSession == nil {
+		return "", fmt.Errorf("%w: planning session minter is not configured", ErrInvalidTaskContext)
+	}
+	// Mint the session before binding (single-writer: no DB write is held open
+	// across the session-registry call, mirroring MaterializeGoalPlan's SF1).
+	sid, err := f.newPlanningSession(ctx, goal.UserID, goal.AgentID, goal.ProjectID.String)
+	if err != nil {
+		return "", fmt.Errorf("mint planning session: %w", err)
+	}
+	if err := f.q.SetAgentGoalPlanPlanningSession(ctx, sqlc.SetAgentGoalPlanPlanningSessionParams{
+		ID:                uuid.NewString(),
+		GoalID:            goalID,
+		PlanningSessionID: nullable(sid),
+	}); err != nil {
+		return "", fmt.Errorf("bind planning session: %w", err)
+	}
+	// The bind is first-writer-wins (COALESCE), so a concurrent caller may have
+	// won the row. Re-read and return the converged session — never our local
+	// sid, which could be the orphaned loser — so the agent and the UI open the
+	// same planning conversation.
+	bound, err := f.q.GetAgentGoalPlanByGoal(ctx, goalID)
+	if err != nil {
+		return "", fmt.Errorf("read bound planning session: %w", err)
+	}
+	if !bound.PlanningSessionID.Valid {
+		return "", fmt.Errorf("%w: planning session vanished after bind", ErrInvalidTaskContext)
+	}
+	return bound.PlanningSessionID.String, nil
+}
+
 func (f *ServiceFacade) CreateGoalPlan(ctx context.Context, goalID string, content PlanContent, reviewPolicy string, actor Actor) error {
 	if reviewPolicy == "" {
 		reviewPolicy = ReviewPolicyNone
