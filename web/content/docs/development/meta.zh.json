@@ -14,6 +14,7 @@
     "session-compaction",
     "plugin-system",
     "task-system",
-    "goal-system"
+    "goal-system",
+    "deliverable-model"
   ]
 }
