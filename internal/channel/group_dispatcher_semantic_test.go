@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -28,8 +29,8 @@ func addSecondMember(t *testing.T, fx dispatcherFixture) {
 		ID:                   "agent-2",
 		Name:                 "Agent Two",
 		Workspace:            t.TempDir(),
-		Sandbox:              "{}",
-		EnabledBuiltinSkills: "[]",
+		Sandbox:              json.RawMessage("{}"),
+		EnabledBuiltinSkills: json.RawMessage("[]"),
 		Scope:                "system",
 		Enabled:              true,
 	}); err != nil {

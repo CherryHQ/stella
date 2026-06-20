@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -69,8 +70,8 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 		ID:                   "agent-1",
 		Name:                 "Agent One",
 		Workspace:            t.TempDir(),
-		Sandbox:              "{}",
-		EnabledBuiltinSkills: "[]",
+		Sandbox:              json.RawMessage("{}"),
+		EnabledBuiltinSkills: json.RawMessage("[]"),
 		Scope:                "system",
 		Enabled:              true,
 	}); err != nil {
@@ -277,7 +278,7 @@ func TestListPendingGroupDispatchGateIsPerGroupAgent(t *testing.T) {
 		t.Fatalf("complete outbox: %v", err)
 	}
 	now := time.Now().UTC()
-	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: true}); err != nil {
+	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true}); err != nil {
 		t.Fatalf("create agent-2: %v", err)
 	}
 	state2, err := fx.q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{ID: "group-2", Platform: "web", PlatformGroupID: "physical-group-2", GroupName: "Group Two"})
@@ -435,8 +436,8 @@ func TestGroupDispatcherPlatformAlwaysModeUsesMemberFallback(t *testing.T) {
 		ID:                   "agent-2",
 		Name:                 "Agent Two",
 		Workspace:            t.TempDir(),
-		Sandbox:              "{}",
-		EnabledBuiltinSkills: "[]",
+		Sandbox:              json.RawMessage("{}"),
+		EnabledBuiltinSkills: json.RawMessage("[]"),
 		Scope:                "system",
 		Enabled:              true,
 	}); err != nil {
@@ -789,7 +790,7 @@ func TestGroupDispatcherDispatchSyncWaitsForBlockedDispatch(t *testing.T) {
 	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
 	setGroupNextSeq(t, fx.db, fx.message.GroupID, later.Seq)
-	laterOutbox, err := fx.q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{ID: "outbox-2", GroupMessageID: later.ID, GroupID: fx.message.GroupID, Envelope: `{}`, Status: "pending", LastError: ""})
+	laterOutbox, err := fx.q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{ID: "outbox-2", GroupMessageID: later.ID, GroupID: fx.message.GroupID, Envelope: "{}", Status: "pending", LastError: ""})
 	if err != nil {
 		t.Fatalf("create later outbox: %v", err)
 	}

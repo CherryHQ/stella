@@ -15,11 +15,11 @@ CREATE TABLE agent_goal_attempt (
     attempt_no          BIGINT NOT NULL DEFAULT 1,                             -- 1-based; unique per (goal, purpose)
     status              TEXT NOT NULL DEFAULT 'queued',                         -- queued|running|submitted|interrupted|failed|cancelled (Go-enforced)
 
-    input_context       TEXT NOT NULL DEFAULT '{}',                            -- frozen at mint: intent + upstream accepted outputs + prior gaps
-    evidence            TEXT NOT NULL DEFAULT '{}',                            -- submitted evidence: summary, artifacts-by-hash, stdout refs
-    output              TEXT NOT NULL DEFAULT '{}',                            -- candidate output the contract evaluates
+    input_context       JSONB NOT NULL DEFAULT '{}',                            -- frozen at mint: intent + upstream accepted outputs + prior gaps
+    evidence            JSONB NOT NULL DEFAULT '{}',                            -- submitted evidence: summary, artifacts-by-hash, stdout refs
+    output              JSONB NOT NULL DEFAULT '{}',                            -- candidate output the contract evaluates
     revision_id         TEXT REFERENCES agent_goal_revision(id) ON DELETE SET NULL, -- purpose='decomposition': the produced revision
-    gaps                TEXT NOT NULL DEFAULT '{}',                            -- evaluation shortfalls (set by acceptance eval; fed to attempt_no+1)
+    gaps                JSONB NOT NULL DEFAULT '{}',                            -- evaluation shortfalls (set by acceptance eval; fed to attempt_no+1)
     error               TEXT NOT NULL DEFAULT '',
 
     -- Lease / heartbeat (carried verbatim from agent_task_run).

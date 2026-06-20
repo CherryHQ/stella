@@ -145,21 +145,15 @@ type GoalFilter struct {
 	Archived  bool
 }
 
-func (f GoalFilter) includeArchived() any {
-	if f.Archived {
-		return int64(1)
-	}
-	return nil
+func (f GoalFilter) includeArchived() bool {
+	return f.Archived
 }
 
-func (f GoalFilter) terminalArg() any {
+func (f GoalFilter) terminalArg() sql.NullBool {
 	if f.Terminal == nil {
-		return nil
+		return sql.NullBool{}
 	}
-	if *f.Terminal {
-		return int64(1)
-	}
-	return int64(0)
+	return sql.NullBool{Bool: *f.Terminal, Valid: true}
 }
 
 // ListGoals lists root goals (goals: parent_id IS NULL) for a user,

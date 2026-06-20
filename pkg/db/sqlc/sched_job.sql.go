@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 )
 
@@ -23,27 +24,27 @@ RETURNING id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, de
 `
 
 type CreateSchedulerJobParams struct {
-	ID            string         `json:"id"`
-	OwnerKind     string         `json:"owner_kind"`
-	ExecScope     string         `json:"exec_scope"`
-	PluginID      string         `json:"plugin_id"`
-	JobKey        string         `json:"job_key"`
-	RuntimeName   string         `json:"runtime_name"`
-	Name          string         `json:"name"`
-	Description   string         `json:"description"`
-	ScheduleCron  string         `json:"schedule_cron"`
-	ScheduleEvery string         `json:"schedule_every"`
-	ScheduleAt    string         `json:"schedule_at"`
-	Message       string         `json:"message"`
-	Payload       string         `json:"payload"`
-	SessionMode   string         `json:"session_mode"`
-	Enabled       bool           `json:"enabled"`
-	AgentID       sql.NullString `json:"agent_id"`
-	UserID        sql.NullString `json:"user_id"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	LastRunAt     sql.NullTime   `json:"last_run_at"`
-	LastError     string         `json:"last_error"`
+	ID            string          `json:"id"`
+	OwnerKind     string          `json:"owner_kind"`
+	ExecScope     string          `json:"exec_scope"`
+	PluginID      string          `json:"plugin_id"`
+	JobKey        string          `json:"job_key"`
+	RuntimeName   string          `json:"runtime_name"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description"`
+	ScheduleCron  string          `json:"schedule_cron"`
+	ScheduleEvery string          `json:"schedule_every"`
+	ScheduleAt    string          `json:"schedule_at"`
+	Message       string          `json:"message"`
+	Payload       json.RawMessage `json:"payload"`
+	SessionMode   string          `json:"session_mode"`
+	Enabled       bool            `json:"enabled"`
+	AgentID       sql.NullString  `json:"agent_id"`
+	UserID        sql.NullString  `json:"user_id"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	LastRunAt     sql.NullTime    `json:"last_run_at"`
+	LastError     string          `json:"last_error"`
 }
 
 func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJobParams) (SchedJob, error) {
@@ -327,26 +328,26 @@ WHERE id = $20
 `
 
 type UpdateSchedulerJobParams struct {
-	OwnerKind     string         `json:"owner_kind"`
-	ExecScope     string         `json:"exec_scope"`
-	PluginID      string         `json:"plugin_id"`
-	JobKey        string         `json:"job_key"`
-	RuntimeName   string         `json:"runtime_name"`
-	Name          string         `json:"name"`
-	Description   string         `json:"description"`
-	ScheduleCron  string         `json:"schedule_cron"`
-	ScheduleEvery string         `json:"schedule_every"`
-	ScheduleAt    string         `json:"schedule_at"`
-	Message       string         `json:"message"`
-	Payload       string         `json:"payload"`
-	SessionMode   string         `json:"session_mode"`
-	Enabled       bool           `json:"enabled"`
-	AgentID       sql.NullString `json:"agent_id"`
-	UserID        sql.NullString `json:"user_id"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	LastRunAt     sql.NullTime   `json:"last_run_at"`
-	LastError     string         `json:"last_error"`
-	ID            string         `json:"id"`
+	OwnerKind     string          `json:"owner_kind"`
+	ExecScope     string          `json:"exec_scope"`
+	PluginID      string          `json:"plugin_id"`
+	JobKey        string          `json:"job_key"`
+	RuntimeName   string          `json:"runtime_name"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description"`
+	ScheduleCron  string          `json:"schedule_cron"`
+	ScheduleEvery string          `json:"schedule_every"`
+	ScheduleAt    string          `json:"schedule_at"`
+	Message       string          `json:"message"`
+	Payload       json.RawMessage `json:"payload"`
+	SessionMode   string          `json:"session_mode"`
+	Enabled       bool            `json:"enabled"`
+	AgentID       sql.NullString  `json:"agent_id"`
+	UserID        sql.NullString  `json:"user_id"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	LastRunAt     sql.NullTime    `json:"last_run_at"`
+	LastError     string          `json:"last_error"`
+	ID            string          `json:"id"`
 }
 
 func (q *Queries) UpdateSchedulerJob(ctx context.Context, arg UpdateSchedulerJobParams) error {

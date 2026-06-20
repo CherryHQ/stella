@@ -440,23 +440,23 @@ func decodeTags(value string) []string {
 	return tags
 }
 
-func encodeMetadata(metadata map[string]string) string {
+func encodeMetadata(metadata map[string]string) json.RawMessage {
 	if len(metadata) == 0 {
-		return "{}"
+		return json.RawMessage("{}")
 	}
 	buf, err := json.Marshal(metadata)
 	if err != nil {
-		return "{}"
+		return json.RawMessage("{}")
 	}
-	return string(buf)
+	return buf
 }
 
-func decodeMetadata(value string) map[string]string {
-	if value == "" {
+func decodeMetadata(value json.RawMessage) map[string]string {
+	if len(value) == 0 {
 		return map[string]string{}
 	}
 	metadata := make(map[string]string)
-	if err := json.Unmarshal([]byte(value), &metadata); err != nil {
+	if err := json.Unmarshal(value, &metadata); err != nil {
 		return map[string]string{}
 	}
 	return metadata

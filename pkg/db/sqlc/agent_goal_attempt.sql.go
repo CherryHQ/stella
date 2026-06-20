@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 const countInflightAttemptsByRoot = `-- name: CountInflightAttemptsByRoot :one
@@ -49,17 +50,17 @@ RETURNING id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose
 `
 
 type CreateAttemptParams struct {
-	ID              string         `json:"id"`
-	GoalID          string         `json:"goal_id"`
-	UserID          string         `json:"user_id"`
-	AgentID         sql.NullString `json:"agent_id"`
-	ExecutorAgentID sql.NullString `json:"executor_agent_id"`
-	SessionID       string         `json:"session_id"`
-	Purpose         string         `json:"purpose"`
-	AttemptNo       int64          `json:"attempt_no"`
-	Status          string         `json:"status"`
-	InputContext    string         `json:"input_context"`
-	LeaseExpiresAt  sql.NullTime   `json:"lease_expires_at"`
+	ID              string          `json:"id"`
+	GoalID          string          `json:"goal_id"`
+	UserID          string          `json:"user_id"`
+	AgentID         sql.NullString  `json:"agent_id"`
+	ExecutorAgentID sql.NullString  `json:"executor_agent_id"`
+	SessionID       string          `json:"session_id"`
+	Purpose         string          `json:"purpose"`
+	AttemptNo       int64           `json:"attempt_no"`
+	Status          string          `json:"status"`
+	InputContext    json.RawMessage `json:"input_context"`
+	LeaseExpiresAt  sql.NullTime    `json:"lease_expires_at"`
 }
 
 func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (AgentGoalAttempt, error) {
@@ -409,8 +410,8 @@ WHERE id = $2
 `
 
 type SetAttemptGapsParams struct {
-	Gaps string `json:"gaps"`
-	ID   string `json:"id"`
+	Gaps json.RawMessage `json:"gaps"`
+	ID   string          `json:"id"`
 }
 
 func (q *Queries) SetAttemptGaps(ctx context.Context, arg SetAttemptGapsParams) error {
@@ -430,10 +431,10 @@ WHERE id = $4 AND status = 'running'
 `
 
 type SubmitAttemptParams struct {
-	Evidence   string         `json:"evidence"`
-	Output     string         `json:"output"`
-	RevisionID sql.NullString `json:"revision_id"`
-	ID         string         `json:"id"`
+	Evidence   json.RawMessage `json:"evidence"`
+	Output     json.RawMessage `json:"output"`
+	RevisionID sql.NullString  `json:"revision_id"`
+	ID         string          `json:"id"`
 }
 
 func (q *Queries) SubmitAttempt(ctx context.Context, arg SubmitAttemptParams) (int64, error) {

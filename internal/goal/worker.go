@@ -281,7 +281,7 @@ func (w *Worker) checkEnv(ctx context.Context, goal sqlc.AgentGoal) CheckEnv {
 			continue
 		}
 		var ao AcceptedOutput
-		if err := unmarshalJSON(e.UpstreamOutput.String, &ao); err != nil || ao.Hash == "" {
+		if err := unmarshalNullJSON(e.UpstreamOutput, &ao); err != nil || ao.Hash == "" {
 			continue
 		}
 		env.UpstreamHashes = append(env.UpstreamHashes, ao.Hash)

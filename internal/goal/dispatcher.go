@@ -551,7 +551,7 @@ func (s *GoalService) RollupAccept(ctx context.Context, id string) error {
 			AcceptedAt: s.now(),
 		}
 		rows, err := q.AcceptGoal(ctx, sqlc.AcceptGoalParams{
-			AcceptedOutput: nullStr(marshalJSON(accepted)),
+			AcceptedOutput: marshalNullJSON(accepted),
 			ID:             cur.ID,
 		})
 		if err != nil {

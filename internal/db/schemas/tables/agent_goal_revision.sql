@@ -11,7 +11,7 @@ CREATE TABLE agent_goal_revision (
     status              TEXT NOT NULL DEFAULT 'draft',                         -- draft|in_review|accepted|rejected|superseded (Go-enforced)
     review_policy       TEXT NOT NULL DEFAULT 'none',                          -- snapshot of the gate at submit (Go-enforced)
 
-    content             TEXT NOT NULL DEFAULT '{}',                            -- proposed children + edges (DecompositionContent)
+    content             JSONB NOT NULL DEFAULT '{}',                            -- proposed children + edges (DecompositionContent)
     source_attempt_id   TEXT,  -- FK added in agent_goal_attempt.sql (cycle: agent_goal_revision <-> agent_goal_attempt)
 
     -- Dedicated planning session (carried from agent_goal_plan.planning_session_id).

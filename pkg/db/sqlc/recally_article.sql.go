@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 )
 
@@ -49,23 +50,23 @@ RETURNING id, user_id, agent_id, url, canonical_url, source_type, title, author,
 `
 
 type CreateArticleParams struct {
-	ID           string         `json:"id"`
-	UserID       string         `json:"user_id"`
-	AgentID      sql.NullString `json:"agent_id"`
-	Url          string         `json:"url"`
-	CanonicalUrl string         `json:"canonical_url"`
-	SourceType   string         `json:"source_type"`
-	Title        string         `json:"title"`
-	Author       string         `json:"author"`
-	Summary      string         `json:"summary"`
-	Tags         string         `json:"tags"`
-	Status       string         `json:"status"`
-	Starred      bool           `json:"starred"`
-	FilePath     string         `json:"file_path"`
-	Metadata     string         `json:"metadata"`
-	PublishedAt  sql.NullTime   `json:"published_at"`
-	SavedAt      time.Time      `json:"saved_at"`
-	ReadAt       sql.NullTime   `json:"read_at"`
+	ID           string          `json:"id"`
+	UserID       string          `json:"user_id"`
+	AgentID      sql.NullString  `json:"agent_id"`
+	Url          string          `json:"url"`
+	CanonicalUrl string          `json:"canonical_url"`
+	SourceType   string          `json:"source_type"`
+	Title        string          `json:"title"`
+	Author       string          `json:"author"`
+	Summary      string          `json:"summary"`
+	Tags         string          `json:"tags"`
+	Status       string          `json:"status"`
+	Starred      bool            `json:"starred"`
+	FilePath     string          `json:"file_path"`
+	Metadata     json.RawMessage `json:"metadata"`
+	PublishedAt  sql.NullTime    `json:"published_at"`
+	SavedAt      time.Time       `json:"saved_at"`
+	ReadAt       sql.NullTime    `json:"read_at"`
 }
 
 func (q *Queries) CreateArticle(ctx context.Context, arg CreateArticleParams) (RecallyArticle, error) {
@@ -592,18 +593,18 @@ RETURNING id, user_id, agent_id, url, canonical_url, source_type, title, author,
 `
 
 type UpdateArticleParams struct {
-	Title       string       `json:"title"`
-	Author      string       `json:"author"`
-	Summary     string       `json:"summary"`
-	Tags        string       `json:"tags"`
-	Status      string       `json:"status"`
-	Starred     bool         `json:"starred"`
-	FilePath    string       `json:"file_path"`
-	Metadata    string       `json:"metadata"`
-	PublishedAt sql.NullTime `json:"published_at"`
-	ReadAt      sql.NullTime `json:"read_at"`
-	ID          string       `json:"id"`
-	UserID      string       `json:"user_id"`
+	Title       string          `json:"title"`
+	Author      string          `json:"author"`
+	Summary     string          `json:"summary"`
+	Tags        string          `json:"tags"`
+	Status      string          `json:"status"`
+	Starred     bool            `json:"starred"`
+	FilePath    string          `json:"file_path"`
+	Metadata    json.RawMessage `json:"metadata"`
+	PublishedAt sql.NullTime    `json:"published_at"`
+	ReadAt      sql.NullTime    `json:"read_at"`
+	ID          string          `json:"id"`
+	UserID      string          `json:"user_id"`
 }
 
 func (q *Queries) UpdateArticle(ctx context.Context, arg UpdateArticleParams) (RecallyArticle, error) {

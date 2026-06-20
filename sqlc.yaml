@@ -10,3 +10,10 @@ sql:
         sql_package: "database/sql"
         emit_json_tags: true
         emit_empty_slices: true
+        overrides:
+          # JSONB columns map to json.RawMessage (raw, ready to (un)marshal),
+          # never a plain string that callers must cast at every boundary.
+          # All JSONB columns are NOT NULL; genuinely-nullable JSON payloads stay
+          # TEXT (database/sql cannot scan SQL NULL into json.RawMessage).
+          - db_type: "jsonb"
+            go_type: "encoding/json.RawMessage"

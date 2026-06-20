@@ -11,109 +11,109 @@ import (
 )
 
 type Agent struct {
-	ID                   string    `json:"id"`
-	Name                 string    `json:"name"`
-	Model                string    `json:"model"`
-	ModelThinking        string    `json:"model_thinking"`
-	ModelStrong          string    `json:"model_strong"`
-	ModelStrongThinking  string    `json:"model_strong_thinking"`
-	ModelFast            string    `json:"model_fast"`
-	ModelFastThinking    string    `json:"model_fast_thinking"`
-	SystemPrompt         string    `json:"system_prompt"`
-	Soul                 string    `json:"soul"`
-	Workspace            string    `json:"workspace"`
-	Sandbox              string    `json:"sandbox"`
-	EnabledBuiltinSkills string    `json:"enabled_builtin_skills"`
-	Scope                string    `json:"scope"`
-	CreatorID            string    `json:"creator_id"`
-	Enabled              bool      `json:"enabled"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
+	ID                   string          `json:"id"`
+	Name                 string          `json:"name"`
+	Model                string          `json:"model"`
+	ModelThinking        string          `json:"model_thinking"`
+	ModelStrong          string          `json:"model_strong"`
+	ModelStrongThinking  string          `json:"model_strong_thinking"`
+	ModelFast            string          `json:"model_fast"`
+	ModelFastThinking    string          `json:"model_fast_thinking"`
+	SystemPrompt         string          `json:"system_prompt"`
+	Soul                 string          `json:"soul"`
+	Workspace            string          `json:"workspace"`
+	Sandbox              json.RawMessage `json:"sandbox"`
+	EnabledBuiltinSkills json.RawMessage `json:"enabled_builtin_skills"`
+	Scope                string          `json:"scope"`
+	CreatorID            string          `json:"creator_id"`
+	Enabled              bool            `json:"enabled"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
 }
 
 type AgentGoal struct {
-	ID                 string         `json:"id"`
-	UserID             string         `json:"user_id"`
-	AgentID            string         `json:"agent_id"`
-	ProjectID          sql.NullString `json:"project_id"`
-	ParentID           sql.NullString `json:"parent_id"`
-	RootID             string         `json:"root_id"`
-	Depth              int64          `json:"depth"`
-	Position           int64          `json:"position"`
-	SessionID          string         `json:"session_id"`
-	Title              string         `json:"title"`
-	Intent             string         `json:"intent"`
-	Kind               string         `json:"kind"`
-	Priority           string         `json:"priority"`
-	Required           int64          `json:"required"`
-	AcceptanceContract string         `json:"acceptance_contract"`
-	ConvergencePolicy  string         `json:"convergence_policy"`
-	ReviewPolicy       string         `json:"review_policy"`
-	Lifecycle          string         `json:"lifecycle"`
-	BlockReason        string         `json:"block_reason"`
-	AcceptanceState    string         `json:"acceptance_state"`
-	AcceptedOutput     sql.NullString `json:"accepted_output"`
-	AcceptanceSeq      int64          `json:"acceptance_seq"`
-	ActiveAttemptID    sql.NullString `json:"active_attempt_id"`
-	AttemptCount       int64          `json:"attempt_count"`
-	RequiredTotal      int64          `json:"required_total"`
-	RequiredAccepted   int64          `json:"required_accepted"`
-	RequiredFailed     int64          `json:"required_failed"`
-	RequiredBlocked    int64          `json:"required_blocked"`
-	AcceptedRevisionID sql.NullString `json:"accepted_revision_id"`
-	Context            string         `json:"context"`
-	DispatchHint       string         `json:"dispatch_hint"`
-	CreatedAt          time.Time      `json:"created_at"`
-	UpdatedAt          time.Time      `json:"updated_at"`
-	AcceptedAt         sql.NullTime   `json:"accepted_at"`
-	CancelledAt        sql.NullTime   `json:"cancelled_at"`
-	ArchivedAt         sql.NullTime   `json:"archived_at"`
+	ID                 string          `json:"id"`
+	UserID             string          `json:"user_id"`
+	AgentID            string          `json:"agent_id"`
+	ProjectID          sql.NullString  `json:"project_id"`
+	ParentID           sql.NullString  `json:"parent_id"`
+	RootID             string          `json:"root_id"`
+	Depth              int64           `json:"depth"`
+	Position           int64           `json:"position"`
+	SessionID          string          `json:"session_id"`
+	Title              string          `json:"title"`
+	Intent             string          `json:"intent"`
+	Kind               string          `json:"kind"`
+	Priority           string          `json:"priority"`
+	Required           bool            `json:"required"`
+	AcceptanceContract json.RawMessage `json:"acceptance_contract"`
+	ConvergencePolicy  json.RawMessage `json:"convergence_policy"`
+	ReviewPolicy       string          `json:"review_policy"`
+	Lifecycle          string          `json:"lifecycle"`
+	BlockReason        string          `json:"block_reason"`
+	AcceptanceState    string          `json:"acceptance_state"`
+	AcceptedOutput     sql.NullString  `json:"accepted_output"`
+	AcceptanceSeq      int64           `json:"acceptance_seq"`
+	ActiveAttemptID    sql.NullString  `json:"active_attempt_id"`
+	AttemptCount       int64           `json:"attempt_count"`
+	RequiredTotal      int64           `json:"required_total"`
+	RequiredAccepted   int64           `json:"required_accepted"`
+	RequiredFailed     int64           `json:"required_failed"`
+	RequiredBlocked    int64           `json:"required_blocked"`
+	AcceptedRevisionID sql.NullString  `json:"accepted_revision_id"`
+	Context            json.RawMessage `json:"context"`
+	DispatchHint       json.RawMessage `json:"dispatch_hint"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+	AcceptedAt         sql.NullTime    `json:"accepted_at"`
+	CancelledAt        sql.NullTime    `json:"cancelled_at"`
+	ArchivedAt         sql.NullTime    `json:"archived_at"`
 }
 
 type AgentGoalAcceptanceEvent struct {
-	ID                string         `json:"id"`
-	GoalID            string         `json:"goal_id"`
-	AttemptID         sql.NullString `json:"attempt_id"`
-	Seq               int64          `json:"seq"`
-	ItemID            string         `json:"item_id"`
-	ItemKind          string         `json:"item_kind"`
-	Result            string         `json:"result"`
-	Command           string         `json:"command"`
-	ExitCode          sql.NullInt64  `json:"exit_code"`
-	CacheKey          string         `json:"cache_key"`
-	Authority         string         `json:"authority"`
-	ReviewerUserID    sql.NullString `json:"reviewer_user_id"`
-	ReviewerAttemptID sql.NullString `json:"reviewer_attempt_id"`
-	Rationale         string         `json:"rationale"`
-	Scope             string         `json:"scope"`
-	ScopeHash         string         `json:"scope_hash"`
-	Detail            string         `json:"detail"`
-	CreatedAt         time.Time      `json:"created_at"`
+	ID                string          `json:"id"`
+	GoalID            string          `json:"goal_id"`
+	AttemptID         sql.NullString  `json:"attempt_id"`
+	Seq               int64           `json:"seq"`
+	ItemID            string          `json:"item_id"`
+	ItemKind          string          `json:"item_kind"`
+	Result            string          `json:"result"`
+	Command           string          `json:"command"`
+	ExitCode          sql.NullInt64   `json:"exit_code"`
+	CacheKey          string          `json:"cache_key"`
+	Authority         string          `json:"authority"`
+	ReviewerUserID    sql.NullString  `json:"reviewer_user_id"`
+	ReviewerAttemptID sql.NullString  `json:"reviewer_attempt_id"`
+	Rationale         string          `json:"rationale"`
+	Scope             string          `json:"scope"`
+	ScopeHash         string          `json:"scope_hash"`
+	Detail            json.RawMessage `json:"detail"`
+	CreatedAt         time.Time       `json:"created_at"`
 }
 
 type AgentGoalAttempt struct {
-	ID              string         `json:"id"`
-	GoalID          string         `json:"goal_id"`
-	UserID          string         `json:"user_id"`
-	AgentID         sql.NullString `json:"agent_id"`
-	ExecutorAgentID sql.NullString `json:"executor_agent_id"`
-	SessionID       string         `json:"session_id"`
-	Purpose         string         `json:"purpose"`
-	AttemptNo       int64          `json:"attempt_no"`
-	Status          string         `json:"status"`
-	InputContext    string         `json:"input_context"`
-	Evidence        string         `json:"evidence"`
-	Output          string         `json:"output"`
-	RevisionID      sql.NullString `json:"revision_id"`
-	Gaps            string         `json:"gaps"`
-	Error           string         `json:"error"`
-	HeartbeatAt     sql.NullTime   `json:"heartbeat_at"`
-	LeaseExpiresAt  sql.NullTime   `json:"lease_expires_at"`
-	WorkerID        string         `json:"worker_id"`
-	StartedAt       sql.NullTime   `json:"started_at"`
-	FinishedAt      sql.NullTime   `json:"finished_at"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
+	ID              string          `json:"id"`
+	GoalID          string          `json:"goal_id"`
+	UserID          string          `json:"user_id"`
+	AgentID         sql.NullString  `json:"agent_id"`
+	ExecutorAgentID sql.NullString  `json:"executor_agent_id"`
+	SessionID       string          `json:"session_id"`
+	Purpose         string          `json:"purpose"`
+	AttemptNo       int64           `json:"attempt_no"`
+	Status          string          `json:"status"`
+	InputContext    json.RawMessage `json:"input_context"`
+	Evidence        json.RawMessage `json:"evidence"`
+	Output          json.RawMessage `json:"output"`
+	RevisionID      sql.NullString  `json:"revision_id"`
+	Gaps            json.RawMessage `json:"gaps"`
+	Error           string          `json:"error"`
+	HeartbeatAt     sql.NullTime    `json:"heartbeat_at"`
+	LeaseExpiresAt  sql.NullTime    `json:"lease_expires_at"`
+	WorkerID        string          `json:"worker_id"`
+	StartedAt       sql.NullTime    `json:"started_at"`
+	FinishedAt      sql.NullTime    `json:"finished_at"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
 type AgentGoalEdge struct {
@@ -128,18 +128,18 @@ type AgentGoalEdge struct {
 }
 
 type AgentGoalRevision struct {
-	ID                string         `json:"id"`
-	GoalID            string         `json:"goal_id"`
-	RevisionNo        int64          `json:"revision_no"`
-	Status            string         `json:"status"`
-	ReviewPolicy      string         `json:"review_policy"`
-	Content           string         `json:"content"`
-	SourceAttemptID   sql.NullString `json:"source_attempt_id"`
-	PlanningSessionID sql.NullString `json:"planning_session_id"`
-	AcceptedAt        sql.NullTime   `json:"accepted_at"`
-	MaterializedAt    sql.NullTime   `json:"materialized_at"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
+	ID                string          `json:"id"`
+	GoalID            string          `json:"goal_id"`
+	RevisionNo        int64           `json:"revision_no"`
+	Status            string          `json:"status"`
+	ReviewPolicy      string          `json:"review_policy"`
+	Content           json.RawMessage `json:"content"`
+	SourceAttemptID   sql.NullString  `json:"source_attempt_id"`
+	PlanningSessionID sql.NullString  `json:"planning_session_id"`
+	AcceptedAt        sql.NullTime    `json:"accepted_at"`
+	MaterializedAt    sql.NullTime    `json:"materialized_at"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
 }
 
 type AppSetting struct {
@@ -158,16 +158,16 @@ type AuthCredential struct {
 }
 
 type AuthIdentity struct {
-	ID              string    `json:"id"`
-	UserID          string    `json:"user_id"`
-	Provider        string    `json:"provider"`
-	ProviderSubject string    `json:"provider_subject"`
-	Email           string    `json:"email"`
-	Name            string    `json:"name"`
-	AvatarUrl       string    `json:"avatar_url"`
-	RawClaims       string    `json:"raw_claims"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              string          `json:"id"`
+	UserID          string          `json:"user_id"`
+	Provider        string          `json:"provider"`
+	ProviderSubject string          `json:"provider_subject"`
+	Email           string          `json:"email"`
+	Name            string          `json:"name"`
+	AvatarUrl       string          `json:"avatar_url"`
+	RawClaims       json.RawMessage `json:"raw_claims"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
 type AuthPolicy struct {
@@ -268,15 +268,15 @@ type ChannelIdentity struct {
 }
 
 type CtxAgentMemory struct {
-	UserID         string    `json:"user_id"`
-	AgentID        string    `json:"agent_id"`
-	Content        string    `json:"content"`
-	Soul           string    `json:"soul"`
-	Version        int64     `json:"version"`
-	Constraints    string    `json:"constraints"`
-	ProfileEntries string    `json:"profile_entries"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	UserID         string          `json:"user_id"`
+	AgentID        string          `json:"agent_id"`
+	Content        string          `json:"content"`
+	Soul           string          `json:"soul"`
+	Version        int64           `json:"version"`
+	Constraints    json.RawMessage `json:"constraints"`
+	ProfileEntries json.RawMessage `json:"profile_entries"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 type CtxAgentMemoryChangelog struct {
@@ -469,13 +469,13 @@ type CtxSummaryParent struct {
 }
 
 type Plugin struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind"`
-	Name      string    `json:"name"`
-	Enabled   bool      `json:"enabled"`
-	Config    string    `json:"config"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string          `json:"id"`
+	Kind      string          `json:"kind"`
+	Name      string          `json:"name"`
+	Enabled   bool            `json:"enabled"`
+	Config    json.RawMessage `json:"config"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 type PluginOauthProvider struct {
@@ -498,13 +498,13 @@ type PluginOverride struct {
 }
 
 type PluginState struct {
-	PluginID  string    `json:"plugin_id"`
-	ScopeKind string    `json:"scope_kind"`
-	ScopeID   string    `json:"scope_id"`
-	StateKey  string    `json:"state_key"`
-	Value     string    `json:"value"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	PluginID  string          `json:"plugin_id"`
+	ScopeKind string          `json:"scope_kind"`
+	ScopeID   string          `json:"scope_id"`
+	StateKey  string          `json:"state_key"`
+	Value     json.RawMessage `json:"value"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 type Project struct {
@@ -520,53 +520,53 @@ type Project struct {
 }
 
 type Provider struct {
-	ID        string    `json:"id"`
-	Type      string    `json:"type"`
-	Name      string    `json:"name"`
-	Enabled   bool      `json:"enabled"`
-	Config    string    `json:"config"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string          `json:"id"`
+	Type      string          `json:"type"`
+	Name      string          `json:"name"`
+	Enabled   bool            `json:"enabled"`
+	Config    json.RawMessage `json:"config"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 type RecallyArticle struct {
-	ID           string         `json:"id"`
-	UserID       string         `json:"user_id"`
-	AgentID      sql.NullString `json:"agent_id"`
-	Url          string         `json:"url"`
-	CanonicalUrl string         `json:"canonical_url"`
-	SourceType   string         `json:"source_type"`
-	Title        string         `json:"title"`
-	Author       string         `json:"author"`
-	Summary      string         `json:"summary"`
-	Tags         string         `json:"tags"`
-	Status       string         `json:"status"`
-	Starred      bool           `json:"starred"`
-	FilePath     string         `json:"file_path"`
-	Metadata     string         `json:"metadata"`
-	PublishedAt  sql.NullTime   `json:"published_at"`
-	SavedAt      time.Time      `json:"saved_at"`
-	ReadAt       sql.NullTime   `json:"read_at"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
-	SearchTsv    interface{}    `json:"search_tsv"`
+	ID           string          `json:"id"`
+	UserID       string          `json:"user_id"`
+	AgentID      sql.NullString  `json:"agent_id"`
+	Url          string          `json:"url"`
+	CanonicalUrl string          `json:"canonical_url"`
+	SourceType   string          `json:"source_type"`
+	Title        string          `json:"title"`
+	Author       string          `json:"author"`
+	Summary      string          `json:"summary"`
+	Tags         string          `json:"tags"`
+	Status       string          `json:"status"`
+	Starred      bool            `json:"starred"`
+	FilePath     string          `json:"file_path"`
+	Metadata     json.RawMessage `json:"metadata"`
+	PublishedAt  sql.NullTime    `json:"published_at"`
+	SavedAt      time.Time       `json:"saved_at"`
+	ReadAt       sql.NullTime    `json:"read_at"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+	SearchTsv    interface{}     `json:"search_tsv"`
 }
 
 type RecallyDigest struct {
-	ID                   string    `json:"id"`
-	UserID               string    `json:"user_id"`
-	Date                 string    `json:"date"`
-	Narrative            string    `json:"narrative"`
-	SavedYesterdayCount  int64     `json:"saved_yesterday_count"`
-	UnreadCount          int64     `json:"unread_count"`
-	ReadCount            int64     `json:"read_count"`
-	ArchivedCount        int64     `json:"archived_count"`
-	StarredCount         int64     `json:"starred_count"`
-	WorthRevisitingCount int64     `json:"worth_revisiting_count"`
-	TotalArticles        int64     `json:"total_articles"`
-	TopTags              string    `json:"top_tags"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
+	ID                   string          `json:"id"`
+	UserID               string          `json:"user_id"`
+	Date                 string          `json:"date"`
+	Narrative            string          `json:"narrative"`
+	SavedYesterdayCount  int64           `json:"saved_yesterday_count"`
+	UnreadCount          int64           `json:"unread_count"`
+	ReadCount            int64           `json:"read_count"`
+	ArchivedCount        int64           `json:"archived_count"`
+	StarredCount         int64           `json:"starred_count"`
+	WorthRevisitingCount int64           `json:"worth_revisiting_count"`
+	TotalArticles        int64           `json:"total_articles"`
+	TopTags              json.RawMessage `json:"top_tags"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
 }
 
 type RecallyDigestArticle struct {
@@ -577,21 +577,21 @@ type RecallyDigestArticle struct {
 }
 
 type RecallyFeed struct {
-	ID            string         `json:"id"`
-	UserID        string         `json:"user_id"`
-	AgentID       sql.NullString `json:"agent_id"`
-	Url           string         `json:"url"`
-	Kind          string         `json:"kind"`
-	Metadata      string         `json:"metadata"`
-	Title         string         `json:"title"`
-	Description   string         `json:"description"`
-	CheckInterval string         `json:"check_interval"`
-	LastCheckedAt sql.NullTime   `json:"last_checked_at"`
-	LastEtag      string         `json:"last_etag"`
-	LastModified  string         `json:"last_modified"`
-	Enabled       bool           `json:"enabled"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
+	ID            string          `json:"id"`
+	UserID        string          `json:"user_id"`
+	AgentID       sql.NullString  `json:"agent_id"`
+	Url           string          `json:"url"`
+	Kind          string          `json:"kind"`
+	Metadata      json.RawMessage `json:"metadata"`
+	Title         string          `json:"title"`
+	Description   string          `json:"description"`
+	CheckInterval string          `json:"check_interval"`
+	LastCheckedAt sql.NullTime    `json:"last_checked_at"`
+	LastEtag      string          `json:"last_etag"`
+	LastModified  string          `json:"last_modified"`
+	Enabled       bool            `json:"enabled"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
 type RecallyFeedEntry struct {
@@ -609,27 +609,27 @@ type RecallyFeedEntry struct {
 }
 
 type SchedJob struct {
-	ID            string         `json:"id"`
-	OwnerKind     string         `json:"owner_kind"`
-	ExecScope     string         `json:"exec_scope"`
-	PluginID      string         `json:"plugin_id"`
-	JobKey        string         `json:"job_key"`
-	RuntimeName   string         `json:"runtime_name"`
-	Name          string         `json:"name"`
-	Description   string         `json:"description"`
-	ScheduleCron  string         `json:"schedule_cron"`
-	ScheduleEvery string         `json:"schedule_every"`
-	ScheduleAt    string         `json:"schedule_at"`
-	Message       string         `json:"message"`
-	Payload       string         `json:"payload"`
-	SessionMode   string         `json:"session_mode"`
-	Enabled       bool           `json:"enabled"`
-	AgentID       sql.NullString `json:"agent_id"`
-	UserID        sql.NullString `json:"user_id"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	LastRunAt     sql.NullTime   `json:"last_run_at"`
-	LastError     string         `json:"last_error"`
+	ID            string          `json:"id"`
+	OwnerKind     string          `json:"owner_kind"`
+	ExecScope     string          `json:"exec_scope"`
+	PluginID      string          `json:"plugin_id"`
+	JobKey        string          `json:"job_key"`
+	RuntimeName   string          `json:"runtime_name"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description"`
+	ScheduleCron  string          `json:"schedule_cron"`
+	ScheduleEvery string          `json:"schedule_every"`
+	ScheduleAt    string          `json:"schedule_at"`
+	Message       string          `json:"message"`
+	Payload       json.RawMessage `json:"payload"`
+	SessionMode   string          `json:"session_mode"`
+	Enabled       bool            `json:"enabled"`
+	AgentID       sql.NullString  `json:"agent_id"`
+	UserID        sql.NullString  `json:"user_id"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	LastRunAt     sql.NullTime    `json:"last_run_at"`
+	LastError     string          `json:"last_error"`
 }
 
 type SchedJobRun struct {

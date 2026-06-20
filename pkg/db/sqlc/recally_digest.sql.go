@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const addDigestArticle = `-- name: AddDigestArticle :exec
@@ -53,18 +54,18 @@ RETURNING id, user_id, date, narrative, saved_yesterday_count, unread_count, rea
 `
 
 type CreateDigestParams struct {
-	ID                   string `json:"id"`
-	UserID               string `json:"user_id"`
-	Date                 string `json:"date"`
-	Narrative            string `json:"narrative"`
-	SavedYesterdayCount  int64  `json:"saved_yesterday_count"`
-	UnreadCount          int64  `json:"unread_count"`
-	ReadCount            int64  `json:"read_count"`
-	ArchivedCount        int64  `json:"archived_count"`
-	StarredCount         int64  `json:"starred_count"`
-	WorthRevisitingCount int64  `json:"worth_revisiting_count"`
-	TotalArticles        int64  `json:"total_articles"`
-	TopTags              string `json:"top_tags"`
+	ID                   string          `json:"id"`
+	UserID               string          `json:"user_id"`
+	Date                 string          `json:"date"`
+	Narrative            string          `json:"narrative"`
+	SavedYesterdayCount  int64           `json:"saved_yesterday_count"`
+	UnreadCount          int64           `json:"unread_count"`
+	ReadCount            int64           `json:"read_count"`
+	ArchivedCount        int64           `json:"archived_count"`
+	StarredCount         int64           `json:"starred_count"`
+	WorthRevisitingCount int64           `json:"worth_revisiting_count"`
+	TotalArticles        int64           `json:"total_articles"`
+	TopTags              json.RawMessage `json:"top_tags"`
 }
 
 func (q *Queries) CreateDigest(ctx context.Context, arg CreateDigestParams) (RecallyDigest, error) {
@@ -276,18 +277,18 @@ RETURNING id, user_id, date, narrative, saved_yesterday_count, unread_count, rea
 `
 
 type UpsertDigestParams struct {
-	ID                   string `json:"id"`
-	UserID               string `json:"user_id"`
-	Date                 string `json:"date"`
-	Narrative            string `json:"narrative"`
-	SavedYesterdayCount  int64  `json:"saved_yesterday_count"`
-	UnreadCount          int64  `json:"unread_count"`
-	ReadCount            int64  `json:"read_count"`
-	ArchivedCount        int64  `json:"archived_count"`
-	StarredCount         int64  `json:"starred_count"`
-	WorthRevisitingCount int64  `json:"worth_revisiting_count"`
-	TotalArticles        int64  `json:"total_articles"`
-	TopTags              string `json:"top_tags"`
+	ID                   string          `json:"id"`
+	UserID               string          `json:"user_id"`
+	Date                 string          `json:"date"`
+	Narrative            string          `json:"narrative"`
+	SavedYesterdayCount  int64           `json:"saved_yesterday_count"`
+	UnreadCount          int64           `json:"unread_count"`
+	ReadCount            int64           `json:"read_count"`
+	ArchivedCount        int64           `json:"archived_count"`
+	StarredCount         int64           `json:"starred_count"`
+	WorthRevisitingCount int64           `json:"worth_revisiting_count"`
+	TotalArticles        int64           `json:"total_articles"`
+	TopTags              json.RawMessage `json:"top_tags"`
 }
 
 func (q *Queries) UpsertDigest(ctx context.Context, arg UpsertDigestParams) (RecallyDigest, error) {

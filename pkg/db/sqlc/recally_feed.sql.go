@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 )
 
@@ -21,19 +22,19 @@ RETURNING id, user_id, agent_id, url, kind, metadata, title, description, check_
 `
 
 type CreateFeedParams struct {
-	ID            string         `json:"id"`
-	UserID        string         `json:"user_id"`
-	AgentID       sql.NullString `json:"agent_id"`
-	Url           string         `json:"url"`
-	Kind          string         `json:"kind"`
-	Metadata      string         `json:"metadata"`
-	Title         string         `json:"title"`
-	Description   string         `json:"description"`
-	CheckInterval string         `json:"check_interval"`
-	LastCheckedAt sql.NullTime   `json:"last_checked_at"`
-	LastEtag      string         `json:"last_etag"`
-	LastModified  string         `json:"last_modified"`
-	Enabled       bool           `json:"enabled"`
+	ID            string          `json:"id"`
+	UserID        string          `json:"user_id"`
+	AgentID       sql.NullString  `json:"agent_id"`
+	Url           string          `json:"url"`
+	Kind          string          `json:"kind"`
+	Metadata      json.RawMessage `json:"metadata"`
+	Title         string          `json:"title"`
+	Description   string          `json:"description"`
+	CheckInterval string          `json:"check_interval"`
+	LastCheckedAt sql.NullTime    `json:"last_checked_at"`
+	LastEtag      string          `json:"last_etag"`
+	LastModified  string          `json:"last_modified"`
+	Enabled       bool            `json:"enabled"`
 }
 
 func (q *Queries) CreateFeed(ctx context.Context, arg CreateFeedParams) (RecallyFeed, error) {
@@ -413,16 +414,16 @@ RETURNING id, user_id, agent_id, url, kind, metadata, title, description, check_
 `
 
 type UpdateFeedParams struct {
-	Title         string       `json:"title"`
-	Description   string       `json:"description"`
-	Metadata      string       `json:"metadata"`
-	CheckInterval string       `json:"check_interval"`
-	LastCheckedAt sql.NullTime `json:"last_checked_at"`
-	LastEtag      string       `json:"last_etag"`
-	LastModified  string       `json:"last_modified"`
-	Enabled       bool         `json:"enabled"`
-	ID            string       `json:"id"`
-	UserID        string       `json:"user_id"`
+	Title         string          `json:"title"`
+	Description   string          `json:"description"`
+	Metadata      json.RawMessage `json:"metadata"`
+	CheckInterval string          `json:"check_interval"`
+	LastCheckedAt sql.NullTime    `json:"last_checked_at"`
+	LastEtag      string          `json:"last_etag"`
+	LastModified  string          `json:"last_modified"`
+	Enabled       bool            `json:"enabled"`
+	ID            string          `json:"id"`
+	UserID        string          `json:"user_id"`
 }
 
 func (q *Queries) UpdateFeed(ctx context.Context, arg UpdateFeedParams) (RecallyFeed, error) {

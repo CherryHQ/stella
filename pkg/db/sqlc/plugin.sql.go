@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const deletePlugin = `-- name: DeletePlugin :exec
@@ -189,11 +190,11 @@ ON CONFLICT(id) DO UPDATE SET
 `
 
 type UpsertPluginParams struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-	Config  string `json:"config"`
+	ID      string          `json:"id"`
+	Kind    string          `json:"kind"`
+	Name    string          `json:"name"`
+	Enabled bool            `json:"enabled"`
+	Config  json.RawMessage `json:"config"`
 }
 
 func (q *Queries) UpsertPlugin(ctx context.Context, arg UpsertPluginParams) error {

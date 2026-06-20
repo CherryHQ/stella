@@ -554,12 +554,12 @@ func derefStr(p *string) string {
 	return *p
 }
 
-func decodeSchedulerPayload(raw string) map[string]any {
-	if raw == "" || raw == "{}" {
+func decodeSchedulerPayload(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 || string(raw) == "{}" {
 		return map[string]any{}
 	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		return map[string]any{}
 	}
 	if payload == nil {

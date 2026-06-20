@@ -64,7 +64,7 @@ func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
 		Type:    providerType(p),
 		Name:    providerName(p),
 		Enabled: p.Enabled,
-		Config:  string(configJSON),
+		Config:  configJSON,
 	}); err != nil {
 		return fmt.Errorf("create provider %q: %w", p.ID, err)
 	}
@@ -80,7 +80,7 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
 		Type:    providerType(p),
 		Name:    providerName(p),
 		Enabled: p.Enabled,
-		Config:  string(configJSON),
+		Config:  configJSON,
 		ID:      p.ID,
 	}); err != nil {
 		return fmt.Errorf("update provider %q: %w", p.ID, err)
@@ -182,7 +182,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 		Soul:                 a.Soul,
 		Workspace:            a.Workspace,
 		Sandbox:              sandboxJSON,
-		EnabledBuiltinSkills: "[]",
+		EnabledBuiltinSkills: json.RawMessage("[]"),
 		Scope:                scope,
 		CreatorID:            a.CreatorID,
 		Enabled:              a.Enabled,
@@ -218,7 +218,7 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 		Soul:                 a.Soul,
 		Workspace:            a.Workspace,
 		Sandbox:              sandboxJSON,
-		EnabledBuiltinSkills: "[]",
+		EnabledBuiltinSkills: json.RawMessage("[]"),
 		Scope:                scope,
 		Enabled:              a.Enabled,
 	})
@@ -349,7 +349,7 @@ func (s *DBStore) UpsertPlugin(ctx context.Context, p config.Plugin) error {
 		Kind:    p.Kind,
 		Name:    p.Name,
 		Enabled: p.Enabled,
-		Config:  string(configJSON),
+		Config:  configJSON,
 	})
 }
 
@@ -456,8 +456,8 @@ func (s *DBStore) mergedPlugins(ctx context.Context, filter func(config.Plugin) 
 		if ov, ok := overrides[b.ID]; ok {
 			p.Enabled = ov.Enabled
 			var cfg map[string]any
-			if ov.Config != "" && ov.Config != "{}" {
-				_ = json.Unmarshal([]byte(ov.Config), &cfg)
+			if len(ov.Config) > 0 && string(ov.Config) != "{}" {
+				_ = json.Unmarshal(ov.Config, &cfg)
 			}
 			if cfg != nil {
 				p.Config = cfg
@@ -690,7 +690,7 @@ func (s *DBStore) Seed(ctx context.Context) error {
 		SystemPrompt:         defaultStellaSoul,
 		Workspace:            workspace,
 		Sandbox:              sandboxJSON,
-		EnabledBuiltinSkills: "[]",
+		EnabledBuiltinSkills: json.RawMessage("[]"),
 		Scope:                config.AgentScopeSystem,
 		Enabled:              true,
 	})
@@ -758,7 +758,7 @@ func (s *DBStore) seedProviders(ctx context.Context) error {
 			Type:    provider.Type,
 			Name:    provider.Name,
 			Enabled: false,
-			Config:  string(configJSON),
+			Config:  configJSON,
 		}); err != nil {
 			return fmt.Errorf("seed: provider %q: %w", name, err)
 		}
@@ -768,20 +768,20 @@ func (s *DBStore) seedProviders(ctx context.Context) error {
 
 // --- Helpers ---
 
-func marshalSandboxConfig(cfg config.SandboxConfig) (string, error) {
+func marshalSandboxConfig(cfg config.SandboxConfig) (json.RawMessage, error) {
 	data, err := json.Marshal(cfg)
 	if err != nil {
-		return "", fmt.Errorf("marshal sandbox config: %w", err)
+		return nil, fmt.Errorf("marshal sandbox config: %w", err)
 	}
-	return string(data), nil
+	return data, nil
 }
 
-func parseSandboxConfig(raw string) (config.SandboxConfig, error) {
+func parseSandboxConfig(raw json.RawMessage) (config.SandboxConfig, error) {
 	var cfg config.SandboxConfig
-	if raw == "" {
+	if len(raw) == 0 {
 		return cfg, nil
 	}
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return config.SandboxConfig{}, fmt.Errorf("parse sandbox config: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
@@ -792,8 +792,8 @@ func parseSandboxConfig(raw string) (config.SandboxConfig, error) {
 
 func providerFromDB(r sqlc.Provider) config.Provider {
 	cfg := map[string]any{}
-	if r.Config != "" {
-		_ = json.Unmarshal([]byte(r.Config), &cfg)
+	if len(r.Config) > 0 {
+		_ = json.Unmarshal(r.Config, &cfg)
 	}
 	apiKey, _ := cfg["api_key"].(string)
 	baseURL, _ := cfg["base_url"].(string)
@@ -964,8 +964,8 @@ func collectProviderIDs(models ...string) []string {
 
 func pluginFromDB(r sqlc.Plugin) config.Plugin {
 	var cfg map[string]any
-	if r.Config != "" && r.Config != "{}" {
-		_ = json.Unmarshal([]byte(r.Config), &cfg)
+	if len(r.Config) > 0 && string(r.Config) != "{}" {
+		_ = json.Unmarshal(r.Config, &cfg)
 	}
 	if cfg == nil {
 		cfg = make(map[string]any)

@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const deleteUserAgentMemory = `-- name: DeleteUserAgentMemory :exec
@@ -97,9 +98,9 @@ RETURNING user_id, agent_id, content, soul, version, constraints, profile_entrie
 `
 
 type UpsertAgentConstraintsParams struct {
-	UserID      string `json:"user_id"`
-	AgentID     string `json:"agent_id"`
-	Constraints string `json:"constraints"`
+	UserID      string          `json:"user_id"`
+	AgentID     string          `json:"agent_id"`
+	Constraints json.RawMessage `json:"constraints"`
 }
 
 func (q *Queries) UpsertAgentConstraints(ctx context.Context, arg UpsertAgentConstraintsParams) (CtxAgentMemory, error) {
@@ -182,9 +183,9 @@ RETURNING user_id, agent_id, content, soul, version, constraints, profile_entrie
 `
 
 type UpsertProfileEntriesParams struct {
-	UserID         string `json:"user_id"`
-	AgentID        string `json:"agent_id"`
-	ProfileEntries string `json:"profile_entries"`
+	UserID         string          `json:"user_id"`
+	AgentID        string          `json:"agent_id"`
+	ProfileEntries json.RawMessage `json:"profile_entries"`
 }
 
 func (q *Queries) UpsertProfileEntries(ctx context.Context, arg UpsertProfileEntriesParams) (CtxAgentMemory, error) {

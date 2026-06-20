@@ -2,6 +2,7 @@ package goal
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"sort"
@@ -81,13 +82,13 @@ type AcceptanceEventDetail struct {
 	Gaps       []Gap         `json:"gaps,omitempty"`
 }
 
-// emptyJSON is the canonical empty-object value for the JSON TEXT columns.
-const emptyJSON = "{}"
+// emptyJSON is the canonical empty-object value for the JSONB columns.
+var emptyJSON = json.RawMessage("{}")
 
-// marshalJSON encodes v to a compact JSON string for a TEXT column. A nil or
-// failed marshal degrades to "{}" so a column is never empty/invalid — the
-// write boundary validates shape, this just guarantees a parseable column.
-func marshalJSON(v any) string {
+// marshalJSON encodes v to compact JSON for a JSONB column. A nil or failed
+// marshal degrades to "{}" so a column is never empty/invalid — the write
+// boundary validates shape, this just guarantees a parseable column.
+func marshalJSON(v any) json.RawMessage {
 	if v == nil {
 		return emptyJSON
 	}
@@ -95,16 +96,31 @@ func marshalJSON(v any) string {
 	if err != nil || len(b) == 0 {
 		return emptyJSON
 	}
-	return string(b)
+	return b
 }
 
-// unmarshalJSON decodes a TEXT column into v. An empty string is treated as the
+// unmarshalJSON decodes a JSONB column into v. An empty value is treated as the
 // empty object so a default '{}' column round-trips to a zero value.
-func unmarshalJSON(s string, v any) error {
-	if s == "" {
+func unmarshalJSON(s json.RawMessage, v any) error {
+	if len(s) == 0 {
 		s = emptyJSON
 	}
-	return json.Unmarshal([]byte(s), v)
+	return json.Unmarshal(s, v)
+}
+
+// marshalNullJSON freezes v into a non-NULL accepted_output (nullable TEXT-JSON
+// column). Acceptance always sets a value, so Valid is always true.
+func marshalNullJSON(v any) sql.NullString {
+	return sql.NullString{String: string(marshalJSON(v)), Valid: true}
+}
+
+// unmarshalNullJSON decodes a nullable TEXT-JSON column. SQL NULL (the
+// not-yet-accepted state) leaves v at its zero value and reports no error.
+func unmarshalNullJSON(ns sql.NullString, v any) error {
+	if !ns.Valid {
+		return nil
+	}
+	return unmarshalJSON(json.RawMessage(ns.String), v)
 }
 
 // ContentHash is the canonical content-addressing hash used for

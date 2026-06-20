@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 )
 
@@ -127,8 +128,8 @@ WHERE id = $2
 `
 
 type ConsumeDispatchHintParams struct {
-	DispatchHint string `json:"dispatch_hint"`
-	ID           string `json:"id"`
+	DispatchHint json.RawMessage `json:"dispatch_hint"`
+	ID           string          `json:"id"`
 }
 
 func (q *Queries) ConsumeDispatchHint(ctx context.Context, arg ConsumeDispatchHintParams) error {
@@ -143,11 +144,10 @@ WHERE parent_id IS NULL
   AND ($2::text IS NULL OR agent_id = $2::text)
   AND ($3::text IS NULL OR project_id = $3::text)
   AND ($4::text IS NULL OR lifecycle = $4::text)
-  AND ($5 IS NULL
-       OR ($5 != 0 AND lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled'))
-       OR ($5 = 0 AND lifecycle NOT IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')))
+  AND ($5::boolean IS NULL
+       OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = $5::boolean)
   AND ($6::text IS NULL OR title ILIKE '%' || $6 || '%' OR intent ILIKE '%' || $6 || '%')
-  AND ($7 != 0 OR archived_at IS NULL)
+  AND ($7::boolean OR archived_at IS NULL)
 `
 
 type CountRootGoalParams struct {
@@ -155,9 +155,9 @@ type CountRootGoalParams struct {
 	AgentID         sql.NullString `json:"agent_id"`
 	ProjectID       sql.NullString `json:"project_id"`
 	Lifecycle       sql.NullString `json:"lifecycle"`
-	Terminal        interface{}    `json:"terminal"`
+	Terminal        sql.NullBool   `json:"terminal"`
 	Q               sql.NullString `json:"q"`
-	IncludeArchived interface{}    `json:"include_archived"`
+	IncludeArchived bool           `json:"include_archived"`
 }
 
 // CountRootGoal mirrors ListRootGoal's filter so a list's reported
@@ -190,26 +190,26 @@ RETURNING id, user_id, agent_id, project_id, parent_id, root_id, depth, position
 `
 
 type CreateGoalParams struct {
-	ID                 string         `json:"id"`
-	UserID             string         `json:"user_id"`
-	AgentID            string         `json:"agent_id"`
-	ProjectID          sql.NullString `json:"project_id"`
-	ParentID           sql.NullString `json:"parent_id"`
-	RootID             string         `json:"root_id"`
-	Depth              int64          `json:"depth"`
-	Position           int64          `json:"position"`
-	SessionID          string         `json:"session_id"`
-	Title              string         `json:"title"`
-	Intent             string         `json:"intent"`
-	Kind               string         `json:"kind"`
-	Priority           string         `json:"priority"`
-	Required           int64          `json:"required"`
-	AcceptanceContract string         `json:"acceptance_contract"`
-	ConvergencePolicy  string         `json:"convergence_policy"`
-	ReviewPolicy       string         `json:"review_policy"`
-	Lifecycle          string         `json:"lifecycle"`
-	Context            string         `json:"context"`
-	DispatchHint       string         `json:"dispatch_hint"`
+	ID                 string          `json:"id"`
+	UserID             string          `json:"user_id"`
+	AgentID            string          `json:"agent_id"`
+	ProjectID          sql.NullString  `json:"project_id"`
+	ParentID           sql.NullString  `json:"parent_id"`
+	RootID             string          `json:"root_id"`
+	Depth              int64           `json:"depth"`
+	Position           int64           `json:"position"`
+	SessionID          string          `json:"session_id"`
+	Title              string          `json:"title"`
+	Intent             string          `json:"intent"`
+	Kind               string          `json:"kind"`
+	Priority           string          `json:"priority"`
+	Required           bool            `json:"required"`
+	AcceptanceContract json.RawMessage `json:"acceptance_contract"`
+	ConvergencePolicy  json.RawMessage `json:"convergence_policy"`
+	ReviewPolicy       string          `json:"review_policy"`
+	Lifecycle          string          `json:"lifecycle"`
+	Context            json.RawMessage `json:"context"`
+	DispatchHint       json.RawMessage `json:"dispatch_hint"`
 }
 
 func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGoal, error) {
@@ -806,11 +806,10 @@ WHERE parent_id IS NULL
   AND ($2::text IS NULL OR agent_id = $2::text)
   AND ($3::text IS NULL OR project_id = $3::text)
   AND ($4::text IS NULL OR lifecycle = $4::text)
-  AND ($5 IS NULL
-       OR ($5 != 0 AND lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled'))
-       OR ($5 = 0 AND lifecycle NOT IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')))
+  AND ($5::boolean IS NULL
+       OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = $5::boolean)
   AND ($6::text IS NULL OR title ILIKE '%' || $6 || '%' OR intent ILIKE '%' || $6 || '%')
-  AND ($7 != 0 OR archived_at IS NULL)
+  AND ($7::boolean OR archived_at IS NULL)
 ORDER BY created_at DESC, id DESC
 LIMIT $9 OFFSET $8
 `
@@ -820,16 +819,16 @@ type ListRootGoalParams struct {
 	AgentID         sql.NullString `json:"agent_id"`
 	ProjectID       sql.NullString `json:"project_id"`
 	Lifecycle       sql.NullString `json:"lifecycle"`
-	Terminal        interface{}    `json:"terminal"`
+	Terminal        sql.NullBool   `json:"terminal"`
 	Q               sql.NullString `json:"q"`
-	IncludeArchived interface{}    `json:"include_archived"`
+	IncludeArchived bool           `json:"include_archived"`
 	Offset          int32          `json:"offset"`
 	Limit           int32          `json:"limit"`
 }
 
 // Root goals (goals: parent_id IS NULL) for a user, scoped to an agent
 // and narrowed by lifecycle / terminal-ness / project / free-text. Every narg is
-// optional: NULL matches all. terminal: 0 = active (non-terminal) only, 1 =
+// optional: NULL matches all. terminal: false = active (non-terminal) only, true =
 // history (terminal) only, NULL = both. The terminal set is the four end states.
 func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]AgentGoal, error) {
 	rows, err := q.db.QueryContext(ctx, listRootGoal,
@@ -974,21 +973,21 @@ const reconcileGoalCounters = `-- name: ReconcileGoalCounters :exec
 UPDATE agent_goal SET
     required_total = (
         SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required = 1
+        WHERE c.parent_id = agent_goal.id AND c.required
     ),
     required_accepted = (
         SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required = 1
+        WHERE c.parent_id = agent_goal.id AND c.required
           AND c.lifecycle = 'accepted'
     ),
     required_failed = (
         SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required = 1
+        WHERE c.parent_id = agent_goal.id AND c.required
           AND c.lifecycle IN ('rejected_final', 'abandoned', 'cancelled')
     ),
     required_blocked = (
         SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required = 1
+        WHERE c.parent_id = agent_goal.id AND c.required
           AND c.lifecycle = 'blocked'
     ),
     updated_at = now()
@@ -1109,13 +1108,13 @@ WHERE id = $7
 `
 
 type UpdateGoalIntentParams struct {
-	Title              string `json:"title"`
-	Intent             string `json:"intent"`
-	AcceptanceContract string `json:"acceptance_contract"`
-	ConvergencePolicy  string `json:"convergence_policy"`
-	ReviewPolicy       string `json:"review_policy"`
-	Priority           string `json:"priority"`
-	ID                 string `json:"id"`
+	Title              string          `json:"title"`
+	Intent             string          `json:"intent"`
+	AcceptanceContract json.RawMessage `json:"acceptance_contract"`
+	ConvergencePolicy  json.RawMessage `json:"convergence_policy"`
+	ReviewPolicy       string          `json:"review_policy"`
+	Priority           string          `json:"priority"`
+	ID                 string          `json:"id"`
 }
 
 func (q *Queries) UpdateGoalIntent(ctx context.Context, arg UpdateGoalIntentParams) error {

@@ -25,7 +25,7 @@ CREATE TABLE agent_goal_acceptance_event (
     scope               TEXT NOT NULL DEFAULT '',                              -- what the verdict covers (verdict staleness scope)
     scope_hash          TEXT NOT NULL DEFAULT '',                              -- accepted-output/artifact hash the verdict covers; '' for deterministic
 
-    detail              TEXT NOT NULL DEFAULT '{}',                            -- truncated stdout / artifact hashes / gaps
+    detail              JSONB NOT NULL DEFAULT '{}',                            -- truncated stdout / artifact hashes / gaps
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     CHECK (seq >= 0),                                                          -- range

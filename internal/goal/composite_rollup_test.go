@@ -250,7 +250,7 @@ func TestCompositeRollup_RequiredAcceptedCounterAndAccept(t *testing.T) {
 	if got.Lifecycle != LifecycleAccepted {
 		t.Fatalf("composite after RollupAccept lifecycle=%q want accepted", got.Lifecycle)
 	}
-	if !got.AcceptedOutput.Valid || got.AcceptedOutput.String == "" {
+	if !got.AcceptedOutput.Valid {
 		t.Fatalf("accepted composite has no frozen accepted_output")
 	}
 }

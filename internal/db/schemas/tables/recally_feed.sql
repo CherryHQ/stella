@@ -4,7 +4,7 @@ CREATE TABLE recally_feed (
     agent_id        TEXT REFERENCES agent(id) ON DELETE SET NULL,
     url             TEXT NOT NULL,
     kind            TEXT NOT NULL DEFAULT 'rss',
-    metadata        TEXT NOT NULL DEFAULT '{}',
+    metadata        JSONB NOT NULL DEFAULT '{}',
     title           TEXT NOT NULL DEFAULT '',
     description     TEXT NOT NULL DEFAULT '',
     check_interval  TEXT NOT NULL DEFAULT '1h',

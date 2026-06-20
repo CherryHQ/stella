@@ -678,7 +678,7 @@ func (s *Store) SaveDigest(ctx context.Context, userID string, narrative, date s
 		StarredCount:         live.StarredCount,
 		WorthRevisitingCount: int64(live.WorthRevisitingCount),
 		TotalArticles:        live.TotalArticles,
-		TopTags:              string(topTagsJSON),
+		TopTags:              topTagsJSON,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upsert digest: %w", err)
@@ -807,9 +807,9 @@ func (s *Store) loadDigestArticles(ctx context.Context, q *sqlc.Queries, digestI
 	return articles, nil
 }
 
-func decodeTopTags(value string) []TagCount {
+func decodeTopTags(value json.RawMessage) []TagCount {
 	var tags []TagCount
-	if err := json.Unmarshal([]byte(value), &tags); err != nil {
+	if err := json.Unmarshal(value, &tags); err != nil {
 		return []TagCount{}
 	}
 	if tags == nil {

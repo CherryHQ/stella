@@ -35,7 +35,7 @@ func (s *Store) Get(ctx context.Context, pluginID string, scope pkgplugins.State
 		return nil, false, fmt.Errorf("get plugin state %s/%s/%s/%s: %w", pluginID, scope.Kind, scope.ID, key, err)
 	}
 	value := map[string]any{}
-	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, false, fmt.Errorf("decode plugin state %s/%s/%s/%s: %w", pluginID, scope.Kind, scope.ID, key, err)
 	}
 	return cloneMap(value), true, nil
@@ -52,7 +52,7 @@ func (s *Store) Set(ctx context.Context, pluginID string, scope pkgplugins.State
 		ScopeKind: scope.Kind,
 		ScopeID:   scope.ID,
 		StateKey:  key,
-		Value:     string(encoded),
+		Value:     encoded,
 	})
 }
 

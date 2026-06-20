@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const createAgent = `-- name: CreateAgent :one
@@ -16,22 +17,22 @@ RETURNING id, name, model, model_thinking, model_strong, model_strong_thinking, 
 `
 
 type CreateAgentParams struct {
-	ID                   string `json:"id"`
-	Name                 string `json:"name"`
-	Model                string `json:"model"`
-	ModelThinking        string `json:"model_thinking"`
-	ModelStrong          string `json:"model_strong"`
-	ModelStrongThinking  string `json:"model_strong_thinking"`
-	ModelFast            string `json:"model_fast"`
-	ModelFastThinking    string `json:"model_fast_thinking"`
-	SystemPrompt         string `json:"system_prompt"`
-	Soul                 string `json:"soul"`
-	Workspace            string `json:"workspace"`
-	Sandbox              string `json:"sandbox"`
-	EnabledBuiltinSkills string `json:"enabled_builtin_skills"`
-	Scope                string `json:"scope"`
-	CreatorID            string `json:"creator_id"`
-	Enabled              bool   `json:"enabled"`
+	ID                   string          `json:"id"`
+	Name                 string          `json:"name"`
+	Model                string          `json:"model"`
+	ModelThinking        string          `json:"model_thinking"`
+	ModelStrong          string          `json:"model_strong"`
+	ModelStrongThinking  string          `json:"model_strong_thinking"`
+	ModelFast            string          `json:"model_fast"`
+	ModelFastThinking    string          `json:"model_fast_thinking"`
+	SystemPrompt         string          `json:"system_prompt"`
+	Soul                 string          `json:"soul"`
+	Workspace            string          `json:"workspace"`
+	Sandbox              json.RawMessage `json:"sandbox"`
+	EnabledBuiltinSkills json.RawMessage `json:"enabled_builtin_skills"`
+	Scope                string          `json:"scope"`
+	CreatorID            string          `json:"creator_id"`
+	Enabled              bool            `json:"enabled"`
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent, error) {
@@ -278,21 +279,21 @@ WHERE id = $15
 `
 
 type UpdateAgentParams struct {
-	Name                 string `json:"name"`
-	Model                string `json:"model"`
-	ModelThinking        string `json:"model_thinking"`
-	ModelStrong          string `json:"model_strong"`
-	ModelStrongThinking  string `json:"model_strong_thinking"`
-	ModelFast            string `json:"model_fast"`
-	ModelFastThinking    string `json:"model_fast_thinking"`
-	SystemPrompt         string `json:"system_prompt"`
-	Soul                 string `json:"soul"`
-	Workspace            string `json:"workspace"`
-	Sandbox              string `json:"sandbox"`
-	EnabledBuiltinSkills string `json:"enabled_builtin_skills"`
-	Scope                string `json:"scope"`
-	Enabled              bool   `json:"enabled"`
-	ID                   string `json:"id"`
+	Name                 string          `json:"name"`
+	Model                string          `json:"model"`
+	ModelThinking        string          `json:"model_thinking"`
+	ModelStrong          string          `json:"model_strong"`
+	ModelStrongThinking  string          `json:"model_strong_thinking"`
+	ModelFast            string          `json:"model_fast"`
+	ModelFastThinking    string          `json:"model_fast_thinking"`
+	SystemPrompt         string          `json:"system_prompt"`
+	Soul                 string          `json:"soul"`
+	Workspace            string          `json:"workspace"`
+	Sandbox              json.RawMessage `json:"sandbox"`
+	EnabledBuiltinSkills json.RawMessage `json:"enabled_builtin_skills"`
+	Scope                string          `json:"scope"`
+	Enabled              bool            `json:"enabled"`
+	ID                   string          `json:"id"`
 }
 
 func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error {

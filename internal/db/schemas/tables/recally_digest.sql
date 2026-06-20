@@ -10,7 +10,7 @@ CREATE TABLE recally_digest (
     starred_count          BIGINT NOT NULL DEFAULT 0,
     worth_revisiting_count BIGINT NOT NULL DEFAULT 0,
     total_articles         BIGINT NOT NULL DEFAULT 0,
-    top_tags   TEXT NOT NULL DEFAULT '[]',
+    top_tags   JSONB NOT NULL DEFAULT '[]',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -3,6 +3,7 @@ package goal
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -51,7 +52,7 @@ func upstreamAcceptedOutputs(ctx context.Context, q *sqlc.Queries, goalID string
 			continue
 		}
 		var ao AcceptedOutput
-		if err := unmarshalJSON(e.UpstreamOutput.String, &ao); err != nil {
+		if err := unmarshalNullJSON(e.UpstreamOutput, &ao); err != nil {
 			continue
 		}
 		outs = append(outs, ao)
@@ -337,7 +338,7 @@ func (s *GoalService) evaluatedAttempt(ctx context.Context, q *sqlc.Queries, d s
 
 // decodeOutput parses an attempt's stored output JSON, degrading to the zero
 // value (a "" hash) on a malformed column.
-func decodeOutput(s string) AttemptOutput {
+func decodeOutput(s json.RawMessage) AttemptOutput {
 	var out AttemptOutput
 	_ = unmarshalJSON(s, &out)
 	return out
@@ -456,7 +457,7 @@ func (s *GoalService) acceptLeaf(ctx context.Context, q *sqlc.Queries, d sqlc.Ag
 		SourceAttempt: attemptID,
 	}
 	rows, err := q.AcceptGoal(ctx, sqlc.AcceptGoalParams{
-		AcceptedOutput: nullStr(marshalJSON(accepted)),
+		AcceptedOutput: marshalNullJSON(accepted),
 		ID:             d.ID,
 	})
 	if err != nil {

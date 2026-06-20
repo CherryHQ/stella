@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const createProvider = `-- name: CreateProvider :one
@@ -16,11 +17,11 @@ RETURNING id, type, name, enabled, config, created_at, updated_at
 `
 
 type CreateProviderParams struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-	Config  string `json:"config"`
+	ID      string          `json:"id"`
+	Type    string          `json:"type"`
+	Name    string          `json:"name"`
+	Enabled bool            `json:"enabled"`
+	Config  json.RawMessage `json:"config"`
 }
 
 func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) (Provider, error) {
@@ -149,11 +150,11 @@ ON CONFLICT DO NOTHING
 `
 
 type SeedProviderParams struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-	Config  string `json:"config"`
+	ID      string          `json:"id"`
+	Type    string          `json:"type"`
+	Name    string          `json:"name"`
+	Enabled bool            `json:"enabled"`
+	Config  json.RawMessage `json:"config"`
 }
 
 func (q *Queries) SeedProvider(ctx context.Context, arg SeedProviderParams) error {
@@ -178,11 +179,11 @@ WHERE id = $5
 `
 
 type UpdateProviderParams struct {
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-	Config  string `json:"config"`
-	ID      string `json:"id"`
+	Type    string          `json:"type"`
+	Name    string          `json:"name"`
+	Enabled bool            `json:"enabled"`
+	Config  json.RawMessage `json:"config"`
+	ID      string          `json:"id"`
 }
 
 func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) error {

@@ -11,7 +11,7 @@ CREATE TABLE sched_job (
     schedule_every TEXT NOT NULL DEFAULT '',
     schedule_at TEXT NOT NULL DEFAULT '',
     message TEXT NOT NULL DEFAULT '',
-    payload TEXT NOT NULL DEFAULT '{}',
+    payload JSONB NOT NULL DEFAULT '{}',
     session_mode TEXT NOT NULL DEFAULT 'reuse',
     enabled BOOLEAN NOT NULL DEFAULT true,
     agent_id TEXT,

@@ -3,6 +3,7 @@ package goal
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -218,7 +219,7 @@ func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries
 	if e.ID == "" {
 		e.ID = newID()
 	}
-	if e.Detail == "" {
+	if len(e.Detail) == 0 {
 		e.Detail = emptyJSON
 	}
 	if e.Authority == "" {
@@ -278,8 +279,8 @@ type CreateInput struct {
 	Convergence  ConvergencePolicy
 	ReviewPolicy string // "" ⇒ none
 
-	Context      string // "" ⇒ "{}"
-	DispatchHint string // "" ⇒ "{}"
+	Context      json.RawMessage // empty ⇒ "{}"
+	DispatchHint json.RawMessage // empty ⇒ "{}"
 }
 
 // CreateGoal inserts a goal in 'draft' (contract §2.1, (none)→draft).
@@ -302,18 +303,13 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 		reviewPolicy = ReviewNone
 	}
 	contextJSON := in.Context
-	if contextJSON == "" {
+	if len(contextJSON) == 0 {
 		contextJSON = emptyJSON
 	}
 	dispatchHint := in.DispatchHint
-	if dispatchHint == "" {
+	if len(dispatchHint) == 0 {
 		dispatchHint = emptyJSON
 	}
-	var required int64
-	if in.Required {
-		required = 1
-	}
-
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := q.CreateGoal(ctx, sqlc.CreateGoalParams{
@@ -330,7 +326,7 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 			Intent:             in.Intent,
 			Kind:               kind,
 			Priority:           priority,
-			Required:           required,
+			Required:           in.Required,
 			AcceptanceContract: marshalJSON(in.Contract),
 			ConvergencePolicy:  marshalJSON(in.Convergence),
 			ReviewPolicy:       reviewPolicy,
@@ -904,7 +900,7 @@ func (s *GoalService) SubmitVerdict(ctx context.Context, in VerdictInput) error 
 func (s *GoalService) bumpParentCounter(ctx context.Context, q *sqlc.Queries, child sqlc.AgentGoal, kind counterKind) error {
 	// Only a required child contributes to a parent's rollup counters; a root (no
 	// parent) and an advisory (non-required) child are no-ops.
-	if !child.ParentID.Valid || child.ParentID.String == "" || child.Required != 1 {
+	if !child.ParentID.Valid || child.ParentID.String == "" || !child.Required {
 		return nil
 	}
 	parentID := child.ParentID.String

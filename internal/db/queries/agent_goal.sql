@@ -13,7 +13,7 @@ SELECT * FROM agent_goal WHERE id = $1;
 
 -- Root goals (goals: parent_id IS NULL) for a user, scoped to an agent
 -- and narrowed by lifecycle / terminal-ness / project / free-text. Every narg is
--- optional: NULL matches all. terminal: 0 = active (non-terminal) only, 1 =
+-- optional: NULL matches all. terminal: false = active (non-terminal) only, true =
 -- history (terminal) only, NULL = both. The terminal set is the four end states.
 -- name: ListRootGoal :many
 SELECT * FROM agent_goal
@@ -22,11 +22,10 @@ WHERE parent_id IS NULL
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
   AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id)::text)
   AND (sqlc.narg(lifecycle)::text IS NULL OR lifecycle = sqlc.narg(lifecycle)::text)
-  AND (sqlc.narg(terminal) IS NULL
-       OR (sqlc.narg(terminal) != 0 AND lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled'))
-       OR (sqlc.narg(terminal) = 0 AND lifecycle NOT IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')))
+  AND (sqlc.narg(terminal)::boolean IS NULL
+       OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = sqlc.narg(terminal)::boolean)
   AND (sqlc.narg(q)::text IS NULL OR title ILIKE '%' || sqlc.narg(q) || '%' OR intent ILIKE '%' || sqlc.narg(q) || '%')
-  AND (sqlc.arg(include_archived) != 0 OR archived_at IS NULL)
+  AND (sqlc.arg(include_archived)::boolean OR archived_at IS NULL)
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
@@ -40,11 +39,10 @@ WHERE parent_id IS NULL
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
   AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id)::text)
   AND (sqlc.narg(lifecycle)::text IS NULL OR lifecycle = sqlc.narg(lifecycle)::text)
-  AND (sqlc.narg(terminal) IS NULL
-       OR (sqlc.narg(terminal) != 0 AND lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled'))
-       OR (sqlc.narg(terminal) = 0 AND lifecycle NOT IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')))
+  AND (sqlc.narg(terminal)::boolean IS NULL
+       OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = sqlc.narg(terminal)::boolean)
   AND (sqlc.narg(q)::text IS NULL OR title ILIKE '%' || sqlc.narg(q) || '%' OR intent ILIKE '%' || sqlc.narg(q) || '%')
-  AND (sqlc.arg(include_archived) != 0 OR archived_at IS NULL);
+  AND (sqlc.arg(include_archived)::boolean OR archived_at IS NULL);
 
 -- name: ListGoalChildren :many
 SELECT * FROM agent_goal
@@ -166,21 +164,21 @@ WHERE id = sqlc.arg(id);
 UPDATE agent_goal SET
     required_total = (
         SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required = 1
+        WHERE c.parent_id = agent_goal.id AND c.required
     ),
     required_accepted = (
         SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required = 1
+        WHERE c.parent_id = agent_goal.id AND c.required
           AND c.lifecycle = 'accepted'
     ),
     required_failed = (
         SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required = 1
+        WHERE c.parent_id = agent_goal.id AND c.required
           AND c.lifecycle IN ('rejected_final', 'abandoned', 'cancelled')
     ),
     required_blocked = (
         SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required = 1
+        WHERE c.parent_id = agent_goal.id AND c.required
           AND c.lifecycle = 'blocked'
     ),
     updated_at = now()

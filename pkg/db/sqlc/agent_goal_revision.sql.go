@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 const acceptRevision = `-- name: AcceptRevision :execrows
@@ -33,14 +34,14 @@ RETURNING id, goal_id, revision_no, status, review_policy, content, source_attem
 `
 
 type CreateRevisionParams struct {
-	ID                string         `json:"id"`
-	GoalID            string         `json:"goal_id"`
-	RevisionNo        int64          `json:"revision_no"`
-	Status            string         `json:"status"`
-	ReviewPolicy      string         `json:"review_policy"`
-	Content           string         `json:"content"`
-	SourceAttemptID   sql.NullString `json:"source_attempt_id"`
-	PlanningSessionID sql.NullString `json:"planning_session_id"`
+	ID                string          `json:"id"`
+	GoalID            string          `json:"goal_id"`
+	RevisionNo        int64           `json:"revision_no"`
+	Status            string          `json:"status"`
+	ReviewPolicy      string          `json:"review_policy"`
+	Content           json.RawMessage `json:"content"`
+	SourceAttemptID   sql.NullString  `json:"source_attempt_id"`
+	PlanningSessionID sql.NullString  `json:"planning_session_id"`
 }
 
 func (q *Queries) CreateRevision(ctx context.Context, arg CreateRevisionParams) (AgentGoalRevision, error) {
@@ -253,8 +254,8 @@ WHERE id = $2
 `
 
 type UpdateRevisionContentParams struct {
-	Content string `json:"content"`
-	ID      string `json:"id"`
+	Content json.RawMessage `json:"content"`
+	ID      string          `json:"id"`
 }
 
 func (q *Queries) UpdateRevisionContent(ctx context.Context, arg UpdateRevisionContentParams) error {

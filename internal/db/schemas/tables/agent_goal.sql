@@ -24,11 +24,11 @@ CREATE TABLE agent_goal (
     intent               TEXT NOT NULL DEFAULT '',                                -- the "what & why" prose handed to attempts
     kind                 TEXT NOT NULL DEFAULT 'leaf',                            -- 'leaf'|'composite' (Go-enforced)
     priority             TEXT NOT NULL DEFAULT 'routine',                         -- 'routine'|'urgent' (Go-enforced)
-    required             BIGINT NOT NULL DEFAULT 1,                              -- 0/1: does parent acceptance depend on this child?
+    required             BOOLEAN NOT NULL DEFAULT true,                          -- does parent acceptance depend on this child?
 
     -- Contract & policy (JSON; schemas enforced in Go).
-    acceptance_contract  TEXT NOT NULL DEFAULT '{}',                             -- composite policy tree of deterministic+judgment items
-    convergence_policy   TEXT NOT NULL DEFAULT '{}',                             -- {max_attempts, escalation, max_depth}
+    acceptance_contract  JSONB NOT NULL DEFAULT '{}',                            -- composite policy tree of deterministic+judgment items
+    convergence_policy   JSONB NOT NULL DEFAULT '{}',                            -- {max_attempts, escalation, max_depth}
     review_policy        TEXT NOT NULL DEFAULT 'none',                           -- decomposition gate: 'none' auto-accepts; 'human' awaits (Go-enforced)
 
     -- Lifecycle (single-writer owned; Go-enforced value set).
@@ -55,8 +55,8 @@ CREATE TABLE agent_goal (
     accepted_revision_id TEXT,  -- FK added in agent_goal_revision.sql (cycle: agent_goal <-> agent_goal_revision)
 
     -- Context blobs.
-    context              TEXT NOT NULL DEFAULT '{}',                             -- progress patches / freeform metadata (ex-agent_task.context)
-    dispatch_hint        TEXT NOT NULL DEFAULT '{}',                             -- {executor_agent_id, consumed_at} — folds agent_task_dispatch_hint into a column
+    context              JSONB NOT NULL DEFAULT '{}',                            -- progress patches / freeform metadata (ex-agent_task.context)
+    dispatch_hint        JSONB NOT NULL DEFAULT '{}',                            -- {executor_agent_id, consumed_at} — folds agent_task_dispatch_hint into a column
 
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -67,7 +67,6 @@ CREATE TABLE agent_goal (
     -- Structural invariants only (schema-design.md: no enum-value CHECKs).
     CHECK (parent_id IS NULL OR parent_id != id),                               -- no self-parent (self-ref)
     CHECK (parent_id IS NOT NULL OR root_id = id),                              -- a root is its own root (coupling)
-    CHECK (required IN (0,1)),                                                  -- range
     CHECK (depth >= 0 AND attempt_count >= 0),                                  -- range
     CHECK (required_total >= 0 AND required_accepted >= 0
            AND required_failed >= 0 AND required_blocked >= 0),                -- range

@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 const appendAcceptanceEvent = `-- name: AppendAcceptanceEvent :one
@@ -36,23 +37,23 @@ RETURNING id, goal_id, attempt_id, seq, item_id, item_kind, result, command, exi
 `
 
 type AppendAcceptanceEventParams struct {
-	ID                string         `json:"id"`
-	GoalID            string         `json:"goal_id"`
-	AttemptID         sql.NullString `json:"attempt_id"`
-	Seq               int64          `json:"seq"`
-	ItemID            string         `json:"item_id"`
-	ItemKind          string         `json:"item_kind"`
-	Result            string         `json:"result"`
-	Command           string         `json:"command"`
-	ExitCode          sql.NullInt64  `json:"exit_code"`
-	CacheKey          string         `json:"cache_key"`
-	Authority         string         `json:"authority"`
-	ReviewerUserID    sql.NullString `json:"reviewer_user_id"`
-	ReviewerAttemptID sql.NullString `json:"reviewer_attempt_id"`
-	Rationale         string         `json:"rationale"`
-	Scope             string         `json:"scope"`
-	ScopeHash         string         `json:"scope_hash"`
-	Detail            string         `json:"detail"`
+	ID                string          `json:"id"`
+	GoalID            string          `json:"goal_id"`
+	AttemptID         sql.NullString  `json:"attempt_id"`
+	Seq               int64           `json:"seq"`
+	ItemID            string          `json:"item_id"`
+	ItemKind          string          `json:"item_kind"`
+	Result            string          `json:"result"`
+	Command           string          `json:"command"`
+	ExitCode          sql.NullInt64   `json:"exit_code"`
+	CacheKey          string          `json:"cache_key"`
+	Authority         string          `json:"authority"`
+	ReviewerUserID    sql.NullString  `json:"reviewer_user_id"`
+	ReviewerAttemptID sql.NullString  `json:"reviewer_attempt_id"`
+	Rationale         string          `json:"rationale"`
+	Scope             string          `json:"scope"`
+	ScopeHash         string          `json:"scope_hash"`
+	Detail            json.RawMessage `json:"detail"`
 }
 
 // Append-only ledger row: a deterministic check result or a judgment verdict.

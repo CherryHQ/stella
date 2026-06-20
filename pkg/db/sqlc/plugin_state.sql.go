@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const deletePluginStateEntry = `-- name: DeletePluginStateEntry :exec
@@ -43,14 +44,14 @@ type GetPluginStateEntryParams struct {
 	StateKey  string `json:"state_key"`
 }
 
-func (q *Queries) GetPluginStateEntry(ctx context.Context, arg GetPluginStateEntryParams) (string, error) {
+func (q *Queries) GetPluginStateEntry(ctx context.Context, arg GetPluginStateEntryParams) (json.RawMessage, error) {
 	row := q.db.QueryRowContext(ctx, getPluginStateEntry,
 		arg.PluginID,
 		arg.ScopeKind,
 		arg.ScopeID,
 		arg.StateKey,
 	)
-	var value string
+	var value json.RawMessage
 	err := row.Scan(&value)
 	return value, err
 }
@@ -63,11 +64,11 @@ DO UPDATE SET value = excluded.value, updated_at = now()
 `
 
 type UpsertPluginStateEntryParams struct {
-	PluginID  string `json:"plugin_id"`
-	ScopeKind string `json:"scope_kind"`
-	ScopeID   string `json:"scope_id"`
-	StateKey  string `json:"state_key"`
-	Value     string `json:"value"`
+	PluginID  string          `json:"plugin_id"`
+	ScopeKind string          `json:"scope_kind"`
+	ScopeID   string          `json:"scope_id"`
+	StateKey  string          `json:"state_key"`
+	Value     json.RawMessage `json:"value"`
 }
 
 func (q *Queries) UpsertPluginStateEntry(ctx context.Context, arg UpsertPluginStateEntryParams) error {

@@ -3,6 +3,7 @@ package vault_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 
 	"filippo.io/age"
@@ -231,12 +232,12 @@ func TestLoadEnvForAgentMergesScopedPrecedence(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: true,
+		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID: "agent-b", Name: "Agent B", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: true,
+		ID: "agent-b", Name: "Agent B", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}

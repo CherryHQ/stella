@@ -179,23 +179,23 @@ func normalizeExecScope(scope string) string {
 	}
 }
 
-func encodePayload(payload map[string]any) string {
+func encodePayload(payload map[string]any) json.RawMessage {
 	if len(payload) == 0 {
-		return "{}"
+		return json.RawMessage("{}")
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return "{}"
+		return json.RawMessage("{}")
 	}
-	return string(data)
+	return data
 }
 
-func decodePayload(raw string) map[string]any {
-	if raw == "" {
+func decodePayload(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
 		return map[string]any{}
 	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		return map[string]any{}
 	}
 	if payload == nil {

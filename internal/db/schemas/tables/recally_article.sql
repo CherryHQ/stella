@@ -12,7 +12,7 @@ CREATE TABLE recally_article (
     status        TEXT NOT NULL DEFAULT 'unread',
     starred       BOOLEAN NOT NULL DEFAULT false,
     file_path     TEXT NOT NULL DEFAULT '',
-    metadata      TEXT NOT NULL DEFAULT '{}',
+    metadata      JSONB NOT NULL DEFAULT '{}',
     published_at  TIMESTAMPTZ,
     saved_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     read_at       TIMESTAMPTZ,

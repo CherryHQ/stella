@@ -24,7 +24,7 @@ func GetProfileEntries(ctx context.Context, q *sqlc.Queries, userID, agentID str
 	if err != nil {
 		return nil, fmt.Errorf("get profile entries: %w", err)
 	}
-	return ParseProfileEntriesJSON(row.ProfileEntries)
+	return ParseProfileEntriesJSON(string(row.ProfileEntries))
 }
 
 // AddProfileEntry appends an auto-generated dated entry to the profile_entries
@@ -47,7 +47,7 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 	var beforeJSON string
 	var beforeVersion int64
 	if err == nil {
-		beforeJSON = old.ProfileEntries
+		beforeJSON = string(old.ProfileEntries)
 		beforeVersion = old.Version
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("read profile entries: %w", err)
@@ -74,7 +74,7 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 	row, err := qtx.UpsertProfileEntries(ctx, sqlc.UpsertProfileEntriesParams{
 		UserID:         userID,
 		AgentID:        agentID,
-		ProfileEntries: string(afterJSON),
+		ProfileEntries: afterJSON,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upsert profile entries: %w", err)

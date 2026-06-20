@@ -215,7 +215,7 @@ func GetConstraints(ctx context.Context, q *sqlc.Queries, userID string, agentID
 	if err != nil {
 		return nil, fmt.Errorf("get constraints: %w", err)
 	}
-	return parseConstraints(row.Constraints)
+	return parseConstraints(string(row.Constraints))
 }
 
 // AddConstraint appends a new constraint entry transactionally, bumps version,
@@ -237,7 +237,7 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 	var beforeJSON string
 	var beforeVersion int64
 	if err == nil {
-		beforeJSON = old.Constraints
+		beforeJSON = string(old.Constraints)
 		beforeVersion = old.Version
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("read constraints: %w", err)
@@ -264,7 +264,7 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 	row, err := qtx.UpsertAgentConstraints(ctx, sqlc.UpsertAgentConstraintsParams{
 		UserID:      userID,
 		AgentID:     agentID,
-		Constraints: string(afterJSON),
+		Constraints: afterJSON,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upsert constraints: %w", err)
@@ -311,7 +311,7 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID s
 	var beforeJSON string
 	var beforeVersion int64
 	if err == nil {
-		beforeJSON = old.Constraints
+		beforeJSON = string(old.Constraints)
 		beforeVersion = old.Version
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("read constraints: %w", err)
@@ -337,7 +337,7 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID s
 	row, err := qtx.UpsertAgentConstraints(ctx, sqlc.UpsertAgentConstraintsParams{
 		UserID:      userID,
 		AgentID:     agentID,
-		Constraints: string(afterJSON),
+		Constraints: afterJSON,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upsert constraints: %w", err)
