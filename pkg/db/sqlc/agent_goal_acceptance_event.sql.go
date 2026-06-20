@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const appendAcceptanceEvent = `-- name: AppendAcceptanceEvent :one
@@ -39,17 +40,17 @@ RETURNING id, goal_id, attempt_id, seq, item_id, item_kind, result, command, exi
 type AppendAcceptanceEventParams struct {
 	ID                string          `json:"id"`
 	GoalID            string          `json:"goal_id"`
-	AttemptID         sql.NullString  `json:"attempt_id"`
+	AttemptID         pgtype.Text     `json:"attempt_id"`
 	Seq               int64           `json:"seq"`
 	ItemID            string          `json:"item_id"`
 	ItemKind          string          `json:"item_kind"`
 	Result            string          `json:"result"`
 	Command           string          `json:"command"`
-	ExitCode          sql.NullInt64   `json:"exit_code"`
+	ExitCode          pgtype.Int8     `json:"exit_code"`
 	CacheKey          string          `json:"cache_key"`
 	Authority         string          `json:"authority"`
-	ReviewerUserID    sql.NullString  `json:"reviewer_user_id"`
-	ReviewerAttemptID sql.NullString  `json:"reviewer_attempt_id"`
+	ReviewerUserID    pgtype.Text     `json:"reviewer_user_id"`
+	ReviewerAttemptID pgtype.Text     `json:"reviewer_attempt_id"`
 	Rationale         string          `json:"rationale"`
 	Scope             string          `json:"scope"`
 	ScopeHash         string          `json:"scope_hash"`
@@ -62,7 +63,7 @@ type AppendAcceptanceEventParams struct {
 // or a re-run check on identical inputs is a no-op (DO NOTHING): appending is
 // idempotent and returns sql.ErrNoRows on the duplicate, which the caller swallows.
 func (q *Queries) AppendAcceptanceEvent(ctx context.Context, arg AppendAcceptanceEventParams) (AgentGoalAcceptanceEvent, error) {
-	row := q.db.QueryRowContext(ctx, appendAcceptanceEvent,
+	row := q.db.QueryRow(ctx, appendAcceptanceEvent,
 		arg.ID,
 		arg.GoalID,
 		arg.AttemptID,
@@ -113,7 +114,7 @@ WHERE goal_id = $1
 
 // Highest seq for a goal; -1 when no rows so next seq = result+1 = 0.
 func (q *Queries) GetMaxAcceptanceSeq(ctx context.Context, goalID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getMaxAcceptanceSeq, goalID)
+	row := q.db.QueryRow(ctx, getMaxAcceptanceSeq, goalID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -125,8 +126,8 @@ WHERE attempt_id = $1
 ORDER BY seq ASC
 `
 
-func (q *Queries) ListAcceptanceEventByAttempt(ctx context.Context, attemptID sql.NullString) ([]AgentGoalAcceptanceEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listAcceptanceEventByAttempt, attemptID)
+func (q *Queries) ListAcceptanceEventByAttempt(ctx context.Context, attemptID pgtype.Text) ([]AgentGoalAcceptanceEvent, error) {
+	rows, err := q.db.Query(ctx, listAcceptanceEventByAttempt, attemptID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,9 +158,6 @@ func (q *Queries) ListAcceptanceEventByAttempt(ctx context.Context, attemptID sq
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -175,7 +173,7 @@ ORDER BY seq ASC
 
 // The projection fold: replay every event for a goal in seq order.
 func (q *Queries) ListAcceptanceEventByGoal(ctx context.Context, goalID string) ([]AgentGoalAcceptanceEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listAcceptanceEventByGoal, goalID)
+	rows, err := q.db.Query(ctx, listAcceptanceEventByGoal, goalID)
 	if err != nil {
 		return nil, err
 	}
@@ -206,9 +204,6 @@ func (q *Queries) ListAcceptanceEventByGoal(ctx context.Context, goalID string) 
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -229,7 +224,7 @@ LIMIT 1
 // Check-result cache hit: the latest passing deterministic result for a cache_key.
 // Returns sql.ErrNoRows on a forced miss (no cached pass).
 func (q *Queries) ProbeCheckCache(ctx context.Context, cacheKey string) (AgentGoalAcceptanceEvent, error) {
-	row := q.db.QueryRowContext(ctx, probeCheckCache, cacheKey)
+	row := q.db.QueryRow(ctx, probeCheckCache, cacheKey)
 	var i AgentGoalAcceptanceEvent
 	err := row.Scan(
 		&i.ID,

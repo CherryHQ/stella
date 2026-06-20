@@ -1,10 +1,11 @@
 package server
 
 import (
-	"database/sql"
 	"net/http"
 	"sort"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -55,8 +56,8 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 	schedulerRuns, err := s.q.ListFailedInboxSchedulerRuns(ctx, sqlc.ListFailedInboxSchedulerRunsParams{
-		UserID:     sql.NullString{String: info.UserID, Valid: true},
-		Since:      sql.NullTime{Time: since, Valid: true},
+		UserID:     pgtype.Text{String: info.UserID, Valid: true},
+		Since:      pgtype.Timestamptz{Time: since, Valid: true},
 		AgentID:    agentID,
 		LimitCount: limit,
 	})
@@ -99,11 +100,11 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 	})
 }
 
-func nullableStringParam(value *string) sql.NullString {
+func nullableStringParam(value *string) pgtype.Text {
 	if value == nil || *value == "" {
-		return sql.NullString{}
+		return pgtype.Text{}
 	}
-	return sql.NullString{String: *value, Valid: true}
+	return pgtype.Text{String: *value, Valid: true}
 }
 
 // goalInboxItem renders a blocked or terminally-failed goal as an
@@ -161,7 +162,7 @@ func failedSchedulerRunInboxItem(row sqlc.ListFailedInboxSchedulerRunsRow) apity
 	}
 }
 
-func nullableStringPtr(ns sql.NullString) *string {
+func nullableStringPtr(ns pgtype.Text) *string {
 	if !ns.Valid || ns.String == "" {
 		return nil
 	}

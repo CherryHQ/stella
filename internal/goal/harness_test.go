@@ -2,11 +2,11 @@ package goal
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -39,7 +39,7 @@ func (e *scriptedExecutor) Execute(_ context.Context, req ExecutorRequest) (Exec
 // seeding (auth_user, agent, ctx_conversation) so a test never touches raw SQL.
 type harness struct {
 	t       *testing.T
-	db      *sql.DB
+	db      *pgxpool.Pool
 	q       *sqlc.Queries
 	svc     *GoalService
 	worker  *Worker
@@ -55,13 +55,13 @@ func newHarness(t *testing.T) *harness {
 
 	ctx := context.Background()
 	userID := uuid.NewString()
-	if _, err := db.ExecContext(ctx,
+	if _, err := db.Exec(ctx,
 		`INSERT INTO auth_user (id, email) VALUES ($1, $2)`,
 		userID, "test-"+userID[:8]+"@example.com"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 	agentID := uuid.NewString()
-	if _, err := db.ExecContext(ctx,
+	if _, err := db.Exec(ctx,
 		`INSERT INTO agent (id, name, workspace) VALUES ($1, 'test-agent', '/tmp')`,
 		agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
@@ -86,7 +86,7 @@ func (h *harness) sessionMinter() SessionMinter {
 	return func(ctx context.Context, userID, agentID, projectID string) (string, error) {
 		sessionID := "goal-" + uuid.NewString()
 		now := time.Now().UTC()
-		if _, err := h.db.ExecContext(ctx, `
+		if _, err := h.db.Exec(ctx, `
 			INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active, created_at, updated_at)
 			VALUES ($1, $2, 'minted', 'task', 'task', $3, $4, $5, $6, $7)`,
 			uuid.NewString(), sessionID, agentID, userID, now, now, now); err != nil {

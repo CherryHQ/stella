@@ -14,7 +14,7 @@ DELETE FROM app_setting WHERE key = $1
 `
 
 func (q *Queries) DeleteSetting(ctx context.Context, key string) error {
-	_, err := q.db.ExecContext(ctx, deleteSetting, key)
+	_, err := q.db.Exec(ctx, deleteSetting, key)
 	return err
 }
 
@@ -23,7 +23,7 @@ SELECT key, value, created_at, updated_at FROM app_setting WHERE key = $1
 `
 
 func (q *Queries) GetSetting(ctx context.Context, key string) (AppSetting, error) {
-	row := q.db.QueryRowContext(ctx, getSetting, key)
+	row := q.db.QueryRow(ctx, getSetting, key)
 	var i AppSetting
 	err := row.Scan(
 		&i.Key,
@@ -39,7 +39,7 @@ SELECT key, value, created_at, updated_at FROM app_setting ORDER BY key
 `
 
 func (q *Queries) ListSettings(ctx context.Context) ([]AppSetting, error) {
-	rows, err := q.db.QueryContext(ctx, listSettings)
+	rows, err := q.db.Query(ctx, listSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -56,9 +56,6 @@ func (q *Queries) ListSettings(ctx context.Context) ([]AppSetting, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -80,6 +77,6 @@ type UpsertSettingParams struct {
 }
 
 func (q *Queries) UpsertSetting(ctx context.Context, arg UpsertSettingParams) error {
-	_, err := q.db.ExecContext(ctx, upsertSetting, arg.Key, arg.Value)
+	_, err := q.db.Exec(ctx, upsertSetting, arg.Key, arg.Value)
 	return err
 }

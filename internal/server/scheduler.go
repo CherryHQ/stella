@@ -2,13 +2,14 @@ package server
 
 import (
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -75,8 +76,8 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 	info := UserFromContext(r.Context())
 
 	rows, err := s.q.ListSchedulerJobsByAgent(r.Context(), sqlc.ListSchedulerJobsByAgentParams{
-		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
-		UserID:  sql.NullString{String: info.UserID, Valid: info.UserID != ""},
+		AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
+		UserID:  pgtype.Text{String: info.UserID, Valid: info.UserID != ""},
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list scheduler jobs")
@@ -392,7 +393,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 	}
 	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
 		JobID:  jobID,
-		UserID: sql.NullString{},
+		UserID: pgtype.Text{},
 		Limit:  int32(limit + 1),
 		Offset: int32(offset),
 	})

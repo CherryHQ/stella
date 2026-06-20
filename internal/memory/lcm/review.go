@@ -2,11 +2,12 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -21,7 +22,7 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 		return "", err
 	}
 	conv, err := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {

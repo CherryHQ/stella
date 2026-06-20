@@ -2,12 +2,13 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -1125,7 +1126,7 @@ func iptr(v int64) *int {
 	return &x
 }
 
-func nullToPtr(ns sql.NullString) *string {
+func nullToPtr(ns pgtype.Text) *string {
 	if !ns.Valid || ns.String == "" {
 		return nil
 	}

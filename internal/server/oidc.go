@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -372,7 +372,7 @@ func (s *Server) linkFeishuChannelIdentity(ctx context.Context, userID string, i
 		}
 		return
 	}
-	if !errors.Is(err, auth.ErrNotFound) && !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, auth.ErrNotFound) && !errors.Is(err, pgx.ErrNoRows) {
 		slog.Warn("feishu auth: lookup channel identity failed", "external_id", identity.Subject, "user_id", userID, "error", err)
 		return
 	}

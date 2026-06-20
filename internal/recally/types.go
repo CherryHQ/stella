@@ -2,12 +2,13 @@
 package recally
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -407,7 +408,7 @@ func (e *FeedEntry) FromSQLCFeedEntry(se sqlc.RecallyFeedEntry) {
 	e.ProcessedAt = parseNullTime(se.ProcessedAt)
 }
 
-func parseNullTime(value sql.NullTime) *time.Time {
+func parseNullTime(value pgtype.Timestamptz) *time.Time {
 	if !value.Valid {
 		return nil
 	}

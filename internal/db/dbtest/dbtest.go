@@ -10,19 +10,19 @@
 //
 //	func TestThing(t *testing.T) {
 //		db := dbtest.New(t)
-//		// ... db is a clean, migrated *sql.DB; dropped when the test ends
+//		// ... db is a clean, migrated *pgxpool.Pool; dropped when the test ends
 //	}
 package dbtest
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
@@ -35,7 +35,7 @@ const templateDB = "stella_tmpl"
 var (
 	once    sync.Once
 	server  *appdb.Embedded
-	admin   *sql.DB // maintenance pool on the "postgres" database
+	admin   *pgxpool.Pool // maintenance pool on the "postgres" database
 	initErr error
 	seq     atomic.Int64
 )
@@ -49,14 +49,14 @@ func ensure() {
 			return
 		}
 
-		admin, initErr = sql.Open("pgx", server.DSNFor("postgres"))
+		admin, initErr = pgxpool.New(context.Background(), server.DSNFor("postgres"))
 		if initErr != nil {
 			return
 		}
 
 		// Migrate a throwaway database, then close every connection to it: a
 		// template must be quiescent before it can seed CREATE DATABASE clones.
-		if _, err := admin.Exec("CREATE DATABASE " + templateDB); err != nil {
+		if _, err := admin.Exec(context.Background(), "CREATE DATABASE "+templateDB); err != nil {
 			initErr = fmt.Errorf("dbtest: create template: %w", err)
 			return
 		}
@@ -65,22 +65,23 @@ func ensure() {
 			initErr = fmt.Errorf("dbtest: migrate template: %w", err)
 			return
 		}
-		_ = tmpl.Close()
+		tmpl.Close()
 	})
 }
 
 // New returns a fresh, isolated, fully-migrated database for the calling test and
 // registers its teardown. Each call clones the shared template, so tests neither
 // see each other's data nor re-run migrations.
-func New(t *testing.T) *sql.DB {
+func New(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ensure()
 	if initErr != nil {
 		t.Fatalf("dbtest: %v", initErr)
 	}
 
+	ctx := context.Background()
 	name := fmt.Sprintf("test_%d", seq.Add(1))
-	if _, err := admin.Exec(fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", name, templateDB)); err != nil {
+	if _, err := admin.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", name, templateDB)); err != nil {
 		t.Fatalf("dbtest: create %s: %v", name, err)
 	}
 
@@ -93,11 +94,11 @@ func New(t *testing.T) *sql.DB {
 	}
 
 	t.Cleanup(func() {
-		_ = db.Close()
+		db.Close()
 		// Drop the database; terminate any lingering backends first so the drop
 		// can't be blocked by a leaked connection.
-		_, _ = admin.Exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1", name)
-		_, _ = admin.Exec("DROP DATABASE IF EXISTS " + name)
+		_, _ = admin.Exec(ctx, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1", name)
+		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name)
 	})
 	return db
 }

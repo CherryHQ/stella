@@ -25,7 +25,7 @@ type CreateProviderParams struct {
 }
 
 func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) (Provider, error) {
-	row := q.db.QueryRowContext(ctx, createProvider,
+	row := q.db.QueryRow(ctx, createProvider,
 		arg.ID,
 		arg.Type,
 		arg.Name,
@@ -50,7 +50,7 @@ DELETE FROM provider WHERE id = $1
 `
 
 func (q *Queries) DeleteProvider(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteProvider, id)
+	_, err := q.db.Exec(ctx, deleteProvider, id)
 	return err
 }
 
@@ -59,7 +59,7 @@ SELECT id, type, name, enabled, config, created_at, updated_at FROM provider WHE
 `
 
 func (q *Queries) GetProvider(ctx context.Context, id string) (Provider, error) {
-	row := q.db.QueryRowContext(ctx, getProvider, id)
+	row := q.db.QueryRow(ctx, getProvider, id)
 	var i Provider
 	err := row.Scan(
 		&i.ID,
@@ -78,7 +78,7 @@ SELECT id, type, name, enabled, config, created_at, updated_at FROM provider WHE
 `
 
 func (q *Queries) ListEnabledProviders(ctx context.Context) ([]Provider, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledProviders)
+	rows, err := q.db.Query(ctx, listEnabledProviders)
 	if err != nil {
 		return nil, err
 	}
@@ -98,9 +98,6 @@ func (q *Queries) ListEnabledProviders(ctx context.Context) ([]Provider, error) 
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -113,7 +110,7 @@ SELECT id, type, name, enabled, config, created_at, updated_at FROM provider ORD
 `
 
 func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
-	rows, err := q.db.QueryContext(ctx, listProviders)
+	rows, err := q.db.Query(ctx, listProviders)
 	if err != nil {
 		return nil, err
 	}
@@ -133,9 +130,6 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -158,7 +152,7 @@ type SeedProviderParams struct {
 }
 
 func (q *Queries) SeedProvider(ctx context.Context, arg SeedProviderParams) error {
-	_, err := q.db.ExecContext(ctx, seedProvider,
+	_, err := q.db.Exec(ctx, seedProvider,
 		arg.ID,
 		arg.Type,
 		arg.Name,
@@ -187,7 +181,7 @@ type UpdateProviderParams struct {
 }
 
 func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) error {
-	_, err := q.db.ExecContext(ctx, updateProvider,
+	_, err := q.db.Exec(ctx, updateProvider,
 		arg.Type,
 		arg.Name,
 		arg.Enabled,

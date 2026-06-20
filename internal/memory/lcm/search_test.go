@@ -2,11 +2,12 @@ package lcm_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
@@ -15,10 +16,10 @@ import (
 
 // newSearchTestEnv builds a provider on a raw db handle so tests can both use
 // the public Append path and reach behind it (insert summaries, delete rows).
-func newSearchTestEnv(t *testing.T, suffix string) (*sql.DB, memory.Provider, memory.Session) {
+func newSearchTestEnv(t *testing.T, suffix string) (*pgxpool.Pool, memory.Provider, memory.Session) {
 	t.Helper()
 	db := newLCMTestDB(t)
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() { db.Close() })
 
 	p, err := lcm.New(db, nil, nil)
 	if err != nil {
@@ -33,40 +34,40 @@ func newSearchTestEnv(t *testing.T, suffix string) (*sql.DB, memory.Provider, me
 	return db, p, sess
 }
 
-func conversationID(t *testing.T, db *sql.DB, sessionID string) string {
+func conversationID(t *testing.T, db *pgxpool.Pool, sessionID string) string {
 	t.Helper()
 	var id string
-	if err := db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&id); err != nil {
+	if err := db.QueryRow(context.Background(), `SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&id); err != nil {
 		t.Fatalf("conversation id: %v", err)
 	}
 	return id
 }
 
-func insertSummary(t *testing.T, db *sql.DB, convID, id, content string) {
+func insertSummary(t *testing.T, db *pgxpool.Pool, convID, id, content string) {
 	t.Helper()
-	_, err := db.Exec(`INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count)
+	_, err := db.Exec(context.Background(), `INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count)
 		VALUES ($1, $2, 'leaf', 0, $3, 10)`, id, convID, content)
 	if err != nil {
 		t.Fatalf("insert summary: %v", err)
 	}
 }
 
-func insertSummaryAt(t *testing.T, db *sql.DB, convID, id, content, latestAt string) {
+func insertSummaryAt(t *testing.T, db *pgxpool.Pool, convID, id, content, latestAt string) {
 	t.Helper()
-	_, err := db.Exec(`INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, latest_at)
+	_, err := db.Exec(context.Background(), `INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, latest_at)
 		VALUES ($1, $2, 'leaf', 0, $3, 10, $4)`, id, convID, content, latestAt)
 	if err != nil {
 		t.Fatalf("insert summary: %v", err)
 	}
 }
 
-func messageIDs(t *testing.T, db *sql.DB, convID string) []string {
+func messageIDs(t *testing.T, db *pgxpool.Pool, convID string) []string {
 	t.Helper()
-	rows, err := db.Query(`SELECT id FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC`, convID)
+	rows, err := db.Query(context.Background(), `SELECT id FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC`, convID)
 	if err != nil {
 		t.Fatalf("query message ids: %v", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() { rows.Close() }()
 	var ids []string
 	for rows.Next() {
 		var id string
@@ -78,9 +79,9 @@ func messageIDs(t *testing.T, db *sql.DB, convID string) []string {
 	return ids
 }
 
-func linkSummaryMessage(t *testing.T, db *sql.DB, summaryID, messageID string, ordinal int) {
+func linkSummaryMessage(t *testing.T, db *pgxpool.Pool, summaryID, messageID string, ordinal int) {
 	t.Helper()
-	if _, err := db.Exec(`INSERT INTO ctx_summary_message (summary_id, message_id, ordinal) VALUES ($1, $2, $3)`,
+	if _, err := db.Exec(context.Background(), `INSERT INTO ctx_summary_message (summary_id, message_id, ordinal) VALUES ($1, $2, $3)`,
 		summaryID, messageID, ordinal); err != nil {
 		t.Fatalf("link summary message: %v", err)
 	}
@@ -222,10 +223,10 @@ func TestSearch_DeleteRemovesFTSHits(t *testing.T) {
 
 	convID := conversationID(t, db, sess.ID)
 	// ctx_item restricts message deletes, so clear the pointer first.
-	if _, err := db.Exec(`DELETE FROM ctx_item WHERE conversation_id = $1`, convID); err != nil {
+	if _, err := db.Exec(context.Background(), `DELETE FROM ctx_item WHERE conversation_id = $1`, convID); err != nil {
 		t.Fatalf("delete items: %v", err)
 	}
-	if _, err := db.Exec(`DELETE FROM ctx_message WHERE conversation_id = $1`, convID); err != nil {
+	if _, err := db.Exec(context.Background(), `DELETE FROM ctx_message WHERE conversation_id = $1`, convID); err != nil {
 		t.Fatalf("delete messages: %v", err)
 	}
 

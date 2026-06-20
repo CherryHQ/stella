@@ -2,10 +2,11 @@ package goal
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"sort"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // AttemptInput is the frozen-at-mint context an attempt executes against
@@ -110,13 +111,13 @@ func unmarshalJSON(s json.RawMessage, v any) error {
 
 // marshalNullJSON freezes v into a non-NULL accepted_output (nullable TEXT-JSON
 // column). Acceptance always sets a value, so Valid is always true.
-func marshalNullJSON(v any) sql.NullString {
-	return sql.NullString{String: string(marshalJSON(v)), Valid: true}
+func marshalNullJSON(v any) pgtype.Text {
+	return pgtype.Text{String: string(marshalJSON(v)), Valid: true}
 }
 
 // unmarshalNullJSON decodes a nullable TEXT-JSON column. SQL NULL (the
 // not-yet-accepted state) leaves v at its zero value and reports no error.
-func unmarshalNullJSON(ns sql.NullString, v any) error {
+func unmarshalNullJSON(ns pgtype.Text, v any) error {
 	if !ns.Valid {
 		return nil
 	}

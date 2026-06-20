@@ -2,12 +2,13 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"filippo.io/age"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
@@ -38,7 +39,7 @@ type Server struct {
 	mem            memory.Provider
 	poolManager    *agent.PoolManager
 	pluginHost     *pluginhost.Host
-	db             *sql.DB
+	db             *pgxpool.Pool
 	q              *sqlc.Queries
 	mux            *http.ServeMux
 	log            *slog.Logger
@@ -83,7 +84,7 @@ type Server struct {
 // New creates an admin server with all API routes mounted.
 // The linkCodes store is shared with channel bots so codes generated in the
 // Web UI can be consumed by channel handlers.
-func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager, pluginHost *pluginhost.Host) *Server {
+func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *pgxpool.Pool, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager, pluginHost *pluginhost.Host) *Server {
 	if ctx == nil {
 		ctx = context.Background()
 	}

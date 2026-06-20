@@ -1,7 +1,6 @@
 package server
 
 import (
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -10,16 +9,17 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // isNotFound reports whether err means the requested resource does not exist:
-// either an empty result (sql.ErrNoRows) or a lookup id that is not even a valid
+// either an empty result (pgx.ErrNoRows) or a lookup id that is not even a valid
 // uuid, which PostgreSQL rejects when casting the text parameter (SQLSTATE
 // 22P02, invalid_text_representation). Mapping both to one predicate lets a
 // by-id handler answer 404 for a malformed id instead of leaking a 500.
 func isNotFound(err error) bool {
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return true
 	}
 	var pgErr *pgconn.PgError

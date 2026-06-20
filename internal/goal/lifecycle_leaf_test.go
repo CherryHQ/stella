@@ -244,7 +244,7 @@ func TestLcl_HumanVerdictLeaf(t *testing.T) {
 // TestLcl_VerdictReSubmitIsIdempotent guards the double-submit path: the
 // acceptance ledger is append-only with a natural-key UNIQUE index
 // (goal, attempt, item, cache_key), so a re-submitted identical verdict
-// must be a no-op (ON CONFLICT DO NOTHING swallowed as sql.ErrNoRows) and the
+// must be a no-op (ON CONFLICT DO NOTHING swallowed as pgx.ErrNoRows) and the
 // re-fold of the now-accepted leaf must NOT raise ErrInvalidTransition — a
 // double-clicked Approve should not 500. The leaf stays accepted with the same
 // frozen output.

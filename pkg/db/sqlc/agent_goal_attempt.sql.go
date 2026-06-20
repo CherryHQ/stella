@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countInflightAttemptsByRoot = `-- name: CountInflightAttemptsByRoot :one
@@ -20,7 +21,7 @@ WHERE d.root_id = $1
 `
 
 func (q *Queries) CountInflightAttemptsByRoot(ctx context.Context, rootID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countInflightAttemptsByRoot, rootID)
+	row := q.db.QueryRow(ctx, countInflightAttemptsByRoot, rootID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -34,7 +35,7 @@ WHERE a.user_id = $1
 `
 
 func (q *Queries) CountInflightAttemptsByUser(ctx context.Context, userID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countInflightAttemptsByUser, userID)
+	row := q.db.QueryRow(ctx, countInflightAttemptsByUser, userID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -50,21 +51,21 @@ RETURNING id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose
 `
 
 type CreateAttemptParams struct {
-	ID              string          `json:"id"`
-	GoalID          string          `json:"goal_id"`
-	UserID          string          `json:"user_id"`
-	AgentID         sql.NullString  `json:"agent_id"`
-	ExecutorAgentID sql.NullString  `json:"executor_agent_id"`
-	SessionID       string          `json:"session_id"`
-	Purpose         string          `json:"purpose"`
-	AttemptNo       int64           `json:"attempt_no"`
-	Status          string          `json:"status"`
-	InputContext    json.RawMessage `json:"input_context"`
-	LeaseExpiresAt  sql.NullTime    `json:"lease_expires_at"`
+	ID              string             `json:"id"`
+	GoalID          string             `json:"goal_id"`
+	UserID          string             `json:"user_id"`
+	AgentID         pgtype.Text        `json:"agent_id"`
+	ExecutorAgentID pgtype.Text        `json:"executor_agent_id"`
+	SessionID       string             `json:"session_id"`
+	Purpose         string             `json:"purpose"`
+	AttemptNo       int64              `json:"attempt_no"`
+	Status          string             `json:"status"`
+	InputContext    json.RawMessage    `json:"input_context"`
+	LeaseExpiresAt  pgtype.Timestamptz `json:"lease_expires_at"`
 }
 
 func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (AgentGoalAttempt, error) {
-	row := q.db.QueryRowContext(ctx, createAttempt,
+	row := q.db.QueryRow(ctx, createAttempt,
 		arg.ID,
 		arg.GoalID,
 		arg.UserID,
@@ -121,11 +122,11 @@ type FinalizeAttemptParams struct {
 }
 
 func (q *Queries) FinalizeAttempt(ctx context.Context, arg FinalizeAttemptParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, finalizeAttempt, arg.ToStatus, arg.Error, arg.ID)
+	result, err := q.db.Exec(ctx, finalizeAttempt, arg.ToStatus, arg.Error, arg.ID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const getActiveAttempt = `-- name: GetActiveAttempt :one
@@ -141,7 +142,7 @@ type GetActiveAttemptParams struct {
 }
 
 func (q *Queries) GetActiveAttempt(ctx context.Context, arg GetActiveAttemptParams) (AgentGoalAttempt, error) {
-	row := q.db.QueryRowContext(ctx, getActiveAttempt, arg.GoalID, arg.Purpose)
+	row := q.db.QueryRow(ctx, getActiveAttempt, arg.GoalID, arg.Purpose)
 	var i AgentGoalAttempt
 	err := row.Scan(
 		&i.ID,
@@ -175,7 +176,7 @@ SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, a
 `
 
 func (q *Queries) GetAttempt(ctx context.Context, id string) (AgentGoalAttempt, error) {
-	row := q.db.QueryRowContext(ctx, getAttempt, id)
+	row := q.db.QueryRow(ctx, getAttempt, id)
 	var i AgentGoalAttempt
 	err := row.Scan(
 		&i.ID,
@@ -219,7 +220,7 @@ type GetMaxAttemptNoParams struct {
 // attempt_no is this + 1 (decomposition cannot derive it from attempt_count,
 // which only tracks execution attempts).
 func (q *Queries) GetMaxAttemptNo(ctx context.Context, arg GetMaxAttemptNoParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getMaxAttemptNo, arg.GoalID, arg.Purpose)
+	row := q.db.QueryRow(ctx, getMaxAttemptNo, arg.GoalID, arg.Purpose)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -234,16 +235,16 @@ WHERE id = $2 AND status = 'running'
 `
 
 type HeartbeatAttemptParams struct {
-	LeaseExpiresAt sql.NullTime `json:"lease_expires_at"`
-	ID             string       `json:"id"`
+	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
+	ID             string             `json:"id"`
 }
 
 func (q *Queries) HeartbeatAttempt(ctx context.Context, arg HeartbeatAttemptParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, heartbeatAttempt, arg.LeaseExpiresAt, arg.ID)
+	result, err := q.db.Exec(ctx, heartbeatAttempt, arg.LeaseExpiresAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const listAttemptByGoal = `-- name: ListAttemptByGoal :many
@@ -254,12 +255,12 @@ ORDER BY attempt_no DESC
 `
 
 type ListAttemptByGoalParams struct {
-	GoalID  string         `json:"goal_id"`
-	Purpose sql.NullString `json:"purpose"`
+	GoalID  string      `json:"goal_id"`
+	Purpose pgtype.Text `json:"purpose"`
 }
 
 func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalParams) ([]AgentGoalAttempt, error) {
-	rows, err := q.db.QueryContext(ctx, listAttemptByGoal, arg.GoalID, arg.Purpose)
+	rows, err := q.db.Query(ctx, listAttemptByGoal, arg.GoalID, arg.Purpose)
 	if err != nil {
 		return nil, err
 	}
@@ -294,9 +295,6 @@ func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalPa
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -314,12 +312,12 @@ LIMIT $2
 `
 
 type ListStaleAttemptsParams struct {
-	Now   sql.NullTime `json:"now"`
-	Limit int32        `json:"limit"`
+	Now   pgtype.Timestamptz `json:"now"`
+	Limit int32              `json:"limit"`
 }
 
 func (q *Queries) ListStaleAttempts(ctx context.Context, arg ListStaleAttemptsParams) ([]AgentGoalAttempt, error) {
-	rows, err := q.db.QueryContext(ctx, listStaleAttempts, arg.Now, arg.Limit)
+	rows, err := q.db.Query(ctx, listStaleAttempts, arg.Now, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -354,9 +352,6 @@ func (q *Queries) ListStaleAttempts(ctx context.Context, arg ListStaleAttemptsPa
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -375,16 +370,16 @@ WHERE id = $2 AND status = 'queued'
 `
 
 type PromoteAttemptParams struct {
-	LeaseExpiresAt sql.NullTime `json:"lease_expires_at"`
-	ID             string       `json:"id"`
+	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
+	ID             string             `json:"id"`
 }
 
 func (q *Queries) PromoteAttempt(ctx context.Context, arg PromoteAttemptParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, promoteAttempt, arg.LeaseExpiresAt, arg.ID)
+	result, err := q.db.Exec(ctx, promoteAttempt, arg.LeaseExpiresAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const setAttemptExecutor = `-- name: SetAttemptExecutor :exec
@@ -394,12 +389,12 @@ WHERE id = $2
 `
 
 type SetAttemptExecutorParams struct {
-	ExecutorAgentID sql.NullString `json:"executor_agent_id"`
-	ID              string         `json:"id"`
+	ExecutorAgentID pgtype.Text `json:"executor_agent_id"`
+	ID              string      `json:"id"`
 }
 
 func (q *Queries) SetAttemptExecutor(ctx context.Context, arg SetAttemptExecutorParams) error {
-	_, err := q.db.ExecContext(ctx, setAttemptExecutor, arg.ExecutorAgentID, arg.ID)
+	_, err := q.db.Exec(ctx, setAttemptExecutor, arg.ExecutorAgentID, arg.ID)
 	return err
 }
 
@@ -415,7 +410,7 @@ type SetAttemptGapsParams struct {
 }
 
 func (q *Queries) SetAttemptGaps(ctx context.Context, arg SetAttemptGapsParams) error {
-	_, err := q.db.ExecContext(ctx, setAttemptGaps, arg.Gaps, arg.ID)
+	_, err := q.db.Exec(ctx, setAttemptGaps, arg.Gaps, arg.ID)
 	return err
 }
 
@@ -433,12 +428,12 @@ WHERE id = $4 AND status = 'running'
 type SubmitAttemptParams struct {
 	Evidence   json.RawMessage `json:"evidence"`
 	Output     json.RawMessage `json:"output"`
-	RevisionID sql.NullString  `json:"revision_id"`
+	RevisionID pgtype.Text     `json:"revision_id"`
 	ID         string          `json:"id"`
 }
 
 func (q *Queries) SubmitAttempt(ctx context.Context, arg SubmitAttemptParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, submitAttempt,
+	result, err := q.db.Exec(ctx, submitAttempt,
 		arg.Evidence,
 		arg.Output,
 		arg.RevisionID,
@@ -447,5 +442,5 @@ func (q *Queries) SubmitAttempt(ctx context.Context, arg SubmitAttemptParams) (i
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }

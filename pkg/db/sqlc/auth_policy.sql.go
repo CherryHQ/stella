@@ -29,7 +29,7 @@ type CreateAuthPolicyParams struct {
 }
 
 func (q *Queries) CreateAuthPolicy(ctx context.Context, arg CreateAuthPolicyParams) (AuthPolicy, error) {
-	row := q.db.QueryRowContext(ctx, createAuthPolicy,
+	row := q.db.QueryRow(ctx, createAuthPolicy,
 		arg.ID,
 		arg.Name,
 		arg.Effect,
@@ -64,7 +64,7 @@ DELETE FROM auth_policy WHERE id = $1
 `
 
 func (q *Queries) DeleteAuthPolicy(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteAuthPolicy, id)
+	_, err := q.db.Exec(ctx, deleteAuthPolicy, id)
 	return err
 }
 
@@ -73,7 +73,7 @@ SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_
 `
 
 func (q *Queries) GetAuthPolicy(ctx context.Context, id string) (AuthPolicy, error) {
-	row := q.db.QueryRowContext(ctx, getAuthPolicy, id)
+	row := q.db.QueryRow(ctx, getAuthPolicy, id)
 	var i AuthPolicy
 	err := row.Scan(
 		&i.ID,
@@ -97,7 +97,7 @@ SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_
 `
 
 func (q *Queries) ListAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
-	rows, err := q.db.QueryContext(ctx, listAuthPolicies)
+	rows, err := q.db.Query(ctx, listAuthPolicies)
 	if err != nil {
 		return nil, err
 	}
@@ -122,9 +122,6 @@ func (q *Queries) ListAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -137,7 +134,7 @@ SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_
 `
 
 func (q *Queries) ListEnabledAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledAuthPolicies)
+	rows, err := q.db.Query(ctx, listEnabledAuthPolicies)
 	if err != nil {
 		return nil, err
 	}
@@ -162,9 +159,6 @@ func (q *Queries) ListEnabledAuthPolicies(ctx context.Context) ([]AuthPolicy, er
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -198,7 +192,7 @@ type UpdateAuthPolicyParams struct {
 }
 
 func (q *Queries) UpdateAuthPolicy(ctx context.Context, arg UpdateAuthPolicyParams) error {
-	_, err := q.db.ExecContext(ctx, updateAuthPolicy,
+	_, err := q.db.Exec(ctx, updateAuthPolicy,
 		arg.Name,
 		arg.Effect,
 		arg.Subjects,

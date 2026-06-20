@@ -7,15 +7,16 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteAllVaultEntriesByUser = `-- name: DeleteAllVaultEntriesByUser :exec
 DELETE FROM vault_entry WHERE user_id = $1
 `
 
-func (q *Queries) DeleteAllVaultEntriesByUser(ctx context.Context, userID sql.NullString) error {
-	_, err := q.db.ExecContext(ctx, deleteAllVaultEntriesByUser, userID)
+func (q *Queries) DeleteAllVaultEntriesByUser(ctx context.Context, userID pgtype.Text) error {
+	_, err := q.db.Exec(ctx, deleteAllVaultEntriesByUser, userID)
 	return err
 }
 
@@ -24,12 +25,12 @@ DELETE FROM vault_entry WHERE scope = 'user' AND user_id = $1 AND name = $2
 `
 
 type DeleteVaultEntryParams struct {
-	UserID sql.NullString `json:"user_id"`
-	Name   string         `json:"name"`
+	UserID pgtype.Text `json:"user_id"`
+	Name   string      `json:"name"`
 }
 
 func (q *Queries) DeleteVaultEntry(ctx context.Context, arg DeleteVaultEntryParams) error {
-	_, err := q.db.ExecContext(ctx, deleteVaultEntry, arg.UserID, arg.Name)
+	_, err := q.db.Exec(ctx, deleteVaultEntry, arg.UserID, arg.Name)
 	return err
 }
 
@@ -42,14 +43,14 @@ WHERE scope = $1
 `
 
 type DeleteVaultEntryByScopeParams struct {
-	Scope   string         `json:"scope"`
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
-	Name    string         `json:"name"`
+	Scope   string      `json:"scope"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Name    string      `json:"name"`
 }
 
 func (q *Queries) DeleteVaultEntryByScope(ctx context.Context, arg DeleteVaultEntryByScopeParams) error {
-	_, err := q.db.ExecContext(ctx, deleteVaultEntryByScope,
+	_, err := q.db.Exec(ctx, deleteVaultEntryByScope,
 		arg.Scope,
 		arg.UserID,
 		arg.AgentID,
@@ -65,12 +66,12 @@ WHERE scope = 'user' AND user_id = $1 AND name = $2
 `
 
 type GetVaultEntryParams struct {
-	UserID sql.NullString `json:"user_id"`
-	Name   string         `json:"name"`
+	UserID pgtype.Text `json:"user_id"`
+	Name   string      `json:"name"`
 }
 
 func (q *Queries) GetVaultEntry(ctx context.Context, arg GetVaultEntryParams) (VaultEntry, error) {
-	row := q.db.QueryRowContext(ctx, getVaultEntry, arg.UserID, arg.Name)
+	row := q.db.QueryRow(ctx, getVaultEntry, arg.UserID, arg.Name)
 	var i VaultEntry
 	err := row.Scan(
 		&i.ID,
@@ -95,14 +96,14 @@ WHERE scope = $1
 `
 
 type GetVaultEntryByScopeParams struct {
-	Scope   string         `json:"scope"`
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
-	Name    string         `json:"name"`
+	Scope   string      `json:"scope"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Name    string      `json:"name"`
 }
 
 func (q *Queries) GetVaultEntryByScope(ctx context.Context, arg GetVaultEntryByScopeParams) (VaultEntry, error) {
-	row := q.db.QueryRowContext(ctx, getVaultEntryByScope,
+	row := q.db.QueryRow(ctx, getVaultEntryByScope,
 		arg.Scope,
 		arg.UserID,
 		arg.AgentID,
@@ -132,13 +133,13 @@ ORDER BY name
 `
 
 type ListVaultEntriesByScopeParams struct {
-	Scope   string         `json:"scope"`
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
+	Scope   string      `json:"scope"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) ListVaultEntriesByScope(ctx context.Context, arg ListVaultEntriesByScopeParams) ([]VaultEntry, error) {
-	rows, err := q.db.QueryContext(ctx, listVaultEntriesByScope, arg.Scope, arg.UserID, arg.AgentID)
+	rows, err := q.db.Query(ctx, listVaultEntriesByScope, arg.Scope, arg.UserID, arg.AgentID)
 	if err != nil {
 		return nil, err
 	}
@@ -159,9 +160,6 @@ func (q *Queries) ListVaultEntriesByScope(ctx context.Context, arg ListVaultEntr
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -176,8 +174,8 @@ WHERE scope = 'user' AND user_id = $1
 ORDER BY name
 `
 
-func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID sql.NullString) ([]VaultEntry, error) {
-	rows, err := q.db.QueryContext(ctx, listVaultEntriesByUser, userID)
+func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID pgtype.Text) ([]VaultEntry, error) {
+	rows, err := q.db.Query(ctx, listVaultEntriesByUser, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -198,9 +196,6 @@ func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID sql.NullStr
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -225,13 +220,13 @@ END, name
 `
 
 type ListVaultEntriesForRuntimeParams struct {
-	AgentID sql.NullString `json:"agent_id"`
-	UserID  sql.NullString `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
 }
 
 // Keep this precedence in sync with internal/vault envPrecedence.
 func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultEntriesForRuntimeParams) ([]VaultEntry, error) {
-	rows, err := q.db.QueryContext(ctx, listVaultEntriesForRuntime, arg.AgentID, arg.UserID)
+	rows, err := q.db.Query(ctx, listVaultEntriesForRuntime, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -253,9 +248,6 @@ func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultE
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -271,14 +263,14 @@ ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), nam
 `
 
 type UpsertVaultEntryParams struct {
-	ID         string         `json:"id"`
-	UserID     sql.NullString `json:"user_id"`
-	Name       string         `json:"name"`
-	Ciphertext string         `json:"ciphertext"`
+	ID         string      `json:"id"`
+	UserID     pgtype.Text `json:"user_id"`
+	Name       string      `json:"name"`
+	Ciphertext string      `json:"ciphertext"`
 }
 
 func (q *Queries) UpsertVaultEntry(ctx context.Context, arg UpsertVaultEntryParams) error {
-	_, err := q.db.ExecContext(ctx, upsertVaultEntry,
+	_, err := q.db.Exec(ctx, upsertVaultEntry,
 		arg.ID,
 		arg.UserID,
 		arg.Name,
@@ -296,16 +288,16 @@ ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), nam
 `
 
 type UpsertVaultEntryByScopeParams struct {
-	ID         string         `json:"id"`
-	Scope      string         `json:"scope"`
-	UserID     sql.NullString `json:"user_id"`
-	AgentID    sql.NullString `json:"agent_id"`
-	Name       string         `json:"name"`
-	Ciphertext string         `json:"ciphertext"`
+	ID         string      `json:"id"`
+	Scope      string      `json:"scope"`
+	UserID     pgtype.Text `json:"user_id"`
+	AgentID    pgtype.Text `json:"agent_id"`
+	Name       string      `json:"name"`
+	Ciphertext string      `json:"ciphertext"`
 }
 
 func (q *Queries) UpsertVaultEntryByScope(ctx context.Context, arg UpsertVaultEntryByScopeParams) error {
-	_, err := q.db.ExecContext(ctx, upsertVaultEntryByScope,
+	_, err := q.db.Exec(ctx, upsertVaultEntryByScope,
 		arg.ID,
 		arg.Scope,
 		arg.UserID,

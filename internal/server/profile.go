@@ -1,10 +1,11 @@
 package server
 
 import (
-	"database/sql"
 	"net/http"
 	"sort"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -440,7 +441,7 @@ func profileChangelogEntryToAPI(row sqlc.CtxAgentMemoryChangelog) apiserver.Chan
 	}
 }
 
-func nullIntToPtr(value sql.NullInt64) *int {
+func nullIntToPtr(value pgtype.Int8) *int {
 	if !value.Valid {
 		return nil
 	}
@@ -448,7 +449,7 @@ func nullIntToPtr(value sql.NullInt64) *int {
 	return &v
 }
 
-func nullStringToPtr(value sql.NullString) *string {
+func nullStringToPtr(value pgtype.Text) *string {
 	if !value.Valid {
 		return nil
 	}

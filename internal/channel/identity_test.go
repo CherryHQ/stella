@@ -2,10 +2,11 @@ package channel
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -23,7 +24,7 @@ type testStores struct {
 	store     config.Store
 	authStore *appdb.AuthStore // policy/token store
 	oidcStore *appdb.OIDCStore // user/identity/session store
-	db        *sql.DB
+	db        *pgxpool.Pool
 }
 
 func (ts testStores) ctx() context.Context {

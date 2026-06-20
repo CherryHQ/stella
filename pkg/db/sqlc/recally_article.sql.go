@@ -7,9 +7,10 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countArticlesByStatus = `-- name: CountArticlesByStatus :one
@@ -22,7 +23,7 @@ type CountArticlesByStatusParams struct {
 }
 
 func (q *Queries) CountArticlesByStatus(ctx context.Context, arg CountArticlesByStatusParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countArticlesByStatus, arg.UserID, arg.Status)
+	row := q.db.QueryRow(ctx, countArticlesByStatus, arg.UserID, arg.Status)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -33,7 +34,7 @@ SELECT COUNT(*) as count FROM recally_article WHERE user_id = $1 AND starred = t
 `
 
 func (q *Queries) CountStarredArticles(ctx context.Context, userID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countStarredArticles, userID)
+	row := q.db.QueryRow(ctx, countStarredArticles, userID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -50,27 +51,27 @@ RETURNING id, user_id, agent_id, url, canonical_url, source_type, title, author,
 `
 
 type CreateArticleParams struct {
-	ID           string          `json:"id"`
-	UserID       string          `json:"user_id"`
-	AgentID      sql.NullString  `json:"agent_id"`
-	Url          string          `json:"url"`
-	CanonicalUrl string          `json:"canonical_url"`
-	SourceType   string          `json:"source_type"`
-	Title        string          `json:"title"`
-	Author       string          `json:"author"`
-	Summary      string          `json:"summary"`
-	Tags         string          `json:"tags"`
-	Status       string          `json:"status"`
-	Starred      bool            `json:"starred"`
-	FilePath     string          `json:"file_path"`
-	Metadata     json.RawMessage `json:"metadata"`
-	PublishedAt  sql.NullTime    `json:"published_at"`
-	SavedAt      time.Time       `json:"saved_at"`
-	ReadAt       sql.NullTime    `json:"read_at"`
+	ID           string             `json:"id"`
+	UserID       string             `json:"user_id"`
+	AgentID      pgtype.Text        `json:"agent_id"`
+	Url          string             `json:"url"`
+	CanonicalUrl string             `json:"canonical_url"`
+	SourceType   string             `json:"source_type"`
+	Title        string             `json:"title"`
+	Author       string             `json:"author"`
+	Summary      string             `json:"summary"`
+	Tags         string             `json:"tags"`
+	Status       string             `json:"status"`
+	Starred      bool               `json:"starred"`
+	FilePath     string             `json:"file_path"`
+	Metadata     json.RawMessage    `json:"metadata"`
+	PublishedAt  pgtype.Timestamptz `json:"published_at"`
+	SavedAt      time.Time          `json:"saved_at"`
+	ReadAt       pgtype.Timestamptz `json:"read_at"`
 }
 
 func (q *Queries) CreateArticle(ctx context.Context, arg CreateArticleParams) (RecallyArticle, error) {
-	row := q.db.QueryRowContext(ctx, createArticle,
+	row := q.db.QueryRow(ctx, createArticle,
 		arg.ID,
 		arg.UserID,
 		arg.AgentID,
@@ -125,7 +126,7 @@ type DeleteArticleParams struct {
 }
 
 func (q *Queries) DeleteArticle(ctx context.Context, arg DeleteArticleParams) error {
-	_, err := q.db.ExecContext(ctx, deleteArticle, arg.ID, arg.UserID)
+	_, err := q.db.Exec(ctx, deleteArticle, arg.ID, arg.UserID)
 	return err
 }
 
@@ -139,7 +140,7 @@ type GetArticleParams struct {
 }
 
 func (q *Queries) GetArticle(ctx context.Context, arg GetArticleParams) (RecallyArticle, error) {
-	row := q.db.QueryRowContext(ctx, getArticle, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getArticle, arg.ID, arg.UserID)
 	var i RecallyArticle
 	err := row.Scan(
 		&i.ID,
@@ -176,7 +177,7 @@ type GetArticleByCanonicalURLParams struct {
 }
 
 func (q *Queries) GetArticleByCanonicalURL(ctx context.Context, arg GetArticleByCanonicalURLParams) (RecallyArticle, error) {
-	row := q.db.QueryRowContext(ctx, getArticleByCanonicalURL, arg.UserID, arg.CanonicalUrl)
+	row := q.db.QueryRow(ctx, getArticleByCanonicalURL, arg.UserID, arg.CanonicalUrl)
 	var i RecallyArticle
 	err := row.Scan(
 		&i.ID,
@@ -211,7 +212,7 @@ ORDER BY saved_at DESC
 `
 
 func (q *Queries) GetArticlesSavedThisWeek(ctx context.Context, userID string) ([]RecallyArticle, error) {
-	rows, err := q.db.QueryContext(ctx, getArticlesSavedThisWeek, userID)
+	rows, err := q.db.Query(ctx, getArticlesSavedThisWeek, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -245,9 +246,6 @@ func (q *Queries) GetArticlesSavedThisWeek(ctx context.Context, userID string) (
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -274,7 +272,7 @@ type ListArticlesParams struct {
 }
 
 func (q *Queries) ListArticles(ctx context.Context, arg ListArticlesParams) ([]RecallyArticle, error) {
-	rows, err := q.db.QueryContext(ctx, listArticles,
+	rows, err := q.db.Query(ctx, listArticles,
 		arg.UserID,
 		arg.Status,
 		arg.SourceType,
@@ -315,9 +313,6 @@ func (q *Queries) ListArticles(ctx context.Context, arg ListArticlesParams) ([]R
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -332,7 +327,7 @@ ORDER BY saved_at DESC
 `
 
 func (q *Queries) ListArticlesSavedYesterday(ctx context.Context, userID string) ([]RecallyArticle, error) {
-	rows, err := q.db.QueryContext(ctx, listArticlesSavedYesterday, userID)
+	rows, err := q.db.Query(ctx, listArticlesSavedYesterday, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -365,9 +360,6 @@ func (q *Queries) ListArticlesSavedYesterday(ctx context.Context, userID string)
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -391,7 +383,7 @@ type ListUnreadArticlesOlderThanParams struct {
 }
 
 func (q *Queries) ListUnreadArticlesOlderThan(ctx context.Context, arg ListUnreadArticlesOlderThanParams) ([]RecallyArticle, error) {
-	rows, err := q.db.QueryContext(ctx, listUnreadArticlesOlderThan, arg.UserID, arg.Cutoff, arg.Limit)
+	rows, err := q.db.Query(ctx, listUnreadArticlesOlderThan, arg.UserID, arg.Cutoff, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -424,9 +416,6 @@ func (q *Queries) ListUnreadArticlesOlderThan(ctx context.Context, arg ListUnrea
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -465,7 +454,7 @@ type SearchArticlesRow struct {
 // TODO(Phase 5): validate ranking/snippet quality and the CJK trigram tier on
 // real PostgreSQL; CJK queries fall through to SearchArticlesLike (pg_trgm).
 func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) ([]SearchArticlesRow, error) {
-	rows, err := q.db.QueryContext(ctx, searchArticles, arg.Match, arg.UserID, arg.Limit)
+	rows, err := q.db.Query(ctx, searchArticles, arg.Match, arg.UserID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -501,9 +490,6 @@ func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) 
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -532,7 +518,7 @@ type SearchArticlesLikeParams struct {
 // ranking. Pattern must be a full '%text%' built with ftsquery.EscapeLike; see
 // SearchMessagesLike for the sqlc constraints shaping this query.
 func (q *Queries) SearchArticlesLike(ctx context.Context, arg SearchArticlesLikeParams) ([]RecallyArticle, error) {
-	rows, err := q.db.QueryContext(ctx, searchArticlesLike, arg.UserID, arg.Pattern, arg.Limit)
+	rows, err := q.db.Query(ctx, searchArticlesLike, arg.UserID, arg.Pattern, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -566,9 +552,6 @@ func (q *Queries) SearchArticlesLike(ctx context.Context, arg SearchArticlesLike
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -593,22 +576,22 @@ RETURNING id, user_id, agent_id, url, canonical_url, source_type, title, author,
 `
 
 type UpdateArticleParams struct {
-	Title       string          `json:"title"`
-	Author      string          `json:"author"`
-	Summary     string          `json:"summary"`
-	Tags        string          `json:"tags"`
-	Status      string          `json:"status"`
-	Starred     bool            `json:"starred"`
-	FilePath    string          `json:"file_path"`
-	Metadata    json.RawMessage `json:"metadata"`
-	PublishedAt sql.NullTime    `json:"published_at"`
-	ReadAt      sql.NullTime    `json:"read_at"`
-	ID          string          `json:"id"`
-	UserID      string          `json:"user_id"`
+	Title       string             `json:"title"`
+	Author      string             `json:"author"`
+	Summary     string             `json:"summary"`
+	Tags        string             `json:"tags"`
+	Status      string             `json:"status"`
+	Starred     bool               `json:"starred"`
+	FilePath    string             `json:"file_path"`
+	Metadata    json.RawMessage    `json:"metadata"`
+	PublishedAt pgtype.Timestamptz `json:"published_at"`
+	ReadAt      pgtype.Timestamptz `json:"read_at"`
+	ID          string             `json:"id"`
+	UserID      string             `json:"user_id"`
 }
 
 func (q *Queries) UpdateArticle(ctx context.Context, arg UpdateArticleParams) (RecallyArticle, error) {
-	row := q.db.QueryRowContext(ctx, updateArticle,
+	row := q.db.QueryRow(ctx, updateArticle,
 		arg.Title,
 		arg.Author,
 		arg.Summary,

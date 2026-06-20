@@ -2,23 +2,24 @@ package scheduler
 
 import (
 	"context"
-	"database/sql"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-func testDB(t *testing.T) *sql.DB {
+func testDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	return dbtest.New(t)
 }
 
 // newTestService wraps New.
-func newTestService(t *testing.T, db *sql.DB) *Service {
+func newTestService(t *testing.T, db *pgxpool.Pool) *Service {
 	t.Helper()
 	svc, err := New(db)
 	if err != nil {
@@ -321,7 +322,7 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 
 	// Manually tamper the job to have a past timestamp to simulate missed window.
 	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
-	_, err := db.Exec("UPDATE sched_job SET schedule_at = $1 WHERE name = $2", pastTime, "restart-test")
+	_, err := db.Exec(context.Background(), "UPDATE sched_job SET schedule_at = $1 WHERE name = $2", pastTime, "restart-test")
 	if err != nil {
 		t.Fatalf("update schedule_at: %v", err)
 	}

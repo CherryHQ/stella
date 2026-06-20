@@ -1,12 +1,14 @@
 package db
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Package db's own tests cannot use internal/db/dbtest — that helper imports this
@@ -16,7 +18,7 @@ import (
 var (
 	pkgTestOnce   sync.Once
 	pkgTestServer *Embedded
-	pkgTestAdmin  *sql.DB
+	pkgTestAdmin  *pgxpool.Pool
 	pkgTestErr    error
 	pkgTestSeq    atomic.Int64
 )
@@ -29,11 +31,11 @@ func pkgTestEnsure() {
 		if pkgTestErr != nil {
 			return
 		}
-		pkgTestAdmin, pkgTestErr = sql.Open("pgx", pkgTestServer.DSNFor("postgres"))
+		pkgTestAdmin, pkgTestErr = pgxpool.New(context.Background(), pkgTestServer.DSNFor("postgres"))
 		if pkgTestErr != nil {
 			return
 		}
-		if _, err := pkgTestAdmin.Exec("CREATE DATABASE " + pkgTestTemplate); err != nil {
+		if _, err := pkgTestAdmin.Exec(context.Background(), "CREATE DATABASE "+pkgTestTemplate); err != nil {
 			pkgTestErr = fmt.Errorf("create template: %w", err)
 			return
 		}
@@ -42,20 +44,20 @@ func pkgTestEnsure() {
 			pkgTestErr = fmt.Errorf("migrate template: %w", err)
 			return
 		}
-		_ = tmpl.Close()
+		tmpl.Close()
 	})
 }
 
 // newTestDB returns a fresh, fully-migrated, isolated database for one test,
 // dropped when the test ends.
-func newTestDB(t *testing.T) *sql.DB {
+func newTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	pkgTestEnsure()
 	if pkgTestErr != nil {
 		t.Fatalf("newTestDB: %v", pkgTestErr)
 	}
 	name := fmt.Sprintf("dbtest_%d", pkgTestSeq.Add(1))
-	if _, err := pkgTestAdmin.Exec(fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", name, pkgTestTemplate)); err != nil {
+	if _, err := pkgTestAdmin.Exec(context.Background(), fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", name, pkgTestTemplate)); err != nil {
 		t.Fatalf("newTestDB: create %s: %v", name, err)
 	}
 	db, err := OpenDB(pkgTestServer.DSNFor(name))
@@ -63,9 +65,9 @@ func newTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("newTestDB: open %s: %v", name, err)
 	}
 	t.Cleanup(func() {
-		_ = db.Close()
-		_, _ = pkgTestAdmin.Exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1", name)
-		_, _ = pkgTestAdmin.Exec("DROP DATABASE IF EXISTS " + name)
+		db.Close()
+		_, _ = pkgTestAdmin.Exec(context.Background(), "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1", name)
+		_, _ = pkgTestAdmin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+name)
 	})
 	return db
 }

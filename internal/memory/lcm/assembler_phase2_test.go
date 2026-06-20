@@ -2,10 +2,11 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -14,12 +15,12 @@ import (
 
 func TestAssemblerSummaryParentsBatchPreservesXML(t *testing.T) {
 	db := newAssemblerTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 
 	ctx := context.Background()
 	q := sqlc.New(db)
 	convID := uuid.NewString()
-	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, "sess-summary-parents"); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, "sess-summary-parents"); err != nil {
 		t.Fatalf("insert conversation: %v", err)
 	}
 
@@ -66,7 +67,7 @@ func TestAssemblerSummaryParentsBatchPreservesXML(t *testing.T) {
 			ConversationID: convID,
 			Ordinal:        int64(i + 1),
 			ItemType:       itemTypeSummary,
-			SummaryID:      sql.NullString{String: child.ID, Valid: true},
+			SummaryID:      pgtype.Text{String: child.ID, Valid: true},
 			Role:           "",
 		}); err != nil {
 			t.Fatalf("append context item %s: %v", child.ID, err)
@@ -105,7 +106,7 @@ func TestAssemblerSummaryParentsBatchPreservesXML(t *testing.T) {
 	}
 }
 
-func newAssemblerTestDB(t *testing.T) *sql.DB {
+func newAssemblerTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	return dbtest.New(t)
 }

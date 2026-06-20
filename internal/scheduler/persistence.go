@@ -2,12 +2,13 @@ package scheduler
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -43,7 +44,7 @@ func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, 
 		lastError = runErr.Error()
 	}
 	return s.q.RecordSchedulerJobRun(ctx, sqlc.RecordSchedulerJobRunParams{
-		LastRunAt: sql.NullTime{Time: ranAt.UTC(), Valid: true},
+		LastRunAt: pgtype.Timestamptz{Time: ranAt.UTC(), Valid: true},
 		LastError: lastError,
 		UpdatedAt: ranAt.UTC(),
 		ID:        id,
@@ -80,8 +81,8 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		Payload:       encodePayload(job.Payload),
 		SessionMode:   job.SessionMode,
 		Enabled:       job.Enabled,
-		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
-		UserID:        sql.NullString{String: job.UserID, Valid: job.UserID != ""},
+		AgentID:       pgtype.Text{String: job.AgentID, Valid: job.AgentID != ""},
+		UserID:        pgtype.Text{String: job.UserID, Valid: job.UserID != ""},
 		CreatedAt:     createdAt.UTC(),
 		UpdatedAt:     updatedAt.UTC(),
 		LastRunAt:     nullableTime(job.LastRunAt),
@@ -109,8 +110,8 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 		Payload:       encodePayload(job.Payload),
 		SessionMode:   job.SessionMode,
 		Enabled:       job.Enabled,
-		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
-		UserID:        sql.NullString{String: job.UserID, Valid: job.UserID != ""},
+		AgentID:       pgtype.Text{String: job.AgentID, Valid: job.AgentID != ""},
+		UserID:        pgtype.Text{String: job.UserID, Valid: job.UserID != ""},
 		UpdatedAt:     updatedAt.UTC(),
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
@@ -213,11 +214,11 @@ func clonePayload(src map[string]any) map[string]any {
 	return out
 }
 
-func nullableTime(t *time.Time) sql.NullTime {
+func nullableTime(t *time.Time) pgtype.Timestamptz {
 	if t == nil || t.IsZero() {
-		return sql.NullTime{}
+		return pgtype.Timestamptz{}
 	}
-	return sql.NullTime{Time: t.UTC(), Valid: true}
+	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
 }
 
 // tryStartJobRun atomically checks that no run is already in progress for the
@@ -225,11 +226,11 @@ func nullableTime(t *time.Time) sql.NullTime {
 // SQLite serializes writes, so Begin + check + insert is effectively atomic.
 // Returns errJobAlreadyRunning if a run is already active.
 func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID string, userID string, startedAt time.Time) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.q.WithTx(tx)
 	count, err := qtx.CountRunningSchedJobRuns(ctx, jobID)
@@ -245,11 +246,11 @@ func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID strin
 		SessionID: sessionID,
 		Status:    RunStatusRunning,
 		StartedAt: startedAt.UTC(),
-		UserID:    sql.NullString{String: userID, Valid: userID != ""},
+		UserID:    pgtype.Text{String: userID, Valid: userID != ""},
 	}); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return tx.Commit(ctx)
 }
 
 // maxRunOutputLen caps stored run output so run rows stay cheap to list;
@@ -270,7 +271,7 @@ func truncateRunes(s string, max int) string {
 func (s *Service) finishJobRun(ctx context.Context, id, jobID, status string, finishedAt time.Time, errStr, output string) error {
 	return s.q.UpdateSchedJobRun(ctx, sqlc.UpdateSchedJobRunParams{
 		Status:     status,
-		FinishedAt: sql.NullTime{Time: finishedAt.UTC(), Valid: true},
+		FinishedAt: pgtype.Timestamptz{Time: finishedAt.UTC(), Valid: true},
 		Error:      errStr,
 		Output:     truncateRunes(output, maxRunOutputLen),
 		ID:         id,

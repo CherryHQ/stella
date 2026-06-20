@@ -2,13 +2,15 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -16,12 +18,12 @@ import (
 
 func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 	db := newAssemblerTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer db.Close()
 
 	ctx := context.Background()
 	q := sqlc.New(db)
 	convID := uuid.NewString()
-	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, "sess-context-window-loader"); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, "sess-context-window-loader"); err != nil {
 		t.Fatalf("insert conversation: %v", err)
 	}
 
@@ -44,7 +46,7 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 			ConversationID: convID,
 			Ordinal:        ordinal,
 			ItemType:       itemTypeMessage,
-			MessageID:      sql.NullString{String: id, Valid: true},
+			MessageID:      pgtype.Text{String: id, Valid: true},
 			EventType:      eventType,
 			Role:           role,
 		}); err != nil {
@@ -81,7 +83,7 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 		ConversationID: convID,
 		Ordinal:        ordinal,
 		ItemType:       itemTypeSummary,
-		SummaryID:      sql.NullString{String: "sum-child", Valid: true},
+		SummaryID:      pgtype.Text{String: "sum-child", Valid: true},
 		Role:           "",
 	}); err != nil {
 		t.Fatalf("append summary item: %v", err)
@@ -95,7 +97,7 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 	result, _ := json.Marshal(toolResultEnvelope{ID: "call-loader", Tool: "bash", Result: json.RawMessage(`"ok"`)})
 	appendMessage(uuid.NewString(), 107, roleTool, eventTypeToolResult, string(result))
 
-	counting := &queryCountingDB{DB: db}
+	counting := &queryCountingDB{Pool: db}
 	got, err := newAssembler(sqlc.New(counting), nil).assemble(ctx, convID, 1_000_000, 0)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
@@ -131,13 +133,13 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 }
 
 type queryCountingDB struct {
-	*sql.DB
+	*pgxpool.Pool
 	queries int
 }
 
-func (db *queryCountingDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+func (db *queryCountingDB) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
 	db.queries++
-	return db.DB.QueryContext(ctx, query, args...)
+	return db.Pool.Query(ctx, query, args...)
 }
 
 func memoryEstimate(s string) int {
