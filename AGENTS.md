@@ -11,6 +11,7 @@ Stella is a multi-tenant, multi-user, multi-agent AI assistant platform written 
 - When touching platform-specific behavior, run a targeted cross-platform build before committing (e.g., `GOOS=windows GOARCH=amd64 go build -o dist/bin/stella-windows-amd64.exe ./cmd/stella`).
 - Do not run Go tests with `-race` locally by default.
 - **Never build the `stella` binary into the repo root.** Always use `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stella` explicitly.
+- `mise run dev` writes combined UI/API output to `dist/logs/dev.log` and truncates that file on each startup; use it for agent-friendly debugging.
 
 ## Development rules
 

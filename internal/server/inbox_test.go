@@ -150,47 +150,22 @@ func TestListInboxAggregatesAttentionItems(t *testing.T) {
 	}
 }
 
-// Agent-policy reviews and reviews left behind by cancelled tasks must not
-// surface in the human inbox.
-func TestListInboxExcludesNonActionableReviews(t *testing.T) {
+// Only goals that are blocked or recently terminal belong in the inbox.
+// Draft/ready/active/accepted goals and stale failures must stay out.
+func TestListInboxExcludesNonActionableGoals(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
-	ctx := context.Background()
-	userID := env.adminUser.ID
+	seed := newGoalSeeder(t, env, agentID)
 
-	seedReview := func(taskID, reviewID, taskStatus, reviewerType string) {
-		t.Helper()
-		created := inboxTS(-1 * time.Hour)
-		_, err := env.db.ExecContext(ctx, `
-			INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-			VALUES (?, ?, ?, 'task', 'task', ?, ?, ?)
-		`, uuid.NewString(), "task:"+taskID, taskID, agentID, userID, created)
-		if err != nil {
-			t.Fatalf("seed conversation %s: %v", taskID, err)
-		}
-		_, err = env.db.ExecContext(ctx, `
-			INSERT INTO agent_task (id, user_id, agent_id, session_id, title, status, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, taskID, userID, agentID, "task:"+taskID, taskID, taskStatus, created, created)
-		if err != nil {
-			t.Fatalf("seed task %s: %v", taskID, err)
-		}
-		_, err = env.db.ExecContext(ctx, `
-			INSERT INTO agent_review (id, task_id, reviewer_type, status, summary, created_at, updated_at)
-			VALUES (?, ?, ?, 'requested', 'check', ?, ?)
-		`, reviewID, taskID, reviewerType, created, created)
-		if err != nil {
-			t.Fatalf("seed review %s: %v", reviewID, err)
-		}
-		_, err = env.db.ExecContext(ctx, `UPDATE agent_task SET active_review_id = ? WHERE id = ?`, reviewID, taskID)
-		if err != nil {
-			t.Fatalf("link review %s: %v", reviewID, err)
-		}
-	}
-
-	seedReview("task-human", "rev-human", "reviewing", "human")
-	seedReview("task-agent", "rev-agent", "reviewing", "agent")
-	seedReview("task-cancelled", "rev-cancelled", "cancelled", "human")
+	// Non-actionable lifecycles never surface.
+	seed.goal("goal-draft", "draft", "", "passed-unused", inboxTS(-1*time.Hour))
+	seed.goal("goal-ready", "ready", "", "pending", inboxTS(-1*time.Hour))
+	seed.goal("goal-active", "active", "", "pending", inboxTS(-1*time.Hour))
+	seed.accepted("goal-accepted", inboxTS(-1*time.Hour))
+	// A terminal failure older than the recency window is no longer nagging.
+	seed.goal("goal-stale-fail", "rejected_final", "", "failed", inboxTS(-10*24*time.Hour))
+	// Only this one is actionable.
+	seed.goal("goal-open-block", "blocked", "dep", "pending", inboxTS(-1*time.Hour))
 
 	rr := doRequest(t, env, http.MethodGet, "/api/inbox?page_size=100", nil)
 	if rr.Code != http.StatusOK {
@@ -201,65 +176,10 @@ func TestListInboxExcludesNonActionableReviews(t *testing.T) {
 		t.Fatalf("decode inbox: %v", err)
 	}
 	if len(list.Items) != 1 {
-		t.Fatalf("items len = %d, want only the human review: %+v", len(list.Items), list.Items)
+		t.Fatalf("items len = %d, want only the open block: %+v", len(list.Items), list.Items)
 	}
-	if list.Items[0].Id != "review:rev-human" {
-		t.Fatalf("item = %s, want review:rev-human", list.Items[0].Id)
-	}
-}
-
-// A task that failed once and then retried to success leaves a stale 'failed'
-// run behind; that run must not keep nagging from the inbox.
-func TestListInboxExcludesFailedRunsOfRecoveredTask(t *testing.T) {
-	env := setupAdmin(t)
-	agentID := findStellaID(t, env)
-	ctx := context.Background()
-	userID := env.adminUser.ID
-
-	created := inboxTS(-2 * time.Hour)
-	_, err := env.db.ExecContext(ctx, `
-		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-		VALUES (?, 'task:recovered', 'Recovered task', 'task', 'task', ?, ?, ?)
-	`, uuid.NewString(), agentID, userID, created)
-	if err != nil {
-		t.Fatalf("seed conversation: %v", err)
-	}
-	// Task ultimately succeeded.
-	_, err = env.db.ExecContext(ctx, `
-		INSERT INTO agent_task (id, user_id, agent_id, session_id, title, status, created_at, updated_at)
-		VALUES ('task-recovered', ?, ?, 'task:recovered', 'Recovered task', 'done', ?, ?)
-	`, userID, agentID, created, created)
-	if err != nil {
-		t.Fatalf("seed task: %v", err)
-	}
-	// ...but its first attempt is still on record as failed.
-	_, err = env.db.ExecContext(ctx, `
-		INSERT INTO agent_task_run (
-			id, task_id, user_id, agent_id, kind, attempt_no, status, session_id,
-			error, started_at, finished_at, created_at, updated_at
-		)
-		VALUES (
-			'run-recovered', 'task-recovered', ?, ?, 'worker', 1, 'failed', 'task:recovered',
-			'transient boom', ?, ?, ?, ?
-		)
-	`, userID, agentID,
-		inboxTS(-2*time.Hour),
-		time.Now().UTC().Add(-90*time.Minute).Format(time.RFC3339Nano),
-		inboxTS(-2*time.Hour), inboxTS(-90*time.Minute))
-	if err != nil {
-		t.Fatalf("seed task run: %v", err)
-	}
-
-	rr := doRequest(t, env, http.MethodGet, "/api/inbox?page_size=100", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("list inbox: status=%d body=%s", rr.Code, rr.Body.String())
-	}
-	var list apitypes.InboxList
-	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
-		t.Fatalf("decode inbox: %v", err)
-	}
-	if len(list.Items) != 0 {
-		t.Fatalf("recovered task must leave an empty inbox, got %+v", list.Items)
+	if list.Items[0].Id != "blocked:goal-open-block" {
+		t.Fatalf("item = %s, want blocked:goal-open-block", list.Items[0].Id)
 	}
 }
 
@@ -267,72 +187,16 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 	t.Helper()
 	ctx := context.Background()
 	userID := env.adminUser.ID
+	seed := newGoalSeeder(t, env, agentID)
 
-	insertTask := func(taskID, sessionID, title, status, createdAt string) {
-		t.Helper()
-		_, err := env.db.ExecContext(ctx, `
-			INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-			VALUES (?, ?, ?, 'task', 'task', ?, ?, ?)
-		`, uuid.NewString(), sessionID, title, agentID, userID, createdAt)
-		if err != nil {
-			t.Fatalf("seed conversation %s: %v", sessionID, err)
-		}
-		_, err = env.db.ExecContext(ctx, `
-			INSERT INTO agent_task (id, user_id, agent_id, session_id, title, status, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, taskID, userID, agentID, sessionID, title, status, createdAt, createdAt)
-		if err != nil {
-			t.Fatalf("seed task %s: %v", taskID, err)
-		}
-	}
+	// One of each inbox kind from goals, plus a failed scheduler run.
+	// Timestamps are staggered so the newest three (failed scheduler, blocked,
+	// review) land on page one and exercise all three kinds.
+	seed.goal("goal-blocked", "blocked", "dep", "pending", inboxTS(-3*time.Hour))
+	seed.goal("goal-review", "blocked", "needs_verdict", "pending", inboxTS(-4*time.Hour))
+	seed.goal("goal-failed", "rejected_final", "", "failed", inboxTS(-6*time.Hour))
 
-	insertTask("task-blocked", "task:block", "Blocked task", "blocked", inboxTS(-7*time.Hour))
 	_, err := env.db.ExecContext(ctx, `
-		INSERT INTO agent_task_blocker (id, task_id, kind, status, question, created_at)
-		VALUES ('blocker-1', 'task-blocked', 'input', 'open', 'Need a choice', ?)
-	`, inboxTS(-4*time.Hour))
-	if err != nil {
-		t.Fatalf("seed blocker: %v", err)
-	}
-	_, err = env.db.ExecContext(ctx, `UPDATE agent_task SET active_blocker_id = 'blocker-1' WHERE id = 'task-blocked'`)
-	if err != nil {
-		t.Fatalf("link blocker: %v", err)
-	}
-
-	insertTask("task-review", "task:review", "Review task", "reviewing", inboxTS(-6*time.Hour))
-	_, err = env.db.ExecContext(ctx, `
-		INSERT INTO agent_review (id, task_id, reviewer_type, status, summary, created_at, updated_at)
-		VALUES ('review-1', 'task-review', 'human', 'requested', 'Check output', ?, ?)
-	`, inboxTS(-5*time.Hour), inboxTS(-5*time.Hour))
-	if err != nil {
-		t.Fatalf("seed review: %v", err)
-	}
-	_, err = env.db.ExecContext(ctx, `UPDATE agent_task SET active_review_id = 'review-1' WHERE id = 'task-review'`)
-	if err != nil {
-		t.Fatalf("link review: %v", err)
-	}
-
-	insertTask("task-failed", "task:failed", "Failed task", "failed", inboxTS(-7*time.Hour))
-	// The transition service writes finished_at as RFC3339Nano, unlike the
-	// naive datetime('now') defaults — keep this seed on the realistic format.
-	_, err = env.db.ExecContext(ctx, `
-		INSERT INTO agent_task_run (
-			id, task_id, user_id, agent_id, kind, attempt_no, status, session_id,
-			error, started_at, finished_at, created_at, updated_at
-		)
-		VALUES (
-			'run-1', 'task-failed', ?, ?, 'worker', 1, 'failed', 'task:failed',
-			'boom', ?, ?, ?, ?
-		)
-	`, userID, agentID,
-		inboxTS(-7*time.Hour),
-		time.Now().UTC().Add(-6*time.Hour).Format(time.RFC3339Nano),
-		inboxTS(-7*time.Hour), inboxTS(-6*time.Hour))
-	if err != nil {
-		t.Fatalf("seed task run: %v", err)
-	}
-
-	_, err = env.db.ExecContext(ctx, `
 		INSERT INTO sched_job (
 			id, name, agent_id, user_id, created_at, updated_at
 		)
@@ -347,5 +211,56 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 	`, inboxTS(-3*time.Hour), inboxTS(-2*time.Hour), userID)
 	if err != nil {
 		t.Fatalf("seed sched run: %v", err)
+	}
+}
+
+// goalSeeder inserts root goals (each with its own persistent
+// session) directly, bypassing the service so tests can pin lifecycle states.
+type goalSeeder struct {
+	t       *testing.T
+	env     *testEnv
+	agentID string
+}
+
+func newGoalSeeder(t *testing.T, env *testEnv, agentID string) *goalSeeder {
+	return &goalSeeder{t: t, env: env, agentID: agentID}
+}
+
+// goal seeds a root goal with the given lifecycle/block_reason.
+func (s *goalSeeder) goal(id, lifecycle, blockReason, acceptanceState, updatedAt string) {
+	s.insert(id, lifecycle, blockReason, acceptanceState, nil, updatedAt)
+}
+
+// accepted seeds an accepted root, satisfying the schema's anti-drift CHECK
+// (acceptance_state='passed' AND accepted_output IS NOT NULL).
+func (s *goalSeeder) accepted(id, updatedAt string) {
+	output := "done"
+	s.insert(id, "accepted", "", "passed", &output, updatedAt)
+}
+
+func (s *goalSeeder) insert(id, lifecycle, blockReason, acceptanceState string, acceptedOutput *string, updatedAt string) {
+	s.t.Helper()
+	ctx := context.Background()
+	userID := s.env.adminUser.ID
+	sessionID := "goal-session:" + id
+	_, err := s.env.db.ExecContext(ctx, `
+		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
+		VALUES (?, ?, ?, 'task', 'task', ?, ?, ?)
+	`, uuid.NewString(), sessionID, id, s.agentID, userID, updatedAt)
+	if err != nil {
+		s.t.Fatalf("seed conversation %s: %v", sessionID, err)
+	}
+	_, err = s.env.db.ExecContext(ctx, `
+		INSERT INTO agent_goal (
+			id, user_id, agent_id, root_id, session_id, title,
+			lifecycle, block_reason, acceptance_state, accepted_output,
+			created_at, updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, userID, s.agentID, id, sessionID, id,
+		lifecycle, blockReason, acceptanceState, acceptedOutput,
+		updatedAt, updatedAt)
+	if err != nil {
+		s.t.Fatalf("seed goal %s: %v", id, err)
 	}
 }

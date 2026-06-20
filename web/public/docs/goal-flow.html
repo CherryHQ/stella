@@ -1,0 +1,1446 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Goal 生命周期 · 规划门数据流</title>
+    <style>
+      :root {
+        --bg: oklch(14% 0.01 260);
+        --surface: oklch(18% 0.012 260);
+        --surface-2: oklch(22% 0.014 260);
+        --fg: oklch(92% 0.008 250);
+        --muted: oklch(58% 0.014 250);
+        --border: oklch(28% 0.012 260);
+        --accent-blue: oklch(68% 0.16 240);
+        --accent-green: oklch(72% 0.16 155);
+        --accent-amber: oklch(78% 0.14 75);
+        --accent-red: oklch(68% 0.18 25);
+        --accent-purple: oklch(68% 0.14 300);
+        --accent-cyan: oklch(72% 0.12 200);
+        --code-bg: oklch(12% 0.008 260);
+
+        --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        --font-body: "SF Pro Text", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font-body);
+        font-size: 14px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 48px 24px 80px;
+      }
+
+      header {
+        margin-bottom: 48px;
+      }
+
+      header h1 {
+        font-family: var(--font-display);
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin-bottom: 12px;
+      }
+
+      header p {
+        color: var(--muted);
+        font-size: 14px;
+        max-width: 720px;
+      }
+
+      /* Entry point diagram */
+      .entry-diagram {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 0;
+        align-items: center;
+        margin-bottom: 40px;
+      }
+
+      .entry-column {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .entry-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px 16px;
+        font-size: 13px;
+      }
+
+      .entry-card-label {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 4px;
+      }
+
+      .entry-card-label.web {
+        color: var(--accent-blue);
+      }
+      .entry-card-label.platform {
+        color: var(--accent-purple);
+      }
+      .entry-card-label.shared {
+        color: var(--accent-green);
+      }
+
+      .entry-card dd {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: oklch(78% 0.008 250);
+      }
+
+      .entry-merge {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 0 24px;
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        gap: 4px;
+      }
+
+      .entry-merge .arrow-down {
+        font-size: 20px;
+        opacity: 0.4;
+      }
+
+      .merge-target {
+        grid-column: 1 / -1;
+        margin-top: 12px;
+        background: oklch(72% 0.16 155 / 0.06);
+        border: 1px solid oklch(72% 0.16 155 / 0.25);
+        border-radius: 6px;
+        padding: 14px 20px;
+        text-align: center;
+      }
+
+      .merge-target-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-green);
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .merge-target p {
+        font-size: 13px;
+        color: oklch(78% 0.01 250);
+      }
+
+      /* Scenario */
+      .scenario {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px 24px;
+        margin-bottom: 40px;
+      }
+
+      .scenario-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--accent-amber);
+        margin-bottom: 10px;
+      }
+
+      .scenario-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 16px;
+      }
+
+      .scenario-item {
+        font-size: 13px;
+      }
+
+      .scenario-item dt {
+        color: var(--muted);
+        font-size: 11px;
+        margin-bottom: 2px;
+      }
+
+      .scenario-item dd {
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+
+      /* Flow stages */
+      .flow {
+        position: relative;
+      }
+
+      .flow::before {
+        content: "";
+        position: absolute;
+        left: 23px;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: linear-gradient(
+          to bottom,
+          var(--border) 0%,
+          var(--accent-blue) 10%,
+          var(--accent-green) 30%,
+          var(--accent-amber) 50%,
+          var(--accent-purple) 75%,
+          var(--border) 100%
+        );
+        opacity: 0.5;
+      }
+
+      .stage {
+        position: relative;
+        padding-left: 56px;
+        margin-bottom: 32px;
+      }
+
+      .stage-dot {
+        position: absolute;
+        left: 16px;
+        top: 4px;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        border: 2px solid;
+        background: var(--bg);
+        z-index: 1;
+      }
+
+      .stage-dot.blue {
+        border-color: var(--accent-blue);
+      }
+      .stage-dot.green {
+        border-color: var(--accent-green);
+      }
+      .stage-dot.amber {
+        border-color: var(--accent-amber);
+      }
+      .stage-dot.red {
+        border-color: var(--accent-red);
+      }
+      .stage-dot.purple {
+        border-color: var(--accent-purple);
+      }
+      .stage-dot.cyan {
+        border-color: var(--accent-cyan);
+      }
+
+      .stage-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .stage-number {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--muted);
+        min-width: 20px;
+      }
+
+      .stage-title {
+        font-family: var(--font-display);
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: oklch(82% 0.008 250);
+      }
+
+      .stage-file {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--muted);
+        background: var(--surface);
+        padding: 2px 6px;
+        border-radius: 3px;
+        border: 1px solid var(--border);
+      }
+
+      .stage-desc {
+        color: var(--muted);
+        font-size: 13px;
+        margin-bottom: 12px;
+        max-width: 720px;
+      }
+
+      .stage-body {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      /* Data cards */
+      .data-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      .data-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 14px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-2);
+      }
+
+      .data-card-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+
+      .data-card-tag {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 3px;
+        border: 1px solid;
+      }
+
+      .tag-go {
+        color: var(--accent-blue);
+        border-color: oklch(68% 0.16 240 / 0.3);
+        background: oklch(68% 0.16 240 / 0.08);
+      }
+      .tag-sql {
+        color: var(--accent-green);
+        border-color: oklch(72% 0.16 155 / 0.3);
+        background: oklch(72% 0.16 155 / 0.08);
+      }
+      .tag-sse {
+        color: var(--accent-purple);
+        border-color: oklch(68% 0.14 300 / 0.3);
+        background: oklch(68% 0.14 300 / 0.08);
+      }
+      .tag-ts {
+        color: var(--accent-amber);
+        border-color: oklch(78% 0.14 75 / 0.3);
+        background: oklch(78% 0.14 75 / 0.08);
+      }
+      .tag-db {
+        color: var(--accent-green);
+        border-color: oklch(72% 0.16 155 / 0.3);
+        background: oklch(72% 0.16 155 / 0.08);
+      }
+      .tag-arbiter {
+        color: var(--accent-cyan);
+        border-color: oklch(72% 0.12 200 / 0.3);
+        background: oklch(72% 0.12 200 / 0.08);
+      }
+      .tag-risk {
+        color: var(--accent-red);
+        border-color: oklch(68% 0.18 25 / 0.3);
+        background: oklch(68% 0.18 25 / 0.08);
+      }
+
+      .data-card pre {
+        padding: 12px 14px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.7;
+        color: oklch(82% 0.008 250);
+        overflow-x: auto;
+        white-space: pre;
+        background: var(--code-bg);
+      }
+
+      /* DB table */
+      .db-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+      }
+
+      .db-table th {
+        text-align: left;
+        padding: 6px 12px;
+        color: var(--muted);
+        font-weight: 500;
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-2);
+      }
+
+      .db-table td {
+        padding: 6px 12px;
+        border-bottom: 1px solid oklch(22% 0.01 260);
+        color: oklch(78% 0.008 250);
+        white-space: nowrap;
+      }
+
+      .db-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .db-table .highlight td {
+        background: oklch(68% 0.16 240 / 0.06);
+        color: var(--fg);
+      }
+
+      .db-table .new td {
+        background: oklch(72% 0.16 155 / 0.06);
+      }
+      .db-table .dim td {
+        color: var(--muted);
+      }
+
+      /* Arrow */
+      .arrow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 11px;
+      }
+
+      .arrow::before {
+        content: "↓";
+        font-size: 14px;
+        opacity: 0.5;
+      }
+
+      /* Callouts */
+      .risk-callout {
+        background: oklch(68% 0.18 25 / 0.06);
+        border: 1px solid oklch(68% 0.18 25 / 0.25);
+        border-radius: 6px;
+        padding: 12px 16px;
+        font-size: 13px;
+      }
+
+      .risk-callout-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-red);
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .risk-callout p {
+        color: oklch(78% 0.01 250);
+      }
+
+      .info-callout {
+        background: oklch(68% 0.16 240 / 0.06);
+        border: 1px solid oklch(68% 0.16 240 / 0.25);
+        border-radius: 6px;
+        padding: 12px 16px;
+        font-size: 13px;
+      }
+
+      .info-callout-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-blue);
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .info-callout p {
+        color: oklch(78% 0.01 250);
+      }
+
+      .design-callout {
+        background: oklch(72% 0.16 155 / 0.06);
+        border: 1px solid oklch(72% 0.16 155 / 0.25);
+        border-radius: 6px;
+        padding: 12px 16px;
+        font-size: 13px;
+      }
+
+      .design-callout-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-green);
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .design-callout p {
+        color: oklch(78% 0.01 250);
+      }
+
+      /* Inline code */
+      code {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        background: var(--surface-2);
+        padding: 1px 5px;
+        border-radius: 3px;
+        border: 1px solid var(--border);
+        color: oklch(78% 0.06 240);
+      }
+
+      /* Sub-stage */
+      .sub-stage {
+        margin-left: 20px;
+        padding-left: 16px;
+        border-left: 1px solid var(--border);
+      }
+
+      .sub-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-green);
+        margin-bottom: 6px;
+      }
+
+      /* Decision tree */
+      .decision-tree {
+        border: 1px dashed oklch(72% 0.12 200 / 0.3);
+        border-radius: 6px;
+        padding: 16px;
+        background: oklch(72% 0.12 200 / 0.03);
+      }
+
+      .decision-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-cyan);
+        margin-bottom: 12px;
+      }
+
+      .decision-branch {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 8px;
+        align-items: flex-start;
+      }
+
+      .decision-condition {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-cyan);
+        background: oklch(72% 0.12 200 / 0.1);
+        border: 1px solid oklch(72% 0.12 200 / 0.2);
+        border-radius: 4px;
+        padding: 4px 8px;
+        white-space: nowrap;
+        min-width: 120px;
+      }
+
+      .decision-result {
+        font-size: 13px;
+        color: oklch(78% 0.008 250);
+        padding-top: 2px;
+      }
+
+      .decision-result code {
+        font-size: 11px;
+      }
+
+      /* Two col */
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .three-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+      }
+
+      /* Section divider */
+      .section-divider {
+        border-top: 1px solid var(--border);
+        margin: 48px 0 40px;
+        padding-top: 40px;
+      }
+
+      .section-divider h2 {
+        font-family: var(--font-display);
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        margin-bottom: 8px;
+      }
+
+      .section-divider p {
+        color: var(--muted);
+        font-size: 13px;
+        max-width: 680px;
+      }
+
+      /* Syntax highlight */
+      .cm {
+        color: oklch(50% 0.01 250);
+      }
+      .kw {
+        color: oklch(72% 0.12 300);
+      }
+      .str {
+        color: oklch(72% 0.12 155);
+      }
+      .num {
+        color: oklch(78% 0.12 75);
+      }
+      .fn {
+        color: oklch(72% 0.14 240);
+      }
+      .err {
+        color: var(--accent-red);
+      }
+      .ok {
+        color: var(--accent-green);
+      }
+
+      @media (max-width: 768px) {
+        .scenario-grid {
+          grid-template-columns: 1fr;
+        }
+        .two-col,
+        .three-col {
+          grid-template-columns: 1fr;
+        }
+        .entry-diagram {
+          grid-template-columns: 1fr;
+        }
+        .entry-merge {
+          padding: 12px 0;
+        }
+        .stage {
+          padding-left: 44px;
+        }
+      }
+
+      /* State machine */
+      .statemachine {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 22px 24px;
+        margin-bottom: 40px;
+      }
+      .sm-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+      .sm-node {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        padding: 6px 12px;
+        border-radius: 5px;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: oklch(82% 0.008 250);
+        white-space: nowrap;
+      }
+      .sm-node.gate {
+        border-color: oklch(78% 0.14 75 / 0.4);
+        background: oklch(78% 0.14 75 / 0.08);
+        color: var(--accent-amber);
+      }
+      .sm-node.run {
+        border-color: oklch(72% 0.12 200 / 0.4);
+        background: oklch(72% 0.12 200 / 0.08);
+        color: var(--accent-cyan);
+      }
+      .sm-node.done {
+        border-color: oklch(72% 0.16 155 / 0.4);
+        background: oklch(72% 0.16 155 / 0.08);
+        color: var(--accent-green);
+      }
+      .sm-node.bad {
+        border-color: oklch(68% 0.18 25 / 0.4);
+        background: oklch(68% 0.18 25 / 0.08);
+        color: var(--accent-red);
+      }
+      .sm-sep {
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 14px;
+        opacity: 0.5;
+        padding: 0 2px;
+      }
+      .sm-note {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      .sm-note code {
+        font-size: 11px;
+      }
+
+      /* Swimlanes */
+      .sm-lane {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 12px 0;
+        border-bottom: 1px dashed var(--border);
+      }
+      .sm-lane:last-of-type {
+        border-bottom: none;
+      }
+      .sm-lane-label {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        min-width: 132px;
+        color: var(--muted);
+      }
+      .sm-lane-label small {
+        display: block;
+        font-size: 9px;
+        letter-spacing: 0.02em;
+        opacity: 0.7;
+        text-transform: none;
+        margin-top: 2px;
+      }
+      .sm-lane-label.plan {
+        color: var(--accent-green);
+      }
+      .sm-lane-label.goal {
+        color: var(--accent-amber);
+      }
+      .sm-lane-label.task {
+        color: var(--accent-cyan);
+      }
+      .sm-edge {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--muted);
+        opacity: 0.75;
+        padding: 0 1px;
+        white-space: nowrap;
+      }
+      .sm-couple-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--accent-purple);
+        margin: 18px 0 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Goal 生命周期 · 规划门数据流</h1>
+        <p>
+          目标模型（#525）：每个 goal 在执行前都必须穿过显式的规划门。计划永远是一个版本化
+          artifact（<code>agent_goal_plan</code>），不是特殊任务。轻量 goal 走退化的 direct
+          计划，复杂 goal 走 checklist / sdlc 计划；两条路径之后共用同一条链路： accepted plan →
+          物化 work tasks → worker 带 goal context 执行 → 结构化 handoff → rollup。没有 accepted
+          计划，任何 goal work 都不会开始。
+        </p>
+      </header>
+
+      <!-- ───────── Combined state machine ───────── -->
+      <div class="statemachine">
+        <div class="scenario-label" style="color: var(--accent-cyan)">
+          完整状态机 — Plan / Goal / Task 三泳道
+        </div>
+
+        <div class="sm-lane">
+          <div class="sm-lane-label plan">
+            Plan
+            <small>agent_goal_plan.status</small>
+          </div>
+          <span class="sm-node">draft</span>
+          <span class="sm-edge">→ SubmitForReview</span>
+          <span class="sm-node">in_review</span>
+          <span class="sm-edge">→ Accept / Approve</span>
+          <span class="sm-node done">accepted / approved</span>
+          <span class="sm-edge">→ Materialize</span>
+          <span class="sm-node gate">materialized_at ✓</span>
+          <span class="sm-sep">·</span>
+          <span class="sm-node bad">superseded</span>
+        </div>
+
+        <div class="sm-lane">
+          <div class="sm-lane-label goal">
+            Goal
+            <small>agent_goal.status</small>
+          </div>
+          <span class="sm-node">draft</span>
+          <span class="sm-edge">→ CreateGoalPlan</span>
+          <span class="sm-node">planning</span>
+          <span class="sm-edge">→ Materialize</span>
+          <span class="sm-node gate">planned</span>
+          <span class="sm-edge">→ ActivateGoal</span>
+          <span class="sm-node run">running</span>
+          <span class="sm-edge">→ Rollup</span>
+          <span class="sm-node done">done</span>
+          <span class="sm-sep">/</span>
+          <span class="sm-node bad">blocked</span>
+          <span class="sm-node bad">failed</span>
+          <span class="sm-node bad">cancelled</span>
+        </div>
+
+        <div class="sm-lane">
+          <div class="sm-lane-label task">
+            Task <small>每个物化子任务 · agent_task.status</small>
+          </div>
+          <span class="sm-node">draft</span>
+          <span class="sm-edge">→ Activate(随 goal)</span>
+          <span class="sm-node">ready</span>
+          <span class="sm-edge">→ Claim</span>
+          <span class="sm-node run">running</span>
+          <span class="sm-edge">→ Submit</span>
+          <span class="sm-node">reviewing</span>
+          <span class="sm-edge">→ decide</span>
+          <span class="sm-node done">done</span>
+          <span class="sm-sep">/</span>
+          <span class="sm-node bad">blocked</span>
+          <span class="sm-node bad">failed</span>
+          <span class="sm-node bad">cancelled</span>
+        </div>
+
+        <p class="sm-note">
+          <strong style="color: var(--accent-amber)">planned</strong> = accepted 计划存在
+          <em>且已物化</em>。关键不变式：只有 <code>MaterializeGoalPlan</code> 能把 goal 置为
+          <code>planned</code>；<code>Accept</code> / <code>Approve</code> 一律把 goal 留在
+          <code>planning</code>。direct 路径在同一事务里 accept + 物化 + 激活，瞬间从
+          <code>planned</code> 直达 <code>running</code>（"direct" = 直接做，无需单独 activate）；
+          <code>reviewing</code> 仅当 task <code>review_policy ≠ none</code> 时出现，否则
+          <code>Submit</code> 直接 <code>running → done</code>。
+        </p>
+
+        <!-- Cross-lane couplings -->
+        <div class="sm-couple-label">跨泳道耦合 — 三个状态机如何联动</div>
+        <table class="db-table">
+          <tr>
+            <th>触发</th>
+            <th>本泳道转换</th>
+            <th>对其他泳道的级联效果</th>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-green)">CreateGoal(direct)</td>
+            <td>Plan: ∅ → accepted → materialized</td>
+            <td>
+              同事务把 Goal 一路推到 <code>running</code>（accept+物化+激活），并物化出 1 个
+              Task(<code>ready</code>)
+            </td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-green)">MaterializeGoalPlan</td>
+            <td>Plan: accepted → <code>materialized_at ✓</code></td>
+            <td>
+              Goal <code>planning → planned</code>；建出 N 个 Task(<code>draft</code>) + deps +
+              criteria
+            </td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-amber)">ActivateGoal</td>
+            <td>Goal: <code>planned → running</code></td>
+            <td>所有子 Task <code>draft → ready</code>（promoteChildren）</td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-cyan)">Claim → Submit</td>
+            <td>Task: <code>ready → running → done</code></td>
+            <td>每次 Task 转终态后触发 <code>RollupGoal</code> 重新评估 Goal</td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-cyan)">Task → done（全部 required）</td>
+            <td>Task: → <code>done</code></td>
+            <td>RollupGoal：Goal <code>running → done</code></td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-red)">Task → blocked / failed</td>
+            <td>Task: → <code>blocked</code> / <code>failed</code></td>
+            <td>
+              RollupGoal：Goal <code>→ blocked</code>（可恢复）/ <code>→ failed</code>（required
+              失败级联）
+            </td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-red)">CancelGoal</td>
+            <td>Goal: → <code>cancelled</code></td>
+            <td>级联取消所有非终态子 Task → <code>cancelled</code></td>
+          </tr>
+        </table>
+
+        <!-- Reviewing branch -->
+        <div class="sm-couple-label" style="color: var(--accent-cyan)">
+          Task <code>reviewing</code> 复审分支 — decideTaskReviewInTx
+        </div>
+        <p class="sm-note" style="margin-bottom: 12px">
+          仅当 task <code>review_policy ∈ {auto, human, agent}</code> 时，<code>Submit</code> 把
+          task 送进 <code>reviewing</code>（<code>none</code> 则直接
+          <code>done</code>）。复审决策决定它的去向：
+        </p>
+        <div class="decision-tree">
+          <div class="decision-label">
+            reviewing → ?（review.go · ApproveReview / RejectReview / RequestChanges）
+          </div>
+          <div class="decision-branch">
+            <span
+              class="decision-condition"
+              style="
+                color: var(--accent-green);
+                background: oklch(72% 0.16 155 / 0.1);
+                border-color: oklch(72% 0.16 155 / 0.25);
+              "
+              >approved</span
+            >
+            <span class="decision-result">
+              Task <code>reviewing → done</code>。触发 <code>RollupGoal</code> 重新评估 goal。
+            </span>
+          </div>
+          <div class="decision-branch">
+            <span
+              class="decision-condition"
+              style="
+                color: var(--accent-amber);
+                background: oklch(78% 0.14 75 / 0.1);
+                border-color: oklch(78% 0.14 75 / 0.25);
+              "
+              >changes_requested</span
+            >
+            <span class="decision-result">
+              还有 retry budget → Task <code>reviewing → ready</code>（消耗一次重试，重新 Claim
+              执行）； budget 耗尽 → <code>reviewing → failed</code>。
+            </span>
+          </div>
+          <div class="decision-branch">
+            <span
+              class="decision-condition"
+              style="
+                color: var(--accent-red);
+                background: oklch(68% 0.18 25 / 0.1);
+                border-color: oklch(68% 0.18 25 / 0.25);
+              "
+              >rejected</span
+            >
+            <span class="decision-result">
+              Task <code>reviewing → failed</code>。required task 失败 → RollupGoal 把 goal
+              <code>→ failed</code>。
+            </span>
+          </div>
+          <div class="decision-branch">
+            <span class="decision-condition">escalated</span>
+            <span class="decision-result">
+              仅 <code>reviewer_type=agent</code> 可升级：原 review 关为
+              <code>escalated</code>，新建一个 human <code>agent_review</code>（<code
+                >escalated_from_review_id</code
+              >
+              回指），Task <em>停留</em> <code>reviewing</code>，<code>active_review_id</code>
+              指向新 review。
+            </span>
+          </div>
+        </div>
+        <p class="sm-note" style="margin-top: 10px">
+          <strong style="color: var(--accent-cyan)">Plan 复审 ≠ Task 复审。</strong>
+          上表是 <em>task</em> 完成复审。计划的 human review 走<strong>专用</strong>的
+          <code>ApproveGoalPlanReview</code> / <code>RejectGoalPlanReview</code> /
+          <code>RequestChangesGoalPlanReview</code>，绝不复用 goal 级
+          <code>ApproveReview</code>（那会把 goal 直接标 <code>done</code>）。计划批准只改 Plan
+          泳道，goal 仍留在 <code>planning</code>，直到物化。
+        </p>
+      </div>
+
+      <!-- ───────── Scenario ───────── -->
+      <div class="scenario">
+        <div class="scenario-label">场景实例 — 一个 sdlc goal</div>
+        <div class="scenario-grid">
+          <div class="scenario-item">
+            <dt>用户意图</dt>
+            <dd>“把登录接口迁移到新鉴权”</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>PlanMode</dt>
+            <dd>deferred → checklist/sdlc</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>计划版本</dt>
+            <dd>agent_goal_plan v1</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>plan_type</dt>
+            <dd>sdlc（design / impl / verify）</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>review_policy</dt>
+            <dd>human</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>物化任务</dt>
+            <dd>3 个 agent_task + deps</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>幂等键</dt>
+            <dd>(source_plan_id, plan_item_id)</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>执行链</dt>
+            <dd>dispatcher → worker → handoff</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>终态</dt>
+            <dd>RollupGoal → done</dd>
+          </div>
+        </div>
+      </div>
+
+      <!-- ───────── Flow ───────── -->
+      <div class="flow">
+        <!-- Stage 1: Intent -->
+        <div class="stage">
+          <div class="stage-dot blue"></div>
+          <div class="stage-header">
+            <span class="stage-number">01</span>
+            <span class="stage-title">Intent — 创建 goal 并选 PlanMode</span>
+            <span class="stage-file">service_facade.go · CreateGoal</span>
+          </div>
+          <div class="stage-desc">
+            用户或 agent 通过 <code>CreateGoal</code> 建目标。<code>CreateGoalInput</code> 新增
+            <code>PlanMode</code> 字段（默认 <code>direct</code>）决定这个 goal 走哪条规划路径。
+            轻量需求用 <code>direct</code> 保持原有体验；复杂需求用
+            <code>deferred</code>，避免被塞进一次性的 direct 计划。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">CreateGoalInput</span>
+                <span class="data-card-tag tag-go">Go</span>
+              </div>
+              <pre>goal, err := facade.CreateGoal(ctx, tasks.CreateGoalInput{
+    UserID:   "uid_88",
+    AgentID:  "agent_eng",
+    Title:    "把登录接口迁移到新鉴权",
+    PlanMode: tasks.PlanModeDeferred, <span class="cm">← direct(默认) | deferred</span>
+})
+<span class="cm">// direct  → 自动 建+accept+物化+激活 direct 计划 → goal=running</span>
+<span class="cm">// deferred → goal=draft，等待显式 CreateGoalPlan</span></pre>
+            </div>
+            <div class="decision-tree">
+              <div class="decision-label">PlanMode 分支</div>
+              <div class="decision-branch">
+                <span class="decision-condition">direct（默认）</span>
+                <span class="decision-result">
+                  同事务：一条 item 的计划 → accept → 物化一个 task → 激活 → goal
+                  <code>running</code>，child task <code>ready</code> 立即开始。"direct" =
+                  直接做，无需单独 activate。
+                </span>
+              </div>
+              <div class="decision-branch">
+                <span class="decision-condition">deferred</span>
+                <span class="decision-result">
+                  goal 停在 <code>draft</code>，不自动建计划；调用方随后驱动 checklist / sdlc 的
+                  <code>CreateGoalPlan</code>。
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 2: Plan -->
+        <div class="stage">
+          <div class="stage-dot green"></div>
+          <div class="stage-header">
+            <span class="stage-number">02</span>
+            <span class="stage-title">Plan — 版本化计划 artifact</span>
+            <span class="stage-file">plan_service.go · agent_goal_plan</span>
+          </div>
+          <div class="stage-desc">
+            计划是独立的版本化 artifact，不是特殊 <code>agent_task</code>。direct
+            计划也是一个有效计划，不是 “没有计划”。这让下游（物化、context
+            packet、handoff）始终走同一条路径。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">agent_goal_plan 表</span>
+                <span class="data-card-tag tag-sql">SQLite</span>
+              </div>
+              <pre>CREATE TABLE agent_goal_plan (
+  id                 TEXT PRIMARY KEY,
+  goal_id            TEXT NOT NULL REFERENCES agent_goal(id) ON DELETE CASCADE,
+  version            INTEGER NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'draft',  <span class="cm">draft|in_review|accepted|approved|superseded</span>
+  plan_type          TEXT NOT NULL,                  <span class="cm">direct|checklist|sdlc</span>
+  review_policy      TEXT NOT NULL DEFAULT 'none',   <span class="cm">none|auto|human|agent</span>
+  content_json       TEXT NOT NULL DEFAULT '{}',
+  source_run_id      TEXT REFERENCES agent_task_run(id),
+  approved_review_id TEXT REFERENCES agent_review(id),
+  accepted_at        TEXT,
+  materialized_at    TEXT,
+  UNIQUE(goal_id, version)
+);
+<span class="cm">-- 每个 goal 至多一个生效计划</span>
+CREATE UNIQUE INDEX uniq_current_accepted_goal_plan
+  ON agent_goal_plan(goal_id) WHERE status IN ('accepted','approved');</pre>
+            </div>
+            <div class="two-col">
+              <div class="data-card">
+                <div class="data-card-header">
+                  <span class="data-card-label">direct content_json</span>
+                  <span class="data-card-tag tag-ts">JSON</span>
+                </div>
+                <pre>
+{
+  "schema_version": 1,
+  "plan_type": "direct",
+  "items": [{
+    "id": "root",
+    "title": "&lt;goal title&gt;",
+    "acceptance": []
+  }]
+}</pre
+                >
+              </div>
+              <div class="data-card">
+                <div class="data-card-header">
+                  <span class="data-card-label">sdlc content_json</span>
+                  <span class="data-card-tag tag-ts">JSON</span>
+                </div>
+                <pre>
+{
+  "schema_version": 1,
+  "plan_type": "sdlc",
+  "items": [
+    {"id":"design","sdlc_phase":"design"},
+    {"id":"impl","sdlc_phase":"implementation",
+      "deps":["design"]},
+    {"id":"verify","sdlc_phase":"verification",
+      "deps":["impl"]}
+  ]
+}</pre
+                >
+              </div>
+            </div>
+            <div class="info-callout">
+              <div class="info-callout-label">human review（仅 checklist / sdlc）</div>
+              <p>
+                <code>SubmitGoalPlanForReview</code> 建一个 goal-parented
+                <code>agent_review</code> （<code>reviewer_type=human</code>），计划进
+                <code>in_review</code>，goal 留在
+                <code>planning</code>。批准走<strong>专用</strong>的
+                <code>ApproveGoalPlanReview</code> —— 绝不复用 goal 级
+                <code>ApproveReview</code>（那会把 goal 直接标 <code>done</code>）。批准后 goal
+                <em>仍是</em> <code>planning</code>，直到物化。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 3: Materialize -->
+        <div class="stage">
+          <div class="stage-dot amber"></div>
+          <div class="stage-header">
+            <span class="stage-number">03</span>
+            <span class="stage-title">Materialize — 计划落成 work tasks</span>
+            <span class="stage-file">plan_service.go · MaterializeGoalPlan</span>
+          </div>
+          <div class="stage-desc">
+            服务端把 accepted / approved 计划幂等地转成子 <code>agent_task</code> + 依赖 +
+            验收标准。 planner 永远不直接建 work task —— 物化是唯一入口。成功后置
+            <code>materialized_at</code>，goal <code>→ planned</code>。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">物化（单事务 · Get-then-create 幂等）</span>
+                <span class="data-card-tag tag-go">Go</span>
+              </div>
+              <pre><span class="cm">// 幂等键 (source_plan_id, plan_item_id) —— 重复物化不产生重复任务树</span>
+for _, item := range plan.Items {
+    t, found := q.GetAgentTaskBySourcePlanItem(plan.ID, item.ID)
+    if !found {
+        t = createTaskInTx(ctx, q, taskFrom(item), createTaskOpts{
+            GoalID:      plan.GoalID,
+            SourcePlanID: plan.ID,
+            PlanVersion: plan.Version,
+            PlanItemID:  item.ID,      <span class="cm">← 来自 client_local_id</span>
+            SdlcPhase:   item.SdlcPhase,
+        })
+        insertCriteria(q, t.ID, item.Acceptance) <span class="cm">→ agent_task_criterion</span>
+    }
+}
+addDepsIdempotent(q, plan.Items) <span class="cm">// 扩展 AddDepInTx：重复边视为 no-op，保留环校验</span>
+q.SetAgentGoalPlanMaterialized(plan.ID, now)
+q.SetAgentGoalStatus(plan.GoalID, "planned")</pre>
+            </div>
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">物化后的 agent_task — traceability</span>
+                <span class="data-card-tag tag-db">追溯字段</span>
+              </div>
+              <table class="db-table">
+                <tr>
+                  <th>id</th>
+                  <th>goal_id</th>
+                  <th>source_plan_id</th>
+                  <th>plan_ver</th>
+                  <th>plan_item_id</th>
+                  <th>sdlc_phase</th>
+                  <th>status</th>
+                </tr>
+                <tr class="new">
+                  <td>tsk_a1…</td>
+                  <td>goal_7f</td>
+                  <td>plan_01</td>
+                  <td>1</td>
+                  <td>design</td>
+                  <td>design</td>
+                  <td>draft</td>
+                </tr>
+                <tr class="new">
+                  <td>tsk_b2…</td>
+                  <td>goal_7f</td>
+                  <td>plan_01</td>
+                  <td>1</td>
+                  <td>impl</td>
+                  <td>implementation</td>
+                  <td>draft</td>
+                </tr>
+                <tr class="new">
+                  <td>tsk_c3…</td>
+                  <td>goal_7f</td>
+                  <td>plan_01</td>
+                  <td>1</td>
+                  <td>verify</td>
+                  <td>verification</td>
+                  <td>draft</td>
+                </tr>
+              </table>
+            </div>
+            <div class="risk-callout">
+              <div class="risk-callout-label">硬 gate — 禁止手写 goal 子任务</div>
+              <p>
+                public <code>CreateTask</code> 带 <code>goal_id</code> 一律拒绝
+                （<code>ErrPlanMaterializationRequired</code>），facade 和 HTTP handler 都返回
+                4xx。所有 goal work task 只能来自物化。提示词不是安全边界 ——
+                这条服务端约束才是。物化后再接受新计划版本会撞
+                <code>uniq_current_accepted_goal_plan</code>：MVP 直接返回
+                <code>ErrPlanAlreadyMaterialized</code>（re-plan 留给未来 slice）。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 4: Activate -->
+        <div class="stage">
+          <div class="stage-dot cyan"></div>
+          <div class="stage-header">
+            <span class="stage-number">04</span>
+            <span class="stage-title">Activate — 规划门</span>
+            <span class="stage-file">goal_transitions.go · ActivateGoal</span>
+          </div>
+          <div class="stage-desc">
+            激活是 goal 进入执行的唯一闸门。它把所有不变式收口在一个转换里，子任务随之 draft →
+            ready。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">ActivateGoal 守卫</span>
+                <span class="data-card-tag tag-go">Go</span>
+              </div>
+              <pre>func (s *TransitionService) ActivateGoal(ctx, goalID) error {
+    g := load(goalID)
+    if g.Status != "planned"            { return ErrAcceptedPlanRequired }
+    plan := getAcceptedPlan(goalID)
+    if plan == nil                      { return ErrAcceptedPlanRequired }
+    if !plan.MaterializedAt.Valid       { return ErrPlanNotMaterialized }
+    if requiredChildren(goalID) == 0    { return ErrPlanNotMaterialized }
+
+    setGoalStatus(goalID, "running")      <span class="cm">planned → running</span>
+    promoteChildren(goalID)               <span class="cm">draft → ready</span>
+}</pre>
+            </div>
+            <div class="design-callout">
+              <div class="design-callout-label">为什么物化必须先于激活</div>
+              <p>
+                若把物化推迟，direct goal 会被激活成<strong>没有子任务的 running</strong>：
+                <code>RollupGoal</code> 对 0 个 required children 是 no-op，goal 永远卡在
+                running，而且会错过 draft → ready 的提升。所以 direct 路径在创建时就物化，<code
+                  >materialized_at</code
+                >
+                是激活的硬前提。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 5: Execute -->
+        <div class="stage">
+          <div class="stage-dot purple"></div>
+          <div class="stage-header">
+            <span class="stage-number">05</span>
+            <span class="stage-title">Execute — dispatcher 认领 + context packet</span>
+            <span class="stage-file">dispatcher.go · executor.go · goal_context.go</span>
+          </div>
+          <div class="stage-desc">
+            dispatcher 扫描 ready 任务、解析 executor、<code>Claim</code> 出一个 worker run。worker
+            执行前， <code>GoalContextPacketBuilder</code> 把<strong>紧凑</strong>的 goal /
+            计划切片注入 prompt —— 不塞全量计划， 不塞所有上游输出。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">GoalContextPacketBuilder.Build(taskID)</span>
+                <span class="data-card-tag tag-go">Go</span>
+              </div>
+              <pre>type GoalContextPacket struct {
+    Goal         GoalSlice        <span class="cm">title / objective</span>
+    Plan         PlanRef          <span class="cm">id / version / type / status</span>
+    Item         ItemSlice        <span class="cm">plan_item_id / sdlc_phase / 验收标准</span>
+    Upstream     []HandoffSummary <span class="cm">仅直接 hard 依赖、已 done 的 handoff 摘要</span>
+    Retrieval    Handles          <span class="cm">按需拉全量计划 / 上游详情的句柄</span>
+    StaleWarning string           <span class="cm">本任务 plan_version &lt; 当前 accepted 版本时告警</span>
+}</pre>
+            </div>
+            <div class="info-callout">
+              <div class="info-callout-label">紧凑而非倾倒</div>
+              <p>
+                默认只注入当前任务切片 + 直接上游 handoff 摘要 +
+                检索句柄。完整计划、全部任务输出、传递性祖先都<strong>不</strong>默认进 prompt ——
+                需要时按句柄拉取。soft 依赖缺失永不阻塞。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 6: Handoff -->
+        <div class="stage">
+          <div class="stage-dot green"></div>
+          <div class="stage-header">
+            <span class="stage-number">06</span>
+            <span class="stage-title">Handoff — 结构化交接，单点强制</span>
+            <span class="stage-file">review.go · Submit · worker.go</span>
+          </div>
+          <div class="stage-desc">
+            plan-backed 任务的 <code>task_control submit</code> 输出必须带结构化
+            <code>handoff</code>。在 <code>TransitionService.Submit</code> 单点校验（所有 worker /
+            API submit 都汇入这里），不另建 handoff 表 ——
+            <code>agent_task.output</code> 就是事实源。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">submit output handoff 形状</span>
+                <span class="data-card-tag tag-ts">JSON</span>
+              </div>
+              <pre>{
+  "result": { },
+  "handoff": {
+    "summary": "改了什么、下游需要知道什么",  <span class="cm">← 唯一硬性必填</span>
+    "artifacts": [], "decisions": [], "changed_files": [],
+    "validation": [], "open_questions": [],
+    "next_recommendations": []   <span class="cm">← 仅建议；不能借此绕过计划创建新任务</span>
+  }
+}</pre>
+            </div>
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">失败路由 — 进 retry budget</span>
+                <span class="data-card-tag tag-go">Go</span>
+              </div>
+              <pre>err := svc.Submit(ctx, taskID, runID, output, actor)
+if errors.Is(err, ErrInvalidHandoff) {
+    <span class="cm">// 不是静默 return；收口成可重试失败 + protocol_error 事件</span>
+    return svc.Fail(ctx, taskID, FailInput{Retryable: true,
+        Reason: "missing structured handoff"})
+}
+<span class="cm">// retry budget(max_retries) 终止循环：耗尽后 task → failed，不会空转</span></pre>
+            </div>
+            <div class="risk-callout">
+              <div class="risk-callout-label">standalone 任务保持灵活</div>
+              <p>
+                handoff 强制只作用于 plan-backed 任务（<code>source_plan_id</code> 非空）。非 goal
+                的独立任务 output 仍然自由，向后兼容。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 7: Rollup -->
+        <div class="stage">
+          <div class="stage-dot blue"></div>
+          <div class="stage-header">
+            <span class="stage-number">07</span>
+            <span class="stage-title">Rollup — goal 收敛终态</span>
+            <span class="stage-file">goal_rollup.go · RollupGoal</span>
+          </div>
+          <div class="stage-desc">
+            每次子任务转终态后，<code>RollupGoal</code> 用决策表判断 goal 走向。pre-run 状态 （<code
+              >draft</code
+            >
+            / <code>planning</code> / <code>planned</code>）被 rollup 跳过。
+          </div>
+          <div class="stage-body">
+            <div class="decision-tree">
+              <div class="decision-label">RollupGoal 决策表（running 之后）</div>
+              <div class="decision-branch">
+                <span class="decision-condition">全部 required done</span>
+                <span class="decision-result"
+                  >goal <code>→ done</code>（review_policy=none 时直接完成）</span
+                >
+              </div>
+              <div class="decision-branch">
+                <span class="decision-condition">required child blocked</span>
+                <span class="decision-result"
+                  >goal <code>→ blocked</code>，blocker 解除后回 <code>running</code></span
+                >
+              </div>
+              <div class="decision-branch">
+                <span class="decision-condition">required child failed</span>
+                <span class="decision-result">goal <code>→ failed</code>（依赖失败级联）</span>
+              </div>
+              <div class="decision-branch">
+                <span class="decision-condition">用户取消</span>
+                <span class="decision-result"
+                  >goal <code>→ cancelled</code>，级联取消非终态子任务</span
+                >
+              </div>
+            </div>
+            <div class="design-callout" style="margin-top: 12px">
+              <div class="design-callout-label">完整执行链回顾</div>
+              <p>
+                user intent → accepted plan → materialized work tasks → worker（带 goal context）→
+                每个任务的结构化 handoff → goal rollup。每一环都假设“计划永远存在”，所以 direct 与
+                sdlc 共用同一套物化 / context / handoff 代码，无需为轻量 goal 开特例。
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

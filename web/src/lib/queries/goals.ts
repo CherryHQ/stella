@@ -1,18 +1,19 @@
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
-import { getGoal, getTaskReadiness, listGoals } from "@/lib/api-client";
-import type { ComponentsDep, ComponentsGoal, ComponentsTask } from "@/lib/api-client/types.gen";
 import {
-  fetchAllGoalTasks,
-  fetchAllGoals,
-  fetchAllTaskDeps,
-  fetchAllTaskEvents,
-  fetchAllTaskReviews,
-  fetchAllTaskRuns,
-  offsetPageToken,
-} from "@/lib/paginated";
+  getGoal,
+  getGoalReadiness,
+  listAcceptanceEvents,
+  listAttempts,
+  listGoalChildren,
+  listGoals,
+  listEdges,
+  listRevisions,
+} from "@/lib/api-client";
+import type { ComponentsGoal } from "@/lib/api-client/types.gen";
+import { fetchAllGoals, fetchAllSubtree, offsetPageToken } from "@/lib/paginated";
 
-// goalsOptions fetches every goal (all pages) for callers that aggregate over
-// the whole set (e.g. the overview dashboard). The Goals page itself uses the
+// goalsOptions fetches every root (all pages) for callers that aggregate
+// over the whole set (e.g. the overview hub). The list page uses the
 // server-paginated goalsPageOptions instead.
 export function goalsOptions(agentId: string, archived = false) {
   return queryOptions({
@@ -29,9 +30,9 @@ export interface GoalsPageParams {
   archived?: boolean;
   /** undefined = any; false = active (non-terminal); true = terminal (history). */
   terminal?: boolean;
-  /** exact status; undefined = all statuses in scope. */
-  status?: string;
-  /** case-insensitive substring on title/description; server-side. */
+  /** exact lifecycle; undefined = all lifecycles in scope. */
+  lifecycle?: string;
+  /** case-insensitive substring on title/intent; server-side. */
   q?: string;
   /** 1-based page. */
   page?: number;
@@ -42,7 +43,7 @@ export interface GoalsPage {
   total: number;
 }
 
-// goalsPageOptions drives the Goals page from one server page: filtering,
+// goalsPageOptions drives the list page from one server page: filtering,
 // search, and pagination all run in the DB so the first paint no longer waits
 // for every goal to download.
 export function goalsPageOptions(p: GoalsPageParams) {
@@ -53,7 +54,7 @@ export function goalsPageOptions(p: GoalsPageParams) {
       p.agentId,
       p.archived ?? false,
       p.terminal ?? null,
-      p.status ?? "",
+      p.lifecycle ?? "",
       p.q ?? "",
       page,
     ],
@@ -63,7 +64,7 @@ export function goalsPageOptions(p: GoalsPageParams) {
           agent_id: p.agentId,
           archived: p.archived || undefined,
           terminal: p.terminal,
-          status: p.status || undefined,
+          lifecycle: p.lifecycle || undefined,
           q: p.q || undefined,
           page_size: GOALS_PAGE_SIZE,
           page_token: offsetPageToken((page - 1) * GOALS_PAGE_SIZE),
@@ -74,8 +75,7 @@ export function goalsPageOptions(p: GoalsPageParams) {
     },
     enabled: !!p.agentId,
     // Keep the previous page's data (and its total) on screen while the next
-    // page loads, so the pager's total never transiently drops to 0 and bounces
-    // the user back to page 1 (CR-019).
+    // page loads, so the pager's total never transiently drops to 0.
     placeholderData: keepPreviousData,
   });
 }
@@ -88,8 +88,8 @@ async function goalsCount(agentId: string, q: { archived?: boolean; terminal?: b
   return data?.total ?? 0;
 }
 
-// goalCountsOptions powers the active/history/archived header badges with cheap
-// server-side counts, independent of the current page or filters.
+// goalCountsOptions powers the active/history/archived header badges with
+// cheap server-side counts, independent of the current page or filters.
 export function goalCountsOptions(agentId: string) {
   return queryOptions({
     queryKey: ["goals-counts", agentId],
@@ -110,7 +110,7 @@ export function goalOptions(goalId: string) {
     queryKey: ["goal", goalId],
     queryFn: async () => {
       const { data } = await getGoal({
-        path: { goalId: goalId },
+        path: { id: goalId },
         throwOnError: true,
       });
       return data as ComponentsGoal;
@@ -119,65 +119,96 @@ export function goalOptions(goalId: string) {
   });
 }
 
-export interface GoalGraph {
-  tasks: ComponentsTask[];
-  deps: ComponentsDep[];
-}
-
-export function goalGraphOptions(goalId: string) {
+/** Direct children of a composite, in position order. */
+export function goalChildrenOptions(goalId: string | undefined) {
   return queryOptions({
-    queryKey: ["goal-graph", goalId],
-    queryFn: async (): Promise<GoalGraph> => {
-      const tasks = await fetchAllGoalTasks(goalId);
-      const depLists = await Promise.all(
-        tasks.map((t) => fetchAllTaskDeps(t.id).catch(() => [] as ComponentsDep[])),
-      );
-      return { tasks, deps: depLists.flat() };
+    queryKey: ["goal-children", goalId],
+    queryFn: async () => {
+      const { data } = await listGoalChildren({
+        path: { id: goalId! },
+        throwOnError: true,
+      });
+      return data?.goals ?? [];
     },
     enabled: !!goalId,
   });
 }
 
-export function taskReadinessOptions(taskId: string | undefined) {
+/** Every goal in the tree (the root_id family) for graph/tree views. */
+export function goalSubtreeOptions(rootId: string | undefined) {
   return queryOptions({
-    queryKey: ["task-readiness", taskId],
+    queryKey: ["goal-subtree", rootId],
+    queryFn: async () => fetchAllSubtree(rootId!),
+    enabled: !!rootId,
+  });
+}
+
+export function goalReadinessOptions(goalId: string | undefined) {
+  return queryOptions({
+    queryKey: ["goal-readiness", goalId],
     queryFn: async () => {
-      const { data } = await getTaskReadiness({
-        path: { taskId: taskId! },
+      const { data } = await getGoalReadiness({
+        path: { id: goalId! },
         throwOnError: true,
       });
       return data ?? null;
     },
-    enabled: !!taskId,
+    enabled: !!goalId,
   });
 }
 
-export function taskRunsOptions(taskId: string | undefined) {
+export function goalAttemptsOptions(goalId: string | undefined) {
   return queryOptions({
-    queryKey: ["task-runs", taskId],
+    queryKey: ["goal-attempts", goalId],
     queryFn: async () => {
-      return fetchAllTaskRuns(taskId!);
+      const { data } = await listAttempts({
+        path: { id: goalId! },
+        throwOnError: true,
+      });
+      return data?.attempts ?? [];
     },
-    enabled: !!taskId,
+    enabled: !!goalId,
   });
 }
 
-export function taskReviewsOptions(taskId: string | undefined) {
+export function goalEventsOptions(goalId: string | undefined) {
   return queryOptions({
-    queryKey: ["task-reviews", taskId],
+    queryKey: ["goal-events", goalId],
     queryFn: async () => {
-      return fetchAllTaskReviews(taskId!);
+      const { data } = await listAcceptanceEvents({
+        path: { id: goalId! },
+        throwOnError: true,
+      });
+      return data?.acceptance_events ?? [];
     },
-    enabled: !!taskId,
+    enabled: !!goalId,
   });
 }
 
-export function taskEventsOptions(taskId: string | undefined) {
+export function goalEdgesOptions(goalId: string | undefined) {
   return queryOptions({
-    queryKey: ["task-events", taskId],
+    queryKey: ["goal-edges", goalId],
     queryFn: async () => {
-      return fetchAllTaskEvents(taskId!);
+      const { data } = await listEdges({
+        path: { id: goalId! },
+        throwOnError: true,
+      });
+      return data?.edges ?? [];
     },
-    enabled: !!taskId,
+    enabled: !!goalId,
+  });
+}
+
+export function goalRevisionsOptions(goalId: string | undefined) {
+  return queryOptions({
+    queryKey: ["goal-revisions", goalId],
+    queryFn: async () => {
+      const { data } = await listRevisions({
+        path: { id: goalId! },
+        throwOnError: true,
+      });
+      return data?.revisions ?? [];
+    },
+    enabled: !!goalId,
   });
 }

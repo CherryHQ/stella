@@ -27,7 +27,7 @@ components:
         project_id: { type: string, nullable: true }
         source_type:
           type: string
-          enum: [task, task_run, scheduler_run]
+          enum: [goal, scheduler_run]
         source_id: { type: string }
         target_path: { type: string }
         created_at: { type: string, format: date-time }

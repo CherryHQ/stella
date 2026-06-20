@@ -3,36 +3,52 @@ paths:
     get:
       tags: [goals]
       summary: List goals
+      description: >-
+        Lists root goals (goals) by default. `?parent={id}` lists a
+        composite's direct children; `?root={id}` lists a whole tree.
       operationId: listGoals
       parameters:
-        - {
-            name: agent_id,
-            in: query,
-            required: false,
-            schema: { type: string },
-          }
-        - { name: status, in: query, required: false, schema: { type: string } }
-        - {
-            name: project_id,
-            in: query,
-            required: false,
-            schema: { type: string },
-          }
-        - name: archived
+        - name: agent_id
           in: query
           required: false
-          description: When true returns only archived goals (the history/restore view) instead of the default active set.
-          schema: { type: boolean }
+          description: Scope the root list to one managing agent.
+          schema: { type: string }
         - name: terminal
           in: query
           required: false
-          description: When false returns only non-terminal (active) goals; when true only terminal (done/failed/cancelled) goals. Omit for any. Ignored when archived=true.
+          description: >-
+            Split active vs history: false returns non-terminal roots, true
+            returns terminal ones (accepted/rejected_final/abandoned/cancelled).
+            Omit for both.
           schema: { type: boolean }
         - name: q
           in: query
           required: false
-          description: Case-insensitive substring match against goal title and description.
+          description: Case-insensitive substring match on title/intent.
           schema: { type: string }
+        - name: parent
+          in: query
+          required: false
+          description: List the direct children of this composite instead of roots.
+          schema: { type: string }
+        - name: root
+          in: query
+          required: false
+          description: List every goal in this tree (the root_id family).
+          schema: { type: string }
+        - name: lifecycle
+          in: query
+          required: false
+          schema: { type: string }
+        - name: project_id
+          in: query
+          required: false
+          schema: { type: string }
+        - name: archived
+          in: query
+          required: false
+          description: When true returns only archived goals (the history/restore view).
+          schema: { type: boolean }
         - {
             name: page_size,
             in: query,
@@ -45,12 +61,14 @@ paths:
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/GoalList" }
+                {
+                  $ref: "../../components.yaml#/components/schemas/GoalList",
+                }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
     post:
       tags: [goals]
-      summary: Create a goal
+      summary: Create a goal (root goal)
       operationId: createGoal
       requestBody:
         required: true
@@ -66,15 +84,19 @@ paths:
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/Goal" }
+                {
+                  $ref: "../../components.yaml#/components/schemas/Goal",
+                }
         "400":
           { $ref: "../../components.yaml#/components/responses/BadRequest" }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalId}:
+  /api/goals/{id}:
     parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: id, in: path, required: true, schema: { type: string } }
     get:
       tags: [goals]
       summary: Get a goal
@@ -85,7 +107,35 @@ paths:
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/Goal" }
+                {
+                  $ref: "../../components.yaml#/components/schemas/Goal",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    patch:
+      tags: [goals]
+      summary: Update a goal's metadata
+      operationId: updateGoal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/UpdateGoalRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Goal",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
@@ -102,32 +152,12 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalId}/unarchive:
+  /api/goals/{id}/activate:
     parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: id, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
-      summary: Restore an archived goal (and its archived children) to default lists
-      operationId: unarchiveGoal
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                { $ref: "../../components.yaml#/components/schemas/Goal" }
-        "401":
-          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409":
-          { $ref: "../../components.yaml#/components/responses/Conflict" }
-
-  /api/goals/{goalId}/activate:
-    parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [goals]
-      summary: Activate a goal (draft → running, promotes draft children to ready)
+      summary: Activate a goal (plan gate; draft → ready)
       operationId: activateGoal
       responses:
         "200":
@@ -135,47 +165,21 @@ paths:
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/Goal" }
+                {
+                  $ref: "../../components.yaml#/components/schemas/Goal",
+                }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalId}/complete:
+  /api/goals/{id}/cancel:
     parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: id, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
-      summary: Mark a goal achieved
-      operationId: completeGoal
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              {
-                $ref: "../../components.yaml#/components/schemas/CompleteGoalRequest",
-              }
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                { $ref: "../../components.yaml#/components/schemas/Goal" }
-        "401":
-          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409":
-          { $ref: "../../components.yaml#/components/responses/Conflict" }
-
-  /api/goals/{goalId}/cancel:
-    parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [goals]
-      summary: Cancel a goal (cascades to non-terminal children)
+      summary: Cancel a goal (cascades to the non-terminal subtree)
       operationId: cancelGoal
       requestBody:
         required: false
@@ -183,7 +187,7 @@ paths:
           application/json:
             schema:
               {
-                $ref: "../../components.yaml#/components/schemas/CancelGoalRequest",
+                $ref: "../../components.yaml#/components/schemas/CancelRequest",
               }
       responses:
         "200":
@@ -191,165 +195,319 @@ paths:
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/Goal" }
+                {
+                  $ref: "../../components.yaml#/components/schemas/Goal",
+                }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalId}/tasks:
+  /api/goals/{id}/abandon:
     parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Abandon a budget-exhausted goal (human give-up)
+      operationId: abandonGoal
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/AbandonRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Goal",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{id}/reattempt:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Reattempt a blocked goal (raise budget / resume)
+      operationId: reattemptGoal
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Goal",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{id}/unarchive:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Restore an archived goal to default lists
+      operationId: unarchiveGoal
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/Goal",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{id}/readiness:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
     get:
       tags: [goals]
-      summary: List tasks owned by a goal
-      operationId: listGoalTasks
-      parameters:
-        - {
-            name: page_size,
-            in: query,
-            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
-          }
-        - { name: page_token, in: query, schema: { type: string } }
+      summary: Get a goal's computed dispatchability view
+      operationId: getGoalReadiness
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/TaskList" }
+                { $ref: "../../components.yaml#/components/schemas/Readiness" }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/goals/{goalId}/reviews:
+  /api/goals/{id}/children:
     parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: id, in: path, required: true, schema: { type: string } }
     get:
       tags: [goals]
-      summary: List reviews for a goal
-      operationId: listGoalReviews
-      parameters:
-        - {
-            name: page_size,
-            in: query,
-            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
-          }
-        - { name: page_token, in: query, schema: { type: string } }
+      summary: List a composite's direct children
+      operationId: listGoalChildren
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/ReviewList" }
+                {
+                  $ref: "../../components.yaml#/components/schemas/GoalList",
+                }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/goals/{goalId}/reviews/{reviewId}/approve:
+  /api/goals/{id}/attempts:
     parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
-      - { name: reviewId, in: path, required: true, schema: { type: string } }
-    post:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
       tags: [goals]
-      summary: Approve a goal review
-      operationId: approveGoalReview
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              {
-                $ref: "../../components.yaml#/components/schemas/ReviewDecisionRequest",
-              }
+      summary: List a goal's attempts (newest first)
+      operationId: listAttempts
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/Review" }
+                {
+                  $ref: "../../components.yaml#/components/schemas/AttemptList",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/goals/{id}/attempts/{attemptId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: attemptId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [goals]
+      summary: Get one attempt
+      operationId: getAttempt
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Attempt" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/goals/{id}/acceptance-events:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [goals]
+      summary: List a goal's acceptance ledger (the audit trail, in fold order)
+      operationId: listAcceptanceEvents
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/AcceptanceEventList",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/goals/{id}/verdict:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Submit a human verdict against a contract item (re-folds acceptance)
+      operationId: submitVerdict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/VerdictRequest",
+              }
+      responses:
+        "201":
+          description: recorded
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/AcceptanceEvent",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalId}/reviews/{reviewId}/reject:
+  /api/goals/{id}/edges:
     parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
-      - { name: reviewId, in: path, required: true, schema: { type: string } }
-    post:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
       tags: [goals]
-      summary: Reject a goal review
-      operationId: rejectGoalReview
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              {
-                $ref: "../../components.yaml#/components/schemas/ReviewDecisionRequest",
-              }
+      summary: List a goal's upstream dependency edges
+      operationId: listEdges
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/Review" }
+                { $ref: "../../components.yaml#/components/schemas/EdgeList" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [goals]
+      summary: Add an upstream dependency edge (cycle-checked)
+      operationId: addEdge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/AddEdgeRequest",
+              }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Edge" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalId}/reviews/{reviewId}/request-changes:
+  /api/goals/{id}/edges/{upstreamId}/waive:
     parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
-      - { name: reviewId, in: path, required: true, schema: { type: string } }
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: upstreamId, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
-      summary: Request changes on a goal review (collapses to failed; documented gap)
-      operationId: requestChangesGoalReview
+      summary: Waive a hard edge so a blocked(dep) downstream can proceed
+      operationId: waiveEdge
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              {
-                $ref: "../../components.yaml#/components/schemas/ReviewDecisionRequest",
-              }
+              { $ref: "../../components.yaml#/components/schemas/WaiveRequest" }
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/Review" }
+                { $ref: "../../components.yaml#/components/schemas/Edge" }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalId}/reviews/{reviewId}/escalate:
+  /api/goals/{id}/revisions:
     parameters:
-      - { name: goalId, in: path, required: true, schema: { type: string } }
-      - { name: reviewId, in: path, required: true, schema: { type: string } }
-    post:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
       tags: [goals]
-      summary: Escalate an agent goal review to human
-      operationId: escalateGoalReview
+      summary: List a composite's decomposition revisions (newest first)
+      operationId: listRevisions
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/RevisionList",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    put:
+      tags: [goals]
+      summary: Author/stage a decomposition edit as a new draft revision
+      operationId: putRevision
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               {
-                $ref: "../../components.yaml#/components/schemas/EscalateReviewRequest",
+                $ref: "../../components.yaml#/components/schemas/DecompositionContent",
               }
       responses:
         "200":
@@ -357,7 +515,183 @@ paths:
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/Review" }
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{id}/revisions/start:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Begin a composite's decomposition in a dedicated planning session
+      operationId: startDecomposition
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/DecompositionSession",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{id}/revisions/{revId}/accept:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Accept a draft revision (review_policy=none)
+      operationId: acceptRevision
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{id}/revisions/{revId}/submit-review:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Submit a draft revision for human review (→ in_review)
+      operationId: submitRevisionReview
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{id}/revisions/{revId}/approve:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Approve an in_review revision (human approval)
+      operationId: approveRevision
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/DecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{id}/revisions/{revId}/reject:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Reject an in_review revision (composite stays active for rework)
+      operationId: rejectRevision
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/DecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{id}/revisions/{revId}/request-changes:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Request changes on an in_review revision (back to draft)
+      operationId: requestChangesRevision
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/DecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Revision" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/{id}/revisions/{revId}/materialize:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [goals]
+      summary: Materialize an accepted revision into the composite's children
+      operationId: materializeRevision
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/GoalList",
+                }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

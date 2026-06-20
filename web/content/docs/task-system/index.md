@@ -1,9 +1,11 @@
 ---
-title: Task System
+title: Goals
 ---
 
-Stella's task system tracks work that should outlive one chat message.
+A **goal** is one outcome you ask an agent to drive to acceptance — not a single chat reply, but tracked work that outlives one message.
 
-Use it when a goal needs multiple steps, dependencies, blockers, run history, or human review. Stella can execute individual tasks in the background and roll task status up into a goal. It does **not** automatically split a goal into child tasks yet: create the tasks explicitly, attach them to the goal, and add dependencies where order matters.
+Use goals when an outcome needs multiple attempts, dependencies, blockers, a clear bar for "done," or human sign-off. You describe the outcome and how acceptance should look; the agent works toward it, the system checks the work against an acceptance contract, and it reworks until the contract passes. Completion is **derived** from that contract — never a box the agent ticks.
 
-Start with the [Task System Overview](/docs/task-system/overview).
+A goal is recursive: a **root** goal is your objective, and the agent can decompose it into **child** goals (sub-goals) that each converge on their own.
+
+Start with the [Goals Overview](/docs/task-system/overview).
