@@ -2,85 +2,85 @@
 title: Example Workflows
 ---
 
-These examples show how to model larger goals as explicit tasks. Stella does not auto-plan the child tasks yet; create the tasks yourself or ask an agent to create them through the task commands.
+These examples show how to frame larger objectives as goals. You describe the root outcome and its acceptance bar; the agent decomposes a composite goal into children, drives each to acceptance, and reworks against the gaps until the contract passes.
 
 ## Finance reimbursement review
 
-Goal:
+Root goal:
 
-> Audit the reimbursement packet for this client dinner and prepare finance review if needed.
+> Audit the reimbursement packet for this client dinner and prepare finance review if needed. Accepted when every line is policy-checked, exceptions are flagged, and the packet is ready for finance.
 
-Create child tasks:
+The agent might decompose it into children:
 
 - Extract receipt and attendee data.
 - Check policy requirements.
 - Identify missing fields.
 - Flag policy exceptions.
 - Draft the reimbursement packet.
-- Create a human finance review task for exceptions.
+- Route exceptions to a human finance verdict.
 
 Useful dependencies:
 
-- Policy checks depend on receipt extraction.
-- Exception review depends on policy checks.
-- The final packet depends on extraction and exception review.
+- Policy checks consume the accepted receipt extraction.
+- Exception review consumes the accepted policy checks.
+- The final packet consumes the extraction and the exception review.
 
-Review gates:
+Judgment gates:
 
-- Policy exceptions require human finance review.
-- Missing tax or receipt details require user follow-up.
+- Policy exceptions need a human finance verdict.
+- Missing tax or receipt details block on user input.
 - Payment approval stays with finance staff.
 
 ## HR hiring loop
 
-Goal:
+Root goal:
 
-> Screen these candidates for the backend role and prepare the hiring panel review.
+> Screen these candidates for the backend role and prepare the hiring panel review. Accepted when each candidate is scored against the rubric and the panel packet is complete.
 
-Create child tasks:
+The agent might decompose it into children:
 
 - Extract resume facts.
 - Compare candidates with the role rubric.
 - Summarize evidence.
 - Identify missing interview signals.
 - Prepare panel review packets.
-- Notify the hiring panel for human review.
+- Route the recommendation to a human panel verdict.
 
 Useful dependencies:
 
-- Rubric comparison depends on extracted resume facts.
-- Evidence summaries depend on rubric comparison.
-- Panel packets depend on summaries and missing-signal checks.
+- Rubric comparison consumes the accepted resume facts.
+- Evidence summaries consume the accepted rubric comparison.
+- Panel packets consume the summaries and the missing-signal check.
 
-Review gates:
+Judgment gates:
 
-- Candidate recommendations require human review.
+- Candidate recommendations need a human verdict.
 - Sensitive or incomplete evidence is flagged.
-- Final hiring decision stays outside the agent.
+- The final hiring decision stays outside the agent.
 
 ## Engineering release
 
-Goal:
+Root goal:
 
-> Plan the billing workflow release and track every blocker before launch.
+> Plan the billing workflow release and track every blocker before launch. Accepted when implementation and verification pass and launch is approved.
 
-Create child tasks:
+The agent might decompose it into children:
 
 - Read the release plan.
 - Identify affected services.
-- Create implementation tasks.
-- Create verification tasks.
+- Implement the changes.
+- Verify the changes.
 - Track blockers.
-- Prepare release review.
+- Route launch approval to a human verdict.
 
 Useful dependencies:
 
-- Implementation tasks depend on affected-service analysis.
-- Verification tasks depend on implementation tasks.
-- Release review depends on verification results.
+- Implementation consumes the affected-service analysis.
+- Verification consumes the accepted implementation — and its checks (build, tests) are the implementation goal's own acceptance contract, run automatically and reworked on failure.
+- Launch approval consumes the verification results.
 
-Review gates:
+Judgment gates:
 
-- Risky migrations need engineering review.
-- Customer-visible changes need product review.
-- Launch approval remains human.
+- Risky migrations need an engineering verdict.
+- Customer-visible changes need a product verdict.
+- Launch approval stays human.

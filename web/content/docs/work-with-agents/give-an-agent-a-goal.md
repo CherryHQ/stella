@@ -41,10 +41,12 @@ A shared agent brings its own context:
 
 That is why you can give a normal request instead of manually driving every step.
 
-## Use tasks for larger goals
+## Larger goals become tracked Goals
 
-If the goal has multiple steps, ask the agent to track it as explicit tasks:
+A goal you hand off isn't just a chat reply — it becomes a tracked **Goal** the agent drives to acceptance. For a multi-step objective, say so and state how "done" should look:
 
-> Create a goal for this work, then create the child tasks, dependencies, and human review points we need to track it.
+> Create a goal for this work, decompose it into the steps and their dependencies, include the human sign-off points we need, then run it. Accepted when the packet is complete and exceptions are approved.
 
-Use chat for context and decisions. Use the task UI for execution state. Automatic goal splitting is not part of this release, so the task list should be created explicitly.
+The agent decomposes a composite goal into child goals and runs each to acceptance, reworking against the gaps until the acceptance contract passes. A direct (single-step) goal runs immediately; a decomposed one is planned first, then activated. Completion is **derived** from the contract — the agent never marks it done itself.
+
+Use chat for context and decisions; watch execution on the **Goals** tab of the agent. See [Goals](/docs/task-system/overview) for the full model.

@@ -25,11 +25,11 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID string) {
@@ -317,24 +317,17 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 						"input":      args,
 					})
 				case "done":
-					// Lift renderable-reference sentinels out of the live output so
-					// the chat can show a card the moment the tool finishes, without
-					// waiting for a reload to hydrate them from storage. Extraction
-					// also runs at LCM ingest for the persisted copy; the two are
-					// independent.
-					output := tu.Content
-					if clean, refs := renderrefs.Extract(output); len(refs) > 0 {
-						output = clean
+					if len(tu.References) > 0 {
 						writeData(map[string]any{
 							"type": "data-tool-references",
 							"id":   tu.ID,
-							"data": map[string]any{"toolCallId": tu.ID, "references": refs},
+							"data": map[string]any{"toolCallId": tu.ID, "references": tu.References},
 						})
 					}
 					writeData(map[string]any{
 						"type":       "tool-output-available",
 						"toolCallId": tu.ID,
-						"output":     output,
+						"output":     tu.Content,
 					})
 				case "error":
 					writeData(map[string]any{

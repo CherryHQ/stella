@@ -17,8 +17,7 @@ const kindLabels = {
 } as const;
 
 const sourceLabels = {
-  task: "inbox.source.task",
-  task_run: "inbox.source.task_run",
+  goal: "inbox.source.goal",
   scheduler_run: "inbox.source.scheduler_run",
 } as const;
 

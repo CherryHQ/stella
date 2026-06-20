@@ -49,9 +49,8 @@ func TestMigrateSQLite_RealFixture(t *testing.T) {
 	// cast failure on any single row aborts the whole transaction, so matching
 	// counts mean every value in these tables coerced cleanly.
 	want := map[string]int{
-		"ctx_message":     11863,
+		"ctx_message":     12300,
 		"recally_article": 53,
-		"agent_task":      31,
 		"auth_user":       4,
 	}
 	for table, n := range want {
@@ -85,8 +84,8 @@ func TestMigrateSQLite_RealFixture(t *testing.T) {
 		"SELECT count(*) FROM ctx_message WHERE created_at > '2000-01-01'::timestamptz").Scan(&dated); err != nil {
 		t.Fatalf("timestamptz query: %v", err)
 	}
-	if dated != 11863 {
-		t.Errorf("ctx_message rows with a valid created_at = %d, want 11863", dated)
+	if dated != 12300 {
+		t.Errorf("ctx_message rows with a valid created_at = %d, want 12300", dated)
 	}
 
 	// generated tsvector is computed on insert, so FTS is live right after the

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	"github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 var errCardContentBuild = errors.New("build Feishu card content")

@@ -160,8 +160,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 	}
-	if s.tasksSvc != nil {
-		adminSrv.SetTasksService(s.tasksSvc)
+	if s.goalSvc != nil {
+		adminSrv.SetGoalService(s.goalSvc)
 	}
 
 	// Wire the shared credentials service: inject invalidator so token
@@ -311,13 +311,13 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Dispatcher tick (Phase 6 wiring). Registered as a recurring in-memory
 	// task on scheduler.Service — no sched_job row (D4). The dispatcher waits
 	// for in-flight workers to drain on Stop.
-	if s.tasksSvc != nil && s.schedulerSvc != nil {
+	if s.goalSvc != nil && s.schedulerSvc != nil {
 		if err := s.schedulerSvc.ScheduleEvery(ctx, "2s", func(ctx context.Context) {
-			s.tasksSvc.Dispatcher.Tick(ctx)
+			s.goalSvc.Dispatcher.Tick(ctx)
 		}); err != nil {
-			return fmt.Errorf("schedule tasks dispatcher tick: %w", err)
+			return fmt.Errorf("schedule goal dispatcher tick: %w", err)
 		}
-		defer s.tasksSvc.Dispatcher.Stop()
+		defer s.goalSvc.Dispatcher.Stop()
 	}
 
 	waitErr := g.Wait()

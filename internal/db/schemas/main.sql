@@ -44,15 +44,10 @@
 -- atlas:import tables/recally_feed.sql
 -- atlas:import tables/skill_file.sql
 -- atlas:import tables/agent_goal.sql
--- atlas:import tables/agent_task.sql
--- atlas:import tables/agent_task_criterion.sql
--- atlas:import tables/agent_task_dep.sql
--- atlas:import tables/agent_task_dispatch_hint.sql
--- atlas:import tables/agent_task_run.sql
--- atlas:import tables/agent_review.sql
--- atlas:import tables/agent_task_blocker.sql
--- atlas:import tables/agent_review_item.sql
--- atlas:import tables/agent_task_event.sql
+-- atlas:import tables/agent_goal_revision.sql
+-- atlas:import tables/agent_goal_attempt.sql
+-- atlas:import tables/agent_goal_edge.sql
+-- atlas:import tables/agent_goal_acceptance_event.sql
 
 -- Import order above is a PostgreSQL FK-dependency topological sort: a
 -- referenced table is created before any table that references it. Atlas's
@@ -64,9 +59,9 @@
 -- True FK cycles are broken by deferred ALTER TABLE ... ADD CONSTRAINT
 -- statements in the later-created table's file, not by import order:
 --   auth_user <-> channel_identity                      (notify_identity_id)
---   agent_goal/agent_task <-> agent_review              (active_review_id)
---   agent_task <-> agent_task_run                       (active_run_id)
---   agent_task <-> agent_task_blocker                   (active_blocker_id)
+--   agent_goal <-> agent_goal_attempt                   (active_attempt_id)
+--   agent_goal <-> agent_goal_revision                  (accepted_revision_id)
+--   agent_goal_revision <-> agent_goal_attempt          (source_attempt_id)
 --
 -- The three fts5 virtual-table files were dropped in the PostgreSQL port; their
 -- search columns are now generated tsvector columns on the base tables

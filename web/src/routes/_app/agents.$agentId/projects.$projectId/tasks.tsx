@@ -5,7 +5,7 @@ export const Route = createFileRoute("/_app/agents/$agentId/projects/$projectId/
     throw redirect({
       to: "/agents/$agentId/projects/$projectId",
       params,
-      search: { tab: "tasks" },
+      search: { tab: "goals" },
     });
   },
 });

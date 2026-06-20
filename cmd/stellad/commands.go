@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/observability"
@@ -26,7 +27,6 @@ import (
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
-	"github.com/CherryHQ/stella/internal/tasks"
 	"github.com/CherryHQ/stella/internal/tools"
 	"github.com/CherryHQ/stella/internal/version"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
@@ -67,7 +67,7 @@ type setupResult struct {
 	channelRuntimeServices   *pluginhost.ChannelPlatform
 	poolManager              *agent.PoolManager
 	schedulerSvc             *scheduler.Service
-	tasksSvc                 *tasks.Service
+	goalSvc                  *goal.Service
 	builtinTools             []pkgtools.Tool
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
@@ -114,6 +114,9 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	}
 
 	ss := setupSkillStores(db)
+	if err := ss.diskSync.SyncAllToDisk(parent); err != nil {
+		return nil, fmt.Errorf("sync DB skills to disk: %w", err)
+	}
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
@@ -192,11 +195,10 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
-	tasksSvc := tasks.New(tasks.BootConfig{
+	goalSvc := goal.Boot(goal.BootConfig{
 		DB:       db,
-		Memory:   memProvider,
 		Services: &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
-		Chat: func(ctx context.Context, p tasks.TaskChatParams) <-chan agent.Event {
+		Chat: func(ctx context.Context, p goal.TaskChatParams) <-chan agent.Event {
 			var svc *agent.Service
 			if poolMgr != nil {
 				svc = poolMgr.GetService(p.AgentID)
@@ -264,7 +266,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		channelRuntimeServices:   ps.channelRuntimeServices,
 		poolManager:              poolMgr,
 		schedulerSvc:             schedulerSvc,
-		tasksSvc:                 tasksSvc,
+		goalSvc:                  goalSvc,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
 		pluginToolsBuilder:       pluginToolsBuilder,

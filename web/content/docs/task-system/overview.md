@@ -1,56 +1,73 @@
 ---
-title: Task System Overview
+title: Goals Overview
 ---
 
-Stella's task system is for goals that need tracked execution instead of a single chat answer.
+Goals are for outcomes that need tracked, iterative execution instead of a single chat answer.
 
-A **task** is one executable unit of work. A **goal** is a container that groups related tasks and shows the overall outcome. You create the task graph explicitly: make the goal, create child tasks with `--goal-id`, add dependencies, then activate the work.
+A **goal** is one outcome an agent drives to acceptance. It carries the intent (what "done" means), an acceptance contract (how the system checks the work), and a record of every attempt. A goal is recursive:
 
-## What Stella can do today
+- A **root** goal is your objective.
+- **Child** goals are sub-goals it was decomposed into.
+- Each goal is either a **leaf** (a worker runs it directly) or **composite** (planned into children first).
 
-Stella can:
+## Completion is derived, not declared
 
-- Run activated tasks in the background.
-- Persist task, run, event, blocker, review, and goal state across restarts.
-- Reuse the task session when a task retries.
-- Explain why a task is not running yet with readiness information.
-- Block a task when it needs user input or an external dependency.
-- Retry transient failures until the retry budget is exhausted.
-- Route task output through `none`, `auto`, or `human` review policies.
-- Roll a goal up from its child tasks when `review_policy` is `none`.
+The agent never marks a goal "done." It submits **evidence** — the work it produced — and the system checks that evidence against the goal's **acceptance contract**:
 
-Stella does **not** automatically plan a goal into tasks yet. It also does not support agent-performed reviews or final goal synthesis yet. Use human review for work that needs judgment.
+- **Checks** run automatically (a command exits cleanly, a file exists, tests pass). The system reads the result.
+- **Judgments** ask an agent or a human to decide against a rubric and record a verdict.
 
-## Goal to tasks
+If the contract passes, the goal becomes **Accepted** and its output is frozen for anything that depends on it. If it doesn't, the gaps feed into the next attempt. This is why you set a clear definition of done up front — it is what the work is measured against.
 
-Start with an outcome:
+## The convergence loop
 
-> Prepare the Q2 reimbursement audit packet and flag anything that needs finance review.
+A leaf goal runs as a bounded rework loop, not a one-shot:
 
-Then create explicit tasks:
+1. Dependencies satisfied → the goal becomes **Active**.
+2. The agent works in its session and submits evidence.
+3. The system evaluates the acceptance contract.
+4. Pass → **Accepted**. Fail → the gaps become input to the next attempt — that is the rework.
+5. Out of attempts → **Blocked** so you can raise the budget or abandon it.
 
-- Collect reimbursement records.
-- Extract receipt metadata.
-- Compare each request against policy.
-- Flag exceptions.
-- Prepare the review packet.
-- Ask finance to review exceptions.
+Each attempt is preserved, so the trail reads cleanly: attempt 1 produced X, acceptance found gaps Y, attempt 2 produced Z, accepted.
 
-The goal gives you one place to see whether the whole objective is done, blocked, failed, or still in progress.
+## Lifecycle states
+
+A goal moves through:
+
+- **Draft** — created, not yet activated.
+- **Ready** — eligible to run once dependencies and scheduling allow.
+- **Active** — the agent is working on it.
+- **Blocked** — paused for your verdict, a failed dependency, or an exhausted attempt budget.
+- **Needs review** — evidence submitted, waiting on a judgment verdict.
+- **Accepted** — the acceptance contract passed. (Derived, terminal.)
+- **Rejected** — closed with no rework path.
+- **Abandoned** — you gave up on it for good.
+- **Cancelled** — you stopped it.
+
+## Decomposition
+
+A composite goal can't run directly — it must be planned into children first. A decomposition (a plan: the child goals and the dependencies between them) is authored, then — depending on the review policy — auto-accepted or held for your approval. Once accepted, the children are materialized and each runs its own convergence loop.
+
+> **Status.** Authoring the plan **autonomously** (the agent decomposing a composite on its own) is not yet wired end-to-end — a tracked follow-up ([#542](https://github.com/CherryHQ/stella/issues/542)). For now, plan a composite yourself from the CLI: `stella goal plan <id>` to propose the children and edges, `stella goal approve <id> <rev>` to accept and materialize them, then `stella goal activate <id>` to start the children. See `stella goal --help`.
+
+When all required children are accepted, the parent runs **its own** acceptance evaluation — the same gate every goal has, applied at the root. There is no separate "final synthesis" step; it falls out of the recursion.
 
 ## Dependencies
 
-Dependencies make ordering visible. The review packet should not run before the policy checks finish.
+Dependencies make ordering visible and carry **accepted output** downstream — a child only sees an upstream sibling's output once that sibling is accepted.
 
-Use dependencies when:
+Use a dependency when:
 
-- One task needs another task's output.
-- A downstream task should stop if an upstream task fails.
+- One goal needs another's accepted output.
+- A downstream goal should stop if an upstream one fails.
 - You want the readiness view to explain exactly what is still waiting.
 
-## Review and approval
+A failed hard dependency blocks the downstream goal until you waive it with a reason.
 
-Some work should stop for a human decision. Use human review for:
+## Review and judgment
+
+Some outcomes should stop for a human decision. Route them through a **judgment** item with `human` authority for:
 
 - Policy exceptions.
 - Candidate recommendations.
@@ -58,22 +75,21 @@ Some work should stop for a human decision. Use human review for:
 - Customer-facing replies.
 - Anything that changes money, access, or reputation.
 
-`auto` review records an automatic approval for audit. `none` completes immediately when the worker submits output. Agent review is not available in this release.
+A judgment verdict is still recorded as **evidence** — an approval with its rationale, scope, and authority — not a manual status flip. The system derives acceptance from it.
 
-## Task UI
+## The Goals surface
 
-The task UI exists because chat history is a bad project tracker. In the Web UI, open an agent and choose the **Tasks** tab to see one-time tasks, scheduled work, and goals in one place. Project pages also open on their project task list first.
+Chat history is a bad project tracker. In the Web UI, open an agent and choose the **Goals** tab to see root goals, scheduled work, and their children in one place. Projects open on their goal list first.
 
-Use the task UI to inspect:
+Open a goal to inspect:
 
-- Current task status.
-- Dependencies and readiness.
-- Blockers.
-- Events and runs.
-- Review state.
-- Goal child tasks and rollup.
-- The conversation session attached to a task or run.
+- Its current lifecycle state and readiness.
+- **Children** and their rollup (for a composite).
+- **Attempts** — each execution episode and the gaps that drove the next one.
+- The **Acceptance** ledger — every check result and judgment verdict.
+- **Dependencies** and what's still waiting.
+- The accepted output, and the session behind any attempt.
 
-When a task is blocked on you, the task page shows the agent's question. Answer it there to resume the task — the answer is handed to the agent when it picks the task back up. For a failed upstream dependency, waive the dependency from the same page instead.
+When a goal is blocked on you, its page shows what it needs — submit your verdict, or waive a failed dependency, right there. The agent picks the work back up with your input.
 
-The practical rule: use chat to describe goals and decisions; use tasks to track execution.
+The practical rule: use chat to describe outcomes and decisions; use goals to track execution.

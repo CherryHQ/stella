@@ -8,8 +8,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/renderrefs"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 // Platform identifiers for each messaging channel.
@@ -137,13 +137,14 @@ type FileEvent struct {
 
 // ToolUseEvent describes a tool invocation in progress or completed.
 type ToolUseEvent struct {
-	ID        string
-	Tool      string // tool name, e.g. "bash", "read"
-	Status    string // "running", "done", "error"
-	Input     string // short summary of the tool input
-	Arguments map[string]any
-	Detail    string // error detail or result summary
-	Content   string
+	ID         string
+	Tool       string // tool name, e.g. "bash", "read"
+	Status     string // "running", "done", "error"
+	Input      string // short summary of the tool input
+	Arguments  map[string]any
+	Detail     string // error detail or result summary
+	Content    string
+	References []renderrefs.Reference
 }
 
 // Notification is a push message to send to a chat.

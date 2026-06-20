@@ -6,9 +6,9 @@ Most people use Stella by chatting with a shared agent.
 
 Tell the agent what you want done. Stella gives the agent the right context: your memory, the agent's knowledge, available skills, connected tools, and the current workspace. You do not need to learn the specialist software behind the workflow.
 
-In the Web UI, the agent sidebar is your home base. The Inbox at the top collects work that needs you — tasks that are blocked, waiting for review, or failed — across all agents. Below it are your chats with agents and groups, your projects, and recent threads. Each agent has tabs for conversation, tasks, memory, and skills so you can move between chat, execution state, and agent configuration without losing context.
+In the Web UI, the agent sidebar is your home base. The Inbox at the top collects work that needs you — goals that are blocked, waiting for your verdict, or rejected — across all agents. Below it are your chats with agents and groups, your projects, and recent threads. Each agent has tabs for conversation, goals, memory, and skills so you can move between chat, execution state, and agent configuration without losing context.
 
-Projects open on their task list first. Use a project when the work belongs to a specific workspace or repository; the project's sessions and files tabs hold the durable project chat and the workspace browser.
+Projects open on their goals list first. Use a project when the work belongs to a specific workspace or repository; the project's sessions and files tabs hold the durable project chat and the workspace browser.
 
 Long sessions stay readable: when a conversation outgrows the agent's context window, Stella folds older spans into epoch summaries shown at the top of the transcript. Expand a summary to read what was condensed, or open the original messages behind it.
 

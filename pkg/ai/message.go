@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 // TextSignatureV1 carries model-generated text signature metadata.
@@ -121,6 +123,7 @@ type ToolResultMessage struct {
 	Details    any
 	IsError    bool
 	Timestamp  time.Time
+	References []renderrefs.Reference
 }
 
 func (ToolResultMessage) messageRole() string { return "tool" }

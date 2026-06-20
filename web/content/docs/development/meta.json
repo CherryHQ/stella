@@ -13,7 +13,6 @@
     "group-chat-dataflow",
     "session-compaction",
     "plugin-system",
-    "task-system",
-    "goal-system"
+    "goal-model"
   ]
 }

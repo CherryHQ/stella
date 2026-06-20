@@ -68,7 +68,7 @@ func schedulerAddCommand() *ucli.Command {
 			name := c.String("name")
 			msg := c.String("message")
 			mode := c.String("session-mode")
-			agentID, err := taskAgentID(c)
+			agentID, err := scopedAgentIDFromEnv()
 			if err != nil {
 				return err
 			}
@@ -120,7 +120,7 @@ func schedulerListCommand() *ucli.Command {
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
-			agentID, err := taskAgentID(c)
+			agentID, err := scopedAgentIDFromEnv()
 			if err != nil {
 				return err
 			}
@@ -172,7 +172,7 @@ func schedulerRemoveCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella scheduler remove <job-id>")
 			}
-			agentID, err := taskAgentID(c)
+			agentID, err := scopedAgentIDFromEnv()
 			if err != nil {
 				return err
 			}
@@ -263,7 +263,7 @@ default schedule. Omit them to use the template default.`,
 				return fmt.Errorf("only one of --cron or --every may be set")
 			}
 
-			agentID, err := taskAgentID(c)
+			agentID, err := scopedAgentIDFromEnv()
 			if err != nil {
 				return err
 			}
@@ -352,7 +352,7 @@ Use 'stella scheduler templates' to see which templates you are subscribed to.`,
 			// (old server version).
 			deleteAgentID := subAgentID
 			if deleteAgentID == "" {
-				deleteAgentID, err = taskAgentID(c)
+				deleteAgentID, err = scopedAgentIDFromEnv()
 				if err != nil {
 					return err
 				}
