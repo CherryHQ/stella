@@ -19,10 +19,12 @@ import {
   waiveEdge,
 } from "@/lib/api-client";
 import type {
+  ComponentsAcceptanceContract,
   ComponentsAcceptanceEvent,
   ComponentsAttempt,
   ComponentsGoal,
   ComponentsEdge,
+  ComponentsProposedEdge,
   ComponentsReadiness,
   ComponentsRevision,
 } from "@/lib/api-client/types.gen";
@@ -879,6 +881,12 @@ const REV_STATUS_KEY: Record<ComponentsRevision["status"], MessageKey> = {
   superseded: "goals.revStatusSuperseded",
 };
 
+const EDGE_ON_FAILURE_KEY: Record<NonNullable<ComponentsProposedEdge["on_failure"]>, MessageKey> = {
+  block: "goals.onFailureBlock",
+  fail: "goals.onFailureFail",
+  ignore: "goals.onFailureIgnore",
+};
+
 function PlanTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean; act: ActRun }) {
   const { t } = useI18n();
   const { data: revisions = [] } = useQuery(goalRevisionsOptions(d.id));
@@ -917,20 +925,146 @@ function PlanTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean; act: 
         {[...revisions]
           .sort((a, b) => b.revision_no - a.revision_no)
           .map((rev) => (
-            <li key={rev.id} className="rounded-xl border border-border bg-background p-3.5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">
-                  {t("goals.revisionNo", { n: rev.revision_no })}
-                </span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {t(REV_STATUS_KEY[rev.status] ?? "goals.revStatusDraft")}
-                </span>
-              </div>
-              <div className="mt-1.5 font-mono text-[10.5px] text-muted-foreground">
-                {t("goals.planChildren", { count: rev.content?.children?.length ?? 0 })}
-              </div>
-            </li>
+            <RevisionItem key={rev.id} rev={rev} />
           ))}
+      </ul>
+    </div>
+  );
+}
+
+function RevisionItem({ rev }: { rev: ComponentsRevision }) {
+  const { t } = useI18n();
+  const children = rev.content?.children ?? [];
+  const edges = rev.content?.edges ?? [];
+  const [open, setOpen] = useState(false);
+  const canExpand = children.length > 0;
+  // Edges reference children by their stable `key`; show the human title instead
+  // (falling back to the key if a child was dropped from the revision).
+  const titleOf = (key: string) => children.find((c) => c.key === key)?.title ?? key;
+
+  return (
+    <li className="rounded-xl border border-border bg-background">
+      <button
+        type="button"
+        disabled={!canExpand}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left disabled:cursor-default"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          {canExpand && (
+            <span
+              className={cn(
+                "font-mono text-[10px] text-muted-foreground transition-transform",
+                open && "rotate-90",
+              )}
+            >
+              ▶
+            </span>
+          )}
+          <span className="text-sm font-medium">
+            {t("goals.revisionNo", { n: rev.revision_no })}
+          </span>
+          <span className="font-mono text-[10.5px] text-muted-foreground">
+            {t("goals.planChildren", { count: children.length })}
+          </span>
+        </span>
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+          {t(REV_STATUS_KEY[rev.status] ?? "goals.revStatusDraft")}
+        </span>
+      </button>
+      {open && canExpand && (
+        <div className="space-y-3 border-t border-border px-3.5 py-3">
+          <ul className="space-y-2">
+            {children.map((c) => (
+              <li key={c.key} className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{c.title}</span>
+                  <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">
+                    {t(c.kind === "composite" ? "goals.kindComposite" : "goals.kindLeaf")}
+                  </span>
+                  {c.required === false && (
+                    <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">
+                      {t("goals.planOptional")}
+                    </span>
+                  )}
+                </div>
+                {c.intent && <p className="mt-1 text-xs text-muted-foreground">{c.intent}</p>}
+                {c.acceptance_contract && (
+                  <AcceptanceContractView contract={c.acceptance_contract} />
+                )}
+              </li>
+            ))}
+          </ul>
+          {edges.length > 0 && (
+            <div>
+              <div className="mb-1.5 font-mono text-[10.5px] font-semibold text-muted-foreground">
+                {t("goals.planEdges", { count: edges.length })}
+              </div>
+              <ul className="space-y-1">
+                {edges.map((e, i) => (
+                  <li
+                    key={`${e.upstream_key}-${e.downstream_key}-${i}`}
+                    className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-muted-foreground"
+                  >
+                    <span className="font-medium text-foreground">{titleOf(e.downstream_key)}</span>
+                    <span>{t("goals.planEdgeDep")}</span>
+                    <span className="font-medium text-foreground">{titleOf(e.upstream_key)}</span>
+                    <span className="font-mono text-[10px]">
+                      {t(e.kind === "soft" ? "goals.planDepSoft" : "goals.planDepHard")}
+                    </span>
+                    {e.on_failure && e.on_failure !== "block" && (
+                      <span className="font-mono text-[10px]">
+                        {t(EDGE_ON_FAILURE_KEY[e.on_failure])}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function AcceptanceContractView({ contract }: { contract: ComponentsAcceptanceContract }) {
+  const { t } = useI18n();
+  const items = contract.items ?? [];
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mt-2 rounded-lg border border-border bg-background px-2.5 py-2">
+      <div className="mb-1 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className="font-semibold">{t("goals.planContract")}</span>
+        {contract.policy && <span>{contract.policy}</span>}
+      </div>
+      <ul className="space-y-1.5">
+        {items.map((it) => (
+          <li key={it.id} className="text-[11.5px] text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span className="font-mono">
+                {t(
+                  it.kind === "judgment" ? "goals.contractJudgment" : "goals.contractDeterministic",
+                )}
+              </span>
+              {it.kind === "judgment" && it.authority && (
+                <span className="font-mono text-[10px]">{it.authority}</span>
+              )}
+              {it.required === false && (
+                <span className="font-mono text-[10px]">{t("goals.planOptional")}</span>
+              )}
+            </span>
+            {it.command && (
+              <code className="mt-0.5 block break-all font-mono text-[11px] text-foreground">
+                {it.command}
+              </code>
+            )}
+            {(it.rubric || it.prompt) && (
+              <p className="mt-0.5 text-[11px]">{it.rubric ?? it.prompt}</p>
+            )}
+          </li>
+        ))}
       </ul>
     </div>
   );
