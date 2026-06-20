@@ -437,8 +437,17 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		if !s.planGateSatisfied(d) {
 			return ErrPlanGate
 		}
+		// A leaf goes to ready so the dispatcher can claim it. A composite is never
+		// claimed by a worker — it goes straight to active so the rollup (which only
+		// scans active composites) fires once its children accept; landing it in
+		// ready would strand it there with no ready→active transition (mirrors the
+		// draft→active that BeginDecomposition applies).
+		parentTarget := LifecycleReady
+		if d.Kind == KindComposite {
+			parentTarget = LifecycleActive
+		}
 		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleReady,
+			ToLifecycle:   parentTarget,
 			BlockReason:   "",
 			ID:            d.ID,
 			FromLifecycle: LifecycleDraft,
