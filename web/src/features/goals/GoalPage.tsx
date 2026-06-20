@@ -164,9 +164,9 @@ export function GoalPage() {
         <TabsList variant="underline">
           <TabsTab value="overview">{t("goals.tabOverview")}</TabsTab>
           {isComposite && <TabsTab value="children">{t("goals.tabChildren")}</TabsTab>}
-          <TabsTab value="attempts">{t("goals.tabAttempts")}</TabsTab>
+          {!isComposite && <TabsTab value="attempts">{t("goals.tabAttempts")}</TabsTab>}
           <TabsTab value="acceptance">{t("goals.tabAcceptance")}</TabsTab>
-          <TabsTab value="deps">{t("goals.tabDeps")}</TabsTab>
+          {!isComposite && <TabsTab value="deps">{t("goals.tabDeps")}</TabsTab>}
           {isComposite && <TabsTab value="plan">{t("goals.tabRevisions")}</TabsTab>}
         </TabsList>
 
@@ -185,15 +185,19 @@ export function GoalPage() {
             <ChildrenTab d={d} agentId={agentId} />
           </TabsPanel>
         )}
-        <TabsPanel value="attempts" className="mt-5">
-          <AttemptsTab id={d.id} />
-        </TabsPanel>
+        {!isComposite && (
+          <TabsPanel value="attempts" className="mt-5">
+            <AttemptsTab id={d.id} />
+          </TabsPanel>
+        )}
         <TabsPanel value="acceptance" className="mt-5">
           <AcceptanceTab d={d} acting={acting} act={act} />
         </TabsPanel>
-        <TabsPanel value="deps" className="mt-5">
-          <DepsTab d={d} agentId={agentId} acting={acting} act={act} />
-        </TabsPanel>
+        {!isComposite && (
+          <TabsPanel value="deps" className="mt-5">
+            <DepsTab d={d} agentId={agentId} acting={acting} act={act} />
+          </TabsPanel>
+        )}
         {isComposite && (
           <TabsPanel value="plan" className="mt-5">
             <PlanTab d={d} acting={acting} act={act} />
@@ -663,7 +667,7 @@ function AcceptanceTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean;
 
       <DetailSection title={t("goals.acceptanceTitle")}>
         {events.length === 0 ? (
-          <Empty text={t("goals.noEvents")} />
+          <Empty text={t(d.kind === "composite" ? "goals.noEventsComposite" : "goals.noEvents")} />
         ) : (
           <ul className="space-y-2">
             {[...events]
