@@ -66,12 +66,22 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 // would only configure whichever connection happened to run it). WAL lets
 // readers run concurrently with a single writer, busy_timeout serializes
 // writers without surfacing SQLITE_BUSY, and foreign keys stay enforced.
+//
+// _txlock=immediate makes every read-then-write transaction (BeginTx with
+// ReadOnly unset) grab the write lock at BEGIN. Without it, a deferred tx that
+// reads first and then upgrades to a writer while another connection holds the
+// write lock deadlocks: SQLite returns SQLITE_BUSY *immediately* and skips the
+// busy handler, so busy_timeout never applies. That is exactly what stranded
+// the goal worker's Submit (read attempt → update) against the memory
+// provider's writer. Read-only transactions still pass ReadOnly:true and stay
+// deferred, so read concurrency is unaffected.
 func dataSourceName(dbPath string) string {
 	q := url.Values{}
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "synchronous(NORMAL)")
 	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeout.Milliseconds()))
 	q.Add("_pragma", "foreign_keys(ON)")
+	q.Add("_txlock", "immediate")
 	return dbPath + "?" + q.Encode()
 }
 
