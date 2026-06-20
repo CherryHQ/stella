@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"time"
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
@@ -35,6 +34,25 @@ func StartEmbedded(dataDir string, port uint32) (*Embedded, error) {
 		port = p
 	}
 
+	var tmpDir string
+	if dataDir == "" {
+		// Ephemeral mode: give each instance its own extraction and data dirs so
+		// parallel test binaries never share a runtime path (racing the binary
+		// extraction) or a cluster directory.
+		d, err := os.MkdirTemp("", "stella-pg-")
+		if err != nil {
+			return nil, fmt.Errorf("db: embedded postgres scratch dir: %w", err)
+		}
+		tmpDir = d
+	}
+	rt, err := newPostgresRuntimeInfo(dataDir, tmpDir)
+	if err != nil {
+		if tmpDir != "" {
+			_ = os.RemoveAll(tmpDir)
+		}
+		return nil, err
+	}
+
 	// Pin PostgreSQL 18 explicitly: the schema baseline defaults ids with
 	// uuidv7(), a server built-in only since PG18 and with no extension fallback.
 	// Left unpinned the cluster version silently tracks embedded-postgres'
@@ -44,26 +62,18 @@ func StartEmbedded(dataDir string, port uint32) (*Embedded, error) {
 	// carries the same PG>=18 requirement; see OpenDB.)
 	cfg := embeddedpostgres.DefaultConfig().
 		Version(embeddedpostgres.V18).
+		RuntimePath(rt.RuntimePath).
+		DataPath(rt.DataPath).
 		Username("postgres").
 		Password("postgres").
 		Database("stella").
 		Port(port).
 		StartTimeout(45 * time.Second)
-
-	var tmpDir string
-	if dataDir != "" {
-		cfg = cfg.DataPath(dataDir)
-	} else {
-		// Ephemeral mode: give each instance its own extraction and data dirs so
-		// parallel test binaries never share a runtime path (racing the binary
-		// extraction) or a cluster directory. The downloaded archive (BinariesPath)
-		// stays the shared default cache, so only the cheap extraction repeats.
-		d, err := os.MkdirTemp("", "stella-pg-")
-		if err != nil {
-			return nil, fmt.Errorf("db: embedded postgres scratch dir: %w", err)
-		}
-		tmpDir = d
-		cfg = cfg.RuntimePath(filepath.Join(d, "runtime")).DataPath(filepath.Join(d, "data"))
+	if rt.BinariesPath != "" {
+		cfg = cfg.BinariesPath(rt.BinariesPath)
+	}
+	if params := rt.startParameters(); len(params) > 0 {
+		cfg = cfg.StartParameters(params)
 	}
 
 	pg := embeddedpostgres.NewDatabase(cfg)
