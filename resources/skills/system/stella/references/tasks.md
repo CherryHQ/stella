@@ -10,8 +10,8 @@ Completion is **derived, never asserted**. A goal converges through a bounded re
 
 Two surfaces author goals, both over the same goal HTTP API:
 
-- **You, the agent** — via the `stella goal` CLI (alias `stella task`). `stella goal create --title ... --intent ...` creates a root goal and, by default, activates it for a direct background run: the dispatcher claims and executes it on its own, with no further prompting. This is how you schedule and pursue long-running work yourself — give yourself a goal that outlives the current conversation, then check back with `stella goal list`/`get`. See `stella goal --help` for create/list/get/cancel.
-- **The user** — from the Web UI (Tasks tab).
+- **You, the agent** — via the `stella goal` CLI (alias `stella task`). `stella goal create --title ... --intent ...` creates a root goal and, by default, activates it for a direct background run: the dispatcher claims and executes it on its own, with no further prompting. This is how you schedule and pursue long-running work yourself — give yourself a goal that outlives the current conversation, then check back with `stella goal list`/`get`. The CLI also drives the full composite planning flow yourself (no Web UI needed): `plan`, `revisions`, `approve`/`reject`, `submit-review`, `children`, `activate`. See `stella goal --help`.
+- **The user** — from the Web UI (Tasks tab); the same goal HTTP API the CLI uses.
 
 Authoring and working are separate roles: once a goal is active you may also be handed it as a **worker** (see the `goal_control` contract below).
 
@@ -49,6 +49,8 @@ A composite holds child goals produced by a **decomposition** (the only way chil
 - a required child `rejected_final`/`abandoned` → parent fails or blocks
 - a required child blocked → parent blocks
 - a blocked parent recovers when the blocking child clears
+
+To plan a composite yourself from the CLI: `stella goal create --kind composite`, then `stella goal plan <id>` to propose its `{children, edges}` (a draft revision), `stella goal approve <id> <rev>` to accept and materialize them, and `stella goal activate <id>` to flip the composite and its children to ready so the dispatcher runs them. `submit-review`/`reject` cover the human-approval gate when a revision's `review_policy=human`. See each subcommand's `--help` for the JSON shape and flags.
 
 ## Worker: the `goal_control` contract
 
