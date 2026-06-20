@@ -81,18 +81,22 @@ pnpm --package=@redocly/cli dlx redocly bundle api/spec/openapi.yaml -o internal
 # ============================================================================
 
 [tasks.dev]
-description = "Start stella server (web + api)"
+description = "Start stella server (web + api); logs to dist/logs/dev.log"
 depends = ["dev:ui", "dev:api"]
+
+[tasks."dev:log:init"]
+description = "Reset the dev log file"
+run = 'mkdir -p dist/logs && : > dist/logs/dev.log && echo "dev logs: dist/logs/dev.log"'
 
 [tasks."dev:ui"]
 description = "Start stella webui"
-dir = "web"
-run = 'vp dev'
+depends = ["dev:log:init"]
+run = 'set -o pipefail; cd web && vp dev 2>&1 | tee -a ../dist/logs/dev.log'
 
 [tasks."dev:api"]
 description = "Start stella API server"
-depends = ["build"]
-run = 'STELLA_HOME="$HOME/.stella-dev" $BINARY_D server'
+depends = ["dev:log:init"]
+run = 'set -o pipefail; { mise run build && STELLA_HOME="$HOME/.stella-dev" $BINARY_D server; } 2>&1 | tee -a dist/logs/dev.log'
 
 [tasks."dev:docker"]
 description = "Start the Docker dev stack: stellad + docker sandbox + otel-lgtm"
