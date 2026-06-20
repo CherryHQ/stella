@@ -35,7 +35,7 @@ func (s *CredentialService) SetPassword(ctx context.Context, userID, plainPasswo
 	}
 
 	_, err = s.store.CreateCredential(ctx, Credential{
-		ID:           uuid.NewString(),
+		ID:           uuid.Must(uuid.NewV7()).String(),
 		UserID:       userID,
 		PasswordHash: hash,
 	})

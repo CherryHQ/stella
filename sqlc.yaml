@@ -1,11 +1,28 @@
 version: "2"
 sql:
-  - engine: "sqlite"
+  - engine: "postgresql"
     queries: "internal/db/queries/*.sql"
     schema: "internal/db/schemas/tables/*.sql"
     gen:
       go:
         package: "sqlc"
         out: "pkg/db/sqlc"
+        sql_package: "database/sql"
         emit_json_tags: true
         emit_empty_slices: true
+        overrides:
+          # JSONB columns map to json.RawMessage (raw, ready to (un)marshal),
+          # never a plain string that callers must cast at every boundary.
+          # All JSONB columns are NOT NULL; genuinely-nullable JSON payloads stay
+          # TEXT (database/sql cannot scan SQL NULL into json.RawMessage).
+          - db_type: "jsonb"
+            go_type: "encoding/json.RawMessage"
+          # UUID id/FK columns are native PG uuid, but stay Go `string` end to end:
+          # the app mints uuidv7 strings and pgx casts string<->uuid on the wire,
+          # so callers never juggle uuid.UUID. Nullable uuid FKs map to NullString.
+          - db_type: "uuid"
+            go_type: "string"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              type: "sql.NullString"

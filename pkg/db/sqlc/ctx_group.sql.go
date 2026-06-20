@@ -8,12 +8,13 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const bumpGroupSeq = `-- name: BumpGroupSeq :one
 UPDATE ctx_group_state
-SET next_seq = next_seq + 1, updated_at = datetime('now')
-WHERE id = ?1
+SET next_seq = next_seq + 1, updated_at = now()
+WHERE id = $1
 RETURNING next_seq
 `
 
@@ -29,7 +30,7 @@ INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
   platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at
 `
 
@@ -42,7 +43,7 @@ type CreateGroupMessageParams struct {
 	ActorID           string         `json:"actor_id"`
 	PlatformMessageID sql.NullString `json:"platform_message_id"`
 	ReplyTo           sql.NullString `json:"reply_to"`
-	PlatformTimestamp sql.NullString `json:"platform_timestamp"`
+	PlatformTimestamp sql.NullTime   `json:"platform_timestamp"`
 	IdempotencyKey    sql.NullString `json:"idempotency_key"`
 	Content           string         `json:"content"`
 	Reasoning         string         `json:"reasoning"`
@@ -87,7 +88,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 
 const createGroupState = `-- name: CreateGroupState :one
 INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id, group_name, created_by_user_id)
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
 `
 
@@ -125,7 +126,7 @@ func (q *Queries) CreateGroupState(ctx context.Context, arg CreateGroupStatePara
 }
 
 const deleteGroupState = `-- name: DeleteGroupState :exec
-DELETE FROM ctx_group_state WHERE id = ?
+DELETE FROM ctx_group_state WHERE id = $1
 `
 
 func (q *Queries) DeleteGroupState(ctx context.Context, id string) error {
@@ -137,19 +138,19 @@ const getGroupLastActive = `-- name: GetGroupLastActive :one
 SELECT COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
 FROM ctx_group_state gs
 LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
-WHERE gs.id = ?
+WHERE gs.id = $1
 GROUP BY gs.id
 `
 
-func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (string, error) {
+func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (time.Time, error) {
 	row := q.db.QueryRowContext(ctx, getGroupLastActive, id)
-	var last_active string
+	var last_active time.Time
 	err := row.Scan(&last_active)
 	return last_active, err
 }
 
 const getGroupMessage = `-- name: GetGroupMessage :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message WHERE id = ?
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message WHERE id = $1
 `
 
 func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessage, error) {
@@ -176,7 +177,7 @@ func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessa
 
 const getGroupMessageByIdempotencyKey = `-- name: GetGroupMessageByIdempotencyKey :one
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
-WHERE idempotency_key = ?1
+WHERE idempotency_key = $1
 `
 
 func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) (CtxGroupMessage, error) {
@@ -203,8 +204,8 @@ func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempoten
 
 const getGroupMessageByPlatformID = `-- name: GetGroupMessageByPlatformID :one
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
-WHERE group_id = ?1
-  AND platform_message_id = ?2
+WHERE group_id = $1
+  AND platform_message_id = $2
 `
 
 type GetGroupMessageByPlatformIDParams struct {
@@ -235,7 +236,7 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 }
 
 const getGroupStateByID = `-- name: GetGroupStateByID :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state WHERE id = ?
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state WHERE id = $1
 `
 
 func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupState, error) {
@@ -257,9 +258,9 @@ func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupSta
 
 const getGroupStateByTriple = `-- name: GetGroupStateByTriple :one
 SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state
-WHERE platform = ?1
-  AND platform_group_id = ?2
-  AND platform_thread_id = ?3
+WHERE platform = $1
+  AND platform_group_id = $2
+  AND platform_thread_id = $3
 `
 
 type GetGroupStateByTripleParams struct {
@@ -287,15 +288,15 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 
 const listGroupMessagesPaginated = `-- name: ListGroupMessagesPaginated :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
-WHERE group_id = ?1
+WHERE group_id = $1
 ORDER BY seq DESC
-LIMIT ?3 OFFSET ?2
+LIMIT $3 OFFSET $2
 `
 
 type ListGroupMessagesPaginatedParams struct {
 	GroupID     string `json:"group_id"`
-	OffsetCount int64  `json:"offset_count"`
-	LimitCount  int64  `json:"limit_count"`
+	OffsetCount int32  `json:"offset_count"`
+	LimitCount  int32  `json:"limit_count"`
 }
 
 func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupMessagesPaginatedParams) ([]CtxGroupMessage, error) {
@@ -342,17 +343,17 @@ SELECT
   COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
 FROM ctx_group_state gs
 LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
-WHERE gs.created_by_user_id = ?1
+WHERE gs.created_by_user_id = $1
   AND gs.platform = 'web'
 GROUP BY gs.id
 ORDER BY last_active DESC
-LIMIT ?3 OFFSET ?2
+LIMIT $3 OFFSET $2
 `
 
 type ListGroupsByUserParams struct {
 	UserID      sql.NullString `json:"user_id"`
-	OffsetCount int64          `json:"offset_count"`
-	LimitCount  int64          `json:"limit_count"`
+	OffsetCount int32          `json:"offset_count"`
+	LimitCount  int32          `json:"limit_count"`
 }
 
 type ListGroupsByUserRow struct {
@@ -361,11 +362,11 @@ type ListGroupsByUserRow struct {
 	PlatformGroupID  string         `json:"platform_group_id"`
 	PlatformThreadID string         `json:"platform_thread_id"`
 	NextSeq          int64          `json:"next_seq"`
-	CreatedAt        string         `json:"created_at"`
-	UpdatedAt        string         `json:"updated_at"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
 	GroupName        string         `json:"group_name"`
 	CreatedByUserID  sql.NullString `json:"created_by_user_id"`
-	LastActive       string         `json:"last_active"`
+	LastActive       time.Time      `json:"last_active"`
 }
 
 func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserParams) ([]ListGroupsByUserRow, error) {
@@ -404,14 +405,14 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 
 const listRecentGroupMessages = `-- name: ListRecentGroupMessages :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
-WHERE group_id = ?1
+WHERE group_id = $1
 ORDER BY seq DESC
-LIMIT ?2
+LIMIT $2
 `
 
 type ListRecentGroupMessagesParams struct {
 	GroupID  string `json:"group_id"`
-	MaxCount int64  `json:"max_count"`
+	MaxCount int32  `json:"max_count"`
 }
 
 func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGroupMessagesParams) ([]CtxGroupMessage, error) {
@@ -454,16 +455,16 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 
 const listRecentGroupMessagesBeforeSeq = `-- name: ListRecentGroupMessagesBeforeSeq :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
-WHERE group_id = ?1
-  AND seq < ?2
+WHERE group_id = $1
+  AND seq < $2
 ORDER BY seq DESC
-LIMIT ?3
+LIMIT $3
 `
 
 type ListRecentGroupMessagesBeforeSeqParams struct {
 	GroupID   string `json:"group_id"`
 	BeforeSeq int64  `json:"before_seq"`
-	MaxCount  int64  `json:"max_count"`
+	MaxCount  int32  `json:"max_count"`
 }
 
 func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg ListRecentGroupMessagesBeforeSeqParams) ([]CtxGroupMessage, error) {
@@ -506,8 +507,8 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 
 const updateGroupName = `-- name: UpdateGroupName :one
 UPDATE ctx_group_state
-SET group_name = ?1, updated_at = datetime('now')
-WHERE id = ?2
+SET group_name = $1, updated_at = now()
+WHERE id = $2
 RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
 `
 

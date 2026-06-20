@@ -11,7 +11,7 @@ import (
 )
 
 const deleteAllVaultEntriesByUser = `-- name: DeleteAllVaultEntriesByUser :exec
-DELETE FROM vault_entry WHERE user_id = ?
+DELETE FROM vault_entry WHERE user_id = $1
 `
 
 func (q *Queries) DeleteAllVaultEntriesByUser(ctx context.Context, userID sql.NullString) error {
@@ -20,7 +20,7 @@ func (q *Queries) DeleteAllVaultEntriesByUser(ctx context.Context, userID sql.Nu
 }
 
 const deleteVaultEntry = `-- name: DeleteVaultEntry :exec
-DELETE FROM vault_entry WHERE scope = 'user' AND user_id = ? AND name = ?
+DELETE FROM vault_entry WHERE scope = 'user' AND user_id = $1 AND name = $2
 `
 
 type DeleteVaultEntryParams struct {
@@ -35,17 +35,17 @@ func (q *Queries) DeleteVaultEntry(ctx context.Context, arg DeleteVaultEntryPara
 
 const deleteVaultEntryByScope = `-- name: DeleteVaultEntryByScope :exec
 DELETE FROM vault_entry
-WHERE scope = ?1
-  AND ifnull(user_id, '') = ifnull(?2, '')
-  AND ifnull(agent_id, '') = ifnull(?3, '')
-  AND name = ?4
+WHERE scope = $1
+  AND coalesce(user_id::text, '') = coalesce($2::text, '')
+  AND coalesce(agent_id, '') = coalesce($3, '')
+  AND name = $4
 `
 
 type DeleteVaultEntryByScopeParams struct {
-	Scope   string      `json:"scope"`
-	UserID  interface{} `json:"user_id"`
-	AgentID interface{} `json:"agent_id"`
-	Name    string      `json:"name"`
+	Scope   string         `json:"scope"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
+	Name    string         `json:"name"`
 }
 
 func (q *Queries) DeleteVaultEntryByScope(ctx context.Context, arg DeleteVaultEntryByScopeParams) error {
@@ -61,7 +61,7 @@ func (q *Queries) DeleteVaultEntryByScope(ctx context.Context, arg DeleteVaultEn
 const getVaultEntry = `-- name: GetVaultEntry :one
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
-WHERE scope = 'user' AND user_id = ? AND name = ?
+WHERE scope = 'user' AND user_id = $1 AND name = $2
 `
 
 type GetVaultEntryParams struct {
@@ -88,17 +88,17 @@ func (q *Queries) GetVaultEntry(ctx context.Context, arg GetVaultEntryParams) (V
 const getVaultEntryByScope = `-- name: GetVaultEntryByScope :one
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
-WHERE scope = ?1
-  AND ifnull(user_id, '') = ifnull(?2, '')
-  AND ifnull(agent_id, '') = ifnull(?3, '')
-  AND name = ?4
+WHERE scope = $1
+  AND coalesce(user_id::text, '') = coalesce($2::text, '')
+  AND coalesce(agent_id, '') = coalesce($3, '')
+  AND name = $4
 `
 
 type GetVaultEntryByScopeParams struct {
-	Scope   string      `json:"scope"`
-	UserID  interface{} `json:"user_id"`
-	AgentID interface{} `json:"agent_id"`
-	Name    string      `json:"name"`
+	Scope   string         `json:"scope"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
+	Name    string         `json:"name"`
 }
 
 func (q *Queries) GetVaultEntryByScope(ctx context.Context, arg GetVaultEntryByScopeParams) (VaultEntry, error) {
@@ -125,16 +125,16 @@ func (q *Queries) GetVaultEntryByScope(ctx context.Context, arg GetVaultEntryByS
 const listVaultEntriesByScope = `-- name: ListVaultEntriesByScope :many
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
-WHERE scope = ?1
-  AND ifnull(user_id, '') = ifnull(?2, '')
-  AND ifnull(agent_id, '') = ifnull(?3, '')
+WHERE scope = $1
+  AND coalesce(user_id::text, '') = coalesce($2::text, '')
+  AND coalesce(agent_id, '') = coalesce($3, '')
 ORDER BY name
 `
 
 type ListVaultEntriesByScopeParams struct {
-	Scope   string      `json:"scope"`
-	UserID  interface{} `json:"user_id"`
-	AgentID interface{} `json:"agent_id"`
+	Scope   string         `json:"scope"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) ListVaultEntriesByScope(ctx context.Context, arg ListVaultEntriesByScopeParams) ([]VaultEntry, error) {
@@ -172,7 +172,7 @@ func (q *Queries) ListVaultEntriesByScope(ctx context.Context, arg ListVaultEntr
 const listVaultEntriesByUser = `-- name: ListVaultEntriesByUser :many
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
-WHERE scope = 'user' AND user_id = ?
+WHERE scope = 'user' AND user_id = $1
 ORDER BY name
 `
 
@@ -212,9 +212,9 @@ const listVaultEntriesForRuntime = `-- name: ListVaultEntriesForRuntime :many
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
 WHERE (scope = 'system' AND user_id IS NULL AND agent_id IS NULL)
-   OR (scope = 'system_agent' AND user_id IS NULL AND agent_id = ?1)
-   OR (scope = 'user' AND user_id = ?2 AND agent_id IS NULL)
-   OR (scope = 'user_agent' AND user_id = ?2 AND agent_id = ?1)
+   OR (scope = 'system_agent' AND user_id IS NULL AND agent_id = $1)
+   OR (scope = 'user' AND user_id = $2 AND agent_id IS NULL)
+   OR (scope = 'user_agent' AND user_id = $2 AND agent_id = $1)
 ORDER BY CASE scope
     WHEN 'system' THEN 1
     WHEN 'system_agent' THEN 2
@@ -264,10 +264,10 @@ func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultE
 
 const upsertVaultEntry = `-- name: UpsertVaultEntry :exec
 INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext)
-VALUES (?, 'user', ?, NULL, ?, ?)
-ON CONFLICT DO UPDATE SET
+VALUES ($1, 'user', $2, NULL, $3, $4)
+ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
-    updated_at = datetime('now')
+    updated_at = now()
 `
 
 type UpsertVaultEntryParams struct {
@@ -289,10 +289,10 @@ func (q *Queries) UpsertVaultEntry(ctx context.Context, arg UpsertVaultEntryPara
 
 const upsertVaultEntryByScope = `-- name: UpsertVaultEntryByScope :exec
 INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext)
-VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT DO UPDATE SET
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
-    updated_at = datetime('now')
+    updated_at = now()
 `
 
 type UpsertVaultEntryByScopeParams struct {

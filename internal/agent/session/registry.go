@@ -202,7 +202,7 @@ func (r *Registry) ResolveMain(ctx context.Context, req MainRequest) (Info, erro
 
 	// Create a fresh main session.
 	now := time.Now().UTC()
-	id := uuid.New().String()
+	id := uuid.Must(uuid.NewV7()).String()
 	// Main sessions use a private user channel by convention.
 	channel := agentID + ":user:" + req.UserID + ":private"
 	info := NewInfo(id, agentID, req.UserID, channel, KindMain, "", now)
@@ -305,7 +305,7 @@ func (r *Registry) validateResume(info Info, req Request) (Info, error) {
 
 func (r *Registry) createNew(ctx context.Context, req Request, agentID string) (Info, error) {
 	now := time.Now().UTC()
-	id := uuid.New().String()
+	id := uuid.Must(uuid.NewV7()).String()
 	channel := defaultChannel(req.Channel, req.Kind)
 	info := NewInfo(id, agentID, req.UserID, channel, req.Kind, req.ProjectID, now)
 	info.Title = req.Title

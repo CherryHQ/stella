@@ -133,7 +133,7 @@ func TestCompositeRollup_DecomposeMaterializeChildren(t *testing.T) {
 	if accepted.Status != RevisionAccepted {
 		t.Fatalf("revision status=%q want accepted", accepted.Status)
 	}
-	if !accepted.MaterializedAt.Valid || accepted.MaterializedAt.String == "" {
+	if !accepted.MaterializedAt.Valid {
 		t.Fatalf("accepted revision missing materialized_at fence")
 	}
 
@@ -250,7 +250,7 @@ func TestCompositeRollup_RequiredAcceptedCounterAndAccept(t *testing.T) {
 	if got.Lifecycle != LifecycleAccepted {
 		t.Fatalf("composite after RollupAccept lifecycle=%q want accepted", got.Lifecycle)
 	}
-	if !got.AcceptedOutput.Valid || got.AcceptedOutput.String == "" {
+	if !got.AcceptedOutput.Valid {
 		t.Fatalf("accepted composite has no frozen accepted_output")
 	}
 }
@@ -408,7 +408,7 @@ func TestCompositeRollup_HumanReviewLifecycle(t *testing.T) {
 	if r.Status != RevisionAccepted {
 		t.Fatalf("after Approve status=%q want accepted", r.Status)
 	}
-	if !r.MaterializedAt.Valid || r.MaterializedAt.String == "" {
+	if !r.MaterializedAt.Valid {
 		t.Fatalf("approved revision missing materialized_at")
 	}
 

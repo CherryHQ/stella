@@ -3,17 +3,17 @@
 -- deduplicated ctx_group_message row so ingest cannot commit without dispatch
 -- work becoming recoverable.
 CREATE TABLE ctx_group_outbox (
-    id               TEXT NOT NULL PRIMARY KEY,
-    group_message_id TEXT NOT NULL UNIQUE REFERENCES ctx_group_message(id) ON DELETE CASCADE,
-    group_id         TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
+    id               UUID NOT NULL PRIMARY KEY DEFAULT uuidv7(),
+    group_message_id UUID NOT NULL UNIQUE REFERENCES ctx_group_message(id) ON DELETE CASCADE,
+    group_id         UUID NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
     envelope         TEXT NOT NULL DEFAULT '{}',
     status           TEXT NOT NULL DEFAULT 'pending',
-    attempt_count    INTEGER NOT NULL DEFAULT 0,
-    lease_until      TEXT,
-    next_attempt_at  TEXT,
+    attempt_count    BIGINT NOT NULL DEFAULT 0,
+    lease_until      TIMESTAMPTZ,
+    next_attempt_at  TIMESTAMPTZ,
     last_error       TEXT NOT NULL DEFAULT '',
-    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_ctx_group_outbox_group_id

@@ -51,7 +51,7 @@ func childID(revisionID, key string) string {
 // before opening the tx.
 func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sqlc.AgentGoalRevision, parent sqlc.AgentGoal, childSessions map[string]string) error {
 	// Idempotency fence: a second call short-circuits once materialized_at is set.
-	if rev.MaterializedAt.Valid && rev.MaterializedAt.String != "" {
+	if rev.MaterializedAt.Valid {
 		return nil
 	}
 
@@ -100,10 +100,6 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sq
 		if reviewPolicy == "" {
 			reviewPolicy = ReviewNone
 		}
-		var required int64
-		if ch.Required {
-			required = 1
-		}
 		if _, err := qtx.CreateGoal(ctx, sqlc.CreateGoalParams{
 			ID:                 cid,
 			UserID:             parent.UserID,
@@ -118,7 +114,7 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sq
 			Intent:             ch.Intent,
 			Kind:               kind,
 			Priority:           PriorityRoutine,
-			Required:           required,
+			Required:           ch.Required,
 			AcceptanceContract: marshalJSON(ch.AcceptanceContract),
 			ConvergencePolicy:  marshalJSON(ch.ConvergencePolicy),
 			ReviewPolicy:       reviewPolicy,

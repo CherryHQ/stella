@@ -12,7 +12,7 @@ import (
 
 const createWebChannelIfNotExists = `-- name: CreateWebChannelIfNotExists :exec
 INSERT INTO channel (id, name, type, agent_id)
-VALUES (?, 'Web', 'web', ?)
+VALUES ($1, 'Web', 'web', $2)
 ON CONFLICT(id) DO NOTHING
 `
 
@@ -27,7 +27,7 @@ func (q *Queries) CreateWebChannelIfNotExists(ctx context.Context, arg CreateWeb
 }
 
 const deleteChannel = `-- name: DeleteChannel :exec
-DELETE FROM channel WHERE id = ?
+DELETE FROM channel WHERE id = $1
 `
 
 func (q *Queries) DeleteChannel(ctx context.Context, id string) error {
@@ -36,7 +36,7 @@ func (q *Queries) DeleteChannel(ctx context.Context, id string) error {
 }
 
 const getChannel = `-- name: GetChannel :one
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel WHERE id = ?
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel WHERE id = $1
 `
 
 func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
@@ -92,7 +92,7 @@ func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
 }
 
 const listChannelsByType = `-- name: ListChannelsByType :many
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel WHERE type = ? ORDER BY id
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel WHERE type = $1 ORDER BY id
 `
 
 func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Channel, error) {
@@ -129,14 +129,14 @@ func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Chann
 
 const upsertChannel = `-- name: UpsertChannel :exec
 INSERT INTO channel (id, name, type, agent_id, enabled, config, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+VALUES ($1, $2, $3, $4, $5, $6, now())
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     type = excluded.type,
     agent_id = excluded.agent_id,
     enabled = excluded.enabled,
     config = excluded.config,
-    updated_at = datetime('now')
+    updated_at = now()
 `
 
 type UpsertChannelParams struct {
@@ -144,7 +144,7 @@ type UpsertChannelParams struct {
 	Name    string         `json:"name"`
 	Type    string         `json:"type"`
 	AgentID sql.NullString `json:"agent_id"`
-	Enabled int64          `json:"enabled"`
+	Enabled bool           `json:"enabled"`
 	Config  string         `json:"config"`
 }
 

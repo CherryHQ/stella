@@ -11,12 +11,12 @@ import (
 )
 
 const archiveProject = `-- name: ArchiveProject :exec
-UPDATE project SET archived = ?, updated_at = datetime('now')
-WHERE id = ? AND user_id = ?
+UPDATE project SET archived = $1, updated_at = now()
+WHERE id = $2 AND user_id = $3
 `
 
 type ArchiveProjectParams struct {
-	Archived int64  `json:"archived"`
+	Archived bool   `json:"archived"`
 	ID       string `json:"id"`
 	UserID   string `json:"user_id"`
 }
@@ -28,7 +28,7 @@ func (q *Queries) ArchiveProject(ctx context.Context, arg ArchiveProjectParams) 
 
 const createProject = `-- name: CreateProject :one
 INSERT INTO project (id, agent_id, user_id, name, base_dir, description)
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at
 `
 
@@ -66,7 +66,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 }
 
 const deleteProject = `-- name: DeleteProject :exec
-DELETE FROM project WHERE id = ? AND user_id = ?
+DELETE FROM project WHERE id = $1 AND user_id = $2
 `
 
 type DeleteProjectParams struct {
@@ -80,7 +80,7 @@ func (q *Queries) DeleteProject(ctx context.Context, arg DeleteProjectParams) er
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM project WHERE id = ? AND user_id = ?
+SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM project WHERE id = $1 AND user_id = $2
 `
 
 type GetProjectParams struct {
@@ -106,7 +106,7 @@ func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (Project
 }
 
 const getProjectByName = `-- name: GetProjectByName :one
-SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM project WHERE agent_id = ? AND user_id = ? AND name = ?
+SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM project WHERE agent_id = $1 AND user_id = $2 AND name = $3
 `
 
 type GetProjectByNameParams struct {
@@ -133,7 +133,7 @@ func (q *Queries) GetProjectByName(ctx context.Context, arg GetProjectByNamePara
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM project WHERE agent_id = ? AND user_id = ? AND archived = 0 ORDER BY created_at ASC
+SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM project WHERE agent_id = $1 AND user_id = $2 AND archived = false ORDER BY created_at ASC
 `
 
 type ListProjectsParams struct {
@@ -175,7 +175,7 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]P
 }
 
 const listProjectsAll = `-- name: ListProjectsAll :many
-SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM project WHERE agent_id = ? AND user_id = ? ORDER BY created_at ASC
+SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM project WHERE agent_id = $1 AND user_id = $2 ORDER BY created_at ASC
 `
 
 type ListProjectsAllParams struct {
@@ -217,8 +217,8 @@ func (q *Queries) ListProjectsAll(ctx context.Context, arg ListProjectsAllParams
 }
 
 const updateProject = `-- name: UpdateProject :one
-UPDATE project SET name = ?, description = ?, base_dir = ?, updated_at = datetime('now')
-WHERE id = ? AND user_id = ?
+UPDATE project SET name = $1, description = $2, base_dir = $3, updated_at = now()
+WHERE id = $4 AND user_id = $5
 RETURNING id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at
 `
 

@@ -2,19 +2,19 @@
 -- The dispatcher may retry this row without re-running the arbiter, which keeps
 -- response selection separate from platform delivery failures.
 CREATE TABLE ctx_group_dispatch (
-    id               TEXT NOT NULL PRIMARY KEY,
-    group_message_id TEXT NOT NULL REFERENCES ctx_group_message(id) ON DELETE CASCADE,
-    group_id         TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
+    id               UUID NOT NULL PRIMARY KEY DEFAULT uuidv7(),
+    group_message_id UUID NOT NULL REFERENCES ctx_group_message(id) ON DELETE CASCADE,
+    group_id         UUID NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
     agent_id         TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
     reply_channel_id TEXT NOT NULL REFERENCES channel(id) ON DELETE CASCADE,
     status           TEXT NOT NULL DEFAULT 'pending',
-    attempt_count    INTEGER NOT NULL DEFAULT 0,
-    lease_until      TEXT,
-    next_attempt_at  TEXT,
+    attempt_count    BIGINT NOT NULL DEFAULT 0,
+    lease_until      TIMESTAMPTZ,
+    next_attempt_at  TIMESTAMPTZ,
     last_error       TEXT NOT NULL DEFAULT '',
     result_message_id TEXT NOT NULL DEFAULT '',
-    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (group_message_id, agent_id)
 );
 

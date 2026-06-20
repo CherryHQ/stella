@@ -11,7 +11,7 @@
 #      environment or a .env file.
 #   2. Create the named volumes — they are external on purpose (see the volumes
 #      section), so create them once before the first `up`:
-#        docker volume create stella-data && docker volume create stella-otel-data
+#        docker volume create stella-data && docker volume create stella-otel-data && docker volume create stella-pg-data
 #   3. docker compose up -d
 #   4. Open http://localhost:25688 to configure agents and channels.
 #
@@ -28,6 +28,22 @@ services:
       - stella-data:/home/stella/.stella
     command: ["sh", "-c", "chown -R stella:stella /home/stella/.stella"]
 
+  postgres:
+    # Match the embedded PostgreSQL version (embedded-postgres DefaultConfig -> V18 / 18.3.0)
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=stella
+    volumes:
+      - stella-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d stella"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   stella:
     build: .
     image: ${STELLA_IMAGE:-ghcr.io/cherryhq/stella:latest} # mise run dev:docker sets this to the local stella:latest
@@ -35,6 +51,8 @@ services:
     depends_on:
       stella-volume-init:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     group_add:
       # Let the non-root stella user access the host Docker socket in DooD mode.
       - ${DOCKER_SOCKET_GID:-0}
@@ -50,6 +68,8 @@ services:
       # - STELLA_VAULT_KEY=${STELLA_VAULT_KEY:?set STELLA_VAULT_KEY first (run stella vault keygen)}
       # Authenticates the boot-time mise reconcile of builtin tools (avoids GitHub rate limits)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      # External PostgreSQL DSN -> use the postgres service instead of the managed embedded server
+      - STELLA_DATABASE_URL=postgres://postgres:postgres@postgres:5432/stella?sslmode=disable
       # Lock sandbox backend via env (docker | local | none); UI becomes read-only
       - STELLA_SANDBOX_BACKEND=docker
       # Explicit Docker sandbox mode: host | bind | volume
@@ -82,4 +102,6 @@ volumes:
   stella-data:
     external: true
   stella-otel-data:
+    external: true
+  stella-pg-data:
     external: true

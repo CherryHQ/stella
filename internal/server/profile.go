@@ -2,7 +2,6 @@ package server
 
 import (
 	"database/sql"
-	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -189,7 +188,7 @@ func (s *Server) GetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 	}
 
 	mem, err := s.q.GetUserAgentMemory(r.Context(), sqlc.GetUserAgentMemoryParams{UserID: info.UserID, AgentID: agentID})
-	if errors.Is(err, sql.ErrNoRows) {
+	if isNotFound(err) {
 		writeData(w, http.StatusOK, map[string]any{
 			"user_id":     info.UserID,
 			"agent_id":    agentID,
@@ -395,7 +394,7 @@ func (s *Server) ListProfileChangelog(w http.ResponseWriter, r *http.Request, ag
 			UserID:  info.UserID,
 			AgentID: agentID,
 			Scope:   scope,
-			Limit:   int64(limit),
+			Limit:   int32(limit),
 		})
 		if err != nil {
 			s.writeInternalError(w, err)
@@ -437,7 +436,7 @@ func profileChangelogEntryToAPI(row sqlc.CtxAgentMemoryChangelog) apiserver.Chan
 		MemoryVersionAfter:  nullIntToPtr(row.MemoryVersionAfter),
 		BeforeText:          nullStringToPtr(row.BeforeText),
 		AfterText:           nullStringToPtr(row.AfterText),
-		CreatedAt:           parseTime(row.CreatedAt),
+		CreatedAt:           row.CreatedAt.UTC(),
 	}
 }
 

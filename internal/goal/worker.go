@@ -281,7 +281,7 @@ func (w *Worker) checkEnv(ctx context.Context, goal sqlc.AgentGoal) CheckEnv {
 			continue
 		}
 		var ao AcceptedOutput
-		if err := unmarshalJSON(e.UpstreamOutput.String, &ao); err != nil || ao.Hash == "" {
+		if err := unmarshalNullJSON(e.UpstreamOutput, &ao); err != nil || ao.Hash == "" {
 			continue
 		}
 		env.UpstreamHashes = append(env.UpstreamHashes, ao.Hash)
@@ -356,11 +356,11 @@ func (w *Worker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, attemptI
 	}
 }
 
-// leaseUntil returns the next lease expiry stamp in the naive-UTC TEXT format
-// the columns use, anchored to the service clock so tests can drive it.
-func (w *Worker) leaseUntil() sql.NullString {
-	return sql.NullString{
-		String: w.svc.clock().Add(w.lease).UTC().Format(time.RFC3339Nano),
-		Valid:  true,
+// leaseUntil returns the next lease expiry instant for the TIMESTAMPTZ lease
+// column, anchored to the service clock so tests can drive it.
+func (w *Worker) leaseUntil() sql.NullTime {
+	return sql.NullTime{
+		Time:  w.svc.clock().Add(w.lease).UTC(),
+		Valid: true,
 	}
 }

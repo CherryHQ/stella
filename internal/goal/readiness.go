@@ -69,7 +69,7 @@ func Compute(d sqlc.AgentGoal, edges []sqlc.ListEdgeWithUpstreamStateRow, now ti
 	var reasons []Reason
 	depBlocked := false
 	for _, e := range edges {
-		waived := e.WaivedAt.Valid && e.WaivedAt.String != ""
+		waived := e.WaivedAt.Valid
 		accepted := e.UpstreamLifecycle == LifecycleAccepted
 		switch e.EdgeKind {
 		case EdgeHard:

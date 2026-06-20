@@ -1,9 +1,9 @@
 CREATE TABLE auth_credential (
-    id           TEXT NOT NULL PRIMARY KEY,
-    user_id      TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    id           UUID NOT NULL PRIMARY KEY DEFAULT uuidv7(),
+    user_id      UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     password_hash TEXT NOT NULL,
-    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(user_id)
 );
 

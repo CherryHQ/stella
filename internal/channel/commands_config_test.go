@@ -2,7 +2,6 @@ package channel
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -18,11 +18,7 @@ import (
 func testVaultService(t *testing.T) (*vault.Service, string) {
 	t.Helper()
 
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "config_cmd_test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	q := sqlc.New(db)
 	ctx := context.Background()
@@ -69,11 +65,7 @@ func TestHandleConfigNilVault(t *testing.T) {
 }
 
 func TestHandleConfigNotLoggedIn(t *testing.T) {
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "nologin_test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	masterID, _ := age.GenerateX25519Identity()
 	svc, _ := vault.NewService(sqlc.New(db), masterID.String())

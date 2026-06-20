@@ -157,7 +157,7 @@ func TestLcl_TrivialLeafAccepts(t *testing.T) {
 		t.Fatalf("accepted_output not frozen: %+v", got.AcceptedOutput)
 	}
 	var ao AcceptedOutput
-	if err := unmarshalJSON(got.AcceptedOutput.String, &ao); err != nil {
+	if err := unmarshalNullJSON(got.AcceptedOutput, &ao); err != nil {
 		t.Fatalf("decode accepted_output: %v", err)
 	}
 	if ao.Hash != "TRIV1" {
@@ -211,7 +211,7 @@ func TestLcl_HumanVerdictLeaf(t *testing.T) {
 	if !accepted.AcceptedOutput.Valid {
 		t.Fatalf("accepted_output not frozen after verdict accept")
 	}
-	if err := unmarshalJSON(accepted.AcceptedOutput.String, &ao); err != nil {
+	if err := unmarshalNullJSON(accepted.AcceptedOutput, &ao); err != nil {
 		t.Fatalf("decode accepted_output: %v", err)
 	}
 	if ao.Hash != "H1" {

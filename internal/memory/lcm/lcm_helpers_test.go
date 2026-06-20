@@ -56,20 +56,20 @@ func TestParseTime(t *testing.T) {
 }
 
 func TestParseNullTime(t *testing.T) {
-	// Invalid null string.
-	ns := sql.NullString{Valid: false, String: ""}
+	// Invalid null time.
+	ns := sql.NullTime{Valid: false}
 	if parseNullTime(ns) != nil {
-		t.Error("expected nil for invalid null string")
+		t.Error("expected nil for invalid null time")
 	}
 
-	// Valid but unparseable.
-	ns = sql.NullString{Valid: true, String: "notadate"}
+	// Valid but zero time.
+	ns = sql.NullTime{Valid: true, Time: time.Time{}}
 	if parseNullTime(ns) != nil {
-		t.Error("expected nil for unparseable date")
+		t.Error("expected nil for zero time")
 	}
 
-	// Valid and parseable.
-	ns = sql.NullString{Valid: true, String: "2024-01-15 10:30:00"}
+	// Valid and non-zero.
+	ns = sql.NullTime{Valid: true, Time: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)}
 	got := parseNullTime(ns)
 	if got == nil {
 		t.Error("expected non-nil time for valid date")
@@ -93,9 +93,9 @@ func TestGenerateSummaryID(t *testing.T) {
 }
 
 func TestParseNullTime_EmptyString(t *testing.T) {
-	ns := sql.NullString{Valid: true, String: ""}
+	ns := sql.NullTime{Valid: true, Time: time.Time{}}
 	if parseNullTime(ns) != nil {
-		t.Error("expected nil for empty valid string")
+		t.Error("expected nil for valid zero time")
 	}
 }
 
@@ -125,8 +125,8 @@ func TestFormatSummaryXML_Condensed(t *testing.T) {
 		Depth:           1,
 		Content:         "condensed content",
 		DescendantCount: 5,
-		EarliestAt:      sql.NullString{Valid: true, String: "2024-01-01 00:00:00"},
-		LatestAt:        sql.NullString{Valid: true, String: "2024-01-02 00:00:00"},
+		EarliestAt:      sql.NullTime{Valid: true, Time: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
+		LatestAt:        sql.NullTime{Valid: true, Time: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)},
 	}
 	parent := sqlc.CtxSummary{ID: "parent-1"}
 	got := FormatSummaryXML(sum, []sqlc.CtxSummary{parent})

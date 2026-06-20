@@ -5,28 +5,34 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-func seedUserAgent(t *testing.T, db *sql.DB) {
+// seedUserAgent inserts a test user (uuid id) and agent (text slug id) and
+// returns the user id so callers thread the same id through every write.
+func seedUserAgent(t *testing.T, db *sql.DB) string {
 	t.Helper()
-	if _, err := db.Exec(`INSERT INTO auth_user (id, email) VALUES ('u1', 'u1@test.local')`); err != nil {
+	userID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO auth_user (id, email) VALUES ($1, 'u1@test.local')`, userID); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled) VALUES ('a1', 'agent1', '', '', '', '', '/tmp', 'user', 'u1', 1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled) VALUES ('a1', 'agent1', '', '', '', '', '/tmp', 'user', $1, true)`, userID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
+	return userID
 }
 
 func TestAddProfileEntry(t *testing.T) {
 	db, q := openTestDB(t)
 	ctx := context.Background()
-	seedUserAgent(t, db)
+	userID := seedUserAgent(t, db)
 
 	ctx = memory.WithChangeSource(ctx, memory.SourceAgent)
-	entries, err := memorywrite.AddProfileEntry(ctx, db, q, "u1", "a1", "likes coffee")
+	entries, err := memorywrite.AddProfileEntry(ctx, db, q, userID, "a1", "likes coffee")
 	if err != nil {
 		t.Fatalf("add entry: %v", err)
 	}
@@ -47,13 +53,13 @@ func TestAddProfileEntry(t *testing.T) {
 func TestAddMultipleProfileEntries(t *testing.T) {
 	db, q := openTestDB(t)
 	ctx := context.Background()
-	seedUserAgent(t, db)
+	userID := seedUserAgent(t, db)
 
 	ctx = memory.WithChangeSource(ctx, memory.SourceAgent)
-	if _, err := memorywrite.AddProfileEntry(ctx, db, q, "u1", "a1", "fact 1"); err != nil {
+	if _, err := memorywrite.AddProfileEntry(ctx, db, q, userID, "a1", "fact 1"); err != nil {
 		t.Fatalf("add first entry: %v", err)
 	}
-	entries, err := memorywrite.AddProfileEntry(ctx, db, q, "u1", "a1", "fact 2")
+	entries, err := memorywrite.AddProfileEntry(ctx, db, q, userID, "a1", "fact 2")
 	if err != nil {
 		t.Fatalf("add second entry: %v", err)
 	}
@@ -65,9 +71,9 @@ func TestAddMultipleProfileEntries(t *testing.T) {
 func TestGetProfileEntriesEmpty(t *testing.T) {
 	db, q := openTestDB(t)
 	ctx := context.Background()
-	seedUserAgent(t, db)
+	userID := seedUserAgent(t, db)
 
-	entries, err := memorywrite.GetProfileEntries(ctx, q, "u1", "a1")
+	entries, err := memorywrite.GetProfileEntries(ctx, q, userID, "a1")
 	if err != nil {
 		t.Fatalf("get entries: %v", err)
 	}
@@ -79,19 +85,19 @@ func TestGetProfileEntriesEmpty(t *testing.T) {
 func TestSetProfileDoesNotEraseEntries(t *testing.T) {
 	db, q := openTestDB(t)
 	ctx := context.Background()
-	seedUserAgent(t, db)
+	userID := seedUserAgent(t, db)
 
 	ctx = memory.WithChangeSource(ctx, memory.SourceAgent)
-	if _, err := memorywrite.AddProfileEntry(ctx, db, q, "u1", "a1", "auto fact"); err != nil {
+	if _, err := memorywrite.AddProfileEntry(ctx, db, q, userID, "a1", "auto fact"); err != nil {
 		t.Fatalf("add entry: %v", err)
 	}
 
 	ctx = memory.WithChangeSource(ctx, memory.SourceUser)
-	if err := memorywrite.SetProfile(ctx, db, q, "u1", "a1", "manual profile text"); err != nil {
+	if err := memorywrite.SetProfile(ctx, db, q, userID, "a1", "manual profile text"); err != nil {
 		t.Fatalf("set profile: %v", err)
 	}
 
-	entries, err := memorywrite.GetProfileEntries(ctx, q, "u1", "a1")
+	entries, err := memorywrite.GetProfileEntries(ctx, q, userID, "a1")
 	if err != nil {
 		t.Fatalf("get entries after PATCH: %v", err)
 	}
@@ -106,18 +112,18 @@ func TestSetProfileDoesNotEraseEntries(t *testing.T) {
 func TestProfileEntryVersionBumps(t *testing.T) {
 	db, q := openTestDB(t)
 	ctx := context.Background()
-	seedUserAgent(t, db)
+	userID := seedUserAgent(t, db)
 
 	ctx = memory.WithChangeSource(ctx, memory.SourceAgent)
-	if _, err := memorywrite.AddProfileEntry(ctx, db, q, "u1", "a1", "fact 1"); err != nil {
+	if _, err := memorywrite.AddProfileEntry(ctx, db, q, userID, "a1", "fact 1"); err != nil {
 		t.Fatalf("add first entry: %v", err)
 	}
-	row1, _ := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: "u1", AgentID: "a1"})
+	row1, _ := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: "a1"})
 
-	if _, err := memorywrite.AddProfileEntry(ctx, db, q, "u1", "a1", "fact 2"); err != nil {
+	if _, err := memorywrite.AddProfileEntry(ctx, db, q, userID, "a1", "fact 2"); err != nil {
 		t.Fatalf("add second entry: %v", err)
 	}
-	row2, _ := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: "u1", AgentID: "a1"})
+	row2, _ := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: "a1"})
 
 	if row2.Version <= row1.Version {
 		t.Fatalf("version should increment: %d <= %d", row2.Version, row1.Version)

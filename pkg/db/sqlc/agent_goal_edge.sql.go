@@ -8,11 +8,12 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const createEdge = `-- name: CreateEdge :one
 INSERT INTO agent_goal_edge (goal_id, upstream_id, edge_kind, on_failure)
-VALUES (?, ?, ?, ?)
+VALUES ($1, $2, $3, $4)
 RETURNING goal_id, upstream_id, edge_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at
 `
 
@@ -46,8 +47,8 @@ func (q *Queries) CreateEdge(ctx context.Context, arg CreateEdgeParams) (AgentGo
 
 const deleteEdge = `-- name: DeleteEdge :exec
 DELETE FROM agent_goal_edge
-WHERE goal_id = ?1
-  AND upstream_id = ?2
+WHERE goal_id = $1
+  AND upstream_id = $2
 `
 
 type DeleteEdgeParams struct {
@@ -62,8 +63,8 @@ func (q *Queries) DeleteEdge(ctx context.Context, arg DeleteEdgeParams) error {
 
 const getEdge = `-- name: GetEdge :one
 SELECT goal_id, upstream_id, edge_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_goal_edge
-WHERE goal_id = ?1
-  AND upstream_id = ?2
+WHERE goal_id = $1
+  AND upstream_id = $2
 `
 
 type GetEdgeParams struct {
@@ -89,7 +90,7 @@ func (q *Queries) GetEdge(ctx context.Context, arg GetEdgeParams) (AgentGoalEdge
 
 const listEdgeByGoal = `-- name: ListEdgeByGoal :many
 SELECT goal_id, upstream_id, edge_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_goal_edge
-WHERE goal_id = ?1
+WHERE goal_id = $1
 ORDER BY created_at
 `
 
@@ -127,7 +128,7 @@ func (q *Queries) ListEdgeByGoal(ctx context.Context, goalID string) ([]AgentGoa
 
 const listEdgeByUpstream = `-- name: ListEdgeByUpstream :many
 SELECT goal_id, upstream_id, edge_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_goal_edge
-WHERE upstream_id = ?1
+WHERE upstream_id = $1
 ORDER BY created_at
 `
 
@@ -170,7 +171,7 @@ SELECT
     u.accepted_output AS upstream_output
 FROM agent_goal_edge e
 JOIN agent_goal u ON u.id = e.upstream_id
-WHERE e.goal_id = ?1
+WHERE e.goal_id = $1
 ORDER BY e.created_at
 `
 
@@ -179,10 +180,10 @@ type ListEdgeWithUpstreamStateRow struct {
 	UpstreamID        string         `json:"upstream_id"`
 	EdgeKind          string         `json:"edge_kind"`
 	OnFailure         string         `json:"on_failure"`
-	WaivedAt          sql.NullString `json:"waived_at"`
+	WaivedAt          sql.NullTime   `json:"waived_at"`
 	WaivedByUser      sql.NullString `json:"waived_by_user"`
 	WaiverReason      string         `json:"waiver_reason"`
-	CreatedAt         string         `json:"created_at"`
+	CreatedAt         time.Time      `json:"created_at"`
 	UpstreamLifecycle string         `json:"upstream_lifecycle"`
 	UpstreamOutput    sql.NullString `json:"upstream_output"`
 }
@@ -223,11 +224,11 @@ func (q *Queries) ListEdgeWithUpstreamState(ctx context.Context, goalID string) 
 
 const waiveEdge = `-- name: WaiveEdge :exec
 UPDATE agent_goal_edge
-SET waived_at = datetime('now'),
-    waived_by_user = ?1,
-    waiver_reason = ?2
-WHERE goal_id = ?3
-  AND upstream_id = ?4
+SET waived_at = now(),
+    waived_by_user = $1,
+    waiver_reason = $2
+WHERE goal_id = $3
+  AND upstream_id = $4
 `
 
 type WaiveEdgeParams struct {

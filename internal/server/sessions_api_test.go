@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
+
 	apitypes "github.com/CherryHQ/stella/api/types"
 )
 
@@ -13,8 +15,8 @@ func TestUpdateAndDeleteSession(t *testing.T) {
 	agentID := createAgentAsUser(t, env, env.bearerToken, "Session API Agent")
 	_, err := env.db.Exec(`
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-		VALUES ('conv-session-api', 'session-api', 'Old title', 'web', 'chat', ?, ?, datetime('now'))
-	`, agentID, env.adminUser.ID)
+		VALUES ($1, 'session-api', 'Old title', 'web', 'chat', $2, $3, now())
+	`, uuid.NewString(), agentID, env.adminUser.ID)
 	if err != nil {
 		t.Fatalf("seed conversation: %v", err)
 	}
@@ -37,11 +39,11 @@ func TestUpdateAndDeleteSession(t *testing.T) {
 		t.Fatalf("DELETE session status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
-	var archived int
+	var archived bool
 	if err := env.db.QueryRow(`SELECT archived FROM ctx_conversation WHERE session_id = 'session-api'`).Scan(&archived); err != nil {
 		t.Fatalf("load archived flag: %v", err)
 	}
-	if archived != 1 {
-		t.Fatalf("archived = %d, want 1", archived)
+	if !archived {
+		t.Fatalf("archived = %v, want true", archived)
 	}
 }

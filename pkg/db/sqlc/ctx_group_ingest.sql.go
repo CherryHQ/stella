@@ -11,7 +11,7 @@ import (
 
 const createIngestError = `-- name: CreateIngestError :exec
 INSERT INTO ctx_group_ingest_error (id, group_id, pipeline, seq, reason)
-VALUES (?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT(group_id, pipeline, seq) DO NOTHING
 `
 
@@ -36,7 +36,7 @@ func (q *Queries) CreateIngestError(ctx context.Context, arg CreateIngestErrorPa
 
 const getIngestCursor = `-- name: GetIngestCursor :one
 SELECT group_id, pipeline, last_seq, updated_at FROM ctx_group_ingest_cursor
-WHERE group_id = ?1 AND pipeline = ?2
+WHERE group_id = $1 AND pipeline = $2
 `
 
 type GetIngestCursorParams struct {
@@ -58,7 +58,7 @@ func (q *Queries) GetIngestCursor(ctx context.Context, arg GetIngestCursorParams
 
 const isIngestError = `-- name: IsIngestError :one
 SELECT count(*) > 0 as is_error FROM ctx_group_ingest_error
-WHERE group_id = ?1 AND pipeline = ?2 AND seq = ?3
+WHERE group_id = $1 AND pipeline = $2 AND seq = $3
 `
 
 type IsIngestErrorParams struct {
@@ -76,15 +76,15 @@ func (q *Queries) IsIngestError(ctx context.Context, arg IsIngestErrorParams) (b
 
 const listGroupMessagesAfterSeq = `-- name: ListGroupMessagesAfterSeq :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
-WHERE group_id = ?1 AND seq > ?2
+WHERE group_id = $1 AND seq > $2
 ORDER BY seq ASC
-LIMIT ?3
+LIMIT $3
 `
 
 type ListGroupMessagesAfterSeqParams struct {
 	GroupID    string `json:"group_id"`
 	MinSeq     int64  `json:"min_seq"`
-	BatchLimit int64  `json:"batch_limit"`
+	BatchLimit int32  `json:"batch_limit"`
 }
 
 func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMessagesAfterSeqParams) ([]CtxGroupMessage, error) {
@@ -127,9 +127,9 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 
 const listGroupMessagesBetweenSeqs = `-- name: ListGroupMessagesBetweenSeqs :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
-WHERE group_id = ?1
-  AND seq > ?2
-  AND seq < ?3
+WHERE group_id = $1
+  AND seq > $2
+  AND seq < $3
 ORDER BY seq ASC
 `
 
@@ -183,7 +183,7 @@ SELECT gs.id as group_id,
        gs.next_seq as head_seq
 FROM ctx_group_state gs
 LEFT JOIN ctx_group_ingest_cursor c
-  ON c.group_id = gs.id AND c.pipeline = ?1
+  ON c.group_id = gs.id AND c.pipeline = $1
 WHERE gs.next_seq > COALESCE(c.last_seq, 0)
 `
 
@@ -218,10 +218,10 @@ func (q *Queries) ListGroupsWithPendingIngest(ctx context.Context, pipeline stri
 
 const upsertIngestCursor = `-- name: UpsertIngestCursor :exec
 INSERT INTO ctx_group_ingest_cursor (group_id, pipeline, last_seq, updated_at)
-VALUES (?1, ?2, ?3, datetime('now'))
+VALUES ($1, $2, $3, now())
 ON CONFLICT(group_id, pipeline) DO UPDATE SET
     last_seq = excluded.last_seq,
-    updated_at = datetime('now')
+    updated_at = now()
 `
 
 type UpsertIngestCursorParams struct {

@@ -3,7 +3,7 @@ package vault_test
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
+	"encoding/json"
 	"testing"
 
 	"filippo.io/age"
@@ -11,9 +11,12 @@ import (
 
 	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // vaultTestDB combines OIDCStore (for auth_user) with sqlc.Queries (for vault_entry).
 type vaultTestDB struct {
@@ -61,11 +64,7 @@ func testService(t *testing.T) (*vault.Service, *appdb.OIDCStore, string) {
 func testServiceWithQueries(t *testing.T) (*vault.Service, *appdb.OIDCStore, string, *sqlc.Queries) {
 	t.Helper()
 
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "vault_test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	oidc := appdb.NewOIDCStore(db)
 	q := sqlc.New(db)
@@ -233,12 +232,12 @@ func TestLoadEnvForAgentMergesScopedPrecedence(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID: "agent-b", Name: "Agent B", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+		ID: "agent-b", Name: "Agent B", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
@@ -291,15 +290,11 @@ func userIDForScope(scope string, userID string) string {
 
 func TestNewServiceInvalidKey(t *testing.T) {
 	t.Parallel()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "invalid_key_test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	oidc := appdb.NewOIDCStore(db)
 	testDB := &vaultTestDB{oidc: oidc, q: sqlc.New(db)}
-	_, err = vault.NewService(testDB, "not-a-valid-age-key")
+	_, err := vault.NewService(testDB, "not-a-valid-age-key")
 	if err == nil {
 		t.Fatal("NewService with invalid key should fail")
 	}
@@ -307,11 +302,7 @@ func TestNewServiceInvalidKey(t *testing.T) {
 
 func TestSetNoAgeKeys(t *testing.T) {
 	t.Parallel()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "no_keys_test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	oidc := appdb.NewOIDCStore(db)
 	q := sqlc.New(db)
@@ -365,7 +356,7 @@ func TestLoadEnvForAgentKeepsSystemSecretsWhenUserEntryFails(t *testing.T) {
 		t.Fatalf("SetSystemScoped: %v", err)
 	}
 	if err := q.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
-		ID: "broken-user-entry", Scope: vault.ScopeUser, UserID: sqlcNullString(userID), Name: "BROKEN_TOKEN", Ciphertext: "not-age",
+		ID: uuid.NewString(), Scope: vault.ScopeUser, UserID: sqlcNullString(userID), Name: "BROKEN_TOKEN", Ciphertext: "not-age",
 	}); err != nil {
 		t.Fatalf("insert broken user entry: %v", err)
 	}
@@ -388,11 +379,7 @@ func sqlcNullString(value string) sql.NullString {
 
 func TestLoadEnvNoAgeKeys(t *testing.T) {
 	t.Parallel()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "loadenv_nokeys_test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	oidc := appdb.NewOIDCStore(db)
 	q := sqlc.New(db)

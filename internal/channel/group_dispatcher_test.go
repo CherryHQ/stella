@@ -3,14 +3,14 @@ package channel
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -63,21 +63,17 @@ type dispatcherFixture struct {
 
 func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFixture {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 	q := sqlc.New(db)
 	ctx := context.Background()
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID:                   "agent-1",
 		Name:                 "Agent One",
 		Workspace:            t.TempDir(),
-		Sandbox:              "{}",
-		EnabledBuiltinSkills: "[]",
+		Sandbox:              json.RawMessage("{}"),
+		EnabledBuiltinSkills: json.RawMessage("[]"),
 		Scope:                "system",
-		Enabled:              1,
+		Enabled:              true,
 	}); err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
@@ -88,7 +84,7 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 		t.Fatalf("create channel: %v", err)
 	}
 	state, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
-		ID:               "group-1",
+		ID:               "11111111-1111-1111-1111-111111111111",
 		Platform:         platform,
 		PlatformGroupID:  "physical-group-1",
 		PlatformThreadID: "",
@@ -106,7 +102,7 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 		t.Fatalf("add group member: %v", err)
 	}
 	message, err := q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
-		ID:        "msg-1",
+		ID:        "a1a1a1a1-0000-0000-0000-000000000001",
 		GroupID:   state.ID,
 		Seq:       1,
 		ActorType: "human",
@@ -118,7 +114,7 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 	}
 	setGroupNextSeq(t, db, state.ID, message.Seq)
 	outbox, err := q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
-		ID:             "outbox-1",
+		ID:             "b0b0b0b0-0000-0000-0000-000000000001",
 		GroupMessageID: message.ID,
 		GroupID:        state.ID,
 		Envelope:       envelope,
@@ -144,7 +140,7 @@ func textStream(text string) *pkgchannel.ChatStream {
 	return &pkgchannel.ChatStream{Events: ch, SessionID: "session-1"}
 }
 
-func createDispatchForGroupMessage(t *testing.T, q *sqlc.Queries, msg sqlc.CtxGroupMessage, id, agentID, groupID string, status string, leaseUntil sql.NullString) {
+func createDispatchForGroupMessage(t *testing.T, q *sqlc.Queries, msg sqlc.CtxGroupMessage, id, agentID, groupID string, status string, leaseUntil sql.NullTime) {
 	t.Helper()
 	if err := q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
 		ID:             id,
@@ -176,7 +172,7 @@ func createGroupMessageWithSeq(t *testing.T, q *sqlc.Queries, groupID, id string
 	return msg
 }
 
-func listPendingDispatchIDs(t *testing.T, q *sqlc.Queries, now time.Time, limit int64) []string {
+func listPendingDispatchIDs(t *testing.T, q *sqlc.Queries, now time.Time, limit int32) []string {
 	t.Helper()
 	rows, err := q.ListPendingGroupDispatch(context.Background(), sqlc.ListPendingGroupDispatchParams{
 		Now:        nullTime(now),
@@ -194,40 +190,40 @@ func listPendingDispatchIDs(t *testing.T, q *sqlc.Queries, now time.Time, limit 
 
 func TestListPendingGroupDispatchBlocksLaterSameAgentSeq(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'b0b0b0b0-0000-0000-0000-000000000001'`); err != nil {
 		t.Fatalf("complete outbox: %v", err)
 	}
 	now := time.Now().UTC()
 	earlier := fx.message
-	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
-	createDispatchForGroupMessage(t, fx.q, earlier, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
-	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "a1a1a1a1-0000-0000-0000-000000000002", 2)
+	createDispatchForGroupMessage(t, fx.q, earlier, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
+	createDispatchForGroupMessage(t, fx.q, later, "d15a0000-0000-0000-0000-000000000002", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 
 	ids := listPendingDispatchIDs(t, fx.q, now, 25)
-	if !containsString(ids, "dispatch-1") || containsString(ids, "dispatch-2") {
+	if !containsString(ids, "d15a0000-0000-0000-0000-000000000001") || containsString(ids, "d15a0000-0000-0000-0000-000000000002") {
 		t.Fatalf("pending ids = %v, want earlier only", ids)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET status = 'completed' WHERE id = 'dispatch-1'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET status = 'completed' WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
 		t.Fatalf("complete earlier: %v", err)
 	}
 	ids = listPendingDispatchIDs(t, fx.q, now, 25)
-	if !containsString(ids, "dispatch-2") {
+	if !containsString(ids, "d15a0000-0000-0000-0000-000000000002") {
 		t.Fatalf("pending ids = %v, want later after terminal earlier", ids)
 	}
 }
 
 func TestListPendingGroupDispatchExpiredRunningDoesNotBlockLater(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'b0b0b0b0-0000-0000-0000-000000000001'`); err != nil {
 		t.Fatalf("complete outbox: %v", err)
 	}
 	now := time.Now().UTC()
-	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
-	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "running", nullTime(now.Add(-time.Minute)))
-	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "a1a1a1a1-0000-0000-0000-000000000002", 2)
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.message.GroupID, "running", nullTime(now.Add(-time.Minute)))
+	createDispatchForGroupMessage(t, fx.q, later, "d15a0000-0000-0000-0000-000000000002", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 
 	ids := listPendingDispatchIDs(t, fx.q, now, 25)
-	if !containsString(ids, "dispatch-2") {
+	if !containsString(ids, "d15a0000-0000-0000-0000-000000000002") {
 		t.Fatalf("pending ids = %v, want expired running not to block later", ids)
 	}
 }
@@ -235,42 +231,42 @@ func TestListPendingGroupDispatchExpiredRunningDoesNotBlockLater(t *testing.T) {
 func TestListPendingGroupDispatchBlocksLaterWhenEarlierOutboxNotTerminal(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	now := time.Now().UTC()
-	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
-	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "a1a1a1a1-0000-0000-0000-000000000002", 2)
+	createDispatchForGroupMessage(t, fx.q, later, "d15a0000-0000-0000-0000-000000000002", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 
 	ids := listPendingDispatchIDs(t, fx.q, now, 25)
-	if containsString(ids, "dispatch-2") {
+	if containsString(ids, "d15a0000-0000-0000-0000-000000000002") {
 		t.Fatalf("pending ids = %v, want later blocked by earlier outbox", ids)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'b0b0b0b0-0000-0000-0000-000000000001'`); err != nil {
 		t.Fatalf("complete earlier outbox: %v", err)
 	}
 	ids = listPendingDispatchIDs(t, fx.q, now, 25)
-	if !containsString(ids, "dispatch-2") {
+	if !containsString(ids, "d15a0000-0000-0000-0000-000000000002") {
 		t.Fatalf("pending ids = %v, want later after terminal earlier outbox", ids)
 	}
 }
 
 func TestListPendingGroupDispatchBlockedRowsDoNotConsumeLimit(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'b0b0b0b0-0000-0000-0000-000000000001'`); err != nil {
 		t.Fatalf("complete outbox: %v", err)
 	}
 	now := time.Now().UTC()
-	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 	for i := range 30 {
-		msg := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, fmt.Sprintf("msg-blocked-%02d", i), int64(i+2))
-		createDispatchForGroupMessage(t, fx.q, msg, fmt.Sprintf("dispatch-blocked-%02d", i), "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+		msg := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, fmt.Sprintf("a1a1a1a1-0000-0000-0000-00000000b%03d", i), int64(i+2))
+		createDispatchForGroupMessage(t, fx.q, msg, fmt.Sprintf("d15a0000-0000-0000-0000-00000000b%03d", i), "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
 	}
-	otherGroup, err := fx.q.CreateGroupState(context.Background(), sqlc.CreateGroupStateParams{ID: "group-2", Platform: "web", PlatformGroupID: "physical-group-2", GroupName: "Group Two"})
+	otherGroup, err := fx.q.CreateGroupState(context.Background(), sqlc.CreateGroupStateParams{ID: "22222222-2222-2222-2222-222222222222", Platform: "web", PlatformGroupID: "physical-group-2", GroupName: "Group Two"})
 	if err != nil {
 		t.Fatalf("create group-2: %v", err)
 	}
-	otherMsg := createGroupMessageWithSeq(t, fx.q, otherGroup.ID, "msg-other", 1)
-	createDispatchForGroupMessage(t, fx.q, otherMsg, "dispatch-other", "agent-1", otherGroup.ID, "pending", sql.NullString{})
+	otherMsg := createGroupMessageWithSeq(t, fx.q, otherGroup.ID, "a1a1a1a1-0000-0000-0000-00000000000f", 1)
+	createDispatchForGroupMessage(t, fx.q, otherMsg, "d15a0000-0000-0000-0000-0000000000fe", "agent-1", otherGroup.ID, "pending", sql.NullTime{})
 
 	ids := listPendingDispatchIDs(t, fx.q, now, 25)
-	if !containsString(ids, "dispatch-other") {
+	if !containsString(ids, "d15a0000-0000-0000-0000-0000000000fe") {
 		t.Fatalf("pending ids = %v, want other group despite 30 blocked rows", ids)
 	}
 }
@@ -278,27 +274,27 @@ func TestListPendingGroupDispatchBlockedRowsDoNotConsumeLimit(t *testing.T) {
 func TestListPendingGroupDispatchGateIsPerGroupAgent(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	ctx := context.Background()
-	if _, err := fx.db.ExecContext(ctx, `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+	if _, err := fx.db.ExecContext(ctx, `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'b0b0b0b0-0000-0000-0000-000000000001'`); err != nil {
 		t.Fatalf("complete outbox: %v", err)
 	}
 	now := time.Now().UTC()
-	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1}); err != nil {
+	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true}); err != nil {
 		t.Fatalf("create agent-2: %v", err)
 	}
-	state2, err := fx.q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{ID: "group-2", Platform: "web", PlatformGroupID: "physical-group-2", GroupName: "Group Two"})
+	state2, err := fx.q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{ID: "22222222-2222-2222-2222-222222222222", Platform: "web", PlatformGroupID: "physical-group-2", GroupName: "Group Two"})
 	if err != nil {
 		t.Fatalf("create group-2: %v", err)
 	}
-	laterSameAgent := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
-	laterOtherAgent := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-3", 3)
-	otherGroup := createGroupMessageWithSeq(t, fx.q, state2.ID, "msg-4", 2)
-	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
-	createDispatchForGroupMessage(t, fx.q, laterSameAgent, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
-	createDispatchForGroupMessage(t, fx.q, laterOtherAgent, "dispatch-3", "agent-2", fx.message.GroupID, "pending", sql.NullString{})
-	createDispatchForGroupMessage(t, fx.q, otherGroup, "dispatch-4", "agent-1", state2.ID, "pending", sql.NullString{})
+	laterSameAgent := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "a1a1a1a1-0000-0000-0000-000000000002", 2)
+	laterOtherAgent := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "a1a1a1a1-0000-0000-0000-000000000003", 3)
+	otherGroup := createGroupMessageWithSeq(t, fx.q, state2.ID, "a1a1a1a1-0000-0000-0000-000000000004", 2)
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
+	createDispatchForGroupMessage(t, fx.q, laterSameAgent, "d15a0000-0000-0000-0000-000000000002", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
+	createDispatchForGroupMessage(t, fx.q, laterOtherAgent, "d15a0000-0000-0000-0000-000000000003", "agent-2", fx.message.GroupID, "pending", sql.NullTime{})
+	createDispatchForGroupMessage(t, fx.q, otherGroup, "d15a0000-0000-0000-0000-000000000004", "agent-1", state2.ID, "pending", sql.NullTime{})
 
 	ids := listPendingDispatchIDs(t, fx.q, now, 25)
-	if containsString(ids, "dispatch-2") || !containsString(ids, "dispatch-3") || !containsString(ids, "dispatch-4") {
+	if containsString(ids, "d15a0000-0000-0000-0000-000000000002") || !containsString(ids, "d15a0000-0000-0000-0000-000000000003") || !containsString(ids, "d15a0000-0000-0000-0000-000000000004") {
 		t.Fatalf("pending ids = %v, want same-agent blocked only", ids)
 	}
 }
@@ -311,7 +307,7 @@ func TestGroupDispatcherReapExpiredCompletesDispatchWithResultMarker(t *testing.
 	fx := newDispatcherFixture(t, "web", `{}`)
 	past := time.Now().UTC().Add(-time.Minute)
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             "dispatch-marker",
+		ID:             "d15a0000-0000-0000-0000-0000000000ff",
 		GroupMessageID: fx.message.ID,
 		GroupID:        fx.message.GroupID,
 		AgentID:        "agent-1",
@@ -323,14 +319,14 @@ func TestGroupDispatcherReapExpiredCompletesDispatchWithResultMarker(t *testing.
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'dispatch-marker'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'd15a0000-0000-0000-0000-0000000000ff'`); err != nil {
 		t.Fatalf("set marker: %v", err)
 	}
 
 	if err := fx.d.reapExpired(context.Background()); err != nil {
 		t.Fatalf("reap expired: %v", err)
 	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-marker")
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-0000000000ff")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
@@ -415,7 +411,7 @@ func TestGroupDispatcherZeroRespondersCompletesOutbox(t *testing.T) {
 
 func TestGroupDispatcherPlatformMentionModeDoesNotUseObserverFallback(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-1' WHERE id = ?`, fx.message.ID); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-1' WHERE id = $1`, fx.message.ID); err != nil {
 		t.Fatalf("set source channel: %v", err)
 	}
 	if _, err := fx.db.ExecContext(context.Background(), `UPDATE channel SET config = '{"group_mode":"mention"}' WHERE id = 'ch-1'`); err != nil {
@@ -440,10 +436,10 @@ func TestGroupDispatcherPlatformAlwaysModeUsesMemberFallback(t *testing.T) {
 		ID:                   "agent-2",
 		Name:                 "Agent Two",
 		Workspace:            t.TempDir(),
-		Sandbox:              "{}",
-		EnabledBuiltinSkills: "[]",
+		Sandbox:              json.RawMessage("{}"),
+		EnabledBuiltinSkills: json.RawMessage("[]"),
 		Scope:                "system",
-		Enabled:              1,
+		Enabled:              true,
 	}); err != nil {
 		t.Fatalf("create second agent: %v", err)
 	}
@@ -454,7 +450,7 @@ func TestGroupDispatcherPlatformAlwaysModeUsesMemberFallback(t *testing.T) {
 		t.Fatalf("create second channel: %v", err)
 	}
 	if _, err := fx.q.AddGroupMember(context.Background(), sqlc.AddGroupMemberParams{
-		GroupID:        "group-1",
+		GroupID:        "11111111-1111-1111-1111-111111111111",
 		AgentID:        "agent-2",
 		ReplyChannelID: "ch-2",
 	}); err != nil {
@@ -464,7 +460,7 @@ func TestGroupDispatcherPlatformAlwaysModeUsesMemberFallback(t *testing.T) {
 	secondPublisher := &recordingGroupPublisher{}
 	fx.d.publishers.Register("ch-1", firstPublisher)
 	fx.d.publishers.Register("ch-2", secondPublisher)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-2' WHERE id = ?`, fx.message.ID); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-2' WHERE id = $1`, fx.message.ID); err != nil {
 		t.Fatalf("set source channel: %v", err)
 	}
 	if _, err := fx.db.ExecContext(context.Background(), `UPDATE channel SET config = '{"group_mode":"always"}' WHERE id = 'ch-1'`); err != nil {
@@ -529,9 +525,9 @@ func TestGroupDispatcherExistingDispatchSkipsEnvelopeDecode(t *testing.T) {
 	publisher := &recordingGroupPublisher{}
 	fx.d.publishers.Register("ch-1", publisher)
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             "dispatch-1",
+		ID:             "d15a0000-0000-0000-0000-000000000001",
 		GroupMessageID: fx.message.ID,
-		GroupID:        "group-1",
+		GroupID:        "11111111-1111-1111-1111-111111111111",
 		AgentID:        "agent-1",
 		ReplyChannelID: "ch-1",
 		Status:         "pending",
@@ -558,9 +554,9 @@ func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T)
 	publisher := &recordingGroupPublisher{err: boom}
 	fx.d.publishers.Register("ch-1", publisher)
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             "dispatch-1",
+		ID:             "d15a0000-0000-0000-0000-000000000001",
 		GroupMessageID: fx.message.ID,
-		GroupID:        "group-1",
+		GroupID:        "11111111-1111-1111-1111-111111111111",
 		AgentID:        "agent-1",
 		ReplyChannelID: "ch-1",
 		Status:         "pending",
@@ -568,14 +564,14 @@ func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T)
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
 	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
 		t.Fatal("expected publisher error")
 	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
 	}
@@ -587,10 +583,10 @@ func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T)
 	}
 
 	publisher.err = nil
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'dispatch-1'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
 		t.Fatalf("make dispatch due: %v", err)
 	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch before retry: %v", err)
 	}
@@ -612,9 +608,9 @@ func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.
 		return textStream("ok"), nil
 	}
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             "dispatch-1",
+		ID:             "d15a0000-0000-0000-0000-000000000001",
 		GroupMessageID: fx.message.ID,
-		GroupID:        "group-1",
+		GroupID:        "11111111-1111-1111-1111-111111111111",
 		AgentID:        "agent-1",
 		ReplyChannelID: "ch-1",
 		Status:         "pending",
@@ -622,17 +618,20 @@ func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `CREATE TRIGGER fail_agent_writeback BEFORE INSERT ON ctx_group_message WHEN NEW.actor_type = 'agent' BEGIN SELECT RAISE(FAIL, 'fail agent writeback'); END;`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `CREATE FUNCTION fail_agent_writeback_fn() RETURNS trigger AS $$ BEGIN IF NEW.actor_type = 'agent' THEN RAISE EXCEPTION 'fail agent writeback'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;`); err != nil {
+		t.Fatalf("create trigger function: %v", err)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `CREATE TRIGGER fail_agent_writeback BEFORE INSERT ON ctx_group_message FOR EACH ROW EXECUTE FUNCTION fail_agent_writeback_fn();`); err != nil {
 		t.Fatalf("create trigger: %v", err)
 	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
 	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
 		t.Fatal("expected writeback error")
 	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
 	}
@@ -642,13 +641,13 @@ func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.
 	if got := countAgentGroupMessages(t, fx.db); got != 0 {
 		t.Fatalf("agent messages = %d, want failed transaction to append none", got)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `DROP TRIGGER fail_agent_writeback`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `DROP TRIGGER fail_agent_writeback ON ctx_group_message`); err != nil {
 		t.Fatalf("drop trigger: %v", err)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'dispatch-1'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
 		t.Fatalf("make dispatch due: %v", err)
 	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch before retry: %v", err)
 	}
@@ -673,9 +672,9 @@ func TestGroupDispatcherResultMessageSkipsChatPublishAndAppend(t *testing.T) {
 		return textStream("ok"), nil
 	}
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             "dispatch-1",
+		ID:             "d15a0000-0000-0000-0000-000000000001",
 		GroupMessageID: fx.message.ID,
-		GroupID:        "group-1",
+		GroupID:        "11111111-1111-1111-1111-111111111111",
 		AgentID:        "agent-1",
 		ReplyChannelID: "ch-1",
 		Status:         "running",
@@ -684,17 +683,17 @@ func TestGroupDispatcherResultMessageSkipsChatPublishAndAppend(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'dispatch-1'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
 		t.Fatalf("set result marker: %v", err)
 	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
 	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
 		t.Fatalf("execute dispatch: %v", err)
 	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after execute: %v", err)
 	}
@@ -711,9 +710,9 @@ func TestGroupDispatcherWebWriteErrorStillRecordsResult(t *testing.T) {
 	publisher := &recordingGroupPublisher{}
 	fx.d.publishers.Register("ch-1", publisher)
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             "dispatch-1",
+		ID:             "d15a0000-0000-0000-0000-000000000001",
 		GroupMessageID: fx.message.ID,
-		GroupID:        "group-1",
+		GroupID:        "11111111-1111-1111-1111-111111111111",
 		AgentID:        "agent-1",
 		ReplyChannelID: "ch-1",
 		Status:         "pending",
@@ -721,14 +720,14 @@ func TestGroupDispatcherWebWriteErrorStillRecordsResult(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
 	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
 		t.Fatalf("execute dispatch: %v", err)
 	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after execute: %v", err)
 	}
@@ -743,9 +742,9 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 	boom := errors.New("boom")
 	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{err: boom})
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             "dispatch-1",
+		ID:             "d15a0000-0000-0000-0000-000000000001",
 		GroupMessageID: fx.message.ID,
-		GroupID:        "group-1",
+		GroupID:        "11111111-1111-1111-1111-111111111111",
 		AgentID:        "agent-1",
 		ReplyChannelID: "ch-1",
 		Status:         "pending",
@@ -753,7 +752,7 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
@@ -761,7 +760,7 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
 		t.Fatal("expected publisher error")
 	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
 	}
@@ -785,19 +784,19 @@ func TestGroupDispatcherDispatchSyncUsesPublisherOverride(t *testing.T) {
 func TestGroupDispatcherDispatchSyncWaitsForBlockedDispatch(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	ctx := context.Background()
-	if _, err := fx.db.ExecContext(ctx, `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+	if _, err := fx.db.ExecContext(ctx, `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'b0b0b0b0-0000-0000-0000-000000000001'`); err != nil {
 		t.Fatalf("complete earlier outbox: %v", err)
 	}
-	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
-	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.message.GroupID, "pending", sql.NullTime{})
+	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "a1a1a1a1-0000-0000-0000-000000000002", 2)
 	setGroupNextSeq(t, fx.db, fx.message.GroupID, later.Seq)
-	laterOutbox, err := fx.q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{ID: "outbox-2", GroupMessageID: later.ID, GroupID: fx.message.GroupID, Envelope: `{}`, Status: "pending", LastError: ""})
+	laterOutbox, err := fx.q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{ID: "b0b0b0b0-0000-0000-0000-000000000002", GroupMessageID: later.ID, GroupID: fx.message.GroupID, Envelope: "{}", Status: "pending", LastError: ""})
 	if err != nil {
 		t.Fatalf("create later outbox: %v", err)
 	}
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		_, _ = fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET status = 'completed' WHERE id = 'dispatch-1'`)
+		_, _ = fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET status = 'completed' WHERE id = 'd15a0000-0000-0000-0000-000000000001'`)
 	}()
 	publisher := &recordingGroupPublisher{}
 	if err := fx.d.DispatchSync(ctx, laterOutbox, publisher); err != nil {
@@ -819,7 +818,7 @@ func TestGroupDispatcherExtendsOutboxLeaseWhileRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim outbox: %v", err)
 	}
-	initialLease := claimed.LeaseUntil.String
+	initialLease := claimed.LeaseUntil.Time
 	stop := fx.d.startHeartbeat(context.Background(), "outbox", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
 		return fx.q.ExtendRunningGroupOutboxLease(ctx, sqlc.ExtendRunningGroupOutboxLeaseParams{
 			ID:           claimed.ID,
@@ -840,7 +839,7 @@ func TestGroupDispatcherExtendsOutboxLeaseWhileRunning(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get outbox while waiting heartbeat: %v", err)
 			}
-			if current.LeaseUntil.String != "" && current.LeaseUntil.String != initialLease {
+			if !current.LeaseUntil.Time.IsZero() && !current.LeaseUntil.Time.Equal(initialLease) {
 				return
 			}
 		}
@@ -866,7 +865,7 @@ func TestGroupDispatcherHeartbeatDoesNotExtendAfterOwnershipLoss(t *testing.T) {
 		})
 	}, nil)
 	defer stop()
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET attempt_count = attempt_count + 1 WHERE id = ?`, claimed.ID); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET attempt_count = attempt_count + 1 WHERE id = $1`, claimed.ID); err != nil {
 		t.Fatalf("simulate ownership loss: %v", err)
 	}
 	afterLoss, err := fx.q.GetGroupOutbox(context.Background(), claimed.ID)
@@ -878,8 +877,8 @@ func TestGroupDispatcherHeartbeatDoesNotExtendAfterOwnershipLoss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get outbox after heartbeat: %v", err)
 	}
-	if current.LeaseUntil.String != afterLoss.LeaseUntil.String {
-		t.Fatalf("stale heartbeat extended lease after ownership loss: before=%q after=%q", afterLoss.LeaseUntil.String, current.LeaseUntil.String)
+	if !current.LeaseUntil.Time.Equal(afterLoss.LeaseUntil.Time) {
+		t.Fatalf("stale heartbeat extended lease after ownership loss: before=%q after=%q", afterLoss.LeaseUntil.Time, current.LeaseUntil.Time)
 	}
 }
 
@@ -889,9 +888,9 @@ func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
 	publisher := &blockingGroupPublisher{started: make(chan struct{}), release: make(chan struct{})}
 	fx.d.publishers.Register("ch-1", publisher)
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             "dispatch-1",
+		ID:             "d15a0000-0000-0000-0000-000000000001",
 		GroupMessageID: fx.message.ID,
-		GroupID:        "group-1",
+		GroupID:        "11111111-1111-1111-1111-111111111111",
 		AgentID:        "agent-1",
 		ReplyChannelID: "ch-1",
 		Status:         "pending",
@@ -899,7 +898,7 @@ func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
@@ -912,7 +911,7 @@ func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("publisher did not start")
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET attempt_count = attempt_count + 1 WHERE id = ?`, "dispatch-1"); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET attempt_count = attempt_count + 1 WHERE id = $1`, "d15a0000-0000-0000-0000-000000000001"); err != nil {
 		t.Fatalf("simulate dispatch ownership loss: %v", err)
 	}
 	select {
@@ -923,7 +922,7 @@ func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("execute dispatch did not stop after ownership loss")
 	}
-	current, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	current, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after ownership loss: %v", err)
 	}
@@ -938,9 +937,9 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 	publisher := &blockingGroupPublisher{started: make(chan struct{}), release: make(chan struct{})}
 	fx.d.publishers.Register("ch-1", publisher)
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             "dispatch-1",
+		ID:             "d15a0000-0000-0000-0000-000000000001",
 		GroupMessageID: fx.message.ID,
-		GroupID:        "group-1",
+		GroupID:        "11111111-1111-1111-1111-111111111111",
 		AgentID:        "agent-1",
 		ReplyChannelID: "ch-1",
 		Status:         "pending",
@@ -948,7 +947,7 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
@@ -962,11 +961,11 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("publisher did not start")
 	}
-	running, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	running, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get running dispatch: %v", err)
 	}
-	initialLease := running.LeaseUntil.String
+	initialLease := running.LeaseUntil.Time
 	deadline := time.After(3 * time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -976,11 +975,11 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 			close(publisher.release)
 			t.Fatalf("dispatch lease was not extended; initial lease %q", initialLease)
 		case <-ticker.C:
-			current, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+			current, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 			if err != nil {
 				t.Fatalf("get dispatch while waiting heartbeat: %v", err)
 			}
-			if current.LeaseUntil.String != "" && current.LeaseUntil.String != initialLease {
+			if !current.LeaseUntil.Time.IsZero() && !current.LeaseUntil.Time.Equal(initialLease) {
 				close(publisher.release)
 				if err := <-errC; err != nil {
 					t.Fatalf("execute dispatch after heartbeat: %v", err)
@@ -993,7 +992,7 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 
 func dispatchAgentsByMessage(t *testing.T, db *sql.DB, messageID string) []string {
 	t.Helper()
-	rows, err := db.QueryContext(context.Background(), `SELECT agent_id FROM ctx_group_dispatch WHERE group_message_id = ? ORDER BY agent_id`, messageID)
+	rows, err := db.QueryContext(context.Background(), `SELECT agent_id FROM ctx_group_dispatch WHERE group_message_id = $1 ORDER BY agent_id`, messageID)
 	if err != nil {
 		t.Fatalf("query dispatch agents: %v", err)
 	}
@@ -1019,7 +1018,7 @@ func dispatchAgentsByMessage(t *testing.T, db *sql.DB, messageID string) []strin
 func dispatchStatusByMessage(t *testing.T, db *sql.DB, messageID string) string {
 	t.Helper()
 	var status string
-	if err := db.QueryRowContext(context.Background(), `SELECT status FROM ctx_group_dispatch WHERE group_message_id = ?`, messageID).Scan(&status); err != nil {
+	if err := db.QueryRowContext(context.Background(), `SELECT status FROM ctx_group_dispatch WHERE group_message_id = $1`, messageID).Scan(&status); err != nil {
 		t.Fatalf("query dispatch status: %v", err)
 	}
 	return status
@@ -1088,7 +1087,7 @@ func TestWrapGroupResponseStreamBuffersCompleteStream(t *testing.T) {
 
 func setGroupNextSeq(t *testing.T, db *sql.DB, groupID string, seq int64) {
 	t.Helper()
-	if _, err := db.ExecContext(context.Background(), `UPDATE ctx_group_state SET next_seq = ? WHERE id = ?`, seq, groupID); err != nil {
+	if _, err := db.ExecContext(context.Background(), `UPDATE ctx_group_state SET next_seq = $1 WHERE id = $2`, seq, groupID); err != nil {
 		t.Fatalf("set group next seq: %v", err)
 	}
 }

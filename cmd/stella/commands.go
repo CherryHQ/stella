@@ -24,6 +24,7 @@ Start the server with "stellad server".`,
 			vaultCommand(),
 			oauthCommand(),
 			shareCommand(),
+			dbCommand(),
 		},
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -388,7 +389,7 @@ func (a *assembler) loadContextWindow(ctx context.Context, convID string) ([]sql
 				EventType:      row.MessageEventType.String,
 				Content:        row.MessageContent.String,
 				TokenCount:     row.MessageTokenCount.Int64,
-				CreatedAt:      row.MessageCreatedAt.String,
+				CreatedAt:      row.MessageCreatedAt.Time.UTC(),
 			}
 		}
 		if item.ItemType == itemTypeSummary && row.SummaryID.Valid {
@@ -405,7 +406,7 @@ func (a *assembler) loadContextWindow(ctx context.Context, convID string) ([]sql
 				DescendantCount:         row.SummaryDescendantCount.Int64,
 				DescendantTokenCount:    row.SummaryDescendantTokenCount.Int64,
 				SourceMessageTokenCount: row.SummarySourceMessageTokenCount.Int64,
-				CreatedAt:               row.SummaryCreatedAt.String,
+				CreatedAt:               row.SummaryCreatedAt.Time.UTC(),
 			}
 			if _, ok := seenSummaryIDs[id]; !ok {
 				seenSummaryIDs[id] = struct{}{}
@@ -496,10 +497,10 @@ func FormatSummaryXML(sum sqlc.CtxSummary, parents []sqlc.CtxSummary) string {
 
 	fmt.Fprintf(&b, `<summary id="%s" kind="%s" depth="%d"`, sum.ID, sum.Kind, sum.Depth)
 	if sum.EarliestAt.Valid {
-		fmt.Fprintf(&b, ` earliest_at="%s"`, sum.EarliestAt.String)
+		fmt.Fprintf(&b, ` earliest_at="%s"`, sum.EarliestAt.Time.UTC().Format(time.RFC3339Nano))
 	}
 	if sum.LatestAt.Valid {
-		fmt.Fprintf(&b, ` latest_at="%s"`, sum.LatestAt.String)
+		fmt.Fprintf(&b, ` latest_at="%s"`, sum.LatestAt.Time.UTC().Format(time.RFC3339Nano))
 	}
 	if sum.Kind == kindCondensed {
 		fmt.Fprintf(&b, ` descendant_count="%d"`, sum.DescendantCount)

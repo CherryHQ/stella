@@ -27,7 +27,7 @@ func TestListAgentsIncludesLastActive(t *testing.T) {
 
 	_, err := env.db.Exec(`
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-		VALUES (?, ?, 'main', 'web', 'main', ?, ?, ?)
+		VALUES ($1, $2, 'main', 'web', 'main', $3, $4, $5)
 	`, uuid.NewString(), "last-active-session", agentID, env.adminUser.ID, lastActive)
 	if err != nil {
 		t.Fatalf("seed conversation: %v", err)
@@ -200,14 +200,14 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 		INSERT INTO sched_job (
 			id, name, agent_id, user_id, created_at, updated_at
 		)
-		VALUES ('job-1', 'Daily check', ?, ?, ?, ?)
+		VALUES ('job-1', 'Daily check', $1, $2, $3, $4)
 	`, agentID, userID, inboxTS(-8*time.Hour), inboxTS(-8*time.Hour))
 	if err != nil {
 		t.Fatalf("seed sched job: %v", err)
 	}
 	_, err = env.db.ExecContext(ctx, `
 		INSERT INTO sched_job_run (id, job_id, status, started_at, finished_at, error, user_id)
-		VALUES ('sched-run-1', 'job-1', 'failed', ?, ?, 'schedule boom', ?)
+		VALUES ('sched-run-1', 'job-1', 'failed', $1, $2, 'schedule boom', $3)
 	`, inboxTS(-3*time.Hour), inboxTS(-2*time.Hour), userID)
 	if err != nil {
 		t.Fatalf("seed sched run: %v", err)
@@ -245,7 +245,7 @@ func (s *goalSeeder) insert(id, lifecycle, blockReason, acceptanceState string, 
 	sessionID := "goal-session:" + id
 	_, err := s.env.db.ExecContext(ctx, `
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-		VALUES (?, ?, ?, 'task', 'task', ?, ?, ?)
+		VALUES ($1, $2, $3, 'task', 'task', $4, $5, $6)
 	`, uuid.NewString(), sessionID, id, s.agentID, userID, updatedAt)
 	if err != nil {
 		s.t.Fatalf("seed conversation %s: %v", sessionID, err)
@@ -256,7 +256,7 @@ func (s *goalSeeder) insert(id, lifecycle, blockReason, acceptanceState string, 
 			lifecycle, block_reason, acceptance_state, accepted_output,
 			created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`, id, userID, s.agentID, id, sessionID, id,
 		lifecycle, blockReason, acceptanceState, acceptedOutput,
 		updatedAt, updatedAt)

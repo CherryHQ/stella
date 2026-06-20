@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"log/slog"
 	"maps"
@@ -59,7 +58,7 @@ func (h *recallyHandlers) requireUser(w http.ResponseWriter, r *http.Request) (s
 func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Context, articleID string, userID string) (*recally.Article, bool) {
 	article, err := h.store.GetArticle(ctx, userID, articleID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "not found")
 		} else {
 			h.writeInternalError(w, err)
@@ -76,7 +75,7 @@ func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Contex
 func (h *recallyHandlers) feedOwned(w http.ResponseWriter, ctx context.Context, feedID string, userID string) (*recally.Feed, bool) {
 	feed, err := h.store.GetFeed(ctx, userID, feedID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "not found")
 		} else {
 			h.writeInternalError(w, err)
@@ -760,7 +759,7 @@ func (h *recallyHandlers) GetStoredDigest(w http.ResponseWriter, r *http.Request
 	}
 	stored, err := h.store.GetStoredDigestByDate(r.Context(), userID, date)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "digest not found")
 		} else {
 			h.writeInternalError(w, err)

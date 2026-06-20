@@ -2,22 +2,19 @@ package reflect
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
+func TestMain(m *testing.M) { dbtest.Main(m) }
+
 func newTestWatermarkStore(t *testing.T) (*watermarkStore, context.Context) {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	return newWatermarkStore(testStateStore{store: pluginstate.New(db)}), context.Background()
 }

@@ -7,10 +7,11 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const deleteUserAgentMemory = `-- name: DeleteUserAgentMemory :exec
-DELETE FROM ctx_agent_memory WHERE user_id = ? AND agent_id = ?
+DELETE FROM ctx_agent_memory WHERE user_id = $1 AND agent_id = $2
 `
 
 type DeleteUserAgentMemoryParams struct {
@@ -24,7 +25,7 @@ func (q *Queries) DeleteUserAgentMemory(ctx context.Context, arg DeleteUserAgent
 }
 
 const getUserAgentMemory = `-- name: GetUserAgentMemory :one
-SELECT user_id, agent_id, content, soul, version, constraints, profile_entries, created_at, updated_at FROM ctx_agent_memory WHERE user_id = ? AND agent_id = ?
+SELECT user_id, agent_id, content, soul, version, constraints, profile_entries, created_at, updated_at FROM ctx_agent_memory WHERE user_id = $1 AND agent_id = $2
 `
 
 type GetUserAgentMemoryParams struct {
@@ -50,7 +51,7 @@ func (q *Queries) GetUserAgentMemory(ctx context.Context, arg GetUserAgentMemory
 }
 
 const listUserAgentMemoriesByUser = `-- name: ListUserAgentMemoriesByUser :many
-SELECT user_id, agent_id, content, soul, version, constraints, profile_entries, created_at, updated_at FROM ctx_agent_memory WHERE user_id = ? ORDER BY agent_id
+SELECT user_id, agent_id, content, soul, version, constraints, profile_entries, created_at, updated_at FROM ctx_agent_memory WHERE user_id = $1 ORDER BY agent_id
 `
 
 func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID string) ([]CtxAgentMemory, error) {
@@ -88,18 +89,18 @@ func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID string
 
 const upsertAgentConstraints = `-- name: UpsertAgentConstraints :one
 INSERT INTO ctx_agent_memory (user_id, agent_id, constraints, version, updated_at)
-VALUES (?, ?, ?, 1, datetime('now'))
+VALUES ($1, $2, $3, 1, now())
 ON CONFLICT(user_id, agent_id) DO UPDATE SET
     constraints = excluded.constraints,
     version = ctx_agent_memory.version + 1,
-    updated_at = datetime('now')
+    updated_at = now()
 RETURNING user_id, agent_id, content, soul, version, constraints, profile_entries, created_at, updated_at
 `
 
 type UpsertAgentConstraintsParams struct {
-	UserID      string `json:"user_id"`
-	AgentID     string `json:"agent_id"`
-	Constraints string `json:"constraints"`
+	UserID      string          `json:"user_id"`
+	AgentID     string          `json:"agent_id"`
+	Constraints json.RawMessage `json:"constraints"`
 }
 
 func (q *Queries) UpsertAgentConstraints(ctx context.Context, arg UpsertAgentConstraintsParams) (CtxAgentMemory, error) {
@@ -121,10 +122,10 @@ func (q *Queries) UpsertAgentConstraints(ctx context.Context, arg UpsertAgentCon
 
 const upsertAgentSoul = `-- name: UpsertAgentSoul :exec
 INSERT INTO ctx_agent_memory (user_id, agent_id, soul, updated_at)
-VALUES (?, ?, ?, datetime('now'))
+VALUES ($1, $2, $3, now())
 ON CONFLICT(user_id, agent_id) DO UPDATE SET
     soul = excluded.soul,
-    updated_at = datetime('now')
+    updated_at = now()
 `
 
 type UpsertAgentSoulParams struct {
@@ -140,11 +141,11 @@ func (q *Queries) UpsertAgentSoul(ctx context.Context, arg UpsertAgentSoulParams
 
 const upsertAgentSoulVersioned = `-- name: UpsertAgentSoulVersioned :one
 INSERT INTO ctx_agent_memory (user_id, agent_id, soul, version, updated_at)
-VALUES (?, ?, ?, 1, datetime('now'))
+VALUES ($1, $2, $3, 1, now())
 ON CONFLICT(user_id, agent_id) DO UPDATE SET
     soul = excluded.soul,
     version = ctx_agent_memory.version + 1,
-    updated_at = datetime('now')
+    updated_at = now()
 RETURNING user_id, agent_id, content, soul, version, constraints, profile_entries, created_at, updated_at
 `
 
@@ -173,18 +174,18 @@ func (q *Queries) UpsertAgentSoulVersioned(ctx context.Context, arg UpsertAgentS
 
 const upsertProfileEntries = `-- name: UpsertProfileEntries :one
 INSERT INTO ctx_agent_memory (user_id, agent_id, profile_entries, version, updated_at)
-VALUES (?, ?, ?, 1, datetime('now'))
+VALUES ($1, $2, $3, 1, now())
 ON CONFLICT(user_id, agent_id) DO UPDATE SET
     profile_entries = excluded.profile_entries,
     version = ctx_agent_memory.version + 1,
-    updated_at = datetime('now')
+    updated_at = now()
 RETURNING user_id, agent_id, content, soul, version, constraints, profile_entries, created_at, updated_at
 `
 
 type UpsertProfileEntriesParams struct {
-	UserID         string `json:"user_id"`
-	AgentID        string `json:"agent_id"`
-	ProfileEntries string `json:"profile_entries"`
+	UserID         string          `json:"user_id"`
+	AgentID        string          `json:"agent_id"`
+	ProfileEntries json.RawMessage `json:"profile_entries"`
 }
 
 func (q *Queries) UpsertProfileEntries(ctx context.Context, arg UpsertProfileEntriesParams) (CtxAgentMemory, error) {
@@ -206,10 +207,10 @@ func (q *Queries) UpsertProfileEntries(ctx context.Context, arg UpsertProfileEnt
 
 const upsertUserAgentMemory = `-- name: UpsertUserAgentMemory :exec
 INSERT INTO ctx_agent_memory (user_id, agent_id, content, updated_at)
-VALUES (?, ?, ?, datetime('now'))
+VALUES ($1, $2, $3, now())
 ON CONFLICT(user_id, agent_id) DO UPDATE SET
     content = excluded.content,
-    updated_at = datetime('now')
+    updated_at = now()
 `
 
 type UpsertUserAgentMemoryParams struct {
@@ -225,11 +226,11 @@ func (q *Queries) UpsertUserAgentMemory(ctx context.Context, arg UpsertUserAgent
 
 const upsertUserAgentMemoryVersioned = `-- name: UpsertUserAgentMemoryVersioned :one
 INSERT INTO ctx_agent_memory (user_id, agent_id, content, version, updated_at)
-VALUES (?, ?, ?, 1, datetime('now'))
+VALUES ($1, $2, $3, 1, now())
 ON CONFLICT(user_id, agent_id) DO UPDATE SET
     content = excluded.content,
     version = ctx_agent_memory.version + 1,
-    updated_at = datetime('now')
+    updated_at = now()
 RETURNING user_id, agent_id, content, soul, version, constraints, profile_entries, created_at, updated_at
 `
 

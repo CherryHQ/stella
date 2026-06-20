@@ -26,7 +26,7 @@ func streamEmptyGroupReply(w http.ResponseWriter, flusher http.Flusher) {
 	w.Header().Set("X-Vercel-AI-UI-Message-Stream", "v1")
 	w.WriteHeader(http.StatusOK)
 	p := &webGroupPublisher{w: w, flusher: flusher}
-	p.writeSSE(map[string]string{"type": "start", "messageId": uuid.NewString()})
+	p.writeSSE(map[string]string{"type": "start", "messageId": uuid.Must(uuid.NewV7()).String()})
 	p.writeSSE(map[string]string{"type": "finish"})
 	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
@@ -53,7 +53,7 @@ func (p *webGroupPublisher) Publish(ctx context.Context, req channel.GroupPublis
 
 	p.writeSSE(map[string]any{
 		"type": "data-agent-info",
-		"id":   uuid.NewString(),
+		"id":   uuid.Must(uuid.NewV7()).String(),
 		"data": map[string]any{"agentId": req.AgentID, "agentName": req.AgentName},
 	})
 
@@ -99,7 +99,7 @@ func (p *webGroupPublisher) Publish(ctx context.Context, req channel.GroupPublis
 			if evt.Reasoning != "" {
 				closeText()
 				if !inReasoning {
-					reasoningID = uuid.NewString()
+					reasoningID = uuid.Must(uuid.NewV7()).String()
 					p.writeSSE(map[string]string{"type": "reasoning-start", "id": reasoningID})
 					inReasoning = true
 				}
@@ -109,7 +109,7 @@ func (p *webGroupPublisher) Publish(ctx context.Context, req channel.GroupPublis
 			if evt.Text != "" {
 				closeReasoning()
 				if !inText {
-					textID = uuid.NewString()
+					textID = uuid.Must(uuid.NewV7()).String()
 					p.writeSSE(map[string]string{"type": "text-start", "id": textID})
 					inText = true
 				}
@@ -144,7 +144,7 @@ func (p *webGroupPublisher) Publish(ctx context.Context, req channel.GroupPublis
 func (p *webGroupPublisher) writeToolUse(tu *pkgchannel.ToolUseEvent) {
 	toolCallID := tu.ID
 	if toolCallID == "" {
-		toolCallID = uuid.NewString()
+		toolCallID = uuid.Must(uuid.NewV7()).String()
 	}
 	switch tu.Status {
 	case "running":

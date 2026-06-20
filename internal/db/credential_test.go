@@ -1,29 +1,22 @@
-package db_test
+package db
 
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
-func setupOIDCStore(t *testing.T) (*appdb.OIDCStore, context.Context) {
+func setupOIDCStore(t *testing.T) (*OIDCStore, context.Context) {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "cred_test.db")
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return appdb.NewOIDCStore(db), context.Background()
+	db := newTestDB(t)
+	return NewOIDCStore(db), context.Background()
 }
 
-func createTestUser(t *testing.T, store *appdb.OIDCStore, ctx context.Context) auth.User {
+func createTestUser(t *testing.T, store *OIDCStore, ctx context.Context) auth.User {
 	t.Helper()
 	u, err := store.CreateUser(ctx, auth.User{
 		ID:    uuid.NewString(),
@@ -64,7 +57,7 @@ func TestCredentialCreateAndGet(t *testing.T) {
 func TestCredentialGetNotFound(t *testing.T) {
 	store, ctx := setupOIDCStore(t)
 
-	_, err := store.GetCredentialByUserID(ctx, "nonexistent-user")
+	_, err := store.GetCredentialByUserID(ctx, uuid.NewString())
 	if !errors.Is(err, auth.ErrNotFound) {
 		t.Errorf("got error %v, want auth.ErrNotFound", err)
 	}

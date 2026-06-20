@@ -3,6 +3,7 @@ package goal
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -149,13 +150,23 @@ func WithConfig(c Config) Option {
 // SetClock overrides the clock for tests.
 func (s *GoalService) SetClock(c func() time.Time) { s.clock = c }
 
-// now returns the current UTC time in the naive-UTC TEXT format the columns use.
+// now returns the current UTC time in the RFC3339 text format the JSON
+// payload columns (e.g. accepted_output) carry.
 func (s *GoalService) now() string {
 	return s.clock().UTC().Format(time.RFC3339Nano)
 }
 
+// nowTime returns the current UTC instant for TIMESTAMPTZ params, anchored to
+// the service clock so tests can drive it.
+func (s *GoalService) nowTime() time.Time { return s.clock().UTC() }
+
+// nullTime wraps a time as a non-NULL sql.NullTime for nullable TIMESTAMPTZ params.
+func nullTime(t time.Time) sql.NullTime {
+	return sql.NullTime{Time: t, Valid: true}
+}
+
 // newID mints a new row id (uuid string, matching the old package).
-func newID() string { return uuid.NewString() }
+func newID() string { return uuid.Must(uuid.NewV7()).String() }
 
 // nullStr wraps a possibly-empty string as sql.NullString ("" ⇒ NULL).
 func nullStr(v string) sql.NullString {
@@ -208,7 +219,7 @@ func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries
 	if e.ID == "" {
 		e.ID = newID()
 	}
-	if e.Detail == "" {
+	if len(e.Detail) == 0 {
 		e.Detail = emptyJSON
 	}
 	if e.Authority == "" {
@@ -268,8 +279,8 @@ type CreateInput struct {
 	Convergence  ConvergencePolicy
 	ReviewPolicy string // "" ⇒ none
 
-	Context      string // "" ⇒ "{}"
-	DispatchHint string // "" ⇒ "{}"
+	Context      json.RawMessage // empty ⇒ "{}"
+	DispatchHint json.RawMessage // empty ⇒ "{}"
 }
 
 // CreateGoal inserts a goal in 'draft' (contract §2.1, (none)→draft).
@@ -292,18 +303,13 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 		reviewPolicy = ReviewNone
 	}
 	contextJSON := in.Context
-	if contextJSON == "" {
+	if len(contextJSON) == 0 {
 		contextJSON = emptyJSON
 	}
 	dispatchHint := in.DispatchHint
-	if dispatchHint == "" {
+	if len(dispatchHint) == 0 {
 		dispatchHint = emptyJSON
 	}
-	var required int64
-	if in.Required {
-		required = 1
-	}
-
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := q.CreateGoal(ctx, sqlc.CreateGoalParams{
@@ -320,7 +326,7 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 			Intent:             in.Intent,
 			Kind:               kind,
 			Priority:           priority,
-			Required:           required,
+			Required:           in.Required,
 			AcceptanceContract: marshalJSON(in.Contract),
 			ConvergencePolicy:  marshalJSON(in.Convergence),
 			ReviewPolicy:       reviewPolicy,
@@ -894,7 +900,7 @@ func (s *GoalService) SubmitVerdict(ctx context.Context, in VerdictInput) error 
 func (s *GoalService) bumpParentCounter(ctx context.Context, q *sqlc.Queries, child sqlc.AgentGoal, kind counterKind) error {
 	// Only a required child contributes to a parent's rollup counters; a root (no
 	// parent) and an advisory (non-required) child are no-ops.
-	if !child.ParentID.Valid || child.ParentID.String == "" || child.Required != 1 {
+	if !child.ParentID.Valid || child.ParentID.String == "" || !child.Required {
 		return nil
 	}
 	parentID := child.ParentID.String

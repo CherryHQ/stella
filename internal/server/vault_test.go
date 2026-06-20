@@ -230,12 +230,12 @@ func TestScopedVaultPermissionsAndRuntimeResolution(t *testing.T) {
 	ctx := context.Background()
 	q := sqlc.New(env.db)
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID: "restricted-a", Name: "Restricted A", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "restricted", Enabled: 1,
+		ID: "restricted-a", Name: "Restricted A", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "restricted", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent restricted: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestScopedTokenVaultAgentBinding(t *testing.T) {
 
 	for _, id := range []string{"sa-agent-a", "sa-agent-b"} {
 		if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-			ID: id, Name: id, Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+			ID: id, Name: id, Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
 		}); err != nil {
 			t.Fatalf("CreateAgent %s: %v", id, err)
 		}
@@ -457,7 +457,7 @@ func TestVaultMutationsInvalidateUserRunners(t *testing.T) {
 func TestSystemVaultMutationsInvalidateRunners(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 	if _, err := sqlc.New(env.db).CreateAgent(context.Background(), sqlc.CreateAgentParams{
-		ID: "sys-agent", Name: "Sys", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+		ID: "sys-agent", Name: "Sys", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}

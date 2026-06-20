@@ -1,8 +1,6 @@
 package server
 
 import (
-	"database/sql"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -133,7 +131,7 @@ func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id stri
 	}
 	sk, err := s.findSkillByID(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "skill not found")
 		} else {
 			s.writeInternalError(w, err)

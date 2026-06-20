@@ -1,6 +1,6 @@
 -- name: CreateEdge :one
 INSERT INTO agent_goal_edge (goal_id, upstream_id, edge_kind, on_failure)
-VALUES (?, ?, ?, ?)
+VALUES ($1, $2, $3, $4)
 RETURNING *;
 
 -- name: GetEdge :one
@@ -30,7 +30,7 @@ ORDER BY e.created_at;
 
 -- name: WaiveEdge :exec
 UPDATE agent_goal_edge
-SET waived_at = datetime('now'),
+SET waived_at = now(),
     waived_by_user = sqlc.arg(waived_by_user),
     waiver_reason = sqlc.arg(waiver_reason)
 WHERE goal_id = sqlc.arg(goal_id)

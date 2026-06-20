@@ -6,11 +6,11 @@ import (
 	"time"
 )
 
-// parseTime parses a database timestamp string into a UTC time.Time. SQLite
-// columns default to the naive "2006-01-02 15:04:05" form (UTC, no zone
-// marker); callers hand the result to encoding/json, which serializes it as
-// RFC3339 with a zone so clients don't misread it as local time. Empty or
-// unparseable input yields the zero time.
+// parseTime parses a domain-layer timestamp string (string-typed fields on
+// non-sqlc types such as memory.ConstraintEntry and vault.EntryMeta, plus the
+// interface{} aggregate handled by parseSQLValueTime) into a UTC time.Time.
+// Accepts RFC3339(Nano) or the legacy naive "2006-01-02 15:04:05" form. Empty
+// or unparseable input yields the zero time.
 func parseTime(value string) time.Time {
 	if value == "" {
 		return time.Time{}
@@ -23,13 +23,13 @@ func parseTime(value string) time.Time {
 	return time.Time{}
 }
 
-// parseTimePtr is the nullable variant of parseTime: an invalid NullString or
-// unparseable value yields nil rather than the zero time.
-func parseTimePtr(ns sql.NullString) *time.Time {
-	if !ns.Valid {
+// parseTimePtr is the nullable variant: an invalid NullTime or zero value
+// yields nil rather than the zero time.
+func parseTimePtr(nt sql.NullTime) *time.Time {
+	if !nt.Valid {
 		return nil
 	}
-	t := parseTime(ns.String)
+	t := nt.Time.UTC()
 	if t.IsZero() {
 		return nil
 	}

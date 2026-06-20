@@ -39,9 +39,9 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 
-	limit := int64(offset + pageSize + 1)
+	limit := int32(offset + pageSize + 1)
 	agentID := nullableStringParam(params.AgentId)
-	since := time.Now().UTC().Add(-inboxRecentFailureWindow).Format("2006-01-02 15:04:05")
+	since := time.Now().UTC().Add(-inboxRecentFailureWindow)
 	ctx := r.Context()
 
 	goals, err := s.q.ListInboxGoals(ctx, sqlc.ListInboxGoalsParams{
@@ -56,7 +56,7 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 	}
 	schedulerRuns, err := s.q.ListFailedInboxSchedulerRuns(ctx, sqlc.ListFailedInboxSchedulerRunsParams{
 		UserID:     sql.NullString{String: info.UserID, Valid: true},
-		Since:      sql.NullString{String: since, Valid: true},
+		Since:      sql.NullTime{Time: since, Valid: true},
 		AgentID:    agentID,
 		LimitCount: limit,
 	})
@@ -99,11 +99,11 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 	})
 }
 
-func nullableStringParam(value *string) any {
+func nullableStringParam(value *string) sql.NullString {
 	if value == nil || *value == "" {
-		return nil
+		return sql.NullString{}
 	}
-	return *value
+	return sql.NullString{String: *value, Valid: true}
 }
 
 // goalInboxItem renders a blocked or terminally-failed goal as an
@@ -121,7 +121,7 @@ func goalInboxItem(row sqlc.ListInboxGoalsRow) apitypes.InboxItem {
 		SourceType: apitypes.InboxItemSourceTypeGoal,
 		SourceId:   row.ID,
 		TargetPath: goalTargetPath(row.AgentID, row.ID),
-		CreatedAt:  parseTime(row.UpdatedAt),
+		CreatedAt:  row.UpdatedAt.UTC(),
 	}
 }
 
@@ -145,7 +145,7 @@ func inboxFacetForGoal(lifecycle, blockReason string) (apitypes.InboxItemKind, s
 func failedSchedulerRunInboxItem(row sqlc.ListFailedInboxSchedulerRunsRow) apitypes.InboxItem {
 	createdAt := parseTimePtr(row.FinishedAt)
 	if createdAt == nil {
-		t := parseTime(row.StartedAt)
+		t := row.StartedAt.UTC()
 		createdAt = &t
 	}
 	return apitypes.InboxItem{

@@ -2,20 +2,17 @@ package pluginstate
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
+func TestMain(m *testing.M) { dbtest.Main(m) }
+
 func newTestStore(t *testing.T) (*Store, context.Context) {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 	return New(db), context.Background()
 }
 

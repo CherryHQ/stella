@@ -8,12 +8,13 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 const acceptRevision = `-- name: AcceptRevision :execrows
 UPDATE agent_goal_revision
-SET status = 'accepted', accepted_at = datetime('now'), updated_at = datetime('now')
-WHERE id = ? AND status IN ('draft', 'in_review')
+SET status = 'accepted', accepted_at = now(), updated_at = now()
+WHERE id = $1 AND status IN ('draft', 'in_review')
 `
 
 func (q *Queries) AcceptRevision(ctx context.Context, id string) (int64, error) {
@@ -28,19 +29,19 @@ const createRevision = `-- name: CreateRevision :one
 INSERT INTO agent_goal_revision (
     id, goal_id, revision_no, status, review_policy, content, source_attempt_id, planning_session_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, goal_id, revision_no, status, review_policy, content, source_attempt_id, planning_session_id, accepted_at, materialized_at, created_at, updated_at
 `
 
 type CreateRevisionParams struct {
-	ID                string         `json:"id"`
-	GoalID            string         `json:"goal_id"`
-	RevisionNo        int64          `json:"revision_no"`
-	Status            string         `json:"status"`
-	ReviewPolicy      string         `json:"review_policy"`
-	Content           string         `json:"content"`
-	SourceAttemptID   sql.NullString `json:"source_attempt_id"`
-	PlanningSessionID sql.NullString `json:"planning_session_id"`
+	ID                string          `json:"id"`
+	GoalID            string          `json:"goal_id"`
+	RevisionNo        int64           `json:"revision_no"`
+	Status            string          `json:"status"`
+	ReviewPolicy      string          `json:"review_policy"`
+	Content           json.RawMessage `json:"content"`
+	SourceAttemptID   sql.NullString  `json:"source_attempt_id"`
+	PlanningSessionID sql.NullString  `json:"planning_session_id"`
 }
 
 func (q *Queries) CreateRevision(ctx context.Context, arg CreateRevisionParams) (AgentGoalRevision, error) {
@@ -74,7 +75,7 @@ func (q *Queries) CreateRevision(ctx context.Context, arg CreateRevisionParams) 
 
 const getMaterializedRevision = `-- name: GetMaterializedRevision :one
 SELECT id, goal_id, revision_no, status, review_policy, content, source_attempt_id, planning_session_id, accepted_at, materialized_at, created_at, updated_at FROM agent_goal_revision
-WHERE goal_id = ? AND materialized_at IS NOT NULL
+WHERE goal_id = $1 AND materialized_at IS NOT NULL
 `
 
 func (q *Queries) GetMaterializedRevision(ctx context.Context, goalID string) (AgentGoalRevision, error) {
@@ -98,9 +99,9 @@ func (q *Queries) GetMaterializedRevision(ctx context.Context, goalID string) (A
 }
 
 const getMaxRevisionNo = `-- name: GetMaxRevisionNo :one
-SELECT CAST(COALESCE(MAX(revision_no), 0) AS INTEGER)
+SELECT CAST(COALESCE(MAX(revision_no), 0) AS BIGINT)
 FROM agent_goal_revision
-WHERE goal_id = ?
+WHERE goal_id = $1
 `
 
 func (q *Queries) GetMaxRevisionNo(ctx context.Context, goalID string) (int64, error) {
@@ -112,7 +113,7 @@ func (q *Queries) GetMaxRevisionNo(ctx context.Context, goalID string) (int64, e
 
 const getOpenRevision = `-- name: GetOpenRevision :one
 SELECT id, goal_id, revision_no, status, review_policy, content, source_attempt_id, planning_session_id, accepted_at, materialized_at, created_at, updated_at FROM agent_goal_revision
-WHERE goal_id = ? AND status IN ('draft', 'in_review')
+WHERE goal_id = $1 AND status IN ('draft', 'in_review')
 `
 
 func (q *Queries) GetOpenRevision(ctx context.Context, goalID string) (AgentGoalRevision, error) {
@@ -136,7 +137,7 @@ func (q *Queries) GetOpenRevision(ctx context.Context, goalID string) (AgentGoal
 }
 
 const getRevision = `-- name: GetRevision :one
-SELECT id, goal_id, revision_no, status, review_policy, content, source_attempt_id, planning_session_id, accepted_at, materialized_at, created_at, updated_at FROM agent_goal_revision WHERE id = ?
+SELECT id, goal_id, revision_no, status, review_policy, content, source_attempt_id, planning_session_id, accepted_at, materialized_at, created_at, updated_at FROM agent_goal_revision WHERE id = $1
 `
 
 func (q *Queries) GetRevision(ctx context.Context, id string) (AgentGoalRevision, error) {
@@ -161,7 +162,7 @@ func (q *Queries) GetRevision(ctx context.Context, id string) (AgentGoalRevision
 
 const listRevisionByGoal = `-- name: ListRevisionByGoal :many
 SELECT id, goal_id, revision_no, status, review_policy, content, source_attempt_id, planning_session_id, accepted_at, materialized_at, created_at, updated_at FROM agent_goal_revision
-WHERE goal_id = ?
+WHERE goal_id = $1
 ORDER BY revision_no DESC
 `
 
@@ -203,8 +204,8 @@ func (q *Queries) ListRevisionByGoal(ctx context.Context, goalID string) ([]Agen
 
 const materializeRevision = `-- name: MaterializeRevision :execrows
 UPDATE agent_goal_revision
-SET materialized_at = datetime('now'), updated_at = datetime('now')
-WHERE id = ? AND accepted_at IS NOT NULL AND materialized_at IS NULL
+SET materialized_at = now(), updated_at = now()
+WHERE id = $1 AND accepted_at IS NOT NULL AND materialized_at IS NULL
 `
 
 func (q *Queries) MaterializeRevision(ctx context.Context, id string) (int64, error) {
@@ -217,9 +218,9 @@ func (q *Queries) MaterializeRevision(ctx context.Context, id string) (int64, er
 
 const setRevisionPlanningSession = `-- name: SetRevisionPlanningSession :execrows
 UPDATE agent_goal_revision
-SET planning_session_id = COALESCE(planning_session_id, ?1),
-    updated_at = datetime('now')
-WHERE id = ?2
+SET planning_session_id = COALESCE(planning_session_id, $1),
+    updated_at = now()
+WHERE id = $2
 `
 
 type SetRevisionPlanningSessionParams struct {
@@ -237,8 +238,8 @@ func (q *Queries) SetRevisionPlanningSession(ctx context.Context, arg SetRevisio
 
 const supersedeOpenRevisions = `-- name: SupersedeOpenRevisions :exec
 UPDATE agent_goal_revision
-SET status = 'superseded', updated_at = datetime('now')
-WHERE goal_id = ? AND status IN ('draft', 'in_review')
+SET status = 'superseded', updated_at = now()
+WHERE goal_id = $1 AND status IN ('draft', 'in_review')
 `
 
 func (q *Queries) SupersedeOpenRevisions(ctx context.Context, goalID string) error {
@@ -248,13 +249,13 @@ func (q *Queries) SupersedeOpenRevisions(ctx context.Context, goalID string) err
 
 const updateRevisionContent = `-- name: UpdateRevisionContent :exec
 UPDATE agent_goal_revision
-SET content = ?, updated_at = datetime('now')
-WHERE id = ?
+SET content = $1, updated_at = now()
+WHERE id = $2
 `
 
 type UpdateRevisionContentParams struct {
-	Content string `json:"content"`
-	ID      string `json:"id"`
+	Content json.RawMessage `json:"content"`
+	ID      string          `json:"id"`
 }
 
 func (q *Queries) UpdateRevisionContent(ctx context.Context, arg UpdateRevisionContentParams) error {
@@ -264,8 +265,8 @@ func (q *Queries) UpdateRevisionContent(ctx context.Context, arg UpdateRevisionC
 
 const updateRevisionStatus = `-- name: UpdateRevisionStatus :execrows
 UPDATE agent_goal_revision
-SET status = ?1, updated_at = datetime('now')
-WHERE id = ?2 AND status = ?3
+SET status = $1, updated_at = now()
+WHERE id = $2 AND status = $3
 `
 
 type UpdateRevisionStatusParams struct {

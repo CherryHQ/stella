@@ -12,9 +12,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// dbTimeLayout is the SQLite datetime format used for all time columns.
-const dbTimeLayout = "2006-01-02 15:04:05"
-
 // loadJobs reads all persisted jobs from the database.
 func (s *Service) loadJobs(ctx context.Context) ([]Job, error) {
 	rows, err := s.q.ListAllSchedulerJobs(ctx)
@@ -46,9 +43,9 @@ func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, 
 		lastError = runErr.Error()
 	}
 	return s.q.RecordSchedulerJobRun(ctx, sqlc.RecordSchedulerJobRunParams{
-		LastRunAt: sql.NullString{String: ranAt.UTC().Format(dbTimeLayout), Valid: true},
+		LastRunAt: sql.NullTime{Time: ranAt.UTC(), Valid: true},
 		LastError: lastError,
-		UpdatedAt: ranAt.UTC().Format(dbTimeLayout),
+		UpdatedAt: ranAt.UTC(),
 		ID:        id,
 	})
 }
@@ -59,10 +56,6 @@ func (s *Service) deleteJob(ctx context.Context, id string) error {
 }
 
 func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
-	enabled := int64(0)
-	if job.Enabled {
-		enabled = 1
-	}
 	createdAt := job.CreatedAt
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
@@ -86,21 +79,17 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		Message:       job.Message,
 		Payload:       encodePayload(job.Payload),
 		SessionMode:   job.SessionMode,
-		Enabled:       enabled,
+		Enabled:       job.Enabled,
 		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
 		UserID:        sql.NullString{String: job.UserID, Valid: job.UserID != ""},
-		CreatedAt:     createdAt.UTC().Format(dbTimeLayout),
-		UpdatedAt:     updatedAt.UTC().Format(dbTimeLayout),
+		CreatedAt:     createdAt.UTC(),
+		UpdatedAt:     updatedAt.UTC(),
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
 	}
 }
 
 func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
-	enabled := int64(0)
-	if job.Enabled {
-		enabled = 1
-	}
 	updatedAt := job.UpdatedAt
 	if updatedAt.IsZero() {
 		updatedAt = time.Now().UTC()
@@ -119,10 +108,10 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 		Message:       job.Message,
 		Payload:       encodePayload(job.Payload),
 		SessionMode:   job.SessionMode,
-		Enabled:       enabled,
+		Enabled:       job.Enabled,
 		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
 		UserID:        sql.NullString{String: job.UserID, Valid: job.UserID != ""},
-		UpdatedAt:     updatedAt.UTC().Format(dbTimeLayout),
+		UpdatedAt:     updatedAt.UTC(),
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
 		ID:            job.ID,
@@ -130,8 +119,8 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 }
 
 func dbRowToJob(r sqlc.SchedJob) Job {
-	createdAt, _ := time.Parse(dbTimeLayout, r.CreatedAt)
-	updatedAt, _ := time.Parse(dbTimeLayout, r.UpdatedAt)
+	createdAt := r.CreatedAt.UTC()
+	updatedAt := r.UpdatedAt.UTC()
 	j := Job{
 		ID:          r.ID,
 		OwnerKind:   normalizeOwnerKind(r.OwnerKind),
@@ -149,7 +138,7 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 		Message:     r.Message,
 		Payload:     decodePayload(r.Payload),
 		SessionMode: r.SessionMode,
-		Enabled:     r.Enabled != 0,
+		Enabled:     r.Enabled,
 		CreatedAt:   createdAt,
 		UpdatedAt:   updatedAt,
 		LastError:   r.LastError,
@@ -161,9 +150,8 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 		j.UserID = r.UserID.String
 	}
 	if r.LastRunAt.Valid {
-		if parsed, err := time.Parse(dbTimeLayout, r.LastRunAt.String); err == nil {
-			j.LastRunAt = &parsed
-		}
+		t := r.LastRunAt.Time.UTC()
+		j.LastRunAt = &t
 	}
 	return j
 }
@@ -191,23 +179,23 @@ func normalizeExecScope(scope string) string {
 	}
 }
 
-func encodePayload(payload map[string]any) string {
+func encodePayload(payload map[string]any) json.RawMessage {
 	if len(payload) == 0 {
-		return "{}"
+		return json.RawMessage("{}")
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return "{}"
+		return json.RawMessage("{}")
 	}
-	return string(data)
+	return data
 }
 
-func decodePayload(raw string) map[string]any {
-	if raw == "" {
+func decodePayload(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
 		return map[string]any{}
 	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		return map[string]any{}
 	}
 	if payload == nil {
@@ -225,11 +213,11 @@ func clonePayload(src map[string]any) map[string]any {
 	return out
 }
 
-func nullableTime(t *time.Time) sql.NullString {
+func nullableTime(t *time.Time) sql.NullTime {
 	if t == nil || t.IsZero() {
-		return sql.NullString{}
+		return sql.NullTime{}
 	}
-	return sql.NullString{String: t.UTC().Format(dbTimeLayout), Valid: true}
+	return sql.NullTime{Time: t.UTC(), Valid: true}
 }
 
 // tryStartJobRun atomically checks that no run is already in progress for the
@@ -256,7 +244,7 @@ func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID strin
 		JobID:     jobID,
 		SessionID: sessionID,
 		Status:    RunStatusRunning,
-		StartedAt: startedAt.UTC().Format(dbTimeLayout),
+		StartedAt: startedAt.UTC(),
 		UserID:    sql.NullString{String: userID, Valid: userID != ""},
 	}); err != nil {
 		return err
@@ -282,7 +270,7 @@ func truncateRunes(s string, max int) string {
 func (s *Service) finishJobRun(ctx context.Context, id, jobID, status string, finishedAt time.Time, errStr, output string) error {
 	return s.q.UpdateSchedJobRun(ctx, sqlc.UpdateSchedJobRunParams{
 		Status:     status,
-		FinishedAt: sql.NullString{String: finishedAt.UTC().Format(dbTimeLayout), Valid: true},
+		FinishedAt: sql.NullTime{Time: finishedAt.UTC(), Valid: true},
 		Error:      errStr,
 		Output:     truncateRunes(output, maxRunOutputLen),
 		ID:         id,
@@ -291,7 +279,7 @@ func (s *Service) finishJobRun(ctx context.Context, id, jobID, status string, fi
 }
 
 func dbRowToJobRun(r sqlc.SchedJobRun) JobRun {
-	startedAt, _ := time.Parse(dbTimeLayout, r.StartedAt)
+	startedAt := r.StartedAt.UTC()
 	run := JobRun{
 		ID:        r.ID,
 		JobID:     r.JobID,
@@ -305,9 +293,8 @@ func dbRowToJobRun(r sqlc.SchedJobRun) JobRun {
 		run.UserID = r.UserID.String
 	}
 	if r.FinishedAt.Valid {
-		if parsed, err := time.Parse(dbTimeLayout, r.FinishedAt.String); err == nil {
-			run.FinishedAt = &parsed
-		}
+		t := r.FinishedAt.Time.UTC()
+		run.FinishedAt = &t
 	}
 	return run
 }

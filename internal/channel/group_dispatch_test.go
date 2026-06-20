@@ -2,10 +2,9 @@ package channel
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -83,11 +82,7 @@ func TestFirstMentionedAgent(t *testing.T) {
 
 func openGroupTestDB(t *testing.T) *eventlog.Store {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 	return eventlog.NewStore(db)
 }
 
@@ -132,7 +127,7 @@ func TestResolveMentionAgents(t *testing.T) {
 	agentID := ts.stellaAgentID(t)
 
 	// Create a channel for the bot.
-	if _, err := ts.db.ExecContext(ctx, `INSERT INTO channel (id, name, type, agent_id, enabled) VALUES ('ch-bot1', 'Bot1', 'telegram', ?, 1)`, agentID); err != nil {
+	if _, err := ts.db.ExecContext(ctx, `INSERT INTO channel (id, name, type, agent_id, enabled) VALUES ('ch-bot1', 'Bot1', 'telegram', $1, true)`, agentID); err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
 
@@ -198,11 +193,11 @@ func TestResolveMentionAgents(t *testing.T) {
 
 	t.Run("known bot not in group not resolved", func(t *testing.T) {
 		// Register another bot that is NOT a group member.
-		if _, err := ts.db.ExecContext(ctx, `INSERT INTO channel (id, name, type, agent_id, enabled) VALUES ('ch-bot2', 'Bot2', 'telegram', ?, 1)`, agentID); err != nil {
+		if _, err := ts.db.ExecContext(ctx, `INSERT INTO channel (id, name, type, agent_id, enabled) VALUES ('ch-bot2', 'Bot2', 'telegram', $1, true)`, agentID); err != nil {
 			t.Fatalf("create channel: %v", err)
 		}
 		// Create a second agent for the non-member channel.
-		if _, err := ts.db.ExecContext(ctx, `INSERT INTO agent (id, name, model, enabled, workspace) VALUES ('agent-non-member', 'NonMember', 'test', 1, 'default')`); err != nil {
+		if _, err := ts.db.ExecContext(ctx, `INSERT INTO agent (id, name, model, enabled, workspace) VALUES ('agent-non-member', 'NonMember', 'test', true, 'default')`); err != nil {
 			t.Fatalf("create agent: %v", err)
 		}
 		if _, err := ts.db.ExecContext(ctx, `UPDATE channel SET agent_id = 'agent-non-member' WHERE id = 'ch-bot2'`); err != nil {

@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
@@ -20,13 +19,7 @@ type testEnv struct {
 func setupAdminStore(t *testing.T) testEnv {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
+	db := dbtest.New(t)
 	store := cfgstore.NewDBStore(db)
 	return testEnv{store: store}
 }

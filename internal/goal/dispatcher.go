@@ -156,8 +156,8 @@ func (d *Dispatcher) isStopped() bool {
 // within its convergence budget (contract §2.2).
 func (d *Dispatcher) reapStaleAttempts(ctx context.Context, now time.Time) {
 	stale, err := d.cfg.Queries.ListStaleAttempts(ctx, sqlc.ListStaleAttemptsParams{
-		Now:   sql.NullString{String: now.Format(time.RFC3339Nano), Valid: true},
-		Limit: int64(d.cfg.BatchLimit),
+		Now:   sql.NullTime{Time: now, Valid: true},
+		Limit: int32(d.cfg.BatchLimit),
 	})
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list stale attempts", "err", err)
@@ -182,7 +182,7 @@ func (d *Dispatcher) reapStaleAttempts(ctx context.Context, now time.Time) {
 // verdict from the pre-joined upstream state, so the dispatcher only applies the
 // service transition (contract §2.1 ready/active→blocked(dep)).
 func (d *Dispatcher) propagateDepFailures(ctx context.Context, now time.Time) {
-	candidates, err := d.cfg.Queries.ListDispatchableLeaves(ctx, int64(d.cfg.BatchLimit))
+	candidates, err := d.cfg.Queries.ListDispatchableLeaves(ctx, int32(d.cfg.BatchLimit))
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list candidates for dep propagation", "err", err)
 		return
@@ -214,7 +214,7 @@ func (d *Dispatcher) propagateDepFailures(ctx context.Context, now time.Time) {
 // required_accepted < required_total) triggers the reconcileCounters backstop
 // (contract §6).
 func (d *Dispatcher) rollupComposites(ctx context.Context, _ time.Time) {
-	ready, err := d.cfg.Queries.ListRollupCandidates(ctx, int64(d.cfg.BatchLimit))
+	ready, err := d.cfg.Queries.ListRollupCandidates(ctx, int32(d.cfg.BatchLimit))
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list rollup candidates", "err", err)
 	} else {
@@ -223,7 +223,7 @@ func (d *Dispatcher) rollupComposites(ctx context.Context, _ time.Time) {
 		}
 	}
 
-	stalled, err := d.cfg.Queries.ListStalledComposites(ctx, int64(d.cfg.BatchLimit))
+	stalled, err := d.cfg.Queries.ListStalledComposites(ctx, int32(d.cfg.BatchLimit))
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list stalled composites", "err", err)
 		return
@@ -266,7 +266,7 @@ func (d *Dispatcher) applyRollup(ctx context.Context, parent sqlc.AgentGoal, sta
 // per-user concurrency caps (§5/§10.8), resolves the executor, claims through
 // the service, and spawns a bounded worker per claim.
 func (d *Dispatcher) scanAndClaim(ctx context.Context, now time.Time) {
-	candidates, err := d.cfg.Queries.ListDispatchableLeaves(ctx, int64(d.cfg.BatchLimit))
+	candidates, err := d.cfg.Queries.ListDispatchableLeaves(ctx, int32(d.cfg.BatchLimit))
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list dispatchable leaves", "err", err)
 		return
@@ -551,7 +551,7 @@ func (s *GoalService) RollupAccept(ctx context.Context, id string) error {
 			AcceptedAt: s.now(),
 		}
 		rows, err := q.AcceptGoal(ctx, sqlc.AcceptGoalParams{
-			AcceptedOutput: nullStr(marshalJSON(accepted)),
+			AcceptedOutput: marshalNullJSON(accepted),
 			ID:             cur.ID,
 		})
 		if err != nil {

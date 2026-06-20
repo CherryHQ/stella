@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"filippo.io/age"
 
@@ -123,7 +124,7 @@ func (s *Service) set(ctx context.Context, scope string, userID string, agentID 
 	}
 
 	if err := s.db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
-		ID:         uuid.NewString(),
+		ID:         uuid.Must(uuid.NewV7()).String(),
 		Scope:      scope,
 		UserID:     nullString(userID),
 		AgentID:    nullString(agentID),
@@ -331,8 +332,8 @@ func metaFromEntry(e sqlc.VaultEntry) EntryMeta {
 		UserID:    stringFromNull(e.UserID),
 		AgentID:   stringFromNull(e.AgentID),
 		Name:      e.Name,
-		CreatedAt: e.CreatedAt,
-		UpdatedAt: e.UpdatedAt,
+		CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: e.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 

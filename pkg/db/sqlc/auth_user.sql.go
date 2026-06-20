@@ -7,25 +7,16 @@ package sqlc
 
 import (
 	"context"
-	"strings"
+
+	"github.com/lib/pq"
 )
 
 const listAuthUsersByIDs = `-- name: ListAuthUsersByIDs :many
-SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_user WHERE id IN (/*SLICE:ids*/?) ORDER BY id
+SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_user WHERE id = ANY($1::uuid[]) ORDER BY id
 `
 
 func (q *Queries) ListAuthUsersByIDs(ctx context.Context, ids []string) ([]AuthUser, error) {
-	query := listAuthUsersByIDs
-	var queryParams []interface{}
-	if len(ids) > 0 {
-		for _, v := range ids {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
-	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	rows, err := q.db.QueryContext(ctx, listAuthUsersByIDs, pq.Array(ids))
 	if err != nil {
 		return nil, err
 	}
@@ -61,11 +52,11 @@ func (q *Queries) ListAuthUsersByIDs(ctx context.Context, ids []string) ([]AuthU
 }
 
 const updateUserActive = `-- name: UpdateUserActive :exec
-UPDATE auth_user SET is_active = ?, updated_at = datetime('now') WHERE id = ?
+UPDATE auth_user SET is_active = $1, updated_at = now() WHERE id = $2
 `
 
 type UpdateUserActiveParams struct {
-	IsActive int64  `json:"is_active"`
+	IsActive bool   `json:"is_active"`
 	ID       string `json:"id"`
 }
 
@@ -75,7 +66,7 @@ func (q *Queries) UpdateUserActive(ctx context.Context, arg UpdateUserActivePara
 }
 
 const updateUserRole = `-- name: UpdateUserRole :exec
-UPDATE auth_user SET role = ?, updated_at = datetime('now') WHERE id = ?
+UPDATE auth_user SET role = $1, updated_at = now() WHERE id = $2
 `
 
 type UpdateUserRoleParams struct {

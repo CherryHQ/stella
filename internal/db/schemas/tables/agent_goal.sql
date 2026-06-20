@@ -6,15 +6,15 @@
 -- persistent agent session reused across attempts.
 CREATE TABLE agent_goal (
     id                   TEXT NOT NULL PRIMARY KEY,
-    user_id              TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    user_id              UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id             TEXT NOT NULL REFERENCES agent(id) ON DELETE RESTRICT,
-    project_id           TEXT REFERENCES project(id) ON DELETE SET NULL,
+    project_id           UUID REFERENCES project(id) ON DELETE SET NULL,
 
     -- Recursion shape.
     parent_id            TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,  -- NULL = root (goal)
     root_id              TEXT NOT NULL REFERENCES agent_goal(id) ON DELETE CASCADE, -- denormalized tree root; = id for roots
-    depth                INTEGER NOT NULL DEFAULT 0,                              -- 0 at root; materializer sets parent.depth+1
-    position             INTEGER NOT NULL DEFAULT 0,                              -- sibling order within a parent
+    depth                BIGINT NOT NULL DEFAULT 0,                              -- 0 at root; materializer sets parent.depth+1
+    position             BIGINT NOT NULL DEFAULT 0,                              -- sibling order within a parent
 
     -- Persistent session (carried from agent_task.session_id; reused across attempts).
     session_id           TEXT NOT NULL REFERENCES ctx_conversation(session_id) ON DELETE RESTRICT,
@@ -24,11 +24,11 @@ CREATE TABLE agent_goal (
     intent               TEXT NOT NULL DEFAULT '',                                -- the "what & why" prose handed to attempts
     kind                 TEXT NOT NULL DEFAULT 'leaf',                            -- 'leaf'|'composite' (Go-enforced)
     priority             TEXT NOT NULL DEFAULT 'routine',                         -- 'routine'|'urgent' (Go-enforced)
-    required             INTEGER NOT NULL DEFAULT 1,                              -- 0/1: does parent acceptance depend on this child?
+    required             BOOLEAN NOT NULL DEFAULT true,                          -- does parent acceptance depend on this child?
 
     -- Contract & policy (JSON; schemas enforced in Go).
-    acceptance_contract  TEXT NOT NULL DEFAULT '{}',                             -- composite policy tree of deterministic+judgment items
-    convergence_policy   TEXT NOT NULL DEFAULT '{}',                             -- {max_attempts, escalation, max_depth}
+    acceptance_contract  JSONB NOT NULL DEFAULT '{}',                            -- composite policy tree of deterministic+judgment items
+    convergence_policy   JSONB NOT NULL DEFAULT '{}',                            -- {max_attempts, escalation, max_depth}
     review_policy        TEXT NOT NULL DEFAULT 'none',                           -- decomposition gate: 'none' auto-accepts; 'human' awaits (Go-enforced)
 
     -- Lifecycle (single-writer owned; Go-enforced value set).
@@ -38,36 +38,35 @@ CREATE TABLE agent_goal (
     -- Derived acceptance projection (CACHE over acceptance_event; never freely mutated).
     acceptance_state     TEXT NOT NULL DEFAULT 'pending',                        -- pending|passed|failed (last evaluation result)
     accepted_output      TEXT,                                                   -- frozen accepted output snapshot; NULL until accepted
-    acceptance_seq       INTEGER NOT NULL DEFAULT 0,                             -- # of acceptance_events folded; fences stale projections
+    acceptance_seq       BIGINT NOT NULL DEFAULT 0,                             -- # of acceptance_events folded; fences stale projections
 
     -- Active attempt pointer + convergence counter.
-    active_attempt_id    TEXT REFERENCES agent_goal_attempt(id) ON DELETE SET NULL,
-    attempt_count        INTEGER NOT NULL DEFAULT 0,                             -- attempts minted so far; bounds convergence (replaces retry_count)
+    active_attempt_id    UUID,  -- FK added in agent_goal_attempt.sql (cycle: agent_goal <-> agent_goal_attempt)
+    attempt_count        BIGINT NOT NULL DEFAULT 0,                             -- attempts minted so far; bounds convergence (replaces retry_count)
 
     -- Incremental child rollup counters (composite only). Bumped in the SAME tx that
     -- transitions a child, so a parent never scans its subtree per event.
-    required_total       INTEGER NOT NULL DEFAULT 0,                             -- count of required children materialized
-    required_accepted    INTEGER NOT NULL DEFAULT 0,                             -- required children accepted
-    required_failed      INTEGER NOT NULL DEFAULT 0,                             -- required children rejected_final/abandoned/cancelled
-    required_blocked     INTEGER NOT NULL DEFAULT 0,                             -- required children blocked (advisory; surfaces stalls)
+    required_total       BIGINT NOT NULL DEFAULT 0,                             -- count of required children materialized
+    required_accepted    BIGINT NOT NULL DEFAULT 0,                             -- required children accepted
+    required_failed      BIGINT NOT NULL DEFAULT 0,                             -- required children rejected_final/abandoned/cancelled
+    required_blocked     BIGINT NOT NULL DEFAULT 0,                             -- required children blocked (advisory; surfaces stalls)
 
     -- Decomposition pointer (composite): the accepted+materialized revision.
-    accepted_revision_id TEXT REFERENCES agent_goal_revision(id) ON DELETE SET NULL,
+    accepted_revision_id UUID,  -- FK added in agent_goal_revision.sql (cycle: agent_goal <-> agent_goal_revision)
 
     -- Context blobs.
-    context              TEXT NOT NULL DEFAULT '{}',                             -- progress patches / freeform metadata (ex-agent_task.context)
-    dispatch_hint        TEXT NOT NULL DEFAULT '{}',                             -- {executor_agent_id, consumed_at} — folds agent_task_dispatch_hint into a column
+    context              JSONB NOT NULL DEFAULT '{}',                            -- progress patches / freeform metadata (ex-agent_task.context)
+    dispatch_hint        JSONB NOT NULL DEFAULT '{}',                            -- {executor_agent_id, consumed_at} — folds agent_task_dispatch_hint into a column
 
-    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at           TEXT NOT NULL DEFAULT (datetime('now')),
-    accepted_at          TEXT,
-    cancelled_at         TEXT,
-    archived_at          TEXT,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    accepted_at          TIMESTAMPTZ,
+    cancelled_at         TIMESTAMPTZ,
+    archived_at          TIMESTAMPTZ,
 
     -- Structural invariants only (schema-design.md: no enum-value CHECKs).
     CHECK (parent_id IS NULL OR parent_id != id),                               -- no self-parent (self-ref)
     CHECK (parent_id IS NOT NULL OR root_id = id),                              -- a root is its own root (coupling)
-    CHECK (required IN (0,1)),                                                  -- range
     CHECK (depth >= 0 AND attempt_count >= 0),                                  -- range
     CHECK (required_total >= 0 AND required_accepted >= 0
            AND required_failed >= 0 AND required_blocked >= 0),                -- range

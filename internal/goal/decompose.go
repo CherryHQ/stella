@@ -201,7 +201,7 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 			AttemptNo:       int64(attemptNo),
 			Status:          AttemptQueued,
 			InputContext:    marshalJSON(input),
-			LeaseExpiresAt:  nullStr(s.now()),
+			LeaseExpiresAt:  nullTime(s.nowTime()),
 		})
 		if err != nil {
 			return fmt.Errorf("create decomposition attempt: %w", err)

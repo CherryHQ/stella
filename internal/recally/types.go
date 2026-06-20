@@ -355,14 +355,14 @@ func (a *Article) FromSQLCArticle(sa sqlc.RecallyArticle) {
 	a.Summary = sa.Summary
 	a.Tags = decodeTags(sa.Tags)
 	a.Status = ArticleStatus(sa.Status)
-	a.Starred = sa.Starred == 1
+	a.Starred = sa.Starred
 	a.FilePath = sa.FilePath
 	a.Metadata = decodeMetadata(sa.Metadata)
 	a.PublishedAt = parseNullTime(sa.PublishedAt)
-	a.SavedAt = parseTime(sa.SavedAt)
+	a.SavedAt = sa.SavedAt.UTC()
 	a.ReadAt = parseNullTime(sa.ReadAt)
-	a.CreatedAt = parseTime(sa.CreatedAt)
-	a.UpdatedAt = parseTime(sa.UpdatedAt)
+	a.CreatedAt = sa.CreatedAt.UTC()
+	a.UpdatedAt = sa.UpdatedAt.UTC()
 }
 
 // FromSQLCFeed populates a Feed from a sqlc RecallyFeed.
@@ -383,9 +383,9 @@ func (f *Feed) FromSQLCFeed(sf sqlc.RecallyFeed) {
 	f.LastCheckedAt = parseNullTime(sf.LastCheckedAt)
 	f.LastETag = sf.LastEtag
 	f.LastModified = sf.LastModified
-	f.Enabled = sf.Enabled == 1
-	f.CreatedAt = parseTime(sf.CreatedAt)
-	f.UpdatedAt = parseTime(sf.UpdatedAt)
+	f.Enabled = sf.Enabled
+	f.CreatedAt = sf.CreatedAt.UTC()
+	f.UpdatedAt = sf.UpdatedAt.UTC()
 }
 
 // FromSQLCFeedEntry populates a FeedEntry from a sqlc RecallyFeedEntry.
@@ -403,34 +403,15 @@ func (e *FeedEntry) FromSQLCFeedEntry(se sqlc.RecallyFeedEntry) {
 	}
 	e.Attempts = int(se.Attempts)
 	e.ErrorMsg = se.ErrorMsg
-	e.DiscoveredAt = parseTime(se.DiscoveredAt)
+	e.DiscoveredAt = se.DiscoveredAt.UTC()
 	e.ProcessedAt = parseNullTime(se.ProcessedAt)
 }
 
-func boolToInt64(v bool) int64 {
-	if v {
-		return 1
-	}
-	return 0
-}
-
-func parseTime(value string) time.Time {
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05Z07:00"} {
-		if t, err := time.Parse(layout, value); err == nil {
-			return t.UTC()
-		}
-	}
-	return time.Time{}
-}
-
-func parseNullTime(value sql.NullString) *time.Time {
-	if !value.Valid || value.String == "" {
+func parseNullTime(value sql.NullTime) *time.Time {
+	if !value.Valid {
 		return nil
 	}
-	t := parseTime(value.String)
-	if t.IsZero() {
-		return nil
-	}
+	t := value.Time.UTC()
 	return &t
 }
 
@@ -459,23 +440,23 @@ func decodeTags(value string) []string {
 	return tags
 }
 
-func encodeMetadata(metadata map[string]string) string {
+func encodeMetadata(metadata map[string]string) json.RawMessage {
 	if len(metadata) == 0 {
-		return "{}"
+		return json.RawMessage("{}")
 	}
 	buf, err := json.Marshal(metadata)
 	if err != nil {
-		return "{}"
+		return json.RawMessage("{}")
 	}
-	return string(buf)
+	return buf
 }
 
-func decodeMetadata(value string) map[string]string {
-	if value == "" {
+func decodeMetadata(value json.RawMessage) map[string]string {
+	if len(value) == 0 {
 		return map[string]string{}
 	}
 	metadata := make(map[string]string)
-	if err := json.Unmarshal([]byte(value), &metadata); err != nil {
+	if err := json.Unmarshal(value, &metadata); err != nil {
 		return map[string]string{}
 	}
 	return metadata

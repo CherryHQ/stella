@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -187,7 +186,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 		flusher.Flush()
 	}
 
-	messageID := uuid.New().String()
+	messageID := uuid.Must(uuid.NewV7()).String()
 	writeData(map[string]string{"type": "start", "messageId": messageID})
 
 	var (
@@ -274,7 +273,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 			if evt.Reasoning != "" {
 				closeText()
 				if !inReasoning {
-					reasoningID = uuid.New().String()
+					reasoningID = uuid.Must(uuid.NewV7()).String()
 					writeData(map[string]string{"type": "reasoning-start", "id": reasoningID})
 					inReasoning = true
 				}
@@ -285,7 +284,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 			if evt.Text != "" {
 				closeReasoning()
 				if !inText {
-					textID = uuid.New().String()
+					textID = uuid.Must(uuid.NewV7()).String()
 					writeData(map[string]string{"type": "text-start", "id": textID})
 					inText = true
 				}
@@ -693,7 +692,7 @@ func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request, agentID s
 		return
 	}
 	if err := s.q.UpdateConversationArchived(r.Context(), sqlc.UpdateConversationArchivedParams{
-		Archived:  1,
+		Archived:  true,
 		SessionID: sessionID,
 		UserID:    sql.NullString{String: info.UserID, Valid: true},
 		AgentID:   sql.NullString{String: agentID, Valid: agentID != ""},
@@ -755,10 +754,10 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 	case limit > 0:
 		pageRows, err := s.q.ListMessagesByLogicalPage(r.Context(), sqlc.ListMessagesByLogicalPageParams{
 			ConversationID: conv.ID,
-			After:          nilIfStringPtr(params.After),
-			Before:         nilIfStringPtr(params.Before),
-			Limit:          int64(limit),
-			Offset:         int64(skip),
+			After:          nullTimeFromStringPtr(params.After),
+			Before:         nullTimeFromStringPtr(params.Before),
+			Limit:          int32(limit),
+			Offset:         int32(skip),
 		})
 		if err != nil {
 			s.writeInternalError(w, err)
@@ -797,8 +796,8 @@ func (s *Server) GetSessionContextItems(w http.ResponseWriter, r *http.Request, 
 	}
 	rows, err := s.q.ListContextItemsPage(r.Context(), sqlc.ListContextItemsPageParams{
 		ConversationID: conv.ID,
-		LimitCount:     int64(pageSize + 1),
-		OffsetCount:    int64(offset),
+		LimitCount:     int32(pageSize + 1),
+		OffsetCount:    int32(offset),
 	})
 	if err != nil {
 		s.writeInternalError(w, err)
@@ -868,7 +867,7 @@ func (s *Server) GetSessionSummary(w http.ResponseWriter, r *http.Request, agent
 	}
 	summary, err := s.q.GetSummary(r.Context(), sqlc.GetSummaryParams{ID: summaryID, ConversationID: conv.ID})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "summary not found")
 		} else {
 			s.writeInternalError(w, err)
@@ -1564,17 +1563,34 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	writeData(w, http.StatusOK, map[string]string{"system_prompt": systemPrompt})
 }
 
-func nilIfStringPtr(p *string) any {
+func nullTimeFromStringPtr(p *string) sql.NullTime {
 	if p == nil {
-		return nil
+		return sql.NullTime{}
 	}
-	return *p
+	// An unparseable after/before yields the zero time; treat that as "no bound"
+	// (NULL) rather than epoch-zero. Passing 0001-01-01 to the page query would
+	// silently empty the page (created_at <= zero) or no-op the filter
+	// (created_at >= zero) instead of ignoring the malformed bound.
+	t := parseTime(*p)
+	if t.IsZero() {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: t, Valid: true}
 }
 
 func logicalPageRowsToMessages(rows []sqlc.ListMessagesByLogicalPageRow) []sqlc.CtxMessage {
 	out := make([]sqlc.CtxMessage, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, sqlc.CtxMessage(row))
+		out = append(out, sqlc.CtxMessage{
+			ID:             row.ID,
+			ConversationID: row.ConversationID,
+			Seq:            row.Seq,
+			Role:           row.Role,
+			EventType:      row.EventType,
+			Content:        row.Content,
+			TokenCount:     row.TokenCount,
+			CreatedAt:      row.CreatedAt,
+		})
 	}
 	return out
 }
@@ -1583,12 +1599,22 @@ func filterMessageRowsByTime(rows []sqlc.CtxMessage, after, before *string) []sq
 	if after == nil && before == nil {
 		return rows
 	}
+	var afterT, beforeT time.Time
+	if after != nil {
+		afterT = parseTime(*after)
+	}
+	if before != nil {
+		beforeT = parseTime(*before)
+	}
 	filtered := rows[:0]
 	for _, row := range rows {
-		if after != nil && row.CreatedAt < *after {
+		// A zero bound means the param was absent or unparseable; skip it rather
+		// than comparing against epoch-zero (which would drop every row for a bad
+		// `before`). Matches the DB-path guard in nullTimeFromStringPtr.
+		if !afterT.IsZero() && row.CreatedAt.Before(afterT) {
 			continue
 		}
-		if before != nil && row.CreatedAt > *before {
+		if !beforeT.IsZero() && row.CreatedAt.After(beforeT) {
 			continue
 		}
 		filtered = append(filtered, row)
@@ -1609,7 +1635,7 @@ func contextRowsFromMessages(messages []sqlc.CtxMessage) []sqlc.ListContextItems
 			MessageEventType:  sql.NullString{String: msg.EventType, Valid: true},
 			MessageContent:    sql.NullString{String: msg.Content, Valid: true},
 			MessageTokenCount: sql.NullInt64{Int64: msg.TokenCount, Valid: true},
-			MessageCreatedAt:  sql.NullString{String: msg.CreatedAt, Valid: true},
+			MessageCreatedAt:  sql.NullTime{Time: msg.CreatedAt, Valid: true},
 		})
 	}
 	return rows
@@ -1634,7 +1660,7 @@ func contextItemFromRow(row sqlc.ListContextItemsPageRow) (apitypes.SessionConte
 			Role:       row.MessageRole.String,
 			EventType:  eventType,
 			Content:    content,
-			Timestamp:  parseTime(row.MessageCreatedAt.String),
+			Timestamp:  row.MessageCreatedAt.Time.UTC(),
 			TokenCount: int(row.MessageTokenCount.Int64),
 		}
 		return item, true
@@ -1654,7 +1680,7 @@ func contextItemFromRow(row sqlc.ListContextItemsPageRow) (apitypes.SessionConte
 			DescendantCount:         int(row.SummaryDescendantCount.Int64),
 			DescendantTokenCount:    int(row.SummaryDescendantTokenCount.Int64),
 			SourceMessageTokenCount: int(row.SummarySourceMessageTokenCount.Int64),
-			CreatedAt:               parseTime(row.SummaryCreatedAt.String),
+			CreatedAt:               row.SummaryCreatedAt.Time.UTC(),
 		}
 		return item, true
 	default:
@@ -1674,7 +1700,7 @@ func summaryToAPI(s sqlc.CtxSummary) apitypes.SessionContextSummary {
 		DescendantCount:         int(s.DescendantCount),
 		DescendantTokenCount:    int(s.DescendantTokenCount),
 		SourceMessageTokenCount: int(s.SourceMessageTokenCount),
-		CreatedAt:               parseTime(s.CreatedAt),
+		CreatedAt:               s.CreatedAt.UTC(),
 	}
 }
 
@@ -1709,7 +1735,7 @@ func serializeUserRow(row sqlc.CtxMessage) map[string]any {
 	return map[string]any{
 		"id":          row.ID,
 		"role":        "user",
-		"timestamp":   parseTime(row.CreatedAt),
+		"timestamp":   row.CreatedAt.UTC(),
 		"content":     row.Content,
 		"token_count": row.TokenCount,
 	}
@@ -1745,7 +1771,7 @@ func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, 
 		"id":          rows[start].ID,
 		"role":        "assistant",
 		"blocks":      blocks,
-		"timestamp":   parseTime(rows[start].CreatedAt),
+		"timestamp":   rows[start].CreatedAt.UTC(),
 		"token_count": totalTokens,
 	}, consumed
 }
@@ -1768,7 +1794,7 @@ func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 	m := map[string]any{
 		"id":          row.ID,
 		"role":        "tool",
-		"timestamp":   parseTime(row.CreatedAt),
+		"timestamp":   row.CreatedAt.UTC(),
 		"token_count": row.TokenCount,
 	}
 	var env struct {
@@ -1850,8 +1876,8 @@ func streamPlainReply(w http.ResponseWriter, flusher http.Flusher, text string) 
 		flusher.Flush()
 	}
 
-	messageID := uuid.New().String()
-	textID := uuid.New().String()
+	messageID := uuid.Must(uuid.NewV7()).String()
+	textID := uuid.Must(uuid.NewV7()).String()
 	write(map[string]string{"type": "start", "messageId": messageID})
 	write(map[string]string{"type": "start-step"})
 	write(map[string]string{"type": "text-start", "id": textID})

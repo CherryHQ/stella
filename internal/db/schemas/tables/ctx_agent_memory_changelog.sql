@@ -1,18 +1,18 @@
 CREATE TABLE ctx_agent_memory_changelog (
-    id          TEXT PRIMARY KEY,
-    user_id     TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    id          UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id     UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id    TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
     session_id  TEXT,
     entity_id   TEXT,
     scope       TEXT NOT NULL,
     action      TEXT NOT NULL,
     source      TEXT NOT NULL,
-    memory_version_before INTEGER,
-    memory_version_after  INTEGER,
+    memory_version_before BIGINT,
+    memory_version_after  BIGINT,
     before_text TEXT,
     after_text  TEXT,
     metadata    TEXT,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_ctx_agent_memory_changelog_user_agent ON ctx_agent_memory_changelog(user_id, agent_id, scope);

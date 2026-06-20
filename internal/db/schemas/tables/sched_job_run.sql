@@ -3,8 +3,8 @@ CREATE TABLE sched_job_run (
     job_id TEXT NOT NULL REFERENCES sched_job(id) ON DELETE CASCADE,
     session_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'running',
-    started_at TEXT NOT NULL DEFAULT (datetime('now')),
-    finished_at TEXT,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
     error TEXT NOT NULL DEFAULT '',
     output TEXT NOT NULL DEFAULT '',
     user_id TEXT

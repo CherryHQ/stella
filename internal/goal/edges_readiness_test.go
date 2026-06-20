@@ -79,7 +79,7 @@ func edg_edgeRow(upstreamID, kind, onFailure, upstreamLifecycle string, waived b
 		UpstreamLifecycle: upstreamLifecycle,
 	}
 	if waived {
-		r.WaivedAt = sql.NullString{String: "2026-06-19T00:00:00Z", Valid: true}
+		r.WaivedAt = sql.NullTime{Time: time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC), Valid: true}
 	}
 	return r
 }
@@ -370,7 +370,7 @@ func TestEdgWaiveEdgeClearsDepBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetEdge after waive: %v", err)
 	}
-	if !edge.WaivedAt.Valid || edge.WaivedAt.String == "" {
+	if !edge.WaivedAt.Valid {
 		t.Fatalf("edge waived_at not stamped: %+v", edge.WaivedAt)
 	}
 	if edge.WaiverReason != "manual override" {

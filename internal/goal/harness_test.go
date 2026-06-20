@@ -3,15 +3,16 @@ package goal
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // scriptedExecutor is the test executor: by default it submits a trivial output
 // (hash derived from the attempt id so each attempt is distinct); a test swaps
@@ -50,22 +51,18 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "goal.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	ctx := context.Background()
 	userID := uuid.NewString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO auth_user (id, email) VALUES (?, ?)`,
+		`INSERT INTO auth_user (id, email) VALUES ($1, $2)`,
 		userID, "test-"+userID[:8]+"@example.com"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 	agentID := uuid.NewString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO agent (id, name, workspace) VALUES (?, 'test-agent', '/tmp')`,
+		`INSERT INTO agent (id, name, workspace) VALUES ($1, 'test-agent', '/tmp')`,
 		agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
@@ -88,10 +85,10 @@ func newHarness(t *testing.T) *harness {
 func (h *harness) sessionMinter() SessionMinter {
 	return func(ctx context.Context, userID, agentID, projectID string) (string, error) {
 		sessionID := "goal-" + uuid.NewString()
-		now := time.Now().UTC().Format("2006-01-02 15:04:05")
+		now := time.Now().UTC()
 		if _, err := h.db.ExecContext(ctx, `
 			INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active, created_at, updated_at)
-			VALUES (?, ?, 'minted', 'task', 'task', ?, ?, ?, ?, ?)`,
+			VALUES ($1, $2, 'minted', 'task', 'task', $3, $4, $5, $6, $7)`,
 			uuid.NewString(), sessionID, agentID, userID, now, now, now); err != nil {
 			return "", err
 		}

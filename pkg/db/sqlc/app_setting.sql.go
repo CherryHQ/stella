@@ -10,7 +10,7 @@ import (
 )
 
 const deleteSetting = `-- name: DeleteSetting :exec
-DELETE FROM app_setting WHERE key = ?
+DELETE FROM app_setting WHERE key = $1
 `
 
 func (q *Queries) DeleteSetting(ctx context.Context, key string) error {
@@ -19,7 +19,7 @@ func (q *Queries) DeleteSetting(ctx context.Context, key string) error {
 }
 
 const getSetting = `-- name: GetSetting :one
-SELECT "key", value, created_at, updated_at FROM app_setting WHERE key = ?
+SELECT key, value, created_at, updated_at FROM app_setting WHERE key = $1
 `
 
 func (q *Queries) GetSetting(ctx context.Context, key string) (AppSetting, error) {
@@ -35,7 +35,7 @@ func (q *Queries) GetSetting(ctx context.Context, key string) (AppSetting, error
 }
 
 const listSettings = `-- name: ListSettings :many
-SELECT "key", value, created_at, updated_at FROM app_setting ORDER BY key
+SELECT key, value, created_at, updated_at FROM app_setting ORDER BY key
 `
 
 func (q *Queries) ListSettings(ctx context.Context) ([]AppSetting, error) {
@@ -68,10 +68,10 @@ func (q *Queries) ListSettings(ctx context.Context) ([]AppSetting, error) {
 
 const upsertSetting = `-- name: UpsertSetting :exec
 INSERT INTO app_setting (key, value, updated_at)
-VALUES (?, ?, datetime('now'))
+VALUES ($1, $2, now())
 ON CONFLICT(key) DO UPDATE SET
     value = excluded.value,
-    updated_at = datetime('now')
+    updated_at = now()
 `
 
 type UpsertSettingParams struct {

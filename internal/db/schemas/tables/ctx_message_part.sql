@@ -1,8 +1,8 @@
 CREATE TABLE ctx_message_part (
-    id TEXT PRIMARY KEY,
-    message_id TEXT NOT NULL REFERENCES ctx_message(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    message_id UUID NOT NULL REFERENCES ctx_message(id) ON DELETE CASCADE,
     part_type TEXT NOT NULL,
-    ordinal INTEGER NOT NULL,
+    ordinal BIGINT NOT NULL,
     text_content TEXT,
     tool_call_id TEXT,
     tool_name TEXT,

@@ -7,11 +7,12 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const deletePluginStateEntry = `-- name: DeletePluginStateEntry :exec
 DELETE FROM plugin_state
-WHERE plugin_id = ? AND scope_kind = ? AND scope_id = ? AND state_key = ?
+WHERE plugin_id = $1 AND scope_kind = $2 AND scope_id = $3 AND state_key = $4
 `
 
 type DeletePluginStateEntryParams struct {
@@ -33,7 +34,7 @@ func (q *Queries) DeletePluginStateEntry(ctx context.Context, arg DeletePluginSt
 
 const getPluginStateEntry = `-- name: GetPluginStateEntry :one
 SELECT value FROM plugin_state
-WHERE plugin_id = ? AND scope_kind = ? AND scope_id = ? AND state_key = ?
+WHERE plugin_id = $1 AND scope_kind = $2 AND scope_id = $3 AND state_key = $4
 `
 
 type GetPluginStateEntryParams struct {
@@ -43,31 +44,31 @@ type GetPluginStateEntryParams struct {
 	StateKey  string `json:"state_key"`
 }
 
-func (q *Queries) GetPluginStateEntry(ctx context.Context, arg GetPluginStateEntryParams) (string, error) {
+func (q *Queries) GetPluginStateEntry(ctx context.Context, arg GetPluginStateEntryParams) (json.RawMessage, error) {
 	row := q.db.QueryRowContext(ctx, getPluginStateEntry,
 		arg.PluginID,
 		arg.ScopeKind,
 		arg.ScopeID,
 		arg.StateKey,
 	)
-	var value string
+	var value json.RawMessage
 	err := row.Scan(&value)
 	return value, err
 }
 
 const upsertPluginStateEntry = `-- name: UpsertPluginStateEntry :exec
 INSERT INTO plugin_state (plugin_id, scope_kind, scope_id, state_key, value, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
+VALUES ($1, $2, $3, $4, $5, now())
 ON CONFLICT(plugin_id, scope_kind, scope_id, state_key)
-DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+DO UPDATE SET value = excluded.value, updated_at = now()
 `
 
 type UpsertPluginStateEntryParams struct {
-	PluginID  string `json:"plugin_id"`
-	ScopeKind string `json:"scope_kind"`
-	ScopeID   string `json:"scope_id"`
-	StateKey  string `json:"state_key"`
-	Value     string `json:"value"`
+	PluginID  string          `json:"plugin_id"`
+	ScopeKind string          `json:"scope_kind"`
+	ScopeID   string          `json:"scope_id"`
+	StateKey  string          `json:"state_key"`
+	Value     json.RawMessage `json:"value"`
 }
 
 func (q *Queries) UpsertPluginStateEntry(ctx context.Context, arg UpsertPluginStateEntryParams) error {

@@ -69,7 +69,7 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 			UserID:  sql.NullString{String: userID, Valid: true},
 			AgentID: nullAgent(agentID),
 			Match:   match,
-			Limit:   int64(limit),
+			Limit:   int32(limit),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("search messages: %w", err)
@@ -79,8 +79,8 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 				SourceType:        itemTypeMessage,
 				SourceID:          fmt.Sprint(msg.ID),
 				Content:           searchSnippet(msg.Snippet, msg.Content),
-				Score:             -msg.Score,
-				OccurredAt:        parseTime(msg.CreatedAt),
+				Score:             msg.Score,
+				OccurredAt:        msg.CreatedAt.UTC(),
 				SessionID:         msg.SessionID,
 				ConversationTitle: msg.ConversationTitle.String,
 			})
@@ -92,7 +92,7 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 			UserID:  sql.NullString{String: userID, Valid: true},
 			AgentID: nullAgent(agentID),
 			Match:   match,
-			Limit:   int64(limit),
+			Limit:   int32(limit),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("search summaries: %w", err)
@@ -102,7 +102,7 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 				SourceType:        itemTypeSummary,
 				SourceID:          s.ID,
 				Content:           searchSnippet(s.Snippet, s.Content),
-				Score:             -s.Score,
+				Score:             s.Score,
 				OccurredAt:        summaryContentTime(s.LatestAt, s.CreatedAt),
 				SessionID:         s.SessionID,
 				ConversationTitle: s.ConversationTitle.String,
@@ -137,8 +137,8 @@ func (r *retrievalEngine) searchLike(ctx context.Context, userID, agentID, text,
 		msgs, err := r.q.SearchMessagesLike(ctx, sqlc.SearchMessagesLikeParams{
 			UserID:  sql.NullString{String: userID, Valid: true},
 			AgentID: nullAgent(agentID),
-			Pattern: pattern,
-			Limit:   int64(limit),
+			Pattern: []byte(pattern),
+			Limit:   int32(limit),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("search messages like: %w", err)
@@ -148,7 +148,7 @@ func (r *retrievalEngine) searchLike(ctx context.Context, userID, agentID, text,
 				SourceType:        itemTypeMessage,
 				SourceID:          fmt.Sprint(msg.ID),
 				Content:           truncateUTF8(msg.Content, maxContentSnippet),
-				OccurredAt:        parseTime(msg.CreatedAt),
+				OccurredAt:        msg.CreatedAt.UTC(),
 				SessionID:         msg.SessionID,
 				ConversationTitle: msg.ConversationTitle.String,
 			})
@@ -159,8 +159,8 @@ func (r *retrievalEngine) searchLike(ctx context.Context, userID, agentID, text,
 		sums, err := r.q.SearchSummariesLike(ctx, sqlc.SearchSummariesLikeParams{
 			UserID:  sql.NullString{String: userID, Valid: true},
 			AgentID: nullAgent(agentID),
-			Pattern: pattern,
-			Limit:   int64(limit),
+			Pattern: []byte(pattern),
+			Limit:   int32(limit),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("search summaries like: %w", err)
@@ -189,11 +189,11 @@ func (r *retrievalEngine) searchLike(ctx context.Context, userID, agentID, text,
 // summaryContentTime returns when a summary's underlying content actually
 // occurred: latest_at (the real end of the summarized window), falling back to
 // created_at (when the summary was generated) only when latest_at is null.
-func summaryContentTime(latestAt sql.NullString, createdAt string) time.Time {
+func summaryContentTime(latestAt sql.NullTime, createdAt time.Time) time.Time {
 	if t := parseNullTime(latestAt); t != nil {
 		return *t
 	}
-	return parseTime(createdAt)
+	return createdAt.UTC()
 }
 
 // searchSnippet prefers the FTS5 snippet (match context with <<>> highlights)
@@ -223,7 +223,7 @@ func (p *Provider) GetMessage(ctx context.Context, messageID string) (*memory.Me
 		MessageID:         row.ID,
 		Role:              row.Role,
 		Content:           row.Content,
-		OccurredAt:        parseTime(row.CreatedAt),
+		OccurredAt:        row.CreatedAt.UTC(),
 		SessionID:         row.SessionID,
 		ConversationTitle: row.ConversationTitle.String,
 	}, nil
@@ -320,7 +320,7 @@ func (r *retrievalEngine) expand(ctx context.Context, sum sqlc.CtxSummary, token
 				MessageID: msg.ID,
 				Role:      msg.Role,
 				Content:   msg.Content,
-				CreatedAt: parseTime(msg.CreatedAt),
+				CreatedAt: msg.CreatedAt.UTC(),
 			})
 			tokensUsed += tokens
 		}

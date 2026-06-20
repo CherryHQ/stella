@@ -2,21 +2,16 @@ package auth_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
 func setupSeedStore(t *testing.T) auth.AuthStore {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 	return appdb.NewAuthStore(db)
 }
 

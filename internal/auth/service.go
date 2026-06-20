@@ -199,7 +199,7 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 		role = RoleAdmin
 	}
 	newUser, err := s.users.CreateUser(ctx, User{
-		ID:        uuid.NewString(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Email:     ext.Email,
 		Name:      ext.Name,
 		AvatarURL: ext.AvatarURL,
@@ -210,7 +210,7 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 	}
 
 	if _, err := s.logins.CreateLoginIdentity(ctx, LoginIdentity{
-		ID:              uuid.NewString(),
+		ID:              uuid.Must(uuid.NewV7()).String(),
 		UserID:          newUser.ID,
 		Provider:        ext.Provider,
 		ProviderSubject: ext.Subject,

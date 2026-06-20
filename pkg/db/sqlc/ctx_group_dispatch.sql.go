@@ -14,21 +14,21 @@ const claimExpiredGroupDispatch = `-- name: ClaimExpiredGroupDispatch :one
 UPDATE ctx_group_dispatch
 SET status = 'running',
     attempt_count = attempt_count + 1,
-    lease_until = ?1,
+    lease_until = $1,
     next_attempt_at = NULL,
     last_error = '',
-    updated_at = datetime('now')
-WHERE id = ?2
+    updated_at = now()
+WHERE id = $2
   AND status = 'running'
   AND lease_until IS NOT NULL
-  AND lease_until <= ?3
+  AND lease_until <= $3
 RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at
 `
 
 type ClaimExpiredGroupDispatchParams struct {
-	LeaseUntil sql.NullString `json:"lease_until"`
-	ID         string         `json:"id"`
-	Now        sql.NullString `json:"now"`
+	LeaseUntil sql.NullTime `json:"lease_until"`
+	ID         string       `json:"id"`
+	Now        sql.NullTime `json:"now"`
 }
 
 func (q *Queries) ClaimExpiredGroupDispatch(ctx context.Context, arg ClaimExpiredGroupDispatchParams) (CtxGroupDispatch, error) {
@@ -56,20 +56,20 @@ const claimPendingGroupDispatch = `-- name: ClaimPendingGroupDispatch :one
 UPDATE ctx_group_dispatch
 SET status = 'running',
     attempt_count = attempt_count + 1,
-    lease_until = ?1,
+    lease_until = $1,
     next_attempt_at = NULL,
     last_error = '',
-    updated_at = datetime('now')
-WHERE id = ?2
+    updated_at = now()
+WHERE id = $2
   AND status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= ?3)
+  AND (next_attempt_at IS NULL OR next_attempt_at <= $3)
 RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at
 `
 
 type ClaimPendingGroupDispatchParams struct {
-	LeaseUntil sql.NullString `json:"lease_until"`
-	ID         string         `json:"id"`
-	Now        sql.NullString `json:"now"`
+	LeaseUntil sql.NullTime `json:"lease_until"`
+	ID         string       `json:"id"`
+	Now        sql.NullTime `json:"now"`
 }
 
 func (q *Queries) ClaimPendingGroupDispatch(ctx context.Context, arg ClaimPendingGroupDispatchParams) (CtxGroupDispatch, error) {
@@ -94,8 +94,8 @@ func (q *Queries) ClaimPendingGroupDispatch(ctx context.Context, arg ClaimPendin
 }
 
 const countGroupDispatchByMessage = `-- name: CountGroupDispatchByMessage :one
-SELECT CAST(COUNT(*) AS INTEGER) FROM ctx_group_dispatch
-WHERE group_message_id = ?
+SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
+WHERE group_message_id = $1
 `
 
 func (q *Queries) CountGroupDispatchByMessage(ctx context.Context, groupMessageID string) (int64, error) {
@@ -106,8 +106,8 @@ func (q *Queries) CountGroupDispatchByMessage(ctx context.Context, groupMessageI
 }
 
 const countNonTerminalGroupDispatchByMessage = `-- name: CountNonTerminalGroupDispatchByMessage :one
-SELECT CAST(COUNT(*) AS INTEGER) FROM ctx_group_dispatch
-WHERE group_message_id = ?
+SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
+WHERE group_message_id = $1
   AND status IN ('pending', 'running')
 `
 
@@ -119,23 +119,23 @@ func (q *Queries) CountNonTerminalGroupDispatchByMessage(ctx context.Context, gr
 }
 
 const createGroupDispatch = `-- name: CreateGroupDispatch :exec
-INSERT OR IGNORE INTO ctx_group_dispatch (
+INSERT INTO ctx_group_dispatch (
   id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING
 `
 
 type CreateGroupDispatchParams struct {
-	ID             string         `json:"id"`
-	GroupMessageID string         `json:"group_message_id"`
-	GroupID        string         `json:"group_id"`
-	AgentID        string         `json:"agent_id"`
-	ReplyChannelID string         `json:"reply_channel_id"`
-	Status         string         `json:"status"`
-	AttemptCount   int64          `json:"attempt_count"`
-	LeaseUntil     sql.NullString `json:"lease_until"`
-	NextAttemptAt  sql.NullString `json:"next_attempt_at"`
-	LastError      string         `json:"last_error"`
+	ID             string       `json:"id"`
+	GroupMessageID string       `json:"group_message_id"`
+	GroupID        string       `json:"group_id"`
+	AgentID        string       `json:"agent_id"`
+	ReplyChannelID string       `json:"reply_channel_id"`
+	Status         string       `json:"status"`
+	AttemptCount   int64        `json:"attempt_count"`
+	LeaseUntil     sql.NullTime `json:"lease_until"`
+	NextAttemptAt  sql.NullTime `json:"next_attempt_at"`
+	LastError      string       `json:"last_error"`
 }
 
 func (q *Queries) CreateGroupDispatch(ctx context.Context, arg CreateGroupDispatchParams) error {
@@ -156,17 +156,17 @@ func (q *Queries) CreateGroupDispatch(ctx context.Context, arg CreateGroupDispat
 
 const extendRunningGroupDispatchLease = `-- name: ExtendRunningGroupDispatchLease :execrows
 UPDATE ctx_group_dispatch
-SET lease_until = ?1,
-    updated_at = datetime('now')
-WHERE id = ?2
+SET lease_until = $1,
+    updated_at = now()
+WHERE id = $2
   AND status = 'running'
-  AND attempt_count = ?3
+  AND attempt_count = $3
 `
 
 type ExtendRunningGroupDispatchLeaseParams struct {
-	LeaseUntil   sql.NullString `json:"lease_until"`
-	ID           string         `json:"id"`
-	AttemptCount int64          `json:"attempt_count"`
+	LeaseUntil   sql.NullTime `json:"lease_until"`
+	ID           string       `json:"id"`
+	AttemptCount int64        `json:"attempt_count"`
 }
 
 func (q *Queries) ExtendRunningGroupDispatchLease(ctx context.Context, arg ExtendRunningGroupDispatchLeaseParams) (int64, error) {
@@ -178,7 +178,7 @@ func (q *Queries) ExtendRunningGroupDispatchLease(ctx context.Context, arg Exten
 }
 
 const getGroupDispatch = `-- name: GetGroupDispatch :one
-SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at FROM ctx_group_dispatch WHERE id = ?
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at FROM ctx_group_dispatch WHERE id = $1
 `
 
 func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDispatch, error) {
@@ -206,14 +206,14 @@ const listExpiredRunningGroupDispatch = `-- name: ListExpiredRunningGroupDispatc
 SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at FROM ctx_group_dispatch
 WHERE status = 'running'
   AND lease_until IS NOT NULL
-  AND lease_until <= ?1
+  AND lease_until <= $1
 ORDER BY lease_until ASC
-LIMIT ?2
+LIMIT $2
 `
 
 type ListExpiredRunningGroupDispatchParams struct {
-	Now        sql.NullString `json:"now"`
-	LimitCount int64          `json:"limit_count"`
+	Now        sql.NullTime `json:"now"`
+	LimitCount int32        `json:"limit_count"`
 }
 
 func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListExpiredRunningGroupDispatchParams) ([]CtxGroupDispatch, error) {
@@ -256,7 +256,7 @@ func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListE
 const listPendingGroupDispatch = `-- name: ListPendingGroupDispatch :many
 SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at FROM ctx_group_dispatch gd
 WHERE gd.status = 'pending'
-  AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= ?1)
+  AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= $1)
   AND NOT EXISTS (
     SELECT 1
     FROM ctx_group_dispatch earlier
@@ -267,7 +267,7 @@ WHERE gd.status = 'pending'
       AND earlier_msg.seq < current_msg.seq
       AND (
         earlier.status = 'pending'
-        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= ?1)
+        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= $1)
       )
   )
   AND NOT EXISTS (
@@ -279,16 +279,16 @@ WHERE gd.status = 'pending'
       AND earlier_msg.seq < current_msg.seq
       AND (
         earlier_outbox.status = 'pending'
-        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= ?1)
+        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= $1)
       )
   )
 ORDER BY gd.created_at ASC
-LIMIT ?2
+LIMIT $2
 `
 
 type ListPendingGroupDispatchParams struct {
-	Now        sql.NullString `json:"now"`
-	LimitCount int64          `json:"limit_count"`
+	Now        sql.NullTime `json:"now"`
+	LimitCount int32        `json:"limit_count"`
 }
 
 func (q *Queries) ListPendingGroupDispatch(ctx context.Context, arg ListPendingGroupDispatchParams) ([]CtxGroupDispatch, error) {
@@ -330,9 +330,9 @@ func (q *Queries) ListPendingGroupDispatch(ctx context.Context, arg ListPendingG
 
 const listPendingGroupDispatchByMessage = `-- name: ListPendingGroupDispatchByMessage :many
 SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at FROM ctx_group_dispatch gd
-WHERE gd.group_message_id = ?1
+WHERE gd.group_message_id = $1
   AND gd.status = 'pending'
-  AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= ?2)
+  AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= $2)
   AND NOT EXISTS (
     SELECT 1
     FROM ctx_group_dispatch earlier
@@ -343,7 +343,7 @@ WHERE gd.group_message_id = ?1
       AND earlier_msg.seq < current_msg.seq
       AND (
         earlier.status = 'pending'
-        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= ?2)
+        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= $2)
       )
   )
   AND NOT EXISTS (
@@ -355,15 +355,15 @@ WHERE gd.group_message_id = ?1
       AND earlier_msg.seq < current_msg.seq
       AND (
         earlier_outbox.status = 'pending'
-        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= ?2)
+        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= $2)
       )
   )
 ORDER BY gd.created_at ASC
 `
 
 type ListPendingGroupDispatchByMessageParams struct {
-	GroupMessageID string         `json:"group_message_id"`
-	Now            sql.NullString `json:"now"`
+	GroupMessageID string       `json:"group_message_id"`
+	Now            sql.NullTime `json:"now"`
 }
 
 func (q *Queries) ListPendingGroupDispatchByMessage(ctx context.Context, arg ListPendingGroupDispatchByMessageParams) ([]CtxGroupDispatch, error) {
@@ -408,10 +408,10 @@ UPDATE ctx_group_dispatch
 SET status = 'completed',
     lease_until = NULL,
     next_attempt_at = NULL,
-    updated_at = datetime('now')
-WHERE id = ?1
+    updated_at = now()
+WHERE id = $1
   AND status = 'running'
-  AND attempt_count = ?2
+  AND attempt_count = $2
 `
 
 type MarkGroupDispatchCompletedParams struct {
@@ -432,11 +432,11 @@ UPDATE ctx_group_dispatch
 SET status = 'failed',
     lease_until = NULL,
     next_attempt_at = NULL,
-    last_error = ?1,
-    updated_at = datetime('now')
-WHERE id = ?2
+    last_error = $1,
+    updated_at = now()
+WHERE id = $2
   AND status = 'running'
-  AND attempt_count = ?3
+  AND attempt_count = $3
 `
 
 type MarkGroupDispatchFailedParams struct {
@@ -457,19 +457,19 @@ const requeueGroupDispatch = `-- name: RequeueGroupDispatch :execrows
 UPDATE ctx_group_dispatch
 SET status = 'pending',
     lease_until = NULL,
-    next_attempt_at = ?1,
-    last_error = ?2,
-    updated_at = datetime('now')
-WHERE id = ?3
+    next_attempt_at = $1,
+    last_error = $2,
+    updated_at = now()
+WHERE id = $3
   AND status = 'running'
-  AND attempt_count = ?4
+  AND attempt_count = $4
 `
 
 type RequeueGroupDispatchParams struct {
-	NextAttemptAt sql.NullString `json:"next_attempt_at"`
-	LastError     string         `json:"last_error"`
-	ID            string         `json:"id"`
-	AttemptCount  int64          `json:"attempt_count"`
+	NextAttemptAt sql.NullTime `json:"next_attempt_at"`
+	LastError     string       `json:"last_error"`
+	ID            string       `json:"id"`
+	AttemptCount  int64        `json:"attempt_count"`
 }
 
 func (q *Queries) RequeueGroupDispatch(ctx context.Context, arg RequeueGroupDispatchParams) (int64, error) {
@@ -487,11 +487,11 @@ func (q *Queries) RequeueGroupDispatch(ctx context.Context, arg RequeueGroupDisp
 
 const setGroupDispatchResultMessage = `-- name: SetGroupDispatchResultMessage :execrows
 UPDATE ctx_group_dispatch
-SET result_message_id = ?1,
-    updated_at = datetime('now')
-WHERE id = ?2
+SET result_message_id = $1,
+    updated_at = now()
+WHERE id = $2
   AND status = 'running'
-  AND attempt_count = ?3
+  AND attempt_count = $3
 `
 
 type SetGroupDispatchResultMessageParams struct {

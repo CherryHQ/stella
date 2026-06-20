@@ -4,7 +4,7 @@
 -- sequence, so the row doubles as the per-group write lock.
 CREATE TABLE ctx_group_state (
     -- internal stable handle; every group-scoped table references this id.
-    id                 TEXT PRIMARY KEY,
+    id                 UUID PRIMARY KEY DEFAULT uuidv7(),
     -- messaging platform: 'telegram' | 'feishu' | 'qq' | ...
     platform           TEXT NOT NULL,
     -- native group/chat id as the platform reports it.
@@ -15,13 +15,13 @@ CREATE TABLE ctx_group_state (
     platform_thread_id TEXT NOT NULL DEFAULT '',
     -- per-group monotonic ordering allocator. Bumped under this row's write lock:
     -- UPDATE ... SET next_seq = next_seq + 1 RETURNING next_seq (first message = 1).
-    next_seq           INTEGER NOT NULL DEFAULT 0,
-    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    next_seq           BIGINT NOT NULL DEFAULT 0,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- human-readable display name (web groups require it; platform groups may populate later).
     group_name         TEXT NOT NULL DEFAULT '',
     -- web groups only: the user who created this group. NULL for platform-created groups.
-    created_by_user_id TEXT REFERENCES auth_user(id) ON DELETE CASCADE,
+    created_by_user_id UUID REFERENCES auth_user(id) ON DELETE CASCADE,
     -- one registry row per physical group/thread, stable across all observing bots.
     UNIQUE (platform, platform_group_id, platform_thread_id)
 );

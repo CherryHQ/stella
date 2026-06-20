@@ -6,41 +6,40 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io/fs"
-	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/XSAM/otelsql"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	_ "modernc.org/sqlite"
 )
 
-const (
-	sqliteBusyTimeout = 5 * time.Second
-)
+// migrateLockKey is an arbitrary but stable 64-bit key for the advisory lock
+// that serializes migrate() across processes (it spells "stella" in ASCII).
+// Never change it: two stellad instances must hash to the same lock to mutually
+// exclude.
+const migrateLockKey int64 = 0x73_74_65_6C_6C_61
 
-// OpenDB opens a SQLite database at the given path, configures it
-// (WAL mode, foreign keys, busy timeout) and runs migrations. The parent directory
-// is created if it doesn't exist.
-func OpenDB(dbPath string) (*sql.DB, error) {
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("db: create dir: %w", err)
-	}
-
+// OpenDB opens the PostgreSQL database at dsn, sizes the connection pool, ensures
+// the pg_trgm extension and the schema are present, and returns a handle safe for
+// concurrent use. dsn is a libpq/pgx connection string (e.g.
+// "postgres://user:pass@host:5432/db?sslmode=disable").
+//
+// The server must be PostgreSQL 18 or newer: the schema baseline defaults ids
+// with the uuidv7() built-in, so migrate() fails with "function uuidv7() does
+// not exist" against an older server.
+func OpenDB(dsn string) (*sql.DB, error) {
 	// otelsql wraps the driver so every query/exec emits a span on the global
 	// tracer provider. When tracing is disabled the provider is a no-op, so this
 	// adds negligible overhead — same always-on pattern as the HTTP handler.
 	// Only statements are recorded (SQL text, no bound args), and the noisy
 	// connection-lifecycle spans (connect, prepare, reset, per-row) are omitted
 	// to keep traces focused on actual queries.
-	db, err := openTracedSQLite(dbPath)
+	db, err := openTracedPG(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
@@ -52,37 +51,7 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("db: migrate: %w", err)
 	}
 
-	if err := ensureFTS(db); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("db: fts: %w", err)
-	}
-
 	return db, nil
-}
-
-// dataSourceName builds the modernc.org/sqlite DSN. Pragmas are carried in the
-// DSN so every pooled connection is configured identically at open time; this
-// is what makes a multi-connection pool safe (a one-shot PRAGMA via db.Exec
-// would only configure whichever connection happened to run it). WAL lets
-// readers run concurrently with a single writer, busy_timeout serializes
-// writers without surfacing SQLITE_BUSY, and foreign keys stay enforced.
-//
-// _txlock=immediate makes every read-then-write transaction (BeginTx with
-// ReadOnly unset) grab the write lock at BEGIN. Without it, a deferred tx that
-// reads first and then upgrades to a writer while another connection holds the
-// write lock deadlocks: SQLite returns SQLITE_BUSY *immediately* and skips the
-// busy handler, so busy_timeout never applies. That is exactly what stranded
-// the goal worker's Submit (read attempt → update) against the memory
-// provider's writer. Read-only transactions still pass ReadOnly:true and stay
-// deferred, so read concurrency is unaffected.
-func dataSourceName(dbPath string) string {
-	q := url.Values{}
-	q.Add("_pragma", "journal_mode(WAL)")
-	q.Add("_pragma", "synchronous(NORMAL)")
-	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeout.Milliseconds()))
-	q.Add("_pragma", "foreign_keys(ON)")
-	q.Add("_txlock", "immediate")
-	return dbPath + "?" + q.Encode()
 }
 
 // reSQLCName extracts the query name from the sqlc annotation that prefixes
@@ -103,9 +72,9 @@ var (
 // present it names the span "X (VERB table)" (e.g.
 // "GetUserByID (SELECT auth_user)") — the query name says intent, the verb and
 // table say what it touches. Ad-hoc statements with no annotation get just
-// "VERB table"; statements without a clear table (PRAGMA, BEGIN) get the verb;
-// anything unparseable falls back to the otelsql method so a span is never
-// left nameless.
+// "VERB table"; statements without a clear table (BEGIN, SELECT pg_advisory_lock)
+// get the verb; anything unparseable falls back to the otelsql method so a span
+// is never left nameless.
 func spanName(_ context.Context, method otelsql.Method, query string) string {
 	name := ""
 	if m := reSQLCName.FindStringSubmatch(query); m != nil {
@@ -163,13 +132,28 @@ func stripLeadingComments(q string) string {
 	return ""
 }
 
-func openTracedSQLite(dbPath string) (*sql.DB, error) {
-	return otelsql.Open("sqlite", dataSourceName(dbPath), sqliteTraceOptions()...)
+func openTracedPG(dsn string) (*sql.DB, error) {
+	connConfig, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse dsn: %w", err)
+	}
+	// Pin every session to UTC. The codebase stores and compares UTC throughout
+	// (time.Now().UTC(), "... AT TIME ZONE 'UTC'"), but PostgreSQL interprets a
+	// zoneless timestamp literal in the session's time zone — which otherwise
+	// inherits the host's local zone. Without this, the same row round-trips
+	// differently on a UTC CI box and a +08 dev box. timezone=UTC rides in the
+	// startup packet, so it holds from the first statement on every connection.
+	connConfig.RuntimeParams["timezone"] = "UTC"
+	// GetConnector binds this exact config without registering it in stdlib's
+	// process-global DSN map, so repeated OpenDB calls (one per test database,
+	// plus any runtime re-open) don't leak registry entries that can never be
+	// unregistered while the pool stays live.
+	return otelsql.OpenDB(stdlib.GetConnector(*connConfig), pgTraceOptions()...), nil
 }
 
-func sqliteTraceOptions() []otelsql.Option {
+func pgTraceOptions() []otelsql.Option {
 	return []otelsql.Option{
-		otelsql.WithAttributes(attribute.String("db.system", "sqlite")),
+		otelsql.WithAttributes(attribute.String("db.system", "postgresql")),
 		// Name spans "<verb> <table>" (e.g. "SELECT sessions") instead of the
 		// generic "sql.conn.query" so the trace tree shows what each query does
 		// at a glance, without expanding the db.statement attribute.
@@ -196,47 +180,27 @@ func configurePool(db *sql.DB) {
 	if db == nil {
 		return
 	}
-	// WAL mode allows many concurrent readers alongside one writer, so the pool
-	// is sized for read parallelism. Writes still serialize inside SQLite and
-	// wait out contention via busy_timeout rather than failing.
-	maxConns := max(runtime.NumCPU()*4, 8)
-	db.SetMaxOpenConns(maxConns)
-	db.SetMaxIdleConns(maxConns)
-	db.SetConnMaxLifetime(0)
-	db.SetConnMaxIdleTime(0)
-}
-
-// OpenSerialConn opens a second handle to an already-migrated SQLite database
-// capped at a single connection. Write-heavy subsystems (the memory provider)
-// run on this handle so their writes queue in Go as a fast FIFO instead of
-// fighting over SQLite's single write lock across many pooled connections —
-// which otherwise burns the busy_timeout and starves the shared read pool.
-//
-// The caller must have run OpenDB on the same path first; this handle does not
-// migrate. The DSN carries the same pragmas (WAL, busy_timeout, foreign keys),
-// and WAL lets this writer run concurrently with readers on the main pool.
-func OpenSerialConn(dbPath string) (*sql.DB, error) {
-	db, err := openTracedSQLite(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("db: open serial conn: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(0)
-	db.SetConnMaxIdleTime(0)
-	return db, nil
+	// PostgreSQL serializes nothing client-side — concurrency is handled
+	// server-side by MVCC — so the pool is sized for throughput. The cap is
+	// deliberately conservative: many stellad instances can share one server, so
+	// per-instance open connections must stay well under the server's
+	// max_connections (default 100). A finite lifetime recycles connections so a
+	// long-lived process doesn't pin stale backends. Production with high
+	// concurrency should front PostgreSQL with pgbouncer or raise these.
+	db.SetMaxOpenConns(20)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 }
 
 // migrate applies pending SQL migration files from the embedded migrations
-// directory. Each migration is executed in its own transaction and tracked
-// in a schema_migrations table.
+// directory. Each migration runs in its own transaction (PostgreSQL DDL is
+// transactional, so a failed migration rolls back cleanly) and is tracked in a
+// schema_migrations table.
 //
-// All work runs on a single pinned connection: toggling PRAGMA foreign_keys
-// around each transaction is connection-scoped, so the disable, the
-// transaction, and the re-enable must land on the same underlying connection.
-// With a multi-connection pool, issuing them against *sql.DB directly could
-// scatter them across connections and run table-rebuild migrations with
-// foreign keys still on.
+// All work runs on one pinned connection holding a session-level advisory lock,
+// so concurrent stellad processes pointed at the same database serialize: the
+// loser blocks on the lock, then sees the winner's applied versions and no-ops.
 func migrate(db *sql.DB) error {
 	ctx := context.Background()
 	conn, err := db.Conn(ctx)
@@ -245,22 +209,33 @@ func migrate(db *sql.DB) error {
 	}
 	defer func() { _ = conn.Close() }()
 
-	// Create tracking table.
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", migrateLockKey); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	defer func() {
+		_, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", migrateLockKey)
+	}()
+
+	// The baseline's trigram indexes (gin_trgm_ops) depend on pg_trgm, which
+	// Atlas (OSS) can't manage declaratively, so create it before applying any
+	// migration. Requires a role with CREATE privilege on the database.
+	if _, err := conn.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS pg_trgm"); err != nil {
+		return fmt.Errorf("ensure pg_trgm extension: %w", err)
+	}
+
 	const createTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version TEXT PRIMARY KEY,
-		applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	)`
 	if _, err := conn.ExecContext(ctx, createTable); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
-	// Collect applied versions.
 	applied, err := appliedVersions(ctx, conn)
 	if err != nil {
 		return fmt.Errorf("read applied versions: %w", err)
 	}
 
-	// Read and sort migration files.
 	files, err := migrationFiles()
 	if err != nil {
 		return fmt.Errorf("read migration files: %w", err)
@@ -275,35 +250,22 @@ func migrate(db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", f, err)
 		}
-		// PRAGMA foreign_keys cannot be changed inside a transaction in SQLite
-		// (the statement is silently ignored). Disable it on the connection
-		// before the transaction so Atlas-style table-rebuild migrations work,
-		// then re-enable it after commit.
-		if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = off"); err != nil {
-			return fmt.Errorf("disable fk for %s: %w", f, err)
-		}
 		tx, err := conn.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("begin tx for %s: %w", f, err)
 		}
 		if _, err := tx.ExecContext(ctx, string(data)); err != nil {
 			_ = tx.Rollback()
-			_, _ = conn.ExecContext(ctx, "PRAGMA foreign_keys = on")
 			return fmt.Errorf("exec %s: %w", f, err)
 		}
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO schema_migrations (version) VALUES (?)", version,
+			"INSERT INTO schema_migrations (version) VALUES ($1)", version,
 		); err != nil {
 			_ = tx.Rollback()
-			_, _ = conn.ExecContext(ctx, "PRAGMA foreign_keys = on")
 			return fmt.Errorf("record %s: %w", f, err)
 		}
 		if err := tx.Commit(); err != nil {
-			_, _ = conn.ExecContext(ctx, "PRAGMA foreign_keys = on")
 			return fmt.Errorf("commit %s: %w", f, err)
-		}
-		if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = on"); err != nil {
-			return fmt.Errorf("re-enable fk after %s: %w", f, err)
 		}
 	}
 

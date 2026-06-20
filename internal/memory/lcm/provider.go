@@ -117,7 +117,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 			for _, row := range rows {
 				seq++
 				dbMsg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
-					ID:             uuid.NewString(),
+					ID:             uuid.Must(uuid.NewV7()).String(),
 					ConversationID: convID,
 					Seq:            seq,
 					Role:           row.role,
@@ -345,14 +345,12 @@ func parseTime(s string) time.Time {
 	return time.Time{}
 }
 
-// parseNullTime parses a sql.NullString time field into *time.Time.
-func parseNullTime(ns sql.NullString) *time.Time {
-	if !ns.Valid || ns.String == "" {
+// parseNullTime converts a sql.NullTime field into *time.Time, returning nil for
+// NULL or the zero time.
+func parseNullTime(ns sql.NullTime) *time.Time {
+	if !ns.Valid || ns.Time.IsZero() {
 		return nil
 	}
-	t := parseTime(ns.String)
-	if t.IsZero() {
-		return nil
-	}
+	t := ns.Time.UTC()
 	return &t
 }

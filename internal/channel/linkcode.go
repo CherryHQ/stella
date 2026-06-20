@@ -51,7 +51,7 @@ func TryLinkCodeWithCandidates(ctx context.Context, store channelAuthStore, link
 	}
 
 	_, err := store.CreateChannelIdentity(ctx, auth.ChannelIdentity{
-		ID:         uuid.NewString(),
+		ID:         uuid.Must(uuid.NewV7()).String(),
 		UserID:     userID,
 		Platform:   platform,
 		ExternalID: senderID,

@@ -14,6 +14,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -345,15 +346,15 @@ func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Querie
 			continue
 		}
 		if err := q.CreateGroupDispatch(ctx, sqlc.CreateGroupDispatchParams{
-			ID:             uuid.NewString(),
+			ID:             uuid.Must(uuid.NewV7()).String(),
 			GroupMessageID: outbox.GroupMessageID,
 			GroupID:        outbox.GroupID,
 			AgentID:        agentID,
 			ReplyChannelID: replyChannelID,
 			Status:         "pending",
 			AttemptCount:   0,
-			LeaseUntil:     sql.NullString{},
-			NextAttemptAt:  sql.NullString{},
+			LeaseUntil:     sql.NullTime{},
+			NextAttemptAt:  sql.NullTime{},
 			LastError:      "",
 		}); err != nil {
 			return fmt.Errorf("create dispatch row: %w", err)
@@ -444,7 +445,7 @@ func (d *GroupDispatcher) recentGroupContext(ctx context.Context, q *sqlc.Querie
 	rows, err := q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{
 		GroupID:   groupID,
 		BeforeSeq: currentSeq,
-		MaxCount:  int64(semanticMaxContextMessages),
+		MaxCount:  int32(semanticMaxContextMessages),
 	})
 	if err != nil {
 		d.log.Warn("semantic routing: list recent messages failed", "group_id", groupID, "error", err)
@@ -595,21 +596,15 @@ func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.Ctx
 	if d.db == nil {
 		return errors.New("dispatcher db not configured")
 	}
-	conn, err := d.db.Conn(ctx)
+	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("record dispatch result: acquire conn: %w", err)
+		return fmt.Errorf("record dispatch result: begin: %w", err)
 	}
-	defer func() { _ = conn.Close() }()
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return fmt.Errorf("record dispatch result: begin immediate: %w", err)
+	defer func() { _ = tx.Rollback() }()
+	if err := appdb.AdvisoryXactLock(ctx, tx, "gid:"+row.GroupID); err != nil {
+		return err
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_, _ = conn.ExecContext(ctx, "ROLLBACK")
-		}
-	}()
-	q := sqlc.New(conn)
+	q := sqlc.New(tx)
 	result, err := eventlog.AppendToGroupWithQueries(ctx, q, row.GroupID, eventlog.GroupMessage{
 		ActorType:      eventlog.ActorAgent,
 		ActorID:        row.AgentID,
@@ -630,10 +625,9 @@ func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.Ctx
 	if updated == 0 {
 		return errors.New("set dispatch result message: lost dispatch ownership")
 	}
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("record dispatch result: commit: %w", err)
 	}
-	committed = true
 	return nil
 }
 
@@ -932,8 +926,11 @@ func backoff(attempts int64) time.Duration {
 	return d
 }
 
-func nullTime(t time.Time) sql.NullString {
-	return sql.NullString{String: t.UTC().Format("2006-01-02 15:04:05"), Valid: true}
+func nullTime(t time.Time) sql.NullTime {
+	if t.IsZero() {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: t.UTC(), Valid: true}
 }
 
 func nullStringValue(v sql.NullString) string {

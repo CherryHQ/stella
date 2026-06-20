@@ -151,7 +151,7 @@ func TestCompactionProtectsLastSixTurns(t *testing.T) {
 		SELECT m.seq
 		FROM ctx_item ci
 		JOIN ctx_message m ON m.id = ci.message_id
-		WHERE ci.conversation_id = ? AND ci.item_type = 'message'
+		WHERE ci.conversation_id = $1 AND ci.item_type = 'message'
 		ORDER BY m.seq
 	`, convID)
 	if err != nil {
@@ -180,7 +180,7 @@ func TestCompactionProtectsLastSixTurns(t *testing.T) {
 		SELECT COUNT(*)
 		FROM ctx_summary_message sm
 		JOIN ctx_message m ON m.id = sm.message_id
-		WHERE m.conversation_id = ? AND m.seq >= 11
+		WHERE m.conversation_id = $1 AND m.seq >= 11
 	`, convID).Scan(&coveredFresh); err != nil {
 		t.Fatalf("query summary coverage: %v", err)
 	}
@@ -241,7 +241,7 @@ func hasToolResult(msgs []ai.Message, id string) bool {
 func mustPhase3ConversationID(t *testing.T, db *sql.DB, sessionID string) string {
 	t.Helper()
 	var convID string
-	if err := db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = ?`, sessionID).Scan(&convID); err != nil {
+	if err := db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&convID); err != nil {
 		t.Fatalf("get conversation id: %v", err)
 	}
 	return convID

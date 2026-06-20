@@ -103,7 +103,7 @@ func linkLoginIdentityAsChannelIdentity(ctx context.Context, store channelAuthSt
 		name = loginIdentity.Name
 	}
 	identity, err := store.CreateChannelIdentity(ctx, auth.ChannelIdentity{
-		ID:         uuid.NewString(),
+		ID:         uuid.Must(uuid.NewV7()).String(),
 		UserID:     user.ID,
 		Platform:   platform,
 		ExternalID: externalID,

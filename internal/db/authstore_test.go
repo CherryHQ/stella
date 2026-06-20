@@ -1,10 +1,9 @@
-package db_test
+package db
 
 import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,23 +11,17 @@ import (
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
-	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/store"
 )
 
-func setupAuthStore(t *testing.T) (*appdb.AuthStore, *appdb.OIDCStore, *sql.DB) {
+func setupAuthStore(t *testing.T) (*AuthStore, *OIDCStore, *sql.DB) {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return appdb.NewAuthStore(db), appdb.NewOIDCStore(db), db
+	db := newTestDB(t)
+	return NewAuthStore(db), NewOIDCStore(db), db
 }
 
 // createUser creates an auth_user row via OIDCStore for use as FK target in tests.
-func createUser(t *testing.T, oidc *appdb.OIDCStore, email string) auth.User {
+func createUser(t *testing.T, oidc *OIDCStore, email string) auth.User {
 	t.Helper()
 	u, err := oidc.CreateUser(context.Background(), auth.User{
 		ID:    uuid.NewString(),
@@ -184,7 +177,7 @@ func TestUserAgentAssignment(t *testing.T) {
 }
 
 // Verify that db.AuthStore satisfies auth.AuthStore interface at compile time.
-var _ auth.AuthStore = (*appdb.AuthStore)(nil)
+var _ auth.AuthStore = (*AuthStore)(nil)
 
 func TestUserTokenStore(t *testing.T) {
 	t.Parallel()
@@ -261,9 +254,9 @@ func TestUserTokenStore(t *testing.T) {
 
 	expiredAt := time.Now().Add(-time.Hour).UTC().Format("2006-01-02 15:04:05")
 	if _, err := db.ExecContext(ctx, `
-		INSERT INTO auth_user_token (user_id, name, token_hash, token_prefix, expires_at)
-		VALUES (?, 'expired', 'hash-expired', 'stella_exp', ?)
-	`, user.ID, expiredAt); err != nil {
+		INSERT INTO auth_user_token (id, user_id, name, token_hash, token_prefix, expires_at)
+		VALUES ($1, $2, 'expired', 'hash-expired', 'stella_exp', $3)
+	`, uuid.NewString(), user.ID, expiredAt); err != nil {
 		t.Fatalf("insert expired token: %v", err)
 	}
 	if _, err := store.GetActiveUserTokenByHash(ctx, "hash-expired"); err == nil {

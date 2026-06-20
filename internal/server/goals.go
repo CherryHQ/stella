@@ -907,11 +907,11 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		Title:              d.Title,
 		Kind:               apitypes.GoalKind(d.Kind),
 		Priority:           apitypes.GoalPriority(d.Priority),
-		Required:           d.Required == 1,
+		Required:           d.Required,
 		Lifecycle:          apitypes.GoalLifecycle(d.Lifecycle),
 		AcceptanceState:    apitypes.GoalAcceptanceState(d.AcceptanceState),
-		CreatedAt:          parseTime(d.CreatedAt),
-		UpdatedAt:          parseTime(d.UpdatedAt),
+		CreatedAt:          d.CreatedAt.UTC(),
+		UpdatedAt:          d.UpdatedAt.UTC(),
 		Intent:             optStr(d.Intent),
 		AcceptanceSeq:      iptr(d.AcceptanceSeq),
 		AttemptCount:       iptr(d.AttemptCount),
@@ -940,7 +940,7 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		out.BlockReason = &br
 	}
 	if d.AcceptedOutput.Valid {
-		out.AcceptedOutput = jsonObject(d.AcceptedOutput.String)
+		out.AcceptedOutput = jsonObject(json.RawMessage(d.AcceptedOutput.String))
 	}
 	return out
 }
@@ -953,8 +953,8 @@ func attemptToAPI(a sqlc.AgentGoalAttempt) apitypes.Attempt {
 		Purpose:         apitypes.AttemptPurpose(a.Purpose),
 		AttemptNo:       int(a.AttemptNo),
 		Status:          apitypes.AttemptStatus(a.Status),
-		CreatedAt:       parseTime(a.CreatedAt),
-		UpdatedAt:       parseTime(a.UpdatedAt),
+		CreatedAt:       a.CreatedAt.UTC(),
+		UpdatedAt:       a.UpdatedAt.UTC(),
 		UserId:          optStr(a.UserID),
 		Error:           optStr(a.Error),
 		WorkerId:        optStr(a.WorkerID),
@@ -989,7 +989,7 @@ func acceptanceEventToAPI(e sqlc.AgentGoalAcceptanceEvent) apitypes.AcceptanceEv
 		ItemKind:          apitypes.AcceptanceEventItemKind(e.ItemKind),
 		Result:            apitypes.AcceptanceEventResult(e.Result),
 		Authority:         apitypes.AcceptanceEventAuthority(e.Authority),
-		CreatedAt:         parseTime(e.CreatedAt),
+		CreatedAt:         e.CreatedAt.UTC(),
 		AttemptId:         nullToPtr(e.AttemptID),
 		Command:           optStr(e.Command),
 		CacheKey:          optStr(e.CacheKey),
@@ -998,7 +998,7 @@ func acceptanceEventToAPI(e sqlc.AgentGoalAcceptanceEvent) apitypes.AcceptanceEv
 		Rationale:         optStr(e.Rationale),
 		Scope:             optStr(e.Scope),
 		ScopeHash:         optStr(e.ScopeHash),
-		Detail:            optStr(e.Detail),
+		Detail:            optStr(string(e.Detail)),
 	}
 	if e.ExitCode.Valid {
 		x := int(e.ExitCode.Int64)
@@ -1021,7 +1021,7 @@ func edgeToAPI(e sqlc.AgentGoalEdge) apitypes.Edge {
 		UpstreamId:   e.UpstreamID,
 		EdgeKind:     apitypes.EdgeEdgeKind(e.EdgeKind),
 		OnFailure:    apitypes.EdgeOnFailure(e.OnFailure),
-		CreatedAt:    parseTime(e.CreatedAt),
+		CreatedAt:    e.CreatedAt.UTC(),
 		WaivedAt:     parseTimePtr(e.WaivedAt),
 		WaivedByUser: nullToPtr(e.WaivedByUser),
 		WaiverReason: optStr(e.WaiverReason),
@@ -1043,8 +1043,8 @@ func revisionToAPI(r sqlc.AgentGoalRevision) apitypes.Revision {
 		RevisionNo:        int(r.RevisionNo),
 		Status:            apitypes.RevisionStatus(r.Status),
 		ReviewPolicy:      apitypes.RevisionReviewPolicy(r.ReviewPolicy),
-		CreatedAt:         parseTime(r.CreatedAt),
-		UpdatedAt:         parseTime(r.UpdatedAt),
+		CreatedAt:         r.CreatedAt.UTC(),
+		UpdatedAt:         r.UpdatedAt.UTC(),
 		Content:           parseDecompositionContent(r.Content),
 		SourceAttemptId:   nullToPtr(r.SourceAttemptID),
 		PlanningSessionId: nullToPtr(r.PlanningSessionID),
@@ -1075,12 +1075,12 @@ func readinessToAPI(r goal.Readiness) apitypes.Readiness {
 // parseAcceptanceContract / parseConvergencePolicy / parseDecompositionContent
 // decode a stored TEXT JSON column into the typed API shape, returning nil for an
 // empty/trivial value so the field is omitted.
-func parseAcceptanceContract(s string) *apitypes.AcceptanceContract {
-	if s == "" || s == "{}" {
+func parseAcceptanceContract(s json.RawMessage) *apitypes.AcceptanceContract {
+	if len(s) == 0 || string(s) == "{}" {
 		return nil
 	}
 	var c apitypes.AcceptanceContract
-	if err := json.Unmarshal([]byte(s), &c); err != nil {
+	if err := json.Unmarshal(s, &c); err != nil {
 		return nil
 	}
 	if c.Policy == nil && (c.Items == nil || len(*c.Items) == 0) {
@@ -1089,23 +1089,23 @@ func parseAcceptanceContract(s string) *apitypes.AcceptanceContract {
 	return &c
 }
 
-func parseConvergencePolicy(s string) *apitypes.ConvergencePolicy {
-	if s == "" || s == "{}" {
+func parseConvergencePolicy(s json.RawMessage) *apitypes.ConvergencePolicy {
+	if len(s) == 0 || string(s) == "{}" {
 		return nil
 	}
 	var c apitypes.ConvergencePolicy
-	if err := json.Unmarshal([]byte(s), &c); err != nil {
+	if err := json.Unmarshal(s, &c); err != nil {
 		return nil
 	}
 	return &c
 }
 
-func parseDecompositionContent(s string) *apitypes.DecompositionContent {
-	if s == "" || s == "{}" {
+func parseDecompositionContent(s json.RawMessage) *apitypes.DecompositionContent {
+	if len(s) == 0 || string(s) == "{}" {
 		return nil
 	}
 	var c apitypes.DecompositionContent
-	if err := json.Unmarshal([]byte(s), &c); err != nil {
+	if err := json.Unmarshal(s, &c); err != nil {
 		return nil
 	}
 	return &c
@@ -1133,12 +1133,12 @@ func nullToPtr(ns sql.NullString) *string {
 	return &v
 }
 
-func jsonObject(s string) *map[string]any {
-	if s == "" || s == "{}" {
+func jsonObject(s json.RawMessage) *map[string]any {
+	if len(s) == 0 || string(s) == "{}" {
 		return nil
 	}
 	var m map[string]any
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
+	if err := json.Unmarshal(s, &m); err != nil {
 		return nil
 	}
 	return &m

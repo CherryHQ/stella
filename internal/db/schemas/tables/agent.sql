@@ -10,11 +10,11 @@ CREATE TABLE agent (
     system_prompt TEXT NOT NULL DEFAULT '',
     soul          TEXT NOT NULL DEFAULT '',
     workspace     TEXT NOT NULL,
-    sandbox       TEXT NOT NULL DEFAULT '{}',
-    enabled_builtin_skills TEXT NOT NULL DEFAULT '[]',
+    sandbox       JSONB NOT NULL DEFAULT '{}',
+    enabled_builtin_skills JSONB NOT NULL DEFAULT '[]',
     scope         TEXT NOT NULL DEFAULT 'system',
     creator_id    TEXT NOT NULL DEFAULT '',
-    enabled       INTEGER NOT NULL DEFAULT 1,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    enabled       BOOLEAN NOT NULL DEFAULT true,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );

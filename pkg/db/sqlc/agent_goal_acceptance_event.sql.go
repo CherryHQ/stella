@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 const appendAcceptanceEvent = `-- name: AppendAcceptanceEvent :one
@@ -30,29 +31,29 @@ INSERT INTO agent_goal_acceptance_event (
     scope_hash,
     detail
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 ON CONFLICT(goal_id, attempt_id, item_id, cache_key) DO NOTHING
 RETURNING id, goal_id, attempt_id, seq, item_id, item_kind, result, command, exit_code, cache_key, authority, reviewer_user_id, reviewer_attempt_id, rationale, scope, scope_hash, detail, created_at
 `
 
 type AppendAcceptanceEventParams struct {
-	ID                string         `json:"id"`
-	GoalID            string         `json:"goal_id"`
-	AttemptID         sql.NullString `json:"attempt_id"`
-	Seq               int64          `json:"seq"`
-	ItemID            string         `json:"item_id"`
-	ItemKind          string         `json:"item_kind"`
-	Result            string         `json:"result"`
-	Command           string         `json:"command"`
-	ExitCode          sql.NullInt64  `json:"exit_code"`
-	CacheKey          string         `json:"cache_key"`
-	Authority         string         `json:"authority"`
-	ReviewerUserID    sql.NullString `json:"reviewer_user_id"`
-	ReviewerAttemptID sql.NullString `json:"reviewer_attempt_id"`
-	Rationale         string         `json:"rationale"`
-	Scope             string         `json:"scope"`
-	ScopeHash         string         `json:"scope_hash"`
-	Detail            string         `json:"detail"`
+	ID                string          `json:"id"`
+	GoalID            string          `json:"goal_id"`
+	AttemptID         sql.NullString  `json:"attempt_id"`
+	Seq               int64           `json:"seq"`
+	ItemID            string          `json:"item_id"`
+	ItemKind          string          `json:"item_kind"`
+	Result            string          `json:"result"`
+	Command           string          `json:"command"`
+	ExitCode          sql.NullInt64   `json:"exit_code"`
+	CacheKey          string          `json:"cache_key"`
+	Authority         string          `json:"authority"`
+	ReviewerUserID    sql.NullString  `json:"reviewer_user_id"`
+	ReviewerAttemptID sql.NullString  `json:"reviewer_attempt_id"`
+	Rationale         string          `json:"rationale"`
+	Scope             string          `json:"scope"`
+	ScopeHash         string          `json:"scope_hash"`
+	Detail            json.RawMessage `json:"detail"`
 }
 
 // Append-only ledger row: a deterministic check result or a judgment verdict.
@@ -105,9 +106,9 @@ func (q *Queries) AppendAcceptanceEvent(ctx context.Context, arg AppendAcceptanc
 }
 
 const getMaxAcceptanceSeq = `-- name: GetMaxAcceptanceSeq :one
-SELECT CAST(COALESCE(MAX(seq), -1) AS INTEGER)
+SELECT CAST(COALESCE(MAX(seq), -1) AS BIGINT)
 FROM agent_goal_acceptance_event
-WHERE goal_id = ?1
+WHERE goal_id = $1
 `
 
 // Highest seq for a goal; -1 when no rows so next seq = result+1 = 0.
@@ -120,7 +121,7 @@ func (q *Queries) GetMaxAcceptanceSeq(ctx context.Context, goalID string) (int64
 
 const listAcceptanceEventByAttempt = `-- name: ListAcceptanceEventByAttempt :many
 SELECT id, goal_id, attempt_id, seq, item_id, item_kind, result, command, exit_code, cache_key, authority, reviewer_user_id, reviewer_attempt_id, rationale, scope, scope_hash, detail, created_at FROM agent_goal_acceptance_event
-WHERE attempt_id = ?1
+WHERE attempt_id = $1
 ORDER BY seq ASC
 `
 
@@ -168,7 +169,7 @@ func (q *Queries) ListAcceptanceEventByAttempt(ctx context.Context, attemptID sq
 
 const listAcceptanceEventByGoal = `-- name: ListAcceptanceEventByGoal :many
 SELECT id, goal_id, attempt_id, seq, item_id, item_kind, result, command, exit_code, cache_key, authority, reviewer_user_id, reviewer_attempt_id, rationale, scope, scope_hash, detail, created_at FROM agent_goal_acceptance_event
-WHERE goal_id = ?1
+WHERE goal_id = $1
 ORDER BY seq ASC
 `
 
@@ -217,7 +218,7 @@ func (q *Queries) ListAcceptanceEventByGoal(ctx context.Context, goalID string) 
 
 const probeCheckCache = `-- name: ProbeCheckCache :one
 SELECT id, goal_id, attempt_id, seq, item_id, item_kind, result, command, exit_code, cache_key, authority, reviewer_user_id, reviewer_attempt_id, rationale, scope, scope_hash, detail, created_at FROM agent_goal_acceptance_event
-WHERE cache_key = ?1
+WHERE cache_key = $1
   AND item_kind = 'deterministic'
   AND result = 'pass'
   AND cache_key != ''

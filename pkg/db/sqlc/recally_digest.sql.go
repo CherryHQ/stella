@@ -7,11 +7,12 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const addDigestArticle = `-- name: AddDigestArticle :exec
 INSERT INTO recally_digest_article (digest_id, article_id, section, position)
-VALUES (?, ?, ?, ?)
+VALUES ($1, $2, $3, $4)
 ON CONFLICT(digest_id, article_id, section) DO NOTHING
 `
 
@@ -33,7 +34,7 @@ func (q *Queries) AddDigestArticle(ctx context.Context, arg AddDigestArticlePara
 }
 
 const countDigests = `-- name: CountDigests :one
-SELECT COUNT(*) FROM recally_digest WHERE user_id = ?
+SELECT COUNT(*) FROM recally_digest WHERE user_id = $1
 `
 
 func (q *Queries) CountDigests(ctx context.Context, userID string) (int64, error) {
@@ -48,23 +49,23 @@ INSERT INTO recally_digest (
     id, user_id, date, narrative,
     saved_yesterday_count, unread_count, read_count, archived_count,
     starred_count, worth_revisiting_count, total_articles, top_tags
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING id, user_id, date, narrative, saved_yesterday_count, unread_count, read_count, archived_count, starred_count, worth_revisiting_count, total_articles, top_tags, created_at, updated_at
 `
 
 type CreateDigestParams struct {
-	ID                   string `json:"id"`
-	UserID               string `json:"user_id"`
-	Date                 string `json:"date"`
-	Narrative            string `json:"narrative"`
-	SavedYesterdayCount  int64  `json:"saved_yesterday_count"`
-	UnreadCount          int64  `json:"unread_count"`
-	ReadCount            int64  `json:"read_count"`
-	ArchivedCount        int64  `json:"archived_count"`
-	StarredCount         int64  `json:"starred_count"`
-	WorthRevisitingCount int64  `json:"worth_revisiting_count"`
-	TotalArticles        int64  `json:"total_articles"`
-	TopTags              string `json:"top_tags"`
+	ID                   string          `json:"id"`
+	UserID               string          `json:"user_id"`
+	Date                 string          `json:"date"`
+	Narrative            string          `json:"narrative"`
+	SavedYesterdayCount  int64           `json:"saved_yesterday_count"`
+	UnreadCount          int64           `json:"unread_count"`
+	ReadCount            int64           `json:"read_count"`
+	ArchivedCount        int64           `json:"archived_count"`
+	StarredCount         int64           `json:"starred_count"`
+	WorthRevisitingCount int64           `json:"worth_revisiting_count"`
+	TotalArticles        int64           `json:"total_articles"`
+	TopTags              json.RawMessage `json:"top_tags"`
 }
 
 func (q *Queries) CreateDigest(ctx context.Context, arg CreateDigestParams) (RecallyDigest, error) {
@@ -103,7 +104,7 @@ func (q *Queries) CreateDigest(ctx context.Context, arg CreateDigestParams) (Rec
 }
 
 const deleteDigestArticles = `-- name: DeleteDigestArticles :exec
-DELETE FROM recally_digest_article WHERE digest_id = ? AND section = ?
+DELETE FROM recally_digest_article WHERE digest_id = $1 AND section = $2
 `
 
 type DeleteDigestArticlesParams struct {
@@ -117,7 +118,7 @@ func (q *Queries) DeleteDigestArticles(ctx context.Context, arg DeleteDigestArti
 }
 
 const getDigestByDate = `-- name: GetDigestByDate :one
-SELECT id, user_id, date, narrative, saved_yesterday_count, unread_count, read_count, archived_count, starred_count, worth_revisiting_count, total_articles, top_tags, created_at, updated_at FROM recally_digest WHERE user_id = ? AND date = ?
+SELECT id, user_id, date, narrative, saved_yesterday_count, unread_count, read_count, archived_count, starred_count, worth_revisiting_count, total_articles, top_tags, created_at, updated_at FROM recally_digest WHERE user_id = $1 AND date = $2
 `
 
 type GetDigestByDateParams struct {
@@ -148,10 +149,10 @@ func (q *Queries) GetDigestByDate(ctx context.Context, arg GetDigestByDateParams
 }
 
 const listDigestArticles = `-- name: ListDigestArticles :many
-SELECT a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at
+SELECT a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at, a.search_tsv
 FROM recally_digest_article da
 JOIN recally_article a ON a.id = da.article_id
-WHERE da.digest_id = ? AND da.section = ?
+WHERE da.digest_id = $1 AND da.section = $2
 ORDER BY da.position ASC
 `
 
@@ -189,6 +190,7 @@ func (q *Queries) ListDigestArticles(ctx context.Context, arg ListDigestArticles
 			&i.ReadAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SearchTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -205,15 +207,15 @@ func (q *Queries) ListDigestArticles(ctx context.Context, arg ListDigestArticles
 
 const listDigests = `-- name: ListDigests :many
 SELECT id, user_id, date, narrative, saved_yesterday_count, unread_count, read_count, archived_count, starred_count, worth_revisiting_count, total_articles, top_tags, created_at, updated_at FROM recally_digest
-WHERE user_id = ?1
+WHERE user_id = $1
 ORDER BY date DESC
-LIMIT ?2 OFFSET ?3
+LIMIT $2 OFFSET $3
 `
 
 type ListDigestsParams struct {
 	UserID string `json:"user_id"`
-	Limit  int64  `json:"limit"`
-	Offset int64  `json:"offset"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
 }
 
 func (q *Queries) ListDigests(ctx context.Context, arg ListDigestsParams) ([]RecallyDigest, error) {
@@ -259,7 +261,7 @@ INSERT INTO recally_digest (
     id, user_id, date, narrative,
     saved_yesterday_count, unread_count, read_count, archived_count,
     starred_count, worth_revisiting_count, total_articles, top_tags
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT(user_id, date) DO UPDATE SET
     narrative              = excluded.narrative,
     saved_yesterday_count  = excluded.saved_yesterday_count,
@@ -270,23 +272,23 @@ ON CONFLICT(user_id, date) DO UPDATE SET
     worth_revisiting_count = excluded.worth_revisiting_count,
     total_articles         = excluded.total_articles,
     top_tags               = excluded.top_tags,
-    updated_at             = datetime('now')
+    updated_at             = now()
 RETURNING id, user_id, date, narrative, saved_yesterday_count, unread_count, read_count, archived_count, starred_count, worth_revisiting_count, total_articles, top_tags, created_at, updated_at
 `
 
 type UpsertDigestParams struct {
-	ID                   string `json:"id"`
-	UserID               string `json:"user_id"`
-	Date                 string `json:"date"`
-	Narrative            string `json:"narrative"`
-	SavedYesterdayCount  int64  `json:"saved_yesterday_count"`
-	UnreadCount          int64  `json:"unread_count"`
-	ReadCount            int64  `json:"read_count"`
-	ArchivedCount        int64  `json:"archived_count"`
-	StarredCount         int64  `json:"starred_count"`
-	WorthRevisitingCount int64  `json:"worth_revisiting_count"`
-	TotalArticles        int64  `json:"total_articles"`
-	TopTags              string `json:"top_tags"`
+	ID                   string          `json:"id"`
+	UserID               string          `json:"user_id"`
+	Date                 string          `json:"date"`
+	Narrative            string          `json:"narrative"`
+	SavedYesterdayCount  int64           `json:"saved_yesterday_count"`
+	UnreadCount          int64           `json:"unread_count"`
+	ReadCount            int64           `json:"read_count"`
+	ArchivedCount        int64           `json:"archived_count"`
+	StarredCount         int64           `json:"starred_count"`
+	WorthRevisitingCount int64           `json:"worth_revisiting_count"`
+	TotalArticles        int64           `json:"total_articles"`
+	TopTags              json.RawMessage `json:"top_tags"`
 }
 
 func (q *Queries) UpsertDigest(ctx context.Context, arg UpsertDigestParams) (RecallyDigest, error) {

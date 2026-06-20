@@ -13,9 +13,18 @@ import (
 
 	"github.com/google/uuid"
 
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// lockMemory serializes concurrent writers for one (user, agent) memory row so
+// the read-modify-write of version + changelog cannot interleave. Under SQLite
+// this was implicit (single writer); under PostgreSQL it needs an explicit
+// transaction-scoped advisory lock, released automatically on commit/rollback.
+func lockMemory(ctx context.Context, tx *sql.Tx, userID, agentID string) error {
+	return appdb.AdvisoryXactLock(ctx, tx, "mem:"+userID+":"+agentID)
+}
 
 // SetProfile writes a profile update within a transaction.
 // It increments the version, reads the before-state, and appends a changelog entry,
@@ -26,6 +35,10 @@ func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string,
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return err
+	}
 
 	qtx := q.WithTx(tx)
 
@@ -59,7 +72,7 @@ func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string,
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "profile",
@@ -84,6 +97,10 @@ func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID strin
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return err
+	}
 
 	qtx := q.WithTx(tx)
 
@@ -117,7 +134,7 @@ func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID strin
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "soul",
@@ -142,6 +159,10 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return err
+	}
+
 	qtx := q.WithTx(tx)
 
 	old, err := qtx.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
@@ -156,7 +177,7 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "profile",
@@ -194,7 +215,7 @@ func GetConstraints(ctx context.Context, q *sqlc.Queries, userID string, agentID
 	if err != nil {
 		return nil, fmt.Errorf("get constraints: %w", err)
 	}
-	return parseConstraints(row.Constraints)
+	return parseConstraints(string(row.Constraints))
 }
 
 // AddConstraint appends a new constraint entry transactionally, bumps version,
@@ -206,13 +227,17 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return nil, err
+	}
+
 	qtx := q.WithTx(tx)
 
 	old, err := qtx.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
 	var beforeJSON string
 	var beforeVersion int64
 	if err == nil {
-		beforeJSON = old.Constraints
+		beforeJSON = string(old.Constraints)
 		beforeVersion = old.Version
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("read constraints: %w", err)
@@ -239,7 +264,7 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 	row, err := qtx.UpsertAgentConstraints(ctx, sqlc.UpsertAgentConstraintsParams{
 		UserID:      userID,
 		AgentID:     agentID,
-		Constraints: string(afterJSON),
+		Constraints: afterJSON,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upsert constraints: %w", err)
@@ -247,7 +272,7 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "constraint",
@@ -276,13 +301,17 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID s
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return nil, err
+	}
+
 	qtx := q.WithTx(tx)
 
 	old, err := qtx.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
 	var beforeJSON string
 	var beforeVersion int64
 	if err == nil {
-		beforeJSON = old.Constraints
+		beforeJSON = string(old.Constraints)
 		beforeVersion = old.Version
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("read constraints: %w", err)
@@ -308,7 +337,7 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID s
 	row, err := qtx.UpsertAgentConstraints(ctx, sqlc.UpsertAgentConstraintsParams{
 		UserID:      userID,
 		AgentID:     agentID,
-		Constraints: string(afterJSON),
+		Constraints: afterJSON,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upsert constraints: %w", err)
@@ -316,7 +345,7 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID s
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "constraint",

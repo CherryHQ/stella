@@ -6,10 +6,10 @@ CREATE TABLE agent_goal_edge (
     upstream_id         TEXT NOT NULL REFERENCES agent_goal(id) ON DELETE CASCADE, -- must be accepted to satisfy
     edge_kind           TEXT NOT NULL DEFAULT 'hard',                          -- hard|soft (Go-enforced)
     on_failure          TEXT NOT NULL DEFAULT 'block',                         -- block|fail|ignore (Go-enforced)
-    waived_at           TEXT,
-    waived_by_user      TEXT REFERENCES auth_user(id) ON DELETE SET NULL,
+    waived_at           TIMESTAMPTZ,
+    waived_by_user      UUID REFERENCES auth_user(id) ON DELETE SET NULL,
     waiver_reason       TEXT NOT NULL DEFAULT '',
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (goal_id, upstream_id),
     CHECK (goal_id != upstream_id)                                      -- no self-edge (self-ref)
 );

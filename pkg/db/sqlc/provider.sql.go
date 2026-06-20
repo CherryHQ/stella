@@ -7,20 +7,21 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const createProvider = `-- name: CreateProvider :one
 INSERT INTO provider (id, type, name, enabled, config, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
+VALUES ($1, $2, $3, $4, $5, now())
 RETURNING id, type, name, enabled, config, created_at, updated_at
 `
 
 type CreateProviderParams struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Enabled int64  `json:"enabled"`
-	Config  string `json:"config"`
+	ID      string          `json:"id"`
+	Type    string          `json:"type"`
+	Name    string          `json:"name"`
+	Enabled bool            `json:"enabled"`
+	Config  json.RawMessage `json:"config"`
 }
 
 func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) (Provider, error) {
@@ -45,7 +46,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 }
 
 const deleteProvider = `-- name: DeleteProvider :exec
-DELETE FROM provider WHERE id = ?
+DELETE FROM provider WHERE id = $1
 `
 
 func (q *Queries) DeleteProvider(ctx context.Context, id string) error {
@@ -54,7 +55,7 @@ func (q *Queries) DeleteProvider(ctx context.Context, id string) error {
 }
 
 const getProvider = `-- name: GetProvider :one
-SELECT id, type, name, enabled, config, created_at, updated_at FROM provider WHERE id = ?
+SELECT id, type, name, enabled, config, created_at, updated_at FROM provider WHERE id = $1
 `
 
 func (q *Queries) GetProvider(ctx context.Context, id string) (Provider, error) {
@@ -73,7 +74,7 @@ func (q *Queries) GetProvider(ctx context.Context, id string) (Provider, error) 
 }
 
 const listEnabledProviders = `-- name: ListEnabledProviders :many
-SELECT id, type, name, enabled, config, created_at, updated_at FROM provider WHERE enabled = 1 ORDER BY name, id
+SELECT id, type, name, enabled, config, created_at, updated_at FROM provider WHERE enabled = true ORDER BY name, id
 `
 
 func (q *Queries) ListEnabledProviders(ctx context.Context) ([]Provider, error) {
@@ -143,16 +144,17 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 }
 
 const seedProvider = `-- name: SeedProvider :exec
-INSERT OR IGNORE INTO provider (id, type, name, enabled, config)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO provider (id, type, name, enabled, config)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT DO NOTHING
 `
 
 type SeedProviderParams struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Enabled int64  `json:"enabled"`
-	Config  string `json:"config"`
+	ID      string          `json:"id"`
+	Type    string          `json:"type"`
+	Name    string          `json:"name"`
+	Enabled bool            `json:"enabled"`
+	Config  json.RawMessage `json:"config"`
 }
 
 func (q *Queries) SeedProvider(ctx context.Context, arg SeedProviderParams) error {
@@ -168,20 +170,20 @@ func (q *Queries) SeedProvider(ctx context.Context, arg SeedProviderParams) erro
 
 const updateProvider = `-- name: UpdateProvider :exec
 UPDATE provider SET
-    type = ?,
-    name = ?,
-    enabled = ?,
-    config = ?,
-    updated_at = datetime('now')
-WHERE id = ?
+    type = $1,
+    name = $2,
+    enabled = $3,
+    config = $4,
+    updated_at = now()
+WHERE id = $5
 `
 
 type UpdateProviderParams struct {
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Enabled int64  `json:"enabled"`
-	Config  string `json:"config"`
-	ID      string `json:"id"`
+	Type    string          `json:"type"`
+	Name    string          `json:"name"`
+	Enabled bool            `json:"enabled"`
+	Config  json.RawMessage `json:"config"`
+	ID      string          `json:"id"`
 }
 
 func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) error {

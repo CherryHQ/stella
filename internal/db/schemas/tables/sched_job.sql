@@ -11,14 +11,14 @@ CREATE TABLE sched_job (
     schedule_every TEXT NOT NULL DEFAULT '',
     schedule_at TEXT NOT NULL DEFAULT '',
     message TEXT NOT NULL DEFAULT '',
-    payload TEXT NOT NULL DEFAULT '{}',
+    payload JSONB NOT NULL DEFAULT '{}',
     session_mode TEXT NOT NULL DEFAULT 'reuse',
-    enabled INTEGER NOT NULL DEFAULT 1,
+    enabled BOOLEAN NOT NULL DEFAULT true,
     agent_id TEXT,
     user_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    last_run_at TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_run_at TIMESTAMPTZ,
     last_error TEXT NOT NULL DEFAULT ''
 );
 

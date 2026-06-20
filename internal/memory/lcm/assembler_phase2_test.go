@@ -3,10 +3,11 @@ package lcm
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/google/uuid"
+
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -17,8 +18,8 @@ func TestAssemblerSummaryParentsBatchPreservesXML(t *testing.T) {
 
 	ctx := context.Background()
 	q := sqlc.New(db)
-	convID := "conv-summary-parents"
-	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES (?, ?, 'test', 'chat')`, convID, "sess-summary-parents"); err != nil {
+	convID := uuid.NewString()
+	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, "sess-summary-parents"); err != nil {
 		t.Fatalf("insert conversation: %v", err)
 	}
 
@@ -106,9 +107,5 @@ func TestAssemblerSummaryParentsBatchPreservesXML(t *testing.T) {
 
 func newAssemblerTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	return db
+	return dbtest.New(t)
 }

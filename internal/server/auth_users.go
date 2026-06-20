@@ -372,7 +372,7 @@ func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Reques
 	}
 
 	linked, err := s.logins.CreateLoginIdentity(r.Context(), auth.LoginIdentity{
-		ID:              uuid.NewString(),
+		ID:              uuid.Must(uuid.NewV7()).String(),
 		UserID:          targetUserID,
 		Provider:        body.Provider,
 		ProviderSubject: body.ProviderSubject,

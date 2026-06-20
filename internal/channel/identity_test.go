@@ -4,18 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 
 	"github.com/google/uuid"
 )
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 type testStores struct {
 	store     config.Store
@@ -45,12 +47,7 @@ func (ts testStores) stellaAgentID(t *testing.T) string {
 
 func setupStores(t *testing.T) testStores {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := dbtest.New(t)
 
 	store := cfgstore.NewDBStore(db)
 	ctx := context.Background()
@@ -450,7 +447,7 @@ func TestCoordinatorProvisionUserKnownIdentitySucceeds(t *testing.T) {
 
 	user := createTestUser(t, ts.oidcStore, "linked@example.com")
 	_, err := ts.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
-		ID:         "ci-1",
+		ID:         uuid.NewString(),
 		UserID:     user.ID,
 		Platform:   "telegram",
 		ExternalID: "u-linked",

@@ -8,13 +8,14 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 const countInflightAttemptsByRoot = `-- name: CountInflightAttemptsByRoot :one
-SELECT CAST(COUNT(*) AS INTEGER)
+SELECT CAST(COUNT(*) AS BIGINT)
 FROM agent_goal_attempt a
 JOIN agent_goal d ON d.id = a.goal_id
-WHERE d.root_id = ?1
+WHERE d.root_id = $1
   AND a.status IN ('queued', 'running')
 `
 
@@ -26,9 +27,9 @@ func (q *Queries) CountInflightAttemptsByRoot(ctx context.Context, rootID string
 }
 
 const countInflightAttemptsByUser = `-- name: CountInflightAttemptsByUser :one
-SELECT CAST(COUNT(*) AS INTEGER)
+SELECT CAST(COUNT(*) AS BIGINT)
 FROM agent_goal_attempt a
-WHERE a.user_id = ?1
+WHERE a.user_id = $1
   AND a.status IN ('queued', 'running')
 `
 
@@ -44,22 +45,22 @@ INSERT INTO agent_goal_attempt (
     id, goal_id, user_id, agent_id, executor_agent_id, session_id,
     purpose, attempt_no, status, input_context, lease_expires_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at
 `
 
 type CreateAttemptParams struct {
-	ID              string         `json:"id"`
-	GoalID          string         `json:"goal_id"`
-	UserID          string         `json:"user_id"`
-	AgentID         sql.NullString `json:"agent_id"`
-	ExecutorAgentID sql.NullString `json:"executor_agent_id"`
-	SessionID       string         `json:"session_id"`
-	Purpose         string         `json:"purpose"`
-	AttemptNo       int64          `json:"attempt_no"`
-	Status          string         `json:"status"`
-	InputContext    string         `json:"input_context"`
-	LeaseExpiresAt  sql.NullString `json:"lease_expires_at"`
+	ID              string          `json:"id"`
+	GoalID          string          `json:"goal_id"`
+	UserID          string          `json:"user_id"`
+	AgentID         sql.NullString  `json:"agent_id"`
+	ExecutorAgentID sql.NullString  `json:"executor_agent_id"`
+	SessionID       string          `json:"session_id"`
+	Purpose         string          `json:"purpose"`
+	AttemptNo       int64           `json:"attempt_no"`
+	Status          string          `json:"status"`
+	InputContext    json.RawMessage `json:"input_context"`
+	LeaseExpiresAt  sql.NullTime    `json:"lease_expires_at"`
 }
 
 func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (AgentGoalAttempt, error) {
@@ -106,11 +107,11 @@ func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (A
 
 const finalizeAttempt = `-- name: FinalizeAttempt :execrows
 UPDATE agent_goal_attempt
-SET status = ?1,
-    error = ?2,
-    finished_at = datetime('now'),
-    updated_at = datetime('now')
-WHERE id = ?3 AND status IN ('queued', 'running')
+SET status = $1,
+    error = $2,
+    finished_at = now(),
+    updated_at = now()
+WHERE id = $3 AND status IN ('queued', 'running')
 `
 
 type FinalizeAttemptParams struct {
@@ -129,8 +130,8 @@ func (q *Queries) FinalizeAttempt(ctx context.Context, arg FinalizeAttemptParams
 
 const getActiveAttempt = `-- name: GetActiveAttempt :one
 SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt
-WHERE goal_id = ?1
-  AND purpose = ?2
+WHERE goal_id = $1
+  AND purpose = $2
   AND status IN ('queued', 'running')
 `
 
@@ -170,7 +171,7 @@ func (q *Queries) GetActiveAttempt(ctx context.Context, arg GetActiveAttemptPara
 }
 
 const getAttempt = `-- name: GetAttempt :one
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt WHERE id = ?
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt WHERE id = $1
 `
 
 func (q *Queries) GetAttempt(ctx context.Context, id string) (AgentGoalAttempt, error) {
@@ -204,9 +205,9 @@ func (q *Queries) GetAttempt(ctx context.Context, id string) (AgentGoalAttempt, 
 }
 
 const getMaxAttemptNo = `-- name: GetMaxAttemptNo :one
-SELECT CAST(COALESCE(MAX(attempt_no), 0) AS INTEGER)
+SELECT CAST(COALESCE(MAX(attempt_no), 0) AS BIGINT)
 FROM agent_goal_attempt
-WHERE goal_id = ?1 AND purpose = ?2
+WHERE goal_id = $1 AND purpose = $2
 `
 
 type GetMaxAttemptNoParams struct {
@@ -226,15 +227,15 @@ func (q *Queries) GetMaxAttemptNo(ctx context.Context, arg GetMaxAttemptNoParams
 
 const heartbeatAttempt = `-- name: HeartbeatAttempt :execrows
 UPDATE agent_goal_attempt
-SET heartbeat_at = datetime('now'),
-    lease_expires_at = ?1,
-    updated_at = datetime('now')
-WHERE id = ?2 AND status = 'running'
+SET heartbeat_at = now(),
+    lease_expires_at = $1,
+    updated_at = now()
+WHERE id = $2 AND status = 'running'
 `
 
 type HeartbeatAttemptParams struct {
-	LeaseExpiresAt sql.NullString `json:"lease_expires_at"`
-	ID             string         `json:"id"`
+	LeaseExpiresAt sql.NullTime `json:"lease_expires_at"`
+	ID             string       `json:"id"`
 }
 
 func (q *Queries) HeartbeatAttempt(ctx context.Context, arg HeartbeatAttemptParams) (int64, error) {
@@ -247,14 +248,14 @@ func (q *Queries) HeartbeatAttempt(ctx context.Context, arg HeartbeatAttemptPara
 
 const listAttemptByGoal = `-- name: ListAttemptByGoal :many
 SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt
-WHERE goal_id = ?1
-  AND (?2 IS NULL OR purpose = ?2)
+WHERE goal_id = $1
+  AND ($2::text IS NULL OR purpose = $2::text)
 ORDER BY attempt_no DESC
 `
 
 type ListAttemptByGoalParams struct {
-	GoalID  string      `json:"goal_id"`
-	Purpose interface{} `json:"purpose"`
+	GoalID  string         `json:"goal_id"`
+	Purpose sql.NullString `json:"purpose"`
 }
 
 func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalParams) ([]AgentGoalAttempt, error) {
@@ -307,14 +308,14 @@ const listStaleAttempts = `-- name: ListStaleAttempts :many
 SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt
 WHERE status IN ('queued', 'running')
   AND lease_expires_at IS NOT NULL
-  AND lease_expires_at < ?1
+  AND lease_expires_at < $1
 ORDER BY lease_expires_at ASC
-LIMIT ?2
+LIMIT $2
 `
 
 type ListStaleAttemptsParams struct {
-	Now   sql.NullString `json:"now"`
-	Limit int64          `json:"limit"`
+	Now   sql.NullTime `json:"now"`
+	Limit int32        `json:"limit"`
 }
 
 func (q *Queries) ListStaleAttempts(ctx context.Context, arg ListStaleAttemptsParams) ([]AgentGoalAttempt, error) {
@@ -366,16 +367,16 @@ func (q *Queries) ListStaleAttempts(ctx context.Context, arg ListStaleAttemptsPa
 const promoteAttempt = `-- name: PromoteAttempt :execrows
 UPDATE agent_goal_attempt
 SET status = 'running',
-    started_at = datetime('now'),
-    heartbeat_at = datetime('now'),
-    lease_expires_at = ?1,
-    updated_at = datetime('now')
-WHERE id = ?2 AND status = 'queued'
+    started_at = now(),
+    heartbeat_at = now(),
+    lease_expires_at = $1,
+    updated_at = now()
+WHERE id = $2 AND status = 'queued'
 `
 
 type PromoteAttemptParams struct {
-	LeaseExpiresAt sql.NullString `json:"lease_expires_at"`
-	ID             string         `json:"id"`
+	LeaseExpiresAt sql.NullTime `json:"lease_expires_at"`
+	ID             string       `json:"id"`
 }
 
 func (q *Queries) PromoteAttempt(ctx context.Context, arg PromoteAttemptParams) (int64, error) {
@@ -388,8 +389,8 @@ func (q *Queries) PromoteAttempt(ctx context.Context, arg PromoteAttemptParams) 
 
 const setAttemptExecutor = `-- name: SetAttemptExecutor :exec
 UPDATE agent_goal_attempt
-SET executor_agent_id = ?1, updated_at = datetime('now')
-WHERE id = ?2
+SET executor_agent_id = $1, updated_at = now()
+WHERE id = $2
 `
 
 type SetAttemptExecutorParams struct {
@@ -404,13 +405,13 @@ func (q *Queries) SetAttemptExecutor(ctx context.Context, arg SetAttemptExecutor
 
 const setAttemptGaps = `-- name: SetAttemptGaps :exec
 UPDATE agent_goal_attempt
-SET gaps = ?1, updated_at = datetime('now')
-WHERE id = ?2
+SET gaps = $1, updated_at = now()
+WHERE id = $2
 `
 
 type SetAttemptGapsParams struct {
-	Gaps string `json:"gaps"`
-	ID   string `json:"id"`
+	Gaps json.RawMessage `json:"gaps"`
+	ID   string          `json:"id"`
 }
 
 func (q *Queries) SetAttemptGaps(ctx context.Context, arg SetAttemptGapsParams) error {
@@ -421,19 +422,19 @@ func (q *Queries) SetAttemptGaps(ctx context.Context, arg SetAttemptGapsParams) 
 const submitAttempt = `-- name: SubmitAttempt :execrows
 UPDATE agent_goal_attempt
 SET status = 'submitted',
-    evidence = ?1,
-    output = ?2,
-    revision_id = ?3,
-    finished_at = datetime('now'),
-    updated_at = datetime('now')
-WHERE id = ?4 AND status = 'running'
+    evidence = $1,
+    output = $2,
+    revision_id = $3,
+    finished_at = now(),
+    updated_at = now()
+WHERE id = $4 AND status = 'running'
 `
 
 type SubmitAttemptParams struct {
-	Evidence   string         `json:"evidence"`
-	Output     string         `json:"output"`
-	RevisionID sql.NullString `json:"revision_id"`
-	ID         string         `json:"id"`
+	Evidence   json.RawMessage `json:"evidence"`
+	Output     json.RawMessage `json:"output"`
+	RevisionID sql.NullString  `json:"revision_id"`
+	ID         string          `json:"id"`
 }
 
 func (q *Queries) SubmitAttempt(ctx context.Context, arg SubmitAttemptParams) (int64, error) {

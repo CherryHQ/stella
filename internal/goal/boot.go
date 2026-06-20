@@ -145,21 +145,15 @@ type GoalFilter struct {
 	Archived  bool
 }
 
-func (f GoalFilter) includeArchived() any {
-	if f.Archived {
-		return int64(1)
-	}
-	return nil
+func (f GoalFilter) includeArchived() bool {
+	return f.Archived
 }
 
-func (f GoalFilter) terminalArg() any {
+func (f GoalFilter) terminalArg() sql.NullBool {
 	if f.Terminal == nil {
-		return nil
+		return sql.NullBool{}
 	}
-	if *f.Terminal {
-		return int64(1)
-	}
-	return int64(0)
+	return sql.NullBool{Bool: *f.Terminal, Valid: true}
 }
 
 // ListGoals lists root goals (goals: parent_id IS NULL) for a user,
@@ -176,8 +170,8 @@ func (s *Service) ListGoals(ctx context.Context, userID string, filter GoalFilte
 		Terminal:        filter.terminalArg(),
 		Q:               nilIfEmpty(filter.Q),
 		IncludeArchived: filter.includeArchived(),
-		Limit:           limit,
-		Offset:          offset,
+		Limit:           int32(limit),
+		Offset:          int32(offset),
 	})
 }
 
@@ -390,11 +384,8 @@ func (s *Service) MaterializeRevision(ctx context.Context, revisionID string) ([
 	return s.Queries.ListGoalChildren(ctx, nullStr(parent.ID))
 }
 
-// nilIfEmpty returns nil for an empty string so a sqlc narg filter matches all
-// rows; otherwise it returns the value to filter on.
-func nilIfEmpty(v string) any {
-	if v == "" {
-		return nil
-	}
-	return v
+// nilIfEmpty returns an invalid sql.NullString for an empty string so a sqlc
+// narg filter matches all rows; otherwise it returns the value to filter on.
+func nilIfEmpty(v string) sql.NullString {
+	return sql.NullString{String: v, Valid: v != ""}
 }

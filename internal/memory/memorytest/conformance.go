@@ -10,6 +10,16 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
+// Fixed valid-uuid ids the suite operates on (user_id columns are PostgreSQL
+// uuid). A Provider backed by a real database must seed auth_user rows for
+// SessionUserID and ProfileUserID before RunConformance; NonexistentUserID is
+// deliberately never seeded, so lookups against it return empty, not an error.
+const (
+	SessionUserID     = "00000000-0000-7000-8000-000000000001"
+	ProfileUserID     = "00000000-0000-7000-8000-000000000002"
+	NonexistentUserID = "00000000-0000-7000-8000-000000000999"
+)
+
 // RunConformance runs the standard conformance suite against any Provider.
 // It tests: Bootstrap idempotency, Append ordering, Assemble budget/freshTail,
 // Stats accuracy, and any optional capabilities detected via type assertion.
@@ -19,7 +29,7 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 	session := memory.Session{
 		ID:      "test:cli:1:main",
 		AgentID: "test",
-		UserID:  "user-1",
+		UserID:  SessionUserID,
 		Channel: "cli",
 	}
 	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), session.UserID), session.AgentID)
@@ -186,7 +196,7 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 	if ps, ok := provider.(memory.ProfileStore); ok {
 		t.Run("ProfileStore", func(t *testing.T) {
 			// Get nonexistent profile — should return ("", nil).
-			content, err := ps.GetProfile(ctx, "999", "nonexistent")
+			content, err := ps.GetProfile(ctx, NonexistentUserID, "nonexistent")
 			if err != nil {
 				t.Fatalf("GetProfile for nonexistent: %v", err)
 			}
@@ -195,10 +205,10 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 			}
 
 			// Set and get round-trip.
-			if err := ps.SetProfile(ctx, "1", "test", "likes Go"); err != nil {
+			if err := ps.SetProfile(ctx, ProfileUserID, "test", "likes Go"); err != nil {
 				t.Fatalf("SetProfile: %v", err)
 			}
-			content, err = ps.GetProfile(ctx, "1", "test")
+			content, err = ps.GetProfile(ctx, ProfileUserID, "test")
 			if err != nil {
 				t.Fatalf("GetProfile: %v", err)
 			}
@@ -207,10 +217,10 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 			}
 
 			// Replace semantics.
-			if err := ps.SetProfile(ctx, "1", "test", "prefers Rust now"); err != nil {
+			if err := ps.SetProfile(ctx, ProfileUserID, "test", "prefers Rust now"); err != nil {
 				t.Fatalf("SetProfile replace: %v", err)
 			}
-			content, err = ps.GetProfile(ctx, "1", "test")
+			content, err = ps.GetProfile(ctx, ProfileUserID, "test")
 			if err != nil {
 				t.Fatalf("GetProfile after replace: %v", err)
 			}
@@ -221,7 +231,7 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 
 		t.Run("AgentSoul", func(t *testing.T) {
 			// Get nonexistent soul — should return ("", nil).
-			soul, err := ps.GetAgentSoul(ctx, "999", "nonexistent")
+			soul, err := ps.GetAgentSoul(ctx, NonexistentUserID, "nonexistent")
 			if err != nil {
 				t.Fatalf("GetAgentSoul for nonexistent: %v", err)
 			}
@@ -230,10 +240,10 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 			}
 
 			// Set and get round-trip.
-			if err := ps.SetAgentSoul(ctx, "1", "test", "You are friendly and concise."); err != nil {
+			if err := ps.SetAgentSoul(ctx, ProfileUserID, "test", "You are friendly and concise."); err != nil {
 				t.Fatalf("SetAgentSoul: %v", err)
 			}
-			soul, err = ps.GetAgentSoul(ctx, "1", "test")
+			soul, err = ps.GetAgentSoul(ctx, ProfileUserID, "test")
 			if err != nil {
 				t.Fatalf("GetAgentSoul: %v", err)
 			}
@@ -242,10 +252,10 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 			}
 
 			// Replace semantics.
-			if err := ps.SetAgentSoul(ctx, "1", "test", "Be formal."); err != nil {
+			if err := ps.SetAgentSoul(ctx, ProfileUserID, "test", "Be formal."); err != nil {
 				t.Fatalf("SetAgentSoul replace: %v", err)
 			}
-			soul, err = ps.GetAgentSoul(ctx, "1", "test")
+			soul, err = ps.GetAgentSoul(ctx, ProfileUserID, "test")
 			if err != nil {
 				t.Fatalf("GetAgentSoul after replace: %v", err)
 			}
@@ -254,7 +264,7 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 			}
 
 			// Soul and profile are independent.
-			profile, err := ps.GetProfile(ctx, "1", "test")
+			profile, err := ps.GetProfile(ctx, ProfileUserID, "test")
 			if err != nil {
 				t.Fatalf("GetProfile after soul update: %v", err)
 			}

@@ -102,7 +102,7 @@ func buildProjectEnsurer(db *sql.DB, store config.Store) agent.ProjectEnsurerFun
 		// user home (a project is owned by the agent, #442).
 		baseDir := agent.UserAgentDir(config.StellaHome(), userID, agentID)
 		p, err := q.CreateProject(ctx, sqlc.CreateProjectParams{
-			ID:      uuid.NewString(),
+			ID:      uuid.Must(uuid.NewV7()).String(),
 			AgentID: agentID,
 			UserID:  userID,
 			Name:    agentName,

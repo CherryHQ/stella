@@ -81,10 +81,10 @@ func New(db *sql.DB) (*Service, error) {
 	}, nil
 }
 
-// NewFromPath creates a scheduler service that opens its own SQLite database
-// at the given path. The database is closed when Stop is called.
-func NewFromPath(dbPath string) (*Service, error) {
-	db, err := appdb.OpenDB(dbPath)
+// NewFromPath creates a scheduler service that opens its own PostgreSQL
+// database from the given DSN. The database is closed when Stop is called.
+func NewFromPath(dsn string) (*Service, error) {
+	db, err := appdb.OpenDB(dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -639,8 +639,8 @@ func (s *Service) ListJobRuns(ctx context.Context, jobID string, limit int) ([]J
 	}
 	rows, err := s.q.ListSchedJobRuns(ctx, sqlc.ListSchedJobRunsParams{
 		JobID:  jobID,
-		UserID: nil,
-		Limit:  int64(limit),
+		UserID: sql.NullString{},
+		Limit:  int32(limit),
 		Offset: 0,
 	})
 	if err != nil {

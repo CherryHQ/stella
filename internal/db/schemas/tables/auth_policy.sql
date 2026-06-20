@@ -6,9 +6,9 @@ CREATE TABLE auth_policy (
     actions    TEXT NOT NULL DEFAULT '[]',
     resources  TEXT NOT NULL DEFAULT '[]',
     conditions TEXT NOT NULL DEFAULT '{}',
-    priority   INTEGER NOT NULL DEFAULT 0,
-    is_system  INTEGER NOT NULL DEFAULT 0,
-    enabled    INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    priority   BIGINT NOT NULL DEFAULT 0,
+    is_system  BOOLEAN NOT NULL DEFAULT false,
+    enabled    BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

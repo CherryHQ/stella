@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -91,8 +92,8 @@ type Store struct {
 func NewStore(db *sql.DB) *Store { return &Store{db: db} }
 
 // AppendGroupMessage is the single sanctioned append primitive. It runs the
-// closed, idempotent algorithm under BEGIN IMMEDIATE (SQLite is single-writer,
-// so this serializes group writes): resolve-or-create the registry row, check
+// closed, idempotent algorithm under a per-group advisory lock (which
+// serializes concurrent writers for the same group): resolve-or-create the registry row, check
 // for an existing message by unique key, and only on a miss bump next_seq and
 // insert. An idempotent redelivery neither inserts a row nor consumes a seq.
 func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...AppendOption) (AppendResult, error) {
@@ -105,23 +106,17 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		opt(&cfg)
 	}
 
-	conn, err := s.db.Conn(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return AppendResult{}, fmt.Errorf("eventlog: acquire conn: %w", err)
+		return AppendResult{}, fmt.Errorf("eventlog: begin: %w", err)
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = tx.Rollback() }()
 
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return AppendResult{}, fmt.Errorf("eventlog: begin immediate: %w", err)
+	if err := appdb.AdvisoryXactLock(ctx, tx, groupTripleKey(msg.Platform, msg.PlatformGroupID, msg.PlatformThreadID)); err != nil {
+		return AppendResult{}, err
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_, _ = conn.ExecContext(ctx, "ROLLBACK")
-		}
-	}()
 
-	q := sqlc.New(conn)
+	q := sqlc.New(tx)
 
 	groupID, err := resolveGroupID(ctx, q, msg.Platform, msg.PlatformGroupID, msg.PlatformThreadID)
 	if err != nil {
@@ -132,10 +127,9 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 	if existing, found, err := lookup(ctx, q, groupID, msg, idemKey); err != nil {
 		return AppendResult{}, err
 	} else if found {
-		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		if err := tx.Commit(); err != nil {
 			return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 		}
-		committed = true
 		return AppendResult{GroupID: groupID, Seq: existing.Seq, Inserted: false, Message: existing}, nil
 	}
 
@@ -145,7 +139,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 	}
 
 	row, err := q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
-		ID:                uuid.NewString(),
+		ID:                uuid.Must(uuid.NewV7()).String(),
 		GroupID:           groupID,
 		Seq:               seq,
 		SourceChannelID:   nullString(msg.SourceChannelID),
@@ -153,7 +147,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		ActorID:           msg.ActorID,
 		PlatformMessageID: nullString(msg.PlatformMessageID),
 		ReplyTo:           nullString(msg.ReplyTo),
-		PlatformTimestamp: nullString(platformTimestamp(msg.PlatformTimestamp)),
+		PlatformTimestamp: nullTime(msg.PlatformTimestamp),
 		IdempotencyKey:    idemKey,
 		Content:           msg.Content,
 	})
@@ -168,53 +162,58 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		}
 	}
 
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+	if err := tx.Commit(); err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 	}
-	committed = true
 	return result, nil
 }
 
 // AppendToGroup appends a message directly to a pre-resolved group (bypassing
 // triple-based group resolution). Used for agent response writeback where the
 // groupID is already known from the dispatch flow.
+//
+// It locks on "gid:"+groupID — a different namespace than AppendGroupMessage's
+// triple key — and that split is deliberate, not a missed unification: a
+// pre-resolved group already exists, so there is no get-or-create to serialize
+// against the triple path, and the two paths share no mutable state except
+// next_seq, whose allocation is already serialized by BumpGroupSeq's atomic
+// UPDATE ... RETURNING row lock (with UNIQUE(group_id, seq) as a backstop). The
+// advisory lock here exists to make the dispatcher's multi-statement writeback
+// atomic, not to protect the seq bump.
 func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMessage) (AppendResult, error) {
 	if err := validateGroupAppend(groupID, msg); err != nil {
 		return AppendResult{}, err
 	}
 
-	conn, err := s.db.Conn(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return AppendResult{}, fmt.Errorf("eventlog: acquire conn: %w", err)
+		return AppendResult{}, fmt.Errorf("eventlog: begin: %w", err)
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = tx.Rollback() }()
 
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return AppendResult{}, fmt.Errorf("eventlog: begin immediate: %w", err)
+	if err := appdb.AdvisoryXactLock(ctx, tx, "gid:"+groupID); err != nil {
+		return AppendResult{}, err
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_, _ = conn.ExecContext(ctx, "ROLLBACK")
-		}
-	}()
 
-	q := sqlc.New(conn)
+	q := sqlc.New(tx)
 	result, err := AppendToGroupWithQueries(ctx, q, groupID, msg)
 	if err != nil {
 		return AppendResult{}, err
 	}
 
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+	if err := tx.Commit(); err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 	}
-	committed = true
 	return result, nil
 }
 
 // AppendToGroupWithQueries appends to a pre-resolved group using the caller's
-// query handle. The caller owns the surrounding transaction; this helper lets
-// dispatch result markers commit atomically with agent response writeback.
+// query handle. The caller owns the surrounding transaction and MUST already
+// hold the "gid:"+groupID advisory lock (see AppendToGroup) so this writeback
+// stays atomic with its sibling writes — this helper lets dispatch result
+// markers commit atomically with agent response writeback. Seq integrity itself
+// does not depend on that lock: BumpGroupSeq's atomic UPDATE ... RETURNING
+// guarantees a distinct seq under the row lock regardless.
 func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID string, msg GroupMessage) (AppendResult, error) {
 	if err := validateGroupAppend(groupID, msg); err != nil {
 		return AppendResult{}, err
@@ -224,7 +223,7 @@ func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID stri
 		return AppendResult{}, fmt.Errorf("eventlog: bump seq: %w", err)
 	}
 	row, err := q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
-		ID:             uuid.NewString(),
+		ID:             uuid.Must(uuid.NewV7()).String(),
 		GroupID:        groupID,
 		Seq:            seq,
 		ActorType:      string(msg.ActorType),
@@ -276,38 +275,39 @@ func validate(msg Message) error {
 
 // ResolveGroupID performs a get-or-create on the group registry for the given
 // physical (platform, group, thread) triple and returns the surrogate group_id.
-// It runs under BEGIN IMMEDIATE so the upsert is atomic.
+// It runs under a per-group advisory lock so the get-or-create is atomic.
 func (s *Store) ResolveGroupID(ctx context.Context, platform, platformGroupID, platformThreadID string) (string, error) {
 	if platform == "" || platformGroupID == "" {
 		return "", errors.New("eventlog: platform and platform_group_id are required")
 	}
-	conn, err := s.db.Conn(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return "", fmt.Errorf("eventlog: acquire conn: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return "", fmt.Errorf("eventlog: begin: %w", err)
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_, _ = conn.ExecContext(ctx, "ROLLBACK")
-		}
-	}()
+	defer func() { _ = tx.Rollback() }()
 
-	q := sqlc.New(conn)
+	if err := appdb.AdvisoryXactLock(ctx, tx, groupTripleKey(platform, platformGroupID, platformThreadID)); err != nil {
+		return "", err
+	}
+
+	q := sqlc.New(tx)
 	id, err := resolveGroupID(ctx, q, platform, platformGroupID, platformThreadID)
 	if err != nil {
 		return "", err
 	}
 
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("eventlog: commit: %w", err)
 	}
-	committed = true
 	return id, nil
+}
+
+// groupTripleKey namespaces the per-group advisory lock by the physical
+// (platform, group, thread) triple — the identity that AppendGroupMessage and
+// ResolveGroupID serialize on, since their get-or-create of the registry row
+// would otherwise race two concurrent first-appends into a unique violation.
+func groupTripleKey(platform, platformGroupID, platformThreadID string) string {
+	return "grp:" + platform + ":" + platformGroupID + ":" + platformThreadID
 }
 
 // resolveGroupID is step 0: get-or-create the registry row for the physical
@@ -325,7 +325,7 @@ func resolveGroupID(ctx context.Context, q *sqlc.Queries, platform, platformGrou
 		return "", fmt.Errorf("eventlog: get group state: %w", err)
 	}
 	created, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
-		ID:               uuid.NewString(),
+		ID:               uuid.Must(uuid.NewV7()).String(),
 		Platform:         platform,
 		PlatformGroupID:  platformGroupID,
 		PlatformThreadID: platformThreadID,
@@ -392,4 +392,14 @@ func nullString(s string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: s, Valid: true}
+}
+
+// nullTime maps the zero time to a NULL platform_timestamp and any other time to
+// a valid UTC value, matching the valid/zero semantics platformTimestamp had
+// when the column was stored as text.
+func nullTime(t time.Time) sql.NullTime {
+	if t.IsZero() {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: t.UTC(), Valid: true}
 }

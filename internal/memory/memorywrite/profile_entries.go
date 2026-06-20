@@ -24,7 +24,7 @@ func GetProfileEntries(ctx context.Context, q *sqlc.Queries, userID, agentID str
 	if err != nil {
 		return nil, fmt.Errorf("get profile entries: %w", err)
 	}
-	return ParseProfileEntriesJSON(row.ProfileEntries)
+	return ParseProfileEntriesJSON(string(row.ProfileEntries))
 }
 
 // AddProfileEntry appends an auto-generated dated entry to the profile_entries
@@ -37,13 +37,17 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return nil, err
+	}
+
 	qtx := q.WithTx(tx)
 
 	old, err := qtx.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
 	var beforeJSON string
 	var beforeVersion int64
 	if err == nil {
-		beforeJSON = old.ProfileEntries
+		beforeJSON = string(old.ProfileEntries)
 		beforeVersion = old.Version
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("read profile entries: %w", err)
@@ -55,7 +59,7 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 	}
 
 	entry := memory.ProfileEntry{
-		ID:        uuid.NewString(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Text:      text,
 		Source:    "auto",
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
@@ -70,7 +74,7 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 	row, err := qtx.UpsertProfileEntries(ctx, sqlc.UpsertProfileEntriesParams{
 		UserID:         userID,
 		AgentID:        agentID,
-		ProfileEntries: string(afterJSON),
+		ProfileEntries: afterJSON,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upsert profile entries: %w", err)
@@ -78,7 +82,7 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "profile_entry",

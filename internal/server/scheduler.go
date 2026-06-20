@@ -392,9 +392,9 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 	}
 	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
 		JobID:  jobID,
-		UserID: nil,
-		Limit:  int64(limit + 1),
-		Offset: int64(offset),
+		UserID: sql.NullString{},
+		Limit:  int32(limit + 1),
+		Offset: int32(offset),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list job runs")
@@ -443,9 +443,9 @@ func (s *Server) dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
 		Every:       ptrStr(row.ScheduleEvery),
 		At:          ptrStr(row.ScheduleAt),
 		SessionMode: row.SessionMode,
-		Enabled:     row.Enabled != 0,
-		CreatedAt:   ptrTime(parseTime(row.CreatedAt)),
-		UpdatedAt:   ptrTime(parseTime(row.UpdatedAt)),
+		Enabled:     row.Enabled,
+		CreatedAt:   ptrTime(row.CreatedAt.UTC()),
+		UpdatedAt:   ptrTime(row.UpdatedAt.UTC()),
 		LastError:   ptrStr(row.LastError),
 	}
 	// For subscription instances: return the template-resolved message and
@@ -517,7 +517,7 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 		JobId:     row.JobID,
 		SessionId: row.SessionID,
 		Status:    row.Status,
-		StartedAt: parseTime(row.StartedAt),
+		StartedAt: row.StartedAt.UTC(),
 	}
 	if row.Error != "" {
 		j.Error = &row.Error
@@ -530,7 +530,7 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 	}
 	if finished := parseTimePtr(row.FinishedAt); finished != nil {
 		j.FinishedAt = finished
-		if started := parseTime(row.StartedAt); !started.IsZero() {
+		if started := row.StartedAt.UTC(); !started.IsZero() {
 			dur := finished.Sub(started).Truncate(time.Second).String()
 			j.Duration = &dur
 		}
@@ -554,12 +554,12 @@ func derefStr(p *string) string {
 	return *p
 }
 
-func decodeSchedulerPayload(raw string) map[string]any {
-	if raw == "" || raw == "{}" {
+func decodeSchedulerPayload(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 || string(raw) == "{}" {
 		return map[string]any{}
 	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		return map[string]any{}
 	}
 	if payload == nil {

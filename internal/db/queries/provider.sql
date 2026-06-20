@@ -1,29 +1,30 @@
 -- name: GetProvider :one
-SELECT * FROM provider WHERE id = ?;
+SELECT * FROM provider WHERE id = $1;
 
 -- name: ListProviders :many
 SELECT * FROM provider ORDER BY name, id;
 
 -- name: ListEnabledProviders :many
-SELECT * FROM provider WHERE enabled = 1 ORDER BY name, id;
+SELECT * FROM provider WHERE enabled = true ORDER BY name, id;
 
 -- name: CreateProvider :one
 INSERT INTO provider (id, type, name, enabled, config, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
+VALUES ($1, $2, $3, $4, $5, now())
 RETURNING *;
 
 -- name: UpdateProvider :exec
 UPDATE provider SET
-    type = ?,
-    name = ?,
-    enabled = ?,
-    config = ?,
-    updated_at = datetime('now')
-WHERE id = ?;
+    type = $1,
+    name = $2,
+    enabled = $3,
+    config = $4,
+    updated_at = now()
+WHERE id = $5;
 
 -- name: DeleteProvider :exec
-DELETE FROM provider WHERE id = ?;
+DELETE FROM provider WHERE id = $1;
 
 -- name: SeedProvider :exec
-INSERT OR IGNORE INTO provider (id, type, name, enabled, config)
-VALUES (?, ?, ?, ?, ?);
+INSERT INTO provider (id, type, name, enabled, config)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT DO NOTHING;

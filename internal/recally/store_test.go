@@ -3,152 +3,35 @@ package recally
 import (
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/google/uuid"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
+
+// recally_*.user_id columns are PG uuid, so test users need valid uuids.
+// testUserID owns every saved row; otherUserID is the scoping-test outsider.
+var (
+	testUserID  = uuid.NewString()
+	otherUserID = uuid.NewString()
+)
+
+func TestMain(m *testing.M) { dbtest.Main(m) }
 
 func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
 
-	// Create temp directory for test database
-	tempDir, err := os.MkdirTemp("", "recally-store-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
+	db := dbtest.New(t)
 
-	dbPath := filepath.Join(tempDir, "test.db")
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-			t.Fatalf("Failed to clean up temp dir after open error: %v", removeErr)
-		}
-		t.Fatalf("Failed to open test database: %v", err)
-	}
-
-	// Create tables
-	schema := `
-CREATE TABLE IF NOT EXISTS auth_users (
-    id INTEGER PRIMARY KEY,
-    username TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'user',
-    is_active INTEGER NOT NULL DEFAULT 1,
-    age_public_key TEXT NOT NULL DEFAULT '',
-    age_private_key TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS recally_article (
-    id TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    agent_id TEXT,
-    url TEXT NOT NULL,
-    canonical_url TEXT NOT NULL,
-    source_type TEXT NOT NULL DEFAULT 'web',
-    title TEXT NOT NULL DEFAULT '',
-    author TEXT NOT NULL DEFAULT '',
-    summary TEXT NOT NULL DEFAULT '',
-    tags TEXT NOT NULL DEFAULT '[]',
-    status TEXT NOT NULL DEFAULT 'unread',
-    starred INTEGER NOT NULL DEFAULT 0,
-    file_path TEXT NOT NULL DEFAULT '',
-    metadata TEXT NOT NULL DEFAULT '{}',
-    published_at TEXT,
-    saved_at TEXT NOT NULL DEFAULT (datetime('now')),
-    read_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_article_user_canonical ON recally_article (user_id, canonical_url);
-
-CREATE TABLE IF NOT EXISTS recally_feed (
-    id TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    agent_id TEXT,
-    url TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'rss',
-    metadata TEXT NOT NULL DEFAULT '{}',
-    title TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT '',
-    check_interval TEXT NOT NULL DEFAULT '1h',
-    last_checked_at TEXT,
-    last_etag TEXT NOT NULL DEFAULT '',
-    last_modified TEXT NOT NULL DEFAULT '',
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_feed_user_url ON recally_feed (user_id, url);
-
-CREATE TABLE IF NOT EXISTS recally_feed_entry (
-    id TEXT PRIMARY KEY,
-    feed_id TEXT NOT NULL,
-    guid TEXT NOT NULL,
-    url TEXT NOT NULL DEFAULT '',
-    title TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'pending',
-    article_id TEXT,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    error_msg TEXT NOT NULL DEFAULT '',
-    discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
-    processed_at TEXT
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_feed_entry_feed_guid ON recally_feed_entry (feed_id, guid);
-`
-
-	if _, err := db.Exec(schema); err != nil {
-		if closeErr := db.Close(); closeErr != nil {
-			t.Fatalf("Failed to close test database: %v", closeErr)
-		}
-		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-			t.Fatalf("Failed to remove temp dir: %v", removeErr)
-		}
-		t.Fatalf("Failed to create schema: %v", err)
-	}
-
-	// Article search runs against the runtime-managed FTS5 index; apply the
-	// same DDL OpenDB would so triggers keep the index in sync.
-	if _, err := db.Exec(appdb.RecallyArticleFTSSchema); err != nil {
-		if closeErr := db.Close(); closeErr != nil {
-			t.Fatalf("Failed to close test database: %v", closeErr)
-		}
-		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-			t.Fatalf("Failed to remove temp dir: %v", removeErr)
-		}
-		t.Fatalf("Failed to create FTS schema: %v", err)
-	}
-
-	// Insert a test user
-	if _, err := db.Exec(`INSERT INTO auth_users (id, username, password_hash) VALUES (1, 'testuser', 'hash')`); err != nil {
-		if closeErr := db.Close(); closeErr != nil {
-			t.Fatalf("Failed to close test database: %v", closeErr)
-		}
-		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-			t.Fatalf("Failed to remove temp dir: %v", removeErr)
-		}
+	// recally_article.user_id has a FK to auth_user(id); the tests save as
+	// testUserID, so that row must exist before any insert.
+	if _, err := db.Exec(`INSERT INTO auth_user (id, email) VALUES ($1, 'testuser@example.com')`, testUserID); err != nil {
 		t.Fatalf("Failed to insert test user: %v", err)
 	}
 
-	cleanup := func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("Failed to close test database: %v", err)
-		}
-		if err := os.RemoveAll(tempDir); err != nil {
-			t.Fatalf("Failed to remove temp dir: %v", err)
-		}
-	}
-
-	return db, cleanup
+	return db, func() {}
 }
 
 func TestStore_SaveArticle(t *testing.T) {
@@ -171,7 +54,7 @@ func TestStore_SaveArticle(t *testing.T) {
 	}
 
 	// Save new article
-	article, isNew, err := store.SaveArticle(ctx, "1", req)
+	article, isNew, err := store.SaveArticle(ctx, testUserID, req)
 	if err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
@@ -191,7 +74,7 @@ func TestStore_SaveArticle(t *testing.T) {
 
 	// Save same article again - should update
 	req.Title = "Updated Title"
-	article2, isNew2, err := store.SaveArticle(ctx, "1", req)
+	article2, isNew2, err := store.SaveArticle(ctx, testUserID, req)
 	if err != nil {
 		t.Fatalf("SaveArticle (update) failed: %v", err)
 	}
@@ -219,13 +102,13 @@ func TestStore_GetArticle(t *testing.T) {
 		SourceType: SourceTypeWeb,
 		Title:      "Get Test",
 	}
-	created, _, err := store.SaveArticle(ctx, "1", req)
+	created, _, err := store.SaveArticle(ctx, testUserID, req)
 	if err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
 
 	// Get the article
-	article, err := store.GetArticle(ctx, "1", created.ID)
+	article, err := store.GetArticle(ctx, testUserID, created.ID)
 	if err != nil {
 		t.Fatalf("GetArticle failed: %v", err)
 	}
@@ -234,7 +117,7 @@ func TestStore_GetArticle(t *testing.T) {
 	}
 
 	// Get non-existent article
-	_, err = store.GetArticle(ctx, "1", "nonexistent")
+	_, err = store.GetArticle(ctx, testUserID, "nonexistent")
 	if err == nil {
 		t.Error("Expected error for non-existent article")
 	}
@@ -253,7 +136,7 @@ func TestStore_UpdateArticle(t *testing.T) {
 		SourceType: SourceTypeWeb,
 		Title:      "Original Title",
 	}
-	created, _, err := store.SaveArticle(ctx, "1", req)
+	created, _, err := store.SaveArticle(ctx, testUserID, req)
 	if err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
@@ -266,7 +149,7 @@ func TestStore_UpdateArticle(t *testing.T) {
 		"starred": true,
 	}
 
-	updated, err := store.UpdateArticle(ctx, "1", created.ID, updates)
+	updated, err := store.UpdateArticle(ctx, testUserID, created.ID, updates)
 	if err != nil {
 		t.Fatalf("UpdateArticle failed: %v", err)
 	}
@@ -298,19 +181,19 @@ func TestStore_DeleteArticle(t *testing.T) {
 		SourceType: SourceTypeWeb,
 		Title:      "Delete Test",
 	}
-	created, _, err := store.SaveArticle(ctx, "1", req)
+	created, _, err := store.SaveArticle(ctx, testUserID, req)
 	if err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
 
 	// Delete article
-	err = store.DeleteArticle(ctx, "1", created.ID)
+	err = store.DeleteArticle(ctx, testUserID, created.ID)
 	if err != nil {
 		t.Fatalf("DeleteArticle failed: %v", err)
 	}
 
 	// Verify deletion
-	_, err = store.GetArticle(ctx, "1", created.ID)
+	_, err = store.GetArticle(ctx, testUserID, created.ID)
 	if err == nil {
 		t.Error("Expected error after deleting article")
 	}
@@ -330,7 +213,7 @@ func TestStore_ListArticles(t *testing.T) {
 			SourceType: SourceTypeWeb,
 			Title:      fmt.Sprintf("Article %d", i),
 		}
-		_, _, err := store.SaveArticle(ctx, "1", req)
+		_, _, err := store.SaveArticle(ctx, testUserID, req)
 		if err != nil {
 			t.Fatalf("SaveArticle failed: %v", err)
 		}
@@ -338,7 +221,7 @@ func TestStore_ListArticles(t *testing.T) {
 
 	// List all articles
 	filter := ArticleFilter{Limit: 10}
-	articles, err := store.ListArticles(ctx, "1", filter)
+	articles, err := store.ListArticles(ctx, testUserID, filter)
 	if err != nil {
 		t.Fatalf("ListArticles failed: %v", err)
 	}
@@ -362,14 +245,14 @@ func TestStore_SearchArticles(t *testing.T) {
 	}
 
 	for _, req := range articles {
-		_, _, err := store.SaveArticle(ctx, "1", req)
+		_, _, err := store.SaveArticle(ctx, testUserID, req)
 		if err != nil {
 			t.Fatalf("SaveArticle failed: %v", err)
 		}
 	}
 
 	// Search for "Go"
-	results, err := store.SearchArticles(ctx, "1", "Go", 10)
+	results, err := store.SearchArticles(ctx, testUserID, "Go", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
@@ -378,7 +261,7 @@ func TestStore_SearchArticles(t *testing.T) {
 	}
 
 	// Search for "Python"
-	results, err = store.SearchArticles(ctx, "1", "Python", 10)
+	results, err = store.SearchArticles(ctx, testUserID, "Python", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
@@ -399,12 +282,12 @@ func TestStore_SearchArticles_RanksTitleAboveAuthor(t *testing.T) {
 		{URL: "https://example.com/by-quasar", Title: "Unrelated piece", Author: "Quasar Quill"},
 		{URL: "https://example.com/about-quasar", Title: "Quasar formation explained", Author: "Someone Else"},
 	} {
-		if _, _, err := store.SaveArticle(ctx, "1", req); err != nil {
+		if _, _, err := store.SaveArticle(ctx, testUserID, req); err != nil {
 			t.Fatalf("SaveArticle failed: %v", err)
 		}
 	}
 
-	results, err := store.SearchArticles(ctx, "1", "quasar", 10)
+	results, err := store.SearchArticles(ctx, testUserID, "quasar", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
@@ -423,13 +306,13 @@ func TestStore_SearchArticles_UserScoping(t *testing.T) {
 	store := NewStore(db)
 	ctx := t.Context()
 
-	if _, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+	if _, _, err := store.SaveArticle(ctx, testUserID, SaveRequest{
 		URL: "https://example.com/mine", Title: "Private zeppelin notes",
 	}); err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
 
-	results, err := store.SearchArticles(ctx, "2", "zeppelin", 10)
+	results, err := store.SearchArticles(ctx, otherUserID, "zeppelin", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
@@ -445,14 +328,14 @@ func TestStore_SearchArticles_CJKAndShortQueryFallback(t *testing.T) {
 	store := NewStore(db)
 	ctx := t.Context()
 
-	if _, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+	if _, _, err := store.SaveArticle(ctx, testUserID, SaveRequest{
 		URL: "https://example.com/deploy", Title: "今天讨论了部署方案", Summary: "K8s 上线计划",
 	}); err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
 
 	// 3+ rune CJK query hits the trigram MATCH path.
-	results, err := store.SearchArticles(ctx, "1", "部署方案", 10)
+	results, err := store.SearchArticles(ctx, testUserID, "部署方案", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
@@ -462,19 +345,30 @@ func TestStore_SearchArticles_CJKAndShortQueryFallback(t *testing.T) {
 
 	// 2-char query matches nothing via trigram MATCH; the LIKE fallback must
 	// still find it, and must stay user-scoped.
-	results, err = store.SearchArticles(ctx, "1", "部署", 10)
+	results, err = store.SearchArticles(ctx, testUserID, "部署", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("Expected 1 fallback hit for 部署, got %d", len(results))
 	}
-	results, err = store.SearchArticles(ctx, "2", "部署", 10)
+	results, err = store.SearchArticles(ctx, otherUserID, "部署", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
 	if len(results) != 0 {
 		t.Errorf("Expected fallback to stay user-scoped, got %d hits", len(results))
+	}
+
+	// The Latin fallback must be case-insensitive: SQLite's LIKE ignores ASCII
+	// case, so PostgreSQL's fallback uses ILIKE. A lowercase short query still
+	// finds the uppercase "K8s" token in the saved summary.
+	results, err = store.SearchArticles(ctx, testUserID, "k8", 10)
+	if err != nil {
+		t.Fatalf("SearchArticles failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 case-insensitive fallback hit for k8, got %d", len(results))
 	}
 }
 
@@ -485,16 +379,16 @@ func TestStore_SearchArticles_NoStaleHitsAfterDeleteAndUpdate(t *testing.T) {
 	store := NewStore(db)
 	ctx := t.Context()
 
-	deleted, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+	deleted, _, err := store.SaveArticle(ctx, testUserID, SaveRequest{
 		URL: "https://example.com/doomed", Title: "Obsolete walrus manual",
 	})
 	if err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
-	if err := store.DeleteArticle(ctx, "1", deleted.ID); err != nil {
+	if err := store.DeleteArticle(ctx, testUserID, deleted.ID); err != nil {
 		t.Fatalf("DeleteArticle failed: %v", err)
 	}
-	results, err := store.SearchArticles(ctx, "1", "walrus", 10)
+	results, err := store.SearchArticles(ctx, testUserID, "walrus", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
@@ -503,23 +397,23 @@ func TestStore_SearchArticles_NoStaleHitsAfterDeleteAndUpdate(t *testing.T) {
 	}
 
 	// Updates must drop the old terms from the index and add the new ones.
-	article, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+	article, _, err := store.SaveArticle(ctx, testUserID, SaveRequest{
 		URL: "https://example.com/renamed", Title: "Original ocelot title",
 	})
 	if err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
-	if _, err := store.UpdateArticle(ctx, "1", article.ID, map[string]any{"title": "Renamed capybara title"}); err != nil {
+	if _, err := store.UpdateArticle(ctx, testUserID, article.ID, map[string]any{"title": "Renamed capybara title"}); err != nil {
 		t.Fatalf("UpdateArticle failed: %v", err)
 	}
-	results, err = store.SearchArticles(ctx, "1", "ocelot", 10)
+	results, err = store.SearchArticles(ctx, testUserID, "ocelot", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
 	if len(results) != 0 {
 		t.Errorf("Expected no hits for replaced title, got %d", len(results))
 	}
-	results, err = store.SearchArticles(ctx, "1", "capybara", 10)
+	results, err = store.SearchArticles(ctx, testUserID, "capybara", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
@@ -535,14 +429,14 @@ func TestStore_SearchArticles_SpecialCharsAndEmptyQuery(t *testing.T) {
 	store := NewStore(db)
 	ctx := t.Context()
 
-	if _, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+	if _, _, err := store.SaveArticle(ctx, testUserID, SaveRequest{
 		URL: "https://example.com/special", Title: "C++ versus Rust: a (biased) take",
 	}); err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
 
 	// FTS5 operators in user input must never produce a query error.
-	results, err := store.SearchArticles(ctx, "1", `rust* AND (biased) -take "c++"`, 10)
+	results, err := store.SearchArticles(ctx, testUserID, `rust* AND (biased) -take "c++"`, 10)
 	if err != nil {
 		t.Fatalf("SearchArticles with operators failed: %v", err)
 	}
@@ -552,7 +446,7 @@ func TestStore_SearchArticles_SpecialCharsAndEmptyQuery(t *testing.T) {
 
 	// Queries with no extractable tokens return empty without touching FTS.
 	for _, q := range []string{"", "   ", `*** (") -:`} {
-		results, err := store.SearchArticles(ctx, "1", q, 10)
+		results, err := store.SearchArticles(ctx, testUserID, q, 10)
 		if err != nil {
 			t.Fatalf("SearchArticles(%q) failed: %v", q, err)
 		}
@@ -570,7 +464,7 @@ func TestStore_Feeds(t *testing.T) {
 	ctx := t.Context()
 
 	// Create feed
-	feed, err := store.CreateFeed(ctx, "1", "https://example.com/feed.xml", FeedKindRSS, nil, "Test Feed", "A test feed", nil)
+	feed, err := store.CreateFeed(ctx, testUserID, "https://example.com/feed.xml", FeedKindRSS, nil, "Test Feed", "A test feed", nil)
 	if err != nil {
 		t.Fatalf("CreateFeed failed: %v", err)
 	}
@@ -582,7 +476,7 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// Get feed
-	retrieved, err := store.GetFeed(ctx, "1", feed.ID)
+	retrieved, err := store.GetFeed(ctx, testUserID, feed.ID)
 	if err != nil {
 		t.Fatalf("GetFeed failed: %v", err)
 	}
@@ -591,7 +485,7 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// Get feed by URL
-	byURL, err := store.GetFeedByURL(ctx, "1", "https://example.com/feed.xml")
+	byURL, err := store.GetFeedByURL(ctx, testUserID, "https://example.com/feed.xml")
 	if err != nil {
 		t.Fatalf("GetFeedByURL failed: %v", err)
 	}
@@ -600,7 +494,7 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// List feeds
-	feeds, err := store.ListFeeds(ctx, "1", 50, 0)
+	feeds, err := store.ListFeeds(ctx, testUserID, 50, 0)
 	if err != nil {
 		t.Fatalf("ListFeeds failed: %v", err)
 	}
@@ -615,7 +509,7 @@ func TestStore_Feeds(t *testing.T) {
 		"last_etag":     "\"abc123\"",
 		"last_modified": "Wed, 29 Apr 2026 12:00:00 GMT",
 	}
-	updated, err := store.UpdateFeed(ctx, "1", feed.ID, updates)
+	updated, err := store.UpdateFeed(ctx, testUserID, feed.ID, updates)
 	if err != nil {
 		t.Fatalf("UpdateFeed failed: %v", err)
 	}
@@ -627,13 +521,13 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// Delete feed
-	err = store.DeleteFeed(ctx, "1", feed.ID)
+	err = store.DeleteFeed(ctx, testUserID, feed.ID)
 	if err != nil {
 		t.Fatalf("DeleteFeed failed: %v", err)
 	}
 
 	// Verify deletion
-	_, err = store.GetFeed(ctx, "1", feed.ID)
+	_, err = store.GetFeed(ctx, testUserID, feed.ID)
 	if err == nil {
 		t.Error("Expected error after deleting feed")
 	}
@@ -647,7 +541,7 @@ func TestStore_FeedEntries(t *testing.T) {
 	ctx := t.Context()
 
 	// Create feed
-	feed, err := store.CreateFeed(ctx, "1", "https://example.com/feed.xml", FeedKindRSS, nil, "Test Feed", "", nil)
+	feed, err := store.CreateFeed(ctx, testUserID, "https://example.com/feed.xml", FeedKindRSS, nil, "Test Feed", "", nil)
 	if err != nil {
 		t.Fatalf("CreateFeed failed: %v", err)
 	}
@@ -679,8 +573,17 @@ func TestStore_FeedEntries(t *testing.T) {
 		t.Errorf("Expected 3 pending entries, got %d", len(pending))
 	}
 
-	// Mark entry as saved
-	articleID := "article-123"
+	// Mark entry as saved. recally_feed_entry.article_id has a FK to
+	// recally_article(id), so the referenced article must really exist.
+	savedArticle, _, err := store.SaveArticle(ctx, testUserID, SaveRequest{
+		URL:        "https://example.com/feed-saved",
+		SourceType: SourceTypeWeb,
+		Title:      "Feed Saved Article",
+	})
+	if err != nil {
+		t.Fatalf("SaveArticle failed: %v", err)
+	}
+	articleID := savedArticle.ID
 	updated, err := store.MarkFeedEntry(ctx, feed.ID, pending[0].ID, EntryStatusSaved, &articleID, "")
 	if err != nil {
 		t.Fatalf("MarkFeedEntry failed: %v", err)

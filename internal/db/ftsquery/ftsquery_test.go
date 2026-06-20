@@ -13,20 +13,22 @@ func TestBuildMatchQuery(t *testing.T) {
 		{"hello world", `"hello" OR "world"`},
 		{"snake_case token2", `"snake_case" OR "token2"`},
 		{`quoted "phrase" here`, `"quoted" OR "phrase" OR "here"`},
-		{"日本語 test", `"日本語" OR "test"`},
-		// FTS5 operators and punctuation are separators, never query syntax.
+		{"日本語 test", `"test"`},
+		// tsquery operators and punctuation are separators, never query syntax.
 		{"a* (b) -c:d", ""},
 		{"", ""},
 		{`*** (") -:`, ""},
 		{"   ", ""},
-		// Tokens under 3 runes match nothing on a trigram index, so they are
-		// dropped entirely; mixed queries keep only the usable tokens.
+		// Tokens under 3 runes, and any token with CJK characters, can't become
+		// a 'simple'-parser lexeme the tsvector index matches, so they are
+		// dropped entirely; the dropped remainder routes to the pg_trgm LIKE
+		// fallback. Mixed queries keep only the usable (non-CJK, 3+ rune) tokens.
 		{"部署", ""},
 		{"go", ""},
 		{"ai 部署", ""},
-		{"部署方案", `"部署方案"`},
+		{"部署方案", ""},
 		{"go 部署 deployment", `"deployment"`},
-		{"部署 部署方案", `"部署方案"`},
+		{"部署 部署方案", ""},
 	}
 	for _, tc := range tests {
 		if got := BuildMatchQuery(tc.input); got != tc.want {

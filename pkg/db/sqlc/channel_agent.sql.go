@@ -10,7 +10,7 @@ import (
 )
 
 const deleteChatAgent = `-- name: DeleteChatAgent :exec
-DELETE FROM channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ?
+DELETE FROM channel_agent WHERE channel_id = $1 AND platform = $2 AND chat_id = $3
 `
 
 type DeleteChatAgentParams struct {
@@ -25,7 +25,7 @@ func (q *Queries) DeleteChatAgent(ctx context.Context, arg DeleteChatAgentParams
 }
 
 const getChatAgent = `-- name: GetChatAgent :one
-SELECT channel_id, platform, chat_id, agent_id, created_at, updated_at FROM channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ?
+SELECT channel_id, platform, chat_id, agent_id, created_at, updated_at FROM channel_agent WHERE channel_id = $1 AND platform = $2 AND chat_id = $3
 `
 
 type GetChatAgentParams struct {
@@ -84,10 +84,10 @@ func (q *Queries) ListChatAgents(ctx context.Context) ([]ChannelAgent, error) {
 
 const upsertChatAgent = `-- name: UpsertChatAgent :exec
 INSERT INTO channel_agent (channel_id, platform, chat_id, agent_id, updated_at)
-VALUES (?, ?, ?, ?, datetime('now'))
+VALUES ($1, $2, $3, $4, now())
 ON CONFLICT(channel_id, platform, chat_id) DO UPDATE SET
     agent_id = excluded.agent_id,
-    updated_at = datetime('now')
+    updated_at = now()
 `
 
 type UpsertChatAgentParams struct {

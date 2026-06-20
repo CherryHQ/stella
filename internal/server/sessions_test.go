@@ -3,12 +3,13 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/google/uuid"
+
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -68,7 +69,7 @@ func TestDecodeToolCallBlock_invalid(t *testing.T) {
 }
 
 func TestSerializeUserRow(t *testing.T) {
-	row := sqlc.CtxMessage{ID: "msg-u1", Role: "user", Content: "hello", CreatedAt: "2026-01-01T00:00:00Z"}
+	row := sqlc.CtxMessage{ID: "msg-u1", Role: "user", Content: "hello", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	m := serializeUserRow(row)
 	if m["role"] != "user" {
 		t.Errorf("role = %v", m["role"])
@@ -124,20 +125,16 @@ func TestSerializeDBMessages_mixed(t *testing.T) {
 
 func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
 	ctx := context.Background()
-	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	defer func() { _ = db.Close() }()
+	db := dbtest.New(t)
 	q := sqlc.New(db)
 
 	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
-		ID:         "conv-1",
+		ID:         uuid.NewString(),
 		SessionID:  "session-1",
 		Channel:    "chat",
 		Kind:       "chat",
-		Archived:   0,
-		LastActive: "2026-01-01 00:00:00",
+		Archived:   false,
+		LastActive: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
@@ -146,13 +143,13 @@ func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
 	toolCall, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "args": map[string]any{"command": "ls"}})
 	toolResult, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "result": "output"})
 	rows := []sqlc.CreateMessageParams{
-		{ID: "m1", ConversationID: conv.ID, Seq: 1, Role: "user", EventType: "text", Content: "u1"},
-		{ID: "m2", ConversationID: conv.ID, Seq: 2, Role: "assistant", EventType: "text", Content: "a1"},
-		{ID: "m3", ConversationID: conv.ID, Seq: 3, Role: "assistant", EventType: "tool_call", Content: string(toolCall)},
-		{ID: "m4", ConversationID: conv.ID, Seq: 4, Role: "tool", EventType: "text", Content: string(toolResult)},
-		{ID: "m5", ConversationID: conv.ID, Seq: 5, Role: "assistant", EventType: "text", Content: "a2"},
-		{ID: "m6", ConversationID: conv.ID, Seq: 6, Role: "assistant", EventType: "thinking", Content: "think"},
-		{ID: "m7", ConversationID: conv.ID, Seq: 7, Role: "user", EventType: "text", Content: "u2"},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 1, Role: "user", EventType: "text", Content: "u1"},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 2, Role: "assistant", EventType: "text", Content: "a1"},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 3, Role: "assistant", EventType: "tool_call", Content: string(toolCall)},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 4, Role: "tool", EventType: "text", Content: string(toolResult)},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 5, Role: "assistant", EventType: "text", Content: "a2"},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 6, Role: "assistant", EventType: "thinking", Content: "think"},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 7, Role: "user", EventType: "text", Content: "u2"},
 	}
 	for _, row := range rows {
 		if _, err := q.CreateMessage(ctx, row); err != nil {

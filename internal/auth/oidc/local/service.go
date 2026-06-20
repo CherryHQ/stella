@@ -161,7 +161,7 @@ func (s *Service) createRegisteredUserNoTx(ctx context.Context, users auth.UserS
 	}
 
 	newUser, err := users.CreateUser(ctx, auth.User{
-		ID:    uuid.NewString(),
+		ID:    uuid.Must(uuid.NewV7()).String(),
 		Email: email,
 		Name:  name,
 		Role:  role,
