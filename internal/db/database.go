@@ -25,7 +25,7 @@ import (
 const migrateLockKey int64 = 0x73_74_65_6C_6C_61
 
 // OpenDB opens the PostgreSQL database at dsn, sizes the connection pool, ensures
-// the pg_trgm extension and the schema are present, and returns a handle safe for
+// required PostgreSQL extensions and the schema are present, and returns a handle safe for
 // concurrent use. dsn is a libpq/pgx connection string (e.g.
 // "postgres://user:pass@host:5432/db?sslmode=disable").
 //
@@ -217,10 +217,10 @@ func migrate(db *sql.DB) error {
 	}()
 
 	// The baseline's trigram indexes (gin_trgm_ops) depend on pg_trgm, which
-	// Atlas (OSS) can't manage declaratively, so create it before applying any
-	// migration. Requires a role with CREATE privilege on the database.
-	if _, err := conn.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS pg_trgm"); err != nil {
-		return fmt.Errorf("ensure pg_trgm extension: %w", err)
+	// Atlas (OSS) can't manage declaratively, so create required extensions before
+	// applying any migration. Requires a role with CREATE privilege on the database.
+	if err := ensureExtensions(ctx, conn); err != nil {
+		return err
 	}
 
 	const createTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
