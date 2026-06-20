@@ -7,6 +7,7 @@
 -- atlas:import tables/plugin_override.sql
 -- atlas:import tables/plugin_state.sql
 -- atlas:import tables/provider.sql
+-- atlas:import tables/search_embedding.sql
 -- atlas:import tables/sched_job.sql
 -- atlas:import tables/auth_user.sql
 -- atlas:import tables/channel.sql

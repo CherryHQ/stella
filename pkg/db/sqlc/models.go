@@ -644,6 +644,18 @@ type SchedJobRun struct {
 	UserID     sql.NullString `json:"user_id"`
 }
 
+type SearchEmbedding struct {
+	ID          string    `json:"id"`
+	OwnerKind   string    `json:"owner_kind"`
+	OwnerID     string    `json:"owner_id"`
+	Model       string    `json:"model"`
+	Dims        int64     `json:"dims"`
+	ContentHash []byte    `json:"content_hash"`
+	Embedding   []byte    `json:"embedding"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type Share struct {
 	ID        string       `json:"id"`
 	TokenHash string       `json:"token_hash"`
