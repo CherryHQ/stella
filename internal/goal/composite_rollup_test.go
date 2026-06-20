@@ -502,3 +502,50 @@ func TestCompositeRollup_RejectsNoRequiredChild(t *testing.T) {
 		t.Fatalf("CreateRevision with 0 required children should fail (§6: ≥1 required child)")
 	}
 }
+
+// TestCompositeRollup_RedecomposeAfterInterrupt proves a re-plan after an
+// interrupted decomposition does not collide. The first decomposition leaves a
+// (goal, decomposition, attempt_no=1) row; when it is interrupted and the goal
+// resets to draft, a second BeginDecomposition must number the new attempt from
+// the max existing decomposition attempt — not attempt_count (which only tracks
+// execution) — or it reuses attempt_no=1 and trips uniq_agent_goal_attempt_no.
+func TestCompositeRollup_RedecomposeAfterInterrupt(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	root := h.createRoot(KindComposite, AcceptanceContract{})
+
+	att1, err := h.svc.BeginDecomposition(ctx, root.ID)
+	if err != nil {
+		t.Fatalf("first BeginDecomposition: %v", err)
+	}
+	if att1.AttemptNo != 1 {
+		t.Fatalf("first decomposition attempt_no=%d want 1", att1.AttemptNo)
+	}
+
+	// Simulate an interrupted decomposition (worker crash / restart): finalize the
+	// attempt out of queued/running and reset the goal active→draft for a re-plan.
+	if _, err := h.q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
+		ToStatus: AttemptInterrupted,
+		ID:       att1.ID,
+	}); err != nil {
+		t.Fatalf("FinalizeAttempt: %v", err)
+	}
+	if _, err := h.q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+		ToLifecycle:   LifecycleDraft,
+		ID:            root.ID,
+		FromLifecycle: LifecycleActive,
+	}); err != nil {
+		t.Fatalf("reset to draft: %v", err)
+	}
+
+	att2, err := h.svc.BeginDecomposition(ctx, root.ID)
+	if err != nil {
+		t.Fatalf("re-plan BeginDecomposition: %v", err)
+	}
+	if att2.AttemptNo != 2 {
+		t.Fatalf("re-plan decomposition attempt_no=%d want 2", att2.AttemptNo)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleActive {
+		t.Fatalf("after re-plan composite lifecycle=%q want active", got)
+	}
+}

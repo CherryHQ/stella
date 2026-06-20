@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
@@ -57,6 +58,9 @@ func goalError(w http.ResponseWriter, err error) {
 		errors.Is(err, goal.ErrStaleProjection):
 		writeError(w, http.StatusConflict, err.Error())
 	default:
+		// Unmapped errors collapse to a generic 500, so log the cause here —
+		// it is the only place it survives.
+		slog.Error("goal handler internal error", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 	}
 }

@@ -9,6 +9,14 @@ RETURNING *;
 -- name: GetAttempt :one
 SELECT * FROM agent_goal_attempt WHERE id = ?;
 
+-- name: GetMaxAttemptNo :one
+-- Highest attempt_no for a goal within one purpose; 0 when none exist. The next
+-- attempt_no is this + 1 (decomposition cannot derive it from attempt_count,
+-- which only tracks execution attempts).
+SELECT CAST(COALESCE(MAX(attempt_no), 0) AS INTEGER)
+FROM agent_goal_attempt
+WHERE goal_id = sqlc.arg(goal_id) AND purpose = sqlc.arg(purpose);
+
 -- name: ListAttemptByGoal :many
 SELECT * FROM agent_goal_attempt
 WHERE goal_id = sqlc.arg(goal_id)

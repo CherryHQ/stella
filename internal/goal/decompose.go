@@ -177,7 +177,18 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 
 	var out sqlc.AgentGoalAttempt
 	err = s.withTx(ctx, func(q *sqlc.Queries) error {
-		attemptNo := int(d.AttemptCount) + 1
+		// attempt_count tracks execution attempts only, so a re-plan after an
+		// interrupted decomposition (goal reset to draft) would reuse attempt_no
+		// and collide on uniq_agent_goal_attempt_no. Number from the max existing
+		// decomposition attempt instead.
+		maxNo, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{
+			GoalID:  d.ID,
+			Purpose: PurposeDecomposition,
+		})
+		if err != nil {
+			return fmt.Errorf("max decomposition attempt no: %w", err)
+		}
+		attemptNo := int(maxNo) + 1
 		input := buildInputContext(d, nil, nil, "", attemptNo)
 		att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
 			ID:              newID(),

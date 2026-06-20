@@ -203,6 +203,27 @@ func (q *Queries) GetAttempt(ctx context.Context, id string) (AgentGoalAttempt, 
 	return i, err
 }
 
+const getMaxAttemptNo = `-- name: GetMaxAttemptNo :one
+SELECT CAST(COALESCE(MAX(attempt_no), 0) AS INTEGER)
+FROM agent_goal_attempt
+WHERE goal_id = ?1 AND purpose = ?2
+`
+
+type GetMaxAttemptNoParams struct {
+	GoalID  string `json:"goal_id"`
+	Purpose string `json:"purpose"`
+}
+
+// Highest attempt_no for a goal within one purpose; 0 when none exist. The next
+// attempt_no is this + 1 (decomposition cannot derive it from attempt_count,
+// which only tracks execution attempts).
+func (q *Queries) GetMaxAttemptNo(ctx context.Context, arg GetMaxAttemptNoParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getMaxAttemptNo, arg.GoalID, arg.Purpose)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const heartbeatAttempt = `-- name: HeartbeatAttempt :execrows
 UPDATE agent_goal_attempt
 SET heartbeat_at = datetime('now'),
