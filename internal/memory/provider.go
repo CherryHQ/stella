@@ -144,7 +144,7 @@ type SearchResult struct {
 	SourceType        string    `json:"source_type"`        // "message" or "summary"
 	SourceID          string    `json:"source_id"`          // message ID or summary ID
 	Content           string    `json:"content"`            // snippet of the matching content (truncated at ~500 chars)
-	Score             float64   `json:"score"`              // normalized BM25 relevance (-bm25), higher is better
+	Score             float64   `json:"score"`              // ts_rank_cd relevance from the tsvector match, higher is better
 	OccurredAt        time.Time `json:"occurred_at"`        // when the underlying content actually happened
 	SessionID         string    `json:"session_id"`         // origin session for traceability
 	ConversationTitle string    `json:"conversation_title"` // human-readable origin label (may be empty)

@@ -1,6 +1,8 @@
-// Package ftsquery builds safe FTS5 MATCH expressions from free text. It is
-// shared by every feature that queries an FTS5 index (memory search, recally
-// article search) so the escaping rules live in exactly one place.
+// Package ftsquery builds safe PostgreSQL full-text search inputs from free
+// text: a websearch_to_tsquery argument for the tsvector path and an escaped
+// LIKE pattern for the pg_trgm fallback. It is shared by every feature that
+// runs these searches (memory search, recally article search) so the escaping
+// rules live in exactly one place.
 package ftsquery
 
 import (

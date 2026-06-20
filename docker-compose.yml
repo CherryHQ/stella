@@ -11,7 +11,7 @@
 #      environment or a .env file.
 #   2. Create the named volumes — they are external on purpose (see the volumes
 #      section), so create them once before the first `up`:
-#        docker volume create stella-data && docker volume create stella-otel-data
+#        docker volume create stella-data && docker volume create stella-otel-data && docker volume create stella-pg-data
 #   3. docker compose up -d
 #   4. Open http://localhost:25688 to configure agents and channels.
 #

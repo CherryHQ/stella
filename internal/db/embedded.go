@@ -35,7 +35,15 @@ func StartEmbedded(dataDir string, port uint32) (*Embedded, error) {
 		port = p
 	}
 
+	// Pin PostgreSQL 18 explicitly: the schema baseline defaults ids with
+	// uuidv7(), a server built-in only since PG18 and with no extension fallback.
+	// Left unpinned the cluster version silently tracks embedded-postgres'
+	// default, so a future dependency bump that shifts that default off 18 would
+	// fail migrate() with "function uuidv7() does not exist" on fresh installs and
+	// refuse to start an existing PG18 cluster. (The external-DSN OpenDB path
+	// carries the same PG>=18 requirement; see OpenDB.)
 	cfg := embeddedpostgres.DefaultConfig().
+		Version(embeddedpostgres.V18).
 		Username("postgres").
 		Password("postgres").
 		Database("stella").

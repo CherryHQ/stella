@@ -1567,7 +1567,15 @@ func nullTimeFromStringPtr(p *string) sql.NullTime {
 	if p == nil {
 		return sql.NullTime{}
 	}
-	return sql.NullTime{Time: parseTime(*p), Valid: true}
+	// An unparseable after/before yields the zero time; treat that as "no bound"
+	// (NULL) rather than epoch-zero. Passing 0001-01-01 to the page query would
+	// silently empty the page (created_at <= zero) or no-op the filter
+	// (created_at >= zero) instead of ignoring the malformed bound.
+	t := parseTime(*p)
+	if t.IsZero() {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: t, Valid: true}
 }
 
 func logicalPageRowsToMessages(rows []sqlc.ListMessagesByLogicalPageRow) []sqlc.CtxMessage {
@@ -1600,10 +1608,13 @@ func filterMessageRowsByTime(rows []sqlc.CtxMessage, after, before *string) []sq
 	}
 	filtered := rows[:0]
 	for _, row := range rows {
-		if after != nil && row.CreatedAt.Before(afterT) {
+		// A zero bound means the param was absent or unparseable; skip it rather
+		// than comparing against epoch-zero (which would drop every row for a bad
+		// `before`). Matches the DB-path guard in nullTimeFromStringPtr.
+		if !afterT.IsZero() && row.CreatedAt.Before(afterT) {
 			continue
 		}
-		if before != nil && row.CreatedAt.After(beforeT) {
+		if !beforeT.IsZero() && row.CreatedAt.After(beforeT) {
 			continue
 		}
 		filtered = append(filtered, row)

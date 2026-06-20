@@ -28,6 +28,10 @@ const migrateLockKey int64 = 0x73_74_65_6C_6C_61
 // the pg_trgm extension and the schema are present, and returns a handle safe for
 // concurrent use. dsn is a libpq/pgx connection string (e.g.
 // "postgres://user:pass@host:5432/db?sslmode=disable").
+//
+// The server must be PostgreSQL 18 or newer: the schema baseline defaults ids
+// with the uuidv7() built-in, so migrate() fails with "function uuidv7() does
+// not exist" against an older server.
 func OpenDB(dsn string) (*sql.DB, error) {
 	// otelsql wraps the driver so every query/exec emits a span on the global
 	// tracer provider. When tracing is disabled the provider is a no-op, so this
