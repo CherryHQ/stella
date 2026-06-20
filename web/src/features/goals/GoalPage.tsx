@@ -200,7 +200,7 @@ export function GoalPage() {
         )}
         {isComposite && (
           <TabsPanel value="plan" className="mt-5">
-            <PlanTab d={d} acting={acting} act={act} />
+            <PlanTab d={d} />
           </TabsPanel>
         )}
       </Tabs>
@@ -236,6 +236,17 @@ function HeaderActions({
   const isComposite = d.kind === "composite";
   const canActivate = lc === "draft" && (!isComposite || !!d.accepted_revision_id);
 
+  // Surface the composite planning chain (plan → review → accept → materialize)
+  // in the header so advancing it never requires opening the Plan tab.
+  const { data: revisions = [] } = useQuery({
+    ...goalRevisionsOptions(d.id),
+    enabled: isComposite,
+  });
+  const newestRev = useMemo(
+    () => [...revisions].sort((a, b) => b.revision_no - a.revision_no)[0],
+    [revisions],
+  );
+
   const cancelBtn = (
     <Button
       variant="ghost"
@@ -254,6 +265,20 @@ function HeaderActions({
           <span className="size-1.5 animate-pulse rounded-full bg-chart-2" />
           {t("goals.attemptRunning")}
         </span>
+      )}
+
+      {isComposite && !archived && revisions.length === 0 && (
+        <Button
+          size="sm"
+          loading={acting}
+          onClick={() => act(() => startDecomposition({ path, throwOnError: true }))}
+        >
+          {t("goals.startDecomposition")}
+        </Button>
+      )}
+
+      {isComposite && newestRev && (
+        <RevisionActions d={d} rev={newestRev} acting={acting} act={act} />
       )}
 
       {lc === "draft" && canActivate && (
@@ -891,48 +916,21 @@ const EDGE_ON_FAILURE_KEY: Record<NonNullable<ComponentsProposedEdge["on_failure
   ignore: "goals.onFailureIgnore",
 };
 
-function PlanTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean; act: ActRun }) {
+function PlanTab({ d }: { d: ComponentsGoal }) {
   const { t } = useI18n();
   const { data: revisions = [] } = useQuery(goalRevisionsOptions(d.id));
-  const newest = useMemo(
-    () => [...revisions].sort((a, b) => b.revision_no - a.revision_no)[0],
-    [revisions],
-  );
 
-  if (revisions.length === 0) {
-    return (
-      <div className="space-y-4">
-        <Empty text={t("goals.noRevisions")} />
-        <div className="text-center">
-          <Button
-            size="sm"
-            loading={acting}
-            onClick={() =>
-              act(() => startDecomposition({ path: { id: d.id }, throwOnError: true }))
-            }
-          >
-            {t("goals.startDecomposition")}
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  // Read-only plan view: advancing the plan lives in the page header.
+  if (revisions.length === 0) return <Empty text={t("goals.noRevisions")} />;
 
   return (
-    <div className="space-y-4">
-      {newest && (
-        <div className="flex flex-wrap gap-2">
-          <RevisionActions d={d} rev={newest} acting={acting} act={act} />
-        </div>
-      )}
-      <ul className="space-y-2">
-        {[...revisions]
-          .sort((a, b) => b.revision_no - a.revision_no)
-          .map((rev) => (
-            <RevisionItem key={rev.id} rev={rev} />
-          ))}
-      </ul>
-    </div>
+    <ul className="space-y-2">
+      {[...revisions]
+        .sort((a, b) => b.revision_no - a.revision_no)
+        .map((rev) => (
+          <RevisionItem key={rev.id} rev={rev} />
+        ))}
+    </ul>
   );
 }
 
