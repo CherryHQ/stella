@@ -104,6 +104,7 @@ depends = ["docker:build", "sandbox:docker:build"]
 run = """
   docker volume create stella-data >/dev/null
   docker volume create stella-otel-data >/dev/null
+  docker volume create stella-pg-data >/dev/null
 
   ENV_FILE="${STELLA_HOME:-$HOME/.stella-dev}/.env"
   mkdir -p "$(dirname "$ENV_FILE")"
