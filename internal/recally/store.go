@@ -8,24 +8,25 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/CherryHQ/stella/internal/db/ftsquery"
+	lexical "github.com/CherryHQ/stella/internal/search"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // Store provides database operations for the recally package.
 type Store struct {
-	db *sql.DB
-	q  *sqlc.Queries
+	db     *sql.DB
+	q      *sqlc.Queries
+	search lexical.LexicalSearch
 }
 
 // NewStore creates a new Store instance.
 func NewStore(db *sql.DB) *Store {
-	return &Store{db: db, q: sqlc.New(db)}
+	q := sqlc.New(db)
+	return &Store{db: db, q: q, search: lexical.NewNativePostgres(q)}
 }
 
 func generateID() string {
@@ -251,50 +252,16 @@ func (s *Store) ListArticles(ctx context.Context, userID string, filter ArticleF
 }
 
 // SearchArticles searches articles by title, summary, tags, or author using
-// the FTS5 index, ordered by BM25 relevance (title hits rank highest).
-// Queries with no token of 3+ runes use an unranked LIKE fallback instead.
+// the configured lexical search implementation.
 func (s *Store) SearchArticles(ctx context.Context, userID string, query string, limit int) ([]Article, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	match := ftsquery.BuildMatchQuery(query)
-	if match == "" {
-		// All tokens are below the trigram minimum (e.g. 部署, "go"), which
-		// MATCH would silently never hit — fall back to a substring scan,
-		// recency-ordered, without BM25 ranking.
-		text := strings.TrimSpace(query)
-		if text == "" {
-			return []Article{}, nil
-		}
-		rows, err := s.q.SearchArticlesLike(ctx, sqlc.SearchArticlesLikeParams{
-			UserID:  userID,
-			Pattern: "%" + ftsquery.EscapeLike(text) + "%",
-			Limit:   int32(limit),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("search articles like: %w", err)
-		}
-		articles := make([]Article, 0, len(rows))
-		for _, row := range rows {
-			var article Article
-			article.FromSQLCArticle(row)
-			articles = append(articles, article)
-		}
-		return articles, nil
-	}
-	rows, err := s.q.SearchArticles(ctx, sqlc.SearchArticlesParams{
-		Match:  match,
-		UserID: userID,
-		Limit:  int32(limit),
-	})
+	hits, err := s.search.SearchArticles(ctx, lexical.ArticleQuery{UserID: userID, Text: query, Limit: limit})
 	if err != nil {
-		return nil, fmt.Errorf("search articles: %w", err)
+		return nil, err
 	}
-
-	articles := make([]Article, 0, len(rows))
-	for _, row := range rows {
+	articles := make([]Article, 0, len(hits))
+	for _, hit := range hits {
 		var article Article
-		article.FromSQLCArticle(row.RecallyArticle)
+		article.FromSQLCArticle(hit.Article)
 		articles = append(articles, article)
 	}
 	return articles, nil

@@ -5,12 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/CherryHQ/stella/internal/db/ftsquery"
 	"github.com/CherryHQ/stella/internal/memory"
+	lexical "github.com/CherryHQ/stella/internal/search"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -18,16 +17,16 @@ import (
 const (
 	defaultSearchLimit  = 20
 	defaultExpandTokens = 4000
-	maxContentSnippet   = 500
 )
 
 // retrievalEngine provides search and exploration of compacted history.
 type retrievalEngine struct {
-	q *sqlc.Queries
+	q       *sqlc.Queries
+	lexical lexical.LexicalSearch
 }
 
 func newRetrievalEngine(q *sqlc.Queries) *retrievalEngine {
-	return &retrievalEngine{q: q}
+	return &retrievalEngine{q: q, lexical: lexical.NewNativePostgres(q)}
 }
 
 // Search implements memory.Searcher.
@@ -52,60 +51,50 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 		scope = scopeSummaries
 	}
 
-	match := ftsquery.BuildMatchQuery(query.Text)
-	if match == "" {
-		// All tokens are below the trigram minimum (e.g. 部署, "go"), which
-		// MATCH would silently never hit — fall back to a substring scan.
-		if text := strings.TrimSpace(query.Text); text != "" {
-			return r.searchLike(ctx, userID, agentID, text, scope, limit)
-		}
-		return nil, nil
-	}
-
 	var results []memory.SearchResult
 
 	if scope == scopeMessages || scope == scopeBoth {
-		msgs, err := r.q.SearchMessages(ctx, sqlc.SearchMessagesParams{
-			UserID:  sql.NullString{String: userID, Valid: true},
+		msgs, err := r.lexical.SearchMessages(ctx, lexical.MessageQuery{
+			UserID:  userID,
 			AgentID: nullAgent(agentID),
-			Match:   match,
-			Limit:   int32(limit),
+			Text:    query.Text,
+			Limit:   limit,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("search messages: %w", err)
+			return nil, err
 		}
 		for _, msg := range msgs {
 			results = append(results, memory.SearchResult{
 				SourceType:        itemTypeMessage,
 				SourceID:          fmt.Sprint(msg.ID),
-				Content:           searchSnippet(msg.Snippet, msg.Content),
+				Content:           msg.Content,
 				Score:             msg.Score,
 				OccurredAt:        msg.CreatedAt.UTC(),
 				SessionID:         msg.SessionID,
-				ConversationTitle: msg.ConversationTitle.String,
+				ConversationTitle: msg.ConversationTitle,
 			})
 		}
 	}
 
 	if scope == scopeSummaries || scope == scopeBoth {
-		sums, err := r.q.SearchSummaries(ctx, sqlc.SearchSummariesParams{
-			UserID:  sql.NullString{String: userID, Valid: true},
+		sums, err := r.lexical.SearchSummaries(ctx, lexical.SummaryQuery{
+			UserID:  userID,
 			AgentID: nullAgent(agentID),
-			Match:   match,
-			Limit:   int32(limit),
+			Text:    query.Text,
+			Limit:   limit,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("search summaries: %w", err)
+			return nil, err
 		}
 		for _, s := range sums {
 			results = append(results, memory.SearchResult{
 				SourceType:        itemTypeSummary,
 				SourceID:          s.ID,
-				Content:           searchSnippet(s.Snippet, s.Content),
+				Content:           s.Content,
 				Score:             s.Score,
 				OccurredAt:        summaryContentTime(s.LatestAt, s.CreatedAt),
 				SessionID:         s.SessionID,
-				ConversationTitle: s.ConversationTitle.String,
+				ConversationTitle: s.ConversationTitle,
 			})
 		}
 	}
@@ -126,66 +115,6 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 	return results, nil
 }
 
-// searchLike is the recall path for short queries: a plain substring scan of
-// the content tables, recency-ordered. Honest limitation: no BM25 ranking and
-// no snippet highlighting here, so hits carry Score 0 and truncated content.
-func (r *retrievalEngine) searchLike(ctx context.Context, userID, agentID, text, scope string, limit int) ([]memory.SearchResult, error) {
-	pattern := "%" + ftsquery.EscapeLike(text) + "%"
-	var results []memory.SearchResult
-
-	if scope == scopeMessages || scope == scopeBoth {
-		msgs, err := r.q.SearchMessagesLike(ctx, sqlc.SearchMessagesLikeParams{
-			UserID:  sql.NullString{String: userID, Valid: true},
-			AgentID: nullAgent(agentID),
-			Pattern: []byte(pattern),
-			Limit:   int32(limit),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("search messages like: %w", err)
-		}
-		for _, msg := range msgs {
-			results = append(results, memory.SearchResult{
-				SourceType:        itemTypeMessage,
-				SourceID:          fmt.Sprint(msg.ID),
-				Content:           truncateUTF8(msg.Content, maxContentSnippet),
-				OccurredAt:        msg.CreatedAt.UTC(),
-				SessionID:         msg.SessionID,
-				ConversationTitle: msg.ConversationTitle.String,
-			})
-		}
-	}
-
-	if scope == scopeSummaries || scope == scopeBoth {
-		sums, err := r.q.SearchSummariesLike(ctx, sqlc.SearchSummariesLikeParams{
-			UserID:  sql.NullString{String: userID, Valid: true},
-			AgentID: nullAgent(agentID),
-			Pattern: []byte(pattern),
-			Limit:   int32(limit),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("search summaries like: %w", err)
-		}
-		for _, s := range sums {
-			results = append(results, memory.SearchResult{
-				SourceType:        itemTypeSummary,
-				SourceID:          s.ID,
-				Content:           truncateUTF8(s.Content, maxContentSnippet),
-				OccurredAt:        summaryContentTime(s.LatestAt, s.CreatedAt),
-				SessionID:         s.SessionID,
-				ConversationTitle: s.ConversationTitle.String,
-			})
-		}
-	}
-
-	sort.SliceStable(results, func(i, j int) bool {
-		return results[i].OccurredAt.After(results[j].OccurredAt)
-	})
-	if len(results) > limit {
-		results = results[:limit]
-	}
-	return results, nil
-}
-
 // summaryContentTime returns when a summary's underlying content actually
 // occurred: latest_at (the real end of the summarized window), falling back to
 // created_at (when the summary was generated) only when latest_at is null.
@@ -194,15 +123,6 @@ func summaryContentTime(latestAt sql.NullTime, createdAt time.Time) time.Time {
 		return *t
 	}
 	return createdAt.UTC()
-}
-
-// searchSnippet prefers the FTS5 snippet (match context with <<>> highlights)
-// and falls back to a plain truncation for degenerate empty snippets.
-func searchSnippet(snippet, content string) string {
-	if snippet != "" {
-		return snippet
-	}
-	return truncateUTF8(content, maxContentSnippet)
 }
 
 // GetMessage implements memory.MessageReader.
