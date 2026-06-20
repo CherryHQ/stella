@@ -475,9 +475,7 @@ function OverviewTab({
 
       {d.accepted_output && (
         <DetailSection title={t("goals.outputTitle")}>
-          <pre className="max-h-72 overflow-auto rounded-xl border border-border bg-muted/40 p-3.5 text-[11.5px] leading-relaxed text-muted-foreground">
-            {JSON.stringify(d.accepted_output, null, 2)}
-          </pre>
+          <AcceptedOutputView output={d.accepted_output} />
         </DetailSection>
       )}
     </div>
@@ -1150,6 +1148,118 @@ function RevisionActions({
   }
 
   return null;
+}
+
+// ── Accepted output ──────────────────────────────────────────────────
+
+// AcceptedOutput is a fixed envelope (internal/goal/evidence.go) the OpenAPI
+// types only model as an opaque record, so read its fields defensively. The
+// human-facing summary leads; `result` is the genuinely arbitrary payload and
+// renders through JsonView.
+function AcceptedOutputView({ output }: { output: Record<string, unknown> }) {
+  const { t } = useI18n();
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const summary = str(output.summary);
+  const acceptedAt = str(output.accepted_at);
+  const hash = str(output.hash);
+  const result = output.result;
+  const artifacts = Array.isArray(output.artifacts) ? output.artifacts : [];
+  const hasResult = !!result && typeof result === "object" && Object.keys(result).length > 0;
+
+  return (
+    <div className="space-y-3">
+      {summary && <p className="text-[13px] leading-relaxed text-foreground">{summary}</p>}
+
+      {(acceptedAt || hash) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          {acceptedAt && (
+            <span>{t("goals.outputAcceptedAt", { time: formatTime(acceptedAt) })}</span>
+          )}
+          {acceptedAt && hash && <MetaSep />}
+          {hash && (
+            <span className="font-mono">
+              {t("goals.outputHash")} {hash.slice(0, 12)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {artifacts.length > 0 && (
+        <div>
+          <div className="mb-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {t("goals.outputArtifacts")}
+          </div>
+          <ul className="space-y-1">
+            {artifacts.map((a, i) => {
+              const art = (a ?? {}) as Record<string, unknown>;
+              const uri = str(art.uri);
+              return (
+                <li
+                  key={i}
+                  className="flex flex-wrap items-center gap-x-2 text-[11.5px] text-muted-foreground"
+                >
+                  <span className="font-mono text-foreground">{str(art.kind) || "artifact"}</span>
+                  {uri && <span className="break-all font-mono text-[11px]">{uri}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {hasResult && (
+        <div>
+          <div className="mb-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {t("goals.outputResult")}
+          </div>
+          <div className="rounded-xl border border-border bg-muted/40 p-3.5">
+            <JsonView value={result} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// JsonView renders arbitrary JSON as readable structure: objects as labelled
+// rows, arrays as stacked cards, primitives as plain text — no raw dump.
+function JsonView({ value }: { value: unknown }) {
+  if (value === null || value === undefined) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="text-muted-foreground">[]</span>;
+    return (
+      <ul className="space-y-1.5">
+        {value.map((v, i) => (
+          <li key={i} className="rounded-lg border border-border bg-background px-2.5 py-1.5">
+            <JsonView value={v} />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return <span className="text-muted-foreground">{"{}"}</span>;
+    return (
+      <dl className="space-y-1.5">
+        {entries.map(([k, v]) => (
+          <div key={k} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
+            <dt className="shrink-0 font-mono text-[11px] text-muted-foreground sm:w-36">{k}</dt>
+            <dd className="min-w-0 flex-1 text-[12.5px] text-foreground">
+              <JsonView value={v} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+  return (
+    <span className="break-words text-[12.5px] text-foreground">
+      {typeof value === "string" ? value : JSON.stringify(value)}
+    </span>
+  );
 }
 
 // ── Shared ───────────────────────────────────────────────────────────

@@ -875,6 +875,10 @@ const en = {
   "goals.planDepSoft": "soft",
   "goals.decisionPlaceholder": "Add a note (optional)…",
   "goals.outputTitle": "Accepted output",
+  "goals.outputAcceptedAt": "accepted {{time}}",
+  "goals.outputHash": "hash",
+  "goals.outputResult": "Result",
+  "goals.outputArtifacts": "Artifacts",
 
   // Goals — new (create form)
   "goals.new": "New goal",
@@ -2522,6 +2526,10 @@ const zh: Record<MessageKey, string> = {
   "goals.planDepSoft": "软依赖",
   "goals.decisionPlaceholder": "补充说明(可选)…",
   "goals.outputTitle": "验收产物",
+  "goals.outputAcceptedAt": "接受于 {{time}}",
+  "goals.outputHash": "哈希",
+  "goals.outputResult": "结果",
+  "goals.outputArtifacts": "产物文件",
 
   // Goals — new (create form)
   "goals.new": "新建目标",
