@@ -187,7 +187,7 @@ export function GoalPage() {
         )}
         {!isComposite && (
           <TabsPanel value="attempts" className="mt-5">
-            <AttemptsTab id={d.id} />
+            <AttemptsTab id={d.id} agentId={agentId} />
           </TabsPanel>
         )}
         <TabsPanel value="acceptance" className="mt-5">
@@ -593,7 +593,7 @@ const ATTEMPT_STATUS_KEY: Record<ComponentsAttempt["status"], MessageKey> = {
   cancelled: "goals.attemptCancelled",
 };
 
-function AttemptsTab({ id }: { id: string }) {
+function AttemptsTab({ id, agentId }: { id: string; agentId: string }) {
   const { t } = useI18n();
   const { data: attempts = [] } = useQuery(goalAttemptsOptions(id));
   if (attempts.length === 0) return <Empty text={t("goals.noAttempts")} />;
@@ -601,31 +601,91 @@ function AttemptsTab({ id }: { id: string }) {
   return (
     <ul className="space-y-2">
       {sorted.map((a) => (
-        <li key={a.id} className="rounded-xl border border-border bg-background p-3.5">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">{t("goals.attemptNo", { n: a.attempt_no })}</span>
-            <span className="font-mono text-xs text-muted-foreground">
-              {t(PURPOSE_KEY[a.purpose] ?? "goals.purposeExecution")}
-            </span>
-          </div>
-          <div className="mt-1.5 flex items-center justify-between font-mono text-[10.5px] text-muted-foreground">
-            <span>{t(ATTEMPT_STATUS_KEY[a.status] ?? "goals.attemptQueued")}</span>
-            <span>{formatTime(a.finished_at ?? a.started_at ?? a.created_at)}</span>
-          </div>
-          {a.error && <p className="mt-2 text-[12px] text-destructive">{a.error}</p>}
-          {a.gaps && Object.keys(a.gaps).length > 0 && (
-            <div className="mt-2">
-              <div className="mb-1 font-mono text-[10.5px] font-semibold text-muted-foreground">
-                {t("goals.attemptGaps")}
-              </div>
-              <pre className="max-h-40 overflow-auto rounded-lg border border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
-                {JSON.stringify(a.gaps, null, 2)}
-              </pre>
-            </div>
-          )}
-        </li>
+        <AttemptItem key={a.id} a={a} agentId={agentId} />
       ))}
     </ul>
+  );
+}
+
+function AttemptItem({ a, agentId }: { a: ComponentsAttempt; agentId: string }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const output = a.output && typeof a.output === "object" ? a.output : null;
+  const hasOutput = !!output && Object.keys(output).length > 0;
+  const hasGaps = !!a.gaps && Object.keys(a.gaps).length > 0;
+  const canExpand = hasOutput || hasGaps || !!a.error || !!a.session_id;
+
+  return (
+    <li className="rounded-xl border border-border bg-background">
+      <button
+        type="button"
+        disabled={!canExpand}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full flex-col gap-1.5 px-3.5 py-3 text-left disabled:cursor-default"
+      >
+        <span className="flex w-full items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2">
+            {canExpand && (
+              <span
+                className={cn(
+                  "font-mono text-[10px] text-muted-foreground transition-transform",
+                  open && "rotate-90",
+                )}
+              >
+                ▶
+              </span>
+            )}
+            <span className="text-sm font-medium">{t("goals.attemptNo", { n: a.attempt_no })}</span>
+          </span>
+          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+            {t(PURPOSE_KEY[a.purpose] ?? "goals.purposeExecution")}
+          </span>
+        </span>
+        <span className="flex w-full items-center justify-between font-mono text-[10.5px] text-muted-foreground">
+          <span>{t(ATTEMPT_STATUS_KEY[a.status] ?? "goals.attemptQueued")}</span>
+          <span>{formatTime(a.finished_at ?? a.started_at ?? a.created_at)}</span>
+        </span>
+      </button>
+      {open && canExpand && (
+        <div className="space-y-3 border-t border-border px-3.5 py-3">
+          {a.session_id && (
+            <Button
+              render={
+                <Link
+                  to="/agents/$agentId/sessions/$sessionId"
+                  params={{ agentId: a.agent_id || agentId, sessionId: a.session_id }}
+                />
+              }
+              variant="outline"
+              size="xs"
+            >
+              {t("goals.openSession")}
+            </Button>
+          )}
+          {a.error && <p className="text-[12px] text-destructive">{a.error}</p>}
+          {hasOutput && (
+            <div>
+              <div className="mb-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("goals.outputResult")}
+              </div>
+              <div className="rounded-lg border border-border bg-muted/40 p-3">
+                <JsonView value={output} />
+              </div>
+            </div>
+          )}
+          {hasGaps && (
+            <div>
+              <div className="mb-1.5 font-mono text-[10.5px] font-semibold text-muted-foreground">
+                {t("goals.attemptGaps")}
+              </div>
+              <div className="rounded-lg border border-border bg-muted/40 p-3">
+                <JsonView value={a.gaps} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 
