@@ -87,7 +87,7 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 			return fmt.Errorf("encode outbox envelope: %w", err)
 		}
 		_, err = q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
-			ID:             uuid.NewString(),
+			ID:             uuid.Must(uuid.NewV7()).String(),
 			GroupMessageID: result.Message.ID,
 			GroupID:        result.GroupID,
 			Envelope:       envelope,

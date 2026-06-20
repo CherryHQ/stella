@@ -78,7 +78,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 
 	now := time.Now().UTC()
 	conv, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
-		ID:         uuid.NewString(),
+		ID:         uuid.Must(uuid.NewV7()).String(),
 		SessionID:  session.ID,
 		Channel:    session.Channel,
 		Kind:       "chat",

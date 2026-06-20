@@ -1,9 +1,7 @@
 package server
 
 import (
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -98,7 +96,7 @@ func (s *Server) GetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 
 	value, err := s.vaultSvc.GetScoped(r.Context(), scope, userID, agentID, name)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "vault entry not found")
 			return
 		}

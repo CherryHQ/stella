@@ -447,7 +447,7 @@ func TestCoordinatorProvisionUserKnownIdentitySucceeds(t *testing.T) {
 
 	user := createTestUser(t, ts.oidcStore, "linked@example.com")
 	_, err := ts.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
-		ID:         "ci-1",
+		ID:         uuid.NewString(),
 		UserID:     user.ID,
 		Platform:   "telegram",
 		ExternalID: "u-linked",

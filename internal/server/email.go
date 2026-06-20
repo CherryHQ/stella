@@ -1,7 +1,6 @@
 package server
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,7 +34,7 @@ func (s *Server) loadEmailAccount(w http.ResponseWriter, r *http.Request, accoun
 
 	value, err := s.vaultSvc.Get(r.Context(), info.UserID, "EMAIL_CONFIG")
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			writeError(w, http.StatusBadRequest, "no email accounts configured")
 			return email.EmailAccount{}, false
 		}

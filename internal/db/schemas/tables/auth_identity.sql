@@ -1,6 +1,6 @@
 CREATE TABLE auth_identity (
-    id               TEXT NOT NULL PRIMARY KEY,
-    user_id          TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    id               UUID NOT NULL PRIMARY KEY DEFAULT uuidv7(),
+    user_id          UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     provider         TEXT NOT NULL,
     provider_subject TEXT NOT NULL,
     email            TEXT NOT NULL DEFAULT '',

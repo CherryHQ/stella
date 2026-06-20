@@ -1,7 +1,7 @@
 CREATE TABLE skill (
     id          TEXT PRIMARY KEY,
     scope       TEXT NOT NULL,
-    user_id     TEXT    REFERENCES auth_user(id) ON DELETE CASCADE,
+    user_id     UUID    REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id    TEXT    REFERENCES agent(id) ON DELETE CASCADE,
     name        TEXT NOT NULL,
     description TEXT NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE skill (
 );
 
 CREATE UNIQUE INDEX idx_skill_owner_name
-    ON skill (name, scope, COALESCE(user_id, ''), COALESCE(agent_id, ''));
+    ON skill (name, scope, COALESCE(user_id::text, ''), COALESCE(agent_id, ''));
 
 CREATE INDEX idx_skill_visibility
     ON skill (scope, user_id, agent_id);

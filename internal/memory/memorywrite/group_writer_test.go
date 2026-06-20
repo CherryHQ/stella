@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -32,7 +34,7 @@ func seedGroup(t *testing.T, q *sqlc.Queries, groupID string) {
 func TestSetGroupMemory(t *testing.T) {
 	db, q := openTestDB(t)
 	ctx := context.Background()
-	groupID := "grp-abc"
+	groupID := uuid.NewString()
 	seedGroup(t, q, groupID)
 
 	if err := memorywrite.SetGroupMemory(ctx, db, q, groupID, "hello group"); err != nil {
@@ -52,7 +54,7 @@ func TestGetGroupMemoryEmpty(t *testing.T) {
 	_, q := openTestDB(t)
 	ctx := context.Background()
 
-	got, err := memorywrite.GetGroupMemory(ctx, q, "nonexistent")
+	got, err := memorywrite.GetGroupMemory(ctx, q, uuid.NewString())
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -64,7 +66,7 @@ func TestGetGroupMemoryEmpty(t *testing.T) {
 func TestSetGroupMemoryVersionIncrement(t *testing.T) {
 	db, q := openTestDB(t)
 	ctx := context.Background()
-	groupID := "grp-ver"
+	groupID := uuid.NewString()
 	seedGroup(t, q, groupID)
 
 	if err := memorywrite.SetGroupMemory(ctx, db, q, groupID, "v1"); err != nil {

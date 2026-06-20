@@ -142,7 +142,7 @@ SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal
 WHERE parent_id IS NULL
   AND user_id = $1
   AND ($2::text IS NULL OR agent_id = $2::text)
-  AND ($3::text IS NULL OR project_id = $3::text)
+  AND ($3::uuid IS NULL OR project_id = $3::uuid)
   AND ($4::text IS NULL OR lifecycle = $4::text)
   AND ($5::boolean IS NULL
        OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = $5::boolean)
@@ -804,7 +804,7 @@ SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, s
 WHERE parent_id IS NULL
   AND user_id = $1
   AND ($2::text IS NULL OR agent_id = $2::text)
-  AND ($3::text IS NULL OR project_id = $3::text)
+  AND ($3::uuid IS NULL OR project_id = $3::uuid)
   AND ($4::text IS NULL OR lifecycle = $4::text)
   AND ($5::boolean IS NULL
        OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = $5::boolean)

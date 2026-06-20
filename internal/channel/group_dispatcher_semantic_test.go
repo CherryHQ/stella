@@ -43,7 +43,7 @@ func addSecondMember(t *testing.T, fx dispatcherFixture) {
 		t.Fatalf("create ch-2: %v", err)
 	}
 	if _, err := fx.q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{
-		GroupID:        "group-1",
+		GroupID:        "11111111-1111-1111-1111-111111111111",
 		AgentID:        "agent-2",
 		ReplyChannelID: "ch-2",
 	}); err != nil {
@@ -209,10 +209,10 @@ func TestSemanticDispatchFailureProducesZeroRows(t *testing.T) {
 // metadata sourced from the agent rows.
 func TestSemanticDispatchPassesOwnerAndMembers(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `INSERT INTO auth_user (id, email) VALUES ('owner-9', 'owner-9@test')`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `INSERT INTO auth_user (id, email) VALUES ('99999999-0000-0000-0000-000000000009', 'owner-9@test')`); err != nil {
 		t.Fatalf("create owner user: %v", err)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_state SET created_by_user_id = 'owner-9' WHERE id = 'group-1'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_state SET created_by_user_id = '99999999-0000-0000-0000-000000000009' WHERE id = '11111111-1111-1111-1111-111111111111'`); err != nil {
 		t.Fatalf("set owner: %v", err)
 	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: false}}
@@ -221,7 +221,7 @@ func TestSemanticDispatchPassesOwnerAndMembers(t *testing.T) {
 	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
 		t.Fatalf("process outbox: %v", err)
 	}
-	if stub.gotReq.OwnerUserID != "owner-9" {
+	if stub.gotReq.OwnerUserID != "99999999-0000-0000-0000-000000000009" {
 		t.Fatalf("OwnerUserID = %q, want owner-9", stub.gotReq.OwnerUserID)
 	}
 	if len(stub.gotReq.Members) != 1 || stub.gotReq.Members[0].AgentID != "agent-1" || stub.gotReq.Members[0].Scope != "system" {
@@ -254,10 +254,10 @@ func TestSemanticDispatchUsesSystemPromptAsSummary(t *testing.T) {
 
 func TestSemanticDispatchPlatformOwnerIsNotForwarded(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `INSERT INTO auth_user (id, email) VALUES ('owner-9', 'owner-9@test')`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `INSERT INTO auth_user (id, email) VALUES ('99999999-0000-0000-0000-000000000009', 'owner-9@test')`); err != nil {
 		t.Fatalf("create owner user: %v", err)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_state SET created_by_user_id = 'owner-9' WHERE id = 'group-1'`); err != nil {
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_state SET created_by_user_id = '99999999-0000-0000-0000-000000000009' WHERE id = '11111111-1111-1111-1111-111111111111'`); err != nil {
 		t.Fatalf("set owner: %v", err)
 	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: false}}
@@ -275,8 +275,8 @@ func TestSemanticDispatchRecentContextExcludesFutureMessages(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	ctx := context.Background()
 	if _, err := fx.q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
-		ID:        "msg-0",
-		GroupID:   "group-1",
+		ID:        "a1a1a1a1-0000-0000-0000-000000000000",
+		GroupID:   "11111111-1111-1111-1111-111111111111",
 		Seq:       0,
 		ActorType: "human",
 		ActorID:   "user-0",
@@ -289,12 +289,12 @@ func TestSemanticDispatchRecentContextExcludesFutureMessages(t *testing.T) {
 		seq     int64
 		content string
 	}{
-		{id: "msg-2", seq: 2, content: "future-2"},
-		{id: "msg-3", seq: 3, content: "future-3"},
+		{id: "a1a1a1a1-0000-0000-0000-000000000002", seq: 2, content: "future-2"},
+		{id: "a1a1a1a1-0000-0000-0000-000000000003", seq: 3, content: "future-3"},
 	} {
 		if _, err := fx.q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
 			ID:        msg.id,
-			GroupID:   "group-1",
+			GroupID:   "11111111-1111-1111-1111-111111111111",
 			Seq:       msg.seq,
 			ActorType: "human",
 			ActorID:   "user-future",

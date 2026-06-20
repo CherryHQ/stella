@@ -346,7 +346,7 @@ func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Querie
 			continue
 		}
 		if err := q.CreateGroupDispatch(ctx, sqlc.CreateGroupDispatchParams{
-			ID:             uuid.NewString(),
+			ID:             uuid.Must(uuid.NewV7()).String(),
 			GroupMessageID: outbox.GroupMessageID,
 			GroupID:        outbox.GroupID,
 			AgentID:        agentID,

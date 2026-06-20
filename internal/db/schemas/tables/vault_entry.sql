@@ -1,7 +1,7 @@
 CREATE TABLE vault_entry (
-    id         TEXT PRIMARY KEY,
+    id         UUID PRIMARY KEY DEFAULT uuidv7(),
     scope      TEXT NOT NULL DEFAULT 'user',
-    user_id    TEXT REFERENCES auth_user(id) ON DELETE CASCADE,
+    user_id    UUID REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id   TEXT REFERENCES agent(id) ON DELETE CASCADE,
     name       TEXT NOT NULL,
     ciphertext TEXT NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE vault_entry (
 );
 
 CREATE UNIQUE INDEX uniq_vault_entry_scope_key
-    ON vault_entry (scope, COALESCE(user_id, ''), COALESCE(agent_id, ''), name);
+    ON vault_entry (scope, COALESCE(user_id::text, ''), COALESCE(agent_id, ''), name);
 
 CREATE INDEX idx_vault_entry_scope
     ON vault_entry (scope, user_id, agent_id);

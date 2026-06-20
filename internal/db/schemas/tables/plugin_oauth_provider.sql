@@ -1,5 +1,5 @@
 CREATE TABLE plugin_oauth_provider (
-    id                TEXT PRIMARY KEY,
+    id                UUID PRIMARY KEY DEFAULT uuidv7(),
     provider_id       TEXT NOT NULL UNIQUE,
     client_id         TEXT NOT NULL DEFAULT '',
     client_secret_enc TEXT NOT NULL DEFAULT '',

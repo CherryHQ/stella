@@ -1,13 +1,30 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// isNotFound reports whether err means the requested resource does not exist:
+// either an empty result (sql.ErrNoRows) or a lookup id that is not even a valid
+// uuid, which PostgreSQL rejects when casting the text parameter (SQLSTATE
+// 22P02, invalid_text_representation). Mapping both to one predicate lets a
+// by-id handler answer 404 for a malformed id instead of leaking a 500.
+func isNotFound(err error) bool {
+	if errors.Is(err, sql.ErrNoRows) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "22P02"
+}
 
 // Pagination tokens are deliberately offset-based, not keyset-based. The token
 // is base64(offset) and carries no filter fingerprint or expiry. This is a

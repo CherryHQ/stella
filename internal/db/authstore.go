@@ -153,7 +153,7 @@ func (s *AuthStore) ListAgentUserIDs(ctx context.Context, agentID string) ([]str
 
 func (s *AuthStore) CreateUserToken(ctx context.Context, token auth.UserToken) (auth.UserToken, error) {
 	r, err := s.q.CreateAuthUserToken(ctx, sqlc.CreateAuthUserTokenParams{
-		ID:            uuid.NewString(),
+		ID:            uuid.Must(uuid.NewV7()).String(),
 		UserID:        token.UserID,
 		Name:          token.Name,
 		TokenHash:     token.TokenHash,

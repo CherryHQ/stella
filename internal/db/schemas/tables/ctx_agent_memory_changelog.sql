@@ -1,6 +1,6 @@
 CREATE TABLE ctx_agent_memory_changelog (
-    id          TEXT PRIMARY KEY,
-    user_id     TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    id          UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id     UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id    TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
     session_id  TEXT,
     entity_id   TEXT,

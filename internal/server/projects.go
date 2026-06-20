@@ -2,7 +2,6 @@ package server
 
 import (
 	"database/sql"
-	"errors"
 	"net/http"
 	"time"
 
@@ -98,7 +97,7 @@ func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID s
 	}
 
 	p, err := s.q.CreateProject(r.Context(), sqlc.CreateProjectParams{
-		ID:          uuid.NewString(),
+		ID:          uuid.Must(uuid.NewV7()).String(),
 		AgentID:     agentID,
 		UserID:      auth.UserID,
 		Name:        body.Name,
@@ -128,7 +127,7 @@ func (s *Server) GetProject(w http.ResponseWriter, r *http.Request, agentID stri
 		ID:     projectID,
 		UserID: auth.UserID,
 	})
-	if errors.Is(err, sql.ErrNoRows) {
+	if isNotFound(err) {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
@@ -159,7 +158,7 @@ func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID s
 		ID:     projectID,
 		UserID: auth.UserID,
 	})
-	if errors.Is(err, sql.ErrNoRows) {
+	if isNotFound(err) {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
@@ -224,7 +223,7 @@ func (s *Server) DeleteProject(w http.ResponseWriter, r *http.Request, agentID s
 		ID:     projectID,
 		UserID: auth.UserID,
 	})
-	if errors.Is(err, sql.ErrNoRows) {
+	if isNotFound(err) {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}

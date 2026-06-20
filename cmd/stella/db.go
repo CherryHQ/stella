@@ -84,6 +84,12 @@ re-run after a failure is safe.`,
 			if report.Sanitized > 0 {
 				fmt.Printf("Note: replaced invalid UTF-8 in %d value(s); review affected rows.\n", report.Sanitized)
 			}
+			if report.Converted > 0 {
+				fmt.Printf("Note: salvaged the embedded uuid in %d legacy value(s).\n", report.Converted)
+			}
+			if report.Dropped > 0 {
+				fmt.Printf("Note: dropped %d legacy row(s) whose uuid column held no recoverable uuid.\n", report.Dropped)
+			}
 			if len(report.Skipped) > 0 {
 				fmt.Printf("Note: %d table(s) had no SQLite source and were left empty: %s\n",
 					len(report.Skipped), strings.Join(report.Skipped, ", "))

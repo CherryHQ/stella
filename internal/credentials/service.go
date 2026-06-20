@@ -263,7 +263,7 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 		}
 	}
 	return s.q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
-		ID:              uuid.NewString(),
+		ID:              uuid.Must(uuid.NewV7()).String(),
 		ProviderID:      cfg.ProviderID,
 		ClientID:        cfg.ClientID,
 		ClientSecretEnc: secretEnc,

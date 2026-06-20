@@ -3,9 +3,9 @@
 -- collapses them into one row. Agents' own replies are written back here too, so
 -- peer agents can read them as context.
 CREATE TABLE ctx_group_message (
-    id                  TEXT PRIMARY KEY,
+    id                  UUID PRIMARY KEY DEFAULT uuidv7(),
     -- the group this message belongs to.
-    group_id            TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
+    group_id            UUID NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
     -- group-monotonic ordering token, allocated from ctx_group_state.next_seq.
     seq                 BIGINT NOT NULL,
     -- which bot/channel instance observed this delivery. Audit only: never part of

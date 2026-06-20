@@ -20,7 +20,7 @@ SELECT * FROM agent_goal
 WHERE parent_id IS NULL
   AND user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
-  AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id)::text)
+  AND (sqlc.narg(project_id)::uuid IS NULL OR project_id = sqlc.narg(project_id)::uuid)
   AND (sqlc.narg(lifecycle)::text IS NULL OR lifecycle = sqlc.narg(lifecycle)::text)
   AND (sqlc.narg(terminal)::boolean IS NULL
        OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = sqlc.narg(terminal)::boolean)
@@ -37,7 +37,7 @@ SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal
 WHERE parent_id IS NULL
   AND user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
-  AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id)::text)
+  AND (sqlc.narg(project_id)::uuid IS NULL OR project_id = sqlc.narg(project_id)::uuid)
   AND (sqlc.narg(lifecycle)::text IS NULL OR lifecycle = sqlc.narg(lifecycle)::text)
   AND (sqlc.narg(terminal)::boolean IS NULL
        OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = sqlc.narg(terminal)::boolean)

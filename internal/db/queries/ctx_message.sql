@@ -75,13 +75,13 @@ INSERT INTO ctx_message_part (id, message_id, part_type, ordinal, text_content, 
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
 
 -- name: ListMessagesByIDs :many
-SELECT * FROM ctx_message WHERE conversation_id = $1 AND id = ANY(sqlc.arg('message_ids')::text[]) ORDER BY seq ASC;
+SELECT * FROM ctx_message WHERE conversation_id = $1 AND id = ANY(sqlc.arg('message_ids')::uuid[]) ORDER BY seq ASC;
 
 -- name: GetMessageParts :many
 SELECT * FROM ctx_message_part WHERE message_id = $1 ORDER BY ordinal ASC;
 
 -- name: GetMessagePartsByMessages :many
-SELECT * FROM ctx_message_part WHERE message_id = ANY(sqlc.arg('message_ids')::text[]) ORDER BY message_id, ordinal ASC;
+SELECT * FROM ctx_message_part WHERE message_id = ANY(sqlc.arg('message_ids')::uuid[]) ORDER BY message_id, ordinal ASC;
 
 -- name: SearchMessages :many
 -- Spans every conversation of the current (user_id, agent_id) so memory recall

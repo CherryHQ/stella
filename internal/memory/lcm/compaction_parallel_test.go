@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -136,7 +138,7 @@ func TestLeafPassWritesSummariesInRunOrder(t *testing.T) {
 
 func seedLeafRuns(t *testing.T, ctx context.Context, q *sqlc.Queries, runs, runSize int) (string, []sqlc.CtxItem) {
 	t.Helper()
-	convID := fmt.Sprintf("conv-parallel-%d", time.Now().UnixNano())
+	convID := uuid.NewString()
 	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{ID: convID, SessionID: convID, Channel: "test", Kind: "chat"}); err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
@@ -170,7 +172,7 @@ func seedLeafRuns(t *testing.T, ctx context.Context, q *sqlc.Queries, runs, runS
 	}
 	for run := range runs {
 		for i := range runSize {
-			appendMessage(fmt.Sprintf("msg-%d-%d", run, i), fmt.Sprintf("run-%d-message-%d", run, i))
+			appendMessage(uuid.NewString(), fmt.Sprintf("run-%d-message-%d", run, i))
 		}
 		ordinal++
 		separatorID := fmt.Sprintf("separator-%d", run)
@@ -198,7 +200,7 @@ func seedLeafRuns(t *testing.T, ctx context.Context, q *sqlc.Queries, runs, runS
 		}
 	}
 	for i := range defaultFreshTail {
-		appendMessage(fmt.Sprintf("tail-%d", i), fmt.Sprintf("tail-message-%d", i))
+		appendMessage(uuid.NewString(), fmt.Sprintf("tail-message-%d", i))
 	}
 	items, err := q.GetContextItems(ctx, convID)
 	if err != nil {

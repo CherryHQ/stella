@@ -1,6 +1,6 @@
 CREATE TABLE auth_session (
     id         TEXT NOT NULL PRIMARY KEY,
-    user_id    TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    user_id    UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL UNIQUE,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

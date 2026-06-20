@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -78,7 +77,7 @@ func (s *Server) requireGroupOwner(w http.ResponseWriter, r *http.Request, group
 	}
 	g, err := s.q.GetGroupStateByID(r.Context(), groupID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "group not found")
 		} else {
 			s.writeInternalError(w, err)
@@ -165,7 +164,7 @@ func (s *Server) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	groupID := uuid.NewString()
+	groupID := uuid.Must(uuid.NewV7()).String()
 	g, err := s.q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
 		ID:               groupID,
 		Platform:         "web",
@@ -464,7 +463,7 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 			return fmt.Errorf("encode outbox envelope: %w", err)
 		}
 		_, err = q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
-			ID:             uuid.NewString(),
+			ID:             uuid.Must(uuid.NewV7()).String(),
 			GroupMessageID: result.Message.ID,
 			GroupID:        result.GroupID,
 			Envelope:       envelope,
@@ -513,7 +512,7 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	flusher.Flush()
 
 	publisher := &webGroupPublisher{w: w, flusher: flusher}
-	publisher.writeSSE(map[string]string{"type": "start", "messageId": uuid.NewString()})
+	publisher.writeSSE(map[string]string{"type": "start", "messageId": uuid.Must(uuid.NewV7()).String()})
 	dispatchCtx, cancelDispatch := context.WithTimeout(s.runtimeCtx, groupOutboxLeaseDuration)
 	defer cancelDispatch()
 	if err := s.groupDispatcher.DispatchSync(dispatchCtx, outbox, publisher); err != nil {

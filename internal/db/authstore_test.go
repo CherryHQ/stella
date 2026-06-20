@@ -255,8 +255,8 @@ func TestUserTokenStore(t *testing.T) {
 	expiredAt := time.Now().Add(-time.Hour).UTC().Format("2006-01-02 15:04:05")
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO auth_user_token (id, user_id, name, token_hash, token_prefix, expires_at)
-		VALUES ('tok-expired', $1, 'expired', 'hash-expired', 'stella_exp', $2)
-	`, user.ID, expiredAt); err != nil {
+		VALUES ($1, $2, 'expired', 'hash-expired', 'stella_exp', $3)
+	`, uuid.NewString(), user.ID, expiredAt); err != nil {
 		t.Fatalf("insert expired token: %v", err)
 	}
 	if _, err := store.GetActiveUserTokenByHash(ctx, "hash-expired"); err == nil {

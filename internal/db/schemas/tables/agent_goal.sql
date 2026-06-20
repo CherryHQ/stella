@@ -6,9 +6,9 @@
 -- persistent agent session reused across attempts.
 CREATE TABLE agent_goal (
     id                   TEXT NOT NULL PRIMARY KEY,
-    user_id              TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    user_id              UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id             TEXT NOT NULL REFERENCES agent(id) ON DELETE RESTRICT,
-    project_id           TEXT REFERENCES project(id) ON DELETE SET NULL,
+    project_id           UUID REFERENCES project(id) ON DELETE SET NULL,
 
     -- Recursion shape.
     parent_id            TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,  -- NULL = root (goal)
@@ -41,7 +41,7 @@ CREATE TABLE agent_goal (
     acceptance_seq       BIGINT NOT NULL DEFAULT 0,                             -- # of acceptance_events folded; fences stale projections
 
     -- Active attempt pointer + convergence counter.
-    active_attempt_id    TEXT,  -- FK added in agent_goal_attempt.sql (cycle: agent_goal <-> agent_goal_attempt)
+    active_attempt_id    UUID,  -- FK added in agent_goal_attempt.sql (cycle: agent_goal <-> agent_goal_attempt)
     attempt_count        BIGINT NOT NULL DEFAULT 0,                             -- attempts minted so far; bounds convergence (replaces retry_count)
 
     -- Incremental child rollup counters (composite only). Bumped in the SAME tx that
@@ -52,7 +52,7 @@ CREATE TABLE agent_goal (
     required_blocked     BIGINT NOT NULL DEFAULT 0,                             -- required children blocked (advisory; surfaces stalls)
 
     -- Decomposition pointer (composite): the accepted+materialized revision.
-    accepted_revision_id TEXT,  -- FK added in agent_goal_revision.sql (cycle: agent_goal <-> agent_goal_revision)
+    accepted_revision_id UUID,  -- FK added in agent_goal_revision.sql (cycle: agent_goal <-> agent_goal_revision)
 
     -- Context blobs.
     context              JSONB NOT NULL DEFAULT '{}',                            -- progress patches / freeform metadata (ex-agent_task.context)

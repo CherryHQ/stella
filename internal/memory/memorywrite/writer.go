@@ -72,7 +72,7 @@ func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string,
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "profile",
@@ -134,7 +134,7 @@ func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID strin
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "soul",
@@ -177,7 +177,7 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "profile",
@@ -272,7 +272,7 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "constraint",
@@ -345,7 +345,7 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID s
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "constraint",

@@ -47,7 +47,7 @@ func (s *Server) requireAgentAccess(ctx context.Context, agentID string) (config
 	}
 	a, err := s.store.GetAgent(ctx, agentID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			return config.Agent{}, http.StatusNotFound, "agent not found"
 		}
 		s.log.Error("get agent", "agent_id", agentID, "error", err)
@@ -79,7 +79,7 @@ func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config
 func (s *Server) requireSkillScope(ctx context.Context, id, scope string, userID string, agentID string) (*skills.Skill, int, string) {
 	sk, err := s.findSkillByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			return nil, http.StatusNotFound, "skill not found"
 		}
 		s.log.Error("find skill", "skill_id", id, "error", err)
@@ -118,7 +118,7 @@ func (s *Server) projectRootForSession(ctx context.Context, agentID string, sess
 		return "", nil
 	}
 	si, err := sm.LoadInfo(ctx, *sessionID)
-	if errors.Is(err, sql.ErrNoRows) {
+	if isNotFound(err) {
 		return "", nil
 	}
 	if err != nil {
@@ -128,7 +128,7 @@ func (s *Server) projectRootForSession(ctx context.Context, agentID string, sess
 		return "", nil
 	}
 	p, err := s.q.GetProject(ctx, sqlc.GetProjectParams{ID: si.ProjectID, UserID: si.UserID})
-	if errors.Is(err, sql.ErrNoRows) {
+	if isNotFound(err) {
 		return "", nil
 	}
 	if err != nil {

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -16,7 +18,7 @@ func TestAssemblerSummaryParentsBatchPreservesXML(t *testing.T) {
 
 	ctx := context.Background()
 	q := sqlc.New(db)
-	convID := "conv-summary-parents"
+	convID := uuid.NewString()
 	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, "sess-summary-parents"); err != nil {
 		t.Fatalf("insert conversation: %v", err)
 	}

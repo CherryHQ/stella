@@ -57,7 +57,7 @@ func TestCredentialCreateAndGet(t *testing.T) {
 func TestCredentialGetNotFound(t *testing.T) {
 	store, ctx := setupOIDCStore(t)
 
-	_, err := store.GetCredentialByUserID(ctx, "nonexistent-user")
+	_, err := store.GetCredentialByUserID(ctx, uuid.NewString())
 	if !errors.Is(err, auth.ErrNotFound) {
 		t.Errorf("got error %v, want auth.ErrNotFound", err)
 	}

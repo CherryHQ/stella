@@ -1,6 +1,6 @@
 CREATE TABLE auth_user_token (
-    id             TEXT PRIMARY KEY,
-    user_id        TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    id             UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id        UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     name           TEXT NOT NULL DEFAULT '',
     token_hash     TEXT NOT NULL UNIQUE,
     token_prefix   TEXT NOT NULL DEFAULT '',

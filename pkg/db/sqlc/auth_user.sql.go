@@ -12,7 +12,7 @@ import (
 )
 
 const listAuthUsersByIDs = `-- name: ListAuthUsersByIDs :many
-SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_user WHERE id = ANY($1::text[]) ORDER BY id
+SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_user WHERE id = ANY($1::uuid[]) ORDER BY id
 `
 
 func (q *Queries) ListAuthUsersByIDs(ctx context.Context, ids []string) ([]AuthUser, error) {

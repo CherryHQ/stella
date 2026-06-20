@@ -166,7 +166,7 @@ func nullTime(t time.Time) sql.NullTime {
 }
 
 // newID mints a new row id (uuid string, matching the old package).
-func newID() string { return uuid.NewString() }
+func newID() string { return uuid.Must(uuid.NewV7()).String() }
 
 // nullStr wraps a possibly-empty string as sql.NullString ("" ⇒ NULL).
 func nullStr(v string) sql.NullString {

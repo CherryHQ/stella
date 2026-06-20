@@ -69,7 +69,7 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 			if _, err := s.users.GetChannelIdentityByPlatform(r.Context(), pkgchannel.PlatformWeixin, externalID); err != nil {
 				// Identity doesn't exist yet — create it.
 				if _, err := s.users.CreateChannelIdentity(r.Context(), auth.ChannelIdentity{
-					ID:         uuid.NewString(),
+					ID:         uuid.Must(uuid.NewV7()).String(),
 					UserID:     info.UserID,
 					Platform:   pkgchannel.PlatformWeixin,
 					ExternalID: externalID,

@@ -96,7 +96,7 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	share, err := s.q.CreateShare(r.Context(), sqlc.CreateShareParams{
-		ID:        uuid.NewString(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		TokenHash: tokenHash,
 		UserID:    info.UserID,
 		Title:     title,

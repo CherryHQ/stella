@@ -9,10 +9,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/pkg/ai"
+)
+
+// auth_user.id and ctx_agent_memory.user_id are UUID columns, so test user ids
+// must be valid UUIDs. These are the two users seeded by newLCMTestDB.
+var (
+	testUserID      = uuid.NewString()
+	testOtherUserID = uuid.NewString()
 )
 
 func newLCMTestDB(t *testing.T) *sql.DB {
@@ -24,7 +33,7 @@ func newLCMTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
-	if _, err = db.Exec(`INSERT INTO auth_user (id, email) VALUES ('1', 'user-1@test.local')`); err != nil {
+	if _, err = db.Exec(`INSERT INTO auth_user (id, email) VALUES ($1, 'user-1@test.local'), ($2, 'user-2@test.local')`, testUserID, testOtherUserID); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 	return db
@@ -57,7 +66,7 @@ func newLCMTestSession(suffix string) memory.Session {
 	return memory.Session{
 		ID:      "test:cli:1:" + suffix,
 		AgentID: "test",
-		UserID:  "1",
+		UserID:  testUserID,
 		Channel: "cli",
 	}
 }
@@ -202,7 +211,7 @@ func TestLCMProvider_DoesNotReuseConversationCacheAcrossScope(t *testing.T) {
 	}
 
 	otherUser := sess
-	otherUser.UserID = "2"
+	otherUser.UserID = testOtherUserID
 	got, err := p.Assemble(ctx, otherUser, 100000, 0)
 	if err == nil {
 		for _, msg := range got {
@@ -461,16 +470,16 @@ func TestLCMProvider_ListInfoFiltersInSQL(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "1"), "test")
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), testUserID), "test")
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	fixtures := []memory.SessionInfo{
-		{ID: "list-1", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(1 * time.Minute)},
-		{ID: "list-2", AgentID: "test", UserID: "1", Channel: "web", Kind: "task", ProjectID: "p1", LastActive: base.Add(2 * time.Minute)},
-		{ID: "list-3", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p2", LastActive: base.Add(3 * time.Minute)},
-		{ID: "list-4", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(4 * time.Minute)},
-		{ID: "list-5", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(5 * time.Minute), Archived: true},
-		{ID: "list-6", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(6 * time.Minute)},
-		{ID: "list-7", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", LastActive: base.Add(7 * time.Minute)},
+		{ID: "list-1", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(1 * time.Minute)},
+		{ID: "list-2", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "task", ProjectID: "p1", LastActive: base.Add(2 * time.Minute)},
+		{ID: "list-3", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p2", LastActive: base.Add(3 * time.Minute)},
+		{ID: "list-4", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(4 * time.Minute)},
+		{ID: "list-5", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(5 * time.Minute), Archived: true},
+		{ID: "list-6", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(6 * time.Minute)},
+		{ID: "list-7", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", LastActive: base.Add(7 * time.Minute)},
 	}
 	for _, info := range fixtures {
 		if err := p.SaveInfo(ctx, info); err != nil {
@@ -513,12 +522,12 @@ func TestLCMProvider_SaveInfoSingleUpdateSemantics(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "1"), "test")
-	initial := memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", Title: "Original", LastActive: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), testUserID), "test")
+	initial := memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p1", Title: "Original", LastActive: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	if err := p.SaveInfo(ctx, initial); err != nil {
 		t.Fatalf("SaveInfo initial: %v", err)
 	}
-	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: "1", Archived: true}); err != nil {
+	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: testUserID, Archived: true}); err != nil {
 		t.Fatalf("SaveInfo partial: %v", err)
 	}
 	info, err := p.LoadInfo(ctx, "save-info")
@@ -529,7 +538,7 @@ func TestLCMProvider_SaveInfoSingleUpdateSemantics(t *testing.T) {
 		t.Fatalf("partial update clobbered fields: %+v", info)
 	}
 
-	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: "1", Title: "Renamed", Kind: "task", ProjectID: "p2"}); err != nil {
+	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: testUserID, Title: "Renamed", Kind: "task", ProjectID: "p2"}); err != nil {
 		t.Fatalf("SaveInfo full: %v", err)
 	}
 	info, err = p.LoadInfo(ctx, "save-info")
@@ -540,7 +549,7 @@ func TestLCMProvider_SaveInfoSingleUpdateSemantics(t *testing.T) {
 		t.Fatalf("full update = %+v", info)
 	}
 
-	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: "1", Title: ""}); err != nil {
+	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: testUserID, Title: ""}); err != nil {
 		t.Fatalf("SaveInfo empty title/project: %v", err)
 	}
 	info, err = p.LoadInfo(ctx, "save-info")
@@ -555,9 +564,6 @@ func TestLCMProvider_SaveInfoSingleUpdateSemantics(t *testing.T) {
 func TestLCMProvider_ListInfoForReviewFiltersInSQL(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`INSERT INTO auth_user (id, email) VALUES ('2', 'user-2@test.local')`); err != nil {
-		t.Fatalf("seed second user: %v", err)
-	}
 
 	p, err := lcm.New(db, nil, nil)
 	if err != nil {
@@ -567,13 +573,13 @@ func TestLCMProvider_ListInfoForReviewFiltersInSQL(t *testing.T) {
 
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	fixtures := []memory.SessionInfo{
-		{ID: "review-1", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(1 * time.Minute)},
-		{ID: "review-2", AgentID: "test", UserID: "2", Channel: "web", Kind: "task", ProjectID: "p1", LastActive: base.Add(2 * time.Minute)},
-		{ID: "review-3", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p2", LastActive: base.Add(3 * time.Minute)},
-		{ID: "review-4", AgentID: "test", UserID: "2", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(4 * time.Minute)},
-		{ID: "review-5", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(5 * time.Minute), Archived: true},
-		{ID: "review-6", AgentID: "test", UserID: "2", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(6 * time.Minute)},
-		{ID: "review-7", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", LastActive: base.Add(7 * time.Minute)},
+		{ID: "review-1", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(1 * time.Minute)},
+		{ID: "review-2", AgentID: "test", UserID: testOtherUserID, Channel: "web", Kind: "task", ProjectID: "p1", LastActive: base.Add(2 * time.Minute)},
+		{ID: "review-3", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p2", LastActive: base.Add(3 * time.Minute)},
+		{ID: "review-4", AgentID: "test", UserID: testOtherUserID, Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(4 * time.Minute)},
+		{ID: "review-5", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(5 * time.Minute), Archived: true},
+		{ID: "review-6", AgentID: "test", UserID: testOtherUserID, Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(6 * time.Minute)},
+		{ID: "review-7", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", LastActive: base.Add(7 * time.Minute)},
 	}
 	for _, info := range fixtures {
 		if err := p.SaveInfo(context.Background(), info); err != nil {
@@ -612,7 +618,7 @@ func TestLCMProvider_ListInfoForReviewDoesNotRequireUserScope(t *testing.T) {
 	if err := p.SaveInfo(ctx, memory.SessionInfo{
 		ID:         "review-chat",
 		AgentID:    "test",
-		UserID:     "1",
+		UserID:     testUserID,
 		Channel:    "web",
 		Kind:       "chat",
 		LastActive: time.Now().UTC(),
@@ -622,7 +628,7 @@ func TestLCMProvider_ListInfoForReviewDoesNotRequireUserScope(t *testing.T) {
 	if err := p.SaveInfo(ctx, memory.SessionInfo{
 		ID:         "review-task",
 		AgentID:    "test",
-		UserID:     "1",
+		UserID:     testUserID,
 		Channel:    "task",
 		Kind:       "task",
 		LastActive: time.Now().UTC(),

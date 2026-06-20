@@ -3,9 +3,9 @@
 -- deduplicated ctx_group_message row so ingest cannot commit without dispatch
 -- work becoming recoverable.
 CREATE TABLE ctx_group_outbox (
-    id               TEXT NOT NULL PRIMARY KEY,
-    group_message_id TEXT NOT NULL UNIQUE REFERENCES ctx_group_message(id) ON DELETE CASCADE,
-    group_id         TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
+    id               UUID NOT NULL PRIMARY KEY DEFAULT uuidv7(),
+    group_message_id UUID NOT NULL UNIQUE REFERENCES ctx_group_message(id) ON DELETE CASCADE,
+    group_id         UUID NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
     envelope         TEXT NOT NULL DEFAULT '{}',
     status           TEXT NOT NULL DEFAULT 'pending',
     attempt_count    BIGINT NOT NULL DEFAULT 0,

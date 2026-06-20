@@ -2,9 +2,7 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
@@ -85,7 +83,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 	if req.Version != nil || (vc.AgentID == "" && vc.UserID == "") {
 		var err error
 		if sk, err = s.findSkillByID(r.Context(), id); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if isNotFound(err) {
 				writeError(w, http.StatusNotFound, "skill not found")
 			} else {
 				s.writeInternalError(w, err)
@@ -174,7 +172,7 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 	if vc.AgentID == "" && vc.UserID == "" {
 		sk, err := s.findSkillByID(r.Context(), id)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if isNotFound(err) {
 				writeError(w, http.StatusNotFound, "skill not found")
 			} else {
 				s.writeInternalError(w, err)

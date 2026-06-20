@@ -59,7 +59,7 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 	}
 
 	entry := memory.ProfileEntry{
-		ID:        uuid.NewString(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Text:      text,
 		Source:    "auto",
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
@@ -82,7 +82,7 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
-		ID:                  uuid.NewString(),
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "profile_entry",

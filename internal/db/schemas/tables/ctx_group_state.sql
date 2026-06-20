@@ -4,7 +4,7 @@
 -- sequence, so the row doubles as the per-group write lock.
 CREATE TABLE ctx_group_state (
     -- internal stable handle; every group-scoped table references this id.
-    id                 TEXT PRIMARY KEY,
+    id                 UUID PRIMARY KEY DEFAULT uuidv7(),
     -- messaging platform: 'telegram' | 'feishu' | 'qq' | ...
     platform           TEXT NOT NULL,
     -- native group/chat id as the platform reports it.
@@ -21,7 +21,7 @@ CREATE TABLE ctx_group_state (
     -- human-readable display name (web groups require it; platform groups may populate later).
     group_name         TEXT NOT NULL DEFAULT '',
     -- web groups only: the user who created this group. NULL for platform-created groups.
-    created_by_user_id TEXT REFERENCES auth_user(id) ON DELETE CASCADE,
+    created_by_user_id UUID REFERENCES auth_user(id) ON DELETE CASCADE,
     -- one registry row per physical group/thread, stable across all observing bots.
     UNIQUE (platform, platform_group_id, platform_thread_id)
 );

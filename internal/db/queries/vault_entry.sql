@@ -8,7 +8,7 @@ ORDER BY name;
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
 WHERE scope = sqlc.arg(scope)
-  AND coalesce(user_id, '') = coalesce(sqlc.narg(user_id), '')
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
 ORDER BY name;
 
@@ -37,21 +37,21 @@ WHERE scope = 'user' AND user_id = $1 AND name = $2;
 SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
 WHERE scope = sqlc.arg(scope)
-  AND coalesce(user_id, '') = coalesce(sqlc.narg(user_id), '')
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
   AND name = sqlc.arg(name);
 
 -- name: UpsertVaultEntry :exec
 INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext)
 VALUES ($1, 'user', $2, NULL, $3, $4)
-ON CONFLICT (scope, (COALESCE(user_id, ''::text)), (COALESCE(agent_id, ''::text)), name) DO UPDATE SET
+ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
     updated_at = now();
 
 -- name: UpsertVaultEntryByScope :exec
 INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext)
 VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (scope, (COALESCE(user_id, ''::text)), (COALESCE(agent_id, ''::text)), name) DO UPDATE SET
+ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
     updated_at = now();
 
@@ -61,7 +61,7 @@ DELETE FROM vault_entry WHERE scope = 'user' AND user_id = $1 AND name = $2;
 -- name: DeleteVaultEntryByScope :exec
 DELETE FROM vault_entry
 WHERE scope = sqlc.arg(scope)
-  AND coalesce(user_id, '') = coalesce(sqlc.narg(user_id), '')
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
   AND name = sqlc.arg(name);
 

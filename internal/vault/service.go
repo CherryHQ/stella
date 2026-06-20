@@ -124,7 +124,7 @@ func (s *Service) set(ctx context.Context, scope string, userID string, agentID 
 	}
 
 	if err := s.db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
-		ID:         uuid.NewString(),
+		ID:         uuid.Must(uuid.NewV7()).String(),
 		Scope:      scope,
 		UserID:     nullString(userID),
 		AgentID:    nullString(agentID),

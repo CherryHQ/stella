@@ -193,7 +193,7 @@ func (q *Queries) GetMessageParts(ctx context.Context, messageID string) ([]CtxM
 }
 
 const getMessagePartsByMessages = `-- name: GetMessagePartsByMessages :many
-SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata FROM ctx_message_part WHERE message_id = ANY($1::text[]) ORDER BY message_id, ordinal ASC
+SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata FROM ctx_message_part WHERE message_id = ANY($1::uuid[]) ORDER BY message_id, ordinal ASC
 `
 
 func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []string) ([]CtxMessagePart, error) {
@@ -448,7 +448,7 @@ func (q *Queries) ListExistingUserMessageContent(ctx context.Context, arg ListEx
 }
 
 const listMessagesByIDs = `-- name: ListMessagesByIDs :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv FROM ctx_message WHERE conversation_id = $1 AND id = ANY($2::text[]) ORDER BY seq ASC
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, content_tsv FROM ctx_message WHERE conversation_id = $1 AND id = ANY($2::uuid[]) ORDER BY seq ASC
 `
 
 type ListMessagesByIDsParams struct {

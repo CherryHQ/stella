@@ -377,7 +377,7 @@ func (s *Server) linkFeishuChannelIdentity(ctx context.Context, userID string, i
 		return
 	}
 	if _, err := s.users.CreateChannelIdentity(ctx, auth.ChannelIdentity{
-		ID:         uuid.NewString(),
+		ID:         uuid.Must(uuid.NewV7()).String(),
 		UserID:     userID,
 		Platform:   "feishu",
 		ExternalID: identity.Subject,

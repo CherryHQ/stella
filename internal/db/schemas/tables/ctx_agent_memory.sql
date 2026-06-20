@@ -1,5 +1,5 @@
 CREATE TABLE ctx_agent_memory (
-    user_id          TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    user_id          UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id         TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
     content          TEXT NOT NULL DEFAULT '',
     soul             TEXT NOT NULL DEFAULT '',

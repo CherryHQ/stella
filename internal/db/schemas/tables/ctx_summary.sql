@@ -1,6 +1,6 @@
 CREATE TABLE ctx_summary (
     id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL REFERENCES ctx_conversation(id) ON DELETE CASCADE,
+    conversation_id UUID NOT NULL REFERENCES ctx_conversation(id) ON DELETE CASCADE,
     kind TEXT NOT NULL,
     depth BIGINT NOT NULL DEFAULT 0,
     content TEXT NOT NULL,

@@ -5,14 +5,14 @@
 -- edges in ONE tx. Versioned by revision_no so a replan is a new revision, not an
 -- in-place edit. materialized_at is a FACT about an accepted revision, not a status.
 CREATE TABLE agent_goal_revision (
-    id                  TEXT NOT NULL PRIMARY KEY,
+    id                  UUID NOT NULL PRIMARY KEY DEFAULT uuidv7(),
     goal_id      TEXT NOT NULL REFERENCES agent_goal(id) ON DELETE CASCADE, -- the composite being decomposed
     revision_no         BIGINT NOT NULL DEFAULT 1,                            -- monotonic per goal; replan = revision_no+1
     status              TEXT NOT NULL DEFAULT 'draft',                         -- draft|in_review|accepted|rejected|superseded (Go-enforced)
     review_policy       TEXT NOT NULL DEFAULT 'none',                          -- snapshot of the gate at submit (Go-enforced)
 
     content             JSONB NOT NULL DEFAULT '{}',                            -- proposed children + edges (DecompositionContent)
-    source_attempt_id   TEXT,  -- FK added in agent_goal_attempt.sql (cycle: agent_goal_revision <-> agent_goal_attempt)
+    source_attempt_id   UUID,  -- FK added in agent_goal_attempt.sql (cycle: agent_goal_revision <-> agent_goal_attempt)
 
     -- Dedicated planning session (carried from agent_goal_plan.planning_session_id).
     planning_session_id TEXT REFERENCES ctx_conversation(session_id) ON DELETE SET NULL,

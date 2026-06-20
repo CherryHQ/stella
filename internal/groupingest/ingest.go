@@ -268,7 +268,7 @@ func (ing *Ingester) advanceCursor(ctx context.Context, groupID string, seq int6
 
 func (ing *Ingester) deadLetter(ctx context.Context, groupID string, seq int64, reason string) {
 	if err := ing.q.CreateIngestError(ctx, sqlc.CreateIngestErrorParams{
-		ID:       uuid.NewString(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		GroupID:  groupID,
 		Pipeline: ing.pipeline,
 		Seq:      seq,

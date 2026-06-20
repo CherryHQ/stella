@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -18,7 +20,7 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 
 	ctx := context.Background()
 	q := sqlc.New(db)
-	convID := "conv-context-window-loader"
+	convID := uuid.NewString()
 	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, "sess-context-window-loader"); err != nil {
 		t.Fatalf("insert conversation: %v", err)
 	}
@@ -67,7 +69,7 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 	}
 
 	for i := 1; i <= 60; i++ {
-		appendMessage(fmt.Sprintf("msg-%03d", i), int64(i), roleUser, eventTypeText, fmt.Sprintf("message %03d", i))
+		appendMessage(uuid.NewString(), int64(i), roleUser, eventTypeText, fmt.Sprintf("message %03d", i))
 	}
 	createSummary("sum-parent", "parent summary")
 	createSummary("sum-child", "child summary")
@@ -85,13 +87,13 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 		t.Fatalf("append summary item: %v", err)
 	}
 	for i := 61; i <= 105; i++ {
-		appendMessage(fmt.Sprintf("msg-%03d", i), int64(i), roleUser, eventTypeText, fmt.Sprintf("message %03d", i))
+		appendMessage(uuid.NewString(), int64(i), roleUser, eventTypeText, fmt.Sprintf("message %03d", i))
 	}
 
 	call, _ := json.Marshal(toolCallEnvelope{ID: "call-loader", Tool: "bash", Args: json.RawMessage(`{"command":"true"}`)})
-	appendMessage("msg-tool-call", 106, roleAssistant, eventTypeToolCall, string(call))
+	appendMessage(uuid.NewString(), 106, roleAssistant, eventTypeToolCall, string(call))
 	result, _ := json.Marshal(toolResultEnvelope{ID: "call-loader", Tool: "bash", Result: json.RawMessage(`"ok"`)})
-	appendMessage("msg-tool-result", 107, roleTool, eventTypeToolResult, string(result))
+	appendMessage(uuid.NewString(), 107, roleTool, eventTypeToolResult, string(result))
 
 	counting := &queryCountingDB{DB: db}
 	got, err := newAssembler(sqlc.New(counting), nil).assemble(ctx, convID, 1_000_000, 0)

@@ -271,7 +271,7 @@ func TestSearch_IsolatesOtherUsersAndAgents(t *testing.T) {
 	// Same DB, different user and different agent: neither may leak into the
 	// owner's recall.
 	otherUser := newLCMTestSession("fts-iso-user")
-	otherUser.UserID = "2"
+	otherUser.UserID = testOtherUserID
 	if err := p.Bootstrap(context.Background(), otherUser); err != nil {
 		t.Fatalf("bootstrap other user: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestSearch_LikeFallbackSpansSessionsButIsolatesUsers(t *testing.T) {
 	appendUser(t, p, other, "会话B的部署记录")
 
 	stranger := newLCMTestSession("fts-like-span-x")
-	stranger.UserID = "2"
+	stranger.UserID = testOtherUserID
 	if err := p.Bootstrap(context.Background(), stranger); err != nil {
 		t.Fatalf("bootstrap stranger: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestSearch_SummariesSpanSessionsWithContentTime(t *testing.T) {
 	insertSummary(t, db, convB, "sum-span-b", "narwhal rollout notes from another session")
 
 	stranger := newLCMTestSession("fts-sum-span-x")
-	stranger.UserID = "2"
+	stranger.UserID = testOtherUserID
 	if err := p.Bootstrap(context.Background(), stranger); err != nil {
 		t.Fatalf("bootstrap stranger: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestExpand_CrossSessionSummaryReturnsFullMessages(t *testing.T) {
 	}
 
 	// Another user must not be able to expand it.
-	strangerCtx := memory.WithAgentID(memory.WithUserID(context.Background(), "2"), sess.AgentID)
+	strangerCtx := memory.WithAgentID(memory.WithUserID(context.Background(), testOtherUserID), sess.AgentID)
 	if _, err := explorer.Expand(strangerCtx, "sum-xsess", 4000); err == nil {
 		t.Error("expected cross-user expand to fail, got nil error")
 	}
@@ -560,7 +560,7 @@ func TestGetMessage_CrossSessionAndIsolation(t *testing.T) {
 	}
 
 	// Another user must not be able to read it.
-	strangerCtx := memory.WithAgentID(memory.WithUserID(context.Background(), "2"), sess.AgentID)
+	strangerCtx := memory.WithAgentID(memory.WithUserID(context.Background(), testOtherUserID), sess.AgentID)
 	if _, err := reader.GetMessage(strangerCtx, ids[0]); err == nil {
 		t.Error("expected cross-user get_message to fail, got nil error")
 	}

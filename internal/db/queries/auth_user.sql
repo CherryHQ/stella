@@ -1,5 +1,5 @@
 -- name: ListAuthUsersByIDs :many
-SELECT * FROM auth_user WHERE id = ANY(sqlc.arg('ids')::text[]) ORDER BY id;
+SELECT * FROM auth_user WHERE id = ANY(sqlc.arg('ids')::uuid[]) ORDER BY id;
 
 -- name: UpdateUserRole :exec
 UPDATE auth_user SET role = $1, updated_at = now() WHERE id = $2;

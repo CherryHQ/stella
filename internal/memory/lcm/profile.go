@@ -245,7 +245,7 @@ func (p *Provider) ReadChangelog(ctx context.Context, userID string, agentID str
 
 func changeEntryToParams(e memory.ChangeEntry) sqlc.InsertMemoryChangelogParams {
 	p := sqlc.InsertMemoryChangelogParams{
-		ID:      uuid.NewString(),
+		ID:      uuid.Must(uuid.NewV7()).String(),
 		UserID:  e.UserID,
 		AgentID: e.AgentID,
 		Scope:   e.Scope,

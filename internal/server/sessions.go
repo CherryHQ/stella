@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -187,7 +186,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 		flusher.Flush()
 	}
 
-	messageID := uuid.New().String()
+	messageID := uuid.Must(uuid.NewV7()).String()
 	writeData(map[string]string{"type": "start", "messageId": messageID})
 
 	var (
@@ -274,7 +273,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 			if evt.Reasoning != "" {
 				closeText()
 				if !inReasoning {
-					reasoningID = uuid.New().String()
+					reasoningID = uuid.Must(uuid.NewV7()).String()
 					writeData(map[string]string{"type": "reasoning-start", "id": reasoningID})
 					inReasoning = true
 				}
@@ -285,7 +284,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 			if evt.Text != "" {
 				closeReasoning()
 				if !inText {
-					textID = uuid.New().String()
+					textID = uuid.Must(uuid.NewV7()).String()
 					writeData(map[string]string{"type": "text-start", "id": textID})
 					inText = true
 				}
@@ -868,7 +867,7 @@ func (s *Server) GetSessionSummary(w http.ResponseWriter, r *http.Request, agent
 	}
 	summary, err := s.q.GetSummary(r.Context(), sqlc.GetSummaryParams{ID: summaryID, ConversationID: conv.ID})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "summary not found")
 		} else {
 			s.writeInternalError(w, err)
@@ -1866,8 +1865,8 @@ func streamPlainReply(w http.ResponseWriter, flusher http.Flusher, text string) 
 		flusher.Flush()
 	}
 
-	messageID := uuid.New().String()
-	textID := uuid.New().String()
+	messageID := uuid.Must(uuid.NewV7()).String()
+	textID := uuid.Must(uuid.NewV7()).String()
 	write(map[string]string{"type": "start", "messageId": messageID})
 	write(map[string]string{"type": "start-step"})
 	write(map[string]string{"type": "text-start", "id": textID})

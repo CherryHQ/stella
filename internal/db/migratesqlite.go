@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -17,6 +18,8 @@ type MigrateReport struct {
 	Tables    map[string]int // target table → rows copied
 	Total     int            // total rows across all tables
 	Sanitized int            // values whose invalid UTF-8 was replaced
+	Converted int            // uuid values salvaged from a legacy-prefixed string
+	Dropped   int            // rows skipped: a uuid column held an unsalvageable value
 	Skipped   []string       // target tables with no SQLite source (left empty)
 }
 
@@ -95,13 +98,15 @@ func MigrateSQLite(ctx context.Context, sqlitePath string, pg *sql.DB, dryRun bo
 			report.Skipped = append(report.Skipped, t)
 			continue
 		}
-		n, san, err := copyTable(ctx, src, tx, t)
+		s, err := copyTable(ctx, src, tx, t)
 		if err != nil {
 			return nil, fmt.Errorf("copy %s: %w", t, err)
 		}
-		report.Tables[t] = n
-		report.Total += n
-		report.Sanitized += san
+		report.Tables[t] = s.rows
+		report.Total += s.rows
+		report.Sanitized += s.sanitized
+		report.Converted += s.converted
+		report.Dropped += s.dropped
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -196,14 +201,22 @@ type pgColumn struct {
 	udt  string // underlying type name, e.g. bool, timestamptz, int4, jsonb, bytea
 }
 
-func copyTable(ctx context.Context, src *sql.DB, tx *sql.Tx, table string) (rows, sanitized int, err error) {
+// copyStats reports one table's copy outcome.
+type copyStats struct {
+	rows      int // rows inserted
+	sanitized int // values whose invalid UTF-8 was replaced
+	converted int // uuid values salvaged from a legacy-prefixed string
+	dropped   int // rows skipped: a uuid column held an unsalvageable value
+}
+
+func copyTable(ctx context.Context, src *sql.DB, tx *sql.Tx, table string) (stats copyStats, err error) {
 	pgCols, err := pgColumns(ctx, tx, table)
 	if err != nil {
-		return 0, 0, err
+		return stats, err
 	}
 	srcCols, err := sqliteColumns(ctx, src, table)
 	if err != nil {
-		return 0, 0, err
+		return stats, err
 	}
 
 	// Copy only the columns both sides share: a non-generated PostgreSQL column
@@ -215,7 +228,7 @@ func copyTable(ctx context.Context, src *sql.DB, tx *sql.Tx, table string) (rows
 		}
 	}
 	if len(cols) == 0 {
-		return 0, 0, nil
+		return stats, nil
 	}
 
 	names := make([]string, len(cols))
@@ -231,16 +244,33 @@ func copyTable(ctx context.Context, src *sql.DB, tx *sql.Tx, table string) (rows
 		placeholders[i] = fmt.Sprintf("$%d::text::%s", i+1, c.udt)
 	}
 
-	srcRows, err := src.QueryContext(ctx, "SELECT "+strings.Join(quoteIdents(names), ", ")+" FROM "+quoteIdent(table))
+	// Legacy SQLite rows can hold a uuid wrapped in extra text in a now-uuid
+	// column (the 'legacy-task-conversation-<uuid>' ids a removed task system
+	// wrote into ctx_conversation.id). Rather than abort the cast or drop the
+	// row, the inner uuid is extracted below and the original value rewritten to
+	// it; the same rule runs on every uuid column, so a primary key and the
+	// foreign keys referencing it all resolve to the identical uuid and still
+	// join. Only a value with no recoverable uuid anywhere is dropped — a generic
+	// safety net, expected to be zero for known data.
+	where := uuidFilter(cols)
+	query := "SELECT " + strings.Join(quoteIdents(names), ", ") + " FROM " + quoteIdent(table)
+	if where != "" {
+		query += " WHERE " + where
+		if stats.dropped, err = countDropped(ctx, src, table, where); err != nil {
+			return stats, err
+		}
+	}
+
+	srcRows, err := src.QueryContext(ctx, query)
 	if err != nil {
-		return 0, 0, fmt.Errorf("read sqlite: %w", err)
+		return stats, fmt.Errorf("read sqlite: %w", err)
 	}
 	defer func() { _ = srcRows.Close() }()
 
 	stmt, err := tx.PrepareContext(ctx, "INSERT INTO "+quoteIdent(table)+" ("+strings.Join(quoteIdents(names), ", ")+
 		") VALUES ("+strings.Join(placeholders, ", ")+")")
 	if err != nil {
-		return 0, 0, fmt.Errorf("prepare insert: %w", err)
+		return stats, fmt.Errorf("prepare insert: %w", err)
 	}
 	defer func() { _ = stmt.Close() }()
 
@@ -251,22 +281,30 @@ func copyTable(ctx context.Context, src *sql.DB, tx *sql.Tx, table string) (rows
 			ptrs[i] = &raw[i]
 		}
 		if err := srcRows.Scan(ptrs...); err != nil {
-			return 0, 0, fmt.Errorf("scan row: %w", err)
+			return stats, fmt.Errorf("scan row: %w", err)
 		}
 		args := make([]any, len(cols))
 		for i := range cols {
 			val, fixed := toText(raw[i], cols[i].udt)
-			args[i] = val
 			if fixed {
-				sanitized++
+				stats.sanitized++
 			}
+			if cols[i].udt == "uuid" {
+				if s, ok := val.(string); ok {
+					if u := extractUUID(s); u != "" && u != s {
+						val = u
+						stats.converted++
+					}
+				}
+			}
+			args[i] = val
 		}
 		if _, err := stmt.ExecContext(ctx, args...); err != nil {
-			return 0, 0, fmt.Errorf("insert row %d: %w", rows+1, err)
+			return stats, fmt.Errorf("insert row %d: %w", stats.rows+1, err)
 		}
-		rows++
+		stats.rows++
 	}
-	return rows, sanitized, srcRows.Err()
+	return stats, srcRows.Err()
 }
 
 // pgColumns returns the writable (non-generated) columns of a public table in
@@ -350,6 +388,51 @@ func cleanUTF8(s string) (string, bool) {
 		return s, false
 	}
 	return strings.ToValidUTF8(s, "�"), true
+}
+
+// uuidGlob matches the hyphenated 8-4-4-4-12 uuid form inside a SQLite GLOB.
+const uuidGlob = "[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-" +
+	"[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-" +
+	"[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]"
+
+// uuidRE extracts the first hyphenated uuid embedded in a string, so a legacy
+// 'legacy-task-conversation-<uuid>' value yields its inner uuid.
+var uuidRE = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+
+// extractUUID returns the uuid embedded in s (the whole string when s already is
+// one), or "" when s carries no hyphenated uuid. The 32-char unhyphenated form
+// PostgreSQL also casts is intentionally left untouched (returns "" so the
+// caller keeps the original).
+func extractUUID(s string) string {
+	return uuidRE.FindString(s)
+}
+
+// uuidFilter builds a SQLite WHERE expression that keeps a row only when every
+// uuid column is NULL, a castable uuid, or carries one embedded in extra text
+// (recoverable by extractUUID). It returns "" when the table has no uuid column.
+// lower() folds case; the 32-char unhyphenated form PostgreSQL also accepts is
+// matched directly. A value with no recoverable uuid matches nothing and drops.
+func uuidFilter(cols []pgColumn) string {
+	plain := strings.Repeat("[0-9a-f]", 32)
+	var clauses []string
+	for _, c := range cols {
+		if c.udt != "uuid" {
+			continue
+		}
+		q := quoteIdent(c.name)
+		clauses = append(clauses, fmt.Sprintf("(%s IS NULL OR lower(%s) GLOB '*%s*' OR lower(%s) GLOB '%s')", q, q, uuidGlob, q, plain))
+	}
+	return strings.Join(clauses, " AND ")
+}
+
+// countDropped reports how many SQLite rows the uuid filter excludes, so the
+// migration can surface dropped legacy rows instead of hiding them.
+func countDropped(ctx context.Context, src *sql.DB, table, where string) (int, error) {
+	var n int
+	if err := src.QueryRowContext(ctx, "SELECT count(*) FROM "+quoteIdent(table)+" WHERE NOT ("+where+")").Scan(&n); err != nil {
+		return 0, fmt.Errorf("count dropped %s: %w", table, err)
+	}
+	return n, nil
 }
 
 func quoteIdent(name string) string {

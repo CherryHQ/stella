@@ -1,6 +1,6 @@
 CREATE TABLE recally_article (
     id            TEXT NOT NULL PRIMARY KEY,
-    user_id       TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    user_id       UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id      TEXT REFERENCES agent(id) ON DELETE SET NULL,
     url           TEXT NOT NULL,
     canonical_url TEXT NOT NULL,

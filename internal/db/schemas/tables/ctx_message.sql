@@ -1,6 +1,6 @@
 CREATE TABLE ctx_message (
-    id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL REFERENCES ctx_conversation(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    conversation_id UUID NOT NULL REFERENCES ctx_conversation(id) ON DELETE CASCADE,
     seq BIGINT NOT NULL,
     role TEXT NOT NULL,
     event_type TEXT NOT NULL DEFAULT 'text',

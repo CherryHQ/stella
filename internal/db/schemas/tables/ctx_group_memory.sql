@@ -4,7 +4,7 @@
 -- two tables are written by separate code paths so DM writes cannot leak into
 -- group memory (type-level privacy wall).
 CREATE TABLE ctx_group_memory (
-    group_id    TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
+    group_id    UUID NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
     content     TEXT NOT NULL DEFAULT '',
     version     BIGINT NOT NULL DEFAULT 0,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
+
 	apitypes "github.com/CherryHQ/stella/api/types"
 )
 
@@ -13,8 +15,8 @@ func TestUpdateAndDeleteSession(t *testing.T) {
 	agentID := createAgentAsUser(t, env, env.bearerToken, "Session API Agent")
 	_, err := env.db.Exec(`
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-		VALUES ('conv-session-api', 'session-api', 'Old title', 'web', 'chat', $1, $2, now())
-	`, agentID, env.adminUser.ID)
+		VALUES ($1, 'session-api', 'Old title', 'web', 'chat', $2, $3, now())
+	`, uuid.NewString(), agentID, env.adminUser.ID)
 	if err != nil {
 		t.Fatalf("seed conversation: %v", err)
 	}

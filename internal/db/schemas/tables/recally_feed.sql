@@ -1,6 +1,6 @@
 CREATE TABLE recally_feed (
     id              TEXT PRIMARY KEY,
-    user_id         TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    user_id         UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id        TEXT REFERENCES agent(id) ON DELETE SET NULL,
     url             TEXT NOT NULL,
     kind            TEXT NOT NULL DEFAULT 'rss',

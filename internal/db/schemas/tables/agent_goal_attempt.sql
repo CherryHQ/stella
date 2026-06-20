@@ -4,9 +4,9 @@
 -- into attempt_no+1. A purpose='decomposition' attempt produces a revision instead
 -- of leaf output. Replaces agent_task_run; reuses the goal's session_id.
 CREATE TABLE agent_goal_attempt (
-    id                  TEXT NOT NULL PRIMARY KEY,
+    id                  UUID NOT NULL PRIMARY KEY DEFAULT uuidv7(),
     goal_id      TEXT NOT NULL REFERENCES agent_goal(id) ON DELETE CASCADE,
-    user_id             TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    user_id             UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id            TEXT REFERENCES agent(id) ON DELETE SET NULL,           -- delegator (who minted)
     executor_agent_id   TEXT REFERENCES agent(id) ON DELETE SET NULL,           -- resolved at claim
     session_id          TEXT NOT NULL,                                          -- copied from the goal's persistent session
@@ -18,7 +18,7 @@ CREATE TABLE agent_goal_attempt (
     input_context       JSONB NOT NULL DEFAULT '{}',                            -- frozen at mint: intent + upstream accepted outputs + prior gaps
     evidence            JSONB NOT NULL DEFAULT '{}',                            -- submitted evidence: summary, artifacts-by-hash, stdout refs
     output              JSONB NOT NULL DEFAULT '{}',                            -- candidate output the contract evaluates
-    revision_id         TEXT REFERENCES agent_goal_revision(id) ON DELETE SET NULL, -- purpose='decomposition': the produced revision
+    revision_id         UUID REFERENCES agent_goal_revision(id) ON DELETE SET NULL, -- purpose='decomposition': the produced revision
     gaps                JSONB NOT NULL DEFAULT '{}',                            -- evaluation shortfalls (set by acceptance eval; fed to attempt_no+1)
     error               TEXT NOT NULL DEFAULT '',
 

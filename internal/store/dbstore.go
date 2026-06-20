@@ -53,7 +53,7 @@ func (s *DBStore) GetProvider(ctx context.Context, id string) (config.Provider, 
 
 func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
 	if p.ID == "" {
-		p.ID = uuid.NewString()
+		p.ID = uuid.Must(uuid.NewV7()).String()
 	}
 	configJSON, err := json.Marshal(providerConfig(p))
 	if err != nil {
@@ -156,7 +156,7 @@ func (s *DBStore) GetAgent(ctx context.Context, id string) (config.Agent, error)
 
 func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 	if a.ID == "" {
-		a.ID = uuid.NewString()
+		a.ID = uuid.Must(uuid.NewV7()).String()
 	}
 	scope := a.Scope
 	if scope == "" {
@@ -268,7 +268,7 @@ func (s *DBStore) GetChannel(ctx context.Context, id string) (config.Channel, er
 
 func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 	if ch.ID == "" {
-		ch.ID = uuid.NewString()
+		ch.ID = uuid.Must(uuid.NewV7()).String()
 	}
 	channelType := ch.Type
 	if channelType == "" {
@@ -684,7 +684,7 @@ func (s *DBStore) Seed(ctx context.Context) error {
 		return fmt.Errorf("seed: list providers: %w", err)
 	}
 	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID:                   uuid.NewString(),
+		ID:                   uuid.Must(uuid.NewV7()).String(),
 		Name:                 "Stella",
 		Model:                config.DefaultAgentModelRef(providers),
 		SystemPrompt:         defaultStellaSoul,
@@ -719,7 +719,7 @@ func (s *DBStore) seedChannelInstances(ctx context.Context) error {
 			continue
 		}
 		if err := s.UpsertChannel(ctx, config.Channel{
-			ID:      uuid.NewString(),
+			ID:      uuid.Must(uuid.NewV7()).String(),
 			Name:    name,
 			Type:    name,
 			Enabled: false,

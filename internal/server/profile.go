@@ -2,7 +2,6 @@ package server
 
 import (
 	"database/sql"
-	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -189,7 +188,7 @@ func (s *Server) GetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 	}
 
 	mem, err := s.q.GetUserAgentMemory(r.Context(), sqlc.GetUserAgentMemoryParams{UserID: info.UserID, AgentID: agentID})
-	if errors.Is(err, sql.ErrNoRows) {
+	if isNotFound(err) {
 		writeData(w, http.StatusOK, map[string]any{
 			"user_id":     info.UserID,
 			"agent_id":    agentID,

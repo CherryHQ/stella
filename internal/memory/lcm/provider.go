@@ -117,7 +117,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 			for _, row := range rows {
 				seq++
 				dbMsg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
-					ID:             uuid.NewString(),
+					ID:             uuid.Must(uuid.NewV7()).String(),
 					ConversationID: convID,
 					Seq:            seq,
 					Role:           row.role,

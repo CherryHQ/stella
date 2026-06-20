@@ -52,7 +52,7 @@ func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, use
 		return FlowStatus{}, fmt.Errorf("oauth: device auth: %w", err)
 	}
 
-	flowID := uuid.NewString()
+	flowID := uuid.Must(uuid.NewV7()).String()
 	expiresAt := da.Expiry
 
 	status := FlowStatus{
@@ -132,7 +132,7 @@ func NewAuthCodeBroker(cfg *oauth2.Config, store *FlowStore, pkce bool) *AuthCod
 // StartFlow generates a state token, constructs the authorization URL, and
 // stores a pending FlowStatus. The user must navigate to VerificationURI.
 func (b *AuthCodeBroker) StartFlow(ctx context.Context, provider Provider, userID string) (FlowStatus, error) {
-	flowID := uuid.NewString()
+	flowID := uuid.Must(uuid.NewV7()).String()
 	var verifier string
 	var authURLOpts []oauth2.AuthCodeOption
 	if b.pkce {

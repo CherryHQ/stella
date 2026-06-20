@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -272,11 +274,12 @@ func TestFilterAlreadyPersistedInjectedBatchesLargeCandidateSet(t *testing.T) {
 	}
 	q := sqlc.New(db)
 	ctx := context.Background()
-	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{ID: "conv-large", SessionID: "session-large", Channel: "test", Kind: "chat", LastActive: time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
+	convID := uuid.NewString()
+	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{ID: convID, SessionID: "session-large", Channel: "test", Kind: "chat", LastActive: time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 	for i, content := range []string{"candidate-0000", "candidate-0500", "candidate-1001"} {
-		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: "msg-" + content, ConversationID: "conv-large", Seq: int64(i + 1), Role: "user", EventType: "text", Content: content}); err != nil {
+		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: convID, Seq: int64(i + 1), Role: "user", EventType: "text", Content: content}); err != nil {
 			t.Fatalf("create message %s: %v", content, err)
 		}
 	}
@@ -285,7 +288,7 @@ func TestFilterAlreadyPersistedInjectedBatchesLargeCandidateSet(t *testing.T) {
 		injected = append(injected, ai.UserMessage{Content: fmt.Sprintf("candidate-%04d", i)})
 	}
 
-	filtered, err := p.filterAlreadyPersistedInjected(ctx, "conv-large", injected)
+	filtered, err := p.filterAlreadyPersistedInjected(ctx, convID, injected)
 	if err != nil {
 		t.Fatalf("filter injected: %v", err)
 	}

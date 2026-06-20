@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -22,7 +24,7 @@ func TestBuildReviewContext_BudgetsSummariesBeforeMessages(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	ctx := context.Background()
-	convID := "review-budget-conv"
+	convID := uuid.NewString()
 	sess := memory.Session{ID: "review-budget-session", UserID: "user-1", AgentID: "agent-1", Channel: "test"}
 	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id) VALUES ($1, $2, 'test', 'chat', $3, $4)`, convID, sess.ID, sess.AgentID, sess.UserID); err != nil {
 		t.Fatalf("insert conversation: %v", err)
@@ -39,8 +41,8 @@ func TestBuildReviewContext_BudgetsSummariesBeforeMessages(t *testing.T) {
 	}
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
-		VALUES ('msg-review', $1, 1, 'user', 'text', 'recent review message', 5, '2026-01-02 00:00:00')
-	`, convID); err != nil {
+		VALUES ($1, $2, 1, 'user', 'text', 'recent review message', 5, '2026-01-02 00:00:00')
+	`, uuid.NewString(), convID); err != nil {
 		t.Fatalf("insert message: %v", err)
 	}
 

@@ -17,3 +17,12 @@ sql:
           # TEXT (database/sql cannot scan SQL NULL into json.RawMessage).
           - db_type: "jsonb"
             go_type: "encoding/json.RawMessage"
+          # UUID id/FK columns are native PG uuid, but stay Go `string` end to end:
+          # the app mints uuidv7 strings and pgx casts string<->uuid on the wire,
+          # so callers never juggle uuid.UUID. Nullable uuid FKs map to NullString.
+          - db_type: "uuid"
+            go_type: "string"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              type: "sql.NullString"

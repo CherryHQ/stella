@@ -23,9 +23,9 @@ CREATE TABLE "agent" (
 -- Create "agent_goal" table
 CREATE TABLE "agent_goal" (
   "id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "agent_id" text NOT NULL,
-  "project_id" text NULL,
+  "project_id" uuid NULL,
   "parent_id" text NULL,
   "root_id" text NOT NULL,
   "depth" bigint NOT NULL DEFAULT 0,
@@ -44,13 +44,13 @@ CREATE TABLE "agent_goal" (
   "acceptance_state" text NOT NULL DEFAULT 'pending',
   "accepted_output" text NULL,
   "acceptance_seq" bigint NOT NULL DEFAULT 0,
-  "active_attempt_id" text NULL,
+  "active_attempt_id" uuid NULL,
   "attempt_count" bigint NOT NULL DEFAULT 0,
   "required_total" bigint NOT NULL DEFAULT 0,
   "required_accepted" bigint NOT NULL DEFAULT 0,
   "required_failed" bigint NOT NULL DEFAULT 0,
   "required_blocked" bigint NOT NULL DEFAULT 0,
-  "accepted_revision_id" text NULL,
+  "accepted_revision_id" uuid NULL,
   "context" jsonb NOT NULL DEFAULT '{}',
   "dispatch_hint" jsonb NOT NULL DEFAULT '{}',
   "created_at" timestamptz NOT NULL DEFAULT now(),
@@ -91,9 +91,9 @@ CREATE INDEX "idx_agent_goal_user_created" ON "agent_goal" ("user_id", "created_
 CREATE UNIQUE INDEX "uniq_agent_goal_session" ON "agent_goal" ("session_id");
 -- Create "agent_goal_acceptance_event" table
 CREATE TABLE "agent_goal_acceptance_event" (
-  "id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "goal_id" text NOT NULL,
-  "attempt_id" text NULL,
+  "attempt_id" uuid NULL,
   "seq" bigint NOT NULL,
   "item_id" text NOT NULL,
   "item_kind" text NOT NULL,
@@ -102,8 +102,8 @@ CREATE TABLE "agent_goal_acceptance_event" (
   "exit_code" bigint NULL,
   "cache_key" text NOT NULL DEFAULT '',
   "authority" text NOT NULL DEFAULT 'system',
-  "reviewer_user_id" text NULL,
-  "reviewer_attempt_id" text NULL,
+  "reviewer_user_id" uuid NULL,
+  "reviewer_attempt_id" uuid NULL,
   "rationale" text NOT NULL DEFAULT '',
   "scope" text NOT NULL DEFAULT '',
   "scope_hash" text NOT NULL DEFAULT '',
@@ -123,9 +123,9 @@ CREATE INDEX "idx_agent_goal_accept_evt_goal" ON "agent_goal_acceptance_event" (
 CREATE UNIQUE INDEX "uniq_agent_goal_accept_evt" ON "agent_goal_acceptance_event" ("goal_id", "attempt_id", "item_id", "cache_key");
 -- Create "agent_goal_attempt" table
 CREATE TABLE "agent_goal_attempt" (
-  "id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "goal_id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "agent_id" text NULL,
   "executor_agent_id" text NULL,
   "session_id" text NOT NULL,
@@ -135,7 +135,7 @@ CREATE TABLE "agent_goal_attempt" (
   "input_context" jsonb NOT NULL DEFAULT '{}',
   "evidence" jsonb NOT NULL DEFAULT '{}',
   "output" jsonb NOT NULL DEFAULT '{}',
-  "revision_id" text NULL,
+  "revision_id" uuid NULL,
   "gaps" jsonb NOT NULL DEFAULT '{}',
   "error" text NOT NULL DEFAULT '',
   "heartbeat_at" timestamptz NULL,
@@ -165,7 +165,7 @@ CREATE TABLE "agent_goal_edge" (
   "edge_kind" text NOT NULL DEFAULT 'hard',
   "on_failure" text NOT NULL DEFAULT 'block',
   "waived_at" timestamptz NULL,
-  "waived_by_user" text NULL,
+  "waived_by_user" uuid NULL,
   "waiver_reason" text NOT NULL DEFAULT '',
   "created_at" timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY ("goal_id", "upstream_id"),
@@ -175,13 +175,13 @@ CREATE TABLE "agent_goal_edge" (
 CREATE INDEX "idx_agent_goal_edge_upstream" ON "agent_goal_edge" ("upstream_id");
 -- Create "agent_goal_revision" table
 CREATE TABLE "agent_goal_revision" (
-  "id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "goal_id" text NOT NULL,
   "revision_no" bigint NOT NULL DEFAULT 1,
   "status" text NOT NULL DEFAULT 'draft',
   "review_policy" text NOT NULL DEFAULT 'none',
   "content" jsonb NOT NULL DEFAULT '{}',
-  "source_attempt_id" text NULL,
+  "source_attempt_id" uuid NULL,
   "planning_session_id" text NULL,
   "accepted_at" timestamptz NULL,
   "materialized_at" timestamptz NULL,
@@ -213,8 +213,8 @@ CREATE TABLE "app_setting" (
 );
 -- Create "auth_credential" table
 CREATE TABLE "auth_credential" (
-  "id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "user_id" uuid NOT NULL,
   "password_hash" text NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "updated_at" timestamptz NOT NULL DEFAULT now(),
@@ -225,8 +225,8 @@ CREATE TABLE "auth_credential" (
 CREATE INDEX "idx_auth_credential_user_id" ON "auth_credential" ("user_id");
 -- Create "auth_identity" table
 CREATE TABLE "auth_identity" (
-  "id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "user_id" uuid NOT NULL,
   "provider" text NOT NULL,
   "provider_subject" text NOT NULL,
   "email" text NOT NULL DEFAULT '',
@@ -260,7 +260,7 @@ CREATE TABLE "auth_policy" (
 -- Create "auth_session" table
 CREATE TABLE "auth_session" (
   "id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "token_hash" text NOT NULL,
   "expires_at" timestamptz NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
@@ -274,14 +274,14 @@ CREATE INDEX "idx_auth_session_token_hash" ON "auth_session" ("token_hash");
 CREATE INDEX "idx_auth_session_user_id" ON "auth_session" ("user_id");
 -- Create "auth_user" table
 CREATE TABLE "auth_user" (
-  "id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "email" text NOT NULL,
   "name" text NOT NULL DEFAULT '',
   "avatar_url" text NOT NULL DEFAULT '',
   "role" text NOT NULL DEFAULT 'user',
   "is_active" boolean NOT NULL DEFAULT true,
   "default_agent_id" text NULL,
-  "notify_identity_id" text NULL,
+  "notify_identity_id" uuid NULL,
   "age_public_key" text NOT NULL DEFAULT '',
   "age_private_key" text NOT NULL DEFAULT '',
   "created_at" timestamptz NOT NULL DEFAULT now(),
@@ -293,14 +293,14 @@ CREATE TABLE "auth_user" (
 CREATE INDEX "idx_auth_user_email" ON "auth_user" ("email");
 -- Create "auth_user_agent" table
 CREATE TABLE "auth_user_agent" (
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "agent_id" text NOT NULL,
   PRIMARY KEY ("user_id", "agent_id")
 );
 -- Create "auth_user_token" table
 CREATE TABLE "auth_user_token" (
-  "id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "user_id" uuid NOT NULL,
   "name" text NOT NULL DEFAULT '',
   "token_hash" text NOT NULL,
   "token_prefix" text NOT NULL DEFAULT '',
@@ -340,7 +340,7 @@ CREATE TABLE "channel_agent" (
 );
 -- Create "channel_group_member" table
 CREATE TABLE "channel_group_member" (
-  "group_id" text NOT NULL,
+  "group_id" uuid NOT NULL,
   "agent_id" text NOT NULL,
   "reply_channel_id" text NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
@@ -349,8 +349,8 @@ CREATE TABLE "channel_group_member" (
 );
 -- Create "channel_identity" table
 CREATE TABLE "channel_identity" (
-  "id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "user_id" uuid NOT NULL,
   "platform" text NOT NULL,
   "external_id" text NOT NULL,
   "name" text NOT NULL DEFAULT '',
@@ -363,7 +363,7 @@ CREATE TABLE "channel_identity" (
 CREATE INDEX "idx_channel_identity_user_id" ON "channel_identity" ("user_id");
 -- Create "ctx_agent_memory" table
 CREATE TABLE "ctx_agent_memory" (
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "agent_id" text NOT NULL,
   "content" text NOT NULL DEFAULT '',
   "soul" text NOT NULL DEFAULT '',
@@ -376,8 +376,8 @@ CREATE TABLE "ctx_agent_memory" (
 );
 -- Create "ctx_agent_memory_changelog" table
 CREATE TABLE "ctx_agent_memory_changelog" (
-  "id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "user_id" uuid NOT NULL,
   "agent_id" text NOT NULL,
   "session_id" text NULL,
   "entity_id" text NULL,
@@ -403,7 +403,7 @@ CREATE INDEX "idx_ctx_agent_memory_changelog_version" ON "ctx_agent_memory_chang
 -- Create "ctx_agent_memory_snapshot" table
 CREATE TABLE "ctx_agent_memory_snapshot" (
   "session_id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "agent_id" text NOT NULL,
   "version" bigint NOT NULL DEFAULT 0,
   "created_at" timestamptz NOT NULL DEFAULT now(),
@@ -414,7 +414,7 @@ CREATE TABLE "ctx_agent_memory_snapshot" (
 CREATE INDEX "idx_ctx_agent_memory_snapshot_user_agent" ON "ctx_agent_memory_snapshot" ("user_id", "agent_id");
 -- Create "ctx_conversation" table
 CREATE TABLE "ctx_conversation" (
-  "id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "session_id" text NOT NULL,
   "title" text NULL,
   "channel" text NOT NULL DEFAULT '',
@@ -442,9 +442,9 @@ CREATE UNIQUE INDEX "idx_one_agent_main" ON "ctx_conversation" ("agent_id", "use
 CREATE UNIQUE INDEX "idx_one_project_main" ON "ctx_conversation" ("project_id") WHERE ((kind = 'main'::text) AND (project_id IS NOT NULL) AND (archived = false));
 -- Create "ctx_group_dispatch" table
 CREATE TABLE "ctx_group_dispatch" (
-  "id" text NOT NULL,
-  "group_message_id" text NOT NULL,
-  "group_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "group_message_id" uuid NOT NULL,
+  "group_id" uuid NOT NULL,
   "agent_id" text NOT NULL,
   "reply_channel_id" text NOT NULL,
   "status" text NOT NULL DEFAULT 'pending',
@@ -468,7 +468,7 @@ CREATE INDEX "idx_ctx_group_dispatch_reply_channel" ON "ctx_group_dispatch" ("re
 CREATE INDEX "idx_ctx_group_dispatch_running_lease" ON "ctx_group_dispatch" ("status", "lease_until") WHERE (status = 'running'::text);
 -- Create "ctx_group_ingest_cursor" table
 CREATE TABLE "ctx_group_ingest_cursor" (
-  "group_id" text NOT NULL,
+  "group_id" uuid NOT NULL,
   "pipeline" text NOT NULL DEFAULT 'memory_ingest',
   "last_seq" bigint NOT NULL DEFAULT 0,
   "updated_at" timestamptz NOT NULL DEFAULT now(),
@@ -476,8 +476,8 @@ CREATE TABLE "ctx_group_ingest_cursor" (
 );
 -- Create "ctx_group_ingest_error" table
 CREATE TABLE "ctx_group_ingest_error" (
-  "id" text NOT NULL,
-  "group_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "group_id" uuid NOT NULL,
   "pipeline" text NOT NULL,
   "seq" bigint NOT NULL,
   "reason" text NOT NULL DEFAULT '',
@@ -488,7 +488,7 @@ CREATE TABLE "ctx_group_ingest_error" (
 CREATE UNIQUE INDEX "idx_group_ingest_error_dedup" ON "ctx_group_ingest_error" ("group_id", "pipeline", "seq");
 -- Create "ctx_group_memory" table
 CREATE TABLE "ctx_group_memory" (
-  "group_id" text NOT NULL,
+  "group_id" uuid NOT NULL,
   "content" text NOT NULL DEFAULT '',
   "version" bigint NOT NULL DEFAULT 0,
   "created_at" timestamptz NOT NULL DEFAULT now(),
@@ -497,8 +497,8 @@ CREATE TABLE "ctx_group_memory" (
 );
 -- Create "ctx_group_message" table
 CREATE TABLE "ctx_group_message" (
-  "id" text NOT NULL,
-  "group_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "group_id" uuid NOT NULL,
   "seq" bigint NOT NULL,
   "source_channel_id" text NULL,
   "actor_type" text NOT NULL,
@@ -520,9 +520,9 @@ CREATE UNIQUE INDEX "idx_ctx_group_message_idem" ON "ctx_group_message" ("idempo
 CREATE UNIQUE INDEX "idx_ctx_group_message_platform_msg" ON "ctx_group_message" ("group_id", "platform_message_id") WHERE ((platform_message_id IS NOT NULL) AND (platform_message_id <> ''::text));
 -- Create "ctx_group_outbox" table
 CREATE TABLE "ctx_group_outbox" (
-  "id" text NOT NULL,
-  "group_message_id" text NOT NULL,
-  "group_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "group_message_id" uuid NOT NULL,
+  "group_id" uuid NOT NULL,
   "envelope" text NOT NULL DEFAULT '{}',
   "status" text NOT NULL DEFAULT 'pending',
   "attempt_count" bigint NOT NULL DEFAULT 0,
@@ -542,7 +542,7 @@ CREATE INDEX "idx_ctx_group_outbox_pending" ON "ctx_group_outbox" ("status", "ne
 CREATE INDEX "idx_ctx_group_outbox_running_lease" ON "ctx_group_outbox" ("status", "lease_until") WHERE (status = 'running'::text);
 -- Create "ctx_group_state" table
 CREATE TABLE "ctx_group_state" (
-  "id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "platform" text NOT NULL,
   "platform_group_id" text NOT NULL,
   "platform_thread_id" text NOT NULL DEFAULT '',
@@ -550,7 +550,7 @@ CREATE TABLE "ctx_group_state" (
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "updated_at" timestamptz NOT NULL DEFAULT now(),
   "group_name" text NOT NULL DEFAULT '',
-  "created_by_user_id" text NULL,
+  "created_by_user_id" uuid NULL,
   PRIMARY KEY ("id"),
   CONSTRAINT "ctx_group_state_platform_platform_group_id_platform_thread__key" UNIQUE ("platform", "platform_group_id", "platform_thread_id")
 );
@@ -558,10 +558,10 @@ CREATE TABLE "ctx_group_state" (
 CREATE INDEX "idx_ctx_group_state_web_owner" ON "ctx_group_state" ("created_by_user_id") WHERE (platform = 'web'::text);
 -- Create "ctx_item" table
 CREATE TABLE "ctx_item" (
-  "conversation_id" text NOT NULL,
+  "conversation_id" uuid NOT NULL,
   "ordinal" bigint NOT NULL,
   "item_type" text NOT NULL,
-  "message_id" text NULL,
+  "message_id" uuid NULL,
   "summary_id" text NULL,
   "event_type" text NOT NULL DEFAULT '',
   "role" text NOT NULL DEFAULT '',
@@ -573,8 +573,8 @@ CREATE TABLE "ctx_item" (
 CREATE INDEX "idx_ctx_item_conv" ON "ctx_item" ("conversation_id", "ordinal");
 -- Create "ctx_message" table
 CREATE TABLE "ctx_message" (
-  "id" text NOT NULL,
-  "conversation_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "conversation_id" uuid NOT NULL,
   "seq" bigint NOT NULL,
   "role" text NOT NULL,
   "event_type" text NOT NULL DEFAULT 'text',
@@ -593,8 +593,8 @@ CREATE INDEX "idx_ctx_message_conv_seq" ON "ctx_message" ("conversation_id", "se
 CREATE INDEX "idx_ctx_message_tsv" ON "ctx_message" USING gin ("content_tsv");
 -- Create "ctx_message_part" table
 CREATE TABLE "ctx_message_part" (
-  "id" text NOT NULL,
-  "message_id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "message_id" uuid NOT NULL,
   "part_type" text NOT NULL,
   "ordinal" bigint NOT NULL,
   "text_content" text NULL,
@@ -609,7 +609,7 @@ CREATE TABLE "ctx_message_part" (
 -- Create "ctx_summary" table
 CREATE TABLE "ctx_summary" (
   "id" text NOT NULL,
-  "conversation_id" text NOT NULL,
+  "conversation_id" uuid NOT NULL,
   "kind" text NOT NULL,
   "depth" bigint NOT NULL DEFAULT 0,
   "content" text NOT NULL,
@@ -632,7 +632,7 @@ CREATE INDEX "idx_ctx_summary_tsv" ON "ctx_summary" USING gin ("content_tsv");
 -- Create "ctx_summary_message" table
 CREATE TABLE "ctx_summary_message" (
   "summary_id" text NOT NULL,
-  "message_id" text NOT NULL,
+  "message_id" uuid NOT NULL,
   "ordinal" bigint NOT NULL,
   PRIMARY KEY ("summary_id", "message_id")
 );
@@ -658,7 +658,7 @@ CREATE TABLE "plugin" (
 );
 -- Create "plugin_oauth_provider" table
 CREATE TABLE "plugin_oauth_provider" (
-  "id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "provider_id" text NOT NULL,
   "client_id" text NOT NULL DEFAULT '',
   "client_secret_enc" text NOT NULL DEFAULT '',
@@ -691,9 +691,9 @@ CREATE TABLE "plugin_state" (
 );
 -- Create "project" table
 CREATE TABLE "project" (
-  "id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "agent_id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "name" text NOT NULL,
   "base_dir" text NOT NULL,
   "description" text NULL,
@@ -717,7 +717,7 @@ CREATE TABLE "provider" (
 -- Create "recally_article" table
 CREATE TABLE "recally_article" (
   "id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "agent_id" text NULL,
   "url" text NOT NULL,
   "canonical_url" text NOT NULL,
@@ -761,7 +761,7 @@ CREATE INDEX "idx_recally_article_user_status" ON "recally_article" ("user_id", 
 -- Create "recally_digest" table
 CREATE TABLE "recally_digest" (
   "id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "date" text NOT NULL,
   "narrative" text NOT NULL DEFAULT '',
   "saved_yesterday_count" bigint NOT NULL DEFAULT 0,
@@ -793,7 +793,7 @@ CREATE INDEX "idx_recally_digest_article_digest" ON "recally_digest_article" ("d
 -- Create "recally_feed" table
 CREATE TABLE "recally_feed" (
   "id" text NOT NULL,
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "agent_id" text NULL,
   "url" text NOT NULL,
   "kind" text NOT NULL DEFAULT 'rss',
@@ -874,9 +874,9 @@ CREATE TABLE "sched_job_run" (
 CREATE INDEX "idx_sched_job_run_job_id" ON "sched_job_run" ("job_id", "started_at" DESC);
 -- Create "share" table
 CREATE TABLE "share" (
-  "id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "token_hash" text NOT NULL,
-  "user_id" text NOT NULL,
+  "user_id" uuid NOT NULL,
   "title" text NOT NULL,
   "media_type" text NOT NULL,
   "content" bytea NOT NULL,
@@ -892,7 +892,7 @@ CREATE INDEX "idx_share_user" ON "share" ("user_id", "created_at" DESC);
 CREATE TABLE "skill" (
   "id" text NOT NULL,
   "scope" text NOT NULL,
-  "user_id" text NULL,
+  "user_id" uuid NULL,
   "agent_id" text NULL,
   "name" text NOT NULL,
   "description" text NOT NULL,
@@ -905,7 +905,7 @@ CREATE TABLE "skill" (
   CONSTRAINT "skill_check" CHECK (((scope = 'user'::text) AND (user_id IS NOT NULL) AND (agent_id IS NULL)) OR ((scope = 'user_agent'::text) AND (user_id IS NOT NULL) AND (agent_id IS NOT NULL)) OR ((scope = 'system'::text) AND (user_id IS NULL) AND (agent_id IS NULL)) OR ((scope = 'system_agent'::text) AND (user_id IS NULL) AND (agent_id IS NOT NULL)))
 );
 -- Create index "idx_skill_owner_name" to table: "skill"
-CREATE UNIQUE INDEX "idx_skill_owner_name" ON "skill" ("name", "scope", (COALESCE(user_id, ''::text)), (COALESCE(agent_id, ''::text)));
+CREATE UNIQUE INDEX "idx_skill_owner_name" ON "skill" ("name", "scope", (COALESCE((user_id)::text, ''::text)), (COALESCE(agent_id, ''::text)));
 -- Create index "idx_skill_visibility" to table: "skill"
 CREATE INDEX "idx_skill_visibility" ON "skill" ("scope", "user_id", "agent_id");
 -- Create "skill_file" table
@@ -917,9 +917,9 @@ CREATE TABLE "skill_file" (
 );
 -- Create "vault_entry" table
 CREATE TABLE "vault_entry" (
-  "id" text NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "scope" text NOT NULL DEFAULT 'user',
-  "user_id" text NULL,
+  "user_id" uuid NULL,
   "agent_id" text NULL,
   "name" text NOT NULL,
   "ciphertext" text NOT NULL,
@@ -931,7 +931,7 @@ CREATE TABLE "vault_entry" (
 -- Create index "idx_vault_entry_scope" to table: "vault_entry"
 CREATE INDEX "idx_vault_entry_scope" ON "vault_entry" ("scope", "user_id", "agent_id");
 -- Create index "uniq_vault_entry_scope_key" to table: "vault_entry"
-CREATE UNIQUE INDEX "uniq_vault_entry_scope_key" ON "vault_entry" ("scope", (COALESCE(user_id, ''::text)), (COALESCE(agent_id, ''::text)), "name");
+CREATE UNIQUE INDEX "uniq_vault_entry_scope_key" ON "vault_entry" ("scope", (COALESCE((user_id)::text, ''::text)), (COALESCE(agent_id, ''::text)), "name");
 -- Modify "agent_goal" table
 ALTER TABLE "agent_goal" ADD CONSTRAINT "agent_goal_accepted_revision_id_fkey" FOREIGN KEY ("accepted_revision_id") REFERENCES "agent_goal_revision" ("id") ON UPDATE NO ACTION ON DELETE SET NULL, ADD CONSTRAINT "agent_goal_active_attempt_id_fkey" FOREIGN KEY ("active_attempt_id") REFERENCES "agent_goal_attempt" ("id") ON UPDATE NO ACTION ON DELETE SET NULL, ADD CONSTRAINT "agent_goal_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "agent" ("id") ON UPDATE NO ACTION ON DELETE RESTRICT, ADD CONSTRAINT "agent_goal_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "project" ("id") ON UPDATE NO ACTION ON DELETE SET NULL, ADD CONSTRAINT "agent_goal_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "ctx_conversation" ("session_id") ON UPDATE NO ACTION ON DELETE RESTRICT, ADD CONSTRAINT "agent_goal_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth_user" ("id") ON UPDATE NO ACTION ON DELETE CASCADE;
 -- Modify "agent_goal_acceptance_event" table

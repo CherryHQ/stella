@@ -1,12 +1,12 @@
 ---
 title: Database schema design rules
-description: Schema design best practices for Stella, with the SQLite/Atlas mapping this project uses.
+description: Schema design best practices for Stella, with the PostgreSQL/Atlas mapping this project uses.
 ---
 
 > This is a **rule file** for contributors. When you create a table, change a
 > column, or plan a data model, read this page first. The general principles
-> below are database-agnostic; the [SQLite in this project](#sqlite-in-this-project)
-> section pins them to Stella's actual stack (SQLite + Atlas). The migration
+> below are database-agnostic; the [PostgreSQL in this project](#postgresql-in-this-project)
+> section pins them to Stella's actual stack (PostgreSQL + Atlas). The migration
 > workflow itself lives in the project `CLAUDE.md`.
 
 ## Start With the Domain
@@ -41,8 +41,14 @@ Avoid vague names: `data`, `type`, `value`, `flag`, `status2`.
 
 ## Keys
 
-- Every table gets a primary key. In this project it is a `TEXT` UUID/ULID
-  generated in Go (see [SQLite in this project](#sqlite-in-this-project)).
+- Every table gets a primary key. The default is a native `UUID` minted in Go
+  with `uuid.NewV7()` (time-ordered, index-friendly), backed by a
+  `DEFAULT uuidv7()` column default (see [PostgreSQL in this
+  project](#postgresql-in-this-project)).
+- Use a `TEXT` key only for a genuinely natural or non-uuid id: human slugs
+  (`agent`, `channel`), external names (`provider`), short truncated ids
+  (`sched_job`, `skill`), or legacy/deterministic ids that are not uuids
+  (`ctx_conversation`, `agent_goal`, `ctx_summary`, recally ULIDs).
 - Use natural keys only when genuinely immutable (ISO country codes, composite
   join-table PKs).
 - Foreign keys on every relationship — the database must protect integrity.
@@ -50,7 +56,7 @@ Avoid vague names: `data`, `type`, `value`, `flag`, `status2`.
 ## Required Columns
 
 Every table must include an identifier and creation/update timestamps. They are
-non-negotiable; no table ships without them. See the SQLite section for the
+non-negotiable; no table ships without them. See the PostgreSQL section for the
 exact column definitions Stella uses.
 
 ## Data Types
@@ -199,59 +205,67 @@ If you're querying inside JSON frequently, extract it into proper columns.
 - Paginate large result sets (keyset pagination > offset).
 - Avoid unbounded text search without full-text indexes.
 
-## SQLite in this project
+## PostgreSQL in this project
 
-Stella stores data in **SQLite**, with schema managed by **Atlas**. SQLite's
-type system is much smaller than Postgres's, so the generic types above map onto
-a handful of storage classes. The schema source of truth is
-`internal/db/schemas/tables/*.sql`; never hand-write migration SQL (see the
-migration workflow in the project `CLAUDE.md`).
+Stella stores data in **PostgreSQL** (an embedded cluster by default), with
+schema managed by **Atlas**. Use native Postgres types directly — the generic
+concepts above each have a real column type, no SQLite-style encoding tricks.
+The schema source of truth is `internal/db/schemas/tables/*.sql`; never
+hand-write migration SQL (see the migration workflow in the project
+`CLAUDE.md`).
 
 ### Type mapping
 
-| Concept         | Postgres idiom                   | SQLite (this project)                                       |
-| --------------- | -------------------------------- | ----------------------------------------------------------- |
-| Primary key     | `UUID DEFAULT gen_random_uuid()` | `TEXT NOT NULL PRIMARY KEY` — ID generated in Go            |
-| Timestamps      | `TIMESTAMPTZ DEFAULT now()`      | `TEXT NOT NULL DEFAULT (datetime('now'))` (UTC)             |
-| Boolean         | `BOOLEAN`                        | `INTEGER NOT NULL DEFAULT 0` (0/1)                          |
-| Money           | `INTEGER` cents / `NUMERIC`      | `INTEGER` cents                                             |
-| Enum/state      | `TEXT` (+ optional `CHECK`)      | plain `TEXT`, enforced in Go; `CHECK` only for closed enums |
-| Structured blob | `JSONB`                          | `TEXT` (often `NOT NULL DEFAULT '{}'`); query with `json_*` |
+| Concept         | Column type (this project)           | Notes                                                      |
+| --------------- | ------------------------------------ | ---------------------------------------------------------- |
+| Primary key     | `UUID PRIMARY KEY DEFAULT uuidv7()`  | minted in Go with `uuid.NewV7()`; `TEXT` for natural ids   |
+| Foreign key     | match the referenced PK type         | `UUID` to a uuid PK, `TEXT` to a text PK                   |
+| Timestamps      | `TIMESTAMPTZ NOT NULL DEFAULT now()` | always zone-aware; store UTC                               |
+| Boolean         | `BOOLEAN NOT NULL DEFAULT false`     | real `true`/`false`, not 0/1                               |
+| Money           | `BIGINT` cents / `NUMERIC`           | integer cents for currency                                 |
+| Enum/state      | `TEXT` (+ optional `CHECK`)          | valid values enforced in Go; `CHECK` only for closed enums |
+| Structured blob | `JSONB NOT NULL DEFAULT '{}'`        | true JSON; query with `->`/`->>`/`jsonb_*`                 |
+| Binary          | `BYTEA`                              | raw bytes                                                  |
 
-SQLite has no native `UUID`, `TIMESTAMPTZ`, `BOOLEAN`, or `JSONB` type, and no
-`gen_random_uuid()`. IDs are generated by the application, not the database.
+`uuidv7()` is a native PostgreSQL 18 function. The column default covers inserts
+that omit the id; application code still mints the id explicitly with
+`uuid.NewV7()` so it is known before the row is written. A foreign-key column
+must declare the **same** type as the primary key it references, so a `TEXT`
+natural key (slug, ULID, legacy id) forces its referencing FKs to `TEXT` too.
 
 ### Required columns (canonical form)
 
 ```sql
-CREATE TABLE agent_goal (
-    id          TEXT NOT NULL PRIMARY KEY,
-    user_id     TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+CREATE TABLE project (
+    id          UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id     UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     status      TEXT NOT NULL DEFAULT 'draft',  -- valid values enforced in Go
-    context     TEXT NOT NULL DEFAULT '{}',
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    completed_at TEXT
+    context     JSONB NOT NULL DEFAULT '{}',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ
 );
 ```
 
 ### Timestamps are UTC
 
-`(datetime('now'))` is evaluated by SQLite in **UTC** — never use `'localtime'`.
-Store UTC, write `time.Now().UTC()` from Go, and serialize RFC3339 with a zone
-at the API boundary. The full timezone contract is in the project `CLAUDE.md`.
+`now()` and `TIMESTAMPTZ` are zone-aware — never store a naive timestamp. Store
+UTC, write `time.Now().UTC()` from Go, and serialize RFC3339 with a zone at the
+API boundary. The full timezone contract is in the project `CLAUDE.md`.
 
 ## Review Checklist
 
 Before approving any schema change:
 
 1. Does every table follow `{group}_{entity}` singular naming?
-2. Does every table have a `TEXT` primary key, `created_at`, and `updated_at`?
+2. Does every table have a primary key (`UUID` by default, `TEXT` only for a
+   natural/legacy id), plus `created_at` and `updated_at`?
 3. Does every table have a clear single purpose?
 4. Are relationships enforced with foreign keys?
 5. Are required fields marked `NOT NULL`?
 6. Are uniqueness rules enforced?
-7. Are timestamps stored as UTC `TEXT` and money as integer cents?
+7. Are timestamps `TIMESTAMPTZ` (UTC), booleans `BOOLEAN`, blobs `JSONB`, and
+   money integer cents?
 8. Are common queries supported by indexes?
 9. Is deletion behavior intentional per table?
 10. Did the change go through the Atlas workflow (schema file → `db:diff` →

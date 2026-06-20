@@ -6,7 +6,7 @@ RETURNING *;
 -- name: GetSkill :one
 SELECT * FROM skill
 WHERE id = sqlc.arg(id)
-  AND ((sqlc.narg(agent_id)::text IS NULL AND sqlc.narg(user_id)::text IS NULL)
+  AND ((sqlc.narg(agent_id)::text IS NULL AND sqlc.narg(user_id)::uuid IS NULL)
     OR scope='system'
     OR (scope='system_agent' AND agent_id=sqlc.narg(agent_id))
     OR (scope='user'         AND user_id=sqlc.narg(user_id))
@@ -57,7 +57,7 @@ ORDER BY CASE scope
 -- name: ListSkillsByScope :many
 SELECT * FROM skill
 WHERE scope = sqlc.arg(scope)
-  AND coalesce(user_id, '') = coalesce(sqlc.narg(user_id), '')
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
 ORDER BY created_at;
 

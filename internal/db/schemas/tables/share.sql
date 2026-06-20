@@ -1,7 +1,7 @@
 CREATE TABLE share (
-    id TEXT PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     token_hash TEXT NOT NULL UNIQUE,
-    user_id TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     media_type TEXT NOT NULL,
     content BYTEA NOT NULL,

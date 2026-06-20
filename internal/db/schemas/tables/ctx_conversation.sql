@@ -1,5 +1,5 @@
 CREATE TABLE ctx_conversation (
-    id TEXT PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     session_id TEXT NOT NULL UNIQUE,
     title TEXT,
     channel TEXT NOT NULL DEFAULT '',

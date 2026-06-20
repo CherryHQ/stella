@@ -81,7 +81,18 @@ func TestGetAuthUser(t *testing.T) {
 func TestGetAuthUserNotFound(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/users/99999", nil)
+	rr := doRequest(t, env, "GET", "/api/users/"+uuid.NewString(), nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+// A non-uuid id makes PostgreSQL reject the text->uuid cast (SQLSTATE 22P02);
+// the handler must still answer 404, not leak a 500.
+func TestGetAuthUserMalformedIDReturnsNotFound(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/api/users/not-a-uuid", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
@@ -255,7 +266,7 @@ func TestListAuthUserLoginIdentitiesUserNotFound(t *testing.T) {
 	env := setupAdmin(t)
 	setupOIDCStore(t, env)
 
-	rr := doRequest(t, env, "GET", "/api/users/nonexistent/identities/login", nil)
+	rr := doRequest(t, env, "GET", "/api/users/"+uuid.NewString()+"/identities/login", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
@@ -409,7 +420,7 @@ func TestListAuthUserChannelIdentitiesUserNotFound(t *testing.T) {
 	env := setupAdmin(t)
 	setupOIDCStore(t, env)
 
-	rr := doRequest(t, env, "GET", "/api/users/nonexistent/identities/channel", nil)
+	rr := doRequest(t, env, "GET", "/api/users/"+uuid.NewString()+"/identities/channel", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}

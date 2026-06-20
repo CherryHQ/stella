@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -110,12 +112,13 @@ func TestSessionContextItemsFallbackUsesMessagePaging(t *testing.T) {
 	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
 		t.Fatalf("load conversation: %v", err)
 	}
+	fallbackMsg1, fallbackMsg2 := uuid.NewString(), uuid.NewString()
 	if _, err := env.db.Exec(`
 		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
 		VALUES
-		('fallback-msg-1', $1, 1, 'user', 'text', 'first', 10, '2026-06-10 02:00:00'),
-		('fallback-msg-2', $2, 2, 'assistant', 'text', 'second', 20, '2026-06-10 02:01:00')
-	`, conversationID, conversationID); err != nil {
+		($1, $2, 1, 'user', 'text', 'first', 10, '2026-06-10 02:00:00'),
+		($3, $4, 2, 'assistant', 'text', 'second', 20, '2026-06-10 02:01:00')
+	`, fallbackMsg1, conversationID, fallbackMsg2, conversationID); err != nil {
 		t.Fatalf("seed fallback messages: %v", err)
 	}
 
@@ -127,7 +130,7 @@ func TestSessionContextItemsFallbackUsesMessagePaging(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &first); err != nil {
 		t.Fatalf("decode first page: %v", err)
 	}
-	if len(first.Items) != 1 || first.Items[0].Message == nil || first.Items[0].Message.Id != "fallback-msg-1" {
+	if len(first.Items) != 1 || first.Items[0].Message == nil || first.Items[0].Message.Id != fallbackMsg1 {
 		t.Fatalf("first page = %+v", first.Items)
 	}
 	if first.Meta.SourceTokenCount != 30 || first.Meta.ActiveTokenCount != 30 {
@@ -145,7 +148,7 @@ func TestSessionContextItemsFallbackUsesMessagePaging(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &second); err != nil {
 		t.Fatalf("decode second page: %v", err)
 	}
-	if len(second.Items) != 1 || second.Items[0].Message == nil || second.Items[0].Message.Id != "fallback-msg-2" {
+	if len(second.Items) != 1 || second.Items[0].Message == nil || second.Items[0].Message.Id != fallbackMsg2 {
 		t.Fatalf("second page = %+v", second.Items)
 	}
 }
@@ -178,14 +181,15 @@ func TestSessionSummaryCondensedAggregatesChildren(t *testing.T) {
 			t.Fatalf("exec seed: %v\n%s", err, query)
 		}
 	}
+	cm1, cm2, cm3, cm4 := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	mustExec(`
 		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
 		VALUES
-		('cm-1', $1, 1, 'user', 'text', 'one', 10, '2026-06-10 03:00:00'),
-		('cm-2', $2, 2, 'assistant', 'text', 'two', 10, '2026-06-10 03:01:00'),
-		('cm-3', $3, 3, 'user', 'text', 'three', 10, '2026-06-10 03:02:00'),
-		('cm-4', $4, 4, 'assistant', 'text', 'four', 10, '2026-06-10 03:03:00')
-	`, conversationID, conversationID, conversationID, conversationID)
+		($1, $2, 1, 'user', 'text', 'one', 10, '2026-06-10 03:00:00'),
+		($3, $4, 2, 'assistant', 'text', 'two', 10, '2026-06-10 03:01:00'),
+		($5, $6, 3, 'user', 'text', 'three', 10, '2026-06-10 03:02:00'),
+		($7, $8, 4, 'assistant', 'text', 'four', 10, '2026-06-10 03:03:00')
+	`, cm1, conversationID, cm2, conversationID, cm3, conversationID, cm4, conversationID)
 	mustExec(`
 		INSERT INTO ctx_summary (
 			id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at,
@@ -198,8 +202,8 @@ func TestSessionSummaryCondensedAggregatesChildren(t *testing.T) {
 	`, conversationID, conversationID, conversationID)
 	mustExec(`
 		INSERT INTO ctx_summary_message (summary_id, message_id, ordinal)
-		VALUES ('leaf-a', 'cm-1', 1), ('leaf-a', 'cm-2', 2), ('leaf-b', 'cm-3', 1), ('leaf-b', 'cm-4', 2)
-	`)
+		VALUES ('leaf-a', $1, 1), ('leaf-a', $2, 2), ('leaf-b', $3, 1), ('leaf-b', $4, 2)
+	`, cm1, cm2, cm3, cm4)
 	// Rows are (summary_id=condensed, parent_summary_id=constituent), matching
 	// the write path in compaction.
 	mustExec(`
@@ -310,13 +314,14 @@ func seedContextItems(t *testing.T, env *testEnv, conversationID string) {
 			t.Fatalf("exec seed: %v\n%s", err, query)
 		}
 	}
+	msg1, msg2, msg3 := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	mustExec(`
 		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
 		VALUES
-		('msg-1', $1, 1, 'user', 'text', 'hello', 10, '2026-06-10 01:00:00'),
-		('msg-2', $2, 2, 'assistant', 'text', 'first', 20, '2026-06-10 01:01:00'),
-		('msg-3', $3, 3, 'assistant', 'text', 'second', 30, '2026-06-10 01:02:00')
-	`, conversationID, conversationID, conversationID)
+		($1, $2, 1, 'user', 'text', 'hello', 10, '2026-06-10 01:00:00'),
+		($3, $4, 2, 'assistant', 'text', 'first', 20, '2026-06-10 01:01:00'),
+		($5, $6, 3, 'assistant', 'text', 'second', 30, '2026-06-10 01:02:00')
+	`, msg1, conversationID, msg2, conversationID, msg3, conversationID)
 	mustExec(`
 		INSERT INTO ctx_summary (
 			id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at,
@@ -326,13 +331,13 @@ func seedContextItems(t *testing.T, env *testEnv, conversationID string) {
 	`, conversationID)
 	mustExec(`
 		INSERT INTO ctx_summary_message (summary_id, message_id, ordinal)
-		VALUES ('sum-1', 'msg-2', 1), ('sum-1', 'msg-3', 2)
-	`)
+		VALUES ('sum-1', $1, 1), ('sum-1', $2, 2)
+	`, msg2, msg3)
 	mustExec(`
 		INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, summary_id, event_type)
 		VALUES
-		($1, 1, 'message', 'msg-1', NULL, 'text'),
-		($2, 2, 'summary', NULL, 'sum-1', 'summary'),
-		($3, 3, 'message', 'msg-3', NULL, 'text')
-	`, conversationID, conversationID, conversationID)
+		($1, 1, 'message', $2, NULL, 'text'),
+		($3, 2, 'summary', NULL, 'sum-1', 'summary'),
+		($4, 3, 'message', $5, NULL, 'text')
+	`, conversationID, msg1, conversationID, conversationID, msg3)
 }

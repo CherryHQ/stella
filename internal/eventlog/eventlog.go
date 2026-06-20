@@ -139,7 +139,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 	}
 
 	row, err := q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
-		ID:                uuid.NewString(),
+		ID:                uuid.Must(uuid.NewV7()).String(),
 		GroupID:           groupID,
 		Seq:               seq,
 		SourceChannelID:   nullString(msg.SourceChannelID),
@@ -223,7 +223,7 @@ func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID stri
 		return AppendResult{}, fmt.Errorf("eventlog: bump seq: %w", err)
 	}
 	row, err := q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
-		ID:             uuid.NewString(),
+		ID:             uuid.Must(uuid.NewV7()).String(),
 		GroupID:        groupID,
 		Seq:            seq,
 		ActorType:      string(msg.ActorType),
@@ -325,7 +325,7 @@ func resolveGroupID(ctx context.Context, q *sqlc.Queries, platform, platformGrou
 		return "", fmt.Errorf("eventlog: get group state: %w", err)
 	}
 	created, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
-		ID:               uuid.NewString(),
+		ID:               uuid.Must(uuid.NewV7()).String(),
 		Platform:         platform,
 		PlatformGroupID:  platformGroupID,
 		PlatformThreadID: platformThreadID,

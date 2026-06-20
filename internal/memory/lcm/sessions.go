@@ -73,7 +73,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			kind = "chat"
 		}
 		_, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
-			ID:         uuid.NewString(),
+			ID:         uuid.Must(uuid.NewV7()).String(),
 			SessionID:  info.ID,
 			Title:      sql.NullString{String: info.Title, Valid: info.Title != ""},
 			Channel:    info.Channel,

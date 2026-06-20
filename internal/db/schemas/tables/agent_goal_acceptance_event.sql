@@ -3,9 +3,9 @@
 -- cached PROJECTION over these rows. A human "approve" is a verdict row here, never
 -- a freely-mutated state column. Never updated/deleted in normal operation.
 CREATE TABLE agent_goal_acceptance_event (
-    id                  TEXT NOT NULL PRIMARY KEY,
+    id                  UUID NOT NULL PRIMARY KEY DEFAULT uuidv7(),
     goal_id      TEXT NOT NULL REFERENCES agent_goal(id) ON DELETE CASCADE,
-    attempt_id          TEXT REFERENCES agent_goal_attempt(id) ON DELETE SET NULL, -- the attempt whose output was evaluated
+    attempt_id          UUID REFERENCES agent_goal_attempt(id) ON DELETE SET NULL, -- the attempt whose output was evaluated
     seq                 BIGINT NOT NULL,                                       -- monotonic per goal; the projection folds in seq order
 
     item_id             TEXT NOT NULL,                                          -- contract item this result/verdict answers
@@ -19,8 +19,8 @@ CREATE TABLE agent_goal_acceptance_event (
 
     -- Judgment detail (the verdict, as evidence).
     authority           TEXT NOT NULL DEFAULT 'system',                        -- 'system'(deterministic)|'agent'|'human' (Go-enforced)
-    reviewer_user_id    TEXT REFERENCES auth_user(id) ON DELETE SET NULL,      -- set when authority='human'
-    reviewer_attempt_id TEXT REFERENCES agent_goal_attempt(id) ON DELETE SET NULL, -- the purpose='review' run, when authority='agent'
+    reviewer_user_id    UUID REFERENCES auth_user(id) ON DELETE SET NULL,      -- set when authority='human'
+    reviewer_attempt_id UUID REFERENCES agent_goal_attempt(id) ON DELETE SET NULL, -- the purpose='review' run, when authority='agent'
     rationale           TEXT NOT NULL DEFAULT '',                              -- why (asserted)
     scope               TEXT NOT NULL DEFAULT '',                              -- what the verdict covers (verdict staleness scope)
     scope_hash          TEXT NOT NULL DEFAULT '',                              -- accepted-output/artifact hash the verdict covers; '' for deterministic

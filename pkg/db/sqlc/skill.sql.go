@@ -135,7 +135,7 @@ func (q *Queries) ExpireKnowledgeDraftsByType(ctx context.Context, arg ExpireKno
 const getSkill = `-- name: GetSkill :one
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
 WHERE id = $1
-  AND (($2::text IS NULL AND $3::text IS NULL)
+  AND (($2::text IS NULL AND $3::uuid IS NULL)
     OR scope='system'
     OR (scope='system_agent' AND agent_id=$2)
     OR (scope='user'         AND user_id=$3)
@@ -409,7 +409,7 @@ func (q *Queries) ListSkillFiles(ctx context.Context, skillID string) ([]SkillFi
 const listSkillsByScope = `-- name: ListSkillsByScope :many
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
 WHERE scope = $1
-  AND coalesce(user_id, '') = coalesce($2, '')
+  AND coalesce(user_id::text, '') = coalesce($2::text, '')
   AND coalesce(agent_id, '') = coalesce($3, '')
 ORDER BY created_at
 `

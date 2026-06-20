@@ -18,7 +18,8 @@ func TestConformance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
-	if _, err = db.Exec(`INSERT INTO auth_user (id, email) VALUES ('user-1', 'user-1@test.local'), ('1', '1@test.local')`); err != nil {
+	if _, err = db.Exec(`INSERT INTO auth_user (id, email) VALUES ($1, 'user-1@test.local'), ($2, 'profile@test.local')`,
+		memorytest.SessionUserID, memorytest.ProfileUserID); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 
