@@ -70,6 +70,29 @@ func TestPostgresRuntimeFromBundleFindsExtensionRoots(t *testing.T) {
 	}
 }
 
+func TestPostgresRuntimeFromBundleFindsPostgresAppRoots(t *testing.T) {
+	root := t.TempDir()
+	pgRoot := filepath.Join(root, "postgres")
+	touch(t, filepath.Join(pgRoot, "bin", pgCtlName()))
+	if err := os.MkdirAll(filepath.Join(pgRoot, "share", "postgresql", "extension"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(pgRoot, "lib", "postgresql"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	bundle, err := postgresRuntimeFromBundle(root)
+	if err != nil {
+		t.Fatalf("postgresRuntimeFromBundle: %v", err)
+	}
+	if bundle.PgShareRoot != filepath.Join(pgRoot, "share", "postgresql") {
+		t.Fatalf("PgShareRoot = %q", bundle.PgShareRoot)
+	}
+	if bundle.PgLibRoot != filepath.Join(pgRoot, "lib", "postgresql") {
+		t.Fatalf("PgLibRoot = %q", bundle.PgLibRoot)
+	}
+}
+
 func TestPostgresRuntimeStartParameters(t *testing.T) {
 	root := t.TempDir()
 	extShare := filepath.Join(root, "extensions", "share")
@@ -79,12 +102,13 @@ func TestPostgresRuntimeStartParameters(t *testing.T) {
 	}
 	touch(t, filepath.Join(extLib, postgresSharedLibraryName("pg_search")))
 
-	pgLib := filepath.Join(root, "postgres", "lib")
-	rt := postgresRuntimeInfo{ExtShareRoot: extShare, ExtLibRoot: extLib, PgLibRoot: pgLib}
+	pgShare := filepath.Join(root, "postgres", "share", "postgresql")
+	pgLib := filepath.Join(root, "postgres", "lib", "postgresql")
+	rt := postgresRuntimeInfo{ExtShareRoot: extShare, ExtLibRoot: extLib, PgShareRoot: pgShare, PgLibRoot: pgLib}
 	got := rt.startParameters()
 	sep := string(os.PathListSeparator)
 	want := map[string]string{
-		"extension_control_path":   extShare + sep + "$system",
+		"extension_control_path":   extShare + sep + pgShare + sep + "$system",
 		"dynamic_library_path":     extLib + sep + pgLib,
 		"shared_preload_libraries": "pg_search",
 	}

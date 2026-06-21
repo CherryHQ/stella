@@ -110,7 +110,10 @@ func extractTarZstd(archive []byte, dest string) error {
 			return fmt.Errorf("read PostgreSQL runtime tar archive: %w", err)
 		}
 		name := filepath.Clean(hdr.Name)
-		if name == "." || strings.HasPrefix(name, "..") || filepath.IsAbs(name) {
+		if name == "." {
+			continue
+		}
+		if strings.HasPrefix(name, "..") || filepath.IsAbs(name) {
 			return fmt.Errorf("unsafe PostgreSQL runtime archive path %q", hdr.Name)
 		}
 		target := filepath.Join(dest, name)

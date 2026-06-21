@@ -31,6 +31,7 @@ type postgresRuntimeInfo struct {
 	DataPath     string
 	ExtShareRoot string
 	ExtLibRoot   string
+	PgShareRoot  string
 	PgLibRoot    string
 }
 
@@ -67,6 +68,7 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 	rt.BinariesPath = bundle.BinariesPath
 	rt.ExtShareRoot = bundle.ExtShareRoot
 	rt.ExtLibRoot = bundle.ExtLibRoot
+	rt.PgShareRoot = bundle.PgShareRoot
 	rt.PgLibRoot = bundle.PgLibRoot
 	return rt, nil
 }
@@ -86,6 +88,7 @@ type postgresRuntimeBundle struct {
 	BinariesPath string
 	ExtShareRoot string
 	ExtLibRoot   string
+	PgShareRoot  string
 	PgLibRoot    string
 }
 
@@ -99,7 +102,11 @@ func postgresRuntimeFromBundle(root string) (postgresRuntimeBundle, error) {
 		return postgresRuntimeBundle{}, fmt.Errorf("db: %s must point to a PostgreSQL runtime bundle containing postgres/bin/%s or bin/%s", postgresRuntimeEnvName, pgCtlName(), pgCtlName())
 	}
 
-	bundle := postgresRuntimeBundle{BinariesPath: binariesPath, PgLibRoot: filepath.Join(binariesPath, "lib")}
+	bundle := postgresRuntimeBundle{
+		BinariesPath: binariesPath,
+		PgShareRoot:  postgresShareRoot(binariesPath),
+		PgLibRoot:    postgresLibraryRoot(binariesPath),
+	}
 	if dirExists(filepath.Join(root, "extensions", "share", "extension")) {
 		bundle.ExtShareRoot = filepath.Join(root, "extensions", "share")
 	}
@@ -113,7 +120,11 @@ func (rt postgresRuntimeInfo) startParameters() map[string]string {
 	params := map[string]string{}
 	pathSep := string(os.PathListSeparator)
 	if rt.ExtShareRoot != "" {
-		params["extension_control_path"] = rt.ExtShareRoot + pathSep + "$system"
+		controlPath := rt.ExtShareRoot
+		if rt.PgShareRoot != "" {
+			controlPath += pathSep + rt.PgShareRoot
+		}
+		params["extension_control_path"] = controlPath + pathSep + "$system"
 	}
 	if rt.ExtLibRoot != "" {
 		dynamicPath := rt.ExtLibRoot
@@ -129,6 +140,23 @@ func (rt postgresRuntimeInfo) startParameters() map[string]string {
 		}
 	}
 	return params
+}
+
+func postgresShareRoot(root string) string {
+	if dirExists(filepath.Join(root, "share", "postgresql", "extension")) {
+		return filepath.Join(root, "share", "postgresql")
+	}
+	if dirExists(filepath.Join(root, "share", "extension")) {
+		return filepath.Join(root, "share")
+	}
+	return ""
+}
+
+func postgresLibraryRoot(root string) string {
+	if dirExists(filepath.Join(root, "lib", "postgresql")) {
+		return filepath.Join(root, "lib", "postgresql")
+	}
+	return filepath.Join(root, "lib")
 }
 
 func pgCtlName() string {
