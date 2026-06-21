@@ -55,7 +55,7 @@ func TestCheckExtensionAvailableReportsMissingExtension(t *testing.T) {
 	}
 }
 
-func TestCheckExtensionPreloadedReportsMissingPGSearch(t *testing.T) {
+func TestCheckExtensionPreloadedReportsMissingLibrary(t *testing.T) {
 	e := startExtensionTestPostgres(t)
 	pool := openExtensionTestDB(t, e.DSN())
 	defer pool.Close()
@@ -67,14 +67,21 @@ func TestCheckExtensionPreloadedReportsMissingPGSearch(t *testing.T) {
 	}
 	defer conn.Release()
 
-	err = checkExtensionPreloaded(ctx, conn, "pg_search")
+	// A library that is not in shared_preload_libraries surfaces an actionable
+	// error naming the library and the restart it needs.
+	err = checkExtensionPreloaded(ctx, conn, "definitely_not_preloaded")
 	if err == nil {
 		t.Fatal("checkExtensionPreloaded succeeded, want error")
 	}
-	for _, want := range []string{"shared_preload_libraries='pg_search'", "restart PostgreSQL"} {
+	for _, want := range []string{"shared_preload_libraries='definitely_not_preloaded'", "restart PostgreSQL"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("preload error %q does not contain %q", err, want)
 		}
+	}
+
+	// The embedded runtime bundle preloads pg_search, so the real check passes.
+	if err := checkExtensionPreloaded(ctx, conn, "pg_search"); err != nil {
+		t.Fatalf("pg_search should be preloaded by the bundle: %v", err)
 	}
 }
 

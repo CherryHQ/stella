@@ -149,7 +149,7 @@ func (q *Queries) GetDigestByDate(ctx context.Context, arg GetDigestByDateParams
 }
 
 const listDigestArticles = `-- name: ListDigestArticles :many
-SELECT a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at, a.search_tsv
+SELECT a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at
 FROM recally_digest_article da
 JOIN recally_article a ON a.id = da.article_id
 WHERE da.digest_id = $1 AND da.section = $2
@@ -190,7 +190,6 @@ func (q *Queries) ListDigestArticles(ctx context.Context, arg ListDigestArticles
 			&i.ReadAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.SearchTsv,
 		); err != nil {
 			return nil, err
 		}

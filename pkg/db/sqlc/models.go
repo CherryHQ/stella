@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
 type Agent struct {
@@ -417,15 +418,23 @@ type CtxItem struct {
 }
 
 type CtxMessage struct {
-	ID             string      `json:"id"`
-	ConversationID string      `json:"conversation_id"`
-	Seq            int64       `json:"seq"`
-	Role           string      `json:"role"`
-	EventType      string      `json:"event_type"`
-	Content        string      `json:"content"`
-	TokenCount     int64       `json:"token_count"`
-	CreatedAt      time.Time   `json:"created_at"`
-	ContentTsv     interface{} `json:"content_tsv"`
+	ID             string    `json:"id"`
+	ConversationID string    `json:"conversation_id"`
+	Seq            int64     `json:"seq"`
+	Role           string    `json:"role"`
+	EventType      string    `json:"event_type"`
+	Content        string    `json:"content"`
+	TokenCount     int64     `json:"token_count"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type CtxMessageEmbedding struct {
+	MessageID   string             `json:"message_id"`
+	Model       string             `json:"model"`
+	ContentHash []byte             `json:"content_hash"`
+	Embedding   pgvector_go.Vector `json:"embedding"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
 }
 
 type CtxMessagePart struct {
@@ -454,7 +463,15 @@ type CtxSummary struct {
 	DescendantTokenCount    int64              `json:"descendant_token_count"`
 	SourceMessageTokenCount int64              `json:"source_message_token_count"`
 	CreatedAt               time.Time          `json:"created_at"`
-	ContentTsv              interface{}        `json:"content_tsv"`
+}
+
+type CtxSummaryEmbedding struct {
+	SummaryID   string             `json:"summary_id"`
+	Model       string             `json:"model"`
+	ContentHash []byte             `json:"content_hash"`
+	Embedding   pgvector_go.Vector `json:"embedding"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
 }
 
 type CtxSummaryMessage struct {
@@ -550,7 +567,15 @@ type RecallyArticle struct {
 	ReadAt       pgtype.Timestamptz `json:"read_at"`
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
-	SearchTsv    interface{}        `json:"search_tsv"`
+}
+
+type RecallyArticleEmbedding struct {
+	ArticleID   string             `json:"article_id"`
+	Model       string             `json:"model"`
+	ContentHash []byte             `json:"content_hash"`
+	Embedding   pgvector_go.Vector `json:"embedding"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
 }
 
 type RecallyDigest struct {

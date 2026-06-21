@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	postgresBundleID = "pg18.3.0-search0.24.1-vector0.8.3"
+	postgresBundleID = "pg18.4-pgvector0.8.2-pgsearch0.24.1"
 
 	// postgresRuntimeEnvName is an internal escape hatch for testing a Stella-built
 	// PostgreSQL runtime before release artifacts exist. The directory may either
@@ -55,7 +55,17 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 		if root, ok, err := pgbundle.EnsureBundle(postgresBundleCacheRoot(dataDir, tmpDir)); err != nil {
 			return postgresRuntimeInfo{}, err
 		} else if !ok {
-			return rt, nil
+			// No bundle for this build/platform. Embedded PostgreSQL only carries
+			// pgvector and pg_search when a runtime bundle is present; booting vanilla
+			// embedded-postgres would silently drop them, and search now hard-requires
+			// both. Refuse instead of degrading: a supported platform must embed the
+			// bundle, anything else must point at an external PostgreSQL that already
+			// has the extensions.
+			return postgresRuntimeInfo{}, fmt.Errorf(
+				"db: no embedded PostgreSQL runtime bundle for %s/%s (expected %s). "+
+					"Run scripts/fetch-pg-runtime.sh on a supported platform to embed it, "+
+					"or set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector installed",
+				runtime.GOOS, runtime.GOARCH, postgresBundleID)
 		} else {
 			bundleRoot = root
 		}
@@ -132,11 +142,16 @@ func (rt postgresRuntimeInfo) startParameters() map[string]string {
 			dynamicPath += pathSep + rt.PgLibRoot
 		}
 		params["dynamic_library_path"] = dynamicPath
-		if fileExists(filepath.Join(rt.ExtLibRoot, postgresSharedLibraryName("pg_search"))) {
-			// pg_search must be preloaded before CREATE EXTENSION can work. A broken
-			// or ABI-incompatible library is intentionally fatal at PostgreSQL start,
-			// which keeps bad internal test bundles from degrading silently.
+	}
+	// pg_search must be preloaded before CREATE EXTENSION can load it. Look in the
+	// external extension lib dir (bundle layout) and PostgreSQL's own lib dir (a
+	// plain runtime root where pg_search sits in $libdir) — either is a valid place
+	// to find it. A broken or ABI-incompatible library is intentionally fatal at
+	// PostgreSQL start, which keeps bad internal test bundles from degrading silently.
+	for _, libRoot := range []string{rt.ExtLibRoot, rt.PgLibRoot} {
+		if libRoot != "" && fileExists(filepath.Join(libRoot, postgresSharedLibraryName("pg_search"))) {
 			params["shared_preload_libraries"] = "pg_search"
+			break
 		}
 	}
 	return params

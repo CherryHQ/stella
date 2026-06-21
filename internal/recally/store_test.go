@@ -321,7 +321,7 @@ func TestStore_SearchArticles_UserScoping(t *testing.T) {
 	}
 }
 
-func TestStore_SearchArticles_CJKAndShortQueryFallback(t *testing.T) {
+func TestStore_SearchArticles_CJKAndCaseInsensitive(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
@@ -334,41 +334,38 @@ func TestStore_SearchArticles_CJKAndShortQueryFallback(t *testing.T) {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
 
-	// 3+ rune CJK query hits the trigram MATCH path.
+	// CJK is segmented by ICU, so both a multi-word and a single-word CJK query
+	// match via BM25 with no fallback tier.
 	results, err := store.SearchArticles(ctx, testUserID, "部署方案", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
 	if len(results) != 1 {
-		t.Fatalf("Expected 1 MATCH hit for 部署方案, got %d", len(results))
+		t.Fatalf("Expected 1 hit for 部署方案, got %d", len(results))
 	}
 
-	// 2-char query matches nothing via trigram MATCH; the LIKE fallback must
-	// still find it, and must stay user-scoped.
 	results, err = store.SearchArticles(ctx, testUserID, "部署", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
 	if len(results) != 1 {
-		t.Fatalf("Expected 1 fallback hit for 部署, got %d", len(results))
+		t.Fatalf("Expected 1 hit for 部署, got %d", len(results))
 	}
 	results, err = store.SearchArticles(ctx, otherUserID, "部署", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
 	if len(results) != 0 {
-		t.Errorf("Expected fallback to stay user-scoped, got %d hits", len(results))
+		t.Errorf("Expected search to stay user-scoped, got %d hits", len(results))
 	}
 
-	// The Latin fallback must be case-insensitive: SQLite's LIKE ignores ASCII
-	// case, so PostgreSQL's fallback uses ILIKE. A lowercase short query still
-	// finds the uppercase "K8s" token in the saved summary.
-	results, err = store.SearchArticles(ctx, testUserID, "k8", 10)
+	// ICU lowercases tokens, so an uppercase query finds the "K8s" summary token.
+	results, err = store.SearchArticles(ctx, testUserID, "K8S", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
 	if len(results) != 1 {
-		t.Fatalf("Expected 1 case-insensitive fallback hit for k8, got %d", len(results))
+		t.Fatalf("Expected 1 case-insensitive hit for K8S, got %d", len(results))
 	}
 }
 

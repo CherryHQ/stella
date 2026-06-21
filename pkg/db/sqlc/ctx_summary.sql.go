@@ -49,7 +49,7 @@ func (q *Queries) CreateSummary(ctx context.Context, arg CreateSummaryParams) er
 }
 
 const getSummariesByConversation = `-- name: GetSummariesByConversation :many
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at, content_tsv FROM ctx_summary WHERE conversation_id = $1 ORDER BY created_at ASC
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE conversation_id = $1 ORDER BY created_at ASC
 `
 
 func (q *Queries) GetSummariesByConversation(ctx context.Context, conversationID string) ([]CtxSummary, error) {
@@ -74,7 +74,6 @@ func (q *Queries) GetSummariesByConversation(ctx context.Context, conversationID
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
-			&i.ContentTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -87,7 +86,7 @@ func (q *Queries) GetSummariesByConversation(ctx context.Context, conversationID
 }
 
 const getSummariesByDepth = `-- name: GetSummariesByDepth :many
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at, content_tsv FROM ctx_summary
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary
 WHERE conversation_id = $1 AND depth = $2
 ORDER BY created_at ASC
 `
@@ -119,7 +118,6 @@ func (q *Queries) GetSummariesByDepth(ctx context.Context, arg GetSummariesByDep
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
-			&i.ContentTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -132,7 +130,7 @@ func (q *Queries) GetSummariesByDepth(ctx context.Context, arg GetSummariesByDep
 }
 
 const getSummary = `-- name: GetSummary :one
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at, content_tsv FROM ctx_summary WHERE id = $1 AND conversation_id = $2
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE id = $1 AND conversation_id = $2
 `
 
 type GetSummaryParams struct {
@@ -156,13 +154,12 @@ func (q *Queries) GetSummary(ctx context.Context, arg GetSummaryParams) (CtxSumm
 		&i.DescendantTokenCount,
 		&i.SourceMessageTokenCount,
 		&i.CreatedAt,
-		&i.ContentTsv,
 	)
 	return i, err
 }
 
 const getSummaryByID = `-- name: GetSummaryByID :one
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at, content_tsv FROM ctx_summary WHERE id = $1
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE id = $1
 `
 
 func (q *Queries) GetSummaryByID(ctx context.Context, id string) (CtxSummary, error) {
@@ -181,13 +178,12 @@ func (q *Queries) GetSummaryByID(ctx context.Context, id string) (CtxSummary, er
 		&i.DescendantTokenCount,
 		&i.SourceMessageTokenCount,
 		&i.CreatedAt,
-		&i.ContentTsv,
 	)
 	return i, err
 }
 
 const getSummaryChildren = `-- name: GetSummaryChildren :many
-SELECT s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.content_tsv FROM ctx_summary s
+SELECT s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at FROM ctx_summary s
 JOIN ctx_summary_parent sp ON sp.summary_id = s.id
 WHERE sp.parent_summary_id = $1
 ORDER BY sp.ordinal ASC
@@ -215,7 +211,6 @@ func (q *Queries) GetSummaryChildren(ctx context.Context, parentSummaryID string
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
-			&i.ContentTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -249,7 +244,7 @@ func (q *Queries) GetSummaryMessageSeqRange(ctx context.Context, summaryID strin
 }
 
 const getSummaryMessages = `-- name: GetSummaryMessages :many
-SELECT m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.content_tsv FROM ctx_message m
+SELECT m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at FROM ctx_message m
 JOIN ctx_summary_message sm ON sm.message_id = m.id
 WHERE sm.summary_id = $1
 ORDER BY sm.ordinal ASC
@@ -273,7 +268,6 @@ func (q *Queries) GetSummaryMessages(ctx context.Context, summaryID string) ([]C
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
-			&i.ContentTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -286,7 +280,7 @@ func (q *Queries) GetSummaryMessages(ctx context.Context, summaryID string) ([]C
 }
 
 const getSummaryParents = `-- name: GetSummaryParents :many
-SELECT s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.content_tsv FROM ctx_summary s
+SELECT s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at FROM ctx_summary s
 JOIN ctx_summary_parent sp ON sp.parent_summary_id = s.id
 WHERE sp.summary_id = $1
 ORDER BY sp.ordinal ASC
@@ -314,7 +308,6 @@ func (q *Queries) GetSummaryParents(ctx context.Context, summaryID string) ([]Ct
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
-			&i.ContentTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -359,7 +352,7 @@ func (q *Queries) LinkSummaryToParent(ctx context.Context, arg LinkSummaryToPare
 }
 
 const listSummariesByIDs = `-- name: ListSummariesByIDs :many
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at, content_tsv FROM ctx_summary WHERE conversation_id = $1 AND id = ANY($2::text[]) ORDER BY created_at ASC
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE conversation_id = $1 AND id = ANY($2::text[]) ORDER BY created_at ASC
 `
 
 type ListSummariesByIDsParams struct {
@@ -389,7 +382,6 @@ func (q *Queries) ListSummariesByIDs(ctx context.Context, arg ListSummariesByIDs
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
-			&i.ContentTsv,
 		); err != nil {
 			return nil, err
 		}
@@ -430,14 +422,14 @@ func (q *Queries) ListSummaryParentsBySummaryIDs(ctx context.Context, summaryIds
 
 const searchSummaries = `-- name: SearchSummaries :many
 SELECT
-    s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.content_tsv,
+    s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    ts_headline('simple', s.content, websearch_to_tsquery('simple', $1), 'StartSel=<<,StopSel=>>,MaxFragments=1,MaxWords=32,MinWords=1')::text AS snippet,
-    ts_rank_cd(s.content_tsv, websearch_to_tsquery('simple', $1))::double precision AS score
+    paradedb.snippet(s.content)::text AS snippet,
+    paradedb.score(s.id)::double precision AS score
 FROM ctx_summary s
 JOIN ctx_conversation c ON c.id = s.conversation_id
-WHERE s.content_tsv @@ websearch_to_tsquery('simple', $1)
+WHERE s.id @@@ paradedb.match('content', $1::text)
   AND c.user_id = $2
   AND c.agent_id IS NOT DISTINCT FROM $3
 ORDER BY score DESC
@@ -464,7 +456,6 @@ type SearchSummariesRow struct {
 	DescendantTokenCount    int64              `json:"descendant_token_count"`
 	SourceMessageTokenCount int64              `json:"source_message_token_count"`
 	CreatedAt               time.Time          `json:"created_at"`
-	ContentTsv              interface{}        `json:"content_tsv"`
 	SessionID               string             `json:"session_id"`
 	ConversationTitle       pgtype.Text        `json:"conversation_title"`
 	Snippet                 string             `json:"snippet"`
@@ -472,8 +463,9 @@ type SearchSummariesRow struct {
 }
 
 // Spans every conversation of the current (user_id, agent_id); see SearchMessages.
-// TODO(Phase 5): validate ranking/snippet quality and the CJK trigram tier on
-// real PostgreSQL; CJK queries fall through to SearchSummariesLike (pg_trgm).
+// Lexical ranking is pg_search BM25; paradedb.match tokenizes the raw user text
+// with ICU (CJK matches natively) and never errors on punctuation. The match arg
+// is the raw user text.
 func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams) ([]SearchSummariesRow, error) {
 	rows, err := q.db.Query(ctx, searchSummaries,
 		arg.Match,
@@ -501,92 +493,10 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
-			&i.ContentTsv,
 			&i.SessionID,
 			&i.ConversationTitle,
 			&i.Snippet,
 			&i.Score,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const searchSummariesLike = `-- name: SearchSummariesLike :many
-SELECT
-    s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.content_tsv,
-    c.session_id AS session_id,
-    c.title AS conversation_title
-FROM ctx_summary s
-JOIN ctx_conversation c ON c.id = s.conversation_id
-WHERE c.user_id = $1
-  AND c.agent_id IS NOT DISTINCT FROM $2
-  AND (s.content ILIKE $3 ESCAPE '\')
-ORDER BY s.created_at DESC
-LIMIT $4
-`
-
-type SearchSummariesLikeParams struct {
-	UserID  pgtype.Text `json:"user_id"`
-	AgentID pgtype.Text `json:"agent_id"`
-	Pattern []byte      `json:"pattern"`
-	Limit   int32       `json:"limit"`
-}
-
-type SearchSummariesLikeRow struct {
-	ID                      string             `json:"id"`
-	ConversationID          string             `json:"conversation_id"`
-	Kind                    string             `json:"kind"`
-	Depth                   int64              `json:"depth"`
-	Content                 string             `json:"content"`
-	TokenCount              int64              `json:"token_count"`
-	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
-	LatestAt                pgtype.Timestamptz `json:"latest_at"`
-	DescendantCount         int64              `json:"descendant_count"`
-	DescendantTokenCount    int64              `json:"descendant_token_count"`
-	SourceMessageTokenCount int64              `json:"source_message_token_count"`
-	CreatedAt               time.Time          `json:"created_at"`
-	ContentTsv              interface{}        `json:"content_tsv"`
-	SessionID               string             `json:"session_id"`
-	ConversationTitle       pgtype.Text        `json:"conversation_title"`
-}
-
-// Fallback for queries with no token of 3+ runes (see SearchMessagesLike).
-func (q *Queries) SearchSummariesLike(ctx context.Context, arg SearchSummariesLikeParams) ([]SearchSummariesLikeRow, error) {
-	rows, err := q.db.Query(ctx, searchSummariesLike,
-		arg.UserID,
-		arg.AgentID,
-		arg.Pattern,
-		arg.Limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SearchSummariesLikeRow{}
-	for rows.Next() {
-		var i SearchSummariesLikeRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.ConversationID,
-			&i.Kind,
-			&i.Depth,
-			&i.Content,
-			&i.TokenCount,
-			&i.EarliestAt,
-			&i.LatestAt,
-			&i.DescendantCount,
-			&i.DescendantTokenCount,
-			&i.SourceMessageTokenCount,
-			&i.CreatedAt,
-			&i.ContentTsv,
-			&i.SessionID,
-			&i.ConversationTitle,
 		); err != nil {
 			return nil, err
 		}

@@ -40,3 +40,10 @@ sql:
           # sql.NullTime).
           - db_type: "timestamptz"
             go_type: "time.Time"
+          # pgvector embedding columns (sidecar *_embedding tables). Maps to the
+          # pgvector-go Vector type so the generated models carry real vectors;
+          # the embedding/backfill follow-up registers the codec on the pool.
+          - db_type: "vector"
+            go_type:
+              import: "github.com/pgvector/pgvector-go"
+              type: "Vector"

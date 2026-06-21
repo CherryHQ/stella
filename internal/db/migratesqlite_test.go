@@ -88,15 +88,16 @@ func TestMigrateSQLite_RealFixture(t *testing.T) {
 		t.Errorf("ctx_message rows with a valid created_at = %d, want 12300", dated)
 	}
 
-	// generated tsvector is computed on insert, so FTS is live right after the
-	// migration without any extra backfill step.
-	var withTokens int
+	// The pg_search BM25 index covers content automatically on insert, so lexical
+	// search is live right after the migration with no backfill step — as long as
+	// the migrated rows carry content for it to index.
+	var withContent int
 	if err := db.QueryRow(ctx,
-		"SELECT count(*) FROM ctx_message WHERE content_tsv <> ''::tsvector").Scan(&withTokens); err != nil {
-		t.Fatalf("tsvector query: %v", err)
+		"SELECT count(*) FROM ctx_message WHERE content <> ''").Scan(&withContent); err != nil {
+		t.Fatalf("content query: %v", err)
 	}
-	if withTokens == 0 {
-		t.Error("generated content_tsv is empty for every row; FTS would not work post-migration")
+	if withContent == 0 {
+		t.Error("every migrated ctx_message has empty content; BM25 search would find nothing")
 	}
 
 	// Idempotent: a second run truncates and reloads to the same totals.

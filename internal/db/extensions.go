@@ -17,10 +17,13 @@ type ExtensionRequirement struct {
 	RequiresPreload bool
 }
 
+// Search has no fallback tier: lexical ranking is pg_search BM25 and semantic
+// ranking is pgvector, so both extensions are mandatory. pg_search must also be
+// in shared_preload_libraries before CREATE EXTENSION can load it. (pg_trgm is
+// gone with the trigram fallback it used to back.)
 var postgresExtensions = []ExtensionRequirement{
-	{Name: "pg_trgm", Required: true},
-	{Name: "vector"},
-	{Name: "pg_search", RequiresPreload: true},
+	{Name: "vector", Required: true},
+	{Name: "pg_search", Required: true, RequiresPreload: true},
 }
 
 func ensureExtensions(ctx context.Context, conn *pgxpool.Conn) error {

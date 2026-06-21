@@ -6,8 +6,9 @@ import (
 )
 
 // TestEmbeddedSmoke proves the Phase 6 backbone end-to-end: an embedded server
-// starts, OpenDB migrates the full baseline (and ensures the pg_trgm extension)
-// against it, and a query round-trips. If this passes, every other PG test can
+// starts, OpenDB migrates the full baseline (and ensures the pgvector and
+// pg_search extensions) against it, and a query round-trips. If this passes,
+// every other PG test can
 // rely on the same path.
 func TestEmbeddedSmoke(t *testing.T) {
 	e, err := StartEmbedded("", 0)

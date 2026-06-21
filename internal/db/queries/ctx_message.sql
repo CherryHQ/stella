@@ -87,41 +87,22 @@ SELECT * FROM ctx_message_part WHERE message_id = ANY(sqlc.arg('message_ids')::u
 -- Spans every conversation of the current (user_id, agent_id) so memory recall
 -- survives across sessions. Joins ctx_conversation to pin the scope and surface
 -- provenance (session_id, title). Global ORDER BY score + LIMIT keeps the best
--- matches across the merged corpus, not per-conversation truncations.
--- TODO(Phase 5): validate ranking/snippet quality and the CJK trigram tier on
--- real PostgreSQL; the 'simple' tsvector does not segment CJK, so CJK queries
--- fall through to SearchMessagesLike (pg_trgm).
+-- matches across the merged corpus, not per-conversation truncations. Lexical
+-- ranking is pg_search BM25; paradedb.match tokenizes the raw user text with ICU
+-- (so CJK matches natively, no fallback tier) and never errors on punctuation or
+-- query-syntax characters. The match arg is the raw user text.
 SELECT
     m.*,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    ts_headline('simple', m.content, websearch_to_tsquery('simple', sqlc.arg('match')), 'StartSel=<<,StopSel=>>,MaxFragments=1,MaxWords=32,MinWords=1')::text AS snippet,
-    ts_rank_cd(m.content_tsv, websearch_to_tsquery('simple', sqlc.arg('match')))::double precision AS score
+    paradedb.snippet(m.content)::text AS snippet,
+    paradedb.score(m.id)::double precision AS score
 FROM ctx_message m
 JOIN ctx_conversation c ON c.id = m.conversation_id
-WHERE m.content_tsv @@ websearch_to_tsquery('simple', sqlc.arg('match'))
+WHERE m.id @@@ paradedb.match('content', sqlc.arg('match')::text)
   AND c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
 ORDER BY score DESC
-LIMIT sqlc.arg('limit');
-
--- name: SearchMessagesLike :many
--- Fallback for queries with no token of 3+ runes, which trigram MATCH would
--- silently never hit. Scans the content table directly, recency-ordered, no
--- ranking. Pattern must be a full '%text%' built with ftsquery.EscapeLike; sqlc
--- cannot parse || concatenation here, so the caller wraps it, and the parens
--- around LIKE...ESCAPE are also required by sqlc's grammar. Keep these doc
--- comments ASCII: multibyte chars corrupt sqlc's query rewriter offsets.
-SELECT
-    m.*,
-    c.session_id AS session_id,
-    c.title AS conversation_title
-FROM ctx_message m
-JOIN ctx_conversation c ON c.id = m.conversation_id
-WHERE c.user_id = sqlc.arg('user_id')
-  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
-  AND (m.content ILIKE sqlc.arg('pattern') ESCAPE '\')
-ORDER BY m.created_at DESC
 LIMIT sqlc.arg('limit');
 
 -- name: GetMessagesSince :many

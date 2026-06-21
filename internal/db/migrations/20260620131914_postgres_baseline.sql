@@ -582,16 +582,13 @@ CREATE TABLE "ctx_message" (
   "content" text NOT NULL,
   "token_count" bigint NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
-  "content_tsv" tsvector NULL GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, content)) STORED,
   PRIMARY KEY ("id"),
   CONSTRAINT "ctx_message_conversation_id_seq_key" UNIQUE ("conversation_id", "seq")
 );
--- Create index "idx_ctx_message_content_trgm" to table: "ctx_message"
-CREATE INDEX "idx_ctx_message_content_trgm" ON "ctx_message" USING gin ("content" gin_trgm_ops);
 -- Create index "idx_ctx_message_conv_seq" to table: "ctx_message"
 CREATE INDEX "idx_ctx_message_conv_seq" ON "ctx_message" ("conversation_id", "seq");
--- Create index "idx_ctx_message_tsv" to table: "ctx_message"
-CREATE INDEX "idx_ctx_message_tsv" ON "ctx_message" USING gin ("content_tsv");
+-- Create index "idx_ctx_message_bm25" to table: "ctx_message" (pg_search BM25, ICU tokenizer for CJK)
+CREATE INDEX "idx_ctx_message_bm25" ON "ctx_message" USING bm25 ("id", ("content"::pdb.icu)) WITH (key_field = 'id');
 -- Create "ctx_message_part" table
 CREATE TABLE "ctx_message_part" (
   "id" uuid NOT NULL DEFAULT uuidv7(),
@@ -621,15 +618,12 @@ CREATE TABLE "ctx_summary" (
   "descendant_token_count" bigint NOT NULL DEFAULT 0,
   "source_message_token_count" bigint NOT NULL DEFAULT 0,
   "created_at" timestamptz NOT NULL DEFAULT now(),
-  "content_tsv" tsvector NULL GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, content)) STORED,
   PRIMARY KEY ("id")
 );
--- Create index "idx_ctx_summary_content_trgm" to table: "ctx_summary"
-CREATE INDEX "idx_ctx_summary_content_trgm" ON "ctx_summary" USING gin ("content" gin_trgm_ops);
 -- Create index "idx_ctx_summary_conv" to table: "ctx_summary"
 CREATE INDEX "idx_ctx_summary_conv" ON "ctx_summary" ("conversation_id", "created_at");
--- Create index "idx_ctx_summary_tsv" to table: "ctx_summary"
-CREATE INDEX "idx_ctx_summary_tsv" ON "ctx_summary" USING gin ("content_tsv");
+-- Create index "idx_ctx_summary_bm25" to table: "ctx_summary" (pg_search BM25, ICU tokenizer for CJK)
+CREATE INDEX "idx_ctx_summary_bm25" ON "ctx_summary" USING bm25 ("id", ("content"::pdb.icu)) WITH (key_field = 'id');
 -- Create "ctx_summary_message" table
 CREATE TABLE "ctx_summary_message" (
   "summary_id" text NOT NULL,
@@ -736,21 +730,12 @@ CREATE TABLE "recally_article" (
   "read_at" timestamptz NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "updated_at" timestamptz NOT NULL DEFAULT now(),
-  "search_tsv" tsvector NULL GENERATED ALWAYS AS (((setweight(to_tsvector('simple'::regconfig, COALESCE(title, ''::text)), 'A'::"char") || setweight(to_tsvector('simple'::regconfig, COALESCE(summary, ''::text)), 'B'::"char")) || setweight(to_tsvector('simple'::regconfig, COALESCE(tags, ''::text)), 'B'::"char")) || setweight(to_tsvector('simple'::regconfig, COALESCE(author, ''::text)), 'C'::"char")) STORED,
   PRIMARY KEY ("id")
 );
--- Create index "idx_recally_article_author_trgm" to table: "recally_article"
-CREATE INDEX "idx_recally_article_author_trgm" ON "recally_article" USING gin ("author" gin_trgm_ops);
 -- Create index "idx_recally_article_saved_at" to table: "recally_article"
 CREATE INDEX "idx_recally_article_saved_at" ON "recally_article" ("saved_at");
--- Create index "idx_recally_article_summary_trgm" to table: "recally_article"
-CREATE INDEX "idx_recally_article_summary_trgm" ON "recally_article" USING gin ("summary" gin_trgm_ops);
--- Create index "idx_recally_article_tags_trgm" to table: "recally_article"
-CREATE INDEX "idx_recally_article_tags_trgm" ON "recally_article" USING gin ("tags" gin_trgm_ops);
--- Create index "idx_recally_article_title_trgm" to table: "recally_article"
-CREATE INDEX "idx_recally_article_title_trgm" ON "recally_article" USING gin ("title" gin_trgm_ops);
--- Create index "idx_recally_article_tsv" to table: "recally_article"
-CREATE INDEX "idx_recally_article_tsv" ON "recally_article" USING gin ("search_tsv");
+-- Create index "idx_recally_article_bm25" to table: "recally_article" (pg_search BM25, ICU tokenizer for CJK)
+CREATE INDEX "idx_recally_article_bm25" ON "recally_article" USING bm25 ("id", ("title"::pdb.icu), ("summary"::pdb.icu), ("tags"::pdb.icu), ("author"::pdb.icu)) WITH (key_field = 'id');
 -- Create index "idx_recally_article_user_canonical" to table: "recally_article"
 CREATE UNIQUE INDEX "idx_recally_article_user_canonical" ON "recally_article" ("user_id", "canonical_url");
 -- Create index "idx_recally_article_user_source" to table: "recally_article"
@@ -1017,6 +1002,50 @@ ALTER TABLE "skill" ADD CONSTRAINT "skill_agent_id_fkey" FOREIGN KEY ("agent_id"
 ALTER TABLE "skill_file" ADD CONSTRAINT "skill_file_skill_id_fkey" FOREIGN KEY ("skill_id") REFERENCES "skill" ("id") ON UPDATE NO ACTION ON DELETE CASCADE;
 -- Modify "vault_entry" table
 ALTER TABLE "vault_entry" ADD CONSTRAINT "vault_entry_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "agent" ("id") ON UPDATE NO ACTION ON DELETE CASCADE, ADD CONSTRAINT "vault_entry_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth_user" ("id") ON UPDATE NO ACTION ON DELETE CASCADE;
+
+-- Semantic-search sidecars. One embedding row per source row, keyed by the
+-- source id so the BM25 lane (index on the source table) and this vector lane
+-- share a join key for hybrid ranking. Kept out of the hot source tables so
+-- re-embedding never rewrites them, and CASCADE cleans the embedding up with the
+-- source. Stella commits to a single configured embedding model whose output is
+-- 1536-dimensional; the HNSW index requires a fixed dimension, so changing the
+-- model/dimension is a migration plus a full re-embed. The model column records
+-- which model produced the row and content_hash detects stale rows that need
+-- re-embedding. Embedding production/backfill lands in a follow-up; these tables
+-- start empty.
+CREATE TABLE "ctx_message_embedding" (
+  "message_id" uuid NOT NULL,
+  "model" text NOT NULL,
+  "content_hash" bytea NOT NULL,
+  "embedding" vector(1536) NOT NULL,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY ("message_id"),
+  CONSTRAINT "ctx_message_embedding_message_id_fkey" FOREIGN KEY ("message_id") REFERENCES "ctx_message" ("id") ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX "idx_ctx_message_embedding_hnsw" ON "ctx_message_embedding" USING hnsw ("embedding" vector_cosine_ops);
+CREATE TABLE "ctx_summary_embedding" (
+  "summary_id" text NOT NULL,
+  "model" text NOT NULL,
+  "content_hash" bytea NOT NULL,
+  "embedding" vector(1536) NOT NULL,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY ("summary_id"),
+  CONSTRAINT "ctx_summary_embedding_summary_id_fkey" FOREIGN KEY ("summary_id") REFERENCES "ctx_summary" ("id") ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX "idx_ctx_summary_embedding_hnsw" ON "ctx_summary_embedding" USING hnsw ("embedding" vector_cosine_ops);
+CREATE TABLE "recally_article_embedding" (
+  "article_id" text NOT NULL,
+  "model" text NOT NULL,
+  "content_hash" bytea NOT NULL,
+  "embedding" vector(1536) NOT NULL,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY ("article_id"),
+  CONSTRAINT "recally_article_embedding_article_id_fkey" FOREIGN KEY ("article_id") REFERENCES "recally_article" ("id") ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX "idx_recally_article_embedding_hnsw" ON "recally_article_embedding" USING hnsw ("embedding" vector_cosine_ops);
 
 -- +goose Down
 -- The baseline has no down migration: it creates the entire schema, and rolling

@@ -206,13 +206,13 @@ Every assembly emits a structured log entry (`lcm tail telemetry`) with `tail_it
 
 ### Search
 
-Search runs on SQLite FTS5 with BM25 ranking. Two external-content virtual tables — `ctx_message_fts` and `ctx_summary_fts` — index `content` with the `trigram` tokenizer and are kept in sync by insert/update/delete triggers on the base tables. Trigram gives substring recall — 部署方案 matches inside a longer CJK sentence, and English queries also match substrings ("ploy" hits "deployment").
+Search runs on PostgreSQL with **pg_search BM25** ranking. The `ctx_message` and `ctx_summary` tables each carry a `USING bm25` index over `content`, tokenized with the **ICU** tokenizer, so CJK is segmented into words (部署方案 matches the segmented 部署 / 方案 in a longer sentence) and English matches whole tokens. There is **no fallback tier** — pg_search hard-requires the `pg_search` extension (and `vector` for the semantic lane), which ship in the embedded runtime bundle or an external PostgreSQL.
 
-- Query text is tokenized into letter/digit/underscore runs, each quoted and OR-joined into a `MATCH` expression, so FTS5 operators in user input never break the query. Tokens shorter than 3 characters are dropped — trigram `MATCH` silently returns nothing for them.
-- Queries whose tokens are all shorter than 3 characters (部署, "go") fall back to an unranked, recency-ordered `LIKE` scan of the content tables: no BM25 score, no snippet highlights.
-- `MATCH` results carry an FTS snippet (`<<term>>` highlights) and a normalized score (`-bm25`, higher is better).
+- Raw user text goes straight to `paradedb.match`, which tokenizes with ICU and never errors on punctuation or query-syntax characters — so there is no separate sanitize step, and short or CJK queries match natively (no minimum-token-length rule, no `LIKE` fallback).
+- Hits carry a pg_search snippet (`<b>term</b>` highlights) and a `paradedb.score` BM25 score (higher is better).
 - `both` scope queries messages and summaries separately with the full limit, then merges by score and keeps the top N — a strong summary hit can outrank a weak message hit. Summary hits drill down via `describe`/`expand`.
-- The FTS schema lives in `internal/db/schemas/tables/ctx_*_fts.sql` but is applied at **runtime** (`internal/db/fts.go`), not through Atlas migrations — Atlas's dev SQLite lacks the fts5 module. The index is rebuilt from existing rows on first creation (so pre-FTS history is searchable), whenever the sync triggers are found missing — the signature of an Atlas table-rebuild migration, which drops triggers and shifts rowids — and when an existing table carries a different tokenizer (the unicode61 → trigram migration). If the SQLite build lacks FTS5, startup fails with an explicit error.
+- The BM25 indexes live in the schema baseline (`internal/db/migrations`); the `vector`/`pg_search` extensions are created at **runtime** (`ensureExtensions` in `internal/db/database.go`) before migrations run, because `CREATE EXTENSION` needs binaries (and `shared_preload_libraries=pg_search`) that a migration cannot guarantee.
+- Semantic search uses per-source sidecar tables (`ctx_message_embedding`, `ctx_summary_embedding`, `recally_article_embedding`) holding a `vector(1536)` with an HNSW index, keyed by the source id. They start empty: embedding production/backfill lands in a follow-up.
 
 ## Simple Plugin
 
