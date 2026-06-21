@@ -114,6 +114,25 @@ func TestPreloadContains(t *testing.T) {
 	}
 }
 
+func TestCompareExtensionVersion(t *testing.T) {
+	tests := []struct {
+		have string
+		want string
+		cmp  int
+	}{
+		{have: "1.6", want: "1.5", cmp: 1},
+		{have: "1.5.0", want: "1.5", cmp: 0},
+		{have: "0.7.4", want: "0.8.0", cmp: -1},
+		{have: "0.24.1-beta1", want: "0.24.1", cmp: 1},
+	}
+	for _, tt := range tests {
+		got := compareExtensionVersion(tt.have, tt.want)
+		if got != tt.cmp {
+			t.Fatalf("compareExtensionVersion(%q, %q) = %d, want %d", tt.have, tt.want, got, tt.cmp)
+		}
+	}
+}
+
 func startExtensionTestPostgres(t *testing.T) *Embedded {
 	t.Helper()
 	e, err := StartEmbedded("", 0)
