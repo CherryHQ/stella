@@ -35,6 +35,28 @@ func TestPostgresRuntimeFromBundleWithDirectPostgresRoot(t *testing.T) {
 	}
 }
 
+func TestPostgresRuntimeFromBundleWithSplitPrefixLinuxRoot(t *testing.T) {
+	root := t.TempDir()
+	// PGDG linux bundles mirror /usr so the backend can relocate its share dir:
+	// bin lives under postgres/lib/postgresql/<major>, not directly under postgres/.
+	home := filepath.Join(root, "postgres", "lib", "postgresql", "18")
+	touch(t, filepath.Join(home, "bin", pgCtlName()))
+	if err := os.MkdirAll(filepath.Join(home, "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	bundle, err := postgresRuntimeFromBundle(root)
+	if err != nil {
+		t.Fatalf("postgresRuntimeFromBundle: %v", err)
+	}
+	if bundle.BinariesPath != home {
+		t.Fatalf("BinariesPath = %q, want %q", bundle.BinariesPath, home)
+	}
+	if bundle.PgLibRoot != filepath.Join(home, "lib") {
+		t.Fatalf("PgLibRoot = %q, want %q", bundle.PgLibRoot, filepath.Join(home, "lib"))
+	}
+}
+
 func TestPostgresRuntimeFromBundleRejectsInvalidRoot(t *testing.T) {
 	_, err := postgresRuntimeFromBundle(t.TempDir())
 	if err == nil {
@@ -114,6 +136,18 @@ func TestPostgresRuntimeStartParameters(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("startParameters = %#v, want %#v", got, want)
+	}
+}
+
+func TestPostgresRuntimeStartParametersPreloadsFromPgLib(t *testing.T) {
+	// A plain runtime root (STELLA_POSTGRES_RUNTIME) has no external extensions
+	// dir, so pg_search sits in PostgreSQL's own lib dir; preload must still fire.
+	pgLib := t.TempDir()
+	touch(t, filepath.Join(pgLib, postgresSharedLibraryName("pg_search")))
+	rt := postgresRuntimeInfo{PgLibRoot: pgLib}
+	got := rt.startParameters()
+	if got["shared_preload_libraries"] != "pg_search" {
+		t.Fatalf("expected pg_search preload from PgLibRoot, got %#v", got)
 	}
 }
 

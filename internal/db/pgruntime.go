@@ -104,12 +104,12 @@ type postgresRuntimeBundle struct {
 
 func postgresRuntimeFromBundle(root string) (postgresRuntimeBundle, error) {
 	root = filepath.Clean(root)
-	binariesPath := root
-	if fileExists(filepath.Join(root, "postgres", "bin", pgCtlName())) {
-		binariesPath = filepath.Join(root, "postgres")
-	}
-	if !fileExists(filepath.Join(binariesPath, "bin", pgCtlName())) {
-		return postgresRuntimeBundle{}, fmt.Errorf("db: %s must point to a PostgreSQL runtime bundle containing postgres/bin/%s or bin/%s", postgresRuntimeEnvName, pgCtlName(), pgCtlName())
+	binariesPath, ok := locatePostgresHome(root)
+	if !ok {
+		return postgresRuntimeBundle{}, fmt.Errorf(
+			"db: %s must point to a PostgreSQL runtime bundle containing postgres/bin/%s, "+
+				"postgres/lib/postgresql/<major>/bin/%s, or bin/%s",
+			postgresRuntimeEnvName, pgCtlName(), pgCtlName(), pgCtlName())
 	}
 
 	bundle := postgresRuntimeBundle{
@@ -155,6 +155,32 @@ func (rt postgresRuntimeInfo) startParameters() map[string]string {
 		}
 	}
 	return params
+}
+
+// locatePostgresHome finds the directory holding bin/<pg_ctl> inside an extracted
+// bundle or external runtime root. It accepts three layouts:
+//
+//   - flat bundle:        <root>/postgres/bin                          (darwin postgresapp, single prefix)
+//   - /usr-mirror bundle: <root>/postgres/lib/postgresql/<major>/bin   (PGDG linux, split prefix)
+//   - plain runtime root: <root>/bin                                   (STELLA_POSTGRES_RUNTIME → a PG install)
+//
+// The split-prefix linux bundle mirrors /usr so the backend can relocate its
+// share dir (timezonesets, bki) from its own executable path; its bin therefore
+// lives under lib/postgresql/<major>, not directly under postgres/.
+func locatePostgresHome(root string) (string, bool) {
+	candidates := []string{
+		filepath.Join(root, "postgres"),
+		root,
+	}
+	if nested, err := filepath.Glob(filepath.Join(root, "postgres", "lib", "postgresql", "*")); err == nil {
+		candidates = append(candidates, nested...)
+	}
+	for _, home := range candidates {
+		if fileExists(filepath.Join(home, "bin", pgCtlName())) {
+			return home, true
+		}
+	}
+	return "", false
 }
 
 func postgresShareRoot(root string) string {
