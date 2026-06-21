@@ -324,6 +324,14 @@ func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID st
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := c.q.WithTx(tx)
 
+	// Serialize this writeback against concurrent Appends/compactions on the same
+	// conversation (cross-node). The LLM summarization ran BEFORE this short tx, so
+	// the lock is never held across the model call; it only guards the
+	// delete-range + summary-item rewrite below. Released with the tx.
+	if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
+		return fmt.Errorf("lock conversation: %w", err)
+	}
+
 	// Create summary record.
 	sumID := generateSummaryID()
 	err = qtx.CreateSummary(ctx, sqlc.CreateSummaryParams{
@@ -603,6 +611,13 @@ func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := c.q.WithTx(tx)
+
+	// Serialize this writeback against concurrent Appends/compactions on the same
+	// conversation (cross-node); the LLM ran before this short tx so the lock is
+	// never held across the model call. Released with the tx.
+	if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
+		return fmt.Errorf("lock conversation: %w", err)
+	}
 
 	// Create condensed summary.
 	sumID := generateSummaryID()

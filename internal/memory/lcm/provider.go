@@ -105,6 +105,14 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 
 		qtx := p.q.WithTx(tx)
 
+		// Serialize the seq/ordinal read-modify-write for this conversation across
+		// nodes. The in-process striped mutex above only covers one process; under
+		// PostgreSQL a second node would read the same GetMaxSeq and collide on
+		// ctx_message(conversation_id, seq). Released with the tx.
+		if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
+			return fmt.Errorf("lock conversation: %w", err)
+		}
+
 		seq, err := qtx.GetMaxSeq(ctx, convID)
 		if err != nil {
 			return fmt.Errorf("get max seq: %w", err)

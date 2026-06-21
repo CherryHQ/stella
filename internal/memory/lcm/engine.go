@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/memory"
@@ -48,7 +49,11 @@ const (
 	sessionLockStripes        = 64
 )
 
-// withSessionLock acquires a deterministic striped mutex before running fn.
+// withSessionLock acquires a deterministic striped mutex before running fn. This
+// is an in-process fast-path only: it collapses same-process contention before it
+// reaches the database. Cross-node correctness rests on the transaction-scoped
+// LockConversationForWrite advisory lock taken inside the write tx (Append and the
+// compaction writeback), not on this mutex.
 func (p *Provider) withSessionLock(sessionID string, fn func() error) error {
 	mu := &p.sessionLocks[sessionLockStripe(sessionID)]
 	mu.Lock()
@@ -87,10 +92,23 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 		UserID:     pgtype.Text{String: session.UserID, Valid: true},
 		LastActive: now,
 	})
-	if err != nil {
-		return "", fmt.Errorf("create conversation: %w", err)
+	if err == nil {
+		return conv.ID, nil
 	}
-	return conv.ID, nil
+	// Lost the create race: another writer (possibly another node) inserted this
+	// conversation between our GetConversationBySessionID miss and this INSERT.
+	// session_id is globally unique (ctx_conversation_session_id_key), so the
+	// scoped re-read returns their row. Defining the race out of existence beats
+	// surfacing a spurious 23505 to every Append/Assemble caller.
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		conv, err = p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
+		if err != nil {
+			return "", fmt.Errorf("get conversation after create race: %w", err)
+		}
+		return conv.ID, nil
+	}
+	return "", fmt.Errorf("create conversation: %w", err)
 }
 
 // --- Message conversion ---
