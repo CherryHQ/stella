@@ -2,7 +2,6 @@ package skills
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,30 +9,33 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // SQLiteStore implements Store against a SQLite database via sqlc.
 type SQLiteStore struct {
-	db *sql.DB
+	db *pgxpool.Pool
 	q  *sqlc.Queries
 }
 
 // New returns a new SQLiteStore. Callers may store it as a Store interface.
-func New(db *sql.DB) *SQLiteStore {
+func New(db *pgxpool.Pool) *SQLiteStore {
 	return &SQLiteStore{db: db, q: sqlc.New(db)}
 }
 
-func viewSQLParams(vc ViewContext) (sql.NullString, sql.NullString) {
-	return sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""}, sql.NullString{String: vc.UserID, Valid: vc.UserID != ""}
+func viewSQLParams(vc ViewContext) (pgtype.Text, pgtype.Text) {
+	return pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""}, pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""}
 }
 
 // List returns all visible skills for the given context.
 func (s *SQLiteStore) List(ctx context.Context, vc ViewContext) ([]Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
-		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
+		AgentID: pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""},
+		UserID:  pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list: %w", err)
@@ -61,8 +63,8 @@ func (s *SQLiteStore) ListAll(ctx context.Context) ([]Skill, error) {
 // ListForAgentContext returns system, agent, and current-user skills for one agent.
 func (s *SQLiteStore) ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsForAgentContext(ctx, sqlc.ListSkillsForAgentContextParams{
-		UserID:  sql.NullString{String: userID, Valid: userID != ""},
-		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
+		UserID:  pgtype.Text{String: userID, Valid: userID != ""},
+		AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list for agent context: %w", err)
@@ -79,8 +81,8 @@ func (s *SQLiteStore) ListForAgentContext(ctx context.Context, userID string, ag
 func (s *SQLiteStore) ListByScope(ctx context.Context, scope string, userID string, agentID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
 		Scope:   scope,
-		UserID:  sql.NullString{String: userID, Valid: userID != ""},
-		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
+		UserID:  pgtype.Text{String: userID, Valid: userID != ""},
+		AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list by scope %q: %w", scope, err)
@@ -94,7 +96,7 @@ func (s *SQLiteStore) ListByScope(ctx context.Context, scope string, userID stri
 
 // ListForAdmin returns system and agent skills, plus the admin user's own user skills.
 func (s *SQLiteStore) ListForAdmin(ctx context.Context, userID string) ([]Skill, error) {
-	rows, err := s.q.ListSkillsForAdmin(ctx, sql.NullString{String: userID, Valid: userID != ""})
+	rows, err := s.q.ListSkillsForAdmin(ctx, pgtype.Text{String: userID, Valid: userID != ""})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list for admin: %w", err)
 	}
@@ -108,8 +110,8 @@ func (s *SQLiteStore) ListForAdmin(ctx context.Context, userID string) ([]Skill,
 // ListForUser returns skills visible to a non-admin user across accessible agents.
 func (s *SQLiteStore) ListForUser(ctx context.Context, userID string, agentIDs []string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsForUser(ctx, sqlc.ListSkillsForUserParams{
-		UserID:      sql.NullString{String: userID, Valid: userID != ""},
-		AgentIdsCsv: sql.NullString{String: strings.Join(agentIDs, ","), Valid: len(agentIDs) > 0},
+		UserID:      pgtype.Text{String: userID, Valid: userID != ""},
+		AgentIdsCsv: pgtype.Text{String: strings.Join(agentIDs, ","), Valid: len(agentIDs) > 0},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list for user: %w", err)
@@ -151,10 +153,10 @@ func (s *SQLiteStore) ListFilesWithContent(ctx context.Context, skillID string) 
 func (s *SQLiteStore) Resolve(ctx context.Context, name string, vc ViewContext) (*Skill, error) {
 	row, err := s.q.ResolveSkill(ctx, sqlc.ResolveSkillParams{
 		Name:    name,
-		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
+		AgentID: pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""},
+		UserID:  pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""},
 	})
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -170,8 +172,8 @@ func (s *SQLiteStore) LoadFile(ctx context.Context, skillID, path string) (strin
 		SkillID: skillID,
 		Path:    path,
 	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("skills: file %q not found on skill %s: %w", path, skillID, sql.ErrNoRows)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("skills: file %q not found on skill %s: %w", path, skillID, pgx.ErrNoRows)
 	}
 	if err != nil {
 		return "", fmt.Errorf("skills: load file %q on skill %s: %w", path, skillID, err)
@@ -211,19 +213,19 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 	// Set nullable owner fields based on scope.
 	switch sk.Scope {
 	case "user":
-		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
+		params.UserID = pgtype.Text{String: sk.UserID, Valid: true}
 	case "user_agent":
-		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
-		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
+		params.UserID = pgtype.Text{String: sk.UserID, Valid: true}
+		params.AgentID = pgtype.Text{String: sk.AgentID, Valid: true}
 	case "system_agent":
-		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
+		params.AgentID = pgtype.Text{String: sk.AgentID, Valid: true}
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("skills: begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.q.WithTx(tx)
 
@@ -241,7 +243,7 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("skills: commit create %q: %w", sk.ID, err)
 	}
 	return sk.ID, nil
@@ -375,8 +377,8 @@ func (s *SQLiteStore) ListKnowledge(ctx context.Context, vc ViewContext, types .
 		typeFilter = string(types[0])
 	}
 	rows, err := s.q.ListActiveKnowledgeByType(ctx, sqlc.ListActiveKnowledgeByTypeParams{
-		AgentID:       sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:        sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
+		AgentID:       pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""},
+		UserID:        pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""},
 		KnowledgeType: typeFilter,
 	})
 	if err != nil {

@@ -2,12 +2,12 @@ package channel
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -93,8 +93,8 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 			Envelope:       envelope,
 			Status:         "pending",
 			AttemptCount:   0,
-			LeaseUntil:     sql.NullTime{},
-			NextAttemptAt:  sql.NullTime{},
+			LeaseUntil:     pgtype.Timestamptz{},
+			NextAttemptAt:  pgtype.Timestamptz{},
 			LastError:      "",
 		})
 		if err != nil {

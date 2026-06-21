@@ -24,7 +24,7 @@ type CreateIngestErrorParams struct {
 }
 
 func (q *Queries) CreateIngestError(ctx context.Context, arg CreateIngestErrorParams) error {
-	_, err := q.db.ExecContext(ctx, createIngestError,
+	_, err := q.db.Exec(ctx, createIngestError,
 		arg.ID,
 		arg.GroupID,
 		arg.Pipeline,
@@ -45,7 +45,7 @@ type GetIngestCursorParams struct {
 }
 
 func (q *Queries) GetIngestCursor(ctx context.Context, arg GetIngestCursorParams) (CtxGroupIngestCursor, error) {
-	row := q.db.QueryRowContext(ctx, getIngestCursor, arg.GroupID, arg.Pipeline)
+	row := q.db.QueryRow(ctx, getIngestCursor, arg.GroupID, arg.Pipeline)
 	var i CtxGroupIngestCursor
 	err := row.Scan(
 		&i.GroupID,
@@ -68,7 +68,7 @@ type IsIngestErrorParams struct {
 }
 
 func (q *Queries) IsIngestError(ctx context.Context, arg IsIngestErrorParams) (bool, error) {
-	row := q.db.QueryRowContext(ctx, isIngestError, arg.GroupID, arg.Pipeline, arg.Seq)
+	row := q.db.QueryRow(ctx, isIngestError, arg.GroupID, arg.Pipeline, arg.Seq)
 	var is_error bool
 	err := row.Scan(&is_error)
 	return is_error, err
@@ -88,7 +88,7 @@ type ListGroupMessagesAfterSeqParams struct {
 }
 
 func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMessagesAfterSeqParams) ([]CtxGroupMessage, error) {
-	rows, err := q.db.QueryContext(ctx, listGroupMessagesAfterSeq, arg.GroupID, arg.MinSeq, arg.BatchLimit)
+	rows, err := q.db.Query(ctx, listGroupMessagesAfterSeq, arg.GroupID, arg.MinSeq, arg.BatchLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -115,9 +115,6 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -140,7 +137,7 @@ type ListGroupMessagesBetweenSeqsParams struct {
 }
 
 func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGroupMessagesBetweenSeqsParams) ([]CtxGroupMessage, error) {
-	rows, err := q.db.QueryContext(ctx, listGroupMessagesBetweenSeqs, arg.GroupID, arg.AfterSeq, arg.BeforeSeq)
+	rows, err := q.db.Query(ctx, listGroupMessagesBetweenSeqs, arg.GroupID, arg.AfterSeq, arg.BeforeSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -167,9 +164,6 @@ func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGrou
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -194,7 +188,7 @@ type ListGroupsWithPendingIngestRow struct {
 }
 
 func (q *Queries) ListGroupsWithPendingIngest(ctx context.Context, pipeline string) ([]ListGroupsWithPendingIngestRow, error) {
-	rows, err := q.db.QueryContext(ctx, listGroupsWithPendingIngest, pipeline)
+	rows, err := q.db.Query(ctx, listGroupsWithPendingIngest, pipeline)
 	if err != nil {
 		return nil, err
 	}
@@ -206,9 +200,6 @@ func (q *Queries) ListGroupsWithPendingIngest(ctx context.Context, pipeline stri
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -231,6 +222,6 @@ type UpsertIngestCursorParams struct {
 }
 
 func (q *Queries) UpsertIngestCursor(ctx context.Context, arg UpsertIngestCursorParams) error {
-	_, err := q.db.ExecContext(ctx, upsertIngestCursor, arg.GroupID, arg.Pipeline, arg.LastSeq)
+	_, err := q.db.Exec(ctx, upsertIngestCursor, arg.GroupID, arg.Pipeline, arg.LastSeq)
 	return err
 }

@@ -22,7 +22,7 @@ type AdvanceMemorySnapshotParams struct {
 }
 
 func (q *Queries) AdvanceMemorySnapshot(ctx context.Context, arg AdvanceMemorySnapshotParams) error {
-	_, err := q.db.ExecContext(ctx, advanceMemorySnapshot,
+	_, err := q.db.Exec(ctx, advanceMemorySnapshot,
 		arg.Version,
 		arg.SessionID,
 		arg.UserID,
@@ -45,7 +45,7 @@ type CreateMemorySnapshotParams struct {
 }
 
 func (q *Queries) CreateMemorySnapshot(ctx context.Context, arg CreateMemorySnapshotParams) (CtxAgentMemorySnapshot, error) {
-	row := q.db.QueryRowContext(ctx, createMemorySnapshot,
+	row := q.db.QueryRow(ctx, createMemorySnapshot,
 		arg.SessionID,
 		arg.UserID,
 		arg.AgentID,
@@ -74,7 +74,7 @@ type GetMemorySnapshotParams struct {
 }
 
 func (q *Queries) GetMemorySnapshot(ctx context.Context, arg GetMemorySnapshotParams) (CtxAgentMemorySnapshot, error) {
-	row := q.db.QueryRowContext(ctx, getMemorySnapshot, arg.SessionID, arg.UserID, arg.AgentID)
+	row := q.db.QueryRow(ctx, getMemorySnapshot, arg.SessionID, arg.UserID, arg.AgentID)
 	var i CtxAgentMemorySnapshot
 	err := row.Scan(
 		&i.SessionID,

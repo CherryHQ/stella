@@ -7,10 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createMessage = `-- name: CreateMessage :one
@@ -30,7 +29,7 @@ type CreateMessageParams struct {
 }
 
 func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (CtxMessage, error) {
-	row := q.db.QueryRowContext(ctx, createMessage,
+	row := q.db.QueryRow(ctx, createMessage,
 		arg.ID,
 		arg.ConversationID,
 		arg.Seq,
@@ -60,20 +59,20 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type CreateMessagePartParams struct {
-	ID          string         `json:"id"`
-	MessageID   string         `json:"message_id"`
-	PartType    string         `json:"part_type"`
-	Ordinal     int64          `json:"ordinal"`
-	TextContent sql.NullString `json:"text_content"`
-	ToolCallID  sql.NullString `json:"tool_call_id"`
-	ToolName    sql.NullString `json:"tool_name"`
-	ToolInput   sql.NullString `json:"tool_input"`
-	ToolOutput  sql.NullString `json:"tool_output"`
-	Metadata    sql.NullString `json:"metadata"`
+	ID          string      `json:"id"`
+	MessageID   string      `json:"message_id"`
+	PartType    string      `json:"part_type"`
+	Ordinal     int64       `json:"ordinal"`
+	TextContent pgtype.Text `json:"text_content"`
+	ToolCallID  pgtype.Text `json:"tool_call_id"`
+	ToolName    pgtype.Text `json:"tool_name"`
+	ToolInput   pgtype.Text `json:"tool_input"`
+	ToolOutput  pgtype.Text `json:"tool_output"`
+	Metadata    pgtype.Text `json:"metadata"`
 }
 
 func (q *Queries) CreateMessagePart(ctx context.Context, arg CreateMessagePartParams) error {
-	_, err := q.db.ExecContext(ctx, createMessagePart,
+	_, err := q.db.Exec(ctx, createMessagePart,
 		arg.ID,
 		arg.MessageID,
 		arg.PartType,
@@ -100,7 +99,7 @@ type GetConversationTimeBoundsRow struct {
 }
 
 func (q *Queries) GetConversationTimeBounds(ctx context.Context, conversationID string) (GetConversationTimeBoundsRow, error) {
-	row := q.db.QueryRowContext(ctx, getConversationTimeBounds, conversationID)
+	row := q.db.QueryRow(ctx, getConversationTimeBounds, conversationID)
 	var i GetConversationTimeBoundsRow
 	err := row.Scan(&i.EarliestAt, &i.LatestAt)
 	return i, err
@@ -111,7 +110,7 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS BIGINT) FROM ctx_message WHERE conversation
 `
 
 func (q *Queries) GetMaxSeq(ctx context.Context, conversationID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getMaxSeq, conversationID)
+	row := q.db.QueryRow(ctx, getMaxSeq, conversationID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -127,7 +126,7 @@ type GetMessageParams struct {
 }
 
 func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (CtxMessage, error) {
-	row := q.db.QueryRowContext(ctx, getMessage, arg.ID, arg.ConversationID)
+	row := q.db.QueryRow(ctx, getMessage, arg.ID, arg.ConversationID)
 	var i CtxMessage
 	err := row.Scan(
 		&i.ID,
@@ -148,7 +147,7 @@ SELECT COUNT(*) FROM ctx_message WHERE conversation_id = $1
 `
 
 func (q *Queries) GetMessageCount(ctx context.Context, conversationID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getMessageCount, conversationID)
+	row := q.db.QueryRow(ctx, getMessageCount, conversationID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -159,7 +158,7 @@ SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name
 `
 
 func (q *Queries) GetMessageParts(ctx context.Context, messageID string) ([]CtxMessagePart, error) {
-	rows, err := q.db.QueryContext(ctx, getMessageParts, messageID)
+	rows, err := q.db.Query(ctx, getMessageParts, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,9 +181,6 @@ func (q *Queries) GetMessageParts(ctx context.Context, messageID string) ([]CtxM
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -197,7 +193,7 @@ SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name
 `
 
 func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []string) ([]CtxMessagePart, error) {
-	rows, err := q.db.QueryContext(ctx, getMessagePartsByMessages, pq.Array(messageIds))
+	rows, err := q.db.Query(ctx, getMessagePartsByMessages, messageIds)
 	if err != nil {
 		return nil, err
 	}
@@ -220,9 +216,6 @@ func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []st
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -243,23 +236,23 @@ WHERE m.id = $1
 `
 
 type GetMessageScopedParams struct {
-	ID      string         `json:"id"`
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
+	ID      string      `json:"id"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
 }
 
 type GetMessageScopedRow struct {
-	ID                string         `json:"id"`
-	ConversationID    string         `json:"conversation_id"`
-	Seq               int64          `json:"seq"`
-	Role              string         `json:"role"`
-	EventType         string         `json:"event_type"`
-	Content           string         `json:"content"`
-	TokenCount        int64          `json:"token_count"`
-	CreatedAt         time.Time      `json:"created_at"`
-	ContentTsv        interface{}    `json:"content_tsv"`
-	SessionID         string         `json:"session_id"`
-	ConversationTitle sql.NullString `json:"conversation_title"`
+	ID                string      `json:"id"`
+	ConversationID    string      `json:"conversation_id"`
+	Seq               int64       `json:"seq"`
+	Role              string      `json:"role"`
+	EventType         string      `json:"event_type"`
+	Content           string      `json:"content"`
+	TokenCount        int64       `json:"token_count"`
+	CreatedAt         time.Time   `json:"created_at"`
+	ContentTsv        interface{} `json:"content_tsv"`
+	SessionID         string      `json:"session_id"`
+	ConversationTitle pgtype.Text `json:"conversation_title"`
 }
 
 // Fetch one message in full by ID, scoped to (user_id, agent_id) across every
@@ -267,7 +260,7 @@ type GetMessageScopedRow struct {
 // ctx_conversation for the same isolation filter plus provenance. Keep this doc
 // comment ASCII; multibyte chars corrupt sqlc's query rewriter offsets.
 func (q *Queries) GetMessageScoped(ctx context.Context, arg GetMessageScopedParams) (GetMessageScopedRow, error) {
-	row := q.db.QueryRowContext(ctx, getMessageScoped, arg.ID, arg.UserID, arg.AgentID)
+	row := q.db.QueryRow(ctx, getMessageScoped, arg.ID, arg.UserID, arg.AgentID)
 	var i GetMessageScopedRow
 	err := row.Scan(
 		&i.ID,
@@ -290,7 +283,7 @@ SELECT id, conversation_id, seq, role, event_type, content, token_count, created
 `
 
 func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID string) ([]CtxMessage, error) {
-	rows, err := q.db.QueryContext(ctx, getMessagesByConversation, conversationID)
+	rows, err := q.db.Query(ctx, getMessagesByConversation, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -312,9 +305,6 @@ func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID 
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -335,7 +325,7 @@ type GetMessagesByConversationRangeParams struct {
 }
 
 func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMessagesByConversationRangeParams) ([]CtxMessage, error) {
-	rows, err := q.db.QueryContext(ctx, getMessagesByConversationRange, arg.ConversationID, arg.Seq, arg.Seq_2)
+	rows, err := q.db.Query(ctx, getMessagesByConversationRange, arg.ConversationID, arg.Seq, arg.Seq_2)
 	if err != nil {
 		return nil, err
 	}
@@ -357,9 +347,6 @@ func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMes
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -379,7 +366,7 @@ type GetMessagesSinceParams struct {
 }
 
 func (q *Queries) GetMessagesSince(ctx context.Context, arg GetMessagesSinceParams) ([]CtxMessage, error) {
-	rows, err := q.db.QueryContext(ctx, getMessagesSince, arg.ConversationID, arg.CreatedAt)
+	rows, err := q.db.Query(ctx, getMessagesSince, arg.ConversationID, arg.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -401,9 +388,6 @@ func (q *Queries) GetMessagesSince(ctx context.Context, arg GetMessagesSincePara
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -425,7 +409,7 @@ type ListExistingUserMessageContentParams struct {
 }
 
 func (q *Queries) ListExistingUserMessageContent(ctx context.Context, arg ListExistingUserMessageContentParams) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listExistingUserMessageContent, arg.ConversationID, pq.Array(arg.Contents))
+	rows, err := q.db.Query(ctx, listExistingUserMessageContent, arg.ConversationID, arg.Contents)
 	if err != nil {
 		return nil, err
 	}
@@ -437,9 +421,6 @@ func (q *Queries) ListExistingUserMessageContent(ctx context.Context, arg ListEx
 			return nil, err
 		}
 		items = append(items, content)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -457,7 +438,7 @@ type ListMessagesByIDsParams struct {
 }
 
 func (q *Queries) ListMessagesByIDs(ctx context.Context, arg ListMessagesByIDsParams) ([]CtxMessage, error) {
-	rows, err := q.db.QueryContext(ctx, listMessagesByIDs, arg.ConversationID, pq.Array(arg.MessageIds))
+	rows, err := q.db.Query(ctx, listMessagesByIDs, arg.ConversationID, arg.MessageIds)
 	if err != nil {
 		return nil, err
 	}
@@ -479,9 +460,6 @@ func (q *Queries) ListMessagesByIDs(ctx context.Context, arg ListMessagesByIDsPa
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -518,11 +496,11 @@ ORDER BY seq ASC
 `
 
 type ListMessagesByLogicalPageParams struct {
-	ConversationID string       `json:"conversation_id"`
-	After          sql.NullTime `json:"after"`
-	Before         sql.NullTime `json:"before"`
-	Offset         int32        `json:"offset"`
-	Limit          int32        `json:"limit"`
+	ConversationID string             `json:"conversation_id"`
+	After          pgtype.Timestamptz `json:"after"`
+	Before         pgtype.Timestamptz `json:"before"`
+	Offset         int32              `json:"offset"`
+	Limit          int32              `json:"limit"`
 }
 
 type ListMessagesByLogicalPageRow struct {
@@ -540,7 +518,7 @@ type ListMessagesByLogicalPageRow struct {
 // internal/server/sessions.go: consecutive assistant rows render as one
 // response message, so SQL pagination must count them as one too.
 func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessagesByLogicalPageParams) ([]ListMessagesByLogicalPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listMessagesByLogicalPage,
+	rows, err := q.db.Query(ctx, listMessagesByLogicalPage,
 		arg.ConversationID,
 		arg.After,
 		arg.Before,
@@ -568,9 +546,6 @@ func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessage
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -594,26 +569,26 @@ LIMIT $4
 `
 
 type SearchMessagesParams struct {
-	Match   string         `json:"match"`
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
-	Limit   int32          `json:"limit"`
+	Match   string      `json:"match"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Limit   int32       `json:"limit"`
 }
 
 type SearchMessagesRow struct {
-	ID                string         `json:"id"`
-	ConversationID    string         `json:"conversation_id"`
-	Seq               int64          `json:"seq"`
-	Role              string         `json:"role"`
-	EventType         string         `json:"event_type"`
-	Content           string         `json:"content"`
-	TokenCount        int64          `json:"token_count"`
-	CreatedAt         time.Time      `json:"created_at"`
-	ContentTsv        interface{}    `json:"content_tsv"`
-	SessionID         string         `json:"session_id"`
-	ConversationTitle sql.NullString `json:"conversation_title"`
-	Snippet           string         `json:"snippet"`
-	Score             float64        `json:"score"`
+	ID                string      `json:"id"`
+	ConversationID    string      `json:"conversation_id"`
+	Seq               int64       `json:"seq"`
+	Role              string      `json:"role"`
+	EventType         string      `json:"event_type"`
+	Content           string      `json:"content"`
+	TokenCount        int64       `json:"token_count"`
+	CreatedAt         time.Time   `json:"created_at"`
+	ContentTsv        interface{} `json:"content_tsv"`
+	SessionID         string      `json:"session_id"`
+	ConversationTitle pgtype.Text `json:"conversation_title"`
+	Snippet           string      `json:"snippet"`
+	Score             float64     `json:"score"`
 }
 
 // Spans every conversation of the current (user_id, agent_id) so memory recall
@@ -624,7 +599,7 @@ type SearchMessagesRow struct {
 // real PostgreSQL; the 'simple' tsvector does not segment CJK, so CJK queries
 // fall through to SearchMessagesLike (pg_trgm).
 func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) ([]SearchMessagesRow, error) {
-	rows, err := q.db.QueryContext(ctx, searchMessages,
+	rows, err := q.db.Query(ctx, searchMessages,
 		arg.Match,
 		arg.UserID,
 		arg.AgentID,
@@ -656,9 +631,6 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -680,24 +652,24 @@ LIMIT $4
 `
 
 type SearchMessagesLikeParams struct {
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
-	Pattern []byte         `json:"pattern"`
-	Limit   int32          `json:"limit"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Pattern []byte      `json:"pattern"`
+	Limit   int32       `json:"limit"`
 }
 
 type SearchMessagesLikeRow struct {
-	ID                string         `json:"id"`
-	ConversationID    string         `json:"conversation_id"`
-	Seq               int64          `json:"seq"`
-	Role              string         `json:"role"`
-	EventType         string         `json:"event_type"`
-	Content           string         `json:"content"`
-	TokenCount        int64          `json:"token_count"`
-	CreatedAt         time.Time      `json:"created_at"`
-	ContentTsv        interface{}    `json:"content_tsv"`
-	SessionID         string         `json:"session_id"`
-	ConversationTitle sql.NullString `json:"conversation_title"`
+	ID                string      `json:"id"`
+	ConversationID    string      `json:"conversation_id"`
+	Seq               int64       `json:"seq"`
+	Role              string      `json:"role"`
+	EventType         string      `json:"event_type"`
+	Content           string      `json:"content"`
+	TokenCount        int64       `json:"token_count"`
+	CreatedAt         time.Time   `json:"created_at"`
+	ContentTsv        interface{} `json:"content_tsv"`
+	SessionID         string      `json:"session_id"`
+	ConversationTitle pgtype.Text `json:"conversation_title"`
 }
 
 // Fallback for queries with no token of 3+ runes, which trigram MATCH would
@@ -707,7 +679,7 @@ type SearchMessagesLikeRow struct {
 // around LIKE...ESCAPE are also required by sqlc's grammar. Keep these doc
 // comments ASCII: multibyte chars corrupt sqlc's query rewriter offsets.
 func (q *Queries) SearchMessagesLike(ctx context.Context, arg SearchMessagesLikeParams) ([]SearchMessagesLikeRow, error) {
-	rows, err := q.db.QueryContext(ctx, searchMessagesLike,
+	rows, err := q.db.Query(ctx, searchMessagesLike,
 		arg.UserID,
 		arg.AgentID,
 		arg.Pattern,
@@ -736,9 +708,6 @@ func (q *Queries) SearchMessagesLike(ctx context.Context, arg SearchMessagesLike
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

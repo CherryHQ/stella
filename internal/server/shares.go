@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -331,7 +331,7 @@ func artifactMediaType(path string) string {
 	}
 }
 
-func shareExpiry(preset *apitypes.CreateShareRequestExpiresIn) (sql.NullTime, error) {
+func shareExpiry(preset *apitypes.CreateShareRequestExpiresIn) (pgtype.Timestamptz, error) {
 	value := "7d"
 	if preset != nil && *preset != "" {
 		value = string(*preset)
@@ -345,11 +345,11 @@ func shareExpiry(preset *apitypes.CreateShareRequestExpiresIn) (sql.NullTime, er
 	case "7d":
 		d = 7 * 24 * time.Hour
 	case "never":
-		return sql.NullTime{}, nil
+		return pgtype.Timestamptz{}, nil
 	default:
-		return sql.NullTime{}, fmt.Errorf("expires_in must be one of 1h, 1d, 7d, never")
+		return pgtype.Timestamptz{}, fmt.Errorf("expires_in must be one of 1h, 1d, 7d, never")
 	}
-	return sql.NullTime{Time: time.Now().UTC().Add(d), Valid: true}, nil
+	return pgtype.Timestamptz{Time: time.Now().UTC().Add(d), Valid: true}, nil
 }
 
 func newShareToken() (string, string, error) {

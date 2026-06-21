@@ -20,7 +20,7 @@ func newWatermarkStore(store pkgplugins.StateStore) *watermarkStore {
 }
 
 // get returns the last reviewed timestamp for a session.
-// Returns zero time and nil error if never reviewed (sql.ErrNoRows).
+// Returns zero time and nil error if never reviewed (pgx.ErrNoRows).
 // Returns a non-nil error for actual DB failures.
 func (ws *watermarkStore) get(ctx context.Context, sessionID string) (time.Time, error) {
 	val, ok, err := ws.store.Get(ctx, pkgplugins.StateScope{

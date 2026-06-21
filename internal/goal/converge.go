@@ -2,10 +2,12 @@ package goal
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -192,7 +194,7 @@ func dispatchExecutor(d sqlc.AgentGoal) string {
 func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEvidence, out AttemptOutput) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		att, err := q.GetAttempt(ctx, attemptID)
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
 		if err != nil {
@@ -213,7 +215,7 @@ func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEv
 		rows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
 			Evidence:   marshalJSON(ev),
 			Output:     marshalJSON(out),
-			RevisionID: sql.NullString{},
+			RevisionID: pgtype.Text{},
 			ID:         attemptID,
 		})
 		if err != nil {
@@ -245,7 +247,7 @@ func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEv
 func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason string) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		att, err := q.GetAttempt(ctx, attemptID)
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
 		if err != nil {

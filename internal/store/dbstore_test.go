@@ -2,8 +2,9 @@ package store_test
 
 import (
 	"context"
-	"database/sql"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -22,7 +23,7 @@ func setupDBStore(t *testing.T) *store.DBStore {
 	return s
 }
 
-func setupDBStoreWithDB(t *testing.T) (*store.DBStore, *sql.DB) {
+func setupDBStoreWithDB(t *testing.T) (*store.DBStore, *pgxpool.Pool) {
 	t.Helper()
 	db := dbtest.New(t)
 	s := store.NewDBStore(db)
@@ -32,8 +33,8 @@ func setupDBStoreWithDB(t *testing.T) (*store.DBStore, *sql.DB) {
 func TestNewDBStorePreservesDBPoolPolicy(t *testing.T) {
 	_, db := setupDBStoreWithDB(t)
 
-	if got := db.Stats().MaxOpenConnections; got < 4 {
-		t.Fatalf("MaxOpenConnections = %d, want >= 4", got)
+	if got := db.Stat().MaxConns(); got < 4 {
+		t.Fatalf("MaxConns = %d, want >= 4", got)
 	}
 }
 

@@ -20,7 +20,7 @@ type DeleteUserAgentMemoryParams struct {
 }
 
 func (q *Queries) DeleteUserAgentMemory(ctx context.Context, arg DeleteUserAgentMemoryParams) error {
-	_, err := q.db.ExecContext(ctx, deleteUserAgentMemory, arg.UserID, arg.AgentID)
+	_, err := q.db.Exec(ctx, deleteUserAgentMemory, arg.UserID, arg.AgentID)
 	return err
 }
 
@@ -34,7 +34,7 @@ type GetUserAgentMemoryParams struct {
 }
 
 func (q *Queries) GetUserAgentMemory(ctx context.Context, arg GetUserAgentMemoryParams) (CtxAgentMemory, error) {
-	row := q.db.QueryRowContext(ctx, getUserAgentMemory, arg.UserID, arg.AgentID)
+	row := q.db.QueryRow(ctx, getUserAgentMemory, arg.UserID, arg.AgentID)
 	var i CtxAgentMemory
 	err := row.Scan(
 		&i.UserID,
@@ -55,7 +55,7 @@ SELECT user_id, agent_id, content, soul, version, constraints, profile_entries, 
 `
 
 func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID string) ([]CtxAgentMemory, error) {
-	rows, err := q.db.QueryContext(ctx, listUserAgentMemoriesByUser, userID)
+	rows, err := q.db.Query(ctx, listUserAgentMemoriesByUser, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -77,9 +77,6 @@ func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID string
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -104,7 +101,7 @@ type UpsertAgentConstraintsParams struct {
 }
 
 func (q *Queries) UpsertAgentConstraints(ctx context.Context, arg UpsertAgentConstraintsParams) (CtxAgentMemory, error) {
-	row := q.db.QueryRowContext(ctx, upsertAgentConstraints, arg.UserID, arg.AgentID, arg.Constraints)
+	row := q.db.QueryRow(ctx, upsertAgentConstraints, arg.UserID, arg.AgentID, arg.Constraints)
 	var i CtxAgentMemory
 	err := row.Scan(
 		&i.UserID,
@@ -135,7 +132,7 @@ type UpsertAgentSoulParams struct {
 }
 
 func (q *Queries) UpsertAgentSoul(ctx context.Context, arg UpsertAgentSoulParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAgentSoul, arg.UserID, arg.AgentID, arg.Soul)
+	_, err := q.db.Exec(ctx, upsertAgentSoul, arg.UserID, arg.AgentID, arg.Soul)
 	return err
 }
 
@@ -156,7 +153,7 @@ type UpsertAgentSoulVersionedParams struct {
 }
 
 func (q *Queries) UpsertAgentSoulVersioned(ctx context.Context, arg UpsertAgentSoulVersionedParams) (CtxAgentMemory, error) {
-	row := q.db.QueryRowContext(ctx, upsertAgentSoulVersioned, arg.UserID, arg.AgentID, arg.Soul)
+	row := q.db.QueryRow(ctx, upsertAgentSoulVersioned, arg.UserID, arg.AgentID, arg.Soul)
 	var i CtxAgentMemory
 	err := row.Scan(
 		&i.UserID,
@@ -189,7 +186,7 @@ type UpsertProfileEntriesParams struct {
 }
 
 func (q *Queries) UpsertProfileEntries(ctx context.Context, arg UpsertProfileEntriesParams) (CtxAgentMemory, error) {
-	row := q.db.QueryRowContext(ctx, upsertProfileEntries, arg.UserID, arg.AgentID, arg.ProfileEntries)
+	row := q.db.QueryRow(ctx, upsertProfileEntries, arg.UserID, arg.AgentID, arg.ProfileEntries)
 	var i CtxAgentMemory
 	err := row.Scan(
 		&i.UserID,
@@ -220,7 +217,7 @@ type UpsertUserAgentMemoryParams struct {
 }
 
 func (q *Queries) UpsertUserAgentMemory(ctx context.Context, arg UpsertUserAgentMemoryParams) error {
-	_, err := q.db.ExecContext(ctx, upsertUserAgentMemory, arg.UserID, arg.AgentID, arg.Content)
+	_, err := q.db.Exec(ctx, upsertUserAgentMemory, arg.UserID, arg.AgentID, arg.Content)
 	return err
 }
 
@@ -241,7 +238,7 @@ type UpsertUserAgentMemoryVersionedParams struct {
 }
 
 func (q *Queries) UpsertUserAgentMemoryVersioned(ctx context.Context, arg UpsertUserAgentMemoryVersionedParams) (CtxAgentMemory, error) {
-	row := q.db.QueryRowContext(ctx, upsertUserAgentMemoryVersioned, arg.UserID, arg.AgentID, arg.Content)
+	row := q.db.QueryRow(ctx, upsertUserAgentMemoryVersioned, arg.UserID, arg.AgentID, arg.Content)
 	var i CtxAgentMemory
 	err := row.Scan(
 		&i.UserID,

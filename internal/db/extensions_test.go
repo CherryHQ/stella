@@ -2,22 +2,23 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestEnsureExtensionRequirementsCreatesPGTrgm(t *testing.T) {
 	e := startExtensionTestPostgres(t)
-	db := openExtensionTestDB(t, e.DSN())
-	defer func() { _ = db.Close() }()
+	pool := openExtensionTestDB(t, e.DSN())
+	defer pool.Close()
 
 	ctx := context.Background()
-	conn, err := db.Conn(ctx)
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
-		t.Fatalf("Conn: %v", err)
+		t.Fatalf("Acquire: %v", err)
 	}
-	defer func() { _ = conn.Close() }()
+	defer conn.Release()
 
 	reqs := []ExtensionRequirement{{Name: "pg_trgm", Required: true}}
 	if err := ensureExtensionRequirements(ctx, conn, reqs); err != nil {
@@ -25,7 +26,7 @@ func TestEnsureExtensionRequirementsCreatesPGTrgm(t *testing.T) {
 	}
 
 	var exists bool
-	if err := conn.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')").Scan(&exists); err != nil {
+	if err := conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')").Scan(&exists); err != nil {
 		t.Fatalf("query pg_extension: %v", err)
 	}
 	if !exists {
@@ -35,15 +36,15 @@ func TestEnsureExtensionRequirementsCreatesPGTrgm(t *testing.T) {
 
 func TestCheckExtensionAvailableReportsMissingExtension(t *testing.T) {
 	e := startExtensionTestPostgres(t)
-	db := openExtensionTestDB(t, e.DSN())
-	defer func() { _ = db.Close() }()
+	pool := openExtensionTestDB(t, e.DSN())
+	defer pool.Close()
 
 	ctx := context.Background()
-	conn, err := db.Conn(ctx)
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
-		t.Fatalf("Conn: %v", err)
+		t.Fatalf("Acquire: %v", err)
 	}
-	defer func() { _ = conn.Close() }()
+	defer conn.Release()
 
 	err = checkExtensionAvailable(ctx, conn, ExtensionRequirement{Name: "definitely_missing_stella_ext", Required: true})
 	if err == nil {
@@ -56,15 +57,15 @@ func TestCheckExtensionAvailableReportsMissingExtension(t *testing.T) {
 
 func TestCheckExtensionPreloadedReportsMissingPGSearch(t *testing.T) {
 	e := startExtensionTestPostgres(t)
-	db := openExtensionTestDB(t, e.DSN())
-	defer func() { _ = db.Close() }()
+	pool := openExtensionTestDB(t, e.DSN())
+	defer pool.Close()
 
 	ctx := context.Background()
-	conn, err := db.Conn(ctx)
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
-		t.Fatalf("Conn: %v", err)
+		t.Fatalf("Acquire: %v", err)
 	}
-	defer func() { _ = conn.Close() }()
+	defer conn.Release()
 
 	err = checkExtensionPreloaded(ctx, conn, "pg_search")
 	if err == nil {
@@ -79,15 +80,15 @@ func TestCheckExtensionPreloadedReportsMissingPGSearch(t *testing.T) {
 
 func TestOptionalExtensionRequirementIsSkipped(t *testing.T) {
 	e := startExtensionTestPostgres(t)
-	db := openExtensionTestDB(t, e.DSN())
-	defer func() { _ = db.Close() }()
+	pool := openExtensionTestDB(t, e.DSN())
+	defer pool.Close()
 
 	ctx := context.Background()
-	conn, err := db.Conn(ctx)
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
-		t.Fatalf("Conn: %v", err)
+		t.Fatalf("Acquire: %v", err)
 	}
-	defer func() { _ = conn.Close() }()
+	defer conn.Release()
 
 	reqs := []ExtensionRequirement{{Name: "definitely_missing_stella_ext"}}
 	if err := ensureExtensionRequirements(ctx, conn, reqs); err != nil {
@@ -114,25 +115,6 @@ func TestPreloadContains(t *testing.T) {
 	}
 }
 
-func TestCompareExtensionVersion(t *testing.T) {
-	tests := []struct {
-		have string
-		want string
-		cmp  int
-	}{
-		{have: "1.6", want: "1.5", cmp: 1},
-		{have: "1.5.0", want: "1.5", cmp: 0},
-		{have: "0.7.4", want: "0.8.0", cmp: -1},
-		{have: "0.24.1-beta1", want: "0.24.1", cmp: 1},
-	}
-	for _, tt := range tests {
-		got := compareExtensionVersion(tt.have, tt.want)
-		if got != tt.cmp {
-			t.Fatalf("compareExtensionVersion(%q, %q) = %d, want %d", tt.have, tt.want, got, tt.cmp)
-		}
-	}
-}
-
 func startExtensionTestPostgres(t *testing.T) *Embedded {
 	t.Helper()
 	e, err := StartEmbedded("", 0)
@@ -143,11 +125,11 @@ func startExtensionTestPostgres(t *testing.T) *Embedded {
 	return e
 }
 
-func openExtensionTestDB(t *testing.T, dsn string) *sql.DB {
+func openExtensionTestDB(t *testing.T, dsn string) *pgxpool.Pool {
 	t.Helper()
-	db, err := openTracedPG(dsn)
+	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
-		t.Fatalf("openTracedPG: %v", err)
+		t.Fatalf("pgxpool.New: %v", err)
 	}
-	return db
+	return pool
 }

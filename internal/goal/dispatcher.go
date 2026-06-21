@@ -2,12 +2,14 @@ package goal
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -156,7 +158,7 @@ func (d *Dispatcher) isStopped() bool {
 // within its convergence budget (contract §2.2).
 func (d *Dispatcher) reapStaleAttempts(ctx context.Context, now time.Time) {
 	stale, err := d.cfg.Queries.ListStaleAttempts(ctx, sqlc.ListStaleAttemptsParams{
-		Now:   sql.NullTime{Time: now, Valid: true},
+		Now:   pgtype.Timestamptz{Time: now, Valid: true},
 		Limit: int32(d.cfg.BatchLimit),
 	})
 	if err != nil {
@@ -459,7 +461,7 @@ func (d *Dispatcher) WaitIdle() { d.wg.Wait() }
 func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		att, err := q.GetAttempt(ctx, attemptID)
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
 		if err != nil {

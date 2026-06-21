@@ -3,7 +3,7 @@
 -- Never updated/deleted in normal operation. The natural key
 -- (goal, attempt, item, cache_key) is unique, so a re-submitted verdict
 -- or a re-run check on identical inputs is a no-op (DO NOTHING): appending is
--- idempotent and returns sql.ErrNoRows on the duplicate, which the caller swallows.
+-- idempotent and returns pgx.ErrNoRows on the duplicate, which the caller swallows.
 INSERT INTO agent_goal_acceptance_event (
     id,
     goal_id,
@@ -46,7 +46,7 @@ ORDER BY seq ASC;
 
 -- name: ProbeCheckCache :one
 -- Check-result cache hit: the latest passing deterministic result for a cache_key.
--- Returns sql.ErrNoRows on a forced miss (no cached pass).
+-- Returns pgx.ErrNoRows on a forced miss (no cached pass).
 SELECT * FROM agent_goal_acceptance_event
 WHERE cache_key = sqlc.arg(cache_key)
   AND item_kind = 'deterministic'

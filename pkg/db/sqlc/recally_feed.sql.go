@@ -7,9 +7,10 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createFeed = `-- name: CreateFeed :one
@@ -22,23 +23,23 @@ RETURNING id, user_id, agent_id, url, kind, metadata, title, description, check_
 `
 
 type CreateFeedParams struct {
-	ID            string          `json:"id"`
-	UserID        string          `json:"user_id"`
-	AgentID       sql.NullString  `json:"agent_id"`
-	Url           string          `json:"url"`
-	Kind          string          `json:"kind"`
-	Metadata      json.RawMessage `json:"metadata"`
-	Title         string          `json:"title"`
-	Description   string          `json:"description"`
-	CheckInterval string          `json:"check_interval"`
-	LastCheckedAt sql.NullTime    `json:"last_checked_at"`
-	LastEtag      string          `json:"last_etag"`
-	LastModified  string          `json:"last_modified"`
-	Enabled       bool            `json:"enabled"`
+	ID            string             `json:"id"`
+	UserID        string             `json:"user_id"`
+	AgentID       pgtype.Text        `json:"agent_id"`
+	Url           string             `json:"url"`
+	Kind          string             `json:"kind"`
+	Metadata      json.RawMessage    `json:"metadata"`
+	Title         string             `json:"title"`
+	Description   string             `json:"description"`
+	CheckInterval string             `json:"check_interval"`
+	LastCheckedAt pgtype.Timestamptz `json:"last_checked_at"`
+	LastEtag      string             `json:"last_etag"`
+	LastModified  string             `json:"last_modified"`
+	Enabled       bool               `json:"enabled"`
 }
 
 func (q *Queries) CreateFeed(ctx context.Context, arg CreateFeedParams) (RecallyFeed, error) {
-	row := q.db.QueryRowContext(ctx, createFeed,
+	row := q.db.QueryRow(ctx, createFeed,
 		arg.ID,
 		arg.UserID,
 		arg.AgentID,
@@ -85,21 +86,21 @@ RETURNING id, feed_id, guid, url, title, status, article_id, attempts, error_msg
 `
 
 type CreateFeedEntryParams struct {
-	ID           string         `json:"id"`
-	FeedID       string         `json:"feed_id"`
-	Guid         string         `json:"guid"`
-	Url          string         `json:"url"`
-	Title        string         `json:"title"`
-	Status       string         `json:"status"`
-	ArticleID    sql.NullString `json:"article_id"`
-	Attempts     int64          `json:"attempts"`
-	ErrorMsg     string         `json:"error_msg"`
-	DiscoveredAt time.Time      `json:"discovered_at"`
-	ProcessedAt  sql.NullTime   `json:"processed_at"`
+	ID           string             `json:"id"`
+	FeedID       string             `json:"feed_id"`
+	Guid         string             `json:"guid"`
+	Url          string             `json:"url"`
+	Title        string             `json:"title"`
+	Status       string             `json:"status"`
+	ArticleID    pgtype.Text        `json:"article_id"`
+	Attempts     int64              `json:"attempts"`
+	ErrorMsg     string             `json:"error_msg"`
+	DiscoveredAt time.Time          `json:"discovered_at"`
+	ProcessedAt  pgtype.Timestamptz `json:"processed_at"`
 }
 
 func (q *Queries) CreateFeedEntry(ctx context.Context, arg CreateFeedEntryParams) (RecallyFeedEntry, error) {
-	row := q.db.QueryRowContext(ctx, createFeedEntry,
+	row := q.db.QueryRow(ctx, createFeedEntry,
 		arg.ID,
 		arg.FeedID,
 		arg.Guid,
@@ -139,7 +140,7 @@ type DeleteFeedParams struct {
 }
 
 func (q *Queries) DeleteFeed(ctx context.Context, arg DeleteFeedParams) error {
-	_, err := q.db.ExecContext(ctx, deleteFeed, arg.ID, arg.UserID)
+	_, err := q.db.Exec(ctx, deleteFeed, arg.ID, arg.UserID)
 	return err
 }
 
@@ -151,7 +152,7 @@ WHERE feed_id = $1
 `
 
 func (q *Queries) DeleteOldEntries(ctx context.Context, feedID string) error {
-	_, err := q.db.ExecContext(ctx, deleteOldEntries, feedID)
+	_, err := q.db.Exec(ctx, deleteOldEntries, feedID)
 	return err
 }
 
@@ -165,7 +166,7 @@ type GetFeedParams struct {
 }
 
 func (q *Queries) GetFeed(ctx context.Context, arg GetFeedParams) (RecallyFeed, error) {
-	row := q.db.QueryRowContext(ctx, getFeed, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getFeed, arg.ID, arg.UserID)
 	var i RecallyFeed
 	err := row.Scan(
 		&i.ID,
@@ -197,7 +198,7 @@ type GetFeedByURLParams struct {
 }
 
 func (q *Queries) GetFeedByURL(ctx context.Context, arg GetFeedByURLParams) (RecallyFeed, error) {
-	row := q.db.QueryRowContext(ctx, getFeedByURL, arg.UserID, arg.Url)
+	row := q.db.QueryRow(ctx, getFeedByURL, arg.UserID, arg.Url)
 	var i RecallyFeed
 	err := row.Scan(
 		&i.ID,
@@ -229,7 +230,7 @@ type GetFeedEntryParams struct {
 }
 
 func (q *Queries) GetFeedEntry(ctx context.Context, arg GetFeedEntryParams) (RecallyFeedEntry, error) {
-	row := q.db.QueryRowContext(ctx, getFeedEntry, arg.ID, arg.FeedID)
+	row := q.db.QueryRow(ctx, getFeedEntry, arg.ID, arg.FeedID)
 	var i RecallyFeedEntry
 	err := row.Scan(
 		&i.ID,
@@ -262,7 +263,7 @@ type ListFeedEntriesParams struct {
 }
 
 func (q *Queries) ListFeedEntries(ctx context.Context, arg ListFeedEntriesParams) ([]RecallyFeedEntry, error) {
-	rows, err := q.db.QueryContext(ctx, listFeedEntries, arg.FeedID, arg.Status, arg.Limit)
+	rows, err := q.db.Query(ctx, listFeedEntries, arg.FeedID, arg.Status, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -287,9 +288,6 @@ func (q *Queries) ListFeedEntries(ctx context.Context, arg ListFeedEntriesParams
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -310,7 +308,7 @@ type ListFeedsParams struct {
 }
 
 func (q *Queries) ListFeeds(ctx context.Context, arg ListFeedsParams) ([]RecallyFeed, error) {
-	rows, err := q.db.QueryContext(ctx, listFeeds, arg.UserID, arg.Offset, arg.Limit)
+	rows, err := q.db.Query(ctx, listFeeds, arg.UserID, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -339,9 +337,6 @@ func (q *Queries) ListFeeds(ctx context.Context, arg ListFeedsParams) ([]Recally
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -364,7 +359,7 @@ type ListPendingEntriesParams struct {
 }
 
 func (q *Queries) ListPendingEntries(ctx context.Context, arg ListPendingEntriesParams) ([]RecallyFeedEntry, error) {
-	rows, err := q.db.QueryContext(ctx, listPendingEntries, arg.FeedID, arg.Offset, arg.Limit)
+	rows, err := q.db.Query(ctx, listPendingEntries, arg.FeedID, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -389,9 +384,6 @@ func (q *Queries) ListPendingEntries(ctx context.Context, arg ListPendingEntries
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -414,20 +406,20 @@ RETURNING id, user_id, agent_id, url, kind, metadata, title, description, check_
 `
 
 type UpdateFeedParams struct {
-	Title         string          `json:"title"`
-	Description   string          `json:"description"`
-	Metadata      json.RawMessage `json:"metadata"`
-	CheckInterval string          `json:"check_interval"`
-	LastCheckedAt sql.NullTime    `json:"last_checked_at"`
-	LastEtag      string          `json:"last_etag"`
-	LastModified  string          `json:"last_modified"`
-	Enabled       bool            `json:"enabled"`
-	ID            string          `json:"id"`
-	UserID        string          `json:"user_id"`
+	Title         string             `json:"title"`
+	Description   string             `json:"description"`
+	Metadata      json.RawMessage    `json:"metadata"`
+	CheckInterval string             `json:"check_interval"`
+	LastCheckedAt pgtype.Timestamptz `json:"last_checked_at"`
+	LastEtag      string             `json:"last_etag"`
+	LastModified  string             `json:"last_modified"`
+	Enabled       bool               `json:"enabled"`
+	ID            string             `json:"id"`
+	UserID        string             `json:"user_id"`
 }
 
 func (q *Queries) UpdateFeed(ctx context.Context, arg UpdateFeedParams) (RecallyFeed, error) {
-	row := q.db.QueryRowContext(ctx, updateFeed,
+	row := q.db.QueryRow(ctx, updateFeed,
 		arg.Title,
 		arg.Description,
 		arg.Metadata,
@@ -472,15 +464,15 @@ RETURNING id, feed_id, guid, url, title, status, article_id, attempts, error_msg
 `
 
 type UpdateFeedEntryParams struct {
-	Status    string         `json:"status"`
-	ArticleID sql.NullString `json:"article_id"`
-	ErrorMsg  string         `json:"error_msg"`
-	ID        string         `json:"id"`
-	FeedID    string         `json:"feed_id"`
+	Status    string      `json:"status"`
+	ArticleID pgtype.Text `json:"article_id"`
+	ErrorMsg  string      `json:"error_msg"`
+	ID        string      `json:"id"`
+	FeedID    string      `json:"feed_id"`
 }
 
 func (q *Queries) UpdateFeedEntry(ctx context.Context, arg UpdateFeedEntryParams) (RecallyFeedEntry, error) {
-	row := q.db.QueryRowContext(ctx, updateFeedEntry,
+	row := q.db.QueryRow(ctx, updateFeedEntry,
 		arg.Status,
 		arg.ArticleID,
 		arg.ErrorMsg,

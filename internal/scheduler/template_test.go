@@ -431,10 +431,10 @@ func TestUpdateUserJob_ReschedulesLiveGocronJob(t *testing.T) {
 	}
 
 	svc.mu.Lock()
-	oldGID, hadOld := svc.gids[job.ID]
+	oldRef, hadOld := svc.refs[job.ID]
 	svc.mu.Unlock()
 	if !hadOld {
-		t.Fatal("expected gocron entry before update")
+		t.Fatal("expected River registration before update")
 	}
 
 	every30m := "30m"
@@ -449,14 +449,14 @@ func TestUpdateUserJob_ReschedulesLiveGocronJob(t *testing.T) {
 	}
 
 	svc.mu.Lock()
-	newGID, hasNew := svc.gids[job.ID]
+	newRef, hasNew := svc.refs[job.ID]
 	svc.mu.Unlock()
 
 	if !hasNew {
-		t.Fatal("expected new gocron entry after update")
+		t.Fatal("expected new River registration after update")
 	}
-	if newGID == oldGID {
-		t.Error("gocron GID did not change after schedule update")
+	if newRef == oldRef {
+		t.Error("River registration did not change after schedule update")
 	}
 }
 
@@ -491,16 +491,16 @@ func TestUpdateUserJob_DisabledJobDoesNotFire(t *testing.T) {
 		t.Fatalf("UpdateUserJob disable: %v", err)
 	}
 
-	// Confirm gocron entry was removed.
+	// Confirm the River registration was removed.
 	svc.mu.Lock()
-	_, stillScheduled := svc.gids[job.ID]
+	_, stillScheduled := svc.refs[job.ID]
 	svc.mu.Unlock()
 	if stillScheduled {
-		t.Error("disabled job should have no gocron entry")
+		t.Error("disabled job should have no River registration")
 	}
 
-	// A tick dispatched by gocron just before the entry was removed may still
-	// be executing, so its fire can land after UpdateUserJob returns — a fixed
+	// A firing enqueued just before the registration was removed may still be
+	// executing, so its fire can land after UpdateUserJob returns — a fixed
 	// post-disable window races that straggler on slow runners. Instead wait
 	// for the fire stream to stay quiet for several intervals: in-flight
 	// stragglers are absorbed, while a job still scheduled at 100ms can never

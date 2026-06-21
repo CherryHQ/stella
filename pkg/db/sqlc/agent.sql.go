@@ -36,7 +36,7 @@ type CreateAgentParams struct {
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent, error) {
-	row := q.db.QueryRowContext(ctx, createAgent,
+	row := q.db.QueryRow(ctx, createAgent,
 		arg.ID,
 		arg.Name,
 		arg.Model,
@@ -83,7 +83,7 @@ DELETE FROM agent WHERE id = $1
 `
 
 func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteAgent, id)
+	_, err := q.db.Exec(ctx, deleteAgent, id)
 	return err
 }
 
@@ -92,7 +92,7 @@ SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, mod
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
-	row := q.db.QueryRowContext(ctx, getAgent, id)
+	row := q.db.QueryRow(ctx, getAgent, id)
 	var i Agent
 	err := row.Scan(
 		&i.ID,
@@ -125,7 +125,7 @@ ORDER BY name
 `
 
 func (q *Queries) ListAccessibleAgents(ctx context.Context, userID string) ([]Agent, error) {
-	rows, err := q.db.QueryContext(ctx, listAccessibleAgents, userID)
+	rows, err := q.db.Query(ctx, listAccessibleAgents, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -156,9 +156,6 @@ func (q *Queries) ListAccessibleAgents(ctx context.Context, userID string) ([]Ag
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -171,7 +168,7 @@ SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, mod
 `
 
 func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
-	rows, err := q.db.QueryContext(ctx, listAgents)
+	rows, err := q.db.Query(ctx, listAgents)
 	if err != nil {
 		return nil, err
 	}
@@ -202,9 +199,6 @@ func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -217,7 +211,7 @@ SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, mod
 `
 
 func (q *Queries) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledAgents)
+	rows, err := q.db.Query(ctx, listEnabledAgents)
 	if err != nil {
 		return nil, err
 	}
@@ -248,9 +242,6 @@ func (q *Queries) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -297,7 +288,7 @@ type UpdateAgentParams struct {
 }
 
 func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgent,
+	_, err := q.db.Exec(ctx, updateAgent,
 		arg.Name,
 		arg.Model,
 		arg.ModelThinking,

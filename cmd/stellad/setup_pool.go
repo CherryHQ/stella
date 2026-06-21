@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
@@ -81,7 +81,7 @@ func buildToolLifecycle(phost *pluginhost.Host) *coreagent.ToolLifecycle {
 	}
 }
 
-func buildProjectEnsurer(db *sql.DB, store config.Store) agent.ProjectEnsurerFunc {
+func buildProjectEnsurer(db *pgxpool.Pool, store config.Store) agent.ProjectEnsurerFunc {
 	return func(ctx context.Context, agentID, userID string) (string, error) {
 		q := sqlc.New(db)
 		projects, err := q.ListProjects(ctx, sqlc.ListProjectsParams{AgentID: agentID, UserID: userID})

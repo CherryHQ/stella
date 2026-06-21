@@ -2,13 +2,14 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"maps"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type fakeTokenStore struct {
@@ -54,7 +55,7 @@ func (s *fakeTokenStore) GetActiveUserTokenByHash(_ context.Context, tokenHash s
 			return token, nil
 		}
 	}
-	return UserToken{}, sql.ErrNoRows
+	return UserToken{}, pgx.ErrNoRows
 }
 
 func (s *fakeTokenStore) GetActiveAutoUserToken(_ context.Context, userID string) (UserToken, error) {
@@ -65,7 +66,7 @@ func (s *fakeTokenStore) GetActiveAutoUserToken(_ context.Context, userID string
 			return token, nil
 		}
 	}
-	return UserToken{}, sql.ErrNoRows
+	return UserToken{}, pgx.ErrNoRows
 }
 
 func (s *fakeTokenStore) RotateUserToken(_ context.Context, id string) (int64, error) {
@@ -105,7 +106,7 @@ func (s *fakeTokenStore) GetUser(_ context.Context, id string) (User, error) {
 	defer s.mu.Unlock()
 	user, ok := s.users[id]
 	if !ok {
-		return User{}, sql.ErrNoRows
+		return User{}, pgx.ErrNoRows
 	}
 	return user, nil
 }

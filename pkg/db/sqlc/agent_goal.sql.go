@@ -7,9 +7,10 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const acceptGoal = `-- name: AcceptGoal :execrows
@@ -24,16 +25,16 @@ WHERE id = $2 AND lifecycle = 'active'
 `
 
 type AcceptGoalParams struct {
-	AcceptedOutput sql.NullString `json:"accepted_output"`
-	ID             string         `json:"id"`
+	AcceptedOutput pgtype.Text `json:"accepted_output"`
+	ID             string      `json:"id"`
 }
 
 func (q *Queries) AcceptGoal(ctx context.Context, arg AcceptGoalParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, acceptGoal, arg.AcceptedOutput, arg.ID)
+	result, err := q.db.Exec(ctx, acceptGoal, arg.AcceptedOutput, arg.ID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const archiveGoal = `-- name: ArchiveGoal :exec
@@ -44,7 +45,7 @@ WHERE id = $1
 `
 
 func (q *Queries) ArchiveGoal(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, archiveGoal, id)
+	_, err := q.db.Exec(ctx, archiveGoal, id)
 	return err
 }
 
@@ -63,11 +64,11 @@ type BlockGoalParams struct {
 }
 
 func (q *Queries) BlockGoal(ctx context.Context, arg BlockGoalParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, blockGoal, arg.BlockReason, arg.ID)
+	result, err := q.db.Exec(ctx, blockGoal, arg.BlockReason, arg.ID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const cancelGoal = `-- name: CancelGoal :exec
@@ -80,7 +81,7 @@ WHERE id = $1
 `
 
 func (q *Queries) CancelGoal(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, cancelGoal, id)
+	_, err := q.db.Exec(ctx, cancelGoal, id)
 	return err
 }
 
@@ -96,16 +97,16 @@ WHERE id = $2
 `
 
 type ClaimGoalParams struct {
-	ActiveAttemptID sql.NullString `json:"active_attempt_id"`
-	ID              string         `json:"id"`
+	ActiveAttemptID pgtype.Text `json:"active_attempt_id"`
+	ID              string      `json:"id"`
 }
 
 func (q *Queries) ClaimGoal(ctx context.Context, arg ClaimGoalParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, claimGoal, arg.ActiveAttemptID, arg.ID)
+	result, err := q.db.Exec(ctx, claimGoal, arg.ActiveAttemptID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const clearGoalActiveAttempt = `-- name: ClearGoalActiveAttempt :exec
@@ -116,7 +117,7 @@ WHERE id = $1
 `
 
 func (q *Queries) ClearGoalActiveAttempt(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, clearGoalActiveAttempt, id)
+	_, err := q.db.Exec(ctx, clearGoalActiveAttempt, id)
 	return err
 }
 
@@ -133,7 +134,7 @@ type ConsumeDispatchHintParams struct {
 }
 
 func (q *Queries) ConsumeDispatchHint(ctx context.Context, arg ConsumeDispatchHintParams) error {
-	_, err := q.db.ExecContext(ctx, consumeDispatchHint, arg.DispatchHint, arg.ID)
+	_, err := q.db.Exec(ctx, consumeDispatchHint, arg.DispatchHint, arg.ID)
 	return err
 }
 
@@ -151,20 +152,20 @@ WHERE parent_id IS NULL
 `
 
 type CountRootGoalParams struct {
-	UserID          string         `json:"user_id"`
-	AgentID         sql.NullString `json:"agent_id"`
-	ProjectID       sql.NullString `json:"project_id"`
-	Lifecycle       sql.NullString `json:"lifecycle"`
-	Terminal        sql.NullBool   `json:"terminal"`
-	Q               sql.NullString `json:"q"`
-	IncludeArchived bool           `json:"include_archived"`
+	UserID          string      `json:"user_id"`
+	AgentID         pgtype.Text `json:"agent_id"`
+	ProjectID       pgtype.Text `json:"project_id"`
+	Lifecycle       pgtype.Text `json:"lifecycle"`
+	Terminal        pgtype.Bool `json:"terminal"`
+	Q               pgtype.Text `json:"q"`
+	IncludeArchived bool        `json:"include_archived"`
 }
 
 // CountRootGoal mirrors ListRootGoal's filter so a list's reported
 // total is exact, and the active/history/archived header badges are three cheap
 // counts that vary only their terminal/include_archived args.
 func (q *Queries) CountRootGoal(ctx context.Context, arg CountRootGoalParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countRootGoal,
+	row := q.db.QueryRow(ctx, countRootGoal,
 		arg.UserID,
 		arg.AgentID,
 		arg.ProjectID,
@@ -193,8 +194,8 @@ type CreateGoalParams struct {
 	ID                 string          `json:"id"`
 	UserID             string          `json:"user_id"`
 	AgentID            string          `json:"agent_id"`
-	ProjectID          sql.NullString  `json:"project_id"`
-	ParentID           sql.NullString  `json:"parent_id"`
+	ProjectID          pgtype.Text     `json:"project_id"`
+	ParentID           pgtype.Text     `json:"parent_id"`
 	RootID             string          `json:"root_id"`
 	Depth              int64           `json:"depth"`
 	Position           int64           `json:"position"`
@@ -213,7 +214,7 @@ type CreateGoalParams struct {
 }
 
 func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGoal, error) {
-	row := q.db.QueryRowContext(ctx, createGoal,
+	row := q.db.QueryRow(ctx, createGoal,
 		arg.ID,
 		arg.UserID,
 		arg.AgentID,
@@ -285,7 +286,7 @@ WHERE id = $1 AND required_blocked > 0
 `
 
 func (q *Queries) DecrGoalRequiredBlocked(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, decrGoalRequiredBlocked, id)
+	_, err := q.db.Exec(ctx, decrGoalRequiredBlocked, id)
 	return err
 }
 
@@ -294,7 +295,7 @@ SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, s
 `
 
 func (q *Queries) GetGoal(ctx context.Context, id string) (AgentGoal, error) {
-	row := q.db.QueryRowContext(ctx, getGoal, id)
+	row := q.db.QueryRow(ctx, getGoal, id)
 	var i AgentGoal
 	err := row.Scan(
 		&i.ID,
@@ -345,7 +346,7 @@ WHERE id = $1
 `
 
 func (q *Queries) IncrGoalRequiredAccepted(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, incrGoalRequiredAccepted, id)
+	_, err := q.db.Exec(ctx, incrGoalRequiredAccepted, id)
 	return err
 }
 
@@ -357,7 +358,7 @@ WHERE id = $1
 `
 
 func (q *Queries) IncrGoalRequiredBlocked(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, incrGoalRequiredBlocked, id)
+	_, err := q.db.Exec(ctx, incrGoalRequiredBlocked, id)
 	return err
 }
 
@@ -369,7 +370,7 @@ WHERE id = $1
 `
 
 func (q *Queries) IncrGoalRequiredFailed(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, incrGoalRequiredFailed, id)
+	_, err := q.db.Exec(ctx, incrGoalRequiredFailed, id)
 	return err
 }
 
@@ -383,7 +384,7 @@ LIMIT $1
 `
 
 func (q *Queries) ListDispatchableLeaves(ctx context.Context, limit int32) ([]AgentGoal, error) {
-	rows, err := q.db.QueryContext(ctx, listDispatchableLeaves, limit)
+	rows, err := q.db.Query(ctx, listDispatchableLeaves, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -432,9 +433,6 @@ func (q *Queries) ListDispatchableLeaves(ctx context.Context, limit int32) ([]Ag
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -449,7 +447,7 @@ ORDER BY depth ASC, position ASC, id ASC
 `
 
 func (q *Queries) ListGoalByRoot(ctx context.Context, rootID string) ([]AgentGoal, error) {
-	rows, err := q.db.QueryContext(ctx, listGoalByRoot, rootID)
+	rows, err := q.db.Query(ctx, listGoalByRoot, rootID)
 	if err != nil {
 		return nil, err
 	}
@@ -498,9 +496,6 @@ func (q *Queries) ListGoalByRoot(ctx context.Context, rootID string) ([]AgentGoa
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -514,8 +509,8 @@ WHERE parent_id = $1
 ORDER BY position ASC, id ASC
 `
 
-func (q *Queries) ListGoalChildren(ctx context.Context, parentID sql.NullString) ([]AgentGoal, error) {
-	rows, err := q.db.QueryContext(ctx, listGoalChildren, parentID)
+func (q *Queries) ListGoalChildren(ctx context.Context, parentID pgtype.Text) ([]AgentGoal, error) {
+	rows, err := q.db.Query(ctx, listGoalChildren, parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -564,9 +559,6 @@ func (q *Queries) ListGoalChildren(ctx context.Context, parentID sql.NullString)
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -587,7 +579,7 @@ ORDER BY d.depth ASC, d.position ASC, d.id ASC
 `
 
 func (q *Queries) ListGoalSubtree(ctx context.Context, id string) ([]AgentGoal, error) {
-	rows, err := q.db.QueryContext(ctx, listGoalSubtree, id)
+	rows, err := q.db.Query(ctx, listGoalSubtree, id)
 	if err != nil {
 		return nil, err
 	}
@@ -636,9 +628,6 @@ func (q *Queries) ListGoalSubtree(ctx context.Context, id string) ([]AgentGoal, 
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -670,29 +659,29 @@ LIMIT $4
 `
 
 type ListInboxGoalsParams struct {
-	UserID     string         `json:"user_id"`
-	AgentID    sql.NullString `json:"agent_id"`
-	Since      time.Time      `json:"since"`
-	LimitCount int32          `json:"limit_count"`
+	UserID     string      `json:"user_id"`
+	AgentID    pgtype.Text `json:"agent_id"`
+	Since      time.Time   `json:"since"`
+	LimitCount int32       `json:"limit_count"`
 }
 
 type ListInboxGoalsRow struct {
-	ID          string         `json:"id"`
-	AgentID     string         `json:"agent_id"`
-	ProjectID   sql.NullString `json:"project_id"`
-	Title       string         `json:"title"`
-	Intent      string         `json:"intent"`
-	Lifecycle   string         `json:"lifecycle"`
-	BlockReason string         `json:"block_reason"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	CreatedAt   time.Time      `json:"created_at"`
+	ID          string      `json:"id"`
+	AgentID     string      `json:"agent_id"`
+	ProjectID   pgtype.Text `json:"project_id"`
+	Title       string      `json:"title"`
+	Intent      string      `json:"intent"`
+	Lifecycle   string      `json:"lifecycle"`
+	BlockReason string      `json:"block_reason"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+	CreatedAt   time.Time   `json:"created_at"`
 }
 
 // Goals needing user attention, for the inbox. Open blocks surface at any
 // age (they wait on the user); terminal failures are windowed like failed runs.
 // The handler splits rows into inbox kinds by lifecycle/block_reason.
 func (q *Queries) ListInboxGoals(ctx context.Context, arg ListInboxGoalsParams) ([]ListInboxGoalsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listInboxGoals,
+	rows, err := q.db.Query(ctx, listInboxGoals,
 		arg.UserID,
 		arg.AgentID,
 		arg.Since,
@@ -720,9 +709,6 @@ func (q *Queries) ListInboxGoals(ctx context.Context, arg ListInboxGoalsParams) 
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -740,7 +726,7 @@ LIMIT $1
 `
 
 func (q *Queries) ListRollupCandidates(ctx context.Context, limit int32) ([]AgentGoal, error) {
-	rows, err := q.db.QueryContext(ctx, listRollupCandidates, limit)
+	rows, err := q.db.Query(ctx, listRollupCandidates, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -790,9 +776,6 @@ func (q *Queries) ListRollupCandidates(ctx context.Context, limit int32) ([]Agen
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -815,15 +798,15 @@ LIMIT $9 OFFSET $8
 `
 
 type ListRootGoalParams struct {
-	UserID          string         `json:"user_id"`
-	AgentID         sql.NullString `json:"agent_id"`
-	ProjectID       sql.NullString `json:"project_id"`
-	Lifecycle       sql.NullString `json:"lifecycle"`
-	Terminal        sql.NullBool   `json:"terminal"`
-	Q               sql.NullString `json:"q"`
-	IncludeArchived bool           `json:"include_archived"`
-	Offset          int32          `json:"offset"`
-	Limit           int32          `json:"limit"`
+	UserID          string      `json:"user_id"`
+	AgentID         pgtype.Text `json:"agent_id"`
+	ProjectID       pgtype.Text `json:"project_id"`
+	Lifecycle       pgtype.Text `json:"lifecycle"`
+	Terminal        pgtype.Bool `json:"terminal"`
+	Q               pgtype.Text `json:"q"`
+	IncludeArchived bool        `json:"include_archived"`
+	Offset          int32       `json:"offset"`
+	Limit           int32       `json:"limit"`
 }
 
 // Root goals (goals: parent_id IS NULL) for a user, scoped to an agent
@@ -831,7 +814,7 @@ type ListRootGoalParams struct {
 // optional: NULL matches all. terminal: false = active (non-terminal) only, true =
 // history (terminal) only, NULL = both. The terminal set is the four end states.
 func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]AgentGoal, error) {
-	rows, err := q.db.QueryContext(ctx, listRootGoal,
+	rows, err := q.db.Query(ctx, listRootGoal,
 		arg.UserID,
 		arg.AgentID,
 		arg.ProjectID,
@@ -891,9 +874,6 @@ func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]A
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -910,7 +890,7 @@ LIMIT $1
 `
 
 func (q *Queries) ListStalledComposites(ctx context.Context, limit int32) ([]AgentGoal, error) {
-	rows, err := q.db.QueryContext(ctx, listStalledComposites, limit)
+	rows, err := q.db.Query(ctx, listStalledComposites, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -960,9 +940,6 @@ func (q *Queries) ListStalledComposites(ctx context.Context, limit int32) ([]Age
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -995,7 +972,7 @@ WHERE agent_goal.id = $1
 `
 
 func (q *Queries) ReconcileGoalCounters(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, reconcileGoalCounters, id)
+	_, err := q.db.Exec(ctx, reconcileGoalCounters, id)
 	return err
 }
 
@@ -1014,11 +991,11 @@ type SetGoalAcceptanceStateParams struct {
 }
 
 func (q *Queries) SetGoalAcceptanceState(ctx context.Context, arg SetGoalAcceptanceStateParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setGoalAcceptanceState, arg.AcceptanceState, arg.AcceptanceSeq, arg.ID)
+	result, err := q.db.Exec(ctx, setGoalAcceptanceState, arg.AcceptanceState, arg.AcceptanceSeq, arg.ID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const setGoalAcceptedRevision = `-- name: SetGoalAcceptedRevision :exec
@@ -1029,12 +1006,12 @@ WHERE id = $2
 `
 
 type SetGoalAcceptedRevisionParams struct {
-	AcceptedRevisionID sql.NullString `json:"accepted_revision_id"`
-	ID                 string         `json:"id"`
+	AcceptedRevisionID pgtype.Text `json:"accepted_revision_id"`
+	ID                 string      `json:"id"`
 }
 
 func (q *Queries) SetGoalAcceptedRevision(ctx context.Context, arg SetGoalAcceptedRevisionParams) error {
-	_, err := q.db.ExecContext(ctx, setGoalAcceptedRevision, arg.AcceptedRevisionID, arg.ID)
+	_, err := q.db.Exec(ctx, setGoalAcceptedRevision, arg.AcceptedRevisionID, arg.ID)
 	return err
 }
 
@@ -1051,7 +1028,7 @@ type SetGoalRequiredTotalParams struct {
 }
 
 func (q *Queries) SetGoalRequiredTotal(ctx context.Context, arg SetGoalRequiredTotalParams) error {
-	_, err := q.db.ExecContext(ctx, setGoalRequiredTotal, arg.RequiredTotal, arg.ID)
+	_, err := q.db.Exec(ctx, setGoalRequiredTotal, arg.RequiredTotal, arg.ID)
 	return err
 }
 
@@ -1071,7 +1048,7 @@ type TransitionGoalLifecycleParams struct {
 }
 
 func (q *Queries) TransitionGoalLifecycle(ctx context.Context, arg TransitionGoalLifecycleParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, transitionGoalLifecycle,
+	result, err := q.db.Exec(ctx, transitionGoalLifecycle,
 		arg.ToLifecycle,
 		arg.BlockReason,
 		arg.ID,
@@ -1080,7 +1057,7 @@ func (q *Queries) TransitionGoalLifecycle(ctx context.Context, arg TransitionGoa
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const unarchiveGoal = `-- name: UnarchiveGoal :exec
@@ -1091,7 +1068,7 @@ WHERE id = $1
 `
 
 func (q *Queries) UnarchiveGoal(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, unarchiveGoal, id)
+	_, err := q.db.Exec(ctx, unarchiveGoal, id)
 	return err
 }
 
@@ -1118,7 +1095,7 @@ type UpdateGoalIntentParams struct {
 }
 
 func (q *Queries) UpdateGoalIntent(ctx context.Context, arg UpdateGoalIntentParams) error {
-	_, err := q.db.ExecContext(ctx, updateGoalIntent,
+	_, err := q.db.Exec(ctx, updateGoalIntent,
 		arg.Title,
 		arg.Intent,
 		arg.AcceptanceContract,
