@@ -202,7 +202,10 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 			AttemptNo:       int64(attemptNo),
 			Status:          AttemptQueued,
 			InputContext:    marshalJSON(input),
-			LeaseExpiresAt:  nullTime(s.nowTime()),
+			// Decomposition runs interactively in the planning session, not as a leased
+			// River worker, so this lease is not a liveness signal; the stale reaper
+			// skips purpose=decomposition (ListStaleAttempts). now() just marks mint time.
+			LeaseExpiresAt: nullTime(s.nowTime()),
 		})
 		if err != nil {
 			return fmt.Errorf("create decomposition attempt: %w", err)

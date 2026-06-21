@@ -158,9 +158,15 @@ func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sq
 // claims the goal in one tx. The per-root/per-user concurrency caps are
 // enforced by the dispatcher BEFORE Claim (§5 step 2); Claim itself only guards
 // the single-writer invariants.
-func (s *GoalService) Claim(ctx context.Context, id, workerID string) (sqlc.AgentGoalAttempt, error) {
+//
+// enqueue (River Phase 2c) inserts the attempt's durable execution job in the
+// SAME tx, so the claim and its job commit atomically — a crash can no longer
+// leave a claimed attempt with no job to run it. A nil enqueue skips this (tests
+// minting+claiming without River); its failure rolls the claim back, leaving the
+// goal ready for the next tick.
+func (s *GoalService) Claim(ctx context.Context, id, workerID string, enqueue AttemptEnqueuer) (sqlc.AgentGoalAttempt, error) {
 	var out sqlc.AgentGoalAttempt
-	err := s.withTx(ctx, func(q *sqlc.Queries) error {
+	err := s.withTxRaw(ctx, func(q *sqlc.Queries, tx pgx.Tx) error {
 		d, err := getGoal(ctx, q, id)
 		if err != nil {
 			return err
@@ -171,6 +177,11 @@ func (s *GoalService) Claim(ctx context.Context, id, workerID string) (sqlc.Agen
 		att, err := s.mintNextAttempt(ctx, q, d, dispatchExecutor(d), "")
 		if err != nil {
 			return err
+		}
+		if enqueue != nil {
+			if err := enqueue(ctx, tx, d.ID, att.ID); err != nil {
+				return fmt.Errorf("enqueue attempt job: %w", err)
+			}
 		}
 		out = att
 		return nil
@@ -558,6 +569,32 @@ func (s *GoalService) reopenForRework(ctx context.Context, q *sqlc.Queries, d sq
 		return ErrInvalidTransition
 	}
 	return nil
+}
+
+// refundAndReopen returns a goal to ready WITHOUT charging convergence budget,
+// for an attempt reaped while still 'queued' (it never executed). ClaimGoal
+// already bumped attempt_count at claim, so we restore the pre-claim budget by
+// raising the MaxAttempts ceiling one step — we cannot decrement attempt_count
+// because uniq_agent_goal_attempt_no requires attempt_no to keep climbing across
+// re-claims. Mirrors Reattempt's budget raise. reopenForRework then clears the
+// active attempt and moves active→ready.
+func (s *GoalService) refundAndReopen(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
+	var pol ConvergencePolicy
+	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
+	pol = pol.Normalized()
+	pol.MaxAttempts++
+	if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
+		Title:              d.Title,
+		Intent:             d.Intent,
+		AcceptanceContract: d.AcceptanceContract,
+		ConvergencePolicy:  marshalJSON(pol),
+		ReviewPolicy:       d.ReviewPolicy,
+		Priority:           d.Priority,
+		ID:                 d.ID,
+	}); err != nil {
+		return fmt.Errorf("refund budget on queued reap: %w", err)
+	}
+	return s.reopenForRework(ctx, q, d)
 }
 
 // blockBudget parks an exhausted goal: active→blocked(budget_exhausted),

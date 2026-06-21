@@ -74,8 +74,13 @@ SET status = sqlc.arg(to_status),
 WHERE id = sqlc.arg(id) AND status IN ('queued', 'running');
 
 -- name: ListStaleAttempts :many
+-- Lease-expired execution attempts only. Decomposition attempts run interactively
+-- in a planning session, are never enqueued to River and never heartbeated, so
+-- their lease is not a liveness signal; the reaper must skip them or it bounces an
+-- active composite back to draft mid-planning.
 SELECT * FROM agent_goal_attempt
 WHERE status IN ('queued', 'running')
+  AND purpose <> 'decomposition'
   AND lease_expires_at IS NOT NULL
   AND lease_expires_at < sqlc.arg(now)
 ORDER BY lease_expires_at ASC

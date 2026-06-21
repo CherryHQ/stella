@@ -28,13 +28,6 @@ type WorkerRunner interface {
 	Run(ctx context.Context, goalID, attemptID string) error
 }
 
-// SchedulerLike is the subset of the scheduler the dispatcher needs. It lets
-// tests drive Tick directly without wiring a real scheduler (carried verbatim
-// from the old tasks dispatcher).
-type SchedulerLike interface {
-	ScheduleEvery(ctx context.Context, every string, fn func(ctx context.Context)) error
-}
-
 // DispatcherConfig wires a Dispatcher. Zero-valued fields fall back to the
 // package defaults below.
 type DispatcherConfig struct {
@@ -68,7 +61,6 @@ type Dispatcher struct {
 	cfg DispatcherConfig
 
 	mu      sync.Mutex
-	stopCh  chan struct{}
 	stopped bool
 }
 
@@ -90,10 +82,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default().With("component", "goal/dispatcher")
 	}
-	return &Dispatcher{
-		cfg:    cfg,
-		stopCh: make(chan struct{}),
-	}
+	return &Dispatcher{cfg: cfg}
 }
 
 // SetEnqueuer injects the River enqueuer the dispatcher uses to dispatch claimed
@@ -103,20 +92,13 @@ func (d *Dispatcher) SetEnqueuer(e goalEnqueuer) {
 	d.cfg.Enqueuer = e
 }
 
-// Start registers the tick on sched. A nil scheduler is silent: callers drive
-// Tick directly (tests).
-func (d *Dispatcher) Start(ctx context.Context, sched SchedulerLike) error {
-	if sched == nil {
-		return nil
-	}
-	return sched.ScheduleEvery(ctx, fmt.Sprintf("%ds", int(d.cfg.TickEvery.Seconds())), func(ctx context.Context) {
-		d.Tick(ctx)
-	})
-}
+// TickInterval is the convergence-tick period. The composition root reads it to
+// register the single-leader River periodic tick (River Phase 2b).
+func (d *Dispatcher) TickInterval() time.Duration { return d.cfg.TickEvery }
 
-// Stop signals the tick to go quiet. In-flight attempts now run as River jobs;
-// draining them is the goal River client's responsibility (Service.StopRiver),
-// not the dispatcher's.
+// Stop signals the tick to go quiet. In-flight attempts now run as River jobs,
+// and the tick itself runs as a River job; draining both is the shared River
+// client's responsibility, not the dispatcher's.
 func (d *Dispatcher) Stop() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -124,7 +106,6 @@ func (d *Dispatcher) Stop() {
 		return
 	}
 	d.stopped = true
-	close(d.stopCh)
 }
 
 // Tick runs one pass of the dispatch loop. Public so tests can drive it
@@ -308,28 +289,38 @@ func (d *Dispatcher) scanAndClaim(ctx context.Context, now time.Time) {
 			continue
 		}
 
-		attempt, err := d.cfg.Service.Claim(ctx, goal.ID, execID)
-		if errors.Is(err, ErrInvalidTransition) || errors.Is(err, ErrConcurrencyCap) {
-			continue // lost the race or the service-side cap fired
-		}
-		if err != nil {
+		// Claim mints the attempt AND enqueues its durable job in one tx (River
+		// Phase 2c): on success both committed; on enqueue failure the whole claim
+		// rolls back, leaving the goal ready to re-claim next tick — no orphaned
+		// claim to reap.
+		if _, err := d.cfg.Service.Claim(ctx, goal.ID, execID, d.enqueueAttemptTx); err != nil {
+			if errors.Is(err, ErrInvalidTransition) || errors.Is(err, ErrConcurrencyCap) {
+				continue // lost the race or the service-side cap fired
+			}
 			d.cfg.Logger.Warn("dispatcher: claim", "goal", goal.ID, "err", err)
 			continue
 		}
 		rootInflight[goal.RootID]++
 		userInflight[goal.UserID]++
-		d.enqueueAttempt(ctx, goal.ID, attempt.ID)
 	}
 }
 
-// enqueueAttempt enqueues a durable River job to execute one claimed attempt. An
-// insert failure is logged, not fatal: the attempt stays queued and the reaper
-// reopens its goal once the claim grace lease expires (mintNextAttempt), so a
-// transient enqueue gap self-heals on a later tick.
-func (d *Dispatcher) enqueueAttempt(ctx context.Context, goalID, attemptID string) {
-	if _, err := d.cfg.Enqueuer.Insert(ctx, goalAttemptArgs{GoalID: goalID, AttemptID: attemptID}, goalInsertOpts()); err != nil {
-		d.cfg.Logger.Warn("dispatcher: enqueue attempt job", "goal", goalID, "attempt", attemptID, "err", err)
+// enqueueAttemptTx inserts the durable execution job for a claimed attempt inside
+// the claim's transaction (River Phase 2c). Passed to GoalService.Claim as the
+// AttemptEnqueuer so claim+enqueue are atomic; an error here aborts the claim.
+func (d *Dispatcher) enqueueAttemptTx(ctx context.Context, tx pgx.Tx, goalID, attemptID string) error {
+	res, err := d.cfg.Enqueuer.InsertTx(ctx, tx, goalAttemptArgs{GoalID: goalID, AttemptID: attemptID}, goalInsertOpts())
+	if err != nil {
+		return err
 	}
+	// attempt_id is freshly minted in this same tx, so the unique key can never
+	// already exist: a skipped-as-duplicate result means a real invariant breach
+	// (a stale/duplicate attempt id). Fail the enqueue so the claim rolls back
+	// rather than committing an attempt whose job points at a different insert.
+	if res.UniqueSkippedAsDuplicate {
+		return fmt.Errorf("goal: attempt job skipped as duplicate for a freshly minted attempt %s", attemptID)
+	}
+	return nil
 }
 
 // underConcurrencyCap reports whether claiming goal stays within both the
@@ -475,6 +466,18 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 			return nil
 		}
 
+		// A still-'queued' reap never executed: its River job sat behind the queue's
+		// MaxWorkers and the claim-grace lease expired before any PromoteAttempt (queue
+		// backpressure under wide fanout). ClaimGoal already charged one budget unit at
+		// claim time, so charging it here too would burn budget on an attempt that never
+		// ran and park the goal blocked(budget_exhausted) without a single execution.
+		// Refund and reopen instead. A 'running' reap genuinely executed (or its node
+		// crashed mid-run), so it still consumes budget as before. att.Status is the
+		// pre-finalize status (GetAttempt above runs before FinalizeAttempt) — do not
+		// reorder those without revisiting this branch.
+		if att.Status == AttemptQueued {
+			return s.refundAndReopen(ctx, q, d)
+		}
 		// Execution attempt: an interrupt is transient. Return to ready within budget
 		// so the next tick re-claims; budget out parks at blocked(budget_exhausted).
 		var pol ConvergencePolicy

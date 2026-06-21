@@ -322,18 +322,23 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		defer func() { _ = s.schedulerSvc.Stop() }()
 	}
 
-	// Goal execution substrate (River Phase 2a). The dispatcher enqueues claimed
-	// attempts onto the shared client (injected via SetRiverClient); register its
-	// tick as a recurring in-memory task on scheduler.Service — no sched_job row
-	// (D4). The tick scans+claims and enqueues; the shared River client executes.
-	// Shutdown (defers run LIFO): stop the tick first so no new claims enqueue,
-	// then the scheduler, then drain in-flight jobs when the shared client stops.
-	if s.goalSvc != nil && s.schedulerSvc != nil {
-		if err := s.schedulerSvc.ScheduleEvery(ctx, "2s", func(ctx context.Context) {
-			s.goalSvc.Dispatcher.Tick(ctx)
-		}); err != nil {
-			return fmt.Errorf("schedule goal dispatcher tick: %w", err)
+	// Goal execution substrate (River Phase 2a + 2b). The dispatcher enqueues
+	// claimed attempts onto the shared client (injected via SetRiverClient); its
+	// convergence tick runs as a single-leader River periodic job (StartDispatchTick)
+	// rather than a per-node in-process ticker, so the cluster runs ONE convergence
+	// loop instead of every node scanning redundantly.
+	// Shutdown (defers run LIFO): remove the periodic and quiet the dispatcher
+	// first so no new ticks/claims enqueue, then the scheduler, then drain
+	// in-flight jobs when the shared client stops.
+	if s.goalSvc != nil && s.riverClient != nil {
+		tick, err := s.goalSvc.StartDispatchTick()
+		if err != nil {
+			return fmt.Errorf("start goal dispatcher tick: %w", err)
 		}
+		// LIFO: quiet the dispatcher BEFORE removing the periodic, so any tick job
+		// already queued that a worker picks up during shutdown finds the dispatcher
+		// stopped and no-ops instead of claiming fresh work.
+		defer s.goalSvc.StopDispatchTick(tick)
 		defer s.goalSvc.Dispatcher.Stop()
 	}
 

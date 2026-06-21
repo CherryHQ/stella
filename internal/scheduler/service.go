@@ -166,6 +166,14 @@ func (s *Service) StartEphemeral(ctx context.Context) error {
 }
 
 func (s *Service) start(ctx context.Context, loadPersisted bool) error {
+	// External-river mode: the composition root must inject the shared working
+	// client via SetRiverClient before start. Without it, scheduleJob and
+	// s.river.Start nil-deref. Fail fast with a clear error instead of panicking,
+	// mirroring goal.StartDispatchTick's guard.
+	if s.externalRiver && s.river == nil {
+		return fmt.Errorf("scheduler: external river mode requires SetRiverClient before start")
+	}
+
 	var jobs []Job
 	var err error
 	if loadPersisted {

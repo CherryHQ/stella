@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -38,25 +39,72 @@ type Service struct {
 	runner          WorkerRunner
 	queueMaxWorkers int
 	logger          *slog.Logger
+
+	// river is the shared working client, injected via SetRiverClient. The
+	// dispatcher uses it (as its enqueuer) to dispatch claimed attempts;
+	// StartDispatchTick uses it to register the single-leader convergence tick.
+	river *river.Client[pgx.Tx]
 }
 
-// RegisterRiverWorker registers the goal-attempt worker into a shared workers
-// bundle used to build the process-wide River client. Call before building the
-// client (composition root).
+// RegisterRiverWorker registers the goal subsystem's workers into a shared
+// workers bundle used to build the process-wide River client: the attempt
+// executor and the convergence-tick worker (River Phase 2b). Call before building
+// the client (composition root).
 func (s *Service) RegisterRiverWorker(workers *river.Workers) {
 	RegisterGoalWorker(workers, s.runner, s.logger.With("subcomponent", "river"))
+	RegisterGoalTickWorker(workers, s.Dispatcher, s.logger.With("subcomponent", "river-tick"))
 }
 
-// GoalQueueConfig returns the goal queue name and per-node worker config for the
-// composition root assembling the shared working client.
+// GoalQueueConfig returns the goal attempt queue name and per-node worker config
+// for the composition root assembling the shared working client.
 func (s *Service) GoalQueueConfig() (string, river.QueueConfig) {
 	return GoalQueue, river.QueueConfig{MaxWorkers: s.queueMaxWorkers}
 }
 
-// SetRiverClient injects the shared working River client as the dispatcher's
-// enqueuer. Call after the client is built and before the dispatcher tick starts.
+// GoalTickQueueConfig returns the convergence-tick queue and its per-node worker
+// config (one worker: the tick never overlaps itself on a node). The composition
+// root adds it alongside GoalQueueConfig.
+func (s *Service) GoalTickQueueConfig() (string, river.QueueConfig) {
+	return GoalTickQueue, river.QueueConfig{MaxWorkers: 1}
+}
+
+// SetRiverClient injects the shared working River client: it becomes the
+// dispatcher's enqueuer and the target StartDispatchTick registers the periodic
+// against. Call after the client is built and before StartDispatchTick.
 func (s *Service) SetRiverClient(c *river.Client[pgx.Tx]) {
+	s.river = c
 	s.Dispatcher.SetEnqueuer(c)
+}
+
+// StartDispatchTick registers the convergence tick as a single-leader River
+// periodic job, replacing the per-node in-process ticker (River Phase 2b). River
+// enqueues a periodic only on the elected leader and ByState uniqueness keeps at
+// most one tick live, so the cluster runs a single convergence loop; any node's
+// tick worker may run a fired tick. RunOnStart fires an immediate tick on
+// (re-)election so convergence resumes promptly after a failover or cold start
+// rather than waiting a full interval (the cost is one extra idempotent pass on
+// failover). Returns the handle for StopDispatchTick. Requires SetRiverClient first.
+func (s *Service) StartDispatchTick() (rivertype.PeriodicJobHandle, error) {
+	if s.river == nil {
+		return 0, fmt.Errorf("goal: StartDispatchTick before SetRiverClient")
+	}
+	handle := s.river.PeriodicJobs().Add(river.NewPeriodicJob(
+		river.PeriodicInterval(s.Dispatcher.TickInterval()),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return goalTickArgs{}, goalTickInsertOpts()
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+	return handle, nil
+}
+
+// StopDispatchTick removes the convergence-tick periodic so no further ticks are
+// enqueued. In-flight ticks drain when the shared client stops.
+func (s *Service) StopDispatchTick(handle rivertype.PeriodicJobHandle) {
+	if s.river == nil {
+		return
+	}
+	s.river.PeriodicJobs().Remove(handle)
 }
 
 // TaskChatParams is the worker-turn request passed to BootConfig.Chat. It mirrors
@@ -94,9 +142,10 @@ type BootConfig struct {
 	Logger     *slog.Logger
 }
 
-// Boot constructs the goal system and returns the bound bundle. The
-// dispatcher is built but not started; the caller registers it on a scheduler via
-// Dispatcher.Start.
+// Boot constructs the goal system and returns the bound bundle. The dispatcher is
+// built but not ticking; the composition root injects the shared client via
+// SetRiverClient and the server registers the single-leader tick via
+// StartDispatchTick.
 //
 // (Named Boot, not New: the package's GoalService constructor already owns
 // New(db, q, …). This is the bundle/wiring entry the server binds to.)

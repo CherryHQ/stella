@@ -346,6 +346,8 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	queues[sn] = sc
 	gn, gc := goalSvc.GoalQueueConfig()
 	queues[gn] = gc
+	gtn, gtc := goalSvc.GoalTickQueueConfig()
+	queues[gtn] = gtc
 
 	client, err := appdb.NewWorkingRiverClient(db, queues, workers, slog.With("component", "river"))
 	if err != nil {

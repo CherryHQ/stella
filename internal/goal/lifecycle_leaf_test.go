@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -81,7 +83,7 @@ func lcl_newRig(h *harness) *lcl_rig {
 func (r *lcl_rig) runLeaf(t *testing.T, id string) string {
 	t.Helper()
 	ctx := context.Background()
-	att, err := r.svc.Claim(ctx, id, "w-1")
+	att, err := r.svc.Claim(ctx, id, "w-1", nil)
 	if err != nil {
 		t.Fatalf("rig claim %s: %v", id, err)
 	}
@@ -503,7 +505,7 @@ func TestLcl_CancelActiveLeaf(t *testing.T) {
 	d := h.createRoot(KindLeaf, AcceptanceContract{})
 	h.activate(d.ID)
 
-	att, err := h.svc.Claim(context.Background(), d.ID, "w-1")
+	att, err := h.svc.Claim(context.Background(), d.ID, "w-1", nil)
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -528,5 +530,105 @@ func TestLcl_CancelActiveLeaf(t *testing.T) {
 	}
 	if finalized.Status != AttemptCancelled {
 		t.Fatalf("in-flight attempt status=%q want cancelled", finalized.Status)
+	}
+}
+
+// TestClaimEnqueueAtomic asserts the River Phase 2c invariant: claim and durable
+// enqueue commit together. A failing enqueue must roll the whole claim back — no
+// attempt row, goal still ready — so a claimed attempt is never stranded without a
+// job. A succeeding enqueue commits the claim and the attempt.
+func TestClaimEnqueueAtomic(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	t.Run("enqueue failure rolls the claim back", func(t *testing.T) {
+		d := h.createRoot(KindLeaf, AcceptanceContract{})
+		h.activate(d.ID)
+
+		boom := errors.New("enqueue boom")
+		var gotTx bool
+		fail := AttemptEnqueuer(func(_ context.Context, tx pgx.Tx, _, _ string) error {
+			gotTx = tx != nil // the enqueue runs inside the claim tx
+			return boom
+		})
+
+		_, err := h.svc.Claim(ctx, d.ID, "w-1", fail)
+		if !errors.Is(err, boom) {
+			t.Fatalf("Claim err = %v, want wrapped %v", err, boom)
+		}
+		if !gotTx {
+			t.Fatal("enqueue hook was not handed the claim tx")
+		}
+		// The mintNextAttempt write ran before the enqueue error, so this proves the
+		// rollback: no attempt persisted and the goal is still ready, not active.
+		if atts, err := h.q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: d.ID}); err != nil {
+			t.Fatalf("list attempts: %v", err)
+		} else if len(atts) != 0 {
+			t.Fatalf("attempts after rolled-back claim = %d, want 0", len(atts))
+		}
+		if got := h.get(d.ID); got.Lifecycle != LifecycleReady || got.ActiveAttemptID.Valid {
+			t.Fatalf("goal after rolled-back claim = (%s, active=%v), want (ready, false)",
+				got.Lifecycle, got.ActiveAttemptID.Valid)
+		}
+	})
+
+	t.Run("enqueue success commits the claim", func(t *testing.T) {
+		d := h.createRoot(KindLeaf, AcceptanceContract{})
+		h.activate(d.ID)
+
+		ok := AttemptEnqueuer(func(_ context.Context, _ pgx.Tx, _, _ string) error { return nil })
+		att, err := h.svc.Claim(ctx, d.ID, "w-1", ok)
+		if err != nil {
+			t.Fatalf("Claim: %v", err)
+		}
+		if atts, err := h.q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: d.ID}); err != nil {
+			t.Fatalf("list attempts: %v", err)
+		} else if len(atts) != 1 || atts[0].ID != att.ID {
+			t.Fatalf("attempts after committed claim = %d, want 1 (%s)", len(atts), att.ID)
+		}
+		if got := h.get(d.ID); got.Lifecycle != LifecycleActive {
+			t.Fatalf("goal after committed claim = %s, want active", got.Lifecycle)
+		}
+	})
+}
+
+// TestLcl_QueuedReapDoesNotChargeBudget pins CR-001: an attempt reaped while still
+// 'queued' (its River job sat behind the queue's MaxWorkers and the claim-grace
+// lease expired before any PromoteAttempt — queue backpressure) never executed, so
+// it must NOT consume convergence budget. Before the fix, ClaimGoal's attempt_count
+// bump charged budget at claim time, so a wide-fanout root would park at
+// blocked(budget_exhausted) having executed nothing.
+func TestLcl_QueuedReapDoesNotChargeBudget(t *testing.T) {
+	h := newHarness(t)
+	rig := lcl_newRig(h)
+	d := lcl_detLeaf(h, 1) // budget 1: a single mischarge would exhaust
+	h.activate(d.ID)
+
+	ctx := context.Background()
+	// Sustained backpressure: each claim mints a 'queued' attempt that never gets a
+	// worker, so the reaper finalizes it before any PromoteAttempt. Repeat past the
+	// budget; every cycle must return the goal to ready, never blocked.
+	for i := range 3 {
+		att, err := h.svc.Claim(ctx, d.ID, "w-1", nil)
+		if err != nil {
+			t.Fatalf("claim %d: %v", i, err)
+		}
+		if att.Status != AttemptQueued {
+			t.Fatalf("claim %d status=%q want queued", i, att.Status)
+		}
+		if err := h.svc.ReapAttempt(ctx, att.ID); err != nil {
+			t.Fatalf("reap %d: %v", i, err)
+		}
+		if got := h.get(d.ID); got.Lifecycle != LifecycleReady {
+			t.Fatalf("after queued reap %d lifecycle=%q reason=%q want ready (never-run attempt must not charge budget)", i, got.Lifecycle, got.BlockReason)
+		}
+	}
+
+	// Budget survived: a real attempt still runs to acceptance on the original budget.
+	rig.checks.pass = true
+	h.exec.fn = lcl_passOutput("REAP-OK")
+	rig.runLeaf(t, d.ID)
+	if got := h.get(d.ID).Lifecycle; got != LifecycleAccepted {
+		t.Fatalf("after real run lifecycle=%q want accepted (queued reaps did not consume budget)", got)
 	}
 }

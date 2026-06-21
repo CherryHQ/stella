@@ -49,6 +49,20 @@ func addTestJob(t *testing.T, svc *Service, name, message string, sched Schedule
 	return job
 }
 
+// TestStartExternalRiverRequiresClient pins CR-004: in external-river mode the
+// shared working client must be injected via SetRiverClient before start, else
+// start() nil-derefs s.river. The guard fails fast with a clear error instead.
+func TestStartExternalRiverRequiresClient(t *testing.T) {
+	db := testDB(t)
+	svc, err := New(db, WithExternalRiver())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := svc.Start(context.Background()); err == nil {
+		t.Fatal("Start in external-river mode without SetRiverClient must error, got nil")
+	}
+}
+
 func TestAddListRemoveJob(t *testing.T) {
 	svc := testService(t)
 
