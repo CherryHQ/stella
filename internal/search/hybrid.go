@@ -8,6 +8,10 @@ import (
 
 const rrfK = 60
 
+// ErrSemanticUnavailable marks an intentional degraded path: callers may still
+// receive lexical results alongside this error when semantic search is disabled
+// or not yet configured. Do not treat it like a hard failure without checking
+// the returned hits.
 var ErrSemanticUnavailable = errors.New("semantic search unavailable")
 
 type HitSource string
@@ -66,6 +70,11 @@ func MergeRRF[T any](lexical, semantic []RankedHit[T], limit int) []MergedHit[T]
 	return items
 }
 
+// MergeHybrid combines lexical and semantic ranked hits. If semanticErr wraps
+// ErrSemanticUnavailable, it returns the lexical-only RRF results together with
+// ErrSemanticUnavailable so callers can surface an explicit degraded state while
+// still using the valid lexical results. Other semantic errors are hard failures
+// and return no hits.
 func MergeHybrid[T any](lexical, semantic []RankedHit[T], semanticErr error, limit int) ([]MergedHit[T], error) {
 	if semanticErr != nil {
 		if errors.Is(semanticErr, ErrSemanticUnavailable) {
