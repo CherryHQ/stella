@@ -6,22 +6,25 @@
   English | <a href="README.zh.md">中文</a>
 </p>
 
-# Stella — AI partners for every person
+# Stella — Shared AI coworkers for every team
 
 > **⚠️ Under Heavy Development** — Stella is not stable. APIs, config formats, and behavior may change without notice. Not recommended for production use.
 
-Stella gives every person an AI partner that remembers them, works through trusted tools, and shows up where they already chat.
+Stella turns the expertise your team repeats — finance, HR, engineering, research — into shared AI coworkers. Set an agent up once; everyone else just asks it in the chat tools they already use.
 
-Use Stella as a teammate at work, a manager for home routines, or a private assistant for personal projects. Each user-agent relationship has its own memory, workspace, tools, schedules, and sandbox boundaries, so Stella can understand different people without flattening everyone into one profile.
+A domain owner gives an agent its instructions, skills, tools, knowledge, and memory rules. After that, nobody has to learn the finance system, the recruiting tool, or the internal toolchain to move work forward — they tell the agent the goal, and it does the work within the boundaries you set. Each person gets their own memory with the agent, so Stella understands different teammates without flattening everyone into one profile.
 
-Under the hood, Stella is a multi-tenant, multi-user, multi-agent system. Each agent can have its own role, model, skills, tools, schedules, workspace, and sandbox policy. Deploy Stella where you want, use your own model API keys, and talk to her from Telegram, QQ, Feishu, WeChat, the Web UI, or the terminal.
+Under the hood it's a multi-tenant, multi-user, multi-agent system, but what that buys you is simple: many people can rely on the same agent at once, each agent has its own role, model, skills, tools, schedules, workspace, and safety boundaries, and you stay in control. Deploy it where you want, use your own model API keys, and reach it from Telegram, QQ, Feishu, WeChat, the Web UI, or the terminal.
+
+Small teams and individual developers can run the same setup — one agent doing the back-office work no one has time for — but Stella is built first for teams who keep paying their experts to answer the same questions.
 
 ## Why use Stella
 
-- **Remembers each person.** Memory is scoped per user per agent, so Stella understands different people differently.
-- **Works through agents.** Create agents for coding, writing, operations, family routines, research, and support.
-- **Acts safely.** Agents work in dedicated workspaces with sandbox policies and controlled tool access.
-- **Meets you in chat.** Telegram, QQ, Feishu, WeChat, the Web UI, and the terminal all become front doors to the same AI partner system.
+- **Anyone just asks.** A teammate doesn't learn the finance or HR system to get help — they ask the agent in chat, and it does the work.
+- **One expert, shared by everyone.** A domain owner builds an agent once; the whole team reuses it instead of interrupting the specialist.
+- **Remembers each teammate.** Memory is scoped per user per agent, so nobody re-explains their context.
+- **Acts within boundaries you set.** Agents work in dedicated workspaces with sandbox policies and controlled tool access, and stop for human review where you require it.
+- **Lives in the chat you already use.** Telegram, QQ, Feishu, WeChat, the Web UI, and the terminal are all front doors to the same agents.
 - **Keeps routines moving.** Schedule reminders, recurring jobs, reading digests, and background tasks that persist across restarts and notify the right people.
 
 ## Quick start

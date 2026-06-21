@@ -2,22 +2,25 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
-  Shield,
+  Bot,
+  Check,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  MessageSquare,
   MessageCircle,
+  Send,
+  Globe,
+  Shield,
   Brain,
   Plug,
   CalendarClock,
-  ListTodo,
   Rss,
-  Copy,
-  Check,
-  Play,
-  RotateCcw,
-  Terminal,
   Search,
   Eye,
   FileText,
-  CheckCircle2,
+  Copy,
+  Terminal,
 } from "lucide-react";
 import { siGithub } from "simple-icons";
 import { t } from "@/lib/docs/translations";
@@ -26,6 +29,9 @@ import { useI18n } from "@/lib/i18n";
 import "./index.css";
 
 export const Route = createFileRoute("/")({ component: Home });
+
+type Lang = "en" | "zh";
+type Copy = { en: string; zh: string };
 
 function useReveal() {
   const ref = useRef<HTMLElement>(null);
@@ -67,7 +73,7 @@ function useScrollProgress() {
 
 function Home() {
   const { locale } = useI18n();
-  const lang = locale === "zh" ? "zh" : "en";
+  const lang: Lang = locale === "zh" ? "zh" : "en";
   const mainRef = useReveal();
   const progress = useScrollProgress();
 
@@ -80,8 +86,8 @@ function Home() {
       <SiteHeader />
       <main ref={mainRef} id="main-content" className="flex-1">
         <HeroSection lang={lang} />
+        <PillarsSection lang={lang} />
         <AgentExplorerSection lang={lang} />
-        <PipelineSection lang={lang} />
         <RecallySection lang={lang} />
         <FooterCTA lang={lang} />
       </main>
@@ -90,315 +96,368 @@ function Home() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SUGGESTED GOALS FOR SIMULATOR
+// HERO — the signature: one agent answering inside the channels a team already
+// uses. Each tab is a real scenario for a real person, not an abstract demo.
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface MockTask {
+type Step = { kind: "ok" | "warn"; en: string; zh: string };
+type Bubble =
+  | { type: "schedule"; en: string; zh: string }
+  | { type: "ask"; who: Copy; initial: string; en: string; zh: string }
+  | { type: "reply"; en: string; zh: string }
+  | { type: "work"; steps: Step[] }
+  | { type: "gate"; en: string; zh: string; primary: Copy; ghost: Copy }
+  | { type: "auto"; en: string; zh: string };
+
+interface Channel {
   id: string;
-  name: { en: string; zh: string };
-  status: "pending" | "running" | "success";
-  logs: { en: string[]; zh: string[] };
+  name: string;
+  icon: typeof MessageSquare;
+  agent: Copy;
+  thread: Copy;
+  bubbles: Bubble[];
 }
 
-interface SimulatorGoal {
-  label: { en: string; zh: string };
-  goalText: { en: string; zh: string };
-  tasks: MockTask[];
-}
-
-const SIMULATOR_GOALS: SimulatorGoal[] = [
+const CHANNELS: Channel[] = [
   {
-    label: { en: "Audit Q1 Expenses", zh: "审计 Q1 报销" },
-    goalText: {
-      en: "Process all receipts in /Q1_receipts and audit them against company policy. Flag violations.",
-      zh: "处理 /Q1_receipts 中的所有发票，并根据公司政策进行审计。标记出违规报销。",
-    },
-    tasks: [
+    id: "feishu",
+    name: "飞书",
+    icon: MessageSquare,
+    agent: { en: "Finance coworker", zh: "财务同事" },
+    thread: { en: "#team-ops", zh: "运营大群" },
+    bubbles: [
       {
-        id: "task-1",
-        name: { en: "List and extract receipts", zh: "扫描并读取发票文件" },
-        status: "pending",
-        logs: {
-          en: [
-            "Found 4 receipt images in /Q1_receipts",
-            "Extracting OCR text: receipt_01.jpg (Dinner, $120)",
-            "Extracting OCR text: receipt_02.jpg (Software, $29)",
-            "Extracting OCR text: receipt_03.jpg (Flight, $850)",
-            "Extracting OCR text: receipt_04.jpg (Spa, $200)",
-          ],
-          zh: [
-            "在 /Q1_receipts 中发现 4 张发票图片",
-            "OCR 文本提取：receipt_01.jpg (正餐, $120)",
-            "OCR 文本提取：receipt_02.jpg (软件订阅, $29)",
-            "OCR 文本提取：receipt_03.jpg (机票, $850)",
-            "OCR 文本提取：receipt_04.jpg (水疗SPA, $200)",
-          ],
-        },
+        type: "ask",
+        who: { en: "Lena · new hire", zh: "林薇 · 新人" },
+        initial: "L",
+        en: "How do I file my Q1 travel receipts? Not sure two of them are even allowed.",
+        zh: "Q1 的差旅票怎么报？有两张我拿不准能不能报。",
       },
       {
-        id: "task-2",
-        name: { en: "Fetch policy rules", zh: "检索公司报销管理制度" },
-        status: "pending",
-        logs: {
-          en: [
-            "Reading policy document 'travel_rules_v2.md'...",
-            "Rule found: Meal limit is $100 per person.",
-            "Rule found: Luxury/spa services are non-reimbursable.",
-            "Rule found: Software subscription requires supervisor pre-approval.",
-          ],
-          zh: [
-            "读取政策文档 'travel_rules_v2.md'...",
-            "定位规则：单人正餐限额 $100。",
-            "定位规则：奢侈品/水疗服务不可报销。",
-            "定位规则：软件订阅需主管预先审批。",
-          ],
-        },
+        type: "reply",
+        en: "On it. I read the travel policy and checked all four receipts you uploaded.",
+        zh: "我来。已经读了差旅报销制度，核对了你上传的 4 张票。",
       },
       {
-        id: "task-3",
-        name: { en: "Audit receipts against policy", zh: "比对发票与审计合规性" },
-        status: "pending",
-        logs: {
-          en: [
-            "Auditing receipt_01.jpg ($120 dinner) -> Exceeds $100 limit. Flagged.",
-            "Auditing receipt_02.jpg ($29 software) -> Within limits. Approved.",
-            "Auditing receipt_03.jpg ($850 flight) -> Valid business travel. Approved.",
-            "Auditing receipt_04.jpg ($200 spa) -> Violates 'non-reimbursable spa' rule. Flagged.",
-          ],
-          zh: [
-            "审核 receipt_01.jpg ($120 正餐) -> 超出 $100 限制。已标记违规。",
-            "审核 receipt_02.jpg ($29 软件) -> 在额度内。批准。",
-            "审核 receipt_03.jpg ($850 航班) -> 合规商务差旅。批准。",
-            "审核 receipt_04.jpg ($200 SPA) -> 违反“不可报销水疗”政策。已标记违规。",
-          ],
-        },
+        type: "work",
+        steps: [
+          { kind: "ok", en: "Flight ¥850 — within policy", zh: "机票 ¥850 — 合规" },
+          { kind: "ok", en: "Software ¥29 — within policy", zh: "软件 ¥29 — 合规" },
+          {
+            kind: "warn",
+            en: "Dinner ¥120 — over the ¥100 limit",
+            zh: "正餐 ¥120 — 超单人 ¥100 限额",
+          },
+          { kind: "warn", en: "Spa ¥200 — not reimbursable", zh: "SPA ¥200 — 不可报销" },
+        ],
       },
       {
-        id: "task-4",
-        name: { en: "Generate final audit report", zh: "生成审计报告并提交" },
-        status: "pending",
-        logs: {
-          en: [
-            "Writing summary report to 'audit_report.md'...",
-            "Approved: $879 | Flagged: $320",
-            "Report complete. Routing to Human in the Loop review.",
-          ],
-          zh: [
-            "正在将审计摘要写入 'audit_report.md'...",
-            "通过金额: $879 | 违规金额: $320",
-            "报告生成完毕。已送入人工审核关卡进行确认。",
-          ],
-        },
+        type: "gate",
+        en: "Two need your sign-off before I submit the rest.",
+        zh: "两张需你确认，其余我可以直接提交。",
+        primary: { en: "Approve & submit", zh: "批准并提交" },
+        ghost: { en: "View detail", zh: "查看明细" },
       },
     ],
   },
   {
-    label: { en: "Research Competitors", zh: "竞品价格调研" },
-    goalText: {
-      en: "Crawl pricing page of competitor_x.com and generate a feature-by-feature comparison table.",
-      zh: "抓取 competitor_x.com 的价格页面，并生成一份详细的功能比对表格。",
-    },
-    tasks: [
+    id: "wechat",
+    name: "微信",
+    icon: MessageCircle,
+    agent: { en: "Hiring coworker", zh: "招聘同事" },
+    thread: { en: "Eng referrals", zh: "工程内推群" },
+    bubbles: [
       {
-        id: "task-1",
-        name: { en: "Fetch target URLs", zh: "获取目标网页内容" },
-        status: "pending",
-        logs: {
-          en: [
-            "Initializing sandboxed WebFetch tool...",
-            "HTTP GET competitor_x.com/pricing -> 200 OK",
-            "Extracted HTML raw content (45KB)",
-          ],
-          zh: [
-            "初始化沙箱 WebFetch 工具...",
-            "HTTP GET competitor_x.com/pricing -> 200 OK",
-            "提取 HTML 原始网页内容 (45KB)",
-          ],
-        },
+        type: "ask",
+        who: { en: "Wei · engineer", zh: "张工 · 工程师" },
+        initial: "W",
+        en: "Referring a backend candidate — resume's in the group. Worth a look?",
+        zh: "我内推一个后端，简历发群里了，合适吗？",
       },
       {
-        id: "task-2",
-        name: { en: "Parse pricing schemes", zh: "解析订阅套餐和功能" },
-        status: "pending",
-        logs: {
-          en: [
-            "Parsing pricing blocks from DOM...",
-            "Found 'Starter' plan: $19/mo, 5 seats",
-            "Found 'Pro' plan: $49/mo, 20 seats",
-            "Found 'Enterprise' plan: Custom, unlimited seats",
-            "Extracting pricing table attributes...",
-          ],
-          zh: [
-            "从 DOM 树解析价格板块...",
-            "发现 'Starter' 套餐：$19/月，5 个席位",
-            "发现 'Pro' 套餐：$49/月，20 个席位",
-            "发现 'Enterprise' 套餐：定制价格，无限席位",
-            "正在提取功能比对表属性...",
-          ],
-        },
+        type: "reply",
+        en: "Read it against the open role. Strong match — here's why.",
+        zh: "已对照在招岗位看过，匹配度不错，理由如下。",
       },
       {
-        id: "task-3",
-        name: { en: "Synthesize comparison data", zh: "比对本品并整合数据" },
-        status: "pending",
-        logs: {
-          en: [
-            "Comparing with Stella's own plans...",
-            "Mapping overlapping capabilities (Integrations, Sandbox, Tasks)",
-            "Drafting pricing differences analysis...",
-          ],
-          zh: [
-            "比对本品 Stella 与竞品的定价...",
-            "映射交叉功能点 (集成集成、沙箱执行、任务流水线)",
-            "起草价格差异分析报告...",
-          ],
-        },
+        type: "work",
+        steps: [
+          { kind: "ok", en: "5 yrs Go, distributed systems", zh: "5 年 Go、分布式经验" },
+          { kind: "ok", en: "82% overlap with the role", zh: "与岗位要求重合 82%" },
+          { kind: "ok", en: "Drafted an interview invite + slot", zh: "已起草面试邀约和时间" },
+        ],
       },
       {
-        id: "task-4",
-        name: { en: "Export markdown comparison", zh: "输出 Markdown 比对表格" },
-        status: "pending",
-        logs: {
-          en: [
-            "Writing comparison matrix to 'competitor_comparison.md'...",
-            "Comparison table successfully generated with 12 features mapped.",
-            "Execution completed.",
-          ],
-          zh: [
-            "将比对矩阵写入 'competitor_comparison.md'...",
-            "比对表格生成完毕，共覆盖 12 项功能指标。",
-            "运行完成。",
-          ],
-        },
+        type: "gate",
+        en: "I'll send the invite once you say go.",
+        zh: "你点头我就把邀约发出去。",
+        primary: { en: "Approve & send", zh: "批准发送" },
+        ghost: { en: "Reschedule", zh: "改时间" },
+      },
+    ],
+  },
+  {
+    id: "telegram",
+    name: "Telegram",
+    icon: Send,
+    agent: { en: "Research coworker", zh: "研究同事" },
+    thread: { en: "Morning digest", zh: "晨间摘要" },
+    bubbles: [
+      { type: "schedule", en: "Runs every weekday at 7:30", zh: "每个工作日 7:30 自动运行" },
+      {
+        type: "reply",
+        en: "Your six feeds moved over the weekend. Three are worth your time.",
+        zh: "你订阅的 6 个源周末有更新，挑了 3 条要紧的。",
+      },
+      {
+        type: "work",
+        steps: [
+          { kind: "ok", en: "Competitor X launched a team plan", zh: "竞品 X 上线团队版" },
+          { kind: "ok", en: "New self-hosting LLM write-up", zh: "一篇自部署 LLM 实践" },
+          { kind: "ok", en: "Pricing shift in your space", zh: "你所在赛道的定价变动" },
+        ],
+      },
+      {
+        type: "auto",
+        en: "No approval needed — delivered straight to you.",
+        zh: "无需审核，已直接推送给你。",
+      },
+    ],
+  },
+  {
+    id: "web",
+    name: "Web",
+    icon: Globe,
+    agent: { en: "Engineering coworker", zh: "工程同事" },
+    thread: { en: "Pre-review", zh: "预审" },
+    bubbles: [
+      {
+        type: "ask",
+        who: { en: "Chen · engineer", zh: "小陈 · 工程师" },
+        initial: "C",
+        en: "Can you pre-review PR #568 before I ping the team?",
+        zh: "这个 PR #568 能帮我先过一遍再喊大家吗？",
+      },
+      {
+        type: "reply",
+        en: "Read the whole diff. Three things to look at, one likely bug.",
+        zh: "整份 diff 都看了。三处要注意，一处可能有问题。",
+      },
+      {
+        type: "work",
+        steps: [
+          { kind: "ok", en: "Migration matches the schema", zh: "迁移脚本与 schema 一致" },
+          { kind: "warn", en: "One transaction may deadlock", zh: "一处事务可能死锁" },
+          { kind: "ok", en: "Left inline comments", zh: "已贴好行内评论" },
+        ],
+      },
+      {
+        type: "gate",
+        en: "Want me to post the review for you?",
+        zh: "要我直接把评审意见提交上去吗？",
+        primary: { en: "Post review", zh: "提交评审" },
+        ghost: { en: "Keep private", zh: "仅给我看" },
       },
     ],
   },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HERO SECTION & INTERACTIVE GOAL RUNNER
-// ─────────────────────────────────────────────────────────────────────────────
+const STEP_DELAY = 820;
 
-function HeroSection({ lang }: { lang: "en" | "zh" }) {
+function ChannelThread({ lang }: { lang: Lang }) {
+  const isZh = lang === "zh";
+  const [active, setActive] = useState(0);
+  const [shown, setShown] = useState(0);
+  const [pinned, setPinned] = useState(false);
+
+  const channel = CHANNELS[active];
+  const total = channel.bubbles.length;
+
+  // Reveal the active scenario one bubble at a time. Replays whenever the
+  // channel changes (auto-rotation or a tab click).
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setShown(total);
+      return;
+    }
+    setShown(0);
+    const timers = channel.bubbles.map((_, i) =>
+      window.setTimeout(() => setShown(i + 1), 450 + i * STEP_DELAY),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [active, total, channel.bubbles]);
+
+  // Drift to the next channel on its own, until the visitor takes over by
+  // clicking a tab.
+  useEffect(() => {
+    if (pinned || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const tm = window.setTimeout(
+      () => setActive((a) => (a + 1) % CHANNELS.length),
+      450 + total * STEP_DELAY + 3400,
+    );
+    return () => clearTimeout(tm);
+  }, [active, total, pinned]);
+
+  const pick = (i: number) => {
+    setPinned(true);
+    setActive(i);
+  };
+
+  const ChannelIcon = channel.icon;
+
+  return (
+    <div className="thread-card">
+      <div className="thread-tabs" role="tablist" aria-label={isZh ? "渠道" : "Channels"}>
+        {CHANNELS.map((c, i) => {
+          const Icon = c.icon;
+          return (
+            <button
+              key={c.id}
+              role="tab"
+              aria-selected={active === i}
+              onClick={() => pick(i)}
+              className={`thread-tab ${active === i ? "active" : ""}`}
+            >
+              <Icon aria-hidden className="size-3.5" />
+              <span>{c.name}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="thread-meta">
+        <span className="thread-meta-thread">
+          <ChannelIcon aria-hidden className="size-3" />
+          {channel.thread[lang]}
+        </span>
+        <span className="thread-meta-agent">
+          <span className="thread-meta-dot" />
+          {channel.agent[lang]}
+        </span>
+      </div>
+
+      <div className="thread-body" key={channel.id}>
+        {channel.bubbles.slice(0, shown).map((b, i) => (
+          <BubbleView
+            key={`${channel.id}-${i}`}
+            bubble={b}
+            lang={lang}
+            agent={channel.agent[lang]}
+          />
+        ))}
+        {shown < total && <TypingDots />}
+      </div>
+    </div>
+  );
+}
+
+function BubbleView({ bubble, lang, agent }: { bubble: Bubble; lang: Lang; agent: string }) {
+  if (bubble.type === "schedule") {
+    return (
+      <div className="thread-row thread-row-note">
+        <span className="thread-note">
+          <Clock aria-hidden className="size-3" />
+          {bubble[lang]}
+        </span>
+      </div>
+    );
+  }
+
+  if (bubble.type === "ask") {
+    return (
+      <div className="thread-row thread-row-ask">
+        <div className="thread-ask">
+          <div className="thread-ask-who">{bubble.who[lang]}</div>
+          <div className="thread-bubble thread-bubble-ask">{bubble[lang]}</div>
+        </div>
+        <span className="thread-avatar thread-avatar-user">{bubble.initial}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="thread-row thread-row-agent">
+      <span className="thread-avatar thread-avatar-agent">
+        <Bot aria-hidden className="size-4" />
+      </span>
+      <div className="thread-agent">
+        <div className="thread-agent-name">{agent}</div>
+        {bubble.type === "reply" && (
+          <div className="thread-bubble thread-bubble-agent">{bubble[lang]}</div>
+        )}
+        {bubble.type === "work" && (
+          <div className="thread-work">
+            {bubble.steps.map((s, i) => (
+              <div key={i} className={`thread-step ${s.kind}`}>
+                {s.kind === "ok" ? (
+                  <CheckCircle2 aria-hidden className="size-3.5" />
+                ) : (
+                  <AlertTriangle aria-hidden className="size-3.5" />
+                )}
+                <span>{s[lang]}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {bubble.type === "gate" && (
+          <div className="thread-gate">
+            <div className="thread-gate-text">
+              <Shield aria-hidden className="size-3.5" />
+              {bubble[lang]}
+            </div>
+            <div className="thread-gate-actions">
+              <span className="thread-chip thread-chip-primary">{bubble.primary[lang]}</span>
+              <span className="thread-chip">{bubble.ghost[lang]}</span>
+            </div>
+          </div>
+        )}
+        {bubble.type === "auto" && (
+          <div className="thread-bubble thread-bubble-auto">
+            <CheckCircle2 aria-hidden className="size-3.5" />
+            {bubble[lang]}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TypingDots() {
+  return (
+    <div className="thread-row thread-row-agent">
+      <span className="thread-avatar thread-avatar-agent">
+        <Bot aria-hidden className="size-4" />
+      </span>
+      <div className="thread-typing" aria-hidden>
+        <span />
+        <span />
+        <span />
+      </div>
+    </div>
+  );
+}
+
+function HeroSection({ lang }: { lang: Lang }) {
   const isZh = lang === "zh";
   const tr = t(lang);
 
-  const [selectedGoalIndex, setSelectedGoalIndex] = useState(0);
-  const [goalText, setGoalText] = useState(SIMULATOR_GOALS[0].goalText[lang]);
-  const [isSimulating, setIsSimulating] = useState(false);
-  const [simStep, setSimStep] = useState<"idle" | "planning" | "running" | "completed">("idle");
-  const [tasks, setTasks] = useState<MockTask[]>([]);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
-  const [simulationIndex, setSimulationIndex] = useState(0);
-
-  // Sync text when language changes
-  useEffect(() => {
-    if (!isSimulating) {
-      setGoalText(SIMULATOR_GOALS[selectedGoalIndex].goalText[lang]);
-    }
-  }, [lang, selectedGoalIndex, isSimulating]);
-
-  const handleSelectPreset = (idx: number) => {
-    if (isSimulating) return;
-    setSelectedGoalIndex(idx);
-    setGoalText(SIMULATOR_GOALS[idx].goalText[lang]);
-  };
-
-  const handleStartSimulation = async () => {
-    if (isSimulating) return;
-    setIsSimulating(true);
-    setSimStep("planning");
-    setTerminalLogs([
-      isZh
-        ? ">> [系统] 收到新目标，正在初始化规划器..."
-        : ">> [System] Goal received, initializing planner...",
-    ]);
-
-    const presetTasks = JSON.parse(
-      JSON.stringify(SIMULATOR_GOALS[selectedGoalIndex].tasks),
-    ) as MockTask[];
-    setTasks(presetTasks.map((t) => ({ ...t, status: "pending" })));
-
-    let curSimIndex = simulationIndex + 1;
-    setSimulationIndex(curSimIndex);
-
-    // Planning Phase
-    await delay(1200);
-    if (curSimIndex !== simulationIndex + 1) return;
-
-    setSimStep("running");
-    setTerminalLogs((prev) => [
-      ...prev,
-      isZh
-        ? ">> [规划器] 规划完成。生成了 4 个相互依赖的任务。"
-        : ">> [Planner] Planning complete. Created 4 interdependent tasks.",
-      isZh ? ">> [执行器] 开始处理任务流依赖..." : ">> [Executor] Processing task dependencies...",
-    ]);
-
-    // Execute tasks sequentially
-    for (let i = 0; i < presetTasks.length; i++) {
-      if (curSimIndex !== simulationIndex + 1) return;
-
-      const currentTask = presetTasks[i];
-      setActiveTaskId(currentTask.id);
-
-      setTasks((prev) =>
-        prev.map((t) => (t.id === currentTask.id ? { ...t, status: "running" } : t)),
-      );
-      setTerminalLogs((prev) => [...prev, `>> [正在运行] ${currentTask.name[lang]}...`]);
-
-      // Print logs of the running task sequentially
-      const logs = currentTask.logs[lang];
-      for (const logLine of logs) {
-        await delay(500);
-        if (curSimIndex !== simulationIndex + 1) return;
-        setTerminalLogs((prev) => [...prev, `   ${logLine}`]);
-      }
-
-      setTasks((prev) =>
-        prev.map((t) => (t.id === currentTask.id ? { ...t, status: "success" } : t)),
-      );
-      setTerminalLogs((prev) => [...prev, `>> [完成] ${currentTask.name[lang]}`]);
-      await delay(400);
-    }
-
-    if (curSimIndex !== simulationIndex + 1) return;
-    setSimStep("completed");
-    setActiveTaskId(null);
-    setTerminalLogs((prev) => [
-      ...prev,
-      isZh
-        ? ">> [执行完成] 目标任务完全执行成功，等待最终确认。"
-        : ">> [Execution Finished] All goals resolved successfully. Awaiting human confirmation.",
-    ]);
-  };
-
-  const handleReset = () => {
-    setIsSimulating(false);
-    setSimStep("idle");
-    setTasks([]);
-    setActiveTaskId(null);
-    setTerminalLogs([]);
-    setGoalText(SIMULATOR_GOALS[selectedGoalIndex].goalText[lang]);
-  };
-
   return (
     <section className="home-hero">
+      <div className="home-hero-glow" aria-hidden />
       <div className="home-shell home-hero-layout">
         <div className="home-hero-copy">
           <div className="home-eyebrow">
-            {isZh ? "自部署 Goal 协同工作空间" : "Self-hosted Goal Workspace"}
+            {isZh ? "自部署 · 团队共享 AI 同事" : "Self-hosted · Shared AI coworkers"}
           </div>
-          <h1 className="home-hero-title">
-            <span>{isZh ? "像雇佣真实同事一样" : "Skip specialists."}</span>
-            <em>{isZh ? "把目标直接交给" : "Give the goal"}</em>
-            <span>{isZh ? "AI 任务执行网络" : "to the agent network."}</span>
+          <h1 className="home-h1">
+            <span>{isZh ? "团队里重复的问题" : "Your team's repeat questions"}</span>
+            <em>{isZh ? "不必再麻烦" : "don't need"}</em>
+            <span>{isZh ? "你的专家" : "your experts."}</span>
           </h1>
-          <p className="home-hero-body">
+          <p className="home-lead">
             {isZh
-              ? "Stella 将复杂的业务流程、工具调用和审核机制深度包装。无需学习特定专业软件，非技术人员只需输入目标，Stella 即可拆解为依赖任务，以安全沙箱并发执行，并支持人工校准审批。"
-              : "Let finance, HR, research, and engineering teams deploy dedicated agents. Simply prompt Stella with your goal, and watch it plan a task DAG, fetch tools, run safe code execution, and guide results through your approval."}
+              ? "财务、HR、研究的 agent 只配一次。那个本来要私聊专家的新人，直接在群里问就行——拿到答案、活也干完，关键处还停下来等你拍板。"
+              : "Set up a finance, HR, or research agent once. The new hire who'd normally DM your expert just asks the group chat — and gets the answer, the work done, and your sign-off where it matters."}
           </p>
           <div className="home-actions">
             <Link to="/docs/$" params={{ _splat: "" }} className="home-btn home-btn-primary">
@@ -417,342 +476,15 @@ function HeroSection({ lang }: { lang: "en" | "zh" }) {
               {tr.sourceOnGithub}
             </a>
           </div>
-        </div>
-
-        {/* ─── GOAL SIMULATOR ─── */}
-        <div className="home-hero-preview">
-          <div className="simulator-card">
-            <div className="simulator-header">
-              <span className="flex items-center gap-2">
-                <span className="simulator-dot bg-destructive" />
-                <span className="simulator-dot bg-chart-4" />
-                <span className="simulator-dot bg-chart-3" />
-                <span className="text-xs font-mono ml-2 text-muted-foreground">
-                  stella-terminal
-                </span>
-              </span>
-              {isSimulating && (
-                <button onClick={handleReset} className="simulator-reset-btn">
-                  <RotateCcw className="size-3" />
-                  <span>{isZh ? "重置" : "Reset"}</span>
-                </button>
-              )}
-            </div>
-
-            {/* Input State */}
-            {simStep === "idle" && (
-              <div className="simulator-input-view">
-                <label className="simulator-label">
-                  {isZh ? "输入您需要执行的业务目标：" : "Type a business goal for Stella:"}
-                </label>
-                <div className="simulator-input-wrapper">
-                  <textarea
-                    value={goalText}
-                    onChange={(e) => setGoalText(e.target.value)}
-                    placeholder={
-                      isZh
-                        ? "例如：提取发票信息，根据报销政策生成财务审计报告..."
-                        : "e.g. Audit travel receipts and check compliance rules..."
-                    }
-                    className="simulator-textarea"
-                  />
-                  <button onClick={handleStartSimulation} className="simulator-run-btn">
-                    <Play className="size-4 fill-current" />
-                    <span>{isZh ? "开始执行" : "Run Goal"}</span>
-                  </button>
-                </div>
-
-                <div className="simulator-presets">
-                  <span className="text-xs text-muted-foreground">
-                    {isZh ? "推荐模版：" : "Try a preset:"}
-                  </span>
-                  <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {SIMULATOR_GOALS.map((g, i) => (
-                      <button
-                        key={i}
-                        onClick={() => handleSelectPreset(i)}
-                        className={`simulator-preset-chip ${selectedGoalIndex === i ? "active" : ""}`}
-                      >
-                        {g.label[lang]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Simulating State (Planning & Running) */}
-            {simStep !== "idle" && (
-              <div className="simulator-running-view">
-                <div className="simulator-dag-container">
-                  <div className="simulator-dag-header">
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {isZh ? "任务网络树 (DAG View)" : "Planned Task Network (DAG View)"}
-                    </span>
-                    <span className="simulator-badge">
-                      {simStep === "planning" && (isZh ? "正在规划..." : "Planning...")}
-                      {simStep === "running" && (isZh ? "正在执行任务..." : "Running...")}
-                      {simStep === "completed" && (isZh ? "已完成" : "Completed")}
-                    </span>
-                  </div>
-
-                  {/* Visual Node Graph */}
-                  <div className="dag-graph">
-                    {tasks.map((t, idx) => {
-                      const isTaskRunning = t.status === "running";
-                      const isTaskSuccess = t.status === "success";
-                      const isTaskPending = t.status === "pending";
-
-                      return (
-                        <div key={t.id} className="dag-node-wrapper">
-                          <div
-                            className={`dag-node ${t.status} ${activeTaskId === t.id ? "active" : ""}`}
-                          >
-                            <span className="dag-node-icon">
-                              {isTaskSuccess ? (
-                                <CheckCircle2 className="size-3.5" />
-                              ) : (
-                                <span className="dag-dot" />
-                              )}
-                            </span>
-                            <span className="dag-node-text">{t.name[lang]}</span>
-                            <span className="dag-node-status-label">
-                              {isTaskRunning && (isZh ? "运行中" : "Running")}
-                              {isTaskSuccess && (isZh ? "成功" : "Success")}
-                              {isTaskPending && (isZh ? "等待" : "Pending")}
-                            </span>
-                          </div>
-                          {idx < tasks.length - 1 && (
-                            <div className={`dag-edge ${isTaskSuccess ? "active" : ""}`} />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Console Log Area */}
-                <div className="simulator-terminal">
-                  <div className="terminal-scroll-area">
-                    {terminalLogs.map((log, i) => (
-                      <div key={i} className="terminal-line">
-                        {log}
-                      </div>
-                    ))}
-                    {simStep === "planning" && <div className="terminal-cursor-blink" />}
-                  </div>
-                </div>
-
-                {/* Approve Gate */}
-                {simStep === "completed" && (
-                  <div className="simulator-approve-gate">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <div className="font-semibold text-sm">
-                          {isZh
-                            ? "需要人工审核 (Human-in-the-Loop)"
-                            : "Awaiting Human-in-the-Loop Review"}
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {isZh
-                            ? "所有任务成功运行。在导出最终报告前请求人工最终授权。"
-                            : "All tasks executed in sandbox. Confirm results to export final audit artifacts."}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleReset}
-                          className="home-btn-ghost text-xs px-3 py-1.5"
-                        >
-                          {isZh ? "否决" : "Reject"}
-                        </button>
-                        <button
-                          onClick={handleReset}
-                          className="home-btn-primary text-xs px-3 py-1.5"
-                        >
-                          {isZh ? "通过并导出" : "Approve & Export"}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AGENT EXPLORER (INTERACTIVE AGENT CATALOG)
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface AgentData {
-  id: string;
-  name: { en: string; zh: string };
-  role: { en: string; zh: string };
-  instruction: { en: string; zh: string };
-  tools: { icon: any; name: string }[];
-  review: { en: string; zh: string };
-}
-
-const AGENTS_LIST: AgentData[] = [
-  {
-    id: "finance",
-    name: { en: "Expense Auditor", zh: "财务报销审计员" },
-    role: {
-      en: "Auto-audits receipts and matches policy rules",
-      zh: "自动发票解析与合规政策自动审核",
-    },
-    instruction: {
-      en: "Read receipt OCR data. If food cost > $100 or luxury spending detected, flag and block auto-reimbursement. Require manual review.",
-      zh: "读取发票 OCR 数据。如餐饮费用单次超过 $100 或存在奢侈服务消费，将其标记为不合规，阻断自动报销，并转交人工审核。",
-    },
-    tools: [
-      { icon: Eye, name: "ocr:parse" },
-      { icon: FileText, name: "policy_checker" },
-      { icon: Plug, name: "erp_ledger:write" },
-    ],
-    review: {
-      en: "Required for violations & purchases > $500",
-      zh: "当检测到政策冲突或单笔超过 $500 时必经人工授权",
-    },
-  },
-  {
-    id: "hr",
-    name: { en: "Referral Recruiter", zh: "内推招聘推荐官" },
-    role: {
-      en: "Filters resumes and syncs schedule with interviewers",
-      zh: "智能匹配求职简历并协调面试日程",
-    },
-    instruction: {
-      en: "Screen incoming resumes. Matches profile against hiring requirements. If overlap score > 80%, notify referee via Feishu and generate Google Calendar invite.",
-      zh: "筛选内推简历。提取技能和经历并与岗位要求进行比对，若匹配度高于 80%，在飞书通知推荐人，并向面试官发送谷歌日程邀请。",
-    },
-    tools: [
-      { icon: FileText, name: "resume_parser" },
-      { icon: MessageCircle, name: "feishu:message" },
-      { icon: CalendarClock, name: "gcal:create_event" },
-    ],
-    review: {
-      en: "Required before sending interview invites",
-      zh: "发送正式面试通知前需招聘主管最终确认",
-    },
-  },
-  {
-    id: "research",
-    name: { en: "Reading Companion", zh: "Recally 研究助手" },
-    role: {
-      en: "Monitors RSS feeds and summarizes key web articles",
-      zh: "RSS 订阅监控与精细内容摘要",
-    },
-    instruction: {
-      en: "Monitor target RSS streams hourly. Extract new article links, download full HTML/PDF, run summary agent, and format clean daily digests.",
-      zh: "每小时监控指定的 RSS 订阅源。自动抓取新文章链接，下载完整网页及 PDF，运行总结提取核心要点，整理为每日摘要推送。",
-    },
-    tools: [
-      { icon: Rss, name: "rss:fetch" },
-      { icon: Search, name: "web:fetch" },
-      { icon: Brain, name: "digest_generator" },
-    ],
-    review: {
-      en: "Review disabled (Fully automated digest routing)",
-      zh: "免审直接推送 (每日阅读报告全自动投递)",
-    },
-  },
-];
-
-function AgentExplorerSection({ lang }: { lang: "en" | "zh" }) {
-  const isZh = lang === "zh";
-  const [activeId, setActiveId] = useState("finance");
-  const activeAgent = AGENTS_LIST.find((a) => a.id === activeId) || AGENTS_LIST[0];
-
-  return (
-    <section className="home-systems reveal-element">
-      <div className="home-shell">
-        <div className="home-caps-header">
-          <h2 className="home-section-title">
-            {isZh ? "创建并共享你的 AI 同事" : "Create and share expert agents"}
-          </h2>
-          <p className="home-section-sub">
+          <p className="home-hero-foot">
             {isZh
-              ? "业务部门（HR、财务、研究等）可以自主组装 Agent，挂载工具与政策。一旦创建，全组织成员即可直接通过对话调用，无需配置，零学习成本。"
-              : "Configure tailored agents with specific prompts, local tools, and sandboxed runtimes. Once created, they join the directory where any coworker can leverage their capability via simple chat."}
+              ? "飞书 · 微信 · Telegram · QQ · Web · 终端 — 都是同一个 AI 同事的入口"
+              : "Feishu · WeChat · Telegram · QQ · Web · CLI — every one a door to the same coworker"}
           </p>
         </div>
 
-        <div className="agent-explorer-layout">
-          {/* Tabs */}
-          <div className="agent-tabs">
-            {AGENTS_LIST.map((agent) => (
-              <button
-                key={agent.id}
-                onClick={() => setActiveId(agent.id)}
-                className={`agent-tab-item ${activeId === agent.id ? "active" : ""}`}
-              >
-                <div className="text-left">
-                  <div className="agent-tab-name">{agent.name[lang]}</div>
-                  <div className="agent-tab-role text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                    {agent.role[lang]}
-                  </div>
-                </div>
-                <ArrowRight className="size-4 opacity-0 transition-opacity agent-tab-arrow" />
-              </button>
-            ))}
-          </div>
-
-          {/* Details Panel */}
-          <div key={activeAgent.id} className="agent-panel">
-            <div className="agent-panel-header">
-              <h3 className="agent-panel-title">{activeAgent.name[lang]}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">{activeAgent.role[lang]}</p>
-            </div>
-
-            <div className="agent-panel-body">
-              {/* Prompt Instruction */}
-              <div className="agent-field">
-                <span className="agent-field-label">
-                  {isZh ? "系统指令 (Instructions)" : "Instructions Prompt"}
-                </span>
-                <div className="agent-prompt-box">
-                  <code>{activeAgent.instruction[lang]}</code>
-                </div>
-              </div>
-
-              {/* Tools attached */}
-              <div className="agent-field">
-                <span className="agent-field-label">
-                  {isZh ? "挂载工具 (Tools Attached)" : "Tools and Integrations"}
-                </span>
-                <div className="agent-tools-row">
-                  {activeAgent.tools.map((t, idx) => {
-                    const ToolIcon = t.icon;
-                    return (
-                      <div key={idx} className="agent-tool-chip">
-                        <ToolIcon className="size-3.5 text-primary" />
-                        <span>{t.name}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Review boundary */}
-              <div className="agent-field border-t border-border pt-4 mt-4">
-                <div className="flex items-center gap-2 text-xs">
-                  <Shield className="size-4 text-primary" />
-                  <span className="font-semibold text-foreground">
-                    {isZh ? "人工审核边界：" : "Human Review Boundary:"}
-                  </span>
-                  <span className="text-muted-foreground">{activeAgent.review[lang]}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div className="home-hero-preview">
+          <ChannelThread lang={lang} />
         </div>
       </div>
     </section>
@@ -760,76 +492,68 @@ function AgentExplorerSection({ lang }: { lang: "en" | "zh" }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PIPELINE SECTION
+// PILLARS — why a shared agent fits a team, in value terms (no mechanism names).
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface PipelineStep {
-  num: string;
-  title: { en: string; zh: string };
-  desc: { en: string; zh: string };
-  icon: any;
+interface Pillar {
+  icon: typeof MessageCircle;
+  title: Copy;
+  body: Copy;
 }
 
-const PIPELINE_STEPS: PipelineStep[] = [
+const PILLARS: Pillar[] = [
   {
-    num: "01",
-    title: { en: "Goal Input", zh: "目标接收" },
-    desc: {
-      en: "Provide a high-level outcome in plain text via Web UI, Slack, or WeChat.",
-      zh: "通过 Web UI、终端、Telegram、飞书或微信，直接用自然语言描述你需要完成的复杂任务目标。",
-    },
     icon: MessageCircle,
+    title: { en: "Nobody learns a new system", zh: "没人需要学新系统" },
+    body: {
+      en: "It lives in the Feishu, WeChat, or Telegram group your team already uses. No new app, no seats to hand out — people just ask.",
+      zh: "它就在团队已经在用的飞书、微信、Telegram 群里。没有新 app，不用逐人开账号——大家张口问就行。",
+    },
   },
   {
-    num: "02",
-    title: { en: "Task DAG Generation", zh: "生成任务 DAG 拓扑图" },
-    desc: {
-      en: "Stella breaks down the goal into independent tasks, sorting dependencies and criteria.",
-      zh: "Stella 自动将目标拆解为拓扑依赖的任务 DAG。理清任务前后置关系，并明确每步验收标准。",
+    icon: Brain,
+    title: { en: "It remembers each teammate", zh: "它记得每个人" },
+    body: {
+      en: "Every person gets their own context. The new hire and the finance lead ask the same agent and never re-explain who they are.",
+      zh: "每个人都有自己的上下文。新人和财务负责人问的是同一个 agent，却都不用重新解释自己是谁。",
     },
-    icon: ListTodo,
   },
   {
-    num: "03",
-    title: { en: "Sandboxed Execution", zh: "安全沙箱环境运行" },
-    desc: {
-      en: "Tasks execute concurrently inside secure local sandbox containers utilizing API keys and tools safely.",
-      zh: "所有工具调用、网络访问和脚本执行均在安全的隔离沙箱容器中并发运行，防范密钥泄露与环境破坏。",
-    },
     icon: Shield,
-  },
-  {
-    num: "04",
-    title: { en: "Human in the Loop", zh: "人工介入确认" },
-    desc: {
-      en: "Results wait for user verification and sign-off before exporting or committing data changes.",
-      zh: "高危写操作或违反预设合规边界的执行结果将阻断，等待您的最终批准方可提交和导出报告。",
+    title: { en: "It works within your limits", zh: "它在你的边界内做事" },
+    body: {
+      en: "Connect your tools and your knowledge base. The agent does the work — and stops for a human on anything you mark as risky.",
+      zh: "接上你的工具和知识库。agent 把活干完，但凡你标为高风险的事，都会停下来等人确认。",
     },
-    icon: CheckCircle2,
   },
 ];
 
-function PipelineSection({ lang }: { lang: "en" | "zh" }) {
+function PillarsSection({ lang }: { lang: Lang }) {
   const isZh = lang === "zh";
-
   return (
     <section className="home-pillars reveal-element">
       <div className="home-shell">
-        <h2 className="home-pillars-heading">
-          {isZh ? "Stella 执行管道" : "The Stella Execution Pipeline"}
-        </h2>
-        <div className="pipeline-steps-grid">
-          {PIPELINE_STEPS.map((step) => {
-            const StepIcon = step.icon;
+        <div className="home-block-head">
+          <h2 className="home-h2">
+            {isZh ? "配一次，全团队都能问" : "Set it up once, the whole team just asks"}
+          </h2>
+          <p className="home-lead">
+            {isZh
+              ? "一个部门负责人把 agent 装好——挂上工具、政策和知识库。从那一刻起，组织里的每个人都能直接对话调用，零配置、零学习成本。"
+              : "A department lead sets the agent up — tools, policy, knowledge base. From then on, anyone in the org uses it by chatting. Nothing to configure, nothing to learn."}
+          </p>
+        </div>
+        <div className="home-pillars-grid">
+          {PILLARS.map((p, i) => {
+            const Icon = p.icon;
             return (
-              <div key={step.num} className="pipeline-step-card">
-                <div className="pipeline-step-header">
-                  <span className="pipeline-step-num">{step.num}</span>
-                  <StepIcon className="size-5 text-primary" />
-                </div>
-                <h3 className="pipeline-step-title">{step.title[lang]}</h3>
-                <p className="pipeline-step-desc">{step.desc[lang]}</p>
-              </div>
+              <article key={i} className="home-card home-pillar">
+                <span className="home-pillar-icon">
+                  <Icon aria-hidden className="size-5" />
+                </span>
+                <h3 className="home-pillar-title">{p.title[lang]}</h3>
+                <p className="home-pillar-body">{p.body[lang]}</p>
+              </article>
             );
           })}
         </div>
@@ -839,130 +563,267 @@ function PipelineSection({ lang }: { lang: "en" | "zh" }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RECALLY SECTION (READER & SUMMARY PREVIEW)
+// AGENT EXPLORER — the builder side: one owner defines an expert, the team uses it.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function RecallySection({ lang }: { lang: "en" | "zh" }) {
+interface AgentData {
+  id: string;
+  name: Copy;
+  role: Copy;
+  instruction: Copy;
+  tools: { icon: typeof Eye; name: string }[];
+  review: Copy;
+}
+
+const AGENTS_LIST: AgentData[] = [
+  {
+    id: "finance",
+    name: { en: "Expense auditor", zh: "报销审计员" },
+    role: {
+      en: "Reads receipts and checks them against policy",
+      zh: "读发票，并对照公司政策核对",
+    },
+    instruction: {
+      en: "Read each receipt. If a meal is over ¥100 or a luxury item shows up, flag it, hold the auto-reimbursement, and ask a human.",
+      zh: "逐张读发票。若单餐超过 ¥100 或出现奢侈消费，标记出来、暂停自动报销，并转人工确认。",
+    },
+    tools: [
+      { icon: Eye, name: "read-receipt" },
+      { icon: FileText, name: "policy-check" },
+      { icon: Plug, name: "ledger-write" },
+    ],
+    review: {
+      en: "Asks a human on any violation or anything over ¥500",
+      zh: "出现违规或单笔超过 ¥500 时必经人工确认",
+    },
+  },
+  {
+    id: "hr",
+    name: { en: "Referral screener", zh: "内推筛选员" },
+    role: {
+      en: "Matches resumes to roles and lines up interviews",
+      zh: "把简历与岗位匹配，并安排面试",
+    },
+    instruction: {
+      en: "Read incoming resumes against the open role. Above an 80% match, notify the referrer and draft a calendar invite for the interviewer.",
+      zh: "对照在招岗位读简历。匹配度高于 80% 时，通知推荐人，并为面试官起草日程邀约。",
+    },
+    tools: [
+      { icon: FileText, name: "read-resume" },
+      { icon: MessageCircle, name: "notify" },
+      { icon: CalendarClock, name: "schedule" },
+    ],
+    review: {
+      en: "Asks a human before any interview invite goes out",
+      zh: "正式面试邀约发出前必经人工确认",
+    },
+  },
+  {
+    id: "research",
+    name: { en: "Reading companion", zh: "阅读助手" },
+    role: {
+      en: "Watches feeds and writes the daily digest",
+      zh: "盯订阅源，写每日摘要",
+    },
+    instruction: {
+      en: "Check the team's feeds each hour. Pull new articles, read them in full, and write a short morning digest worth someone's time.",
+      zh: "每小时查看团队订阅源。抓取新文章、通读全文，写一份值得一读的晨间摘要。",
+    },
+    tools: [
+      { icon: Rss, name: "watch-feeds" },
+      { icon: Search, name: "read-web" },
+      { icon: Brain, name: "summarize" },
+    ],
+    review: {
+      en: "Runs fully on its own — digests just arrive",
+      zh: "完全自动运行——摘要按时送达",
+    },
+  },
+];
+
+function AgentExplorerSection({ lang }: { lang: Lang }) {
   const isZh = lang === "zh";
+  const [activeId, setActiveId] = useState("finance");
+  const activeAgent = AGENTS_LIST.find((a) => a.id === activeId) || AGENTS_LIST[0];
 
   return (
-    <section className="home-caps reveal-element">
+    <section className="home-builder reveal-element">
       <div className="home-shell">
-        <div className="home-caps-header">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="home-eyebrow">Recally</span>
-          </div>
-          <h2 className="home-section-title">
-            {isZh ? "用系统性方案管理您的阅读与知识" : "Build a systematic workspace for knowledge"}
+        <div className="home-block-head">
+          <h2 className="home-h2">
+            {isZh ? "做一个，全团队共享" : "Build one expert, share it with everyone"}
           </h2>
-          <p className="home-section-sub">
+          <p className="home-lead">
             {isZh
-              ? "Stella 内置了 Recally 功能，让您可以一键保存网页与 PDF，订阅 RSS 播客，并支持在阅读文章的同时与 AI 进行深度问答交互。"
-              : "Never lose track of research. Stella ships with integrated Recally support: save web pages, download PDFs, subscribe to RSS feeds, parse daily digests, and chat with articles side-by-side."}
+              ? "你来定它该做什么、能用哪些工具、什么时候必须问人。建好之后，团队对话即用——不必再有人重复回答同一个问题。"
+              : "You decide what it does, which tools it can touch, and when it must ask a human. Once it exists, the team uses it by chatting — and no one answers that same question again."}
           </p>
         </div>
 
-        {/* Recally Reader Grid Mockup */}
-        <div className="recally-mockup-container">
-          <div className="recally-header">
-            <div className="flex items-center gap-2">
-              <span className="recally-indicator" />
-              <span className="font-mono text-xs text-foreground font-semibold">
-                Recally Reader Workspace
-              </span>
-            </div>
-            <div className="recally-url-bar">
-              https://recally.stella.localhost/articles/agent-workflows
-            </div>
+        <div className="builder-layout">
+          <div className="builder-tabs">
+            {AGENTS_LIST.map((agent) => (
+              <button
+                key={agent.id}
+                onClick={() => setActiveId(agent.id)}
+                className={`builder-tab ${activeId === agent.id ? "active" : ""}`}
+              >
+                <div className="builder-tab-text">
+                  <div className="builder-tab-name">{agent.name[lang]}</div>
+                  <div className="builder-tab-role">{agent.role[lang]}</div>
+                </div>
+                <ArrowRight aria-hidden className="size-4 builder-tab-arrow" />
+              </button>
+            ))}
           </div>
 
-          <div className="recally-layout">
-            {/* Sidebar list */}
-            <div className="recally-sidebar">
-              <div className="recally-sidebar-header">{isZh ? "阅读列表" : "Reading Queue"}</div>
-              <div className="recally-sidebar-list">
-                <div className="recally-list-item active">
-                  <div className="font-semibold text-xs truncate">
-                    {isZh ? "理解 Agent 任务工作流 (DAG)" : "Understanding Agent DAG Workflows"}
+          <div key={activeAgent.id} className="home-card builder-panel">
+            <div className="builder-panel-head">
+              <h3 className="builder-panel-title">{activeAgent.name[lang]}</h3>
+              <p className="builder-panel-role">{activeAgent.role[lang]}</p>
+            </div>
+
+            <div className="builder-field">
+              <span className="builder-label">
+                {isZh ? "你告诉它做什么" : "What it's told to do"}
+              </span>
+              <div className="builder-prompt">{activeAgent.instruction[lang]}</div>
+            </div>
+
+            <div className="builder-field">
+              <span className="builder-label">{isZh ? "它能用的工具" : "Tools it can use"}</span>
+              <div className="builder-tools">
+                {activeAgent.tools.map((tool, idx) => {
+                  const ToolIcon = tool.icon;
+                  return (
+                    <span key={idx} className="builder-tool">
+                      <ToolIcon aria-hidden className="size-3.5" />
+                      {tool.name}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="builder-review">
+              <Shield aria-hidden className="size-4" />
+              <span className="builder-review-label">
+                {isZh ? "什么时候问人：" : "When it asks a human:"}
+              </span>
+              <span className="builder-review-text">{activeAgent.review[lang]}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RECALLY — the reading and research surface, shown doing real work.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function RecallySection({ lang }: { lang: Lang }) {
+  const isZh = lang === "zh";
+
+  return (
+    <section className="home-reading reveal-element">
+      <div className="home-shell">
+        <div className="home-block-head">
+          <div className="home-eyebrow">Recally</div>
+          <h2 className="home-h2">
+            {isZh ? "团队的阅读和研究，自己会整理" : "Your team's reading, kept and summarized"}
+          </h2>
+          <p className="home-lead">
+            {isZh
+              ? "保存网页和 PDF、订阅 RSS、收每日摘要，还能一边读一边问。周一站会前，研究同事已经把周末的更新理好了。"
+              : "Save pages and PDFs, subscribe to feeds, get a daily digest, and ask questions while you read. By Monday standup, the research coworker has the weekend's updates ready."}
+          </p>
+        </div>
+
+        <div className="home-card reader-card">
+          <div className="reader-chrome">
+            <div className="reader-dots" aria-hidden>
+              <span className="bg-destructive" />
+              <span className="bg-chart-4" />
+              <span className="bg-chart-3" />
+            </div>
+            <span className="reader-url">recally · {isZh ? "阅读工作台" : "reader workspace"}</span>
+          </div>
+
+          <div className="reader-layout">
+            <div className="reader-sidebar">
+              <div className="reader-sidebar-head">{isZh ? "阅读队列" : "Reading queue"}</div>
+              <div className="reader-list">
+                <div className="reader-item active">
+                  <div className="reader-item-title">
+                    {isZh ? "自部署团队 AI：真正要紧的事" : "Self-hosting team AI: what matters"}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    stella.sh · {isZh ? "今天" : "Today"}
-                  </div>
+                  <div className="reader-item-meta">stella.sh · {isZh ? "今天" : "Today"}</div>
                 </div>
-                <div className="recally-list-item">
-                  <div className="font-semibold text-xs truncate">
-                    {isZh ? "自部署私有化大模型实践" : "Self-hosting Local LLMs Strategy"}
+                <div className="reader-item">
+                  <div className="reader-item-title">
+                    {isZh ? "把入职问题砍掉一半" : "Cutting onboarding questions in half"}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    ollama.ai · {isZh ? "昨天" : "Yesterday"}
-                  </div>
+                  <div className="reader-item-meta">blog · {isZh ? "昨天" : "Yesterday"}</div>
                 </div>
-                <div className="recally-list-item">
-                  <div className="font-semibold text-xs truncate">
-                    {isZh
-                      ? "使用 Docker 与 Sandbox 保护密钥"
-                      : "Sandboxing Secrets with Containers"}
+                <div className="reader-item">
+                  <div className="reader-item-title">
+                    {isZh ? "知识库怎么不变成垃圾场" : "Keeping a knowledge base usable"}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    docker.com · {isZh ? "3天前" : "3d ago"}
-                  </div>
+                  <div className="reader-item-meta">notes · {isZh ? "3 天前" : "3d ago"}</div>
                 </div>
               </div>
             </div>
 
-            {/* Reader View */}
-            <div className="recally-reader">
-              <div className="recally-article-container">
-                <h1 className="recally-article-title">
+            <div className="reader-main">
+              <h3 className="reader-article-title">
+                {isZh
+                  ? "自部署团队 AI：真正要紧的，不是模型"
+                  : "Self-hosting team AI: the model isn't the hard part"}
+              </h3>
+              <div className="reader-article-meta">
+                {isZh ? "作者 Stella 团队 · 5 分钟读完" : "Stella team · 5 min read"}
+              </div>
+              <div className="reader-article-body">
+                <p>
                   {isZh
-                    ? "为什么有向无环图 (DAG) 是 Agent 复杂任务的基石？"
-                    : "Why Directed Acyclic Graphs (DAG) Power Complex Agents"}
-                </h1>
-                <div className="recally-article-meta">
-                  <span>Author: Stella Core</span> · <span>Reading Time: 5 min</span>
-                </div>
-                <div className="recally-article-content">
-                  <p>
-                    {isZh
-                      ? "在传统单轮对话中，AI 遇到长任务链极易迷失。而通过将 Goal 拆解为多个有依赖关系的 Task 节点，Agent 能够独立并稳健地执行长距离推理。"
-                      : "In traditional single-turn prompt execution, LLMs struggle to maintain focus over long pipelines. By decomposing a complex Goal into multiple node dependencies (a DAG), the Agent establishes structured safety borders."}
-                  </p>
-                  <p className="recally-highlight">
-                    {isZh
-                      ? "DAG 允许 Stella 并发执行没有前置依赖的任务（例如同时爬取多个网页），同时在后续节点中整合汇总，保障了大规模数据流处理的高效性。"
-                      : "The DAG enables Stella to execute independent tasks in parallel (e.g. fetching concurrent web urls), before feeding consolidated outcomes into subsequent processing layers."}
-                  </p>
-                  <p>
-                    {isZh
-                      ? "最关键的是，这种可视化的任务网络使每一次执行过程都能够被人类用户审计、调整和打断，达成了完美的人机协同。"
-                      : "Most importantly, this topological structure makes the execution plan fully inspectable and interruptible by human operators before final ledger commits occur."}
-                  </p>
-                </div>
+                    ? "大多数团队卡住，不是因为模型不够强，而是因为答案散落在几个人的脑子里。一旦专家请假，问题就堆起来。"
+                    : "Most teams don't stall because the model is weak. They stall because the answers live in a few people's heads — and when the expert is out, the questions pile up."}
+                </p>
+                <p className="reader-highlight">
+                  {isZh
+                    ? "把数据留在你自己的机器上，把知识装进一个团队都能问的同事里——这才是自部署真正买到的东西。"
+                    : "Keep the data on your own machine, and put the knowledge into a coworker the whole team can ask. That's what self-hosting actually buys you."}
+                </p>
+                <p>
+                  {isZh
+                    ? "每个人按各自的权限看到内容，敏感操作停下来等人确认——有用的工作，有清楚的边界。"
+                    : "Everyone sees only what their permissions allow, and sensitive moves wait for a human. Useful work, with clear edges."}
+                </p>
               </div>
             </div>
 
-            {/* In-context Chat Side */}
-            <div className="recally-chat">
-              <div className="recally-chat-header">
-                <MessageCircle className="size-3.5 text-primary" />
-                <span>{isZh ? "AI 边读边问" : "Chat with Article"}</span>
+            <div className="reader-chat">
+              <div className="reader-chat-head">
+                <MessageCircle aria-hidden className="size-3.5" />
+                {isZh ? "边读边问" : "Ask while you read"}
               </div>
-              <div className="recally-chat-messages">
-                <div className="chat-bubble user">
-                  {isZh ? "一句话总结这篇文章？" : "Give me a one-sentence summary."}
+              <div className="reader-chat-body">
+                <div className="reader-bubble user">
+                  {isZh ? "一句话讲这篇说了啥？" : "One sentence — what's the point?"}
                 </div>
-                <div className="chat-bubble bot">
+                <div className="reader-bubble bot">
                   {isZh
-                    ? "文章指出：使用有向无环图 (DAG) 拆解复杂任务，是确保 AI 能够安全、并发运行且易于人类审计的黄金法则。"
-                    : "The article explains that leveraging DAGs to plan tasks guarantees LLM agents can run concurrently and remain easily inspectable by human users."}
+                    ? "把知识从几个人脑子里搬进一个团队都能问的 AI 同事，自部署保证数据和权限都在你手里。"
+                    : "Move knowledge out of a few people's heads into a coworker the team can ask — self-hosted, so the data and permissions stay yours."}
                 </div>
               </div>
-              <div className="recally-chat-input-wrapper">
+              <div className="reader-chat-input">
                 <input
                   type="text"
                   readOnly
-                  placeholder={isZh ? "输入您的问题..." : "Ask a follow up..."}
-                  className="recally-chat-input"
+                  placeholder={isZh ? "再追问一句…" : "Ask a follow-up…"}
                 />
               </div>
             </div>
@@ -974,7 +835,7 @@ function RecallySection({ lang }: { lang: "en" | "zh" }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FOOTER CTA WITH TABBED INSTALL switch
+// FOOTER CTA — get it running, on your own machine.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface InstallTab {
@@ -988,21 +849,21 @@ const INSTALL_TABS: InstallTab[] = [
   {
     id: "docker",
     name: "Docker",
-    code: "docker run -d --name stella -p 8080:8080 \\ \n  -v ~/.stella:/root/.stella cherryhq/stella:latest",
+    code: "docker run -d --name stella -p 8080:8080 \\\n  -v ~/.stella:/root/.stella cherryhq/stella:latest",
   },
   {
     id: "go",
-    name: "Go Install",
+    name: "Go install",
     code: "go install github.com/CherryHQ/stella/cmd/stella@latest\ngo install github.com/CherryHQ/stella/cmd/stellad@latest\nstellad server",
   },
 ];
 
-function FooterCTA({ lang }: { lang: "en" | "zh" }) {
+function FooterCTA({ lang }: { lang: Lang }) {
   const isZh = lang === "zh";
   const [activeTab, setActiveTab] = useState("brew");
   const [copied, setCopied] = useState(false);
 
-  const selectedCode = INSTALL_TABS.find((t) => t.id === activeTab)?.code || "";
+  const selectedCode = INSTALL_TABS.find((tab) => tab.id === activeTab)?.code || "";
 
   const handleCopy = () => {
     void navigator.clipboard.writeText(selectedCode);
@@ -1014,51 +875,46 @@ function FooterCTA({ lang }: { lang: "en" | "zh" }) {
     <section className="home-cta reveal-element">
       <div className="home-shell home-cta-layout">
         <div className="home-cta-copy">
-          <h2 className="home-section-title">
-            {isZh ? "即刻在本地开始使用" : "Deploy Stella locally in seconds"}
+          <h2 className="home-h2">
+            {isZh ? "在你自己的机器上跑起来" : "Run it on your own machine"}
           </h2>
-          <p className="home-section-sub">
+          <p className="home-lead">
             {isZh
-              ? "Stella 提供多平台运行方式。无论是本地调试单机运行，还是通过 Docker 在云端进行多用户组织部署，均可几秒完成启动。"
-              : "Stella runs directly on your machine. Start with Homebrew locally, or launch it with Docker for a multi-tenant corporate environment."}
+              ? "本机几秒启动，或用 Docker 部署给整个团队。你的数据、你的模型密钥，都留在你掌控的基础设施上。"
+              : "Up in seconds locally, or deploy with Docker for the whole team. Your data and your model keys stay on infrastructure you control."}
           </p>
         </div>
 
-        {/* Tabbed Installation Box */}
-        <div className="install-tabs-card">
-          <div className="install-tabs-header">
-            <div className="flex gap-1">
-              {INSTALL_TABS.map((t) => (
+        <div className="home-card install-card">
+          <div className="install-head">
+            <div className="install-tabs">
+              {INSTALL_TABS.map((tab) => (
                 <button
-                  key={t.id}
-                  onClick={() => setActiveTab(t.id)}
-                  className={`install-tab-btn ${activeTab === t.id ? "active" : ""}`}
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`install-tab ${activeTab === tab.id ? "active" : ""}`}
                 >
-                  {t.name}
+                  {tab.name}
                 </button>
               ))}
             </div>
-
-            <button onClick={handleCopy} className="install-copy-btn">
+            <button onClick={handleCopy} className="install-copy">
               {copied ? (
                 <>
-                  <Check className="size-3.5 text-chart-3" />
+                  <Check aria-hidden className="size-3.5 text-chart-3" />
                   <span className="text-chart-3">{isZh ? "已复制" : "Copied"}</span>
                 </>
               ) : (
                 <>
-                  <Copy className="size-3.5" />
+                  <Copy aria-hidden className="size-3.5" />
                   <span>{isZh ? "复制" : "Copy"}</span>
                 </>
               )}
             </button>
           </div>
-
-          <div key={activeTab} className="install-code-body">
-            <div className="flex items-start gap-3">
-              <Terminal className="size-4 text-primary mt-1 flex-shrink-0" />
-              <pre className="install-pre-code">{selectedCode}</pre>
-            </div>
+          <div key={activeTab} className="install-body">
+            <Terminal aria-hidden className="size-4 install-body-icon" />
+            <pre className="install-code">{selectedCode}</pre>
           </div>
         </div>
       </div>

@@ -14,6 +14,7 @@ Detailed conventions live in `content/docs/development/rules/`. Read the relevan
 | Current theme     | `web-design.md`  | Any visual/design decision                                            |
 | Theming / restyle | `web-theming.md` | Changing the visual style or editing `src/tokens.css`                 |
 | Web UI testing    | `web-ui-test.md` | Verifying the UI with browser automation                              |
+| Marketing copy    | `marketing.md`   | Building a landing page, hero, or any marketing-facing surface        |
 
 Also: `.agents/skills/coss/SKILL.md` for CossUI imports, composition rules, and particle examples.
 

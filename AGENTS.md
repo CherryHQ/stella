@@ -17,19 +17,20 @@ Stella is a multi-tenant, multi-user, multi-agent AI assistant platform written 
 
 Rules in `web/content/docs/development/rules/` are the **source of truth** for development conventions. Read the relevant rule before designing or changing anything in that domain.
 
-| Domain           | Rule file            | Read before                                |
-| ---------------- | -------------------- | ------------------------------------------ |
-| Schema design    | `schema-design.md`   | Designing or changing any table            |
-| goose migrations | `goose.md`           | Creating or modifying database migrations  |
-| sqlc queries     | `sqlc.md`            | Writing or editing SQL query files         |
-| API design       | `api-design.md`      | Designing or changing any HTTP API         |
-| CLI design       | `cli-design.md`      | Designing or changing any CLI command      |
-| Web UI           | `web-ui.md`          | Building or reviewing any web UI           |
-| Web theming      | `web-theming.md`     | Changing the web visual style or tokens    |
-| Documentation    | `doc-style.md`       | Writing or editing user/developer docs     |
-| Web UI testing   | `web-ui-test.md`     | Testing the web UI with browser automation |
-| Project tracking | `project-tracker.md` | Managing GitHub issues and project board   |
-| Release          | `release.md`         | Cutting a release, tagging, changelog      |
+| Domain           | Rule file            | Read before                                                                |
+| ---------------- | -------------------- | -------------------------------------------------------------------------- |
+| Schema design    | `schema-design.md`   | Designing or changing any table                                            |
+| goose migrations | `goose.md`           | Creating or modifying database migrations                                  |
+| sqlc queries     | `sqlc.md`            | Writing or editing SQL query files                                         |
+| API design       | `api-design.md`      | Designing or changing any HTTP API                                         |
+| CLI design       | `cli-design.md`      | Designing or changing any CLI command                                      |
+| Web UI           | `web-ui.md`          | Building or reviewing any web UI                                           |
+| Web theming      | `web-theming.md`     | Changing the web visual style or tokens                                    |
+| Documentation    | `doc-style.md`       | Writing or editing user/developer docs                                     |
+| Web UI testing   | `web-ui-test.md`     | Testing the web UI with browser automation                                 |
+| Project tracking | `project-tracker.md` | Managing GitHub issues and project board                                   |
+| Release          | `release.md`         | Cutting a release, tagging, changelog                                      |
+| Marketing        | `marketing.md`       | Writing a landing page, README opener, hero copy, or any marketing content |
 
 For new or changed HTTP APIs, also follow `api/CLAUDE.md` for the OpenAPI-first workflow.
 
