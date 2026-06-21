@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   ArrowRight,
   Bot,
@@ -71,6 +72,16 @@ function useScrollProgress() {
   return progress;
 }
 
+// The left rail label — a mono margin-note that names this beat of the story.
+// The continuous hairline these hang off is the page's signature.
+function RailLabel({ children }: { children: ReactNode }) {
+  return (
+    <aside className="rail-label" aria-hidden>
+      {children}
+    </aside>
+  );
+}
+
 function Home() {
   const { locale } = useI18n();
   const lang: Lang = locale === "zh" ? "zh" : "en";
@@ -85,10 +96,12 @@ function Home() {
       <div className="home-progress" style={{ transform: `scaleX(${progress})` }} />
       <SiteHeader />
       <main ref={mainRef} id="main-content" className="flex-1">
-        <HeroSection lang={lang} />
-        <PillarsSection lang={lang} />
-        <AgentExplorerSection lang={lang} />
-        <RecallySection lang={lang} />
+        <div className="rail-track">
+          <HeroSection lang={lang} />
+          <PillarsSection lang={lang} />
+          <AgentExplorerSection lang={lang} />
+          <RecallySection lang={lang} />
+        </div>
         <FooterCTA lang={lang} />
       </main>
     </div>
@@ -442,49 +455,53 @@ function HeroSection({ lang }: { lang: Lang }) {
   const tr = t(lang);
 
   return (
-    <section className="home-hero">
-      <div className="home-hero-glow" aria-hidden />
-      <div className="home-shell home-hero-layout">
-        <div className="home-hero-copy">
-          <div className="home-eyebrow">
-            {isZh ? "自部署 · 团队共享 AI 同事" : "Self-hosted · Shared AI coworkers"}
-          </div>
-          <h1 className="home-h1">
-            <span>{isZh ? "团队里重复的问题" : "Your team's repeat questions"}</span>
-            <em>{isZh ? "不必再麻烦" : "don't need"}</em>
-            <span>{isZh ? "你的专家" : "your experts."}</span>
-          </h1>
-          <p className="home-lead">
-            {isZh
-              ? "财务、HR、研究的 agent 只配一次。那个本来要私聊专家的新人，直接在群里问就行——拿到答案、活也干完，关键处还停下来等你拍板。"
-              : "Set up a finance, HR, or research agent once. The new hire who'd normally DM your expert just asks the group chat — and gets the answer, the work done, and your sign-off where it matters."}
-          </p>
-          <div className="home-actions">
-            <Link to="/docs/$" params={{ _splat: "" }} className="home-btn home-btn-primary">
-              {tr.readTheDocs}
-              <ArrowRight aria-hidden className="size-4" />
-            </Link>
-            <a
-              href="https://github.com/CherryHQ/stella"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="home-btn home-btn-ghost"
-            >
-              <svg aria-hidden viewBox="0 0 24 24" className="size-4 fill-current">
-                <path d={siGithub.path} />
-              </svg>
-              {tr.sourceOnGithub}
-            </a>
-          </div>
-          <p className="home-hero-foot">
-            {isZh
-              ? "飞书 · 微信 · Telegram · QQ · Web · 终端 — 都是同一个 AI 同事的入口"
-              : "Feishu · WeChat · Telegram · QQ · Web · CLI — every one a door to the same coworker"}
-          </p>
-        </div>
+    <section className="home-hero rail-section">
+      <div className="home-shell rail-grid">
+        <RailLabel>{isZh ? "新人开口" : "The ask"}</RailLabel>
+        <div className="rail-body home-hero-body">
+          <div className="home-hero-layout">
+            <div className="home-hero-copy">
+              <div className="home-eyebrow">
+                {isZh ? "自部署 · 团队共享 AI 同事" : "Self-hosted · Shared AI coworkers"}
+              </div>
+              <h1 className="home-h1">
+                <span>{isZh ? "团队里重复的问题" : "Your team's repeat questions"}</span>
+                <em>{isZh ? "不必再麻烦" : "don't need"}</em>
+                <span>{isZh ? "你的专家" : "your experts."}</span>
+              </h1>
+              <p className="home-lead">
+                {isZh
+                  ? "财务、HR、研究的 agent 只配一次。那个本来要私聊专家的新人，直接在群里问就行——拿到答案、活也干完，关键处还停下来等你拍板。"
+                  : "Set up a finance, HR, or research agent once. The new hire who'd normally DM your expert just asks the group chat — and gets the answer, the work done, and your sign-off where it matters."}
+              </p>
+              <div className="home-actions">
+                <Link to="/docs/$" params={{ _splat: "" }} className="home-btn home-btn-primary">
+                  {tr.readTheDocs}
+                  <ArrowRight aria-hidden className="size-4" />
+                </Link>
+                <a
+                  href="https://github.com/CherryHQ/stella"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="home-btn home-btn-ghost"
+                >
+                  <svg aria-hidden viewBox="0 0 24 24" className="size-4 fill-current">
+                    <path d={siGithub.path} />
+                  </svg>
+                  {tr.sourceOnGithub}
+                </a>
+              </div>
+              <p className="home-hero-foot">
+                {isZh
+                  ? "飞书 · 微信 · Telegram · QQ · Web · 终端 — 都是同一个 AI 同事的入口"
+                  : "Feishu · WeChat · Telegram · QQ · Web · CLI — every one a door to the same coworker"}
+              </p>
+            </div>
 
-        <div className="home-hero-preview">
-          <ChannelThread lang={lang} />
+            <div className="home-hero-preview">
+              <ChannelThread lang={lang} />
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -531,31 +548,34 @@ const PILLARS: Pillar[] = [
 function PillarsSection({ lang }: { lang: Lang }) {
   const isZh = lang === "zh";
   return (
-    <section className="home-pillars reveal-element">
-      <div className="home-shell">
-        <div className="home-block-head">
-          <h2 className="home-h2">
-            {isZh ? "配一次，全团队都能问" : "Set it up once, the whole team just asks"}
-          </h2>
-          <p className="home-lead">
-            {isZh
-              ? "一个部门负责人把 agent 装好——挂上工具、政策和知识库。从那一刻起，组织里的每个人都能直接对话调用，零配置、零学习成本。"
-              : "A department lead sets the agent up — tools, policy, knowledge base. From then on, anyone in the org uses it by chatting. Nothing to configure, nothing to learn."}
-          </p>
-        </div>
-        <div className="home-pillars-grid">
-          {PILLARS.map((p, i) => {
-            const Icon = p.icon;
-            return (
-              <article key={i} className="home-card home-pillar">
-                <span className="home-pillar-icon">
-                  <Icon aria-hidden className="size-5" />
-                </span>
-                <h3 className="home-pillar-title">{p.title[lang]}</h3>
-                <p className="home-pillar-body">{p.body[lang]}</p>
-              </article>
-            );
-          })}
+    <section className="home-pillars rail-section reveal-element">
+      <div className="home-shell rail-grid">
+        <RailLabel>{isZh ? "为什么留得住" : "Why it sticks"}</RailLabel>
+        <div className="rail-body">
+          <div className="home-block-head">
+            <h2 className="home-h2">
+              {isZh ? "配一次，全团队都能问" : "Set it up once, the whole team just asks"}
+            </h2>
+            <p className="home-lead">
+              {isZh
+                ? "一个部门负责人把 agent 装好——挂上工具、政策和知识库。从那一刻起，组织里的每个人都能直接对话调用，零配置、零学习成本。"
+                : "A department lead sets the agent up — tools, policy, knowledge base. From then on, anyone in the org uses it by chatting. Nothing to configure, nothing to learn."}
+            </p>
+          </div>
+          <ul className="pillars-list">
+            {PILLARS.map((p, i) => {
+              const Icon = p.icon;
+              return (
+                <li key={i} className="pillar-row">
+                  <div className="pillar-row-head">
+                    <Icon aria-hidden className="size-4 pillar-row-icon" />
+                    <h3 className="pillar-row-title">{p.title[lang]}</h3>
+                  </div>
+                  <p className="pillar-row-body">{p.body[lang]}</p>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </div>
     </section>
@@ -647,70 +667,73 @@ function AgentExplorerSection({ lang }: { lang: Lang }) {
   const activeAgent = AGENTS_LIST.find((a) => a.id === activeId) || AGENTS_LIST[0];
 
   return (
-    <section className="home-builder reveal-element">
-      <div className="home-shell">
-        <div className="home-block-head">
-          <h2 className="home-h2">
-            {isZh ? "做一个，全团队共享" : "Build one expert, share it with everyone"}
-          </h2>
-          <p className="home-lead">
-            {isZh
-              ? "你来定它该做什么、能用哪些工具、什么时候必须问人。建好之后，团队对话即用——不必再有人重复回答同一个问题。"
-              : "You decide what it does, which tools it can touch, and when it must ask a human. Once it exists, the team uses it by chatting — and no one answers that same question again."}
-          </p>
-        </div>
-
-        <div className="builder-layout">
-          <div className="builder-tabs">
-            {AGENTS_LIST.map((agent) => (
-              <button
-                key={agent.id}
-                onClick={() => setActiveId(agent.id)}
-                className={`builder-tab ${activeId === agent.id ? "active" : ""}`}
-              >
-                <div className="builder-tab-text">
-                  <div className="builder-tab-name">{agent.name[lang]}</div>
-                  <div className="builder-tab-role">{agent.role[lang]}</div>
-                </div>
-                <ArrowRight aria-hidden className="size-4 builder-tab-arrow" />
-              </button>
-            ))}
+    <section className="home-builder rail-section reveal-element">
+      <div className="home-shell rail-grid">
+        <RailLabel>{isZh ? "做一个专家" : "Build one expert"}</RailLabel>
+        <div className="rail-body">
+          <div className="home-block-head">
+            <h2 className="home-h2">
+              {isZh ? "做一个，全团队共享" : "Build one expert, share it with everyone"}
+            </h2>
+            <p className="home-lead">
+              {isZh
+                ? "你来定它该做什么、能用哪些工具、什么时候必须问人。建好之后，团队对话即用——不必再有人重复回答同一个问题。"
+                : "You decide what it does, which tools it can touch, and when it must ask a human. Once it exists, the team uses it by chatting — and no one answers that same question again."}
+            </p>
           </div>
 
-          <div key={activeAgent.id} className="home-card builder-panel">
-            <div className="builder-panel-head">
-              <h3 className="builder-panel-title">{activeAgent.name[lang]}</h3>
-              <p className="builder-panel-role">{activeAgent.role[lang]}</p>
+          <div className="builder-layout">
+            <div className="builder-tabs">
+              {AGENTS_LIST.map((agent) => (
+                <button
+                  key={agent.id}
+                  onClick={() => setActiveId(agent.id)}
+                  className={`builder-tab ${activeId === agent.id ? "active" : ""}`}
+                >
+                  <div className="builder-tab-text">
+                    <div className="builder-tab-name">{agent.name[lang]}</div>
+                    <div className="builder-tab-role">{agent.role[lang]}</div>
+                  </div>
+                  <ArrowRight aria-hidden className="size-4 builder-tab-arrow" />
+                </button>
+              ))}
             </div>
 
-            <div className="builder-field">
-              <span className="builder-label">
-                {isZh ? "你告诉它做什么" : "What it's told to do"}
-              </span>
-              <div className="builder-prompt">{activeAgent.instruction[lang]}</div>
-            </div>
-
-            <div className="builder-field">
-              <span className="builder-label">{isZh ? "它能用的工具" : "Tools it can use"}</span>
-              <div className="builder-tools">
-                {activeAgent.tools.map((tool, idx) => {
-                  const ToolIcon = tool.icon;
-                  return (
-                    <span key={idx} className="builder-tool">
-                      <ToolIcon aria-hidden className="size-3.5" />
-                      {tool.name}
-                    </span>
-                  );
-                })}
+            <div key={activeAgent.id} className="home-card builder-panel">
+              <div className="builder-panel-head">
+                <h3 className="builder-panel-title">{activeAgent.name[lang]}</h3>
+                <p className="builder-panel-role">{activeAgent.role[lang]}</p>
               </div>
-            </div>
 
-            <div className="builder-review">
-              <Shield aria-hidden className="size-4" />
-              <span className="builder-review-label">
-                {isZh ? "什么时候问人：" : "When it asks a human:"}
-              </span>
-              <span className="builder-review-text">{activeAgent.review[lang]}</span>
+              <div className="builder-field">
+                <span className="builder-label">
+                  {isZh ? "你告诉它做什么" : "What it's told to do"}
+                </span>
+                <div className="builder-prompt">{activeAgent.instruction[lang]}</div>
+              </div>
+
+              <div className="builder-field">
+                <span className="builder-label">{isZh ? "它能用的工具" : "Tools it can use"}</span>
+                <div className="builder-tools">
+                  {activeAgent.tools.map((tool, idx) => {
+                    const ToolIcon = tool.icon;
+                    return (
+                      <span key={idx} className="builder-tool">
+                        <ToolIcon aria-hidden className="size-3.5" />
+                        {tool.name}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="builder-review">
+                <Shield aria-hidden className="size-4" />
+                <span className="builder-review-label">
+                  {isZh ? "什么时候问人：" : "When it asks a human:"}
+                </span>
+                <span className="builder-review-text">{activeAgent.review[lang]}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -727,104 +750,109 @@ function RecallySection({ lang }: { lang: Lang }) {
   const isZh = lang === "zh";
 
   return (
-    <section className="home-reading reveal-element">
-      <div className="home-shell">
-        <div className="home-block-head">
-          <div className="home-eyebrow">Recally</div>
-          <h2 className="home-h2">
-            {isZh ? "团队的阅读和研究，自己会整理" : "Your team's reading, kept and summarized"}
-          </h2>
-          <p className="home-lead">
-            {isZh
-              ? "保存网页和 PDF、订阅 RSS、收每日摘要，还能一边读一边问。周一站会前，研究同事已经把周末的更新理好了。"
-              : "Save pages and PDFs, subscribe to feeds, get a daily digest, and ask questions while you read. By Monday standup, the research coworker has the weekend's updates ready."}
-          </p>
-        </div>
-
-        <div className="home-card reader-card">
-          <div className="reader-chrome">
-            <div className="reader-dots" aria-hidden>
-              <span className="bg-destructive" />
-              <span className="bg-chart-4" />
-              <span className="bg-chart-3" />
-            </div>
-            <span className="reader-url">recally · {isZh ? "阅读工作台" : "reader workspace"}</span>
+    <section className="home-reading rail-section reveal-element">
+      <div className="home-shell rail-grid">
+        <RailLabel>{isZh ? "它替你读" : "It reads for you"}</RailLabel>
+        <div className="rail-body">
+          <div className="home-block-head">
+            <div className="home-eyebrow">Recally</div>
+            <h2 className="home-h2">
+              {isZh ? "团队的阅读和研究，自己会整理" : "Your team's reading, kept and summarized"}
+            </h2>
+            <p className="home-lead">
+              {isZh
+                ? "保存网页和 PDF、订阅 RSS、收每日摘要，还能一边读一边问。周一站会前，研究同事已经把周末的更新理好了。"
+                : "Save pages and PDFs, subscribe to feeds, get a daily digest, and ask questions while you read. By Monday standup, the research coworker has the weekend's updates ready."}
+            </p>
           </div>
 
-          <div className="reader-layout">
-            <div className="reader-sidebar">
-              <div className="reader-sidebar-head">{isZh ? "阅读队列" : "Reading queue"}</div>
-              <div className="reader-list">
-                <div className="reader-item active">
-                  <div className="reader-item-title">
-                    {isZh ? "自部署团队 AI：真正要紧的事" : "Self-hosting team AI: what matters"}
-                  </div>
-                  <div className="reader-item-meta">stella.sh · {isZh ? "今天" : "Today"}</div>
-                </div>
-                <div className="reader-item">
-                  <div className="reader-item-title">
-                    {isZh ? "把入职问题砍掉一半" : "Cutting onboarding questions in half"}
-                  </div>
-                  <div className="reader-item-meta">blog · {isZh ? "昨天" : "Yesterday"}</div>
-                </div>
-                <div className="reader-item">
-                  <div className="reader-item-title">
-                    {isZh ? "知识库怎么不变成垃圾场" : "Keeping a knowledge base usable"}
-                  </div>
-                  <div className="reader-item-meta">notes · {isZh ? "3 天前" : "3d ago"}</div>
-                </div>
+          <div className="home-card reader-card">
+            <div className="reader-chrome">
+              <div className="reader-dots" aria-hidden>
+                <span className="bg-destructive" />
+                <span className="bg-chart-4" />
+                <span className="bg-chart-3" />
               </div>
+              <span className="reader-url">
+                recally · {isZh ? "阅读工作台" : "reader workspace"}
+              </span>
             </div>
 
-            <div className="reader-main">
-              <h3 className="reader-article-title">
-                {isZh
-                  ? "自部署团队 AI：真正要紧的，不是模型"
-                  : "Self-hosting team AI: the model isn't the hard part"}
-              </h3>
-              <div className="reader-article-meta">
-                {isZh ? "作者 Stella 团队 · 5 分钟读完" : "Stella team · 5 min read"}
+            <div className="reader-layout">
+              <div className="reader-sidebar">
+                <div className="reader-sidebar-head">{isZh ? "阅读队列" : "Reading queue"}</div>
+                <div className="reader-list">
+                  <div className="reader-item active">
+                    <div className="reader-item-title">
+                      {isZh ? "自部署团队 AI：真正要紧的事" : "Self-hosting team AI: what matters"}
+                    </div>
+                    <div className="reader-item-meta">stella.sh · {isZh ? "今天" : "Today"}</div>
+                  </div>
+                  <div className="reader-item">
+                    <div className="reader-item-title">
+                      {isZh ? "把入职问题砍掉一半" : "Cutting onboarding questions in half"}
+                    </div>
+                    <div className="reader-item-meta">blog · {isZh ? "昨天" : "Yesterday"}</div>
+                  </div>
+                  <div className="reader-item">
+                    <div className="reader-item-title">
+                      {isZh ? "知识库怎么不变成垃圾场" : "Keeping a knowledge base usable"}
+                    </div>
+                    <div className="reader-item-meta">notes · {isZh ? "3 天前" : "3d ago"}</div>
+                  </div>
+                </div>
               </div>
-              <div className="reader-article-body">
-                <p>
-                  {isZh
-                    ? "大多数团队卡住，不是因为模型不够强，而是因为答案散落在几个人的脑子里。一旦专家请假，问题就堆起来。"
-                    : "Most teams don't stall because the model is weak. They stall because the answers live in a few people's heads — and when the expert is out, the questions pile up."}
-                </p>
-                <p className="reader-highlight">
-                  {isZh
-                    ? "把数据留在你自己的机器上，把知识装进一个团队都能问的同事里——这才是自部署真正买到的东西。"
-                    : "Keep the data on your own machine, and put the knowledge into a coworker the whole team can ask. That's what self-hosting actually buys you."}
-                </p>
-                <p>
-                  {isZh
-                    ? "每个人按各自的权限看到内容，敏感操作停下来等人确认——有用的工作，有清楚的边界。"
-                    : "Everyone sees only what their permissions allow, and sensitive moves wait for a human. Useful work, with clear edges."}
-                </p>
-              </div>
-            </div>
 
-            <div className="reader-chat">
-              <div className="reader-chat-head">
-                <MessageCircle aria-hidden className="size-3.5" />
-                {isZh ? "边读边问" : "Ask while you read"}
-              </div>
-              <div className="reader-chat-body">
-                <div className="reader-bubble user">
-                  {isZh ? "一句话讲这篇说了啥？" : "One sentence — what's the point?"}
-                </div>
-                <div className="reader-bubble bot">
+              <div className="reader-main">
+                <h3 className="reader-article-title">
                   {isZh
-                    ? "把知识从几个人脑子里搬进一个团队都能问的 AI 同事，自部署保证数据和权限都在你手里。"
-                    : "Move knowledge out of a few people's heads into a coworker the team can ask — self-hosted, so the data and permissions stay yours."}
+                    ? "自部署团队 AI：真正要紧的，不是模型"
+                    : "Self-hosting team AI: the model isn't the hard part"}
+                </h3>
+                <div className="reader-article-meta">
+                  {isZh ? "作者 Stella 团队 · 5 分钟读完" : "Stella team · 5 min read"}
+                </div>
+                <div className="reader-article-body">
+                  <p>
+                    {isZh
+                      ? "大多数团队卡住，不是因为模型不够强，而是因为答案散落在几个人的脑子里。一旦专家请假，问题就堆起来。"
+                      : "Most teams don't stall because the model is weak. They stall because the answers live in a few people's heads — and when the expert is out, the questions pile up."}
+                  </p>
+                  <p className="reader-highlight">
+                    {isZh
+                      ? "把数据留在你自己的机器上，把知识装进一个团队都能问的同事里——这才是自部署真正买到的东西。"
+                      : "Keep the data on your own machine, and put the knowledge into a coworker the whole team can ask. That's what self-hosting actually buys you."}
+                  </p>
+                  <p>
+                    {isZh
+                      ? "每个人按各自的权限看到内容，敏感操作停下来等人确认——有用的工作，有清楚的边界。"
+                      : "Everyone sees only what their permissions allow, and sensitive moves wait for a human. Useful work, with clear edges."}
+                  </p>
                 </div>
               </div>
-              <div className="reader-chat-input">
-                <input
-                  type="text"
-                  readOnly
-                  placeholder={isZh ? "再追问一句…" : "Ask a follow-up…"}
-                />
+
+              <div className="reader-chat">
+                <div className="reader-chat-head">
+                  <MessageCircle aria-hidden className="size-3.5" />
+                  {isZh ? "边读边问" : "Ask while you read"}
+                </div>
+                <div className="reader-chat-body">
+                  <div className="reader-bubble user">
+                    {isZh ? "一句话讲这篇说了啥？" : "One sentence — what's the point?"}
+                  </div>
+                  <div className="reader-bubble bot">
+                    {isZh
+                      ? "把知识从几个人脑子里搬进一个团队都能问的 AI 同事，自部署保证数据和权限都在你手里。"
+                      : "Move knowledge out of a few people's heads into a coworker the team can ask — self-hosted, so the data and permissions stay yours."}
+                  </div>
+                </div>
+                <div className="reader-chat-input">
+                  <input
+                    type="text"
+                    readOnly
+                    placeholder={isZh ? "再追问一句…" : "Ask a follow-up…"}
+                  />
+                </div>
               </div>
             </div>
           </div>
