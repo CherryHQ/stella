@@ -109,7 +109,7 @@ func (s *Service) ResolveTemplateMessage(key string) (string, bool) {
 
 // Subscribe creates a user-owned subscription instance for the given template.
 // A user may have at most one subscription per template; the uniqueness check
-// and the insert + gocron registration happen inside a single critical section
+// and the insert + River registration happen inside a single critical section
 // because there is no DB unique constraint to fall back on.
 //
 // schedOverride, when non-zero, replaces the template's DefaultSchedule.
@@ -183,7 +183,7 @@ func (s *Service) Subscribe(ctx context.Context, userID, agentID, key string, sc
 }
 
 // addJobLocked schedules, persists, and registers a pre-built Job struct.
-// Caller MUST hold s.mu. On error the gocron entry is rolled back.
+// Caller MUST hold s.mu. On error the River registration is rolled back.
 //
 // This is the shared insert+schedule body extracted from addJobInternal so that
 // Subscribe can call it while already holding the lock — avoiding a
@@ -194,11 +194,8 @@ func (s *Service) addJobLocked(job Job) error {
 	}
 
 	if err := s.insertJob(s.ctx, job); err != nil {
-		// Roll back gocron registration on DB failure.
-		if gid, ok := s.gids[job.ID]; ok {
-			_ = s.scheduler.RemoveJob(gid)
-			delete(s.gids, job.ID)
-		}
+		// Roll back the River registration on DB failure.
+		s.unscheduleJob(job.ID)
 		return fmt.Errorf("persist job: %w", err)
 	}
 
@@ -207,8 +204,8 @@ func (s *Service) addJobLocked(job Job) error {
 }
 
 // UpdateUserJob merges the provided field overrides into the existing job,
-// persists the result, and reschedules the live gocron entry — all inside a
-// single critical section.
+// persists the result, and reschedules the live River registration — all inside
+// a single critical section.
 //
 // Subscription instances (job_key non-empty) may not have their message
 // changed; that field is owned by the template registry.
@@ -256,13 +253,12 @@ func (s *Service) UpdateUserJob(ctx context.Context, id string, update JobUpdate
 	}
 	job.UpdatedAt = time.Now().UTC()
 
-	// Swap the gocron entry safely: register the new entry first, persist,
+	// Swap the River registration safely: register the new entry first, persist,
 	// and only then remove the old one — on any failure the old entry keeps
-	// firing and memory/gocron/DB stay consistent. The brief window where
-	// both entries exist is harmless: tryStartJobRun dedups concurrent fires.
-	// s.ctx, not the request ctx: the fire closure captures it for the
-	// lifetime of the schedule.
-	oldGid, hadOld := s.gids[id]
+	// firing and memory/River/DB stay consistent. The brief window where both
+	// entries exist is harmless: tryStartJobRun dedups concurrent fires.
+	// s.ctx, not the request ctx: the registration outlives this call.
+	oldRef, hadOld := s.refs[id]
 	if job.Enabled {
 		if err := s.scheduleJob(s.ctx, job); err != nil {
 			return Job{}, fmt.Errorf("reschedule job: %w", err)
@@ -272,23 +268,23 @@ func (s *Service) UpdateUserJob(ctx context.Context, id string, update JobUpdate
 	if err := s.updateJob(ctx, job); err != nil {
 		// Roll back the freshly registered entry; the old one was never removed.
 		if job.Enabled {
-			if gid, ok := s.gids[id]; ok && (!hadOld || gid != oldGid) {
-				_ = s.scheduler.RemoveJob(gid)
+			if newRef, ok := s.refs[id]; ok && (!hadOld || newRef != oldRef) {
+				s.unscheduleRef(newRef)
 			}
 		}
 		if hadOld {
-			s.gids[id] = oldGid
+			s.refs[id] = oldRef
 		} else {
-			delete(s.gids, id)
+			delete(s.refs, id)
 		}
 		return Job{}, fmt.Errorf("persist job update: %w", err)
 	}
 
 	if hadOld {
-		_ = s.scheduler.RemoveJob(oldGid)
+		s.unscheduleRef(oldRef)
 	}
 	if !job.Enabled {
-		delete(s.gids, id)
+		delete(s.refs, id)
 	}
 	s.jobs[id] = job
 

@@ -200,8 +200,11 @@ func TestOnJobCallbackFires(t *testing.T) {
 
 	addTestJob(t, svc, "quick", "ping", Schedule{Every: "100ms"}, "")
 
-	// Wait for the callback to fire.
-	deadline := time.After(2 * time.Second)
+	// Wait for the callback to fire. River promotes scheduled jobs to runnable
+	// on its scheduler interval (5s default), so a freshly registered periodic
+	// job's first fire can lag the nominal interval at cold start — allow well
+	// past one scheduler tick rather than asserting sub-second latency.
+	deadline := time.After(12 * time.Second)
 	for {
 		mu.Lock()
 		n := len(fired)
@@ -211,7 +214,7 @@ func TestOnJobCallbackFires(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatal("callback did not fire within 2s")
+			t.Fatal("callback did not fire within 12s")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -275,8 +278,10 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 	at := time.Now().Add(200 * time.Millisecond).Format(time.RFC3339Nano)
 	job := addTestJob(t, svc, "fire-once", "ping once", Schedule{At: at}, "")
 
-	// Wait for the callback to fire and cleanup to happen.
-	deadline := time.After(3 * time.Second)
+	// Wait for the callback to fire and cleanup to happen. River promotes a
+	// scheduled (at) job to runnable on its scheduler interval (5s default), so
+	// allow past one scheduler tick rather than asserting sub-second latency.
+	deadline := time.After(12 * time.Second)
 	for {
 		mu.Lock()
 		n := len(fired)
@@ -286,7 +291,7 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatal("callback did not fire within 3s")
+			t.Fatal("callback did not fire within 12s")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -336,17 +341,17 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 		_ = svc2.Stop()
 	}()
 
-	// Job is still in the list (persisted) but not scheduled with gocron.
+	// Job is still in the list (persisted) but not scheduled with River.
 	listed := svc2.ListJobs()
 	if len(listed) != 1 {
 		t.Fatalf("expected 1 persisted job, got %d", len(listed))
 	}
 
 	svc2.mu.Lock()
-	_, hasGID := svc2.gids[listed[0].ID]
+	_, hasRef := svc2.refs[listed[0].ID]
 	svc2.mu.Unlock()
-	if hasGID {
-		t.Error("expected past one-time job to not be scheduled with gocron")
+	if hasRef {
+		t.Error("expected past one-time job to not be scheduled with River")
 	}
 }
 
