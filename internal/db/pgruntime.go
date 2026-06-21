@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	postgresBundleID = "pg18.3.0-search0.24.1-vector0.8.3"
+	postgresBundleID = "pg18.4-pgvector0.8.2-pgsearch0.24.1"
 
 	// postgresRuntimeEnvName is an internal escape hatch for testing a Stella-built
 	// PostgreSQL runtime before release artifacts exist. The directory may either
@@ -55,7 +55,17 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 		if root, ok, err := pgbundle.EnsureBundle(postgresBundleCacheRoot(dataDir, tmpDir)); err != nil {
 			return postgresRuntimeInfo{}, err
 		} else if !ok {
-			return rt, nil
+			// No bundle for this build/platform. Embedded PostgreSQL only carries
+			// pgvector and pg_search when a runtime bundle is present; booting vanilla
+			// embedded-postgres would silently drop them, and search now hard-requires
+			// both. Refuse instead of degrading: a supported platform must embed the
+			// bundle, anything else must point at an external PostgreSQL that already
+			// has the extensions.
+			return postgresRuntimeInfo{}, fmt.Errorf(
+				"db: no embedded PostgreSQL runtime bundle for %s/%s (expected %s). "+
+					"Run scripts/fetch-pg-runtime.sh on a supported platform to embed it, "+
+					"or set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector installed",
+				runtime.GOOS, runtime.GOARCH, postgresBundleID)
 		} else {
 			bundleRoot = root
 		}
@@ -94,12 +104,12 @@ type postgresRuntimeBundle struct {
 
 func postgresRuntimeFromBundle(root string) (postgresRuntimeBundle, error) {
 	root = filepath.Clean(root)
-	binariesPath := root
-	if fileExists(filepath.Join(root, "postgres", "bin", pgCtlName())) {
-		binariesPath = filepath.Join(root, "postgres")
-	}
-	if !fileExists(filepath.Join(binariesPath, "bin", pgCtlName())) {
-		return postgresRuntimeBundle{}, fmt.Errorf("db: %s must point to a PostgreSQL runtime bundle containing postgres/bin/%s or bin/%s", postgresRuntimeEnvName, pgCtlName(), pgCtlName())
+	binariesPath, ok := locatePostgresHome(root)
+	if !ok {
+		return postgresRuntimeBundle{}, fmt.Errorf(
+			"db: %s must point to a PostgreSQL runtime bundle containing postgres/bin/%s, "+
+				"postgres/lib/postgresql/<major>/bin/%s, or bin/%s",
+			postgresRuntimeEnvName, pgCtlName(), pgCtlName(), pgCtlName())
 	}
 
 	bundle := postgresRuntimeBundle{
@@ -119,6 +129,13 @@ func postgresRuntimeFromBundle(root string) (postgresRuntimeBundle, error) {
 func (rt postgresRuntimeInfo) startParameters() map[string]string {
 	params := map[string]string{}
 	pathSep := string(os.PathListSeparator)
+	// Put the Unix socket in the cluster's own data dir. PGDG builds compile
+	// unix_socket_directories=/var/run/postgresql, which a non-root embedded server
+	// cannot create its socket/lock file in; the data dir is always writable and
+	// per-instance, which also isolates the socket between parallel test clusters.
+	if rt.DataPath != "" {
+		params["unix_socket_directories"] = rt.DataPath
+	}
 	if rt.ExtShareRoot != "" {
 		controlPath := rt.ExtShareRoot
 		if rt.PgShareRoot != "" {
@@ -132,14 +149,45 @@ func (rt postgresRuntimeInfo) startParameters() map[string]string {
 			dynamicPath += pathSep + rt.PgLibRoot
 		}
 		params["dynamic_library_path"] = dynamicPath
-		if fileExists(filepath.Join(rt.ExtLibRoot, postgresSharedLibraryName("pg_search"))) {
-			// pg_search must be preloaded before CREATE EXTENSION can work. A broken
-			// or ABI-incompatible library is intentionally fatal at PostgreSQL start,
-			// which keeps bad internal test bundles from degrading silently.
+	}
+	// pg_search must be preloaded before CREATE EXTENSION can load it. Look in the
+	// external extension lib dir (bundle layout) and PostgreSQL's own lib dir (a
+	// plain runtime root where pg_search sits in $libdir) — either is a valid place
+	// to find it. A broken or ABI-incompatible library is intentionally fatal at
+	// PostgreSQL start, which keeps bad internal test bundles from degrading silently.
+	for _, libRoot := range []string{rt.ExtLibRoot, rt.PgLibRoot} {
+		if libRoot != "" && fileExists(filepath.Join(libRoot, postgresSharedLibraryName("pg_search"))) {
 			params["shared_preload_libraries"] = "pg_search"
+			break
 		}
 	}
 	return params
+}
+
+// locatePostgresHome finds the directory holding bin/<pg_ctl> inside an extracted
+// bundle or external runtime root. It accepts three layouts:
+//
+//   - flat bundle:        <root>/postgres/bin                          (darwin postgresapp, single prefix)
+//   - /usr-mirror bundle: <root>/postgres/lib/postgresql/<major>/bin   (PGDG linux, split prefix)
+//   - plain runtime root: <root>/bin                                   (STELLA_POSTGRES_RUNTIME → a PG install)
+//
+// The split-prefix linux bundle mirrors /usr so the backend can relocate its
+// share dir (timezonesets, bki) from its own executable path; its bin therefore
+// lives under lib/postgresql/<major>, not directly under postgres/.
+func locatePostgresHome(root string) (string, bool) {
+	candidates := []string{
+		filepath.Join(root, "postgres"),
+		root,
+	}
+	if nested, err := filepath.Glob(filepath.Join(root, "postgres", "lib", "postgresql", "*")); err == nil {
+		candidates = append(candidates, nested...)
+	}
+	for _, home := range candidates {
+		if fileExists(filepath.Join(home, "bin", pgCtlName())) {
+			return home, true
+		}
+	}
+	return "", false
 }
 
 func postgresShareRoot(root string) string {

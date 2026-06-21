@@ -94,7 +94,11 @@ driving an external PostgreSQL.
 ## Rules
 
 1. **Never edit a committed migration** — write a new one. Migrations are the
-   historical record.
+   historical record. The **one** exception is the schema baseline _while the
+   PostgreSQL backend is pre-release and carries no production or shared dev
+   data_: amending the baseline in place is cleaner than a create-then-drop
+   forward migration, and a dev reset (below) is cheap. This exception ends the
+   moment a release ships a database anyone else holds.
 2. **Never delete migrations.**
 3. **One logical change per migration** — don't batch unrelated changes.
 4. **Forward-only in spirit** — to undo a shipped change, write a new migration

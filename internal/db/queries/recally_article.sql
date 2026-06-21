@@ -42,34 +42,24 @@ RETURNING *;
 DELETE FROM recally_article WHERE id = $1 AND user_id = $2;
 
 -- name: SearchArticles :many
--- Weighted full-text search over title/summary/tags/author via the generated
--- search_tsv column (setweight A=title, B=summary/tags, C=author). ts_rank_cd's
--- default label weights rank title hits highest; ts_headline over title+summary
--- yields the snippet. Higher score = more relevant, hence ORDER BY score DESC.
--- TODO(Phase 5): validate ranking/snippet quality and the CJK trigram tier on
--- real PostgreSQL; CJK queries fall through to SearchArticlesLike (pg_trgm).
+-- Multi-field BM25 search over title/summary/tags/author via pg_search. Each
+-- field is matched with paradedb.match, which tokenizes the raw user text with
+-- ICU (CJK matches natively, no fallback tier) and never errors on punctuation.
+-- Title is weighted above the other fields (the old setweight A=title intent) by
+-- boosting the row score when the title matches, so a title hit outranks a body
+-- or author hit. snippet highlights the title. The match arg is raw user text.
 SELECT
     sqlc.embed(a),
-    ts_headline('simple', coalesce(a.title, '') || ' ' || coalesce(a.summary, ''), websearch_to_tsquery('simple', sqlc.arg('match')), 'StartSel=<<,StopSel=>>,MaxFragments=1,MaxWords=32,MinWords=1')::text AS snippet,
-    ts_rank_cd(a.search_tsv, websearch_to_tsquery('simple', sqlc.arg('match')))::double precision AS score
+    -- snippet highlights the title; NULL when the hit was on another field only.
+    COALESCE(paradedb.snippet(a.title), '')::text AS snippet,
+    (paradedb.score(a.id) * (CASE WHEN a.id @@@ paradedb.match('title', sqlc.arg('match')::text) THEN 3 ELSE 1 END))::double precision AS score
 FROM recally_article a
-WHERE a.search_tsv @@ websearch_to_tsquery('simple', sqlc.arg('match'))
+WHERE (a.id @@@ paradedb.match('title', sqlc.arg('match')::text)
+    OR a.id @@@ paradedb.match('summary', sqlc.arg('match')::text)
+    OR a.id @@@ paradedb.match('tags', sqlc.arg('match')::text)
+    OR a.id @@@ paradedb.match('author', sqlc.arg('match')::text))
   AND a.user_id = sqlc.arg('user_id')
 ORDER BY score DESC
-LIMIT sqlc.arg('limit');
-
--- name: SearchArticlesLike :many
--- Fallback for queries with no token of 3+ runes, which trigram MATCH would
--- silently never hit. Scans the content table directly, recency-ordered, no
--- ranking. Pattern must be a full '%text%' built with ftsquery.EscapeLike; see
--- SearchMessagesLike for the sqlc constraints shaping this query.
-SELECT * FROM recally_article
-WHERE user_id = sqlc.arg('user_id')
-  AND ((title ILIKE sqlc.arg('pattern')::text ESCAPE '\')
-    OR (summary ILIKE sqlc.arg('pattern')::text ESCAPE '\')
-    OR (tags ILIKE sqlc.arg('pattern')::text ESCAPE '\')
-    OR (author ILIKE sqlc.arg('pattern')::text ESCAPE '\'))
-ORDER BY created_at DESC
 LIMIT sqlc.arg('limit');
 
 -- name: CountArticlesByStatus :one

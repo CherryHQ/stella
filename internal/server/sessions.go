@@ -1581,16 +1581,7 @@ func nullTimeFromStringPtr(p *string) pgtype.Timestamptz {
 func logicalPageRowsToMessages(rows []sqlc.ListMessagesByLogicalPageRow) []sqlc.CtxMessage {
 	out := make([]sqlc.CtxMessage, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, sqlc.CtxMessage{
-			ID:             row.ID,
-			ConversationID: row.ConversationID,
-			Seq:            row.Seq,
-			Role:           row.Role,
-			EventType:      row.EventType,
-			Content:        row.Content,
-			TokenCount:     row.TokenCount,
-			CreatedAt:      row.CreatedAt,
-		})
+		out = append(out, sqlc.CtxMessage(row))
 	}
 	return out
 }

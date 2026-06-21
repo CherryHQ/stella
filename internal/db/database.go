@@ -243,10 +243,10 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", migrateLockKey)
 	}()
 
-	// The baseline's trigram indexes (gin_trgm_ops) and the search stack's
-	// vector/bm25 indexes depend on extensions that migrations cannot create
-	// declaratively, so install required extensions before applying any
-	// migration. Requires a role with CREATE privilege on the database.
+	// The search stack's vector (HNSW) and bm25 indexes depend on extensions that
+	// migrations cannot create declaratively, so install required extensions
+	// before applying any migration. Requires a role with CREATE privilege on the
+	// database.
 	if err := ensureExtensions(ctx, conn); err != nil {
 		return err
 	}

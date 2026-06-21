@@ -115,8 +115,6 @@ func runSearch(t *testing.T, p memory.Provider, sess memory.Session, q memory.Se
 }
 
 func TestSearch_MessagesRankedByBM25(t *testing.T) {
-	// Contents kept short: the snippet window is 32 tokens, which under the
-	// trigram tokenizer is only ~34 characters.
 	_, p, sess := newSearchTestEnv(t, "fts-rank")
 	appendUser(t, p, sess,
 		"alpha beaver alpha strongdoc",
@@ -134,8 +132,8 @@ func TestSearch_MessagesRankedByBM25(t *testing.T) {
 	if results[0].Score <= results[1].Score {
 		t.Errorf("expected descending scores, got %v then %v", results[0].Score, results[1].Score)
 	}
-	// FTS snippet highlights matched terms.
-	if !strings.Contains(results[0].Content, "<<alpha>>") {
+	// pg_search snippet highlights matched terms with <b></b>.
+	if !strings.Contains(results[0].Content, "<b>alpha</b>") {
 		t.Errorf("expected snippet highlighting, got %q", results[0].Content)
 	}
 }
@@ -236,9 +234,9 @@ func TestSearch_DeleteRemovesFTSHits(t *testing.T) {
 }
 
 func TestSearch_SpansSessionsOfSameUserAgent(t *testing.T) {
-	// Marker fits the ~34-char trigram snippet window. Both sessions share the
-	// same (user_id, agent_id), so memory recall must span both — searching from
-	// session A still surfaces what was said in session B.
+	// Both sessions share the same (user_id, agent_id), so memory recall must
+	// span both — searching from session A still surfaces what was said in
+	// session B.
 	_, p, sess := newSearchTestEnv(t, "fts-span-a")
 	appendUser(t, p, sess, "shared quokka keyword in convA")
 
@@ -318,50 +316,46 @@ func TestSearch_SpecialCharactersDoNotError(t *testing.T) {
 	}
 }
 
-func TestSearch_CJKSubstringMatch(t *testing.T) {
+func TestSearch_CJKMatch(t *testing.T) {
 	_, p, sess := newSearchTestEnv(t, "fts-cjk")
 	appendUser(t, p, sess, "今天讨论了部署方案的细节和时间表")
 
-	// The 'simple' tsvector parser can't segment space-less CJK, so even a
-	// 3+ rune CJK query routes to the pg_trgm LIKE fallback: it still finds the
-	// substring, but carries Score 0 and no ts_headline snippet highlighting.
+	// pg_search tokenizes CJK with ICU word segmentation, so a CJK query is a
+	// real BM25 hit (positive score), not a degraded substring fallback.
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署方案", Scope: memory.SearchScopeMessages})
 	if len(results) != 1 {
 		t.Fatalf("expected 1 hit for 部署方案, got %d", len(results))
 	}
-	if results[0].Score != 0 {
-		t.Errorf("CJK fallback hit should carry Score 0, got %v", results[0].Score)
-	}
-	if !strings.Contains(results[0].Content, "部署方案") {
-		t.Errorf("expected raw content to contain the query substring, got %q", results[0].Content)
+	if results[0].Score <= 0 {
+		t.Errorf("CJK BM25 hit should carry a positive score, got %v", results[0].Score)
 	}
 }
 
-func TestSearch_ShortQueryFallsBackToLike(t *testing.T) {
+func TestSearch_ShortCJKQueryMatches(t *testing.T) {
 	db, p, sess := newSearchTestEnv(t, "fts-short")
 	convID := conversationID(t, db, sess.ID)
 	appendUser(t, p, sess, "今天讨论了部署方案的细节")
 	insertSummary(t, db, convID, "sum-fts-short", "总结：部署流程已经确定")
 
-	// 2-char CJK queries match nothing via trigram MATCH; the LIKE fallback
-	// must still find them, in both scopes, with Score 0 (no BM25 here).
+	// A short 2-char CJK token is segmented by ICU and matches via BM25 in both
+	// scopes, with a positive score and no fallback tier.
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署", Scope: memory.SearchScopeBoth})
 	if len(results) != 2 {
-		t.Fatalf("expected 2 fallback hits for 部署, got %d: %+v", len(results), results)
+		t.Fatalf("expected 2 hits for 部署, got %d: %+v", len(results), results)
 	}
 	for _, r := range results {
-		if r.Score != 0 {
-			t.Errorf("fallback hit should carry Score 0, got %v", r.Score)
+		if r.Score <= 0 {
+			t.Errorf("BM25 hit should carry a positive score, got %v", r.Score)
 		}
 	}
 
 	msgs := runSearch(t, p, sess, memory.SearchQuery{Text: "部署", Scope: memory.SearchScopeMessages})
 	if len(msgs) != 1 || msgs[0].SourceType != "message" {
-		t.Errorf("messages scope fallback: expected 1 message hit, got %+v", msgs)
+		t.Errorf("messages scope: expected 1 message hit, got %+v", msgs)
 	}
 }
 
-func TestSearch_LikeFallbackSpansSessionsButIsolatesUsers(t *testing.T) {
+func TestSearch_CJKSpansSessionsButIsolatesUsers(t *testing.T) {
 	_, p, sess := newSearchTestEnv(t, "fts-like-span-a")
 	appendUser(t, p, sess, "会话A的部署记录")
 
@@ -385,15 +379,15 @@ func TestSearch_LikeFallbackSpansSessionsButIsolatesUsers(t *testing.T) {
 	}
 	appendUser(t, p, otherAgent, "另一个agent的部署记录")
 
-	// The LIKE fallback path must also span both same-user+agent sessions while
-	// keeping another user's and another agent's content out.
+	// CJK BM25 search must span both same-user+agent sessions while keeping
+	// another user's and another agent's content out.
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署"})
 	if len(results) != 2 {
 		t.Fatalf("expected hits from both same-user sessions, got %d: %+v", len(results), results)
 	}
 	for _, r := range results {
 		if strings.Contains(r.Content, "陌生人") || strings.Contains(r.Content, "另一个agent") {
-			t.Errorf("fallback hit leaked across user/agent boundary: %q", r.Content)
+			t.Errorf("hit leaked across user/agent boundary: %q", r.Content)
 		}
 	}
 }
@@ -438,38 +432,17 @@ func TestSearch_SummariesSpanSessionsWithContentTime(t *testing.T) {
 	}
 }
 
-func TestSearch_LikeFallbackEscapesWildcards(t *testing.T) {
-	_, p, sess := newSearchTestEnv(t, "fts-like-esc")
-	appendUser(t, p, sess,
-		"discount is 50% off",
-		"discount is 500 off",
-		"see a_b here",
-		"see axb here",
-	)
-
-	// Both queries tokenize below the trigram minimum, so they hit the LIKE
-	// fallback; % and _ must match literally, not as wildcards.
-	if got := runSearch(t, p, sess, memory.SearchQuery{Text: "50%"}); len(got) != 1 {
-		t.Errorf("query 50%%: expected 1 literal hit, got %d: %+v", len(got), got)
-	}
-	if got := runSearch(t, p, sess, memory.SearchQuery{Text: "_b"}); len(got) != 1 {
-		t.Errorf("query _b: expected 1 literal hit, got %d: %+v", len(got), got)
-	}
-}
-
-func TestSearch_LikeFallbackIsCaseInsensitive(t *testing.T) {
+func TestSearch_IsCaseInsensitive(t *testing.T) {
 	db, p, sess := newSearchTestEnv(t, "fts-like-case")
 	convID := conversationID(t, db, sess.ID)
 	appendUser(t, p, sess, "golang runtime notes")
 	insertSummary(t, db, convID, "sum-like-case", "GoLang summary header")
 
-	// "GO" tokenizes below the trigram minimum, so it routes to the LIKE
-	// fallback. SQLite's LIKE is ASCII case-insensitive but PostgreSQL's is not,
-	// so the fallback must use ILIKE to preserve parity: an uppercase query has
-	// to find the lowercase "golang" message and the mixed-case "GoLang" summary.
-	results := runSearch(t, p, sess, memory.SearchQuery{Text: "GO", Scope: memory.SearchScopeBoth})
+	// ICU lowercases tokens, so an uppercase query matches the lowercase
+	// "golang" message and the mixed-case "GoLang" summary alike.
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "GOLANG", Scope: memory.SearchScopeBoth})
 	if len(results) != 2 {
-		t.Fatalf("expected 2 case-insensitive fallback hits for %q, got %d: %+v", "GO", len(results), results)
+		t.Fatalf("expected 2 case-insensitive hits for %q, got %d: %+v", "GOLANG", len(results), results)
 	}
 }
 

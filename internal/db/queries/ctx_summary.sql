@@ -61,32 +61,19 @@ ORDER BY sp.ordinal ASC;
 
 -- name: SearchSummaries :many
 -- Spans every conversation of the current (user_id, agent_id); see SearchMessages.
--- TODO(Phase 5): validate ranking/snippet quality and the CJK trigram tier on
--- real PostgreSQL; CJK queries fall through to SearchSummariesLike (pg_trgm).
+-- Lexical ranking is pg_search BM25; paradedb.match tokenizes the raw user text
+-- with ICU (CJK matches natively) and never errors on punctuation. The match arg
+-- is the raw user text.
 SELECT
     s.*,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    ts_headline('simple', s.content, websearch_to_tsquery('simple', sqlc.arg('match')), 'StartSel=<<,StopSel=>>,MaxFragments=1,MaxWords=32,MinWords=1')::text AS snippet,
-    ts_rank_cd(s.content_tsv, websearch_to_tsquery('simple', sqlc.arg('match')))::double precision AS score
+    paradedb.snippet(s.content)::text AS snippet,
+    paradedb.score(s.id)::double precision AS score
 FROM ctx_summary s
 JOIN ctx_conversation c ON c.id = s.conversation_id
-WHERE s.content_tsv @@ websearch_to_tsquery('simple', sqlc.arg('match'))
+WHERE s.id @@@ paradedb.match('content', sqlc.arg('match')::text)
   AND c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
 ORDER BY score DESC
-LIMIT sqlc.arg('limit');
-
--- name: SearchSummariesLike :many
--- Fallback for queries with no token of 3+ runes (see SearchMessagesLike).
-SELECT
-    s.*,
-    c.session_id AS session_id,
-    c.title AS conversation_title
-FROM ctx_summary s
-JOIN ctx_conversation c ON c.id = s.conversation_id
-WHERE c.user_id = sqlc.arg('user_id')
-  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
-  AND (s.content ILIKE sqlc.arg('pattern') ESCAPE '\')
-ORDER BY s.created_at DESC
 LIMIT sqlc.arg('limit');

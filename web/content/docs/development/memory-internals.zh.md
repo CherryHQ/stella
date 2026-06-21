@@ -206,13 +206,13 @@ ai.Message (user/assistant/tool_result)
 
 ### 搜索
 
-搜索基于 SQLite FTS5 和 BM25 排序。两张外部内容（external-content）虚拟表 — `ctx_message_fts` 和 `ctx_summary_fts` — 使用 `trigram` 分词器为 `content` 建立索引，并通过基础表上的 insert/update/delete 触发器保持同步。trigram 提供子串召回 — 部署方案 可以命中更长的中文句子，英文查询也获得子串语义（"ploy" 命中 "deployment"）。
+搜索基于 PostgreSQL 的 **pg_search BM25** 排序。`ctx_message` 与 `ctx_summary` 各自在 `content` 上建有 `USING bm25` 索引，使用 **ICU** 分词器，因此中文会被切成词（部署方案 命中切分后的 部署 / 方案），英文按整 token 匹配。**没有回退层** — pg_search 硬依赖 `pg_search` 扩展（语义检索还需 `vector`），它们随内嵌运行时 bundle 或外部 PostgreSQL 一起提供。
 
-- 查询文本按字母/数字/下划线切分为 token，逐个加引号并以 OR 连接成 `MATCH` 表达式，用户输入中的 FTS5 操作符不会破坏查询。短于 3 个字符的 token 会被丢弃 — trigram `MATCH` 对它们静默返回零命中。
-- 当所有 token 都短于 3 个字符时（部署、"go"），回退到对内容表的 `LIKE` 扫描：按时间倒序、无 BM25 分数、无片段高亮。
-- `MATCH` 结果包含 FTS 片段（`<<term>>` 高亮）和归一化分数（`-bm25`，越大越相关）。
+- 原始用户文本直接交给 `paradedb.match`，它用 ICU 分词，且对标点或查询语法字符永不报错 — 因此既无需单独的清洗步骤，短查询和中文查询也能原生命中（没有最小 token 长度限制，没有 `LIKE` 回退）。
+- 命中包含 pg_search 片段（`<b>term</b>` 高亮）和 `paradedb.score` BM25 分数（越大越相关）。
 - `both` 范围分别以完整 limit 查询消息和摘要，再按分数合并取前 N — 强摘要命中可以排在弱消息命中之前。摘要命中可通过 `describe`/`expand` 下钻。
-- FTS schema 位于 `internal/db/schemas/tables/ctx_*_fts.sql`，但在**运行时**（`internal/db/fts.go`）创建，而非通过 Atlas 迁移 — Atlas 的 dev SQLite 缺少 fts5 模块。索引会在首次创建时从已有行重建（因此 FTS 之前的历史也可搜索）；当检测到同步触发器丢失时也会重建 — 这是 Atlas 表重建迁移的特征，它会删除触发器并改变 rowid；当现有表使用不同分词器时同样会重建（unicode61 → trigram 迁移）。若 SQLite 构建缺少 FTS5，启动会以明确错误失败。
+- BM25 索引位于 schema 基线（`internal/db/migrations`）；`vector`/`pg_search` 扩展在**运行时**（`internal/db/database.go` 的 `ensureExtensions`）于迁移前创建，因为 `CREATE EXTENSION` 需要二进制（以及 `shared_preload_libraries=pg_search`），迁移无法保证这些。
+- 语义检索使用按来源拆分的 sidecar 表（`ctx_message_embedding`、`ctx_summary_embedding`、`recally_article_embedding`），各持有一列 `vector(1536)` 并建有 HNSW 索引，以来源 id 为键。它们初始为空：embedding 生产/回填在后续 PR 落地。
 
 ## Simple 插件
 
