@@ -11,7 +11,30 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
+	"github.com/riverqueue/river/rivertype"
 )
+
+// riverErrorHandler surfaces job errors and panics that River's default logger
+// would otherwise bury, with enough structure (kind, id, attempt) to find the
+// failing job. It does NOT override River's retry/discard decision (returns nil);
+// the goal lease reaper and scheduler guards still own recovery. Visibility
+// matters most for MaxAttempts=1 jobs (goal attempts), which go straight to
+// `discarded` on a single error with no retry and no other callback.
+type riverErrorHandler struct{ log *slog.Logger }
+
+func (h riverErrorHandler) HandleError(_ context.Context, job *rivertype.JobRow, err error) *river.ErrorHandlerResult {
+	h.log.Error("river job errored",
+		"kind", job.Kind, "job_id", job.ID, "queue", job.Queue,
+		"attempt", job.Attempt, "max_attempts", job.MaxAttempts, "err", err)
+	return nil
+}
+
+func (h riverErrorHandler) HandlePanic(_ context.Context, job *rivertype.JobRow, panicVal any, trace string) *river.ErrorHandlerResult {
+	h.log.Error("river job panicked",
+		"kind", job.Kind, "job_id", job.ID, "queue", job.Queue,
+		"attempt", job.Attempt, "panic", fmt.Sprintf("%v", panicVal), "trace", trace)
+	return nil
+}
 
 // migrateRiver applies River's own schema migrations — the river_* tables that
 // back its durable job queue. River owns and versions these tables itself, so
@@ -75,6 +98,7 @@ func NewWorkingRiverClient(pool *pgxpool.Pool, queues map[string]river.QueueConf
 		JobTimeout:           riverJobTimeout,
 		SoftStopTimeout:      riverSoftStopTimeout,
 		RescueStuckJobsAfter: riverRescueStuckJobsAfter,
+		ErrorHandler:         riverErrorHandler{log: logger},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create working river client: %w", err)
