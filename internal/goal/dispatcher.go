@@ -40,12 +40,11 @@ type SchedulerLike interface {
 type DispatcherConfig struct {
 	Service *GoalService
 	Queries *sqlc.Queries
-	Worker  WorkerRunner
+	// Enqueuer enqueues one durable River job per claimed attempt (River Phase
+	// 2a). A nil enqueuer disables dispatch (tests that drive Worker.Run directly).
+	Enqueuer goalEnqueuer
 
-	TickEvery time.Duration // 0 ⇒ defaultTickEvery
-	// MaxWorkers caps attempts this process executes concurrently (the in-process
-	// worker-pool bound; distinct from the durable per-root/per-user caps below).
-	MaxWorkers int           // 0 ⇒ defaultMaxWorkers
+	TickEvery  time.Duration // 0 ⇒ defaultTickEvery
 	LeaseTTL   time.Duration // 0 ⇒ service LeaseTTL
 	BatchLimit int           // 0 ⇒ defaultBatchLimit
 	// MaxConcurrentPerUser caps in-flight attempts per user (§5/§10.8, default
@@ -56,26 +55,19 @@ type DispatcherConfig struct {
 
 const (
 	defaultTickEvery  = 2 * time.Second
-	defaultMaxWorkers = 5
 	defaultBatchLimit = 50
 )
 
 // Dispatcher drives the convergence loop on a tick: reap stale attempts,
 // propagate dep failures, roll up composites, then scan-and-claim dispatchable
-// leaves under the concurrency budget and spawn a bounded pool of workers
-// (contract §5, §7). It is the only scheduler; every durable write still routes
-// through GoalService.
+// leaves under the concurrency caps and enqueue a durable River job per claim
+// (contract §5, §7; River Phase 2a). It is the only scheduler; every durable
+// write still routes through GoalService, and every attempt now executes as a
+// River job rather than an in-process goroutine.
 type Dispatcher struct {
 	cfg DispatcherConfig
 
-	mu sync.Mutex
-	// active is the set of attempt IDs this process is executing right now. A
-	// member must never be reaped as "lease expired": the worker is alive even if
-	// its heartbeat lost the contended SQLite writer. The DB lease is the
-	// crash/restart backstop (an empty set after restart reclaims orphans).
-	// Single-process only — multi-replica reclaim keys off per-replica liveness.
-	active  map[string]bool
-	wg      sync.WaitGroup
+	mu      sync.Mutex
 	stopCh  chan struct{}
 	stopped bool
 }
@@ -85,9 +77,6 @@ type Dispatcher struct {
 func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	if cfg.TickEvery == 0 {
 		cfg.TickEvery = defaultTickEvery
-	}
-	if cfg.MaxWorkers == 0 {
-		cfg.MaxWorkers = defaultMaxWorkers
 	}
 	if cfg.LeaseTTL == 0 && cfg.Service != nil {
 		cfg.LeaseTTL = cfg.Service.cfg.LeaseTTL
@@ -103,9 +92,15 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	}
 	return &Dispatcher{
 		cfg:    cfg,
-		active: map[string]bool{},
 		stopCh: make(chan struct{}),
 	}
+}
+
+// SetEnqueuer injects the River enqueuer the dispatcher uses to dispatch claimed
+// attempts. Called by the composition root after the shared client is built and
+// before the tick starts; a nil enqueuer leaves dispatch disabled.
+func (d *Dispatcher) SetEnqueuer(e goalEnqueuer) {
+	d.cfg.Enqueuer = e
 }
 
 // Start registers the tick on sched. A nil scheduler is silent: callers drive
@@ -119,17 +114,17 @@ func (d *Dispatcher) Start(ctx context.Context, sched SchedulerLike) error {
 	})
 }
 
-// Stop signals the tick to go quiet and drains in-flight workers.
+// Stop signals the tick to go quiet. In-flight attempts now run as River jobs;
+// draining them is the goal River client's responsibility (Service.StopRiver),
+// not the dispatcher's.
 func (d *Dispatcher) Stop() {
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.stopped {
-		d.mu.Unlock()
 		return
 	}
 	d.stopped = true
 	close(d.stopCh)
-	d.mu.Unlock()
-	d.wg.Wait()
 }
 
 // Tick runs one pass of the dispatch loop. Public so tests can drive it
@@ -153,9 +148,10 @@ func (d *Dispatcher) isStopped() bool {
 }
 
 // reapStaleAttempts finds queued/running attempts whose lease has expired and
-// (unless this process is actively executing them) finalizes them as
-// 'interrupted' through the service, which returns the goal to ready
-// within its convergence budget (contract §2.2).
+// finalizes them as 'interrupted' through the service, which returns the goal to
+// ready within its convergence budget (contract §2.2). The lease is authoritative
+// across nodes: a live attempt's River worker heartbeats it forward, so an
+// expired lease means a genuine orphan.
 func (d *Dispatcher) reapStaleAttempts(ctx context.Context, now time.Time) {
 	stale, err := d.cfg.Queries.ListStaleAttempts(ctx, sqlc.ListStaleAttemptsParams{
 		Now:   pgtype.Timestamptz{Time: now, Valid: true},
@@ -166,12 +162,10 @@ func (d *Dispatcher) reapStaleAttempts(ctx context.Context, now time.Time) {
 		return
 	}
 	for _, a := range stale {
-		// Never reap an attempt this process is actively executing: the worker is
-		// alive even if its heartbeat lost the contended writer. Only genuinely
-		// orphaned attempts (never started here, or after a crash/restart) reclaim.
-		if d.isActive(a.ID) {
-			continue
-		}
+		// The lease is the single, multi-node liveness signal: a live attempt's
+		// River worker heartbeats it forward, so a lease in the past means the job
+		// genuinely orphaned (never picked up within the claim grace, or its node
+		// crashed). No in-process guard — that was the old single-process design.
 		if err := d.cfg.Service.ReapAttempt(ctx, a.ID); err != nil && !errors.Is(err, ErrInvalidTransition) {
 			d.cfg.Logger.Warn("dispatcher: reap attempt", "attempt", a.ID, "goal", a.GoalID, "err", err)
 		}
@@ -266,8 +260,14 @@ func (d *Dispatcher) applyRollup(ctx context.Context, parent sqlc.AgentGoal, sta
 
 // scanAndClaim picks dispatchable leaves, enforces readiness + the per-root and
 // per-user concurrency caps (§5/§10.8), resolves the executor, claims through
-// the service, and spawns a bounded worker per claim.
+// the service, and enqueues a durable River job per claim (River Phase 2a).
+// Execution concurrency is bounded by the goal queue's MaxWorkers plus the
+// per-root/per-user caps enforced here, so no in-process worker-pool gate is
+// needed. A nil enqueuer (test wiring) skips dispatch.
 func (d *Dispatcher) scanAndClaim(ctx context.Context, now time.Time) {
+	if d.cfg.Enqueuer == nil {
+		return
+	}
 	candidates, err := d.cfg.Queries.ListDispatchableLeaves(ctx, int32(d.cfg.BatchLimit))
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list dispatchable leaves", "err", err)
@@ -282,9 +282,6 @@ func (d *Dispatcher) scanAndClaim(ctx context.Context, now time.Time) {
 	for _, goal := range candidates {
 		if d.isStopped() {
 			return
-		}
-		if !d.underWorkerCap() {
-			return // process worker pool full; try again next tick
 		}
 
 		edges, err := d.cfg.Queries.ListEdgeWithUpstreamState(ctx, goal.ID)
@@ -321,7 +318,17 @@ func (d *Dispatcher) scanAndClaim(ctx context.Context, now time.Time) {
 		}
 		rootInflight[goal.RootID]++
 		userInflight[goal.UserID]++
-		d.spawnWorker(ctx, goal.ID, attempt.ID)
+		d.enqueueAttempt(ctx, goal.ID, attempt.ID)
+	}
+}
+
+// enqueueAttempt enqueues a durable River job to execute one claimed attempt. An
+// insert failure is logged, not fatal: the attempt stays queued and the reaper
+// reopens its goal once the claim grace lease expires (mintNextAttempt), so a
+// transient enqueue gap self-heals on a later tick.
+func (d *Dispatcher) enqueueAttempt(ctx context.Context, goalID, attemptID string) {
+	if _, err := d.cfg.Enqueuer.Insert(ctx, goalAttemptArgs{GoalID: goalID, AttemptID: attemptID}, goalInsertOpts()); err != nil {
+		d.cfg.Logger.Warn("dispatcher: enqueue attempt job", "goal", goalID, "attempt", attemptID, "err", err)
 	}
 }
 
@@ -406,45 +413,6 @@ type dispatchHint struct {
 	ExecutorAgentID string `json:"executor_agent_id"`
 	ConsumedAt      string `json:"consumed_at"`
 }
-
-func (d *Dispatcher) underWorkerCap() bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return len(d.active) < d.cfg.MaxWorkers
-}
-
-func (d *Dispatcher) inc(attemptID string) {
-	d.mu.Lock()
-	d.active[attemptID] = true
-	d.mu.Unlock()
-}
-
-func (d *Dispatcher) dec(attemptID string) {
-	d.mu.Lock()
-	delete(d.active, attemptID)
-	d.mu.Unlock()
-}
-
-func (d *Dispatcher) isActive(attemptID string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.active[attemptID]
-}
-
-// spawnWorker runs one claimed attempt in a tracked goroutine, bounded by the
-// MaxWorkers gate the caller already checked.
-func (d *Dispatcher) spawnWorker(ctx context.Context, goalID, attemptID string) {
-	d.inc(attemptID)
-	d.wg.Go(func() {
-		defer d.dec(attemptID)
-		if err := d.cfg.Worker.Run(ctx, goalID, attemptID); err != nil {
-			d.cfg.Logger.Warn("dispatcher: worker returned error", "goal", goalID, "attempt", attemptID, "err", err)
-		}
-	})
-}
-
-// WaitIdle blocks until no workers are in flight (tests).
-func (d *Dispatcher) WaitIdle() { d.wg.Wait() }
 
 // ── Dispatcher-driven service transitions ───────────────────────────────────
 //

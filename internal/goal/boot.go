@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -19,10 +21,42 @@ import (
 // exposes the read+command surface the HTTP handlers call. Every mutating method
 // delegates to GoalService so the "lifecycle is written only through a
 // transition" invariant holds; reads go straight to the querier.
+//
+// The goal subsystem does NOT own a River client: it contributes its queue +
+// worker to the single process-wide client (RegisterRiverWorker / GoalQueueConfig)
+// and receives that client back as its dispatcher's enqueuer (SetRiverClient).
+// The client's Start/Stop lifecycle belongs to the composition root.
 type Service struct {
 	Queries    *sqlc.Queries
 	Goal       *GoalService
 	Dispatcher *Dispatcher
+
+	// runner executes one claimed attempt; it backs both the goal River worker
+	// (RegisterRiverWorker) and is shared with nothing else. queueMaxWorkers and
+	// logger are captured at Boot so the composition root can assemble the shared
+	// client's worker + queue config without re-deriving them.
+	runner          WorkerRunner
+	queueMaxWorkers int
+	logger          *slog.Logger
+}
+
+// RegisterRiverWorker registers the goal-attempt worker into a shared workers
+// bundle used to build the process-wide River client. Call before building the
+// client (composition root).
+func (s *Service) RegisterRiverWorker(workers *river.Workers) {
+	RegisterGoalWorker(workers, s.runner, s.logger.With("subcomponent", "river"))
+}
+
+// GoalQueueConfig returns the goal queue name and per-node worker config for the
+// composition root assembling the shared working client.
+func (s *Service) GoalQueueConfig() (string, river.QueueConfig) {
+	return GoalQueue, river.QueueConfig{MaxWorkers: s.queueMaxWorkers}
+}
+
+// SetRiverClient injects the shared working River client as the dispatcher's
+// enqueuer. Call after the client is built and before the dispatcher tick starts.
+func (s *Service) SetRiverClient(c *river.Client[pgx.Tx]) {
+	s.Dispatcher.SetEnqueuer(c)
 }
 
 // TaskChatParams is the worker-turn request passed to BootConfig.Chat. It mirrors
@@ -51,8 +85,9 @@ type BootConfig struct {
 	DB       *pgxpool.Pool
 	Services agent.ServiceManager // registry-backed session minting
 	Chat     TaskChatFunc         // runs persisted worker turns; nil => noop executor
-	// MaxWorkers, TickEvery, LeaseTTL override defaults; zero values use the
-	// dispatcher/service defaults.
+	// MaxWorkers caps concurrent attempt executions per node on the goal River
+	// queue (0 => defaultGoalMaxWorkers). TickEvery/LeaseTTL override the
+	// dispatcher/service defaults; zero values use them.
 	MaxWorkers int
 	TickEvery  time.Duration
 	LeaseTTL   time.Duration
@@ -70,7 +105,7 @@ type BootConfig struct {
 // fails non-retryably) plus the worker + planning session minters are registered
 // on the GoalService; one Worker drives claimed attempts and the
 // Dispatcher schedules the convergence loop over it.
-func Boot(cfg BootConfig) *Service {
+func Boot(cfg BootConfig) (*Service, error) {
 	q := sqlc.New(cfg.DB)
 	logger := cfg.Logger
 	if logger == nil {
@@ -84,17 +119,32 @@ func Boot(cfg BootConfig) *Service {
 		WithConfig(Config{LeaseTTL: cfg.LeaseTTL}),
 	)
 
+	maxWorkers := cfg.MaxWorkers
+	if maxWorkers == 0 {
+		maxWorkers = defaultGoalMaxWorkers
+	}
+	runner := workerRunner{w: NewWorker(svc, q)}
+
+	// The dispatcher's enqueuer is injected later via SetRiverClient (the shared
+	// client is built by the composition root once both subsystems have
+	// contributed their queue + worker). Until then Enqueuer is nil and the
+	// dispatcher skips dispatch — the state tests rely on (they drive Worker.Run).
 	disp := NewDispatcher(DispatcherConfig{
-		Service:    svc,
-		Queries:    q,
-		Worker:     workerRunner{w: NewWorker(svc, q)},
-		MaxWorkers: cfg.MaxWorkers,
-		TickEvery:  cfg.TickEvery,
-		LeaseTTL:   cfg.LeaseTTL,
-		Logger:     logger.With("subcomponent", "dispatcher"),
+		Service:   svc,
+		Queries:   q,
+		TickEvery: cfg.TickEvery,
+		LeaseTTL:  cfg.LeaseTTL,
+		Logger:    logger.With("subcomponent", "dispatcher"),
 	})
 
-	return &Service{Queries: q, Goal: svc, Dispatcher: disp}
+	return &Service{
+		Queries:         q,
+		Goal:            svc,
+		Dispatcher:      disp,
+		runner:          runner,
+		queueMaxWorkers: maxWorkers,
+		logger:          logger,
+	}, nil
 }
 
 // bootExecutor picks the worker executor. With a Chat callback it runs persisted

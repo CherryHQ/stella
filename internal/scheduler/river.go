@@ -9,9 +9,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
 	cron "github.com/robfig/cron/v3"
+
+	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
 const (
@@ -23,17 +24,6 @@ const (
 	// Re-entrancy of a single job is guarded separately by tryStartJobRun, so
 	// this only caps cross-job parallelism.
 	schedulerMaxWorkers = 10
-	// schedulerSoftStopTimeout bounds how long Stop waits for in-flight jobs to
-	// drain before River cancels their work contexts. Without it a stuck job
-	// would hang Stop forever; the worker honors this cancellation because Work
-	// dispatches on River's per-job context.
-	schedulerSoftStopTimeout = 30 * time.Second
-	// schedulerRescueStuckAfter raises River's stuck-job rescue threshold (default
-	// 1h) above any expected scheduled-run duration. With JobTimeout disabled a
-	// legitimately long agent run would otherwise be marked stuck and discarded at
-	// 1h; the app-level tryStartJobRun guard already prevents double execution, so
-	// this only keeps River's job state from going misleadingly stuck/discarded.
-	schedulerRescueStuckAfter = 24 * time.Hour
 )
 
 // schedJobArgs is the River payload for a scheduled-job firing. JobID identifies
@@ -121,31 +111,31 @@ type schedRef struct {
 	isOneTime bool
 }
 
-// newSchedulerRiverClient builds the River client that both works the scheduler
-// queue and hosts its periodic jobs. The worker closes over s so it can reach
-// the live job map at fire time; s.river is assigned by the caller once this
-// returns.
+// SchedulerQueueConfig returns the scheduler's River queue name and per-node
+// worker config. The composition root reads it to assemble the single shared
+// working client (db.NewWorkingRiverClient) when scheduler runs in external-river
+// mode alongside the goal queue.
+func SchedulerQueueConfig() (string, river.QueueConfig) {
+	return schedulerQueue, river.QueueConfig{MaxWorkers: schedulerMaxWorkers}
+}
+
+// RegisterRiverWorker registers the scheduler's job worker into a shared workers
+// bundle. The worker closes over svc so it can resolve jobs from the DB at fire
+// time. Used both by the self-contained client (newSchedulerRiverClient) and by
+// the composition root building the shared working client.
+func RegisterRiverWorker(workers *river.Workers, svc *Service) {
+	river.AddWorker(workers, &schedJobWorker{svc: svc})
+}
+
+// newSchedulerRiverClient builds a self-contained River client that both works
+// the scheduler queue and hosts its periodic jobs. Used when the Service owns its
+// River client (the default / test path); production injects a shared client via
+// SetRiverClient instead (WithExternalRiver). s.river is assigned by the caller.
 func newSchedulerRiverClient(s *Service, pool *pgxpool.Pool) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
-	river.AddWorker(workers, &schedJobWorker{svc: s})
-
-	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Logger: s.log,
-		Queues: map[string]river.QueueConfig{
-			schedulerQueue: {MaxWorkers: schedulerMaxWorkers},
-		},
-		Workers: workers,
-		// -1 disables River's per-job timeout (default 1m): scheduled jobs are
-		// agent runs that routinely exceed a minute, matching gocron's unbounded
-		// runtime. Shutdown still cancels in-flight work via SoftStopTimeout.
-		JobTimeout:           -1,
-		SoftStopTimeout:      schedulerSoftStopTimeout,
-		RescueStuckJobsAfter: schedulerRescueStuckAfter,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create scheduler river client: %w", err)
-	}
-	return client, nil
+	RegisterRiverWorker(workers, s)
+	name, cfg := SchedulerQueueConfig()
+	return appdb.NewWorkingRiverClient(pool, map[string]river.QueueConfig{name: cfg}, workers, s.log)
 }
 
 // scheduleJob registers a job with River and records its registration in

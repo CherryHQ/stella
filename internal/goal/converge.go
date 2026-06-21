@@ -126,7 +126,13 @@ func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sq
 		AttemptNo:       int64(attemptNo),
 		Status:          AttemptQueued,
 		InputContext:    marshalJSON(input),
-		LeaseExpiresAt:  nullTime(s.nowTime()),
+		// Grace lease on the queued attempt: a River worker on any node must be
+		// able to pick the job up and PromoteAttempt (extending the lease) before
+		// the dispatcher reaper reclaims it. now() would be instantly stale — that
+		// only worked under the old in-process active-map guard. The lease is now
+		// the single, multi-node liveness signal: a claim/enqueue gap or a crash
+		// before pickup recovers via the reaper once this grace window expires.
+		LeaseExpiresAt: nullTime(s.nowTime().Add(claimGraceTTL)),
 	})
 	if err != nil {
 		return sqlc.AgentGoalAttempt{}, fmt.Errorf("create attempt: %w", err)
