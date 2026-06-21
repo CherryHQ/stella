@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -29,6 +30,20 @@ const (
 	// boot config does not override it (the durable successor to the old
 	// in-process worker-pool default of 5).
 	defaultGoalMaxWorkers = 5
+
+	// GoalTickQueue runs the dispatcher convergence tick (River Phase 2b). It is a
+	// dedicated queue with one worker per node so a slow tick never consumes
+	// attempt-execution slots and never overlaps itself on a node; combined with
+	// leader-only periodic enqueue and ByState uniqueness, the cluster runs a
+	// single convergence loop (at most one live tick at a time) rather than one
+	// scan per node. A leader failover may run one extra (idempotent) pass.
+	GoalTickQueue = "stella_goal_tick"
+	// goalTickTimeout bounds one cooperative (ctx-aware) tick so a slow scan does
+	// not hold the single tick worker indefinitely and starve future ticks while
+	// ByState uniqueness blocks them; the next periodic fire re-runs convergence
+	// once it frees. Generous relative to a BatchLimit-bounded scan. (Tick honors
+	// ctx via its DB calls, so the timeout cancels in-flight work cooperatively.)
+	goalTickTimeout = 5 * time.Minute
 )
 
 // goalAttemptArgs is the River payload for executing one claimed attempt. The
@@ -99,4 +114,60 @@ func goalInsertOpts() *river.InsertOpts {
 // bound total in-flight attempts cluster-wide.
 func RegisterGoalWorker(workers *river.Workers, runner WorkerRunner, log *slog.Logger) {
 	river.AddWorker(workers, &goalAttemptWorker{runner: runner, log: log})
+}
+
+// goalTickArgs is the River payload for one convergence tick. It carries no
+// fields: the tick acts on whatever the DB scan finds, and its empty (constant)
+// args make ByState uniqueness collapse all pending ticks to one in-flight job.
+type goalTickArgs struct{}
+
+// Kind implements river.JobArgs.
+func (goalTickArgs) Kind() string { return "stella_goal_tick" }
+
+// goalTickWorker runs one dispatcher convergence pass. The dispatcher's own
+// per-tick guards (isStopped, lease-based reap) make a fired tick safe whether it
+// runs on the leader or any other node.
+type goalTickWorker struct {
+	river.WorkerDefaults[goalTickArgs]
+	dispatcher *Dispatcher
+	log        *slog.Logger
+}
+
+// Timeout bounds a single tick (the client default is no timeout). See
+// goalTickTimeout.
+func (w *goalTickWorker) Timeout(*river.Job[goalTickArgs]) time.Duration { return goalTickTimeout }
+
+// Work implements river.Worker. A tick never fails the job: the convergence pass
+// logs its own per-step errors and the next periodic fire retries, so there is
+// nothing for River to retry.
+func (w *goalTickWorker) Work(ctx context.Context, _ *river.Job[goalTickArgs]) error {
+	w.dispatcher.Tick(ctx)
+	return nil
+}
+
+// RegisterGoalTickWorker registers the convergence-tick worker into the shared
+// workers bundle (River Phase 2b). Paired with GoalTickQueueConfig and the
+// periodic registered by Service.StartDispatchTick.
+func RegisterGoalTickWorker(workers *river.Workers, d *Dispatcher, log *slog.Logger) {
+	river.AddWorker(workers, &goalTickWorker{dispatcher: d, log: log})
+}
+
+// goalTickInsertOpts is the InsertOpts the tick periodic enqueues with: the tick
+// queue, no River-level retry, and ByState uniqueness so a new tick is skipped
+// while one is still available/pending/running/scheduled. That restores the old
+// "skip the tick if the previous one is still in flight" behavior and bounds the
+// queue to a single live tick cluster-wide.
+func goalTickInsertOpts() *river.InsertOpts {
+	return &river.InsertOpts{
+		Queue:       GoalTickQueue,
+		MaxAttempts: 1,
+		UniqueOpts: river.UniqueOpts{
+			ByState: []rivertype.JobState{
+				rivertype.JobStateAvailable,
+				rivertype.JobStatePending,
+				rivertype.JobStateRunning,
+				rivertype.JobStateScheduled,
+			},
+		},
+	}
 }

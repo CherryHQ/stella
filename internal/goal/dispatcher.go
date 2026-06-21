@@ -28,13 +28,6 @@ type WorkerRunner interface {
 	Run(ctx context.Context, goalID, attemptID string) error
 }
 
-// SchedulerLike is the subset of the scheduler the dispatcher needs. It lets
-// tests drive Tick directly without wiring a real scheduler (carried verbatim
-// from the old tasks dispatcher).
-type SchedulerLike interface {
-	ScheduleEvery(ctx context.Context, every string, fn func(ctx context.Context)) error
-}
-
 // DispatcherConfig wires a Dispatcher. Zero-valued fields fall back to the
 // package defaults below.
 type DispatcherConfig struct {
@@ -103,20 +96,13 @@ func (d *Dispatcher) SetEnqueuer(e goalEnqueuer) {
 	d.cfg.Enqueuer = e
 }
 
-// Start registers the tick on sched. A nil scheduler is silent: callers drive
-// Tick directly (tests).
-func (d *Dispatcher) Start(ctx context.Context, sched SchedulerLike) error {
-	if sched == nil {
-		return nil
-	}
-	return sched.ScheduleEvery(ctx, fmt.Sprintf("%ds", int(d.cfg.TickEvery.Seconds())), func(ctx context.Context) {
-		d.Tick(ctx)
-	})
-}
+// TickInterval is the convergence-tick period. The composition root reads it to
+// register the single-leader River periodic tick (River Phase 2b).
+func (d *Dispatcher) TickInterval() time.Duration { return d.cfg.TickEvery }
 
-// Stop signals the tick to go quiet. In-flight attempts now run as River jobs;
-// draining them is the goal River client's responsibility (Service.StopRiver),
-// not the dispatcher's.
+// Stop signals the tick to go quiet. In-flight attempts now run as River jobs,
+// and the tick itself runs as a River job; draining both is the shared River
+// client's responsibility, not the dispatcher's.
 func (d *Dispatcher) Stop() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
