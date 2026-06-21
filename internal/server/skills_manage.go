@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -13,7 +12,7 @@ import (
 // writeConflictOrInternal maps a duplicate-name store error to 409 and any other
 // error to 500.
 func (s *Server) writeConflictOrInternal(w http.ResponseWriter, err error) {
-	if strings.Contains(err.Error(), "UNIQUE constraint") {
+	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "a skill with this name already exists in this scope")
 		return
 	}
