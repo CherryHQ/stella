@@ -26,10 +26,11 @@ WHERE job_id = $1 AND status = 'running';
 -- Transaction-scoped advisory lock keyed on a hash of the job ID. Held until the
 -- enclosing transaction ends, it serializes concurrent tryStartJobRun calls for
 -- the same job so the running-run check and insert below are atomic under Read
--- Committed without a schema-level unique constraint. hashtext maps the text id
--- to the integer key pg_advisory_xact_lock expects; a hash collision only
--- serializes two unrelated jobs occasionally, which is harmless.
-SELECT pg_advisory_xact_lock(hashtext(sqlc.arg(job_id)));
+-- Committed without a schema-level unique constraint. hashtextextended maps the
+-- text id straight to the 64-bit key pg_advisory_xact_lock expects (matching
+-- AdvisoryXactLock); a hash collision only serializes two unrelated jobs
+-- occasionally, which is harmless.
+SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(job_id), 0));
 
 -- name: ListFailedInboxSchedulerRuns :many
 SELECT
