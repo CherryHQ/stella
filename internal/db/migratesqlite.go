@@ -186,7 +186,7 @@ func pgBaseTables(ctx context.Context, q querier) ([]string, error) {
 		SELECT tablename FROM pg_tables
 		WHERE schemaname = 'public'
 		  AND tablename <> 'schema_migrations'
-		  AND tablename NOT LIKE 'river_%'
+		  AND tablename NOT LIKE 'river\_%' ESCAPE '\'
 		ORDER BY tablename`)
 	if err != nil {
 		return nil, fmt.Errorf("list pg tables: %w", err)
