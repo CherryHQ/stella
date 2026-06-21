@@ -47,6 +47,18 @@ func OpenDB(dsn string) (*pgxpool.Pool, error) {
 	// differently on a UTC CI box and a +08 dev box. timezone=UTC rides in the
 	// startup packet, so it holds from the first statement on every connection.
 	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
+	// Tag connections so they are distinguishable in pg_stat_activity and server
+	// logs across the many stellad instances that may share one server.
+	cfg.ConnConfig.RuntimeParams["application_name"] = "stellad"
+	// Bound a transaction that opens then stalls (a wedged agent run, a leaked tx):
+	// without this it pins its backend, locks, and MVCC snapshot indefinitely on the
+	// shared server. statement_timeout is deliberately left off — agent runs are
+	// legitimately long; only the idle-in-transaction case is dangerous.
+	cfg.ConnConfig.RuntimeParams["idle_in_transaction_session_timeout"] = "60s"
+	// Fail fast when the host is unreachable or accepts TCP but never answers,
+	// instead of blocking startup and lazy acquisitions forever — pgx/libpq sets no
+	// default connect timeout. Applies to every dial, eager or lazy.
+	cfg.ConnConfig.ConnectTimeout = 10 * time.Second
 	// Emit one span per query when a parent span is active (see queryTracer).
 	cfg.ConnConfig.Tracer = queryTracer{}
 	// Treat the native uuid type as text on the wire so sqlc's `string` id/FK
@@ -102,8 +114,19 @@ func OpenDB(dsn string) (*pgxpool.Pool, error) {
 	// max_connections (default 100). A finite lifetime recycles connections so a
 	// long-lived process doesn't pin stale backends. Production with high
 	// concurrency should front PostgreSQL with pgbouncer or raise these.
+	//
+	// Pooler note: connections use pgx's default prepared-statement exec mode and
+	// migrate() takes a session-scoped advisory lock — both require a SESSION-pooling
+	// pgbouncer. For transaction pooling, use pgbouncer >= 1.21 with
+	// max_prepared_statements set and run migrations against a direct connection.
 	cfg.MaxConns = 20
+	// A small warm floor so a burst right after idle reaping doesn't all pay full
+	// connect + TLS + per-connection codec-registration latency.
+	cfg.MinConns = 2
 	cfg.MaxConnLifetime = 30 * time.Minute
+	// Desynchronize recycling so connections opened together at startup don't all
+	// tear down and reconnect within the same brief window.
+	cfg.MaxConnLifetimeJitter = 5 * time.Minute
 	cfg.MaxConnIdleTime = 5 * time.Minute
 
 	ctx := context.Background()
