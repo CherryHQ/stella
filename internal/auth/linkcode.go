@@ -3,13 +3,16 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -32,7 +35,7 @@ type linkCodeEntry struct {
 // the shared constructor persists them to the Stella DB for cross-process use.
 type LinkCodeStore struct {
 	codes sync.Map // string -> linkCodeEntry
-	db    *sql.DB
+	db    *pgxpool.Pool
 }
 
 // NewLinkCodeStore creates a new link code store.
@@ -42,7 +45,7 @@ func NewLinkCodeStore() *LinkCodeStore {
 
 // NewSharedLinkCodeStore creates a link code store backed by the shared Stella DB
 // so admin and channel subprocesses can exchange codes across processes.
-func NewSharedLinkCodeStore(ctx context.Context, db *sql.DB) (*LinkCodeStore, error) {
+func NewSharedLinkCodeStore(ctx context.Context, db *pgxpool.Pool) (*LinkCodeStore, error) {
 	if db == nil {
 		return nil, fmt.Errorf("link code store: nil db")
 	}
@@ -129,7 +132,7 @@ func isAlphanumeric(c rune) bool {
 func (s *LinkCodeStore) ensureSchema(ctx context.Context) error {
 	// Drop and recreate to ensure the schema is current. Link codes are
 	// ephemeral (5-minute TTL), so losing in-flight codes on restart is safe.
-	if _, err := s.db.ExecContext(ctx, `DROP TABLE IF EXISTS auth_link_codes`); err != nil {
+	if _, err := s.db.Exec(ctx, `DROP TABLE IF EXISTS auth_link_codes`); err != nil {
 		return fmt.Errorf("link code store: drop schema: %w", err)
 	}
 	const stmt = `CREATE TABLE auth_link_codes (
@@ -138,7 +141,7 @@ func (s *LinkCodeStore) ensureSchema(ctx context.Context) error {
 		platform TEXT NOT NULL,
 		expire_at INTEGER NOT NULL
 	)`
-	if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+	if _, err := s.db.Exec(ctx, stmt); err != nil {
 		return fmt.Errorf("link code store: create schema: %w", err)
 	}
 	return nil
@@ -155,7 +158,7 @@ func (s *LinkCodeStore) generateShared(ctx context.Context, code string, userID 
 		user_id = excluded.user_id,
 		platform = excluded.platform,
 		expire_at = excluded.expire_at`
-	_, err := s.db.ExecContext(ctx, stmt, code, userID, platform, time.Now().Add(linkCodeTTL).Unix())
+	_, err := s.db.Exec(ctx, stmt, code, userID, platform, time.Now().Add(linkCodeTTL).Unix())
 	if err != nil {
 		return fmt.Errorf("link code store: insert code: %w", err)
 	}
@@ -177,8 +180,8 @@ func (s *LinkCodeStore) consumeShared(ctx context.Context, code string) (string,
 		platform string
 		expireAt int64
 	)
-	err := s.db.QueryRowContext(ctx, stmt, code).Scan(&userID, &platform, &expireAt)
-	if err == sql.ErrNoRows {
+	err := s.db.QueryRow(ctx, stmt, code).Scan(&userID, &platform, &expireAt)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", false
 	}
 	if err != nil {
@@ -193,7 +196,7 @@ func (s *LinkCodeStore) consumeShared(ctx context.Context, code string) (string,
 
 func (s *LinkCodeStore) deleteExpired(ctx context.Context) error {
 	const stmt = `DELETE FROM auth_link_codes WHERE expire_at <= $1`
-	_, err := s.db.ExecContext(ctx, stmt, time.Now().Unix())
+	_, err := s.db.Exec(ctx, stmt, time.Now().Unix())
 	if err != nil {
 		return fmt.Errorf("link code store: delete expired: %w", err)
 	}

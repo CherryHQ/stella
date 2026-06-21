@@ -1,12 +1,13 @@
 package lcm
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -57,19 +58,19 @@ func TestParseTime(t *testing.T) {
 
 func TestParseNullTime(t *testing.T) {
 	// Invalid null time.
-	ns := sql.NullTime{Valid: false}
+	ns := pgtype.Timestamptz{Valid: false}
 	if parseNullTime(ns) != nil {
 		t.Error("expected nil for invalid null time")
 	}
 
 	// Valid but zero time.
-	ns = sql.NullTime{Valid: true, Time: time.Time{}}
+	ns = pgtype.Timestamptz{Valid: true, Time: time.Time{}}
 	if parseNullTime(ns) != nil {
 		t.Error("expected nil for zero time")
 	}
 
 	// Valid and non-zero.
-	ns = sql.NullTime{Valid: true, Time: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)}
+	ns = pgtype.Timestamptz{Valid: true, Time: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)}
 	got := parseNullTime(ns)
 	if got == nil {
 		t.Error("expected non-nil time for valid date")
@@ -93,7 +94,7 @@ func TestGenerateSummaryID(t *testing.T) {
 }
 
 func TestParseNullTime_EmptyString(t *testing.T) {
-	ns := sql.NullTime{Valid: true, Time: time.Time{}}
+	ns := pgtype.Timestamptz{Valid: true, Time: time.Time{}}
 	if parseNullTime(ns) != nil {
 		t.Error("expected nil for valid zero time")
 	}
@@ -125,8 +126,8 @@ func TestFormatSummaryXML_Condensed(t *testing.T) {
 		Depth:           1,
 		Content:         "condensed content",
 		DescendantCount: 5,
-		EarliestAt:      sql.NullTime{Valid: true, Time: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
-		LatestAt:        sql.NullTime{Valid: true, Time: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)},
+		EarliestAt:      pgtype.Timestamptz{Valid: true, Time: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
+		LatestAt:        pgtype.Timestamptz{Valid: true, Time: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)},
 	}
 	parent := sqlc.CtxSummary{ID: "parent-1"}
 	got := FormatSummaryXML(sum, []sqlc.CtxSummary{parent})
@@ -516,7 +517,7 @@ func makeCtxItem(ord int64, itemType, eventType string) sqlc.CtxItem {
 		Ordinal:        ord,
 		ItemType:       itemType,
 		EventType:      eventType,
-		MessageID:      sql.NullString{String: "msg" + fmt.Sprintf("%d", ord), Valid: itemType == itemTypeMessage},
+		MessageID:      pgtype.Text{String: "msg" + fmt.Sprintf("%d", ord), Valid: itemType == itemTypeMessage},
 	}
 }
 
@@ -680,8 +681,8 @@ func TestFindMessageRuns_ToolPairBoundary(t *testing.T) {
 	items[8].EventType = eventTypeToolCall // item at ordinal 9
 	// Insert a summary between ordinals 9 and 10.
 	items = append(items[:9], append([]sqlc.CtxItem{
-		{ConversationID: "conv1", Ordinal: 10, ItemType: itemTypeSummary, SummaryID: sql.NullString{String: "sum1", Valid: true}},
-	}, sqlc.CtxItem{ConversationID: "conv1", Ordinal: 11, ItemType: itemTypeMessage, EventType: eventTypeToolResult, MessageID: sql.NullString{String: "msg11", Valid: true}})...)
+		{ConversationID: "conv1", Ordinal: 10, ItemType: itemTypeSummary, SummaryID: pgtype.Text{String: "sum1", Valid: true}},
+	}, sqlc.CtxItem{ConversationID: "conv1", Ordinal: 11, ItemType: itemTypeMessage, EventType: eventTypeToolResult, MessageID: pgtype.Text{String: "msg11", Valid: true}})...)
 	for i := int64(12); i <= 20; i++ {
 		items = append(items, makeCtxItem(i, itemTypeMessage, eventTypeText))
 	}

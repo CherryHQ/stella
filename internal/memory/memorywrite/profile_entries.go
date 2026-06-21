@@ -2,13 +2,15 @@ package memorywrite
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -18,7 +20,7 @@ import (
 // memory row. Returns an empty slice when no row or entries exist.
 func GetProfileEntries(ctx context.Context, q *sqlc.Queries, userID, agentID string) ([]memory.ProfileEntry, error) {
 	row, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return []memory.ProfileEntry{}, nil
 	}
 	if err != nil {
@@ -30,12 +32,12 @@ func GetProfileEntries(ctx context.Context, q *sqlc.Queries, userID, agentID str
 // AddProfileEntry appends an auto-generated dated entry to the profile_entries
 // column, bumps version, and records a changelog entry. The manual profile
 // content column is never touched.
-func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, agentID, text string) ([]memory.ProfileEntry, error) {
-	tx, err := db.BeginTx(ctx, nil)
+func AddProfileEntry(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID, agentID, text string) ([]memory.ProfileEntry, error) {
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
 		return nil, err
@@ -49,7 +51,7 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 	if err == nil {
 		beforeJSON = string(old.ProfileEntries)
 		beforeVersion = old.Version
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("read profile entries: %w", err)
 	}
 
@@ -88,15 +90,15 @@ func AddProfileEntry(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID, a
 		Scope:               "profile_entry",
 		Action:              "create",
 		Source:              source,
-		MemoryVersionBefore: sql.NullInt64{Int64: beforeVersion, Valid: true},
-		MemoryVersionAfter:  sql.NullInt64{Int64: row.Version, Valid: true},
-		BeforeText:          sql.NullString{String: beforeJSON, Valid: beforeJSON != "" && beforeJSON != "[]"},
-		AfterText:           sql.NullString{String: string(afterJSON), Valid: true},
+		MemoryVersionBefore: pgtype.Int8{Int64: beforeVersion, Valid: true},
+		MemoryVersionAfter:  pgtype.Int8{Int64: row.Version, Valid: true},
+		BeforeText:          pgtype.Text{String: beforeJSON, Valid: beforeJSON != "" && beforeJSON != "[]"},
+		AfterText:           pgtype.Text{String: string(afterJSON), Valid: true},
 	}); err != nil {
 		return nil, fmt.Errorf("write profile entry changelog: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 	return existing, nil

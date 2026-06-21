@@ -2,10 +2,10 @@ package memorywrite_test
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
@@ -14,13 +14,13 @@ import (
 
 // seedUserAgent inserts a test user (uuid id) and agent (text slug id) and
 // returns the user id so callers thread the same id through every write.
-func seedUserAgent(t *testing.T, db *sql.DB) string {
+func seedUserAgent(t *testing.T, db *pgxpool.Pool) string {
 	t.Helper()
 	userID := uuid.NewString()
-	if _, err := db.Exec(`INSERT INTO auth_user (id, email) VALUES ($1, 'u1@test.local')`, userID); err != nil {
+	if _, err := db.Exec(context.Background(), `INSERT INTO auth_user (id, email) VALUES ($1, 'u1@test.local')`, userID); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled) VALUES ('a1', 'agent1', '', '', '', '', '/tmp', 'user', $1, true)`, userID); err != nil {
+	if _, err := db.Exec(context.Background(), `INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled) VALUES ('a1', 'agent1', '', '', '', '', '/tmp', 'user', $1, true)`, userID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 	return userID

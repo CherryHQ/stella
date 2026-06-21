@@ -21,7 +21,7 @@ type AssignUserAgentParams struct {
 }
 
 func (q *Queries) AssignUserAgent(ctx context.Context, arg AssignUserAgentParams) error {
-	_, err := q.db.ExecContext(ctx, assignUserAgent, arg.UserID, arg.AgentID)
+	_, err := q.db.Exec(ctx, assignUserAgent, arg.UserID, arg.AgentID)
 	return err
 }
 
@@ -30,7 +30,7 @@ SELECT user_id FROM auth_user_agent WHERE agent_id = $1 ORDER BY user_id
 `
 
 func (q *Queries) ListAgentUsers(ctx context.Context, agentID string) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentUsers, agentID)
+	rows, err := q.db.Query(ctx, listAgentUsers, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -43,9 +43,6 @@ func (q *Queries) ListAgentUsers(ctx context.Context, agentID string) ([]string,
 		}
 		items = append(items, user_id)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -57,7 +54,7 @@ SELECT agent_id FROM auth_user_agent WHERE user_id = $1 ORDER BY agent_id
 `
 
 func (q *Queries) ListUserAgents(ctx context.Context, userID string) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listUserAgents, userID)
+	rows, err := q.db.Query(ctx, listUserAgents, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -69,9 +66,6 @@ func (q *Queries) ListUserAgents(ctx context.Context, userID string) ([]string, 
 			return nil, err
 		}
 		items = append(items, agent_id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -89,6 +83,6 @@ type RemoveUserAgentParams struct {
 }
 
 func (q *Queries) RemoveUserAgent(ctx context.Context, arg RemoveUserAgentParams) error {
-	_, err := q.db.ExecContext(ctx, removeUserAgent, arg.UserID, arg.AgentID)
+	_, err := q.db.Exec(ctx, removeUserAgent, arg.UserID, arg.AgentID)
 	return err
 }

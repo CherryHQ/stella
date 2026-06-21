@@ -7,7 +7,6 @@ package groupingest
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +14,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -58,7 +59,7 @@ type UserWriter func(ctx context.Context, actorID string, fact string) error
 
 // Config configures an Ingester.
 type Config struct {
-	DB         *sql.DB
+	DB         *pgxpool.Pool
 	Q          *sqlc.Queries
 	Extractor  Extractor
 	UserWriter UserWriter
@@ -68,7 +69,7 @@ type Config struct {
 
 // Ingester consumes group event logs and extracts memories.
 type Ingester struct {
-	db         *sql.DB
+	db         *pgxpool.Pool
 	q          *sqlc.Queries
 	extractor  Extractor
 	userWriter UserWriter
@@ -139,7 +140,7 @@ func (ing *Ingester) getCursorSeq(ctx context.Context, groupID string) (int64, e
 	if err == nil {
 		return row.LastSeq, nil
 	}
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
 	return 0, fmt.Errorf("get cursor: %w", err)

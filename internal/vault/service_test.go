@@ -2,12 +2,12 @@ package vault_test
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"testing"
 
 	"filippo.io/age"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -373,8 +373,8 @@ func TestLoadEnvForAgentKeepsSystemSecretsWhenUserEntryFails(t *testing.T) {
 	}
 }
 
-func sqlcNullString(value string) sql.NullString {
-	return sql.NullString{String: value, Valid: value != ""}
+func sqlcNullString(value string) pgtype.Text {
+	return pgtype.Text{String: value, Valid: value != ""}
 }
 
 func TestLoadEnvNoAgeKeys(t *testing.T) {

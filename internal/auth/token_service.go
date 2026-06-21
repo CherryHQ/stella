@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgauth "github.com/CherryHQ/stella/pkg/auth"
@@ -160,7 +161,7 @@ func (s *TokenService) ensureAutoTokenLocked(ctx context.Context, userID string,
 		}
 		return true, s.rotateAutoToken(ctx, token)
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return false, fmt.Errorf("token service: get active auto token for user %s: %w", userID, err)
 	}
 
@@ -227,7 +228,7 @@ func (s *TokenService) AuthenticateScoped(ctx context.Context, rawToken string) 
 func (s *TokenService) Authenticate(ctx context.Context, rawToken string) (User, error) {
 	rawToken = strings.TrimSpace(rawToken)
 	if rawToken == "" {
-		return User{}, sql.ErrNoRows
+		return User{}, pgx.ErrNoRows
 	}
 	token, err := s.store.GetActiveUserTokenByHash(ctx, hashToken(rawToken))
 	if err != nil {

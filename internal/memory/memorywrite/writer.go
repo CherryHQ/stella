@@ -5,13 +5,15 @@ package memorywrite
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -22,19 +24,19 @@ import (
 // the read-modify-write of version + changelog cannot interleave. Under SQLite
 // this was implicit (single writer); under PostgreSQL it needs an explicit
 // transaction-scoped advisory lock, released automatically on commit/rollback.
-func lockMemory(ctx context.Context, tx *sql.Tx, userID, agentID string) error {
+func lockMemory(ctx context.Context, tx pgx.Tx, userID, agentID string) error {
 	return appdb.AdvisoryXactLock(ctx, tx, "mem:"+userID+":"+agentID)
 }
 
 // SetProfile writes a profile update within a transaction.
 // It increments the version, reads the before-state, and appends a changelog entry,
 // all atomically. The source is derived from ctx via memory.ChangeSourceFromContext.
-func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string, agentID string, content string) error {
-	tx, err := db.BeginTx(ctx, nil)
+func SetProfile(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, content string) error {
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
 		return err
@@ -48,12 +50,12 @@ func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string,
 	if err == nil {
 		beforeText = old.Content
 		beforeVersion = old.Version
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("read current profile: %w", err)
 	}
 
 	if beforeVersion > 0 && beforeText == content {
-		return tx.Commit()
+		return tx.Commit(ctx)
 	}
 
 	row, err := qtx.UpsertUserAgentMemoryVersioned(ctx, sqlc.UpsertUserAgentMemoryVersionedParams{
@@ -78,25 +80,25 @@ func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string,
 		Scope:               "profile",
 		Action:              action,
 		Source:              source,
-		MemoryVersionBefore: sql.NullInt64{Int64: beforeVersion, Valid: true},
-		MemoryVersionAfter:  sql.NullInt64{Int64: row.Version, Valid: true},
-		BeforeText:          sql.NullString{String: beforeText, Valid: beforeText != ""},
-		AfterText:           sql.NullString{String: content, Valid: content != ""},
+		MemoryVersionBefore: pgtype.Int8{Int64: beforeVersion, Valid: true},
+		MemoryVersionAfter:  pgtype.Int8{Int64: row.Version, Valid: true},
+		BeforeText:          pgtype.Text{String: beforeText, Valid: beforeText != ""},
+		AfterText:           pgtype.Text{String: content, Valid: content != ""},
 	}); err != nil {
 		return fmt.Errorf("write profile changelog: %w", err)
 	}
 
-	return tx.Commit()
+	return tx.Commit(ctx)
 }
 
 // SetAgentSoul writes a soul update within a transaction, incrementing version
 // and appending a changelog entry atomically.
-func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string, agentID string, content string) error {
-	tx, err := db.BeginTx(ctx, nil)
+func SetAgentSoul(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, content string) error {
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
 		return err
@@ -110,12 +112,12 @@ func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID strin
 	if err == nil {
 		beforeText = old.Soul
 		beforeVersion = old.Version
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("read current soul: %w", err)
 	}
 
 	if beforeVersion > 0 && beforeText == content {
-		return tx.Commit()
+		return tx.Commit(ctx)
 	}
 
 	row, err := qtx.UpsertAgentSoulVersioned(ctx, sqlc.UpsertAgentSoulVersionedParams{
@@ -140,24 +142,24 @@ func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID strin
 		Scope:               "soul",
 		Action:              action,
 		Source:              source,
-		MemoryVersionBefore: sql.NullInt64{Int64: beforeVersion, Valid: true},
-		MemoryVersionAfter:  sql.NullInt64{Int64: row.Version, Valid: true},
-		BeforeText:          sql.NullString{String: beforeText, Valid: beforeText != ""},
-		AfterText:           sql.NullString{String: content, Valid: content != ""},
+		MemoryVersionBefore: pgtype.Int8{Int64: beforeVersion, Valid: true},
+		MemoryVersionAfter:  pgtype.Int8{Int64: row.Version, Valid: true},
+		BeforeText:          pgtype.Text{String: beforeText, Valid: beforeText != ""},
+		AfterText:           pgtype.Text{String: content, Valid: content != ""},
 	}); err != nil {
 		return fmt.Errorf("write soul changelog: %w", err)
 	}
 
-	return tx.Commit()
+	return tx.Commit(ctx)
 }
 
 // DeleteProfile writes a changelog entry for a profile deletion, then deletes the record.
-func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string, agentID string) error {
-	tx, err := db.BeginTx(ctx, nil)
+func DeleteProfile(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string) error {
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
 		return err
@@ -171,7 +173,7 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 	if err == nil {
 		beforeText = old.Content
 		beforeVersion = old.Version
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("read current profile: %w", err)
 	}
 
@@ -183,10 +185,10 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 		Scope:               "profile",
 		Action:              "delete",
 		Source:              source,
-		MemoryVersionBefore: sql.NullInt64{Int64: beforeVersion, Valid: beforeVersion > 0},
-		MemoryVersionAfter:  sql.NullInt64{},
-		BeforeText:          sql.NullString{String: beforeText, Valid: beforeText != ""},
-		AfterText:           sql.NullString{},
+		MemoryVersionBefore: pgtype.Int8{Int64: beforeVersion, Valid: beforeVersion > 0},
+		MemoryVersionAfter:  pgtype.Int8{},
+		BeforeText:          pgtype.Text{String: beforeText, Valid: beforeText != ""},
+		AfterText:           pgtype.Text{},
 	}); err != nil {
 		return fmt.Errorf("write delete changelog: %w", err)
 	}
@@ -198,7 +200,7 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 		return fmt.Errorf("delete profile: %w", err)
 	}
 
-	return tx.Commit()
+	return tx.Commit(ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +211,7 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 // Returns an empty slice (not an error) when no row exists or constraints is empty/default.
 func GetConstraints(ctx context.Context, q *sqlc.Queries, userID string, agentID string) ([]memory.ConstraintEntry, error) {
 	row, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return []memory.ConstraintEntry{}, nil
 	}
 	if err != nil {
@@ -220,12 +222,12 @@ func GetConstraints(ctx context.Context, q *sqlc.Queries, userID string, agentID
 
 // AddConstraint appends a new constraint entry transactionally, bumps version,
 // and records a changelog entry with scope='constraint', action='create'.
-func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string, agentID string, text string) ([]memory.ConstraintEntry, error) {
-	tx, err := db.BeginTx(ctx, nil)
+func AddConstraint(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, text string) ([]memory.ConstraintEntry, error) {
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
 		return nil, err
@@ -239,7 +241,7 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 	if err == nil {
 		beforeJSON = string(old.Constraints)
 		beforeVersion = old.Version
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("read constraints: %w", err)
 	}
 
@@ -278,15 +280,15 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 		Scope:               "constraint",
 		Action:              "create",
 		Source:              source,
-		MemoryVersionBefore: sql.NullInt64{Int64: beforeVersion, Valid: true},
-		MemoryVersionAfter:  sql.NullInt64{Int64: row.Version, Valid: true},
-		BeforeText:          sql.NullString{String: beforeJSON, Valid: beforeJSON != "" && beforeJSON != "[]"},
-		AfterText:           sql.NullString{String: string(afterJSON), Valid: true},
+		MemoryVersionBefore: pgtype.Int8{Int64: beforeVersion, Valid: true},
+		MemoryVersionAfter:  pgtype.Int8{Int64: row.Version, Valid: true},
+		BeforeText:          pgtype.Text{String: beforeJSON, Valid: beforeJSON != "" && beforeJSON != "[]"},
+		AfterText:           pgtype.Text{String: string(afterJSON), Valid: true},
 	}); err != nil {
 		return nil, fmt.Errorf("write constraint changelog: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 	return updated, nil
@@ -294,12 +296,12 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID stri
 
 // RemoveConstraint removes a constraint by ID transactionally, bumps version,
 // and records a changelog entry with scope='constraint', action='delete'.
-func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string, agentID string, id string) ([]memory.ConstraintEntry, error) {
-	tx, err := db.BeginTx(ctx, nil)
+func RemoveConstraint(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, id string) ([]memory.ConstraintEntry, error) {
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
 		return nil, err
@@ -313,7 +315,7 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID s
 	if err == nil {
 		beforeJSON = string(old.Constraints)
 		beforeVersion = old.Version
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("read constraints: %w", err)
 	}
 
@@ -351,15 +353,15 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID s
 		Scope:               "constraint",
 		Action:              "delete",
 		Source:              source,
-		MemoryVersionBefore: sql.NullInt64{Int64: beforeVersion, Valid: true},
-		MemoryVersionAfter:  sql.NullInt64{Int64: row.Version, Valid: true},
-		BeforeText:          sql.NullString{String: beforeJSON, Valid: beforeJSON != "" && beforeJSON != "[]"},
-		AfterText:           sql.NullString{String: string(afterJSON), Valid: true},
+		MemoryVersionBefore: pgtype.Int8{Int64: beforeVersion, Valid: true},
+		MemoryVersionAfter:  pgtype.Int8{Int64: row.Version, Valid: true},
+		BeforeText:          pgtype.Text{String: beforeJSON, Valid: beforeJSON != "" && beforeJSON != "[]"},
+		AfterText:           pgtype.Text{String: string(afterJSON), Valid: true},
 	}); err != nil {
 		return nil, fmt.Errorf("write constraint changelog: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 	return updated, nil

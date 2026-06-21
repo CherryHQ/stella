@@ -10,7 +10,6 @@ package eventlog
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -18,6 +17,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -85,11 +87,11 @@ func WithOnInserted(callback func(context.Context, *sqlc.Queries, AppendResult) 
 
 // Store appends to the group event log.
 type Store struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
 // NewStore returns a Store backed by the given database handle.
-func NewStore(db *sql.DB) *Store { return &Store{db: db} }
+func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
 
 // AppendGroupMessage is the single sanctioned append primitive. It runs the
 // closed, idempotent algorithm under a per-group advisory lock (which
@@ -106,11 +108,11 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		opt(&cfg)
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: begin: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := appdb.AdvisoryXactLock(ctx, tx, groupTripleKey(msg.Platform, msg.PlatformGroupID, msg.PlatformThreadID)); err != nil {
 		return AppendResult{}, err
@@ -127,7 +129,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 	if existing, found, err := lookup(ctx, q, groupID, msg, idemKey); err != nil {
 		return AppendResult{}, err
 	} else if found {
-		if err := tx.Commit(); err != nil {
+		if err := tx.Commit(ctx); err != nil {
 			return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 		}
 		return AppendResult{GroupID: groupID, Seq: existing.Seq, Inserted: false, Message: existing}, nil
@@ -162,7 +164,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 	}
 	return result, nil
@@ -185,11 +187,11 @@ func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMess
 		return AppendResult{}, err
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: begin: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := appdb.AdvisoryXactLock(ctx, tx, "gid:"+groupID); err != nil {
 		return AppendResult{}, err
@@ -201,7 +203,7 @@ func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMess
 		return AppendResult{}, err
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 	}
 	return result, nil
@@ -280,11 +282,11 @@ func (s *Store) ResolveGroupID(ctx context.Context, platform, platformGroupID, p
 	if platform == "" || platformGroupID == "" {
 		return "", errors.New("eventlog: platform and platform_group_id are required")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("eventlog: begin: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := appdb.AdvisoryXactLock(ctx, tx, groupTripleKey(platform, platformGroupID, platformThreadID)); err != nil {
 		return "", err
@@ -296,7 +298,7 @@ func (s *Store) ResolveGroupID(ctx context.Context, platform, platformGroupID, p
 		return "", err
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("eventlog: commit: %w", err)
 	}
 	return id, nil
@@ -321,7 +323,7 @@ func resolveGroupID(ctx context.Context, q *sqlc.Queries, platform, platformGrou
 	if err == nil {
 		return state.ID, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("eventlog: get group state: %w", err)
 	}
 	created, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
@@ -338,7 +340,7 @@ func resolveGroupID(ctx context.Context, q *sqlc.Queries, platform, platformGrou
 
 // lookup performs the in-lock dedup check. Tier 1: stable platform_message_id.
 // Tier 2: fallback idempotency key. No key → never a duplicate, always insert.
-func lookup(ctx context.Context, q *sqlc.Queries, groupID string, msg Message, idemKey sql.NullString) (sqlc.CtxGroupMessage, bool, error) {
+func lookup(ctx context.Context, q *sqlc.Queries, groupID string, msg Message, idemKey pgtype.Text) (sqlc.CtxGroupMessage, bool, error) {
 	if msg.PlatformMessageID != "" {
 		row, err := q.GetGroupMessageByPlatformID(ctx, sqlc.GetGroupMessageByPlatformIDParams{
 			GroupID:           groupID,
@@ -357,7 +359,7 @@ func found(row sqlc.CtxGroupMessage, err error) (sqlc.CtxGroupMessage, bool, err
 	if err == nil {
 		return row, true, nil
 	}
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return sqlc.CtxGroupMessage{}, false, nil
 	}
 	return sqlc.CtxGroupMessage{}, false, fmt.Errorf("eventlog: dedup lookup: %w", err)
@@ -366,16 +368,16 @@ func found(row sqlc.CtxGroupMessage, err error) (sqlc.CtxGroupMessage, bool, err
 // idempotencyKey derives the tier-2 fallback key. It is set only when there is
 // no stable platform_message_id but a non-zero platform timestamp exists, so a
 // redelivery without a platform id still collapses to one row.
-func idempotencyKey(groupID string, msg Message) sql.NullString {
+func idempotencyKey(groupID string, msg Message) pgtype.Text {
 	if msg.PlatformMessageID != "" || msg.PlatformTimestamp.IsZero() {
-		return sql.NullString{}
+		return pgtype.Text{}
 	}
 	h := sha256.New()
 	for _, part := range []string{groupID, msg.ActorID, platformTimestamp(msg.PlatformTimestamp), msg.Content} {
 		h.Write([]byte(part))
 		h.Write([]byte{0})
 	}
-	return sql.NullString{String: hex.EncodeToString(h.Sum(nil)), Valid: true}
+	return pgtype.Text{String: hex.EncodeToString(h.Sum(nil)), Valid: true}
 }
 
 // platformTimestamp renders a timestamp as RFC3339Nano UTC, or "" for the zero
@@ -387,19 +389,19 @@ func platformTimestamp(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
-func nullString(s string) sql.NullString {
+func nullString(s string) pgtype.Text {
 	if strings.TrimSpace(s) == "" {
-		return sql.NullString{}
+		return pgtype.Text{}
 	}
-	return sql.NullString{String: s, Valid: true}
+	return pgtype.Text{String: s, Valid: true}
 }
 
 // nullTime maps the zero time to a NULL platform_timestamp and any other time to
 // a valid UTC value, matching the valid/zero semantics platformTimestamp had
 // when the column was stored as text.
-func nullTime(t time.Time) sql.NullTime {
+func nullTime(t time.Time) pgtype.Timestamptz {
 	if t.IsZero() {
-		return sql.NullTime{}
+		return pgtype.Timestamptz{}
 	}
-	return sql.NullTime{Time: t.UTC(), Valid: true}
+	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
 }

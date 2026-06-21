@@ -25,7 +25,7 @@ type AddGroupMemberParams struct {
 }
 
 func (q *Queries) AddGroupMember(ctx context.Context, arg AddGroupMemberParams) (ChannelGroupMember, error) {
-	row := q.db.QueryRowContext(ctx, addGroupMember, arg.GroupID, arg.AgentID, arg.ReplyChannelID)
+	row := q.db.QueryRow(ctx, addGroupMember, arg.GroupID, arg.AgentID, arg.ReplyChannelID)
 	var i ChannelGroupMember
 	err := row.Scan(
 		&i.GroupID,
@@ -42,7 +42,7 @@ SELECT COUNT(*) FROM channel_group_member WHERE group_id = $1
 `
 
 func (q *Queries) CountGroupMembers(ctx context.Context, groupID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countGroupMembers, groupID)
+	row := q.db.QueryRow(ctx, countGroupMembers, groupID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -58,7 +58,7 @@ type GetGroupMemberParams struct {
 }
 
 func (q *Queries) GetGroupMember(ctx context.Context, arg GetGroupMemberParams) (ChannelGroupMember, error) {
-	row := q.db.QueryRowContext(ctx, getGroupMember, arg.GroupID, arg.AgentID)
+	row := q.db.QueryRow(ctx, getGroupMember, arg.GroupID, arg.AgentID)
 	var i ChannelGroupMember
 	err := row.Scan(
 		&i.GroupID,
@@ -75,7 +75,7 @@ SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel
 `
 
 func (q *Queries) ListGroupMembers(ctx context.Context, groupID string) ([]ChannelGroupMember, error) {
-	rows, err := q.db.QueryContext(ctx, listGroupMembers, groupID)
+	rows, err := q.db.Query(ctx, listGroupMembers, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -93,9 +93,6 @@ func (q *Queries) ListGroupMembers(ctx context.Context, groupID string) ([]Chann
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -108,7 +105,7 @@ SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel
 `
 
 func (q *Queries) ListGroupsByAgent(ctx context.Context, agentID string) ([]ChannelGroupMember, error) {
-	rows, err := q.db.QueryContext(ctx, listGroupsByAgent, agentID)
+	rows, err := q.db.Query(ctx, listGroupsByAgent, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -126,9 +123,6 @@ func (q *Queries) ListGroupsByAgent(ctx context.Context, agentID string) ([]Chan
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -141,7 +135,7 @@ SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel
 `
 
 func (q *Queries) ListGroupsByReplyChannel(ctx context.Context, replyChannelID string) ([]ChannelGroupMember, error) {
-	rows, err := q.db.QueryContext(ctx, listGroupsByReplyChannel, replyChannelID)
+	rows, err := q.db.Query(ctx, listGroupsByReplyChannel, replyChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -159,9 +153,6 @@ func (q *Queries) ListGroupsByReplyChannel(ctx context.Context, replyChannelID s
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -179,6 +170,6 @@ type RemoveGroupMemberParams struct {
 }
 
 func (q *Queries) RemoveGroupMember(ctx context.Context, arg RemoveGroupMemberParams) error {
-	_, err := q.db.ExecContext(ctx, removeGroupMember, arg.GroupID, arg.AgentID)
+	_, err := q.db.Exec(ctx, removeGroupMember, arg.GroupID, arg.AgentID)
 	return err
 }

@@ -2,8 +2,9 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
@@ -16,11 +17,11 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	}
 }
 
-func tableExists(t *testing.T, db *sql.DB, name string) bool {
+func tableExists(t *testing.T, db *pgxpool.Pool, name string) bool {
 	t.Helper()
 
 	var exists bool
-	if err := db.QueryRow("SELECT to_regclass($1) IS NOT NULL", name).Scan(&exists); err != nil {
+	if err := db.QueryRow(context.Background(), "SELECT to_regclass($1) IS NOT NULL", name).Scan(&exists); err != nil {
 		t.Fatalf("check table %s exists: %v", name, err)
 	}
 	return exists
@@ -38,14 +39,14 @@ func TestSpanName(t *testing.T) {
 		{"DELETE FROM sessions WHERE id = ?", "DELETE sessions"},
 		{"PRAGMA foreign_keys = on", "PRAGMA"},
 		{"BEGIN", "BEGIN"},
-		{"", "sql.conn.query"},
+		{"", "query"},
 		// sqlc keeps its "-- name:" annotation as the first line.
 		{"-- name: GetActiveAutoAuthUserTokenByUser :one\nSELECT id, user_id FROM auth_user_token\nWHERE user_id = ?", "GetActiveAutoAuthUserTokenByUser (SELECT auth_user_token)"},
 		{"-- name: CreateSession :exec\nINSERT INTO sessions (id) VALUES (?)", "CreateSession (INSERT sessions)"},
 		{"-- name: PingDB :one\nPRAGMA foreign_keys", "PingDB (PRAGMA)"},
 	}
 	for _, c := range cases {
-		if got := spanName(context.Background(), "sql.conn.query", c.query); got != c.want {
+		if got := spanName(c.query); got != c.want {
 			t.Errorf("spanName(%q) = %q, want %q", c.query, got, c.want)
 		}
 	}

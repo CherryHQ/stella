@@ -2,12 +2,13 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
@@ -29,7 +30,7 @@ func (p *Provider) getMemoryRow(ctx context.Context, userID string, agentID stri
 		UserID:  userID,
 		AgentID: agentID,
 	})
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -98,7 +99,7 @@ func (p *Provider) GetProfileAt(ctx context.Context, userID string, agentID stri
 		UserID:             userID,
 		AgentID:            agentID,
 		Scope:              "profile",
-		MemoryVersionAfter: sql.NullInt64{Int64: version, Valid: true},
+		MemoryVersionAfter: pgtype.Int8{Int64: version, Valid: true},
 	})
 	if err == nil {
 		if entry.AfterText.Valid {
@@ -106,7 +107,7 @@ func (p *Provider) GetProfileAt(ctx context.Context, userID string, agentID stri
 		}
 		return "", nil
 	}
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return p.GetProfile(ctx, userID, agentID)
 	}
 	return "", fmt.Errorf("get profile at version %d: %w", version, err)
@@ -121,7 +122,7 @@ func (p *Provider) GetAgentSoulAt(ctx context.Context, userID string, agentID st
 		UserID:             userID,
 		AgentID:            agentID,
 		Scope:              "soul",
-		MemoryVersionAfter: sql.NullInt64{Int64: version, Valid: true},
+		MemoryVersionAfter: pgtype.Int8{Int64: version, Valid: true},
 	})
 	if err == nil {
 		if entry.AfterText.Valid {
@@ -129,7 +130,7 @@ func (p *Provider) GetAgentSoulAt(ctx context.Context, userID string, agentID st
 		}
 		return "", nil
 	}
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return p.GetAgentSoul(ctx, userID, agentID)
 	}
 	return "", fmt.Errorf("get agent soul at version %d: %w", version, err)
@@ -144,7 +145,7 @@ func (p *Provider) GetConstraintsAt(ctx context.Context, userID string, agentID 
 		UserID:             userID,
 		AgentID:            agentID,
 		Scope:              "constraint",
-		MemoryVersionAfter: sql.NullInt64{Int64: version, Valid: true},
+		MemoryVersionAfter: pgtype.Int8{Int64: version, Valid: true},
 	})
 	if err == nil {
 		if entry.AfterText.Valid {
@@ -152,7 +153,7 @@ func (p *Provider) GetConstraintsAt(ctx context.Context, userID string, agentID 
 		}
 		return []memory.ConstraintEntry{}, nil
 	}
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return p.GetConstraints(ctx, userID, agentID)
 	}
 	return nil, fmt.Errorf("get constraints at version %d: %w", version, err)
@@ -174,7 +175,7 @@ func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID str
 			UpdatedAt: snap.UpdatedAt.UTC(),
 		}, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return memory.SessionSnapshot{}, fmt.Errorf("get snapshot: %w", err)
 	}
 
@@ -253,19 +254,19 @@ func changeEntryToParams(e memory.ChangeEntry) sqlc.InsertMemoryChangelogParams 
 		Source:  string(e.Source),
 	}
 	if e.SessionID != "" {
-		p.SessionID = sql.NullString{String: e.SessionID, Valid: true}
+		p.SessionID = pgtype.Text{String: e.SessionID, Valid: true}
 	}
 	if e.MemoryVersionBefore != nil {
-		p.MemoryVersionBefore = sql.NullInt64{Int64: *e.MemoryVersionBefore, Valid: true}
+		p.MemoryVersionBefore = pgtype.Int8{Int64: *e.MemoryVersionBefore, Valid: true}
 	}
 	if e.MemoryVersionAfter != nil {
-		p.MemoryVersionAfter = sql.NullInt64{Int64: *e.MemoryVersionAfter, Valid: true}
+		p.MemoryVersionAfter = pgtype.Int8{Int64: *e.MemoryVersionAfter, Valid: true}
 	}
 	if e.BeforeText != "" {
-		p.BeforeText = sql.NullString{String: e.BeforeText, Valid: true}
+		p.BeforeText = pgtype.Text{String: e.BeforeText, Valid: true}
 	}
 	if e.AfterText != "" {
-		p.AfterText = sql.NullString{String: e.AfterText, Valid: true}
+		p.AfterText = pgtype.Text{String: e.AfterText, Valid: true}
 	}
 	return p
 }

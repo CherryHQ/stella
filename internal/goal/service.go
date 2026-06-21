@@ -2,13 +2,15 @@ package goal
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -86,7 +88,7 @@ const (
 // types.go, never on string Contains. Sessions/sandboxes are minted OUTSIDE the
 // tx.
 type GoalService struct {
-	db                 *sql.DB
+	db                 *pgxpool.Pool
 	q                  *sqlc.Queries
 	newSession         SessionMinter // worker session (KindTask)
 	newPlanningSession SessionMinter // decomposition session (KindDelegate)
@@ -99,7 +101,7 @@ type GoalService struct {
 // New builds a GoalService. The Queries is used for non-transactional
 // reads; mutating methods open their own txns via withTx. Collaborators that
 // are nil on a given path surface as clear errors rather than panics.
-func New(db *sql.DB, q *sqlc.Queries, opts ...Option) *GoalService {
+func New(db *pgxpool.Pool, q *sqlc.Queries, opts ...Option) *GoalService {
 	s := &GoalService{
 		db:    db,
 		q:     q,
@@ -160,47 +162,47 @@ func (s *GoalService) now() string {
 // the service clock so tests can drive it.
 func (s *GoalService) nowTime() time.Time { return s.clock().UTC() }
 
-// nullTime wraps a time as a non-NULL sql.NullTime for nullable TIMESTAMPTZ params.
-func nullTime(t time.Time) sql.NullTime {
-	return sql.NullTime{Time: t, Valid: true}
+// nullTime wraps a time as a non-NULL pgtype.Timestamptz for nullable TIMESTAMPTZ params.
+func nullTime(t time.Time) pgtype.Timestamptz {
+	return pgtype.Timestamptz{Time: t, Valid: true}
 }
 
 // newID mints a new row id (uuid string, matching the old package).
 func newID() string { return uuid.Must(uuid.NewV7()).String() }
 
-// nullStr wraps a possibly-empty string as sql.NullString ("" ⇒ NULL).
-func nullStr(v string) sql.NullString {
+// nullStr wraps a possibly-empty string as pgtype.Text ("" ⇒ NULL).
+func nullStr(v string) pgtype.Text {
 	if v == "" {
-		return sql.NullString{}
+		return pgtype.Text{}
 	}
-	return sql.NullString{String: v, Valid: true}
+	return pgtype.Text{String: v, Valid: true}
 }
 
 // withTx runs fn in a single transaction, rolling back on error and committing
 // on success. It does not retry — SQLite serialization is the caller's concern.
 func (s *GoalService) withTx(ctx context.Context, fn func(*sqlc.Queries) error) (err error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() {
 		if err != nil {
-			_ = tx.Rollback()
+			_ = tx.Rollback(ctx)
 		}
 	}()
 	if err = fn(s.q.WithTx(tx)); err != nil {
 		return err
 	}
-	if cerr := tx.Commit(); cerr != nil {
+	if cerr := tx.Commit(ctx); cerr != nil {
 		err = fmt.Errorf("commit: %w", cerr)
 	}
 	return err
 }
 
-// getGoal loads a row, mapping sql.ErrNoRows to ErrNotFound.
+// getGoal loads a row, mapping pgx.ErrNoRows to ErrNotFound.
 func getGoal(ctx context.Context, q *sqlc.Queries, id string) (sqlc.AgentGoal, error) {
 	d, err := q.GetGoal(ctx, id)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return sqlc.AgentGoal{}, ErrNotFound
 	}
 	return d, err
@@ -226,7 +228,7 @@ func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries
 		e.Authority = AuthoritySystem
 	}
 	row, err := q.AppendAcceptanceEvent(ctx, e)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		// Natural-key conflict (goal, attempt, item, cache_key): the ledger
 		// dedups on re-submit, so a duplicate verdict/check is an idempotent no-op,
 		// not a 500. The fold re-reads the whole ledger, so the unreturned row is
@@ -807,7 +809,7 @@ func (s *GoalService) WaiveEdge(ctx context.Context, downstreamID, upstreamID, r
 			GoalID:     downstreamID,
 			UpstreamID: upstreamID,
 		}); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrNotFound
 			}
 			return fmt.Errorf("get edge: %w", err)

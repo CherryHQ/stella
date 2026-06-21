@@ -2,11 +2,13 @@ package skills
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -18,7 +20,7 @@ import (
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // newTestStore opens a fresh isolated PostgreSQL DB and returns a Store plus a context.
-func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB, context.Context) {
+func newTestStore(t *testing.T) (*SQLiteStore, *pgxpool.Pool, context.Context) {
 	t.Helper()
 	db := dbtest.New(t)
 	return New(db), db, context.Background()
@@ -26,7 +28,7 @@ func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB, context.Context) {
 
 // seedFixtures inserts auth_users and agent rows needed by FK constraints.
 // Returns (userID, agentID).
-func seedFixtures(t *testing.T, db *sql.DB) (string, string) {
+func seedFixtures(t *testing.T, db *pgxpool.Pool) (string, string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -101,8 +103,8 @@ func TestCreateAndLoadFile(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for missing file")
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			t.Errorf("error should wrap sql.ErrNoRows, got: %v", err)
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Errorf("error should wrap pgx.ErrNoRows, got: %v", err)
 		}
 	})
 }
@@ -121,7 +123,7 @@ func TestCreateMissingSkillMD(t *testing.T) {
 
 	// Confirm no row was inserted.
 	var count int
-	if scanErr := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill WHERE name='bad'").Scan(&count); scanErr != nil {
+	if scanErr := db.QueryRow(ctx, "SELECT COUNT(*) FROM skill WHERE name='bad'").Scan(&count); scanErr != nil {
 		t.Fatalf("count: %v", scanErr)
 	}
 	if count != 0 {
@@ -253,16 +255,16 @@ func TestScopeOwnerCheckConstraint(t *testing.T) {
 	bad := []struct {
 		name            string
 		scope           string
-		userID, agentID sql.NullString
+		userID, agentID pgtype.Text
 	}{
-		{"user with agent", "user", sql.NullString{String: userID, Valid: true}, sql.NullString{String: agentID, Valid: true}},
-		{"user_agent without agent", "user_agent", sql.NullString{String: userID, Valid: true}, sql.NullString{}},
-		{"system with owner", "system", sql.NullString{String: userID, Valid: true}, sql.NullString{}},
-		{"system_agent with user", "system_agent", sql.NullString{String: userID, Valid: true}, sql.NullString{String: agentID, Valid: true}},
+		{"user with agent", "user", pgtype.Text{String: userID, Valid: true}, pgtype.Text{String: agentID, Valid: true}},
+		{"user_agent without agent", "user_agent", pgtype.Text{String: userID, Valid: true}, pgtype.Text{}},
+		{"system with owner", "system", pgtype.Text{String: userID, Valid: true}, pgtype.Text{}},
+		{"system_agent with user", "system_agent", pgtype.Text{String: userID, Valid: true}, pgtype.Text{String: agentID, Valid: true}},
 	}
 	for _, b := range bad {
 		t.Run(b.name, func(t *testing.T) {
-			_, err := db.ExecContext(ctx,
+			_, err := db.Exec(ctx,
 				"INSERT INTO skill (id, scope, user_id, agent_id, name, description, status) VALUES ($1, $2, $3, $4, $5, 'd', 'active')",
 				uuid.NewString(), b.scope, b.userID, b.agentID, b.name)
 			if err == nil {
@@ -478,7 +480,7 @@ func TestDeleteCascadesSkillFiles(t *testing.T) {
 
 	// Skill row gone.
 	var skillCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill WHERE id=$1", id).Scan(&skillCount); err != nil {
+	if err := db.QueryRow(ctx, "SELECT COUNT(*) FROM skill WHERE id=$1", id).Scan(&skillCount); err != nil {
 		t.Fatalf("count skills: %v", err)
 	}
 	if skillCount != 0 {
@@ -487,7 +489,7 @@ func TestDeleteCascadesSkillFiles(t *testing.T) {
 
 	// Skill files cascade-deleted.
 	var fileCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill_file WHERE skill_id=$1", id).Scan(&fileCount); err != nil {
+	if err := db.QueryRow(ctx, "SELECT COUNT(*) FROM skill_file WHERE skill_id=$1", id).Scan(&fileCount); err != nil {
 		t.Fatalf("count skill_file: %v", err)
 	}
 	if fileCount != 0 {

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -656,10 +656,10 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, agentID s
 		return
 	}
 	if err := s.q.UpdateConversationTitleBySessionID(r.Context(), sqlc.UpdateConversationTitleBySessionIDParams{
-		Title:     sql.NullString{String: title, Valid: true},
+		Title:     pgtype.Text{String: title, Valid: true},
 		SessionID: sessionID,
-		UserID:    sql.NullString{String: info.UserID, Valid: true},
-		AgentID:   sql.NullString{String: agentID, Valid: agentID != ""},
+		UserID:    pgtype.Text{String: info.UserID, Valid: true},
+		AgentID:   pgtype.Text{String: agentID, Valid: agentID != ""},
 	}); err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -694,8 +694,8 @@ func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request, agentID s
 	if err := s.q.UpdateConversationArchived(r.Context(), sqlc.UpdateConversationArchivedParams{
 		Archived:  true,
 		SessionID: sessionID,
-		UserID:    sql.NullString{String: info.UserID, Valid: true},
-		AgentID:   sql.NullString{String: agentID, Valid: agentID != ""},
+		UserID:    pgtype.Text{String: info.UserID, Valid: true},
+		AgentID:   pgtype.Text{String: agentID, Valid: agentID != ""},
 	}); err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -730,7 +730,7 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 	if info := UserFromContext(r.Context()); info != nil {
 		userID = info.UserID
 	}
-	conv, err := s.q.GetConversationBySessionID(memoryContext(r, agentID), sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: userID, Valid: true}, AgentID: sql.NullString{String: agentID, Valid: agentID != ""}})
+	conv, err := s.q.GetConversationBySessionID(memoryContext(r, agentID), sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: pgtype.Text{String: userID, Valid: true}, AgentID: pgtype.Text{String: agentID, Valid: agentID != ""}})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session not found")
 		return
@@ -950,7 +950,7 @@ func (s *Server) requireSessionConversation(w http.ResponseWriter, r *http.Reque
 	if info := UserFromContext(r.Context()); info != nil {
 		userID = info.UserID
 	}
-	conv, err := s.q.GetConversationBySessionID(memoryContext(r, agentID), sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: userID, Valid: true}, AgentID: sql.NullString{String: agentID, Valid: agentID != ""}})
+	conv, err := s.q.GetConversationBySessionID(memoryContext(r, agentID), sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: pgtype.Text{String: userID, Valid: true}, AgentID: pgtype.Text{String: agentID, Valid: agentID != ""}})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session not found")
 		return sqlc.CtxConversation{}, false
@@ -1563,9 +1563,9 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	writeData(w, http.StatusOK, map[string]string{"system_prompt": systemPrompt})
 }
 
-func nullTimeFromStringPtr(p *string) sql.NullTime {
+func nullTimeFromStringPtr(p *string) pgtype.Timestamptz {
 	if p == nil {
-		return sql.NullTime{}
+		return pgtype.Timestamptz{}
 	}
 	// An unparseable after/before yields the zero time; treat that as "no bound"
 	// (NULL) rather than epoch-zero. Passing 0001-01-01 to the page query would
@@ -1573,9 +1573,9 @@ func nullTimeFromStringPtr(p *string) sql.NullTime {
 	// (created_at >= zero) instead of ignoring the malformed bound.
 	t := parseTime(*p)
 	if t.IsZero() {
-		return sql.NullTime{}
+		return pgtype.Timestamptz{}
 	}
-	return sql.NullTime{Time: t, Valid: true}
+	return pgtype.Timestamptz{Time: t, Valid: true}
 }
 
 func logicalPageRowsToMessages(rows []sqlc.ListMessagesByLogicalPageRow) []sqlc.CtxMessage {
@@ -1629,13 +1629,13 @@ func contextRowsFromMessages(messages []sqlc.CtxMessage) []sqlc.ListContextItems
 			Ordinal:           int64(i + 1),
 			ItemType:          "message",
 			EventType:         msg.EventType,
-			MessageID:         sql.NullString{String: msg.ID, Valid: true},
-			MessageSeq:        sql.NullInt64{Int64: msg.Seq, Valid: true},
-			MessageRole:       sql.NullString{String: msg.Role, Valid: true},
-			MessageEventType:  sql.NullString{String: msg.EventType, Valid: true},
-			MessageContent:    sql.NullString{String: msg.Content, Valid: true},
-			MessageTokenCount: sql.NullInt64{Int64: msg.TokenCount, Valid: true},
-			MessageCreatedAt:  sql.NullTime{Time: msg.CreatedAt, Valid: true},
+			MessageID:         pgtype.Text{String: msg.ID, Valid: true},
+			MessageSeq:        pgtype.Int8{Int64: msg.Seq, Valid: true},
+			MessageRole:       pgtype.Text{String: msg.Role, Valid: true},
+			MessageEventType:  pgtype.Text{String: msg.EventType, Valid: true},
+			MessageContent:    pgtype.Text{String: msg.Content, Valid: true},
+			MessageTokenCount: pgtype.Int8{Int64: msg.TokenCount, Valid: true},
+			MessageCreatedAt:  pgtype.Timestamptz{Time: msg.CreatedAt, Valid: true},
 		})
 	}
 	return rows
@@ -1644,7 +1644,7 @@ func contextRowsFromMessages(messages []sqlc.CtxMessage) []sqlc.ListContextItems
 func contextItemFromRow(row sqlc.ListContextItemsPageRow) (apitypes.SessionContextItem, bool) {
 	item := apitypes.SessionContextItem{
 		Ordinal:   int(row.Ordinal),
-		EventType: nullableStringPtr(sql.NullString{String: row.EventType, Valid: row.EventType != ""}),
+		EventType: nullableStringPtr(pgtype.Text{String: row.EventType, Valid: row.EventType != ""}),
 	}
 	switch row.ItemType {
 	case "message":

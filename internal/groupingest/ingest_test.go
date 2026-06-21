@@ -2,11 +2,12 @@ package groupingest_test
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -17,7 +18,7 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-func openTestDB(t *testing.T) (*sql.DB, *sqlc.Queries) {
+func openTestDB(t *testing.T) (*pgxpool.Pool, *sqlc.Queries) {
 	t.Helper()
 	db := dbtest.New(t)
 	return db, sqlc.New(db)
@@ -236,7 +237,7 @@ func TestDeadLetterBadMessage(t *testing.T) {
 		t.Fatalf("append placeholder: %v", err)
 	}
 	// Overwrite content to empty to simulate a bad message.
-	if _, err := db.ExecContext(ctx, `UPDATE ctx_group_message SET content = '' WHERE id = $1`, r2.Message.ID); err != nil {
+	if _, err := db.Exec(ctx, `UPDATE ctx_group_message SET content = '' WHERE id = $1`, r2.Message.ID); err != nil {
 		t.Fatalf("overwrite content: %v", err)
 	}
 

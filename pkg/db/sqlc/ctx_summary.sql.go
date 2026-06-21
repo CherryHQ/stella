@@ -7,10 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createSummary = `-- name: CreateSummary :exec
@@ -19,21 +18,21 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 `
 
 type CreateSummaryParams struct {
-	ID                      string       `json:"id"`
-	ConversationID          string       `json:"conversation_id"`
-	Kind                    string       `json:"kind"`
-	Depth                   int64        `json:"depth"`
-	Content                 string       `json:"content"`
-	TokenCount              int64        `json:"token_count"`
-	EarliestAt              sql.NullTime `json:"earliest_at"`
-	LatestAt                sql.NullTime `json:"latest_at"`
-	DescendantCount         int64        `json:"descendant_count"`
-	DescendantTokenCount    int64        `json:"descendant_token_count"`
-	SourceMessageTokenCount int64        `json:"source_message_token_count"`
+	ID                      string             `json:"id"`
+	ConversationID          string             `json:"conversation_id"`
+	Kind                    string             `json:"kind"`
+	Depth                   int64              `json:"depth"`
+	Content                 string             `json:"content"`
+	TokenCount              int64              `json:"token_count"`
+	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
+	LatestAt                pgtype.Timestamptz `json:"latest_at"`
+	DescendantCount         int64              `json:"descendant_count"`
+	DescendantTokenCount    int64              `json:"descendant_token_count"`
+	SourceMessageTokenCount int64              `json:"source_message_token_count"`
 }
 
 func (q *Queries) CreateSummary(ctx context.Context, arg CreateSummaryParams) error {
-	_, err := q.db.ExecContext(ctx, createSummary,
+	_, err := q.db.Exec(ctx, createSummary,
 		arg.ID,
 		arg.ConversationID,
 		arg.Kind,
@@ -54,7 +53,7 @@ SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, late
 `
 
 func (q *Queries) GetSummariesByConversation(ctx context.Context, conversationID string) ([]CtxSummary, error) {
-	rows, err := q.db.QueryContext(ctx, getSummariesByConversation, conversationID)
+	rows, err := q.db.Query(ctx, getSummariesByConversation, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -80,9 +79,6 @@ func (q *Queries) GetSummariesByConversation(ctx context.Context, conversationID
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -102,7 +98,7 @@ type GetSummariesByDepthParams struct {
 }
 
 func (q *Queries) GetSummariesByDepth(ctx context.Context, arg GetSummariesByDepthParams) ([]CtxSummary, error) {
-	rows, err := q.db.QueryContext(ctx, getSummariesByDepth, arg.ConversationID, arg.Depth)
+	rows, err := q.db.Query(ctx, getSummariesByDepth, arg.ConversationID, arg.Depth)
 	if err != nil {
 		return nil, err
 	}
@@ -129,9 +125,6 @@ func (q *Queries) GetSummariesByDepth(ctx context.Context, arg GetSummariesByDep
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -148,7 +141,7 @@ type GetSummaryParams struct {
 }
 
 func (q *Queries) GetSummary(ctx context.Context, arg GetSummaryParams) (CtxSummary, error) {
-	row := q.db.QueryRowContext(ctx, getSummary, arg.ID, arg.ConversationID)
+	row := q.db.QueryRow(ctx, getSummary, arg.ID, arg.ConversationID)
 	var i CtxSummary
 	err := row.Scan(
 		&i.ID,
@@ -173,7 +166,7 @@ SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, late
 `
 
 func (q *Queries) GetSummaryByID(ctx context.Context, id string) (CtxSummary, error) {
-	row := q.db.QueryRowContext(ctx, getSummaryByID, id)
+	row := q.db.QueryRow(ctx, getSummaryByID, id)
 	var i CtxSummary
 	err := row.Scan(
 		&i.ID,
@@ -201,7 +194,7 @@ ORDER BY sp.ordinal ASC
 `
 
 func (q *Queries) GetSummaryChildren(ctx context.Context, parentSummaryID string) ([]CtxSummary, error) {
-	rows, err := q.db.QueryContext(ctx, getSummaryChildren, parentSummaryID)
+	rows, err := q.db.Query(ctx, getSummaryChildren, parentSummaryID)
 	if err != nil {
 		return nil, err
 	}
@@ -227,9 +220,6 @@ func (q *Queries) GetSummaryChildren(ctx context.Context, parentSummaryID string
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -252,7 +242,7 @@ type GetSummaryMessageSeqRangeRow struct {
 }
 
 func (q *Queries) GetSummaryMessageSeqRange(ctx context.Context, summaryID string) (GetSummaryMessageSeqRangeRow, error) {
-	row := q.db.QueryRowContext(ctx, getSummaryMessageSeqRange, summaryID)
+	row := q.db.QueryRow(ctx, getSummaryMessageSeqRange, summaryID)
 	var i GetSummaryMessageSeqRangeRow
 	err := row.Scan(&i.MessageSeqFrom, &i.MessageSeqTo)
 	return i, err
@@ -266,7 +256,7 @@ ORDER BY sm.ordinal ASC
 `
 
 func (q *Queries) GetSummaryMessages(ctx context.Context, summaryID string) ([]CtxMessage, error) {
-	rows, err := q.db.QueryContext(ctx, getSummaryMessages, summaryID)
+	rows, err := q.db.Query(ctx, getSummaryMessages, summaryID)
 	if err != nil {
 		return nil, err
 	}
@@ -289,9 +279,6 @@ func (q *Queries) GetSummaryMessages(ctx context.Context, summaryID string) ([]C
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -306,7 +293,7 @@ ORDER BY sp.ordinal ASC
 `
 
 func (q *Queries) GetSummaryParents(ctx context.Context, summaryID string) ([]CtxSummary, error) {
-	rows, err := q.db.QueryContext(ctx, getSummaryParents, summaryID)
+	rows, err := q.db.Query(ctx, getSummaryParents, summaryID)
 	if err != nil {
 		return nil, err
 	}
@@ -332,9 +319,6 @@ func (q *Queries) GetSummaryParents(ctx context.Context, summaryID string) ([]Ct
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -354,7 +338,7 @@ type LinkSummaryToMessageParams struct {
 }
 
 func (q *Queries) LinkSummaryToMessage(ctx context.Context, arg LinkSummaryToMessageParams) error {
-	_, err := q.db.ExecContext(ctx, linkSummaryToMessage, arg.SummaryID, arg.MessageID, arg.Ordinal)
+	_, err := q.db.Exec(ctx, linkSummaryToMessage, arg.SummaryID, arg.MessageID, arg.Ordinal)
 	return err
 }
 
@@ -370,7 +354,7 @@ type LinkSummaryToParentParams struct {
 }
 
 func (q *Queries) LinkSummaryToParent(ctx context.Context, arg LinkSummaryToParentParams) error {
-	_, err := q.db.ExecContext(ctx, linkSummaryToParent, arg.SummaryID, arg.ParentSummaryID, arg.Ordinal)
+	_, err := q.db.Exec(ctx, linkSummaryToParent, arg.SummaryID, arg.ParentSummaryID, arg.Ordinal)
 	return err
 }
 
@@ -384,7 +368,7 @@ type ListSummariesByIDsParams struct {
 }
 
 func (q *Queries) ListSummariesByIDs(ctx context.Context, arg ListSummariesByIDsParams) ([]CtxSummary, error) {
-	rows, err := q.db.QueryContext(ctx, listSummariesByIDs, arg.ConversationID, pq.Array(arg.SummaryIds))
+	rows, err := q.db.Query(ctx, listSummariesByIDs, arg.ConversationID, arg.SummaryIds)
 	if err != nil {
 		return nil, err
 	}
@@ -411,9 +395,6 @@ func (q *Queries) ListSummariesByIDs(ctx context.Context, arg ListSummariesByIDs
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -428,7 +409,7 @@ ORDER BY summary_id, ordinal
 `
 
 func (q *Queries) ListSummaryParentsBySummaryIDs(ctx context.Context, summaryIds []string) ([]CtxSummaryParent, error) {
-	rows, err := q.db.QueryContext(ctx, listSummaryParentsBySummaryIDs, pq.Array(summaryIds))
+	rows, err := q.db.Query(ctx, listSummaryParentsBySummaryIDs, summaryIds)
 	if err != nil {
 		return nil, err
 	}
@@ -440,9 +421,6 @@ func (q *Queries) ListSummaryParentsBySummaryIDs(ctx context.Context, summaryIds
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -467,37 +445,37 @@ LIMIT $4
 `
 
 type SearchSummariesParams struct {
-	Match   string         `json:"match"`
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
-	Limit   int32          `json:"limit"`
+	Match   string      `json:"match"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Limit   int32       `json:"limit"`
 }
 
 type SearchSummariesRow struct {
-	ID                      string         `json:"id"`
-	ConversationID          string         `json:"conversation_id"`
-	Kind                    string         `json:"kind"`
-	Depth                   int64          `json:"depth"`
-	Content                 string         `json:"content"`
-	TokenCount              int64          `json:"token_count"`
-	EarliestAt              sql.NullTime   `json:"earliest_at"`
-	LatestAt                sql.NullTime   `json:"latest_at"`
-	DescendantCount         int64          `json:"descendant_count"`
-	DescendantTokenCount    int64          `json:"descendant_token_count"`
-	SourceMessageTokenCount int64          `json:"source_message_token_count"`
-	CreatedAt               time.Time      `json:"created_at"`
-	ContentTsv              interface{}    `json:"content_tsv"`
-	SessionID               string         `json:"session_id"`
-	ConversationTitle       sql.NullString `json:"conversation_title"`
-	Snippet                 string         `json:"snippet"`
-	Score                   float64        `json:"score"`
+	ID                      string             `json:"id"`
+	ConversationID          string             `json:"conversation_id"`
+	Kind                    string             `json:"kind"`
+	Depth                   int64              `json:"depth"`
+	Content                 string             `json:"content"`
+	TokenCount              int64              `json:"token_count"`
+	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
+	LatestAt                pgtype.Timestamptz `json:"latest_at"`
+	DescendantCount         int64              `json:"descendant_count"`
+	DescendantTokenCount    int64              `json:"descendant_token_count"`
+	SourceMessageTokenCount int64              `json:"source_message_token_count"`
+	CreatedAt               time.Time          `json:"created_at"`
+	ContentTsv              interface{}        `json:"content_tsv"`
+	SessionID               string             `json:"session_id"`
+	ConversationTitle       pgtype.Text        `json:"conversation_title"`
+	Snippet                 string             `json:"snippet"`
+	Score                   float64            `json:"score"`
 }
 
 // Spans every conversation of the current (user_id, agent_id); see SearchMessages.
 // TODO(Phase 5): validate ranking/snippet quality and the CJK trigram tier on
 // real PostgreSQL; CJK queries fall through to SearchSummariesLike (pg_trgm).
 func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams) ([]SearchSummariesRow, error) {
-	rows, err := q.db.QueryContext(ctx, searchSummaries,
+	rows, err := q.db.Query(ctx, searchSummaries,
 		arg.Match,
 		arg.UserID,
 		arg.AgentID,
@@ -533,9 +511,6 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -557,33 +532,33 @@ LIMIT $4
 `
 
 type SearchSummariesLikeParams struct {
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
-	Pattern []byte         `json:"pattern"`
-	Limit   int32          `json:"limit"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Pattern []byte      `json:"pattern"`
+	Limit   int32       `json:"limit"`
 }
 
 type SearchSummariesLikeRow struct {
-	ID                      string         `json:"id"`
-	ConversationID          string         `json:"conversation_id"`
-	Kind                    string         `json:"kind"`
-	Depth                   int64          `json:"depth"`
-	Content                 string         `json:"content"`
-	TokenCount              int64          `json:"token_count"`
-	EarliestAt              sql.NullTime   `json:"earliest_at"`
-	LatestAt                sql.NullTime   `json:"latest_at"`
-	DescendantCount         int64          `json:"descendant_count"`
-	DescendantTokenCount    int64          `json:"descendant_token_count"`
-	SourceMessageTokenCount int64          `json:"source_message_token_count"`
-	CreatedAt               time.Time      `json:"created_at"`
-	ContentTsv              interface{}    `json:"content_tsv"`
-	SessionID               string         `json:"session_id"`
-	ConversationTitle       sql.NullString `json:"conversation_title"`
+	ID                      string             `json:"id"`
+	ConversationID          string             `json:"conversation_id"`
+	Kind                    string             `json:"kind"`
+	Depth                   int64              `json:"depth"`
+	Content                 string             `json:"content"`
+	TokenCount              int64              `json:"token_count"`
+	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
+	LatestAt                pgtype.Timestamptz `json:"latest_at"`
+	DescendantCount         int64              `json:"descendant_count"`
+	DescendantTokenCount    int64              `json:"descendant_token_count"`
+	SourceMessageTokenCount int64              `json:"source_message_token_count"`
+	CreatedAt               time.Time          `json:"created_at"`
+	ContentTsv              interface{}        `json:"content_tsv"`
+	SessionID               string             `json:"session_id"`
+	ConversationTitle       pgtype.Text        `json:"conversation_title"`
 }
 
 // Fallback for queries with no token of 3+ runes (see SearchMessagesLike).
 func (q *Queries) SearchSummariesLike(ctx context.Context, arg SearchSummariesLikeParams) ([]SearchSummariesLikeRow, error) {
-	rows, err := q.db.QueryContext(ctx, searchSummariesLike,
+	rows, err := q.db.Query(ctx, searchSummariesLike,
 		arg.UserID,
 		arg.AgentID,
 		arg.Pattern,
@@ -616,9 +591,6 @@ func (q *Queries) SearchSummariesLike(ctx context.Context, arg SearchSummariesLi
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

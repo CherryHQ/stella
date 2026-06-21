@@ -113,7 +113,7 @@ func serverAction(c *ucli.Context) error {
 		// pool first so the server shuts down without active connections. Only set
 		// in zero-config mode; an external DSN leaves s.embedded nil.
 		if s.embedded != nil {
-			_ = s.db.Close()
+			s.db.Close()
 			_ = s.embedded.Stop()
 		}
 	}()

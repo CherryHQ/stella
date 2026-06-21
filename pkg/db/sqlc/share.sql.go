@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createShare = `-- name: CreateShare :one
@@ -20,17 +21,17 @@ RETURNING id, token_hash, user_id, title, media_type, content, expires_at, creat
 `
 
 type CreateShareParams struct {
-	ID        string       `json:"id"`
-	TokenHash string       `json:"token_hash"`
-	UserID    string       `json:"user_id"`
-	Title     string       `json:"title"`
-	MediaType string       `json:"media_type"`
-	Content   []byte       `json:"content"`
-	ExpiresAt sql.NullTime `json:"expires_at"`
+	ID        string             `json:"id"`
+	TokenHash string             `json:"token_hash"`
+	UserID    string             `json:"user_id"`
+	Title     string             `json:"title"`
+	MediaType string             `json:"media_type"`
+	Content   []byte             `json:"content"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 }
 
 func (q *Queries) CreateShare(ctx context.Context, arg CreateShareParams) (Share, error) {
-	row := q.db.QueryRowContext(ctx, createShare,
+	row := q.db.QueryRow(ctx, createShare,
 		arg.ID,
 		arg.TokenHash,
 		arg.UserID,
@@ -65,11 +66,11 @@ type DeleteShareByUserParams struct {
 }
 
 func (q *Queries) DeleteShareByUser(ctx context.Context, arg DeleteShareByUserParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteShareByUser, arg.ID, arg.UserID)
+	result, err := q.db.Exec(ctx, deleteShareByUser, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const getShareByTokenHash = `-- name: GetShareByTokenHash :one
@@ -79,7 +80,7 @@ WHERE token_hash = $1
 `
 
 func (q *Queries) GetShareByTokenHash(ctx context.Context, tokenHash string) (Share, error) {
-	row := q.db.QueryRowContext(ctx, getShareByTokenHash, tokenHash)
+	row := q.db.QueryRow(ctx, getShareByTokenHash, tokenHash)
 	var i Share
 	err := row.Scan(
 		&i.ID,
@@ -111,18 +112,18 @@ type ListSharesByUserParams struct {
 }
 
 type ListSharesByUserRow struct {
-	ID        string       `json:"id"`
-	TokenHash string       `json:"token_hash"`
-	UserID    string       `json:"user_id"`
-	Title     string       `json:"title"`
-	MediaType string       `json:"media_type"`
-	ExpiresAt sql.NullTime `json:"expires_at"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	ID        string             `json:"id"`
+	TokenHash string             `json:"token_hash"`
+	UserID    string             `json:"user_id"`
+	Title     string             `json:"title"`
+	MediaType string             `json:"media_type"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
 }
 
 func (q *Queries) ListSharesByUser(ctx context.Context, arg ListSharesByUserParams) ([]ListSharesByUserRow, error) {
-	rows, err := q.db.QueryContext(ctx, listSharesByUser, arg.UserID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listSharesByUser, arg.UserID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -143,9 +144,6 @@ func (q *Queries) ListSharesByUser(ctx context.Context, arg ListSharesByUserPara
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

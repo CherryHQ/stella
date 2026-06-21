@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createConversation = `-- name: CreateConversation :one
@@ -18,20 +19,20 @@ RETURNING id, session_id, title, channel, kind, project_id, archived, last_activ
 `
 
 type CreateConversationParams struct {
-	ID         string         `json:"id"`
-	SessionID  string         `json:"session_id"`
-	Title      sql.NullString `json:"title"`
-	Channel    string         `json:"channel"`
-	Kind       string         `json:"kind"`
-	ProjectID  sql.NullString `json:"project_id"`
-	Archived   bool           `json:"archived"`
-	LastActive time.Time      `json:"last_active"`
-	AgentID    sql.NullString `json:"agent_id"`
-	UserID     sql.NullString `json:"user_id"`
+	ID         string      `json:"id"`
+	SessionID  string      `json:"session_id"`
+	Title      pgtype.Text `json:"title"`
+	Channel    string      `json:"channel"`
+	Kind       string      `json:"kind"`
+	ProjectID  pgtype.Text `json:"project_id"`
+	Archived   bool        `json:"archived"`
+	LastActive time.Time   `json:"last_active"`
+	AgentID    pgtype.Text `json:"agent_id"`
+	UserID     pgtype.Text `json:"user_id"`
 }
 
 func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversationParams) (CtxConversation, error) {
-	row := q.db.QueryRowContext(ctx, createConversation,
+	row := q.db.QueryRow(ctx, createConversation,
 		arg.ID,
 		arg.SessionID,
 		arg.Title,
@@ -70,13 +71,13 @@ WHERE id = $1
 `
 
 type GetConversationParams struct {
-	ID      string         `json:"id"`
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
+	ID      string      `json:"id"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) GetConversation(ctx context.Context, arg GetConversationParams) (CtxConversation, error) {
-	row := q.db.QueryRowContext(ctx, getConversation, arg.ID, arg.UserID, arg.AgentID)
+	row := q.db.QueryRow(ctx, getConversation, arg.ID, arg.UserID, arg.AgentID)
 	var i CtxConversation
 	err := row.Scan(
 		&i.ID,
@@ -103,13 +104,13 @@ WHERE session_id = $1
 `
 
 type GetConversationAgentBySessionIDParams struct {
-	SessionID string         `json:"session_id"`
-	UserID    sql.NullString `json:"user_id"`
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
 }
 
-func (q *Queries) GetConversationAgentBySessionID(ctx context.Context, arg GetConversationAgentBySessionIDParams) (sql.NullString, error) {
-	row := q.db.QueryRowContext(ctx, getConversationAgentBySessionID, arg.SessionID, arg.UserID)
-	var agent_id sql.NullString
+func (q *Queries) GetConversationAgentBySessionID(ctx context.Context, arg GetConversationAgentBySessionIDParams) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, getConversationAgentBySessionID, arg.SessionID, arg.UserID)
+	var agent_id pgtype.Text
 	err := row.Scan(&agent_id)
 	return agent_id, err
 }
@@ -122,13 +123,13 @@ WHERE session_id = $1
 `
 
 type GetConversationBySessionIDParams struct {
-	SessionID string         `json:"session_id"`
-	UserID    sql.NullString `json:"user_id"`
-	AgentID   sql.NullString `json:"agent_id"`
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConversationBySessionIDParams) (CtxConversation, error) {
-	row := q.db.QueryRowContext(ctx, getConversationBySessionID, arg.SessionID, arg.UserID, arg.AgentID)
+	row := q.db.QueryRow(ctx, getConversationBySessionID, arg.SessionID, arg.UserID, arg.AgentID)
 	var i CtxConversation
 	err := row.Scan(
 		&i.ID,
@@ -157,13 +158,13 @@ WHERE project_id = $1
 `
 
 type GetMainConversationByProjectParams struct {
-	ProjectID sql.NullString `json:"project_id"`
-	UserID    sql.NullString `json:"user_id"`
-	AgentID   sql.NullString `json:"agent_id"`
+	ProjectID pgtype.Text `json:"project_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) GetMainConversationByProject(ctx context.Context, arg GetMainConversationByProjectParams) (CtxConversation, error) {
-	row := q.db.QueryRowContext(ctx, getMainConversationByProject, arg.ProjectID, arg.UserID, arg.AgentID)
+	row := q.db.QueryRow(ctx, getMainConversationByProject, arg.ProjectID, arg.UserID, arg.AgentID)
 	var i CtxConversation
 	err := row.Scan(
 		&i.ID,
@@ -193,12 +194,12 @@ GROUP BY agent_id
 `
 
 type ListAgentConversationLastActiveRow struct {
-	AgentID    sql.NullString `json:"agent_id"`
-	LastActive interface{}    `json:"last_active"`
+	AgentID    pgtype.Text `json:"agent_id"`
+	LastActive interface{} `json:"last_active"`
 }
 
-func (q *Queries) ListAgentConversationLastActive(ctx context.Context, userID sql.NullString) ([]ListAgentConversationLastActiveRow, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentConversationLastActive, userID)
+func (q *Queries) ListAgentConversationLastActive(ctx context.Context, userID pgtype.Text) ([]ListAgentConversationLastActiveRow, error) {
+	rows, err := q.db.Query(ctx, listAgentConversationLastActive, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -210,9 +211,6 @@ func (q *Queries) ListAgentConversationLastActive(ctx context.Context, userID sq
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -229,12 +227,12 @@ ORDER BY last_active DESC
 `
 
 type ListConversationsParams struct {
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsParams) ([]CtxConversation, error) {
-	rows, err := q.db.QueryContext(ctx, listConversations, arg.UserID, arg.AgentID)
+	rows, err := q.db.Query(ctx, listConversations, arg.UserID, arg.AgentID)
 	if err != nil {
 		return nil, err
 	}
@@ -260,9 +258,6 @@ func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsPa
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -278,12 +273,12 @@ ORDER BY last_active DESC
 `
 
 type ListConversationsAllParams struct {
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversationsAllParams) ([]CtxConversation, error) {
-	rows, err := q.db.QueryContext(ctx, listConversationsAll, arg.UserID, arg.AgentID)
+	rows, err := q.db.Query(ctx, listConversationsAll, arg.UserID, arg.AgentID)
 	if err != nil {
 		return nil, err
 	}
@@ -309,9 +304,6 @@ func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversation
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -324,13 +316,13 @@ SELECT id, session_id, title, channel, kind, project_id, archived, last_active, 
 `
 
 type ListConversationsByKindParams struct {
-	AgentID sql.NullString `json:"agent_id"`
-	UserID  sql.NullString `json:"user_id"`
-	Kind    string         `json:"kind"`
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
+	Kind    string      `json:"kind"`
 }
 
 func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversationsByKindParams) ([]CtxConversation, error) {
-	rows, err := q.db.QueryContext(ctx, listConversationsByKind, arg.AgentID, arg.UserID, arg.Kind)
+	rows, err := q.db.Query(ctx, listConversationsByKind, arg.AgentID, arg.UserID, arg.Kind)
 	if err != nil {
 		return nil, err
 	}
@@ -356,9 +348,6 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -379,18 +368,18 @@ LIMIT NULLIF($8, -1) OFFSET $7
 `
 
 type ListConversationsFilteredParams struct {
-	UserID          sql.NullString `json:"user_id"`
-	AgentID         sql.NullString `json:"agent_id"`
-	IncludeArchived interface{}    `json:"include_archived"`
-	Kind            sql.NullString `json:"kind"`
-	ProjectIDIsNull interface{}    `json:"project_id_is_null"`
-	ProjectID       sql.NullString `json:"project_id"`
-	Offset          int32          `json:"offset"`
-	Limit           interface{}    `json:"limit"`
+	UserID          pgtype.Text `json:"user_id"`
+	AgentID         pgtype.Text `json:"agent_id"`
+	IncludeArchived interface{} `json:"include_archived"`
+	Kind            pgtype.Text `json:"kind"`
+	ProjectIDIsNull interface{} `json:"project_id_is_null"`
+	ProjectID       pgtype.Text `json:"project_id"`
+	Offset          int32       `json:"offset"`
+	Limit           interface{} `json:"limit"`
 }
 
 func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConversationsFilteredParams) ([]CtxConversation, error) {
-	rows, err := q.db.QueryContext(ctx, listConversationsFiltered,
+	rows, err := q.db.Query(ctx, listConversationsFiltered,
 		arg.UserID,
 		arg.AgentID,
 		arg.IncludeArchived,
@@ -426,9 +415,6 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -442,8 +428,8 @@ WHERE agent_id = $1
 ORDER BY last_active DESC
 `
 
-func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID sql.NullString) ([]CtxConversation, error) {
-	rows, err := q.db.QueryContext(ctx, listConversationsForReviewByAgent, agentID)
+func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID pgtype.Text) ([]CtxConversation, error) {
+	rows, err := q.db.Query(ctx, listConversationsForReviewByAgent, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -470,9 +456,6 @@ func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -491,16 +474,16 @@ LIMIT NULLIF($6, -1) OFFSET $5
 `
 
 type ListConversationsForReviewFilteredParams struct {
-	AgentID         sql.NullString `json:"agent_id"`
-	Kind            sql.NullString `json:"kind"`
-	ProjectIDIsNull interface{}    `json:"project_id_is_null"`
-	ProjectID       sql.NullString `json:"project_id"`
-	Offset          int32          `json:"offset"`
-	Limit           interface{}    `json:"limit"`
+	AgentID         pgtype.Text `json:"agent_id"`
+	Kind            pgtype.Text `json:"kind"`
+	ProjectIDIsNull interface{} `json:"project_id_is_null"`
+	ProjectID       pgtype.Text `json:"project_id"`
+	Offset          int32       `json:"offset"`
+	Limit           interface{} `json:"limit"`
 }
 
 func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg ListConversationsForReviewFilteredParams) ([]CtxConversation, error) {
-	rows, err := q.db.QueryContext(ctx, listConversationsForReviewFiltered,
+	rows, err := q.db.Query(ctx, listConversationsForReviewFiltered,
 		arg.AgentID,
 		arg.Kind,
 		arg.ProjectIDIsNull,
@@ -534,9 +517,6 @@ func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg Li
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -549,14 +529,14 @@ WHERE session_id = $2 AND user_id = $3 AND agent_id IS NOT DISTINCT FROM $4
 `
 
 type UpdateConversationArchivedParams struct {
-	Archived  bool           `json:"archived"`
-	SessionID string         `json:"session_id"`
-	UserID    sql.NullString `json:"user_id"`
-	AgentID   sql.NullString `json:"agent_id"`
+	Archived  bool        `json:"archived"`
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationArchived(ctx context.Context, arg UpdateConversationArchivedParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationArchived,
+	_, err := q.db.Exec(ctx, updateConversationArchived,
 		arg.Archived,
 		arg.SessionID,
 		arg.UserID,
@@ -571,13 +551,13 @@ WHERE id = $1 AND user_id = $2 AND agent_id IS NOT DISTINCT FROM $3
 `
 
 type UpdateConversationBootstrappedParams struct {
-	ID      string         `json:"id"`
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
+	ID      string      `json:"id"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationBootstrapped(ctx context.Context, arg UpdateConversationBootstrappedParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationBootstrapped, arg.ID, arg.UserID, arg.AgentID)
+	_, err := q.db.Exec(ctx, updateConversationBootstrapped, arg.ID, arg.UserID, arg.AgentID)
 	return err
 }
 
@@ -602,17 +582,17 @@ WHERE session_id = $5
 `
 
 type UpdateConversationInfoBySessionIDParams struct {
-	Title     sql.NullString `json:"title"`
-	Archived  bool           `json:"archived"`
-	Kind      sql.NullString `json:"kind"`
-	ProjectID sql.NullString `json:"project_id"`
-	SessionID string         `json:"session_id"`
-	UserID    sql.NullString `json:"user_id"`
-	AgentID   sql.NullString `json:"agent_id"`
+	Title     pgtype.Text `json:"title"`
+	Archived  bool        `json:"archived"`
+	Kind      pgtype.Text `json:"kind"`
+	ProjectID pgtype.Text `json:"project_id"`
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationInfoBySessionID(ctx context.Context, arg UpdateConversationInfoBySessionIDParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationInfoBySessionID,
+	_, err := q.db.Exec(ctx, updateConversationInfoBySessionID,
 		arg.Title,
 		arg.Archived,
 		arg.Kind,
@@ -630,15 +610,15 @@ WHERE session_id = $3 AND user_id = $4 AND agent_id IS NOT DISTINCT FROM $5
 `
 
 type UpdateConversationKindProjectParams struct {
-	Kind      string         `json:"kind"`
-	ProjectID sql.NullString `json:"project_id"`
-	SessionID string         `json:"session_id"`
-	UserID    sql.NullString `json:"user_id"`
-	AgentID   sql.NullString `json:"agent_id"`
+	Kind      string      `json:"kind"`
+	ProjectID pgtype.Text `json:"project_id"`
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationKindProject(ctx context.Context, arg UpdateConversationKindProjectParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationKindProject,
+	_, err := q.db.Exec(ctx, updateConversationKindProject,
 		arg.Kind,
 		arg.ProjectID,
 		arg.SessionID,
@@ -654,13 +634,13 @@ WHERE session_id = $1 AND user_id = $2 AND agent_id IS NOT DISTINCT FROM $3
 `
 
 type UpdateConversationLastActiveParams struct {
-	SessionID string         `json:"session_id"`
-	UserID    sql.NullString `json:"user_id"`
-	AgentID   sql.NullString `json:"agent_id"`
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationLastActive(ctx context.Context, arg UpdateConversationLastActiveParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationLastActive, arg.SessionID, arg.UserID, arg.AgentID)
+	_, err := q.db.Exec(ctx, updateConversationLastActive, arg.SessionID, arg.UserID, arg.AgentID)
 	return err
 }
 
@@ -670,14 +650,14 @@ WHERE id = $2 AND user_id = $3 AND agent_id IS NOT DISTINCT FROM $4
 `
 
 type UpdateConversationTitleParams struct {
-	Title   sql.NullString `json:"title"`
-	ID      string         `json:"id"`
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
+	Title   pgtype.Text `json:"title"`
+	ID      string      `json:"id"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationTitle(ctx context.Context, arg UpdateConversationTitleParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationTitle,
+	_, err := q.db.Exec(ctx, updateConversationTitle,
 		arg.Title,
 		arg.ID,
 		arg.UserID,
@@ -692,14 +672,14 @@ WHERE session_id = $2 AND user_id = $3 AND agent_id IS NOT DISTINCT FROM $4
 `
 
 type UpdateConversationTitleBySessionIDParams struct {
-	Title     sql.NullString `json:"title"`
-	SessionID string         `json:"session_id"`
-	UserID    sql.NullString `json:"user_id"`
-	AgentID   sql.NullString `json:"agent_id"`
+	Title     pgtype.Text `json:"title"`
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationTitleBySessionID(ctx context.Context, arg UpdateConversationTitleBySessionIDParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationTitleBySessionID,
+	_, err := q.db.Exec(ctx, updateConversationTitleBySessionID,
 		arg.Title,
 		arg.SessionID,
 		arg.UserID,

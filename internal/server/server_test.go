@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -14,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/CherryHQ/stella/internal/auth"
@@ -45,7 +45,7 @@ func TestMain(m *testing.M) {
 
 type testEnv struct {
 	srv         *server.Server
-	db          *sql.DB
+	db          *pgxpool.Pool
 	store       config.Store
 	pluginHost  *pluginhost.Host
 	authStore   *appdb.AuthStore

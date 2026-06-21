@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +10,8 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -36,7 +37,7 @@ type Service struct {
 	scheduler       gocron.Scheduler
 	onJob           OnJobFunc
 	listeners       []OnJobFunc
-	db              *sql.DB
+	db              *pgxpool.Pool
 	q               *sqlc.Queries
 	ownsDB          bool            // true when Service opened the DB itself
 	ctx             context.Context // lifecycle context from Start
@@ -65,7 +66,7 @@ type Service struct {
 
 // New creates a scheduler service backed by the given database.
 // Call Start to load persisted jobs and begin scheduling.
-func New(db *sql.DB) (*Service, error) {
+func New(db *pgxpool.Pool) (*Service, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler: %w", err)
@@ -90,7 +91,7 @@ func NewFromPath(dsn string) (*Service, error) {
 	}
 	svc, err := New(db)
 	if err != nil {
-		_ = db.Close()
+		db.Close()
 		return nil, err
 	}
 	svc.ownsDB = true
@@ -182,9 +183,7 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 func (s *Service) Stop() error {
 	err := s.scheduler.Shutdown()
 	if s.ownsDB && s.db != nil {
-		if dbErr := s.db.Close(); dbErr != nil && err == nil {
-			err = dbErr
-		}
+		s.db.Close()
 	}
 	return err
 }
@@ -639,7 +638,7 @@ func (s *Service) ListJobRuns(ctx context.Context, jobID string, limit int) ([]J
 	}
 	rows, err := s.q.ListSchedJobRuns(ctx, sqlc.ListSchedJobRunsParams{
 		JobID:  jobID,
-		UserID: sql.NullString{},
+		UserID: pgtype.Text{},
 		Limit:  int32(limit),
 		Offset: 0,
 	})

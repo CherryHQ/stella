@@ -25,7 +25,7 @@ func TestListAgentsIncludesLastActive(t *testing.T) {
 	agentID := findStellaID(t, env)
 	lastActive := inboxTS(-3 * time.Hour)
 
-	_, err := env.db.Exec(`
+	_, err := env.db.Exec(context.Background(), `
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
 		VALUES ($1, $2, 'main', 'web', 'main', $3, $4, $5)
 	`, uuid.NewString(), "last-active-session", agentID, env.adminUser.ID, lastActive)
@@ -196,7 +196,7 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 	seed.goal("goal-review", "blocked", "needs_verdict", "pending", inboxTS(-4*time.Hour))
 	seed.goal("goal-failed", "rejected_final", "", "failed", inboxTS(-6*time.Hour))
 
-	_, err := env.db.ExecContext(ctx, `
+	_, err := env.db.Exec(ctx, `
 		INSERT INTO sched_job (
 			id, name, agent_id, user_id, created_at, updated_at
 		)
@@ -205,7 +205,7 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 	if err != nil {
 		t.Fatalf("seed sched job: %v", err)
 	}
-	_, err = env.db.ExecContext(ctx, `
+	_, err = env.db.Exec(ctx, `
 		INSERT INTO sched_job_run (id, job_id, status, started_at, finished_at, error, user_id)
 		VALUES ('sched-run-1', 'job-1', 'failed', $1, $2, 'schedule boom', $3)
 	`, inboxTS(-3*time.Hour), inboxTS(-2*time.Hour), userID)
@@ -243,14 +243,14 @@ func (s *goalSeeder) insert(id, lifecycle, blockReason, acceptanceState string, 
 	ctx := context.Background()
 	userID := s.env.adminUser.ID
 	sessionID := "goal-session:" + id
-	_, err := s.env.db.ExecContext(ctx, `
+	_, err := s.env.db.Exec(ctx, `
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
 		VALUES ($1, $2, $3, 'task', 'task', $4, $5, $6)
 	`, uuid.NewString(), sessionID, id, s.agentID, userID, updatedAt)
 	if err != nil {
 		s.t.Fatalf("seed conversation %s: %v", sessionID, err)
 	}
-	_, err = s.env.db.ExecContext(ctx, `
+	_, err = s.env.db.Exec(ctx, `
 		INSERT INTO agent_goal (
 			id, user_id, agent_id, root_id, session_id, title,
 			lifecycle, block_reason, acceptance_state, accepted_output,

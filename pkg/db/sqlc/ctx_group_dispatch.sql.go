@@ -7,7 +7,8 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const claimExpiredGroupDispatch = `-- name: ClaimExpiredGroupDispatch :one
@@ -26,13 +27,13 @@ RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, at
 `
 
 type ClaimExpiredGroupDispatchParams struct {
-	LeaseUntil sql.NullTime `json:"lease_until"`
-	ID         string       `json:"id"`
-	Now        sql.NullTime `json:"now"`
+	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
+	ID         string             `json:"id"`
+	Now        pgtype.Timestamptz `json:"now"`
 }
 
 func (q *Queries) ClaimExpiredGroupDispatch(ctx context.Context, arg ClaimExpiredGroupDispatchParams) (CtxGroupDispatch, error) {
-	row := q.db.QueryRowContext(ctx, claimExpiredGroupDispatch, arg.LeaseUntil, arg.ID, arg.Now)
+	row := q.db.QueryRow(ctx, claimExpiredGroupDispatch, arg.LeaseUntil, arg.ID, arg.Now)
 	var i CtxGroupDispatch
 	err := row.Scan(
 		&i.ID,
@@ -67,13 +68,13 @@ RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, at
 `
 
 type ClaimPendingGroupDispatchParams struct {
-	LeaseUntil sql.NullTime `json:"lease_until"`
-	ID         string       `json:"id"`
-	Now        sql.NullTime `json:"now"`
+	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
+	ID         string             `json:"id"`
+	Now        pgtype.Timestamptz `json:"now"`
 }
 
 func (q *Queries) ClaimPendingGroupDispatch(ctx context.Context, arg ClaimPendingGroupDispatchParams) (CtxGroupDispatch, error) {
-	row := q.db.QueryRowContext(ctx, claimPendingGroupDispatch, arg.LeaseUntil, arg.ID, arg.Now)
+	row := q.db.QueryRow(ctx, claimPendingGroupDispatch, arg.LeaseUntil, arg.ID, arg.Now)
 	var i CtxGroupDispatch
 	err := row.Scan(
 		&i.ID,
@@ -99,7 +100,7 @@ WHERE group_message_id = $1
 `
 
 func (q *Queries) CountGroupDispatchByMessage(ctx context.Context, groupMessageID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countGroupDispatchByMessage, groupMessageID)
+	row := q.db.QueryRow(ctx, countGroupDispatchByMessage, groupMessageID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -112,7 +113,7 @@ WHERE group_message_id = $1
 `
 
 func (q *Queries) CountNonTerminalGroupDispatchByMessage(ctx context.Context, groupMessageID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countNonTerminalGroupDispatchByMessage, groupMessageID)
+	row := q.db.QueryRow(ctx, countNonTerminalGroupDispatchByMessage, groupMessageID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -126,20 +127,20 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING
 `
 
 type CreateGroupDispatchParams struct {
-	ID             string       `json:"id"`
-	GroupMessageID string       `json:"group_message_id"`
-	GroupID        string       `json:"group_id"`
-	AgentID        string       `json:"agent_id"`
-	ReplyChannelID string       `json:"reply_channel_id"`
-	Status         string       `json:"status"`
-	AttemptCount   int64        `json:"attempt_count"`
-	LeaseUntil     sql.NullTime `json:"lease_until"`
-	NextAttemptAt  sql.NullTime `json:"next_attempt_at"`
-	LastError      string       `json:"last_error"`
+	ID             string             `json:"id"`
+	GroupMessageID string             `json:"group_message_id"`
+	GroupID        string             `json:"group_id"`
+	AgentID        string             `json:"agent_id"`
+	ReplyChannelID string             `json:"reply_channel_id"`
+	Status         string             `json:"status"`
+	AttemptCount   int64              `json:"attempt_count"`
+	LeaseUntil     pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError      string             `json:"last_error"`
 }
 
 func (q *Queries) CreateGroupDispatch(ctx context.Context, arg CreateGroupDispatchParams) error {
-	_, err := q.db.ExecContext(ctx, createGroupDispatch,
+	_, err := q.db.Exec(ctx, createGroupDispatch,
 		arg.ID,
 		arg.GroupMessageID,
 		arg.GroupID,
@@ -164,17 +165,17 @@ WHERE id = $2
 `
 
 type ExtendRunningGroupDispatchLeaseParams struct {
-	LeaseUntil   sql.NullTime `json:"lease_until"`
-	ID           string       `json:"id"`
-	AttemptCount int64        `json:"attempt_count"`
+	LeaseUntil   pgtype.Timestamptz `json:"lease_until"`
+	ID           string             `json:"id"`
+	AttemptCount int64              `json:"attempt_count"`
 }
 
 func (q *Queries) ExtendRunningGroupDispatchLease(ctx context.Context, arg ExtendRunningGroupDispatchLeaseParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, extendRunningGroupDispatchLease, arg.LeaseUntil, arg.ID, arg.AttemptCount)
+	result, err := q.db.Exec(ctx, extendRunningGroupDispatchLease, arg.LeaseUntil, arg.ID, arg.AttemptCount)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const getGroupDispatch = `-- name: GetGroupDispatch :one
@@ -182,7 +183,7 @@ SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attem
 `
 
 func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDispatch, error) {
-	row := q.db.QueryRowContext(ctx, getGroupDispatch, id)
+	row := q.db.QueryRow(ctx, getGroupDispatch, id)
 	var i CtxGroupDispatch
 	err := row.Scan(
 		&i.ID,
@@ -212,12 +213,12 @@ LIMIT $2
 `
 
 type ListExpiredRunningGroupDispatchParams struct {
-	Now        sql.NullTime `json:"now"`
-	LimitCount int32        `json:"limit_count"`
+	Now        pgtype.Timestamptz `json:"now"`
+	LimitCount int32              `json:"limit_count"`
 }
 
 func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListExpiredRunningGroupDispatchParams) ([]CtxGroupDispatch, error) {
-	rows, err := q.db.QueryContext(ctx, listExpiredRunningGroupDispatch, arg.Now, arg.LimitCount)
+	rows, err := q.db.Query(ctx, listExpiredRunningGroupDispatch, arg.Now, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -243,9 +244,6 @@ func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListE
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -287,12 +285,12 @@ LIMIT $2
 `
 
 type ListPendingGroupDispatchParams struct {
-	Now        sql.NullTime `json:"now"`
-	LimitCount int32        `json:"limit_count"`
+	Now        pgtype.Timestamptz `json:"now"`
+	LimitCount int32              `json:"limit_count"`
 }
 
 func (q *Queries) ListPendingGroupDispatch(ctx context.Context, arg ListPendingGroupDispatchParams) ([]CtxGroupDispatch, error) {
-	rows, err := q.db.QueryContext(ctx, listPendingGroupDispatch, arg.Now, arg.LimitCount)
+	rows, err := q.db.Query(ctx, listPendingGroupDispatch, arg.Now, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -318,9 +316,6 @@ func (q *Queries) ListPendingGroupDispatch(ctx context.Context, arg ListPendingG
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -362,12 +357,12 @@ ORDER BY gd.created_at ASC
 `
 
 type ListPendingGroupDispatchByMessageParams struct {
-	GroupMessageID string       `json:"group_message_id"`
-	Now            sql.NullTime `json:"now"`
+	GroupMessageID string             `json:"group_message_id"`
+	Now            pgtype.Timestamptz `json:"now"`
 }
 
 func (q *Queries) ListPendingGroupDispatchByMessage(ctx context.Context, arg ListPendingGroupDispatchByMessageParams) ([]CtxGroupDispatch, error) {
-	rows, err := q.db.QueryContext(ctx, listPendingGroupDispatchByMessage, arg.GroupMessageID, arg.Now)
+	rows, err := q.db.Query(ctx, listPendingGroupDispatchByMessage, arg.GroupMessageID, arg.Now)
 	if err != nil {
 		return nil, err
 	}
@@ -394,9 +389,6 @@ func (q *Queries) ListPendingGroupDispatchByMessage(ctx context.Context, arg Lis
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -420,11 +412,11 @@ type MarkGroupDispatchCompletedParams struct {
 }
 
 func (q *Queries) MarkGroupDispatchCompleted(ctx context.Context, arg MarkGroupDispatchCompletedParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, markGroupDispatchCompleted, arg.ID, arg.AttemptCount)
+	result, err := q.db.Exec(ctx, markGroupDispatchCompleted, arg.ID, arg.AttemptCount)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const markGroupDispatchFailed = `-- name: MarkGroupDispatchFailed :execrows
@@ -446,11 +438,11 @@ type MarkGroupDispatchFailedParams struct {
 }
 
 func (q *Queries) MarkGroupDispatchFailed(ctx context.Context, arg MarkGroupDispatchFailedParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, markGroupDispatchFailed, arg.LastError, arg.ID, arg.AttemptCount)
+	result, err := q.db.Exec(ctx, markGroupDispatchFailed, arg.LastError, arg.ID, arg.AttemptCount)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const requeueGroupDispatch = `-- name: RequeueGroupDispatch :execrows
@@ -466,14 +458,14 @@ WHERE id = $3
 `
 
 type RequeueGroupDispatchParams struct {
-	NextAttemptAt sql.NullTime `json:"next_attempt_at"`
-	LastError     string       `json:"last_error"`
-	ID            string       `json:"id"`
-	AttemptCount  int64        `json:"attempt_count"`
+	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError     string             `json:"last_error"`
+	ID            string             `json:"id"`
+	AttemptCount  int64              `json:"attempt_count"`
 }
 
 func (q *Queries) RequeueGroupDispatch(ctx context.Context, arg RequeueGroupDispatchParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, requeueGroupDispatch,
+	result, err := q.db.Exec(ctx, requeueGroupDispatch,
 		arg.NextAttemptAt,
 		arg.LastError,
 		arg.ID,
@@ -482,7 +474,7 @@ func (q *Queries) RequeueGroupDispatch(ctx context.Context, arg RequeueGroupDisp
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const setGroupDispatchResultMessage = `-- name: SetGroupDispatchResultMessage :execrows
@@ -501,9 +493,9 @@ type SetGroupDispatchResultMessageParams struct {
 }
 
 func (q *Queries) SetGroupDispatchResultMessage(ctx context.Context, arg SetGroupDispatchResultMessageParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setGroupDispatchResultMessage, arg.ResultMessageID, arg.ID, arg.AttemptCount)
+	result, err := q.db.Exec(ctx, setGroupDispatchResultMessage, arg.ResultMessageID, arg.ID, arg.AttemptCount)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }

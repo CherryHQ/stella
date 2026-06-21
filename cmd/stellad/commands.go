@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -59,7 +59,7 @@ the server, or use "stellad service" to manage it as a background service.`,
 
 type setupResult struct {
 	ctx                      context.Context
-	db                       *sql.DB
+	db                       *pgxpool.Pool
 	embedded                 *appdb.Embedded
 	mem                      memory.Provider
 	store                    config.Store
@@ -300,7 +300,7 @@ func ensureEmbeddedAssets() error {
 	return nil
 }
 
-func setupScheduler(db *sql.DB, phost *pluginhost.Host) (*scheduler.Service, error) {
+func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host) (*scheduler.Service, error) {
 	svc, err := scheduler.New(db)
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
