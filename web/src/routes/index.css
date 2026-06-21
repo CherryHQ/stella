@@ -1,4 +1,14 @@
 .home-page {
+  /* Landing-local tokens. These were referenced throughout this file but never
+     defined, which silently killed every transition/animation shorthand that
+     used them. Mapping them to theme tokens revives the existing motion. */
+  --hero-fg: var(--foreground);
+  --hero-muted: var(--muted-foreground);
+  --hero-rule: var(--border);
+  --motion-fast: 150ms;
+  --motion-base: 320ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
@@ -114,7 +124,28 @@
 
 .home-hero-copy {
   position: relative;
-  animation: fade-up 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Orchestrated hero entrance: each block rises in sequence instead of as one
+   slab, so the eye is led eyebrow -> headline -> body -> actions. */
+.home-hero-copy > * {
+  animation: fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.home-hero-copy > .home-eyebrow {
+  animation-delay: 0.05s;
+}
+
+.home-hero-copy > .home-hero-title {
+  animation-delay: 0.16s;
+}
+
+.home-hero-copy > .home-hero-body {
+  animation-delay: 0.3s;
+}
+
+.home-hero-copy > .home-actions {
+  animation-delay: 0.42s;
 }
 
 .home-hero-title {
@@ -150,6 +181,9 @@
   background: color-mix(in oklch, var(--primary) 16%, transparent);
   border-radius: 0.06em;
   z-index: -1;
+  transform-origin: left;
+  /* Wipes in from the left once the headline has settled. */
+  animation: underline-wipe 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.8s both;
 }
 
 .home-hero-body {
@@ -1132,6 +1166,36 @@
   }
 }
 
+@keyframes underline-wipe {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Pipeline cards cascade in as the section enters the viewport, instead of the
+   whole row appearing at once. Driven by animation (not transition) with a
+   backwards fill so the card's own hover transition stays snappy and unpinned.
+   The parent section is itself a .reveal-element, so cards stay hidden until
+   .is-visible lands. */
+.home-pillars.is-visible .pipeline-step-card {
+  animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.home-pillars.is-visible .pipeline-step-card:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.home-pillars.is-visible .pipeline-step-card:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.home-pillars.is-visible .pipeline-step-card:nth-child(4) {
+  animation-delay: 240ms;
+}
+
 /* ─── Responsive ─── */
 
 @media (max-width: 920px) {
@@ -1228,6 +1292,9 @@
 @media (prefers-reduced-motion: reduce) {
   .home-btn,
   .home-hero-copy,
+  .home-hero-copy > *,
+  .home-hero-title em::after,
+  .home-pillars.is-visible .pipeline-step-card,
   .simulator-approve-gate,
   .dag-node,
   .agent-panel,
