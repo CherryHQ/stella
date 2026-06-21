@@ -7,9 +7,10 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createSchedulerJob = `-- name: CreateSchedulerJob :one
@@ -24,31 +25,31 @@ RETURNING id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, de
 `
 
 type CreateSchedulerJobParams struct {
-	ID            string          `json:"id"`
-	OwnerKind     string          `json:"owner_kind"`
-	ExecScope     string          `json:"exec_scope"`
-	PluginID      string          `json:"plugin_id"`
-	JobKey        string          `json:"job_key"`
-	RuntimeName   string          `json:"runtime_name"`
-	Name          string          `json:"name"`
-	Description   string          `json:"description"`
-	ScheduleCron  string          `json:"schedule_cron"`
-	ScheduleEvery string          `json:"schedule_every"`
-	ScheduleAt    string          `json:"schedule_at"`
-	Message       string          `json:"message"`
-	Payload       json.RawMessage `json:"payload"`
-	SessionMode   string          `json:"session_mode"`
-	Enabled       bool            `json:"enabled"`
-	AgentID       sql.NullString  `json:"agent_id"`
-	UserID        sql.NullString  `json:"user_id"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
-	LastRunAt     sql.NullTime    `json:"last_run_at"`
-	LastError     string          `json:"last_error"`
+	ID            string             `json:"id"`
+	OwnerKind     string             `json:"owner_kind"`
+	ExecScope     string             `json:"exec_scope"`
+	PluginID      string             `json:"plugin_id"`
+	JobKey        string             `json:"job_key"`
+	RuntimeName   string             `json:"runtime_name"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	ScheduleCron  string             `json:"schedule_cron"`
+	ScheduleEvery string             `json:"schedule_every"`
+	ScheduleAt    string             `json:"schedule_at"`
+	Message       string             `json:"message"`
+	Payload       json.RawMessage    `json:"payload"`
+	SessionMode   string             `json:"session_mode"`
+	Enabled       bool               `json:"enabled"`
+	AgentID       pgtype.Text        `json:"agent_id"`
+	UserID        pgtype.Text        `json:"user_id"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	LastRunAt     pgtype.Timestamptz `json:"last_run_at"`
+	LastError     string             `json:"last_error"`
 }
 
 func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJobParams) (SchedJob, error) {
-	row := q.db.QueryRowContext(ctx, createSchedulerJob,
+	row := q.db.QueryRow(ctx, createSchedulerJob,
 		arg.ID,
 		arg.OwnerKind,
 		arg.ExecScope,
@@ -103,7 +104,7 @@ DELETE FROM sched_job WHERE id = $1
 `
 
 func (q *Queries) DeleteSchedulerJob(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteSchedulerJob, id)
+	_, err := q.db.Exec(ctx, deleteSchedulerJob, id)
 	return err
 }
 
@@ -112,7 +113,7 @@ SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, descr
 `
 
 func (q *Queries) GetSchedulerJob(ctx context.Context, id string) (SchedJob, error) {
-	row := q.db.QueryRowContext(ctx, getSchedulerJob, id)
+	row := q.db.QueryRow(ctx, getSchedulerJob, id)
 	var i SchedJob
 	err := row.Scan(
 		&i.ID,
@@ -145,7 +146,7 @@ SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, descr
 `
 
 func (q *Queries) ListAllSchedulerJobs(ctx context.Context) ([]SchedJob, error) {
-	rows, err := q.db.QueryContext(ctx, listAllSchedulerJobs)
+	rows, err := q.db.Query(ctx, listAllSchedulerJobs)
 	if err != nil {
 		return nil, err
 	}
@@ -179,9 +180,6 @@ func (q *Queries) ListAllSchedulerJobs(ctx context.Context) ([]SchedJob, error) 
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -194,7 +192,7 @@ SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, descr
 `
 
 func (q *Queries) ListSchedulerJobs(ctx context.Context) ([]SchedJob, error) {
-	rows, err := q.db.QueryContext(ctx, listSchedulerJobs)
+	rows, err := q.db.Query(ctx, listSchedulerJobs)
 	if err != nil {
 		return nil, err
 	}
@@ -228,9 +226,6 @@ func (q *Queries) ListSchedulerJobs(ctx context.Context) ([]SchedJob, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -246,12 +241,12 @@ ORDER BY created_at
 `
 
 type ListSchedulerJobsByAgentParams struct {
-	AgentID sql.NullString `json:"agent_id"`
-	UserID  sql.NullString `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
 }
 
 func (q *Queries) ListSchedulerJobsByAgent(ctx context.Context, arg ListSchedulerJobsByAgentParams) ([]SchedJob, error) {
-	rows, err := q.db.QueryContext(ctx, listSchedulerJobsByAgent, arg.AgentID, arg.UserID)
+	rows, err := q.db.Query(ctx, listSchedulerJobsByAgent, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -286,9 +281,6 @@ func (q *Queries) ListSchedulerJobsByAgent(ctx context.Context, arg ListSchedule
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -302,14 +294,14 @@ WHERE id = $4
 `
 
 type RecordSchedulerJobRunParams struct {
-	LastRunAt sql.NullTime `json:"last_run_at"`
-	LastError string       `json:"last_error"`
-	UpdatedAt time.Time    `json:"updated_at"`
-	ID        string       `json:"id"`
+	LastRunAt pgtype.Timestamptz `json:"last_run_at"`
+	LastError string             `json:"last_error"`
+	UpdatedAt time.Time          `json:"updated_at"`
+	ID        string             `json:"id"`
 }
 
 func (q *Queries) RecordSchedulerJobRun(ctx context.Context, arg RecordSchedulerJobRunParams) error {
-	_, err := q.db.ExecContext(ctx, recordSchedulerJobRun,
+	_, err := q.db.Exec(ctx, recordSchedulerJobRun,
 		arg.LastRunAt,
 		arg.LastError,
 		arg.UpdatedAt,
@@ -328,30 +320,30 @@ WHERE id = $20
 `
 
 type UpdateSchedulerJobParams struct {
-	OwnerKind     string          `json:"owner_kind"`
-	ExecScope     string          `json:"exec_scope"`
-	PluginID      string          `json:"plugin_id"`
-	JobKey        string          `json:"job_key"`
-	RuntimeName   string          `json:"runtime_name"`
-	Name          string          `json:"name"`
-	Description   string          `json:"description"`
-	ScheduleCron  string          `json:"schedule_cron"`
-	ScheduleEvery string          `json:"schedule_every"`
-	ScheduleAt    string          `json:"schedule_at"`
-	Message       string          `json:"message"`
-	Payload       json.RawMessage `json:"payload"`
-	SessionMode   string          `json:"session_mode"`
-	Enabled       bool            `json:"enabled"`
-	AgentID       sql.NullString  `json:"agent_id"`
-	UserID        sql.NullString  `json:"user_id"`
-	UpdatedAt     time.Time       `json:"updated_at"`
-	LastRunAt     sql.NullTime    `json:"last_run_at"`
-	LastError     string          `json:"last_error"`
-	ID            string          `json:"id"`
+	OwnerKind     string             `json:"owner_kind"`
+	ExecScope     string             `json:"exec_scope"`
+	PluginID      string             `json:"plugin_id"`
+	JobKey        string             `json:"job_key"`
+	RuntimeName   string             `json:"runtime_name"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	ScheduleCron  string             `json:"schedule_cron"`
+	ScheduleEvery string             `json:"schedule_every"`
+	ScheduleAt    string             `json:"schedule_at"`
+	Message       string             `json:"message"`
+	Payload       json.RawMessage    `json:"payload"`
+	SessionMode   string             `json:"session_mode"`
+	Enabled       bool               `json:"enabled"`
+	AgentID       pgtype.Text        `json:"agent_id"`
+	UserID        pgtype.Text        `json:"user_id"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	LastRunAt     pgtype.Timestamptz `json:"last_run_at"`
+	LastError     string             `json:"last_error"`
+	ID            string             `json:"id"`
 }
 
 func (q *Queries) UpdateSchedulerJob(ctx context.Context, arg UpdateSchedulerJobParams) error {
-	_, err := q.db.ExecContext(ctx, updateSchedulerJob,
+	_, err := q.db.Exec(ctx, updateSchedulerJob,
 		arg.OwnerKind,
 		arg.ExecScope,
 		arg.PluginID,

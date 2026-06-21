@@ -2,7 +2,6 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -57,7 +58,7 @@ func firstLine(text string) string {
 
 func TestLeafPassSummarizesRunsConcurrently(t *testing.T) {
 	db := newAssemblerTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 	ctx := context.Background()
 	q := sqlc.New(db)
 	convID, items := seedLeafRuns(t, ctx, q, 4, defaultLeafChunkSize)
@@ -90,7 +91,7 @@ func TestLeafPassSummarizesRunsConcurrently(t *testing.T) {
 
 func TestLeafPassSummarizeFailureWritesNothing(t *testing.T) {
 	db := newAssemblerTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 	ctx := context.Background()
 	q := sqlc.New(db)
 	convID, items := seedLeafRuns(t, ctx, q, 3, defaultLeafChunkSize)
@@ -112,7 +113,7 @@ func TestLeafPassSummarizeFailureWritesNothing(t *testing.T) {
 
 func TestLeafPassWritesSummariesInRunOrder(t *testing.T) {
 	db := newAssemblerTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 	ctx := context.Background()
 	q := sqlc.New(db)
 	convID, items := seedLeafRuns(t, ctx, q, 3, defaultLeafChunkSize)
@@ -163,7 +164,7 @@ func seedLeafRuns(t *testing.T, ctx context.Context, q *sqlc.Queries, runs, runS
 			ConversationID: convID,
 			Ordinal:        ordinal,
 			ItemType:       itemTypeMessage,
-			MessageID:      sql.NullString{String: id, Valid: true},
+			MessageID:      pgtype.Text{String: id, Valid: true},
 			EventType:      eventTypeText,
 			Role:           roleUser,
 		}); err != nil {
@@ -193,7 +194,7 @@ func seedLeafRuns(t *testing.T, ctx context.Context, q *sqlc.Queries, runs, runS
 			ConversationID: convID,
 			Ordinal:        ordinal,
 			ItemType:       itemTypeSummary,
-			SummaryID:      sql.NullString{String: separatorID, Valid: true},
+			SummaryID:      pgtype.Text{String: separatorID, Valid: true},
 			Role:           "",
 		}); err != nil {
 			t.Fatalf("append separator item: %v", err)
@@ -234,10 +235,10 @@ func listSummariesByOrdinal(t *testing.T, ctx context.Context, q *sqlc.Queries, 
 	return out
 }
 
-func countSummaries(t *testing.T, ctx context.Context, db *sql.DB, convID, kind string) int {
+func countSummaries(t *testing.T, ctx context.Context, db *pgxpool.Pool, convID, kind string) int {
 	t.Helper()
 	var count int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ctx_summary WHERE conversation_id = $1 AND kind = $2`, convID, kind).Scan(&count); err != nil {
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM ctx_summary WHERE conversation_id = $1 AND kind = $2`, convID, kind).Scan(&count); err != nil {
 		t.Fatalf("count summaries: %v", err)
 	}
 	return count

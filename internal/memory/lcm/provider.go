@@ -2,7 +2,6 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +9,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -33,7 +35,7 @@ var (
 // Provider implements memory.Provider and all six capability interfaces
 // using the lossless context management algorithm.
 type Provider struct {
-	db           *sql.DB
+	db           *pgxpool.Pool
 	q            *sqlc.Queries
 	assembler    *assembler
 	compaction   *compactionEngine
@@ -47,7 +49,7 @@ type Provider struct {
 // New creates a new LCM provider.
 // summarizerFn provides LLM access for compaction; if nil, compaction is disabled.
 // cfg is the plugin-specific configuration from the plugin.config JSON.
-func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (string, error), cfg map[string]any) (*Provider, error) {
+func New(db *pgxpool.Pool, summarizerFn func(ctx context.Context, prompt string) (string, error), cfg map[string]any) (*Provider, error) {
 	q := sqlc.New(db)
 
 	freshTail := defaultFreshTail
@@ -95,11 +97,11 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 			return err
 		}
 
-		tx, err := p.db.BeginTx(ctx, nil)
+		tx, err := p.db.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin tx: %w", err)
 		}
-		defer func() { _ = tx.Rollback() }()
+		defer func() { _ = tx.Rollback(ctx) }()
 
 		qtx := p.q.WithTx(tx)
 
@@ -134,7 +136,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 					ConversationID: convID,
 					Ordinal:        ordinal,
 					ItemType:       itemTypeMessage,
-					MessageID:      sql.NullString{String: dbMsg.ID, Valid: true},
+					MessageID:      pgtype.Text{String: dbMsg.ID, Valid: true},
 					EventType:      row.eventType,
 					Role:           row.role,
 				})
@@ -144,7 +146,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 			}
 		}
 
-		return tx.Commit()
+		return tx.Commit(ctx)
 	})
 }
 
@@ -167,7 +169,7 @@ func (p *Provider) Stats(ctx context.Context, session memory.Session) (memory.Se
 		return memory.SessionStats{}, err
 	}
 	conv, err := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return memory.SessionStats{}, nil
 	}
 	if err != nil {
@@ -276,7 +278,7 @@ func (p *Provider) summaryDepths(ctx context.Context, items []sqlc.CtxItem) (map
 		}
 		for _, id := range ids {
 			if _, ok := depthOf[id]; !ok {
-				return nil, sql.ErrNoRows
+				return nil, pgx.ErrNoRows
 			}
 		}
 	}
@@ -345,9 +347,9 @@ func parseTime(s string) time.Time {
 	return time.Time{}
 }
 
-// parseNullTime converts a sql.NullTime field into *time.Time, returning nil for
+// parseNullTime converts a pgtype.Timestamptz field into *time.Time, returning nil for
 // NULL or the zero time.
-func parseNullTime(ns sql.NullTime) *time.Time {
+func parseNullTime(ns pgtype.Timestamptz) *time.Time {
 	if !ns.Valid || ns.Time.IsZero() {
 		return nil
 	}

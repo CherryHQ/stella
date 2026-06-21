@@ -2,12 +2,12 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ExtensionRequirement struct {
@@ -23,11 +23,11 @@ var postgresExtensions = []ExtensionRequirement{
 	{Name: "pg_search", RequiresPreload: true},
 }
 
-func ensureExtensions(ctx context.Context, conn *sql.Conn) error {
+func ensureExtensions(ctx context.Context, conn *pgxpool.Conn) error {
 	return ensureExtensionRequirements(ctx, conn, postgresExtensions)
 }
 
-func ensureExtensionRequirements(ctx context.Context, conn *sql.Conn, requirements []ExtensionRequirement) error {
+func ensureExtensionRequirements(ctx context.Context, conn *pgxpool.Conn, requirements []ExtensionRequirement) error {
 	for _, req := range requirements {
 		if !req.Required {
 			continue
@@ -40,17 +40,17 @@ func ensureExtensionRequirements(ctx context.Context, conn *sql.Conn, requiremen
 				return err
 			}
 		}
-		if _, err := conn.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS "+pgx.Identifier{req.Name}.Sanitize()); err != nil {
+		if _, err := conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS "+pgx.Identifier{req.Name}.Sanitize()); err != nil {
 			return fmt.Errorf("create PostgreSQL extension %q: %w", req.Name, err)
 		}
 	}
 	return nil
 }
 
-func checkExtensionAvailable(ctx context.Context, conn *sql.Conn, req ExtensionRequirement) error {
+func checkExtensionAvailable(ctx context.Context, conn *pgxpool.Conn, req ExtensionRequirement) error {
 	var defaultVersion string
-	err := conn.QueryRowContext(ctx, "SELECT default_version FROM pg_available_extensions WHERE name = $1", req.Name).Scan(&defaultVersion)
-	if errors.Is(err, sql.ErrNoRows) {
+	err := conn.QueryRow(ctx, "SELECT default_version FROM pg_available_extensions WHERE name = $1", req.Name).Scan(&defaultVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return missingExtensionError(req.Name)
 	}
 	if err != nil {
@@ -62,9 +62,9 @@ func checkExtensionAvailable(ctx context.Context, conn *sql.Conn, req ExtensionR
 	return nil
 }
 
-func checkExtensionPreloaded(ctx context.Context, conn *sql.Conn, name string) error {
+func checkExtensionPreloaded(ctx context.Context, conn *pgxpool.Conn, name string) error {
 	var preload string
-	if err := conn.QueryRowContext(ctx, "SHOW shared_preload_libraries").Scan(&preload); err != nil {
+	if err := conn.QueryRow(ctx, "SHOW shared_preload_libraries").Scan(&preload); err != nil {
 		return fmt.Errorf("check PostgreSQL shared_preload_libraries for %q: %w", name, err)
 	}
 	if !preloadContains(preload, name) {

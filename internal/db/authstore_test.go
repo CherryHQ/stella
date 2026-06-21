@@ -2,19 +2,19 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/store"
 )
 
-func setupAuthStore(t *testing.T) (*AuthStore, *OIDCStore, *sql.DB) {
+func setupAuthStore(t *testing.T) (*AuthStore, *OIDCStore, *pgxpool.Pool) {
 	t.Helper()
 	db := newTestDB(t)
 	return NewAuthStore(db), NewOIDCStore(db), db
@@ -36,7 +36,7 @@ func createUser(t *testing.T, oidc *OIDCStore, email string) auth.User {
 }
 
 // seedAgent creates a test agent (needed for FK constraints on auth_user_agent).
-func seedAgent(t *testing.T, db *sql.DB, id string) {
+func seedAgent(t *testing.T, db *pgxpool.Pool, id string) {
 	t.Helper()
 	cs := store.NewDBStore(db)
 	ctx := context.Background()
@@ -253,7 +253,7 @@ func TestUserTokenStore(t *testing.T) {
 	}
 
 	expiredAt := time.Now().Add(-time.Hour).UTC().Format("2006-01-02 15:04:05")
-	if _, err := db.ExecContext(ctx, `
+	if _, err := db.Exec(ctx, `
 		INSERT INTO auth_user_token (id, user_id, name, token_hash, token_prefix, expires_at)
 		VALUES ($1, $2, 'expired', 'hash-expired', 'stella_exp', $3)
 	`, uuid.NewString(), user.ID, expiredAt); err != nil {

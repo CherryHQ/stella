@@ -7,22 +7,33 @@ sql:
       go:
         package: "sqlc"
         out: "pkg/db/sqlc"
-        sql_package: "database/sql"
+        sql_package: "pgx/v5"
         emit_json_tags: true
         emit_empty_slices: true
         overrides:
           # JSONB columns map to json.RawMessage (raw, ready to (un)marshal),
           # never a plain string that callers must cast at every boundary.
           # All JSONB columns are NOT NULL; genuinely-nullable JSON payloads stay
-          # TEXT (database/sql cannot scan SQL NULL into json.RawMessage).
+          # TEXT and surface as pgtype.Text.
           - db_type: "jsonb"
             go_type: "encoding/json.RawMessage"
           # UUID id/FK columns are native PG uuid, but stay Go `string` end to end:
-          # the app mints uuidv7 strings and pgx casts string<->uuid on the wire,
-          # so callers never juggle uuid.UUID. Nullable uuid FKs map to NullString.
+          # the app mints uuidv7 strings and compares them as strings, so callers
+          # never juggle uuid.UUID/[16]byte. The pgx pool registers the uuid OID
+          # with a text codec (see OpenDB) so `string` scans/encodes on the wire.
           - db_type: "uuid"
             go_type: "string"
+          # Nullable uuid FKs ride the same text codec; pgtype.Text keeps the
+          # {String, Valid} shape callers already use.
           - db_type: "uuid"
             nullable: true
             go_type:
-              type: "sql.NullString"
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Text"
+          # NOT NULL timestamps stay time.Time (pgx scans timestamptz into it
+          # natively). The pgx driver would otherwise default every created_at/
+          # updated_at to pgtype.Timestamptz; only genuinely-nullable timestamps
+          # surface as pgtype.Timestamptz (same {Time, Valid} shape as the old
+          # sql.NullTime).
+          - db_type: "timestamptz"
+            go_type: "time.Time"

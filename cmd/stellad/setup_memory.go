@@ -2,9 +2,10 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
@@ -65,7 +66,7 @@ func buildMemorySummarizer(store config.Store, providerStreamBuilder agent.Provi
 	}
 }
 
-func setupMemoryProvider(_ context.Context, memDB *sql.DB, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) (memory.Provider, error) {
+func setupMemoryProvider(_ context.Context, memDB *pgxpool.Pool, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) (memory.Provider, error) {
 	summarizer := buildMemorySummarizer(store, providerStreamBuilder)
 	mem, err := memorylcm.New(memDB, summarizer, nil)
 	if err != nil {

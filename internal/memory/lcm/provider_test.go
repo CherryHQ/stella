@@ -13,12 +13,12 @@ func TestConformance(t *testing.T) {
 	db := dbtest.New(t)
 
 	// Seed test agent + user required by ctx_agent_memory / ctx_conversation FK constraints.
-	_, err := db.Exec(`INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
+	_, err := db.Exec(context.Background(), `INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
 		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', 0, true)`)
 	if err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
-	if _, err = db.Exec(`INSERT INTO auth_user (id, email) VALUES ($1, 'user-1@test.local'), ($2, 'profile@test.local')`,
+	if _, err = db.Exec(context.Background(), `INSERT INTO auth_user (id, email) VALUES ($1, 'user-1@test.local'), ($2, 'profile@test.local')`,
 		memorytest.SessionUserID, memorytest.ProfileUserID); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}

@@ -2,23 +2,24 @@ package scheduler
 
 import (
 	"context"
-	"database/sql"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-func testDB(t *testing.T) *sql.DB {
+func testDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	return dbtest.New(t)
 }
 
 // newTestService wraps New.
-func newTestService(t *testing.T, db *sql.DB) *Service {
+func newTestService(t *testing.T, db *pgxpool.Pool) *Service {
 	t.Helper()
 	svc, err := New(db)
 	if err != nil {
@@ -199,8 +200,11 @@ func TestOnJobCallbackFires(t *testing.T) {
 
 	addTestJob(t, svc, "quick", "ping", Schedule{Every: "100ms"}, "")
 
-	// Wait for the callback to fire.
-	deadline := time.After(2 * time.Second)
+	// Wait for the callback to fire. River promotes scheduled jobs to runnable
+	// on its scheduler interval (5s default), so a freshly registered periodic
+	// job's first fire can lag the nominal interval at cold start — allow well
+	// past one scheduler tick rather than asserting sub-second latency.
+	deadline := time.After(12 * time.Second)
 	for {
 		mu.Lock()
 		n := len(fired)
@@ -210,7 +214,7 @@ func TestOnJobCallbackFires(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatal("callback did not fire within 2s")
+			t.Fatal("callback did not fire within 12s")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -274,8 +278,10 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 	at := time.Now().Add(200 * time.Millisecond).Format(time.RFC3339Nano)
 	job := addTestJob(t, svc, "fire-once", "ping once", Schedule{At: at}, "")
 
-	// Wait for the callback to fire and cleanup to happen.
-	deadline := time.After(3 * time.Second)
+	// Wait for the callback to fire and cleanup to happen. River promotes a
+	// scheduled (at) job to runnable on its scheduler interval (5s default), so
+	// allow past one scheduler tick rather than asserting sub-second latency.
+	deadline := time.After(12 * time.Second)
 	for {
 		mu.Lock()
 		n := len(fired)
@@ -285,7 +291,7 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatal("callback did not fire within 3s")
+			t.Fatal("callback did not fire within 12s")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -321,7 +327,7 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 
 	// Manually tamper the job to have a past timestamp to simulate missed window.
 	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
-	_, err := db.Exec("UPDATE sched_job SET schedule_at = $1 WHERE name = $2", pastTime, "restart-test")
+	_, err := db.Exec(context.Background(), "UPDATE sched_job SET schedule_at = $1 WHERE name = $2", pastTime, "restart-test")
 	if err != nil {
 		t.Fatalf("update schedule_at: %v", err)
 	}
@@ -335,17 +341,17 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 		_ = svc2.Stop()
 	}()
 
-	// Job is still in the list (persisted) but not scheduled with gocron.
+	// Job is still in the list (persisted) but not scheduled with River.
 	listed := svc2.ListJobs()
 	if len(listed) != 1 {
 		t.Fatalf("expected 1 persisted job, got %d", len(listed))
 	}
 
 	svc2.mu.Lock()
-	_, hasGID := svc2.gids[listed[0].ID]
+	_, hasRef := svc2.refs[listed[0].ID]
 	svc2.mu.Unlock()
-	if hasGID {
-		t.Error("expected past one-time job to not be scheduled with gocron")
+	if hasRef {
+		t.Error("expected past one-time job to not be scheduled with River")
 	}
 }
 
@@ -579,5 +585,23 @@ func TestRunJobNow_NotFound(t *testing.T) {
 	_, err := svc.RunJobNow(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for unknown job ID")
+	}
+}
+
+// A non-positive Every must be rejected up front: river.PeriodicInterval(0)
+// hot-loops the enqueuer and time.NewTicker(0) panics.
+func TestAddJobRejectsNonPositiveEvery(t *testing.T) {
+	svc := testService(t)
+	for _, every := range []string{"0s", "-5m"} {
+		if _, err := svc.AddJobWithOwner("bad-every", "hi", Schedule{Every: every}, "", "", "user-1"); err == nil {
+			t.Errorf("AddJobWithOwner(every=%q): expected error, got nil", every)
+		}
+	}
+}
+
+func TestScheduleEveryRejectsNonPositive(t *testing.T) {
+	svc := testService(t)
+	if err := svc.ScheduleEvery(context.Background(), "0s", func(context.Context) {}); err == nil {
+		t.Error("ScheduleEvery(0s): expected error, got nil")
 	}
 }

@@ -2,9 +2,10 @@ package channel
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -38,7 +39,7 @@ func addSecondMember(t *testing.T, fx dispatcherFixture) {
 	}
 	if err := fx.q.CreateWebChannelIfNotExists(ctx, sqlc.CreateWebChannelIfNotExistsParams{
 		ID:      "ch-2",
-		AgentID: sql.NullString{String: "agent-2", Valid: true},
+		AgentID: pgtype.Text{String: "agent-2", Valid: true},
 	}); err != nil {
 		t.Fatalf("create ch-2: %v", err)
 	}
@@ -116,7 +117,7 @@ func TestSemanticDispatchUnresolvedMentionBypassesArbiter(t *testing.T) {
 
 func TestSemanticDispatchWebNonMemberMentionTextUsesArbiter(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET content = '@non-member hello' WHERE id = $1`, fx.message.ID); err != nil {
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_message SET content = '@non-member hello' WHERE id = $1`, fx.message.ID); err != nil {
 		t.Fatalf("set message content: %v", err)
 	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: true, RespondingAgents: []string{"agent-1"}}}
@@ -160,7 +161,7 @@ func TestSemanticDispatchNoReplyProducesZeroRows(t *testing.T) {
 // no-mention path would have stayed silent.
 func TestSemanticDispatchTargetedInMentionMode(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE channel SET config = '{"group_mode":"mention"}' WHERE id = 'ch-1'`); err != nil {
+	if _, err := fx.db.Exec(context.Background(), `UPDATE channel SET config = '{"group_mode":"mention"}' WHERE id = 'ch-1'`); err != nil {
 		t.Fatalf("set mention mode: %v", err)
 	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: true, RespondingAgents: []string{"agent-1"}}}
@@ -209,10 +210,10 @@ func TestSemanticDispatchFailureProducesZeroRows(t *testing.T) {
 // metadata sourced from the agent rows.
 func TestSemanticDispatchPassesOwnerAndMembers(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `INSERT INTO auth_user (id, email) VALUES ('99999999-0000-0000-0000-000000000009', 'owner-9@test')`); err != nil {
+	if _, err := fx.db.Exec(context.Background(), `INSERT INTO auth_user (id, email) VALUES ('99999999-0000-0000-0000-000000000009', 'owner-9@test')`); err != nil {
 		t.Fatalf("create owner user: %v", err)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_state SET created_by_user_id = '99999999-0000-0000-0000-000000000009' WHERE id = '11111111-1111-1111-1111-111111111111'`); err != nil {
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET created_by_user_id = '99999999-0000-0000-0000-000000000009' WHERE id = '11111111-1111-1111-1111-111111111111'`); err != nil {
 		t.Fatalf("set owner: %v", err)
 	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: false}}
@@ -235,7 +236,7 @@ func TestSemanticDispatchPassesOwnerAndMembers(t *testing.T) {
 func TestSemanticDispatchUsesSystemPromptAsSummary(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	const prompt = "You are a helpful coding assistant"
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE agent SET system_prompt = $1 WHERE id = 'agent-1'`, prompt); err != nil {
+	if _, err := fx.db.Exec(context.Background(), `UPDATE agent SET system_prompt = $1 WHERE id = 'agent-1'`, prompt); err != nil {
 		t.Fatalf("set system prompt: %v", err)
 	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: false}}
@@ -254,10 +255,10 @@ func TestSemanticDispatchUsesSystemPromptAsSummary(t *testing.T) {
 
 func TestSemanticDispatchPlatformOwnerIsNotForwarded(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `INSERT INTO auth_user (id, email) VALUES ('99999999-0000-0000-0000-000000000009', 'owner-9@test')`); err != nil {
+	if _, err := fx.db.Exec(context.Background(), `INSERT INTO auth_user (id, email) VALUES ('99999999-0000-0000-0000-000000000009', 'owner-9@test')`); err != nil {
 		t.Fatalf("create owner user: %v", err)
 	}
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_state SET created_by_user_id = '99999999-0000-0000-0000-000000000009' WHERE id = '11111111-1111-1111-1111-111111111111'`); err != nil {
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET created_by_user_id = '99999999-0000-0000-0000-000000000009' WHERE id = '11111111-1111-1111-1111-111111111111'`); err != nil {
 		t.Fatalf("set owner: %v", err)
 	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: false}}

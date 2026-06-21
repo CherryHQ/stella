@@ -2,21 +2,22 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// nullAgent builds a sql.NullString for an agent_id value.
-func nullAgent(agentID string) sql.NullString {
-	return sql.NullString{String: agentID, Valid: agentID != ""}
+// nullAgent builds a pgtype.Text for an agent_id value.
+func nullAgent(agentID string) pgtype.Text {
+	return pgtype.Text{String: agentID, Valid: agentID != ""}
 }
 
 func requireSessionScope(ctx context.Context, userID, agentID string) (string, string, error) {
@@ -48,7 +49,7 @@ func requireMemorySessionScope(ctx context.Context, session memory.Session) (mem
 func conversationScopeParams(session memory.Session) sqlc.GetConversationBySessionIDParams {
 	return sqlc.GetConversationBySessionIDParams{
 		SessionID: session.ID,
-		UserID:    sql.NullString{String: session.UserID, Valid: true},
+		UserID:    pgtype.Text{String: session.UserID, Valid: true},
 		AgentID:   nullAgent(session.AgentID),
 	}
 }
@@ -62,8 +63,8 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 	info.UserID = userID
 	info.AgentID = agentIDValue
 
-	_, err = p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: true}, AgentID: nullAgent(info.AgentID)})
-	if errors.Is(err, sql.ErrNoRows) {
+	_, err = p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: nullAgent(info.AgentID)})
+	if errors.Is(err, pgx.ErrNoRows) {
 		lastActive := info.LastActive
 		if lastActive.IsZero() {
 			lastActive = time.Now().UTC()
@@ -75,14 +76,14 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		_, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
 			ID:         uuid.Must(uuid.NewV7()).String(),
 			SessionID:  info.ID,
-			Title:      sql.NullString{String: info.Title, Valid: info.Title != ""},
+			Title:      pgtype.Text{String: info.Title, Valid: info.Title != ""},
 			Channel:    info.Channel,
 			Kind:       kind,
-			ProjectID:  sql.NullString{String: info.ProjectID, Valid: info.ProjectID != ""},
+			ProjectID:  pgtype.Text{String: info.ProjectID, Valid: info.ProjectID != ""},
 			Archived:   info.Archived,
 			LastActive: lastActive.UTC(),
 			AgentID:    nullAgent(info.AgentID),
-			UserID:     sql.NullString{String: info.UserID, Valid: true},
+			UserID:     pgtype.Text{String: info.UserID, Valid: true},
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -99,7 +100,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		Kind:      optionalNullString(info.Kind),
 		ProjectID: optionalNullString(info.ProjectID),
 		SessionID: info.ID,
-		UserID:    sql.NullString{String: info.UserID, Valid: true},
+		UserID:    pgtype.Text{String: info.UserID, Valid: true},
 		AgentID:   nullAgent(info.AgentID),
 	}); err != nil {
 		return fmt.Errorf("update conversation info: %w", err)
@@ -115,7 +116,7 @@ func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.Sessi
 	}
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{
 		SessionID: sessionID,
-		UserID:    sql.NullString{String: userID, Valid: true},
+		UserID:    pgtype.Text{String: userID, Valid: true},
 		AgentID:   nullAgent(agentID),
 	})
 	if err != nil {
@@ -131,7 +132,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 		return nil, err
 	}
 	convs, err := p.q.ListConversationsFiltered(ctx, sqlc.ListConversationsFilteredParams{
-		UserID:          sql.NullString{String: userID, Valid: true},
+		UserID:          pgtype.Text{String: userID, Valid: true},
 		AgentID:         nullAgent(agentIDValue),
 		IncludeArchived: boolToInt(opts.IncludeArchived),
 		Kind:            optionalNullString(opts.Kind),
@@ -173,10 +174,10 @@ func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Mess
 	}
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{
 		SessionID: sessionID,
-		UserID:    sql.NullString{String: userID, Valid: true},
+		UserID:    pgtype.Text{String: userID, Valid: true},
 		AgentID:   nullAgent(agentID),
 	})
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -199,8 +200,8 @@ func convsToSessionInfo(convs []sqlc.CtxConversation) []memory.SessionInfo {
 	return result
 }
 
-func optionalNullString(s string) sql.NullString {
-	return sql.NullString{String: s, Valid: s != ""}
+func optionalNullString(s string) pgtype.Text {
+	return pgtype.Text{String: s, Valid: s != ""}
 }
 
 func listLimit(limit int) int32 {

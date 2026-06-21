@@ -1,7 +1,7 @@
 package main
 
 import (
-	"database/sql"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
@@ -23,7 +23,7 @@ type skillStores struct {
 	diskSync *skills.DiskSyncStore
 }
 
-func setupSkillStores(db *sql.DB) skillStores {
+func setupSkillStores(db *pgxpool.Pool) skillStores {
 	raw := skills.New(db)
 	// The per-scope on-disk layout is owned by agent.WriterSkillDiskLayout (the
 	// single authority the skills tool reads back through); this resolver just

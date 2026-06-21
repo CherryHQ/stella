@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -13,7 +14,7 @@ import (
 func TestUpdateAndDeleteSession(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := createAgentAsUser(t, env, env.bearerToken, "Session API Agent")
-	_, err := env.db.Exec(`
+	_, err := env.db.Exec(context.Background(), `
 		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
 		VALUES ($1, 'session-api', 'Old title', 'web', 'chat', $2, $3, now())
 	`, uuid.NewString(), agentID, env.adminUser.ID)
@@ -40,7 +41,7 @@ func TestUpdateAndDeleteSession(t *testing.T) {
 	}
 
 	var archived bool
-	if err := env.db.QueryRow(`SELECT archived FROM ctx_conversation WHERE session_id = 'session-api'`).Scan(&archived); err != nil {
+	if err := env.db.QueryRow(context.Background(), `SELECT archived FROM ctx_conversation WHERE session_id = 'session-api'`).Scan(&archived); err != nil {
 		t.Fatalf("load archived flag: %v", err)
 	}
 	if !archived {

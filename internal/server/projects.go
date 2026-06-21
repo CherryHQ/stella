@@ -1,11 +1,11 @@
 package server
 
 import (
-	"database/sql"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
@@ -102,7 +102,7 @@ func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID s
 		UserID:      auth.UserID,
 		Name:        body.Name,
 		BaseDir:     body.BaseDir,
-		Description: sql.NullString{String: derefStr(body.Description), Valid: body.Description != nil},
+		Description: pgtype.Text{String: derefStr(body.Description), Valid: body.Description != nil},
 	})
 	if err != nil {
 		s.writeInternalError(w, err)
@@ -190,7 +190,7 @@ func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID s
 	}
 	description := existing.Description
 	if body.Description != nil {
-		description = sql.NullString{String: *body.Description, Valid: true}
+		description = pgtype.Text{String: *body.Description, Valid: true}
 	}
 
 	updated, err := s.q.UpdateProject(r.Context(), sqlc.UpdateProjectParams{

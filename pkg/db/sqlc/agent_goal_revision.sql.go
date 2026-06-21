@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const acceptRevision = `-- name: AcceptRevision :execrows
@@ -18,11 +19,11 @@ WHERE id = $1 AND status IN ('draft', 'in_review')
 `
 
 func (q *Queries) AcceptRevision(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, acceptRevision, id)
+	result, err := q.db.Exec(ctx, acceptRevision, id)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const createRevision = `-- name: CreateRevision :one
@@ -40,12 +41,12 @@ type CreateRevisionParams struct {
 	Status            string          `json:"status"`
 	ReviewPolicy      string          `json:"review_policy"`
 	Content           json.RawMessage `json:"content"`
-	SourceAttemptID   sql.NullString  `json:"source_attempt_id"`
-	PlanningSessionID sql.NullString  `json:"planning_session_id"`
+	SourceAttemptID   pgtype.Text     `json:"source_attempt_id"`
+	PlanningSessionID pgtype.Text     `json:"planning_session_id"`
 }
 
 func (q *Queries) CreateRevision(ctx context.Context, arg CreateRevisionParams) (AgentGoalRevision, error) {
-	row := q.db.QueryRowContext(ctx, createRevision,
+	row := q.db.QueryRow(ctx, createRevision,
 		arg.ID,
 		arg.GoalID,
 		arg.RevisionNo,
@@ -79,7 +80,7 @@ WHERE goal_id = $1 AND materialized_at IS NOT NULL
 `
 
 func (q *Queries) GetMaterializedRevision(ctx context.Context, goalID string) (AgentGoalRevision, error) {
-	row := q.db.QueryRowContext(ctx, getMaterializedRevision, goalID)
+	row := q.db.QueryRow(ctx, getMaterializedRevision, goalID)
 	var i AgentGoalRevision
 	err := row.Scan(
 		&i.ID,
@@ -105,7 +106,7 @@ WHERE goal_id = $1
 `
 
 func (q *Queries) GetMaxRevisionNo(ctx context.Context, goalID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getMaxRevisionNo, goalID)
+	row := q.db.QueryRow(ctx, getMaxRevisionNo, goalID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -117,7 +118,7 @@ WHERE goal_id = $1 AND status IN ('draft', 'in_review')
 `
 
 func (q *Queries) GetOpenRevision(ctx context.Context, goalID string) (AgentGoalRevision, error) {
-	row := q.db.QueryRowContext(ctx, getOpenRevision, goalID)
+	row := q.db.QueryRow(ctx, getOpenRevision, goalID)
 	var i AgentGoalRevision
 	err := row.Scan(
 		&i.ID,
@@ -141,7 +142,7 @@ SELECT id, goal_id, revision_no, status, review_policy, content, source_attempt_
 `
 
 func (q *Queries) GetRevision(ctx context.Context, id string) (AgentGoalRevision, error) {
-	row := q.db.QueryRowContext(ctx, getRevision, id)
+	row := q.db.QueryRow(ctx, getRevision, id)
 	var i AgentGoalRevision
 	err := row.Scan(
 		&i.ID,
@@ -167,7 +168,7 @@ ORDER BY revision_no DESC
 `
 
 func (q *Queries) ListRevisionByGoal(ctx context.Context, goalID string) ([]AgentGoalRevision, error) {
-	rows, err := q.db.QueryContext(ctx, listRevisionByGoal, goalID)
+	rows, err := q.db.Query(ctx, listRevisionByGoal, goalID)
 	if err != nil {
 		return nil, err
 	}
@@ -193,9 +194,6 @@ func (q *Queries) ListRevisionByGoal(ctx context.Context, goalID string) ([]Agen
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -209,11 +207,11 @@ WHERE id = $1 AND accepted_at IS NOT NULL AND materialized_at IS NULL
 `
 
 func (q *Queries) MaterializeRevision(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, materializeRevision, id)
+	result, err := q.db.Exec(ctx, materializeRevision, id)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const setRevisionPlanningSession = `-- name: SetRevisionPlanningSession :execrows
@@ -224,16 +222,16 @@ WHERE id = $2
 `
 
 type SetRevisionPlanningSessionParams struct {
-	PlanningSessionID sql.NullString `json:"planning_session_id"`
-	ID                string         `json:"id"`
+	PlanningSessionID pgtype.Text `json:"planning_session_id"`
+	ID                string      `json:"id"`
 }
 
 func (q *Queries) SetRevisionPlanningSession(ctx context.Context, arg SetRevisionPlanningSessionParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setRevisionPlanningSession, arg.PlanningSessionID, arg.ID)
+	result, err := q.db.Exec(ctx, setRevisionPlanningSession, arg.PlanningSessionID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }
 
 const supersedeOpenRevisions = `-- name: SupersedeOpenRevisions :exec
@@ -243,7 +241,7 @@ WHERE goal_id = $1 AND status IN ('draft', 'in_review')
 `
 
 func (q *Queries) SupersedeOpenRevisions(ctx context.Context, goalID string) error {
-	_, err := q.db.ExecContext(ctx, supersedeOpenRevisions, goalID)
+	_, err := q.db.Exec(ctx, supersedeOpenRevisions, goalID)
 	return err
 }
 
@@ -259,7 +257,7 @@ type UpdateRevisionContentParams struct {
 }
 
 func (q *Queries) UpdateRevisionContent(ctx context.Context, arg UpdateRevisionContentParams) error {
-	_, err := q.db.ExecContext(ctx, updateRevisionContent, arg.Content, arg.ID)
+	_, err := q.db.Exec(ctx, updateRevisionContent, arg.Content, arg.ID)
 	return err
 }
 
@@ -276,9 +274,9 @@ type UpdateRevisionStatusParams struct {
 }
 
 func (q *Queries) UpdateRevisionStatus(ctx context.Context, arg UpdateRevisionStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateRevisionStatus, arg.ToStatus, arg.ID, arg.FromStatus)
+	result, err := q.db.Exec(ctx, updateRevisionStatus, arg.ToStatus, arg.ID, arg.FromStatus)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	return result.RowsAffected(), nil
 }

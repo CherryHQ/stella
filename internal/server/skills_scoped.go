@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -10,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/config"
@@ -37,7 +38,7 @@ func (s *Server) findSkillByID(ctx context.Context, id string) (*skills.Skill, e
 			return &rows[i], nil
 		}
 	}
-	return nil, sql.ErrNoRows
+	return nil, pgx.ErrNoRows
 }
 
 func (s *Server) requireAgentAccess(ctx context.Context, agentID string) (config.Agent, int, string) {

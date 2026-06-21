@@ -7,7 +7,8 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const archiveProject = `-- name: ArchiveProject :exec
@@ -22,7 +23,7 @@ type ArchiveProjectParams struct {
 }
 
 func (q *Queries) ArchiveProject(ctx context.Context, arg ArchiveProjectParams) error {
-	_, err := q.db.ExecContext(ctx, archiveProject, arg.Archived, arg.ID, arg.UserID)
+	_, err := q.db.Exec(ctx, archiveProject, arg.Archived, arg.ID, arg.UserID)
 	return err
 }
 
@@ -33,16 +34,16 @@ RETURNING id, agent_id, user_id, name, base_dir, description, archived, created_
 `
 
 type CreateProjectParams struct {
-	ID          string         `json:"id"`
-	AgentID     string         `json:"agent_id"`
-	UserID      string         `json:"user_id"`
-	Name        string         `json:"name"`
-	BaseDir     string         `json:"base_dir"`
-	Description sql.NullString `json:"description"`
+	ID          string      `json:"id"`
+	AgentID     string      `json:"agent_id"`
+	UserID      string      `json:"user_id"`
+	Name        string      `json:"name"`
+	BaseDir     string      `json:"base_dir"`
+	Description pgtype.Text `json:"description"`
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, createProject,
+	row := q.db.QueryRow(ctx, createProject,
 		arg.ID,
 		arg.AgentID,
 		arg.UserID,
@@ -75,7 +76,7 @@ type DeleteProjectParams struct {
 }
 
 func (q *Queries) DeleteProject(ctx context.Context, arg DeleteProjectParams) error {
-	_, err := q.db.ExecContext(ctx, deleteProject, arg.ID, arg.UserID)
+	_, err := q.db.Exec(ctx, deleteProject, arg.ID, arg.UserID)
 	return err
 }
 
@@ -89,7 +90,7 @@ type GetProjectParams struct {
 }
 
 func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, getProject, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getProject, arg.ID, arg.UserID)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -116,7 +117,7 @@ type GetProjectByNameParams struct {
 }
 
 func (q *Queries) GetProjectByName(ctx context.Context, arg GetProjectByNameParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, getProjectByName, arg.AgentID, arg.UserID, arg.Name)
+	row := q.db.QueryRow(ctx, getProjectByName, arg.AgentID, arg.UserID, arg.Name)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -142,7 +143,7 @@ type ListProjectsParams struct {
 }
 
 func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]Project, error) {
-	rows, err := q.db.QueryContext(ctx, listProjects, arg.AgentID, arg.UserID)
+	rows, err := q.db.Query(ctx, listProjects, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -164,9 +165,6 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]P
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -184,7 +182,7 @@ type ListProjectsAllParams struct {
 }
 
 func (q *Queries) ListProjectsAll(ctx context.Context, arg ListProjectsAllParams) ([]Project, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectsAll, arg.AgentID, arg.UserID)
+	rows, err := q.db.Query(ctx, listProjectsAll, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -207,9 +205,6 @@ func (q *Queries) ListProjectsAll(ctx context.Context, arg ListProjectsAllParams
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -223,15 +218,15 @@ RETURNING id, agent_id, user_id, name, base_dir, description, archived, created_
 `
 
 type UpdateProjectParams struct {
-	Name        string         `json:"name"`
-	Description sql.NullString `json:"description"`
-	BaseDir     string         `json:"base_dir"`
-	ID          string         `json:"id"`
-	UserID      string         `json:"user_id"`
+	Name        string      `json:"name"`
+	Description pgtype.Text `json:"description"`
+	BaseDir     string      `json:"base_dir"`
+	ID          string      `json:"id"`
+	UserID      string      `json:"user_id"`
 }
 
 func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, updateProject,
+	row := q.db.QueryRow(ctx, updateProject,
 		arg.Name,
 		arg.Description,
 		arg.BaseDir,

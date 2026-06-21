@@ -7,7 +7,8 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createWebChannelIfNotExists = `-- name: CreateWebChannelIfNotExists :exec
@@ -17,12 +18,12 @@ ON CONFLICT(id) DO NOTHING
 `
 
 type CreateWebChannelIfNotExistsParams struct {
-	ID      string         `json:"id"`
-	AgentID sql.NullString `json:"agent_id"`
+	ID      string      `json:"id"`
+	AgentID pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) CreateWebChannelIfNotExists(ctx context.Context, arg CreateWebChannelIfNotExistsParams) error {
-	_, err := q.db.ExecContext(ctx, createWebChannelIfNotExists, arg.ID, arg.AgentID)
+	_, err := q.db.Exec(ctx, createWebChannelIfNotExists, arg.ID, arg.AgentID)
 	return err
 }
 
@@ -31,7 +32,7 @@ DELETE FROM channel WHERE id = $1
 `
 
 func (q *Queries) DeleteChannel(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteChannel, id)
+	_, err := q.db.Exec(ctx, deleteChannel, id)
 	return err
 }
 
@@ -40,7 +41,7 @@ SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM ch
 `
 
 func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
-	row := q.db.QueryRowContext(ctx, getChannel, id)
+	row := q.db.QueryRow(ctx, getChannel, id)
 	var i Channel
 	err := row.Scan(
 		&i.ID,
@@ -60,7 +61,7 @@ SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM ch
 `
 
 func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
-	rows, err := q.db.QueryContext(ctx, listChannels)
+	rows, err := q.db.Query(ctx, listChannels)
 	if err != nil {
 		return nil, err
 	}
@@ -81,9 +82,6 @@ func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -96,7 +94,7 @@ SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM ch
 `
 
 func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Channel, error) {
-	rows, err := q.db.QueryContext(ctx, listChannelsByType, type_)
+	rows, err := q.db.Query(ctx, listChannelsByType, type_)
 	if err != nil {
 		return nil, err
 	}
@@ -117,9 +115,6 @@ func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Chann
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -140,16 +135,16 @@ ON CONFLICT(id) DO UPDATE SET
 `
 
 type UpsertChannelParams struct {
-	ID      string         `json:"id"`
-	Name    string         `json:"name"`
-	Type    string         `json:"type"`
-	AgentID sql.NullString `json:"agent_id"`
-	Enabled bool           `json:"enabled"`
-	Config  string         `json:"config"`
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Type    string      `json:"type"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Enabled bool        `json:"enabled"`
+	Config  string      `json:"config"`
 }
 
 func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) error {
-	_, err := q.db.ExecContext(ctx, upsertChannel,
+	_, err := q.db.Exec(ctx, upsertChannel,
 		arg.ID,
 		arg.Name,
 		arg.Type,

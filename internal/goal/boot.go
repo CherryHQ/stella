@@ -2,10 +2,12 @@ package goal
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -46,7 +48,7 @@ type TaskChatFunc func(ctx context.Context, p TaskChatParams) <-chan agent.Event
 // tasks.BootConfig: a DB handle, the agent ServiceManager for session minting,
 // the Chat callback for worker turns, and the dispatcher tunables.
 type BootConfig struct {
-	DB       *sql.DB
+	DB       *pgxpool.Pool
 	Services agent.ServiceManager // registry-backed session minting
 	Chat     TaskChatFunc         // runs persisted worker turns; nil => noop executor
 	// MaxWorkers, TickEvery, LeaseTTL override defaults; zero values use the
@@ -149,11 +151,11 @@ func (f GoalFilter) includeArchived() bool {
 	return f.Archived
 }
 
-func (f GoalFilter) terminalArg() sql.NullBool {
+func (f GoalFilter) terminalArg() pgtype.Bool {
 	if f.Terminal == nil {
-		return sql.NullBool{}
+		return pgtype.Bool{}
 	}
-	return sql.NullBool{Bool: *f.Terminal, Valid: true}
+	return pgtype.Bool{Bool: *f.Terminal, Valid: true}
 }
 
 // ListGoals lists root goals (goals: parent_id IS NULL) for a user,
@@ -384,8 +386,8 @@ func (s *Service) MaterializeRevision(ctx context.Context, revisionID string) ([
 	return s.Queries.ListGoalChildren(ctx, nullStr(parent.ID))
 }
 
-// nilIfEmpty returns an invalid sql.NullString for an empty string so a sqlc
+// nilIfEmpty returns an invalid pgtype.Text for an empty string so a sqlc
 // narg filter matches all rows; otherwise it returns the value to filter on.
-func nilIfEmpty(v string) sql.NullString {
-	return sql.NullString{String: v, Valid: v != ""}
+func nilIfEmpty(v string) pgtype.Text {
+	return pgtype.Text{String: v, Valid: v != ""}
 }

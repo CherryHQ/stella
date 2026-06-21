@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -22,7 +24,7 @@ type DBStore struct {
 }
 
 // NewDBStore creates a new DBStore wrapping the given database connection.
-func NewDBStore(db *sql.DB) *DBStore {
+func NewDBStore(db *pgxpool.Pool) *DBStore {
 	return &DBStore{q: sqlc.New(db)}
 }
 
@@ -278,7 +280,7 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 		ID:      ch.ID,
 		Name:    ch.Name,
 		Type:    channelType,
-		AgentID: sql.NullString{String: ch.AgentID, Valid: ch.AgentID != ""},
+		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
 		Enabled: ch.Enabled,
 		Config:  ch.Config,
 	})
@@ -327,7 +329,7 @@ func (s *DBStore) GetPlugin(ctx context.Context, id string) (config.Plugin, erro
 		}
 		return p, nil
 	}
-	if isBuiltin && errors.Is(dbErr, sql.ErrNoRows) {
+	if isBuiltin && errors.Is(dbErr, pgx.ErrNoRows) {
 		return config.Plugin{
 			ID:      builtin.ID,
 			Kind:    builtin.Kind,
@@ -379,7 +381,7 @@ func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
 
 func (s *DBStore) GetManifestPluginOverride(ctx context.Context, pluginID string) (config.ManifestPluginOverride, bool, error) {
 	row, err := s.q.GetManifestPluginOverride(ctx, pluginID)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return config.ManifestPluginOverride{}, false, nil
 	}
 	if err != nil {
@@ -401,9 +403,9 @@ func (s *DBStore) ListManifestPluginOverrides(ctx context.Context) ([]config.Man
 }
 
 func (s *DBStore) UpsertManifestPluginOverride(ctx context.Context, ov config.ManifestPluginOverride) error {
-	var enabled sql.NullBool
+	var enabled pgtype.Bool
 	if ov.Enabled != nil {
-		enabled = sql.NullBool{Bool: *ov.Enabled, Valid: true}
+		enabled = pgtype.Bool{Bool: *ov.Enabled, Valid: true}
 	}
 	return s.q.UpsertManifestPluginOverride(ctx, sqlc.UpsertManifestPluginOverrideParams{
 		PluginID:           ov.PluginID,
@@ -527,7 +529,7 @@ func (s *DBStore) DeleteChatAgent(ctx context.Context, channelID, platform, chat
 func (s *DBStore) GetSetting(ctx context.Context, key string) (string, error) {
 	r, err := s.q.GetSetting(ctx, key)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil
 		}
 		return "", fmt.Errorf("get setting %q: %w", key, err)

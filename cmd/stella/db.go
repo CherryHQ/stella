@@ -65,7 +65,7 @@ re-run after a failure is safe.`,
 			if err != nil {
 				return fmt.Errorf("open postgres: %w", err)
 			}
-			defer func() { _ = pg.Close() }()
+			defer pg.Close()
 
 			if dryRun {
 				fmt.Printf("Dry run: planning %s -> PostgreSQL...\n", sqlitePath)

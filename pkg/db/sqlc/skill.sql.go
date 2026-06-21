@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createSkill = `-- name: CreateSkill :one
@@ -20,8 +21,8 @@ RETURNING id, scope, user_id, agent_id, name, description, status, disable_model
 type CreateSkillParams struct {
 	ID                     string          `json:"id"`
 	Scope                  string          `json:"scope"`
-	UserID                 sql.NullString  `json:"user_id"`
-	AgentID                sql.NullString  `json:"agent_id"`
+	UserID                 pgtype.Text     `json:"user_id"`
+	AgentID                pgtype.Text     `json:"agent_id"`
 	Name                   string          `json:"name"`
 	Description            string          `json:"description"`
 	Status                 string          `json:"status"`
@@ -30,7 +31,7 @@ type CreateSkillParams struct {
 }
 
 func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, createSkill,
+	row := q.db.QueryRow(ctx, createSkill,
 		arg.ID,
 		arg.Scope,
 		arg.UserID,
@@ -67,13 +68,13 @@ WHERE id = $1
 `
 
 type DeleteSkillParams struct {
-	ID      string         `json:"id"`
-	AgentID sql.NullString `json:"agent_id"`
-	UserID  sql.NullString `json:"user_id"`
+	ID      string      `json:"id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
 }
 
 func (q *Queries) DeleteSkill(ctx context.Context, arg DeleteSkillParams) error {
-	_, err := q.db.ExecContext(ctx, deleteSkill, arg.ID, arg.AgentID, arg.UserID)
+	_, err := q.db.Exec(ctx, deleteSkill, arg.ID, arg.AgentID, arg.UserID)
 	return err
 }
 
@@ -87,7 +88,7 @@ type DeleteSkillFileParams struct {
 }
 
 func (q *Queries) DeleteSkillFile(ctx context.Context, arg DeleteSkillFileParams) error {
-	_, err := q.db.ExecContext(ctx, deleteSkillFile, arg.SkillID, arg.Path)
+	_, err := q.db.Exec(ctx, deleteSkillFile, arg.SkillID, arg.Path)
 	return err
 }
 
@@ -96,7 +97,7 @@ DELETE FROM skill WHERE id = $1 AND scope = 'system'
 `
 
 func (q *Queries) DeleteSystemSkill(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteSystemSkill, id)
+	_, err := q.db.Exec(ctx, deleteSystemSkill, id)
 	return err
 }
 
@@ -109,7 +110,7 @@ WHERE status = 'draft'
 `
 
 func (q *Queries) DeprecateExpiredDrafts(ctx context.Context, cutoff string) error {
-	_, err := q.db.ExecContext(ctx, deprecateExpiredDrafts, cutoff)
+	_, err := q.db.Exec(ctx, deprecateExpiredDrafts, cutoff)
 	return err
 }
 
@@ -128,7 +129,7 @@ type ExpireKnowledgeDraftsByTypeParams struct {
 }
 
 func (q *Queries) ExpireKnowledgeDraftsByType(ctx context.Context, arg ExpireKnowledgeDraftsByTypeParams) error {
-	_, err := q.db.ExecContext(ctx, expireKnowledgeDraftsByType, arg.KnowledgeType, arg.Cutoff)
+	_, err := q.db.Exec(ctx, expireKnowledgeDraftsByType, arg.KnowledgeType, arg.Cutoff)
 	return err
 }
 
@@ -143,13 +144,13 @@ WHERE id = $1
 `
 
 type GetSkillParams struct {
-	ID      string         `json:"id"`
-	AgentID sql.NullString `json:"agent_id"`
-	UserID  sql.NullString `json:"user_id"`
+	ID      string      `json:"id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
 }
 
 func (q *Queries) GetSkill(ctx context.Context, arg GetSkillParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getSkill, arg.ID, arg.AgentID, arg.UserID)
+	row := q.db.QueryRow(ctx, getSkill, arg.ID, arg.AgentID, arg.UserID)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -172,7 +173,7 @@ SELECT id, scope, user_id, agent_id, name, description, status, disable_model_in
 `
 
 func (q *Queries) GetSkillByID(ctx context.Context, id string) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getSkillByID, id)
+	row := q.db.QueryRow(ctx, getSkillByID, id)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -200,7 +201,7 @@ type GetSkillFileParams struct {
 }
 
 func (q *Queries) GetSkillFile(ctx context.Context, arg GetSkillFileParams) (SkillFile, error) {
-	row := q.db.QueryRowContext(ctx, getSkillFile, arg.SkillID, arg.Path)
+	row := q.db.QueryRow(ctx, getSkillFile, arg.SkillID, arg.Path)
 	var i SkillFile
 	err := row.Scan(&i.SkillID, &i.Path, &i.Content)
 	return i, err
@@ -211,12 +212,12 @@ SELECT id, scope, user_id, agent_id, name, description, status, disable_model_in
 `
 
 type GetSystemAgentSkillByNameParams struct {
-	AgentID sql.NullString `json:"agent_id"`
-	Name    string         `json:"name"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Name    string      `json:"name"`
 }
 
 func (q *Queries) GetSystemAgentSkillByName(ctx context.Context, arg GetSystemAgentSkillByNameParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getSystemAgentSkillByName, arg.AgentID, arg.Name)
+	row := q.db.QueryRow(ctx, getSystemAgentSkillByName, arg.AgentID, arg.Name)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -239,7 +240,7 @@ SELECT id, scope, user_id, agent_id, name, description, status, disable_model_in
 `
 
 func (q *Queries) GetSystemSkillByName(ctx context.Context, name string) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getSystemSkillByName, name)
+	row := q.db.QueryRow(ctx, getSystemSkillByName, name)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -262,12 +263,12 @@ SELECT id, scope, user_id, agent_id, name, description, status, disable_model_in
 `
 
 type GetUserSkillByNameParams struct {
-	UserID sql.NullString `json:"user_id"`
-	Name   string         `json:"name"`
+	UserID pgtype.Text `json:"user_id"`
+	Name   string      `json:"name"`
 }
 
 func (q *Queries) GetUserSkillByName(ctx context.Context, arg GetUserSkillByNameParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getUserSkillByName, arg.UserID, arg.Name)
+	row := q.db.QueryRow(ctx, getUserSkillByName, arg.UserID, arg.Name)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -300,13 +301,13 @@ ORDER BY created_at DESC
 `
 
 type ListActiveKnowledgeByTypeParams struct {
-	AgentID       sql.NullString `json:"agent_id"`
-	UserID        sql.NullString `json:"user_id"`
-	KnowledgeType string         `json:"knowledge_type"`
+	AgentID       pgtype.Text `json:"agent_id"`
+	UserID        pgtype.Text `json:"user_id"`
+	KnowledgeType string      `json:"knowledge_type"`
 }
 
 func (q *Queries) ListActiveKnowledgeByType(ctx context.Context, arg ListActiveKnowledgeByTypeParams) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listActiveKnowledgeByType, arg.AgentID, arg.UserID, arg.KnowledgeType)
+	rows, err := q.db.Query(ctx, listActiveKnowledgeByType, arg.AgentID, arg.UserID, arg.KnowledgeType)
 	if err != nil {
 		return nil, err
 	}
@@ -330,9 +331,6 @@ func (q *Queries) ListActiveKnowledgeByType(ctx context.Context, arg ListActiveK
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -345,7 +343,7 @@ SELECT id, scope, user_id, agent_id, name, description, status, disable_model_in
 `
 
 func (q *Queries) ListAllSkills(ctx context.Context) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listAllSkills)
+	rows, err := q.db.Query(ctx, listAllSkills)
 	if err != nil {
 		return nil, err
 	}
@@ -370,9 +368,6 @@ func (q *Queries) ListAllSkills(ctx context.Context) ([]Skill, error) {
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -384,7 +379,7 @@ SELECT skill_id, path, content FROM skill_file WHERE skill_id = $1 ORDER BY path
 `
 
 func (q *Queries) ListSkillFiles(ctx context.Context, skillID string) ([]SkillFile, error) {
-	rows, err := q.db.QueryContext(ctx, listSkillFiles, skillID)
+	rows, err := q.db.Query(ctx, listSkillFiles, skillID)
 	if err != nil {
 		return nil, err
 	}
@@ -396,9 +391,6 @@ func (q *Queries) ListSkillFiles(ctx context.Context, skillID string) ([]SkillFi
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -415,13 +407,13 @@ ORDER BY created_at
 `
 
 type ListSkillsByScopeParams struct {
-	Scope   string         `json:"scope"`
-	UserID  sql.NullString `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
+	Scope   string      `json:"scope"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) ListSkillsByScope(ctx context.Context, arg ListSkillsByScopeParams) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listSkillsByScope, arg.Scope, arg.UserID, arg.AgentID)
+	rows, err := q.db.Query(ctx, listSkillsByScope, arg.Scope, arg.UserID, arg.AgentID)
 	if err != nil {
 		return nil, err
 	}
@@ -445,9 +437,6 @@ func (q *Queries) ListSkillsByScope(ctx context.Context, arg ListSkillsByScopePa
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -462,8 +451,8 @@ WHERE scope NOT IN ('user', 'user_agent')
 ORDER BY scope, created_at
 `
 
-func (q *Queries) ListSkillsForAdmin(ctx context.Context, userID sql.NullString) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listSkillsForAdmin, userID)
+func (q *Queries) ListSkillsForAdmin(ctx context.Context, userID pgtype.Text) ([]Skill, error) {
+	rows, err := q.db.Query(ctx, listSkillsForAdmin, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -487,9 +476,6 @@ func (q *Queries) ListSkillsForAdmin(ctx context.Context, userID sql.NullString)
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -515,15 +501,15 @@ ORDER BY CASE scope
 `
 
 type ListSkillsForAgentContextParams struct {
-	AgentID sql.NullString `json:"agent_id"`
-	UserID  sql.NullString `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
 }
 
 // ListSkillsForAgentContext returns the visible skills for one (user, agent),
 // ordered most-specific-first so a name-dedup downstream keeps the effective
 // skill: user_agent > user > system_agent > system.
 func (q *Queries) ListSkillsForAgentContext(ctx context.Context, arg ListSkillsForAgentContextParams) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listSkillsForAgentContext, arg.AgentID, arg.UserID)
+	rows, err := q.db.Query(ctx, listSkillsForAgentContext, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -547,9 +533,6 @@ func (q *Queries) ListSkillsForAgentContext(ctx context.Context, arg ListSkillsF
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -571,12 +554,12 @@ ORDER BY scope, created_at
 `
 
 type ListSkillsForUserParams struct {
-	AgentIdsCsv sql.NullString `json:"agent_ids_csv"`
-	UserID      sql.NullString `json:"user_id"`
+	AgentIdsCsv pgtype.Text `json:"agent_ids_csv"`
+	UserID      pgtype.Text `json:"user_id"`
 }
 
 func (q *Queries) ListSkillsForUser(ctx context.Context, arg ListSkillsForUserParams) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listSkillsForUser, arg.AgentIdsCsv, arg.UserID)
+	rows, err := q.db.Query(ctx, listSkillsForUser, arg.AgentIdsCsv, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -600,9 +583,6 @@ func (q *Queries) ListSkillsForUser(ctx context.Context, arg ListSkillsForUserPa
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -629,15 +609,15 @@ ORDER BY CASE scope
 `
 
 type ListSkillsVisibleParams struct {
-	AgentID sql.NullString `json:"agent_id"`
-	UserID  sql.NullString `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
 }
 
 // ListSkillsVisible returns the effective skill set for a (user, agent) context,
 // ordered most-specific-first so a name-dedup keeps the highest-precedence skill:
 // user_agent > user > system_agent > system.
 func (q *Queries) ListSkillsVisible(ctx context.Context, arg ListSkillsVisibleParams) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listSkillsVisible, arg.AgentID, arg.UserID)
+	rows, err := q.db.Query(ctx, listSkillsVisible, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -661,9 +641,6 @@ func (q *Queries) ListSkillsVisible(ctx context.Context, arg ListSkillsVisiblePa
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -693,15 +670,15 @@ LIMIT 1
 `
 
 type ResolveSkillParams struct {
-	Name    string         `json:"name"`
-	AgentID sql.NullString `json:"agent_id"`
-	UserID  sql.NullString `json:"user_id"`
+	Name    string      `json:"name"`
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
 }
 
 // ResolveSkill returns the single effective skill for a name in a (user, agent)
 // context. Precedence: user_agent > user > system_agent > system.
 func (q *Queries) ResolveSkill(ctx context.Context, arg ResolveSkillParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, resolveSkill, arg.Name, arg.AgentID, arg.UserID)
+	row := q.db.QueryRow(ctx, resolveSkill, arg.Name, arg.AgentID, arg.UserID)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -738,12 +715,12 @@ type UpdateSkillMetadataParams struct {
 	DisableModelInvocation bool            `json:"disable_model_invocation"`
 	Metadata               json.RawMessage `json:"metadata"`
 	ID                     string          `json:"id"`
-	AgentID                sql.NullString  `json:"agent_id"`
-	UserID                 sql.NullString  `json:"user_id"`
+	AgentID                pgtype.Text     `json:"agent_id"`
+	UserID                 pgtype.Text     `json:"user_id"`
 }
 
 func (q *Queries) UpdateSkillMetadata(ctx context.Context, arg UpdateSkillMetadataParams) error {
-	_, err := q.db.ExecContext(ctx, updateSkillMetadata,
+	_, err := q.db.Exec(ctx, updateSkillMetadata,
 		arg.Description,
 		arg.Status,
 		arg.DisableModelInvocation,
@@ -774,7 +751,7 @@ type UpdateSystemSkillMetadataParams struct {
 }
 
 func (q *Queries) UpdateSystemSkillMetadata(ctx context.Context, arg UpdateSystemSkillMetadataParams) error {
-	_, err := q.db.ExecContext(ctx, updateSystemSkillMetadata,
+	_, err := q.db.Exec(ctx, updateSystemSkillMetadata,
 		arg.Description,
 		arg.Status,
 		arg.DisableModelInvocation,
@@ -797,6 +774,6 @@ type UpsertSkillFileParams struct {
 }
 
 func (q *Queries) UpsertSkillFile(ctx context.Context, arg UpsertSkillFileParams) error {
-	_, err := q.db.ExecContext(ctx, upsertSkillFile, arg.SkillID, arg.Path, arg.Content)
+	_, err := q.db.Exec(ctx, upsertSkillFile, arg.SkillID, arg.Path, arg.Content)
 	return err
 }

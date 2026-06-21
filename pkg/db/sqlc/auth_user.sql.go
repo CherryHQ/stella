@@ -7,8 +7,6 @@ package sqlc
 
 import (
 	"context"
-
-	"github.com/lib/pq"
 )
 
 const listAuthUsersByIDs = `-- name: ListAuthUsersByIDs :many
@@ -16,7 +14,7 @@ SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_id
 `
 
 func (q *Queries) ListAuthUsersByIDs(ctx context.Context, ids []string) ([]AuthUser, error) {
-	rows, err := q.db.QueryContext(ctx, listAuthUsersByIDs, pq.Array(ids))
+	rows, err := q.db.Query(ctx, listAuthUsersByIDs, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -42,9 +40,6 @@ func (q *Queries) ListAuthUsersByIDs(ctx context.Context, ids []string) ([]AuthU
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -61,7 +56,7 @@ type UpdateUserActiveParams struct {
 }
 
 func (q *Queries) UpdateUserActive(ctx context.Context, arg UpdateUserActiveParams) error {
-	_, err := q.db.ExecContext(ctx, updateUserActive, arg.IsActive, arg.ID)
+	_, err := q.db.Exec(ctx, updateUserActive, arg.IsActive, arg.ID)
 	return err
 }
 
@@ -75,6 +70,6 @@ type UpdateUserRoleParams struct {
 }
 
 func (q *Queries) UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error {
-	_, err := q.db.ExecContext(ctx, updateUserRole, arg.Role, arg.ID)
+	_, err := q.db.Exec(ctx, updateUserRole, arg.Role, arg.ID)
 	return err
 }

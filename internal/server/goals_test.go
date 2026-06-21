@@ -35,7 +35,7 @@ func setupGoalEnv(t *testing.T) *testEnv {
 	mint := func(ctx context.Context, userID, agentID, projectID string) (string, error) {
 		sessionID := "goal-" + uuid.NewString()
 		now := time.Now().UTC()
-		if _, err := env.db.ExecContext(ctx, `
+		if _, err := env.db.Exec(ctx, `
 			INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active, created_at, updated_at)
 			VALUES ($1, $2, 'minted', 'task', 'task', $3, $4, $5, $6, $7)`,
 			uuid.NewString(), sessionID, agentID, userID, now, now, now); err != nil {

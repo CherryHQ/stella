@@ -1,12 +1,12 @@
 package recally
 
 import (
-	"database/sql"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
@@ -20,14 +20,14 @@ var (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-func setupTestDB(t *testing.T) (*sql.DB, func()) {
+func setupTestDB(t *testing.T) (*pgxpool.Pool, func()) {
 	t.Helper()
 
 	db := dbtest.New(t)
 
 	// recally_article.user_id has a FK to auth_user(id); the tests save as
 	// testUserID, so that row must exist before any insert.
-	if _, err := db.Exec(`INSERT INTO auth_user (id, email) VALUES ($1, 'testuser@example.com')`, testUserID); err != nil {
+	if _, err := db.Exec(t.Context(), `INSERT INTO auth_user (id, email) VALUES ($1, 'testuser@example.com')`, testUserID); err != nil {
 		t.Fatalf("Failed to insert test user: %v", err)
 	}
 

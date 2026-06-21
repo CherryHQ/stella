@@ -2,11 +2,12 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	pkgauth "github.com/CherryHQ/stella/pkg/auth"
@@ -137,7 +138,7 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 
 	user, err := s.tokenSvc.Authenticate(ctx, rawToken)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			s.log.Warn("bearer token auth failed", "error", err)
 		}
 		return nil

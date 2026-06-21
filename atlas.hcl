@@ -21,6 +21,12 @@ env "local" {
   src = "file://internal/db/schemas/main.sql"
   dev = var.dev_url
 
+  // River owns and migrates its own river_* tables at runtime (see
+  // internal/db/river.go), so they are absent from the schema source. Exclude
+  // them from inspection/diff so Atlas never proposes to drop them when the dev
+  // database has been touched by a running stellad.
+  exclude = ["river_*"]
+
   migration {
     dir = "file://internal/db/migrations"
   }

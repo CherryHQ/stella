@@ -2,10 +2,11 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/config"
@@ -100,7 +101,7 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, params apise
 }
 
 func (s *Server) fillAgentLastActive(ctx context.Context, userID string, agents []config.Agent) error {
-	rows, err := s.q.ListAgentConversationLastActive(ctx, sql.NullString{String: userID, Valid: true})
+	rows, err := s.q.ListAgentConversationLastActive(ctx, pgtype.Text{String: userID, Valid: true})
 	if err != nil {
 		return err
 	}
