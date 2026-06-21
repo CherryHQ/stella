@@ -17,6 +17,7 @@ require (
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/klauspost/compress v1.18.0
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
 	github.com/lib/pq v1.12.3
 	github.com/mmcdole/gofeed v1.3.0

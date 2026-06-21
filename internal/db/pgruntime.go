@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/CherryHQ/stella/resources/pgbundle"
 )
 
 const (
@@ -48,7 +50,13 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 
 	bundleRoot := os.Getenv(postgresRuntimeEnvName)
 	if bundleRoot == "" {
-		return rt, nil
+		if root, ok, err := pgbundle.EnsureBundle(postgresBundleCacheRoot(dataDir, tmpDir)); err != nil {
+			return postgresRuntimeInfo{}, err
+		} else if !ok {
+			return rt, nil
+		} else {
+			bundleRoot = root
+		}
 	}
 
 	bundle, err := postgresRuntimeFromBundle(bundleRoot)
@@ -63,6 +71,13 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 
 func postgresRuntimeCacheName() string {
 	return postgresBundleID + "-" + runtime.GOOS + "-" + runtime.GOARCH
+}
+
+func postgresBundleCacheRoot(dataDir, tmpDir string) string {
+	if dataDir != "" {
+		return filepath.Join(filepath.Dir(dataDir), "pg-runtime", postgresRuntimeCacheName(), "bundles")
+	}
+	return filepath.Join(tmpDir, "bundles")
 }
 
 type postgresRuntimeBundle struct {
