@@ -449,7 +449,7 @@ func (s *Service) RequestChangesRevision(ctx context.Context, revisionID, note s
 
 // MaterializeRevision creates the revision's children + edges in one tx, then
 // lists the materialized children. Child sessions are pre-minted OUTSIDE the tx
-// (keyed by child.Key) to avoid the SQLite single-writer self-deadlock.
+// (keyed by child.Key) to avoid a self-deadlock and keep session-minting off the tx's connection.
 func (s *Service) MaterializeRevision(ctx context.Context, revisionID string) ([]sqlc.AgentGoal, error) {
 	rev, err := s.Queries.GetRevision(ctx, revisionID)
 	if err != nil {

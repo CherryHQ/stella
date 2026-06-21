@@ -341,7 +341,7 @@ func sqlTimeString(v any) string {
 	}
 }
 
-// parseTime parses a SQLite datetime string.
+// parseTime parses a timestamp string into a UTC time.
 func parseTime(s string) time.Time {
 	for _, layout := range []string{
 		"2006-01-02 15:04:05",

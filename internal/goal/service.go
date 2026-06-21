@@ -17,10 +17,10 @@ import (
 
 // SessionMinter returns a fresh durable session id for a goal's
 // persistent agent session (worker) or a planning session (decomposition). It
-// is called OUTSIDE every tx: minting a session opens its own writer, and the
-// SQLite single-writer would self-deadlock if it ran inside the service tx
-// (the old boot.go documents this). Implementations land in the integration
-// phase (session.go).
+// is called OUTSIDE every tx: minting a session opens its own transaction, and
+// running it inside the service tx would self-deadlock (the inner write blocks on
+// a row the outer tx holds) and pin a pooled connection. Implementations land in
+// the integration phase (session.go).
 type SessionMinter func(ctx context.Context, userID, agentID, projectID string) (string, error)
 
 // Executor owns agent interaction for one attempt and is PURE with respect to
@@ -60,7 +60,7 @@ type ExecutorResult struct {
 // a CheckResult the service folds into an acceptance_event. It is the only
 // sandbox-IO in acceptance; it NEVER writes lifecycle. It runs inside the
 // worker, after the executor submits, before the durable transition (sandbox
-// exec must never hold the SQLite writer). The implementation lands in the
+// exec must never run inside a DB tx, which would pin a pooled connection). The implementation lands in the
 // integration phase (runner.go).
 type CheckRunner interface {
 	Run(ctx context.Context, item AcceptanceItem, env CheckEnv) (CheckResult, error)
@@ -368,7 +368,7 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 
 // CreateRoot mints a worker session for a new root goal (a goal) and
 // creates it in 'draft'. The session is minted OUTSIDE the insert tx to avoid
-// the SQLite single-writer self-deadlock (same discipline as Materialize's
+// a self-deadlock and to keep slow session-minting off a pooled connection (same discipline as Materialize's
 // pre-minted child sessions). Child goals get their sessions from
 // Materialize instead, so this entry is root-only.
 func (s *GoalService) CreateRoot(ctx context.Context, in CreateInput) (sqlc.AgentGoal, error) {

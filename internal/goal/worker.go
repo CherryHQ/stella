@@ -144,7 +144,7 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 
 	switch {
 	case res.Submitted:
-		// Run deterministic checks (sandbox IO, no SQLite writer held), append
+		// Run deterministic checks (sandbox IO, no DB tx held), append
 		// each as an acceptance_event, then apply the one submit transition.
 		// Submit folds the now-complete ledger via applyAcceptance.
 		if cerr := w.runChecks(ctx, goal, att, res.Output); cerr != nil {
@@ -192,9 +192,9 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 
 // runChecks runs every required deterministic contract item through the
 // CheckRunner and appends each result as an acceptance_event in its own service
-// tx, BEFORE the submit fold reads the ledger. Sandbox IO must never hold the
-// SQLite writer, so each check runs outside any tx and only its result row is
-// written transactionally.
+// tx, BEFORE the submit fold reads the ledger. Sandbox IO must never run inside a
+// DB tx (it would pin a pooled connection across slow IO), so each check runs
+// outside any tx and only its result row is written transactionally.
 //
 // It returns an error when a REQUIRED deterministic item cannot be evaluated (no
 // runner configured, a runner error, or a failed event append). A missing event
@@ -350,7 +350,7 @@ func (w *Worker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, attemptI
 				ID:             attemptID,
 			})
 			if err != nil {
-				// A missed beat (e.g. SQLITE_BUSY) silently shortens the lease;
+				// A missed beat (e.g. a transient DB error) silently shortens the lease;
 				// log it so a lease expiry can be traced to a failed heartbeat.
 				w.log.Warn("worker: heartbeat write failed", "attempt_id", attemptID, "err", err)
 				continue

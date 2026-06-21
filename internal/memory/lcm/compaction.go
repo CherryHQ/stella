@@ -243,10 +243,10 @@ type messageRunSummary struct {
 // summarizeMessageRun creates a leaf summary candidate from a message run without writing it.
 func (c *compactionEngine) summarizeMessageRun(ctx context.Context, convID string, run messageRun) (messageRunSummary, error) {
 	// Load source messages before opening a transaction. The summarizer may call
-	// back into the database to resolve model/provider settings, and Stella's SQLite
-	// handle intentionally uses a single connection. Holding a transaction while
-	// waiting for the LLM would self-deadlock the summarizer until the context
-	// deadline expires.
+	// back into the database to resolve model/provider settings; holding a
+	// transaction across the LLM call would pin a pooled connection (and risk the
+	// idle-in-transaction timeout) for the whole summarization, so do the slow work
+	// first and keep the write tx short.
 	var messages []sqlc.CtxMessage
 	var textParts []string
 	var totalTokens int64
@@ -533,8 +533,8 @@ type condensedRunSummary struct {
 // summarizeCondensedRun creates a condensed summary candidate from summary items without writing it.
 func (c *compactionEngine) summarizeCondensedRun(ctx context.Context, run summaryRun, sumCache map[string]sqlc.CtxSummary) (condensedRunSummary, error) {
 	// Load summaries from cache before opening a transaction; see
-	// summarizeMessageRun for why LLM work must not happen while holding Stella's
-	// single SQLite connection in a transaction.
+	// summarizeMessageRun for why LLM work must not happen while holding a pooled
+	// connection in a transaction.
 	var summaries []sqlc.CtxSummary
 	var textParts []string
 	var totalTokens int64

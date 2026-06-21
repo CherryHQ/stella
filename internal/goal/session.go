@@ -12,8 +12,8 @@ import (
 // the agent registry. The session is hidden — KindTask/ChannelTask — so it never
 // appears in user-facing session lists or review candidates, matching the old
 // tasks worker. It is called OUTSIDE every service tx (minting opens its own
-// SQLite writer; running it inside the service tx would self-deadlock the single
-// writer, as the old boot.go documents). Satisfies SessionMinter.
+// transaction; running it inside the service tx would self-deadlock and pin a
+// pooled connection). Satisfies SessionMinter.
 func RegistrySessionMinter(sm agent.ServiceManager) SessionMinter {
 	return func(ctx context.Context, userID, agentID, projectID string) (string, error) {
 		svc, err := resolveService(sm, userID, agentID)

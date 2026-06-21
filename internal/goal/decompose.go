@@ -167,7 +167,7 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
 	}
 
-	// Mint the planning session OUTSIDE the tx (SQLite single-writer self-deadlock).
+	// Mint the planning session OUTSIDE the tx: it opens its own tx and would self-deadlock against the held one.
 	if s.newPlanningSession == nil {
 		return sqlc.AgentGoalAttempt{}, fmt.Errorf("goal: no planning session minter configured")
 	}
@@ -340,7 +340,7 @@ func (s *GoalService) Accept(ctx context.Context, revisionID string, by Actor) (
 // acceptAndMaterialize is the shared accept→materialize flow for both the
 // review_policy=none (from draft) and human-approval (from in_review) paths
 // (contract §2.3, §6). It validates the content, pre-mints every child session
-// OUTSIDE the tx (SQLite single-writer self-deadlock), then in ONE tx accepts the
+// OUTSIDE the tx (its own tx would self-deadlock against the held one), then in ONE tx accepts the
 // revision and materializes its children/edges. fromStatus guards the source
 // status the caller permits.
 func (s *GoalService) acceptAndMaterialize(ctx context.Context, revisionID, fromStatus string) (sqlc.AgentGoalRevision, error) {
