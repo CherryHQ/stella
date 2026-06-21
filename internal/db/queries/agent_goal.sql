@@ -259,3 +259,15 @@ WHERE d.user_id = sqlc.arg(user_id)
       )
 ORDER BY d.updated_at DESC, d.id DESC
 LIMIT sqlc.arg(limit_count);
+
+-- Transaction-scoped advisory lock serializing read-modify-write sequence
+-- allocation for one goal. The acceptance ledger seq, attempt_no, and revision_no
+-- are each GetMax->+1->insert under Read Committed, which PostgreSQL runs in
+-- parallel across writers (and nodes): without this, two writers read the same
+-- max and compute the same next value, silently duplicating the acceptance seq
+-- (no unique backstop) or colliding on the attempt_no/revision_no unique index.
+-- Held until the enclosing tx ends. The 'goal:' prefix keeps unrelated entities
+-- out of this goal's slot in the shared 64-bit lock space (matching
+-- AdvisoryXactLock / LockSchedJobForRun).
+-- name: LockGoalForWrite :exec
+SELECT pg_advisory_xact_lock(hashtextextended('goal:' || sqlc.arg(goal_id)::text, 0));

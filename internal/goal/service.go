@@ -226,6 +226,14 @@ func getGoal(ctx context.Context, q *sqlc.Queries, id string) (sqlc.AgentGoal, e
 // when empty so the first event gets seq 0). The event's id/created_at default
 // here when blank.
 func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries, e sqlc.AppendAcceptanceEventParams) (sqlc.AgentGoalAcceptanceEvent, error) {
+	// Serialize the seq read-modify-write for this goal. GetMaxAcceptanceSeq+1
+	// races across parallel writers/nodes under Read Committed, and the ledger's
+	// (goal_id, seq) index is NOT unique, so a race would silently duplicate seq
+	// and make applyAcceptance's ORDER BY seq fold nondeterministic. The lock
+	// releases with the surrounding tx.
+	if err := q.LockGoalForWrite(ctx, e.GoalID); err != nil {
+		return sqlc.AgentGoalAcceptanceEvent{}, fmt.Errorf("lock goal for acceptance append: %w", err)
+	}
 	maxSeq, err := q.GetMaxAcceptanceSeq(ctx, e.GoalID)
 	if err != nil {
 		return sqlc.AgentGoalAcceptanceEvent{}, fmt.Errorf("max acceptance seq: %w", err)

@@ -178,6 +178,12 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 
 	var out sqlc.AgentGoalAttempt
 	err = s.withTx(ctx, func(q *sqlc.Queries) error {
+		// Serialize attempt_no allocation for this goal: GetMaxAttemptNo+1 races
+		// across parallel writers/nodes, and uniq_agent_goal_attempt_no would turn a
+		// race into a hard 500. The lock releases with the tx.
+		if err := q.LockGoalForWrite(ctx, d.ID); err != nil {
+			return fmt.Errorf("lock goal for decomposition attempt: %w", err)
+		}
 		// attempt_count tracks execution attempts only, so a re-plan after an
 		// interrupted decomposition (goal reset to draft) would reuse attempt_no
 		// and collide on uniq_agent_goal_attempt_no. Number from the max existing
@@ -241,6 +247,12 @@ func (s *GoalService) CreateRevision(ctx context.Context, goalID string, content
 
 	var out sqlc.AgentGoalRevision
 	err = s.withTx(ctx, func(q *sqlc.Queries) error {
+		// Serialize revision_no allocation for this goal: GetMaxRevisionNo+1 races
+		// across parallel writers/nodes, and uniq_agent_goal_revision_no would turn a
+		// race into a hard 500. The lock releases with the tx.
+		if err := q.LockGoalForWrite(ctx, goalID); err != nil {
+			return fmt.Errorf("lock goal for revision: %w", err)
+		}
 		maxNo, err := q.GetMaxRevisionNo(ctx, goalID)
 		if err != nil {
 			return fmt.Errorf("max revision no: %w", err)
