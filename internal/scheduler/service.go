@@ -8,10 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -32,9 +33,10 @@ type OnJobFunc func(ctx context.Context, job Job) error
 // TaskFunc is a lightweight scheduled callback that is not persisted as a scheduled job.
 type TaskFunc func(ctx context.Context)
 
-// Service manages scheduled jobs backed by gocron/v2 with database persistence.
+// Service manages scheduled jobs backed by River durable queues with database
+// persistence.
 type Service struct {
-	scheduler       gocron.Scheduler
+	river           *river.Client[pgx.Tx]
 	onJob           OnJobFunc
 	listeners       []OnJobFunc
 	db              *pgxpool.Pool
@@ -43,7 +45,7 @@ type Service struct {
 	ctx             context.Context // lifecycle context from Start
 	mu              sync.Mutex
 	jobs            map[string]Job
-	gids            map[string]uuid.UUID // job ID -> gocron job UUID
+	refs            map[string]schedRef // job ID -> live River registration
 	log             *slog.Logger
 	userJobsEnabled bool
 
@@ -67,19 +69,20 @@ type Service struct {
 // New creates a scheduler service backed by the given database.
 // Call Start to load persisted jobs and begin scheduling.
 func New(db *pgxpool.Pool) (*Service, error) {
-	s, err := gocron.NewScheduler()
-	if err != nil {
-		return nil, fmt.Errorf("create scheduler: %w", err)
-	}
-	return &Service{
-		scheduler:       s,
+	s := &Service{
 		db:              db,
 		q:               sqlc.New(db),
 		jobs:            make(map[string]Job),
-		gids:            make(map[string]uuid.UUID),
+		refs:            make(map[string]schedRef),
 		log:             slog.With("component", "scheduler"),
 		userJobsEnabled: true,
-	}, nil
+	}
+	client, err := newSchedulerRiverClient(s, db)
+	if err != nil {
+		return nil, err
+	}
+	s.river = client
+	return s, nil
 }
 
 // NewFromPath creates a scheduler service that opens its own PostgreSQL
@@ -153,7 +156,7 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 				continue
 			}
 			if j.Enabled {
-				if err := s.scheduleJob(ctx, j); err != nil {
+				if err := s.scheduleJob(j); err != nil {
 					if errors.Is(err, errOneTimeJobPast) {
 						s.log.Info("skipping one-time job with past timestamp", "id", j.ID, "at", j.Schedule.At)
 					} else {
@@ -165,7 +168,9 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 	}
 	s.mu.Unlock()
 
-	s.scheduler.Start()
+	if err := s.river.Start(ctx); err != nil {
+		return fmt.Errorf("start river client: %w", err)
+	}
 	if loadPersisted {
 		s.log.Info("scheduler service started", "jobs", len(jobs))
 	} else {
@@ -176,19 +181,26 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 
 // Stop shuts down the scheduler and closes the database if owned.
 //
-// Service is single-shot: Start after Stop is not supported. gocron's
-// Shutdown is terminal, and s.started is not reset, so any subsequent
-// RegisterBuiltin will reject with "called after Start". Construct a new
-// Service if you need a fresh lifecycle.
+// Service is single-shot: Start after Stop is not supported. River's Stop is
+// terminal, and s.started is not reset, so any subsequent RegisterBuiltin will
+// reject with "called after Start". Construct a new Service if you need a fresh
+// lifecycle.
+//
+// A background context is used so in-flight jobs drain gracefully rather than
+// being cancelled mid-run.
 func (s *Service) Stop() error {
-	err := s.scheduler.Shutdown()
+	err := s.river.Stop(context.Background())
 	if s.ownsDB && s.db != nil {
 		s.db.Close()
 	}
 	return err
 }
 
-// ScheduleEvery registers a non-persisted recurring task on the existing scheduler.
+// ScheduleEvery registers a non-persisted recurring task. Unlike scheduled jobs
+// it is not durable and not cluster-coordinated: it runs in-process on a ticker
+// bound to ctx (every node that calls this runs its own copy), and stops when
+// ctx is cancelled. Used for ephemeral in-memory ticks (e.g. the goal
+// dispatcher) that must fire on each node rather than once cluster-wide.
 func (s *Service) ScheduleEvery(ctx context.Context, every string, fn TaskFunc) error {
 	if every == "" {
 		return fmt.Errorf("every is required")
@@ -201,13 +213,23 @@ func (s *Service) ScheduleEvery(ctx context.Context, every string, fn TaskFunc) 
 	if err != nil {
 		return fmt.Errorf("parse duration: %w", err)
 	}
-
-	_, err = s.scheduler.NewJob(gocron.DurationJob(d), gocron.NewTask(func() {
-		fn(ctx)
-	}))
-	if err != nil {
-		return fmt.Errorf("schedule task: %w", err)
+	if d <= 0 {
+		// time.NewTicker panics on a non-positive duration; reject it here.
+		return fmt.Errorf("every must be positive, got %q", every)
 	}
+
+	go func() {
+		ticker := time.NewTicker(d)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				fn(ctx)
+			}
+		}
+	}()
 
 	return nil
 }
@@ -324,14 +346,11 @@ func (s *Service) AddPluginJob(ctx context.Context, pluginID, key, runtimeName, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.scheduleJob(s.ctx, job); err != nil {
+	if err := s.scheduleJob(job); err != nil {
 		return Job{}, fmt.Errorf("schedule job: %w", err)
 	}
 	if err := s.insertJob(s.ctx, job); err != nil {
-		if gid, ok := s.gids[job.ID]; ok {
-			_ = s.scheduler.RemoveJob(gid)
-			delete(s.gids, job.ID)
-		}
+		s.unscheduleJob(job.ID)
 		return Job{}, fmt.Errorf("persist job: %w", err)
 	}
 	s.jobs[job.ID] = job
@@ -356,8 +375,12 @@ func validateSchedule(sched Schedule) error {
 		return fmt.Errorf("schedule must have exactly one of cron, every, or at")
 	}
 	if sched.Every != "" {
-		if _, err := time.ParseDuration(sched.Every); err != nil {
+		d, err := time.ParseDuration(sched.Every)
+		if err != nil {
 			return fmt.Errorf("invalid duration %q: %w", sched.Every, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("invalid duration %q: must be positive", sched.Every)
 		}
 	}
 	if sched.At != "" {
@@ -381,13 +404,8 @@ func (s *Service) RemoveJob(id string) error {
 		return fmt.Errorf("job %q not found", id)
 	}
 
-	// Remove from scheduler first.
-	if gid, ok := s.gids[id]; ok {
-		if err := s.scheduler.RemoveJob(gid); err != nil {
-			s.log.Warn("failed to remove gocron job", "id", id, "error", err)
-		}
-		delete(s.gids, id)
-	}
+	// Tear down the live River registration first.
+	s.unscheduleJob(id)
 
 	if err := s.deleteJob(s.ctx, id); err != nil {
 		return fmt.Errorf("persist after remove: %w", err)
@@ -427,11 +445,8 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		j.ExecScope = normalizeExecScope(execScope)
 		j.UpdatedAt = time.Now().UTC()
 
-		if gid, ok := s.gids[j.ID]; ok {
-			_ = s.scheduler.RemoveJob(gid)
-			delete(s.gids, j.ID)
-		}
-		if err := s.scheduleJob(s.ctx, j); err != nil {
+		s.unscheduleJob(j.ID)
+		if err := s.scheduleJob(j); err != nil {
 			s.mu.Unlock()
 			return Job{}, fmt.Errorf("reschedule job: %w", err)
 		}
@@ -457,42 +472,6 @@ func (s *Service) ListJobs() []Job {
 		result = append(result, j)
 	}
 	return result
-}
-
-// scheduleJob registers a job with gocron. Caller must hold s.mu.
-func (s *Service) scheduleJob(ctx context.Context, job Job) error {
-	var jobDef gocron.JobDefinition
-	switch {
-	case job.Schedule.Cron != "":
-		jobDef = gocron.CronJob(job.Schedule.Cron, false)
-	case job.Schedule.Every != "":
-		d, err := time.ParseDuration(job.Schedule.Every)
-		if err != nil {
-			return fmt.Errorf("parse duration: %w", err)
-		}
-		jobDef = gocron.DurationJob(d)
-	case job.Schedule.At != "":
-		t, err := time.Parse(time.RFC3339, job.Schedule.At)
-		if err != nil {
-			return fmt.Errorf("parse at timestamp: %w", err)
-		}
-		if !t.After(time.Now()) {
-			return errOneTimeJobPast
-		}
-		jobDef = gocron.OneTimeJob(gocron.OneTimeJobStartDateTime(t))
-	}
-
-	captured := job
-	isOneTime := job.Schedule.At != ""
-	gj, err := s.scheduler.NewJob(jobDef, gocron.NewTask(func() {
-		s.executeSingleRun(ctx, captured, captured.UserID, isOneTime)
-	}))
-	if err != nil {
-		return err
-	}
-
-	s.gids[job.ID] = gj.ID()
-	return nil
 }
 
 // executeSingleRun runs one job execution for the given userID (empty = system context).
@@ -537,7 +516,11 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 		errStr = runErr.Error()
 	}
 
-	if err := s.finishJobRun(ctx, runID, job.ID, status, finishedAt, errStr, outputSink.get()); err != nil {
+	// Finalize run bookkeeping on a context detached from cancellation: when a
+	// graceful shutdown cancels ctx mid-dispatch, the run row must still move out
+	// of "running" so it neither stays stuck nor blocks the next fire.
+	bookkeepingCtx := context.WithoutCancel(ctx)
+	if err := s.finishJobRun(bookkeepingCtx, runID, job.ID, status, finishedAt, errStr, outputSink.get()); err != nil {
 		s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 	}
 
@@ -554,7 +537,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 	s.mu.Unlock()
 
-	if err := s.recordJobRun(ctx, job.ID, finishedAt, runErr); err != nil {
+	if err := s.recordJobRun(bookkeepingCtx, job.ID, finishedAt, runErr); err != nil {
 		s.log.Warn("failed to record scheduler job run", "id", job.ID, "error", err)
 	}
 
@@ -652,15 +635,14 @@ func (s *Service) ListJobRuns(ctx context.Context, jobID string, limit int) ([]J
 	return runs, nil
 }
 
-// removeOneTimeJob cleans up a one-time job after it fires.
+// removeOneTimeJob cleans up a one-time job after it fires. The River job has
+// already completed (we run from inside its own execution), so the registration
+// is just forgotten — no JobCancel.
 func (s *Service) removeOneTimeJob(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if gid, ok := s.gids[id]; ok {
-		_ = s.scheduler.RemoveJob(gid)
-		delete(s.gids, id)
-	}
+	delete(s.refs, id)
 	if err := s.deleteJob(s.ctx, id); err != nil {
 		s.log.Warn("failed to remove one-time job after execution", "id", id, "error", err)
 	} else {
