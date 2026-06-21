@@ -388,17 +388,17 @@ function HeroSection({ lang }: { lang: "en" | "zh" }) {
       <div className="home-shell home-hero-layout">
         <div className="home-hero-copy">
           <div className="home-eyebrow">
-            {isZh ? "自部署 Goal 协同工作空间" : "Self-hosted Goal Workspace"}
+            {isZh ? "自部署 · 团队共享 AI 同事" : "Self-hosted · Shared AI coworkers"}
           </div>
           <h1 className="home-hero-title">
-            <span>{isZh ? "像雇佣真实同事一样" : "Skip specialists."}</span>
-            <em>{isZh ? "把目标直接交给" : "Give the goal"}</em>
-            <span>{isZh ? "AI 任务执行网络" : "to the agent network."}</span>
+            <span>{isZh ? "团队里重复的问题" : "Your team's repeat questions"}</span>
+            <em>{isZh ? "不必再麻烦" : "don't need"}</em>
+            <span>{isZh ? "你的专家" : "your experts."}</span>
           </h1>
           <p className="home-hero-body">
             {isZh
-              ? "Stella 将复杂的业务流程、工具调用和审核机制深度包装。无需学习特定专业软件，非技术人员只需输入目标，Stella 即可拆解为依赖任务，以安全沙箱并发执行，并支持人工校准审批。"
-              : "Let finance, HR, research, and engineering teams deploy dedicated agents. Simply prompt Stella with your goal, and watch it plan a task DAG, fetch tools, run safe code execution, and guide results through your approval."}
+              ? "为财务、HR、工程或研究配置一个共享 agent，只需一次。团队里的每个人都能在自己已经在用的聊天工具里直接问它——它在安全沙箱里把活干完，并在关键处停下来等你审批。"
+              : "Set up a shared agent for finance, HR, engineering, or research once. Everyone on the team asks it in the chat tools they already use — it does the work in a safe sandbox and stops for your approval where it matters."}
           </p>
           <div className="home-actions">
             <Link to="/docs/$" params={{ _splat: "" }} className="home-btn home-btn-primary">
@@ -681,7 +681,7 @@ function AgentExplorerSection({ lang }: { lang: "en" | "zh" }) {
           <p className="home-section-sub">
             {isZh
               ? "业务部门（HR、财务、研究等）可以自主组装 Agent，挂载工具与政策。一旦创建，全组织成员即可直接通过对话调用，无需配置，零学习成本。"
-              : "Configure tailored agents with specific prompts, local tools, and sandboxed runtimes. Once created, they join the directory where any coworker can leverage their capability via simple chat."}
+              : "A domain owner sets up an agent with its instructions, tools, and safety rules. Once it exists, anyone on the team can use it by chatting — no setup, nothing new to learn."}
           </p>
         </div>
 
