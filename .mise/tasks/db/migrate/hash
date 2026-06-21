@@ -1,4 +1,0 @@
-#!/bin/bash
-#MISE description="Re-hash migration files"
-
-atlas migrate hash --dir "file://internal/db/migrations"

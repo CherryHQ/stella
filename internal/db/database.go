@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -219,14 +220,15 @@ func stripLeadingComments(q string) string {
 	return ""
 }
 
-// migrate applies pending SQL migration files from the embedded migrations
-// directory. Each migration runs in its own transaction (PostgreSQL DDL is
-// transactional, so a failed migration rolls back cleanly) and is tracked in a
-// schema_migrations table.
+// migrate ensures the required extensions exist, then applies pending goose
+// migrations from the embedded migrations directory and brings up River's
+// schema. goose tracks applied versions in goose_db_version and runs each
+// migration in its own transaction (PostgreSQL DDL is transactional, so a
+// failed migration rolls back cleanly).
 //
-// All work runs on one pinned connection holding a session-level advisory lock,
-// so concurrent stellad processes pointed at the same database serialize: the
-// loser blocks on the lock, then sees the winner's applied versions and no-ops.
+// Extensions and the advisory lock run on one pinned connection: the lock
+// serializes concurrent stellad processes pointed at the same database, so the
+// loser blocks, then sees the winner's applied versions and no-ops.
 func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -241,57 +243,16 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", migrateLockKey)
 	}()
 
-	// The baseline's trigram indexes (gin_trgm_ops) depend on pg_trgm, which
-	// Atlas (OSS) can't manage declaratively, so create required extensions before
-	// applying any migration. Requires a role with CREATE privilege on the database.
+	// The baseline's trigram indexes (gin_trgm_ops) and the search stack's
+	// vector/bm25 indexes depend on extensions that migrations cannot create
+	// declaratively, so install required extensions before applying any
+	// migration. Requires a role with CREATE privilege on the database.
 	if err := ensureExtensions(ctx, conn); err != nil {
 		return err
 	}
 
-	const createTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
-		version TEXT PRIMARY KEY,
-		applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-	)`
-	if _, err := conn.Exec(ctx, createTable); err != nil {
-		return fmt.Errorf("create schema_migrations: %w", err)
-	}
-
-	applied, err := appliedVersions(ctx, conn)
-	if err != nil {
-		return fmt.Errorf("read applied versions: %w", err)
-	}
-
-	files, err := migrationFiles()
-	if err != nil {
-		return fmt.Errorf("read migration files: %w", err)
-	}
-
-	for _, f := range files {
-		version := strings.TrimSuffix(f, ".sql")
-		if applied[version] {
-			continue
-		}
-		data, err := MigrationsFS.ReadFile("migrations/" + f)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", f, err)
-		}
-		tx, err := conn.Begin(ctx)
-		if err != nil {
-			return fmt.Errorf("begin tx for %s: %w", f, err)
-		}
-		if _, err := tx.Exec(ctx, string(data)); err != nil {
-			_ = tx.Rollback(ctx)
-			return fmt.Errorf("exec %s: %w", f, err)
-		}
-		if _, err := tx.Exec(ctx,
-			"INSERT INTO schema_migrations (version) VALUES ($1)", version,
-		); err != nil {
-			_ = tx.Rollback(ctx)
-			return fmt.Errorf("record %s: %w", f, err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("commit %s: %w", f, err)
-		}
+	if err := runMigrations(ctx, pool); err != nil {
+		return err
 	}
 
 	// River owns its own schema; bring it up under the same advisory lock so the
@@ -303,42 +264,25 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// appliedVersions returns a set of migration versions already recorded
-// in schema_migrations.
-func appliedVersions(ctx context.Context, conn *pgxpool.Conn) (map[string]bool, error) {
-	rows, err := conn.Query(ctx, "SELECT version FROM schema_migrations")
+// runMigrations applies all pending goose migrations from the embedded
+// migrations directory. goose runs on a database/sql handle backed by the same
+// pgx pool (closing it does not close the pool). The caller already holds the
+// cross-process advisory lock; a goose Provider carries no global state, so it
+// is also safe under the in-process concurrency of parallel test databases.
+func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
+	sub, err := fs.Sub(MigrationsFS, "migrations")
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("open migrations fs: %w", err)
 	}
-	defer rows.Close()
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
 
-	applied := make(map[string]bool)
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			return nil, err
-		}
-		applied[v] = true
-	}
-	return applied, rows.Err()
-}
-
-// migrationFiles returns .sql filenames from the embedded migrations
-// directory in sorted (chronological) order.
-func migrationFiles() ([]string, error) {
-	entries, err := fs.ReadDir(MigrationsFS, "migrations")
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, sub)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("create migration provider: %w", err)
 	}
-
-	var files []string
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".sql") {
-			continue
-		}
-		files = append(files, name)
+	if _, err := provider.Up(ctx); err != nil {
+		return fmt.Errorf("apply migrations: %w", err)
 	}
-	sort.Strings(files)
-	return files, nil
+	return nil
 }

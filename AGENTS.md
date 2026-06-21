@@ -20,7 +20,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | Domain           | Rule file            | Read before                                |
 | ---------------- | -------------------- | ------------------------------------------ |
 | Schema design    | `schema-design.md`   | Designing or changing any table            |
-| Atlas migrations | `atlas.md`           | Creating or modifying database migrations  |
+| goose migrations | `goose.md`           | Creating or modifying database migrations  |
 | sqlc queries     | `sqlc.md`            | Writing or editing SQL query files         |
 | API design       | `api-design.md`      | Designing or changing any HTTP API         |
 | CLI design       | `cli-design.md`      | Designing or changing any CLI command      |

@@ -1,7 +1,0 @@
-#!/bin/bash
-#MISE description="Apply pending migrations to database"
-
-DB_PATH="${DB_PATH:-$HOME/.stella/workspace/memory.db}"
-atlas migrate apply \
-    --url "sqlite://$DB_PATH" \
-    --dir "file://internal/db/migrations"

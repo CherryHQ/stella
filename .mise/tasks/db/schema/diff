@@ -1,8 +1,0 @@
-#!/bin/bash
-#MISE description="Compare live database with migration files"
-
-DB_PATH="${DB_PATH:-$HOME/.stella/workspace/memory.db}"
-atlas schema diff \
-    --from "sqlite://$DB_PATH" \
-    --to "file://internal/db/migrations" \
-    --dev-url "sqlite://dev?mode=memory"

@@ -1,3 +1,4 @@
+-- +goose Up
 -- Create "agent" table
 CREATE TABLE "agent" (
   "id" text NOT NULL,
@@ -1016,3 +1017,9 @@ ALTER TABLE "skill" ADD CONSTRAINT "skill_agent_id_fkey" FOREIGN KEY ("agent_id"
 ALTER TABLE "skill_file" ADD CONSTRAINT "skill_file_skill_id_fkey" FOREIGN KEY ("skill_id") REFERENCES "skill" ("id") ON UPDATE NO ACTION ON DELETE CASCADE;
 -- Modify "vault_entry" table
 ALTER TABLE "vault_entry" ADD CONSTRAINT "vault_entry_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "agent" ("id") ON UPDATE NO ACTION ON DELETE CASCADE, ADD CONSTRAINT "vault_entry_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth_user" ("id") ON UPDATE NO ACTION ON DELETE CASCADE;
+
+-- +goose Down
+-- The baseline has no down migration: it creates the entire schema, and rolling
+-- it back means discarding the database. Reset a dev database by dropping and
+-- recreating it (or its data directory) rather than running `goose down`.
+SELECT 1;
