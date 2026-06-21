@@ -6,7 +6,7 @@ jq = "1.8.1"
 yq = "4.49.2"
 act = "0.2.88"
 # Go
-atlas = "0.36.0"
+"go:github.com/pressly/goose/v3/cmd/goose" = "latest"
 go = "1.25.9"
 "github:golangci/golangci-lint" = "2.11.1"
 "github:goreleaser/goreleaser" = "2.14.1"
@@ -182,17 +182,26 @@ run = "git config --unset core.hooksPath || true && prek install --overwrite --p
 # Database
 # ============================================================================
 
-[tasks."db:diff"]
-description = "Generate a new Atlas migration from schema changes"
-run = "atlas migrate diff {{arg(name='name', default='migration')}} --env local"
+# Migrations are the single source of truth for the schema (goose; Atlas and the
+# declarative schemas were dropped). stellad applies pending migrations
+# automatically on startup; these tasks are for authoring and inspecting them.
+# db:migrate:up/status target STELLA_DATABASE_URL (an external PostgreSQL).
 
-[tasks."db:hash"]
-description = "Recalculate Atlas migration hash"
-run = "atlas migrate hash --env local"
+[tasks."db:migrate:new"]
+description = "Scaffold a new goose SQL migration in internal/db/migrations"
+run = "goose -dir internal/db/migrations create {{arg(name='name', default='migration')}} sql"
 
 [tasks."db:validate"]
-description = "Validate Atlas migrations"
-run = "atlas migrate validate --env local"
+description = "Validate goose migrations parse and are well-formed"
+run = "goose -dir internal/db/migrations validate"
+
+[tasks."db:migrate:up"]
+description = "Apply pending migrations to STELLA_DATABASE_URL"
+run = 'goose -dir internal/db/migrations postgres "$STELLA_DATABASE_URL" up'
+
+[tasks."db:migrate:status"]
+description = "Show migration status for STELLA_DATABASE_URL"
+run = 'goose -dir internal/db/migrations postgres "$STELLA_DATABASE_URL" status'
 
 # ============================================================================
 # Release

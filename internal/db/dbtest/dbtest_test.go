@@ -12,8 +12,8 @@ func TestMain(m *testing.M) { Main(m) }
 func TestNewIsMigrated(t *testing.T) {
 	db := New(t)
 	var n int
-	if err := db.QueryRow(context.Background(), "SELECT count(*) FROM schema_migrations").Scan(&n); err != nil {
-		t.Fatalf("query schema_migrations: %v", err)
+	if err := db.QueryRow(context.Background(), "SELECT count(*) FROM goose_db_version").Scan(&n); err != nil {
+		t.Fatalf("query goose_db_version: %v", err)
 	}
 	if n == 0 {
 		t.Fatal("cloned database has no applied migrations")

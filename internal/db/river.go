@@ -13,8 +13,8 @@ import (
 
 // migrateRiver applies River's own schema migrations — the river_* tables that
 // back its durable job queue. River owns and versions these tables itself, so
-// they live outside the app's migrations/ directory and the Atlas-managed
-// schema (atlas.hcl excludes river_*); rivermigrate is their source of truth.
+// they live outside the app's goose migrations/ directory; rivermigrate is their
+// source of truth.
 //
 // Called from migrate() while the cross-process advisory lock is held, so
 // concurrent stellad instances serialize here exactly as they do for the app's

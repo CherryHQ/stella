@@ -1,13 +1,13 @@
 ---
 title: Database schema design rules
-description: Schema design best practices for Stella, with the PostgreSQL/Atlas mapping this project uses.
+description: Schema design best practices for Stella, with the PostgreSQL mapping this project uses.
 ---
 
 > This is a **rule file** for contributors. When you create a table, change a
 > column, or plan a data model, read this page first. The general principles
 > below are database-agnostic; the [PostgreSQL in this project](#postgresql-in-this-project)
-> section pins them to Stella's actual stack (PostgreSQL + Atlas). The migration
-> workflow itself lives in the project `CLAUDE.md`.
+> section pins them to Stella's actual stack (PostgreSQL + goose migrations). The
+> migration workflow itself lives in `goose.md`.
 
 ## Start With the Domain
 
@@ -208,11 +208,11 @@ If you're querying inside JSON frequently, extract it into proper columns.
 ## PostgreSQL in this project
 
 Stella stores data in **PostgreSQL** (an embedded cluster by default), with
-schema managed by **Atlas**. Use native Postgres types directly — the generic
-concepts above each have a real column type, no SQLite-style encoding tricks.
-The schema source of truth is `internal/db/schemas/tables/*.sql`; never
-hand-write migration SQL (see the migration workflow in the project
-`CLAUDE.md`).
+schema managed by **hand-written goose migrations**. Use native Postgres types
+directly — the generic concepts above each have a real column type, no
+SQLite-style encoding tricks. The schema source of truth is the goose migrations
+in `internal/db/migrations/`; write each schema change as a new migration (see
+`goose.md`).
 
 ### Type mapping
 
@@ -268,6 +268,6 @@ Before approving any schema change:
    money integer cents?
 8. Are common queries supported by indexes?
 9. Is deletion behavior intentional per table?
-10. Did the change go through the Atlas workflow (schema file → `db:diff` →
-    `generate`), not hand-written SQL?
+10. Did the change ship as a new goose migration (`db:migrate:new` → write
+    Up/Down → `generate`), with no edits to already-committed migrations?
 11. Is sensitive data protected?

@@ -2,7 +2,10 @@ version: "2"
 sql:
   - engine: "postgresql"
     queries: "internal/db/queries/*.sql"
-    schema: "internal/db/schemas/tables/*.sql"
+    # Migrations are the single source of truth for the schema (Atlas/declarative
+    # schemas were dropped). sqlc reads the goose migrations and applies only the
+    # `-- +goose Up` sections to build its catalog.
+    schema: "internal/db/migrations"
     gen:
       go:
         package: "sqlc"
