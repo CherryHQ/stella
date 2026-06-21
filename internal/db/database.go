@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	pgxvec "github.com/pgvector/pgvector-go/pgx"
 	"github.com/pressly/goose/v3"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -51,7 +52,7 @@ func OpenDB(dsn string) (*pgxpool.Pool, error) {
 	// Treat the native uuid type as text on the wire so sqlc's `string` id/FK
 	// fields scan and encode without juggling [16]byte: the app mints and
 	// compares uuidv7 strings end to end.
-	cfg.AfterConnect = func(_ context.Context, conn *pgx.Conn) error {
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		tm := conn.TypeMap()
 		// TEXT-ONLY is load-bearing, not a style choice. A plain TextCodec also
 		// advertises binary support, and pgx's ArrayCodec prefers binary for any
@@ -74,6 +75,24 @@ func OpenDB(dsn string) (*pgxpool.Pool, error) {
 			OID:   pgtype.UUIDArrayOID,
 			Codec: &pgtype.ArrayCodec{ElementType: uuidType},
 		})
+		// Register the pgvector codecs so the embedding sidecar tables' `vector`
+		// columns (pgvector.Vector in the sqlc models) encode and scan: pgx dispatches
+		// by registered OID, and the vector OID is assigned dynamically by CREATE
+		// EXTENSION. On a fresh database the type does not exist yet when this hook
+		// fires for migrate()'s first connection, so probe and skip until it does;
+		// every connection opened after the extension exists (all of them on every
+		// later boot) gets the codec, and the lone pre-extension migrate connection
+		// recycles within MaxConnLifetime. Without this, the first vector query once
+		// the embedding backfill lands would fail to (de)serialize pgvector.Vector.
+		var hasVector bool
+		if err := conn.QueryRow(ctx, "SELECT to_regtype('vector') IS NOT NULL").Scan(&hasVector); err != nil {
+			return fmt.Errorf("probe vector type: %w", err)
+		}
+		if hasVector {
+			if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
+				return fmt.Errorf("register pgvector types: %w", err)
+			}
+		}
 		return nil
 	}
 	// PostgreSQL serializes nothing client-side — concurrency is handled
