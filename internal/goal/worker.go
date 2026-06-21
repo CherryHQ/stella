@@ -21,6 +21,14 @@ const heartbeatInterval = 20 * time.Second
 // > 3 * heartbeatInterval so a single missed beat does not expire the lease.
 const leaseDuration = 90 * time.Second
 
+// claimGraceTTL is the lease a freshly claimed (still queued) attempt carries
+// until a River worker picks it up and PromoteAttempt extends it. It must exceed
+// the worst-case queue pickup latency so the dispatcher reaper never reclaims a
+// job that is legitimately still waiting in the goal queue; the per-root/per-user
+// caps keep that backlog small. If pickup never happens (insert gap, crash before
+// promote), the reaper reopens the goal once this window expires (mintNextAttempt).
+const claimGraceTTL = 2 * time.Minute
+
 // Worker runs ONE claimed execution/decomposition attempt to its single durable
 // transition. It is the only place the executor (agent IO) and the CheckRunner
 // (sandbox IO) run; both are pure with respect to durable state. The worker

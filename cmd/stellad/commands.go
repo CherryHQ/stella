@@ -8,7 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -68,6 +70,7 @@ type setupResult struct {
 	poolManager              *agent.PoolManager
 	schedulerSvc             *scheduler.Service
 	goalSvc                  *goal.Service
+	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []pkgtools.Tool
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
@@ -195,7 +198,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
-	goalSvc := goal.Boot(goal.BootConfig{
+	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:       db,
 		Services: &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 		Chat: func(ctx context.Context, p goal.TaskChatParams) <-chan agent.Event {
@@ -222,6 +225,9 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 			})
 		},
 	})
+	if err != nil {
+		return nil, fmt.Errorf("boot goal service: %w", err)
+	}
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
@@ -251,6 +257,14 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, fmt.Errorf("start pool manager: %w", err)
 	}
 
+	// Composition root for River: both the scheduler and goal subsystems are now
+	// built, so assemble the single shared working client from their queues and
+	// inject it back into each. runServer owns its Start/Stop.
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc)
+	if err != nil {
+		return nil, err
+	}
+
 	backgroundTasks := &sync.WaitGroup{}
 	if ps.manifestToReconcile != nil {
 		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
@@ -267,6 +281,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		poolManager:              poolMgr,
 		schedulerSvc:             schedulerSvc,
 		goalSvc:                  goalSvc,
+		riverClient:              riverClient,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
 		pluginToolsBuilder:       pluginToolsBuilder,
@@ -301,12 +316,44 @@ func ensureEmbeddedAssets() error {
 }
 
 func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host) (*scheduler.Service, error) {
-	svc, err := scheduler.New(db)
+	// External-river mode: the scheduler does not build its own River client. The
+	// composition root (buildSharedRiverClient) assembles the single process-wide
+	// working client from both the scheduler and goal queues and injects it back
+	// via SetRiverClient, so there is exactly one electable River client per
+	// database (see db.NewWorkingRiverClient).
+	svc, err := scheduler.New(db, scheduler.WithExternalRiver())
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
 	phost.SetSchedulerService(newSchedulerServiceAdapter(svc, phost.Runtime()))
 	return svc, nil
+}
+
+// buildSharedRiverClient is the composition root for River: it assembles the
+// single process-wide working client from every subsystem's queue + worker
+// (scheduler and goal), then injects it back into each so they enqueue and
+// register periodic jobs against the same client. There must be exactly one
+// electable River client per database (see db.NewWorkingRiverClient); this is
+// where that invariant is enforced. The caller owns the returned client's
+// Start/Stop lifecycle (runServer); the subsystems only use it.
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service) (*river.Client[pgx.Tx], error) {
+	workers := river.NewWorkers()
+	scheduler.RegisterRiverWorker(workers, schedulerSvc)
+	goalSvc.RegisterRiverWorker(workers)
+
+	queues := map[string]river.QueueConfig{}
+	sn, sc := scheduler.SchedulerQueueConfig()
+	queues[sn] = sc
+	gn, gc := goalSvc.GoalQueueConfig()
+	queues[gn] = gc
+
+	client, err := appdb.NewWorkingRiverClient(db, queues, workers, slog.With("component", "river"))
+	if err != nil {
+		return nil, fmt.Errorf("build shared river client: %w", err)
+	}
+	schedulerSvc.SetRiverClient(client)
+	goalSvc.SetRiverClient(client)
+	return client, nil
 }
 
 func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher) {

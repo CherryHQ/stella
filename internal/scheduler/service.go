@@ -37,6 +37,8 @@ type TaskFunc func(ctx context.Context)
 // persistence.
 type Service struct {
 	river           *river.Client[pgx.Tx]
+	ownsRiver       bool // true when Service built its own River client (default/test); false in external-river mode
+	externalRiver   bool // set by WithExternalRiver: caller injects+owns the shared client
 	onJob           OnJobFunc
 	listeners       []OnJobFunc
 	db              *pgxpool.Pool
@@ -66,9 +68,23 @@ type Service struct {
 	started bool
 }
 
+// Option configures a Service at construction.
+type Option func(*Service)
+
+// WithExternalRiver constructs the Service WITHOUT its own River client: the
+// caller injects the single process-wide working client via SetRiverClient
+// before Start and owns its Start/Stop lifecycle. This is how the composition
+// root keeps exactly one electable River client per database while letting both
+// the scheduler and the goal subsystem work and enqueue jobs (see
+// db.NewWorkingRiverClient). Without this option the Service builds and owns a
+// self-contained client (the default / test path).
+func WithExternalRiver() Option {
+	return func(s *Service) { s.externalRiver = true }
+}
+
 // New creates a scheduler service backed by the given database.
 // Call Start to load persisted jobs and begin scheduling.
-func New(db *pgxpool.Pool) (*Service, error) {
+func New(db *pgxpool.Pool, opts ...Option) (*Service, error) {
 	s := &Service{
 		db:              db,
 		q:               sqlc.New(db),
@@ -77,12 +93,26 @@ func New(db *pgxpool.Pool) (*Service, error) {
 		log:             slog.With("component", "scheduler"),
 		userJobsEnabled: true,
 	}
-	client, err := newSchedulerRiverClient(s, db)
-	if err != nil {
-		return nil, err
+	for _, o := range opts {
+		o(s)
 	}
-	s.river = client
+	if !s.externalRiver {
+		client, err := newSchedulerRiverClient(s, db)
+		if err != nil {
+			return nil, err
+		}
+		s.river = client
+		s.ownsRiver = true
+	}
 	return s, nil
+}
+
+// SetRiverClient injects the shared working River client (external-river mode).
+// Call after New(db, WithExternalRiver()) and before Start. The Service uses it
+// to enqueue and register periodic jobs but does NOT start or stop it — the
+// composition root owns the shared client's lifecycle.
+func (s *Service) SetRiverClient(c *river.Client[pgx.Tx]) {
+	s.river = c
 }
 
 // NewFromPath creates a scheduler service that opens its own PostgreSQL
@@ -168,8 +198,13 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 	}
 	s.mu.Unlock()
 
-	if err := s.river.Start(ctx); err != nil {
-		return fmt.Errorf("start river client: %w", err)
+	// Own the River lifecycle only when we built the client. In external-river
+	// mode the composition root starts/stops the single shared client; we just
+	// registered our periodic jobs and one-time inserts above against it.
+	if s.ownsRiver {
+		if err := s.river.Start(ctx); err != nil {
+			return fmt.Errorf("start river client: %w", err)
+		}
 	}
 	if loadPersisted {
 		s.log.Info("scheduler service started", "jobs", len(jobs))
@@ -189,7 +224,12 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 // A background context is used so in-flight jobs drain gracefully rather than
 // being cancelled mid-run.
 func (s *Service) Stop() error {
-	err := s.river.Stop(context.Background())
+	var err error
+	// Stop the River client only when we own it; the shared client is stopped by
+	// the composition root in external-river mode.
+	if s.ownsRiver {
+		err = s.river.Stop(context.Background())
+	}
 	if s.ownsDB && s.db != nil {
 		s.db.Close()
 	}

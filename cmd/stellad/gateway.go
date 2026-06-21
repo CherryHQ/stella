@@ -297,7 +297,21 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Wire auth directory into dispatcher for per-user notification routing.
 	s.notifier.SetAuthService(s.pluginHost.Auth())
 
-	// Wire scheduler and start it.
+	// Start the single shared River client (composition root: buildSharedRiverClient
+	// assembled it from the scheduler and goal queues). It is started before the
+	// subsystems and, because defers run LIFO, its Stop runs last — after the goal
+	// tick and the scheduler have stopped — so in-flight attempt and scheduled jobs
+	// drain gracefully with no new work being enqueued.
+	if s.riverClient != nil {
+		if err := s.riverClient.Start(ctx); err != nil {
+			return fmt.Errorf("start river client: %w", err)
+		}
+		defer func() { _ = s.riverClient.Stop(context.Background()) }()
+	}
+
+	// Wire scheduler and start it. In external-river mode Start/Stop register and
+	// tear down the scheduler's periodic and one-time jobs against the shared
+	// client but do not start or stop it.
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
@@ -308,9 +322,12 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		defer func() { _ = s.schedulerSvc.Stop() }()
 	}
 
-	// Dispatcher tick (Phase 6 wiring). Registered as a recurring in-memory
-	// task on scheduler.Service — no sched_job row (D4). The dispatcher waits
-	// for in-flight workers to drain on Stop.
+	// Goal execution substrate (River Phase 2a). The dispatcher enqueues claimed
+	// attempts onto the shared client (injected via SetRiverClient); register its
+	// tick as a recurring in-memory task on scheduler.Service — no sched_job row
+	// (D4). The tick scans+claims and enqueues; the shared River client executes.
+	// Shutdown (defers run LIFO): stop the tick first so no new claims enqueue,
+	// then the scheduler, then drain in-flight jobs when the shared client stops.
 	if s.goalSvc != nil && s.schedulerSvc != nil {
 		if err := s.schedulerSvc.ScheduleEvery(ctx, "2s", func(ctx context.Context) {
 			s.goalSvc.Dispatcher.Tick(ctx)
