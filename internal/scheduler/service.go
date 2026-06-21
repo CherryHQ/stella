@@ -213,6 +213,10 @@ func (s *Service) ScheduleEvery(ctx context.Context, every string, fn TaskFunc) 
 	if err != nil {
 		return fmt.Errorf("parse duration: %w", err)
 	}
+	if d <= 0 {
+		// time.NewTicker panics on a non-positive duration; reject it here.
+		return fmt.Errorf("every must be positive, got %q", every)
+	}
 
 	go func() {
 		ticker := time.NewTicker(d)
@@ -371,8 +375,12 @@ func validateSchedule(sched Schedule) error {
 		return fmt.Errorf("schedule must have exactly one of cron, every, or at")
 	}
 	if sched.Every != "" {
-		if _, err := time.ParseDuration(sched.Every); err != nil {
+		d, err := time.ParseDuration(sched.Every)
+		if err != nil {
 			return fmt.Errorf("invalid duration %q: %w", sched.Every, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("invalid duration %q: must be positive", sched.Every)
 		}
 	}
 	if sched.At != "" {
@@ -508,7 +516,11 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 		errStr = runErr.Error()
 	}
 
-	if err := s.finishJobRun(ctx, runID, job.ID, status, finishedAt, errStr, outputSink.get()); err != nil {
+	// Finalize run bookkeeping on a context detached from cancellation: when a
+	// graceful shutdown cancels ctx mid-dispatch, the run row must still move out
+	// of "running" so it neither stays stuck nor blocks the next fire.
+	bookkeepingCtx := context.WithoutCancel(ctx)
+	if err := s.finishJobRun(bookkeepingCtx, runID, job.ID, status, finishedAt, errStr, outputSink.get()); err != nil {
 		s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 	}
 
@@ -525,7 +537,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 	s.mu.Unlock()
 
-	if err := s.recordJobRun(ctx, job.ID, finishedAt, runErr); err != nil {
+	if err := s.recordJobRun(bookkeepingCtx, job.ID, finishedAt, runErr); err != nil {
 		s.log.Warn("failed to record scheduler job run", "id", job.ID, "error", err)
 	}
 

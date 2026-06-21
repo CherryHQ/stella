@@ -587,3 +587,21 @@ func TestRunJobNow_NotFound(t *testing.T) {
 		t.Fatal("expected error for unknown job ID")
 	}
 }
+
+// A non-positive Every must be rejected up front: river.PeriodicInterval(0)
+// hot-loops the enqueuer and time.NewTicker(0) panics.
+func TestAddJobRejectsNonPositiveEvery(t *testing.T) {
+	svc := testService(t)
+	for _, every := range []string{"0s", "-5m"} {
+		if _, err := svc.AddJobWithOwner("bad-every", "hi", Schedule{Every: every}, "", "", "user-1"); err == nil {
+			t.Errorf("AddJobWithOwner(every=%q): expected error, got nil", every)
+		}
+	}
+}
+
+func TestScheduleEveryRejectsNonPositive(t *testing.T) {
+	svc := testService(t)
+	if err := svc.ScheduleEvery(context.Background(), "0s", func(context.Context) {}); err == nil {
+		t.Error("ScheduleEvery(0s): expected error, got nil")
+	}
+}

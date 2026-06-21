@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,14 +23,23 @@ const (
 	// Re-entrancy of a single job is guarded separately by tryStartJobRun, so
 	// this only caps cross-job parallelism.
 	schedulerMaxWorkers = 10
+	// schedulerSoftStopTimeout bounds how long Stop waits for in-flight jobs to
+	// drain before River cancels their work contexts. Without it a stuck job
+	// would hang Stop forever; the worker honors this cancellation because Work
+	// dispatches on River's per-job context.
+	schedulerSoftStopTimeout = 30 * time.Second
 )
 
-// schedJobArgs is the River payload for a scheduled-job firing: it carries only
-// the scheduler job ID. The job's schedule, message, and ownership are resolved
-// from the in-memory/DB job record at work time, so prompt/schedule edits take
-// effect without rewriting queued jobs.
+// schedJobArgs is the River payload for a scheduled-job firing. JobID identifies
+// the scheduler job; At carries the one-time fire timestamp (RFC3339) and is
+// empty for recurring jobs. At is part of the args so River's ByArgs uniqueness
+// keys a one-time job on (JobID, At): re-inserting the same pending fire after a
+// restart deduplicates, while rescheduling to a different time enqueues a fresh
+// job. The job's schedule, message, and ownership are resolved from the DB at
+// work time, so prompt/schedule edits take effect without rewriting queued jobs.
 type schedJobArgs struct {
 	JobID string `json:"job_id"`
+	At    string `json:"at,omitempty"`
 }
 
 // Kind implements river.JobArgs.
@@ -45,24 +55,34 @@ type schedJobWorker struct {
 }
 
 // Work implements river.Worker.
-func (w *schedJobWorker) Work(_ context.Context, rjob *river.Job[schedJobArgs]) error {
-	job, ok := w.svc.lookupJob(rjob.Args.JobID)
-	if !ok {
-		// The job was removed between scheduling and firing (e.g. a one-time job
-		// cancelled, or a periodic job whose handle was torn down just as a tick
-		// landed). Nothing to run.
-		w.svc.log.Info("scheduler: river fired for unknown job, skipping", "job_id", rjob.Args.JobID)
-		return nil
+func (w *schedJobWorker) Work(ctx context.Context, rjob *river.Job[schedJobArgs]) error {
+	// Resolve the job fresh from the database rather than the local in-memory
+	// map: River workers consume the queue cluster-wide, so a job created,
+	// updated, or disabled on another node is only visible in the DB. Reading
+	// here means the firing always uses the latest prompt/schedule and honors a
+	// disable performed on any node.
+	row, err := w.svc.q.GetSchedulerJob(ctx, rjob.Args.JobID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The job was removed between scheduling and firing (e.g. a one-time
+			// job cancelled, or a periodic handle torn down just as a tick
+			// landed). Nothing to run.
+			w.svc.log.Info("scheduler: river fired for removed job, skipping", "job_id", rjob.Args.JobID)
+			return nil
+		}
+		return fmt.Errorf("load scheduler job %s: %w", rjob.Args.JobID, err)
 	}
+	job := dbRowToJob(row)
 	if !job.Enabled {
 		// The job was disabled after this firing was enqueued. Unlike gocron's
 		// in-process removal, River firings already queued can outlive the
 		// periodic-handle removal, so the Enabled flag is the fire-time guard.
 		return nil
 	}
-	// Use the service lifecycle context, not River's per-job context, so the
-	// dispatch matches the long-lived context gocron's task closure captured.
-	w.svc.executeSingleRun(w.svc.lifeCtx(), job, job.UserID, job.Schedule.At != "")
+	// Pass River's per-job context so a graceful SoftStopTimeout shutdown can
+	// cancel an in-flight dispatch; executeSingleRun detaches an uncancellable
+	// context for its run bookkeeping so the run row is always finalized.
+	w.svc.executeSingleRun(ctx, job, job.UserID, job.Schedule.At != "")
 	return nil
 }
 
@@ -96,7 +116,8 @@ func newSchedulerRiverClient(s *Service, pool *pgxpool.Pool) (*river.Client[pgx.
 		Queues: map[string]river.QueueConfig{
 			schedulerQueue: {MaxWorkers: schedulerMaxWorkers},
 		},
-		Workers: workers,
+		Workers:         workers,
+		SoftStopTimeout: schedulerSoftStopTimeout,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler river client: %w", err)
@@ -122,6 +143,11 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 		if err != nil {
 			return fmt.Errorf("parse duration: %w", err)
 		}
+		if d <= 0 {
+			// river.PeriodicInterval(0) hot-loops the enqueuer; guard a corrupt
+			// or pre-validation persisted value.
+			return fmt.Errorf("scheduler: job %q has non-positive interval %q", job.ID, job.Schedule.Every)
+		}
 		s.refs[job.ID] = s.addPeriodic(job.ID, river.PeriodicInterval(d))
 		return nil
 	case job.Schedule.At != "":
@@ -132,10 +158,11 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 		if !t.After(time.Now()) {
 			return errOneTimeJobPast
 		}
-		res, err := s.river.Insert(ctx, schedJobArgs{JobID: job.ID}, &river.InsertOpts{
+		res, err := s.river.Insert(ctx, schedJobArgs{JobID: job.ID, At: job.Schedule.At}, &river.InsertOpts{
 			Queue:       schedulerQueue,
 			ScheduledAt: t.UTC(),
 			MaxAttempts: 1,
+			UniqueOpts:  schedUniqueOpts(),
 		})
 		if err != nil {
 			return fmt.Errorf("enqueue one-time job: %w", err)
@@ -144,6 +171,25 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 		return nil
 	}
 	return fmt.Errorf("scheduler: job %q has empty schedule", job.ID)
+}
+
+// schedUniqueOpts deduplicates in-flight firings of the same job. A new firing
+// is skipped while an identical one is still available, pending, running, or
+// scheduled, collapsing a backlog of queued ticks (after downtime or a slow
+// run) into a single fire — restoring gocron's "skip the tick if the job is
+// mid-flight" behavior. Completed is deliberately omitted from ByState: River's
+// default includes it, which would block a recurring job forever once it had
+// run once.
+func schedUniqueOpts() river.UniqueOpts {
+	return river.UniqueOpts{
+		ByArgs: true,
+		ByState: []rivertype.JobState{
+			rivertype.JobStateAvailable,
+			rivertype.JobStatePending,
+			rivertype.JobStateRunning,
+			rivertype.JobStateScheduled,
+		},
+	}
 }
 
 // addPeriodic registers a recurring River periodic job that enqueues the given
@@ -157,6 +203,7 @@ func (s *Service) addPeriodic(jobID string, schedule river.PeriodicSchedule) sch
 			return schedJobArgs{JobID: jobID}, &river.InsertOpts{
 				Queue:       schedulerQueue,
 				MaxAttempts: 1,
+				UniqueOpts:  schedUniqueOpts(),
 			}
 		},
 		nil,
@@ -184,16 +231,6 @@ func (s *Service) unscheduleRef(ref schedRef) {
 		return
 	}
 	s.river.PeriodicJobs().Remove(ref.periodic)
-}
-
-// lookupJob returns the live in-memory job by ID. The in-memory map is the
-// authoritative mirror of scheduled jobs, so a miss means the job is not (or no
-// longer) scheduled and a fired River job for it should be ignored.
-func (s *Service) lookupJob(id string) (Job, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	j, ok := s.jobs[id]
-	return j, ok
 }
 
 // lifeCtx returns the service lifecycle context, falling back to Background
