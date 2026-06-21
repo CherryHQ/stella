@@ -1,7 +1,10 @@
 /* Landing page — Teal brand surface.
    Visual system: light tinted canvas, pure-white cards that lift on soft
-   teal-tinted shadow, one confident teal accent, mono pulled back to chips and
-   labels only. Boldness is spent on the floating channel thread, not on color.
+   teal-tinted shadow, one confident teal accent. Boldness is spent on the
+   commit-graph spine — a single hairline runs the full page with a node at
+   each section, framing it as a dev tool's commit log — and on the headline's
+   light-to-bold weight shift; everything else stays quiet. Mono carries the
+   spine labels, chips, and data. No gradients.
    Every value resolves to a shadcn token (see web-design.md). */
 
 .home-page {
@@ -72,22 +75,28 @@
   margin: 1.4rem 0 1.3rem;
   max-width: 18ch;
   font-size: clamp(2.4rem, 5.2vw, 4rem);
-  font-weight: 600;
-  line-height: 1.06;
-  letter-spacing: -0.025em;
+  line-height: 1.04;
+  letter-spacing: -0.028em;
   color: var(--foreground);
   text-wrap: balance;
 }
 
+/* Type as the personality: a light setup resolves into a bold teal payoff.
+   The weight jump (300 -> 600) is the whole headline treatment. */
 .home-h1 span,
 .home-h1 em {
   display: block;
+}
+
+.home-h1 span {
+  font-weight: 300;
 }
 
 .home-h1 em {
   position: relative;
   z-index: 0;
   font-style: normal;
+  font-weight: 600;
   color: var(--primary);
   width: fit-content;
 }
@@ -199,25 +208,6 @@
 
 .home-hero {
   position: relative;
-  padding: clamp(3.5rem, 6vw, 6rem) 0 var(--section-pad);
-  overflow: hidden;
-}
-
-/* A single soft teal bloom behind the thread — the only gradient on the page,
-   kept low-chroma so the canvas still reads as calm. */
-.home-hero-glow {
-  position: absolute;
-  top: -12%;
-  right: -8%;
-  width: 46rem;
-  height: 46rem;
-  z-index: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    closest-side,
-    color-mix(in oklch, var(--primary) 16%, transparent),
-    transparent 72%
-  );
 }
 
 .home-hero-layout {
@@ -562,60 +552,129 @@
   animation-delay: 0.3s;
 }
 
-/* ─── Pillars ─── */
+/* ─── Editorial rail — the signature ───
+   A single hairline runs down the left margin through the three story
+   sections; mono labels hang off it like spec-sheet annotations. This is
+   where the page spends its boldness; everything else stays quiet. */
 
-.home-pillars {
-  padding: var(--section-pad) 0;
+.rail-track {
+  position: relative;
 }
 
-.home-pillars-grid {
+.rail-section {
+  /* Vertical rhythm lives on .rail-body so the hairline is continuous
+     across section boundaries (adjacent bodies' borders meet). */
+  padding: 0;
+}
+
+.rail-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1.25rem;
+  grid-template-columns: minmax(6.5rem, 9rem) minmax(0, 1fr);
+  column-gap: clamp(1.25rem, 3vw, 2.75rem);
+  align-items: start;
 }
 
-.home-pillar {
-  padding: 1.75rem;
-  transition:
-    transform 200ms var(--ease),
-    box-shadow 200ms ease;
-}
-
-.home-pillar:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-lg);
-}
-
-.home-pillar-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.6rem;
-  height: 2.6rem;
-  margin-bottom: 1.1rem;
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  color: var(--accent-foreground);
-}
-
-.home-pillar-title {
-  margin: 0 0 0.5rem;
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-.home-pillar-body {
-  margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.6;
+.rail-label {
+  position: sticky;
+  top: 6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding-top: var(--section-pad);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
   color: var(--muted-foreground);
+}
+
+.home-hero-body.rail-body {
+  padding-top: clamp(2.5rem, 5vw, 4rem);
+}
+
+/* The spine: one continuous commit line down the page, with a hollow node
+   at each section — the page reads as a dev tool's commit graph. */
+.rail-body {
+  position: relative;
+  border-left: 1px solid var(--border);
+  padding-block: var(--section-pad);
+  padding-left: clamp(1.75rem, 3.5vw, 3.25rem);
+}
+
+.rail-body::before {
+  content: "";
+  position: absolute;
+  left: calc(-0.34rem - 0.5px);
+  top: calc(var(--section-pad) + 0.12rem);
+  width: 0.68rem;
+  height: 0.68rem;
+  border-radius: 50%;
+  background: var(--background);
+  border: 2px solid var(--primary);
+}
+
+.home-hero-body.rail-body::before {
+  top: calc(clamp(2.5rem, 5vw, 4rem) + 0.12rem);
+  /* Hero node is filled — the live commit you're looking at. */
+  background: var(--primary);
+}
+
+/* The builder sits on a tinted band; its node reads hollow against it. */
+.home-builder .rail-body::before {
+  background: color-mix(in oklch, var(--accent) 24%, var(--background));
+}
+
+/* ─── Pillars — spec-sheet rows, not icon cards ─── */
+
+.pillars-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pillar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  gap: clamp(1rem, 4vw, 3rem);
+  padding-block: 1.65rem;
+  border-top: 1px solid var(--rule);
+}
+
+.pillar-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.pillar-row-icon {
+  flex-shrink: 0;
+  color: var(--primary);
+}
+
+.pillar-row-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+  text-wrap: balance;
+}
+
+.pillar-row-body {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--muted-foreground);
+  text-wrap: pretty;
 }
 
 /* ─── Builder (agent explorer) — the one warm teal band on the page ─── */
 
 .home-builder {
-  padding: var(--section-pad) 0;
   border-block: 1px solid var(--border);
   background: color-mix(in oklch, var(--accent) 24%, var(--background));
 }
@@ -783,7 +842,7 @@
 /* ─── Reading (Recally) ─── */
 
 .home-reading {
-  padding: var(--section-pad) 0;
+  padding: 0;
 }
 
 .reader-card {
@@ -1105,13 +1164,13 @@
   transform: translateY(0);
 }
 
-.home-pillars.is-visible .home-pillar {
+.home-pillars.is-visible .pillar-row {
   animation: fade-up 0.6s var(--ease) backwards;
 }
-.home-pillars.is-visible .home-pillar:nth-child(2) {
+.home-pillars.is-visible .pillar-row:nth-child(2) {
   animation-delay: 90ms;
 }
-.home-pillars.is-visible .home-pillar:nth-child(3) {
+.home-pillars.is-visible .pillar-row:nth-child(3) {
   animation-delay: 180ms;
 }
 
@@ -1201,8 +1260,33 @@
     gap: 2.5rem;
   }
 
-  .home-pillars-grid {
+  /* Rail folds away: the label becomes a top eyebrow, the hairline drops. */
+  .rail-grid {
     grid-template-columns: 1fr;
+    row-gap: 1.25rem;
+  }
+
+  .rail-label {
+    position: static;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.6rem;
+    padding-top: var(--section-pad);
+  }
+
+  .rail-body {
+    border-left: none;
+    padding-left: 0;
+    padding-top: 1.5rem;
+  }
+
+  .rail-body::before {
+    display: none;
+  }
+
+  .pillar-row {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
   }
 
   .builder-layout {
@@ -1261,7 +1345,7 @@
   .home-hero-copy > *,
   .home-hero-preview,
   .home-h1 em::after,
-  .home-pillars.is-visible .home-pillar,
+  .home-pillars.is-visible .pillar-row,
   .thread-row,
   .thread-typing span,
   .builder-panel {
