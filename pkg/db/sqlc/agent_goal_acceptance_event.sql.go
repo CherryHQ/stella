@@ -61,7 +61,7 @@ type AppendAcceptanceEventParams struct {
 // Never updated/deleted in normal operation. The natural key
 // (goal, attempt, item, cache_key) is unique, so a re-submitted verdict
 // or a re-run check on identical inputs is a no-op (DO NOTHING): appending is
-// idempotent and returns sql.ErrNoRows on the duplicate, which the caller swallows.
+// idempotent and returns pgx.ErrNoRows on the duplicate, which the caller swallows.
 func (q *Queries) AppendAcceptanceEvent(ctx context.Context, arg AppendAcceptanceEventParams) (AgentGoalAcceptanceEvent, error) {
 	row := q.db.QueryRow(ctx, appendAcceptanceEvent,
 		arg.ID,
@@ -222,7 +222,7 @@ LIMIT 1
 `
 
 // Check-result cache hit: the latest passing deterministic result for a cache_key.
-// Returns sql.ErrNoRows on a forced miss (no cached pass).
+// Returns pgx.ErrNoRows on a forced miss (no cached pass).
 func (q *Queries) ProbeCheckCache(ctx context.Context, cacheKey string) (AgentGoalAcceptanceEvent, error) {
 	row := q.db.QueryRow(ctx, probeCheckCache, cacheKey)
 	var i AgentGoalAcceptanceEvent

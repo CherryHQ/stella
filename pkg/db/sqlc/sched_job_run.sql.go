@@ -212,6 +212,21 @@ func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsPara
 	return items, nil
 }
 
+const lockSchedJobForRun = `-- name: LockSchedJobForRun :exec
+SELECT pg_advisory_xact_lock(hashtext($1))
+`
+
+// Transaction-scoped advisory lock keyed on a hash of the job ID. Held until the
+// enclosing transaction ends, it serializes concurrent tryStartJobRun calls for
+// the same job so the running-run check and insert below are atomic under Read
+// Committed without a schema-level unique constraint. hashtext maps the text id
+// to the integer key pg_advisory_xact_lock expects; a hash collision only
+// serializes two unrelated jobs occasionally, which is harmless.
+func (q *Queries) LockSchedJobForRun(ctx context.Context, jobID string) error {
+	_, err := q.db.Exec(ctx, lockSchedJobForRun, jobID)
+	return err
+}
+
 const updateSchedJobRun = `-- name: UpdateSchedJobRun :exec
 UPDATE sched_job_run
 SET status = $1, finished_at = $2, error = $3, output = $4

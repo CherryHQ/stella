@@ -178,11 +178,15 @@ func sqliteTableSet(ctx context.Context, src *sql.DB) (map[string]bool, error) {
 }
 
 // pgBaseTables lists the public tables to load, excluding schema_migrations
-// (owned by the migration runner, not user data).
+// (owned by the migration runner) and river_* (owned by River's own migrator and
+// holding live queue state). Neither has a SQLite source, so including them would
+// only TRUNCATE them — wiping the durable job queue on every SQLite import.
 func pgBaseTables(ctx context.Context, q querier) ([]string, error) {
 	rows, err := q.Query(ctx, `
 		SELECT tablename FROM pg_tables
-		WHERE schemaname = 'public' AND tablename <> 'schema_migrations'
+		WHERE schemaname = 'public'
+		  AND tablename <> 'schema_migrations'
+		  AND tablename NOT LIKE 'river_%'
 		ORDER BY tablename`)
 	if err != nil {
 		return nil, fmt.Errorf("list pg tables: %w", err)

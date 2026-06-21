@@ -221,10 +221,14 @@ func nullableTime(t *time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
 }
 
-// tryStartJobRun atomically checks that no run is already in progress for the
-// job and creates the initial "running" record in a single transaction.
-// SQLite serializes writes, so Begin + check + insert is effectively atomic.
-// Returns errJobAlreadyRunning if a run is already active.
+// tryStartJobRun ensures at most one run is in progress for the job and creates
+// the initial "running" record. The COUNT-then-INSERT is not atomic under
+// Postgres Read Committed, and River runs the same job concurrently on up to
+// schedulerMaxWorkers workers per node and across nodes, so two fires could each
+// observe zero running rows and double-execute. A transaction-scoped advisory
+// lock keyed on the job ID serializes these fires: the second blocks until the
+// first commits, then sees the running row and bails. Returns errJobAlreadyRunning
+// if a run is already active.
 func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID string, userID string, startedAt time.Time) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -233,6 +237,9 @@ func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID strin
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.q.WithTx(tx)
+	if err := qtx.LockSchedJobForRun(ctx, jobID); err != nil {
+		return fmt.Errorf("lock job: %w", err)
+	}
 	count, err := qtx.CountRunningSchedJobRuns(ctx, jobID)
 	if err != nil {
 		return fmt.Errorf("check running: %w", err)
