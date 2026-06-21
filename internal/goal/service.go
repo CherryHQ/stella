@@ -179,8 +179,21 @@ func nullStr(v string) pgtype.Text {
 }
 
 // withTx runs fn in a single transaction, rolling back on error and committing
-// on success. It does not retry — SQLite serialization is the caller's concern.
-func (s *GoalService) withTx(ctx context.Context, fn func(*sqlc.Queries) error) (err error) {
+// on success. It does not retry — serialization is the caller's concern.
+func (s *GoalService) withTx(ctx context.Context, fn func(*sqlc.Queries) error) error {
+	return s.withTxRaw(ctx, func(q *sqlc.Queries, _ pgx.Tx) error { return fn(q) })
+}
+
+// withTxRaw is withTx but also hands the raw pgx.Tx to fn, so a caller can run a
+// non-sqlc write in the same transaction — specifically River's InsertTx, which
+// makes the dispatcher's claim and its durable attempt job commit atomically
+// (River Phase 2c). Most callers want withTx; reach for this only when an
+// external durable write must be all-or-nothing with the goal-state transition.
+//
+// fn must NOT Begin/Commit/Rollback the handed tx (this function owns its
+// lifecycle) and must NOT retain it past return (it is invalid after commit) —
+// the tx is an escape hatch for one in-transaction insert, not a general handle.
+func (s *GoalService) withTxRaw(ctx context.Context, fn func(*sqlc.Queries, pgx.Tx) error) (err error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -190,7 +203,7 @@ func (s *GoalService) withTx(ctx context.Context, fn func(*sqlc.Queries) error) 
 			_ = tx.Rollback(ctx)
 		}
 	}()
-	if err = fn(s.q.WithTx(tx)); err != nil {
+	if err = fn(s.q.WithTx(tx), tx); err != nil {
 		return err
 	}
 	if cerr := tx.Commit(ctx); cerr != nil {

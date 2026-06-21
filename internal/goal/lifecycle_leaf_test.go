@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -81,7 +83,7 @@ func lcl_newRig(h *harness) *lcl_rig {
 func (r *lcl_rig) runLeaf(t *testing.T, id string) string {
 	t.Helper()
 	ctx := context.Background()
-	att, err := r.svc.Claim(ctx, id, "w-1")
+	att, err := r.svc.Claim(ctx, id, "w-1", nil)
 	if err != nil {
 		t.Fatalf("rig claim %s: %v", id, err)
 	}
@@ -503,7 +505,7 @@ func TestLcl_CancelActiveLeaf(t *testing.T) {
 	d := h.createRoot(KindLeaf, AcceptanceContract{})
 	h.activate(d.ID)
 
-	att, err := h.svc.Claim(context.Background(), d.ID, "w-1")
+	att, err := h.svc.Claim(context.Background(), d.ID, "w-1", nil)
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -529,4 +531,63 @@ func TestLcl_CancelActiveLeaf(t *testing.T) {
 	if finalized.Status != AttemptCancelled {
 		t.Fatalf("in-flight attempt status=%q want cancelled", finalized.Status)
 	}
+}
+
+// TestClaimEnqueueAtomic asserts the River Phase 2c invariant: claim and durable
+// enqueue commit together. A failing enqueue must roll the whole claim back — no
+// attempt row, goal still ready — so a claimed attempt is never stranded without a
+// job. A succeeding enqueue commits the claim and the attempt.
+func TestClaimEnqueueAtomic(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	t.Run("enqueue failure rolls the claim back", func(t *testing.T) {
+		d := h.createRoot(KindLeaf, AcceptanceContract{})
+		h.activate(d.ID)
+
+		boom := errors.New("enqueue boom")
+		var gotTx bool
+		fail := AttemptEnqueuer(func(_ context.Context, tx pgx.Tx, _, _ string) error {
+			gotTx = tx != nil // the enqueue runs inside the claim tx
+			return boom
+		})
+
+		_, err := h.svc.Claim(ctx, d.ID, "w-1", fail)
+		if !errors.Is(err, boom) {
+			t.Fatalf("Claim err = %v, want wrapped %v", err, boom)
+		}
+		if !gotTx {
+			t.Fatal("enqueue hook was not handed the claim tx")
+		}
+		// The mintNextAttempt write ran before the enqueue error, so this proves the
+		// rollback: no attempt persisted and the goal is still ready, not active.
+		if atts, err := h.q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: d.ID}); err != nil {
+			t.Fatalf("list attempts: %v", err)
+		} else if len(atts) != 0 {
+			t.Fatalf("attempts after rolled-back claim = %d, want 0", len(atts))
+		}
+		if got := h.get(d.ID); got.Lifecycle != LifecycleReady || got.ActiveAttemptID.Valid {
+			t.Fatalf("goal after rolled-back claim = (%s, active=%v), want (ready, false)",
+				got.Lifecycle, got.ActiveAttemptID.Valid)
+		}
+	})
+
+	t.Run("enqueue success commits the claim", func(t *testing.T) {
+		d := h.createRoot(KindLeaf, AcceptanceContract{})
+		h.activate(d.ID)
+
+		ok := AttemptEnqueuer(func(_ context.Context, _ pgx.Tx, _, _ string) error { return nil })
+		att, err := h.svc.Claim(ctx, d.ID, "w-1", ok)
+		if err != nil {
+			t.Fatalf("Claim: %v", err)
+		}
+		if atts, err := h.q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: d.ID}); err != nil {
+			t.Fatalf("list attempts: %v", err)
+		} else if len(atts) != 1 || atts[0].ID != att.ID {
+			t.Fatalf("attempts after committed claim = %d, want 1 (%s)", len(atts), att.ID)
+		}
+		if got := h.get(d.ID); got.Lifecycle != LifecycleActive {
+			t.Fatalf("goal after committed claim = %s, want active", got.Lifecycle)
+		}
+	})
 }

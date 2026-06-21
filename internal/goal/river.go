@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 )
@@ -58,11 +59,22 @@ type goalAttemptArgs struct {
 func (goalAttemptArgs) Kind() string { return "stella_goal_attempt" }
 
 // goalEnqueuer is the subset of the River client the dispatcher needs to enqueue
-// attempt jobs. Declared so the dispatcher compiles against the boundary and
-// tests can drive scan-and-claim with a fake enqueuer.
+// attempt jobs. InsertTx enqueues the attempt job inside the claim's own
+// transaction so claim+enqueue commit atomically (River Phase 2c): a crash
+// between claiming and enqueuing can no longer strand a claimed attempt with no
+// job. Declared as an interface so the dispatcher compiles against the boundary
+// and tests can drive scan-and-claim with a fake enqueuer. *river.Client[pgx.Tx]
+// satisfies it.
 type goalEnqueuer interface {
-	Insert(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error)
+	InsertTx(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error)
 }
+
+// AttemptEnqueuer enqueues the durable execution job for a freshly claimed
+// attempt within the claim transaction tx, so the claim and its job are atomic
+// (River Phase 2c). GoalService.Claim calls it after minting the attempt;
+// returning an error rolls the whole claim back. A nil AttemptEnqueuer skips
+// enqueue (tests that mint+claim directly without River).
+type AttemptEnqueuer func(ctx context.Context, tx pgx.Tx, goalID, attemptID string) error
 
 // goalAttemptWorker runs one fired attempt job by delegating to the same
 // WorkerRunner the dispatcher used to call in-process. It is the only consumer

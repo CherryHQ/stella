@@ -294,28 +294,38 @@ func (d *Dispatcher) scanAndClaim(ctx context.Context, now time.Time) {
 			continue
 		}
 
-		attempt, err := d.cfg.Service.Claim(ctx, goal.ID, execID)
-		if errors.Is(err, ErrInvalidTransition) || errors.Is(err, ErrConcurrencyCap) {
-			continue // lost the race or the service-side cap fired
-		}
-		if err != nil {
+		// Claim mints the attempt AND enqueues its durable job in one tx (River
+		// Phase 2c): on success both committed; on enqueue failure the whole claim
+		// rolls back, leaving the goal ready to re-claim next tick — no orphaned
+		// claim to reap.
+		if _, err := d.cfg.Service.Claim(ctx, goal.ID, execID, d.enqueueAttemptTx); err != nil {
+			if errors.Is(err, ErrInvalidTransition) || errors.Is(err, ErrConcurrencyCap) {
+				continue // lost the race or the service-side cap fired
+			}
 			d.cfg.Logger.Warn("dispatcher: claim", "goal", goal.ID, "err", err)
 			continue
 		}
 		rootInflight[goal.RootID]++
 		userInflight[goal.UserID]++
-		d.enqueueAttempt(ctx, goal.ID, attempt.ID)
 	}
 }
 
-// enqueueAttempt enqueues a durable River job to execute one claimed attempt. An
-// insert failure is logged, not fatal: the attempt stays queued and the reaper
-// reopens its goal once the claim grace lease expires (mintNextAttempt), so a
-// transient enqueue gap self-heals on a later tick.
-func (d *Dispatcher) enqueueAttempt(ctx context.Context, goalID, attemptID string) {
-	if _, err := d.cfg.Enqueuer.Insert(ctx, goalAttemptArgs{GoalID: goalID, AttemptID: attemptID}, goalInsertOpts()); err != nil {
-		d.cfg.Logger.Warn("dispatcher: enqueue attempt job", "goal", goalID, "attempt", attemptID, "err", err)
+// enqueueAttemptTx inserts the durable execution job for a claimed attempt inside
+// the claim's transaction (River Phase 2c). Passed to GoalService.Claim as the
+// AttemptEnqueuer so claim+enqueue are atomic; an error here aborts the claim.
+func (d *Dispatcher) enqueueAttemptTx(ctx context.Context, tx pgx.Tx, goalID, attemptID string) error {
+	res, err := d.cfg.Enqueuer.InsertTx(ctx, tx, goalAttemptArgs{GoalID: goalID, AttemptID: attemptID}, goalInsertOpts())
+	if err != nil {
+		return err
 	}
+	// attempt_id is freshly minted in this same tx, so the unique key can never
+	// already exist: a skipped-as-duplicate result means a real invariant breach
+	// (a stale/duplicate attempt id). Fail the enqueue so the claim rolls back
+	// rather than committing an attempt whose job points at a different insert.
+	if res.UniqueSkippedAsDuplicate {
+		return fmt.Errorf("goal: attempt job skipped as duplicate for a freshly minted attempt %s", attemptID)
+	}
+	return nil
 }
 
 // underConcurrencyCap reports whether claiming goal stays within both the

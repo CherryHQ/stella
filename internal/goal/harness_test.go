@@ -129,7 +129,7 @@ func (h *harness) activate(id string) {
 func (h *harness) runLeaf(id string) string {
 	h.t.Helper()
 	ctx := context.Background()
-	att, err := h.svc.Claim(ctx, id, "w-1")
+	att, err := h.svc.Claim(ctx, id, "w-1", nil)
 	if err != nil {
 		h.t.Fatalf("claim %s: %v", id, err)
 	}
