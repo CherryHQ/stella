@@ -79,6 +79,18 @@ func (w *schedJobWorker) Work(ctx context.Context, rjob *river.Job[schedJobArgs]
 		// periodic-handle removal, so the Enabled flag is the fire-time guard.
 		return nil
 	}
+	// Guard against a stale fire whose schedule no longer matches the job. A
+	// recurring fire carries Args.At=="" and a one-time fire carries its
+	// timestamp, so Args.At is the schedule's identity. If the schedule was
+	// changed (recurring<->one-time, or the one-time time moved) after this fire
+	// was enqueued, the two disagree: running it would fire at the wrong time
+	// and, because executeSingleRun keys auto-removal on the current schedule,
+	// could delete a freshly rescheduled one-time job.
+	if rjob.Args.At != job.Schedule.At {
+		w.svc.log.Info("scheduler: river fired with stale schedule, skipping",
+			"job_id", rjob.Args.JobID, "fire_at", rjob.Args.At, "job_at", job.Schedule.At)
+		return nil
+	}
 	// Pass River's per-job context so a graceful SoftStopTimeout shutdown can
 	// cancel an in-flight dispatch; executeSingleRun detaches an uncancellable
 	// context for its run bookkeeping so the run row is always finalized.
@@ -116,7 +128,11 @@ func newSchedulerRiverClient(s *Service, pool *pgxpool.Pool) (*river.Client[pgx.
 		Queues: map[string]river.QueueConfig{
 			schedulerQueue: {MaxWorkers: schedulerMaxWorkers},
 		},
-		Workers:         workers,
+		Workers: workers,
+		// -1 disables River's per-job timeout (default 1m): scheduled jobs are
+		// agent runs that routinely exceed a minute, matching gocron's unbounded
+		// runtime. Shutdown still cancels in-flight work via SoftStopTimeout.
+		JobTimeout:      -1,
 		SoftStopTimeout: schedulerSoftStopTimeout,
 	})
 	if err != nil {

@@ -281,7 +281,14 @@ func (s *Service) UpdateUserJob(ctx context.Context, id string, update JobUpdate
 	}
 
 	if hadOld {
-		s.unscheduleRef(oldRef)
+		// Tear the old registration down only when it differs from the new one.
+		// A one-time same-timestamp update dedups to the SAME River job
+		// (newRef == oldRef via UniqueOpts ByArgs); cancelling it would kill the
+		// only pending fire. When the job is disabled, scheduleJob was skipped so
+		// s.refs[id] still holds oldRef — tear it down. Mirrors the rollback path.
+		if newRef, ok := s.refs[id]; !job.Enabled || !ok || newRef != oldRef {
+			s.unscheduleRef(oldRef)
+		}
 	}
 	if !job.Enabled {
 		delete(s.refs, id)
