@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -126,8 +127,8 @@ func (s *Service) set(ctx context.Context, scope string, userID string, agentID 
 	if err := s.db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
 		ID:         uuid.Must(uuid.NewV7()).String(),
 		Scope:      scope,
-		UserID:     nullString(userID),
-		AgentID:    nullString(agentID),
+		UserID:     pgnull.Text(userID),
+		AgentID:    pgnull.Text(agentID),
 		Name:       name,
 		Ciphertext: ciphertext,
 	}); err != nil {
@@ -187,8 +188,8 @@ func (s *Service) deleteScoped(ctx context.Context, scope string, userID string,
 	}
 	if err := s.db.DeleteVaultEntryByScope(ctx, sqlc.DeleteVaultEntryByScopeParams{
 		Scope:   scope,
-		UserID:  nullString(userID),
-		AgentID: nullString(agentID),
+		UserID:  pgnull.Text(userID),
+		AgentID: pgnull.Text(agentID),
 		Name:    name,
 	}); err != nil {
 		return fmt.Errorf("vault: delete %q: %w", name, err)
@@ -208,8 +209,8 @@ func (s *Service) GetScoped(ctx context.Context, scope string, userID string, ag
 	}
 	entry, err := s.db.GetVaultEntryByScope(ctx, sqlc.GetVaultEntryByScopeParams{
 		Scope:   scope,
-		UserID:  nullString(userID),
-		AgentID: nullString(agentID),
+		UserID:  pgnull.Text(userID),
+		AgentID: pgnull.Text(agentID),
 		Name:    name,
 	})
 	if err != nil {
@@ -227,8 +228,8 @@ func (s *Service) GetMeta(ctx context.Context, userID string, name string) (Entr
 func (s *Service) GetScopedMeta(ctx context.Context, scope string, userID string, agentID string, name string) (EntryMeta, error) {
 	entry, err := s.db.GetVaultEntryByScope(ctx, sqlc.GetVaultEntryByScopeParams{
 		Scope:   scope,
-		UserID:  nullString(userID),
-		AgentID: nullString(agentID),
+		UserID:  pgnull.Text(userID),
+		AgentID: pgnull.Text(agentID),
 		Name:    name,
 	})
 	if err != nil {
@@ -263,8 +264,8 @@ func (s *Service) listScoped(ctx context.Context, scope string, userID string, a
 	}
 	entries, err := s.db.ListVaultEntriesByScope(ctx, sqlc.ListVaultEntriesByScopeParams{
 		Scope:   scope,
-		UserID:  nullString(userID),
-		AgentID: nullString(agentID),
+		UserID:  pgnull.Text(userID),
+		AgentID: pgnull.Text(agentID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("vault: list: %w", err)
@@ -281,8 +282,8 @@ func (s *Service) LoadEnv(ctx context.Context, userID string) (map[string]string
 // LoadEnvForAgent resolves runtime env in the SQL precedence order; later scopes override earlier scopes.
 func (s *Service) LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
 	entries, err := s.db.ListVaultEntriesForRuntime(ctx, sqlc.ListVaultEntriesForRuntimeParams{
-		UserID:  nullString(userID),
-		AgentID: nullString(agentID),
+		UserID:  pgnull.Text(userID),
+		AgentID: pgnull.Text(agentID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("vault: load env: list entries: %w", err)
@@ -375,10 +376,6 @@ func validateScope(scope string, userID string, agentID string) error {
 		return fmt.Errorf("vault: invalid scope %q", scope)
 	}
 	return nil
-}
-
-func nullString(value string) pgtype.Text {
-	return pgtype.Text{String: value, Valid: value != ""}
 }
 
 func stringFromNull(value pgtype.Text) string {

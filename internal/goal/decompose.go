@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -201,8 +202,8 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 			ID:              newID(),
 			GoalID:          d.ID,
 			UserID:          d.UserID,
-			AgentID:         nullStr(d.AgentID),
-			ExecutorAgentID: nullStr(d.AgentID),
+			AgentID:         pgnull.Text(d.AgentID),
+			ExecutorAgentID: pgnull.Text(d.AgentID),
 			SessionID:       sessionID,
 			Purpose:         PurposeDecomposition,
 			AttemptNo:       int64(attemptNo),
@@ -264,7 +265,7 @@ func (s *GoalService) CreateRevision(ctx context.Context, goalID string, content
 			Status:          RevisionDraft,
 			ReviewPolicy:    d.ReviewPolicy,
 			Content:         marshalJSON(content),
-			SourceAttemptID: nullStr(sourceAttemptID),
+			SourceAttemptID: pgnull.Text(sourceAttemptID),
 		})
 		if err != nil {
 			return fmt.Errorf("create revision: %w", err)

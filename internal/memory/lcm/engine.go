@@ -16,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
@@ -88,7 +89,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 		SessionID:  session.ID,
 		Channel:    session.Channel,
 		Kind:       "chat",
-		AgentID:    nullAgent(session.AgentID),
+		AgentID:    pgnull.Text(session.AgentID),
 		UserID:     pgtype.Text{String: session.UserID, Valid: true},
 		LastActive: now,
 	})

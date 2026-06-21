@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -171,13 +172,6 @@ func nullTime(t time.Time) pgtype.Timestamptz {
 func newID() string { return uuid.Must(uuid.NewV7()).String() }
 
 // nullStr wraps a possibly-empty string as pgtype.Text ("" ⇒ NULL).
-func nullStr(v string) pgtype.Text {
-	if v == "" {
-		return pgtype.Text{}
-	}
-	return pgtype.Text{String: v, Valid: true}
-}
-
 // withTx runs fn in a single transaction, rolling back on error and committing
 // on success. It does not retry — serialization is the caller's concern.
 func (s *GoalService) withTx(ctx context.Context, fn func(*sqlc.Queries) error) error {
@@ -339,8 +333,8 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 			ID:                 id,
 			UserID:             in.UserID,
 			AgentID:            in.AgentID,
-			ProjectID:          nullStr(in.ProjectID),
-			ParentID:           nullStr(in.ParentID),
+			ProjectID:          pgnull.Text(in.ProjectID),
+			ParentID:           pgnull.Text(in.ParentID),
 			RootID:             rootID,
 			Depth:              in.Depth,
 			Position:           in.Position,
@@ -490,7 +484,7 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		// A composite flips its draft children → ready so the dispatcher can begin
 		// claiming leaves under it.
 		if d.Kind == KindComposite {
-			children, err := q.ListGoalChildren(ctx, nullStr(d.ID))
+			children, err := q.ListGoalChildren(ctx, pgnull.Text(d.ID))
 			if err != nil {
 				return fmt.Errorf("list children for activate: %w", err)
 			}
@@ -836,7 +830,7 @@ func (s *GoalService) WaiveEdge(ctx context.Context, downstreamID, upstreamID, r
 			return fmt.Errorf("get edge: %w", err)
 		}
 		if err := q.WaiveEdge(ctx, sqlc.WaiveEdgeParams{
-			WaivedByUser: nullStr(by.ID),
+			WaivedByUser: pgnull.Text(by.ID),
 			WaiverReason: reason,
 			GoalID:       downstreamID,
 			UpstreamID:   upstreamID,

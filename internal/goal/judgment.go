@@ -1,6 +1,7 @@
 package goal
 
 import (
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -79,13 +80,13 @@ type verdictRow struct {
 func verdictEvent(r verdictRow) sqlc.AppendAcceptanceEventParams {
 	return sqlc.AppendAcceptanceEventParams{
 		GoalID:            r.goalID,
-		AttemptID:         nullStr(r.attemptID),
+		AttemptID:         pgnull.Text(r.attemptID),
 		ItemID:            r.itemID,
 		ItemKind:          ItemJudgment,
 		Result:            verdictResult(r.pass),
 		Authority:         r.authority,
-		ReviewerUserID:    nullStr(r.reviewerUserID),
-		ReviewerAttemptID: nullStr(r.reviewerAttemptID),
+		ReviewerUserID:    pgnull.Text(r.reviewerUserID),
+		ReviewerAttemptID: pgnull.Text(r.reviewerAttemptID),
 		Rationale:         r.rationale,
 		Scope:             r.scope,
 		ScopeHash:         r.scopeHash,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -82,7 +83,7 @@ func cmp_decompose(t *testing.T, h *harness, compositeID string, content Decompo
 // cmp_children returns a composite's direct children ordered by position.
 func cmp_children(t *testing.T, h *harness, parentID string) []sqlc.AgentGoal {
 	t.Helper()
-	kids, err := h.q.ListGoalChildren(context.Background(), nullStr(parentID))
+	kids, err := h.q.ListGoalChildren(context.Background(), pgnull.Text(parentID))
 	if err != nil {
 		t.Fatalf("ListGoalChildren: %v", err)
 	}

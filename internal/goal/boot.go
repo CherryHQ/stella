@@ -13,6 +13,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -265,11 +266,11 @@ func (s *Service) ListGoals(ctx context.Context, userID string, filter GoalFilte
 	}
 	return s.Queries.ListRootGoal(ctx, sqlc.ListRootGoalParams{
 		UserID:          userID,
-		AgentID:         nilIfEmpty(filter.AgentID),
-		ProjectID:       nilIfEmpty(filter.ProjectID),
-		Lifecycle:       nilIfEmpty(filter.Lifecycle),
+		AgentID:         pgnull.Text(filter.AgentID),
+		ProjectID:       pgnull.Text(filter.ProjectID),
+		Lifecycle:       pgnull.Text(filter.Lifecycle),
 		Terminal:        filter.terminalArg(),
-		Q:               nilIfEmpty(filter.Q),
+		Q:               pgnull.Text(filter.Q),
 		IncludeArchived: filter.includeArchived(),
 		Limit:           int32(limit),
 		Offset:          int32(offset),
@@ -284,7 +285,7 @@ func (s *Service) GetGoal(ctx context.Context, id string) (sqlc.AgentGoal, error
 // ListChildren lists the direct children of a composite goal, in position
 // order.
 func (s *Service) ListChildren(ctx context.Context, parentID string) ([]sqlc.AgentGoal, error) {
-	return s.Queries.ListGoalChildren(ctx, nullStr(parentID))
+	return s.Queries.ListGoalChildren(ctx, pgnull.Text(parentID))
 }
 
 // ListSubtree lists every goal in a tree (the whole root_id family).
@@ -352,11 +353,11 @@ func (s *Service) CreateGoal(ctx context.Context, in CreateInput) (sqlc.AgentGoa
 func (s *Service) CountGoals(ctx context.Context, userID string, filter GoalFilter) (int64, error) {
 	return s.Queries.CountRootGoal(ctx, sqlc.CountRootGoalParams{
 		UserID:          userID,
-		AgentID:         nilIfEmpty(filter.AgentID),
-		ProjectID:       nilIfEmpty(filter.ProjectID),
-		Lifecycle:       nilIfEmpty(filter.Lifecycle),
+		AgentID:         pgnull.Text(filter.AgentID),
+		ProjectID:       pgnull.Text(filter.ProjectID),
+		Lifecycle:       pgnull.Text(filter.Lifecycle),
 		Terminal:        filter.terminalArg(),
-		Q:               nilIfEmpty(filter.Q),
+		Q:               pgnull.Text(filter.Q),
 		IncludeArchived: filter.includeArchived(),
 	})
 }
@@ -482,11 +483,8 @@ func (s *Service) MaterializeRevision(ctx context.Context, revisionID string) ([
 	}); err != nil {
 		return nil, err
 	}
-	return s.Queries.ListGoalChildren(ctx, nullStr(parent.ID))
+	return s.Queries.ListGoalChildren(ctx, pgnull.Text(parent.ID))
 }
 
 // nilIfEmpty returns an invalid pgtype.Text for an empty string so a sqlc
 // narg filter matches all rows; otherwise it returns the value to filter on.
-func nilIfEmpty(v string) pgtype.Text {
-	return pgtype.Text{String: v, Valid: v != ""}
-}

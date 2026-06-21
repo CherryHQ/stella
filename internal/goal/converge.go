@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -73,7 +74,7 @@ func (s *GoalService) priorGapsFor(ctx context.Context, q *sqlc.Queries, d sqlc.
 	prev := PurposeExecution
 	atts, err := q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{
 		GoalID:  d.ID,
-		Purpose: nullStr(prev),
+		Purpose: pgnull.Text(prev),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list attempts: %w", err)
@@ -119,8 +120,8 @@ func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sq
 		ID:              newID(),
 		GoalID:          d.ID,
 		UserID:          d.UserID,
-		AgentID:         nullStr(d.AgentID),
-		ExecutorAgentID: nullStr(executorAgentID),
+		AgentID:         pgnull.Text(d.AgentID),
+		ExecutorAgentID: pgnull.Text(executorAgentID),
 		SessionID:       d.SessionID,
 		Purpose:         PurposeExecution,
 		AttemptNo:       int64(attemptNo),
@@ -139,7 +140,7 @@ func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sq
 	}
 
 	rows, err := q.ClaimGoal(ctx, sqlc.ClaimGoalParams{
-		ActiveAttemptID: nullStr(att.ID),
+		ActiveAttemptID: pgnull.Text(att.ID),
 		ID:              d.ID,
 	})
 	if err != nil {
@@ -342,7 +343,7 @@ func (s *GoalService) evaluatedAttempt(ctx context.Context, q *sqlc.Queries, d s
 	}
 	atts, err := q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{
 		GoalID:  d.ID,
-		Purpose: nullStr(PurposeExecution),
+		Purpose: pgnull.Text(PurposeExecution),
 	})
 	if err != nil {
 		return "", AttemptOutput{}

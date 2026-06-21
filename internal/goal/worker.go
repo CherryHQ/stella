@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -255,7 +256,7 @@ func (w *Worker) appendCheckEvent(ctx context.Context, goalID, attemptID string,
 	err := w.svc.withTx(ctx, func(qtx *sqlc.Queries) error {
 		_, e := w.svc.appendAcceptanceEvent(ctx, qtx, sqlc.AppendAcceptanceEventParams{
 			GoalID:    goalID,
-			AttemptID: nullStr(attemptID),
+			AttemptID: pgnull.Text(attemptID),
 			ItemID:    item.ID,
 			ItemKind:  ItemDeterministic,
 			Result:    result,
