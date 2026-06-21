@@ -129,6 +129,13 @@ func postgresRuntimeFromBundle(root string) (postgresRuntimeBundle, error) {
 func (rt postgresRuntimeInfo) startParameters() map[string]string {
 	params := map[string]string{}
 	pathSep := string(os.PathListSeparator)
+	// Put the Unix socket in the cluster's own data dir. PGDG builds compile
+	// unix_socket_directories=/var/run/postgresql, which a non-root embedded server
+	// cannot create its socket/lock file in; the data dir is always writable and
+	// per-instance, which also isolates the socket between parallel test clusters.
+	if rt.DataPath != "" {
+		params["unix_socket_directories"] = rt.DataPath
+	}
 	if rt.ExtShareRoot != "" {
 		controlPath := rt.ExtShareRoot
 		if rt.PgShareRoot != "" {
