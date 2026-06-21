@@ -3,13 +3,15 @@ package recally
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 
 	lexical "github.com/CherryHQ/stella/internal/search"
@@ -18,13 +20,13 @@ import (
 
 // Store provides database operations for the recally package.
 type Store struct {
-	db     *sql.DB
+	db     *pgxpool.Pool
 	q      *sqlc.Queries
 	search lexical.LexicalSearch
 }
 
 // NewStore creates a new Store instance.
-func NewStore(db *sql.DB) *Store {
+func NewStore(db *pgxpool.Pool) *Store {
 	q := sqlc.New(db)
 	return &Store{db: db, q: q, search: lexical.NewNativePostgres(q)}
 }
@@ -70,7 +72,7 @@ func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest)
 		article.FromSQLCArticle(updated)
 		article.IsNew = false
 		return &article, false, nil
-	case !errors.Is(err, sql.ErrNoRows):
+	case !errors.Is(err, pgx.ErrNoRows):
 		return nil, false, fmt.Errorf("lookup article by canonical url: %w", err)
 	}
 
@@ -91,7 +93,7 @@ func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest)
 		Metadata:     encodeMetadata(req.Metadata),
 		PublishedAt:  toNullTime(req.PublishedAt),
 		SavedAt:      time.Now().UTC(),
-		ReadAt:       sql.NullTime{},
+		ReadAt:       pgtype.Timestamptz{},
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("create article: %w", err)
@@ -107,7 +109,7 @@ func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest)
 func (s *Store) GetArticleByCanonicalURL(ctx context.Context, userID string, canonicalURL string) (*Article, error) {
 	row, err := s.q.GetArticleByCanonicalURL(ctx, sqlc.GetArticleByCanonicalURLParams{UserID: userID, CanonicalUrl: canonicalURL})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("article not found for canonical URL: %s", canonicalURL)
 		}
 		return nil, fmt.Errorf("get article by canonical URL: %w", err)
@@ -121,7 +123,7 @@ func (s *Store) GetArticleByCanonicalURL(ctx context.Context, userID string, can
 func (s *Store) GetArticle(ctx context.Context, userID string, articleID string) (*Article, error) {
 	row, err := s.q.GetArticle(ctx, sqlc.GetArticleParams{ID: articleID, UserID: userID})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("article not found: %s", articleID)
 		}
 		return nil, fmt.Errorf("get article: %w", err)
@@ -135,7 +137,7 @@ func (s *Store) GetArticle(ctx context.Context, userID string, articleID string)
 func (s *Store) UpdateArticle(ctx context.Context, userID string, articleID string, updates map[string]any) (*Article, error) {
 	current, err := s.q.GetArticle(ctx, sqlc.GetArticleParams{ID: articleID, UserID: userID})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("article not found: %s", articleID)
 		}
 		return nil, fmt.Errorf("get article for update: %w", err)
@@ -284,7 +286,7 @@ func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL string, k
 		Title:         title,
 		Description:   description,
 		CheckInterval: "1h",
-		LastCheckedAt: sql.NullTime{},
+		LastCheckedAt: pgtype.Timestamptz{},
 		LastEtag:      "",
 		LastModified:  "",
 		Enabled:       true,
@@ -301,7 +303,7 @@ func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL string, k
 func (s *Store) GetFeed(ctx context.Context, userID string, feedID string) (*Feed, error) {
 	row, err := s.q.GetFeed(ctx, sqlc.GetFeedParams{ID: feedID, UserID: userID})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("feed not found: %s", feedID)
 		}
 		return nil, fmt.Errorf("get feed: %w", err)
@@ -315,7 +317,7 @@ func (s *Store) GetFeed(ctx context.Context, userID string, feedID string) (*Fee
 func (s *Store) GetFeedByURL(ctx context.Context, userID string, feedURL string) (*Feed, error) {
 	row, err := s.q.GetFeedByURL(ctx, sqlc.GetFeedByURLParams{UserID: userID, Url: feedURL})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("feed not found")
 		}
 		return nil, fmt.Errorf("get feed by url: %w", err)
@@ -351,7 +353,7 @@ func (s *Store) ListFeeds(ctx context.Context, userID string, limit, offset int)
 func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, updates map[string]any) (*Feed, error) {
 	current, err := s.q.GetFeed(ctx, sqlc.GetFeedParams{ID: feedID, UserID: userID})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("feed not found: %s", feedID)
 		}
 		return nil, fmt.Errorf("get feed for update: %w", err)
@@ -430,14 +432,14 @@ func (s *Store) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, tit
 		Url:          entryURL,
 		Title:        title,
 		Status:       string(EntryStatusPending),
-		ArticleID:    sql.NullString{},
+		ArticleID:    pgtype.Text{},
 		Attempts:     0,
 		ErrorMsg:     "",
 		DiscoveredAt: time.Now().UTC(),
-		ProcessedAt:  sql.NullTime{},
+		ProcessedAt:  pgtype.Timestamptz{},
 	})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("create feed entry: %w", err)
@@ -469,7 +471,7 @@ func (s *Store) ListPendingFeedEntries(ctx context.Context, feedID string, limit
 func (s *Store) GetFeedEntry(ctx context.Context, feedID string, entryID string) (*FeedEntry, error) {
 	row, err := s.q.GetFeedEntry(ctx, sqlc.GetFeedEntryParams{ID: entryID, FeedID: feedID})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("feed entry not found: %s", entryID)
 		}
 		return nil, fmt.Errorf("get feed entry: %w", err)
@@ -626,11 +628,11 @@ func (s *Store) SaveDigest(ctx context.Context, userID string, narrative, date s
 		return nil, fmt.Errorf("encode top_tags: %w", err)
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin digest transaction: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.q.WithTx(tx)
 	row, err := qtx.UpsertDigest(ctx, sqlc.UpsertDigestParams{
@@ -682,7 +684,7 @@ func (s *Store) SaveDigest(ctx context.Context, userID string, narrative, date s
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit digest transaction: %w", err)
 	}
 	return stored, nil
@@ -792,18 +794,18 @@ func emptyOrString(value string) any {
 	return value
 }
 
-func toNullString(value *string) sql.NullString {
+func toNullString(value *string) pgtype.Text {
 	if value == nil || *value == "" {
-		return sql.NullString{}
+		return pgtype.Text{}
 	}
-	return sql.NullString{String: *value, Valid: true}
+	return pgtype.Text{String: *value, Valid: true}
 }
 
-func toNullTime(value *time.Time) sql.NullTime {
+func toNullTime(value *time.Time) pgtype.Timestamptz {
 	if value == nil || value.IsZero() {
-		return sql.NullTime{}
+		return pgtype.Timestamptz{}
 	}
-	return sql.NullTime{Time: value.UTC(), Valid: true}
+	return pgtype.Timestamptz{Time: value.UTC(), Valid: true}
 }
 
 func ptrTime(value time.Time) *time.Time {

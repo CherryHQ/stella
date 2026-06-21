@@ -2,12 +2,13 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // AuthService composes the auth stores and owns business-level transactions
@@ -17,12 +18,12 @@ type AuthService struct {
 	users    UserStore
 	logins   LoginIdentityStore
 	sessions SessionStore
-	db       *sql.DB
+	db       *pgxpool.Pool
 }
 
 // NewAuthService creates an AuthService with all required stores.
 func NewAuthService(
-	db *sql.DB,
+	db *pgxpool.Pool,
 	users UserStore,
 	logins LoginIdentityStore,
 	sessions SessionStore,
@@ -157,7 +158,7 @@ func (s *AuthService) UpdateUserAgeKeys(ctx context.Context, userID, publicKey, 
 func (s *AuthService) Logout(ctx context.Context, rawToken string) error {
 	session, err := s.sessions.GetSessionByTokenHash(ctx, hashSessionToken(rawToken))
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil // already gone
 		}
 		return fmt.Errorf("auth: logout lookup: %w", err)
@@ -183,7 +184,7 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 		_ = s.logins.UpdateLoginIdentity(ctx, identity)
 		return user, false, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, ErrNotFound) {
+	if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, ErrNotFound) {
 		return User{}, false, err
 	}
 

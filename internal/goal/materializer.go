@@ -3,10 +3,12 @@ package goal
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -84,7 +86,7 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sq
 		// structural no-op rather than a duplicate insert.
 		if _, err := qtx.GetGoal(ctx, cid); err == nil {
 			continue
-		} else if !errors.Is(err, sql.ErrNoRows) {
+		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("probe child %q: %w", ch.Key, err)
 		}
 
@@ -105,7 +107,7 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sq
 			UserID:             parent.UserID,
 			AgentID:            parent.AgentID,
 			ProjectID:          parent.ProjectID,
-			ParentID:           sql.NullString{String: parent.ID, Valid: true},
+			ParentID:           pgtype.Text{String: parent.ID, Valid: true},
 			RootID:             parent.RootID,
 			Depth:              childDepth,
 			Position:           int64(i),
@@ -141,7 +143,7 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sq
 		up := childID(rev.ID, e.UpstreamKey)
 		if _, err := qtx.GetEdge(ctx, sqlc.GetEdgeParams{GoalID: down, UpstreamID: up}); err == nil {
 			continue // already materialized
-		} else if !errors.Is(err, sql.ErrNoRows) {
+		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("probe edge %s→%s: %w", e.UpstreamKey, e.DownstreamKey, err)
 		}
 		if _, err := qtx.CreateEdge(ctx, sqlc.CreateEdgeParams{
@@ -157,7 +159,7 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sq
 	// Point the parent at this revision, set its required_total, supersede any
 	// prior open revision, and stamp the materialized fence.
 	if err := qtx.SetGoalAcceptedRevision(ctx, sqlc.SetGoalAcceptedRevisionParams{
-		AcceptedRevisionID: sql.NullString{String: rev.ID, Valid: true},
+		AcceptedRevisionID: pgtype.Text{String: rev.ID, Valid: true},
 		ID:                 parent.ID,
 	}); err != nil {
 		return fmt.Errorf("set accepted revision: %w", err)

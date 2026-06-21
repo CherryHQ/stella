@@ -2,11 +2,12 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -335,7 +336,7 @@ func resolveItemsFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMe
 			}
 			msg, ok := messages[item.MessageID.String]
 			if !ok {
-				return nil, fmt.Errorf("get message %s: %w", item.MessageID.String, sql.ErrNoRows)
+				return nil, fmt.Errorf("get message %s: %w", item.MessageID.String, pgx.ErrNoRows)
 			}
 			// Preserve the pre-existing one-context-item-to-one-message reconstruction.
 			result = append(result, rowsToMessages([]sqlc.CtxMessage{msg})...)
@@ -345,7 +346,7 @@ func resolveItemsFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMe
 			}
 			sum, ok := summaries[item.SummaryID.String]
 			if !ok {
-				return nil, fmt.Errorf("get summary %s: %w", item.SummaryID.String, sql.ErrNoRows)
+				return nil, fmt.Errorf("get summary %s: %w", item.SummaryID.String, pgx.ErrNoRows)
 			}
 			result = append(result, ai.UserMessage{Content: FormatSummaryXML(sum, parents[sum.ID])})
 		}

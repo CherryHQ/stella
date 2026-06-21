@@ -20,7 +20,7 @@ type DeleteChatAgentParams struct {
 }
 
 func (q *Queries) DeleteChatAgent(ctx context.Context, arg DeleteChatAgentParams) error {
-	_, err := q.db.ExecContext(ctx, deleteChatAgent, arg.ChannelID, arg.Platform, arg.ChatID)
+	_, err := q.db.Exec(ctx, deleteChatAgent, arg.ChannelID, arg.Platform, arg.ChatID)
 	return err
 }
 
@@ -35,7 +35,7 @@ type GetChatAgentParams struct {
 }
 
 func (q *Queries) GetChatAgent(ctx context.Context, arg GetChatAgentParams) (ChannelAgent, error) {
-	row := q.db.QueryRowContext(ctx, getChatAgent, arg.ChannelID, arg.Platform, arg.ChatID)
+	row := q.db.QueryRow(ctx, getChatAgent, arg.ChannelID, arg.Platform, arg.ChatID)
 	var i ChannelAgent
 	err := row.Scan(
 		&i.ChannelID,
@@ -53,7 +53,7 @@ SELECT channel_id, platform, chat_id, agent_id, created_at, updated_at FROM chan
 `
 
 func (q *Queries) ListChatAgents(ctx context.Context) ([]ChannelAgent, error) {
-	rows, err := q.db.QueryContext(ctx, listChatAgents)
+	rows, err := q.db.Query(ctx, listChatAgents)
 	if err != nil {
 		return nil, err
 	}
@@ -72,9 +72,6 @@ func (q *Queries) ListChatAgents(ctx context.Context) ([]ChannelAgent, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -98,7 +95,7 @@ type UpsertChatAgentParams struct {
 }
 
 func (q *Queries) UpsertChatAgent(ctx context.Context, arg UpsertChatAgentParams) error {
-	_, err := q.db.ExecContext(ctx, upsertChatAgent,
+	_, err := q.db.Exec(ctx, upsertChatAgent,
 		arg.ChannelID,
 		arg.Platform,
 		arg.ChatID,

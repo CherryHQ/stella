@@ -2,13 +2,13 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -109,7 +109,7 @@ func (s *Server) ListGroups(w http.ResponseWriter, r *http.Request, params apise
 	}
 
 	groups, err := s.q.ListGroupsByUser(ctx, sqlc.ListGroupsByUserParams{
-		UserID:      sql.NullString{String: info.UserID, Valid: true},
+		UserID:      pgtype.Text{String: info.UserID, Valid: true},
 		LimitCount:  int32(pageSize + 1),
 		OffsetCount: int32(offset),
 	})
@@ -171,7 +171,7 @@ func (s *Server) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		PlatformGroupID:  groupID,
 		PlatformThreadID: "",
 		GroupName:        req.GroupName,
-		CreatedByUserID:  sql.NullString{String: info.UserID, Valid: true},
+		CreatedByUserID:  pgtype.Text{String: info.UserID, Valid: true},
 	})
 	if err != nil {
 		s.writeInternalError(w, err)
@@ -181,7 +181,7 @@ func (s *Server) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	for _, agentID := range req.AgentIds {
 		if err := s.q.CreateWebChannelIfNotExists(ctx, sqlc.CreateWebChannelIfNotExistsParams{
 			ID:      webChannelID(agentID),
-			AgentID: sql.NullString{String: agentID, Valid: true},
+			AgentID: pgtype.Text{String: agentID, Valid: true},
 		}); err != nil {
 			s.writeInternalError(w, err)
 			return
@@ -287,7 +287,7 @@ func (s *Server) AddGroupMember(w http.ResponseWriter, r *http.Request, groupId 
 
 	if err := s.q.CreateWebChannelIfNotExists(ctx, sqlc.CreateWebChannelIfNotExistsParams{
 		ID:      webChannelID(req.AgentId),
-		AgentID: sql.NullString{String: req.AgentId, Valid: true},
+		AgentID: pgtype.Text{String: req.AgentId, Valid: true},
 	}); err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -469,8 +469,8 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 			Envelope:       envelope,
 			Status:         "running",
 			AttemptCount:   0,
-			LeaseUntil:     sql.NullTime{Time: time.Now().UTC().Add(groupOutboxLeaseDuration), Valid: true},
-			NextAttemptAt:  sql.NullTime{},
+			LeaseUntil:     pgtype.Timestamptz{Time: time.Now().UTC().Add(groupOutboxLeaseDuration), Valid: true},
+			NextAttemptAt:  pgtype.Timestamptz{},
 			LastError:      "",
 		})
 		if err != nil {

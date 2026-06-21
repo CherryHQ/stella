@@ -2,7 +2,6 @@ package channel
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -33,7 +35,7 @@ type dispatchChatFunc func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroup
 // GroupDispatcher materializes durable group response decisions and executes
 // one selected-agent dispatch at a time. Ingest owns facts; this owns work.
 type GroupDispatcher struct {
-	db         *sql.DB
+	db         *pgxpool.Pool
 	q          *sqlc.Queries
 	coord      *Coordinator
 	publishers *PublisherRegistry
@@ -47,7 +49,7 @@ type GroupDispatcher struct {
 	chat          dispatchChatFunc
 }
 
-func NewGroupDispatcher(db *sql.DB, coord *Coordinator, publishers *PublisherRegistry) *GroupDispatcher {
+func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *PublisherRegistry) *GroupDispatcher {
 	if publishers == nil && coord != nil {
 		publishers = coord.publisherRegistry
 	}
@@ -267,7 +269,7 @@ func (d *GroupDispatcher) claimOutbox(ctx context.Context, row sqlc.CtxGroupOutb
 			Now:        nullTime(time.Now().UTC()),
 			LeaseUntil: nullTime(time.Now().UTC().Add(d.leaseDuration)),
 		})
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return sqlc.CtxGroupOutbox{}, false, nil
 		}
 		if err != nil {
@@ -287,20 +289,20 @@ func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox 
 	if d.db == nil {
 		return d.createDispatchRows(ctx, d.q, outbox, responding)
 	}
-	tx, err := d.db.BeginTx(ctx, nil)
+	tx, err := d.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin materialize dispatch rows: %w", err)
 	}
 	committed := false
 	defer func() {
 		if !committed {
-			_ = tx.Rollback()
+			_ = tx.Rollback(ctx)
 		}
 	}()
 	if err := d.createDispatchRows(ctx, d.q.WithTx(tx), outbox, responding); err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit materialize dispatch rows: %w", err)
 	}
 	committed = true
@@ -353,8 +355,8 @@ func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Querie
 			ReplyChannelID: replyChannelID,
 			Status:         "pending",
 			AttemptCount:   0,
-			LeaseUntil:     sql.NullTime{},
-			NextAttemptAt:  sql.NullTime{},
+			LeaseUntil:     pgtype.Timestamptz{},
+			NextAttemptAt:  pgtype.Timestamptz{},
 			LastError:      "",
 		}); err != nil {
 			return fmt.Errorf("create dispatch row: %w", err)
@@ -569,7 +571,7 @@ func (d *GroupDispatcher) claimDispatch(ctx context.Context, row sqlc.CtxGroupDi
 			Now:        nullTime(time.Now().UTC()),
 			LeaseUntil: nullTime(time.Now().UTC().Add(d.leaseDuration)),
 		})
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return sqlc.CtxGroupDispatch{}, false, nil
 		}
 		if err != nil {
@@ -596,11 +598,11 @@ func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.Ctx
 	if d.db == nil {
 		return errors.New("dispatcher db not configured")
 	}
-	tx, err := d.db.BeginTx(ctx, nil)
+	tx, err := d.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("record dispatch result: begin: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := appdb.AdvisoryXactLock(ctx, tx, "gid:"+row.GroupID); err != nil {
 		return err
 	}
@@ -625,7 +627,7 @@ func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.Ctx
 	if updated == 0 {
 		return errors.New("set dispatch result message: lost dispatch ownership")
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("record dispatch result: commit: %w", err)
 	}
 	return nil
@@ -926,14 +928,14 @@ func backoff(attempts int64) time.Duration {
 	return d
 }
 
-func nullTime(t time.Time) sql.NullTime {
+func nullTime(t time.Time) pgtype.Timestamptz {
 	if t.IsZero() {
-		return sql.NullTime{}
+		return pgtype.Timestamptz{}
 	}
-	return sql.NullTime{Time: t.UTC(), Valid: true}
+	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
 }
 
-func nullStringValue(v sql.NullString) string {
+func nullStringValue(v pgtype.Text) string {
 	if !v.Valid {
 		return ""
 	}

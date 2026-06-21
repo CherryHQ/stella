@@ -2,7 +2,6 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -72,7 +73,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	if err == nil {
 		return conv.ID, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("get conversation: %w", err)
 	}
 
@@ -83,7 +84,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 		Channel:    session.Channel,
 		Kind:       "chat",
 		AgentID:    nullAgent(session.AgentID),
-		UserID:     sql.NullString{String: session.UserID, Valid: true},
+		UserID:     pgtype.Text{String: session.UserID, Valid: true},
 		LastActive: now,
 	})
 	if err != nil {

@@ -2,11 +2,13 @@ package pluginstate
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -16,7 +18,7 @@ type Store struct {
 	q *sqlc.Queries
 }
 
-func New(db *sql.DB) *Store {
+func New(db *pgxpool.Pool) *Store {
 	return &Store{q: sqlc.New(db)}
 }
 
@@ -28,7 +30,7 @@ func (s *Store) Get(ctx context.Context, pluginID string, scope pkgplugins.State
 		ScopeID:   scope.ID,
 		StateKey:  key,
 	})
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
 	if err != nil {

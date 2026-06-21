@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "modernc.org/sqlite"
 )
 
@@ -23,10 +25,11 @@ type MigrateReport struct {
 	Skipped   []string       // target tables with no SQLite source (left empty)
 }
 
-// querier is the read surface shared by *sql.DB and *sql.Tx, so the table list
-// can be read outside a transaction (dry run) or inside one (real load).
+// querier is the PostgreSQL read surface shared by *pgxpool.Pool and pgx.Tx, so
+// the table list can be read outside a transaction (dry run) or inside one (real
+// load).
 type querier interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	Query(ctx context.Context, query string, args ...any) (pgx.Rows, error)
 }
 
 // MigrateSQLite copies every row from the legacy SQLite database at sqlitePath
@@ -49,7 +52,7 @@ type querier interface {
 // any pre-existing orphan row is carried over as-is rather than failing the
 // migration. Disabling the role requires a superuser DSN (the managed embedded
 // cluster runs as one).
-func MigrateSQLite(ctx context.Context, sqlitePath string, pg *sql.DB, dryRun bool) (*MigrateReport, error) {
+func MigrateSQLite(ctx context.Context, sqlitePath string, pg *pgxpool.Pool, dryRun bool) (*MigrateReport, error) {
 	src, err := sql.Open("sqlite", sqlitePath)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", sqlitePath, err)
@@ -67,16 +70,16 @@ func MigrateSQLite(ctx context.Context, sqlitePath string, pg *sql.DB, dryRun bo
 		return migratePlan(ctx, src, pg, sqliteTables)
 	}
 
-	tx, err := pg.BeginTx(ctx, nil)
+	tx, err := pg.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// SET LOCAL scopes the role to this transaction: it reverts on commit or
 	// rollback, so the connection returns to the pool with foreign-key triggers
 	// re-enabled — no leak to later writers.
-	if _, err := tx.ExecContext(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
+	if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
 		return nil, fmt.Errorf("disable fk triggers: %w", err)
 	}
 
@@ -88,7 +91,7 @@ func MigrateSQLite(ctx context.Context, sqlitePath string, pg *sql.DB, dryRun bo
 	// RESTRICT, not CASCADE: every public table is in the list, so internal
 	// foreign keys need no cascade. An unexpected reference from another schema
 	// then fails loudly here instead of silently truncating that schema's data.
-	if _, err := tx.ExecContext(ctx, "TRUNCATE "+strings.Join(quoteIdents(tables), ", ")+" RESTRICT"); err != nil {
+	if _, err := tx.Exec(ctx, "TRUNCATE "+strings.Join(quoteIdents(tables), ", ")+" RESTRICT"); err != nil {
 		return nil, fmt.Errorf("truncate target tables: %w", err)
 	}
 
@@ -109,7 +112,7 @@ func MigrateSQLite(ctx context.Context, sqlitePath string, pg *sql.DB, dryRun bo
 		report.Dropped += s.dropped
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 
@@ -121,7 +124,7 @@ func MigrateSQLite(ctx context.Context, sqlitePath string, pg *sql.DB, dryRun bo
 	// copied row actually persisted.
 	for t, n := range report.Tables {
 		var got int
-		if err := pg.QueryRowContext(ctx, "SELECT count(*) FROM "+quoteIdent(t)).Scan(&got); err != nil {
+		if err := pg.QueryRow(ctx, "SELECT count(*) FROM "+quoteIdent(t)).Scan(&got); err != nil {
 			return nil, fmt.Errorf("verify %s: %w", t, err)
 		}
 		if got != n {
@@ -175,16 +178,20 @@ func sqliteTableSet(ctx context.Context, src *sql.DB) (map[string]bool, error) {
 }
 
 // pgBaseTables lists the public tables to load, excluding schema_migrations
-// (owned by the migration runner, not user data).
+// (owned by the migration runner) and river_* (owned by River's own migrator and
+// holding live queue state). Neither has a SQLite source, so including them would
+// only TRUNCATE them — wiping the durable job queue on every SQLite import.
 func pgBaseTables(ctx context.Context, q querier) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `
+	rows, err := q.Query(ctx, `
 		SELECT tablename FROM pg_tables
-		WHERE schemaname = 'public' AND tablename <> 'schema_migrations'
+		WHERE schemaname = 'public'
+		  AND tablename <> 'schema_migrations'
+		  AND tablename NOT LIKE 'river\_%' ESCAPE '\'
 		ORDER BY tablename`)
 	if err != nil {
 		return nil, fmt.Errorf("list pg tables: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 	var out []string
 	for rows.Next() {
 		var t string
@@ -209,7 +216,7 @@ type copyStats struct {
 	dropped   int // rows skipped: a uuid column held an unsalvageable value
 }
 
-func copyTable(ctx context.Context, src *sql.DB, tx *sql.Tx, table string) (stats copyStats, err error) {
+func copyTable(ctx context.Context, src *sql.DB, tx pgx.Tx, table string) (stats copyStats, err error) {
 	pgCols, err := pgColumns(ctx, tx, table)
 	if err != nil {
 		return stats, err
@@ -267,12 +274,11 @@ func copyTable(ctx context.Context, src *sql.DB, tx *sql.Tx, table string) (stat
 	}
 	defer func() { _ = srcRows.Close() }()
 
-	stmt, err := tx.PrepareContext(ctx, "INSERT INTO "+quoteIdent(table)+" ("+strings.Join(quoteIdents(names), ", ")+
-		") VALUES ("+strings.Join(placeholders, ", ")+")")
-	if err != nil {
-		return stats, fmt.Errorf("prepare insert: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
+	// pgx prepares and caches this INSERT on first Exec and reuses the plan for
+	// every later row (default statement-cache mode), so a per-row Exec is as
+	// cheap as the explicit prepared statement this replaces.
+	insertSQL := "INSERT INTO " + quoteIdent(table) + " (" + strings.Join(quoteIdents(names), ", ") +
+		") VALUES (" + strings.Join(placeholders, ", ") + ")"
 
 	for srcRows.Next() {
 		raw := make([]any, len(cols))
@@ -299,7 +305,7 @@ func copyTable(ctx context.Context, src *sql.DB, tx *sql.Tx, table string) (stat
 			}
 			args[i] = val
 		}
-		if _, err := stmt.ExecContext(ctx, args...); err != nil {
+		if _, err := tx.Exec(ctx, insertSQL, args...); err != nil {
 			return stats, fmt.Errorf("insert row %d: %w", stats.rows+1, err)
 		}
 		stats.rows++
@@ -309,15 +315,15 @@ func copyTable(ctx context.Context, src *sql.DB, tx *sql.Tx, table string) (stat
 
 // pgColumns returns the writable (non-generated) columns of a public table in
 // ordinal order, each with its underlying type name for the cast.
-func pgColumns(ctx context.Context, tx *sql.Tx, table string) ([]pgColumn, error) {
-	rows, err := tx.QueryContext(ctx, `
+func pgColumns(ctx context.Context, tx pgx.Tx, table string) ([]pgColumn, error) {
+	rows, err := tx.Query(ctx, `
 		SELECT column_name, udt_name FROM information_schema.columns
 		WHERE table_schema = 'public' AND table_name = $1 AND is_generated = 'NEVER'
 		ORDER BY ordinal_position`, table)
 	if err != nil {
 		return nil, fmt.Errorf("read pg columns: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 	var cols []pgColumn
 	for rows.Next() {
 		var c pgColumn

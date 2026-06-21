@@ -10,7 +10,7 @@ import (
 
 func TestSearchEmbeddingLifecycle(t *testing.T) {
 	db := newTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer db.Close()
 	q := sqlc.New(db)
 	ctx := context.Background()
 

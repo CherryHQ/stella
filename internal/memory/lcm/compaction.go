@@ -3,7 +3,6 @@ package lcm
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,6 +10,10 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -20,13 +23,13 @@ const summarizeConcurrency = 4
 
 // compactionEngine runs leaf and condensed compaction passes.
 type compactionEngine struct {
-	db         *sql.DB
+	db         *pgxpool.Pool
 	q          *sqlc.Queries
 	summarizer memory.Summarizer
 	freshTail  int
 }
 
-func newCompactionEngine(db *sql.DB, q *sqlc.Queries, summarizer memory.Summarizer, freshTail int) *compactionEngine {
+func newCompactionEngine(db *pgxpool.Pool, q *sqlc.Queries, summarizer memory.Summarizer, freshTail int) *compactionEngine {
 	if freshTail <= 0 {
 		freshTail = defaultFreshTail
 	}
@@ -269,7 +272,7 @@ func (c *compactionEngine) summarizeMessageRun(ctx context.Context, convID strin
 		}
 		msg, ok := messagesByID[item.MessageID.String]
 		if !ok {
-			return messageRunSummary{}, fmt.Errorf("get message %s: %w", item.MessageID.String, sql.ErrNoRows)
+			return messageRunSummary{}, fmt.Errorf("get message %s: %w", item.MessageID.String, pgx.ErrNoRows)
 		}
 		messages = append(messages, msg)
 		textParts = append(textParts, formatMessageForSummarizer(msg))
@@ -314,11 +317,11 @@ func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID st
 		return nil
 	}
 
-	tx, err := c.db.BeginTx(ctx, nil)
+	tx, err := c.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := c.q.WithTx(tx)
 
 	// Create summary record.
@@ -330,8 +333,8 @@ func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID st
 		Depth:                   0,
 		Content:                 summary.content,
 		TokenCount:              int64(memory.EstimateTokens(summary.content)),
-		EarliestAt:              sql.NullTime{Time: summary.earliestAt.UTC(), Valid: !summary.earliestAt.IsZero()},
-		LatestAt:                sql.NullTime{Time: summary.latestAt.UTC(), Valid: !summary.latestAt.IsZero()},
+		EarliestAt:              pgtype.Timestamptz{Time: summary.earliestAt.UTC(), Valid: !summary.earliestAt.IsZero()},
+		LatestAt:                pgtype.Timestamptz{Time: summary.latestAt.UTC(), Valid: !summary.latestAt.IsZero()},
 		DescendantCount:         int64(len(summary.messages)),
 		DescendantTokenCount:    summary.totalTokens,
 		SourceMessageTokenCount: summary.totalTokens,
@@ -366,14 +369,14 @@ func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID st
 		ConversationID: convID,
 		Ordinal:        summary.run.startOrd, // reuse start ordinal
 		ItemType:       itemTypeSummary,
-		SummaryID:      sql.NullString{String: sumID, Valid: true},
+		SummaryID:      pgtype.Text{String: sumID, Valid: true},
 		Role:           "",
 	})
 	if err != nil {
 		return fmt.Errorf("insert summary context item: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
 
@@ -455,7 +458,7 @@ func (c *compactionEngine) loadSummaryCache(ctx context.Context, convID string, 
 	}
 	for _, id := range summaryIDs {
 		if _, ok := out[id]; !ok {
-			return nil, fmt.Errorf("get summary depth %s: %w", id, sql.ErrNoRows)
+			return nil, fmt.Errorf("get summary depth %s: %w", id, pgx.ErrNoRows)
 		}
 	}
 	return out, nil
@@ -594,11 +597,11 @@ func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID 
 		return nil
 	}
 
-	tx, err := c.db.BeginTx(ctx, nil)
+	tx, err := c.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := c.q.WithTx(tx)
 
 	// Create condensed summary.
@@ -610,8 +613,8 @@ func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID 
 		Depth:                   summary.newDepth,
 		Content:                 summary.content,
 		TokenCount:              int64(memory.EstimateTokens(summary.content)),
-		EarliestAt:              sql.NullTime{Time: summary.earliestAt.UTC(), Valid: !summary.earliestAt.IsZero()},
-		LatestAt:                sql.NullTime{Time: summary.latestAt.UTC(), Valid: !summary.latestAt.IsZero()},
+		EarliestAt:              pgtype.Timestamptz{Time: summary.earliestAt.UTC(), Valid: !summary.earliestAt.IsZero()},
+		LatestAt:                pgtype.Timestamptz{Time: summary.latestAt.UTC(), Valid: !summary.latestAt.IsZero()},
 		DescendantCount:         summary.totalDescendants + int64(len(summary.summaries)),
 		DescendantTokenCount:    summary.totalDescTokens + summary.totalTokens,
 		SourceMessageTokenCount: 0,
@@ -646,14 +649,14 @@ func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID 
 		ConversationID: convID,
 		Ordinal:        summary.run.startOrd,
 		ItemType:       itemTypeSummary,
-		SummaryID:      sql.NullString{String: sumID, Valid: true},
+		SummaryID:      pgtype.Text{String: sumID, Valid: true},
 		Role:           "",
 	})
 	if err != nil {
 		return fmt.Errorf("insert condensed context item: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
 

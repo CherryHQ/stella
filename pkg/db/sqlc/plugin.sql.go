@@ -15,7 +15,7 @@ DELETE FROM plugin WHERE id = $1
 `
 
 func (q *Queries) DeletePlugin(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deletePlugin, id)
+	_, err := q.db.Exec(ctx, deletePlugin, id)
 	return err
 }
 
@@ -24,7 +24,7 @@ SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin WHERE
 `
 
 func (q *Queries) GetPlugin(ctx context.Context, id string) (Plugin, error) {
-	row := q.db.QueryRowContext(ctx, getPlugin, id)
+	row := q.db.QueryRow(ctx, getPlugin, id)
 	var i Plugin
 	err := row.Scan(
 		&i.ID,
@@ -43,7 +43,7 @@ SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin WHERE
 `
 
 func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledPlugins)
+	rows, err := q.db.Query(ctx, listEnabledPlugins)
 	if err != nil {
 		return nil, err
 	}
@@ -63,9 +63,6 @@ func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -78,7 +75,7 @@ SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin ORDER
 `
 
 func (q *Queries) ListPluginOverrides(ctx context.Context) ([]Plugin, error) {
-	rows, err := q.db.QueryContext(ctx, listPluginOverrides)
+	rows, err := q.db.Query(ctx, listPluginOverrides)
 	if err != nil {
 		return nil, err
 	}
@@ -98,9 +95,6 @@ func (q *Queries) ListPluginOverrides(ctx context.Context) ([]Plugin, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -113,7 +107,7 @@ SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin ORDER
 `
 
 func (q *Queries) ListPlugins(ctx context.Context) ([]Plugin, error) {
-	rows, err := q.db.QueryContext(ctx, listPlugins)
+	rows, err := q.db.Query(ctx, listPlugins)
 	if err != nil {
 		return nil, err
 	}
@@ -133,9 +127,6 @@ func (q *Queries) ListPlugins(ctx context.Context) ([]Plugin, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -148,7 +139,7 @@ SELECT id, kind, name, enabled, config, created_at, updated_at FROM plugin WHERE
 `
 
 func (q *Queries) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error) {
-	rows, err := q.db.QueryContext(ctx, listPluginsByKind, kind)
+	rows, err := q.db.Query(ctx, listPluginsByKind, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -168,9 +159,6 @@ func (q *Queries) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin,
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -198,7 +186,7 @@ type UpsertPluginParams struct {
 }
 
 func (q *Queries) UpsertPlugin(ctx context.Context, arg UpsertPluginParams) error {
-	_, err := q.db.ExecContext(ctx, upsertPlugin,
+	_, err := q.db.Exec(ctx, upsertPlugin,
 		arg.ID,
 		arg.Kind,
 		arg.Name,

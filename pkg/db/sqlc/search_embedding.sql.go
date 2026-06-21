@@ -23,7 +23,7 @@ type DeleteSearchEmbeddingParams struct {
 }
 
 func (q *Queries) DeleteSearchEmbedding(ctx context.Context, arg DeleteSearchEmbeddingParams) error {
-	_, err := q.db.ExecContext(ctx, deleteSearchEmbedding, arg.OwnerKind, arg.OwnerID, arg.Model)
+	_, err := q.db.Exec(ctx, deleteSearchEmbedding, arg.OwnerKind, arg.OwnerID, arg.Model)
 	return err
 }
 
@@ -39,7 +39,7 @@ type DeleteSearchEmbeddingByOwnerParams struct {
 }
 
 func (q *Queries) DeleteSearchEmbeddingByOwner(ctx context.Context, arg DeleteSearchEmbeddingByOwnerParams) error {
-	_, err := q.db.ExecContext(ctx, deleteSearchEmbeddingByOwner, arg.OwnerKind, arg.OwnerID)
+	_, err := q.db.Exec(ctx, deleteSearchEmbeddingByOwner, arg.OwnerKind, arg.OwnerID)
 	return err
 }
 
@@ -57,7 +57,7 @@ type GetSearchEmbeddingParams struct {
 }
 
 func (q *Queries) GetSearchEmbedding(ctx context.Context, arg GetSearchEmbeddingParams) (SearchEmbedding, error) {
-	row := q.db.QueryRowContext(ctx, getSearchEmbedding, arg.OwnerKind, arg.OwnerID, arg.Model)
+	row := q.db.QueryRow(ctx, getSearchEmbedding, arg.OwnerKind, arg.OwnerID, arg.Model)
 	var i SearchEmbedding
 	err := row.Scan(
 		&i.ID,
@@ -86,7 +86,7 @@ type ListSearchEmbeddingByModelParams struct {
 }
 
 func (q *Queries) ListSearchEmbeddingByModel(ctx context.Context, arg ListSearchEmbeddingByModelParams) ([]SearchEmbedding, error) {
-	rows, err := q.db.QueryContext(ctx, listSearchEmbeddingByModel, arg.Model, arg.Limit)
+	rows, err := q.db.Query(ctx, listSearchEmbeddingByModel, arg.Model, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -108,9 +108,6 @@ func (q *Queries) ListSearchEmbeddingByModel(ctx context.Context, arg ListSearch
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -131,7 +128,7 @@ type ListSearchEmbeddingByOwnerParams struct {
 }
 
 func (q *Queries) ListSearchEmbeddingByOwner(ctx context.Context, arg ListSearchEmbeddingByOwnerParams) ([]SearchEmbedding, error) {
-	rows, err := q.db.QueryContext(ctx, listSearchEmbeddingByOwner, arg.OwnerKind, arg.OwnerID)
+	rows, err := q.db.Query(ctx, listSearchEmbeddingByOwner, arg.OwnerKind, arg.OwnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -153,9 +150,6 @@ func (q *Queries) ListSearchEmbeddingByOwner(ctx context.Context, arg ListSearch
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -184,7 +178,7 @@ type UpsertSearchEmbeddingParams struct {
 }
 
 func (q *Queries) UpsertSearchEmbedding(ctx context.Context, arg UpsertSearchEmbeddingParams) (SearchEmbedding, error) {
-	row := q.db.QueryRowContext(ctx, upsertSearchEmbedding,
+	row := q.db.QueryRow(ctx, upsertSearchEmbedding,
 		arg.OwnerKind,
 		arg.OwnerID,
 		arg.Model,

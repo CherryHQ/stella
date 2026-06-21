@@ -23,7 +23,7 @@ type DeletePluginStateEntryParams struct {
 }
 
 func (q *Queries) DeletePluginStateEntry(ctx context.Context, arg DeletePluginStateEntryParams) error {
-	_, err := q.db.ExecContext(ctx, deletePluginStateEntry,
+	_, err := q.db.Exec(ctx, deletePluginStateEntry,
 		arg.PluginID,
 		arg.ScopeKind,
 		arg.ScopeID,
@@ -45,7 +45,7 @@ type GetPluginStateEntryParams struct {
 }
 
 func (q *Queries) GetPluginStateEntry(ctx context.Context, arg GetPluginStateEntryParams) (json.RawMessage, error) {
-	row := q.db.QueryRowContext(ctx, getPluginStateEntry,
+	row := q.db.QueryRow(ctx, getPluginStateEntry,
 		arg.PluginID,
 		arg.ScopeKind,
 		arg.ScopeID,
@@ -72,7 +72,7 @@ type UpsertPluginStateEntryParams struct {
 }
 
 func (q *Queries) UpsertPluginStateEntry(ctx context.Context, arg UpsertPluginStateEntryParams) error {
-	_, err := q.db.ExecContext(ctx, upsertPluginStateEntry,
+	_, err := q.db.Exec(ctx, upsertPluginStateEntry,
 		arg.PluginID,
 		arg.ScopeKind,
 		arg.ScopeID,

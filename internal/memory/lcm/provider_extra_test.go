@@ -2,7 +2,6 @@ package lcm_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"reflect"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -24,16 +24,16 @@ var (
 	testOtherUserID = uuid.NewString()
 )
 
-func newLCMTestDB(t *testing.T) *sql.DB {
+func newLCMTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	db := dbtest.New(t)
 
-	_, err := db.Exec(`INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
+	_, err := db.Exec(context.Background(), `INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
 		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', '', true)`)
 	if err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
-	if _, err = db.Exec(`INSERT INTO auth_user (id, email) VALUES ($1, 'user-1@test.local'), ($2, 'user-2@test.local')`, testUserID, testOtherUserID); err != nil {
+	if _, err = db.Exec(context.Background(), `INSERT INTO auth_user (id, email) VALUES ($1, 'user-1@test.local'), ($2, 'user-2@test.local')`, testUserID, testOtherUserID); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 	return db
@@ -45,12 +45,12 @@ func newLCMTestProvider(t *testing.T) (memory.Provider, func()) {
 
 	p, err := lcm.New(db, nil, nil)
 	if err != nil {
-		_ = db.Close()
+		db.Close()
 		t.Fatalf("new provider: %v", err)
 	}
 	return p, func() {
 		_ = p.Close()
-		_ = db.Close()
+		db.Close()
 	}
 }
 
@@ -73,7 +73,7 @@ func newLCMTestSession(suffix string) memory.Session {
 
 func TestLCMProvider_StatsUsesConversationTimeBounds(t *testing.T) {
 	db := newLCMTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 
 	p, err := lcm.New(db, nil, nil)
 	if err != nil {
@@ -108,7 +108,7 @@ func TestLCMProvider_StatsUsesConversationTimeBounds(t *testing.T) {
 
 	oldest := "2024-01-01 01:02:03"
 	newest := "2024-01-03 04:05:06"
-	if _, err := db.ExecContext(ctx, `
+	if _, err := db.Exec(ctx, `
 		UPDATE ctx_message
 		SET created_at = CASE seq
 			WHEN 1 THEN $1
@@ -134,7 +134,7 @@ func TestLCMProvider_StatsUsesConversationTimeBounds(t *testing.T) {
 
 func TestLCMProvider_RequiresSessionUserAndAgentScope(t *testing.T) {
 	db := newLCMTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 
 	lcmProvider, err := lcm.New(db, func(context.Context, string) (string, error) { return "summary", nil }, nil)
 	if err != nil {
@@ -225,11 +225,11 @@ func TestLCMProvider_DoesNotReuseConversationCacheAcrossScope(t *testing.T) {
 
 func TestLCMProvider_CompactSummarizerCanReadDB(t *testing.T) {
 	db := newLCMTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 
 	p, err := lcm.New(db, func(ctx context.Context, _ string) (string, error) {
 		var count int
-		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM agent`).Scan(&count); err != nil {
+		if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM agent`).Scan(&count); err != nil {
 			return "", err
 		}
 		return "summary from db-backed summarizer", nil
@@ -261,7 +261,7 @@ func TestLCMProvider_CompactSummarizerCanReadDB(t *testing.T) {
 	}
 
 	var content string
-	if err := db.QueryRowContext(ctx, `SELECT content FROM ctx_summary ORDER BY created_at DESC LIMIT 1`).Scan(&content); err != nil {
+	if err := db.QueryRow(ctx, `SELECT content FROM ctx_summary ORDER BY created_at DESC LIMIT 1`).Scan(&content); err != nil {
 		t.Fatalf("read summary: %v", err)
 	}
 	if content != "summary from db-backed summarizer" {
@@ -271,7 +271,7 @@ func TestLCMProvider_CompactSummarizerCanReadDB(t *testing.T) {
 
 func TestLCMProvider_NilSummarizerDisablesCompaction(t *testing.T) {
 	db := newLCMTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 
 	p, err := lcm.New(db, nil, nil)
 	if err != nil {
@@ -303,7 +303,7 @@ func TestLCMProvider_NilSummarizerDisablesCompaction(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ctx_summary`).Scan(&count); err != nil {
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM ctx_summary`).Scan(&count); err != nil {
 		t.Fatalf("count summaries: %v", err)
 	}
 	if count != 0 {
@@ -313,7 +313,7 @@ func TestLCMProvider_NilSummarizerDisablesCompaction(t *testing.T) {
 
 func TestLCMProvider_NeedsCompactionWaitsForCompactableMessages(t *testing.T) {
 	db := newLCMTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 
 	p, err := lcm.New(db, func(context.Context, string) (string, error) {
 		return "summary", nil
@@ -462,7 +462,7 @@ func TestLCMProvider_LoadHistory(t *testing.T) {
 
 func TestLCMProvider_ListInfoFiltersInSQL(t *testing.T) {
 	db := newLCMTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 
 	p, err := lcm.New(db, nil, nil)
 	if err != nil {
@@ -514,7 +514,7 @@ func TestLCMProvider_ListInfoFiltersInSQL(t *testing.T) {
 
 func TestLCMProvider_SaveInfoSingleUpdateSemantics(t *testing.T) {
 	db := newLCMTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 
 	p, err := lcm.New(db, nil, nil)
 	if err != nil {
@@ -563,7 +563,7 @@ func TestLCMProvider_SaveInfoSingleUpdateSemantics(t *testing.T) {
 
 func TestLCMProvider_ListInfoForReviewFiltersInSQL(t *testing.T) {
 	db := newLCMTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 
 	p, err := lcm.New(db, nil, nil)
 	if err != nil {
@@ -606,7 +606,7 @@ func TestLCMProvider_ListInfoForReviewFiltersInSQL(t *testing.T) {
 
 func TestLCMProvider_ListInfoForReviewDoesNotRequireUserScope(t *testing.T) {
 	db := newLCMTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 
 	p, err := lcm.New(db, nil, nil)
 	if err != nil {

@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const appendContextItem = `-- name: AppendContextItem :exec
@@ -17,17 +18,17 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type AppendContextItemParams struct {
-	ConversationID string         `json:"conversation_id"`
-	Ordinal        int64          `json:"ordinal"`
-	ItemType       string         `json:"item_type"`
-	MessageID      sql.NullString `json:"message_id"`
-	SummaryID      sql.NullString `json:"summary_id"`
-	EventType      string         `json:"event_type"`
-	Role           string         `json:"role"`
+	ConversationID string      `json:"conversation_id"`
+	Ordinal        int64       `json:"ordinal"`
+	ItemType       string      `json:"item_type"`
+	MessageID      pgtype.Text `json:"message_id"`
+	SummaryID      pgtype.Text `json:"summary_id"`
+	EventType      string      `json:"event_type"`
+	Role           string      `json:"role"`
 }
 
 func (q *Queries) AppendContextItem(ctx context.Context, arg AppendContextItemParams) error {
-	_, err := q.db.ExecContext(ctx, appendContextItem,
+	_, err := q.db.Exec(ctx, appendContextItem,
 		arg.ConversationID,
 		arg.Ordinal,
 		arg.ItemType,
@@ -44,7 +45,7 @@ DELETE FROM ctx_item WHERE conversation_id = $1
 `
 
 func (q *Queries) DeleteAllContextItems(ctx context.Context, conversationID string) error {
-	_, err := q.db.ExecContext(ctx, deleteAllContextItems, conversationID)
+	_, err := q.db.Exec(ctx, deleteAllContextItems, conversationID)
 	return err
 }
 
@@ -60,7 +61,7 @@ type DeleteContextItemsInRangeParams struct {
 }
 
 func (q *Queries) DeleteContextItemsInRange(ctx context.Context, arg DeleteContextItemsInRangeParams) error {
-	_, err := q.db.ExecContext(ctx, deleteContextItemsInRange, arg.ConversationID, arg.Ordinal, arg.Ordinal_2)
+	_, err := q.db.Exec(ctx, deleteContextItemsInRange, arg.ConversationID, arg.Ordinal, arg.Ordinal_2)
 	return err
 }
 
@@ -69,7 +70,7 @@ SELECT COUNT(*) FROM ctx_item WHERE conversation_id = $1
 `
 
 func (q *Queries) GetContextItemCount(ctx context.Context, conversationID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getContextItemCount, conversationID)
+	row := q.db.QueryRow(ctx, getContextItemCount, conversationID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -82,7 +83,7 @@ ORDER BY ordinal ASC
 `
 
 func (q *Queries) GetContextItems(ctx context.Context, conversationID string) ([]CtxItem, error) {
-	rows, err := q.db.QueryContext(ctx, getContextItems, conversationID)
+	rows, err := q.db.Query(ctx, getContextItems, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -104,9 +105,6 @@ func (q *Queries) GetContextItems(ctx context.Context, conversationID string) ([
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -122,19 +120,19 @@ ORDER BY ci.ordinal ASC
 `
 
 type GetContextMessageItemsRow struct {
-	ConversationID string         `json:"conversation_id"`
-	Ordinal        int64          `json:"ordinal"`
-	ItemType       string         `json:"item_type"`
-	MessageID      sql.NullString `json:"message_id"`
-	SummaryID      sql.NullString `json:"summary_id"`
-	EventType      string         `json:"event_type"`
-	Role           string         `json:"role"`
-	CreatedAt      time.Time      `json:"created_at"`
-	MsgTokenCount  int64          `json:"msg_token_count"`
+	ConversationID string      `json:"conversation_id"`
+	Ordinal        int64       `json:"ordinal"`
+	ItemType       string      `json:"item_type"`
+	MessageID      pgtype.Text `json:"message_id"`
+	SummaryID      pgtype.Text `json:"summary_id"`
+	EventType      string      `json:"event_type"`
+	Role           string      `json:"role"`
+	CreatedAt      time.Time   `json:"created_at"`
+	MsgTokenCount  int64       `json:"msg_token_count"`
 }
 
 func (q *Queries) GetContextMessageItems(ctx context.Context, conversationID string) ([]GetContextMessageItemsRow, error) {
-	rows, err := q.db.QueryContext(ctx, getContextMessageItems, conversationID)
+	rows, err := q.db.Query(ctx, getContextMessageItems, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -156,9 +154,6 @@ func (q *Queries) GetContextMessageItems(ctx context.Context, conversationID str
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -192,7 +187,7 @@ type GetContextStatsRow struct {
 }
 
 func (q *Queries) GetContextStats(ctx context.Context, conversationID string) (GetContextStatsRow, error) {
-	row := q.db.QueryRowContext(ctx, getContextStats, conversationID)
+	row := q.db.QueryRow(ctx, getContextStats, conversationID)
 	var i GetContextStatsRow
 	err := row.Scan(
 		&i.MessageCount,
@@ -220,7 +215,7 @@ WHERE ci.conversation_id = $1
 `
 
 func (q *Queries) GetContextTokenCount(ctx context.Context, conversationID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getContextTokenCount, conversationID)
+	row := q.db.QueryRow(ctx, getContextTokenCount, conversationID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -238,22 +233,19 @@ type GetFreshTailMessageIDsParams struct {
 	Limit          int32  `json:"limit"`
 }
 
-func (q *Queries) GetFreshTailMessageIDs(ctx context.Context, arg GetFreshTailMessageIDsParams) ([]sql.NullString, error) {
-	rows, err := q.db.QueryContext(ctx, getFreshTailMessageIDs, arg.ConversationID, arg.Limit)
+func (q *Queries) GetFreshTailMessageIDs(ctx context.Context, arg GetFreshTailMessageIDsParams) ([]pgtype.Text, error) {
+	rows, err := q.db.Query(ctx, getFreshTailMessageIDs, arg.ConversationID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []sql.NullString{}
+	items := []pgtype.Text{}
 	for rows.Next() {
-		var message_id sql.NullString
+		var message_id pgtype.Text
 		if err := rows.Scan(&message_id); err != nil {
 			return nil, err
 		}
 		items = append(items, message_id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -266,7 +258,7 @@ SELECT CAST(COALESCE(MAX(ordinal), 0) AS BIGINT) FROM ctx_item WHERE conversatio
 `
 
 func (q *Queries) GetMaxContextOrdinal(ctx context.Context, conversationID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getMaxContextOrdinal, conversationID)
+	row := q.db.QueryRow(ctx, getMaxContextOrdinal, conversationID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -311,32 +303,32 @@ type ListContextItemsPageParams struct {
 }
 
 type ListContextItemsPageRow struct {
-	Ordinal                        int64          `json:"ordinal"`
-	ItemType                       string         `json:"item_type"`
-	EventType                      string         `json:"event_type"`
-	Role                           string         `json:"role"`
-	MessageID                      sql.NullString `json:"message_id"`
-	MessageSeq                     sql.NullInt64  `json:"message_seq"`
-	MessageRole                    sql.NullString `json:"message_role"`
-	MessageEventType               sql.NullString `json:"message_event_type"`
-	MessageContent                 sql.NullString `json:"message_content"`
-	MessageTokenCount              sql.NullInt64  `json:"message_token_count"`
-	MessageCreatedAt               sql.NullTime   `json:"message_created_at"`
-	SummaryID                      sql.NullString `json:"summary_id"`
-	SummaryKind                    sql.NullString `json:"summary_kind"`
-	SummaryDepth                   sql.NullInt64  `json:"summary_depth"`
-	SummaryContent                 sql.NullString `json:"summary_content"`
-	SummaryTokenCount              sql.NullInt64  `json:"summary_token_count"`
-	SummaryEarliestAt              sql.NullTime   `json:"summary_earliest_at"`
-	SummaryLatestAt                sql.NullTime   `json:"summary_latest_at"`
-	SummaryDescendantCount         sql.NullInt64  `json:"summary_descendant_count"`
-	SummaryDescendantTokenCount    sql.NullInt64  `json:"summary_descendant_token_count"`
-	SummarySourceMessageTokenCount sql.NullInt64  `json:"summary_source_message_token_count"`
-	SummaryCreatedAt               sql.NullTime   `json:"summary_created_at"`
+	Ordinal                        int64              `json:"ordinal"`
+	ItemType                       string             `json:"item_type"`
+	EventType                      string             `json:"event_type"`
+	Role                           string             `json:"role"`
+	MessageID                      pgtype.Text        `json:"message_id"`
+	MessageSeq                     pgtype.Int8        `json:"message_seq"`
+	MessageRole                    pgtype.Text        `json:"message_role"`
+	MessageEventType               pgtype.Text        `json:"message_event_type"`
+	MessageContent                 pgtype.Text        `json:"message_content"`
+	MessageTokenCount              pgtype.Int8        `json:"message_token_count"`
+	MessageCreatedAt               pgtype.Timestamptz `json:"message_created_at"`
+	SummaryID                      pgtype.Text        `json:"summary_id"`
+	SummaryKind                    pgtype.Text        `json:"summary_kind"`
+	SummaryDepth                   pgtype.Int8        `json:"summary_depth"`
+	SummaryContent                 pgtype.Text        `json:"summary_content"`
+	SummaryTokenCount              pgtype.Int8        `json:"summary_token_count"`
+	SummaryEarliestAt              pgtype.Timestamptz `json:"summary_earliest_at"`
+	SummaryLatestAt                pgtype.Timestamptz `json:"summary_latest_at"`
+	SummaryDescendantCount         pgtype.Int8        `json:"summary_descendant_count"`
+	SummaryDescendantTokenCount    pgtype.Int8        `json:"summary_descendant_token_count"`
+	SummarySourceMessageTokenCount pgtype.Int8        `json:"summary_source_message_token_count"`
+	SummaryCreatedAt               pgtype.Timestamptz `json:"summary_created_at"`
 }
 
 func (q *Queries) ListContextItemsPage(ctx context.Context, arg ListContextItemsPageParams) ([]ListContextItemsPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listContextItemsPage, arg.ConversationID, arg.OffsetCount, arg.LimitCount)
+	rows, err := q.db.Query(ctx, listContextItemsPage, arg.ConversationID, arg.OffsetCount, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -371,9 +363,6 @@ func (q *Queries) ListContextItemsPage(ctx context.Context, arg ListContextItems
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

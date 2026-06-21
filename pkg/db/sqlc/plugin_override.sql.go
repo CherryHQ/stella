@@ -7,7 +7,8 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteManifestPluginOverride = `-- name: DeleteManifestPluginOverride :exec
@@ -16,7 +17,7 @@ WHERE plugin_id = $1
 `
 
 func (q *Queries) DeleteManifestPluginOverride(ctx context.Context, pluginID string) error {
-	_, err := q.db.ExecContext(ctx, deleteManifestPluginOverride, pluginID)
+	_, err := q.db.Exec(ctx, deleteManifestPluginOverride, pluginID)
 	return err
 }
 
@@ -26,7 +27,7 @@ WHERE plugin_id = $1
 `
 
 func (q *Queries) GetManifestPluginOverride(ctx context.Context, pluginID string) (PluginOverride, error) {
-	row := q.db.QueryRowContext(ctx, getManifestPluginOverride, pluginID)
+	row := q.db.QueryRow(ctx, getManifestPluginOverride, pluginID)
 	var i PluginOverride
 	err := row.Scan(
 		&i.PluginID,
@@ -45,7 +46,7 @@ ORDER BY plugin_id
 `
 
 func (q *Queries) ListManifestPluginOverrides(ctx context.Context) ([]PluginOverride, error) {
-	rows, err := q.db.QueryContext(ctx, listManifestPluginOverrides)
+	rows, err := q.db.Query(ctx, listManifestPluginOverrides)
 	if err != nil {
 		return nil, err
 	}
@@ -65,9 +66,6 @@ func (q *Queries) ListManifestPluginOverrides(ctx context.Context) ([]PluginOver
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -85,14 +83,14 @@ ON CONFLICT(plugin_id) DO UPDATE SET
 `
 
 type UpsertManifestPluginOverrideParams struct {
-	PluginID           string       `json:"plugin_id"`
-	Enabled            sql.NullBool `json:"enabled"`
-	SessionEnvVaultKey string       `json:"session_env_vault_key"`
-	Config             string       `json:"config"`
+	PluginID           string      `json:"plugin_id"`
+	Enabled            pgtype.Bool `json:"enabled"`
+	SessionEnvVaultKey string      `json:"session_env_vault_key"`
+	Config             string      `json:"config"`
 }
 
 func (q *Queries) UpsertManifestPluginOverride(ctx context.Context, arg UpsertManifestPluginOverrideParams) error {
-	_, err := q.db.ExecContext(ctx, upsertManifestPluginOverride,
+	_, err := q.db.Exec(ctx, upsertManifestPluginOverride,
 		arg.PluginID,
 		arg.Enabled,
 		arg.SessionEnvVaultKey,

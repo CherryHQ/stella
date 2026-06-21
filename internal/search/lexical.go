@@ -2,10 +2,11 @@ package search
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/db/ftsquery"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -21,14 +22,14 @@ type LexicalSearch interface {
 
 type MessageQuery struct {
 	UserID  string
-	AgentID sql.NullString
+	AgentID pgtype.Text
 	Text    string
 	Limit   int
 }
 
 type SummaryQuery struct {
 	UserID  string
-	AgentID sql.NullString
+	AgentID pgtype.Text
 	Text    string
 	Limit   int
 }
@@ -53,7 +54,7 @@ type SummaryHit struct {
 	Content           string
 	Score             float64
 	CreatedAt         time.Time
-	LatestAt          sql.NullTime
+	LatestAt          pgtype.Timestamptz
 	SessionID         string
 	ConversationTitle string
 }
@@ -81,7 +82,7 @@ func (s *NativePostgresSearch) SearchMessages(ctx context.Context, query Message
 			return nil, nil
 		}
 		rows, err := s.q.SearchMessagesLike(ctx, sqlc.SearchMessagesLikeParams{
-			UserID:  sql.NullString{String: query.UserID, Valid: true},
+			UserID:  pgtype.Text{String: query.UserID, Valid: true},
 			AgentID: query.AgentID,
 			Pattern: []byte("%" + ftsquery.EscapeLike(text) + "%"),
 			Limit:   int32(limit),
@@ -103,7 +104,7 @@ func (s *NativePostgresSearch) SearchMessages(ctx context.Context, query Message
 	}
 
 	rows, err := s.q.SearchMessages(ctx, sqlc.SearchMessagesParams{
-		UserID:  sql.NullString{String: query.UserID, Valid: true},
+		UserID:  pgtype.Text{String: query.UserID, Valid: true},
 		AgentID: query.AgentID,
 		Match:   match,
 		Limit:   int32(limit),
@@ -134,7 +135,7 @@ func (s *NativePostgresSearch) SearchSummaries(ctx context.Context, query Summar
 			return nil, nil
 		}
 		rows, err := s.q.SearchSummariesLike(ctx, sqlc.SearchSummariesLikeParams{
-			UserID:  sql.NullString{String: query.UserID, Valid: true},
+			UserID:  pgtype.Text{String: query.UserID, Valid: true},
 			AgentID: query.AgentID,
 			Pattern: []byte("%" + ftsquery.EscapeLike(text) + "%"),
 			Limit:   int32(limit),
@@ -157,7 +158,7 @@ func (s *NativePostgresSearch) SearchSummaries(ctx context.Context, query Summar
 	}
 
 	rows, err := s.q.SearchSummaries(ctx, sqlc.SearchSummariesParams{
-		UserID:  sql.NullString{String: query.UserID, Valid: true},
+		UserID:  pgtype.Text{String: query.UserID, Valid: true},
 		AgentID: query.AgentID,
 		Match:   match,
 		Limit:   int32(limit),
@@ -243,16 +244,10 @@ func searchSnippet(snippet, content string) string {
 	return truncateUTF8(content, maxContentSnippet)
 }
 
-func truncateUTF8(s string, maxRunes int) string {
-	if maxRunes <= 0 {
-		return ""
+func truncateUTF8(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
 	}
-	count := 0
-	for i := range s {
-		if count == maxRunes {
-			return s[:i] + "..."
-		}
-		count++
-	}
-	return s
+	return string(runes[:maxLen]) + "..."
 }

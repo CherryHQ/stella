@@ -2,9 +2,10 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -170,7 +171,7 @@ func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string)
 		GroupID:  groupID,
 		Pipeline: pipeline,
 	})
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return 0
 	}
 	if err != nil {

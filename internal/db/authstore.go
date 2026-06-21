@@ -2,11 +2,12 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -22,7 +23,7 @@ type AuthStore struct {
 }
 
 // NewAuthStore creates a new AuthStore wrapping the given database connection.
-func NewAuthStore(db *sql.DB) *AuthStore {
+func NewAuthStore(db *pgxpool.Pool) *AuthStore {
 	return &AuthStore{OIDCStore: NewOIDCStore(db), q: sqlc.New(db)}
 }
 
@@ -250,14 +251,14 @@ func userTokenFromDB(r sqlc.AuthUserToken) auth.UserToken {
 	}
 }
 
-func nullTimeFromTimePtr(t *time.Time) sql.NullTime {
+func nullTimeFromTimePtr(t *time.Time) pgtype.Timestamptz {
 	if t == nil || t.IsZero() {
-		return sql.NullTime{}
+		return pgtype.Timestamptz{}
 	}
-	return sql.NullTime{Time: t.UTC(), Valid: true}
+	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
 }
 
-func timePtrFromNullTime(n sql.NullTime) *time.Time {
+func timePtrFromNullTime(n pgtype.Timestamptz) *time.Time {
 	if !n.Valid {
 		return nil
 	}

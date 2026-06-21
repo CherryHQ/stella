@@ -2,11 +2,12 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	lexical "github.com/CherryHQ/stella/internal/search"
@@ -118,7 +119,7 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 // summaryContentTime returns when a summary's underlying content actually
 // occurred: latest_at (the real end of the summarized window), falling back to
 // created_at (when the summary was generated) only when latest_at is null.
-func summaryContentTime(latestAt sql.NullTime, createdAt time.Time) time.Time {
+func summaryContentTime(latestAt pgtype.Timestamptz, createdAt time.Time) time.Time {
 	if t := parseNullTime(latestAt); t != nil {
 		return *t
 	}
@@ -133,7 +134,7 @@ func (p *Provider) GetMessage(ctx context.Context, messageID string) (*memory.Me
 	}
 	row, err := p.q.GetMessageScoped(ctx, sqlc.GetMessageScopedParams{
 		ID:      messageID,
-		UserID:  sql.NullString{String: userID, Valid: true},
+		UserID:  pgtype.Text{String: userID, Valid: true},
 		AgentID: nullAgent(agentID),
 	})
 	if err != nil {
@@ -160,7 +161,7 @@ func (p *Provider) getScopedSummary(ctx context.Context, summaryID string) (sqlc
 	}
 	if _, err := p.q.GetConversation(ctx, sqlc.GetConversationParams{
 		ID:      sum.ConversationID,
-		UserID:  sql.NullString{String: userID, Valid: true},
+		UserID:  pgtype.Text{String: userID, Valid: true},
 		AgentID: nullAgent(agentID),
 	}); err != nil {
 		return sqlc.CtxSummary{}, fmt.Errorf("get summary conversation: %w", err)

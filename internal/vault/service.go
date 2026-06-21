@@ -2,7 +2,6 @@ package vault
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"filippo.io/age"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -377,11 +377,11 @@ func validateScope(scope string, userID string, agentID string) error {
 	return nil
 }
 
-func nullString(value string) sql.NullString {
-	return sql.NullString{String: value, Valid: value != ""}
+func nullString(value string) pgtype.Text {
+	return pgtype.Text{String: value, Valid: value != ""}
 }
 
-func stringFromNull(value sql.NullString) string {
+func stringFromNull(value pgtype.Text) string {
 	if !value.Valid {
 		return ""
 	}

@@ -14,7 +14,7 @@ DELETE FROM plugin_oauth_provider WHERE provider_id = $1
 `
 
 func (q *Queries) DeleteAuthOAuthProvider(ctx context.Context, providerID string) error {
-	_, err := q.db.ExecContext(ctx, deleteAuthOAuthProvider, providerID)
+	_, err := q.db.Exec(ctx, deleteAuthOAuthProvider, providerID)
 	return err
 }
 
@@ -25,7 +25,7 @@ WHERE provider_id = $1
 `
 
 func (q *Queries) GetAuthOAuthProvider(ctx context.Context, providerID string) (PluginOauthProvider, error) {
-	row := q.db.QueryRowContext(ctx, getAuthOAuthProvider, providerID)
+	row := q.db.QueryRow(ctx, getAuthOAuthProvider, providerID)
 	var i PluginOauthProvider
 	err := row.Scan(
 		&i.ID,
@@ -58,7 +58,7 @@ type UpsertAuthOAuthProviderParams struct {
 }
 
 func (q *Queries) UpsertAuthOAuthProvider(ctx context.Context, arg UpsertAuthOAuthProviderParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAuthOAuthProvider,
+	_, err := q.db.Exec(ctx, upsertAuthOAuthProvider,
 		arg.ID,
 		arg.ProviderID,
 		arg.ClientID,

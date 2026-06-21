@@ -55,7 +55,7 @@ internal/
   admin/               HTTP API + 嵌入式 React SPA
   auth/                RBAC/ABAC 策略引擎、会话、沙箱
   db/                  SQLite、Atlas 迁移、sqlc 查询
-  scheduler/           gocron 服务、心跳（通过 stella scheduler CLI 提供技能）
+  scheduler/           River 持久化调度服务（通过 stella scheduler CLI 提供技能）
   skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
 pkg/
   memory/              Memory Provider 接口、类型、Summarizer、工具自动生成、测试辅助

@@ -33,7 +33,7 @@ func TestMigrateSQLite_RealFixture(t *testing.T) {
 		t.Error("dry-run reported 0 rows; expected a non-empty plan")
 	}
 	var preWritten int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM ctx_message").Scan(&preWritten); err != nil {
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM ctx_message").Scan(&preWritten); err != nil {
 		t.Fatalf("post-dry-run count: %v", err)
 	}
 	if preWritten != 0 {
@@ -58,7 +58,7 @@ func TestMigrateSQLite_RealFixture(t *testing.T) {
 			t.Errorf("report[%s] = %d rows, want %d", table, report.Tables[table], n)
 		}
 		var got int
-		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+quoteIdent(table)).Scan(&got); err != nil {
+		if err := db.QueryRow(ctx, "SELECT count(*) FROM "+quoteIdent(table)).Scan(&got); err != nil {
 			t.Fatalf("count %s: %v", table, err)
 		}
 		if got != n {
@@ -69,7 +69,7 @@ func TestMigrateSQLite_RealFixture(t *testing.T) {
 	// boolean coercion: SQLite stored 0/1, so every row must read back as a real
 	// boolean (true or false), never NULL from a failed cast.
 	var typedBool int
-	if err := db.QueryRowContext(ctx,
+	if err := db.QueryRow(ctx,
 		"SELECT count(*) FROM recally_article WHERE starred IS TRUE OR starred IS FALSE").Scan(&typedBool); err != nil {
 		t.Fatalf("bool query: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestMigrateSQLite_RealFixture(t *testing.T) {
 	// timestamptz coercion: both 'YYYY-MM-DD HH:MM:SS' and RFC3339 SQLite strings
 	// must parse and compare as timestamps.
 	var dated int
-	if err := db.QueryRowContext(ctx,
+	if err := db.QueryRow(ctx,
 		"SELECT count(*) FROM ctx_message WHERE created_at > '2000-01-01'::timestamptz").Scan(&dated); err != nil {
 		t.Fatalf("timestamptz query: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestMigrateSQLite_RealFixture(t *testing.T) {
 	// generated tsvector is computed on insert, so FTS is live right after the
 	// migration without any extra backfill step.
 	var withTokens int
-	if err := db.QueryRowContext(ctx,
+	if err := db.QueryRow(ctx,
 		"SELECT count(*) FROM ctx_message WHERE content_tsv <> ''::tsvector").Scan(&withTokens); err != nil {
 		t.Fatalf("tsvector query: %v", err)
 	}

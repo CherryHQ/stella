@@ -53,6 +53,13 @@ Key concepts:
 - `dev` — a disposable database Atlas uses for diffing (in-memory is fine)
 - `migration.dir` — where generated migrations live
 
+### Runtime-managed objects (carve-outs)
+
+Some database objects are created and versioned outside Atlas. They must be kept out of its diff scope, or Atlas treats them as unmanaged and proposes to DROP them:
+
+- **`river_*` tables** — River owns its job-queue schema and migrates it itself via `rivermigrate`, run at startup from `internal/db/database.go`. `atlas.hcl` sets `exclude = ["river_*"]` so the diff ignores them.
+- **`pg_trgm` extension** — created at runtime by `migrate()`; the dev database must have it pre-seeded. Never declared in the schema source.
+
 ## Schema Source Files
 
 ### Entry Point (`main.sql`)

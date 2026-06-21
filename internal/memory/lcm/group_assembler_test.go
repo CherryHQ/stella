@@ -2,12 +2,12 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -16,7 +16,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-func openTestDB(t *testing.T) *sql.DB {
+func openTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	return dbtest.New(t)
 }
@@ -258,7 +258,7 @@ func TestGroupAssemble_DedupsPersistedInjectedOutsideBudget(t *testing.T) {
 		t.Fatalf("retry assemble: %v", err)
 	}
 	var count int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ctx_message WHERE role = 'user' AND content = $1`, "[seq:1 user1]: already persisted").Scan(&count); err != nil {
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM ctx_message WHERE role = 'user' AND content = $1`, "[seq:1 user1]: already persisted").Scan(&count); err != nil {
 		t.Fatalf("count persisted injected: %v", err)
 	}
 	if count != 1 {

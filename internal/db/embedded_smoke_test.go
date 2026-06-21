@@ -1,6 +1,9 @@
 package db
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestEmbeddedSmoke proves the Phase 6 backbone end-to-end: an embedded server
 // starts, OpenDB migrates the full baseline (and ensures the pg_trgm extension)
@@ -17,10 +20,10 @@ func TestEmbeddedSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() { db.Close() })
 
 	var n int
-	if err := db.QueryRow("SELECT 1").Scan(&n); err != nil {
+	if err := db.QueryRow(context.Background(), "SELECT 1").Scan(&n); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if n != 1 {

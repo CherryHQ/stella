@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countRunningSchedJobRuns = `-- name: CountRunningSchedJobRuns :one
@@ -17,7 +18,7 @@ WHERE job_id = $1 AND status = 'running'
 `
 
 func (q *Queries) CountRunningSchedJobRuns(ctx context.Context, jobID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countRunningSchedJobRuns, jobID)
+	row := q.db.QueryRow(ctx, countRunningSchedJobRuns, jobID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -30,18 +31,18 @@ RETURNING id, job_id, session_id, status, started_at, finished_at, error, output
 `
 
 type CreateSchedJobRunParams struct {
-	ID         string         `json:"id"`
-	JobID      string         `json:"job_id"`
-	SessionID  string         `json:"session_id"`
-	Status     string         `json:"status"`
-	StartedAt  time.Time      `json:"started_at"`
-	FinishedAt sql.NullTime   `json:"finished_at"`
-	Error      string         `json:"error"`
-	UserID     sql.NullString `json:"user_id"`
+	ID         string             `json:"id"`
+	JobID      string             `json:"job_id"`
+	SessionID  string             `json:"session_id"`
+	Status     string             `json:"status"`
+	StartedAt  time.Time          `json:"started_at"`
+	FinishedAt pgtype.Timestamptz `json:"finished_at"`
+	Error      string             `json:"error"`
+	UserID     pgtype.Text        `json:"user_id"`
 }
 
 func (q *Queries) CreateSchedJobRun(ctx context.Context, arg CreateSchedJobRunParams) (SchedJobRun, error) {
-	row := q.db.QueryRowContext(ctx, createSchedJobRun,
+	row := q.db.QueryRow(ctx, createSchedJobRun,
 		arg.ID,
 		arg.JobID,
 		arg.SessionID,
@@ -76,7 +77,7 @@ type GetSchedJobRunParams struct {
 }
 
 func (q *Queries) GetSchedJobRun(ctx context.Context, arg GetSchedJobRunParams) (SchedJobRun, error) {
-	row := q.db.QueryRowContext(ctx, getSchedJobRun, arg.ID, arg.JobID)
+	row := q.db.QueryRow(ctx, getSchedJobRun, arg.ID, arg.JobID)
 	var i SchedJobRun
 	err := row.Scan(
 		&i.ID,
@@ -112,24 +113,24 @@ LIMIT $4
 `
 
 type ListFailedInboxSchedulerRunsParams struct {
-	UserID     sql.NullString `json:"user_id"`
-	Since      sql.NullTime   `json:"since"`
-	AgentID    sql.NullString `json:"agent_id"`
-	LimitCount int32          `json:"limit_count"`
+	UserID     pgtype.Text        `json:"user_id"`
+	Since      pgtype.Timestamptz `json:"since"`
+	AgentID    pgtype.Text        `json:"agent_id"`
+	LimitCount int32              `json:"limit_count"`
 }
 
 type ListFailedInboxSchedulerRunsRow struct {
-	RunID      string         `json:"run_id"`
-	JobID      string         `json:"job_id"`
-	AgentID    sql.NullString `json:"agent_id"`
-	Name       string         `json:"name"`
-	Error      string         `json:"error"`
-	FinishedAt sql.NullTime   `json:"finished_at"`
-	StartedAt  time.Time      `json:"started_at"`
+	RunID      string             `json:"run_id"`
+	JobID      string             `json:"job_id"`
+	AgentID    pgtype.Text        `json:"agent_id"`
+	Name       string             `json:"name"`
+	Error      string             `json:"error"`
+	FinishedAt pgtype.Timestamptz `json:"finished_at"`
+	StartedAt  time.Time          `json:"started_at"`
 }
 
 func (q *Queries) ListFailedInboxSchedulerRuns(ctx context.Context, arg ListFailedInboxSchedulerRunsParams) ([]ListFailedInboxSchedulerRunsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listFailedInboxSchedulerRuns,
+	rows, err := q.db.Query(ctx, listFailedInboxSchedulerRuns,
 		arg.UserID,
 		arg.Since,
 		arg.AgentID,
@@ -155,9 +156,6 @@ func (q *Queries) ListFailedInboxSchedulerRuns(ctx context.Context, arg ListFail
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -173,14 +171,14 @@ LIMIT $4 OFFSET $3
 `
 
 type ListSchedJobRunsParams struct {
-	JobID  string         `json:"job_id"`
-	UserID sql.NullString `json:"user_id"`
-	Offset int32          `json:"offset"`
-	Limit  int32          `json:"limit"`
+	JobID  string      `json:"job_id"`
+	UserID pgtype.Text `json:"user_id"`
+	Offset int32       `json:"offset"`
+	Limit  int32       `json:"limit"`
 }
 
 func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsParams) ([]SchedJobRun, error) {
-	rows, err := q.db.QueryContext(ctx, listSchedJobRuns,
+	rows, err := q.db.Query(ctx, listSchedJobRuns,
 		arg.JobID,
 		arg.UserID,
 		arg.Offset,
@@ -208,13 +206,26 @@ func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsPara
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockSchedJobForRun = `-- name: LockSchedJobForRun :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+`
+
+// Transaction-scoped advisory lock keyed on a hash of the job ID. Held until the
+// enclosing transaction ends, it serializes concurrent tryStartJobRun calls for
+// the same job so the running-run check and insert below are atomic under Read
+// Committed without a schema-level unique constraint. hashtextextended maps the
+// text id straight to the 64-bit key pg_advisory_xact_lock expects (matching
+// AdvisoryXactLock); a hash collision only serializes two unrelated jobs
+// occasionally, which is harmless.
+func (q *Queries) LockSchedJobForRun(ctx context.Context, jobID string) error {
+	_, err := q.db.Exec(ctx, lockSchedJobForRun, jobID)
+	return err
 }
 
 const updateSchedJobRun = `-- name: UpdateSchedJobRun :exec
@@ -224,16 +235,16 @@ WHERE id = $5 AND job_id = $6
 `
 
 type UpdateSchedJobRunParams struct {
-	Status     string       `json:"status"`
-	FinishedAt sql.NullTime `json:"finished_at"`
-	Error      string       `json:"error"`
-	Output     string       `json:"output"`
-	ID         string       `json:"id"`
-	JobID      string       `json:"job_id"`
+	Status     string             `json:"status"`
+	FinishedAt pgtype.Timestamptz `json:"finished_at"`
+	Error      string             `json:"error"`
+	Output     string             `json:"output"`
+	ID         string             `json:"id"`
+	JobID      string             `json:"job_id"`
 }
 
 func (q *Queries) UpdateSchedJobRun(ctx context.Context, arg UpdateSchedJobRunParams) error {
-	_, err := q.db.ExecContext(ctx, updateSchedJobRun,
+	_, err := q.db.Exec(ctx, updateSchedJobRun,
 		arg.Status,
 		arg.FinishedAt,
 		arg.Error,

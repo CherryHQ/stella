@@ -2,12 +2,12 @@ package channel
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -266,5 +266,5 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore channelAuth
 }
 
 func isNotFound(err error) bool {
-	return errors.Is(err, auth.ErrNotFound) || errors.Is(err, sql.ErrNoRows)
+	return errors.Is(err, auth.ErrNotFound) || errors.Is(err, pgx.ErrNoRows)
 }

@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const bumpGroupSeq = `-- name: BumpGroupSeq :one
@@ -19,7 +20,7 @@ RETURNING next_seq
 `
 
 func (q *Queries) BumpGroupSeq(ctx context.Context, id string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, bumpGroupSeq, id)
+	row := q.db.QueryRow(ctx, bumpGroupSeq, id)
 	var next_seq int64
 	err := row.Scan(&next_seq)
 	return next_seq, err
@@ -35,23 +36,23 @@ RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_m
 `
 
 type CreateGroupMessageParams struct {
-	ID                string         `json:"id"`
-	GroupID           string         `json:"group_id"`
-	Seq               int64          `json:"seq"`
-	SourceChannelID   sql.NullString `json:"source_channel_id"`
-	ActorType         string         `json:"actor_type"`
-	ActorID           string         `json:"actor_id"`
-	PlatformMessageID sql.NullString `json:"platform_message_id"`
-	ReplyTo           sql.NullString `json:"reply_to"`
-	PlatformTimestamp sql.NullTime   `json:"platform_timestamp"`
-	IdempotencyKey    sql.NullString `json:"idempotency_key"`
-	Content           string         `json:"content"`
-	Reasoning         string         `json:"reasoning"`
-	AgentSessionID    string         `json:"agent_session_id"`
+	ID                string             `json:"id"`
+	GroupID           string             `json:"group_id"`
+	Seq               int64              `json:"seq"`
+	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           string             `json:"actor_id"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ReplyTo           pgtype.Text        `json:"reply_to"`
+	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Content           string             `json:"content"`
+	Reasoning         string             `json:"reasoning"`
+	AgentSessionID    string             `json:"agent_session_id"`
 }
 
 func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessageParams) (CtxGroupMessage, error) {
-	row := q.db.QueryRowContext(ctx, createGroupMessage,
+	row := q.db.QueryRow(ctx, createGroupMessage,
 		arg.ID,
 		arg.GroupID,
 		arg.Seq,
@@ -93,16 +94,16 @@ RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created
 `
 
 type CreateGroupStateParams struct {
-	ID               string         `json:"id"`
-	Platform         string         `json:"platform"`
-	PlatformGroupID  string         `json:"platform_group_id"`
-	PlatformThreadID string         `json:"platform_thread_id"`
-	GroupName        string         `json:"group_name"`
-	CreatedByUserID  sql.NullString `json:"created_by_user_id"`
+	ID               string      `json:"id"`
+	Platform         string      `json:"platform"`
+	PlatformGroupID  string      `json:"platform_group_id"`
+	PlatformThreadID string      `json:"platform_thread_id"`
+	GroupName        string      `json:"group_name"`
+	CreatedByUserID  pgtype.Text `json:"created_by_user_id"`
 }
 
 func (q *Queries) CreateGroupState(ctx context.Context, arg CreateGroupStateParams) (CtxGroupState, error) {
-	row := q.db.QueryRowContext(ctx, createGroupState,
+	row := q.db.QueryRow(ctx, createGroupState,
 		arg.ID,
 		arg.Platform,
 		arg.PlatformGroupID,
@@ -130,7 +131,7 @@ DELETE FROM ctx_group_state WHERE id = $1
 `
 
 func (q *Queries) DeleteGroupState(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteGroupState, id)
+	_, err := q.db.Exec(ctx, deleteGroupState, id)
 	return err
 }
 
@@ -143,7 +144,7 @@ GROUP BY gs.id
 `
 
 func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (time.Time, error) {
-	row := q.db.QueryRowContext(ctx, getGroupLastActive, id)
+	row := q.db.QueryRow(ctx, getGroupLastActive, id)
 	var last_active time.Time
 	err := row.Scan(&last_active)
 	return last_active, err
@@ -154,7 +155,7 @@ SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_mess
 `
 
 func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessage, error) {
-	row := q.db.QueryRowContext(ctx, getGroupMessage, id)
+	row := q.db.QueryRow(ctx, getGroupMessage, id)
 	var i CtxGroupMessage
 	err := row.Scan(
 		&i.ID,
@@ -180,8 +181,8 @@ SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_mess
 WHERE idempotency_key = $1
 `
 
-func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) (CtxGroupMessage, error) {
-	row := q.db.QueryRowContext(ctx, getGroupMessageByIdempotencyKey, idempotencyKey)
+func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempotencyKey pgtype.Text) (CtxGroupMessage, error) {
+	row := q.db.QueryRow(ctx, getGroupMessageByIdempotencyKey, idempotencyKey)
 	var i CtxGroupMessage
 	err := row.Scan(
 		&i.ID,
@@ -209,12 +210,12 @@ WHERE group_id = $1
 `
 
 type GetGroupMessageByPlatformIDParams struct {
-	GroupID           string         `json:"group_id"`
-	PlatformMessageID sql.NullString `json:"platform_message_id"`
+	GroupID           string      `json:"group_id"`
+	PlatformMessageID pgtype.Text `json:"platform_message_id"`
 }
 
 func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupMessageByPlatformIDParams) (CtxGroupMessage, error) {
-	row := q.db.QueryRowContext(ctx, getGroupMessageByPlatformID, arg.GroupID, arg.PlatformMessageID)
+	row := q.db.QueryRow(ctx, getGroupMessageByPlatformID, arg.GroupID, arg.PlatformMessageID)
 	var i CtxGroupMessage
 	err := row.Scan(
 		&i.ID,
@@ -240,7 +241,7 @@ SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at
 `
 
 func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupState, error) {
-	row := q.db.QueryRowContext(ctx, getGroupStateByID, id)
+	row := q.db.QueryRow(ctx, getGroupStateByID, id)
 	var i CtxGroupState
 	err := row.Scan(
 		&i.ID,
@@ -270,7 +271,7 @@ type GetGroupStateByTripleParams struct {
 }
 
 func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateByTripleParams) (CtxGroupState, error) {
-	row := q.db.QueryRowContext(ctx, getGroupStateByTriple, arg.Platform, arg.PlatformGroupID, arg.PlatformThreadID)
+	row := q.db.QueryRow(ctx, getGroupStateByTriple, arg.Platform, arg.PlatformGroupID, arg.PlatformThreadID)
 	var i CtxGroupState
 	err := row.Scan(
 		&i.ID,
@@ -300,7 +301,7 @@ type ListGroupMessagesPaginatedParams struct {
 }
 
 func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupMessagesPaginatedParams) ([]CtxGroupMessage, error) {
-	rows, err := q.db.QueryContext(ctx, listGroupMessagesPaginated, arg.GroupID, arg.OffsetCount, arg.LimitCount)
+	rows, err := q.db.Query(ctx, listGroupMessagesPaginated, arg.GroupID, arg.OffsetCount, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -328,9 +329,6 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -351,26 +349,26 @@ LIMIT $3 OFFSET $2
 `
 
 type ListGroupsByUserParams struct {
-	UserID      sql.NullString `json:"user_id"`
-	OffsetCount int32          `json:"offset_count"`
-	LimitCount  int32          `json:"limit_count"`
+	UserID      pgtype.Text `json:"user_id"`
+	OffsetCount int32       `json:"offset_count"`
+	LimitCount  int32       `json:"limit_count"`
 }
 
 type ListGroupsByUserRow struct {
-	ID               string         `json:"id"`
-	Platform         string         `json:"platform"`
-	PlatformGroupID  string         `json:"platform_group_id"`
-	PlatformThreadID string         `json:"platform_thread_id"`
-	NextSeq          int64          `json:"next_seq"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
-	GroupName        string         `json:"group_name"`
-	CreatedByUserID  sql.NullString `json:"created_by_user_id"`
-	LastActive       time.Time      `json:"last_active"`
+	ID               string      `json:"id"`
+	Platform         string      `json:"platform"`
+	PlatformGroupID  string      `json:"platform_group_id"`
+	PlatformThreadID string      `json:"platform_thread_id"`
+	NextSeq          int64       `json:"next_seq"`
+	CreatedAt        time.Time   `json:"created_at"`
+	UpdatedAt        time.Time   `json:"updated_at"`
+	GroupName        string      `json:"group_name"`
+	CreatedByUserID  pgtype.Text `json:"created_by_user_id"`
+	LastActive       time.Time   `json:"last_active"`
 }
 
 func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserParams) ([]ListGroupsByUserRow, error) {
-	rows, err := q.db.QueryContext(ctx, listGroupsByUser, arg.UserID, arg.OffsetCount, arg.LimitCount)
+	rows, err := q.db.Query(ctx, listGroupsByUser, arg.UserID, arg.OffsetCount, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -394,9 +392,6 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -416,7 +411,7 @@ type ListRecentGroupMessagesParams struct {
 }
 
 func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGroupMessagesParams) ([]CtxGroupMessage, error) {
-	rows, err := q.db.QueryContext(ctx, listRecentGroupMessages, arg.GroupID, arg.MaxCount)
+	rows, err := q.db.Query(ctx, listRecentGroupMessages, arg.GroupID, arg.MaxCount)
 	if err != nil {
 		return nil, err
 	}
@@ -443,9 +438,6 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -468,7 +460,7 @@ type ListRecentGroupMessagesBeforeSeqParams struct {
 }
 
 func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg ListRecentGroupMessagesBeforeSeqParams) ([]CtxGroupMessage, error) {
-	rows, err := q.db.QueryContext(ctx, listRecentGroupMessagesBeforeSeq, arg.GroupID, arg.BeforeSeq, arg.MaxCount)
+	rows, err := q.db.Query(ctx, listRecentGroupMessagesBeforeSeq, arg.GroupID, arg.BeforeSeq, arg.MaxCount)
 	if err != nil {
 		return nil, err
 	}
@@ -496,9 +488,6 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -518,7 +507,7 @@ type UpdateGroupNameParams struct {
 }
 
 func (q *Queries) UpdateGroupName(ctx context.Context, arg UpdateGroupNameParams) (CtxGroupState, error) {
-	row := q.db.QueryRowContext(ctx, updateGroupName, arg.GroupName, arg.ID)
+	row := q.db.QueryRow(ctx, updateGroupName, arg.GroupName, arg.ID)
 	var i CtxGroupState
 	err := row.Scan(
 		&i.ID,
