@@ -1,3 +1,7 @@
+-- Embedding ownership is polymorphic: owner_id points at the table named by
+-- owner_kind. Search queries must join through that owner table before returning
+-- hits to enforce tenant/user scoping; this table intentionally has no direct
+-- user_id because supported owners use different primary-key types.
 CREATE TABLE search_embedding (
     id           UUID PRIMARY KEY DEFAULT uuidv7(),
     owner_kind   TEXT NOT NULL,
