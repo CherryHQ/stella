@@ -25,7 +25,7 @@ If a doc serves both users and contributors, write a user-facing how-to in the G
 
 User-facing docs (`getting-started/`, `guides/`, `channels/`, `README.md`) follow these rules:
 
-- **Lead with what the user can do**, not how it's built. "Schedule Stella to remind you every morning" not "The scheduler uses gocron/v2 with a SQLite-backed job store."
+- **Lead with what the user can do**, not how it's built. "Schedule Stella to remind you every morning" not "The scheduler uses River with a PostgreSQL-backed job queue."
 - **No internal names in user docs.** No database table names (`ctx_messages`, `settings_agents`), no Go types (`PoolManager`, `RunnerFactory`), no library names (`gocron`, `bubblewrap`). Move these to `development/`.
 - **No unexplained acronyms.** Spell out on first use or avoid entirely. "LCM (Lossless Context Management)" on first mention, then "LCM" after.
 - **Use "you" language.** "You can store API keys in the vault" not "The vault subsystem provides encrypted credential storage."

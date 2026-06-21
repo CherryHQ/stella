@@ -7,7 +7,7 @@ title: CLI as a REST client
 ## Overview
 
 Stella's CLI is intentionally a thin REST client. The running `stellad server`
-process is the **only** thing that opens the SQLite database, writes to the
+process is the **only** thing that opens the PostgreSQL database, writes to the
 markdown library, fetches RSS feeds, or makes any other state change.
 
 This is the project's **API-first** principle: every feature is reachable via
@@ -17,7 +17,7 @@ SDKs and integrations all consume the same contract).
 ```
 ┌──────────┐         HTTP          ┌──────────────────────┐
 │   CLI    │ ────────────────────▶ │   stellad server       │
-│ (stella …) │  Bearer STELLA_TOKEN    │  • SQLite            │
+│ (stella …) │  Bearer STELLA_TOKEN    │  • PostgreSQL        │
 └──────────┘                       │  • markdown library  │
                                    │  • RSS fetchers      │
 ┌──────────┐                       │  • scheduler         │
@@ -89,7 +89,7 @@ material is stored encrypted via the vault).
 
 ## What CLI commands must NOT do
 
-- Open SQLite via `internal/db.OpenDB`
+- Open PostgreSQL via `internal/db.OpenDB`
 - Construct domain stores like `recally.NewStore(db)`
 - Read or write files under `STELLA_HOME/library/...`
 - Fetch external resources (RSS feeds, web pages) on behalf of the user — the

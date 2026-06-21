@@ -29,7 +29,7 @@ Run mode:
 
 - **Server**: `stellad server` (Telegram, QQ, Feishu, WeChat bots + scheduler + Web UI)
 
-Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration is stored in a SQLite database (`$STELLA_HOME/stella.db`). Data: `$STELLA_HOME/agents/{agent_id}/`.
+Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: by default an embedded cluster managed under `$STELLA_HOME`, or an external server when `STELLA_DATABASE_URL` is set. Per-agent workspace data: `$STELLA_HOME/agents/{agent_id}/`.
 
 ## Architecture
 
@@ -125,7 +125,7 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 Memory is an agent tool; scheduler, skills, vault, oauth, and notifications are managed via the `stella` CLI (use `bash` to call them); goals are managed from the Web UI. Briefly:
 
-- **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in SQLite and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
+- **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
 - **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (active facts/time-bound context). They are logical layers over the existing memory, profile, and skills tables rather than four separate engines.
 - **Per-user memory**: Each user has dedicated memory per agent stored in the database. User profile, soul, constraints, and active knowledge are injected into your system prompt, so you already have the current content for the session snapshot. Use `profile_get` / `profile_update` for durable user notes. Use `profile_history` to inspect recent profile/soul changes and `profile_rollback` to restore a previous version. Recommended profile structure: `## User Preferences`, `## About the User`, `## Notes`. Keep it high-level — like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
 - **Constraints**: Use `constraint_list`, `constraint_add`, and `constraint_remove` for hard rules. Only add a constraint after the user agrees in natural language. Reflect must not modify constraints.

@@ -40,7 +40,7 @@ Channel response stream                                      LLM Provider
 ```
 cmd/stella/              入口点，CLI 命令，服务组装
 internal/
-  config/              Store 接口、DBStore（SQLite）、Snapshot、类型
+  config/              Store 接口、DBStore（PostgreSQL）、Snapshot、类型
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
   agent/               Service、ServiceManager、session registry、runtime、runner 工厂
     session/           Session 生命周期、ownership、kind/channel policy
@@ -54,7 +54,7 @@ internal/
     feishu/            飞书机器人
   admin/               HTTP API + 嵌入式 React SPA
   auth/                RBAC/ABAC 策略引擎、会话、沙箱
-  db/                  SQLite、Atlas 迁移、sqlc 查询
+  db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询
   scheduler/           River 持久化调度服务（通过 stella scheduler CLI 提供技能）
   skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
 pkg/
@@ -72,10 +72,10 @@ plugins/
 
 ## 配置
 
-配置存储在 SQLite 中，通过 `config.Store` 接口访问。没有 YAML 配置文件；所有设置（提供商、代理、通道、调度器）都通过 admin API 或数据库管理。
+配置存储在 PostgreSQL 中，通过 `config.Store` 接口访问。没有 YAML 配置文件；所有设置（提供商、代理、通道、调度器）都通过 admin API 或数据库管理。
 
 - **Store**（`config.Store`）-- 用于读写提供商、代理、通道、用户和聊天-代理绑定的接口。由 `DBStore` 实现。
-- **DBStore**（`config.DBStore`）-- 使用 sqlc 生成的查询的 SQLite 支持实现。
+- **DBStore**（`config.DBStore`）-- 使用 sqlc 生成的查询的 PostgreSQL 支持实现。
 - **Snapshot**（`config.Snapshot`）-- 单个代理的只读配置视图。在池创建时从 Store 组装。包含已解析的提供商凭证、模型名称、工作区路径、系统提示和 runner 设置。传递给 runner 工厂和需要每个代理配置的工具。
 
 ## 多用户多代理路由
@@ -174,7 +174,7 @@ type Tool interface {
 3. `Service.Chat` 通过 `session.Registry` 使用作用域键解析或创建会话
 4. `runtime.Runtime` 获取或为会话创建 runner，使用代理的 Snapshot 配置
 5. Runner 通过通道流回事件
-6. 空闲超时后，runner 被回收；会话通过 `memory.Provider` 持久化到 SQLite
+6. 空闲超时后，runner 被回收；会话通过 `memory.Provider` 持久化到 PostgreSQL
 
 有关历史管理，请参阅[会话压缩](/docs/development/session-compaction)。
 

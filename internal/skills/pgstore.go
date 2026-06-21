@@ -16,15 +16,15 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// SQLiteStore implements Store against a SQLite database via sqlc.
-type SQLiteStore struct {
+// PGStore implements Store against PostgreSQL via sqlc.
+type PGStore struct {
 	db *pgxpool.Pool
 	q  *sqlc.Queries
 }
 
-// New returns a new SQLiteStore. Callers may store it as a Store interface.
-func New(db *pgxpool.Pool) *SQLiteStore {
-	return &SQLiteStore{db: db, q: sqlc.New(db)}
+// New returns a new PGStore. Callers may store it as a Store interface.
+func New(db *pgxpool.Pool) *PGStore {
+	return &PGStore{db: db, q: sqlc.New(db)}
 }
 
 func viewSQLParams(vc ViewContext) (pgtype.Text, pgtype.Text) {
@@ -32,7 +32,7 @@ func viewSQLParams(vc ViewContext) (pgtype.Text, pgtype.Text) {
 }
 
 // List returns all visible skills for the given context.
-func (s *SQLiteStore) List(ctx context.Context, vc ViewContext) ([]Skill, error) {
+func (s *PGStore) List(ctx context.Context, vc ViewContext) ([]Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
 		AgentID: pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""},
@@ -48,7 +48,7 @@ func (s *SQLiteStore) List(ctx context.Context, vc ViewContext) ([]Skill, error)
 }
 
 // ListAll returns every skill regardless of status, visibility, or scope filter.
-func (s *SQLiteStore) ListAll(ctx context.Context) ([]Skill, error) {
+func (s *PGStore) ListAll(ctx context.Context) ([]Skill, error) {
 	rows, err := s.q.ListAllSkills(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("skills: list all: %w", err)
@@ -61,7 +61,7 @@ func (s *SQLiteStore) ListAll(ctx context.Context) ([]Skill, error) {
 }
 
 // ListForAgentContext returns system, agent, and current-user skills for one agent.
-func (s *SQLiteStore) ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error) {
+func (s *PGStore) ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsForAgentContext(ctx, sqlc.ListSkillsForAgentContextParams{
 		UserID:  pgtype.Text{String: userID, Valid: userID != ""},
 		AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
@@ -78,7 +78,7 @@ func (s *SQLiteStore) ListForAgentContext(ctx context.Context, userID string, ag
 
 // ListByScope returns every skill in exactly one scope/owner bucket, including
 // drafts and disabled skills, for management views.
-func (s *SQLiteStore) ListByScope(ctx context.Context, scope string, userID string, agentID string) ([]Skill, error) {
+func (s *PGStore) ListByScope(ctx context.Context, scope string, userID string, agentID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
 		Scope:   scope,
 		UserID:  pgtype.Text{String: userID, Valid: userID != ""},
@@ -95,7 +95,7 @@ func (s *SQLiteStore) ListByScope(ctx context.Context, scope string, userID stri
 }
 
 // ListForAdmin returns system and agent skills, plus the admin user's own user skills.
-func (s *SQLiteStore) ListForAdmin(ctx context.Context, userID string) ([]Skill, error) {
+func (s *PGStore) ListForAdmin(ctx context.Context, userID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsForAdmin(ctx, pgtype.Text{String: userID, Valid: userID != ""})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list for admin: %w", err)
@@ -108,7 +108,7 @@ func (s *SQLiteStore) ListForAdmin(ctx context.Context, userID string) ([]Skill,
 }
 
 // ListForUser returns skills visible to a non-admin user across accessible agents.
-func (s *SQLiteStore) ListForUser(ctx context.Context, userID string, agentIDs []string) ([]Skill, error) {
+func (s *PGStore) ListForUser(ctx context.Context, userID string, agentIDs []string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsForUser(ctx, sqlc.ListSkillsForUserParams{
 		UserID:      pgtype.Text{String: userID, Valid: userID != ""},
 		AgentIdsCsv: pgtype.Text{String: strings.Join(agentIDs, ","), Valid: len(agentIDs) > 0},
@@ -124,7 +124,7 @@ func (s *SQLiteStore) ListForUser(ctx context.Context, userID string, agentIDs [
 }
 
 // ListFiles returns all file paths for a skill (no content).
-func (s *SQLiteStore) ListFiles(ctx context.Context, skillID string) ([]string, error) {
+func (s *PGStore) ListFiles(ctx context.Context, skillID string) ([]string, error) {
 	rows, err := s.q.ListSkillFiles(ctx, skillID)
 	if err != nil {
 		return nil, fmt.Errorf("skills: list files for %s: %w", skillID, err)
@@ -137,7 +137,7 @@ func (s *SQLiteStore) ListFiles(ctx context.Context, skillID string) ([]string, 
 }
 
 // ListFilesWithContent returns all files for a skill keyed by path.
-func (s *SQLiteStore) ListFilesWithContent(ctx context.Context, skillID string) (map[string]string, error) {
+func (s *PGStore) ListFilesWithContent(ctx context.Context, skillID string) (map[string]string, error) {
 	rows, err := s.q.ListSkillFiles(ctx, skillID)
 	if err != nil {
 		return nil, fmt.Errorf("skills: list files with content for %s: %w", skillID, err)
@@ -150,7 +150,7 @@ func (s *SQLiteStore) ListFilesWithContent(ctx context.Context, skillID string) 
 }
 
 // Resolve finds the highest-priority visible skill by name.
-func (s *SQLiteStore) Resolve(ctx context.Context, name string, vc ViewContext) (*Skill, error) {
+func (s *PGStore) Resolve(ctx context.Context, name string, vc ViewContext) (*Skill, error) {
 	row, err := s.q.ResolveSkill(ctx, sqlc.ResolveSkillParams{
 		Name:    name,
 		AgentID: pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""},
@@ -167,7 +167,7 @@ func (s *SQLiteStore) Resolve(ctx context.Context, name string, vc ViewContext) 
 }
 
 // LoadFile fetches a single file by path.
-func (s *SQLiteStore) LoadFile(ctx context.Context, skillID, path string) (string, error) {
+func (s *PGStore) LoadFile(ctx context.Context, skillID, path string) (string, error) {
 	f, err := s.q.GetSkillFile(ctx, sqlc.GetSkillFileParams{
 		SkillID: skillID,
 		Path:    path,
@@ -183,7 +183,7 @@ func (s *SQLiteStore) LoadFile(ctx context.Context, skillID, path string) (strin
 
 // Create inserts the skill row and all its files in a transaction. The files
 // map must include MainFile ("SKILL.md"). If s.ID is empty a new ID is generated.
-func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]string) (string, error) {
+func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string) (string, error) {
 	if _, ok := files[MainFile]; !ok {
 		return "", fmt.Errorf("skills: missing SKILL.md")
 	}
@@ -279,7 +279,7 @@ func applyPatch(row sqlc.Skill, patch UpdatePatch) resolvedPatch {
 }
 
 // Update patches metadata fields using read-modify-write.
-func (s *SQLiteStore) Update(ctx context.Context, id string, vc ViewContext, patch UpdatePatch) error {
+func (s *PGStore) Update(ctx context.Context, id string, vc ViewContext, patch UpdatePatch) error {
 	agentID, userID := viewSQLParams(vc)
 	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: agentID, UserID: userID})
 	if err != nil {
@@ -301,7 +301,7 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, vc ViewContext, pat
 }
 
 // UpsertFile creates or replaces a single file under a skill.
-func (s *SQLiteStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
+func (s *PGStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
 	if err := s.q.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{
 		SkillID: skillID,
 		Path:    path,
@@ -313,7 +313,7 @@ func (s *SQLiteStore) UpsertFile(ctx context.Context, skillID, path, content str
 }
 
 // DeleteFile removes a single file from a skill.
-func (s *SQLiteStore) DeleteFile(ctx context.Context, skillID, path string) error {
+func (s *PGStore) DeleteFile(ctx context.Context, skillID, path string) error {
 	if err := s.q.DeleteSkillFile(ctx, sqlc.DeleteSkillFileParams{
 		SkillID: skillID,
 		Path:    path,
@@ -324,7 +324,7 @@ func (s *SQLiteStore) DeleteFile(ctx context.Context, skillID, path string) erro
 }
 
 // Delete removes a skill and (via ON DELETE CASCADE) all its files.
-func (s *SQLiteStore) Delete(ctx context.Context, id string, vc ViewContext) error {
+func (s *PGStore) Delete(ctx context.Context, id string, vc ViewContext) error {
 	agentID, userID := viewSQLParams(vc)
 	if err := s.q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: id, AgentID: agentID, UserID: userID}); err != nil {
 		return fmt.Errorf("skills: delete %s: %w", id, err)
@@ -332,7 +332,7 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string, vc ViewContext) err
 	return nil
 }
 
-func (s *SQLiteStore) UpdateSystemSkill(ctx context.Context, id string, patch UpdatePatch) error {
+func (s *PGStore) UpdateSystemSkill(ctx context.Context, id string, patch UpdatePatch) error {
 	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id})
 	if err != nil {
 		return fmt.Errorf("skills: system update get %s: %w", id, err)
@@ -353,7 +353,7 @@ func (s *SQLiteStore) UpdateSystemSkill(ctx context.Context, id string, patch Up
 	return nil
 }
 
-func (s *SQLiteStore) DeleteSystemSkill(ctx context.Context, id string) error {
+func (s *PGStore) DeleteSystemSkill(ctx context.Context, id string) error {
 	if err := s.q.DeleteSystemSkill(ctx, id); err != nil {
 		return fmt.Errorf("skills: system delete %s: %w", id, err)
 	}
@@ -362,7 +362,7 @@ func (s *SQLiteStore) DeleteSystemSkill(ctx context.Context, id string) error {
 
 // ExpireDrafts deprecates all draft skills (disable_model_invocation=0) whose
 // created-at metadata timestamp is before the given cutoff.
-func (s *SQLiteStore) ExpireDrafts(ctx context.Context, before time.Time) error {
+func (s *PGStore) ExpireDrafts(ctx context.Context, before time.Time) error {
 	if err := s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339)); err != nil {
 		return fmt.Errorf("skills: expire drafts: %w", err)
 	}
@@ -371,7 +371,7 @@ func (s *SQLiteStore) ExpireDrafts(ctx context.Context, before time.Time) error 
 
 // ListKnowledge returns active knowledge entries for the given view context.
 // Pass knowledge types to filter; no types means all.
-func (s *SQLiteStore) ListKnowledge(ctx context.Context, vc ViewContext, types ...KnowledgeType) ([]KnowledgeEntry, error) {
+func (s *PGStore) ListKnowledge(ctx context.Context, vc ViewContext, types ...KnowledgeType) ([]KnowledgeEntry, error) {
 	typeFilter := ""
 	if len(types) == 1 {
 		typeFilter = string(types[0])
@@ -403,7 +403,7 @@ func (s *SQLiteStore) ListKnowledge(ctx context.Context, vc ViewContext, types .
 
 // ExpireKnowledgeDraftsByType deprecates draft knowledge entries of the given type
 // whose created-at timestamp is before the cutoff.
-func (s *SQLiteStore) ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType KnowledgeType, before time.Time) error {
+func (s *PGStore) ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType KnowledgeType, before time.Time) error {
 	if err := s.q.ExpireKnowledgeDraftsByType(ctx, sqlc.ExpireKnowledgeDraftsByTypeParams{
 		KnowledgeType: string(knowledgeType),
 		Cutoff:        before.UTC().Format(time.RFC3339),
@@ -435,8 +435,8 @@ func knowledgeTypeFromMetadata(raw json.RawMessage) KnowledgeType {
 
 // Compile-time assertions.
 var (
-	_ Store          = (*SQLiteStore)(nil)
-	_ KnowledgeStore = (*SQLiteStore)(nil)
+	_ Store          = (*PGStore)(nil)
+	_ KnowledgeStore = (*PGStore)(nil)
 )
 
 // mapRow converts a sqlc Skill to the domain Skill type.

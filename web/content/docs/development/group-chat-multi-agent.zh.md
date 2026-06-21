@@ -26,7 +26,7 @@ Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是�
 
 为什么用代理 id 而非拼出来的 `platform:chat_id` 串?代理 id 不透明且稳定,扛得住平台侧 id 改格式,FK join 也便宜;三元组留作查找用的自然键。在每 agent 一个 bot 的架构下,每个 agent 是独立 bot = 独立 `channel_id`,所以**同一个物理群被 N 个 channel_id 观察到**。平台的群 id 是群全局的(不随哪个 bot 收到而变),所以三元组才是稳定群身份;`channel_id` 只回答「哪个 bot 看到的」。
 
-**线程是独立的群。** Telegram 论坛话题(或任意平台子线程)是各自独立的会话,所以每个不同 `platform_thread_id` 拿到自己的注册行——自己的 event log、`seq`、记忆抽屉、arbiter 作用域。`platform_thread_id` 是 `TEXT NOT NULL DEFAULT ''`(空串,非 `NULL`):SQLite 在唯一索引里把 `NULL` 视作互不相等,可空列会破坏三元组 `UNIQUE`。
+**线程是独立的群。** Telegram 论坛话题(或任意平台子线程)是各自独立的会话,所以每个不同 `platform_thread_id` 拿到自己的注册行——自己的 event log、`seq`、记忆抽屉、arbiter 作用域。`platform_thread_id` 是 `TEXT NOT NULL DEFAULT ''`(空串,非 `NULL`):PostgreSQL 唯一索引默认把 `NULL` 视作互不相等,可空列会破坏三元组 `UNIQUE`。
 
 `source_channel_id`(哪个 bot 观察到入站消息)记录在 event log 行上**仅供审计**。它绝不进入幂等键、`seq`、cursor 或 membership 主键,**也绝不作回复出口**。回复出口永远是发言 agent 自己的 `reply_channel_id`(见 membership)。
 
@@ -74,20 +74,20 @@ Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是�
 
 ### seq 分配
 
-`AUTOINCREMENT` 不可用——SQLite 仅允许在 `INTEGER PRIMARY KEY` 上,而本表 PK 是 `TEXT`。app 层 `max+1` 并发会撞。改由注册行兼任 per-group 计数器与写锁:
+全局序列给不了**按群**单调的 `seq`,app 层 `max+1` 并发会撞。改由注册行兼任 per-group 计数器与写锁:
 
 ```sql
 CREATE TABLE ctx_group_state (
-  id                 TEXT PRIMARY KEY,            -- 群代理 id(D0)
+  id                 UUID PRIMARY KEY DEFAULT uuidv7(),  -- 群代理 id(D0)
   platform           TEXT NOT NULL,              -- 'telegram' | 'feishu' | 'qq' | ...
   platform_group_id  TEXT NOT NULL,              -- 平台原生群/chat id
   platform_thread_id TEXT NOT NULL DEFAULT '',   -- 子线程/话题;无则 ''
-  next_seq           INTEGER NOT NULL DEFAULT 0,
-  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  next_seq           BIGINT NOT NULL DEFAULT 0,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (platform, platform_group_id, platform_thread_id)
 );
--- 分配:UPDATE ... SET next_seq = next_seq + 1 WHERE id = ? RETURNING next_seq(post-update 值;首条 = 1)
+-- 分配:UPDATE ... SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq(post-update 值;首条 = 1)
 ```
 
 ### 唯一写入路径
@@ -98,12 +98,12 @@ CREATE TABLE ctx_group_state (
 AppendGroupMessage(ctx, msg) -> (result{inserted|existing}, seq)
 ```
 
-闭合、幂等的算法(SQLite 单写者;`BEGIN IMMEDIATE` 串行化 per-group 写入):
+闭合、幂等的算法(事务对注册行加 per-group 行锁——`SELECT ... FOR UPDATE`,或下面的原子 `UPDATE ... RETURNING`——使同一群的写入串行化):
 
 0. **按三元组 `(platform, platform_group_id, platform_thread_id)` get-or-create 注册行** → 拿到代理 `id`(即 `group_id`)。
 1. **锁内按 unique key 查重**(`platform_message_id` 或 fallback `idempotency_key`)。
 2. **已存在** → 返回「不插入/不 bump/不 dispatch」。
-3. **不存在** → `UPDATE ctx_group_state SET next_seq = next_seq + 1 WHERE id = ? ... RETURNING next_seq` → `INSERT` 消息行(带该 seq)→ commit 后才 dispatch。
+3. **不存在** → `UPDATE ctx_group_state SET next_seq = next_seq + 1 WHERE id = $1 ... RETURNING next_seq` → `INSERT` 消息行(带该 seq)→ commit 后才 dispatch。
 
 由于 bump 与 insert 都只在查重未命中分支、且在同一写锁内,幂等重投既不插行也不消耗 seq。`ON CONFLICT DO NOTHING` 仅作最后兜底,不承担判定职责。
 

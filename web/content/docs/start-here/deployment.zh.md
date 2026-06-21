@@ -52,7 +52,7 @@ cd stella && go build -o stella ./cmd/stella/ && go build -o stellad ./cmd/stell
 stellad server
 ```
 
-这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
+这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 PostgreSQL 中——默认是 `~/.stella` 下的内嵌集群，或在设置 `STELLA_DATABASE_URL` 时使用外部服务器。无需手动配置文件。
 
 ```bash
 stellad server --port 8080                  # 自定义端口
@@ -205,14 +205,14 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 所有数据都存储在 stella 主目录下（默认为 `~/.stella`，可通过 `STELLA_HOME` 配置）。
 
-| 路径                                  | 用途                             |
-| ------------------------------------- | -------------------------------- |
-| `~/.stella/stella.db`                 | 单一数据库（配置、记忆、调度器） |
-| `~/.stella/agents/{agent-id}/skills/` | 每个 agent 安装的技能            |
-| `~/.stella/agents/{agent-id}/SOUL.md` | 可选的每个 agent 的灵魂/身份覆盖 |
-| `~/.stella/cache/`                    | 模型缓存（可重新生成，安全删除） |
+| 路径                                  | 用途                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------- |
+| `~/.stella/postgres/`                 | 内嵌 PostgreSQL 数据（配置、记忆、调度器）；使用 `STELLA_DATABASE_URL` 时不存在 |
+| `~/.stella/agents/{agent-id}/skills/` | 每个 agent 安装的技能                                                           |
+| `~/.stella/agents/{agent-id}/SOUL.md` | 可选的每个 agent 的灵魂/身份覆盖                                                |
+| `~/.stella/cache/`                    | 模型缓存（可重新生成，安全删除）                                                |
 
-`stella.db` 文件是唯一需要备份的关键数据。它包含所有配置、消息历史、摘要和调度器任务。
+PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、消息历史、摘要和调度器任务。使用内嵌集群时，停止服务后备份 `~/.stella/postgres/` 目录；使用外部服务器时，对 `STELLA_DATABASE_URL` 所指数据库执行 `pg_dump`。
 
 ## 环境变量
 
@@ -221,6 +221,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 | 变量                         | 必需 | 描述                                                                                     |
 | ---------------------------- | ---- | ---------------------------------------------------------------------------------------- |
 | `STELLA_HOME`                | 否   | Stella 主目录（默认 `~/.stella`）                                                        |
+| `STELLA_DATABASE_URL`        | 否   | 外部 PostgreSQL 连接 URL；不设置则使用 `STELLA_HOME` 下的内嵌集群                        |
 | `ANTHROPIC_API_KEY`          | 是\* | Anthropic 提供商密钥                                                                     |
 | `OPENAI_API_KEY`             | 是\* | OpenAI 提供商密钥                                                                        |
 | `STELLA_VAULT_KEY`           | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                          |

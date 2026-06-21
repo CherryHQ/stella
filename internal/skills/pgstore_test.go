@@ -20,7 +20,7 @@ import (
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // newTestStore opens a fresh isolated PostgreSQL DB and returns a Store plus a context.
-func newTestStore(t *testing.T) (*SQLiteStore, *pgxpool.Pool, context.Context) {
+func newTestStore(t *testing.T) (*PGStore, *pgxpool.Pool, context.Context) {
 	t.Helper()
 	db := dbtest.New(t)
 	return New(db), db, context.Background()
@@ -497,5 +497,5 @@ func TestDeleteCascadesSkillFiles(t *testing.T) {
 	}
 }
 
-// Compile-time assertion that SQLiteStore satisfies the Store interface.
-var _ Store = (*SQLiteStore)(nil)
+// Compile-time assertion that PGStore satisfies the Store interface.
+var _ Store = (*PGStore)(nil)

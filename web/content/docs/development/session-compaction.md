@@ -89,7 +89,7 @@ with zero access to the prior conversation.
 
 ### Storage Format
 
-Compaction summaries are stored as messages in the SQLite database via
+Compaction summaries are stored as messages in PostgreSQL via
 `memory.Engine`. On `Load()`, the engine converts the compaction entry into a
 pair of `ai.Message`s — a user message containing the summary and an assistant
 acknowledgment — so the runner sees it as normal conversation history.
@@ -167,4 +167,4 @@ This ensures `/compact` is always available for any persisted session.
 | Auto-compaction fails     | Logs warning, continues with full history |
 | Empty summary from runner | Returns error: "empty summary response"   |
 
-All writes go through SQLite transactions for atomicity.
+All writes go through PostgreSQL transactions for atomicity.

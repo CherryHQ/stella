@@ -1,6 +1,6 @@
 # stella
 
-Stella is a multi-tenant, multi-user, multi-agent AI assistant platform written in Go. It pairs each user with personalized AI agents that have their own memory, tools, schedules, and sandbox policies. Users interact through Telegram, QQ, Feishu, WeChat, the Web UI, or the CLI. The backend is a single `stellad` binary backed by SQLite.
+Stella is a multi-tenant, multi-user, multi-agent AI assistant platform written in Go. It pairs each user with personalized AI agents that have their own memory, tools, schedules, and sandbox policies. Users interact through Telegram, QQ, Feishu, WeChat, the Web UI, or the CLI. The backend is a single `stellad` binary backed by PostgreSQL (an embedded cluster by default, or an external server via `STELLA_DATABASE_URL`).
 
 ## Commands
 
@@ -36,9 +36,9 @@ For new or changed HTTP APIs, also follow `api/CLAUDE.md` for the OpenAPI-first 
 
 ## Timestamps and timezones
 
-- **Store UTC.** Use `time.Now().UTC()` in Go; schema defaults use `(datetime('now'))`. Never use `'localtime'`.
+- **Store UTC.** Use `time.Now().UTC()` in Go; schema defaults use `now()`. Never use a local-time conversion.
 - **Serialize timezone-aware.** Emit RFC3339 with zone: `t.UTC().Format(time.RFC3339)`. Never return naive `"2006-01-02 15:04:05"` in API responses.
-- DB strings are naive UTC — parse as UTC before reformatting (see `parseProjectTime` in `internal/server/projects.go`).
+- pgx scans `timestamptz` columns directly into `time.Time`; call `.UTC()` before formatting and serialize with `t.UTC().Format(time.RFC3339)`.
 - Convert to user's local zone only at the presentation layer.
 
 ## Documentation

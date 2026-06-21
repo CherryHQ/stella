@@ -7,7 +7,7 @@ sqlc generates type-safe Go code from SQL queries. You write SQL, sqlc generates
 ```yaml
 version: "2"
 sql:
-  - engine: "sqlite" # or "postgresql", "mysql"
+  - engine: "postgresql"
     queries: "path/to/queries/*.sql"
     schema: "path/to/schema/*.sql"
     gen:
@@ -33,13 +33,12 @@ Every query needs a name annotation comment:
 
 Return types:
 
-| Annotation    | Go signature          | Use when                                                  |
-| ------------- | --------------------- | --------------------------------------------------------- |
-| `:one`        | `(Model, error)`      | SELECT expecting exactly one row, INSERT/UPDATE RETURNING |
-| `:many`       | `([]Model, error)`    | SELECT returning multiple rows                            |
-| `:exec`       | `error`               | INSERT/UPDATE/DELETE with no return value                 |
-| `:execresult` | `(sql.Result, error)` | Need `LastInsertId()` or `RowsAffected()`                 |
-| `:execrows`   | `(int64, error)`      | Only need rows affected count                             |
+| Annotation  | Go signature       | Use when                                                  |
+| ----------- | ------------------ | --------------------------------------------------------- |
+| `:one`      | `(Model, error)`   | SELECT expecting exactly one row, INSERT/UPDATE RETURNING |
+| `:many`     | `([]Model, error)` | SELECT returning multiple rows                            |
+| `:exec`     | `error`            | INSERT/UPDATE/DELETE with no return value                 |
+| `:execrows` | `(int64, error)`   | Only need rows affected count                             |
 
 ## Naming Conventions
 
@@ -72,22 +71,22 @@ Rules:
 ```sql
 -- name: CreateOrder :one
 INSERT INTO shop_order (id, user_id, status)
-VALUES (?, ?, ?)
+VALUES ($1, $2, $3)
 RETURNING *;
 
 -- name: GetOrder :one
-SELECT * FROM shop_order WHERE id = ?;
+SELECT * FROM shop_order WHERE id = $1;
 
 -- name: ListOrder :many
 SELECT * FROM shop_order ORDER BY created_at DESC;
 
 -- name: UpdateOrder :exec
 UPDATE shop_order
-SET status = ?, updated_at = datetime('now')
-WHERE id = ?;
+SET status = $1, updated_at = now()
+WHERE id = $2;
 
 -- name: DeleteOrder :exec
-DELETE FROM shop_order WHERE id = ?;
+DELETE FROM shop_order WHERE id = $1;
 ```
 
 ### Use `RETURNING *` for Creates
@@ -101,34 +100,34 @@ Write focused update queries instead of one giant "update everything" query:
 ```sql
 -- name: UpdateOrderStatus :exec
 UPDATE shop_order
-SET status = ?, updated_at = datetime('now')
-WHERE id = ?;
+SET status = $1, updated_at = now()
+WHERE id = $2;
 
 -- name: UpdateOrderShipping :exec
 UPDATE shop_order
-SET shipping_address = ?, shipping_method = ?, updated_at = datetime('now')
-WHERE id = ?;
+SET shipping_address = $1, shipping_method = $2, updated_at = now()
+WHERE id = $3;
 ```
 
 This is safer (no accidental overwrites), clearer (intent is obvious), and composes better than a single UpdateOrder that takes every column.
 
 ### Always Set `updated_at`
 
-Every UPDATE query must set `updated_at = datetime('now')` (or `now()` in PostgreSQL).
+Every UPDATE query must set `updated_at = now()`.
 
 ### Filtering and Pagination
 
 ```sql
 -- name: ListOrderByUser :many
 SELECT * FROM shop_order
-WHERE user_id = ?
+WHERE user_id = $1
 ORDER BY created_at DESC;
 
 -- name: ListOrderByUserPaginated :many
 SELECT * FROM shop_order
-WHERE user_id = ?
+WHERE user_id = $1
 ORDER BY created_at DESC
-LIMIT ? OFFSET ?;
+LIMIT $2 OFFSET $3;
 ```
 
 For keyset pagination (better performance on large tables):
@@ -136,9 +135,9 @@ For keyset pagination (better performance on large tables):
 ```sql
 -- name: ListOrderAfterCursor :many
 SELECT * FROM shop_order
-WHERE user_id = ? AND created_at < ?
+WHERE user_id = $1 AND created_at < $2
 ORDER BY created_at DESC
-LIMIT ?;
+LIMIT $3;
 ```
 
 ### Slices (IN Clauses)
@@ -171,7 +170,7 @@ ORDER BY created_at;
 
 ```sql
 -- name: CountOrderByStatus :one
-SELECT COUNT(*) FROM shop_order WHERE status = ?;
+SELECT COUNT(*) FROM shop_order WHERE status = $1;
 
 -- name: GetOrderStats :one
 SELECT
@@ -179,7 +178,7 @@ SELECT
     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
     SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending
 FROM shop_order
-WHERE user_id = ?;
+WHERE user_id = $1;
 ```
 
 ### Upserts
@@ -187,8 +186,8 @@ WHERE user_id = ?;
 ```sql
 -- name: UpsertSetting :exec
 INSERT INTO app_setting (key, value)
-VALUES (?, ?)
-ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+VALUES ($1, $2)
+ON CONFLICT (key) DO UPDATE SET value = excluded.value;
 ```
 
 ### Joins
@@ -200,31 +199,35 @@ SELECT
     u.username AS user_username
 FROM shop_order o
 JOIN auth_user u ON u.id = o.user_id
-WHERE o.id = ?;
+WHERE o.id = $1;
 ```
 
 sqlc generates a custom struct for queries that don't map 1:1 to a single table.
 
-### CAST for Type Coercion
+### COALESCE for Nullable Aggregates
 
-When SQLite expressions produce ambiguous types, use CAST:
+`MAX`/`SUM`/etc. return `NULL` over an empty set, which sqlc maps to a nullable
+Go type. Wrap them in `COALESCE` so the column stays non-nullable:
 
 ```sql
 -- name: GetMaxSeq :one
-SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER)
-FROM ctx_message WHERE conversation_id = ?;
+SELECT COALESCE(MAX(seq), 0)::bigint
+FROM ctx_message WHERE conversation_id = $1;
 ```
+
+The `::bigint` cast pins the result type when the expression would otherwise be
+ambiguous (PostgreSQL's `::type` syntax; `CAST(... AS bigint)` works too).
 
 ## Transactions
 
 sqlc generates a `WithTx` method. Use it for multi-query atomic operations:
 
 ```go
-tx, err := db.BeginTx(ctx, nil)
+tx, err := pool.Begin(ctx)
 if err != nil {
     return err
 }
-defer tx.Rollback()
+defer tx.Rollback(ctx)
 
 qtx := queries.WithTx(tx)
 order, err := qtx.CreateOrder(ctx, params)
@@ -235,15 +238,15 @@ err = qtx.CreateOrderItem(ctx, itemParams)
 if err != nil {
     return err
 }
-return tx.Commit()
+return tx.Commit(ctx)
 ```
 
 ## Nullable Columns
 
-sqlc maps nullable columns to `sql.NullString`, `sql.NullInt64`, etc. To avoid this:
+sqlc maps nullable columns to pgtype wrappers (`pgtype.Text`, `pgtype.Int8`, `pgtype.Timestamptz`, etc.). To avoid this:
 
 - Prefer `NOT NULL DEFAULT ''` in schema to avoid nullable types entirely.
-- When NULL is semantically meaningful, accept the `sql.Null*` types.
+- When NULL is semantically meaningful, accept the `pgtype.*` types (check `.Valid` before reading).
 
 ## File Organization
 
@@ -269,8 +272,8 @@ Keep queries in the same file as the table they primarily operate on. Cross-tabl
 3. **Giant update queries** — Split into focused partial updates.
 4. **Forgetting ORDER BY on `:many`** — Unordered results are unpredictable.
 5. **`SELECT *` on joins** — Explicitly select columns or use table aliases to avoid ambiguity.
-6. **Not using `COALESCE`/`CAST`** — SQLite aggregate functions can return NULL even for integer columns.
-7. **Mutable default in schema** — `DEFAULT datetime('now')` is evaluated at insert time (correct), not at schema creation.
+6. **Not using `COALESCE`** — aggregate functions like `MAX`/`SUM` return NULL over an empty set, forcing a nullable Go type even for integer columns.
+7. **Mutable default in schema** — `DEFAULT now()` is evaluated at insert time (correct), not at schema creation.
 
 ## Workflow
 
