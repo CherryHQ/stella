@@ -2,9 +2,10 @@ package goal
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -159,7 +160,7 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 	// A composite already carrying an open/accepted revision is not re-decomposed.
 	if _, err := s.q.GetOpenRevision(ctx, id); err == nil {
 		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return sqlc.AgentGoalAttempt{}, fmt.Errorf("probe open revision: %w", err)
 	}
 	if d.AcceptedRevisionID.Valid && d.AcceptedRevisionID.String != "" {
@@ -286,7 +287,7 @@ func (s *GoalService) SubmitForReview(ctx context.Context, revisionID string) (s
 		// Only a draft moves into review, and only when no other revision is open.
 		if open, err := q.GetOpenRevision(ctx, rev.GoalID); err == nil && open.ID != revisionID {
 			return ErrInvalidTransition
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("probe open revision: %w", err)
 		}
 		rows, err := q.UpdateRevisionStatus(ctx, sqlc.UpdateRevisionStatusParams{
@@ -306,10 +307,10 @@ func (s *GoalService) SubmitForReview(ctx context.Context, revisionID string) (s
 	return out, err
 }
 
-// getRevision loads a revision, mapping sql.ErrNoRows to ErrNotFound.
+// getRevision loads a revision, mapping pgx.ErrNoRows to ErrNotFound.
 func getRevision(ctx context.Context, q *sqlc.Queries, id string) (sqlc.AgentGoalRevision, error) {
 	rev, err := q.GetRevision(ctx, id)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return sqlc.AgentGoalRevision{}, ErrNotFound
 	}
 	return rev, err

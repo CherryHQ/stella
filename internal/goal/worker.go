@@ -2,12 +2,13 @@ package goal
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -251,7 +252,7 @@ func (w *Worker) appendCheckEvent(ctx context.Context, goalID, attemptID string,
 			ItemKind:  ItemDeterministic,
 			Result:    result,
 			Command:   item.Command,
-			ExitCode:  sql.NullInt64{Int64: int64(cr.ExitCode), Valid: true},
+			ExitCode:  pgtype.Int8{Int64: int64(cr.ExitCode), Valid: true},
 			CacheKey:  cr.CacheKey,
 			Authority: AuthoritySystem,
 			Detail:    detail,
@@ -358,8 +359,8 @@ func (w *Worker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, attemptI
 
 // leaseUntil returns the next lease expiry instant for the TIMESTAMPTZ lease
 // column, anchored to the service clock so tests can drive it.
-func (w *Worker) leaseUntil() sql.NullTime {
-	return sql.NullTime{
+func (w *Worker) leaseUntil() pgtype.Timestamptz {
+	return pgtype.Timestamptz{
 		Time:  w.svc.clock().Add(w.lease).UTC(),
 		Valid: true,
 	}

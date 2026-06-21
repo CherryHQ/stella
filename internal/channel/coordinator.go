@@ -2,13 +2,14 @@ package channel
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"filippo.io/age"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
@@ -60,7 +61,7 @@ type Coordinator struct {
 	semanticGroupArbiter SemanticGroupArbiter
 	publisherRegistry    *PublisherRegistry
 	groupDispatcher      *GroupDispatcher
-	db                   *sql.DB
+	db                   *pgxpool.Pool
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -187,7 +188,7 @@ func (c *Coordinator) SetGroupDispatcher(dispatcher *GroupDispatcher) {
 }
 
 // WithDB gives the coordinator direct DB access for group member management.
-func WithDB(db *sql.DB) CoordinatorOption {
+func WithDB(db *pgxpool.Pool) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.db = db
 	}

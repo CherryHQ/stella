@@ -88,12 +88,9 @@ func (s *Service) EnsureBuiltinJobs() {
 	s.mu.Unlock()
 
 	for _, j := range toRetire {
-		// Unschedule from gocron (best-effort) before deleting from DB.
+		// Tear down the live River registration before deleting from DB.
 		s.mu.Lock()
-		if gid, ok := s.gids[j.ID]; ok {
-			_ = s.scheduler.RemoveJob(gid)
-			delete(s.gids, j.ID)
-		}
+		s.unscheduleJob(j.ID)
 		delete(s.jobs, j.ID)
 		s.mu.Unlock()
 

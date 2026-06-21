@@ -2,7 +2,6 @@ package skills
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -12,6 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -29,7 +31,7 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 // testSkillStore is a minimal pkgplugins.SkillStore backed directly by sqlc.
 // It avoids the import cycle internal/skills → internal/tools/skills → internal/skills.
 type testSkillStore struct {
-	db *sql.DB
+	db *pgxpool.Pool
 	q  *sqlc.Queries
 }
 
@@ -60,8 +62,8 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 
 func (s *testSkillStore) List(ctx context.Context, vc pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
-		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
+		AgentID: pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""},
+		UserID:  pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""},
 	})
 	if err != nil {
 		return nil, err
@@ -76,10 +78,10 @@ func (s *testSkillStore) List(ctx context.Context, vc pkgplugins.SkillViewContex
 func (s *testSkillStore) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
 	row, err := s.q.ResolveSkill(ctx, sqlc.ResolveSkillParams{
 		Name:    name,
-		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
+		AgentID: pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""},
+		UserID:  pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""},
 	})
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -92,8 +94,8 @@ func (s *testSkillStore) Resolve(ctx context.Context, name string, vc pkgplugins
 func (s *testSkillStore) ListByScope(ctx context.Context, scope, userID, agentID string) ([]pkgplugins.Skill, error) {
 	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
 		Scope:   scope,
-		UserID:  sql.NullString{String: userID, Valid: userID != ""},
-		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
+		UserID:  pgtype.Text{String: userID, Valid: userID != ""},
+		AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
 	})
 	if err != nil {
 		return nil, err
@@ -147,18 +149,18 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 	}
 	switch sk.Scope {
 	case "user":
-		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
+		params.UserID = pgtype.Text{String: sk.UserID, Valid: true}
 	case "user_agent":
-		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
-		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
+		params.UserID = pgtype.Text{String: sk.UserID, Valid: true}
+		params.AgentID = pgtype.Text{String: sk.AgentID, Valid: true}
 	case "system_agent":
-		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
+		params.AgentID = pgtype.Text{String: sk.AgentID, Valid: true}
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
 	if _, err := qtx.CreateSkill(ctx, params); err != nil {
 		return "", err
@@ -168,14 +170,14 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 			return "", err
 		}
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
 	return sk.ID, nil
 }
 
 func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
-	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: sql.NullString{}, UserID: sql.NullString{}})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: pgtype.Text{}, UserID: pgtype.Text{}})
 	if err != nil {
 		return err
 	}
@@ -219,7 +221,7 @@ func (s *testSkillStore) DeleteFile(ctx context.Context, skillID, path string) e
 }
 
 func (s *testSkillStore) Delete(ctx context.Context, id string) error {
-	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: sql.NullString{}, UserID: sql.NullString{}})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: pgtype.Text{}, UserID: pgtype.Text{}})
 	if err != nil {
 		return err
 	}

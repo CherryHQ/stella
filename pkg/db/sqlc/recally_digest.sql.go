@@ -24,7 +24,7 @@ type AddDigestArticleParams struct {
 }
 
 func (q *Queries) AddDigestArticle(ctx context.Context, arg AddDigestArticleParams) error {
-	_, err := q.db.ExecContext(ctx, addDigestArticle,
+	_, err := q.db.Exec(ctx, addDigestArticle,
 		arg.DigestID,
 		arg.ArticleID,
 		arg.Section,
@@ -38,7 +38,7 @@ SELECT COUNT(*) FROM recally_digest WHERE user_id = $1
 `
 
 func (q *Queries) CountDigests(ctx context.Context, userID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countDigests, userID)
+	row := q.db.QueryRow(ctx, countDigests, userID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -69,7 +69,7 @@ type CreateDigestParams struct {
 }
 
 func (q *Queries) CreateDigest(ctx context.Context, arg CreateDigestParams) (RecallyDigest, error) {
-	row := q.db.QueryRowContext(ctx, createDigest,
+	row := q.db.QueryRow(ctx, createDigest,
 		arg.ID,
 		arg.UserID,
 		arg.Date,
@@ -113,7 +113,7 @@ type DeleteDigestArticlesParams struct {
 }
 
 func (q *Queries) DeleteDigestArticles(ctx context.Context, arg DeleteDigestArticlesParams) error {
-	_, err := q.db.ExecContext(ctx, deleteDigestArticles, arg.DigestID, arg.Section)
+	_, err := q.db.Exec(ctx, deleteDigestArticles, arg.DigestID, arg.Section)
 	return err
 }
 
@@ -127,7 +127,7 @@ type GetDigestByDateParams struct {
 }
 
 func (q *Queries) GetDigestByDate(ctx context.Context, arg GetDigestByDateParams) (RecallyDigest, error) {
-	row := q.db.QueryRowContext(ctx, getDigestByDate, arg.UserID, arg.Date)
+	row := q.db.QueryRow(ctx, getDigestByDate, arg.UserID, arg.Date)
 	var i RecallyDigest
 	err := row.Scan(
 		&i.ID,
@@ -162,7 +162,7 @@ type ListDigestArticlesParams struct {
 }
 
 func (q *Queries) ListDigestArticles(ctx context.Context, arg ListDigestArticlesParams) ([]RecallyArticle, error) {
-	rows, err := q.db.QueryContext(ctx, listDigestArticles, arg.DigestID, arg.Section)
+	rows, err := q.db.Query(ctx, listDigestArticles, arg.DigestID, arg.Section)
 	if err != nil {
 		return nil, err
 	}
@@ -196,9 +196,6 @@ func (q *Queries) ListDigestArticles(ctx context.Context, arg ListDigestArticles
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -219,7 +216,7 @@ type ListDigestsParams struct {
 }
 
 func (q *Queries) ListDigests(ctx context.Context, arg ListDigestsParams) ([]RecallyDigest, error) {
-	rows, err := q.db.QueryContext(ctx, listDigests, arg.UserID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listDigests, arg.UserID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -246,9 +243,6 @@ func (q *Queries) ListDigests(ctx context.Context, arg ListDigestsParams) ([]Rec
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -292,7 +286,7 @@ type UpsertDigestParams struct {
 }
 
 func (q *Queries) UpsertDigest(ctx context.Context, arg UpsertDigestParams) (RecallyDigest, error) {
-	row := q.db.QueryRowContext(ctx, upsertDigest,
+	row := q.db.QueryRow(ctx, upsertDigest,
 		arg.ID,
 		arg.UserID,
 		arg.Date,

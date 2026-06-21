@@ -2,10 +2,11 @@ package oidc
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
@@ -13,7 +14,7 @@ import (
 
 // SetupParams contains dependencies for OIDC setup.
 type SetupParams struct {
-	DB       *sql.DB
+	DB       *pgxpool.Pool
 	BaseURL  string
 	VaultKey string
 	// AuthStores is a store that implements all auth store interfaces.

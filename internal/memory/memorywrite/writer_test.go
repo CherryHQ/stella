@@ -2,10 +2,10 @@ package memorywrite
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -19,7 +19,7 @@ import (
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // setupTestDB creates a test database and returns the db, queries, userID, agentID, and cleanup.
-func setupTestDB(t *testing.T) (*sql.DB, *sqlc.Queries, string, string, func()) {
+func setupTestDB(t *testing.T) (*pgxpool.Pool, *sqlc.Queries, string, string, func()) {
 	t.Helper()
 	db := dbtest.New(t)
 

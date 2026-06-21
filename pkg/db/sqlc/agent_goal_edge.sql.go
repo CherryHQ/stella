@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createEdge = `-- name: CreateEdge :one
@@ -25,7 +26,7 @@ type CreateEdgeParams struct {
 }
 
 func (q *Queries) CreateEdge(ctx context.Context, arg CreateEdgeParams) (AgentGoalEdge, error) {
-	row := q.db.QueryRowContext(ctx, createEdge,
+	row := q.db.QueryRow(ctx, createEdge,
 		arg.GoalID,
 		arg.UpstreamID,
 		arg.EdgeKind,
@@ -57,7 +58,7 @@ type DeleteEdgeParams struct {
 }
 
 func (q *Queries) DeleteEdge(ctx context.Context, arg DeleteEdgeParams) error {
-	_, err := q.db.ExecContext(ctx, deleteEdge, arg.GoalID, arg.UpstreamID)
+	_, err := q.db.Exec(ctx, deleteEdge, arg.GoalID, arg.UpstreamID)
 	return err
 }
 
@@ -73,7 +74,7 @@ type GetEdgeParams struct {
 }
 
 func (q *Queries) GetEdge(ctx context.Context, arg GetEdgeParams) (AgentGoalEdge, error) {
-	row := q.db.QueryRowContext(ctx, getEdge, arg.GoalID, arg.UpstreamID)
+	row := q.db.QueryRow(ctx, getEdge, arg.GoalID, arg.UpstreamID)
 	var i AgentGoalEdge
 	err := row.Scan(
 		&i.GoalID,
@@ -95,7 +96,7 @@ ORDER BY created_at
 `
 
 func (q *Queries) ListEdgeByGoal(ctx context.Context, goalID string) ([]AgentGoalEdge, error) {
-	rows, err := q.db.QueryContext(ctx, listEdgeByGoal, goalID)
+	rows, err := q.db.Query(ctx, listEdgeByGoal, goalID)
 	if err != nil {
 		return nil, err
 	}
@@ -116,9 +117,6 @@ func (q *Queries) ListEdgeByGoal(ctx context.Context, goalID string) ([]AgentGoa
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -133,7 +131,7 @@ ORDER BY created_at
 `
 
 func (q *Queries) ListEdgeByUpstream(ctx context.Context, upstreamID string) ([]AgentGoalEdge, error) {
-	rows, err := q.db.QueryContext(ctx, listEdgeByUpstream, upstreamID)
+	rows, err := q.db.Query(ctx, listEdgeByUpstream, upstreamID)
 	if err != nil {
 		return nil, err
 	}
@@ -154,9 +152,6 @@ func (q *Queries) ListEdgeByUpstream(ctx context.Context, upstreamID string) ([]
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -176,20 +171,20 @@ ORDER BY e.created_at
 `
 
 type ListEdgeWithUpstreamStateRow struct {
-	GoalID            string         `json:"goal_id"`
-	UpstreamID        string         `json:"upstream_id"`
-	EdgeKind          string         `json:"edge_kind"`
-	OnFailure         string         `json:"on_failure"`
-	WaivedAt          sql.NullTime   `json:"waived_at"`
-	WaivedByUser      sql.NullString `json:"waived_by_user"`
-	WaiverReason      string         `json:"waiver_reason"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpstreamLifecycle string         `json:"upstream_lifecycle"`
-	UpstreamOutput    sql.NullString `json:"upstream_output"`
+	GoalID            string             `json:"goal_id"`
+	UpstreamID        string             `json:"upstream_id"`
+	EdgeKind          string             `json:"edge_kind"`
+	OnFailure         string             `json:"on_failure"`
+	WaivedAt          pgtype.Timestamptz `json:"waived_at"`
+	WaivedByUser      pgtype.Text        `json:"waived_by_user"`
+	WaiverReason      string             `json:"waiver_reason"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpstreamLifecycle string             `json:"upstream_lifecycle"`
+	UpstreamOutput    pgtype.Text        `json:"upstream_output"`
 }
 
 func (q *Queries) ListEdgeWithUpstreamState(ctx context.Context, goalID string) ([]ListEdgeWithUpstreamStateRow, error) {
-	rows, err := q.db.QueryContext(ctx, listEdgeWithUpstreamState, goalID)
+	rows, err := q.db.Query(ctx, listEdgeWithUpstreamState, goalID)
 	if err != nil {
 		return nil, err
 	}
@@ -213,9 +208,6 @@ func (q *Queries) ListEdgeWithUpstreamState(ctx context.Context, goalID string) 
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -232,14 +224,14 @@ WHERE goal_id = $3
 `
 
 type WaiveEdgeParams struct {
-	WaivedByUser sql.NullString `json:"waived_by_user"`
-	WaiverReason string         `json:"waiver_reason"`
-	GoalID       string         `json:"goal_id"`
-	UpstreamID   string         `json:"upstream_id"`
+	WaivedByUser pgtype.Text `json:"waived_by_user"`
+	WaiverReason string      `json:"waiver_reason"`
+	GoalID       string      `json:"goal_id"`
+	UpstreamID   string      `json:"upstream_id"`
 }
 
 func (q *Queries) WaiveEdge(ctx context.Context, arg WaiveEdgeParams) error {
-	_, err := q.db.ExecContext(ctx, waiveEdge,
+	_, err := q.db.Exec(ctx, waiveEdge,
 		arg.WaivedByUser,
 		arg.WaiverReason,
 		arg.GoalID,

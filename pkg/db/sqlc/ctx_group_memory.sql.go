@@ -14,7 +14,7 @@ DELETE FROM ctx_group_memory WHERE group_id = $1
 `
 
 func (q *Queries) DeleteGroupMemory(ctx context.Context, groupID string) error {
-	_, err := q.db.ExecContext(ctx, deleteGroupMemory, groupID)
+	_, err := q.db.Exec(ctx, deleteGroupMemory, groupID)
 	return err
 }
 
@@ -23,7 +23,7 @@ SELECT group_id, content, version, created_at, updated_at FROM ctx_group_memory 
 `
 
 func (q *Queries) GetGroupMemory(ctx context.Context, groupID string) (CtxGroupMemory, error) {
-	row := q.db.QueryRowContext(ctx, getGroupMemory, groupID)
+	row := q.db.QueryRow(ctx, getGroupMemory, groupID)
 	var i CtxGroupMemory
 	err := row.Scan(
 		&i.GroupID,
@@ -51,7 +51,7 @@ type UpsertGroupMemoryVersionedParams struct {
 }
 
 func (q *Queries) UpsertGroupMemoryVersioned(ctx context.Context, arg UpsertGroupMemoryVersionedParams) (CtxGroupMemory, error) {
-	row := q.db.QueryRowContext(ctx, upsertGroupMemoryVersioned, arg.GroupID, arg.Content)
+	row := q.db.QueryRow(ctx, upsertGroupMemoryVersioned, arg.GroupID, arg.Content)
 	var i CtxGroupMemory
 	err := row.Scan(
 		&i.GroupID,

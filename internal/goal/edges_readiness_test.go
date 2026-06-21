@@ -2,10 +2,11 @@ package goal
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -79,7 +80,7 @@ func edg_edgeRow(upstreamID, kind, onFailure, upstreamLifecycle string, waived b
 		UpstreamLifecycle: upstreamLifecycle,
 	}
 	if waived {
-		r.WaivedAt = sql.NullTime{Time: time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC), Valid: true}
+		r.WaivedAt = pgtype.Timestamptz{Time: time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC), Valid: true}
 	}
 	return r
 }

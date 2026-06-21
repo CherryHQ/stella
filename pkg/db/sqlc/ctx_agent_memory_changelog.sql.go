@@ -7,7 +7,8 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getMemoryChangelogAtVersion = `-- name: GetMemoryChangelogAtVersion :one
@@ -18,14 +19,14 @@ LIMIT 1
 `
 
 type GetMemoryChangelogAtVersionParams struct {
-	UserID             string        `json:"user_id"`
-	AgentID            string        `json:"agent_id"`
-	Scope              string        `json:"scope"`
-	MemoryVersionAfter sql.NullInt64 `json:"memory_version_after"`
+	UserID             string      `json:"user_id"`
+	AgentID            string      `json:"agent_id"`
+	Scope              string      `json:"scope"`
+	MemoryVersionAfter pgtype.Int8 `json:"memory_version_after"`
 }
 
 func (q *Queries) GetMemoryChangelogAtVersion(ctx context.Context, arg GetMemoryChangelogAtVersionParams) (CtxAgentMemoryChangelog, error) {
-	row := q.db.QueryRowContext(ctx, getMemoryChangelogAtVersion,
+	row := q.db.QueryRow(ctx, getMemoryChangelogAtVersion,
 		arg.UserID,
 		arg.AgentID,
 		arg.Scope,
@@ -57,23 +58,23 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 `
 
 type InsertMemoryChangelogParams struct {
-	ID                  string         `json:"id"`
-	UserID              string         `json:"user_id"`
-	AgentID             string         `json:"agent_id"`
-	SessionID           sql.NullString `json:"session_id"`
-	EntityID            sql.NullString `json:"entity_id"`
-	Scope               string         `json:"scope"`
-	Action              string         `json:"action"`
-	Source              string         `json:"source"`
-	MemoryVersionBefore sql.NullInt64  `json:"memory_version_before"`
-	MemoryVersionAfter  sql.NullInt64  `json:"memory_version_after"`
-	BeforeText          sql.NullString `json:"before_text"`
-	AfterText           sql.NullString `json:"after_text"`
-	Metadata            sql.NullString `json:"metadata"`
+	ID                  string      `json:"id"`
+	UserID              string      `json:"user_id"`
+	AgentID             string      `json:"agent_id"`
+	SessionID           pgtype.Text `json:"session_id"`
+	EntityID            pgtype.Text `json:"entity_id"`
+	Scope               string      `json:"scope"`
+	Action              string      `json:"action"`
+	Source              string      `json:"source"`
+	MemoryVersionBefore pgtype.Int8 `json:"memory_version_before"`
+	MemoryVersionAfter  pgtype.Int8 `json:"memory_version_after"`
+	BeforeText          pgtype.Text `json:"before_text"`
+	AfterText           pgtype.Text `json:"after_text"`
+	Metadata            pgtype.Text `json:"metadata"`
 }
 
 func (q *Queries) InsertMemoryChangelog(ctx context.Context, arg InsertMemoryChangelogParams) error {
-	_, err := q.db.ExecContext(ctx, insertMemoryChangelog,
+	_, err := q.db.Exec(ctx, insertMemoryChangelog,
 		arg.ID,
 		arg.UserID,
 		arg.AgentID,
@@ -106,7 +107,7 @@ type ListMemoryChangelogParams struct {
 }
 
 func (q *Queries) ListMemoryChangelog(ctx context.Context, arg ListMemoryChangelogParams) ([]CtxAgentMemoryChangelog, error) {
-	rows, err := q.db.QueryContext(ctx, listMemoryChangelog,
+	rows, err := q.db.Query(ctx, listMemoryChangelog,
 		arg.UserID,
 		arg.AgentID,
 		arg.Scope,
@@ -138,9 +139,6 @@ func (q *Queries) ListMemoryChangelog(ctx context.Context, arg ListMemoryChangel
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

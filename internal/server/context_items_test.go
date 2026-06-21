@@ -41,7 +41,7 @@ func TestSessionContextItemsAndSummaryEndpoints(t *testing.T) {
 	}
 
 	var conversationID string
-	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
+	if err := env.db.QueryRow(context.Background(), `SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
 		t.Fatalf("load conversation: %v", err)
 	}
 	seedContextItems(t, env, conversationID)
@@ -109,11 +109,11 @@ func TestSessionContextItemsFallbackUsesMessagePaging(t *testing.T) {
 	}
 
 	var conversationID string
-	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
+	if err := env.db.QueryRow(context.Background(), `SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
 		t.Fatalf("load conversation: %v", err)
 	}
 	fallbackMsg1, fallbackMsg2 := uuid.NewString(), uuid.NewString()
-	if _, err := env.db.Exec(`
+	if _, err := env.db.Exec(context.Background(), `
 		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
 		VALUES
 		($1, $2, 1, 'user', 'text', 'first', 10, '2026-06-10 02:00:00'),
@@ -172,12 +172,12 @@ func TestSessionSummaryCondensedAggregatesChildren(t *testing.T) {
 		t.Fatalf("SaveInfo: %v", err)
 	}
 	var conversationID string
-	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
+	if err := env.db.QueryRow(context.Background(), `SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
 		t.Fatalf("load conversation: %v", err)
 	}
 	mustExec := func(query string, args ...any) {
 		t.Helper()
-		if _, err := env.db.Exec(query, args...); err != nil {
+		if _, err := env.db.Exec(context.Background(), query, args...); err != nil {
 			t.Fatalf("exec seed: %v\n%s", err, query)
 		}
 	}
@@ -246,7 +246,7 @@ func TestSessionContextItemsPageTokenEdgeCases(t *testing.T) {
 		t.Fatalf("SaveInfo: %v", err)
 	}
 	var conversationID string
-	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
+	if err := env.db.QueryRow(context.Background(), `SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
 		t.Fatalf("load conversation: %v", err)
 	}
 	seedContextItems(t, env, conversationID)
@@ -310,7 +310,7 @@ func seedContextItems(t *testing.T, env *testEnv, conversationID string) {
 	t.Helper()
 	mustExec := func(query string, args ...any) {
 		t.Helper()
-		if _, err := env.db.Exec(query, args...); err != nil {
+		if _, err := env.db.Exec(context.Background(), query, args...); err != nil {
 			t.Fatalf("exec seed: %v\n%s", err, query)
 		}
 	}

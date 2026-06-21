@@ -2,10 +2,11 @@ package goal
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -106,7 +107,7 @@ func (r *sandboxCheckRunner) Run(ctx context.Context, item AcceptanceItem, env C
 
 // probeCache reports a prior passing result for a hit-eligible cache key. A ""
 // key (forced miss per §4.1 provenance rule) and a missing querier both bypass
-// the probe; sql.ErrNoRows is a clean miss, any other error degrades to a miss
+// the probe; pgx.ErrNoRows is a clean miss, any other error degrades to a miss
 // (a re-run is always safe — a false miss costs a re-run, a false hit ships
 // broken work).
 func (r *sandboxCheckRunner) probeCache(ctx context.Context, key string) (sqlc.AgentGoalAcceptanceEvent, bool) {
@@ -115,7 +116,7 @@ func (r *sandboxCheckRunner) probeCache(ctx context.Context, key string) (sqlc.A
 	}
 	row, err := r.q.ProbeCheckCache(ctx, key)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			// Degrade an unexpected probe error to a miss: re-running the check is
 			// always correct, trusting a stale/uncertain hit is not.
 			_ = err

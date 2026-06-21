@@ -2,12 +2,13 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/db/ftsquery"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -66,7 +67,7 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 
 	if scope == scopeMessages || scope == scopeBoth {
 		msgs, err := r.q.SearchMessages(ctx, sqlc.SearchMessagesParams{
-			UserID:  sql.NullString{String: userID, Valid: true},
+			UserID:  pgtype.Text{String: userID, Valid: true},
 			AgentID: nullAgent(agentID),
 			Match:   match,
 			Limit:   int32(limit),
@@ -89,7 +90,7 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 
 	if scope == scopeSummaries || scope == scopeBoth {
 		sums, err := r.q.SearchSummaries(ctx, sqlc.SearchSummariesParams{
-			UserID:  sql.NullString{String: userID, Valid: true},
+			UserID:  pgtype.Text{String: userID, Valid: true},
 			AgentID: nullAgent(agentID),
 			Match:   match,
 			Limit:   int32(limit),
@@ -135,7 +136,7 @@ func (r *retrievalEngine) searchLike(ctx context.Context, userID, agentID, text,
 
 	if scope == scopeMessages || scope == scopeBoth {
 		msgs, err := r.q.SearchMessagesLike(ctx, sqlc.SearchMessagesLikeParams{
-			UserID:  sql.NullString{String: userID, Valid: true},
+			UserID:  pgtype.Text{String: userID, Valid: true},
 			AgentID: nullAgent(agentID),
 			Pattern: []byte(pattern),
 			Limit:   int32(limit),
@@ -157,7 +158,7 @@ func (r *retrievalEngine) searchLike(ctx context.Context, userID, agentID, text,
 
 	if scope == scopeSummaries || scope == scopeBoth {
 		sums, err := r.q.SearchSummariesLike(ctx, sqlc.SearchSummariesLikeParams{
-			UserID:  sql.NullString{String: userID, Valid: true},
+			UserID:  pgtype.Text{String: userID, Valid: true},
 			AgentID: nullAgent(agentID),
 			Pattern: []byte(pattern),
 			Limit:   int32(limit),
@@ -189,7 +190,7 @@ func (r *retrievalEngine) searchLike(ctx context.Context, userID, agentID, text,
 // summaryContentTime returns when a summary's underlying content actually
 // occurred: latest_at (the real end of the summarized window), falling back to
 // created_at (when the summary was generated) only when latest_at is null.
-func summaryContentTime(latestAt sql.NullTime, createdAt time.Time) time.Time {
+func summaryContentTime(latestAt pgtype.Timestamptz, createdAt time.Time) time.Time {
 	if t := parseNullTime(latestAt); t != nil {
 		return *t
 	}
@@ -213,7 +214,7 @@ func (p *Provider) GetMessage(ctx context.Context, messageID string) (*memory.Me
 	}
 	row, err := p.q.GetMessageScoped(ctx, sqlc.GetMessageScopedParams{
 		ID:      messageID,
-		UserID:  sql.NullString{String: userID, Valid: true},
+		UserID:  pgtype.Text{String: userID, Valid: true},
 		AgentID: nullAgent(agentID),
 	})
 	if err != nil {
@@ -240,7 +241,7 @@ func (p *Provider) getScopedSummary(ctx context.Context, summaryID string) (sqlc
 	}
 	if _, err := p.q.GetConversation(ctx, sqlc.GetConversationParams{
 		ID:      sum.ConversationID,
-		UserID:  sql.NullString{String: userID, Valid: true},
+		UserID:  pgtype.Text{String: userID, Valid: true},
 		AgentID: nullAgent(agentID),
 	}); err != nil {
 		return sqlc.CtxSummary{}, fmt.Errorf("get summary conversation: %w", err)

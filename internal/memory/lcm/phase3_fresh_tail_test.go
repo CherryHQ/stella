@@ -2,10 +2,12 @@ package lcm
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -14,7 +16,7 @@ import (
 
 func TestAssembleFreshTailKeepsToolHeavyTurn(t *testing.T) {
 	db := newAssemblerTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 	p, err := New(db, nil, nil)
 	if err != nil {
 		t.Fatalf("new provider: %v", err)
@@ -60,7 +62,7 @@ func TestAssembleFreshTailKeepsToolHeavyTurn(t *testing.T) {
 
 func TestAssembleTailTokenCapDemotesOldestTurn(t *testing.T) {
 	db := newAssemblerTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 	p, err := New(db, nil, nil)
 	if err != nil {
 		t.Fatalf("new provider: %v", err)
@@ -127,7 +129,7 @@ func TestSplitFreshTailHardCapSingleGiantTurn(t *testing.T) {
 
 func TestCompactionProtectsLastSixTurns(t *testing.T) {
 	db := newAssemblerTestDB(t)
-	defer func() { _ = db.Close() }()
+	defer func() { db.Close() }()
 	p, err := New(db, func(context.Context, string) (string, error) { return "summary", nil }, nil)
 	if err != nil {
 		t.Fatalf("new provider: %v", err)
@@ -147,7 +149,7 @@ func TestCompactionProtectsLastSixTurns(t *testing.T) {
 	}
 
 	convID := mustPhase3ConversationID(t, db, sess.ID)
-	rows, err := db.QueryContext(ctx, `
+	rows, err := db.Query(ctx, `
 		SELECT m.seq
 		FROM ctx_item ci
 		JOIN ctx_message m ON m.id = ci.message_id
@@ -157,7 +159,7 @@ func TestCompactionProtectsLastSixTurns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query active messages: %v", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() { rows.Close() }()
 	active := map[int]bool{}
 	for rows.Next() {
 		var seq int
@@ -176,7 +178,7 @@ func TestCompactionProtectsLastSixTurns(t *testing.T) {
 	}
 
 	var coveredFresh int
-	if err := db.QueryRowContext(ctx, `
+	if err := db.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM ctx_summary_message sm
 		JOIN ctx_message m ON m.id = sm.message_id
@@ -198,7 +200,7 @@ func phase3Item(ord int64, role, eventType string) sqlc.CtxItem {
 		ConversationID: "conv-phase3",
 		Ordinal:        ord,
 		ItemType:       itemTypeMessage,
-		MessageID:      sql.NullString{String: fmt.Sprintf("msg-%d", ord), Valid: true},
+		MessageID:      pgtype.Text{String: fmt.Sprintf("msg-%d", ord), Valid: true},
 		EventType:      eventType,
 		Role:           role,
 	}
@@ -238,10 +240,10 @@ func hasToolResult(msgs []ai.Message, id string) bool {
 	return false
 }
 
-func mustPhase3ConversationID(t *testing.T, db *sql.DB, sessionID string) string {
+func mustPhase3ConversationID(t *testing.T, db *pgxpool.Pool, sessionID string) string {
 	t.Helper()
 	var convID string
-	if err := db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&convID); err != nil {
+	if err := db.QueryRow(context.Background(), `SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&convID); err != nil {
 		t.Fatalf("get conversation id: %v", err)
 	}
 	return convID
