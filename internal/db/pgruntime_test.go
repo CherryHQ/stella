@@ -79,12 +79,13 @@ func TestPostgresRuntimeStartParameters(t *testing.T) {
 	}
 	touch(t, filepath.Join(extLib, postgresSharedLibraryName("pg_search")))
 
-	rt := postgresRuntimeInfo{ExtShareRoot: extShare, ExtLibRoot: extLib}
+	pgLib := filepath.Join(root, "postgres", "lib")
+	rt := postgresRuntimeInfo{ExtShareRoot: extShare, ExtLibRoot: extLib, PgLibRoot: pgLib}
 	got := rt.startParameters()
 	sep := string(os.PathListSeparator)
 	want := map[string]string{
 		"extension_control_path":   extShare + sep + "$system",
-		"dynamic_library_path":     extLib + sep + "$libdir",
+		"dynamic_library_path":     extLib + sep + pgLib,
 		"shared_preload_libraries": "pg_search",
 	}
 	if !reflect.DeepEqual(got, want) {

@@ -31,6 +31,7 @@ type postgresRuntimeInfo struct {
 	DataPath     string
 	ExtShareRoot string
 	ExtLibRoot   string
+	PgLibRoot    string
 }
 
 func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error) {
@@ -66,6 +67,7 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 	rt.BinariesPath = bundle.BinariesPath
 	rt.ExtShareRoot = bundle.ExtShareRoot
 	rt.ExtLibRoot = bundle.ExtLibRoot
+	rt.PgLibRoot = bundle.PgLibRoot
 	return rt, nil
 }
 
@@ -84,6 +86,7 @@ type postgresRuntimeBundle struct {
 	BinariesPath string
 	ExtShareRoot string
 	ExtLibRoot   string
+	PgLibRoot    string
 }
 
 func postgresRuntimeFromBundle(root string) (postgresRuntimeBundle, error) {
@@ -96,7 +99,7 @@ func postgresRuntimeFromBundle(root string) (postgresRuntimeBundle, error) {
 		return postgresRuntimeBundle{}, fmt.Errorf("db: %s must point to a PostgreSQL runtime bundle containing postgres/bin/%s or bin/%s", postgresRuntimeEnvName, pgCtlName(), pgCtlName())
 	}
 
-	bundle := postgresRuntimeBundle{BinariesPath: binariesPath}
+	bundle := postgresRuntimeBundle{BinariesPath: binariesPath, PgLibRoot: filepath.Join(binariesPath, "lib")}
 	if dirExists(filepath.Join(root, "extensions", "share", "extension")) {
 		bundle.ExtShareRoot = filepath.Join(root, "extensions", "share")
 	}
@@ -113,7 +116,11 @@ func (rt postgresRuntimeInfo) startParameters() map[string]string {
 		params["extension_control_path"] = rt.ExtShareRoot + pathSep + "$system"
 	}
 	if rt.ExtLibRoot != "" {
-		params["dynamic_library_path"] = rt.ExtLibRoot + pathSep + "$libdir"
+		dynamicPath := rt.ExtLibRoot
+		if rt.PgLibRoot != "" {
+			dynamicPath += pathSep + rt.PgLibRoot
+		}
+		params["dynamic_library_path"] = dynamicPath
 		if fileExists(filepath.Join(rt.ExtLibRoot, postgresSharedLibraryName("pg_search"))) {
 			// pg_search must be preloaded before CREATE EXTENSION can work. A broken
 			// or ABI-incompatible library is intentionally fatal at PostgreSQL start,
