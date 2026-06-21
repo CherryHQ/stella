@@ -156,7 +156,7 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 				continue
 			}
 			if j.Enabled {
-				if err := s.scheduleJob(ctx, j); err != nil {
+				if err := s.scheduleJob(j); err != nil {
 					if errors.Is(err, errOneTimeJobPast) {
 						s.log.Info("skipping one-time job with past timestamp", "id", j.ID, "at", j.Schedule.At)
 					} else {
@@ -346,7 +346,7 @@ func (s *Service) AddPluginJob(ctx context.Context, pluginID, key, runtimeName, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.scheduleJob(s.ctx, job); err != nil {
+	if err := s.scheduleJob(job); err != nil {
 		return Job{}, fmt.Errorf("schedule job: %w", err)
 	}
 	if err := s.insertJob(s.ctx, job); err != nil {
@@ -446,7 +446,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		j.UpdatedAt = time.Now().UTC()
 
 		s.unscheduleJob(j.ID)
-		if err := s.scheduleJob(s.ctx, j); err != nil {
+		if err := s.scheduleJob(j); err != nil {
 			s.mu.Unlock()
 			return Job{}, fmt.Errorf("reschedule job: %w", err)
 		}

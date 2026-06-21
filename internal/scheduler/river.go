@@ -28,6 +28,12 @@ const (
 	// would hang Stop forever; the worker honors this cancellation because Work
 	// dispatches on River's per-job context.
 	schedulerSoftStopTimeout = 30 * time.Second
+	// schedulerRescueStuckAfter raises River's stuck-job rescue threshold (default
+	// 1h) above any expected scheduled-run duration. With JobTimeout disabled a
+	// legitimately long agent run would otherwise be marked stuck and discarded at
+	// 1h; the app-level tryStartJobRun guard already prevents double execution, so
+	// this only keeps River's job state from going misleadingly stuck/discarded.
+	schedulerRescueStuckAfter = 24 * time.Hour
 )
 
 // schedJobArgs is the River payload for a scheduled-job firing. JobID identifies
@@ -132,8 +138,9 @@ func newSchedulerRiverClient(s *Service, pool *pgxpool.Pool) (*river.Client[pgx.
 		// -1 disables River's per-job timeout (default 1m): scheduled jobs are
 		// agent runs that routinely exceed a minute, matching gocron's unbounded
 		// runtime. Shutdown still cancels in-flight work via SoftStopTimeout.
-		JobTimeout:      -1,
-		SoftStopTimeout: schedulerSoftStopTimeout,
+		JobTimeout:           -1,
+		SoftStopTimeout:      schedulerSoftStopTimeout,
+		RescueStuckJobsAfter: schedulerRescueStuckAfter,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler river client: %w", err)
@@ -144,8 +151,9 @@ func newSchedulerRiverClient(s *Service, pool *pgxpool.Pool) (*river.Client[pgx.
 // scheduleJob registers a job with River and records its registration in
 // s.refs. Recurring (cron/every) jobs become River periodic jobs; one-time (at)
 // jobs are enqueued as a single durable job scheduled at their timestamp.
-// Caller must hold s.mu.
-func (s *Service) scheduleJob(ctx context.Context, job Job) error {
+// Caller must hold s.mu. The one-time insert runs on s.lifeCtx() (matching
+// unscheduleRef) so it is never handed a nil context before Start.
+func (s *Service) scheduleJob(job Job) error {
 	switch {
 	case job.Schedule.Cron != "":
 		sched, err := cron.ParseStandard(job.Schedule.Cron)
@@ -174,7 +182,7 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 		if !t.After(time.Now()) {
 			return errOneTimeJobPast
 		}
-		res, err := s.river.Insert(ctx, schedJobArgs{JobID: job.ID, At: job.Schedule.At}, &river.InsertOpts{
+		res, err := s.river.Insert(s.lifeCtx(), schedJobArgs{JobID: job.ID, At: job.Schedule.At}, &river.InsertOpts{
 			Queue:       schedulerQueue,
 			ScheduledAt: t.UTC(),
 			MaxAttempts: 1,
