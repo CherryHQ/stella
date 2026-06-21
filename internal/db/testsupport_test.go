@@ -39,7 +39,7 @@ func pkgTestEnsure() {
 			pkgTestErr = fmt.Errorf("create template: %w", err)
 			return
 		}
-		tmpl, err := OpenDB(pkgTestServer.DSNFor(pkgTestTemplate))
+		tmpl, err := OpenDB(pkgTestServer.DSNFor(pkgTestTemplate), WithMaxConns(4))
 		if err != nil {
 			pkgTestErr = fmt.Errorf("migrate template: %w", err)
 			return
@@ -60,7 +60,7 @@ func newTestDB(t *testing.T) *pgxpool.Pool {
 	if _, err := pkgTestAdmin.Exec(context.Background(), fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", name, pkgTestTemplate)); err != nil {
 		t.Fatalf("newTestDB: create %s: %v", name, err)
 	}
-	db, err := OpenDB(pkgTestServer.DSNFor(name))
+	db, err := OpenDB(pkgTestServer.DSNFor(name), WithMaxConns(4))
 	if err != nil {
 		t.Fatalf("newTestDB: open %s: %v", name, err)
 	}

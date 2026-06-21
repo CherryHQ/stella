@@ -35,7 +35,7 @@ const migrateLockKey int64 = 0x73_74_65_6C_6C_61
 // The server must be PostgreSQL 18 or newer: the schema baseline defaults ids
 // with the uuidv7() built-in, so migrate() fails with "function uuidv7() does
 // not exist" against an older server.
-func OpenDB(dsn string) (*pgxpool.Pool, error) {
+func OpenDB(dsn string, opts ...Option) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("db: parse dsn: %w", err)
@@ -129,6 +129,13 @@ func OpenDB(dsn string) (*pgxpool.Pool, error) {
 	cfg.MaxConnLifetimeJitter = 5 * time.Minute
 	cfg.MaxConnIdleTime = 5 * time.Minute
 
+	// Apply caller overrides last so they win over the defaults above (tests size
+	// the pool down — many parallel test databases each opening a 20-conn pool can
+	// approach the embedded server's max_connections).
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	ctx := context.Background()
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -141,6 +148,21 @@ func OpenDB(dsn string) (*pgxpool.Pool, error) {
 	}
 
 	return pool, nil
+}
+
+// Option overrides pool configuration after OpenDB has applied its defaults.
+type Option func(*pgxpool.Config)
+
+// WithMaxConns caps the pool size. Production uses the built-in default; tests
+// pass a small value so many parallel test databases stay well under the
+// embedded server's max_connections.
+func WithMaxConns(n int32) Option {
+	return func(c *pgxpool.Config) {
+		c.MaxConns = n
+		if c.MinConns > n {
+			c.MinConns = n
+		}
+	}
 }
 
 // spanCtxKey carries the active query span from TraceQueryStart to
