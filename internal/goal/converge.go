@@ -571,6 +571,32 @@ func (s *GoalService) reopenForRework(ctx context.Context, q *sqlc.Queries, d sq
 	return nil
 }
 
+// refundAndReopen returns a goal to ready WITHOUT charging convergence budget,
+// for an attempt reaped while still 'queued' (it never executed). ClaimGoal
+// already bumped attempt_count at claim, so we restore the pre-claim budget by
+// raising the MaxAttempts ceiling one step — we cannot decrement attempt_count
+// because uniq_agent_goal_attempt_no requires attempt_no to keep climbing across
+// re-claims. Mirrors Reattempt's budget raise. reopenForRework then clears the
+// active attempt and moves active→ready.
+func (s *GoalService) refundAndReopen(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
+	var pol ConvergencePolicy
+	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
+	pol = pol.Normalized()
+	pol.MaxAttempts++
+	if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
+		Title:              d.Title,
+		Intent:             d.Intent,
+		AcceptanceContract: d.AcceptanceContract,
+		ConvergencePolicy:  marshalJSON(pol),
+		ReviewPolicy:       d.ReviewPolicy,
+		Priority:           d.Priority,
+		ID:                 d.ID,
+	}); err != nil {
+		return fmt.Errorf("refund budget on queued reap: %w", err)
+	}
+	return s.reopenForRework(ctx, q, d)
+}
+
 // blockBudget parks an exhausted goal: active→blocked(budget_exhausted),
 // awaiting a human Reattempt (raise budget) or Abandon (contract §2.1).
 func (s *GoalService) blockBudget(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {

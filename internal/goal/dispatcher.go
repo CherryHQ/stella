@@ -61,7 +61,6 @@ type Dispatcher struct {
 	cfg DispatcherConfig
 
 	mu      sync.Mutex
-	stopCh  chan struct{}
 	stopped bool
 }
 
@@ -83,10 +82,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default().With("component", "goal/dispatcher")
 	}
-	return &Dispatcher{
-		cfg:    cfg,
-		stopCh: make(chan struct{}),
-	}
+	return &Dispatcher{cfg: cfg}
 }
 
 // SetEnqueuer injects the River enqueuer the dispatcher uses to dispatch claimed
@@ -110,7 +106,6 @@ func (d *Dispatcher) Stop() {
 		return
 	}
 	d.stopped = true
-	close(d.stopCh)
 }
 
 // Tick runs one pass of the dispatch loop. Public so tests can drive it
@@ -471,6 +466,18 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 			return nil
 		}
 
+		// A still-'queued' reap never executed: its River job sat behind the queue's
+		// MaxWorkers and the claim-grace lease expired before any PromoteAttempt (queue
+		// backpressure under wide fanout). ClaimGoal already charged one budget unit at
+		// claim time, so charging it here too would burn budget on an attempt that never
+		// ran and park the goal blocked(budget_exhausted) without a single execution.
+		// Refund and reopen instead. A 'running' reap genuinely executed (or its node
+		// crashed mid-run), so it still consumes budget as before. att.Status is the
+		// pre-finalize status (GetAttempt above runs before FinalizeAttempt) — do not
+		// reorder those without revisiting this branch.
+		if att.Status == AttemptQueued {
+			return s.refundAndReopen(ctx, q, d)
+		}
 		// Execution attempt: an interrupt is transient. Return to ready within budget
 		// so the next tick re-claims; budget out parks at blocked(budget_exhausted).
 		var pol ConvergencePolicy

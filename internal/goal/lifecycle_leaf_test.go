@@ -591,3 +591,44 @@ func TestClaimEnqueueAtomic(t *testing.T) {
 		}
 	})
 }
+
+// TestLcl_QueuedReapDoesNotChargeBudget pins CR-001: an attempt reaped while still
+// 'queued' (its River job sat behind the queue's MaxWorkers and the claim-grace
+// lease expired before any PromoteAttempt — queue backpressure) never executed, so
+// it must NOT consume convergence budget. Before the fix, ClaimGoal's attempt_count
+// bump charged budget at claim time, so a wide-fanout root would park at
+// blocked(budget_exhausted) having executed nothing.
+func TestLcl_QueuedReapDoesNotChargeBudget(t *testing.T) {
+	h := newHarness(t)
+	rig := lcl_newRig(h)
+	d := lcl_detLeaf(h, 1) // budget 1: a single mischarge would exhaust
+	h.activate(d.ID)
+
+	ctx := context.Background()
+	// Sustained backpressure: each claim mints a 'queued' attempt that never gets a
+	// worker, so the reaper finalizes it before any PromoteAttempt. Repeat past the
+	// budget; every cycle must return the goal to ready, never blocked.
+	for i := range 3 {
+		att, err := h.svc.Claim(ctx, d.ID, "w-1", nil)
+		if err != nil {
+			t.Fatalf("claim %d: %v", i, err)
+		}
+		if att.Status != AttemptQueued {
+			t.Fatalf("claim %d status=%q want queued", i, att.Status)
+		}
+		if err := h.svc.ReapAttempt(ctx, att.ID); err != nil {
+			t.Fatalf("reap %d: %v", i, err)
+		}
+		if got := h.get(d.ID); got.Lifecycle != LifecycleReady {
+			t.Fatalf("after queued reap %d lifecycle=%q reason=%q want ready (never-run attempt must not charge budget)", i, got.Lifecycle, got.BlockReason)
+		}
+	}
+
+	// Budget survived: a real attempt still runs to acceptance on the original budget.
+	rig.checks.pass = true
+	h.exec.fn = lcl_passOutput("REAP-OK")
+	rig.runLeaf(t, d.ID)
+	if got := h.get(d.ID).Lifecycle; got != LifecycleAccepted {
+		t.Fatalf("after real run lifecycle=%q want accepted (queued reaps did not consume budget)", got)
+	}
+}

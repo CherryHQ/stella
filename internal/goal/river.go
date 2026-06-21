@@ -166,9 +166,13 @@ func RegisterGoalTickWorker(workers *river.Workers, d *Dispatcher, log *slog.Log
 
 // goalTickInsertOpts is the InsertOpts the tick periodic enqueues with: the tick
 // queue, no River-level retry, and ByState uniqueness so a new tick is skipped
-// while one is still available/pending/running/scheduled. That restores the old
-// "skip the tick if the previous one is still in flight" behavior and bounds the
-// queue to a single live tick cluster-wide.
+// while one is still available/pending/scheduled. It deliberately OMITS running:
+// a tick orphaned in 'running' by a hard crash (SIGKILL/OOM) would otherwise
+// dedupe-skip every later tick — including the failover leader's RunOnStart —
+// until River's 24h stuck-job rescue, freezing the whole convergence engine
+// (reaper included). Dropping running lets a new tick enqueue right after a crash;
+// Dispatcher.Tick is idempotent, so an extra pass after failover is harmless. Still
+// bounds the queue to a single QUEUED tick cluster-wide.
 func goalTickInsertOpts() *river.InsertOpts {
 	return &river.InsertOpts{
 		Queue:       GoalTickQueue,
@@ -177,7 +181,6 @@ func goalTickInsertOpts() *river.InsertOpts {
 			ByState: []rivertype.JobState{
 				rivertype.JobStateAvailable,
 				rivertype.JobStatePending,
-				rivertype.JobStateRunning,
 				rivertype.JobStateScheduled,
 			},
 		},

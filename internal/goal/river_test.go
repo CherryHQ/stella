@@ -12,9 +12,11 @@ import (
 // would only surface in a live multi-node run, so they are pinned here.
 
 // TestGoalTickInsertOpts pins the uniqueness contract that makes the convergence
-// tick single-leader-safe: at most one live tick of this kind, deduped by state
-// (NOT by args, since the payload is empty) with Completed deliberately excluded
-// so a finished tick never blocks the next one.
+// tick single-leader-safe: at most one QUEUED tick of this kind, deduped by state
+// (NOT by args, since the payload is empty) with Completed and Running deliberately
+// excluded — Completed so a finished tick never blocks the next one, Running
+// (CR-002) so a tick orphaned by a hard crash cannot freeze convergence for up to
+// 24h until River's stuck-job rescue.
 func TestGoalTickInsertOpts(t *testing.T) {
 	opts := goalTickInsertOpts()
 
@@ -31,7 +33,6 @@ func TestGoalTickInsertOpts(t *testing.T) {
 	want := map[rivertype.JobState]bool{
 		rivertype.JobStateAvailable: true,
 		rivertype.JobStatePending:   true,
-		rivertype.JobStateRunning:   true,
 		rivertype.JobStateScheduled: true,
 	}
 	got := map[rivertype.JobState]bool{}
@@ -49,6 +50,12 @@ func TestGoalTickInsertOpts(t *testing.T) {
 	// Completed must be excluded, else a once-run tick would block convergence forever.
 	if got[rivertype.JobStateCompleted] {
 		t.Error("ByState must NOT include Completed: it would block every future tick")
+	}
+	// Running must be excluded (CR-002): a tick orphaned in 'running' by a hard crash
+	// (SIGKILL/OOM) would otherwise dedupe-skip every later tick until River's 24h
+	// stuck-job rescue, freezing the whole convergence engine.
+	if got[rivertype.JobStateRunning] {
+		t.Error("ByState must NOT include Running: a crash-orphaned running tick would freeze convergence up to 24h")
 	}
 }
 

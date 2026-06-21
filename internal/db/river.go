@@ -47,16 +47,27 @@ const (
 	riverRescueStuckJobsAfter = 24 * time.Hour
 )
 
-// NewWorkingRiverClient builds the single, process-wide River client that works
-// the given queues with the given workers. There must be exactly ONE working
-// (electable) client per database: River elects a single leader per database to
+// NewWorkingRiverClient builds a WORKING (electable) River client that works the
+// given queues with the given workers. River elects a single leader per database to
 // run leader-only maintenance — including the periodic-job enqueuer, which only
 // enqueues the periodic jobs registered on the LEADER client. A second electable
 // client could win leadership and silently starve another client's periodic jobs
-// (e.g. the scheduler's cron). So every subsystem that needs to work or enqueue
-// jobs shares this one client; subsystems contribute their queues + workers and
-// inject the result rather than constructing their own client.
+// (e.g. the scheduler's cron).
+//
+// INVARIANT: exactly ONE electable client per database. That is a process+database
+// scoped property and cannot be enforced here — the test suite legitimately builds
+// many across separate databases in one process. The composition root (cmd/stellad
+// buildSharedRiverClient) is the single production enforcement point: it assembles
+// one client from every subsystem's queues + workers and injects it back via
+// SetRiverClient, so no subsystem constructs its own electable client. A new
+// electable construction site is a bug; route subsystems through the composition
+// root instead. An insert-only client (no queues, never Started) must use
+// river.NewClient directly, not this constructor — which is what the guard below
+// enforces: a working client must actually have queues and workers to work.
 func NewWorkingRiverClient(pool *pgxpool.Pool, queues map[string]river.QueueConfig, workers *river.Workers, logger *slog.Logger) (*river.Client[pgx.Tx], error) {
+	if len(queues) == 0 || workers == nil {
+		return nil, fmt.Errorf("working river client requires queues and workers (got %d queues, workers set=%t); use river.NewClient directly for an insert-only client", len(queues), workers != nil)
+	}
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Logger:               logger,
 		Queues:               queues,
