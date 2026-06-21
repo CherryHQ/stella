@@ -36,6 +36,10 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 
 	if dataDir != "" {
 		rt.DataPath = dataDir
+		// Keep persistent data and disposable runtime extraction separate:
+		// embedded-postgres removes RuntimePath on every start, while DataPath must
+		// survive restarts. BinariesPath, when configured, points at the immutable
+		// bundle root and is not extracted into this directory.
 		rt.RuntimePath = filepath.Join(filepath.Dir(dataDir), "pg-runtime", postgresRuntimeCacheName(), "runtime")
 	} else {
 		rt.DataPath = filepath.Join(tmpDir, "data")
@@ -96,6 +100,9 @@ func (rt postgresRuntimeInfo) startParameters() map[string]string {
 	if rt.ExtLibRoot != "" {
 		params["dynamic_library_path"] = rt.ExtLibRoot + pathSep + "$libdir"
 		if fileExists(filepath.Join(rt.ExtLibRoot, postgresSharedLibraryName("pg_search"))) {
+			// pg_search must be preloaded before CREATE EXTENSION can work. A broken
+			// or ABI-incompatible library is intentionally fatal at PostgreSQL start,
+			// which keeps bad internal test bundles from degrading silently.
 			params["shared_preload_libraries"] = "pg_search"
 		}
 	}
