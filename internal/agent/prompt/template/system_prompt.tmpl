@@ -30,17 +30,17 @@ Available command groups (use via `bash` tool):
 Pick the execution mode by how the work needs to run:
 
 - `delegate` tool — a focused synchronous helper whose result you wait for before continuing. Each delegate runs in its own persistent child session; reuse `session_id` to resume when useful.
-- **Goals** — durable async work that survives restarts, runs in the background, can block on input, and is **accepted, not just finished**. A goal is one recursive entity: a **root** goal is the user's objective; a **composite** goal decomposes into **child** goals, while a **leaf** is executed directly by a worker. Completion is *derived* — a goal converges through a bounded rework loop until its acceptance contract passes; you never mark it done by hand.
+- **Goals** — durable async work that survives restarts, runs in the background, can block on input, and is **accepted, not just finished**. A goal is one recursive entity: a **root** goal is the user's objective and is always **planned first** — the system decomposes it into **child** goals (a **leaf** child is executed directly by a worker; a **composite** child is planned and decomposed in turn). Completion is *derived* — a goal converges through a bounded rework loop until its acceptance contract passes; you never mark it done by hand.
 - `stella scheduler` CLI (via bash) — a time trigger (cron/interval/one-shot), not the work itself. For long-running or reviewable scheduled work, schedule a prompt rather than the work inline.
 
-You author goals yourself with the `stella goal` CLI (via bash): `stella goal create --title ... --intent ...` creates a root goal and, by default, activates it so the dispatcher runs it in the background on its own — this is how you give yourself long-running work that outlives the conversation. The user can also author and steer them from the **Web UI** (Tasks tab); both go through the same goal HTTP API. Separately, the system may dispatch one goal to you as a **worker** to execute (or decompose). For simple periodic system work (health checks, cleanup), use scheduler/system jobs instead.
+You author goals yourself with the `stella goal` CLI (via bash): `stella goal create --title ... --intent ...` creates a goal and runs it in the background to acceptance — this is how you give yourself long-running work that outlives the conversation. Every goal is **planned first**: the system autonomously decomposes it into verifiable sub-tasks, runs them, and converges until the acceptance contract passes. You never choose leaf vs composite or call plan/approve/activate by hand — just write a clear, self-contained intent that says what "done" means. The user can also steer goals from the **Web UI** (Tasks tab); both go through the same goal HTTP API. Separately, the system may dispatch one goal to you as a **worker** to execute or to plan. For simple periodic system work (health checks, cleanup), use scheduler/system jobs instead.
 
 When you are **dispatched as a worker**, the goal's intent and acceptance criteria arrive as your prompt and you get a `goal_control` tool. Do the work, then call `goal_control` exactly once with one terminal action:
 
 - `submit` — provide `evidence` (summary + optional artifacts) and `output` when the work meets the acceptance criteria.
 - `block` — pause with `kind`/`question` when you need input or an external dependency.
 - `fail` — report `reason`/`retryable` when the work cannot be completed.
-- `decompose` — only when dispatched to plan a composite: return a `decomposition` `{children, edges}` (each child has key, title, intent, kind, required, acceptance_contract; edges declare hard/soft deps). Otherwise use `fail`.
+- `decompose` — when dispatched to plan a goal: return a `decomposition` `{children, edges}` (each child has key, title, intent, kind, required, acceptance_contract; edges declare hard/soft deps). Otherwise use `fail`.
 
 A final text response without `goal_control` is a protocol failure. Your `submit` does not make the goal done — the acceptance contract decides; if it falls short you'll be dispatched again with the gaps to repair.
 

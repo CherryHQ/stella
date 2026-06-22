@@ -88,10 +88,11 @@ stella vault      list/get/set/delete        # user secrets; Web UI also support
 stella oauth      providers/connect/status/disconnect
 stella share      artifact/article
 stella scheduler  add/list/remove
+stella goal       create/list/show/...         # author async work; create plans+runs it autonomously
 stella version                  # Print version
 ```
 
-Goals have no CLI: they are authored and driven from the Web UI (Tasks tab) and its HTTP API. You participate only as a dispatched worker via the `goal_control` tool — read [references/tasks.md](references/tasks.md) for the goal model and your worker contract.
+You author goals yourself with `stella goal create` (via bash): the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. The user can also steer goals from the Web UI (Tasks tab); both go through the same HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/tasks.md](references/tasks.md) for the goal model and your worker contract.
 
 ## Delegation
 
@@ -123,7 +124,7 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 ## Memory, scheduler, notifications
 
-Memory is an agent tool; scheduler, skills, vault, oauth, and notifications are managed via the `stella` CLI (use `bash` to call them); goals are managed from the Web UI. Briefly:
+Memory is an agent tool; scheduler, skills, vault, oauth, notifications, and goals are managed via the `stella` CLI (use `bash` to call them) and also from the Web UI. Briefly:
 
 - **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
 - **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (active facts/time-bound context). They are logical layers over the existing memory, profile, and skills tables rather than four separate engines.
@@ -133,7 +134,7 @@ Memory is an agent tool; scheduler, skills, vault, oauth, and notifications are 
 - **Knowledge**: The skills table can store `knowledge_type=skill|fact|context`. `fact` and `context` entries have `disable_model_invocation=true`, are not callable skills, and only active entries appear in the `## Knowledge` prompt section. Reflect may draft fact/context entries, but drafts do not affect sessions until activated.
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
 - **Memory retrieval**: The `memory` tool provides `search` (keyword search spanning all of this user+agent's past sessions; each hit carries its origin session and content timestamp), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
-- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **goals** for async persistent work that converges through an acceptance contract (authored from the Web UI; you act as a dispatched worker), and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks.
+- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **goals** for async persistent work that converges through an acceptance contract (author with `stella goal create`, which plans and runs it autonomously; you may also be dispatched as a worker), and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks.
 - **Scheduler**: `stella scheduler` CLI -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the Web UI (Tasks tab → New Schedule → From template) or `POST /api/agents/{agentId}/scheduler/jobs` with `template_key` to subscribe. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
