@@ -54,20 +54,19 @@ multi-step builds, anything you want carried to completion on its own.`,
 func goalCreateCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "create",
-		Usage: "Create a goal and, by default, run it immediately in the background",
-		Description: `Creates a goal and (unless --activate=false) activates it so the dispatcher
-picks it up and executes it in the background. A leaf (default) is executed
-directly; a composite is planned first — propose its children with
-"stella goal plan", then "stella goal approve" to materialize and run them.
+		Usage: "Create a goal; it is planned and run in the background automatically",
+		Description: `Creates a goal and runs it in the background to acceptance. Every goal is
+planned first: the dispatcher autonomously decomposes it into verifiable
+sub-tasks, runs them, and converges the goal until its acceptance contract
+passes — you never pick "leaf vs composite" or call plan/approve/activate by
+hand.
 
-The background worker sees only the title and intent you provide — write a
+The planner and workers see only the title and intent you provide — write a
 clear, self-contained intent describing what "done" means.`,
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "title", Usage: "Short title (required)", Required: true},
 			&ucli.StringFlag{Name: "intent", Usage: `What "done" means — the acceptance target in prose`},
-			&ucli.StringFlag{Name: "kind", Usage: "leaf (default, directly executed) or composite (planned first)", Value: "leaf"},
 			&ucli.StringFlag{Name: "priority", Usage: "routine (default) or urgent"},
-			&ucli.BoolFlag{Name: "activate", Usage: "Activate immediately for a direct background run", Value: true},
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
@@ -75,18 +74,12 @@ clear, self-contained intent describing what "done" means.`,
 			if err != nil {
 				return err
 			}
-			activate := c.Bool("activate")
 			body := apiclient.CreateGoalJSONRequestBody{
-				Title:    c.String("title"),
-				AgentId:  agentID,
-				Activate: &activate,
+				Title:   c.String("title"),
+				AgentId: agentID,
 			}
 			if v := c.String("intent"); v != "" {
 				body.Intent = &v
-			}
-			if v := c.String("kind"); v != "" {
-				k := apitypes.CreateGoalRequestKind(v)
-				body.Kind = &k
 			}
 			if v := c.String("priority"); v != "" {
 				p := apitypes.CreateGoalRequestPriority(v)

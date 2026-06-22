@@ -194,15 +194,16 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title and agent_id are required")
 		return
 	}
-	in := goal.CreateInput{UserID: userID, AgentID: body.AgentId, Title: body.Title}
+	// Every user-created goal is a planned composite: it must go through plan +
+	// decomposition into verifiable sub-tasks before any work runs. There is no
+	// top-level direct-leaf execution — leaves exist only as planner-produced
+	// children. The request's kind is ignored.
+	in := goal.CreateInput{UserID: userID, AgentID: body.AgentId, Title: body.Title, Kind: goal.KindComposite}
 	if body.Intent != nil {
 		in.Intent = *body.Intent
 	}
 	if body.ProjectId != nil {
 		in.ProjectID = *body.ProjectId
-	}
-	if body.Kind != nil {
-		in.Kind = string(*body.Kind)
 	}
 	if body.Priority != nil {
 		in.Priority = string(*body.Priority)
@@ -221,14 +222,9 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		goalError(w, err)
 		return
 	}
-	if body.Activate != nil && *body.Activate && created.Kind == goal.KindLeaf {
-		activated, err := s.goalSvc.Activate(ctx, created.ID)
-		if err != nil {
-			goalError(w, err)
-			return
-		}
-		created = activated
-	}
+	// No activation here: a review_policy=none composite is autonomously planned by
+	// the dispatcher (scanAndDecompose) once it lands in draft; a review_policy=human
+	// composite is planned interactively. The plan gate runs after decomposition.
 	writeData(w, http.StatusCreated, goalToAPI(created))
 }
 
