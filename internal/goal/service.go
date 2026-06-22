@@ -351,11 +351,16 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 			Priority:           priority,
 			Required:           in.Required,
 			AcceptanceContract: marshalJSON(in.Contract),
-			ConvergencePolicy:  marshalJSON(in.Convergence),
-			ReviewPolicy:       reviewPolicy,
-			Lifecycle:          LifecycleDraft,
-			Context:            contextJSON,
-			DispatchHint:       dispatchHint,
+			// Materialize the effective policy at create time so the persisted row
+			// and the create response show real defaults (max_attempts 3, block,
+			// depth 4, concurrent 8) instead of a bare zero policy. Runtime callers
+			// still Normalize defensively; freezing here also means a later default
+			// change never silently alters an existing goal's budget.
+			ConvergencePolicy: marshalJSON(in.Convergence.Normalized()),
+			ReviewPolicy:      reviewPolicy,
+			Lifecycle:         LifecycleDraft,
+			Context:           contextJSON,
+			DispatchHint:      dispatchHint,
 		})
 		if err != nil {
 			return fmt.Errorf("create goal: %w", err)
