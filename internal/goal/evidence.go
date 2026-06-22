@@ -69,6 +69,13 @@ type AcceptedOutput struct {
 	Hash          string         `json:"hash"`        // feeds downstream cache_key (§4.1) + verdict scope_hash (§4.2)
 	AcceptedAt    string         `json:"accepted_at"` // RFC3339 UTC
 	SourceAttempt string         `json:"source_attempt_id"`
+	// Children carries the frozen accepted output of each accepted child, set only
+	// on a composite's rollup output. A composite produces no work of its own, so
+	// this is how its deliverables travel with the parent: a reader of the root
+	// goal gets the tree's results without walking children. Nested composites
+	// compose (a child composite's Children is already filled when it accepted).
+	// Empty for leaves. Bounded by fanout (max_concurrent) x depth (max_depth).
+	Children []AcceptedOutput `json:"children,omitempty"`
 }
 
 // AcceptanceEventDetail is the truncated/hash-addressed payload on an

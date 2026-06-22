@@ -232,6 +232,22 @@ func TestCompositeRollup_RequiredAcceptedCounterAndAccept(t *testing.T) {
 	if !got.AcceptedOutput.Valid {
 		t.Fatalf("accepted composite has no frozen accepted_output")
 	}
+	// The composite's rollup output carries each accepted child's frozen output so
+	// a reader of the parent sees the deliverables without walking children. All
+	// three children accepted (two required + one advisory); every produced
+	// deliverable is collected, advisory included.
+	var ao AcceptedOutput
+	if err := unmarshalNullJSON(got.AcceptedOutput, &ao); err != nil {
+		t.Fatalf("decode composite accepted_output: %v", err)
+	}
+	if len(ao.Children) != 3 {
+		t.Fatalf("composite accepted_output.children = %d, want 3 (every accepted child)", len(ao.Children))
+	}
+	for i, c := range ao.Children {
+		if c.Summary != "ok" {
+			t.Errorf("child[%d] output summary = %q, want %q (the leaf's frozen output)", i, c.Summary, "ok")
+		}
+	}
 }
 
 // TestCompositeRollup_RequiredFailedGatesComposite proves the section 6 fail path:

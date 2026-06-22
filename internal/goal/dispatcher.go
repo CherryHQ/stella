@@ -526,6 +526,30 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 	})
 }
 
+// childAcceptedOutputs returns the frozen accepted output of every accepted
+// child of parentID, in plan order. It feeds a composite's rollup output so the
+// parent carries its deliverables inline. A child with no (or malformed)
+// accepted output is skipped rather than failing the rollup — a missing
+// snapshot must never block the parent's acceptance.
+func childAcceptedOutputs(ctx context.Context, q *sqlc.Queries, parentID string) ([]AcceptedOutput, error) {
+	rows, err := q.ListGoalChildren(ctx, pgtype.Text{String: parentID, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	var out []AcceptedOutput
+	for _, c := range rows {
+		if !c.AcceptedOutput.Valid {
+			continue
+		}
+		var ao AcceptedOutput
+		if err := unmarshalNullJSON(c.AcceptedOutput, &ao); err != nil {
+			continue
+		}
+		out = append(out, ao)
+	}
+	return out, nil
+}
+
 // RollupAccept runs a composite parent's own Accept gate once all required
 // children are accepted (contract §6, RollupComposite ⇒ accept_parent). A
 // trivial-contract composite accepts immediately; an authored contract folds via
@@ -553,11 +577,18 @@ func (s *GoalService) RollupAccept(ctx context.Context, id string) error {
 			return ErrInvalidTransition
 		}
 		// The composite's accepted output is the synthesized fact that all its
-		// required children accepted; downstream consumers read its summary.
+		// required children accepted; it also carries each accepted child's frozen
+		// output so a reader of the parent sees the deliverables without walking
+		// children (a composite produces no work of its own).
+		kids, err := childAcceptedOutputs(ctx, q, cur.ID)
+		if err != nil {
+			return fmt.Errorf("collect child outputs: %w", err)
+		}
 		accepted := AcceptedOutput{
 			GoalID:     cur.ID,
 			Summary:    cur.Title,
 			AcceptedAt: s.now(),
+			Children:   kids,
 		}
 		rows, err := q.AcceptGoal(ctx, sqlc.AcceptGoalParams{
 			AcceptedOutput: marshalNullJSON(accepted),
