@@ -42,20 +42,19 @@ goal 的验收契约*派生*出来的，不由 agent 断言；工作通过有界
 
 一个 **Goal** 拥有自己的意图、分解、验收、尝试与收敛。根 goal 是用户的目标；它的
 children 是 goal；再下一层也是——同一个形状一路到底。`kind` 区分**叶子**（worker 执行）与
-**复合**（分解为子项）。分解不是 peer object，是 goal 的 _revision_。attempt 不是 peer
-object，是 goal 的 _执行 episode_。review 不是 peer object，是 _验收证据来源_。
+**复合**（分解为子项）。分解不是 peer object，是复合 goal 的 _内联 plan_（`goal.plan`）。attempt
+不是 peer object，是 goal 的 _执行 episode_。review 不是 peer object，是 _验收证据来源_。
 
 ### 运行实体
 
-四个运行实体加一个可选的版本表——刻意做小；超过这个就有过度建模风险。
+四个运行实体——刻意做小；超过这个就有过度建模风险。
 
-| 实体                     | 职责                                                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `goal`                   | intent + `acceptance_contract` + `convergence_policy` + 可空 `parent_id` + 可空 accepted output。                  |
-| `goal_edge`              | 兄弟 goal 间的 accepted-output 依赖（`hard` 阻塞；`soft` 是建议性上下文）。                                        |
-| `attempt`                | 一次执行 episode：一个持久 agent session、冻结的输入上下文、提交的 evidence（evidence 折进 attempt，不单独建表）。 |
-| `acceptance_event`       | 确定性 check 结果或判断性 verdict 的 append-only 记录。Goal 的验收状态是这些事件之上的**缓存投影**，不是可变列。   |
-| `goal_revision` _(可选)_ | 一个分解版本。用于多层分解；叶子 goal 不带它。                                                                     |
+| 实体               | 职责                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `goal`             | intent + `acceptance_contract` + `convergence_policy` + 可空 `parent_id` + 可空 accepted output。复合 goal 另在 `plan`（jsonb）与 `planned_at` 栅栏内联保存其分解。 |
+| `goal_edge`        | 兄弟 goal 间的 accepted-output 依赖（`hard` 阻塞；`soft` 是建议性上下文）。                                                                                         |
+| `attempt`          | 一次执行 episode：一个持久 agent session、冻结的输入上下文、提交的 evidence（evidence 折进 attempt，不单独建表）。                                                  |
+| `acceptance_event` | 确定性 check 结果或判断性 verdict 的 append-only 记录。Goal 的验收状态是这些事件之上的**缓存投影**，不是可变列。                                                    |
 
 `acceptance_event` 做成 append-only（而非可变的评估表）对审计与投影重建更友好——见
 [简单性与可扩展性](#简单性与可扩展性)。
@@ -175,7 +174,7 @@ design/impl 最多是 category 或内部阶段。
 | 用户目标（根）     | `goal`，`parent_id = NULL`                 |
 | 子目标 / 子任务    | 子 `goal`                                  |
 | 目标 lifecycle     | `goal` lifecycle 状态（派生）              |
-| plan               | `goal_revision`（分解版本）                |
+| plan               | `goal.plan`（内联分解）                    |
 | plan items         | 提案子 goal                                |
 | worker 执行的 task | 叶子 `goal`                                |
 | task running       | `attempt` running                          |

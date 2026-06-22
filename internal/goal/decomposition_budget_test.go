@@ -103,11 +103,8 @@ func TestDecompositionBudgetExhausted_ParentBlocks(t *testing.T) {
 			ReviewPolicy:       ReviewNone,
 		}},
 	}
-	rev := cmp_decompose(t, h, root.ID, content)
-	if _, err := h.svc.Accept(ctx, rev.ID, UserActor(h.userID)); err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
-	childA := childID(rev.ID, "a")
+	cmp_decompose(t, h, root.ID, content)
+	childA := childID(root.ID, "a")
 	if got := h.get(childA); got.Kind != KindComposite || got.Lifecycle != LifecycleDraft {
 		t.Fatalf("materialized child kind=%q lifecycle=%q want composite/draft", got.Kind, got.Lifecycle)
 	}

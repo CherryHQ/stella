@@ -26,11 +26,15 @@ const (
 )
 
 // Block reasons (meaningful only when lifecycle='blocked'). Precedence on
-// concurrent causes: budget_exhausted > needs_verdict > dep.
+// concurrent causes: budget_exhausted > needs_plan_approval > needs_verdict > dep.
+// needs_plan_approval is a composite's human-review gate on its proposed plan,
+// before any child is materialized; it cannot co-occur with dep/needs_verdict
+// (those require materialized children / a submitted attempt).
 const (
-	BlockBudgetExhausted = "budget_exhausted"
-	BlockNeedsVerdict    = "needs_verdict"
-	BlockDep             = "dep"
+	BlockBudgetExhausted   = "budget_exhausted"
+	BlockNeedsPlanApproval = "needs_plan_approval"
+	BlockNeedsVerdict      = "needs_verdict"
+	BlockDep               = "dep"
 )
 
 // Acceptance projection — the evaluation RESULT, distinct from lifecycle.
@@ -55,15 +59,6 @@ const (
 	PurposeExecution     = "execution"
 	PurposeDecomposition = "decomposition"
 	PurposeReview        = "review"
-)
-
-// Revision (decomposition-review) status (contract §2.3).
-const (
-	RevisionDraft      = "draft"
-	RevisionInReview   = "in_review"
-	RevisionAccepted   = "accepted"
-	RevisionRejected   = "rejected"
-	RevisionSuperseded = "superseded"
 )
 
 // Goal kind.
@@ -142,7 +137,7 @@ func ValidLifecycle(s string) bool {
 // ValidBlockReason reports whether s is a known block reason.
 func ValidBlockReason(s string) bool {
 	switch s {
-	case BlockBudgetExhausted, BlockNeedsVerdict, BlockDep:
+	case BlockBudgetExhausted, BlockNeedsPlanApproval, BlockNeedsVerdict, BlockDep:
 		return true
 	}
 	return false
@@ -171,15 +166,6 @@ func ValidAttemptStatus(s string) bool {
 func ValidPurpose(s string) bool {
 	switch s {
 	case PurposeExecution, PurposeDecomposition, PurposeReview:
-		return true
-	}
-	return false
-}
-
-// ValidRevisionStatus reports whether s is a known revision status.
-func ValidRevisionStatus(s string) bool {
-	switch s {
-	case RevisionDraft, RevisionInReview, RevisionAccepted, RevisionRejected, RevisionSuperseded:
 		return true
 	}
 	return false
@@ -263,17 +249,17 @@ func UserActor(userID string) Actor { return Actor{Type: ActorUser, ID: userID} 
 // cover the guard/validation failures the rest of the package raises.
 var (
 	// ErrInvalidTransition is returned when a transition's from-lifecycle (or
-	// attempt/revision from-status) no longer matches the row. Another tick
+	// attempt from-status) no longer matches the row. Another tick
 	// raced this one; the caller may re-fetch and retry.
 	ErrInvalidTransition = errors.New("goal: invalid lifecycle transition")
 
-	// ErrNotFound is returned when the target goal/attempt/revision/edge
+	// ErrNotFound is returned when the target goal/attempt/edge
 	// no longer exists.
 	ErrNotFound = errors.New("goal: not found")
 
 	// ErrPlanGate is returned by Activate when the plan gate is unmet: a leaf
-	// with an empty non-trivial contract, or a composite without a materialized
-	// revision / no required children.
+	// with an empty non-trivial contract, or a composite that is not yet planned
+	// (planned_at unset) / has no required children.
 	ErrPlanGate = errors.New("goal: plan gate not satisfied")
 
 	// ErrBudgetExhausted is informational: convergence reached MaxAttempts. The
@@ -291,7 +277,7 @@ var (
 	// forever. Put deterministic checks on a leaf child, or use judgment items.
 	ErrCompositeDeterministicContract = errors.New("goal: composite contract cannot contain deterministic items")
 
-	// ErrInvalidDecomposition is returned when a revision's DecompositionContent
+	// ErrInvalidDecomposition is returned when a composite's DecompositionContent
 	// fails validation (no required child, dangling edge key, etc.).
 	ErrInvalidDecomposition = errors.New("goal: invalid decomposition")
 

@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -231,10 +230,9 @@ func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEv
 			out.Hash = HashWithArtifacts(out, ev.Artifacts)
 		}
 		rows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
-			Evidence:   marshalJSON(ev),
-			Output:     marshalJSON(out),
-			RevisionID: pgtype.Text{},
-			ID:         attemptID,
+			Evidence: marshalJSON(ev),
+			Output:   marshalJSON(out),
+			ID:       attemptID,
 		})
 		if err != nil {
 			return fmt.Errorf("submit attempt: %w", err)
@@ -358,13 +356,15 @@ func (s *GoalService) recoverDecomposition(ctx context.Context, q *sqlc.Queries,
 }
 
 // SubmitDecomposition applies a successful autonomous decomposition attempt: it
-// records the produced plan as an accepted revision, materializes the children,
-// and releases them so the goal tree runs (contract §2.3, §6). It is the
+// records the produced plan on the composite goal, then branches on review policy
+// (contract §2.3, §6). For review_policy=none it materializes the children and
+// releases them so the tree runs; for review_policy=human it parks the composite
+// blocked(needs_plan_approval) so a human can ApprovePlan/RejectPlan. It is the
 // decomposition analogue of Submit and the single durable transition the worker
-// applies for a purpose=decomposition attempt. Child sessions are pre-minted
-// OUTSIDE the tx (their own minting tx would self-deadlock against the held one);
-// everything else — accept revision, submit attempt, materialize, release
-// children — runs in ONE tx so a crash never leaves a half-planned composite.
+// applies for a purpose=decomposition attempt. For the none path child sessions
+// are pre-minted OUTSIDE the tx (their own minting tx would self-deadlock against
+// the held one); everything else runs in ONE tx so a crash never leaves a
+// half-planned composite.
 func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string, ev AttemptEvidence, content DecompositionContent) error {
 	att, err := s.q.GetAttempt(ctx, attemptID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -383,8 +383,100 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 	if err := s.validateContent(ctx, parent, content); err != nil {
 		return err
 	}
+	humanReview := parent.ReviewPolicy == ReviewHuman
 
-	// Pre-mint a session per child OUTSIDE the tx (mirrors acceptAndMaterialize).
+	// Pre-mint a session per child OUTSIDE the tx, but only for the none path that
+	// materializes now. The human path defers materialize (and session minting) to
+	// ApprovePlan, so it mints nothing here.
+	childSessions := make(map[string]string, len(content.Children))
+	if !humanReview {
+		if s.newSession == nil {
+			return fmt.Errorf("goal: no worker session minter configured")
+		}
+		for _, ch := range content.Children {
+			sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
+			if err != nil {
+				return fmt.Errorf("mint child session %q: %w", ch.Key, err)
+			}
+			childSessions[ch.Key] = sid
+		}
+	}
+
+	return s.withTx(ctx, func(q *sqlc.Queries) error {
+		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
+			return fmt.Errorf("lock goal for decomposition submit: %w", err)
+		}
+		// Record the proposed plan on the composite.
+		if err := q.SetGoalPlan(ctx, sqlc.SetGoalPlanParams{Plan: marshalJSON(content), ID: parent.ID}); err != nil {
+			return fmt.Errorf("set goal plan: %w", err)
+		}
+		// Finalize the decomposition attempt (running->submitted) so the reaper
+		// never recovers it after we move the goal on.
+		subRows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
+			Evidence: marshalJSON(ev),
+			Output:   emptyJSON,
+			ID:       attemptID,
+		})
+		if err != nil {
+			return fmt.Errorf("submit decomposition attempt: %w", err)
+		}
+		if subRows == 0 {
+			return ErrInvalidTransition // not the running attempt (reaped / raced)
+		}
+		if err := q.ClearGoalActiveAttempt(ctx, parent.ID); err != nil {
+			return fmt.Errorf("clear active attempt: %w", err)
+		}
+
+		if humanReview {
+			// Park the composite for human approval (active->blocked). The plan sits
+			// in goal.plan until ApprovePlan materializes it or RejectPlan re-plans.
+			// Mirror the budget-block path: do NOT eagerly bump the parent counter;
+			// the reconcile backstop counts lifecycle='blocked' children.
+			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+				ToLifecycle:   LifecycleBlocked,
+				BlockReason:   BlockNeedsPlanApproval,
+				ID:            parent.ID,
+				FromLifecycle: LifecycleActive,
+			})
+			if err != nil {
+				return fmt.Errorf("block for plan approval: %w", err)
+			}
+			if rows == 0 {
+				return ErrInvalidTransition
+			}
+			return nil
+		}
+
+		// review_policy=none: materialize now and release children. The composite
+		// stays active for rollup.
+		if err := s.Materialize(ctx, q, parent, content, childSessions); err != nil {
+			return err
+		}
+		return s.releaseChildren(ctx, q, parent.ID)
+	})
+}
+
+// ApprovePlan applies a human approval of a composite's proposed plan: it
+// materializes the children and releases them, moving the composite out of
+// blocked(needs_plan_approval) back to active for rollup (contract §2.3). Child
+// sessions are pre-minted OUTSIDE the tx (mirrors the none path in
+// SubmitDecomposition). Only a composite blocked on plan approval is accepted.
+func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) error {
+	parent, err := getGoal(ctx, s.q, goalID)
+	if err != nil {
+		return err
+	}
+	if parent.Kind != KindComposite || parent.Lifecycle != LifecycleBlocked ||
+		parent.BlockReason != BlockNeedsPlanApproval {
+		return ErrInvalidTransition
+	}
+	var content DecompositionContent
+	if err := unmarshalJSON(parent.Plan, &content); err != nil {
+		return fmt.Errorf("%w: goal plan: %w", ErrInvalidDecomposition, err)
+	}
+	if err := s.validateContent(ctx, parent, content); err != nil {
+		return err
+	}
 	if s.newSession == nil {
 		return fmt.Errorf("goal: no worker session minter configured")
 	}
@@ -398,55 +490,70 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 	}
 
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		// Serialize revision_no allocation against a concurrent writer.
 		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
-			return fmt.Errorf("lock goal for decomposition submit: %w", err)
+			return fmt.Errorf("lock goal for plan approval: %w", err)
 		}
-		maxNo, err := q.GetMaxRevisionNo(ctx, parent.ID)
+		// Re-read under the lock: a concurrent reject/approve may have moved it.
+		cur, err := getGoal(ctx, q, parent.ID)
 		if err != nil {
-			return fmt.Errorf("max revision no: %w", err)
-		}
-		rev, err := q.CreateRevision(ctx, sqlc.CreateRevisionParams{
-			ID:              newID(),
-			GoalID:          parent.ID,
-			RevisionNo:      maxNo + 1,
-			Status:          RevisionDraft,
-			ReviewPolicy:    parent.ReviewPolicy,
-			Content:         marshalJSON(content),
-			SourceAttemptID: pgnull.Text(attemptID),
-		})
-		if err != nil {
-			return fmt.Errorf("create revision: %w", err)
-		}
-		// Accept draft->accepted (sets accepted_at, required by the Materialize
-		// fence) then record the attempt as submitted, anchoring the revision.
-		if rows, err := q.AcceptRevision(ctx, rev.ID); err != nil {
-			return fmt.Errorf("accept revision: %w", err)
-		} else if rows == 0 {
-			return ErrInvalidTransition
-		}
-		rev.Status = RevisionAccepted // reflect the accept for Materialize's fence check
-		subRows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
-			Evidence:   marshalJSON(ev),
-			Output:     emptyJSON,
-			RevisionID: pgnull.Text(rev.ID),
-			ID:         attemptID,
-		})
-		if err != nil {
-			return fmt.Errorf("submit decomposition attempt: %w", err)
-		}
-		if subRows == 0 {
-			return ErrInvalidTransition // not the running attempt (reaped / raced)
-		}
-		// Materialize children/edges; sets parent.accepted_revision_id + required_total.
-		if err := s.Materialize(ctx, q, rev, parent, childSessions); err != nil {
 			return err
 		}
-		// The decomposition attempt is done; the composite stays active for rollup.
-		if err := q.ClearGoalActiveAttempt(ctx, parent.ID); err != nil {
-			return fmt.Errorf("clear active attempt: %w", err)
+		if cur.Lifecycle != LifecycleBlocked || cur.BlockReason != BlockNeedsPlanApproval {
+			return ErrInvalidTransition
 		}
-		return s.releaseChildren(ctx, q, parent.ID)
+		if err := s.Materialize(ctx, q, cur, content, childSessions); err != nil {
+			return err
+		}
+		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+			ToLifecycle:   LifecycleActive,
+			BlockReason:   "",
+			ID:            cur.ID,
+			FromLifecycle: LifecycleBlocked,
+		})
+		if err != nil {
+			return fmt.Errorf("activate after plan approval: %w", err)
+		}
+		if rows == 0 {
+			return ErrInvalidTransition
+		}
+		return s.releaseChildren(ctx, q, cur.ID)
+	})
+}
+
+// RejectPlan applies a human rejection of a composite's proposed plan: it clears
+// the plan and returns the composite to draft so the dispatcher re-decomposes it
+// (contract §2.3). Only a composite blocked on plan approval AND not yet
+// materialized (planned_at IS NULL) is accepted — replan after materialize is not
+// supported (childID would collide; see materializer.go).
+func (s *GoalService) RejectPlan(ctx context.Context, goalID, reason string, by Actor) error {
+	return s.withTx(ctx, func(q *sqlc.Queries) error {
+		if err := q.LockGoalForWrite(ctx, goalID); err != nil {
+			return fmt.Errorf("lock goal for plan reject: %w", err)
+		}
+		cur, err := getGoal(ctx, q, goalID)
+		if err != nil {
+			return err
+		}
+		if cur.Kind != KindComposite || cur.Lifecycle != LifecycleBlocked ||
+			cur.BlockReason != BlockNeedsPlanApproval || cur.PlannedAt.Valid {
+			return ErrInvalidTransition
+		}
+		if err := q.SetGoalPlan(ctx, sqlc.SetGoalPlanParams{Plan: emptyJSON, ID: cur.ID}); err != nil {
+			return fmt.Errorf("clear goal plan: %w", err)
+		}
+		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+			ToLifecycle:   LifecycleDraft,
+			BlockReason:   "",
+			ID:            cur.ID,
+			FromLifecycle: LifecycleBlocked,
+		})
+		if err != nil {
+			return fmt.Errorf("return goal to draft after plan reject: %w", err)
+		}
+		if rows == 0 {
+			return ErrInvalidTransition
+		}
+		return nil
 	})
 }
 

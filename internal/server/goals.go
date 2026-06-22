@@ -92,17 +92,6 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, id
 	return d, true
 }
 
-// loadRevision fetches a revision and enforces that it belongs to the given
-// goal (path parentage), reporting a mismatch/miss as 404.
-func (s *Server) loadRevision(ctx context.Context, w http.ResponseWriter, d sqlc.AgentGoal, revID string) (sqlc.AgentGoalRevision, bool) {
-	rev, err := s.goalSvc.GetRevision(ctx, revID)
-	if err != nil || rev.GoalID != d.ID {
-		writeError(w, http.StatusNotFound, "not_found")
-		return sqlc.AgentGoalRevision{}, false
-	}
-	return rev, true
-}
-
 // ── List / CRUD ──────────────────────────────────────────────────────────────
 
 // ListGoals lists root goals (goals) by default; `?parent={id}`
@@ -179,7 +168,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 
 // CreateGoal mints a root goal (goal). With activate=true a leaf is
 // activated immediately (direct run); the flag is ignored for a composite, which
-// must be planned via the revisions endpoints first.
+// is decomposed and materialized by the dispatcher first.
 func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	userID, ok := s.goalAuth(w, r)
 	if !ok {
@@ -621,10 +610,11 @@ func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, up
 	writeError(w, http.StatusNotFound, "not_found")
 }
 
-// ── Revisions (decomposition) ────────────────────────────────────────────────
+// ── Plan approval (composite decomposition gate) ─────────────────────────────
 
-// ListRevisions lists a composite's decomposition revisions (newest first).
-func (s *Server) ListRevisions(w http.ResponseWriter, r *http.Request, id string) {
+// ApprovePlan approves a composite's proposed plan (blocked(needs_plan_approval)),
+// materializing its children and resuming the tree.
+func (s *Server) ApprovePlan(w http.ResponseWriter, r *http.Request, id string) {
 	userID, ok := s.goalAuth(w, r)
 	if !ok {
 		return
@@ -633,16 +623,21 @@ func (s *Server) ListRevisions(w http.ResponseWriter, r *http.Request, id string
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rows, err := s.goalSvc.ListRevisions(ctx, id)
+	if err := s.goalSvc.ApprovePlan(ctx, id, goal.UserActor(userID)); err != nil {
+		goalError(w, err)
+		return
+	}
+	d, err := s.goalSvc.GetGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, revisionListAPI(rows))
+	writeData(w, http.StatusOK, goalToAPI(d))
 }
 
-// PutRevision authors/stages a decomposition edit as a new draft revision.
-func (s *Server) PutRevision(w http.ResponseWriter, r *http.Request, id string) {
+// RejectPlan rejects a composite's proposed plan, returning it to draft so the
+// dispatcher re-decomposes it.
+func (s *Server) RejectPlan(w http.ResponseWriter, r *http.Request, id string) {
 	userID, ok := s.goalAuth(w, r)
 	if !ok {
 		return
@@ -651,179 +646,20 @@ func (s *Server) PutRevision(w http.ResponseWriter, r *http.Request, id string) 
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	var body apitypes.DecompositionContent
-	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	rev, err := s.goalSvc.PutRevision(ctx, id, toDecomposition(body), "")
-	if err != nil {
-		goalError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, revisionToAPI(rev))
-}
-
-// StartDecomposition begins a composite's decomposition in a planning session.
-func (s *Server) StartDecomposition(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
-		return
-	}
-	att, err := s.goalSvc.StartDecomposition(ctx, id)
-	if err != nil {
-		goalError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, apitypes.DecompositionSession{PlanningSessionId: att.SessionID})
-}
-
-// AcceptRevision auto-accepts a draft revision (review_policy=none).
-func (s *Server) AcceptRevision(w http.ResponseWriter, r *http.Request, id string, revId string) {
-	userID, ok := s.goalAuth(w, r)
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-	d, ok := s.loadGoal(ctx, w, userID, id)
-	if !ok {
-		return
-	}
-	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
-		return
-	}
-	rev, err := s.goalSvc.AcceptRevision(ctx, revId, goal.UserActor(userID))
-	if err != nil {
-		goalError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, revisionToAPI(rev))
-}
-
-// SubmitRevisionReview moves a draft revision into human review.
-func (s *Server) SubmitRevisionReview(w http.ResponseWriter, r *http.Request, id string, revId string) {
-	userID, ok := s.goalAuth(w, r)
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-	d, ok := s.loadGoal(ctx, w, userID, id)
-	if !ok {
-		return
-	}
-	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
-		return
-	}
-	rev, err := s.goalSvc.SubmitRevisionReview(ctx, revId)
-	if err != nil {
-		goalError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, revisionToAPI(rev))
-}
-
-// ApproveRevision accepts an in_review revision (human approval).
-func (s *Server) ApproveRevision(w http.ResponseWriter, r *http.Request, id string, revId string) {
-	userID, ok := s.goalAuth(w, r)
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-	d, ok := s.loadGoal(ctx, w, userID, id)
-	if !ok {
-		return
-	}
-	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
-		return
-	}
 	var body apitypes.DecisionRequest
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	rev, err := s.goalSvc.ApproveRevision(ctx, revId, goal.UserActor(userID))
+	if err := s.goalSvc.RejectPlan(ctx, id, derefStr(body.Reason), goal.UserActor(userID)); err != nil {
+		goalError(w, err)
+		return
+	}
+	d, err := s.goalSvc.GetGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, revisionToAPI(rev))
-}
-
-// RejectRevision rejects an in_review revision (composite stays active for rework).
-func (s *Server) RejectRevision(w http.ResponseWriter, r *http.Request, id string, revId string) {
-	userID, ok := s.goalAuth(w, r)
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-	d, ok := s.loadGoal(ctx, w, userID, id)
-	if !ok {
-		return
-	}
-	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
-		return
-	}
-	var body apitypes.DecisionRequest
-	if !decodeOptionalBody(w, r, &body) {
-		return
-	}
-	rev, err := s.goalSvc.RejectRevision(ctx, revId, derefStr(body.Reason), goal.UserActor(userID))
-	if err != nil {
-		goalError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, revisionToAPI(rev))
-}
-
-// RequestChangesRevision sends an in_review revision back to draft for edits.
-func (s *Server) RequestChangesRevision(w http.ResponseWriter, r *http.Request, id string, revId string) {
-	userID, ok := s.goalAuth(w, r)
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-	d, ok := s.loadGoal(ctx, w, userID, id)
-	if !ok {
-		return
-	}
-	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
-		return
-	}
-	var body apitypes.DecisionRequest
-	if !decodeOptionalBody(w, r, &body) {
-		return
-	}
-	rev, err := s.goalSvc.RequestChangesRevision(ctx, revId, derefStr(body.Reason), goal.UserActor(userID))
-	if err != nil {
-		goalError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, revisionToAPI(rev))
-}
-
-// MaterializeRevision creates the revision's children + edges and lists them.
-func (s *Server) MaterializeRevision(w http.ResponseWriter, r *http.Request, id string, revId string) {
-	userID, ok := s.goalAuth(w, r)
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-	d, ok := s.loadGoal(ctx, w, userID, id)
-	if !ok {
-		return
-	}
-	if _, ok := s.loadRevision(ctx, w, d, revId); !ok {
-		return
-	}
-	children, err := s.goalSvc.MaterializeRevision(ctx, revId)
-	if err != nil {
-		goalError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, goalListAPI(children, "", nil))
+	writeData(w, http.StatusOK, goalToAPI(d))
 }
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
@@ -860,12 +696,6 @@ func toContract(c apitypes.AcceptanceContract) goal.AcceptanceContract {
 
 func toConvergence(c apitypes.ConvergencePolicy) goal.ConvergencePolicy {
 	var out goal.ConvergencePolicy
-	jsonRoundTrip(c, &out)
-	return out
-}
-
-func toDecomposition(c apitypes.DecompositionContent) goal.DecompositionContent {
-	var out goal.DecompositionContent
 	jsonRoundTrip(c, &out)
 	return out
 }
@@ -924,7 +754,8 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		ProjectId:          nullToPtr(d.ProjectID),
 		ParentId:           nullToPtr(d.ParentID),
 		ActiveAttemptId:    nullToPtr(d.ActiveAttemptID),
-		AcceptedRevisionId: nullToPtr(d.AcceptedRevisionID),
+		Plan:               jsonObject(d.Plan),
+		PlannedAt:          parseTimePtr(d.PlannedAt),
 		AcceptedAt:         parseTimePtr(d.AcceptedAt),
 		CancelledAt:        parseTimePtr(d.CancelledAt),
 		ArchivedAt:         parseTimePtr(d.ArchivedAt),
@@ -958,7 +789,6 @@ func attemptToAPI(a sqlc.AgentGoalAttempt) apitypes.Attempt {
 		WorkerId:        optStr(a.WorkerID),
 		AgentId:         nullToPtr(a.AgentID),
 		ExecutorAgentId: nullToPtr(a.ExecutorAgentID),
-		RevisionId:      nullToPtr(a.RevisionID),
 		InputContext:    jsonObject(a.InputContext),
 		Evidence:        jsonObject(a.Evidence),
 		Output:          jsonObject(a.Output),
@@ -1026,31 +856,6 @@ func edgeToAPI(e sqlc.AgentGoalEdge) apitypes.Edge {
 	}
 }
 
-func revisionListAPI(rows []sqlc.AgentGoalRevision) apitypes.RevisionList {
-	out := make([]apitypes.Revision, 0, len(rows))
-	for _, rev := range rows {
-		out = append(out, revisionToAPI(rev))
-	}
-	return apitypes.RevisionList{Revisions: out}
-}
-
-func revisionToAPI(r sqlc.AgentGoalRevision) apitypes.Revision {
-	return apitypes.Revision{
-		Id:                r.ID,
-		GoalId:            r.GoalID,
-		RevisionNo:        int(r.RevisionNo),
-		Status:            apitypes.RevisionStatus(r.Status),
-		ReviewPolicy:      apitypes.RevisionReviewPolicy(r.ReviewPolicy),
-		CreatedAt:         r.CreatedAt.UTC(),
-		UpdatedAt:         r.UpdatedAt.UTC(),
-		Content:           parseDecompositionContent(r.Content),
-		SourceAttemptId:   nullToPtr(r.SourceAttemptID),
-		PlanningSessionId: nullToPtr(r.PlanningSessionID),
-		AcceptedAt:        parseTimePtr(r.AcceptedAt),
-		MaterializedAt:    parseTimePtr(r.MaterializedAt),
-	}
-}
-
 func readinessToAPI(r goal.Readiness) apitypes.Readiness {
 	out := apitypes.Readiness{
 		State:        apitypes.ReadinessState(r.State),
@@ -1070,9 +875,9 @@ func readinessToAPI(r goal.Readiness) apitypes.Readiness {
 	return out
 }
 
-// parseAcceptanceContract / parseConvergencePolicy / parseDecompositionContent
-// decode a stored TEXT JSON column into the typed API shape, returning nil for an
-// empty/trivial value so the field is omitted.
+// parseAcceptanceContract / parseConvergencePolicy decode a stored TEXT JSON
+// column into the typed API shape, returning nil for an empty/trivial value so
+// the field is omitted.
 func parseAcceptanceContract(s json.RawMessage) *apitypes.AcceptanceContract {
 	if len(s) == 0 || string(s) == "{}" {
 		return nil
@@ -1092,17 +897,6 @@ func parseConvergencePolicy(s json.RawMessage) *apitypes.ConvergencePolicy {
 		return nil
 	}
 	var c apitypes.ConvergencePolicy
-	if err := json.Unmarshal(s, &c); err != nil {
-		return nil
-	}
-	return &c
-}
-
-func parseDecompositionContent(s json.RawMessage) *apitypes.DecompositionContent {
-	if len(s) == 0 || string(s) == "{}" {
-		return nil
-	}
-	var c apitypes.DecompositionContent
 	if err := json.Unmarshal(s, &c); err != nil {
 		return nil
 	}

@@ -62,7 +62,6 @@ type AgentGoal struct {
 	RequiredAccepted   int64              `json:"required_accepted"`
 	RequiredFailed     int64              `json:"required_failed"`
 	RequiredBlocked    int64              `json:"required_blocked"`
-	AcceptedRevisionID pgtype.Text        `json:"accepted_revision_id"`
 	Context            json.RawMessage    `json:"context"`
 	DispatchHint       json.RawMessage    `json:"dispatch_hint"`
 	CreatedAt          time.Time          `json:"created_at"`
@@ -70,6 +69,8 @@ type AgentGoal struct {
 	AcceptedAt         pgtype.Timestamptz `json:"accepted_at"`
 	CancelledAt        pgtype.Timestamptz `json:"cancelled_at"`
 	ArchivedAt         pgtype.Timestamptz `json:"archived_at"`
+	Plan               json.RawMessage    `json:"plan"`
+	PlannedAt          pgtype.Timestamptz `json:"planned_at"`
 }
 
 type AgentGoalAcceptanceEvent struct {
@@ -106,7 +107,6 @@ type AgentGoalAttempt struct {
 	InputContext    json.RawMessage    `json:"input_context"`
 	Evidence        json.RawMessage    `json:"evidence"`
 	Output          json.RawMessage    `json:"output"`
-	RevisionID      pgtype.Text        `json:"revision_id"`
 	Gaps            json.RawMessage    `json:"gaps"`
 	Error           string             `json:"error"`
 	HeartbeatAt     pgtype.Timestamptz `json:"heartbeat_at"`
@@ -127,21 +127,6 @@ type AgentGoalEdge struct {
 	WaivedByUser pgtype.Text        `json:"waived_by_user"`
 	WaiverReason string             `json:"waiver_reason"`
 	CreatedAt    time.Time          `json:"created_at"`
-}
-
-type AgentGoalRevision struct {
-	ID                string             `json:"id"`
-	GoalID            string             `json:"goal_id"`
-	RevisionNo        int64              `json:"revision_no"`
-	Status            string             `json:"status"`
-	ReviewPolicy      string             `json:"review_policy"`
-	Content           json.RawMessage    `json:"content"`
-	SourceAttemptID   pgtype.Text        `json:"source_attempt_id"`
-	PlanningSessionID pgtype.Text        `json:"planning_session_id"`
-	AcceptedAt        pgtype.Timestamptz `json:"accepted_at"`
-	MaterializedAt    pgtype.Timestamptz `json:"materialized_at"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
 }
 
 type AppSetting struct {

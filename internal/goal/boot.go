@@ -328,17 +328,6 @@ func (s *Service) ListEdges(ctx context.Context, id string) ([]sqlc.AgentGoalEdg
 	return s.Queries.ListEdgeByGoal(ctx, id)
 }
 
-// ListRevisions returns the decomposition revisions of a composite, newest first.
-func (s *Service) ListRevisions(ctx context.Context, id string) ([]sqlc.AgentGoalRevision, error) {
-	return s.Queries.ListRevisionByGoal(ctx, id)
-}
-
-// GetRevision returns one revision by id (handlers use it to enforce
-// goal↔revision parentage before applying a decision).
-func (s *Service) GetRevision(ctx context.Context, revisionID string) (sqlc.AgentGoalRevision, error) {
-	return s.Queries.GetRevision(ctx, revisionID)
-}
-
 // ── Command surface (delegates to GoalService — the single writer) ────
 
 // CreateGoal mints a root goal (a goal) in 'draft', minting its
@@ -412,78 +401,16 @@ func (s *Service) SubmitVerdict(ctx context.Context, in VerdictInput) error {
 	return s.Goal.SubmitVerdict(ctx, in)
 }
 
-// PutRevision authors/stages a decomposition edit as a new draft revision.
-func (s *Service) PutRevision(ctx context.Context, goalID string, content DecompositionContent, sourceAttemptID string) (sqlc.AgentGoalRevision, error) {
-	return s.Goal.CreateRevision(ctx, goalID, content, sourceAttemptID)
+// ApprovePlan approves a composite's proposed plan (blocked(needs_plan_approval)),
+// materializing its children and resuming the tree.
+func (s *Service) ApprovePlan(ctx context.Context, goalID string, by Actor) error {
+	return s.Goal.ApprovePlan(ctx, goalID, by)
 }
 
-// StartDecomposition begins a composite's decomposition (draft→active), minting a
-// decomposition attempt in the planning session.
-func (s *Service) StartDecomposition(ctx context.Context, id string) (sqlc.AgentGoalAttempt, error) {
-	return s.Goal.BeginDecomposition(ctx, id)
-}
-
-// AcceptRevision auto-accepts a draft revision (review_policy=none).
-func (s *Service) AcceptRevision(ctx context.Context, revisionID string, by Actor) (sqlc.AgentGoalRevision, error) {
-	return s.Goal.Accept(ctx, revisionID, by)
-}
-
-// SubmitRevisionReview moves a draft revision into human review.
-func (s *Service) SubmitRevisionReview(ctx context.Context, revisionID string) (sqlc.AgentGoalRevision, error) {
-	return s.Goal.SubmitForReview(ctx, revisionID)
-}
-
-// ApproveRevision accepts an in_review revision (human approval).
-func (s *Service) ApproveRevision(ctx context.Context, revisionID string, by Actor) (sqlc.AgentGoalRevision, error) {
-	return s.Goal.Approve(ctx, revisionID, by)
-}
-
-// RejectRevision rejects an in_review revision (composite stays active; rework).
-func (s *Service) RejectRevision(ctx context.Context, revisionID, reason string, by Actor) (sqlc.AgentGoalRevision, error) {
-	return s.Goal.Reject(ctx, revisionID, reason, by)
-}
-
-// RequestChangesRevision sends an in_review revision back to draft for edits.
-func (s *Service) RequestChangesRevision(ctx context.Context, revisionID, note string, by Actor) (sqlc.AgentGoalRevision, error) {
-	return s.Goal.RequestChanges(ctx, revisionID, note, by)
-}
-
-// MaterializeRevision creates the revision's children + edges in one tx, then
-// lists the materialized children. Child sessions are pre-minted OUTSIDE the tx
-// (keyed by child.Key) to avoid a self-deadlock and keep session-minting off the tx's connection.
-func (s *Service) MaterializeRevision(ctx context.Context, revisionID string) ([]sqlc.AgentGoal, error) {
-	rev, err := s.Queries.GetRevision(ctx, revisionID)
-	if err != nil {
-		return nil, err
-	}
-	if rev.Status != RevisionAccepted {
-		// Materialize only an accepted revision. The in-tx fence (MaterializeRevision
-		// requires accepted_at) would reject it anyway, but guarding here avoids
-		// minting child sessions and opening a tx that can only roll back.
-		return nil, ErrInvalidTransition
-	}
-	parent, err := getGoal(ctx, s.Queries, rev.GoalID)
-	if err != nil {
-		return nil, err
-	}
-	var content DecompositionContent
-	if err := unmarshalJSON(rev.Content, &content); err != nil {
-		return nil, fmt.Errorf("goal: revision content: %w", err)
-	}
-	childSessions := make(map[string]string, len(content.Children))
-	for _, ch := range content.Children {
-		sid, err := s.Goal.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
-		if err != nil {
-			return nil, fmt.Errorf("goal: mint child session %q: %w", ch.Key, err)
-		}
-		childSessions[ch.Key] = sid
-	}
-	if err := s.Goal.withTx(ctx, func(qtx *sqlc.Queries) error {
-		return s.Goal.Materialize(ctx, qtx, rev, parent, childSessions)
-	}); err != nil {
-		return nil, err
-	}
-	return s.Queries.ListGoalChildren(ctx, pgnull.Text(parent.ID))
+// RejectPlan rejects a composite's proposed plan, returning it to draft for the
+// dispatcher to re-decompose.
+func (s *Service) RejectPlan(ctx context.Context, goalID, reason string, by Actor) error {
+	return s.Goal.RejectPlan(ctx, goalID, reason, by)
 }
 
 // nilIfEmpty returns an invalid pgtype.Text for an empty string so a sqlc

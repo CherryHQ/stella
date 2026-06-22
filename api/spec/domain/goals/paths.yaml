@@ -478,124 +478,40 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{id}/revisions:
+  /api/goals/{id}/plan/approve:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
-    get:
+    post:
       tags: [goals]
-      summary: List a composite's decomposition revisions (newest first)
-      operationId: listRevisions
+      summary: Approve a composite's proposed plan (blocked(needs_plan_approval))
+      description: >
+        Materializes the composite's proposed plan into child goals and resumes
+        the tree. Valid only when the composite is blocked(needs_plan_approval).
+      operationId: approvePlan
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema:
-                {
-                  $ref: "../../components.yaml#/components/schemas/RevisionList",
-                }
-        "401":
-          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    put:
-      tags: [goals]
-      summary: Author/stage a decomposition edit as a new draft revision
-      operationId: putRevision
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              {
-                $ref: "../../components.yaml#/components/schemas/DecompositionContent",
-              }
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                { $ref: "../../components.yaml#/components/schemas/Revision" }
-        "400":
-          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+                { $ref: "../../components.yaml#/components/schemas/Goal" }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{id}/revisions/start:
+  /api/goals/{id}/plan/reject:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
-      summary: Begin a composite's decomposition in a dedicated planning session
-      operationId: startDecomposition
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                {
-                  $ref: "../../components.yaml#/components/schemas/DecompositionSession",
-                }
-        "401":
-          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409":
-          { $ref: "../../components.yaml#/components/responses/Conflict" }
-
-  /api/goals/{id}/revisions/{revId}/accept:
-    parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: revId, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [goals]
-      summary: Accept a draft revision (review_policy=none)
-      operationId: acceptRevision
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                { $ref: "../../components.yaml#/components/schemas/Revision" }
-        "401":
-          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409":
-          { $ref: "../../components.yaml#/components/responses/Conflict" }
-
-  /api/goals/{id}/revisions/{revId}/submit-review:
-    parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: revId, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [goals]
-      summary: Submit a draft revision for human review (→ in_review)
-      operationId: submitRevisionReview
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                { $ref: "../../components.yaml#/components/schemas/Revision" }
-        "401":
-          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409":
-          { $ref: "../../components.yaml#/components/responses/Conflict" }
-
-  /api/goals/{id}/revisions/{revId}/approve:
-    parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: revId, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [goals]
-      summary: Approve an in_review revision (human approval)
-      operationId: approveRevision
+      summary: Reject a composite's proposed plan (returns it to draft for re-planning)
+      description: >
+        Clears the proposed plan and returns the composite to draft so the
+        dispatcher re-decomposes it. Valid only when the composite is
+        blocked(needs_plan_approval) and not yet materialized.
+      operationId: rejectPlan
       requestBody:
         required: false
         content:
@@ -610,88 +526,7 @@ paths:
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/Revision" }
-        "401":
-          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409":
-          { $ref: "../../components.yaml#/components/responses/Conflict" }
-
-  /api/goals/{id}/revisions/{revId}/reject:
-    parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: revId, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [goals]
-      summary: Reject an in_review revision (composite stays active for rework)
-      operationId: rejectRevision
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              {
-                $ref: "../../components.yaml#/components/schemas/DecisionRequest",
-              }
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                { $ref: "../../components.yaml#/components/schemas/Revision" }
-        "401":
-          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409":
-          { $ref: "../../components.yaml#/components/responses/Conflict" }
-
-  /api/goals/{id}/revisions/{revId}/request-changes:
-    parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: revId, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [goals]
-      summary: Request changes on an in_review revision (back to draft)
-      operationId: requestChangesRevision
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              {
-                $ref: "../../components.yaml#/components/schemas/DecisionRequest",
-              }
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                { $ref: "../../components.yaml#/components/schemas/Revision" }
-        "401":
-          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409":
-          { $ref: "../../components.yaml#/components/responses/Conflict" }
-
-  /api/goals/{id}/revisions/{revId}/materialize:
-    parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: revId, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [goals]
-      summary: Materialize an accepted revision into the composite's children
-      operationId: materializeRevision
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                {
-                  $ref: "../../components.yaml#/components/schemas/GoalList",
-                }
+                { $ref: "../../components.yaml#/components/schemas/Goal" }
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

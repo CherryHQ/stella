@@ -307,7 +307,7 @@ func (d *Dispatcher) scanAndClaim(ctx context.Context, now time.Time) {
 }
 
 // scanAndDecompose drives autonomous planning: every composite awaiting
-// decomposition (draft, review_policy=none, no plan, no manual revision open) gets
+// decomposition (draft, not yet planned) gets
 // a headless decomposition attempt minted + enqueued in one tx, moving it
 // draft→active so the next tick skips it. The River worker runs the planner and
 // applies the result (SubmitDecomposition) or recovers it on failure. A nil

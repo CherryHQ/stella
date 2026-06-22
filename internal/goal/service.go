@@ -46,7 +46,7 @@ type ExecutorRequest struct {
 
 // ExecutorResult is the executor's declared outcome for one attempt. Exactly
 // one of the submit/fail paths is meaningful; the worker maps it to a single
-// service transition. Decomposition attempts carry a produced revision content.
+// service transition. Decomposition attempts carry produced plan content.
 type ExecutorResult struct {
 	Submitted     bool
 	Evidence      AttemptEvidence
@@ -450,8 +450,8 @@ func orDefault(v *string, fallback string) string {
 }
 
 // Activate is the plan gate: draft→ready (contract §2.1). A leaf passes when its
-// contract has items or is explicitly trivial; a composite passes when it has a
-// materialized revision and required_total ≥ 1. A composite flips its draft
+// contract has items or is explicitly trivial; a composite passes when it is
+// planned (planned_at set) and required_total ≥ 1. A composite flips its draft
 // children → ready. Returns ErrPlanGate when unmet.
 func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, error) {
 	var out sqlc.AgentGoal
@@ -503,10 +503,10 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 // planGateSatisfied reports whether a draft goal clears its plan gate
 // (contract §2.1). A leaf passes when its contract has items or is explicitly
 // trivial (the empty auto-accept degradation is always allowed). A composite
-// passes only with a materialized revision and required_total ≥ 1.
+// passes only once its plan is materialized (planned_at set) and required_total ≥ 1.
 func (s *GoalService) planGateSatisfied(d sqlc.AgentGoal) bool {
 	if d.Kind == KindComposite {
-		return d.AcceptedRevisionID.Valid && d.AcceptedRevisionID.String != "" && d.RequiredTotal >= 1
+		return d.PlannedAt.Valid && d.RequiredTotal >= 1
 	}
 	// Leaf: an authored contract has items; a trivial ({}) contract auto-accepts.
 	// Both clear the gate — a leaf is never gated on a non-trivial empty contract

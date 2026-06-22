@@ -879,7 +879,7 @@ components:
           ]
         block_reason:
           type: string
-          enum: ["", budget_exhausted, needs_verdict, dep]
+          enum: ["", budget_exhausted, needs_plan_approval, needs_verdict, dep]
           description: Meaningful only when lifecycle=blocked.
         acceptance_state:
           type: string
@@ -906,10 +906,17 @@ components:
           type: integer
         required_blocked:
           type: integer
-        accepted_revision_id:
+        plan:
+          type: object
+          additionalProperties: {}
+          description: >
+            A composite's proposed decomposition (DecompositionContent: children + edges). Empty for a leaf or an unplanned composite. While blocked(needs_plan_approval) this holds the plan awaiting a human decision.
+
+        planned_at:
           type: string
+          format: date-time
           nullable: true
-          description: The decomposition revision whose children this composite was materialized from.
+          description: Set once the composite's plan is materialized into children (the plan gate).
         context:
           type: object
           additionalProperties: {}
@@ -968,7 +975,7 @@ components:
           type: string
           enum: [leaf, composite]
           description: >-
-            'leaf' (default) is a directly-executed goal; 'composite' is decomposed via the revisions endpoints before it can activate.
+            'leaf' (default) is a directly-executed goal; 'composite' is decomposed into children (the plan is materialized) before it can activate.
         priority:
           type: string
           enum: [routine, urgent]
@@ -1115,9 +1122,6 @@ components:
         output:
           type: object
           additionalProperties: {}
-        revision_id:
-          type: string
-          nullable: true
         gaps:
           type: object
           additionalProperties: {}
@@ -1292,65 +1296,10 @@ components:
       properties:
         reason:
           type: string
-    # ── Revisions (decomposition proposals) ──────────────────────────────────
-    Revision:
-      type: object
-      required: [
-        id,
-        goal_id,
-        revision_no,
-        status,
-        review_policy,
-        created_at,
-        updated_at,
-      ]
-      properties:
-        id:
-          type: string
-        goal_id:
-          type: string
-        revision_no:
-          type: integer
-        status:
-          type: string
-          enum: [draft, in_review, accepted, rejected, superseded]
-        review_policy:
-          type: string
-          enum: [none, human]
-        content:
-          allOf: [{ $ref: "#/components/schemas/DecompositionContent" }]
-          nullable: true
-        source_attempt_id:
-          type: string
-          nullable: true
-        planning_session_id:
-          type: string
-          nullable: true
-        accepted_at:
-          type: string
-          format: date-time
-          nullable: true
-        materialized_at:
-          type: string
-          format: date-time
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-    RevisionList:
-      type: object
-      required: [revisions]
-      properties:
-        revisions:
-          type: array
-          items:
-            $ref: "#/components/schemas/Revision"
+    # ── Decomposition plan (a composite's proposed children + edges) ──────────
     DecompositionContent:
       type: object
-      description: A revision's proposed children + sibling edges.
+      description: A composite's proposed children + sibling edges (its plan).
       required: [children]
       properties:
         children:
@@ -1367,7 +1316,7 @@ components:
       properties:
         key:
           type: string
-          description: Stable id within the revision; the materialize idempotency anchor.
+          description: Stable id within the plan; the materialize idempotency anchor.
         title:
           type: string
         intent:
@@ -1400,17 +1349,10 @@ components:
           enum: [block, fail, ignore]
     DecisionRequest:
       type: object
-      description: A review decision (approve/reject/request-changes) note.
+      description: A plan decision (reject) note.
       properties:
         reason:
           type: string
-    DecompositionSession:
-      type: object
-      required: [planning_session_id]
-      properties:
-        planning_session_id:
-          type: string
-          description: The dedicated session the composite is decomposed in.
     # ── Readiness (computed dispatchability view) ────────────────────────────
     Readiness:
       type: object

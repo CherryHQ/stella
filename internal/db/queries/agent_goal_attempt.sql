@@ -50,7 +50,6 @@ UPDATE agent_goal_attempt
 SET status = 'submitted',
     evidence = sqlc.arg(evidence),
     output = sqlc.arg(output),
-    revision_id = sqlc.arg(revision_id),
     finished_at = now(),
     updated_at = now()
 WHERE id = sqlc.arg(id) AND status = 'running';

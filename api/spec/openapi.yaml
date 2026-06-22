@@ -336,22 +336,10 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1edges"
   /api/goals/{id}/edges/{upstreamId}/waive:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1edges~1{upstreamId}~1waive"
-  /api/goals/{id}/revisions:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1revisions"
-  /api/goals/{id}/revisions/start:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1revisions~1start"
-  /api/goals/{id}/revisions/{revId}/accept:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1revisions~1{revId}~1accept"
-  /api/goals/{id}/revisions/{revId}/submit-review:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1revisions~1{revId}~1submit-review"
-  /api/goals/{id}/revisions/{revId}/approve:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1revisions~1{revId}~1approve"
-  /api/goals/{id}/revisions/{revId}/reject:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1revisions~1{revId}~1reject"
-  /api/goals/{id}/revisions/{revId}/request-changes:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1revisions~1{revId}~1request-changes"
-  /api/goals/{id}/revisions/{revId}/materialize:
-    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1revisions~1{revId}~1materialize"
+  /api/goals/{id}/plan/approve:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1plan~1approve"
+  /api/goals/{id}/plan/reject:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1plan~1reject"
   # ── Groups ─────────────────────────────────────────────────────────────────
   /api/groups:
     $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups"
@@ -658,8 +646,6 @@ components:
     WaiveRequest: {
       $ref: "./components.yaml#/components/schemas/WaiveRequest",
     }
-    Revision: { $ref: "./components.yaml#/components/schemas/Revision" }
-    RevisionList: { $ref: "./components.yaml#/components/schemas/RevisionList" }
     DecompositionContent: {
       $ref: "./components.yaml#/components/schemas/DecompositionContent",
     }
@@ -671,9 +657,6 @@ components:
     }
     DecisionRequest: {
       $ref: "./components.yaml#/components/schemas/DecisionRequest",
-    }
-    DecompositionSession: {
-      $ref: "./components.yaml#/components/schemas/DecompositionSession",
     }
     Readiness: { $ref: "./components.yaml#/components/schemas/Readiness" }
     ReadinessReason: {

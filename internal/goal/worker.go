@@ -200,8 +200,9 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 
 // applyDecompositionResult applies a planner attempt's outcome as the single
 // durable transition. A successful attempt carries the produced plan, which
-// SubmitDecomposition records as an accepted revision and materializes (→ release
-// children) in one tx. Any non-submit terminal (fail / no decomposition /
+// SubmitDecomposition stores inline on the goal and (review_policy=none)
+// materializes + releases children in one tx, or (human) parks it
+// blocked(needs_plan_approval). Any non-submit terminal (fail / no decomposition /
 // protocol miss) is a failed plan attempt that convergence recovers within the
 // plan budget (recoverDecomposition). Errors are recorded as a failed attempt,
 // not returned, so applyResult itself always succeeds.

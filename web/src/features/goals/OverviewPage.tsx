@@ -328,6 +328,8 @@ function hookLabel(t: ReturnType<typeof useI18n>["t"], d: ComponentsGoal): strin
   switch (d.block_reason) {
     case "needs_verdict":
       return t("goals.hookNeedsVerdict");
+    case "needs_plan_approval":
+      return t("goals.hookNeedsPlanApproval");
     case "budget_exhausted":
       return t("goals.hookBudget");
     case "dep":
