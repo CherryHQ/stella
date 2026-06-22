@@ -522,6 +522,47 @@ func TestCompositeRollup_RecoverBlockedParentAfterNestedPlanApproval(t *testing.
 	}
 }
 
+// TestCompositeRollup_ReattemptComposite proves a budget-exhausted composite (its
+// planner kept failing) re-enters at DRAFT on Reattempt, never ready: ready is a
+// leaf-only state with no ready->active path, so a composite landed there would
+// strand. The raised budget meters DECOMPOSITION attempts, letting a fresh plan run.
+func TestCompositeRollup_ReattemptComposite(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	root := h.createRoot(KindComposite, AcceptanceContract{})
+
+	// Exhaust the plan budget (defaultMaxAttempts): each decomposition attempt fails,
+	// charging one plan unit until recoverDecomposition parks it budget_exhausted.
+	for i := range defaultMaxAttempts {
+		att, err := h.svc.BeginDecomposition(ctx, root.ID)
+		if err != nil {
+			t.Fatalf("BeginDecomposition #%d: %v", i+1, err)
+		}
+		if err := h.svc.FailAttempt(ctx, att.ID, "planner boom"); err != nil {
+			t.Fatalf("FailAttempt #%d: %v", i+1, err)
+		}
+	}
+	if got := h.get(root.ID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockBudgetExhausted {
+		t.Fatalf("composite lifecycle=%q reason=%q want blocked/budget_exhausted", got.Lifecycle, got.BlockReason)
+	}
+
+	// Reattempt must return the composite to DRAFT (re-decompose), not ready.
+	if err := h.svc.Reattempt(ctx, root.ID, UserActor(h.userID)); err != nil {
+		t.Fatalf("Reattempt: %v", err)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleDraft {
+		t.Fatalf("composite after Reattempt lifecycle=%q want draft", got)
+	}
+
+	// The raised plan budget lets a fresh decomposition run and succeed.
+	cmp_decompose(t, h, root.ID, DecompositionContent{
+		Children: []ProposedChild{cmp_child("a", true)},
+	})
+	if got := h.get(root.ID).Lifecycle; got != LifecycleActive {
+		t.Fatalf("composite after re-decompose lifecycle=%q want active", got)
+	}
+}
+
 // TestCompositeRollup_RejectsNoRequiredChild proves the section 6 structural guard:
 // a decomposition with zero required children is invalid -- SubmitDecomposition
 // rejects it (validateContent -> ValidateDecomposition: >=1 required child) so a
