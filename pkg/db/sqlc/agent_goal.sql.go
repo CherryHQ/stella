@@ -374,6 +374,82 @@ func (q *Queries) IncrGoalRequiredFailed(ctx context.Context, id string) error {
 	return err
 }
 
+const listDecomposableComposites = `-- name: ListDecomposableComposites :many
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, accepted_revision_id, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at FROM agent_goal
+WHERE kind = 'composite'
+  AND lifecycle = 'draft'
+  AND review_policy = 'none'
+  AND accepted_revision_id IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM agent_goal_revision r
+    WHERE r.goal_id = agent_goal.id AND r.status IN ('draft', 'in_review')
+  )
+ORDER BY priority DESC, created_at ASC
+LIMIT $1
+`
+
+// Composites awaiting autonomous decomposition: freshly created (draft), no plan
+// materialized yet, review_policy='none' (human-review composites are planned
+// interactively, not auto-driven), and no open revision (a manual plan in
+// progress). The dispatcher mints + enqueues a decomposition attempt for each,
+// moving it draft->active so it is not re-picked.
+func (q *Queries) ListDecomposableComposites(ctx context.Context, limit int32) ([]AgentGoal, error) {
+	rows, err := q.db.Query(ctx, listDecomposableComposites, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentGoal{}
+	for rows.Next() {
+		var i AgentGoal
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.ProjectID,
+			&i.ParentID,
+			&i.RootID,
+			&i.Depth,
+			&i.Position,
+			&i.SessionID,
+			&i.Title,
+			&i.Intent,
+			&i.Kind,
+			&i.Priority,
+			&i.Required,
+			&i.AcceptanceContract,
+			&i.ConvergencePolicy,
+			&i.ReviewPolicy,
+			&i.Lifecycle,
+			&i.BlockReason,
+			&i.AcceptanceState,
+			&i.AcceptedOutput,
+			&i.AcceptanceSeq,
+			&i.ActiveAttemptID,
+			&i.AttemptCount,
+			&i.RequiredTotal,
+			&i.RequiredAccepted,
+			&i.RequiredFailed,
+			&i.RequiredBlocked,
+			&i.AcceptedRevisionID,
+			&i.Context,
+			&i.DispatchHint,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AcceptedAt,
+			&i.CancelledAt,
+			&i.ArchivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDispatchableLeaves = `-- name: ListDispatchableLeaves :many
 SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, accepted_revision_id, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at FROM agent_goal
 WHERE lifecycle = 'ready'

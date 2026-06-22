@@ -305,7 +305,6 @@ func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalPa
 const listStaleAttempts = `-- name: ListStaleAttempts :many
 SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt
 WHERE status IN ('queued', 'running')
-  AND purpose <> 'decomposition'
   AND lease_expires_at IS NOT NULL
   AND lease_expires_at < $1
 ORDER BY lease_expires_at ASC
@@ -317,10 +316,12 @@ type ListStaleAttemptsParams struct {
 	Limit int32              `json:"limit"`
 }
 
-// Lease-expired execution attempts only. Decomposition attempts run interactively
-// in a planning session, are never enqueued to River and never heartbeated, so
-// their lease is not a liveness signal; the reaper must skip them or it bounces an
-// active composite back to draft mid-planning.
+// Lease-expired attempts whose lease is a liveness signal. An attempt heartbeated
+// by a River worker (every execution attempt, and an autonomous decomposition
+// attempt) carries a forward-moving lease, so an expired lease means a genuine
+// orphan. Interactive decomposition attempts (planned in a session, never
+// enqueued/heartbeated) carry a NULL lease and are skipped by the IS NOT NULL
+// guard, so the reaper never bounces an active composite back to draft mid-planning.
 func (q *Queries) ListStaleAttempts(ctx context.Context, arg ListStaleAttemptsParams) ([]AgentGoalAttempt, error) {
 	rows, err := q.db.Query(ctx, listStaleAttempts, arg.Now, arg.Limit)
 	if err != nil {

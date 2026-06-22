@@ -192,6 +192,24 @@ WHERE lifecycle = 'ready'
 ORDER BY priority DESC, created_at ASC
 LIMIT $1;
 
+-- name: ListDecomposableComposites :many
+-- Composites awaiting autonomous decomposition: freshly created (draft), no plan
+-- materialized yet, review_policy='none' (human-review composites are planned
+-- interactively, not auto-driven), and no open revision (a manual plan in
+-- progress). The dispatcher mints + enqueues a decomposition attempt for each,
+-- moving it draft->active so it is not re-picked.
+SELECT * FROM agent_goal
+WHERE kind = 'composite'
+  AND lifecycle = 'draft'
+  AND review_policy = 'none'
+  AND accepted_revision_id IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM agent_goal_revision r
+    WHERE r.goal_id = agent_goal.id AND r.status IN ('draft', 'in_review')
+  )
+ORDER BY priority DESC, created_at ASC
+LIMIT $1;
+
 -- name: ListRollupCandidates :many
 SELECT * FROM agent_goal
 WHERE kind = 'composite'
