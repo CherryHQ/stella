@@ -285,6 +285,12 @@ var (
 	// ConvergencePolicy fails structural validation at the write boundary.
 	ErrInvalidContract = errors.New("goal: invalid acceptance contract")
 
+	// ErrCompositeDeterministicContract is returned when a composite goal carries
+	// a deterministic acceptance item. A composite produces no executed output, so
+	// the deterministic check has no event source and the fold would stall pending
+	// forever. Put deterministic checks on a leaf child, or use judgment items.
+	ErrCompositeDeterministicContract = errors.New("goal: composite contract cannot contain deterministic items")
+
 	// ErrInvalidDecomposition is returned when a revision's DecompositionContent
 	// fails validation (no required child, dangling edge key, etc.).
 	ErrInvalidDecomposition = errors.New("goal: invalid decomposition")

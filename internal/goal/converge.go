@@ -299,14 +299,24 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason string)
 // composite. It returns the composite to draft so the dispatcher re-decomposes it
 // next tick, until the plan budget is spent (convergence MaxAttempts) — then it
 // parks active->blocked(budget_exhausted) so a persistently failing planner waits
-// for a human instead of looping forever. charge=false skips the budget count for
-// a queued attempt the River worker never picked up (mirrors the leaf queued-reap
-// refund): that is queue backpressure, not a plan that ran and failed.
-func (s *GoalService) recoverDecomposition(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, charge bool) error {
+// for a human instead of looping forever.
+//
+// ran reports whether the planner attempt actually executed. The plan budget is
+// metered by GetMaxAttemptNo (the max decomposition attempt_no), which keeps
+// climbing across re-claims. A queued reap (ran=false) never executed — the
+// River worker never picked it up (queue backpressure under wide fanout) — yet
+// it still consumed an attempt_no, so we refund by raising MaxAttempts one step,
+// mirroring refundAndReopen on the leaf path. Without that refund a string of
+// queued reaps would burn the whole plan budget on attempts that never ran and
+// block the composite without a single real planning failure.
+func (s *GoalService) recoverDecomposition(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, ran bool) error {
 	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 		return fmt.Errorf("clear active attempt: %w", err)
 	}
-	if charge {
+	var pol ConvergencePolicy
+	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
+	pol = pol.Normalized()
+	if ran {
 		spent, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{
 			GoalID:  d.ID,
 			Purpose: PurposeDecomposition,
@@ -314,10 +324,22 @@ func (s *GoalService) recoverDecomposition(ctx context.Context, q *sqlc.Queries,
 		if err != nil {
 			return fmt.Errorf("max decomposition attempt no: %w", err)
 		}
-		var pol ConvergencePolicy
-		_ = unmarshalJSON(d.ConvergencePolicy, &pol)
-		if int(spent) >= pol.Normalized().MaxAttempts {
+		if int(spent) >= pol.MaxAttempts {
 			return s.blockBudget(ctx, q, d)
+		}
+	} else {
+		// Refund the attempt_no a queued reap consumed without executing.
+		pol.MaxAttempts++
+		if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
+			Title:              d.Title,
+			Intent:             d.Intent,
+			AcceptanceContract: d.AcceptanceContract,
+			ConvergencePolicy:  marshalJSON(pol),
+			ReviewPolicy:       d.ReviewPolicy,
+			Priority:           d.Priority,
+			ID:                 d.ID,
+		}); err != nil {
+			return fmt.Errorf("refund decomposition budget on queued reap: %w", err)
 		}
 	}
 	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{

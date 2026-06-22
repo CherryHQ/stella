@@ -42,16 +42,29 @@ type ProposedEdge struct {
 	OnFailure     string `json:"on_failure"` // block | fail | ignore
 }
 
+// maxDecompositionBreadth caps the children one decomposition may propose. A
+// planner (or a hand-authored revision) that emits thousands of children would
+// fan out unbounded DB inserts, sessions, and memory; a single plan never
+// legitimately needs more than this. Breadth-of-fanout per root is separately
+// throttled at dispatch by ConvergencePolicy.MaxConcurrent.
+const maxDecompositionBreadth = 64
+
 // ValidateDecomposition checks a DecompositionContent's structural invariants
-// (contract §6): ≥1 required child, every child Key unique and non-empty, every
-// edge key resolves to a child Key, no edge cycle (DFS over keys), known
-// enum values, and a depth budget (each composite child must leave room under
-// maxDepth — the per-child depth guard is enforced at materialize, but a
-// proposal that needs more than maxDepth levels is rejected early here when the
-// parent depth is known). Returns ErrInvalidDecomposition or ErrCycle.
+// (contract §6): ≥1 required child, at most maxDecompositionBreadth children,
+// every child Key unique and non-empty, every edge key resolves to a child Key,
+// no edge cycle (DFS over keys), known enum values, and a depth budget. A
+// composite produces no executed output, so a composite child may not carry a
+// deterministic acceptance item (its fold would stall forever) and must leave a
+// level of depth under maxDepth for its own children — both are enforced here at
+// the proposal boundary so a doomed plan is rejected before it consumes budget.
+// Returns ErrInvalidDecomposition, ErrInvalidContract, ErrDepthExceeded, or
+// ErrCycle.
 //
 // parentDepth is the composite's own depth; a child sits at parentDepth+1.
 func ValidateDecomposition(c DecompositionContent, parentDepth, maxDepth int) error {
+	if len(c.Children) > maxDecompositionBreadth {
+		return ErrInvalidDecomposition
+	}
 	keys := make(map[string]ProposedChild, len(c.Children))
 	requiredCount := 0
 	for _, ch := range c.Children {
@@ -66,6 +79,16 @@ func ValidateDecomposition(c DecompositionContent, parentDepth, maxDepth int) er
 		}
 		if !ch.AcceptanceContract.Valid() || !ch.ConvergencePolicy.Valid() {
 			return ErrInvalidContract
+		}
+		if ch.Kind == KindComposite {
+			// A composite child can never satisfy a deterministic item and must have
+			// room to decompose its own children at parentDepth+2.
+			if ch.AcceptanceContract.HasDeterministicItem() {
+				return ErrCompositeDeterministicContract
+			}
+			if parentDepth+2 > maxDepth {
+				return ErrDepthExceeded
+			}
 		}
 		if ch.ReviewPolicy != "" && !ValidReviewPolicy(ch.ReviewPolicy) {
 			return ErrInvalidDecomposition

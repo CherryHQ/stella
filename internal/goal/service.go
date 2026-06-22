@@ -311,6 +311,12 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 	if kind == "" {
 		kind = KindLeaf
 	}
+	// A composite produces no executed output, so a deterministic acceptance item
+	// would never get a check event and the fold would stall pending forever.
+	// Reject it at the write boundary (issue #579 CR-001).
+	if kind == KindComposite && in.Contract.HasDeterministicItem() {
+		return sqlc.AgentGoal{}, ErrCompositeDeterministicContract
+	}
 	priority := in.Priority
 	if priority == "" {
 		priority = PriorityRoutine

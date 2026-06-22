@@ -46,6 +46,7 @@ func goalError(w http.ResponseWriter, err error) {
 	case errors.Is(err, goal.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, goal.ErrInvalidContract),
+		errors.Is(err, goal.ErrCompositeDeterministicContract),
 		errors.Is(err, goal.ErrInvalidDecomposition),
 		errors.Is(err, goal.ErrDepthExceeded),
 		errors.Is(err, goal.ErrCycle),

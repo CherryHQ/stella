@@ -2,8 +2,73 @@ package goal
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
+
+// TestCreateGoal_CompositeDeterministicRejected pins CR-001 at the create
+// boundary: forcing every root to composite must not accept a deterministic
+// acceptance contract — it would have no check event source and stall the root
+// active forever. Judgment-only contracts and trivial contracts are fine.
+func TestCreateGoal_CompositeDeterministicRejected(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	_, err := h.svc.CreateRoot(ctx, CreateInput{
+		UserID: h.userID, AgentID: h.agentID, Title: "root", Intent: "x",
+		Kind: KindComposite, Required: true, Contract: detItemContract(),
+	})
+	if !errors.Is(err, ErrCompositeDeterministicContract) {
+		t.Fatalf("composite root with deterministic contract err=%v want ErrCompositeDeterministicContract", err)
+	}
+
+	// A judgment-only composite contract is allowed (resolved via SubmitVerdict).
+	if _, err := h.svc.CreateRoot(ctx, CreateInput{
+		UserID: h.userID, AgentID: h.agentID, Title: "root2", Intent: "x",
+		Kind: KindComposite, Required: true, Contract: humanJudgmentContract(),
+	}); err != nil {
+		t.Fatalf("composite root with judgment contract err=%v want nil", err)
+	}
+}
+
+// TestDecompositionQueuedReap_RefundsBudget pins CR-002: a queued decomposition
+// attempt reaped before River ever ran it (queue backpressure) must NOT charge
+// the plan budget. The reap returns the composite to draft and refunds the
+// attempt_no it consumed by raising MaxAttempts, so a string of queued reaps
+// can't block a composite without a single real planning failure.
+func TestDecompositionQueuedReap_RefundsBudget(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	root := h.createRoot(KindComposite, AcceptanceContract{}) // zero-value policy ⇒ MaxAttempts default
+	noop := AttemptEnqueuer(func(_ context.Context, _ pgx.Tx, _, _ string) error { return nil })
+
+	att, err := h.svc.BeginAutoDecomposition(ctx, root.ID, noop)
+	if err != nil {
+		t.Fatalf("BeginAutoDecomposition: %v", err)
+	}
+	if att.Status != AttemptQueued {
+		t.Fatalf("autonomous decomposition attempt status=%q want queued (River not run in tests)", att.Status)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleActive {
+		t.Fatalf("after BeginAutoDecomposition lifecycle=%q want active", got)
+	}
+
+	if err := h.svc.ReapAttempt(ctx, att.ID); err != nil {
+		t.Fatalf("ReapAttempt(queued): %v", err)
+	}
+	d := h.get(root.ID)
+	if d.Lifecycle != LifecycleDraft {
+		t.Fatalf("after queued reap lifecycle=%q want draft (not blocked — budget refunded)", d.Lifecycle)
+	}
+	var pol ConvergencePolicy
+	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
+	if pol.MaxAttempts != defaultMaxAttempts+1 {
+		t.Fatalf("after queued reap MaxAttempts=%d want %d (refund raised the ceiling)", pol.MaxAttempts, defaultMaxAttempts+1)
+	}
+}
 
 // TestDecompositionBudgetExhausted_ParentBlocks pins the autonomous-decomposition
 // budget path (issue #578) end to end: a composite child whose planner never
