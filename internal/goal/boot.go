@@ -92,7 +92,7 @@ func (s *Service) StartDispatchTick() (rivertype.PeriodicJobHandle, error) {
 	handle := s.river.PeriodicJobs().Add(river.NewPeriodicJob(
 		river.PeriodicInterval(s.Dispatcher.TickInterval()),
 		func() (river.JobArgs, *river.InsertOpts) {
-			return goalTickArgs{}, goalTickInsertOpts()
+			return goalTickArgs{}, goalTickInsertOpts(s.Dispatcher.TickInterval())
 		},
 		&river.PeriodicJobOpts{RunOnStart: true},
 	))

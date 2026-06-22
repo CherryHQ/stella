@@ -165,22 +165,31 @@ func RegisterGoalTickWorker(workers *river.Workers, d *Dispatcher, log *slog.Log
 }
 
 // goalTickInsertOpts is the InsertOpts the tick periodic enqueues with: the tick
-// queue, no River-level retry, and ByState uniqueness so a new tick is skipped
-// while one is still available/pending/scheduled. It deliberately OMITS running:
-// a tick orphaned in 'running' by a hard crash (SIGKILL/OOM) would otherwise
-// dedupe-skip every later tick — including the failover leader's RunOnStart —
-// until River's 24h stuck-job rescue, freezing the whole convergence engine
-// (reaper included). Dropping running lets a new tick enqueue right after a crash;
-// Dispatcher.Tick is idempotent, so an extra pass after failover is harmless. Still
-// bounds the queue to a single QUEUED tick cluster-wide.
-func goalTickInsertOpts() *river.InsertOpts {
+// queue, no River-level retry, and uniqueness that bounds the queue to a single
+// live tick while staying crash-safe.
+//
+// River v3 forces ByState to include running (UniqueOpts.validate rejects any
+// custom set missing available/pending/running/scheduled), so we cannot drop
+// running the way CR-002 originally did. Instead we scope uniqueness to a time
+// window with ByPeriod=tickInterval: within one window duplicate fires (e.g. a
+// failover leader's RunOnStart racing the scheduled fire) collapse to one tick,
+// but the NEXT window keys a fresh unique value — so a tick orphaned in 'running'
+// by a hard crash (SIGKILL/OOM) no longer dedupe-skips every later tick until
+// River's 24h stuck-job rescue. Dispatcher.Tick is idempotent, so the occasional
+// overlapping pass this allows is harmless. Completed/discarded stay out of the
+// set so a finished tick never blocks the next one. tickInterval is clamped to
+// River's 1s ByPeriod minimum.
+func goalTickInsertOpts(tickInterval time.Duration) *river.InsertOpts {
+	period := max(tickInterval, time.Second)
 	return &river.InsertOpts{
 		Queue:       GoalTickQueue,
 		MaxAttempts: 1,
 		UniqueOpts: river.UniqueOpts{
+			ByPeriod: period,
 			ByState: []rivertype.JobState{
 				rivertype.JobStateAvailable,
 				rivertype.JobStatePending,
+				rivertype.JobStateRunning,
 				rivertype.JobStateScheduled,
 			},
 		},

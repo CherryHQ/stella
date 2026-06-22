@@ -2,6 +2,7 @@ package goal
 
 import (
 	"testing"
+	"time"
 
 	"github.com/riverqueue/river/rivertype"
 )
@@ -12,13 +13,15 @@ import (
 // would only surface in a live multi-node run, so they are pinned here.
 
 // TestGoalTickInsertOpts pins the uniqueness contract that makes the convergence
-// tick single-leader-safe: at most one QUEUED tick of this kind, deduped by state
-// (NOT by args, since the payload is empty) with Completed and Running deliberately
-// excluded — Completed so a finished tick never blocks the next one, Running
-// (CR-002) so a tick orphaned by a hard crash cannot freeze convergence for up to
-// 24h until River's stuck-job rescue.
+// tick single-leader-safe: at most one live tick per window, deduped by state and
+// period (NOT by args, since the payload is empty). River v3 forces ByState to
+// include the four required states (available/pending/running/scheduled), so the
+// crash-safety property CR-002 needs comes from ByPeriod instead — see
+// goalTickInsertOpts. Completed/discarded stay out so a finished tick never blocks
+// the next one.
 func TestGoalTickInsertOpts(t *testing.T) {
-	opts := goalTickInsertOpts()
+	const tickInterval = 2 * time.Second
+	opts := goalTickInsertOpts(tickInterval)
 
 	if opts.Queue != GoalTickQueue {
 		t.Errorf("Queue = %q, want %q", opts.Queue, GoalTickQueue)
@@ -29,10 +32,17 @@ func TestGoalTickInsertOpts(t *testing.T) {
 	if opts.UniqueOpts.ByArgs {
 		t.Error("ByArgs must be false: the tick payload is empty, so kind+state already keys a single live tick")
 	}
+	// ByPeriod scopes uniqueness to a window so a crash-orphaned running tick cannot
+	// freeze convergence for 24h (CR-002); it must equal the tick interval and stay
+	// at/above River's 1s minimum.
+	if opts.UniqueOpts.ByPeriod != tickInterval {
+		t.Errorf("ByPeriod = %v, want %v (the tick interval)", opts.UniqueOpts.ByPeriod, tickInterval)
+	}
 
 	want := map[rivertype.JobState]bool{
 		rivertype.JobStateAvailable: true,
 		rivertype.JobStatePending:   true,
+		rivertype.JobStateRunning:   true,
 		rivertype.JobStateScheduled: true,
 	}
 	got := map[rivertype.JobState]bool{}
@@ -51,11 +61,14 @@ func TestGoalTickInsertOpts(t *testing.T) {
 	if got[rivertype.JobStateCompleted] {
 		t.Error("ByState must NOT include Completed: it would block every future tick")
 	}
-	// Running must be excluded (CR-002): a tick orphaned in 'running' by a hard crash
-	// (SIGKILL/OOM) would otherwise dedupe-skip every later tick until River's 24h
-	// stuck-job rescue, freezing the whole convergence engine.
-	if got[rivertype.JobStateRunning] {
-		t.Error("ByState must NOT include Running: a crash-orphaned running tick would freeze convergence up to 24h")
+}
+
+// TestGoalTickInsertOptsClampsPeriod guards River's 1s ByPeriod minimum: a
+// sub-second tick interval must clamp up, or PeriodicJobEnqueuer fails validation.
+func TestGoalTickInsertOptsClampsPeriod(t *testing.T) {
+	opts := goalTickInsertOpts(200 * time.Millisecond)
+	if opts.UniqueOpts.ByPeriod < time.Second {
+		t.Errorf("ByPeriod = %v, want clamped to >= 1s", opts.UniqueOpts.ByPeriod)
 	}
 }
 
