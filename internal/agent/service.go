@@ -228,7 +228,7 @@ type TaskChatRequest struct {
 // tools force a fresh runner, which is evicted once the turn finishes so the
 // tools never leak into later turns on the same session.
 func (s *Service) ChatForTask(ctx context.Context, req TaskChatRequest) <-chan Event {
-	info, err := s.Sessions.Ensure(ctx, session.Request{
+	return s.chatOnSession(ctx, session.Request{
 		ID:                 req.SessionID,
 		UserID:             req.UserID,
 		AgentID:            req.AgentID,
@@ -238,10 +238,37 @@ func (s *Service) ChatForTask(ctx context.Context, req TaskChatRequest) <-chan E
 		CreateIfMissing:    true,
 		AllowExactIDCreate: true,
 		RequireKind:        session.KindTask,
-	})
+	}, req)
+}
+
+// ChatForGoalDecomposition runs one persisted worker turn on a goal's
+// decomposition planning session. Unlike a worker (execution) session that
+// session is KindDelegate (#525: the plan session is resumable through the
+// delegate tool and re-openable in the UI), so it must be resolved with
+// RequireKind=KindDelegate — routing it through ChatForTask fails with a kind
+// mismatch and starves the goal's decomposition budget. The session is pre-minted
+// at BeginDecomposition, so this is resume-only and never creates.
+func (s *Service) ChatForGoalDecomposition(ctx context.Context, req TaskChatRequest) <-chan Event {
+	return s.chatOnSession(ctx, session.Request{
+		ID:          req.SessionID,
+		UserID:      req.UserID,
+		AgentID:     req.AgentID,
+		ProjectID:   req.ProjectID,
+		Kind:        session.KindDelegate,
+		Channel:     session.ChannelDelegate,
+		RequireKind: session.KindDelegate,
+	}, req)
+}
+
+// chatOnSession resolves the session described by sreq and runs one persisted
+// worker turn on it with per-run extra tools, closing the session when the turn
+// ends. The per-run tools force a fresh runner that is evicted once the turn
+// finishes, so the tools never leak into later turns on the same session.
+func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req TaskChatRequest) <-chan Event {
+	info, err := s.Sessions.Ensure(ctx, sreq)
 	if err != nil {
 		out := make(chan Event, 1)
-		out <- Event{Err: fmt.Errorf("resolve task session: %w", err)}
+		out <- Event{Err: fmt.Errorf("resolve worker session: %w", err)}
 		close(out)
 		return out
 	}

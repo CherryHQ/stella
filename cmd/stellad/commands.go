@@ -215,14 +215,20 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 				close(out)
 				return out
 			}
-			return svc.ChatForTask(ctx, agent.TaskChatRequest{
+			chatReq := agent.TaskChatRequest{
 				SessionID:  p.SessionID,
 				UserID:     p.UserID,
 				AgentID:    p.AgentID,
 				ProjectID:  p.ProjectID,
 				Message:    p.Prompt,
 				ExtraTools: p.ExtraTools,
-			})
+			}
+			// Decomposition runs on the goal's KindDelegate planning session;
+			// execution on the KindTask worker session. They resolve differently.
+			if p.Decompose {
+				return svc.ChatForGoalDecomposition(ctx, chatReq)
+			}
+			return svc.ChatForTask(ctx, chatReq)
 		},
 	})
 	if err != nil {
