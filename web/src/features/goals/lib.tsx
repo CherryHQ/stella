@@ -151,6 +151,8 @@ export function blockReasonLabel(t: TFunction, d: ComponentsGoal): string | null
   switch (d.block_reason) {
     case "needs_verdict":
       return t("goals.blockNeedsVerdict");
+    case "needs_plan_approval":
+      return t("goals.blockNeedsPlanApproval");
     case "budget_exhausted":
       return t("goals.blockBudget");
     case "dep":

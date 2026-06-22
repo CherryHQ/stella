@@ -157,8 +157,8 @@ func TestGoals_GetCrossTenant_404(t *testing.T) {
 	}
 }
 
-// TestGoals_CreateAndGet covers the happy path: POST creates a leaf and
-// GET returns it for the owner.
+// TestGoals_CreateAndGet covers the happy path: POST creates a composite
+// (every goal is planned first) and GET returns it for the owner.
 func TestGoals_CreateAndGet(t *testing.T) {
 	env := setupGoalEnv(t)
 	agentID := findStellaID(t, env)
@@ -182,7 +182,7 @@ func TestGoals_CreateAndGet(t *testing.T) {
 	if d.Title != "my-goal" {
 		t.Fatalf("GET goal title = %q, want %q", d.Title, "my-goal")
 	}
-	if d.Kind != apitypes.GoalKindLeaf {
-		t.Fatalf("GET goal kind = %q, want %q", d.Kind, apitypes.GoalKindLeaf)
+	if d.Kind != apitypes.GoalKindComposite {
+		t.Fatalf("GET goal kind = %q, want %q", d.Kind, apitypes.GoalKindComposite)
 	}
 }

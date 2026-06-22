@@ -50,6 +50,20 @@ type ConvergencePolicy struct {
 // when all required children are accepted.
 func (c AcceptanceContract) IsTrivial() bool { return len(c.Items) == 0 }
 
+// HasDeterministicItem reports whether the contract carries any deterministic
+// (command-checked) item. A deterministic item needs an executed output to run
+// its check against; a composite produces no output, so its fold would stall
+// pending forever (no event source). Callers reject deterministic items on
+// composites — see ErrCompositeDeterministicContract.
+func (c AcceptanceContract) HasDeterministicItem() bool {
+	for _, it := range c.Items {
+		if it.Kind == ItemDeterministic {
+			return true
+		}
+	}
+	return false
+}
+
 // expectExit returns the item's expected exit code (default 0).
 func (i AcceptanceItem) expectExit() int {
 	if i.ExpectExit != nil {

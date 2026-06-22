@@ -13,22 +13,26 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// childID is the deterministic child goal id derived from a revision +
+// childID is the deterministic child goal id derived from the composite goal id +
 // the proposal's stable Key (contract §6 idempotency anchor): id =
-// hex(sha256(revision_id + 0x00 + child.Key)) truncated to a 32-hex-char id.
+// hex(sha256(goal_id + 0x00 + child.Key)) truncated to a 32-hex-char id.
 // Re-running Materialize Get-then-skips existing children by primary key, so a
-// retried materialize is a structural no-op, not application luck.
-func childID(revisionID, key string) string {
-	h := sha256.Sum256(append(append([]byte(revisionID), 0), []byte(key)...))
+// retried materialize is a structural no-op, not application luck. The goal id is
+// a stable anchor because a composite is decomposed exactly once (no replan): a
+// plan rejected before materialize never created children, so re-decomposing the
+// same keys cannot collide with live rows.
+func childID(goalID, key string) string {
+	h := sha256.Sum256(append(append([]byte(goalID), 0), []byte(key)...))
 	return hex.EncodeToString(h[:16])
 }
 
-// Materialize creates a composite's children + edges from an accepted revision,
-// in ONE caller-supplied tx (contract §6). It operates on the passed tx-bound
+// Materialize creates a composite's children + edges from its proposed plan, in
+// ONE caller-supplied tx (contract §6). It operates on the passed tx-bound
 // querier — no import cycle, no own tx, no session minting (sessions are
 // pre-minted outside the tx and resolved per child by the caller through the
-// childSessions map). It is idempotent: the materialized_at fence short-circuits
-// a second call, and each child's deterministic id makes re-insert a no-op.
+// childSessions map). It is idempotent: the planned_at fence (MarkGoalPlanned
+// CAS) short-circuits a second call, and each child's deterministic id makes
+// re-insert a no-op.
 //
 // Steps:
 //   - depth guard: parent.depth+1 ≤ max_depth (root's convergence_policy), else
@@ -40,26 +44,22 @@ func childID(revisionID, key string) string {
 //     position=index, contract/policy from the proposal, lifecycle draft).
 //   - for each ProposedEdge: insert agent_goal_edge (resolve keys→ids); PK
 //     collision = no-op.
-//   - set parent accepted_revision_id + required_total (count of required
-//     children); stamp revision.materialized_at; supersede prior open revisions.
+//   - set parent required_total (count of required children); CAS planned_at.
 //
-// Replan reconcile (cancelling/detaching children dropped by a later revision) is
-// intentionally out of scope: BeginDecomposition gates a second decomposition out
-// (draft-only), so a composite is decomposed exactly once. Re-enabling replan is a
-// tracked follow-up (contract §10).
+// Replan reconcile (cancelling/detaching children dropped by a later plan) is
+// intentionally out of scope: a composite is decomposed exactly once (planned_at
+// gates re-decomposition). Re-enabling replan is a tracked follow-up (contract §10).
+//
+// The caller MUST hold LockGoalForWrite on parent so the planned_at CAS and child
+// inserts cannot race a concurrent materialize.
 //
 // childSessions maps a child Key → a pre-minted session_id. A missing entry is a
-// programming error the caller (decompose.go) prevents by minting all sessions
+// programming error the caller (converge.go) prevents by minting all sessions
 // before opening the tx.
-func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sqlc.AgentGoalRevision, parent sqlc.AgentGoal, childSessions map[string]string) error {
-	// Idempotency fence: a second call short-circuits once materialized_at is set.
-	if rev.MaterializedAt.Valid {
+func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, parent sqlc.AgentGoal, content DecompositionContent, childSessions map[string]string) error {
+	// Idempotency fence: a second call short-circuits once planned_at is set.
+	if parent.PlannedAt.Valid {
 		return nil
-	}
-
-	var content DecompositionContent
-	if err := unmarshalJSON(rev.Content, &content); err != nil {
-		return fmt.Errorf("%w: revision content: %w", ErrInvalidDecomposition, err)
 	}
 
 	// Resolve the recursion ceiling from the ROOT's convergence policy (§6).
@@ -78,7 +78,7 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sq
 	childDepth := parent.Depth + 1
 	requiredTotal := int64(0)
 	for i, ch := range content.Children {
-		cid := childID(rev.ID, ch.Key)
+		cid := childID(parent.ID, ch.Key)
 		if ch.Required {
 			requiredTotal++
 		}
@@ -139,8 +139,8 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sq
 		if onFailure == "" {
 			onFailure = OnFailureBlock
 		}
-		down := childID(rev.ID, e.DownstreamKey)
-		up := childID(rev.ID, e.UpstreamKey)
+		down := childID(parent.ID, e.DownstreamKey)
+		up := childID(parent.ID, e.UpstreamKey)
 		if _, err := qtx.GetEdge(ctx, sqlc.GetEdgeParams{GoalID: down, UpstreamID: up}); err == nil {
 			continue // already materialized
 		} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -156,31 +156,17 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, rev sq
 		}
 	}
 
-	// Point the parent at this revision, set its required_total, supersede any
-	// prior open revision, and stamp the materialized fence.
-	if err := qtx.SetGoalAcceptedRevision(ctx, sqlc.SetGoalAcceptedRevisionParams{
-		AcceptedRevisionID: pgtype.Text{String: rev.ID, Valid: true},
-		ID:                 parent.ID,
-	}); err != nil {
-		return fmt.Errorf("set accepted revision: %w", err)
-	}
+	// Set required_total, then CAS the planned_at fence. A second concurrent
+	// materialize (despite the row lock the caller holds) gets 0 rows and treats
+	// it as an idempotent no-op rather than re-creating anything.
 	if err := qtx.SetGoalRequiredTotal(ctx, sqlc.SetGoalRequiredTotalParams{
 		RequiredTotal: requiredTotal,
 		ID:            parent.ID,
 	}); err != nil {
 		return fmt.Errorf("set required total: %w", err)
 	}
-	if err := qtx.SupersedeOpenRevisions(ctx, parent.ID); err != nil {
-		return fmt.Errorf("supersede open revisions: %w", err)
-	}
-	rows, err := qtx.MaterializeRevision(ctx, rev.ID)
-	if err != nil {
-		return fmt.Errorf("materialize revision: %w", err)
-	}
-	if rows == 0 {
-		// The fence rejected it: not accepted, or already materialized. A
-		// concurrent materialize already did the work — treat as a no-op.
-		return ErrInvalidTransition
+	if _, err := qtx.MarkGoalPlanned(ctx, parent.ID); err != nil {
+		return fmt.Errorf("mark goal planned: %w", err)
 	}
 	return nil
 }

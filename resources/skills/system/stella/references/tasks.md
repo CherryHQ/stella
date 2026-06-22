@@ -2,7 +2,7 @@
 
 Durable, async work that survives restarts and is **accepted, not just finished**. Use this for work that outlives a single conversation: long research, multi-step builds, work that may pause for input, and work that needs an acceptance contract met before it counts as done.
 
-A **goal** is one recursive entity. A **root** goal is the user's objective. A **composite** goal decomposes into **child** goals (same shape, all the way down); a **leaf** is executed directly by a worker. `kind ∈ {leaf, composite}`.
+A **goal** is one recursive entity. A **root** goal is the user's objective and is always **planned first** — it is a **composite** that decomposes into **child** goals (same shape, all the way down). A **leaf** child is executed directly by a worker; a **composite** child is planned and decomposed in turn. `kind ∈ {leaf, composite}`. There is no top-level leaf: every goal goes through plan → decompose → run before it can be accepted.
 
 Completion is **derived, never asserted**. A goal converges through a bounded rework loop until its acceptance contract passes — you never mark one done by hand. The worker submits evidence; the acceptance contract decides; if it falls short, the worker is dispatched again with the gaps to repair.
 
@@ -10,7 +10,7 @@ Completion is **derived, never asserted**. A goal converges through a bounded re
 
 Two surfaces author goals, both over the same goal HTTP API:
 
-- **You, the agent** — via the `stella goal` CLI (alias `stella task`). `stella goal create --title ... --intent ...` creates a root goal and, by default, activates it for a direct background run: the dispatcher claims and executes it on its own, with no further prompting. This is how you schedule and pursue long-running work yourself — give yourself a goal that outlives the current conversation, then check back with `stella goal list`/`get`. The CLI also drives the full composite planning flow yourself (no Web UI needed): `plan`, `revisions`, `approve`/`reject`, `submit-review`, `children`, `activate`. See `stella goal --help`.
+- **You, the agent** — via the `stella goal` CLI (alias `stella task`). `stella goal create --title ... --intent ...` creates a goal and runs it autonomously: the server **plans first** (decomposes it into verifiable sub-tasks), then the dispatcher runs each child and converges to acceptance, with no further prompting. You do not choose leaf vs composite or call plan/approve/activate — just write a clear, self-contained intent. This is how you give yourself long-running work that outlives the current conversation; check back with `stella goal list`/`get`. For goals that need a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)`; inspect the pending plan with `stella goal get <id>` and then `stella goal approve <id>` (materialize) or `stella goal reject <id>` (re-decompose). See `stella goal --help`.
 - **The user** — from the Web UI (Tasks tab); the same goal HTTP API the CLI uses.
 
 Authoring and working are separate roles: once a goal is active you may also be handed it as a **worker** (see the `goal_control` contract below).
@@ -50,7 +50,7 @@ A composite holds child goals produced by a **decomposition** (the only way chil
 - a required child blocked → parent blocks
 - a blocked parent recovers when the blocking child clears
 
-To plan a composite yourself from the CLI: `stella goal create --kind composite`, then `stella goal plan <id>` to propose its `{children, edges}` (a draft revision), `stella goal approve <id> <rev>` to accept and materialize them, and `stella goal activate <id>` to flip the composite and its children to ready so the dispatcher runs them. `submit-review`/`reject` cover the human-approval gate when a revision's `review_policy=human`. See each subcommand's `--help` for the JSON shape and flags.
+Decomposition is automatic: `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become ready), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
 
 ## Worker: the `goal_control` contract
 
@@ -59,7 +59,7 @@ If you see a `goal_control` tool in your toolset, you are a worker. The goal's i
 - `submit` — provide `evidence` (summary + optional artifacts) and `output` when the work meets the acceptance criteria.
 - `block` — pause with `kind`/`question` when you need input or an external dependency.
 - `fail` — report `reason`/`retryable` when the work cannot be completed.
-- `decompose` — **only when dispatched to plan a composite** — return a `decomposition` `{children, edges}`. Each child needs `key`, `title`, `intent`, `kind` (`leaf|composite`), `required`, and `acceptance_contract`; edges declare hard/soft deps by child key. If the goal cannot be decomposed, use `fail` instead.
+- `decompose` — **when dispatched to plan a goal** — return a `decomposition` `{children, edges}`. Each child needs `key`, `title`, `intent`, `kind` (`leaf|composite`), `required`, and `acceptance_contract`; edges declare hard/soft deps by child key. If the goal cannot be decomposed, use `fail` instead.
 
 Rules:
 

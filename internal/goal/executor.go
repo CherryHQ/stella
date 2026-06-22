@@ -167,6 +167,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 			SessionID:  req.Attempt.SessionID,
 			ProjectID:  projectID,
 			Prompt:     prompt,
+			Decompose:  decompose,
 			ExtraTools: []tools.Tool{ctTool},
 		})
 	}

@@ -19,11 +19,11 @@ import (
 // two real materialized siblings under a composite.
 
 // edg_twoSiblings decomposes a fresh composite into exactly two leaf children
-// (keys "up"/"down") with an optional hard edge down←up, accepts+materializes the
-// revision, and returns the materialized (upstream, downstream) rows. The
-// composite is left in 'draft' (materialize does not transition it); the caller
-// activates when it wants the children ready. withEdge=false materializes the two
-// siblings WITHOUT an edge so the caller can add one through the service path.
+// (keys "up"/"down") with an optional hard edge down<-up, and returns the
+// materialized (upstream, downstream) rows. review_policy=none, so
+// SubmitDecomposition materializes the children, releases the leaves to 'ready',
+// and leaves the composite 'active'. withEdge=false materializes the two siblings
+// WITHOUT an edge so the caller can add one through the service path.
 func edg_twoSiblings(h *harness, withEdge bool) (up, down sqlc.AgentGoal, composite sqlc.AgentGoal) {
 	h.t.Helper()
 	ctx := context.Background()
@@ -41,13 +41,7 @@ func edg_twoSiblings(h *harness, withEdge bool) (up, down sqlc.AgentGoal, compos
 		}
 	}
 
-	rev, err := h.svc.CreateRevision(ctx, composite.ID, content, "")
-	if err != nil {
-		h.t.Fatalf("edg: CreateRevision: %v", err)
-	}
-	if _, err := h.svc.Accept(ctx, rev.ID, UserActor(h.userID)); err != nil {
-		h.t.Fatalf("edg: Accept(materialize): %v", err)
-	}
+	cmp_decompose(h.t, h, composite.ID, content)
 
 	children, err := h.bundle.ListChildren(ctx, composite.ID)
 	if err != nil {
@@ -300,22 +294,20 @@ func TestEdgAddEdgeCycleRejected(t *testing.T) {
 }
 
 // TestEdgReadinessEndToEndAcceptUnblocks wires two real siblings with a hard
-// edge, activates the composite, and asserts the downstream is gated until the
-// upstream accepts — then dispatchable. This exercises the joined GetReadiness
-// path (boot.go) against live upstream lifecycle, not constructed rows.
+// edge and asserts the downstream is gated until the upstream accepts — then
+// dispatchable. This exercises the joined GetReadiness path (boot.go) against
+// live upstream lifecycle, not constructed rows.
 func TestEdgReadinessEndToEndAcceptUnblocks(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	up, down, composite := edg_twoSiblings(h, true)
+	up, down, _ := edg_twoSiblings(h, true)
 
-	// Plan gate is satisfied (materialized revision + required_total≥1); activate
-	// flips the composite and its draft children to ready.
-	h.activate(composite.ID)
+	// SubmitDecomposition (review_policy=none) already released both leaves to ready.
 	if got := h.get(up.ID).Lifecycle; got != LifecycleReady {
-		t.Fatalf("upstream after activate=%q want ready", got)
+		t.Fatalf("upstream after decomposition=%q want ready", got)
 	}
 	if got := h.get(down.ID).Lifecycle; got != LifecycleReady {
-		t.Fatalf("downstream after activate=%q want ready", got)
+		t.Fatalf("downstream after decomposition=%q want ready", got)
 	}
 
 	// Downstream is ready-lifecycle but NOT dispatchable: hard upstream unaccepted.
@@ -349,8 +341,7 @@ func TestEdgReadinessEndToEndAcceptUnblocks(t *testing.T) {
 func TestEdgWaiveEdgeClearsDepBlock(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	up, down, composite := edg_twoSiblings(h, true)
-	h.activate(composite.ID)
+	up, down, _ := edg_twoSiblings(h, true)
 
 	// Park the downstream in blocked(dep) the way the dispatcher would when its
 	// hard upstream is unsatisfied.

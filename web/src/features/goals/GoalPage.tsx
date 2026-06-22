@@ -3,17 +3,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
   abandonGoal,
-  acceptRevision,
   activateGoal,
-  approveRevision,
+  approvePlan,
   cancelGoal,
   deleteGoal,
-  materializeRevision,
   reattemptGoal,
-  rejectRevision,
-  requestChangesRevision,
-  startDecomposition,
-  submitRevisionReview,
+  rejectPlan,
   submitVerdict,
   unarchiveGoal,
   waiveEdge,
@@ -24,9 +19,10 @@ import type {
   ComponentsAttempt,
   ComponentsGoal,
   ComponentsEdge,
+  ComponentsDecompositionContent,
+  ComponentsProposedChild,
   ComponentsProposedEdge,
   ComponentsReadiness,
-  ComponentsRevision,
 } from "@/lib/api-client/types.gen";
 import {
   goalAttemptsOptions,
@@ -35,7 +31,6 @@ import {
   goalEventsOptions,
   goalOptions,
   goalReadinessOptions,
-  goalRevisionsOptions,
 } from "@/lib/queries/goals";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -81,7 +76,6 @@ export function GoalPage() {
     void qc.invalidateQueries({ queryKey: ["goal-attempts", goalId] });
     void qc.invalidateQueries({ queryKey: ["goal-events", goalId] });
     void qc.invalidateQueries({ queryKey: ["goal-edges", goalId] });
-    void qc.invalidateQueries({ queryKey: ["goal-revisions", goalId] });
     void qc.invalidateQueries({ queryKey: ["goal-readiness", goalId] });
     void qc.invalidateQueries({ queryKey: ["goals"] });
     void qc.invalidateQueries({ queryKey: ["goals-page"] });
@@ -173,6 +167,7 @@ export function GoalPage() {
         <TabsPanel value="overview" className="mt-5">
           <OverviewTab
             d={d}
+            agentId={agentId}
             acting={acting}
             act={act}
             onVerdict={() => goTab("acceptance")}
@@ -200,7 +195,7 @@ export function GoalPage() {
         )}
         {isComposite && (
           <TabsPanel value="plan" className="mt-5">
-            <PlanTab d={d} />
+            <PlanTab d={d} acting={acting} act={act} />
           </TabsPanel>
         )}
       </Tabs>
@@ -234,18 +229,9 @@ function HeaderActions({
   const lc = d.lifecycle;
   const reason = d.block_reason;
   const isComposite = d.kind === "composite";
-  const canActivate = lc === "draft" && (!isComposite || !!d.accepted_revision_id);
-
-  // Surface the composite planning chain (plan → review → accept → materialize)
-  // in the header so advancing it never requires opening the Plan tab.
-  const { data: revisions = [] } = useQuery({
-    ...goalRevisionsOptions(d.id),
-    enabled: isComposite,
-  });
-  const newestRev = useMemo(
-    () => [...revisions].sort((a, b) => b.revision_no - a.revision_no)[0],
-    [revisions],
-  );
+  const canActivate = lc === "draft" && (!isComposite || !!d.planned_at);
+  const needsPlanApproval =
+    isComposite && lc === "blocked" && reason === "needs_plan_approval" && !archived;
 
   const cancelBtn = (
     <Button
@@ -267,19 +253,7 @@ function HeaderActions({
         </span>
       )}
 
-      {isComposite && !archived && revisions.length === 0 && (
-        <Button
-          size="sm"
-          loading={acting}
-          onClick={() => act(() => startDecomposition({ path, throwOnError: true }))}
-        >
-          {t("goals.startDecomposition")}
-        </Button>
-      )}
-
-      {isComposite && newestRev && (
-        <RevisionActions d={d} rev={newestRev} acting={acting} act={act} />
-      )}
+      {needsPlanApproval && <PlanDecisionActions d={d} acting={acting} act={act} />}
 
       {lc === "draft" && canActivate && (
         <Button
@@ -370,6 +344,7 @@ function HeaderActions({
 
 function OverviewTab({
   d,
+  agentId,
   acting,
   act,
   onVerdict,
@@ -377,6 +352,7 @@ function OverviewTab({
   onPlan,
 }: {
   d: ComponentsGoal;
+  agentId: string;
   acting: boolean;
   act: ActRun;
   onVerdict: () => void;
@@ -436,6 +412,11 @@ function OverviewTab({
                 {t("goals.waive")}
               </Button>
             )}
+            {d.block_reason === "needs_plan_approval" && (
+              <Button size="sm" className="mt-3" onClick={onPlan}>
+                {t("goals.tabRevisions")} →
+              </Button>
+            )}
           </div>
         </DetailSection>
       )}
@@ -473,12 +454,48 @@ function OverviewTab({
         </div>
       )}
 
-      {d.accepted_output && (
-        <DetailSection title={t("goals.outputTitle")}>
-          <AcceptedOutputView output={d.accepted_output} />
-        </DetailSection>
+      {isComposite ? (
+        <CompositeDeliverables id={d.id} agentId={agentId} />
+      ) : (
+        d.accepted_output && (
+          <DetailSection title={t("goals.outputTitle")}>
+            <AcceptedOutputView output={d.accepted_output} />
+          </DetailSection>
+        )
       )}
     </div>
+  );
+}
+
+// CompositeDeliverables aggregates a composite's deliverables in one place. A
+// composite's own accepted_output is only a title-bearing rollup marker (its
+// acceptance is DERIVED from children, never produced), so the actual work
+// lives on the accepted children. This pulls each accepted child's frozen
+// output up to the parent overview so the whole goal's result is readable
+// without drilling into every leaf.
+function CompositeDeliverables({ id, agentId }: { id: string; agentId: string }) {
+  const { t } = useI18n();
+  const { data: children = [] } = useQuery(goalChildrenOptions(id));
+  const delivered = children.filter((c) => c.accepted_output);
+  if (delivered.length === 0) return null;
+  return (
+    <DetailSection title={t("goals.deliverablesTitle")}>
+      <div className="space-y-3">
+        {delivered.map((c) => (
+          <div key={c.id} className="rounded-xl border border-border p-3.5">
+            <Link
+              to="/agents/$agentId/goals/$goalId"
+              params={{ agentId, goalId: c.id }}
+              className="mb-2 flex items-center gap-2 text-[13px] font-medium hover:underline"
+            >
+              <StatusDot status={displayStatus(c)} />
+              <span className="truncate">{c.title}</span>
+            </Link>
+            <AcceptedOutputView output={c.accepted_output!} />
+          </div>
+        ))}
+      </div>
+    </DetailSection>
   );
 }
 
@@ -960,130 +977,94 @@ function EdgeRow({
 
 // ── Plan (decomposition revisions) ───────────────────────────────────
 
-const REV_STATUS_KEY: Record<ComponentsRevision["status"], MessageKey> = {
-  draft: "goals.revStatusDraft",
-  in_review: "goals.revStatusInReview",
-  accepted: "goals.revStatusAccepted",
-  rejected: "goals.revStatusRejected",
-  superseded: "goals.revStatusSuperseded",
-};
-
 const EDGE_ON_FAILURE_KEY: Record<NonNullable<ComponentsProposedEdge["on_failure"]>, MessageKey> = {
   block: "goals.onFailureBlock",
   fail: "goals.onFailureFail",
   ignore: "goals.onFailureIgnore",
 };
 
-function PlanTab({ d }: { d: ComponentsGoal }) {
+function PlanTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean; act: ActRun }) {
   const { t } = useI18n();
-  const { data: revisions = [] } = useQuery(goalRevisionsOptions(d.id));
+  // The plan lives inline on the goal (DecompositionContent). It is empty for a
+  // leaf or an unplanned composite, and holds the proposal while the composite
+  // is parked at blocked(needs_plan_approval).
+  const plan = (d.plan ?? {}) as ComponentsDecompositionContent;
+  const children = plan.children ?? [];
+  const edges = plan.edges ?? [];
+  const needsApproval =
+    d.lifecycle === "blocked" && d.block_reason === "needs_plan_approval" && !d.archived_at;
 
-  // Read-only plan view: advancing the plan lives in the page header.
-  if (revisions.length === 0) return <Empty text={t("goals.noRevisions")} />;
+  if (children.length === 0) return <Empty text={t("goals.noRevisions")} />;
 
-  return (
-    <ul className="space-y-2">
-      {[...revisions]
-        .sort((a, b) => b.revision_no - a.revision_no)
-        .map((rev) => (
-          <RevisionItem key={rev.id} rev={rev} />
-        ))}
-    </ul>
-  );
-}
-
-function RevisionItem({ rev }: { rev: ComponentsRevision }) {
-  const { t } = useI18n();
-  const children = rev.content?.children ?? [];
-  const edges = rev.content?.edges ?? [];
-  const [open, setOpen] = useState(false);
-  const canExpand = children.length > 0;
   // Edges reference children by their stable `key`; show the human title instead
-  // (falling back to the key if a child was dropped from the revision).
+  // (falling back to the key if a child was dropped from the plan).
   const titleOf = (key: string) => children.find((c) => c.key === key)?.title ?? key;
 
   return (
-    <li className="rounded-xl border border-border bg-background">
-      <button
-        type="button"
-        disabled={!canExpand}
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left disabled:cursor-default"
-      >
-        <span className="flex min-w-0 items-center gap-2">
-          {canExpand && (
-            <span
-              className={cn(
-                "font-mono text-[10px] text-muted-foreground transition-transform",
-                open && "rotate-90",
-              )}
-            >
-              ▶
-            </span>
-          )}
-          <span className="text-sm font-medium">
-            {t("goals.revisionNo", { n: rev.revision_no })}
-          </span>
-          <span className="font-mono text-[10.5px] text-muted-foreground">
-            {t("goals.planChildren", { count: children.length })}
-          </span>
-        </span>
-        <span className="shrink-0 font-mono text-xs text-muted-foreground">
-          {t(REV_STATUS_KEY[rev.status] ?? "goals.revStatusDraft")}
-        </span>
-      </button>
-      {open && canExpand && (
-        <div className="space-y-3 border-t border-border px-3.5 py-3">
-          <ul className="space-y-2">
-            {children.map((c) => (
-              <li key={c.key} className="rounded-lg border border-border bg-muted/30 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{c.title}</span>
-                  <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">
-                    {t(c.kind === "composite" ? "goals.kindComposite" : "goals.kindLeaf")}
+    <div className="space-y-4">
+      {needsApproval && (
+        <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-4">
+          <p className="text-[13px] font-medium text-primary/80">{t("goals.planAwaiting")}</p>
+          <div className="mt-3">
+            <PlanDecisionActions d={d} acting={acting} act={act} />
+          </div>
+        </div>
+      )}
+
+      <ul className="space-y-2">
+        {children.map((c) => (
+          <ProposedChildItem key={c.key} c={c} />
+        ))}
+      </ul>
+
+      {edges.length > 0 && (
+        <div>
+          <div className="mb-1.5 font-mono text-[10.5px] font-semibold text-muted-foreground">
+            {t("goals.planEdges", { count: edges.length })}
+          </div>
+          <ul className="space-y-1">
+            {edges.map((e, i) => (
+              <li
+                key={`${e.upstream_key}-${e.downstream_key}-${i}`}
+                className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-muted-foreground"
+              >
+                <span className="font-medium text-foreground">{titleOf(e.downstream_key)}</span>
+                <span>{t("goals.planEdgeDep")}</span>
+                <span className="font-medium text-foreground">{titleOf(e.upstream_key)}</span>
+                <span className="font-mono text-[10px]">
+                  {t(e.kind === "soft" ? "goals.planDepSoft" : "goals.planDepHard")}
+                </span>
+                {e.on_failure && e.on_failure !== "block" && (
+                  <span className="font-mono text-[10px]">
+                    {t(EDGE_ON_FAILURE_KEY[e.on_failure])}
                   </span>
-                  {c.required === false && (
-                    <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">
-                      {t("goals.planOptional")}
-                    </span>
-                  )}
-                </div>
-                {c.intent && <p className="mt-1 text-xs text-muted-foreground">{c.intent}</p>}
-                {c.acceptance_contract && (
-                  <AcceptanceContractView contract={c.acceptance_contract} />
                 )}
               </li>
             ))}
           </ul>
-          {edges.length > 0 && (
-            <div>
-              <div className="mb-1.5 font-mono text-[10.5px] font-semibold text-muted-foreground">
-                {t("goals.planEdges", { count: edges.length })}
-              </div>
-              <ul className="space-y-1">
-                {edges.map((e, i) => (
-                  <li
-                    key={`${e.upstream_key}-${e.downstream_key}-${i}`}
-                    className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-muted-foreground"
-                  >
-                    <span className="font-medium text-foreground">{titleOf(e.downstream_key)}</span>
-                    <span>{t("goals.planEdgeDep")}</span>
-                    <span className="font-medium text-foreground">{titleOf(e.upstream_key)}</span>
-                    <span className="font-mono text-[10px]">
-                      {t(e.kind === "soft" ? "goals.planDepSoft" : "goals.planDepHard")}
-                    </span>
-                    {e.on_failure && e.on_failure !== "block" && (
-                      <span className="font-mono text-[10px]">
-                        {t(EDGE_ON_FAILURE_KEY[e.on_failure])}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProposedChildItem({ c }: { c: ComponentsProposedChild }) {
+  const { t } = useI18n();
+  return (
+    <li className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{c.title}</span>
+        <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">
+          {t(c.kind === "composite" ? "goals.kindComposite" : "goals.kindLeaf")}
+        </span>
+        {c.required === false && (
+          <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">
+            {t("goals.planOptional")}
+          </span>
+        )}
+      </div>
+      {c.intent && <p className="mt-1 text-xs text-muted-foreground">{c.intent}</p>}
+      {c.acceptance_contract && <AcceptanceContractView contract={c.acceptance_contract} />}
     </li>
   );
 }
@@ -1130,84 +1111,41 @@ function AcceptanceContractView({ contract }: { contract: ComponentsAcceptanceCo
   );
 }
 
-function RevisionActions({
+// PlanDecisionActions is the single plan gate: approve materializes children,
+// reject sends the composite back to draft for re-decomposition. Shown only
+// while blocked(needs_plan_approval).
+function PlanDecisionActions({
   d,
-  rev,
   acting,
   act,
 }: {
   d: ComponentsGoal;
-  rev: ComponentsRevision;
   acting: boolean;
   act: ActRun;
 }) {
   const { t } = useI18n();
-  const path = { id: d.id, revId: rev.id };
+  const path = { id: d.id };
 
-  if (rev.status === "draft") {
-    return rev.review_policy === "human" ? (
+  return (
+    <div className="flex flex-wrap gap-2">
       <Button
         size="sm"
         loading={acting}
-        onClick={() => act(() => submitRevisionReview({ path, throwOnError: true }))}
+        onClick={() => act(() => approvePlan({ path, throwOnError: true }))}
       >
-        {t("goals.revSubmitReview")}
+        {t("goals.revApprove")}
       </Button>
-    ) : (
       <Button
         size="sm"
+        variant="outline"
         loading={acting}
-        onClick={() => act(() => acceptRevision({ path, throwOnError: true }))}
+        className="text-destructive"
+        onClick={() => act(() => rejectPlan({ path, body: {}, throwOnError: true }))}
       >
-        {t("goals.revAccept")}
+        {t("goals.revReject")}
       </Button>
-    );
-  }
-
-  if (rev.status === "in_review") {
-    return (
-      <>
-        <Button
-          size="sm"
-          loading={acting}
-          onClick={() => act(() => approveRevision({ path, body: {}, throwOnError: true }))}
-        >
-          {t("goals.revApprove")}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          loading={acting}
-          onClick={() => act(() => requestChangesRevision({ path, body: {}, throwOnError: true }))}
-        >
-          {t("goals.revRequestChanges")}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          loading={acting}
-          className="text-destructive"
-          onClick={() => act(() => rejectRevision({ path, body: {}, throwOnError: true }))}
-        >
-          {t("goals.revReject")}
-        </Button>
-      </>
-    );
-  }
-
-  if (rev.status === "accepted" && !rev.materialized_at) {
-    return (
-      <Button
-        size="sm"
-        loading={acting}
-        onClick={() => act(() => materializeRevision({ path, throwOnError: true }))}
-      >
-        {t("goals.revMaterialize")}
-      </Button>
-    );
-  }
-
-  return null;
+    </div>
+  );
 }
 
 // ── Accepted output ──────────────────────────────────────────────────

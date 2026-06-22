@@ -153,8 +153,8 @@ func TestLcl_TrivialLeafAccepts(t *testing.T) {
 	if got.Lifecycle != LifecycleAccepted {
 		t.Fatalf("lifecycle=%q want accepted", got.Lifecycle)
 	}
-	// accepted_output is frozen on acceptance — a leaf has no accepted_revision_id
-	// (that is the composite/decomposition freeze); the leaf freeze is the output.
+	// accepted_output is frozen on acceptance — a leaf has no decomposition plan
+	// (that is the composite freeze: plan + planned_at); the leaf freeze is the output.
 	if !got.AcceptedOutput.Valid || got.AcceptedOutput.String == "" {
 		t.Fatalf("accepted_output not frozen: %+v", got.AcceptedOutput)
 	}

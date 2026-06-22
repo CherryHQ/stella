@@ -154,11 +154,23 @@ UPDATE agent_goal SET
     updated_at = now()
 WHERE id = sqlc.arg(id);
 
--- name: SetGoalAcceptedRevision :exec
+-- name: SetGoalPlan :exec
+-- Write a composite's decomposition plan (children + edges). Set by a
+-- decomposition attempt before materialize; for review_policy='human' the plan
+-- sits here while the goal is blocked(needs_plan_approval) until a human acts.
 UPDATE agent_goal SET
-    accepted_revision_id = sqlc.arg(accepted_revision_id),
+    plan = sqlc.arg(plan),
     updated_at = now()
 WHERE id = sqlc.arg(id);
+
+-- name: MarkGoalPlanned :execrows
+-- The materialize fence (CAS): stamp planned_at exactly once. A second concurrent
+-- materialize gets 0 rows and must treat it as an idempotent no-op, so children
+-- are never double-created. Replaces the old materialized revision unique index.
+UPDATE agent_goal SET
+    planned_at = now(),
+    updated_at = now()
+WHERE id = sqlc.arg(id) AND planned_at IS NULL;
 
 -- name: ReconcileGoalCounters :exec
 UPDATE agent_goal SET
@@ -192,6 +204,20 @@ WHERE lifecycle = 'ready'
 ORDER BY priority DESC, created_at ASC
 LIMIT $1;
 
+-- name: ListDecomposableComposites :many
+-- Composites awaiting autonomous decomposition: freshly created (draft) and not
+-- planned yet. Both review policies are auto-driven: the planner always produces
+-- the plan; review_policy='human' only adds an approval gate after the plan is
+-- proposed (the goal parks blocked(needs_plan_approval)), it does not stop the
+-- planner from running. The dispatcher mints + enqueues a decomposition attempt
+-- for each, moving it draft->active so it is not re-picked.
+SELECT * FROM agent_goal
+WHERE kind = 'composite'
+  AND lifecycle = 'draft'
+  AND planned_at IS NULL
+ORDER BY priority DESC, created_at ASC
+LIMIT $1;
+
 -- name: ListRollupCandidates :many
 SELECT * FROM agent_goal
 WHERE kind = 'composite'
@@ -206,6 +232,19 @@ SELECT * FROM agent_goal
 WHERE kind = 'composite'
   AND lifecycle = 'active'
   AND required_accepted < required_total
+ORDER BY updated_at ASC
+LIMIT $1;
+
+-- name: ListBlockedDepComposites :many
+-- Composites parked blocked(dep) by the rollup because a required child was
+-- blocked. The rollup scans (ListRollupCandidates/ListStalledComposites) only see
+-- active composites, so a parent driven here never re-enters rollup on its own.
+-- The dispatcher re-evaluates each: once its blocking children clear, it is woken
+-- back to active so the rollup resumes (see RecoverBlockedComposite).
+SELECT * FROM agent_goal
+WHERE kind = 'composite'
+  AND lifecycle = 'blocked'
+  AND block_reason = 'dep'
 ORDER BY updated_at ASC
 LIMIT $1;
 
@@ -261,11 +300,11 @@ ORDER BY d.updated_at DESC, d.id DESC
 LIMIT sqlc.arg(limit_count);
 
 -- Transaction-scoped advisory lock serializing read-modify-write sequence
--- allocation for one goal. The acceptance ledger seq, attempt_no, and revision_no
+-- allocation for one goal. The acceptance ledger seq and attempt_no
 -- are each GetMax->+1->insert under Read Committed, which PostgreSQL runs in
 -- parallel across writers (and nodes): without this, two writers read the same
 -- max and compute the same next value, silently duplicating the acceptance seq
--- (no unique backstop) or colliding on the attempt_no/revision_no unique index.
+-- (no unique backstop) or colliding on the attempt_no unique index.
 -- Held until the enclosing tx ends. The 'goal:' prefix keeps unrelated entities
 -- out of this goal's slot in the shared 64-bit lock space (matching
 -- AdvisoryXactLock / LockSchedJobForRun).

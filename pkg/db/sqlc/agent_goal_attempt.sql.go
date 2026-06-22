@@ -47,7 +47,7 @@ INSERT INTO agent_goal_attempt (
     purpose, attempt_no, status, input_context, lease_expires_at
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at
+RETURNING id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at
 `
 
 type CreateAttemptParams struct {
@@ -92,7 +92,6 @@ func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (A
 		&i.InputContext,
 		&i.Evidence,
 		&i.Output,
-		&i.RevisionID,
 		&i.Gaps,
 		&i.Error,
 		&i.HeartbeatAt,
@@ -130,7 +129,7 @@ func (q *Queries) FinalizeAttempt(ctx context.Context, arg FinalizeAttemptParams
 }
 
 const getActiveAttempt = `-- name: GetActiveAttempt :one
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt
 WHERE goal_id = $1
   AND purpose = $2
   AND status IN ('queued', 'running')
@@ -157,7 +156,6 @@ func (q *Queries) GetActiveAttempt(ctx context.Context, arg GetActiveAttemptPara
 		&i.InputContext,
 		&i.Evidence,
 		&i.Output,
-		&i.RevisionID,
 		&i.Gaps,
 		&i.Error,
 		&i.HeartbeatAt,
@@ -172,7 +170,7 @@ func (q *Queries) GetActiveAttempt(ctx context.Context, arg GetActiveAttemptPara
 }
 
 const getAttempt = `-- name: GetAttempt :one
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt WHERE id = $1
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt WHERE id = $1
 `
 
 func (q *Queries) GetAttempt(ctx context.Context, id string) (AgentGoalAttempt, error) {
@@ -191,7 +189,6 @@ func (q *Queries) GetAttempt(ctx context.Context, id string) (AgentGoalAttempt, 
 		&i.InputContext,
 		&i.Evidence,
 		&i.Output,
-		&i.RevisionID,
 		&i.Gaps,
 		&i.Error,
 		&i.HeartbeatAt,
@@ -248,7 +245,7 @@ func (q *Queries) HeartbeatAttempt(ctx context.Context, arg HeartbeatAttemptPara
 }
 
 const listAttemptByGoal = `-- name: ListAttemptByGoal :many
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt
 WHERE goal_id = $1
   AND ($2::text IS NULL OR purpose = $2::text)
 ORDER BY attempt_no DESC
@@ -281,7 +278,6 @@ func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalPa
 			&i.InputContext,
 			&i.Evidence,
 			&i.Output,
-			&i.RevisionID,
 			&i.Gaps,
 			&i.Error,
 			&i.HeartbeatAt,
@@ -303,9 +299,8 @@ func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalPa
 }
 
 const listStaleAttempts = `-- name: ListStaleAttempts :many
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, revision_id, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_goal_attempt
 WHERE status IN ('queued', 'running')
-  AND purpose <> 'decomposition'
   AND lease_expires_at IS NOT NULL
   AND lease_expires_at < $1
 ORDER BY lease_expires_at ASC
@@ -317,10 +312,12 @@ type ListStaleAttemptsParams struct {
 	Limit int32              `json:"limit"`
 }
 
-// Lease-expired execution attempts only. Decomposition attempts run interactively
-// in a planning session, are never enqueued to River and never heartbeated, so
-// their lease is not a liveness signal; the reaper must skip them or it bounces an
-// active composite back to draft mid-planning.
+// Lease-expired attempts whose lease is a liveness signal. An attempt heartbeated
+// by a River worker (every execution attempt, and an autonomous decomposition
+// attempt) carries a forward-moving lease, so an expired lease means a genuine
+// orphan. Interactive decomposition attempts (planned in a session, never
+// enqueued/heartbeated) carry a NULL lease and are skipped by the IS NOT NULL
+// guard, so the reaper never bounces an active composite back to draft mid-planning.
 func (q *Queries) ListStaleAttempts(ctx context.Context, arg ListStaleAttemptsParams) ([]AgentGoalAttempt, error) {
 	rows, err := q.db.Query(ctx, listStaleAttempts, arg.Now, arg.Limit)
 	if err != nil {
@@ -343,7 +340,6 @@ func (q *Queries) ListStaleAttempts(ctx context.Context, arg ListStaleAttemptsPa
 			&i.InputContext,
 			&i.Evidence,
 			&i.Output,
-			&i.RevisionID,
 			&i.Gaps,
 			&i.Error,
 			&i.HeartbeatAt,
@@ -424,26 +420,19 @@ UPDATE agent_goal_attempt
 SET status = 'submitted',
     evidence = $1,
     output = $2,
-    revision_id = $3,
     finished_at = now(),
     updated_at = now()
-WHERE id = $4 AND status = 'running'
+WHERE id = $3 AND status = 'running'
 `
 
 type SubmitAttemptParams struct {
-	Evidence   json.RawMessage `json:"evidence"`
-	Output     json.RawMessage `json:"output"`
-	RevisionID pgtype.Text     `json:"revision_id"`
-	ID         string          `json:"id"`
+	Evidence json.RawMessage `json:"evidence"`
+	Output   json.RawMessage `json:"output"`
+	ID       string          `json:"id"`
 }
 
 func (q *Queries) SubmitAttempt(ctx context.Context, arg SubmitAttemptParams) (int64, error) {
-	result, err := q.db.Exec(ctx, submitAttempt,
-		arg.Evidence,
-		arg.Output,
-		arg.RevisionID,
-		arg.ID,
-	)
+	result, err := q.db.Exec(ctx, submitAttempt, arg.Evidence, arg.Output, arg.ID)
 	if err != nil {
 		return 0, err
 	}

@@ -144,6 +144,13 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 	ctx := context.Background()
 
 	switch {
+	case att.Purpose == PurposeDecomposition:
+		// A planner attempt has a different outcome shape (a plan, not an output)
+		// and never runs deterministic checks, so it is handled wholly apart from
+		// the execution/review fold. Routed by purpose BEFORE the generic submit
+		// case so a decomposition never falls through to the leaf checks.
+		return w.applyDecompositionResult(ctx, goalID, att, res)
+
 	case res.Submitted:
 		// Run deterministic checks (sandbox IO, no DB tx held), append
 		// each as an acceptance_event, then apply the one submit transition.
@@ -189,6 +196,29 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 		w.failAttempt(goalID, att.ID, "agent exited without submitting or failing")
 		return nil
 	}
+}
+
+// applyDecompositionResult applies a planner attempt's outcome as the single
+// durable transition. A successful attempt carries the produced plan, which
+// SubmitDecomposition stores inline on the goal and (review_policy=none)
+// materializes + releases children in one tx, or (human) parks it
+// blocked(needs_plan_approval). Any non-submit terminal (fail / no decomposition /
+// protocol miss) is a failed plan attempt that convergence recovers within the
+// plan budget (recoverDecomposition). Errors are recorded as a failed attempt,
+// not returned, so applyResult itself always succeeds.
+func (w *Worker) applyDecompositionResult(ctx context.Context, goalID string, att sqlc.AgentGoalAttempt, res ExecutorResult) error {
+	if res.Submitted && res.Decomposition != nil {
+		if derr := w.svc.SubmitDecomposition(ctx, att.ID, res.Evidence, *res.Decomposition); derr != nil {
+			w.failAttempt(goalID, att.ID, "apply decomposition: "+derr.Error())
+		}
+		return nil
+	}
+	reason := res.FailReason
+	if reason == "" {
+		reason = "decomposition produced no plan"
+	}
+	w.failAttempt(goalID, att.ID, reason)
+	return nil
 }
 
 // runChecks runs every required deterministic contract item through the

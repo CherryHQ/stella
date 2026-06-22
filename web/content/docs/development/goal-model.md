@@ -54,21 +54,19 @@ A **Goal** owns its intent, its decomposition, its acceptance, its attempts, and
 convergence. A root goal is the user's objective; its children are goals; theirs
 are too — the same shape all the way down. `kind` distinguishes a **leaf** (worker-executed)
 from a **composite** (decomposed into children). A decomposition is not a peer object, it is a
-goal's _revision_. An attempt is not a peer object, it is the goal's _execution
-episode_. A review is not a peer object, it is an _acceptance evidence source_.
+composite's _inline plan_ (`goal.plan`). An attempt is not a peer object, it is the goal's
+_execution episode_. A review is not a peer object, it is an _acceptance evidence source_.
 
 ### Runtime entities
 
-Four runtime entities plus one optional revision table — deliberately small; more than this
-is over-modeling.
+Four runtime entities — deliberately small; more than this is over-modeling.
 
-| Entity                       | Job                                                                                                                                                                  |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `goal`                       | Intent + `acceptance_contract` + `convergence_policy` + nullable `parent_id` + nullable accepted output.                                                             |
-| `goal_edge`                  | Accepted-output dependency between sibling goals (`hard` blocks; `soft` is advisory context).                                                                        |
-| `attempt`                    | One execution episode: a persistent agent session, the frozen input context, and the submitted evidence (evidence folds into the attempt — it is not its own table). |
-| `acceptance_event`           | Append-only record of a deterministic check result or a judgment verdict. Goal acceptance state is a **cached projection** over these events, not a mutable column.  |
-| `goal_revision` _(optional)_ | A decomposition version. Used for multi-level decomposition; a leaf goal carries none.                                                                               |
+| Entity             | Job                                                                                                                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `goal`             | Intent + `acceptance_contract` + `convergence_policy` + nullable `parent_id` + nullable accepted output. A composite also carries its decomposition `plan` (jsonb) and `planned_at` fence inline. |
+| `goal_edge`        | Accepted-output dependency between sibling goals (`hard` blocks; `soft` is advisory context).                                                                                                     |
+| `attempt`          | One execution episode: a persistent agent session, the frozen input context, and the submitted evidence (evidence folds into the attempt — it is not its own table).                              |
+| `acceptance_event` | Append-only record of a deterministic check result or a judgment verdict. Goal acceptance state is a **cached projection** over these events, not a mutable column.                               |
 
 `acceptance_event` being append-only (not a mutable evaluation table) is friendlier to audit
 and to projection rebuilds — see [Scalability](#simplicity-and-scalability).
@@ -152,10 +150,11 @@ produced X, acceptance rejected with gaps Y, attempt 2 produced Z, accepted.
 
 ## Recursion gives decomposition and final acceptance for free
 
-A composite goal produces a **decomposition** as the output of an attempt, gated by a
-review policy (`none` auto-accepts; `human` awaits approval — the plan-review gate, scoped to
-the decomposition). Once accepted, child goals and their edges are materialized, and
-each child runs its own convergence loop.
+A composite goal produces a **decomposition** as the output of an attempt, stored inline on
+`goal.plan`, gated by a review policy (`none` materializes immediately; `human` parks the
+composite at `blocked(needs_plan_approval)` until a human approves — the plan-review gate).
+Once materialized, child goals and their edges exist and each child runs its own convergence
+loop.
 
 When all required children are accepted, the parent runs **its own** acceptance evaluation.
 That step _is_ the root-level final acceptance / synthesizer — not a special, separate
@@ -184,8 +183,8 @@ A few rules hold the model together. They are deliberately small and apply at ev
 the recursion:
 
 - **The plan gate** — never run undecomposed work. `ready → active` requires either a leaf
-  with a contract, or an accepted decomposition with ≥1 materialized child. It is one rule on
-  the goal lifecycle, not three checks spread across an objective, a plan, and child
+  with a contract, or a materialized plan (`planned_at` set) with ≥1 required child. It is one
+  rule on the goal lifecycle, not three checks spread across an objective, a plan, and child
   counts.
 - **The dependency DAG** — `goal_edge` carries _accepted-output_ dependency, not
   procedural order.
@@ -204,7 +203,7 @@ The recursion folds several once-separate concepts into the single Goal abstract
 | user objective (root)    | `goal`, `parent_id = NULL`                               |
 | sub-objective / sub-task | child `goal`                                             |
 | objective lifecycle      | `goal` lifecycle state (derived)                         |
-| plan                     | `goal_revision` (decomposition version)                  |
+| plan                     | `goal.plan` (inline decomposition)                       |
 | plan items               | proposed child goals                                     |
 | worker-executed task     | leaf `goal`                                              |
 | task running             | `attempt` running                                        |

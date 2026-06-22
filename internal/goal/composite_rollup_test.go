@@ -9,37 +9,20 @@ import (
 )
 
 // composite_rollup_test.go covers the composite surface end-to-end: decomposition
-// (BeginDecomposition → CreateRevision), the revision review FSM, Materialize
-// (children + edges + required_total), the §6 incremental rollup counters, and
-// the composite acceptance gate (trivial auto-accept vs an authored judgment
-// contract). It tests to the contract §2/§3.7/§6 invariants the cited code
-// comments document.
+// (BeginDecomposition -> SubmitDecomposition), the inline plan + plan-approval
+// gate, Materialize (children + edges + required_total), the section 6 incremental
+// rollup counters, and the composite acceptance gate (trivial auto-accept vs an
+// authored judgment contract). It tests to the contract section 2 / 3.7 / 6
+// invariants the cited code comments document.
 //
-// Lifecycle note (contract §2, goal-model.md lines 136/186): the ONLY
-// service path that puts a composite into 'active' — the lifecycle every rollup
-// (RollupComposite, RollupAccept, RollupFail) and the ListRollupCandidates query
-// require — is BeginDecomposition (draft→active). After Accept materializes the
-// children the composite stays 'active', so these tests drive composites through
-// BeginDecomposition first, then ready each draft leaf child individually
-// (Activate on a leaf is the plan gate, independent of the parent), run it, and
-// invoke the dispatcher's RollupAccept/RollupFail to apply the parent transition.
-//
-// SUSPECT BUG: the composite lifecycle has no integrated happy path. The contract
-// (goal-model.md line 186) says the plan gate is "ready → active requires
-// ... an accepted decomposition with ≥1 materialized child", and Activate
-// (service.go) implements draft→ready for a composite ONLY when it already has a
-// materialized revision (AcceptedRevisionID set + required_total≥1) and flips its
-// draft children → ready. But the ONLY route to a materialized revision is
-// BeginDecomposition, which moves the composite draft→ACTIVE; once active, Activate
-// (guarded from 'draft') can never run, so the materialized children are never
-// readied through any service call and a leaf under a decomposed composite has no
-// path to 'ready'/claim. Conversely no service call ever moves a composite
-// ready→active, so a composite Activated while still draft (if one could
-// materialize without BeginDecomposition) ends 'ready' and the rollup — which
-// requires 'active' (rollup.go §6, ListRollupCandidates) — never fires. These
-// tests sidestep the gap by readying each leaf child individually and invoking
-// RollupAccept/RollupFail directly; an integrator should reconcile the draft→
-// active vs draft→ready composite transition before relying on the dispatcher.
+// Lifecycle note: the only service path that puts a composite into 'active' (the
+// lifecycle every rollup requires) is BeginDecomposition (draft->active). For
+// review_policy=none, SubmitDecomposition then materializes the children AND
+// releases the leaves to 'ready' in the same flow, so these tests decompose, run
+// each ready leaf, and invoke the dispatcher's RollupAccept/RollupFail to apply
+// the parent transition. For review_policy=human, SubmitDecomposition instead
+// parks the composite at blocked(needs_plan_approval) with the plan stored inline
+// on the goal; ApprovePlan materializes (or RejectPlan returns it to draft).
 
 // cmp_child is a single proposed leaf child with a trivial (auto-accept) contract.
 func cmp_child(key string, required bool) ProposedChild {
@@ -54,10 +37,12 @@ func cmp_child(key string, required bool) ProposedChild {
 	}
 }
 
-// cmp_decompose drives a draft composite through BeginDecomposition →
-// CreateRevision(content) and returns the draft revision. The composite is left
-// 'active' (the post-decomposition lifecycle every rollup requires).
-func cmp_decompose(t *testing.T, h *harness, compositeID string, content DecompositionContent) sqlc.AgentGoalRevision {
+// cmp_decompose drives a draft composite through BeginDecomposition ->
+// SubmitDecomposition(content). For review_policy=none this materializes the
+// children, releases the leaves to ready, and leaves the composite 'active'. For
+// review_policy=human it parks the composite at blocked(needs_plan_approval) with
+// the plan stored inline. Child ids anchor on the composite id: childID(compositeID, key).
+func cmp_decompose(t *testing.T, h *harness, compositeID string, content DecompositionContent) {
 	t.Helper()
 	ctx := context.Background()
 	att, err := h.svc.BeginDecomposition(ctx, compositeID)
@@ -70,14 +55,21 @@ func cmp_decompose(t *testing.T, h *harness, compositeID string, content Decompo
 	if got := h.get(compositeID).Lifecycle; got != LifecycleActive {
 		t.Fatalf("after BeginDecomposition composite lifecycle=%q want active", got)
 	}
-	rev, err := h.svc.CreateRevision(ctx, compositeID, content, att.ID)
-	if err != nil {
-		t.Fatalf("CreateRevision: %v", err)
+	// Promote the decomposition attempt queued->running, as the River worker does
+	// before it submits the planner's result (SubmitDecomposition needs 'running').
+	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
+		t.Fatalf("PromoteAttempt: %v", err)
 	}
-	if rev.Status != RevisionDraft {
-		t.Fatalf("new revision status=%q want draft", rev.Status)
+	if err := h.svc.SubmitDecomposition(ctx, att.ID, AttemptEvidence{}, content); err != nil {
+		t.Fatalf("SubmitDecomposition: %v", err)
 	}
-	return rev
+}
+
+// cmp_compositeChild is a proposed COMPOSITE child (decomposed in its own turn).
+func cmp_compositeChild(key string, required bool) ProposedChild {
+	c := cmp_child(key, required)
+	c.Kind = KindComposite
+	return c
 }
 
 // cmp_children returns a composite's direct children ordered by position.
@@ -90,12 +82,12 @@ func cmp_children(t *testing.T, h *harness, parentID string) []sqlc.AgentGoal {
 	return kids
 }
 
-// cmp_acceptChild readies a draft leaf child (plan gate) and runs it to accepted.
+// cmp_acceptChild runs an already-ready leaf child to accepted. The none-path
+// SubmitDecomposition releases leaves to 'ready', so no activate is needed.
 func cmp_acceptChild(t *testing.T, h *harness, childID string) {
 	t.Helper()
-	h.activate(childID)
 	if got := h.get(childID).Lifecycle; got != LifecycleReady {
-		t.Fatalf("child %s after activate lifecycle=%q want ready", childID, got)
+		t.Fatalf("child %s lifecycle=%q want ready (released by decomposition)", childID, got)
 	}
 	h.runLeaf(childID)
 	if got := h.get(childID).Lifecycle; got != LifecycleAccepted {
@@ -103,13 +95,13 @@ func cmp_acceptChild(t *testing.T, h *harness, childID string) {
 	}
 }
 
-// TestCompositeRollup_DecomposeMaterializeChildren proves the decomposition →
-// auto-accept (review_policy=none) → materialize path: Accept materializes the
-// proposal's children + edges in one tx (contract §6). Asserts each child exists
-// with parent_id=composite, root_id=composite.root_id, depth=parent.depth+1, the
-// right kind/required, the materialized edge, and that the composite's
-// required_total counts ONLY the required children + points at the accepted
-// revision.
+// TestCompositeRollup_DecomposeMaterializeChildren proves the decomposition ->
+// auto-materialize (review_policy=none) path: SubmitDecomposition materializes the
+// proposal's children + edges and releases the leaves in one flow (contract
+// section 6). Asserts each child exists with parent_id=composite,
+// root_id=composite.root_id, depth=parent.depth+1, the right kind/required, the
+// materialized edge, and that the composite's required_total counts ONLY the
+// required children + the plan gate (planned_at) is set.
 func TestCompositeRollup_DecomposeMaterializeChildren(t *testing.T) {
 	h := newHarness(t)
 	root := h.createRoot(KindComposite, AcceptanceContract{})
@@ -124,19 +116,7 @@ func TestCompositeRollup_DecomposeMaterializeChildren(t *testing.T) {
 			{DownstreamKey: "b", UpstreamKey: "a", Kind: EdgeHard, OnFailure: OnFailureBlock},
 		},
 	}
-	rev := cmp_decompose(t, h, root.ID, content)
-
-	// review_policy=none ⇒ Accept auto-accepts draft→accepted and materializes.
-	accepted, err := h.svc.Accept(context.Background(), rev.ID, UserActor(h.userID))
-	if err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
-	if accepted.Status != RevisionAccepted {
-		t.Fatalf("revision status=%q want accepted", accepted.Status)
-	}
-	if !accepted.MaterializedAt.Valid {
-		t.Fatalf("accepted revision missing materialized_at fence")
-	}
+	cmp_decompose(t, h, root.ID, content)
 
 	kids := cmp_children(t, h, root.ID)
 	if len(kids) != 3 {
@@ -155,8 +135,9 @@ func TestCompositeRollup_DecomposeMaterializeChildren(t *testing.T) {
 		if c.Position != int64(i) {
 			t.Errorf("child %s position=%d want %d", c.ID, c.Position, i)
 		}
-		if c.Lifecycle != LifecycleDraft {
-			t.Errorf("child %s lifecycle=%q want draft (children born draft)", c.ID, c.Lifecycle)
+		// review_policy=none releases leaf children draft->ready in the same flow.
+		if c.Lifecycle != LifecycleReady {
+			t.Errorf("child %s lifecycle=%q want ready (released by decomposition)", c.ID, c.Lifecycle)
 		}
 	}
 
@@ -165,23 +146,23 @@ func TestCompositeRollup_DecomposeMaterializeChildren(t *testing.T) {
 	if parent.RequiredTotal != 2 {
 		t.Fatalf("composite required_total=%d want 2 (required children only)", parent.RequiredTotal)
 	}
-	if !parent.AcceptedRevisionID.Valid || parent.AcceptedRevisionID.String != rev.ID {
-		t.Fatalf("composite accepted_revision_id=%v want %s", parent.AcceptedRevisionID, rev.ID)
+	if !parent.PlannedAt.Valid {
+		t.Fatalf("composite planned_at not set after materialize (plan gate)")
 	}
 
-	// The proposed edge b→a was materialized (resolves to deterministic child ids).
-	down := childID(rev.ID, "b")
-	up := childID(rev.ID, "a")
+	// The proposed edge b->a was materialized (resolves to deterministic child ids).
+	down := childID(root.ID, "b")
+	up := childID(root.ID, "a")
 	if _, err := h.q.GetEdge(context.Background(), sqlc.GetEdgeParams{GoalID: down, UpstreamID: up}); err != nil {
-		t.Fatalf("materialized edge b→a missing: %v", err)
+		t.Fatalf("materialized edge b->a missing: %v", err)
 	}
 }
 
 // TestCompositeRollup_RequiredAcceptedCounterAndAccept drives both required
-// children of a trivial composite to accepted and asserts the §6 rollup: each
-// required child's acceptance bumps the parent's required_accepted by EXACTLY 1
-// (an advisory child does NOT), and once required_accepted == required_total the
-// dispatcher's RollupAccept accepts the composite (trivial contract ⇒ immediate
+// children of a trivial composite to accepted and asserts the section 6 rollup:
+// each required child's acceptance bumps the parent's required_accepted by EXACTLY
+// 1 (an advisory child does NOT), and once required_accepted == required_total the
+// dispatcher's RollupAccept accepts the composite (trivial contract => immediate
 // accept on the all-children-accepted rollup).
 func TestCompositeRollup_RequiredAcceptedCounterAndAccept(t *testing.T) {
 	h := newHarness(t)
@@ -194,17 +175,14 @@ func TestCompositeRollup_RequiredAcceptedCounterAndAccept(t *testing.T) {
 			cmp_child("c", false), // advisory
 		},
 	}
-	rev := cmp_decompose(t, h, root.ID, content)
-	if _, err := h.svc.Accept(context.Background(), rev.ID, UserActor(h.userID)); err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
+	cmp_decompose(t, h, root.ID, content)
 
 	kids := cmp_children(t, h, root.ID)
 	byKey := map[string]sqlc.AgentGoal{}
 	for _, c := range kids {
-		// child id is deterministic from (revision, key); recover the key by match.
+		// child id is deterministic from (goal, key); recover the key by match.
 		for _, k := range []string{"a", "b", "c"} {
-			if c.ID == childID(rev.ID, k) {
+			if c.ID == childID(root.ID, k) {
 				byKey[k] = c
 			}
 		}
@@ -213,8 +191,8 @@ func TestCompositeRollup_RequiredAcceptedCounterAndAccept(t *testing.T) {
 		t.Fatalf("could not map all children by key: %v", byKey)
 	}
 
-	// Accept the advisory child first: it must NOT bump required_accepted (§6 —
-	// only a required child contributes to the parent's rollup counters).
+	// Accept the advisory child first: it must NOT bump required_accepted (section 6
+	// -- only a required child contributes to the parent's rollup counters).
 	cmp_acceptChild(t, h, byKey["c"].ID)
 	if got := h.get(root.ID).RequiredAccepted; got != 0 {
 		t.Fatalf("after advisory child accept required_accepted=%d want 0 (advisory excluded)", got)
@@ -233,7 +211,7 @@ func TestCompositeRollup_RequiredAcceptedCounterAndAccept(t *testing.T) {
 		t.Fatalf("composite lifecycle=%q want active (rollup not yet fired)", p.Lifecycle)
 	}
 
-	// Second required child: required_accepted == required_total ⇒ accept_parent.
+	// Second required child: required_accepted == required_total => accept_parent.
 	cmp_acceptChild(t, h, byKey["b"].ID)
 	p = h.get(root.ID)
 	if p.RequiredAccepted != 2 {
@@ -254,14 +232,30 @@ func TestCompositeRollup_RequiredAcceptedCounterAndAccept(t *testing.T) {
 	if !got.AcceptedOutput.Valid {
 		t.Fatalf("accepted composite has no frozen accepted_output")
 	}
+	// The composite's rollup output carries each accepted child's frozen output so
+	// a reader of the parent sees the deliverables without walking children. All
+	// three children accepted (two required + one advisory); every produced
+	// deliverable is collected, advisory included.
+	var ao AcceptedOutput
+	if err := unmarshalNullJSON(got.AcceptedOutput, &ao); err != nil {
+		t.Fatalf("decode composite accepted_output: %v", err)
+	}
+	if len(ao.Children) != 3 {
+		t.Fatalf("composite accepted_output.children = %d, want 3 (every accepted child)", len(ao.Children))
+	}
+	for i, c := range ao.Children {
+		if c.Summary != "ok" {
+			t.Errorf("child[%d] output summary = %q, want %q (the leaf's frozen output)", i, c.Summary, "ok")
+		}
+	}
 }
 
-// TestCompositeRollup_RequiredFailedGatesComposite proves the §6 fail path: a
-// required child reaching a terminal-bad state bumps the parent's required_failed
-// (precedence over accepted), and RollupComposite ⇒ fail drives the composite to
+// TestCompositeRollup_RequiredFailedGatesComposite proves the section 6 fail path:
+// a required child reaching a terminal-bad state bumps the parent's required_failed
+// (precedence over accepted), and RollupComposite => fail drives the composite to
 // rejected_final. The terminal-bad here is Cancel (cancelled is terminal-bad and
-// bumps the parent required_failed, contract §2.1/§6) — the same counter the
-// convergence budget-out rejected_final/abandoned paths bump.
+// bumps the parent required_failed, contract section 2.1 / 6) -- the same counter
+// the convergence budget-out rejected_final/abandoned paths bump.
 func TestCompositeRollup_RequiredFailedGatesComposite(t *testing.T) {
 	h := newHarness(t)
 	root := h.createRoot(KindComposite, AcceptanceContract{})
@@ -272,13 +266,10 @@ func TestCompositeRollup_RequiredFailedGatesComposite(t *testing.T) {
 			cmp_child("b", true),
 		},
 	}
-	rev := cmp_decompose(t, h, root.ID, content)
-	if _, err := h.svc.Accept(context.Background(), rev.ID, UserActor(h.userID)); err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
+	cmp_decompose(t, h, root.ID, content)
 
-	childA := childID(rev.ID, "a")
-	childB := childID(rev.ID, "b")
+	childA := childID(root.ID, "a")
+	childB := childID(root.ID, "b")
 
 	// Accept one required child, terminally fail the other.
 	cmp_acceptChild(t, h, childA)
@@ -286,7 +277,7 @@ func TestCompositeRollup_RequiredFailedGatesComposite(t *testing.T) {
 		t.Fatalf("required_accepted=%d want 1", got)
 	}
 
-	// Cancel the other required child (terminal-bad ⇒ parent required_failed +1).
+	// Cancel the other required child (terminal-bad => parent required_failed +1).
 	if err := h.svc.Cancel(context.Background(), childB, "give up", UserActor(h.userID)); err != nil {
 		t.Fatalf("Cancel child: %v", err)
 	}
@@ -312,11 +303,11 @@ func TestCompositeRollup_RequiredFailedGatesComposite(t *testing.T) {
 
 // TestCompositeRollup_AuthoredContractGate proves the composite acceptance gate
 // for an AUTHORED (non-trivial) contract: once all required children accept, the
-// rollup does NOT auto-accept the composite — RollupAccept folds the composite's
+// rollup does NOT auto-accept the composite -- RollupAccept folds the composite's
 // own ledger (applyAcceptance). A required human-judgment item is unresolved, so
 // the composite blocks(needs_verdict); a human SubmitVerdict(pass) then accepts
 // it. A composite carries no executed output, so the evaluated hash is "" and the
-// verdict's scope_hash must be "" to match (§4.2).
+// verdict's scope_hash must be "" to match (section 4.2).
 func TestCompositeRollup_AuthoredContractGate(t *testing.T) {
 	h := newHarness(t)
 	root := h.createRoot(KindComposite, humanJudgmentContract())
@@ -324,12 +315,9 @@ func TestCompositeRollup_AuthoredContractGate(t *testing.T) {
 	content := DecompositionContent{
 		Children: []ProposedChild{cmp_child("a", true)},
 	}
-	rev := cmp_decompose(t, h, root.ID, content)
-	if _, err := h.svc.Accept(context.Background(), rev.ID, UserActor(h.userID)); err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
+	cmp_decompose(t, h, root.ID, content)
 
-	cmp_acceptChild(t, h, childID(rev.ID, "a"))
+	cmp_acceptChild(t, h, childID(root.ID, "a"))
 	p := h.get(root.ID)
 	if p.RequiredAccepted != p.RequiredTotal || p.RequiredTotal != 1 {
 		t.Fatalf("required_accepted=%d required_total=%d want 1/1", p.RequiredAccepted, p.RequiredTotal)
@@ -339,7 +327,7 @@ func TestCompositeRollup_AuthoredContractGate(t *testing.T) {
 	}
 
 	// Authored contract: RollupAccept folds the composite's own ledger. The
-	// required human-judgment item is pending ⇒ block(needs_verdict), NOT accepted.
+	// required human-judgment item is pending => block(needs_verdict), NOT accepted.
 	if err := h.svc.RollupAccept(context.Background(), root.ID); err != nil {
 		t.Fatalf("RollupAccept (authored): %v", err)
 	}
@@ -354,7 +342,7 @@ func TestCompositeRollup_AuthoredContractGate(t *testing.T) {
 		GoalID:         root.ID,
 		ItemID:         "review",
 		Result:         ResultPass,
-		ScopeHash:      "", // composite has no executed output ⇒ current hash is ""
+		ScopeHash:      "", // composite has no executed output => current hash is ""
 		ReviewerUserID: h.userID,
 	}); err != nil {
 		t.Fatalf("SubmitVerdict: %v", err)
@@ -364,16 +352,17 @@ func TestCompositeRollup_AuthoredContractGate(t *testing.T) {
 	}
 }
 
-// TestCompositeRollup_HumanReviewLifecycle exercises the revision review FSM
-// (contract §2.3) for review_policy=human: draft → (SubmitForReview) in_review →
-// (Approve) accepted, and that Materialize is gated on 'accepted'. It asserts each
-// status transition and that MaterializeRevision rejects a not-yet-accepted
-// revision (the accepted-only gate). Approve materializes; the children appear.
-func TestCompositeRollup_HumanReviewLifecycle(t *testing.T) {
+// TestCompositeRollup_HumanReviewPlanGate exercises the review_policy=human plan
+// gate (contract section 2.3): SubmitDecomposition parks the composite at
+// blocked(needs_plan_approval) with the plan stored inline (no children
+// materialized yet); ApprovePlan then materializes the children, releases the
+// leaves, and returns the composite to active. A second ApprovePlan is rejected
+// (the composite is no longer blocked on plan approval -- the materialize fence).
+func TestCompositeRollup_HumanReviewPlanGate(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	root := h.createRoot(KindComposite, AcceptanceContract{})
-	// Switch the composite's review policy to human so revisions inherit it.
+	// Switch the composite's review policy to human so SubmitDecomposition gates.
 	human := ReviewHuman
 	if _, err := h.svc.UpdateMetadata(ctx, root.ID, UpdateInput{ReviewPolicy: &human}); err != nil {
 		t.Fatalf("UpdateMetadata review_policy=human: %v", err)
@@ -382,59 +371,50 @@ func TestCompositeRollup_HumanReviewLifecycle(t *testing.T) {
 	content := DecompositionContent{
 		Children: []ProposedChild{cmp_child("a", true), cmp_child("b", true)},
 	}
-	rev := cmp_decompose(t, h, root.ID, content)
-	if rev.ReviewPolicy != ReviewHuman {
-		t.Fatalf("revision review_policy=%q want human (inherited from composite)", rev.ReviewPolicy)
+	cmp_decompose(t, h, root.ID, content)
+
+	// SubmitDecomposition parks the composite for human approval; no children yet.
+	p := h.get(root.ID)
+	if p.Lifecycle != LifecycleBlocked || p.BlockReason != BlockNeedsPlanApproval {
+		t.Fatalf("after human decomposition lifecycle=%q reason=%q want blocked/needs_plan_approval",
+			p.Lifecycle, p.BlockReason)
+	}
+	if p.PlannedAt.Valid {
+		t.Fatalf("planned_at set before approval (materialize fence should be open)")
+	}
+	if kids := cmp_children(t, h, root.ID); len(kids) != 0 {
+		t.Fatalf("human plan materialized %d children before approval want 0", len(kids))
 	}
 
-	// Materialize is gated on 'accepted': a draft revision is rejected.
-	if _, err := h.bundle.MaterializeRevision(ctx, rev.ID); err == nil {
-		t.Fatalf("MaterializeRevision on a draft revision should fail (accepted-only gate)")
+	// ApprovePlan materializes and returns the composite to active.
+	if err := h.svc.ApprovePlan(ctx, root.ID, UserActor(h.userID)); err != nil {
+		t.Fatalf("ApprovePlan: %v", err)
 	}
-
-	// draft → in_review.
-	r, err := h.svc.SubmitForReview(ctx, rev.ID)
-	if err != nil {
-		t.Fatalf("SubmitForReview: %v", err)
+	p = h.get(root.ID)
+	if p.Lifecycle != LifecycleActive {
+		t.Fatalf("composite after ApprovePlan lifecycle=%q want active", p.Lifecycle)
 	}
-	if r.Status != RevisionInReview {
-		t.Fatalf("after SubmitForReview status=%q want in_review", r.Status)
-	}
-
-	// in_review → accepted (+ materialize in the same flow).
-	r, err = h.svc.Approve(ctx, rev.ID, UserActor(h.userID))
-	if err != nil {
-		t.Fatalf("Approve: %v", err)
-	}
-	if r.Status != RevisionAccepted {
-		t.Fatalf("after Approve status=%q want accepted", r.Status)
-	}
-	if !r.MaterializedAt.Valid {
-		t.Fatalf("approved revision missing materialized_at")
-	}
-
-	if kids := cmp_children(t, h, root.ID); len(kids) != 2 {
-		t.Fatalf("approve materialized %d children want 2", len(kids))
-	}
-	if got := h.get(root.ID).RequiredTotal; got != 2 {
-		t.Fatalf("composite required_total=%d want 2", got)
-	}
-
-	// A re-materialize of the already-materialized revision is an idempotent no-op
-	// (the materialized_at fence): children count is unchanged.
-	if _, err := h.bundle.MaterializeRevision(ctx, rev.ID); err != nil {
-		t.Fatalf("idempotent re-MaterializeRevision: %v", err)
+	if !p.PlannedAt.Valid {
+		t.Fatalf("planned_at not set after ApprovePlan (plan gate)")
 	}
 	if kids := cmp_children(t, h, root.ID); len(kids) != 2 {
-		t.Fatalf("re-materialize changed child count to %d want 2 (idempotent)", len(kids))
+		t.Fatalf("ApprovePlan materialized %d children want 2", len(kids))
+	}
+	if p.RequiredTotal != 2 {
+		t.Fatalf("composite required_total=%d want 2", p.RequiredTotal)
+	}
+
+	// A second ApprovePlan is an invalid transition: the composite is active, not
+	// blocked on plan approval (the materialize fence).
+	if err := h.svc.ApprovePlan(ctx, root.ID, UserActor(h.userID)); err == nil {
+		t.Fatalf("second ApprovePlan should fail (composite no longer blocked on plan approval)")
 	}
 }
 
-// TestCompositeRollup_RejectRevisionStaysActive proves the §2.3 reject path: a
-// human Reject moves an in_review revision → rejected and leaves the composite
-// 'active' (rework — a fresh decomposition is expected, no children materialize).
-// RequestChanges returns it to draft instead. Both are asserted here.
-func TestCompositeRollup_RejectRevisionStaysActive(t *testing.T) {
+// TestCompositeRollup_RejectPlanReturnsToDraft proves the section 2.3 reject path:
+// a human RejectPlan clears the inline plan and returns the composite to 'draft'
+// for re-decomposition (no children materialize).
+func TestCompositeRollup_RejectPlanReturnsToDraft(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	root := h.createRoot(KindComposite, AcceptanceContract{})
@@ -443,64 +423,179 @@ func TestCompositeRollup_RejectRevisionStaysActive(t *testing.T) {
 		t.Fatalf("UpdateMetadata: %v", err)
 	}
 
-	rev := cmp_decompose(t, h, root.ID, DecompositionContent{
+	cmp_decompose(t, h, root.ID, DecompositionContent{
 		Children: []ProposedChild{cmp_child("a", true)},
 	})
-
-	// draft → in_review → request_changes → draft.
-	if _, err := h.svc.SubmitForReview(ctx, rev.ID); err != nil {
-		t.Fatalf("SubmitForReview: %v", err)
-	}
-	back, err := h.svc.RequestChanges(ctx, rev.ID, "tighten the plan", UserActor(h.userID))
-	if err != nil {
-		t.Fatalf("RequestChanges: %v", err)
-	}
-	if back.Status != RevisionDraft {
-		t.Fatalf("after RequestChanges status=%q want draft", back.Status)
+	if got := h.get(root.ID).Lifecycle; got != LifecycleBlocked {
+		t.Fatalf("after human decomposition lifecycle=%q want blocked", got)
 	}
 
-	// draft → in_review → reject.
-	if _, err := h.svc.SubmitForReview(ctx, rev.ID); err != nil {
-		t.Fatalf("re-SubmitForReview: %v", err)
-	}
-	rejected, err := h.svc.Reject(ctx, rev.ID, "scope wrong", UserActor(h.userID))
-	if err != nil {
-		t.Fatalf("Reject: %v", err)
-	}
-	if rejected.Status != RevisionRejected {
-		t.Fatalf("after Reject status=%q want rejected", rejected.Status)
+	if err := h.svc.RejectPlan(ctx, root.ID, "scope wrong", UserActor(h.userID)); err != nil {
+		t.Fatalf("RejectPlan: %v", err)
 	}
 
-	// No children materialized, composite stays active, required_total untouched.
+	// No children materialized, composite returns to draft, gate untouched.
 	if kids := cmp_children(t, h, root.ID); len(kids) != 0 {
-		t.Fatalf("rejected revision materialized %d children want 0", len(kids))
+		t.Fatalf("rejected plan materialized %d children want 0", len(kids))
 	}
 	p := h.get(root.ID)
-	if p.Lifecycle != LifecycleActive {
-		t.Fatalf("composite after Reject lifecycle=%q want active (rework)", p.Lifecycle)
+	if p.Lifecycle != LifecycleDraft {
+		t.Fatalf("composite after RejectPlan lifecycle=%q want draft (re-decompose)", p.Lifecycle)
 	}
-	if p.RequiredTotal != 0 || (p.AcceptedRevisionID.Valid && p.AcceptedRevisionID.String != "") {
-		t.Fatalf("rejected revision must not set required_total/accepted_revision_id: total=%d rev=%v",
-			p.RequiredTotal, p.AcceptedRevisionID)
+	if p.RequiredTotal != 0 || p.PlannedAt.Valid {
+		t.Fatalf("rejected plan must not set required_total/planned_at: total=%d planned=%v",
+			p.RequiredTotal, p.PlannedAt.Valid)
 	}
 }
 
-// TestCompositeRollup_RejectsNoRequiredChild proves the §6 structural guard: a
-// decomposition with zero required children is invalid — CreateRevision rejects it
-// (validateContent → ValidateDecomposition: ≥1 required child) so a vacuous plan
-// never reaches materialize.
+// TestCompositeRollup_RecoverBlockedParentAfterNestedPlanApproval proves the
+// rollup-recovery path (contract section 6): a required COMPOSITE child that parks
+// at blocked(needs_plan_approval) drives its parent to blocked(dep) via the
+// reconcile backstop. Once the child's plan is approved the child returns to
+// active, but the parent is invisible to the active-only rollup scans, so
+// RecoverBlockedComposite (run by the dispatcher over ListBlockedDepComposites)
+// must wake it back to active and the tree must then converge. Without recovery
+// the parent strands in blocked(dep) forever.
+func TestCompositeRollup_RecoverBlockedParentAfterNestedPlanApproval(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	root := h.createRoot(KindComposite, AcceptanceContract{})
+
+	// root decomposes (review_policy=none) into one required COMPOSITE child, left
+	// in draft for its own decomposition.
+	cmp_decompose(t, h, root.ID, DecompositionContent{
+		Children: []ProposedChild{cmp_compositeChild("sub", true)},
+	})
+	subID := childID(root.ID, "sub")
+	if got := h.get(subID); got.Kind != KindComposite || got.Lifecycle != LifecycleDraft {
+		t.Fatalf("sub kind=%q lifecycle=%q want composite/draft", got.Kind, got.Lifecycle)
+	}
+
+	// sub uses human plan review; decomposing it parks it blocked(needs_plan_approval).
+	human := ReviewHuman
+	if _, err := h.svc.UpdateMetadata(ctx, subID, UpdateInput{ReviewPolicy: &human}); err != nil {
+		t.Fatalf("UpdateMetadata sub review_policy=human: %v", err)
+	}
+	cmp_decompose(t, h, subID, DecompositionContent{
+		Children: []ProposedChild{cmp_child("x", true)},
+	})
+	if got := h.get(subID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockNeedsPlanApproval {
+		t.Fatalf("sub lifecycle=%q reason=%q want blocked/needs_plan_approval", got.Lifecycle, got.BlockReason)
+	}
+
+	// Dispatcher backstop: reconcile observes the blocked child, then the rollup
+	// drives root active->blocked(dep).
+	if err := h.svc.reconcileCounters(ctx, root.ID); err != nil {
+		t.Fatalf("reconcileCounters: %v", err)
+	}
+	if got := h.get(root.ID).RequiredBlocked; got != 1 {
+		t.Fatalf("root required_blocked=%d want 1 after reconcile", got)
+	}
+	if v := RollupComposite(h.get(root.ID)); v != RollupBlock {
+		t.Fatalf("rollup with 1 blocked required child = %q want block", v)
+	}
+	if err := h.svc.Block(ctx, root.ID, BlockDep, SystemActor()); err != nil {
+		t.Fatalf("Block(root, dep): %v", err)
+	}
+	if got := h.get(root.ID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockDep {
+		t.Fatalf("root lifecycle=%q reason=%q want blocked/dep", got.Lifecycle, got.BlockReason)
+	}
+
+	// Approve sub's plan: sub returns to active and materializes its leaf child.
+	if err := h.svc.ApprovePlan(ctx, subID, UserActor(h.userID)); err != nil {
+		t.Fatalf("ApprovePlan(sub): %v", err)
+	}
+	if got := h.get(subID).Lifecycle; got != LifecycleActive {
+		t.Fatalf("sub after ApprovePlan lifecycle=%q want active", got)
+	}
+
+	// root is still blocked(dep) and invisible to the active-only rollup scans; the
+	// recovery scan must wake it back to active now its blocking child has cleared.
+	if err := h.svc.RecoverBlockedComposite(ctx, root.ID); err != nil {
+		t.Fatalf("RecoverBlockedComposite: %v", err)
+	}
+	rootAfter := h.get(root.ID)
+	if rootAfter.Lifecycle != LifecycleActive {
+		t.Fatalf("root after recovery lifecycle=%q want active (deadlock if still blocked)", rootAfter.Lifecycle)
+	}
+	if rootAfter.RequiredBlocked != 0 {
+		t.Fatalf("root required_blocked=%d want 0 after recovery", rootAfter.RequiredBlocked)
+	}
+
+	// End-to-end: drive sub to accepted, then root must roll up to accepted.
+	cmp_acceptChild(t, h, childID(subID, "x"))
+	if err := h.svc.RollupAccept(ctx, subID); err != nil {
+		t.Fatalf("RollupAccept(sub): %v", err)
+	}
+	if got := h.get(subID).Lifecycle; got != LifecycleAccepted {
+		t.Fatalf("sub lifecycle=%q want accepted", got)
+	}
+	if err := h.svc.RollupAccept(ctx, root.ID); err != nil {
+		t.Fatalf("RollupAccept(root): %v", err)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleAccepted {
+		t.Fatalf("root lifecycle=%q want accepted (nested tree converged)", got)
+	}
+}
+
+// TestCompositeRollup_ReattemptComposite proves a budget-exhausted composite (its
+// planner kept failing) re-enters at DRAFT on Reattempt, never ready: ready is a
+// leaf-only state with no ready->active path, so a composite landed there would
+// strand. The raised budget meters DECOMPOSITION attempts, letting a fresh plan run.
+func TestCompositeRollup_ReattemptComposite(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	root := h.createRoot(KindComposite, AcceptanceContract{})
+
+	// Exhaust the plan budget (defaultMaxAttempts): each decomposition attempt fails,
+	// charging one plan unit until recoverDecomposition parks it budget_exhausted.
+	for i := range defaultMaxAttempts {
+		att, err := h.svc.BeginDecomposition(ctx, root.ID)
+		if err != nil {
+			t.Fatalf("BeginDecomposition #%d: %v", i+1, err)
+		}
+		if err := h.svc.FailAttempt(ctx, att.ID, "planner boom"); err != nil {
+			t.Fatalf("FailAttempt #%d: %v", i+1, err)
+		}
+	}
+	if got := h.get(root.ID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockBudgetExhausted {
+		t.Fatalf("composite lifecycle=%q reason=%q want blocked/budget_exhausted", got.Lifecycle, got.BlockReason)
+	}
+
+	// Reattempt must return the composite to DRAFT (re-decompose), not ready.
+	if err := h.svc.Reattempt(ctx, root.ID, UserActor(h.userID)); err != nil {
+		t.Fatalf("Reattempt: %v", err)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleDraft {
+		t.Fatalf("composite after Reattempt lifecycle=%q want draft", got)
+	}
+
+	// The raised plan budget lets a fresh decomposition run and succeed.
+	cmp_decompose(t, h, root.ID, DecompositionContent{
+		Children: []ProposedChild{cmp_child("a", true)},
+	})
+	if got := h.get(root.ID).Lifecycle; got != LifecycleActive {
+		t.Fatalf("composite after re-decompose lifecycle=%q want active", got)
+	}
+}
+
+// TestCompositeRollup_RejectsNoRequiredChild proves the section 6 structural guard:
+// a decomposition with zero required children is invalid -- SubmitDecomposition
+// rejects it (validateContent -> ValidateDecomposition: >=1 required child) so a
+// vacuous plan never reaches materialize.
 func TestCompositeRollup_RejectsNoRequiredChild(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	root := h.createRoot(KindComposite, AcceptanceContract{})
-	if _, err := h.svc.BeginDecomposition(ctx, root.ID); err != nil {
+	att, err := h.svc.BeginDecomposition(ctx, root.ID)
+	if err != nil {
 		t.Fatalf("BeginDecomposition: %v", err)
 	}
-	_, err := h.svc.CreateRevision(ctx, root.ID, DecompositionContent{
-		Children: []ProposedChild{cmp_child("a", false)}, // all advisory ⇒ 0 required
-	}, "")
+	err = h.svc.SubmitDecomposition(ctx, att.ID, AttemptEvidence{}, DecompositionContent{
+		Children: []ProposedChild{cmp_child("a", false)}, // all advisory => 0 required
+	})
 	if err == nil {
-		t.Fatalf("CreateRevision with 0 required children should fail (§6: ≥1 required child)")
+		t.Fatalf("SubmitDecomposition with 0 required children should fail (section 6: >=1 required child)")
 	}
 }
 
@@ -508,8 +603,8 @@ func TestCompositeRollup_RejectsNoRequiredChild(t *testing.T) {
 // interrupted decomposition does not collide. The first decomposition leaves a
 // (goal, decomposition, attempt_no=1) row; when it is interrupted and the goal
 // resets to draft, a second BeginDecomposition must number the new attempt from
-// the max existing decomposition attempt — not attempt_count (which only tracks
-// execution) — or it reuses attempt_no=1 and trips uniq_agent_goal_attempt_no.
+// the max existing decomposition attempt -- not attempt_count (which only tracks
+// execution) -- or it reuses attempt_no=1 and trips uniq_agent_goal_attempt_no.
 func TestCompositeRollup_RedecomposeAfterInterrupt(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
@@ -524,7 +619,7 @@ func TestCompositeRollup_RedecomposeAfterInterrupt(t *testing.T) {
 	}
 
 	// Simulate an interrupted decomposition (worker crash / restart): finalize the
-	// attempt out of queued/running and reset the goal active→draft for a re-plan.
+	// attempt out of queued/running and reset the goal active->draft for a re-plan.
 	if _, err := h.q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
 		ToStatus: AttemptInterrupted,
 		ID:       att1.ID,

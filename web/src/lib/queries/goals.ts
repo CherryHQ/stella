@@ -7,7 +7,6 @@ import {
   listGoalChildren,
   listGoals,
   listEdges,
-  listRevisions,
 } from "@/lib/api-client";
 import type { ComponentsGoal } from "@/lib/api-client/types.gen";
 import { fetchAllGoals, fetchAllSubtree, offsetPageToken } from "@/lib/paginated";
@@ -194,20 +193,6 @@ export function goalEdgesOptions(goalId: string | undefined) {
         throwOnError: true,
       });
       return data?.edges ?? [];
-    },
-    enabled: !!goalId,
-  });
-}
-
-export function goalRevisionsOptions(goalId: string | undefined) {
-  return queryOptions({
-    queryKey: ["goal-revisions", goalId],
-    queryFn: async () => {
-      const { data } = await listRevisions({
-        path: { id: goalId! },
-        throwOnError: true,
-      });
-      return data?.revisions ?? [];
     },
     enabled: !!goalId,
   });

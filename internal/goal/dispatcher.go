@@ -110,7 +110,7 @@ func (d *Dispatcher) Stop() {
 
 // Tick runs one pass of the dispatch loop. Public so tests can drive it
 // deterministically. The order is fixed (§5/§7): reap → propagate → rollup →
-// scan-and-claim.
+// scan-and-decompose → scan-and-claim.
 func (d *Dispatcher) Tick(ctx context.Context) {
 	if d.isStopped() {
 		return
@@ -119,6 +119,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	d.reapStaleAttempts(ctx, now)
 	d.propagateDepFailures(ctx, now)
 	d.rollupComposites(ctx, now)
+	d.scanAndDecompose(ctx, now)
 	d.scanAndClaim(ctx, now)
 }
 
@@ -207,6 +208,22 @@ func (d *Dispatcher) rollupComposites(ctx context.Context, _ time.Time) {
 	}
 	for _, parent := range stalled {
 		d.applyRollup(ctx, parent, true)
+	}
+
+	// Recover composites parked blocked(dep): the rollup scans above only see
+	// active composites, so a parent the rollup blocked never re-enters rollup once
+	// its blocking children clear (e.g. a child plan was approved or a verdict
+	// arrived). RecoverBlockedComposite wakes it back to active.
+	blocked, err := d.cfg.Queries.ListBlockedDepComposites(ctx, int32(d.cfg.BatchLimit))
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: list blocked-dep composites", "err", err)
+		return
+	}
+	for _, parent := range blocked {
+		if err := d.cfg.Service.RecoverBlockedComposite(ctx, parent.ID); err != nil &&
+			!errors.Is(err, ErrInvalidTransition) {
+			d.cfg.Logger.Warn("dispatcher: recover blocked composite", "goal", parent.ID, "err", err)
+		}
 	}
 }
 
@@ -302,6 +319,36 @@ func (d *Dispatcher) scanAndClaim(ctx context.Context, now time.Time) {
 		}
 		rootInflight[goal.RootID]++
 		userInflight[goal.UserID]++
+	}
+}
+
+// scanAndDecompose drives autonomous planning: every composite awaiting
+// decomposition (draft, not yet planned) gets
+// a headless decomposition attempt minted + enqueued in one tx, moving it
+// draft→active so the next tick skips it. The River worker runs the planner and
+// applies the result (SubmitDecomposition) or recovers it on failure. A nil
+// enqueuer (test wiring) skips dispatch — the same gate scanAndClaim uses.
+func (d *Dispatcher) scanAndDecompose(ctx context.Context, _ time.Time) {
+	if d.cfg.Enqueuer == nil {
+		return
+	}
+	candidates, err := d.cfg.Queries.ListDecomposableComposites(ctx, int32(d.cfg.BatchLimit))
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: list decomposable composites", "err", err)
+		return
+	}
+	for _, goal := range candidates {
+		if d.isStopped() {
+			return
+		}
+		// BeginAutoDecomposition re-checks eligibility under the row lock, so a lost
+		// race (manual plan staged since the scan) returns ErrInvalidTransition.
+		if _, err := d.cfg.Service.BeginAutoDecomposition(ctx, goal.ID, d.enqueueAttemptTx); err != nil {
+			if errors.Is(err, ErrInvalidTransition) {
+				continue
+			}
+			d.cfg.Logger.Warn("dispatcher: begin auto decomposition", "goal", goal.ID, "err", err)
+		}
 	}
 }
 
@@ -445,25 +492,14 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		if err != nil {
 			return err
 		}
-		// A decomposition attempt's goal is 'active' running the plan; on reap
-		// just release it back to draft so a new BeginDecomposition can re-mint.
+		// A decomposition attempt's goal is 'active' running the plan; on reap release
+		// it back to draft so it is re-decomposed within budget (or block when spent).
+		// A still-'queued' reap was never picked up by River (queue backpressure), so
+		// it does not charge the plan budget — only a 'running' reap that genuinely
+		// executed does. att.Status is the pre-finalize status (GetAttempt ran before
+		// FinalizeAttempt) — do not reorder without revisiting this.
 		if att.Purpose == PurposeDecomposition {
-			if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
-				return fmt.Errorf("clear active attempt: %w", err)
-			}
-			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-				ToLifecycle:   LifecycleDraft,
-				BlockReason:   "",
-				ID:            d.ID,
-				FromLifecycle: LifecycleActive,
-			})
-			if err != nil {
-				return fmt.Errorf("reap decomposition: %w", err)
-			}
-			if rows == 0 {
-				return ErrInvalidTransition
-			}
-			return nil
+			return s.recoverDecomposition(ctx, q, d, att.Status == AttemptRunning)
 		}
 
 		// A still-'queued' reap never executed: its River job sat behind the queue's
@@ -488,6 +524,30 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		}
 		return s.blockBudget(ctx, q, d)
 	})
+}
+
+// childAcceptedOutputs returns the frozen accepted output of every accepted
+// child of parentID, in plan order. It feeds a composite's rollup output so the
+// parent carries its deliverables inline. A child with no (or malformed)
+// accepted output is skipped rather than failing the rollup — a missing
+// snapshot must never block the parent's acceptance.
+func childAcceptedOutputs(ctx context.Context, q *sqlc.Queries, parentID string) ([]AcceptedOutput, error) {
+	rows, err := q.ListGoalChildren(ctx, pgtype.Text{String: parentID, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	var out []AcceptedOutput
+	for _, c := range rows {
+		if !c.AcceptedOutput.Valid {
+			continue
+		}
+		var ao AcceptedOutput
+		if err := unmarshalNullJSON(c.AcceptedOutput, &ao); err != nil {
+			continue
+		}
+		out = append(out, ao)
+	}
+	return out, nil
 }
 
 // RollupAccept runs a composite parent's own Accept gate once all required
@@ -517,11 +577,18 @@ func (s *GoalService) RollupAccept(ctx context.Context, id string) error {
 			return ErrInvalidTransition
 		}
 		// The composite's accepted output is the synthesized fact that all its
-		// required children accepted; downstream consumers read its summary.
+		// required children accepted; it also carries each accepted child's frozen
+		// output so a reader of the parent sees the deliverables without walking
+		// children (a composite produces no work of its own).
+		kids, err := childAcceptedOutputs(ctx, q, cur.ID)
+		if err != nil {
+			return fmt.Errorf("collect child outputs: %w", err)
+		}
 		accepted := AcceptedOutput{
 			GoalID:     cur.ID,
 			Summary:    cur.Title,
 			AcceptedAt: s.now(),
+			Children:   kids,
 		}
 		rows, err := q.AcceptGoal(ctx, sqlc.AcceptGoalParams{
 			AcceptedOutput: marshalNullJSON(accepted),

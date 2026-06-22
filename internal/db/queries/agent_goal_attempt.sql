@@ -50,7 +50,6 @@ UPDATE agent_goal_attempt
 SET status = 'submitted',
     evidence = sqlc.arg(evidence),
     output = sqlc.arg(output),
-    revision_id = sqlc.arg(revision_id),
     finished_at = now(),
     updated_at = now()
 WHERE id = sqlc.arg(id) AND status = 'running';
@@ -74,13 +73,14 @@ SET status = sqlc.arg(to_status),
 WHERE id = sqlc.arg(id) AND status IN ('queued', 'running');
 
 -- name: ListStaleAttempts :many
--- Lease-expired execution attempts only. Decomposition attempts run interactively
--- in a planning session, are never enqueued to River and never heartbeated, so
--- their lease is not a liveness signal; the reaper must skip them or it bounces an
--- active composite back to draft mid-planning.
+-- Lease-expired attempts whose lease is a liveness signal. An attempt heartbeated
+-- by a River worker (every execution attempt, and an autonomous decomposition
+-- attempt) carries a forward-moving lease, so an expired lease means a genuine
+-- orphan. Interactive decomposition attempts (planned in a session, never
+-- enqueued/heartbeated) carry a NULL lease and are skipped by the IS NOT NULL
+-- guard, so the reaper never bounces an active composite back to draft mid-planning.
 SELECT * FROM agent_goal_attempt
 WHERE status IN ('queued', 'running')
-  AND purpose <> 'decomposition'
   AND lease_expires_at IS NOT NULL
   AND lease_expires_at < sqlc.arg(now)
 ORDER BY lease_expires_at ASC

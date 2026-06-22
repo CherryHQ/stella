@@ -2,26 +2,25 @@ package goal
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// DecompositionContent is a revision's proposed children + edges (contract
-// §3.7). Marshaled to the revision.content TEXT column. The materializer keys
-// idempotency on (revision_id, child.Key).
+// DecompositionContent is a composite's proposed children + edges (contract
+// §3.7). Stored inline on agent_goal.plan (jsonb). The materializer keys
+// idempotency on (goal_id, child.Key).
 type DecompositionContent struct {
 	Children []ProposedChild `json:"children"`
 	Edges    []ProposedEdge  `json:"edges"`
 }
 
-// ProposedChild is one child goal a revision proposes. Key is the stable
-// id within the revision and the materialize idempotency key (replaces the old
-// plan_item_id).
+// ProposedChild is one child goal a plan proposes. Key is the stable id within
+// the plan and the materialize idempotency key (replaces the old plan_item_id).
 type ProposedChild struct {
 	Key                string             `json:"key"`
 	Title              string             `json:"title"`
@@ -33,7 +32,7 @@ type ProposedChild struct {
 	ReviewPolicy       string             `json:"review_policy,omitempty"` // a composite child carries it
 }
 
-// ProposedEdge is one sibling dependency a revision proposes, by child Key.
+// ProposedEdge is one sibling dependency a plan proposes, by child Key.
 type ProposedEdge struct {
 	DownstreamKey string `json:"downstream_key"`
 	UpstreamKey   string `json:"upstream_key"`
@@ -41,16 +40,29 @@ type ProposedEdge struct {
 	OnFailure     string `json:"on_failure"` // block | fail | ignore
 }
 
+// maxDecompositionBreadth caps the children one decomposition may propose. A
+// planner that emits thousands of children would fan out unbounded DB inserts,
+// sessions, and memory; a single plan never
+// legitimately needs more than this. Breadth-of-fanout per root is separately
+// throttled at dispatch by ConvergencePolicy.MaxConcurrent.
+const maxDecompositionBreadth = 64
+
 // ValidateDecomposition checks a DecompositionContent's structural invariants
-// (contract §6): ≥1 required child, every child Key unique and non-empty, every
-// edge key resolves to a child Key, no edge cycle (DFS over keys), known
-// enum values, and a depth budget (each composite child must leave room under
-// maxDepth — the per-child depth guard is enforced at materialize, but a
-// proposal that needs more than maxDepth levels is rejected early here when the
-// parent depth is known). Returns ErrInvalidDecomposition or ErrCycle.
+// (contract §6): ≥1 required child, at most maxDecompositionBreadth children,
+// every child Key unique and non-empty, every edge key resolves to a child Key,
+// no edge cycle (DFS over keys), known enum values, and a depth budget. A
+// composite produces no executed output, so a composite child may not carry a
+// deterministic acceptance item (its fold would stall forever) and must leave a
+// level of depth under maxDepth for its own children — both are enforced here at
+// the proposal boundary so a doomed plan is rejected before it consumes budget.
+// Returns ErrInvalidDecomposition, ErrInvalidContract, ErrDepthExceeded, or
+// ErrCycle.
 //
 // parentDepth is the composite's own depth; a child sits at parentDepth+1.
 func ValidateDecomposition(c DecompositionContent, parentDepth, maxDepth int) error {
+	if len(c.Children) > maxDecompositionBreadth {
+		return ErrInvalidDecomposition
+	}
 	keys := make(map[string]ProposedChild, len(c.Children))
 	requiredCount := 0
 	for _, ch := range c.Children {
@@ -65,6 +77,16 @@ func ValidateDecomposition(c DecompositionContent, parentDepth, maxDepth int) er
 		}
 		if !ch.AcceptanceContract.Valid() || !ch.ConvergencePolicy.Valid() {
 			return ErrInvalidContract
+		}
+		if ch.Kind == KindComposite {
+			// A composite child can never satisfy a deterministic item and must have
+			// room to decompose its own children at parentDepth+2.
+			if ch.AcceptanceContract.HasDeterministicItem() {
+				return ErrCompositeDeterministicContract
+			}
+			if parentDepth+2 > maxDepth {
+				return ErrDepthExceeded
+			}
 		}
 		if ch.ReviewPolicy != "" && !ValidReviewPolicy(ch.ReviewPolicy) {
 			return ErrInvalidDecomposition
@@ -143,13 +165,13 @@ func hasCycleDFS(keys map[string]ProposedChild, adj map[string][]string) bool {
 	return false
 }
 
-// ── Revision FSM (contract §2.3). All writes via withTx. ─────────────────────
+// ── Decomposition (contract §2.3). All writes via withTx. ────────────────────
 
 // BeginDecomposition starts a composite's decomposition: draft→active, minting a
-// purpose=decomposition attempt (contract §2.1). Guards kind=composite and no
-// open/accepted revision. The planning session is pre-minted outside the tx.
+// purpose=decomposition attempt (contract §2.1). Guards kind=composite and not
+// yet planned. The planning session is pre-minted outside the tx.
 func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.AgentGoalAttempt, error) {
-	// Load the composite first to guard kind + revision state and to carry the
+	// Load the composite first to guard kind + plan state and to carry the
 	// owner identity into the OUTSIDE-tx planning-session mint.
 	d, err := getGoal(ctx, s.q, id)
 	if err != nil {
@@ -158,13 +180,8 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 	if d.Kind != KindComposite || d.Lifecycle != LifecycleDraft {
 		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
 	}
-	// A composite already carrying an open/accepted revision is not re-decomposed.
-	if _, err := s.q.GetOpenRevision(ctx, id); err == nil {
-		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return sqlc.AgentGoalAttempt{}, fmt.Errorf("probe open revision: %w", err)
-	}
-	if d.AcceptedRevisionID.Valid && d.AcceptedRevisionID.String != "" {
+	// An already-planned composite is not re-decomposed.
+	if d.PlannedAt.Valid {
 		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
 	}
 
@@ -209,10 +226,12 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 			AttemptNo:       int64(attemptNo),
 			Status:          AttemptQueued,
 			InputContext:    marshalJSON(input),
-			// Decomposition runs interactively in the planning session, not as a leased
-			// River worker, so this lease is not a liveness signal; the stale reaper
-			// skips purpose=decomposition (ListStaleAttempts). now() just marks mint time.
-			LeaseExpiresAt: nullTime(s.nowTime()),
+			// Interactive decomposition runs in the planning session, not as a leased
+			// River worker, so it has no liveness signal: a NULL lease makes the reaper
+			// skip it (ListStaleAttempts gates on lease_expires_at IS NOT NULL), so it is
+			// never bounced back to draft mid-planning. Autonomous decomposition uses
+			// BeginAutoDecomposition, which sets a real heartbeated lease instead.
+			LeaseExpiresAt: pgtype.Timestamptz{},
 		})
 		if err != nil {
 			return fmt.Errorf("create decomposition attempt: %w", err)
@@ -235,42 +254,95 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 	return out, err
 }
 
-// CreateRevision inserts a new revision in 'draft' with revision_no = max+1
-// (contract §2.3 (none)→draft). content must validate before insert.
-func (s *GoalService) CreateRevision(ctx context.Context, goalID string, content DecompositionContent, sourceAttemptID string) (sqlc.AgentGoalRevision, error) {
-	d, err := getGoal(ctx, s.q, goalID)
+// BeginAutoDecomposition mints a headless decomposition attempt for a composite
+// and enqueues its durable River job in ONE tx (mirrors Claim): on success both
+// commit; on enqueue failure the whole thing rolls back, leaving the composite
+// draft to be re-picked next tick — no orphaned active composite to recover.
+// Unlike interactive BeginDecomposition the attempt carries a real claim-grace
+// lease and is heartbeated by the River worker, so the reaper recovers it if the
+// node crashes mid-plan. The dispatcher (scanAndDecompose) is the only caller.
+//
+// The eligibility guards are re-checked INSIDE the tx after LockGoalForWrite: the
+// dispatcher's scan is a snapshot, so a concurrent Activate or a prior
+// decomposition could have moved the goal between the scan and here. Re-checking
+// under the row lock makes auto-decomposition never clobber an already-running or
+// already-planned composite.
+func (s *GoalService) BeginAutoDecomposition(ctx context.Context, id string, enqueue AttemptEnqueuer) (sqlc.AgentGoalAttempt, error) {
+	d, err := getGoal(ctx, s.q, id)
 	if err != nil {
-		return sqlc.AgentGoalRevision{}, err
+		return sqlc.AgentGoalAttempt{}, err
 	}
-	if err := s.validateContent(ctx, d, content); err != nil {
-		return sqlc.AgentGoalRevision{}, err
+	// Mint the planning session OUTSIDE the tx (its own tx would self-deadlock).
+	if s.newPlanningSession == nil {
+		return sqlc.AgentGoalAttempt{}, fmt.Errorf("goal: no planning session minter configured")
+	}
+	sessionID, err := s.newPlanningSession(ctx, d.UserID, d.AgentID, d.ProjectID.String)
+	if err != nil {
+		return sqlc.AgentGoalAttempt{}, fmt.Errorf("mint planning session: %w", err)
 	}
 
-	var out sqlc.AgentGoalRevision
-	err = s.withTx(ctx, func(q *sqlc.Queries) error {
-		// Serialize revision_no allocation for this goal: GetMaxRevisionNo+1 races
-		// across parallel writers/nodes, and uniq_agent_goal_revision_no would turn a
-		// race into a hard 500. The lock releases with the tx.
-		if err := q.LockGoalForWrite(ctx, goalID); err != nil {
-			return fmt.Errorf("lock goal for revision: %w", err)
+	var out sqlc.AgentGoalAttempt
+	err = s.withTxRaw(ctx, func(q *sqlc.Queries, tx pgx.Tx) error {
+		if err := q.LockGoalForWrite(ctx, d.ID); err != nil {
+			return fmt.Errorf("lock goal for auto decomposition: %w", err)
 		}
-		maxNo, err := q.GetMaxRevisionNo(ctx, goalID)
+		// Re-read + re-check under the lock: a racing Activate may have
+		// moved the goal since the dispatcher's snapshot.
+		cur, err := getGoal(ctx, q, d.ID)
 		if err != nil {
-			return fmt.Errorf("max revision no: %w", err)
+			return err
 		}
-		rev, err := q.CreateRevision(ctx, sqlc.CreateRevisionParams{
-			ID:              newID(),
-			GoalID:          goalID,
-			RevisionNo:      maxNo + 1,
-			Status:          RevisionDraft,
-			ReviewPolicy:    d.ReviewPolicy,
-			Content:         marshalJSON(content),
-			SourceAttemptID: pgnull.Text(sourceAttemptID),
+		// Both review policies auto-decompose; review_policy=human only adds an
+		// approval gate after the plan is proposed (SubmitDecomposition parks it
+		// blocked(needs_plan_approval)), it does not stop the planner.
+		if cur.Kind != KindComposite || cur.Lifecycle != LifecycleDraft || cur.PlannedAt.Valid {
+			return ErrInvalidTransition
+		}
+		maxNo, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{
+			GoalID:  d.ID,
+			Purpose: PurposeDecomposition,
 		})
 		if err != nil {
-			return fmt.Errorf("create revision: %w", err)
+			return fmt.Errorf("max decomposition attempt no: %w", err)
 		}
-		out = rev
+		attemptNo := int(maxNo) + 1
+		input := buildInputContext(cur, nil, nil, "", attemptNo)
+		att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
+			ID:              newID(),
+			GoalID:          cur.ID,
+			UserID:          cur.UserID,
+			AgentID:         pgnull.Text(cur.AgentID),
+			ExecutorAgentID: pgnull.Text(cur.AgentID),
+			SessionID:       sessionID,
+			Purpose:         PurposeDecomposition,
+			AttemptNo:       int64(attemptNo),
+			Status:          AttemptQueued,
+			InputContext:    marshalJSON(input),
+			// A real claim-grace lease: the River worker heartbeats it forward, so an
+			// expired lease is a genuine orphan the reaper recovers (mirrors Claim).
+			LeaseExpiresAt: nullTime(s.nowTime().Add(claimGraceTTL)),
+		})
+		if err != nil {
+			return fmt.Errorf("create decomposition attempt: %w", err)
+		}
+		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+			ToLifecycle:   LifecycleActive,
+			BlockReason:   "",
+			ID:            cur.ID,
+			FromLifecycle: LifecycleDraft,
+		})
+		if err != nil {
+			return fmt.Errorf("begin auto decomposition: %w", err)
+		}
+		if rows == 0 {
+			return ErrInvalidTransition
+		}
+		if enqueue != nil {
+			if err := enqueue(ctx, tx, cur.ID, att.ID); err != nil {
+				return fmt.Errorf("enqueue decomposition attempt: %w", err)
+			}
+		}
+		out = att
 		return nil
 	})
 	return out, err
@@ -278,8 +350,8 @@ func (s *GoalService) CreateRevision(ctx context.Context, goalID string, content
 
 // validateContent runs the structural decomposition guards against a goal's
 // own depth and the root's max_depth ceiling (contract §6). Shared by
-// CreateRevision and the accept/approve paths so a malformed plan is rejected at
-// the write boundary, not at materialize.
+// SubmitDecomposition and ApprovePlan so a malformed plan is rejected at the
+// write boundary, not at materialize.
 func (s *GoalService) validateContent(ctx context.Context, d sqlc.AgentGoal, content DecompositionContent) error {
 	maxDepth := defaultMaxDepth
 	if root, err := s.q.GetGoal(ctx, d.RootID); err == nil {
@@ -289,152 +361,4 @@ func (s *GoalService) validateContent(ctx context.Context, d sqlc.AgentGoal, con
 		}
 	}
 	return ValidateDecomposition(content, int(d.Depth), maxDepth)
-}
-
-// SubmitForReview moves a draft→in_review when review_policy=human and no other
-// open revision exists (contract §2.3).
-func (s *GoalService) SubmitForReview(ctx context.Context, revisionID string) (sqlc.AgentGoalRevision, error) {
-	var out sqlc.AgentGoalRevision
-	err := s.withTx(ctx, func(q *sqlc.Queries) error {
-		rev, err := getRevision(ctx, q, revisionID)
-		if err != nil {
-			return err
-		}
-		// Only a draft moves into review, and only when no other revision is open.
-		if open, err := q.GetOpenRevision(ctx, rev.GoalID); err == nil && open.ID != revisionID {
-			return ErrInvalidTransition
-		} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("probe open revision: %w", err)
-		}
-		rows, err := q.UpdateRevisionStatus(ctx, sqlc.UpdateRevisionStatusParams{
-			ToStatus:   RevisionInReview,
-			ID:         revisionID,
-			FromStatus: RevisionDraft,
-		})
-		if err != nil {
-			return fmt.Errorf("submit revision for review: %w", err)
-		}
-		if rows == 0 {
-			return ErrInvalidTransition
-		}
-		out, err = getRevision(ctx, q, revisionID)
-		return err
-	})
-	return out, err
-}
-
-// getRevision loads a revision, mapping pgx.ErrNoRows to ErrNotFound.
-func getRevision(ctx context.Context, q *sqlc.Queries, id string) (sqlc.AgentGoalRevision, error) {
-	rev, err := q.GetRevision(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return sqlc.AgentGoalRevision{}, ErrNotFound
-	}
-	return rev, err
-}
-
-// Accept auto-accepts a draft revision (review_policy=none) after validation:
-// draft→accepted, then Materialize (contract §2.3).
-func (s *GoalService) Accept(ctx context.Context, revisionID string, by Actor) (sqlc.AgentGoalRevision, error) {
-	return s.acceptAndMaterialize(ctx, revisionID, RevisionDraft)
-}
-
-// acceptAndMaterialize is the shared accept→materialize flow for both the
-// review_policy=none (from draft) and human-approval (from in_review) paths
-// (contract §2.3, §6). It validates the content, pre-mints every child session
-// OUTSIDE the tx (its own tx would self-deadlock against the held one), then in ONE tx accepts the
-// revision and materializes its children/edges. fromStatus guards the source
-// status the caller permits.
-func (s *GoalService) acceptAndMaterialize(ctx context.Context, revisionID, fromStatus string) (sqlc.AgentGoalRevision, error) {
-	rev, err := getRevision(ctx, s.q, revisionID)
-	if err != nil {
-		return sqlc.AgentGoalRevision{}, err
-	}
-	if rev.Status != fromStatus {
-		return sqlc.AgentGoalRevision{}, ErrInvalidTransition
-	}
-	parent, err := getGoal(ctx, s.q, rev.GoalID)
-	if err != nil {
-		return sqlc.AgentGoalRevision{}, err
-	}
-	var content DecompositionContent
-	if err := unmarshalJSON(rev.Content, &content); err != nil {
-		return sqlc.AgentGoalRevision{}, fmt.Errorf("%w: revision content: %w", ErrInvalidDecomposition, err)
-	}
-	if err := s.validateContent(ctx, parent, content); err != nil {
-		return sqlc.AgentGoalRevision{}, err
-	}
-
-	// Pre-mint a session per child OUTSIDE the tx (same as Service.MaterializeRevision).
-	if s.newSession == nil {
-		return sqlc.AgentGoalRevision{}, fmt.Errorf("goal: no worker session minter configured")
-	}
-	childSessions := make(map[string]string, len(content.Children))
-	for _, ch := range content.Children {
-		sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
-		if err != nil {
-			return sqlc.AgentGoalRevision{}, fmt.Errorf("mint child session %q: %w", ch.Key, err)
-		}
-		childSessions[ch.Key] = sid
-	}
-
-	var out sqlc.AgentGoalRevision
-	err = s.withTx(ctx, func(q *sqlc.Queries) error {
-		rows, err := q.AcceptRevision(ctx, revisionID)
-		if err != nil {
-			return fmt.Errorf("accept revision: %w", err)
-		}
-		if rows == 0 {
-			return ErrInvalidTransition // raced out of draft/in_review
-		}
-		if err := s.Materialize(ctx, q, rev, parent, childSessions); err != nil {
-			return err
-		}
-		out, err = getRevision(ctx, q, revisionID)
-		return err
-	})
-	return out, err
-}
-
-// Approve accepts an in_review revision after a human approval: in_review→
-// accepted, then Materialize (contract §2.3).
-func (s *GoalService) Approve(ctx context.Context, revisionID string, by Actor) (sqlc.AgentGoalRevision, error) {
-	return s.acceptAndMaterialize(ctx, revisionID, RevisionInReview)
-}
-
-// Reject rejects an in_review revision: in_review→rejected; the composite stays
-// active and a new decomposition attempt is minted (rework) (contract §2.3).
-func (s *GoalService) Reject(ctx context.Context, revisionID, reason string, by Actor) (sqlc.AgentGoalRevision, error) {
-	return s.transitionRevision(ctx, revisionID, RevisionInReview, RevisionRejected)
-}
-
-// transitionRevision applies one guarded revision status move (in_review→rejected
-// / in_review→draft) and returns the updated row. A 0-row update means the
-// revision was not in the expected from-status (raced) → ErrInvalidTransition.
-func (s *GoalService) transitionRevision(ctx context.Context, revisionID, from, to string) (sqlc.AgentGoalRevision, error) {
-	var out sqlc.AgentGoalRevision
-	err := s.withTx(ctx, func(q *sqlc.Queries) error {
-		if _, err := getRevision(ctx, q, revisionID); err != nil {
-			return err
-		}
-		rows, err := q.UpdateRevisionStatus(ctx, sqlc.UpdateRevisionStatusParams{
-			ToStatus:   to,
-			ID:         revisionID,
-			FromStatus: from,
-		})
-		if err != nil {
-			return fmt.Errorf("transition revision %s→%s: %w", from, to, err)
-		}
-		if rows == 0 {
-			return ErrInvalidTransition
-		}
-		out, err = getRevision(ctx, q, revisionID)
-		return err
-	})
-	return out, err
-}
-
-// RequestChanges sends an in_review revision back to draft, keeping content for
-// re-submit (contract §2.3, in_review→draft).
-func (s *GoalService) RequestChanges(ctx context.Context, revisionID, note string, by Actor) (sqlc.AgentGoalRevision, error) {
-	return s.transitionRevision(ctx, revisionID, RevisionInReview, RevisionDraft)
 }

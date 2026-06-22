@@ -46,7 +46,7 @@ type ExecutorRequest struct {
 
 // ExecutorResult is the executor's declared outcome for one attempt. Exactly
 // one of the submit/fail paths is meaningful; the worker maps it to a single
-// service transition. Decomposition attempts carry a produced revision content.
+// service transition. Decomposition attempts carry produced plan content.
 type ExecutorResult struct {
 	Submitted     bool
 	Evidence      AttemptEvidence
@@ -311,6 +311,12 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 	if kind == "" {
 		kind = KindLeaf
 	}
+	// A composite produces no executed output, so a deterministic acceptance item
+	// would never get a check event and the fold would stall pending forever.
+	// Reject it at the write boundary (issue #579 CR-001).
+	if kind == KindComposite && in.Contract.HasDeterministicItem() {
+		return sqlc.AgentGoal{}, ErrCompositeDeterministicContract
+	}
 	priority := in.Priority
 	if priority == "" {
 		priority = PriorityRoutine
@@ -345,11 +351,16 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 			Priority:           priority,
 			Required:           in.Required,
 			AcceptanceContract: marshalJSON(in.Contract),
-			ConvergencePolicy:  marshalJSON(in.Convergence),
-			ReviewPolicy:       reviewPolicy,
-			Lifecycle:          LifecycleDraft,
-			Context:            contextJSON,
-			DispatchHint:       dispatchHint,
+			// Materialize the effective policy at create time so the persisted row
+			// and the create response show real defaults (max_attempts 3, block,
+			// depth 4, concurrent 8) instead of a bare zero policy. Runtime callers
+			// still Normalize defensively; freezing here also means a later default
+			// change never silently alters an existing goal's budget.
+			ConvergencePolicy: marshalJSON(in.Convergence.Normalized()),
+			ReviewPolicy:      reviewPolicy,
+			Lifecycle:         LifecycleDraft,
+			Context:           contextJSON,
+			DispatchHint:      dispatchHint,
 		})
 		if err != nil {
 			return fmt.Errorf("create goal: %w", err)
@@ -444,8 +455,8 @@ func orDefault(v *string, fallback string) string {
 }
 
 // Activate is the plan gate: draft→ready (contract §2.1). A leaf passes when its
-// contract has items or is explicitly trivial; a composite passes when it has a
-// materialized revision and required_total ≥ 1. A composite flips its draft
+// contract has items or is explicitly trivial; a composite passes when it is
+// planned (planned_at set) and required_total ≥ 1. A composite flips its draft
 // children → ready. Returns ErrPlanGate when unmet.
 func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, error) {
 	var out sqlc.AgentGoal
@@ -481,25 +492,11 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		if rows == 0 {
 			return ErrInvalidTransition
 		}
-		// A composite flips its draft children → ready so the dispatcher can begin
-		// claiming leaves under it.
+		// A composite releases its draft children: leaf children → ready for the
+		// dispatcher, composite children stay draft for scanAndDecompose to plan.
 		if d.Kind == KindComposite {
-			children, err := q.ListGoalChildren(ctx, pgnull.Text(d.ID))
-			if err != nil {
-				return fmt.Errorf("list children for activate: %w", err)
-			}
-			for _, c := range children {
-				if c.Lifecycle != LifecycleDraft {
-					continue
-				}
-				if _, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-					ToLifecycle:   LifecycleReady,
-					BlockReason:   "",
-					ID:            c.ID,
-					FromLifecycle: LifecycleDraft,
-				}); err != nil {
-					return fmt.Errorf("activate child: %w", err)
-				}
+			if err := s.releaseChildren(ctx, q, d.ID); err != nil {
+				return err
 			}
 		}
 		out, err = getGoal(ctx, q, id)
@@ -511,10 +508,10 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 // planGateSatisfied reports whether a draft goal clears its plan gate
 // (contract §2.1). A leaf passes when its contract has items or is explicitly
 // trivial (the empty auto-accept degradation is always allowed). A composite
-// passes only with a materialized revision and required_total ≥ 1.
+// passes only once its plan is materialized (planned_at set) and required_total ≥ 1.
 func (s *GoalService) planGateSatisfied(d sqlc.AgentGoal) bool {
 	if d.Kind == KindComposite {
-		return d.AcceptedRevisionID.Valid && d.AcceptedRevisionID.String != "" && d.RequiredTotal >= 1
+		return d.PlannedAt.Valid && d.RequiredTotal >= 1
 	}
 	// Leaf: an authored contract has items; a trivial ({}) contract auto-accepts.
 	// Both clear the gate — a leaf is never gated on a non-trivial empty contract
@@ -553,8 +550,24 @@ func (s *GoalService) Block(ctx context.Context, id, reason string, by Actor) er
 	})
 }
 
-// Unblock clears a recoverable block: blocked(dep)→ready when the condition
-// cleared (contract §2.1).
+// recoveryLifecycle is the lifecycle a goal re-enters when a recoverable block
+// clears (a human Unblock/Reattempt or an edge waiver). A leaf returns to ready so
+// the dispatcher claims it. A composite is never claimed by a worker: an
+// un-planned one returns to draft to (re-)decompose, a planned one to active so
+// the rollup drives it. Landing a composite in ready would strand it — there is
+// no ready→active transition for composites (mirrors Activate's draft→active).
+func recoveryLifecycle(d sqlc.AgentGoal) string {
+	if d.Kind != KindComposite {
+		return LifecycleReady
+	}
+	if d.PlannedAt.Valid {
+		return LifecycleActive
+	}
+	return LifecycleDraft
+}
+
+// Unblock clears a recoverable block: blocked(dep)→ready (leaf) or →active/draft
+// (composite, see recoveryLifecycle) when the condition cleared (contract §2.1).
 func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
@@ -562,10 +575,10 @@ func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 			return err
 		}
 		if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockDep {
-			return ErrInvalidTransition // only a recoverable dep block clears to ready
+			return ErrInvalidTransition // only a recoverable dep block clears
 		}
 		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleReady,
+			ToLifecycle:   recoveryLifecycle(d),
 			BlockReason:   "",
 			ID:            id,
 			FromLifecycle: LifecycleBlocked,
@@ -580,8 +593,10 @@ func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 	})
 }
 
-// Reattempt raises the budget on a blocked(budget_exhausted) goal so the
-// next tick mints an attempt: blocked→ready (contract §2.1).
+// Reattempt raises the budget on a blocked(budget_exhausted) goal so the next
+// tick mints a fresh attempt. A leaf returns to ready (the dispatcher claims it);
+// a composite, whose budget meters DECOMPOSITION attempts, returns to draft so
+// scanAndDecompose re-plans it (contract §2.1, see recoveryLifecycle).
 func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
@@ -591,12 +606,25 @@ func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error 
 		if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockBudgetExhausted {
 			return ErrInvalidTransition
 		}
-		// Raise the convergence budget by one attempt so the next tick mints a fresh
-		// attempt (attempt_count stays; max_attempts grows past it).
+		// Raise the budget by one attempt past what is already spent so the next tick
+		// runs one more. A leaf meters convergence by attempt_count; a composite
+		// meters planning by the max decomposition attempt_no (recoverDecomposition
+		// blocks once that reaches MaxAttempts), so reuse the same ceiling here.
+		spent := int(d.AttemptCount)
+		if d.Kind == KindComposite {
+			maxNo, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{
+				GoalID:  d.ID,
+				Purpose: PurposeDecomposition,
+			})
+			if err != nil {
+				return fmt.Errorf("max decomposition attempt no: %w", err)
+			}
+			spent = int(maxNo)
+		}
 		var pol ConvergencePolicy
 		_ = unmarshalJSON(d.ConvergencePolicy, &pol)
 		pol = pol.Normalized()
-		pol.MaxAttempts = int(d.AttemptCount) + 1
+		pol.MaxAttempts = spent + 1
 		if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
 			Title:              d.Title,
 			Intent:             d.Intent,
@@ -609,7 +637,7 @@ func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error 
 			return fmt.Errorf("raise budget: %w", err)
 		}
 		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleReady,
+			ToLifecycle:   recoveryLifecycle(d),
 			BlockReason:   "",
 			ID:            id,
 			FromLifecycle: LifecycleBlocked,
@@ -837,14 +865,15 @@ func (s *GoalService) WaiveEdge(ctx context.Context, downstreamID, upstreamID, r
 		}); err != nil {
 			return fmt.Errorf("waive edge: %w", err)
 		}
-		// A downstream parked on this dep clears to ready now the edge is waived.
+		// A downstream parked on this dep clears now the edge is waived: a leaf to
+		// ready, a composite to active/draft (see recoveryLifecycle).
 		d, err := getGoal(ctx, q, downstreamID)
 		if err != nil {
 			return err
 		}
 		if d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockDep {
 			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-				ToLifecycle:   LifecycleReady,
+				ToLifecycle:   recoveryLifecycle(d),
 				BlockReason:   "",
 				ID:            downstreamID,
 				FromLifecycle: LifecycleBlocked,
@@ -951,5 +980,59 @@ const (
 func (s *GoalService) reconcileCounters(ctx context.Context, parentID string) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		return q.ReconcileGoalCounters(ctx, parentID)
+	})
+}
+
+// RecoverBlockedComposite re-evaluates a composite the rollup parked in
+// blocked(dep) and wakes it back to active once its blocking children have
+// cleared (contract §6). The rollup scans (ListRollupCandidates/
+// ListStalledComposites) only see active composites, so a parent driven to
+// blocked(dep) — e.g. while a required child awaits plan approval or a verdict —
+// never re-enters rollup on its own even after that child recovers. The
+// dispatcher runs this over ListBlockedDepComposites each tick. Idempotent: a
+// no-op while any required child is still blocked.
+func (s *GoalService) RecoverBlockedComposite(ctx context.Context, id string) error {
+	return s.withTx(ctx, func(q *sqlc.Queries) error {
+		if err := q.LockGoalForWrite(ctx, id); err != nil {
+			return fmt.Errorf("lock goal for recover: %w", err)
+		}
+		d, err := getGoal(ctx, q, id)
+		if err != nil {
+			return err
+		}
+		if d.Kind != KindComposite || d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockDep {
+			return ErrInvalidTransition
+		}
+		// Recompute required_* from the children's current states. The dep block was
+		// surfaced off the incremental counters, and a child's recovery (plan
+		// approval, verdict, edge waiver) does not eagerly decrement the parent —
+		// the reconcile is what observes the cleared block.
+		if err := q.ReconcileGoalCounters(ctx, id); err != nil {
+			return fmt.Errorf("reconcile counters: %w", err)
+		}
+		cur, err := getGoal(ctx, q, id)
+		if err != nil {
+			return err
+		}
+		if cur.RequiredBlocked > 0 {
+			return nil // another required child is still blocked — stay parked
+		}
+		// No required child is blocked anymore: wake to active so the next rollup tick
+		// folds the refreshed counters (accept / fail / wait). Re-activating bumps no
+		// parent counter — this composite's own parent, if itself blocked(dep), is
+		// reconciled by its turn through this same recovery scan.
+		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+			ToLifecycle:   LifecycleActive,
+			BlockReason:   "",
+			ID:            id,
+			FromLifecycle: LifecycleBlocked,
+		})
+		if err != nil {
+			return fmt.Errorf("recover blocked composite: %w", err)
+		}
+		if rows == 0 {
+			return ErrInvalidTransition
+		}
+		return nil
 	})
 }
