@@ -665,7 +665,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	}
 	name, err := skillstool.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint") {
+		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")
 			return
 		}

@@ -12,14 +12,11 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // nullAgent builds a pgtype.Text for an agent_id value.
-func nullAgent(agentID string) pgtype.Text {
-	return pgtype.Text{String: agentID, Valid: agentID != ""}
-}
-
 func requireSessionScope(ctx context.Context, userID, agentID string) (string, string, error) {
 	if userID == "" {
 		userID = memory.UserIDFromContext(ctx)
@@ -50,7 +47,7 @@ func conversationScopeParams(session memory.Session) sqlc.GetConversationBySessi
 	return sqlc.GetConversationBySessionIDParams{
 		SessionID: session.ID,
 		UserID:    pgtype.Text{String: session.UserID, Valid: true},
-		AgentID:   nullAgent(session.AgentID),
+		AgentID:   pgnull.Text(session.AgentID),
 	}
 }
 
@@ -63,7 +60,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 	info.UserID = userID
 	info.AgentID = agentIDValue
 
-	_, err = p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: nullAgent(info.AgentID)})
+	_, err = p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: pgnull.Text(info.AgentID)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		lastActive := info.LastActive
 		if lastActive.IsZero() {
@@ -82,7 +79,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			ProjectID:  pgtype.Text{String: info.ProjectID, Valid: info.ProjectID != ""},
 			Archived:   info.Archived,
 			LastActive: lastActive.UTC(),
-			AgentID:    nullAgent(info.AgentID),
+			AgentID:    pgnull.Text(info.AgentID),
 			UserID:     pgtype.Text{String: info.UserID, Valid: true},
 		})
 		if err != nil {
@@ -95,13 +92,13 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 	}
 
 	if err := p.q.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
-		Title:     optionalNullString(info.Title),
+		Title:     pgnull.Text(info.Title),
 		Archived:  info.Archived,
-		Kind:      optionalNullString(info.Kind),
-		ProjectID: optionalNullString(info.ProjectID),
+		Kind:      pgnull.Text(info.Kind),
+		ProjectID: pgnull.Text(info.ProjectID),
 		SessionID: info.ID,
 		UserID:    pgtype.Text{String: info.UserID, Valid: true},
-		AgentID:   nullAgent(info.AgentID),
+		AgentID:   pgnull.Text(info.AgentID),
 	}); err != nil {
 		return fmt.Errorf("update conversation info: %w", err)
 	}
@@ -117,7 +114,7 @@ func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.Sessi
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{
 		SessionID: sessionID,
 		UserID:    pgtype.Text{String: userID, Valid: true},
-		AgentID:   nullAgent(agentID),
+		AgentID:   pgnull.Text(agentID),
 	})
 	if err != nil {
 		return memory.SessionInfo{}, fmt.Errorf("get conversation: %w", err)
@@ -133,11 +130,11 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 	}
 	convs, err := p.q.ListConversationsFiltered(ctx, sqlc.ListConversationsFilteredParams{
 		UserID:          pgtype.Text{String: userID, Valid: true},
-		AgentID:         nullAgent(agentIDValue),
+		AgentID:         pgnull.Text(agentIDValue),
 		IncludeArchived: boolToInt(opts.IncludeArchived),
-		Kind:            optionalNullString(opts.Kind),
+		Kind:            pgnull.Text(opts.Kind),
 		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
-		ProjectID:       optionalNullString(opts.ProjectID),
+		ProjectID:       pgnull.Text(opts.ProjectID),
 		Offset:          nonNegativeOffset(opts.Offset),
 		Limit:           listLimit(opts.Limit),
 	})
@@ -153,10 +150,10 @@ func (p *Provider) ListInfoForReview(ctx context.Context, opts memory.ListOption
 		return nil, fmt.Errorf("missing agent context")
 	}
 	convs, err := p.q.ListConversationsForReviewFiltered(ctx, sqlc.ListConversationsForReviewFilteredParams{
-		AgentID:         nullAgent(opts.AgentID),
-		Kind:            optionalNullString(opts.Kind),
+		AgentID:         pgnull.Text(opts.AgentID),
+		Kind:            pgnull.Text(opts.Kind),
 		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
-		ProjectID:       optionalNullString(opts.ProjectID),
+		ProjectID:       pgnull.Text(opts.ProjectID),
 		Offset:          nonNegativeOffset(opts.Offset),
 		Limit:           listLimit(opts.Limit),
 	})
@@ -175,7 +172,7 @@ func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Mess
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{
 		SessionID: sessionID,
 		UserID:    pgtype.Text{String: userID, Valid: true},
-		AgentID:   nullAgent(agentID),
+		AgentID:   pgnull.Text(agentID),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -198,10 +195,6 @@ func convsToSessionInfo(convs []sqlc.CtxConversation) []memory.SessionInfo {
 		result = append(result, convToSessionInfo(conv))
 	}
 	return result
-}
-
-func optionalNullString(s string) pgtype.Text {
-	return pgtype.Text{String: s, Valid: s != ""}
 }
 
 func listLimit(limit int) int32 {

@@ -153,7 +153,7 @@ ai.Message (user/assistant/tool_result)
         |
         v
   +----------+     Append     +-----------+
-  | Provider | ------------> | SQLite DB |
+  | Provider | ------------> | Postgres  |
   +----------+                +-----+-----+
      |    |                          |
      |    | Compact                  |  Tables:
@@ -226,10 +226,9 @@ This is suitable for short-lived conversations or resource-constrained environme
 
 ## Database
 
-- **Location:** `~/.stella/stella.db`
-- **Driver:** `modernc.org/sqlite` (pure Go, no CGO)
-- **Mode:** WAL, foreign keys enabled
-- **Migrations:** Atlas-generated, embedded via `MigrationsFS`, auto-applied on startup.
+- **Location:** PostgreSQL — embedded cluster under `~/.stella/postgres` by default, or an external server via `STELLA_DATABASE_URL`
+- **Driver:** `pgx/v5`
+- **Migrations:** goose, embedded and auto-applied on startup.
 
 **Core schema:**
 

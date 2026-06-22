@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	pgxvec "github.com/pgvector/pgvector-go/pgx"
 	"github.com/pressly/goose/v3"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -34,7 +35,7 @@ const migrateLockKey int64 = 0x73_74_65_6C_6C_61
 // The server must be PostgreSQL 18 or newer: the schema baseline defaults ids
 // with the uuidv7() built-in, so migrate() fails with "function uuidv7() does
 // not exist" against an older server.
-func OpenDB(dsn string) (*pgxpool.Pool, error) {
+func OpenDB(dsn string, opts ...Option) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("db: parse dsn: %w", err)
@@ -46,12 +47,24 @@ func OpenDB(dsn string) (*pgxpool.Pool, error) {
 	// differently on a UTC CI box and a +08 dev box. timezone=UTC rides in the
 	// startup packet, so it holds from the first statement on every connection.
 	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
+	// Tag connections so they are distinguishable in pg_stat_activity and server
+	// logs across the many stellad instances that may share one server.
+	cfg.ConnConfig.RuntimeParams["application_name"] = "stellad"
+	// Bound a transaction that opens then stalls (a wedged agent run, a leaked tx):
+	// without this it pins its backend, locks, and MVCC snapshot indefinitely on the
+	// shared server. statement_timeout is deliberately left off — agent runs are
+	// legitimately long; only the idle-in-transaction case is dangerous.
+	cfg.ConnConfig.RuntimeParams["idle_in_transaction_session_timeout"] = "60s"
+	// Fail fast when the host is unreachable or accepts TCP but never answers,
+	// instead of blocking startup and lazy acquisitions forever — pgx/libpq sets no
+	// default connect timeout. Applies to every dial, eager or lazy.
+	cfg.ConnConfig.ConnectTimeout = 10 * time.Second
 	// Emit one span per query when a parent span is active (see queryTracer).
 	cfg.ConnConfig.Tracer = queryTracer{}
 	// Treat the native uuid type as text on the wire so sqlc's `string` id/FK
 	// fields scan and encode without juggling [16]byte: the app mints and
 	// compares uuidv7 strings end to end.
-	cfg.AfterConnect = func(_ context.Context, conn *pgx.Conn) error {
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		tm := conn.TypeMap()
 		// TEXT-ONLY is load-bearing, not a style choice. A plain TextCodec also
 		// advertises binary support, and pgx's ArrayCodec prefers binary for any
@@ -74,6 +87,24 @@ func OpenDB(dsn string) (*pgxpool.Pool, error) {
 			OID:   pgtype.UUIDArrayOID,
 			Codec: &pgtype.ArrayCodec{ElementType: uuidType},
 		})
+		// Register the pgvector codecs so the embedding sidecar tables' `vector`
+		// columns (pgvector.Vector in the sqlc models) encode and scan: pgx dispatches
+		// by registered OID, and the vector OID is assigned dynamically by CREATE
+		// EXTENSION. On a fresh database the type does not exist yet when this hook
+		// fires for migrate()'s first connection, so probe and skip until it does;
+		// every connection opened after the extension exists (all of them on every
+		// later boot) gets the codec, and the lone pre-extension migrate connection
+		// recycles within MaxConnLifetime. Without this, the first vector query once
+		// the embedding backfill lands would fail to (de)serialize pgvector.Vector.
+		var hasVector bool
+		if err := conn.QueryRow(ctx, "SELECT to_regtype('vector') IS NOT NULL").Scan(&hasVector); err != nil {
+			return fmt.Errorf("probe vector type: %w", err)
+		}
+		if hasVector {
+			if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
+				return fmt.Errorf("register pgvector types: %w", err)
+			}
+		}
 		return nil
 	}
 	// PostgreSQL serializes nothing client-side — concurrency is handled
@@ -83,9 +114,27 @@ func OpenDB(dsn string) (*pgxpool.Pool, error) {
 	// max_connections (default 100). A finite lifetime recycles connections so a
 	// long-lived process doesn't pin stale backends. Production with high
 	// concurrency should front PostgreSQL with pgbouncer or raise these.
+	//
+	// Pooler note: connections use pgx's default prepared-statement exec mode and
+	// migrate() takes a session-scoped advisory lock — both require a SESSION-pooling
+	// pgbouncer. For transaction pooling, use pgbouncer >= 1.21 with
+	// max_prepared_statements set and run migrations against a direct connection.
 	cfg.MaxConns = 20
+	// A small warm floor so a burst right after idle reaping doesn't all pay full
+	// connect + TLS + per-connection codec-registration latency.
+	cfg.MinConns = 2
 	cfg.MaxConnLifetime = 30 * time.Minute
+	// Desynchronize recycling so connections opened together at startup don't all
+	// tear down and reconnect within the same brief window.
+	cfg.MaxConnLifetimeJitter = 5 * time.Minute
 	cfg.MaxConnIdleTime = 5 * time.Minute
+
+	// Apply caller overrides last so they win over the defaults above (tests size
+	// the pool down — many parallel test databases each opening a 20-conn pool can
+	// approach the embedded server's max_connections).
+	for _, opt := range opts {
+		opt(cfg)
+	}
 
 	ctx := context.Background()
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -99,6 +148,21 @@ func OpenDB(dsn string) (*pgxpool.Pool, error) {
 	}
 
 	return pool, nil
+}
+
+// Option overrides pool configuration after OpenDB has applied its defaults.
+type Option func(*pgxpool.Config)
+
+// WithMaxConns caps the pool size. Production uses the built-in default; tests
+// pass a small value so many parallel test databases stay well under the
+// embedded server's max_connections.
+func WithMaxConns(n int32) Option {
+	return func(c *pgxpool.Config) {
+		c.MaxConns = n
+		if c.MinConns > n {
+			c.MinConns = n
+		}
+	}
 }
 
 // spanCtxKey carries the active query span from TraceQueryStart to

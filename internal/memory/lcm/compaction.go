@@ -243,10 +243,10 @@ type messageRunSummary struct {
 // summarizeMessageRun creates a leaf summary candidate from a message run without writing it.
 func (c *compactionEngine) summarizeMessageRun(ctx context.Context, convID string, run messageRun) (messageRunSummary, error) {
 	// Load source messages before opening a transaction. The summarizer may call
-	// back into the database to resolve model/provider settings, and Stella's SQLite
-	// handle intentionally uses a single connection. Holding a transaction while
-	// waiting for the LLM would self-deadlock the summarizer until the context
-	// deadline expires.
+	// back into the database to resolve model/provider settings; holding a
+	// transaction across the LLM call would pin a pooled connection (and risk the
+	// idle-in-transaction timeout) for the whole summarization, so do the slow work
+	// first and keep the write tx short.
 	var messages []sqlc.CtxMessage
 	var textParts []string
 	var totalTokens int64
@@ -323,6 +323,14 @@ func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID st
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := c.q.WithTx(tx)
+
+	// Serialize this writeback against concurrent Appends/compactions on the same
+	// conversation (cross-node). The LLM summarization ran BEFORE this short tx, so
+	// the lock is never held across the model call; it only guards the
+	// delete-range + summary-item rewrite below. Released with the tx.
+	if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
+		return fmt.Errorf("lock conversation: %w", err)
+	}
 
 	// Create summary record.
 	sumID := generateSummaryID()
@@ -525,8 +533,8 @@ type condensedRunSummary struct {
 // summarizeCondensedRun creates a condensed summary candidate from summary items without writing it.
 func (c *compactionEngine) summarizeCondensedRun(ctx context.Context, run summaryRun, sumCache map[string]sqlc.CtxSummary) (condensedRunSummary, error) {
 	// Load summaries from cache before opening a transaction; see
-	// summarizeMessageRun for why LLM work must not happen while holding Stella's
-	// single SQLite connection in a transaction.
+	// summarizeMessageRun for why LLM work must not happen while holding a pooled
+	// connection in a transaction.
 	var summaries []sqlc.CtxSummary
 	var textParts []string
 	var totalTokens int64
@@ -603,6 +611,13 @@ func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := c.q.WithTx(tx)
+
+	// Serialize this writeback against concurrent Appends/compactions on the same
+	// conversation (cross-node); the LLM ran before this short tx so the lock is
+	// never held across the model call. Released with the tx.
+	if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
+		return fmt.Errorf("lock conversation: %w", err)
+	}
 
 	// Create condensed summary.
 	sumID := generateSummaryID()

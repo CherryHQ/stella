@@ -395,4 +395,4 @@ mise run test
 mise run generate:api
 ```
 
-涉及数据库 schema 变更，编辑任何表之前先按 `rules/schema-design` 的 Atlas 流程走。
+涉及数据库 schema 变更，编辑任何表之前先按 `rules/schema-design` 的 goose 迁移流程走。

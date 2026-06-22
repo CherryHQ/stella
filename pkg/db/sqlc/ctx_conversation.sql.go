@@ -523,6 +523,22 @@ func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg Li
 	return items, nil
 }
 
+const lockConversationForWrite = `-- name: LockConversationForWrite :exec
+SELECT pg_advisory_xact_lock(hashtextextended('ctxconv:' || $1::text, 0))
+`
+
+// Transaction-scoped advisory lock serializing per-conversation context writes:
+// the message seq + context-item ordinal allocation in Append, and the
+// compaction writeback that rewrites context items. Those are GetMax->++->insert
+// under Read Committed, which PostgreSQL runs in parallel across writers (and
+// nodes); the in-process striped mutex only serializes within one process. Held
+// until the enclosing tx ends. The 'ctxconv:' prefix keeps unrelated entities out
+// of this conversation's slot in the shared 64-bit lock space.
+func (q *Queries) LockConversationForWrite(ctx context.Context, conversationID string) error {
+	_, err := q.db.Exec(ctx, lockConversationForWrite, conversationID)
+	return err
+}
+
 const updateConversationArchived = `-- name: UpdateConversationArchived :exec
 UPDATE ctx_conversation SET archived = $1, updated_at = now()
 WHERE session_id = $2 AND user_id = $3 AND agent_id IS NOT DISTINCT FROM $4

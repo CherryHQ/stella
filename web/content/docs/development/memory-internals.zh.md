@@ -153,7 +153,7 @@ ai.Message (user/assistant/tool_result)
         |
         v
   +----------+     Append     +-----------+
-  | Provider | ------------> | SQLite DB |
+  | Provider | ------------> | Postgres  |
   +----------+                +-----+-----+
      |    |                          |
      |    | Compact                  |  Tables:
@@ -226,10 +226,9 @@ Simple 插件使用滑动窗口方式：
 
 ## 数据库
 
-- **位置：** `~/.stella/stella.db`
-- **驱动：** `modernc.org/sqlite`（纯 Go，无 CGO）
-- **模式：** WAL，启用外键
-- **迁移：** Atlas 生成，通过 `MigrationsFS` 嵌入，启动时自动应用。
+- **位置：** PostgreSQL —— 默认是 `~/.stella/postgres` 下的内嵌集群，或通过 `STELLA_DATABASE_URL` 指向外部服务器
+- **驱动：** `pgx/v5`
+- **迁移：** goose，嵌入并在启动时自动应用。
 
 **核心 schema：**
 

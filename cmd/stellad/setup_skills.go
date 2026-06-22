@@ -19,7 +19,7 @@ func cliUserSkillsDir(snap *config.Snapshot) (string, error) {
 }
 
 type skillStores struct {
-	raw      *skills.SQLiteStore
+	raw      *skills.PGStore
 	diskSync *skills.DiskSyncStore
 }
 

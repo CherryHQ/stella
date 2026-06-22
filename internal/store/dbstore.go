@@ -18,7 +18,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// DBStore implements config.Store using sqlc queries backed by SQLite.
+// DBStore implements config.Store using sqlc queries backed by PostgreSQL.
 type DBStore struct {
 	q *sqlc.Queries
 }

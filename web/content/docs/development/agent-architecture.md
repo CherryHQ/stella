@@ -395,4 +395,4 @@ For HTTP API changes, also run:
 mise run generate:api
 ```
 
-For database schema changes, follow the Atlas workflow in `rules/schema-design` before editing any table.
+For database schema changes, follow the goose migration workflow in `rules/schema-design` before editing any table.

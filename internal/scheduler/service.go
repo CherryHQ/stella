@@ -597,6 +597,13 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 // RunJobNow triggers an immediate execution of the given job asynchronously.
 // Returns the run ID of the newly created run record.
 // Returns errJobAlreadyRunning (wrapped) if a run is already active for the job.
+//
+// This is BEST-EFFORT and NON-DURABLE, unlike the cron-scheduled path which runs
+// on River: the execution happens in a goroutine on THIS process, not as a River
+// job. A crash or restart before it finishes orphans the in-progress run record
+// (the lease reaper / run-status guards clean it up) and the run is NOT retried.
+// Use it for user-triggered "run now" actions, not for work that must survive a
+// restart — enqueue a River job for that.
 func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	s.mu.Lock()
 	job, ok := s.jobs[jobID]

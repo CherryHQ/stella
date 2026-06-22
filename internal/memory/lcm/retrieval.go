@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -65,7 +66,7 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 	if scope == scopeMessages || scope == scopeBoth {
 		msgs, err := r.q.SearchMessages(ctx, sqlc.SearchMessagesParams{
 			UserID:  pgtype.Text{String: userID, Valid: true},
-			AgentID: nullAgent(agentID),
+			AgentID: pgnull.Text(agentID),
 			Match:   match,
 			Limit:   int32(limit),
 		})
@@ -88,7 +89,7 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 	if scope == scopeSummaries || scope == scopeBoth {
 		sums, err := r.q.SearchSummaries(ctx, sqlc.SearchSummariesParams{
 			UserID:  pgtype.Text{String: userID, Valid: true},
-			AgentID: nullAgent(agentID),
+			AgentID: pgnull.Text(agentID),
 			Match:   match,
 			Limit:   int32(limit),
 		})
@@ -152,7 +153,7 @@ func (p *Provider) GetMessage(ctx context.Context, messageID string) (*memory.Me
 	row, err := p.q.GetMessageScoped(ctx, sqlc.GetMessageScopedParams{
 		ID:      messageID,
 		UserID:  pgtype.Text{String: userID, Valid: true},
-		AgentID: nullAgent(agentID),
+		AgentID: pgnull.Text(agentID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get message: %w", err)
@@ -179,7 +180,7 @@ func (p *Provider) getScopedSummary(ctx context.Context, summaryID string) (sqlc
 	if _, err := p.q.GetConversation(ctx, sqlc.GetConversationParams{
 		ID:      sum.ConversationID,
 		UserID:  pgtype.Text{String: userID, Valid: true},
-		AgentID: nullAgent(agentID),
+		AgentID: pgnull.Text(agentID),
 	}); err != nil {
 		return sqlc.CtxSummary{}, fmt.Errorf("get summary conversation: %w", err)
 	}

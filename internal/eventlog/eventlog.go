@@ -13,7 +13,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -144,11 +144,11 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		ID:                uuid.Must(uuid.NewV7()).String(),
 		GroupID:           groupID,
 		Seq:               seq,
-		SourceChannelID:   nullString(msg.SourceChannelID),
+		SourceChannelID:   pgnull.TextTrim(msg.SourceChannelID),
 		ActorType:         string(msg.ActorType),
 		ActorID:           msg.ActorID,
-		PlatformMessageID: nullString(msg.PlatformMessageID),
-		ReplyTo:           nullString(msg.ReplyTo),
+		PlatformMessageID: pgnull.TextTrim(msg.PlatformMessageID),
+		ReplyTo:           pgnull.TextTrim(msg.ReplyTo),
 		PlatformTimestamp: nullTime(msg.PlatformTimestamp),
 		IdempotencyKey:    idemKey,
 		Content:           msg.Content,
@@ -344,7 +344,7 @@ func lookup(ctx context.Context, q *sqlc.Queries, groupID string, msg Message, i
 	if msg.PlatformMessageID != "" {
 		row, err := q.GetGroupMessageByPlatformID(ctx, sqlc.GetGroupMessageByPlatformIDParams{
 			GroupID:           groupID,
-			PlatformMessageID: nullString(msg.PlatformMessageID),
+			PlatformMessageID: pgnull.TextTrim(msg.PlatformMessageID),
 		})
 		return found(row, err)
 	}
@@ -387,13 +387,6 @@ func platformTimestamp(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339Nano)
-}
-
-func nullString(s string) pgtype.Text {
-	if strings.TrimSpace(s) == "" {
-		return pgtype.Text{}
-	}
-	return pgtype.Text{String: s, Valid: true}
 }
 
 // nullTime maps the zero time to a NULL platform_timestamp and any other time to

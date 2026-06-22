@@ -26,6 +26,17 @@ func isNotFound(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "22P02"
 }
 
+// isUniqueViolation reports whether err is a PostgreSQL unique-constraint
+// violation (SQLSTATE 23505), which callers map to 409 Conflict. The store layer
+// wraps the driver error with %w, so errors.As reaches the *pgconn.PgError. This
+// replaces the pre-migration strings.Contains(err, "UNIQUE constraint") check,
+// which matched SQLite's message text and is dead under PostgreSQL (whose message
+// is the lowercase "duplicate key value violates unique constraint ...").
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
 // Pagination tokens are deliberately offset-based, not keyset-based. The token
 // is base64(offset) and carries no filter fingerprint or expiry. This is a
 // pragmatic choice for an internal API served only to our own frontend + CLI:

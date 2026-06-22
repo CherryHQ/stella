@@ -120,3 +120,13 @@ WHERE project_id = sqlc.arg(project_id)
 -- name: UpdateConversationKindProject :exec
 UPDATE ctx_conversation SET kind = sqlc.arg(kind), project_id = sqlc.arg(project_id), updated_at = now()
 WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
+
+-- Transaction-scoped advisory lock serializing per-conversation context writes:
+-- the message seq + context-item ordinal allocation in Append, and the
+-- compaction writeback that rewrites context items. Those are GetMax->++->insert
+-- under Read Committed, which PostgreSQL runs in parallel across writers (and
+-- nodes); the in-process striped mutex only serializes within one process. Held
+-- until the enclosing tx ends. The 'ctxconv:' prefix keeps unrelated entities out
+-- of this conversation's slot in the shared 64-bit lock space.
+-- name: LockConversationForWrite :exec
+SELECT pg_advisory_xact_lock(hashtextextended('ctxconv:' || sqlc.arg(conversation_id)::text, 0));

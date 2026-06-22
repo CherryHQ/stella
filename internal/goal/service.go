@@ -12,15 +12,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // SessionMinter returns a fresh durable session id for a goal's
 // persistent agent session (worker) or a planning session (decomposition). It
-// is called OUTSIDE every tx: minting a session opens its own writer, and the
-// SQLite single-writer would self-deadlock if it ran inside the service tx
-// (the old boot.go documents this). Implementations land in the integration
-// phase (session.go).
+// is called OUTSIDE every tx: minting a session opens its own transaction, and
+// running it inside the service tx would self-deadlock (the inner write blocks on
+// a row the outer tx holds) and pin a pooled connection. Implementations land in
+// the integration phase (session.go).
 type SessionMinter func(ctx context.Context, userID, agentID, projectID string) (string, error)
 
 // Executor owns agent interaction for one attempt and is PURE with respect to
@@ -60,7 +61,7 @@ type ExecutorResult struct {
 // a CheckResult the service folds into an acceptance_event. It is the only
 // sandbox-IO in acceptance; it NEVER writes lifecycle. It runs inside the
 // worker, after the executor submits, before the durable transition (sandbox
-// exec must never hold the SQLite writer). The implementation lands in the
+// exec must never run inside a DB tx, which would pin a pooled connection). The implementation lands in the
 // integration phase (runner.go).
 type CheckRunner interface {
 	Run(ctx context.Context, item AcceptanceItem, env CheckEnv) (CheckResult, error)
@@ -171,13 +172,6 @@ func nullTime(t time.Time) pgtype.Timestamptz {
 func newID() string { return uuid.Must(uuid.NewV7()).String() }
 
 // nullStr wraps a possibly-empty string as pgtype.Text ("" ⇒ NULL).
-func nullStr(v string) pgtype.Text {
-	if v == "" {
-		return pgtype.Text{}
-	}
-	return pgtype.Text{String: v, Valid: true}
-}
-
 // withTx runs fn in a single transaction, rolling back on error and committing
 // on success. It does not retry — serialization is the caller's concern.
 func (s *GoalService) withTx(ctx context.Context, fn func(*sqlc.Queries) error) error {
@@ -226,6 +220,14 @@ func getGoal(ctx context.Context, q *sqlc.Queries, id string) (sqlc.AgentGoal, e
 // when empty so the first event gets seq 0). The event's id/created_at default
 // here when blank.
 func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries, e sqlc.AppendAcceptanceEventParams) (sqlc.AgentGoalAcceptanceEvent, error) {
+	// Serialize the seq read-modify-write for this goal. GetMaxAcceptanceSeq+1
+	// races across parallel writers/nodes under Read Committed, and the ledger's
+	// (goal_id, seq) index is NOT unique, so a race would silently duplicate seq
+	// and make applyAcceptance's ORDER BY seq fold nondeterministic. The lock
+	// releases with the surrounding tx.
+	if err := q.LockGoalForWrite(ctx, e.GoalID); err != nil {
+		return sqlc.AgentGoalAcceptanceEvent{}, fmt.Errorf("lock goal for acceptance append: %w", err)
+	}
 	maxSeq, err := q.GetMaxAcceptanceSeq(ctx, e.GoalID)
 	if err != nil {
 		return sqlc.AgentGoalAcceptanceEvent{}, fmt.Errorf("max acceptance seq: %w", err)
@@ -331,8 +333,8 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 			ID:                 id,
 			UserID:             in.UserID,
 			AgentID:            in.AgentID,
-			ProjectID:          nullStr(in.ProjectID),
-			ParentID:           nullStr(in.ParentID),
+			ProjectID:          pgnull.Text(in.ProjectID),
+			ParentID:           pgnull.Text(in.ParentID),
 			RootID:             rootID,
 			Depth:              in.Depth,
 			Position:           in.Position,
@@ -360,7 +362,7 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 
 // CreateRoot mints a worker session for a new root goal (a goal) and
 // creates it in 'draft'. The session is minted OUTSIDE the insert tx to avoid
-// the SQLite single-writer self-deadlock (same discipline as Materialize's
+// a self-deadlock and to keep slow session-minting off a pooled connection (same discipline as Materialize's
 // pre-minted child sessions). Child goals get their sessions from
 // Materialize instead, so this entry is root-only.
 func (s *GoalService) CreateRoot(ctx context.Context, in CreateInput) (sqlc.AgentGoal, error) {
@@ -482,7 +484,7 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		// A composite flips its draft children → ready so the dispatcher can begin
 		// claiming leaves under it.
 		if d.Kind == KindComposite {
-			children, err := q.ListGoalChildren(ctx, nullStr(d.ID))
+			children, err := q.ListGoalChildren(ctx, pgnull.Text(d.ID))
 			if err != nil {
 				return fmt.Errorf("list children for activate: %w", err)
 			}
@@ -828,7 +830,7 @@ func (s *GoalService) WaiveEdge(ctx context.Context, downstreamID, upstreamID, r
 			return fmt.Errorf("get edge: %w", err)
 		}
 		if err := q.WaiveEdge(ctx, sqlc.WaiveEdgeParams{
-			WaivedByUser: nullStr(by.ID),
+			WaivedByUser: pgnull.Text(by.ID),
 			WaiverReason: reason,
 			GoalID:       downstreamID,
 			UpstreamID:   upstreamID,

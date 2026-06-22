@@ -17,7 +17,7 @@ func TestEmbeddedSmoke(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = e.Stop() })
 
-	db, err := OpenDB(e.DSN())
+	db, err := OpenDB(e.DSN(), WithMaxConns(4))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}

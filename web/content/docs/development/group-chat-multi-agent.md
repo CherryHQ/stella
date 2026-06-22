@@ -26,7 +26,7 @@ A physical group conversation is registered once in `ctx_group_state`, which min
 
 Why a surrogate id and not a derived `platform:chat_id` string? The id is opaque and stable, so it survives platform-side id reformatting and keeps FK joins cheap; the triple stays as the natural key for lookup. Under the per-bot architecture each agent is a distinct bot = a distinct `channel_id`, so **one physical group is observed by N channel_ids**. The platform's group id is group-global (it does not change with which bot received the message), so the triple is the stable group identity; `channel_id` only answers "which bot saw it."
 
-**Threads are separate groups.** A Telegram forum topic (or any platform sub-thread) is its own conversation, so each distinct `platform_thread_id` gets its own registry row — its own event log, `seq`, memory drawer, and arbiter scope. `platform_thread_id` is `TEXT NOT NULL DEFAULT ''` (empty string, not `NULL`): SQLite treats `NULL`s as distinct in a unique index, so a nullable column would break the `UNIQUE` triple.
+**Threads are separate groups.** A Telegram forum topic (or any platform sub-thread) is its own conversation, so each distinct `platform_thread_id` gets its own registry row — its own event log, `seq`, memory drawer, and arbiter scope. `platform_thread_id` is `TEXT NOT NULL DEFAULT ''` (empty string, not `NULL`): PostgreSQL treats `NULL`s as distinct in a unique index by default, so a nullable column would break the `UNIQUE` triple.
 
 `source_channel_id` (which bot observed an inbound message) is recorded on the event-log row **for audit only**. It never enters an idempotency key, `seq`, cursor, or membership primary key, and it is **never a reply route**. The reply route is always the speaking agent's own `reply_channel_id` (see membership).
 
@@ -74,20 +74,20 @@ Never use the local receive time or a low-precision/default timestamp to build t
 
 ### seq allocation
 
-`AUTOINCREMENT` is unavailable — SQLite only allows it on an `INTEGER PRIMARY KEY`, and this table's PK is `TEXT`. App-level `max+1` races under concurrency. Instead the registry row doubles as the per-group counter and write lock:
+A global sequence can't give a **per-group** monotonic `seq`, and app-level `max+1` races under concurrency. Instead the registry row doubles as the per-group counter and write lock:
 
 ```sql
 CREATE TABLE ctx_group_state (
-  id                 TEXT PRIMARY KEY,            -- surrogate group id (D0)
+  id                 UUID PRIMARY KEY DEFAULT uuidv7(),  -- surrogate group id (D0)
   platform           TEXT NOT NULL,              -- 'telegram' | 'feishu' | 'qq' | ...
   platform_group_id  TEXT NOT NULL,              -- native group/chat id
   platform_thread_id TEXT NOT NULL DEFAULT '',   -- sub-thread/topic; '' when none
-  next_seq           INTEGER NOT NULL DEFAULT 0,
-  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  next_seq           BIGINT NOT NULL DEFAULT 0,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (platform, platform_group_id, platform_thread_id)
 );
--- allocation: UPDATE ... SET next_seq = next_seq + 1 WHERE id = ? RETURNING next_seq (post-update; first = 1)
+-- allocation: UPDATE ... SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq (post-update; first = 1)
 ```
 
 ### The single write path
@@ -98,12 +98,12 @@ All appends go through one primitive — **never raw `INSERT`**:
 AppendGroupMessage(ctx, msg) -> (result{inserted|existing}, seq)
 ```
 
-The closed, idempotent algorithm (SQLite is single-writer; `BEGIN IMMEDIATE` serializes per-group writes):
+The closed, idempotent algorithm (a transaction takes a per-group row lock — `SELECT ... FOR UPDATE` on the registry row, or the atomic `UPDATE ... RETURNING` below — so writes to one group serialize):
 
 0. **Get-or-create the registry row** by the `(platform, platform_group_id, platform_thread_id)` triple → obtain its surrogate `id` (= `group_id`).
 1. **Inside the lock, check for an existing message** by unique key (`platform_message_id` or fallback `idempotency_key`).
 2. **Exists** → return "no insert / no bump / no dispatch."
-3. **Not exists** → `UPDATE ctx_group_state SET next_seq = next_seq + 1 WHERE id = ? ... RETURNING next_seq` → `INSERT` the message row with that seq → dispatch only after commit.
+3. **Not exists** → `UPDATE ctx_group_state SET next_seq = next_seq + 1 WHERE id = $1 ... RETURNING next_seq` → `INSERT` the message row with that seq → dispatch only after commit.
 
 Because both the bump and the insert happen only in the cache-miss branch and inside the same write lock, an idempotent redelivery neither inserts a row nor consumes a seq. `ON CONFLICT DO NOTHING` is a last-resort backstop only; it does not carry the dedup decision.
 

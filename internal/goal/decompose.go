@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -167,7 +168,7 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
 	}
 
-	// Mint the planning session OUTSIDE the tx (SQLite single-writer self-deadlock).
+	// Mint the planning session OUTSIDE the tx: it opens its own tx and would self-deadlock against the held one.
 	if s.newPlanningSession == nil {
 		return sqlc.AgentGoalAttempt{}, fmt.Errorf("goal: no planning session minter configured")
 	}
@@ -178,6 +179,12 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 
 	var out sqlc.AgentGoalAttempt
 	err = s.withTx(ctx, func(q *sqlc.Queries) error {
+		// Serialize attempt_no allocation for this goal: GetMaxAttemptNo+1 races
+		// across parallel writers/nodes, and uniq_agent_goal_attempt_no would turn a
+		// race into a hard 500. The lock releases with the tx.
+		if err := q.LockGoalForWrite(ctx, d.ID); err != nil {
+			return fmt.Errorf("lock goal for decomposition attempt: %w", err)
+		}
 		// attempt_count tracks execution attempts only, so a re-plan after an
 		// interrupted decomposition (goal reset to draft) would reuse attempt_no
 		// and collide on uniq_agent_goal_attempt_no. Number from the max existing
@@ -195,8 +202,8 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 			ID:              newID(),
 			GoalID:          d.ID,
 			UserID:          d.UserID,
-			AgentID:         nullStr(d.AgentID),
-			ExecutorAgentID: nullStr(d.AgentID),
+			AgentID:         pgnull.Text(d.AgentID),
+			ExecutorAgentID: pgnull.Text(d.AgentID),
 			SessionID:       sessionID,
 			Purpose:         PurposeDecomposition,
 			AttemptNo:       int64(attemptNo),
@@ -241,6 +248,12 @@ func (s *GoalService) CreateRevision(ctx context.Context, goalID string, content
 
 	var out sqlc.AgentGoalRevision
 	err = s.withTx(ctx, func(q *sqlc.Queries) error {
+		// Serialize revision_no allocation for this goal: GetMaxRevisionNo+1 races
+		// across parallel writers/nodes, and uniq_agent_goal_revision_no would turn a
+		// race into a hard 500. The lock releases with the tx.
+		if err := q.LockGoalForWrite(ctx, goalID); err != nil {
+			return fmt.Errorf("lock goal for revision: %w", err)
+		}
 		maxNo, err := q.GetMaxRevisionNo(ctx, goalID)
 		if err != nil {
 			return fmt.Errorf("max revision no: %w", err)
@@ -252,7 +265,7 @@ func (s *GoalService) CreateRevision(ctx context.Context, goalID string, content
 			Status:          RevisionDraft,
 			ReviewPolicy:    d.ReviewPolicy,
 			Content:         marshalJSON(content),
-			SourceAttemptID: nullStr(sourceAttemptID),
+			SourceAttemptID: pgnull.Text(sourceAttemptID),
 		})
 		if err != nil {
 			return fmt.Errorf("create revision: %w", err)
@@ -328,7 +341,7 @@ func (s *GoalService) Accept(ctx context.Context, revisionID string, by Actor) (
 // acceptAndMaterialize is the shared accept→materialize flow for both the
 // review_policy=none (from draft) and human-approval (from in_review) paths
 // (contract §2.3, §6). It validates the content, pre-mints every child session
-// OUTSIDE the tx (SQLite single-writer self-deadlock), then in ONE tx accepts the
+// OUTSIDE the tx (its own tx would self-deadlock against the held one), then in ONE tx accepts the
 // revision and materializes its children/edges. fromStatus guards the source
 // status the caller permits.
 func (s *GoalService) acceptAndMaterialize(ctx context.Context, revisionID, fromStatus string) (sqlc.AgentGoalRevision, error) {

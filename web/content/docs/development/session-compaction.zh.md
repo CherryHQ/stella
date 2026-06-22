@@ -78,7 +78,7 @@ Token 估计对存储消息的字节长度求和并除以 4（粗略启发式：
 
 ### 存储格式
 
-压缩摘要通过 `memory.Engine` 作为消息存储在 SQLite 数据库中。在 `Load()` 时，引擎将压缩条目转换为一对 `ai.Message` -- 包含摘要的用户消息和助手确认 -- 因此 runner 将其视为正常对话历史记录。
+压缩摘要通过 `memory.Engine` 作为消息存储在 PostgreSQL 中。在 `Load()` 时，引擎将压缩条目转换为一对 `ai.Message` -- 包含摘要的用户消息和助手确认 -- 因此 runner 将其视为正常对话历史记录。
 
 ## 触发器
 
@@ -140,4 +140,4 @@ type Stateful interface {
 | 自动压缩失败      | 记录警告，继续使用完整历史记录     |
 | Runner 返回空摘要 | 返回错误："empty summary response" |
 
-所有写入都通过 SQLite 事务以保证原子性。
+所有写入都通过 PostgreSQL 事务以保证原子性。

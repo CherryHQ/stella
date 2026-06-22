@@ -52,7 +52,7 @@ Start the server — the Web UI is available at `http://localhost:25678`:
 stellad server
 ```
 
-This starts the server and the Web UI where you configure API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` — no config files needed.
+This starts the server and the Web UI where you configure API keys, channels, and agent profiles. All configuration is stored in PostgreSQL — by default an embedded cluster under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. No config files needed.
 
 ```bash
 stellad server --port 8080             # custom port
@@ -205,14 +205,14 @@ Running Stella inside a Docker container (described above) is separate from usin
 
 All data lives under the stella home directory (`~/.stella` by default, configurable via `STELLA_HOME`).
 
-| Path                                  | Purpose                                     |
-| ------------------------------------- | ------------------------------------------- |
-| `~/.stella/stella.db`                 | Single database (config, memory, scheduler) |
-| `~/.stella/agents/{agent-id}/skills/` | Per-agent installed skills                  |
-| `~/.stella/agents/{agent-id}/SOUL.md` | Optional per-agent soul/identity override   |
-| `~/.stella/cache/`                    | Model cache (regenerable, safe to delete)   |
+| Path                                  | Purpose                                                                                       |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `~/.stella/postgres/`                 | Embedded PostgreSQL data (config, memory, scheduler); absent when using `STELLA_DATABASE_URL` |
+| `~/.stella/agents/{agent-id}/skills/` | Per-agent installed skills                                                                    |
+| `~/.stella/agents/{agent-id}/SOUL.md` | Optional per-agent soul/identity override                                                     |
+| `~/.stella/cache/`                    | Model cache (regenerable, safe to delete)                                                     |
 
-The `stella.db` file is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs.
+The PostgreSQL data is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs. With the embedded cluster, back up the `~/.stella/postgres/` directory (with the server stopped); with an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database.
 
 ## Environment Variables
 
@@ -221,6 +221,7 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | Variable                     | Required | Description                                                                                        |
 | ---------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
 | `STELLA_HOME`                | No       | Stella home directory (default `~/.stella`)                                                        |
+| `STELLA_DATABASE_URL`        | No       | External PostgreSQL connection URL; unset uses the embedded cluster under `STELLA_HOME`            |
 | `ANTHROPIC_API_KEY`          | Yes\*    | Anthropic provider key                                                                             |
 | `OPENAI_API_KEY`             | Yes\*    | OpenAI provider key                                                                                |
 | `STELLA_VAULT_KEY`           | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens                      |

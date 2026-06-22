@@ -60,7 +60,7 @@ func ensure() {
 			initErr = fmt.Errorf("dbtest: create template: %w", err)
 			return
 		}
-		tmpl, err := appdb.OpenDB(server.DSNFor(templateDB))
+		tmpl, err := appdb.OpenDB(server.DSNFor(templateDB), appdb.WithMaxConns(4))
 		if err != nil {
 			initErr = fmt.Errorf("dbtest: migrate template: %w", err)
 			return
@@ -88,7 +88,7 @@ func New(t *testing.T) *pgxpool.Pool {
 	// Open through OpenDB so the test handle is configured exactly like the
 	// server's: same pool policy and FTS guarantees. The clone is already
 	// migrated, so OpenDB's migrate step is a no-op.
-	db, err := appdb.OpenDB(server.DSNFor(name))
+	db, err := appdb.OpenDB(server.DSNFor(name), appdb.WithMaxConns(4))
 	if err != nil {
 		t.Fatalf("dbtest: open %s: %v", name, err)
 	}

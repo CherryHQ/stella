@@ -13,7 +13,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// AuthStore implements auth.AuthStore using sqlc queries backed by SQLite.
+// AuthStore implements auth.AuthStore using sqlc queries backed by PostgreSQL.
 // It embeds OIDCStore to satisfy all new auth store interfaces so that
 // gateway.go can pass a single *AuthStore to all wiring points without
 // knowing about the split between sqlc-backed and raw-SQL-backed stores.

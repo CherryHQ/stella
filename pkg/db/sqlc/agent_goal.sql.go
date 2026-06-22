@@ -946,6 +946,24 @@ func (q *Queries) ListStalledComposites(ctx context.Context, limit int32) ([]Age
 	return items, nil
 }
 
+const lockGoalForWrite = `-- name: LockGoalForWrite :exec
+SELECT pg_advisory_xact_lock(hashtextextended('goal:' || $1::text, 0))
+`
+
+// Transaction-scoped advisory lock serializing read-modify-write sequence
+// allocation for one goal. The acceptance ledger seq, attempt_no, and revision_no
+// are each GetMax->+1->insert under Read Committed, which PostgreSQL runs in
+// parallel across writers (and nodes): without this, two writers read the same
+// max and compute the same next value, silently duplicating the acceptance seq
+// (no unique backstop) or colliding on the attempt_no/revision_no unique index.
+// Held until the enclosing tx ends. The 'goal:' prefix keeps unrelated entities
+// out of this goal's slot in the shared 64-bit lock space (matching
+// AdvisoryXactLock / LockSchedJobForRun).
+func (q *Queries) LockGoalForWrite(ctx context.Context, goalID string) error {
+	_, err := q.db.Exec(ctx, lockGoalForWrite, goalID)
+	return err
+}
+
 const reconcileGoalCounters = `-- name: ReconcileGoalCounters :exec
 UPDATE agent_goal SET
     required_total = (
