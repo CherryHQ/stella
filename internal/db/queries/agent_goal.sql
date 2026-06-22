@@ -235,6 +235,19 @@ WHERE kind = 'composite'
 ORDER BY updated_at ASC
 LIMIT $1;
 
+-- name: ListBlockedDepComposites :many
+-- Composites parked blocked(dep) by the rollup because a required child was
+-- blocked. The rollup scans (ListRollupCandidates/ListStalledComposites) only see
+-- active composites, so a parent driven here never re-enters rollup on its own.
+-- The dispatcher re-evaluates each: once its blocking children clear, it is woken
+-- back to active so the rollup resumes (see RecoverBlockedComposite).
+SELECT * FROM agent_goal
+WHERE kind = 'composite'
+  AND lifecycle = 'blocked'
+  AND block_reason = 'dep'
+ORDER BY updated_at ASC
+LIMIT $1;
+
 -- name: CancelGoal :exec
 UPDATE agent_goal SET
     lifecycle = 'cancelled',

@@ -65,6 +65,13 @@ func cmp_decompose(t *testing.T, h *harness, compositeID string, content Decompo
 	}
 }
 
+// cmp_compositeChild is a proposed COMPOSITE child (decomposed in its own turn).
+func cmp_compositeChild(key string, required bool) ProposedChild {
+	c := cmp_child(key, required)
+	c.Kind = KindComposite
+	return c
+}
+
 // cmp_children returns a composite's direct children ordered by position.
 func cmp_children(t *testing.T, h *harness, parentID string) []sqlc.AgentGoal {
 	t.Helper()
@@ -422,6 +429,96 @@ func TestCompositeRollup_RejectPlanReturnsToDraft(t *testing.T) {
 	if p.RequiredTotal != 0 || p.PlannedAt.Valid {
 		t.Fatalf("rejected plan must not set required_total/planned_at: total=%d planned=%v",
 			p.RequiredTotal, p.PlannedAt.Valid)
+	}
+}
+
+// TestCompositeRollup_RecoverBlockedParentAfterNestedPlanApproval proves the
+// rollup-recovery path (contract section 6): a required COMPOSITE child that parks
+// at blocked(needs_plan_approval) drives its parent to blocked(dep) via the
+// reconcile backstop. Once the child's plan is approved the child returns to
+// active, but the parent is invisible to the active-only rollup scans, so
+// RecoverBlockedComposite (run by the dispatcher over ListBlockedDepComposites)
+// must wake it back to active and the tree must then converge. Without recovery
+// the parent strands in blocked(dep) forever.
+func TestCompositeRollup_RecoverBlockedParentAfterNestedPlanApproval(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	root := h.createRoot(KindComposite, AcceptanceContract{})
+
+	// root decomposes (review_policy=none) into one required COMPOSITE child, left
+	// in draft for its own decomposition.
+	cmp_decompose(t, h, root.ID, DecompositionContent{
+		Children: []ProposedChild{cmp_compositeChild("sub", true)},
+	})
+	subID := childID(root.ID, "sub")
+	if got := h.get(subID); got.Kind != KindComposite || got.Lifecycle != LifecycleDraft {
+		t.Fatalf("sub kind=%q lifecycle=%q want composite/draft", got.Kind, got.Lifecycle)
+	}
+
+	// sub uses human plan review; decomposing it parks it blocked(needs_plan_approval).
+	human := ReviewHuman
+	if _, err := h.svc.UpdateMetadata(ctx, subID, UpdateInput{ReviewPolicy: &human}); err != nil {
+		t.Fatalf("UpdateMetadata sub review_policy=human: %v", err)
+	}
+	cmp_decompose(t, h, subID, DecompositionContent{
+		Children: []ProposedChild{cmp_child("x", true)},
+	})
+	if got := h.get(subID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockNeedsPlanApproval {
+		t.Fatalf("sub lifecycle=%q reason=%q want blocked/needs_plan_approval", got.Lifecycle, got.BlockReason)
+	}
+
+	// Dispatcher backstop: reconcile observes the blocked child, then the rollup
+	// drives root active->blocked(dep).
+	if err := h.svc.reconcileCounters(ctx, root.ID); err != nil {
+		t.Fatalf("reconcileCounters: %v", err)
+	}
+	if got := h.get(root.ID).RequiredBlocked; got != 1 {
+		t.Fatalf("root required_blocked=%d want 1 after reconcile", got)
+	}
+	if v := RollupComposite(h.get(root.ID)); v != RollupBlock {
+		t.Fatalf("rollup with 1 blocked required child = %q want block", v)
+	}
+	if err := h.svc.Block(ctx, root.ID, BlockDep, SystemActor()); err != nil {
+		t.Fatalf("Block(root, dep): %v", err)
+	}
+	if got := h.get(root.ID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockDep {
+		t.Fatalf("root lifecycle=%q reason=%q want blocked/dep", got.Lifecycle, got.BlockReason)
+	}
+
+	// Approve sub's plan: sub returns to active and materializes its leaf child.
+	if err := h.svc.ApprovePlan(ctx, subID, UserActor(h.userID)); err != nil {
+		t.Fatalf("ApprovePlan(sub): %v", err)
+	}
+	if got := h.get(subID).Lifecycle; got != LifecycleActive {
+		t.Fatalf("sub after ApprovePlan lifecycle=%q want active", got)
+	}
+
+	// root is still blocked(dep) and invisible to the active-only rollup scans; the
+	// recovery scan must wake it back to active now its blocking child has cleared.
+	if err := h.svc.RecoverBlockedComposite(ctx, root.ID); err != nil {
+		t.Fatalf("RecoverBlockedComposite: %v", err)
+	}
+	rootAfter := h.get(root.ID)
+	if rootAfter.Lifecycle != LifecycleActive {
+		t.Fatalf("root after recovery lifecycle=%q want active (deadlock if still blocked)", rootAfter.Lifecycle)
+	}
+	if rootAfter.RequiredBlocked != 0 {
+		t.Fatalf("root required_blocked=%d want 0 after recovery", rootAfter.RequiredBlocked)
+	}
+
+	// End-to-end: drive sub to accepted, then root must roll up to accepted.
+	cmp_acceptChild(t, h, childID(subID, "x"))
+	if err := h.svc.RollupAccept(ctx, subID); err != nil {
+		t.Fatalf("RollupAccept(sub): %v", err)
+	}
+	if got := h.get(subID).Lifecycle; got != LifecycleAccepted {
+		t.Fatalf("sub lifecycle=%q want accepted", got)
+	}
+	if err := h.svc.RollupAccept(ctx, root.ID); err != nil {
+		t.Fatalf("RollupAccept(root): %v", err)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleAccepted {
+		t.Fatalf("root lifecycle=%q want accepted (nested tree converged)", got)
 	}
 }
 

@@ -209,6 +209,22 @@ func (d *Dispatcher) rollupComposites(ctx context.Context, _ time.Time) {
 	for _, parent := range stalled {
 		d.applyRollup(ctx, parent, true)
 	}
+
+	// Recover composites parked blocked(dep): the rollup scans above only see
+	// active composites, so a parent the rollup blocked never re-enters rollup once
+	// its blocking children clear (e.g. a child plan was approved or a verdict
+	// arrived). RecoverBlockedComposite wakes it back to active.
+	blocked, err := d.cfg.Queries.ListBlockedDepComposites(ctx, int32(d.cfg.BatchLimit))
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: list blocked-dep composites", "err", err)
+		return
+	}
+	for _, parent := range blocked {
+		if err := d.cfg.Service.RecoverBlockedComposite(ctx, parent.ID); err != nil &&
+			!errors.Is(err, ErrInvalidTransition) {
+			d.cfg.Logger.Warn("dispatcher: recover blocked composite", "goal", parent.ID, "err", err)
+		}
+	}
 }
 
 // applyRollup folds one composite's counters into a verdict and applies it. On a

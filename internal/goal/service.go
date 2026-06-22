@@ -945,3 +945,57 @@ func (s *GoalService) reconcileCounters(ctx context.Context, parentID string) er
 		return q.ReconcileGoalCounters(ctx, parentID)
 	})
 }
+
+// RecoverBlockedComposite re-evaluates a composite the rollup parked in
+// blocked(dep) and wakes it back to active once its blocking children have
+// cleared (contract §6). The rollup scans (ListRollupCandidates/
+// ListStalledComposites) only see active composites, so a parent driven to
+// blocked(dep) — e.g. while a required child awaits plan approval or a verdict —
+// never re-enters rollup on its own even after that child recovers. The
+// dispatcher runs this over ListBlockedDepComposites each tick. Idempotent: a
+// no-op while any required child is still blocked.
+func (s *GoalService) RecoverBlockedComposite(ctx context.Context, id string) error {
+	return s.withTx(ctx, func(q *sqlc.Queries) error {
+		if err := q.LockGoalForWrite(ctx, id); err != nil {
+			return fmt.Errorf("lock goal for recover: %w", err)
+		}
+		d, err := getGoal(ctx, q, id)
+		if err != nil {
+			return err
+		}
+		if d.Kind != KindComposite || d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockDep {
+			return ErrInvalidTransition
+		}
+		// Recompute required_* from the children's current states. The dep block was
+		// surfaced off the incremental counters, and a child's recovery (plan
+		// approval, verdict, edge waiver) does not eagerly decrement the parent —
+		// the reconcile is what observes the cleared block.
+		if err := q.ReconcileGoalCounters(ctx, id); err != nil {
+			return fmt.Errorf("reconcile counters: %w", err)
+		}
+		cur, err := getGoal(ctx, q, id)
+		if err != nil {
+			return err
+		}
+		if cur.RequiredBlocked > 0 {
+			return nil // another required child is still blocked — stay parked
+		}
+		// No required child is blocked anymore: wake to active so the next rollup tick
+		// folds the refreshed counters (accept / fail / wait). Re-activating bumps no
+		// parent counter — this composite's own parent, if itself blocked(dep), is
+		// reconciled by its turn through this same recovery scan.
+		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+			ToLifecycle:   LifecycleActive,
+			BlockReason:   "",
+			ID:            id,
+			FromLifecycle: LifecycleBlocked,
+		})
+		if err != nil {
+			return fmt.Errorf("recover blocked composite: %w", err)
+		}
+		if rows == 0 {
+			return ErrInvalidTransition
+		}
+		return nil
+	})
+}

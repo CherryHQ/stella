@@ -376,6 +376,78 @@ func (q *Queries) IncrGoalRequiredFailed(ctx context.Context, id string) error {
 	return err
 }
 
+const listBlockedDepComposites = `-- name: ListBlockedDepComposites :many
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
+WHERE kind = 'composite'
+  AND lifecycle = 'blocked'
+  AND block_reason = 'dep'
+ORDER BY updated_at ASC
+LIMIT $1
+`
+
+// Composites parked blocked(dep) by the rollup because a required child was
+// blocked. The rollup scans (ListRollupCandidates/ListStalledComposites) only see
+// active composites, so a parent driven here never re-enters rollup on its own.
+// The dispatcher re-evaluates each: once its blocking children clear, it is woken
+// back to active so the rollup resumes (see RecoverBlockedComposite).
+func (q *Queries) ListBlockedDepComposites(ctx context.Context, limit int32) ([]AgentGoal, error) {
+	rows, err := q.db.Query(ctx, listBlockedDepComposites, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentGoal{}
+	for rows.Next() {
+		var i AgentGoal
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.ProjectID,
+			&i.ParentID,
+			&i.RootID,
+			&i.Depth,
+			&i.Position,
+			&i.SessionID,
+			&i.Title,
+			&i.Intent,
+			&i.Kind,
+			&i.Priority,
+			&i.Required,
+			&i.AcceptanceContract,
+			&i.ConvergencePolicy,
+			&i.ReviewPolicy,
+			&i.Lifecycle,
+			&i.BlockReason,
+			&i.AcceptanceState,
+			&i.AcceptedOutput,
+			&i.AcceptanceSeq,
+			&i.ActiveAttemptID,
+			&i.AttemptCount,
+			&i.RequiredTotal,
+			&i.RequiredAccepted,
+			&i.RequiredFailed,
+			&i.RequiredBlocked,
+			&i.Context,
+			&i.DispatchHint,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AcceptedAt,
+			&i.CancelledAt,
+			&i.ArchivedAt,
+			&i.Plan,
+			&i.PlannedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDecomposableComposites = `-- name: ListDecomposableComposites :many
 SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
 WHERE kind = 'composite'
