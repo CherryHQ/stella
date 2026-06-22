@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-06-23
+
+> **Breaking:** Stella now runs on PostgreSQL instead of SQLite. The backend ships an embedded PostgreSQL cluster by default, or you can point it at an external server with `STELLA_DATABASE_URL`. Existing SQLite deployments must migrate their data before upgrading.
+
+### ✨ Features
+
+- Database: replace the SQLite backend with PostgreSQL (embedded cluster by default, external server via `STELLA_DATABASE_URL`). ([#524](https://github.com/CherryHQ/stella/pull/524))
+- Database: ship embedded PostgreSQL runtime resources so a fresh install works with no external server. ([#557](https://github.com/CherryHQ/stella/pull/557))
+- Database: migrate persistence to native `pgxpool` and stand up the River job substrate. ([#562](https://github.com/CherryHQ/stella/pull/562))
+- Scheduler: replace gocron with River durable jobs. ([#563](https://github.com/CherryHQ/stella/pull/563))
+- Search: PostgreSQL-native search foundation with BM25 ranking and sidecar vectors, no fallback path. ([#569](https://github.com/CherryHQ/stella/pull/569))
+- Goals: mandatory auto-plan — the server decomposes and runs goals autonomously. ([#579](https://github.com/CherryHQ/stella/pull/579))
+
+### 🐛 Bug Fixes
+
+- Database: clean up residue from the SQLite-to-PostgreSQL migration (correctness, hardening, docs). ([#577](https://github.com/CherryHQ/stella/pull/577))
+
+### ♻️ Refactoring
+
+- Database: replace Atlas with goose migrations as the single source of truth. ([#568](https://github.com/CherryHQ/stella/pull/568))
+- River: use a single shared client and run goal attempts on River durable jobs. ([#573](https://github.com/CherryHQ/stella/pull/573))
+- Goals: single-leader tick with transactional claim-and-enqueue. ([#575](https://github.com/CherryHQ/stella/pull/575))
+
+### 📝 Documentation
+
+- Positioning: unify Stella around shared AI coworkers for teams. ([#570](https://github.com/CherryHQ/stella/pull/570))
+- Web: redesign the landing page around a commit-graph spine. ([#572](https://github.com/CherryHQ/stella/pull/572))
+
+**Full Changelog**: [v0.49.4...v0.50.0](https://github.com/CherryHQ/stella/compare/v0.49.4...v0.50.0)
+
 ## [0.49.4] - 2026-06-20
 
 ### ✨ Features

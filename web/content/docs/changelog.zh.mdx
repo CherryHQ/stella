@@ -11,6 +11,36 @@ icon: History
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-06-23
+
+> **重大变更：** Stella 现已从 SQLite 切换到 PostgreSQL。后端默认内置嵌入式 PostgreSQL 集群，也可通过 `STELLA_DATABASE_URL` 指向外部服务器。现有 SQLite 部署需在升级前迁移数据。
+
+### ✨ 功能
+
+- 数据库：用 PostgreSQL 替换 SQLite 后端（默认内置嵌入式集群，可通过 `STELLA_DATABASE_URL` 指向外部服务器）。([#524](https://github.com/CherryHQ/stella/pull/524))
+- 数据库：内置 PostgreSQL 运行时资源，全新安装无需外部服务器即可运行。([#557](https://github.com/CherryHQ/stella/pull/557))
+- 数据库：将持久化迁移到原生 `pgxpool` 并搭建 River 任务基座。([#562](https://github.com/CherryHQ/stella/pull/562))
+- 调度器：用 River 持久化任务替换 gocron。([#563](https://github.com/CherryHQ/stella/pull/563))
+- 搜索：PostgreSQL 原生搜索基座，BM25 排序 + sidecar 向量，无回退路径。([#569](https://github.com/CherryHQ/stella/pull/569))
+- Goals：强制自动规划——服务端自主分解并执行目标。([#579](https://github.com/CherryHQ/stella/pull/579))
+
+### 🐛 修复
+
+- 数据库：清理 SQLite 到 PostgreSQL 迁移的残留（正确性、加固、文档）。([#577](https://github.com/CherryHQ/stella/pull/577))
+
+### ♻️ 重构
+
+- 数据库：用 goose 迁移替换 Atlas，作为单一事实来源。([#568](https://github.com/CherryHQ/stella/pull/568))
+- River：使用单一共享客户端，并在 River 持久化任务上运行目标尝试。([#573](https://github.com/CherryHQ/stella/pull/573))
+- Goals：单 leader tick，事务化的认领与入队。([#575](https://github.com/CherryHQ/stella/pull/575))
+
+### 📝 文档
+
+- 定位：将 Stella 统一为面向团队的共享 AI 同事。([#570](https://github.com/CherryHQ/stella/pull/570))
+- Web：围绕 commit-graph 主线重新设计落地页。([#572](https://github.com/CherryHQ/stella/pull/572))
+
+**完整变更日志**：[v0.49.4...v0.50.0](https://github.com/CherryHQ/stella/compare/v0.49.4...v0.50.0)
+
 ## [0.49.4] - 2026-06-20
 
 ### ✨ 功能
