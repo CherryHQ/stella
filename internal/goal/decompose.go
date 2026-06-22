@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -209,10 +210,12 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 			AttemptNo:       int64(attemptNo),
 			Status:          AttemptQueued,
 			InputContext:    marshalJSON(input),
-			// Decomposition runs interactively in the planning session, not as a leased
-			// River worker, so this lease is not a liveness signal; the stale reaper
-			// skips purpose=decomposition (ListStaleAttempts). now() just marks mint time.
-			LeaseExpiresAt: nullTime(s.nowTime()),
+			// Interactive decomposition runs in the planning session, not as a leased
+			// River worker, so it has no liveness signal: a NULL lease makes the reaper
+			// skip it (ListStaleAttempts gates on lease_expires_at IS NOT NULL), so it is
+			// never bounced back to draft mid-planning. Autonomous decomposition uses
+			// BeginAutoDecomposition, which sets a real heartbeated lease instead.
+			LeaseExpiresAt: pgtype.Timestamptz{},
 		})
 		if err != nil {
 			return fmt.Errorf("create decomposition attempt: %w", err)
@@ -228,6 +231,104 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 		}
 		if rows == 0 {
 			return ErrInvalidTransition
+		}
+		out = att
+		return nil
+	})
+	return out, err
+}
+
+// BeginAutoDecomposition mints a headless decomposition attempt for a composite
+// and enqueues its durable River job in ONE tx (mirrors Claim): on success both
+// commit; on enqueue failure the whole thing rolls back, leaving the composite
+// draft to be re-picked next tick — no orphaned active composite to recover.
+// Unlike interactive BeginDecomposition the attempt carries a real claim-grace
+// lease and is heartbeated by the River worker, so the reaper recovers it if the
+// node crashes mid-plan. The dispatcher (scanAndDecompose) is the only caller.
+//
+// The eligibility guards are re-checked INSIDE the tx after LockGoalForWrite: the
+// dispatcher's scan is a snapshot, so a concurrent manual PutRevision (which only
+// locks for revision_no, not lifecycle) could have staged a plan between the scan
+// and here. Re-checking under the row lock makes auto-decomposition never clobber
+// a human-authored or already-running plan.
+func (s *GoalService) BeginAutoDecomposition(ctx context.Context, id string, enqueue AttemptEnqueuer) (sqlc.AgentGoalAttempt, error) {
+	d, err := getGoal(ctx, s.q, id)
+	if err != nil {
+		return sqlc.AgentGoalAttempt{}, err
+	}
+	// Mint the planning session OUTSIDE the tx (its own tx would self-deadlock).
+	if s.newPlanningSession == nil {
+		return sqlc.AgentGoalAttempt{}, fmt.Errorf("goal: no planning session minter configured")
+	}
+	sessionID, err := s.newPlanningSession(ctx, d.UserID, d.AgentID, d.ProjectID.String)
+	if err != nil {
+		return sqlc.AgentGoalAttempt{}, fmt.Errorf("mint planning session: %w", err)
+	}
+
+	var out sqlc.AgentGoalAttempt
+	err = s.withTxRaw(ctx, func(q *sqlc.Queries, tx pgx.Tx) error {
+		if err := q.LockGoalForWrite(ctx, d.ID); err != nil {
+			return fmt.Errorf("lock goal for auto decomposition: %w", err)
+		}
+		// Re-read + re-check under the lock: a racing PutRevision/Activate may have
+		// moved the goal since the dispatcher's snapshot.
+		cur, err := getGoal(ctx, q, d.ID)
+		if err != nil {
+			return err
+		}
+		if cur.Kind != KindComposite || cur.Lifecycle != LifecycleDraft ||
+			cur.ReviewPolicy != ReviewNone ||
+			(cur.AcceptedRevisionID.Valid && cur.AcceptedRevisionID.String != "") {
+			return ErrInvalidTransition
+		}
+		if _, err := q.GetOpenRevision(ctx, d.ID); err == nil {
+			return ErrInvalidTransition // a manual plan is in progress
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("probe open revision: %w", err)
+		}
+		maxNo, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{
+			GoalID:  d.ID,
+			Purpose: PurposeDecomposition,
+		})
+		if err != nil {
+			return fmt.Errorf("max decomposition attempt no: %w", err)
+		}
+		attemptNo := int(maxNo) + 1
+		input := buildInputContext(cur, nil, nil, "", attemptNo)
+		att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
+			ID:              newID(),
+			GoalID:          cur.ID,
+			UserID:          cur.UserID,
+			AgentID:         pgnull.Text(cur.AgentID),
+			ExecutorAgentID: pgnull.Text(cur.AgentID),
+			SessionID:       sessionID,
+			Purpose:         PurposeDecomposition,
+			AttemptNo:       int64(attemptNo),
+			Status:          AttemptQueued,
+			InputContext:    marshalJSON(input),
+			// A real claim-grace lease: the River worker heartbeats it forward, so an
+			// expired lease is a genuine orphan the reaper recovers (mirrors Claim).
+			LeaseExpiresAt: nullTime(s.nowTime().Add(claimGraceTTL)),
+		})
+		if err != nil {
+			return fmt.Errorf("create decomposition attempt: %w", err)
+		}
+		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+			ToLifecycle:   LifecycleActive,
+			BlockReason:   "",
+			ID:            cur.ID,
+			FromLifecycle: LifecycleDraft,
+		})
+		if err != nil {
+			return fmt.Errorf("begin auto decomposition: %w", err)
+		}
+		if rows == 0 {
+			return ErrInvalidTransition
+		}
+		if enqueue != nil {
+			if err := enqueue(ctx, tx, cur.ID, att.ID); err != nil {
+				return fmt.Errorf("enqueue decomposition attempt: %w", err)
+			}
 		}
 		out = att
 		return nil

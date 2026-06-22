@@ -110,7 +110,7 @@ func (d *Dispatcher) Stop() {
 
 // Tick runs one pass of the dispatch loop. Public so tests can drive it
 // deterministically. The order is fixed (§5/§7): reap → propagate → rollup →
-// scan-and-claim.
+// scan-and-decompose → scan-and-claim.
 func (d *Dispatcher) Tick(ctx context.Context) {
 	if d.isStopped() {
 		return
@@ -119,6 +119,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	d.reapStaleAttempts(ctx, now)
 	d.propagateDepFailures(ctx, now)
 	d.rollupComposites(ctx, now)
+	d.scanAndDecompose(ctx, now)
 	d.scanAndClaim(ctx, now)
 }
 
@@ -305,6 +306,36 @@ func (d *Dispatcher) scanAndClaim(ctx context.Context, now time.Time) {
 	}
 }
 
+// scanAndDecompose drives autonomous planning: every composite awaiting
+// decomposition (draft, review_policy=none, no plan, no manual revision open) gets
+// a headless decomposition attempt minted + enqueued in one tx, moving it
+// draft→active so the next tick skips it. The River worker runs the planner and
+// applies the result (SubmitDecomposition) or recovers it on failure. A nil
+// enqueuer (test wiring) skips dispatch — the same gate scanAndClaim uses.
+func (d *Dispatcher) scanAndDecompose(ctx context.Context, _ time.Time) {
+	if d.cfg.Enqueuer == nil {
+		return
+	}
+	candidates, err := d.cfg.Queries.ListDecomposableComposites(ctx, int32(d.cfg.BatchLimit))
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: list decomposable composites", "err", err)
+		return
+	}
+	for _, goal := range candidates {
+		if d.isStopped() {
+			return
+		}
+		// BeginAutoDecomposition re-checks eligibility under the row lock, so a lost
+		// race (manual plan staged since the scan) returns ErrInvalidTransition.
+		if _, err := d.cfg.Service.BeginAutoDecomposition(ctx, goal.ID, d.enqueueAttemptTx); err != nil {
+			if errors.Is(err, ErrInvalidTransition) {
+				continue
+			}
+			d.cfg.Logger.Warn("dispatcher: begin auto decomposition", "goal", goal.ID, "err", err)
+		}
+	}
+}
+
 // enqueueAttemptTx inserts the durable execution job for a claimed attempt inside
 // the claim's transaction (River Phase 2c). Passed to GoalService.Claim as the
 // AttemptEnqueuer so claim+enqueue are atomic; an error here aborts the claim.
@@ -445,25 +476,14 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		if err != nil {
 			return err
 		}
-		// A decomposition attempt's goal is 'active' running the plan; on reap
-		// just release it back to draft so a new BeginDecomposition can re-mint.
+		// A decomposition attempt's goal is 'active' running the plan; on reap release
+		// it back to draft so it is re-decomposed within budget (or block when spent).
+		// A still-'queued' reap was never picked up by River (queue backpressure), so
+		// it does not charge the plan budget — only a 'running' reap that genuinely
+		// executed does. att.Status is the pre-finalize status (GetAttempt ran before
+		// FinalizeAttempt) — do not reorder without revisiting this.
 		if att.Purpose == PurposeDecomposition {
-			if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
-				return fmt.Errorf("clear active attempt: %w", err)
-			}
-			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-				ToLifecycle:   LifecycleDraft,
-				BlockReason:   "",
-				ID:            d.ID,
-				FromLifecycle: LifecycleActive,
-			})
-			if err != nil {
-				return fmt.Errorf("reap decomposition: %w", err)
-			}
-			if rows == 0 {
-				return ErrInvalidTransition
-			}
-			return nil
+			return s.recoverDecomposition(ctx, q, d, att.Status == AttemptRunning)
 		}
 
 		// A still-'queued' reap never executed: its River job sat behind the queue's

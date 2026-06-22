@@ -287,25 +287,170 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason string)
 			return err
 		}
 		if att.Purpose == PurposeDecomposition {
-			if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
-				return fmt.Errorf("clear active attempt: %w", err)
-			}
-			drows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-				ToLifecycle:   LifecycleDraft,
-				BlockReason:   "",
-				ID:            d.ID,
-				FromLifecycle: LifecycleActive,
-			})
-			if err != nil {
-				return fmt.Errorf("fail decomposition: %w", err)
-			}
-			if drows == 0 {
-				return ErrInvalidTransition
-			}
-			return nil
+			// A reported decomposition failure always ran the planner, so it charges
+			// one plan-budget unit.
+			return s.recoverDecomposition(ctx, q, d, true)
 		}
 		return s.branchOnFailure(ctx, q, d, attemptID, Evaluation{Gaps: []Gap{{Reason: reason}}})
 	})
+}
+
+// recoverDecomposition releases a failed or reaped decomposition attempt's
+// composite. It returns the composite to draft so the dispatcher re-decomposes it
+// next tick, until the plan budget is spent (convergence MaxAttempts) — then it
+// parks active->blocked(budget_exhausted) so a persistently failing planner waits
+// for a human instead of looping forever. charge=false skips the budget count for
+// a queued attempt the River worker never picked up (mirrors the leaf queued-reap
+// refund): that is queue backpressure, not a plan that ran and failed.
+func (s *GoalService) recoverDecomposition(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, charge bool) error {
+	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
+		return fmt.Errorf("clear active attempt: %w", err)
+	}
+	if charge {
+		spent, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{
+			GoalID:  d.ID,
+			Purpose: PurposeDecomposition,
+		})
+		if err != nil {
+			return fmt.Errorf("max decomposition attempt no: %w", err)
+		}
+		var pol ConvergencePolicy
+		_ = unmarshalJSON(d.ConvergencePolicy, &pol)
+		if int(spent) >= pol.Normalized().MaxAttempts {
+			return s.blockBudget(ctx, q, d)
+		}
+	}
+	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+		ToLifecycle:   LifecycleDraft,
+		BlockReason:   "",
+		ID:            d.ID,
+		FromLifecycle: LifecycleActive,
+	})
+	if err != nil {
+		return fmt.Errorf("recover decomposition: %w", err)
+	}
+	if rows == 0 {
+		return ErrInvalidTransition
+	}
+	return nil
+}
+
+// SubmitDecomposition applies a successful autonomous decomposition attempt: it
+// records the produced plan as an accepted revision, materializes the children,
+// and releases them so the goal tree runs (contract §2.3, §6). It is the
+// decomposition analogue of Submit and the single durable transition the worker
+// applies for a purpose=decomposition attempt. Child sessions are pre-minted
+// OUTSIDE the tx (their own minting tx would self-deadlock against the held one);
+// everything else — accept revision, submit attempt, materialize, release
+// children — runs in ONE tx so a crash never leaves a half-planned composite.
+func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string, ev AttemptEvidence, content DecompositionContent) error {
+	att, err := s.q.GetAttempt(ctx, attemptID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	parent, err := getGoal(ctx, s.q, att.GoalID)
+	if err != nil {
+		return err
+	}
+	if att.Purpose != PurposeDecomposition || parent.Kind != KindComposite {
+		return ErrInvalidTransition
+	}
+	if err := s.validateContent(ctx, parent, content); err != nil {
+		return err
+	}
+
+	// Pre-mint a session per child OUTSIDE the tx (mirrors acceptAndMaterialize).
+	if s.newSession == nil {
+		return fmt.Errorf("goal: no worker session minter configured")
+	}
+	childSessions := make(map[string]string, len(content.Children))
+	for _, ch := range content.Children {
+		sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
+		if err != nil {
+			return fmt.Errorf("mint child session %q: %w", ch.Key, err)
+		}
+		childSessions[ch.Key] = sid
+	}
+
+	return s.withTx(ctx, func(q *sqlc.Queries) error {
+		// Serialize revision_no allocation against a concurrent writer.
+		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
+			return fmt.Errorf("lock goal for decomposition submit: %w", err)
+		}
+		maxNo, err := q.GetMaxRevisionNo(ctx, parent.ID)
+		if err != nil {
+			return fmt.Errorf("max revision no: %w", err)
+		}
+		rev, err := q.CreateRevision(ctx, sqlc.CreateRevisionParams{
+			ID:              newID(),
+			GoalID:          parent.ID,
+			RevisionNo:      maxNo + 1,
+			Status:          RevisionDraft,
+			ReviewPolicy:    parent.ReviewPolicy,
+			Content:         marshalJSON(content),
+			SourceAttemptID: pgnull.Text(attemptID),
+		})
+		if err != nil {
+			return fmt.Errorf("create revision: %w", err)
+		}
+		// Accept draft->accepted (sets accepted_at, required by the Materialize
+		// fence) then record the attempt as submitted, anchoring the revision.
+		if rows, err := q.AcceptRevision(ctx, rev.ID); err != nil {
+			return fmt.Errorf("accept revision: %w", err)
+		} else if rows == 0 {
+			return ErrInvalidTransition
+		}
+		rev.Status = RevisionAccepted // reflect the accept for Materialize's fence check
+		subRows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
+			Evidence:   marshalJSON(ev),
+			Output:     emptyJSON,
+			RevisionID: pgnull.Text(rev.ID),
+			ID:         attemptID,
+		})
+		if err != nil {
+			return fmt.Errorf("submit decomposition attempt: %w", err)
+		}
+		if subRows == 0 {
+			return ErrInvalidTransition // not the running attempt (reaped / raced)
+		}
+		// Materialize children/edges; sets parent.accepted_revision_id + required_total.
+		if err := s.Materialize(ctx, q, rev, parent, childSessions); err != nil {
+			return err
+		}
+		// The decomposition attempt is done; the composite stays active for rollup.
+		if err := q.ClearGoalActiveAttempt(ctx, parent.ID); err != nil {
+			return fmt.Errorf("clear active attempt: %w", err)
+		}
+		return s.releaseChildren(ctx, q, parent.ID)
+	})
+}
+
+// releaseChildren moves a composite's freshly materialized draft children out of
+// draft so the tree runs: a leaf child -> ready (the dispatcher claims it), a
+// composite child STAYS draft so scanAndDecompose recurses and plans it in turn.
+// The composite itself is left as-is. Shared by Activate and SubmitDecomposition.
+func (s *GoalService) releaseChildren(ctx context.Context, q *sqlc.Queries, parentID string) error {
+	children, err := q.ListGoalChildren(ctx, pgnull.Text(parentID))
+	if err != nil {
+		return fmt.Errorf("list children for release: %w", err)
+	}
+	for _, c := range children {
+		if c.Lifecycle != LifecycleDraft || c.Kind == KindComposite {
+			continue // composite children await their own decomposition (still draft)
+		}
+		if _, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+			ToLifecycle:   LifecycleReady,
+			BlockReason:   "",
+			ID:            c.ID,
+			FromLifecycle: LifecycleDraft,
+		}); err != nil {
+			return fmt.Errorf("release child: %w", err)
+		}
+	}
+	return nil
 }
 
 // applyAcceptance is the re-fold entry point used after a verdict arrives or a

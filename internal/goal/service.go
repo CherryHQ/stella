@@ -481,25 +481,11 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		if rows == 0 {
 			return ErrInvalidTransition
 		}
-		// A composite flips its draft children → ready so the dispatcher can begin
-		// claiming leaves under it.
+		// A composite releases its draft children: leaf children → ready for the
+		// dispatcher, composite children stay draft for scanAndDecompose to plan.
 		if d.Kind == KindComposite {
-			children, err := q.ListGoalChildren(ctx, pgnull.Text(d.ID))
-			if err != nil {
-				return fmt.Errorf("list children for activate: %w", err)
-			}
-			for _, c := range children {
-				if c.Lifecycle != LifecycleDraft {
-					continue
-				}
-				if _, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-					ToLifecycle:   LifecycleReady,
-					BlockReason:   "",
-					ID:            c.ID,
-					FromLifecycle: LifecycleDraft,
-				}); err != nil {
-					return fmt.Errorf("activate child: %w", err)
-				}
+			if err := s.releaseChildren(ctx, q, d.ID); err != nil {
+				return err
 			}
 		}
 		out, err = getGoal(ctx, q, id)

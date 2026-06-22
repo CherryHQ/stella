@@ -144,6 +144,26 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 	ctx := context.Background()
 
 	switch {
+	case att.Purpose == PurposeDecomposition:
+		// Autonomous planning: a successful attempt carries the produced plan; apply
+		// it (accepted revision → materialize → release children) as the single
+		// durable transition. A non-submit terminal (fail / no decomposition /
+		// protocol miss) is a failed plan attempt that convergence recovers within
+		// the plan budget (recoverDecomposition). Routed by purpose BEFORE the generic
+		// submit case so a decomposition never runs the leaf deterministic checks.
+		if res.Submitted && res.Decomposition != nil {
+			if derr := w.svc.SubmitDecomposition(ctx, att.ID, res.Evidence, *res.Decomposition); derr != nil {
+				w.failAttempt(goalID, att.ID, "apply decomposition: "+derr.Error())
+			}
+			return nil
+		}
+		reason := res.FailReason
+		if reason == "" {
+			reason = "decomposition produced no plan"
+		}
+		w.failAttempt(goalID, att.ID, reason)
+		return nil
+
 	case res.Submitted:
 		// Run deterministic checks (sandbox IO, no DB tx held), append
 		// each as an acceptance_event, then apply the one submit transition.
