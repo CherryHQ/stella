@@ -167,6 +167,7 @@ export function GoalPage() {
         <TabsPanel value="overview" className="mt-5">
           <OverviewTab
             d={d}
+            agentId={agentId}
             acting={acting}
             act={act}
             onVerdict={() => goTab("acceptance")}
@@ -343,6 +344,7 @@ function HeaderActions({
 
 function OverviewTab({
   d,
+  agentId,
   acting,
   act,
   onVerdict,
@@ -350,6 +352,7 @@ function OverviewTab({
   onPlan,
 }: {
   d: ComponentsGoal;
+  agentId: string;
   acting: boolean;
   act: ActRun;
   onVerdict: () => void;
@@ -451,12 +454,48 @@ function OverviewTab({
         </div>
       )}
 
-      {d.accepted_output && (
-        <DetailSection title={t("goals.outputTitle")}>
-          <AcceptedOutputView output={d.accepted_output} />
-        </DetailSection>
+      {isComposite ? (
+        <CompositeDeliverables id={d.id} agentId={agentId} />
+      ) : (
+        d.accepted_output && (
+          <DetailSection title={t("goals.outputTitle")}>
+            <AcceptedOutputView output={d.accepted_output} />
+          </DetailSection>
+        )
       )}
     </div>
+  );
+}
+
+// CompositeDeliverables aggregates a composite's deliverables in one place. A
+// composite's own accepted_output is only a title-bearing rollup marker (its
+// acceptance is DERIVED from children, never produced), so the actual work
+// lives on the accepted children. This pulls each accepted child's frozen
+// output up to the parent overview so the whole goal's result is readable
+// without drilling into every leaf.
+function CompositeDeliverables({ id, agentId }: { id: string; agentId: string }) {
+  const { t } = useI18n();
+  const { data: children = [] } = useQuery(goalChildrenOptions(id));
+  const delivered = children.filter((c) => c.accepted_output);
+  if (delivered.length === 0) return null;
+  return (
+    <DetailSection title={t("goals.deliverablesTitle")}>
+      <div className="space-y-3">
+        {delivered.map((c) => (
+          <div key={c.id} className="rounded-xl border border-border p-3.5">
+            <Link
+              to="/agents/$agentId/goals/$goalId"
+              params={{ agentId, goalId: c.id }}
+              className="mb-2 flex items-center gap-2 text-[13px] font-medium hover:underline"
+            >
+              <StatusDot status={displayStatus(c)} />
+              <span className="truncate">{c.title}</span>
+            </Link>
+            <AcceptedOutputView output={c.accepted_output!} />
+          </div>
+        ))}
+      </div>
+    </DetailSection>
   );
 }
 
