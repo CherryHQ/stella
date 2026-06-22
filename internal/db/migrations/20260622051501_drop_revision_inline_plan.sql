@@ -1,13 +1,17 @@
 -- +goose Up
--- Collapse the agent_goal_revision entity into the composite goal itself.
+-- Goal model: inline the composite decomposition plan onto agent_goal and drop
+-- the agent_goal_revision entity, plus a one-time lease correction for in-flight
+-- interactive decomposition attempts. Both are schema/data moves for the same
+-- River-decomposition + inline-plan refactor, kept in one migration so the goal
+-- model moves to its new shape atomically.
+
+-- ── Inline plan: collapse agent_goal_revision into the composite goal ─────────
 -- A composite's decomposition plan was a first-class row with a 5-state FSM
 -- (draft/in_review/accepted/rejected/superseded), version numbers, and its own
 -- table. Replan is not supported (a composite is decomposed exactly once), so
 -- the versioning and most states were never load-bearing. The plan is now two
 -- columns on agent_goal, and human review of a plan is an ordinary
 -- blocked(needs_plan_approval) state, reusing the existing block machinery.
-
--- Inline plan storage on the composite goal.
 --   plan:       the DecompositionContent (children + edges); leaf goals stay '{}'.
 --   planned_at: the materialize fence + "has been planned" flag; replaces the
 --               accepted_revision_id pointer (planGateMet reads it now).
@@ -52,9 +56,23 @@ ALTER TABLE "agent_goal_attempt" DROP COLUMN "revision_id";
 -- Drop the revision table (its indexes and FKs go with it).
 DROP TABLE "agent_goal_revision";
 
+-- ── Lease correction: NULL in-flight interactive decomposition leases ─────────
+-- The reaper (ListStaleAttempts) no longer special-cases purpose='decomposition';
+-- it now relies on lease_expires_at being NULL to skip interactive decomposition
+-- attempts (which are not enqueued/heartbeated). Older interactive decomposition
+-- attempts were minted with lease_expires_at = now() (a non-liveness marker), so
+-- without this fix the reaper would bounce their active composites back to draft.
+-- NULL the lease on any in-flight decomposition attempt so the new guard holds.
+-- Autonomous decomposition attempts minted after this point carry a real lease.
+UPDATE agent_goal_attempt
+SET lease_expires_at = NULL
+WHERE purpose = 'decomposition'
+  AND status IN ('queued', 'running');
+
 -- +goose Down
 -- Irreversible consolidation: the agent_goal_revision rows (plan history,
--- per-version review state) are dropped and not recoverable from the inlined
--- plan column. Mirroring the baseline's policy for irreversible migrations, Down
--- is an explicit no-op rather than a lossy partial reconstruction.
+-- per-version review state) are dropped, and the prior per-attempt decomposition
+-- lease timestamps (never a liveness signal) are not recoverable. Mirroring the
+-- baseline's policy for irreversible migrations, Down is an explicit no-op rather
+-- than a lossy partial reconstruction.
 SELECT 1;
