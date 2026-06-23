@@ -1,4 +1,4 @@
-package pgbundle
+package pgruntime
 
 import "testing"
 

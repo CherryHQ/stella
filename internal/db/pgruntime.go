@@ -6,21 +6,21 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/CherryHQ/stella/resources/pgbundle"
+	"github.com/CherryHQ/stella/internal/pgruntime"
 )
 
 const (
-	postgresBundleID = "pg18.4-pgvector0.8.2-pgsearch0.24.1"
+	postgresRuntimeID = pgruntime.RuntimeVersion
 
 	// postgresRuntimeEnvName is an internal escape hatch for testing a Stella-built
 	// PostgreSQL runtime before release artifacts exist. The directory may either
-	// be the PostgreSQL root itself (bin/pg_ctl) or a bundle root containing:
+	// be the PostgreSQL root itself (bin/pg_ctl) or a runtime root containing:
 	//
 	//   postgres/bin/pg_ctl
 	//   extensions/share/extension/*.control
 	//   extensions/lib/*.{so,dylib,dll}
 	//
-	// Keep this out of user docs until the bundle builder and license decision are
+	// Keep this out of user docs until the runtime builder and license decision are
 	// settled; external DSNs remain the supported advanced-search path for now.
 	postgresRuntimeEnvName = "STELLA_POSTGRES_RUNTIME"
 )
@@ -43,56 +43,75 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 		// Keep persistent data and disposable runtime extraction separate:
 		// embedded-postgres removes RuntimePath on every start, while DataPath must
 		// survive restarts. BinariesPath, when configured, points at the immutable
-		// bundle root and is not extracted into this directory.
+		// runtime root and is not extracted into this directory.
 		rt.RuntimePath = filepath.Join(filepath.Dir(dataDir), "pg-runtime", postgresRuntimeCacheName(), "runtime")
 	} else {
 		rt.DataPath = filepath.Join(tmpDir, "data")
 		rt.RuntimePath = filepath.Join(tmpDir, "runtime")
 	}
 
-	bundleRoot := os.Getenv(postgresRuntimeEnvName)
-	if bundleRoot == "" {
-		if root, ok, err := pgbundle.EnsureBundle(postgresBundleCacheRoot(dataDir, tmpDir)); err != nil {
-			return postgresRuntimeInfo{}, err
-		} else if !ok {
-			// No bundle for this build/platform. Embedded PostgreSQL only carries
-			// pgvector and pg_search when a runtime bundle is present; booting vanilla
-			// embedded-postgres would silently drop them, and search now hard-requires
-			// both. Refuse instead of degrading: a supported platform must embed the
-			// bundle, anything else must point at an external PostgreSQL that already
-			// has the extensions.
-			return postgresRuntimeInfo{}, fmt.Errorf(
-				"db: no embedded PostgreSQL runtime bundle for %s/%s (expected %s). %s",
-				runtime.GOOS, runtime.GOARCH, postgresBundleID, pgbundle.MissingBundleHint())
+	runtimeRoot := os.Getenv(postgresRuntimeEnvName)
+	if runtimeRoot == "" {
+		if root, ok := downloadedPostgresRuntimeRoot(dataDir); ok {
+			runtimeRoot = root
 		} else {
-			bundleRoot = root
+			// Embedded PostgreSQL only carries pgvector and pg_search when a Stella
+			// runtime is installed. Refuse instead of booting vanilla PostgreSQL and
+			// failing later with missing extension errors.
+			return postgresRuntimeInfo{}, fmt.Errorf(
+				"db: no PostgreSQL runtime for %s/%s (expected %s). Download it with `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or set %s to an extracted runtime. %s",
+				runtime.GOOS, runtime.GOARCH, postgresRuntimeID, postgresRuntimeEnvName, pgruntime.MissingRuntimeHint())
 		}
 	}
 
-	bundle, err := postgresRuntimeFromBundle(bundleRoot)
+	install, err := postgresRuntimeFromRoot(runtimeRoot)
 	if err != nil {
 		return postgresRuntimeInfo{}, err
 	}
-	rt.BinariesPath = bundle.BinariesPath
-	rt.ExtShareRoot = bundle.ExtShareRoot
-	rt.ExtLibRoot = bundle.ExtLibRoot
-	rt.PgShareRoot = bundle.PgShareRoot
-	rt.PgLibRoot = bundle.PgLibRoot
+	rt.BinariesPath = install.BinariesPath
+	rt.ExtShareRoot = install.ExtShareRoot
+	rt.ExtLibRoot = install.ExtLibRoot
+	rt.PgShareRoot = install.PgShareRoot
+	rt.PgLibRoot = install.PgLibRoot
 	return rt, nil
 }
 
 func postgresRuntimeCacheName() string {
-	return postgresBundleID + "-" + runtime.GOOS + "-" + runtime.GOARCH
+	return postgresRuntimeID + "-" + runtime.GOOS + "-" + runtime.GOARCH
 }
 
-func postgresBundleCacheRoot(dataDir, tmpDir string) string {
-	if dataDir != "" {
-		return filepath.Join(filepath.Dir(dataDir), "pg-runtime", postgresRuntimeCacheName(), "bundles")
+func downloadedPostgresRuntimeRoot(dataDir string) (string, bool) {
+	source, ok := pgruntime.DefaultRuntimeSource()
+	if !ok {
+		return "", false
 	}
-	return filepath.Join(tmpDir, "bundles")
+	var home string
+	switch detected, ok := stellaHomeForRuntime(); {
+	case dataDir != "":
+		home = filepath.Dir(dataDir)
+	case ok:
+		home = detected
+	default:
+		return "", false
+	}
+	root := pgruntime.RuntimeRoot(home, source)
+	if _, err := postgresRuntimeFromRoot(root); err != nil {
+		return "", false
+	}
+	return root, true
 }
 
-type postgresRuntimeBundle struct {
+func stellaHomeForRuntime() (string, bool) {
+	// Ephemeral test clusters often override STELLA_HOME per test; the runtime is
+	// immutable, so keep one shared download in the user's default Stella home.
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", false
+	}
+	return filepath.Join(home, ".stella"), true
+}
+
+type postgresRuntimeInstall struct {
 	BinariesPath string
 	ExtShareRoot string
 	ExtLibRoot   string
@@ -100,28 +119,28 @@ type postgresRuntimeBundle struct {
 	PgLibRoot    string
 }
 
-func postgresRuntimeFromBundle(root string) (postgresRuntimeBundle, error) {
+func postgresRuntimeFromRoot(root string) (postgresRuntimeInstall, error) {
 	root = filepath.Clean(root)
 	binariesPath, ok := locatePostgresHome(root)
 	if !ok {
-		return postgresRuntimeBundle{}, fmt.Errorf(
-			"db: %s must point to a PostgreSQL runtime bundle containing postgres/bin/%s, "+
+		return postgresRuntimeInstall{}, fmt.Errorf(
+			"db: %s must point to a PostgreSQL runtime containing postgres/bin/%s, "+
 				"postgres/lib/postgresql/<major>/bin/%s, or bin/%s",
 			postgresRuntimeEnvName, pgCtlName(), pgCtlName(), pgCtlName())
 	}
 
-	bundle := postgresRuntimeBundle{
+	install := postgresRuntimeInstall{
 		BinariesPath: binariesPath,
 		PgShareRoot:  postgresShareRoot(binariesPath),
 		PgLibRoot:    postgresLibraryRoot(binariesPath),
 	}
 	if dirExists(filepath.Join(root, "extensions", "share", "extension")) {
-		bundle.ExtShareRoot = filepath.Join(root, "extensions", "share")
+		install.ExtShareRoot = filepath.Join(root, "extensions", "share")
 	}
 	if dirExists(filepath.Join(root, "extensions", "lib")) {
-		bundle.ExtLibRoot = filepath.Join(root, "extensions", "lib")
+		install.ExtLibRoot = filepath.Join(root, "extensions", "lib")
 	}
-	return bundle, nil
+	return install, nil
 }
 
 func (rt postgresRuntimeInfo) startParameters() map[string]string {
@@ -149,10 +168,9 @@ func (rt postgresRuntimeInfo) startParameters() map[string]string {
 		params["dynamic_library_path"] = dynamicPath
 	}
 	// pg_search must be preloaded before CREATE EXTENSION can load it. Look in the
-	// external extension lib dir (bundle layout) and PostgreSQL's own lib dir (a
-	// plain runtime root where pg_search sits in $libdir) — either is a valid place
-	// to find it. A broken or ABI-incompatible library is intentionally fatal at
-	// PostgreSQL start, which keeps bad internal test bundles from degrading silently.
+	// downloaded extension lib dir and PostgreSQL's own lib dir (a plain runtime
+	// root where pg_search sits in $libdir) — either is valid. A broken or
+	// ABI-incompatible library is intentionally fatal at PostgreSQL start.
 	for _, libRoot := range []string{rt.ExtLibRoot, rt.PgLibRoot} {
 		if libRoot != "" && fileExists(filepath.Join(libRoot, postgresSharedLibraryName("pg_search"))) {
 			params["shared_preload_libraries"] = "pg_search"
@@ -162,14 +180,14 @@ func (rt postgresRuntimeInfo) startParameters() map[string]string {
 	return params
 }
 
-// locatePostgresHome finds the directory holding bin/<pg_ctl> inside an extracted
-// bundle or external runtime root. It accepts three layouts:
+// locatePostgresHome finds the directory holding bin/<pg_ctl> inside a downloaded
+// or external runtime root. It accepts three layouts:
 //
-//   - flat bundle:        <root>/postgres/bin                          (darwin postgresapp, single prefix)
-//   - /usr-mirror bundle: <root>/postgres/lib/postgresql/<major>/bin   (PGDG linux, split prefix)
+//   - flat runtime:        <root>/postgres/bin                          (darwin postgresapp, single prefix)
+//   - /usr-mirror runtime: <root>/postgres/lib/postgresql/<major>/bin   (PGDG linux, split prefix)
 //   - plain runtime root: <root>/bin                                   (STELLA_POSTGRES_RUNTIME → a PG install)
 //
-// The split-prefix linux bundle mirrors /usr so the backend can relocate its
+// The split-prefix Linux runtime mirrors /usr so the backend can relocate its
 // share dir (timezonesets, bki) from its own executable path; its bin therefore
 // lives under lib/postgresql/<major>, not directly under postgres/.
 func locatePostgresHome(root string) (string, bool) {

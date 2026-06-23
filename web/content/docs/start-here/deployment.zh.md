@@ -10,6 +10,8 @@ title: 部署
 brew install CherryHQ/tap/stella
 ```
 
+如果不设置 `STELLA_DATABASE_URL`，启动服务前先运行一次 `stellad postgres download-runtime`。
+
 ### Linux 软件包（.deb / .rpm）
 
 预构建的安装包可在 [Releases](https://github.com/CherryHQ/stella/releases) 页面获取。`bubblewrap` 已声明为依赖项，会自动安装。
@@ -21,6 +23,8 @@ sudo apt install ./stella_*_linux_amd64.deb
 # Fedora / RHEL
 sudo dnf install ./stella_*_linux_amd64.rpm
 ```
+
+如果不设置 `STELLA_DATABASE_URL`，启动服务前先运行一次 `stellad postgres download-runtime`。
 
 ### 二进制文件
 
@@ -52,7 +56,7 @@ cd stella && go build -o stella ./cmd/stella/ && go build -o stellad ./cmd/stell
 stellad server
 ```
 
-这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 PostgreSQL 中——默认是 `~/.stella` 下的内嵌集群，或在设置 `STELLA_DATABASE_URL` 时使用外部服务器。无需手动配置文件。
+这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 PostgreSQL 中——可以使用 `~/.stella` 下的内嵌集群，也可以在设置 `STELLA_DATABASE_URL` 时使用外部服务器。如果缺少内嵌 runtime，先运行一次 `stellad postgres download-runtime` 再启动 `stellad server`。无需手动配置文件。
 
 ```bash
 stellad server --port 8080                  # 自定义端口
@@ -137,6 +141,8 @@ Unit 文件安装至 `/etc/systemd/system/stella.service`。
 
 ### 快速开始
 
+Docker 镜像要求使用外部 PostgreSQL 18，并且该数据库已安装 `pg_search` 和 `pgvector`。必须设置 `STELLA_DATABASE_URL`；内嵌 runtime 下载路径只用于非 Docker 安装。
+
 首先，使用 `--port 8080` 运行 stella 通过Web UI进行配置：
 
 ```bash
@@ -144,6 +150,7 @@ docker run -it --rm \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/stella/.stella \
   -p 8080:8080 \
+  -e STELLA_DATABASE_URL='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require' \
   ghcr.io/cherryhq/stella:latest \
   stellad server --port 8080
 ```
@@ -156,12 +163,13 @@ docker run -d \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/stella/.stella \
   -p 25678:25678 \
+  -e STELLA_DATABASE_URL='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require' \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
   stellad server
 ```
 
-容器以 `nonroot` 用户运行。挂载 `~/.stella` 以持久化数据库、技能和缓存。您可以设置 `STELLA_HOME` 来更改容器内的数据目录。`--security-opt seccomp=unconfined` 标志是本地沙箱后端（bwrap）在容器内调用 `unshare(2)` 所必需的。
+容器以 `nonroot` 用户运行。挂载 `~/.stella` 以持久化技能和缓存；PostgreSQL 数据保存在外部数据库中。你可以设置 `STELLA_HOME` 来更改容器内的数据目录。`--security-opt seccomp=unconfined` 标志是本地沙箱后端（bwrap）在容器内调用 `unshare(2)` 所必需的。
 
 ### Docker Compose
 
@@ -176,6 +184,7 @@ services:
     volumes:
       - ./stella-data:/home/stella/.stella
     environment:
+      - STELLA_DATABASE_URL=postgres://user:pass@postgres.example.com:5432/stella?sslmode=require
       - ANTHROPIC_API_KEY=sk-...
       # - OPENAI_API_KEY=sk-...
 ```
@@ -186,7 +195,7 @@ services:
 docker compose up -d
 ```
 
-要运行初始设置，使用 `--port 8080` 启动服务器，通过 `http://localhost:8080` 的Web UI进行配置，或使用 `docker compose exec stella stellad server --port 8080`。
+要运行初始设置，使用 `--port 8080` 启动服务器，通过 `http://localhost:8080` 的Web UI进行配置，或使用 `docker compose exec stella stellad server --port 8080`。Compose 服务必须设置 `STELLA_DATABASE_URL`。
 
 ### 本地构建
 
@@ -209,26 +218,27 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 | 路径                                  | 用途                                                                            |
 | ------------------------------------- | ------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                 | 内嵌 PostgreSQL 数据（配置、记忆、调度器）；使用 `STELLA_DATABASE_URL` 时不存在 |
+| `~/.stella/pg-runtime/`               | 下载的内嵌 PostgreSQL runtime；可用 `stellad postgres download-runtime` 重建    |
 | `~/.stella/agents/{agent-id}/skills/` | 每个 agent 安装的技能                                                           |
 | `~/.stella/agents/{agent-id}/SOUL.md` | 可选的每个 agent 的灵魂/身份覆盖                                                |
 | `~/.stella/cache/`                    | 模型缓存（可重新生成，安全删除）                                                |
 
-PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、消息历史、摘要和调度器任务。使用内嵌集群时，停止服务后备份 `~/.stella/postgres/` 目录；使用外部服务器时，对 `STELLA_DATABASE_URL` 所指数据库执行 `pg_dump`。
+PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、消息历史、摘要和调度器任务。使用内嵌集群时，停止服务后备份 `~/.stella/postgres/` 目录；`~/.stella/pg-runtime/` 是下载的程序文件，可重新生成。使用外部服务器时，对 `STELLA_DATABASE_URL` 所指数据库执行 `pg_dump`。
 
 ## 环境变量
 
 配置通过Web UI管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
-| 变量                         | 必需 | 描述                                                                                     |
-| ---------------------------- | ---- | ---------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                | 否   | Stella 主目录（默认 `~/.stella`）                                                        |
-| `STELLA_DATABASE_URL`        | 否   | 外部 PostgreSQL 连接 URL；不设置则使用 `STELLA_HOME` 下的内嵌集群                        |
-| `ANTHROPIC_API_KEY`          | 是\* | Anthropic 提供商密钥                                                                     |
-| `OPENAI_API_KEY`             | 是\* | OpenAI 提供商密钥                                                                        |
-| `STELLA_VAULT_KEY`           | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                          |
-| `STELLA_DOCKER_SANDBOX_MODE` | 否‡  | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
-| `STELLA_HOME_HOST`           | 否‡  | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
-| `STELLA_HOME_VOLUME`         | 否‡  | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
+| 变量                         | 必需                      | 描述                                                                                     |
+| ---------------------------- | ------------------------- | ---------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                | 否                        | Stella 主目录（默认 `~/.stella`）                                                        |
+| `STELLA_DATABASE_URL`        | Docker 中必需；其他环境否 | 外部 PostgreSQL 连接 URL；Docker 之外不设置时使用 `STELLA_HOME` 下的内嵌集群             |
+| `ANTHROPIC_API_KEY`          | 是\*                      | Anthropic 提供商密钥                                                                     |
+| `OPENAI_API_KEY`             | 是\*                      | OpenAI 提供商密钥                                                                        |
+| `STELLA_VAULT_KEY`           | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                          |
+| `STELLA_DOCKER_SANDBOX_MODE` | 否‡                       | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
+| `STELLA_HOME_HOST`           | 否‡                       | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
+| `STELLA_HOME_VOLUME`         | 否‡                       | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
 
 \* 至少需要一个提供商密钥。API 密钥也可以通过Web UI配置。
 

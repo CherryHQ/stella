@@ -55,15 +55,6 @@ jobs:
       - name: Install bubblewrap
         run: sudo apt-get install -y bubblewrap
 
-      - name: Fetch PostgreSQL runtime bundle
-        # Tests boot embedded PostgreSQL, and search now hard-requires pgvector +
-        # pg_search, which only ship in the runtime bundle. Fetch it so it embeds
-        # into the test binary; ubuntu-latest (noble, linux/amd64) has a bundle.
-        run: scripts/fetch-pg-runtime.sh
-        env:
-          GOOS: linux
-          GOARCH: amd64
-
       - name: Generate code
         run: mise run generate
 

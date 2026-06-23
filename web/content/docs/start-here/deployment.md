@@ -10,6 +10,8 @@ title: Deployment
 brew install CherryHQ/tap/stella
 ```
 
+If you do not set `STELLA_DATABASE_URL`, run `stellad postgres download-runtime` once before starting the service.
+
 ### Linux packages (.deb / .rpm)
 
 Pre-built packages are available on the [Releases](https://github.com/CherryHQ/stella/releases) page. `bubblewrap` is declared as a dependency and will be installed automatically.
@@ -21,6 +23,8 @@ sudo apt install ./stella_*_linux_amd64.deb
 # Fedora / RHEL
 sudo dnf install ./stella_*_linux_amd64.rpm
 ```
+
+If you do not set `STELLA_DATABASE_URL`, run `stellad postgres download-runtime` once before starting the service.
 
 ### Binary
 
@@ -52,7 +56,7 @@ Start the server — the Web UI is available at `http://localhost:25678`:
 stellad server
 ```
 
-This starts the server and the Web UI where you configure API keys, channels, and agent profiles. All configuration is stored in PostgreSQL — by default an embedded cluster under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. No config files needed.
+This starts the server and the Web UI where you configure API keys, channels, and agent profiles. All configuration is stored in PostgreSQL — either an embedded cluster under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. If the embedded runtime is missing, run `stellad postgres download-runtime` once before `stellad server`. No config files needed.
 
 ```bash
 stellad server --port 8080             # custom port
@@ -137,6 +141,8 @@ Images are published to `ghcr.io/cherryhq/stella` for `linux/amd64` and `linux/a
 
 ### Quick Start
 
+Docker images require an external PostgreSQL 18 server with `pg_search` and `pgvector` installed. Set `STELLA_DATABASE_URL`; the embedded runtime download path is for non-Docker installs.
+
 First, run stella with `--port 8080` to configure it via the Web UI:
 
 ```bash
@@ -144,6 +150,7 @@ docker run -it --rm \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/stella/.stella \
   -p 8080:8080 \
+  -e STELLA_DATABASE_URL='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require' \
   ghcr.io/cherryhq/stella:latest \
   stellad server --port 8080
 ```
@@ -156,12 +163,13 @@ docker run -d \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/stella/.stella \
   -p 25678:25678 \
+  -e STELLA_DATABASE_URL='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require' \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
   stellad server
 ```
 
-The container runs as `nonroot` user. Mount `~/.stella` to persist the database, skills, and cache. You can set `STELLA_HOME` to change the data directory inside the container. The `--security-opt seccomp=unconfined` flag is required for the local sandbox backend (bwrap) to call `unshare(2)` inside the container.
+The container runs as `nonroot` user. Mount `~/.stella` to persist skills and cache; PostgreSQL data lives in the external database. You can set `STELLA_HOME` to change the data directory inside the container. The `--security-opt seccomp=unconfined` flag is required for the local sandbox backend (bwrap) to call `unshare(2)` inside the container.
 
 ### Docker Compose
 
@@ -176,6 +184,7 @@ services:
     volumes:
       - ./stella-data:/home/stella/.stella
     environment:
+      - STELLA_DATABASE_URL=postgres://user:pass@postgres.example.com:5432/stella?sslmode=require
       - ANTHROPIC_API_KEY=sk-...
       # - OPENAI_API_KEY=sk-...
 ```
@@ -186,7 +195,7 @@ The `seccomp=unconfined` flag is needed for the `local` sandbox backend (bubblew
 docker compose up -d
 ```
 
-To run initial setup, start with `--port 8080` and configure via the Web UI at `http://localhost:8080`, or use `docker compose exec stella stellad server --port 8080`.
+To run initial setup, start with `--port 8080` and configure via the Web UI at `http://localhost:8080`, or use `docker compose exec stella stellad server --port 8080`. The compose service must have `STELLA_DATABASE_URL` set.
 
 ### Build Locally
 
@@ -209,26 +218,27 @@ All data lives under the stella home directory (`~/.stella` by default, configur
 | Path                                  | Purpose                                                                                       |
 | ------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                 | Embedded PostgreSQL data (config, memory, scheduler); absent when using `STELLA_DATABASE_URL` |
+| `~/.stella/pg-runtime/`               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download-runtime`     |
 | `~/.stella/agents/{agent-id}/skills/` | Per-agent installed skills                                                                    |
 | `~/.stella/agents/{agent-id}/SOUL.md` | Optional per-agent soul/identity override                                                     |
 | `~/.stella/cache/`                    | Model cache (regenerable, safe to delete)                                                     |
 
-The PostgreSQL data is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs. With the embedded cluster, back up the `~/.stella/postgres/` directory (with the server stopped); with an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database.
+The PostgreSQL data is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs. With the embedded cluster, back up the `~/.stella/postgres/` directory (with the server stopped); `~/.stella/pg-runtime/` is downloaded code and can be recreated. With an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database.
 
 ## Environment Variables
 
 Configuration is managed through the Web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
 
-| Variable                     | Required | Description                                                                                        |
-| ---------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                | No       | Stella home directory (default `~/.stella`)                                                        |
-| `STELLA_DATABASE_URL`        | No       | External PostgreSQL connection URL; unset uses the embedded cluster under `STELLA_HOME`            |
-| `ANTHROPIC_API_KEY`          | Yes\*    | Anthropic provider key                                                                             |
-| `OPENAI_API_KEY`             | Yes\*    | OpenAI provider key                                                                                |
-| `STELLA_VAULT_KEY`           | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens                      |
-| `STELLA_DOCKER_SANDBOX_MODE` | No‡      | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                        |
-| `STELLA_HOME_HOST`           | No‡      | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`        |
-| `STELLA_HOME_VOLUME`         | No‡      | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume` |
+| Variable                     | Required                  | Description                                                                                            |
+| ---------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `STELLA_HOME`                | No                        | Stella home directory (default `~/.stella`)                                                            |
+| `STELLA_DATABASE_URL`        | Docker: yes; otherwise no | External PostgreSQL connection URL; unset uses the embedded cluster under `STELLA_HOME` outside Docker |
+| `ANTHROPIC_API_KEY`          | Yes\*                     | Anthropic provider key                                                                                 |
+| `OPENAI_API_KEY`             | Yes\*                     | OpenAI provider key                                                                                    |
+| `STELLA_VAULT_KEY`           | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                          |
+| `STELLA_DOCKER_SANDBOX_MODE` | No‡                       | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                            |
+| `STELLA_HOME_HOST`           | No‡                       | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`            |
+| `STELLA_HOME_VOLUME`         | No‡                       | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume`     |
 
 \* At least one provider key is required. API keys can also be configured via the Web UI.
 

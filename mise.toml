@@ -141,20 +141,28 @@ PY
 # Code Quality
 # ============================================================================
 
+[tasks."pg:runtime:download"]
+description = "Download the embedded PostgreSQL runtime used by tests and local server runs"
+run = "go run ./cmd/stellad postgres download-runtime"
+
 [tasks.test]
 description = "Run all tests"
+depends = ["pg:runtime:download"]
 run = "go test ./..."
 
 [tasks."test:coverage"]
 description = "Run tests with coverage report"
+depends = ["pg:runtime:download"]
 run = "go test -coverprofile=coverage.out ./..."
 
 [tasks."test:race"]
 description = "Run all tests with race detection (CI)"
+depends = ["pg:runtime:download"]
 run = "go test -race ./..."
 
 [tasks."test:coverage:race"]
 description = "Run tests with race detection and coverage report (CI)"
+depends = ["pg:runtime:download"]
 run = "go test -race -coverprofile=coverage.out ./..."
 
 [tasks.format]
