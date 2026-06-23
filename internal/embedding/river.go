@@ -72,16 +72,20 @@ func Boot(cfg BootConfig) *Service {
 	if interval <= 0 {
 		interval = defaultInterval
 	}
+	// space is the vector-space key (model id + requested dim): the indexer writes
+	// it and the query lane filters on it, so both stay aligned with what the chain
+	// stamps onto Result.Model (the provider's Model()).
+	space := cfg.API.SpaceKey()
 	chain := NewChain([]Provider{NewAPIProvider(cfg.API)}, BreakerConfig{}, nil)
 	indexer := NewIndexer(sqlc.New(cfg.DB), chain, IndexConfig{
-		Model:     cfg.API.Model,
+		Model:     space,
 		Normalize: cfg.Normalize,
 		BatchSize: cfg.BatchSize,
 	})
 	return &Service{
 		chain:    chain,
 		indexer:  indexer,
-		model:    cfg.API.Model,
+		model:    space,
 		interval: interval,
 		logger:   logger,
 	}
@@ -99,6 +103,11 @@ func (s *Service) EmbedQuery(ctx context.Context, text string) (pgvector.Vector,
 	res, err := s.chain.Embed(ctx, Request{Texts: []string{text}, Mode: ModeQuery})
 	if err != nil {
 		return pgvector.Vector{}, "", err
+	}
+	// Guard against a provider that returns success with no vector: degrade to a
+	// search error (caller falls back to lexical) instead of panicking on res.Vectors[0].
+	if len(res.Vectors) == 0 {
+		return pgvector.Vector{}, "", errors.New("embedding: provider returned no vectors for query")
 	}
 	vec, err := ToStorageVector(res.Vectors[0], s.indexer.cfg.Normalize)
 	if err != nil {

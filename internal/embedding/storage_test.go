@@ -8,6 +8,23 @@ import (
 	openai "github.com/openai/openai-go"
 )
 
+func TestAPIConfig_SpaceKeyFoldsDimension(t *testing.T) {
+	// A 0 dim (model's native width) uses the bare model id.
+	if got := (APIConfig{Model: "text-embedding-3-small"}).SpaceKey(); got != "text-embedding-3-small" {
+		t.Errorf("native-dim key = %q, want bare model id", got)
+	}
+	// Pinning a dimension folds it in, so the same model at two dimensions names
+	// two distinct spaces — a dim change can never alias the old corpus.
+	a := (APIConfig{Model: "text-embedding-3-small", Dim: 1536}).SpaceKey()
+	b := (APIConfig{Model: "text-embedding-3-small", Dim: 512}).SpaceKey()
+	if a == b {
+		t.Fatalf("different dims must yield different space keys, both = %q", a)
+	}
+	if a != "text-embedding-3-small@1536" {
+		t.Errorf("key = %q, want model@dim form", a)
+	}
+}
+
 func TestToStorageVector_ZeroPads(t *testing.T) {
 	out, err := ToStorageVector([]float32{1, 2, 3}, false)
 	if err != nil {

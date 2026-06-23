@@ -15,11 +15,7 @@ import (
 type APIConfig struct {
 	// Name labels the provider instance in logs (default "openai-embedding").
 	Name string
-	// Model is the embedding model id (e.g. "text-embedding-3-small"). It doubles
-	// as the vector-space key written to the *_embedding.model column: one
-	// configured model per deployment means one space, so the id alone identifies
-	// it. (If a deployment ever pins two different output dimensions of the same
-	// model, give them distinct Model strings so their spaces stay separate.)
+	// Model is the embedding model id sent to the API (e.g. "text-embedding-3-small").
 	Model string
 	// Dim is the output dimension to request. When > 0 it is sent as the API
 	// `dimensions` parameter (supported by text-embedding-3-*), pinning output to
@@ -30,10 +26,25 @@ type APIConfig struct {
 	BaseURL string
 }
 
+// SpaceKey is the vector-space identity written to and filtered on the
+// *_embedding.model column. It folds the requested dimension into the model id so
+// that (model, dim) together name the space: changing the dimension on an existing
+// corpus yields a NEW key, which makes old rows backfill candidates (model
+// mismatch) and points queries at the new space, instead of silently comparing a
+// re-dimensioned query against vectors stored at the old dimension. A 0 dim (the
+// model's stable native width) uses the bare model id.
+func (c APIConfig) SpaceKey() string {
+	if c.Dim > 0 {
+		return fmt.Sprintf("%s@%d", c.Model, c.Dim)
+	}
+	return c.Model
+}
+
 // apiProvider is a remote, OpenAI-compatible embedding provider.
 type apiProvider struct {
 	name   string
-	model  string
+	model  string // model id sent to the API
+	space  string // vector-space key reported via Model() (model id + dim)
 	dim    int
 	client openai.Client
 }
@@ -52,12 +63,12 @@ func NewAPIProvider(cfg APIConfig) Provider {
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 	}
-	return &apiProvider{name: name, model: cfg.Model, dim: cfg.Dim, client: openai.NewClient(opts...)}
+	return &apiProvider{name: name, model: cfg.Model, space: cfg.SpaceKey(), dim: cfg.Dim, client: openai.NewClient(opts...)}
 }
 
 func (p *apiProvider) Name() string  { return p.name }
 func (p *apiProvider) Kind() Kind    { return KindAPI }
-func (p *apiProvider) Model() string { return p.model }
+func (p *apiProvider) Model() string { return p.space }
 
 func (p *apiProvider) Embed(ctx context.Context, req Request) (Result, error) {
 	if len(req.Texts) == 0 {

@@ -77,23 +77,56 @@ func TestWeightedFuse_SingleLaneHitSurvives(t *testing.T) {
 	}
 }
 
-// TestNormalizeLane covers the degenerate spreads: an absent member (score 0) maps
-// to 0, and a lane with no spread (all equal) maps present members to 1 so a lone
-// hit is never zeroed.
-func TestNormalizeLane(t *testing.T) {
-	lane := []memory.SearchResult{res("m", "x", 5, time.Time{}), res("m", "y", 1, time.Time{})}
-	if v := normalizeLane(0, lane); v != 0 {
-		t.Errorf("absent member should map to 0, got %v", v)
-	}
-	if v := normalizeLane(5, lane); v != 1 {
+// TestMinMax covers the normalization edges: a min maps to 0, a max to 1, and a
+// no-spread lane (hi==lo) maps to 1 so a lone hit is never zeroed.
+func TestMinMax(t *testing.T) {
+	if v := minMax(5, 1, 5); v != 1 {
 		t.Errorf("max should map to 1, got %v", v)
 	}
-	if v := normalizeLane(1, lane); v != 0 {
+	if v := minMax(1, 1, 5); v != 0 {
 		t.Errorf("min should map to 0, got %v", v)
 	}
+	if v := minMax(3, 1, 5); v != 0.5 {
+		t.Errorf("midpoint should map to 0.5, got %v", v)
+	}
+	if v := minMax(3, 3, 3); v != 1 {
+		t.Errorf("no-spread lane should map to 1, got %v", v)
+	}
+}
 
-	flat := []memory.SearchResult{res("m", "x", 3, time.Time{})}
-	if v := normalizeLane(3, flat); v != 1 {
-		t.Errorf("no-spread lone hit should map to 1, got %v", v)
+// TestWeightedFuse_ZeroCosineIsPresentNotAbsent locks in the fix for the
+// score-as-presence-sentinel bug: an item with a legitimate 0 cosine similarity
+// (orthogonal to the query) is a present-but-worst semantic hit, and when it also
+// tops the lexical lane its fused score must reflect the full lexical weight
+// (0.5), not be mistaken for "absent from semantic" — which would coincidentally
+// give the same number here, so the discriminating case is the flat semantic lane
+// below.
+func TestWeightedFuse_ZeroCosineIsPresentNotAbsent(t *testing.T) {
+	now := time.Now().UTC()
+	// Semantic lane is flat at 0 (everything orthogonal). With presence tracking,
+	// each present semantic member normalizes to 1 (no spread), so "a" — also the
+	// lexical max — scores 0.5*1 + 0.5*1 = 1.0. The old score==0 sentinel would
+	// have zeroed the semantic contribution to 0.5.
+	lexical := []memory.SearchResult{
+		res("message", "a", 10.0, now),
+		res("message", "b", 2.0, now),
+	}
+	semantic := []memory.SearchResult{
+		res("message", "a", 0.0, now),
+		res("message", "z", 0.0, now),
+	}
+	got := weightedFuse(lexical, semantic, 10)
+	var aScore float64
+	found := false
+	for _, r := range got {
+		if r.SourceID == "a" {
+			aScore, found = r.Score, true
+		}
+	}
+	if !found {
+		t.Fatal("a missing from fused results")
+	}
+	if d := aScore - 1.0; d > 1e-9 || d < -1e-9 {
+		t.Errorf("a should score 1.0 (lex-max + present-in-flat-semantic), got %v", aScore)
 	}
 }

@@ -273,10 +273,16 @@ const (
 // The fused score replaces the per-lane raw scores, which are no longer
 // meaningful after normalization. Identity is SourceType+"/"+SourceID so the same
 // underlying item from both lanes merges into one row.
+//
+// Lane membership is tracked explicitly (hasLex/hasSem) rather than inferred from
+// a zero score: a cosine similarity of 0 (orthogonal vectors) is a legitimate
+// present-but-worst hit, distinct from "absent from this lane", and the two must
+// not collapse.
 func weightedFuse(lexical, semantic []memory.SearchResult, limit int) []memory.SearchResult {
 	type fused struct {
-		res      memory.SearchResult
-		lex, sem float64
+		res            memory.SearchResult
+		lex, sem       float64
+		hasLex, hasSem bool
 	}
 	order := make([]string, 0, len(lexical)+len(semantic))
 	byKey := make(map[string]*fused, len(lexical)+len(semantic))
@@ -291,16 +297,28 @@ func weightedFuse(lexical, semantic []memory.SearchResult, limit int) []memory.S
 		return f
 	}
 	for _, r := range lexical {
-		get(r).lex = r.Score
+		f := get(r)
+		f.lex, f.hasLex = r.Score, true
 	}
 	for _, r := range semantic {
-		get(r).sem = r.Score
+		f := get(r)
+		f.sem, f.hasSem = r.Score, true
 	}
+
+	loLex, hiLex := laneBounds(lexical)
+	loSem, hiSem := laneBounds(semantic)
 
 	merged := make([]memory.SearchResult, 0, len(order))
 	for _, key := range order {
 		f := byKey[key]
-		f.res.Score = weightLexical*normalizeLane(f.lex, lexical) + weightSemantic*normalizeLane(f.sem, semantic)
+		var normLex, normSem float64
+		if f.hasLex {
+			normLex = minMax(f.lex, loLex, hiLex)
+		}
+		if f.hasSem {
+			normSem = minMax(f.sem, loSem, hiSem)
+		}
+		f.res.Score = weightLexical*normLex + weightSemantic*normSem
 		merged = append(merged, f.res)
 	}
 	sort.SliceStable(merged, func(i, j int) bool {
@@ -312,15 +330,13 @@ func weightedFuse(lexical, semantic []memory.SearchResult, limit int) []memory.S
 	return capResults(merged, limit)
 }
 
-// normalizeLane min-max scales score within its lane to [0,1]. A lane with no
-// spread (one result, or all-equal scores) maps every present member to 1 so a
-// lone hit is not zeroed out; an absent member (score 0, not in the lane) is left
-// at 0 by the caller and never passed here.
-func normalizeLane(score float64, lane []memory.SearchResult) float64 {
-	if score == 0 {
-		return 0
+// laneBounds returns the min and max score in a lane (0,0 for an empty lane, which
+// has no members to normalize).
+func laneBounds(lane []memory.SearchResult) (lo, hi float64) {
+	if len(lane) == 0 {
+		return 0, 0
 	}
-	lo, hi := lane[0].Score, lane[0].Score
+	lo, hi = lane[0].Score, lane[0].Score
 	for _, r := range lane {
 		if r.Score < lo {
 			lo = r.Score
@@ -329,6 +345,14 @@ func normalizeLane(score float64, lane []memory.SearchResult) float64 {
 			hi = r.Score
 		}
 	}
+	return lo, hi
+}
+
+// minMax scales score into [0,1] given its lane bounds. A lane with no spread
+// (one member, or all-equal scores) maps every present member to 1 so a lone hit
+// is not zeroed out. Callers must only pass scores of members actually present in
+// the lane.
+func minMax(score, lo, hi float64) float64 {
 	if hi == lo {
 		return 1
 	}
