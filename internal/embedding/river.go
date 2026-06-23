@@ -2,6 +2,8 @@ package embedding
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -138,7 +140,12 @@ func (s *Service) resolve(ctx context.Context) (*resolved, error) {
 	}
 
 	api := APIConfig{Model: cfg.Model, Dim: cfg.Dim, APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
-	fp := fmt.Sprintf("%s\x00%d\x00%s\x00%s\x00%t", cfg.Model, cfg.Dim, cfg.APIKey, cfg.BaseURL, cfg.Normalize)
+	// Fingerprint detects config changes that require rebuilding the chain. Hash it
+	// rather than keep the tuple verbatim so the plaintext API key does not linger
+	// in a long-lived in-memory string (heap dumps, panics). The key stays in the
+	// hash input: rotating it must still change the fingerprint and force a rebuild.
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%d\x00%s\x00%s\x00%t", cfg.Model, cfg.Dim, cfg.APIKey, cfg.BaseURL, cfg.Normalize))
+	fp := hex.EncodeToString(sum[:])
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

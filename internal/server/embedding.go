@@ -1,9 +1,11 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/embedding"
 )
 
 // GetEmbeddingSettings returns the deployment-wide embedding configuration. The
@@ -38,6 +40,20 @@ func (s *Server) UpdateEmbeddingSettings(w http.ResponseWriter, r *http.Request)
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	// Bound the inputs before persisting: a dim past the vector(StorageDim) storage
+	// width (or negative) would be accepted here only to be rejected later by the
+	// embedding provider, silently disabling the lane. 0 is allowed and means "use
+	// the model's native width" (LoadEmbeddingSettings backfills it). Length caps
+	// keep a stray paste from bloating the setting row.
+	if body.Dim < 0 || body.Dim > embedding.StorageDim {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("dim must be between 0 and %d", embedding.StorageDim))
+		return
+	}
+	if len(body.Model) > 256 || len(body.BaseURL) > 2048 || (body.APIKey != nil && len(*body.APIKey) > 1024) {
+		writeError(w, http.StatusBadRequest, "model, base_url, or api_key exceeds maximum length")
 		return
 	}
 

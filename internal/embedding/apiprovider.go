@@ -98,6 +98,12 @@ func (p *apiProvider) Embed(ctx context.Context, req Request) (Result, error) {
 		if idx < 0 || idx >= len(out) || out[idx] != nil {
 			return Result{}, Terminal(fmt.Errorf("embedding: API returned out-of-range/duplicate index %d for %d inputs", idx, len(out)))
 		}
+		// A provider that ignores the dimensions param would return its native width,
+		// putting differently-sized vectors in one space key and silently corrupting
+		// similarity. Reject the mismatch up front rather than store it.
+		if p.dim > 0 && len(e.Embedding) != p.dim {
+			return Result{}, Terminal(fmt.Errorf("embedding: API returned %d-dim vector, requested %d", len(e.Embedding), p.dim))
+		}
 		vec := make([]float32, len(e.Embedding))
 		for j, f := range e.Embedding {
 			vec[j] = float32(f)
