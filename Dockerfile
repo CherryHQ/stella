@@ -38,10 +38,6 @@ RUN --mount=type=secret,id=github_token \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; \
-# mise run build auto-installs all [tools]; install the go: goose tool natively
-# first so it is not `go install`ed under the cross GOARCH below, which fails with
-# "cannot install cross-compiled binaries when GOBIN is set". Build does not use goose.
-    mise install "go:github.com/pressly/goose/v3/cmd/goose"; \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} mise run build
 
 FROM debian:13-slim AS app
