@@ -22,7 +22,7 @@ const (
 	checksumName    = "pg-runtime.sha256"
 	versionFileName = ".pg-runtime-sha256"
 
-	supportedLinuxRuntimeSources = "bookworm, jammy, noble, resolute, trixie"
+	supportedLinuxRuntimeSources = "bookworm, noble, trixie"
 	stellaIssueURL               = "https://github.com/CherryHQ/stella/issues/new"
 )
 
@@ -133,9 +133,12 @@ func MissingBundleHint() string {
 		if _, ok := supportedLinuxRuntimeSource(codename); !ok {
 			return fmt.Sprintf("Detected Linux runtime source %q, but Stella only embeds PostgreSQL runtimes for: %s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue requesting this distro: %s", codename, supportedLinuxRuntimeSources, stellaIssueURL)
 		}
-		return fmt.Sprintf("Detected supported Linux runtime source %q, but this binary does not contain its PostgreSQL runtime bundle. If this is an official Stella release, file a packaging bug: %s", codename, stellaIssueURL)
+		return fmt.Sprintf("Detected supported Linux runtime source %q, but this binary does not contain its PostgreSQL runtime bundle. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector; if this is an official Stella release, file a packaging bug: %s", codename, stellaIssueURL)
 	case "darwin":
-		return fmt.Sprintf("Embedded PostgreSQL release bundles are currently published for darwin/arm64 and linux/amd64|arm64 (%s). Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+		if runtime.GOARCH == "arm64" {
+			return fmt.Sprintf("This darwin/arm64 binary does not contain its PostgreSQL runtime bundle. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector; if this is an official Stella release, file a packaging bug: %s", stellaIssueURL)
+		}
+		return fmt.Sprintf("Embedded PostgreSQL release bundles are not published for darwin/%s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", runtime.GOARCH, stellaIssueURL)
 	default:
 		return fmt.Sprintf("Embedded PostgreSQL release bundles are currently published for linux/amd64|arm64 (%s) and darwin/arm64. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", supportedLinuxRuntimeSources, stellaIssueURL)
 	}
@@ -173,7 +176,7 @@ func supportedLinuxRuntimeSource(codename string) (string, bool) {
 	// Runtime bundles are built from distro packages; do not guess across distro
 	// families because glibc and extension ABI mismatches fail later and uglier.
 	switch codename {
-	case "bookworm", "jammy", "noble", "resolute", "trixie":
+	case "bookworm", "noble", "trixie":
 		return codename, true
 	default:
 		return "", false

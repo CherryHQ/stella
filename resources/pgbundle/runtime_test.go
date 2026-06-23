@@ -16,21 +16,9 @@ func TestLinuxRuntimeSourceFromOSRelease(t *testing.T) {
 			ok:   true,
 		},
 		{
-			name: "ubuntu jammy fallback",
-			data: "NAME=Ubuntu\nUBUNTU_CODENAME=jammy\n",
-			want: "jammy",
-			ok:   true,
-		},
-		{
 			name: "ubuntu noble fallback",
 			data: "NAME=Ubuntu\nUBUNTU_CODENAME=noble\n",
 			want: "noble",
-			ok:   true,
-		},
-		{
-			name: "ubuntu resolute fallback",
-			data: "NAME=Ubuntu\nUBUNTU_CODENAME=resolute\n",
-			want: "resolute",
 			ok:   true,
 		},
 		{
