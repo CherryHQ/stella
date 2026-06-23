@@ -545,6 +545,57 @@ func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessage
 	return items, nil
 }
 
+const listMessagesNeedingEmbedding = `-- name: ListMessagesNeedingEmbedding :many
+SELECT m.id, m.content, e.model AS embedded_model, e.content_hash AS embedded_hash
+FROM ctx_message m
+LEFT JOIN ctx_message_embedding e ON e.message_id = m.id
+WHERE e.message_id IS NULL OR e.model <> $1
+ORDER BY m.created_at DESC
+LIMIT $2
+`
+
+type ListMessagesNeedingEmbeddingParams struct {
+	Model string `json:"model"`
+	Limit int32  `json:"limit"`
+}
+
+type ListMessagesNeedingEmbeddingRow struct {
+	ID            string      `json:"id"`
+	Content       string      `json:"content"`
+	EmbeddedModel pgtype.Text `json:"embedded_model"`
+	EmbeddedHash  []byte      `json:"embedded_hash"`
+}
+
+// Backfill candidates: messages with no embedding, or one produced by a
+// different model (a model switch invalidates the old vector space). Messages
+// are immutable, so a row whose model already matches is never stale and is not
+// returned. embedded_model/embedded_hash carry existing provenance so the writer
+// can skip rows already current. Keep ASCII.
+func (q *Queries) ListMessagesNeedingEmbedding(ctx context.Context, arg ListMessagesNeedingEmbeddingParams) ([]ListMessagesNeedingEmbeddingRow, error) {
+	rows, err := q.db.Query(ctx, listMessagesNeedingEmbedding, arg.Model, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMessagesNeedingEmbeddingRow{}
+	for rows.Next() {
+		var i ListMessagesNeedingEmbeddingRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Content,
+			&i.EmbeddedModel,
+			&i.EmbeddedHash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchMessageEmbeddings = `-- name: SearchMessageEmbeddings :many
 SELECT
     m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,

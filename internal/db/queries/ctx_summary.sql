@@ -59,6 +59,16 @@ JOIN ctx_summary_parent sp ON sp.summary_id = s.id
 WHERE sp.parent_summary_id = $1
 ORDER BY sp.ordinal ASC;
 
+-- name: ListSummariesNeedingEmbedding :many
+-- Backfill candidates for summaries; see ListMessagesNeedingEmbedding. Summary
+-- content is immutable, so missing or model-mismatch are the only cases. ASCII.
+SELECT s.id, s.content, e.model AS embedded_model, e.content_hash AS embedded_hash
+FROM ctx_summary s
+LEFT JOIN ctx_summary_embedding e ON e.summary_id = s.id
+WHERE e.summary_id IS NULL OR e.model <> sqlc.arg('model')
+ORDER BY s.created_at DESC
+LIMIT sqlc.arg('limit');
+
 -- name: UpsertSummaryEmbedding :exec
 -- Semantic-search vector for one summary; see UpsertMessageEmbedding. Keep ASCII.
 INSERT INTO ctx_summary_embedding (summary_id, model, content_hash, embedding)

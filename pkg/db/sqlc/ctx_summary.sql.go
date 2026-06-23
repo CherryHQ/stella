@@ -394,6 +394,54 @@ func (q *Queries) ListSummariesByIDs(ctx context.Context, arg ListSummariesByIDs
 	return items, nil
 }
 
+const listSummariesNeedingEmbedding = `-- name: ListSummariesNeedingEmbedding :many
+SELECT s.id, s.content, e.model AS embedded_model, e.content_hash AS embedded_hash
+FROM ctx_summary s
+LEFT JOIN ctx_summary_embedding e ON e.summary_id = s.id
+WHERE e.summary_id IS NULL OR e.model <> $1
+ORDER BY s.created_at DESC
+LIMIT $2
+`
+
+type ListSummariesNeedingEmbeddingParams struct {
+	Model string `json:"model"`
+	Limit int32  `json:"limit"`
+}
+
+type ListSummariesNeedingEmbeddingRow struct {
+	ID            string      `json:"id"`
+	Content       string      `json:"content"`
+	EmbeddedModel pgtype.Text `json:"embedded_model"`
+	EmbeddedHash  []byte      `json:"embedded_hash"`
+}
+
+// Backfill candidates for summaries; see ListMessagesNeedingEmbedding. Summary
+// content is immutable, so missing or model-mismatch are the only cases. ASCII.
+func (q *Queries) ListSummariesNeedingEmbedding(ctx context.Context, arg ListSummariesNeedingEmbeddingParams) ([]ListSummariesNeedingEmbeddingRow, error) {
+	rows, err := q.db.Query(ctx, listSummariesNeedingEmbedding, arg.Model, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSummariesNeedingEmbeddingRow{}
+	for rows.Next() {
+		var i ListSummariesNeedingEmbeddingRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Content,
+			&i.EmbeddedModel,
+			&i.EmbeddedHash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSummaryParentsBySummaryIDs = `-- name: ListSummaryParentsBySummaryIDs :many
 SELECT summary_id, parent_summary_id, ordinal
 FROM ctx_summary_parent

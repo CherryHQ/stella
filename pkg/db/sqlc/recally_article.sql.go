@@ -315,6 +315,57 @@ func (q *Queries) ListArticles(ctx context.Context, arg ListArticlesParams) ([]R
 	return items, nil
 }
 
+const listArticlesNeedingEmbedding = `-- name: ListArticlesNeedingEmbedding :many
+SELECT a.id, (a.title || ' ' || COALESCE(a.summary, ''))::text AS content, e.model AS embedded_model, e.content_hash AS embedded_hash
+FROM recally_article a
+LEFT JOIN recally_article_embedding e ON e.article_id = a.id
+WHERE e.article_id IS NULL OR e.model <> $1 OR e.updated_at < a.updated_at
+ORDER BY a.saved_at DESC
+LIMIT $2
+`
+
+type ListArticlesNeedingEmbeddingParams struct {
+	Model string `json:"model"`
+	Limit int32  `json:"limit"`
+}
+
+type ListArticlesNeedingEmbeddingRow struct {
+	ID            string      `json:"id"`
+	Content       string      `json:"content"`
+	EmbeddedModel pgtype.Text `json:"embedded_model"`
+	EmbeddedHash  []byte      `json:"embedded_hash"`
+}
+
+// Backfill candidates for articles. Unlike messages, articles are mutable, so a
+// row whose embedding predates the article's last update (e.updated_at <
+// a.updated_at) is a candidate too; the writer then compares content_hash to
+// skip non-content edits (e.g. marking read). content is title + summary, the
+// fields worth embedding. Keep ASCII.
+func (q *Queries) ListArticlesNeedingEmbedding(ctx context.Context, arg ListArticlesNeedingEmbeddingParams) ([]ListArticlesNeedingEmbeddingRow, error) {
+	rows, err := q.db.Query(ctx, listArticlesNeedingEmbedding, arg.Model, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListArticlesNeedingEmbeddingRow{}
+	for rows.Next() {
+		var i ListArticlesNeedingEmbeddingRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Content,
+			&i.EmbeddedModel,
+			&i.EmbeddedHash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listArticlesSavedYesterday = `-- name: ListArticlesSavedYesterday :many
 SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article
 WHERE user_id = $1

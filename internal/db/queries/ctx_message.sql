@@ -122,6 +122,19 @@ SET model        = EXCLUDED.model,
     embedding    = EXCLUDED.embedding,
     updated_at   = now();
 
+-- name: ListMessagesNeedingEmbedding :many
+-- Backfill candidates: messages with no embedding, or one produced by a
+-- different model (a model switch invalidates the old vector space). Messages
+-- are immutable, so a row whose model already matches is never stale and is not
+-- returned. embedded_model/embedded_hash carry existing provenance so the writer
+-- can skip rows already current. Keep ASCII.
+SELECT m.id, m.content, e.model AS embedded_model, e.content_hash AS embedded_hash
+FROM ctx_message m
+LEFT JOIN ctx_message_embedding e ON e.message_id = m.id
+WHERE e.message_id IS NULL OR e.model <> sqlc.arg('model')
+ORDER BY m.created_at DESC
+LIMIT sqlc.arg('limit');
+
 -- name: SearchMessageEmbeddings :many
 -- Vector KNN over message embeddings, scoped to (user_id, agent_id) across every
 -- session like SearchMessages. WHERE model pins the query to a single vector

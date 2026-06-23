@@ -67,6 +67,19 @@ WHERE (a.id @@@ paradedb.boost(3.0, paradedb.match('title', sqlc.arg('match')::t
 ORDER BY score DESC, a.saved_at DESC, a.id DESC
 LIMIT sqlc.arg('limit');
 
+-- name: ListArticlesNeedingEmbedding :many
+-- Backfill candidates for articles. Unlike messages, articles are mutable, so a
+-- row whose embedding predates the article's last update (e.updated_at <
+-- a.updated_at) is a candidate too; the writer then compares content_hash to
+-- skip non-content edits (e.g. marking read). content is title + summary, the
+-- fields worth embedding. Keep ASCII.
+SELECT a.id, (a.title || ' ' || COALESCE(a.summary, ''))::text AS content, e.model AS embedded_model, e.content_hash AS embedded_hash
+FROM recally_article a
+LEFT JOIN recally_article_embedding e ON e.article_id = a.id
+WHERE e.article_id IS NULL OR e.model <> sqlc.arg('model') OR e.updated_at < a.updated_at
+ORDER BY a.saved_at DESC
+LIMIT sqlc.arg('limit');
+
 -- name: UpsertArticleEmbedding :exec
 -- Semantic-search vector for one article; see UpsertMessageEmbedding. Keep ASCII.
 INSERT INTO recally_article_embedding (article_id, model, content_hash, embedding)
