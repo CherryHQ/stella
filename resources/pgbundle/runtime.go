@@ -21,6 +21,9 @@ const (
 	archiveName     = "pg-runtime.tar.zst"
 	checksumName    = "pg-runtime.sha256"
 	versionFileName = ".pg-runtime-sha256"
+
+	supportedLinuxRuntimeSources = "bookworm, jammy, noble, resolute, trixie"
+	stellaIssueURL               = "https://github.com/CherryHQ/stella/issues/new"
 )
 
 // EnsureBundle extracts the embedded PostgreSQL runtime bundle into cacheRoot and
@@ -81,7 +84,7 @@ func VerifyBundlePresent() error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("embedded PostgreSQL runtime bundle missing for this platform: %s/%s", bundleDir, archiveName)
+		return fmt.Errorf("embedded PostgreSQL runtime bundle missing for this platform: %s/%s. %s", bundleDir, archiveName, MissingBundleHint())
 	}
 	if _, err := bundleFS.Open(archivePath); err != nil {
 		return fmt.Errorf("open embedded PostgreSQL runtime bundle: %w", err)
@@ -115,6 +118,29 @@ func selectBundlePaths() (archivePath, checksumPath string, ok bool, err error) 
 	return archivePath, checksumPath, true, nil
 }
 
+// MissingBundleHint explains why automatic embedded PostgreSQL selection failed.
+func MissingBundleHint() string {
+	switch runtime.GOOS {
+	case "linux":
+		data, err := os.ReadFile("/etc/os-release")
+		if err != nil {
+			return fmt.Sprintf("Could not read /etc/os-release to select a Linux runtime bundle. Supported Linux runtime sources: %s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your OS details: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+		}
+		codename := linuxRuntimeCodenameFromOSRelease(string(data))
+		if codename == "" {
+			return fmt.Sprintf("Could not detect VERSION_CODENAME or UBUNTU_CODENAME from /etc/os-release. Supported Linux runtime sources: %s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your /etc/os-release: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+		}
+		if _, ok := supportedLinuxRuntimeSource(codename); !ok {
+			return fmt.Sprintf("Detected Linux runtime source %q, but Stella only embeds PostgreSQL runtimes for: %s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue requesting this distro: %s", codename, supportedLinuxRuntimeSources, stellaIssueURL)
+		}
+		return fmt.Sprintf("Detected supported Linux runtime source %q, but this binary does not contain its PostgreSQL runtime bundle. If this is an official Stella release, file a packaging bug: %s", codename, stellaIssueURL)
+	case "darwin":
+		return fmt.Sprintf("Embedded PostgreSQL release bundles are currently published for darwin/arm64 and linux/amd64|arm64 (%s). Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+	default:
+		return fmt.Sprintf("Embedded PostgreSQL release bundles are currently published for linux/amd64|arm64 (%s) and darwin/arm64. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+	}
+}
+
 func linuxRuntimeSource() (string, bool) {
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
@@ -124,6 +150,10 @@ func linuxRuntimeSource() (string, bool) {
 }
 
 func linuxRuntimeSourceFromOSRelease(data string) (string, bool) {
+	return supportedLinuxRuntimeSource(linuxRuntimeCodenameFromOSRelease(data))
+}
+
+func linuxRuntimeCodenameFromOSRelease(data string) string {
 	values := map[string]string{}
 	for line := range strings.SplitSeq(data, "\n") {
 		key, value, ok := strings.Cut(line, "=")
@@ -133,10 +163,13 @@ func linuxRuntimeSourceFromOSRelease(data string) (string, bool) {
 		value = strings.Trim(value, "\"'")
 		values[key] = value
 	}
-	codename := values["VERSION_CODENAME"]
-	if codename == "" {
-		codename = values["UBUNTU_CODENAME"]
+	if codename := values["VERSION_CODENAME"]; codename != "" {
+		return codename
 	}
+	return values["UBUNTU_CODENAME"]
+}
+
+func supportedLinuxRuntimeSource(codename string) (string, bool) {
 	// Runtime bundles are built from distro packages; do not guess across distro
 	// families because glibc and extension ABI mismatches fail later and uglier.
 	switch codename {
