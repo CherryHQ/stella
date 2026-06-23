@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Release: default binaries no longer embed PostgreSQL runtime bundles. Non-Docker installs can run `stellad postgres download-runtime` for the embedded database path; Docker images require `STELLA_DATABASE_URL` pointing at an external PostgreSQL 18 server with `pg_search` and `pgvector`. ([#590](https://github.com/CherryHQ/stella/pull/590))
+
 ## [0.50.2] - 2026-06-23
 
 ### ✨ Features

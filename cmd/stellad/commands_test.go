@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -165,6 +166,15 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 	want := filepath.Join(config.StellaHome(), "users", "1", "data", ".agents", "skills")
 	if dir != want {
 		t.Fatalf("cliUserSkillsDir() = %q, want %q", dir, want)
+	}
+}
+
+func TestSetupRequiresDatabaseURLWhenConfigured(t *testing.T) {
+	t.Setenv("STELLA_DATABASE_URL", "")
+	t.Setenv("STELLA_REQUIRE_DATABASE_URL", "1")
+	_, err := setup(context.Background(), false)
+	if err == nil || !strings.Contains(err.Error(), "STELLA_DATABASE_URL is required") {
+		t.Fatalf("setup error = %v, want STELLA_DATABASE_URL requirement", err)
 	}
 }
 

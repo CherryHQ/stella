@@ -52,6 +52,7 @@ RUN apt-get update \
 
 WORKDIR /home/stella
 USER stella
+ENV STELLA_REQUIRE_DATABASE_URL=1
 COPY --from=builder /go/src/app/dist/bin/stella /usr/local/bin/stella
 COPY --from=builder /go/src/app/dist/bin/stellad /usr/local/bin/stellad
 
