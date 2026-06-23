@@ -39,6 +39,9 @@ fi
 ASSET="stella-pg-runtime-$VERSION-$GOOS_VALUE-$GOARCH_VALUE-$SOURCE.tar.zst"
 TAG="$VERSION"
 DEST_DIR="resources/pgbundle/bundles/$GOOS_VALUE-$GOARCH_VALUE"
+if [[ "$GOOS_VALUE" == "linux" ]]; then
+  DEST_DIR="$DEST_DIR/$SOURCE"
+fi
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
