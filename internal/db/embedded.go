@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
@@ -26,13 +27,7 @@ type Embedded struct {
 // files live: a stable path persists data across restarts (the server runtime),
 // while an empty string uses a throwaway temp dir that is removed on Stop (tests).
 func StartEmbedded(dataDir string, port uint32) (*Embedded, error) {
-	if port == 0 {
-		p, err := freePort()
-		if err != nil {
-			return nil, fmt.Errorf("db: pick embedded postgres port: %w", err)
-		}
-		port = p
-	}
+	autoPort := port == 0
 
 	var tmpDir string
 	if dataDir == "" {
@@ -53,38 +48,69 @@ func StartEmbedded(dataDir string, port uint32) (*Embedded, error) {
 		return nil, err
 	}
 
-	// Pin PostgreSQL 18 explicitly: the schema baseline defaults ids with
-	// uuidv7(), a server built-in only since PG18 and with no extension fallback.
-	// Left unpinned the cluster version silently tracks embedded-postgres'
-	// default, so a future dependency bump that shifts that default off 18 would
-	// fail migrate() with "function uuidv7() does not exist" on fresh installs and
-	// refuse to start an existing PG18 cluster. (The external-DSN OpenDB path
-	// carries the same PG>=18 requirement; see OpenDB.)
-	cfg := embeddedpostgres.DefaultConfig().
-		Version(embeddedpostgres.V18).
-		RuntimePath(rt.RuntimePath).
-		DataPath(rt.DataPath).
-		Username("postgres").
-		Password("postgres").
-		Database("stella").
-		Port(port).
-		StartTimeout(45 * time.Second)
-	if rt.BinariesPath != "" {
-		cfg = cfg.BinariesPath(rt.BinariesPath)
-	}
-	if params := rt.startParameters(); len(params) > 0 {
-		cfg = cfg.StartParameters(params)
-	}
+	// freePort hands back an OS-assigned port but closes the listener before
+	// PostgreSQL binds, so a parallel starter can steal it in that window — the
+	// dominant failure mode when many test binaries each boot a cluster. Start
+	// fails its pre-flight bind check ("process already listening on port") before
+	// touching the data dir, so we just re-pick and retry. A caller-pinned port is
+	// honored verbatim (no retry): a collision there is a real conflict to surface.
+	const maxStartAttempts = 5
+	var lastErr error
+	for range maxStartAttempts {
+		p := port
+		if autoPort {
+			pp, err := freePort()
+			if err != nil {
+				if tmpDir != "" {
+					_ = os.RemoveAll(tmpDir)
+				}
+				return nil, fmt.Errorf("db: pick embedded postgres port: %w", err)
+			}
+			p = pp
+		}
 
-	pg := embeddedpostgres.NewDatabase(cfg)
-	if err := pg.Start(); err != nil {
+		// Pin PostgreSQL 18 explicitly: the schema baseline defaults ids with
+		// uuidv7(), a server built-in only since PG18 and with no extension fallback.
+		// Left unpinned the cluster version silently tracks embedded-postgres'
+		// default, so a future dependency bump that shifts that default off 18 would
+		// fail migrate() with "function uuidv7() does not exist" on fresh installs and
+		// refuse to start an existing PG18 cluster. (The external-DSN OpenDB path
+		// carries the same PG>=18 requirement; see OpenDB.)
+		cfg := embeddedpostgres.DefaultConfig().
+			Version(embeddedpostgres.V18).
+			RuntimePath(rt.RuntimePath).
+			DataPath(rt.DataPath).
+			Username("postgres").
+			Password("postgres").
+			Database("stella").
+			Port(p).
+			StartTimeout(45 * time.Second)
+		if rt.BinariesPath != "" {
+			cfg = cfg.BinariesPath(rt.BinariesPath)
+		}
+		if params := rt.startParameters(); len(params) > 0 {
+			cfg = cfg.StartParameters(params)
+		}
+
+		pg := embeddedpostgres.NewDatabase(cfg)
+		err := pg.Start()
+		if err == nil {
+			return &Embedded{pg: pg, port: p, tmpDir: tmpDir}, nil
+		}
+		lastErr = err
+		if autoPort && strings.Contains(err.Error(), "process already listening on port") {
+			continue // lost the port race; re-pick and try again
+		}
 		if tmpDir != "" {
 			_ = os.RemoveAll(tmpDir)
 		}
 		return nil, fmt.Errorf("db: start embedded postgres: %w", err)
 	}
 
-	return &Embedded{pg: pg, port: port, tmpDir: tmpDir}, nil
+	if tmpDir != "" {
+		_ = os.RemoveAll(tmpDir)
+	}
+	return nil, fmt.Errorf("db: start embedded postgres: lost the port race %d times: %w", maxStartAttempts, lastErr)
 }
 
 // DSN returns the libpq connection string for the server's default "stella"
