@@ -20,6 +20,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -70,6 +71,7 @@ type setupResult struct {
 	poolManager              *agent.PoolManager
 	schedulerSvc             *scheduler.Service
 	goalSvc                  *goal.Service
+	embeddingSvc             *embedding.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []pkgtools.Tool
 	notifier                 *notify.Dispatcher
@@ -147,7 +149,13 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		})
 	}
 
-	memProvider, err := setupMemoryProvider(parent, db, store, providerStreamBuilder)
+	// Optional semantic-search lane (STELLA_EMBEDDING_*). Built before the memory
+	// provider so its query embedder can be injected, and before the shared River
+	// client so its backfill worker joins the single electable client. nil when no
+	// embedding provider is configured (pure-BM25 deployment).
+	embeddingSvc := setupEmbedding(db, slog.With("component", "embedding"))
+
+	memProvider, err := setupMemoryProvider(parent, db, store, providerStreamBuilder, embeddingSvc)
 	if err != nil {
 		return nil, fmt.Errorf("memory provider: %w", err)
 	}
@@ -266,7 +274,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc)
 	if err != nil {
 		return nil, err
 	}
@@ -287,6 +295,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		poolManager:              poolMgr,
 		schedulerSvc:             schedulerSvc,
 		goalSvc:                  goalSvc,
+		embeddingSvc:             embeddingSvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
@@ -342,7 +351,7 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host) (*scheduler.Servic
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
@@ -355,12 +364,23 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	gtn, gtc := goalSvc.GoalTickQueueConfig()
 	queues[gtn] = gtc
 
+	// The embedding lane is opt-in: only contribute its backfill worker + queue
+	// when an embedding provider is configured.
+	if embeddingSvc != nil {
+		embeddingSvc.RegisterRiverWorker(workers)
+		en, ec := embeddingSvc.BackfillQueueConfig()
+		queues[en] = ec
+	}
+
 	client, err := appdb.NewWorkingRiverClient(db, queues, workers, slog.With("component", "river"))
 	if err != nil {
 		return nil, fmt.Errorf("build shared river client: %w", err)
 	}
 	schedulerSvc.SetRiverClient(client)
 	goalSvc.SetRiverClient(client)
+	if embeddingSvc != nil {
+		embeddingSvc.SetRiverClient(client)
+	}
 	return client, nil
 }
 

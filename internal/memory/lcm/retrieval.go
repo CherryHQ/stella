@@ -3,6 +3,7 @@ package lcm
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	pgvector "github.com/pgvector/pgvector-go"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
@@ -23,13 +25,25 @@ const (
 	maxContentSnippet   = 500
 )
 
-// retrievalEngine provides search and exploration of compacted history.
-type retrievalEngine struct {
-	q *sqlc.Queries
+// QueryEmbedder turns a search query into a vector plus the vector space it
+// belongs to, so the retrieval engine can run KNN against the matching index.
+// It is optional: when nil, search is pure BM25 (embedding.Service satisfies it).
+type QueryEmbedder interface {
+	EmbedQuery(ctx context.Context, text string) (pgvector.Vector, string, error)
 }
 
-func newRetrievalEngine(q *sqlc.Queries) *retrievalEngine {
-	return &retrievalEngine{q: q}
+// retrievalEngine provides search and exploration of compacted history.
+type retrievalEngine struct {
+	q        *sqlc.Queries
+	embedder QueryEmbedder // nil => lexical-only (no semantic lane)
+	log      *slog.Logger
+}
+
+func newRetrievalEngine(q *sqlc.Queries, log *slog.Logger) *retrievalEngine {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &retrievalEngine{q: q, log: log}
 }
 
 // Search implements memory.Searcher.
@@ -110,17 +124,105 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 		}
 	}
 
-	// A single-scope query returns its one BM25-ranked list as-is (already sorted
-	// best-first by SQL): within one index the raw score is a meaningful absolute
-	// relevance signal worth preserving.
+	// Lexical lane: a single-scope query keeps its one BM25-ranked list as-is
+	// (within one index the raw score is a meaningful absolute relevance signal);
+	// a both-scope query fuses the two indexes with RRF, whose per-index scores
+	// are not directly comparable.
+	var lexical []memory.SearchResult
 	switch scope {
 	case scopeMessages:
-		return capResults(msgResults, limit), nil
+		lexical = capResults(msgResults, limit)
 	case scopeSummaries:
-		return capResults(sumResults, limit), nil
+		lexical = capResults(sumResults, limit)
 	default:
-		return fuseRRF(msgResults, sumResults, limit), nil
+		lexical = fuseRRF(msgResults, sumResults, limit)
 	}
+
+	// Without a configured embedder there is no semantic lane: return lexical
+	// results unchanged (pure BM25, the historical behavior).
+	if r.embedder == nil {
+		return lexical, nil
+	}
+
+	// Semantic lane: embed the raw query and KNN the matching vector space. The
+	// lane is best-effort — an embedder or KNN failure degrades to lexical-only
+	// rather than failing the search, so a flaky embedding provider never takes
+	// search down.
+	vector, err := r.vectorSearch(ctx, userID, agentID, query.Text, scope, limit)
+	if err != nil {
+		r.log.Warn("lcm: semantic lane unavailable, using lexical only", "error", err)
+		return lexical, nil
+	}
+	if len(vector) == 0 {
+		return lexical, nil
+	}
+	return weightedFuse(lexical, vector, limit), nil
+}
+
+// vectorSearch runs the semantic lane: it embeds the query, then KNN-searches the
+// in-scope embedding sidecars in the resulting vector space and merges the hits
+// by cosine similarity (comparable across the two indexes since they share the
+// space and metric).
+func (r *retrievalEngine) vectorSearch(ctx context.Context, userID, agentID, text, scope string, limit int) ([]memory.SearchResult, error) {
+	qvec, model, err := r.embedder.EmbedQuery(ctx, text)
+	if err != nil {
+		return nil, fmt.Errorf("embed query: %w", err)
+	}
+
+	var results []memory.SearchResult
+	if scope == scopeMessages || scope == scopeBoth {
+		rows, err := r.q.SearchMessageEmbeddings(ctx, sqlc.SearchMessageEmbeddingsParams{
+			Query:   qvec,
+			Model:   model,
+			UserID:  pgtype.Text{String: userID, Valid: true},
+			AgentID: pgnull.Text(agentID),
+			Limit:   int32(limit),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("search message embeddings: %w", err)
+		}
+		for _, m := range rows {
+			results = append(results, memory.SearchResult{
+				SourceType:        itemTypeMessage,
+				SourceID:          fmt.Sprint(m.ID),
+				Content:           searchSnippet("", m.Content),
+				Score:             m.Score,
+				OccurredAt:        m.CreatedAt.UTC(),
+				SessionID:         m.SessionID,
+				ConversationTitle: m.ConversationTitle.String,
+			})
+		}
+	}
+	if scope == scopeSummaries || scope == scopeBoth {
+		rows, err := r.q.SearchSummaryEmbeddings(ctx, sqlc.SearchSummaryEmbeddingsParams{
+			Query:   qvec,
+			Model:   model,
+			UserID:  pgtype.Text{String: userID, Valid: true},
+			AgentID: pgnull.Text(agentID),
+			Limit:   int32(limit),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("search summary embeddings: %w", err)
+		}
+		for _, s := range rows {
+			results = append(results, memory.SearchResult{
+				SourceType:        itemTypeSummary,
+				SourceID:          s.ID,
+				Content:           searchSnippet("", s.Content),
+				Score:             s.Score,
+				OccurredAt:        summaryContentTime(s.LatestAt, s.CreatedAt),
+				SessionID:         s.SessionID,
+				ConversationTitle: s.ConversationTitle.String,
+			})
+		}
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].OccurredAt.After(results[j].OccurredAt)
+	})
+	return capResults(results, limit), nil
 }
 
 // rrfK is the Reciprocal Rank Fusion damping constant: 60, the value from the
@@ -151,6 +253,86 @@ func fuseRRF(a, b []memory.SearchResult, limit int) []memory.SearchResult {
 		return merged[i].OccurredAt.After(merged[j].OccurredAt)
 	})
 	return capResults(merged, limit)
+}
+
+// Lexical and semantic lane weights for hybrid fusion. They sum to 1 and split
+// the score evenly: BM25 lexical precision and vector recall are treated as
+// equally trustworthy signals. Exposed as constants so the balance is a single
+// obvious knob rather than a magic literal in the loop.
+const (
+	weightLexical  = 0.5
+	weightSemantic = 0.5
+)
+
+// weightedFuse blends the lexical (BM25/RRF) and semantic (cosine) lanes into one
+// ranking. The two lanes score on incomparable scales — BM25 is unbounded and
+// IDF-relative, cosine similarity is bounded [0,1] — so each lane is min-max
+// normalized to [0,1] independently before weighting. A result present in only
+// one lane contributes that lane's normalized score and zero from the other, so a
+// strong single-lane hit still surfaces; a result in both lanes is reinforced.
+// The fused score replaces the per-lane raw scores, which are no longer
+// meaningful after normalization. Identity is SourceType+"/"+SourceID so the same
+// underlying item from both lanes merges into one row.
+func weightedFuse(lexical, semantic []memory.SearchResult, limit int) []memory.SearchResult {
+	type fused struct {
+		res      memory.SearchResult
+		lex, sem float64
+	}
+	order := make([]string, 0, len(lexical)+len(semantic))
+	byKey := make(map[string]*fused, len(lexical)+len(semantic))
+	get := func(r memory.SearchResult) *fused {
+		key := r.SourceType + "/" + r.SourceID
+		f, ok := byKey[key]
+		if !ok {
+			f = &fused{res: r}
+			byKey[key] = f
+			order = append(order, key)
+		}
+		return f
+	}
+	for _, r := range lexical {
+		get(r).lex = r.Score
+	}
+	for _, r := range semantic {
+		get(r).sem = r.Score
+	}
+
+	merged := make([]memory.SearchResult, 0, len(order))
+	for _, key := range order {
+		f := byKey[key]
+		f.res.Score = weightLexical*normalizeLane(f.lex, lexical) + weightSemantic*normalizeLane(f.sem, semantic)
+		merged = append(merged, f.res)
+	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		if merged[i].Score != merged[j].Score {
+			return merged[i].Score > merged[j].Score
+		}
+		return merged[i].OccurredAt.After(merged[j].OccurredAt)
+	})
+	return capResults(merged, limit)
+}
+
+// normalizeLane min-max scales score within its lane to [0,1]. A lane with no
+// spread (one result, or all-equal scores) maps every present member to 1 so a
+// lone hit is not zeroed out; an absent member (score 0, not in the lane) is left
+// at 0 by the caller and never passed here.
+func normalizeLane(score float64, lane []memory.SearchResult) float64 {
+	if score == 0 {
+		return 0
+	}
+	lo, hi := lane[0].Score, lane[0].Score
+	for _, r := range lane {
+		if r.Score < lo {
+			lo = r.Score
+		}
+		if r.Score > hi {
+			hi = r.Score
+		}
+	}
+	if hi == lo {
+		return 1
+	}
+	return (score - lo) / (hi - lo)
 }
 
 // capResults truncates to the top limit, leaving order untouched.
