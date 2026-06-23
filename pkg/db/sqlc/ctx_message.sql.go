@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
 const createMessage = `-- name: CreateMessage :one
@@ -544,6 +545,139 @@ func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessage
 	return items, nil
 }
 
+const listMessagesNeedingEmbedding = `-- name: ListMessagesNeedingEmbedding :many
+SELECT m.id, m.content, e.model AS embedded_model, e.content_hash AS embedded_hash
+FROM ctx_message m
+LEFT JOIN ctx_message_embedding e ON e.message_id = m.id
+WHERE e.message_id IS NULL OR e.model <> $1
+ORDER BY m.created_at DESC
+LIMIT $2
+`
+
+type ListMessagesNeedingEmbeddingParams struct {
+	Model string `json:"model"`
+	Limit int32  `json:"limit"`
+}
+
+type ListMessagesNeedingEmbeddingRow struct {
+	ID            string      `json:"id"`
+	Content       string      `json:"content"`
+	EmbeddedModel pgtype.Text `json:"embedded_model"`
+	EmbeddedHash  []byte      `json:"embedded_hash"`
+}
+
+// Backfill candidates: messages with no embedding, or one produced by a
+// different model (a model switch invalidates the old vector space). Messages
+// are immutable, so a row whose model already matches is never stale and is not
+// returned. embedded_model/embedded_hash carry existing provenance so the writer
+// can skip rows already current. Keep ASCII.
+func (q *Queries) ListMessagesNeedingEmbedding(ctx context.Context, arg ListMessagesNeedingEmbeddingParams) ([]ListMessagesNeedingEmbeddingRow, error) {
+	rows, err := q.db.Query(ctx, listMessagesNeedingEmbedding, arg.Model, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMessagesNeedingEmbeddingRow{}
+	for rows.Next() {
+		var i ListMessagesNeedingEmbeddingRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Content,
+			&i.EmbeddedModel,
+			&i.EmbeddedHash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchMessageEmbeddings = `-- name: SearchMessageEmbeddings :many
+SELECT
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
+    c.session_id AS session_id,
+    c.title AS conversation_title,
+    (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
+FROM ctx_message_embedding e
+JOIN ctx_message m ON m.id = e.message_id
+JOIN ctx_conversation c ON c.id = m.conversation_id
+WHERE e.model = $2
+  AND c.user_id = $3
+  AND c.agent_id IS NOT DISTINCT FROM $4
+ORDER BY e.embedding <=> $1::vector(1536), m.created_at DESC, m.id DESC
+LIMIT $5
+`
+
+type SearchMessageEmbeddingsParams struct {
+	Query   pgvector_go.Vector `json:"query"`
+	Model   string             `json:"model"`
+	UserID  pgtype.Text        `json:"user_id"`
+	AgentID pgtype.Text        `json:"agent_id"`
+	Limit   int32              `json:"limit"`
+}
+
+type SearchMessageEmbeddingsRow struct {
+	ID                string      `json:"id"`
+	ConversationID    string      `json:"conversation_id"`
+	Seq               int64       `json:"seq"`
+	Role              string      `json:"role"`
+	EventType         string      `json:"event_type"`
+	Content           string      `json:"content"`
+	TokenCount        int64       `json:"token_count"`
+	CreatedAt         time.Time   `json:"created_at"`
+	SessionID         string      `json:"session_id"`
+	ConversationTitle pgtype.Text `json:"conversation_title"`
+	Score             float64     `json:"score"`
+}
+
+// Vector KNN over message embeddings, scoped to (user_id, agent_id) across every
+// session like SearchMessages. WHERE model pins the query to a single vector
+// space so a vector produced by a different model never matches; ORDER BY the
+// <=> operator lets the HNSW cosine index drive the scan. score is cosine
+// similarity (1 - distance), higher is better, matching the BM25 lane's score
+// orientation for fusion. created_at, id break ties deterministically.
+func (q *Queries) SearchMessageEmbeddings(ctx context.Context, arg SearchMessageEmbeddingsParams) ([]SearchMessageEmbeddingsRow, error) {
+	rows, err := q.db.Query(ctx, searchMessageEmbeddings,
+		arg.Query,
+		arg.Model,
+		arg.UserID,
+		arg.AgentID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchMessageEmbeddingsRow{}
+	for rows.Next() {
+		var i SearchMessageEmbeddingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Seq,
+			&i.Role,
+			&i.EventType,
+			&i.Content,
+			&i.TokenCount,
+			&i.CreatedAt,
+			&i.SessionID,
+			&i.ConversationTitle,
+			&i.Score,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchMessages = `-- name: SearchMessages :many
 SELECT
     m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
@@ -629,4 +763,35 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertMessageEmbedding = `-- name: UpsertMessageEmbedding :exec
+INSERT INTO ctx_message_embedding (message_id, model, content_hash, embedding)
+VALUES ($1, $2, $3, $4::vector(1536))
+ON CONFLICT (message_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    updated_at   = now()
+`
+
+type UpsertMessageEmbeddingParams struct {
+	MessageID   string             `json:"message_id"`
+	Model       string             `json:"model"`
+	ContentHash []byte             `json:"content_hash"`
+	Embedding   pgvector_go.Vector `json:"embedding"`
+}
+
+// Write or replace the semantic-search vector for one message. model is the
+// vector-space key every KNN query must filter on; content_hash is the hash of
+// the embedded text so a later pass can spot rows whose source content changed.
+// Keep this comment ASCII (sqlc rewriter offsets).
+func (q *Queries) UpsertMessageEmbedding(ctx context.Context, arg UpsertMessageEmbeddingParams) error {
+	_, err := q.db.Exec(ctx, upsertMessageEmbedding,
+		arg.MessageID,
+		arg.Model,
+		arg.ContentHash,
+		arg.Embedding,
+	)
+	return err
 }

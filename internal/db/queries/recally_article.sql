@@ -67,6 +67,44 @@ WHERE (a.id @@@ paradedb.boost(3.0, paradedb.match('title', sqlc.arg('match')::t
 ORDER BY score DESC, a.saved_at DESC, a.id DESC
 LIMIT sqlc.arg('limit');
 
+-- name: ListArticlesNeedingEmbedding :many
+-- Backfill candidates for articles. Unlike messages, articles are mutable, so a
+-- row whose embedding predates the article's last update (e.updated_at <
+-- a.updated_at) is a candidate too; the writer then compares content_hash to
+-- skip non-content edits (e.g. marking read). content is title + summary, the
+-- fields worth embedding. Keep ASCII.
+SELECT a.id, (a.title || ' ' || COALESCE(a.summary, ''))::text AS content, e.model AS embedded_model, e.content_hash AS embedded_hash
+FROM recally_article a
+LEFT JOIN recally_article_embedding e ON e.article_id = a.id
+WHERE e.article_id IS NULL OR e.model <> sqlc.arg('model') OR e.updated_at < a.updated_at
+ORDER BY a.saved_at DESC
+LIMIT sqlc.arg('limit');
+
+-- name: UpsertArticleEmbedding :exec
+-- Semantic-search vector for one article; see UpsertMessageEmbedding. Keep ASCII.
+INSERT INTO recally_article_embedding (article_id, model, content_hash, embedding)
+VALUES (sqlc.arg('article_id'), sqlc.arg('model'), sqlc.arg('content_hash'), sqlc.arg('embedding')::vector(1536))
+ON CONFLICT (article_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    updated_at   = now();
+
+-- name: SearchArticleEmbeddings :many
+-- Vector KNN over article embeddings, scoped to user_id (articles carry user_id
+-- directly, no conversation join). WHERE model pins the vector space; ORDER BY
+-- the <=> operator drives the HNSW cosine index. score is cosine similarity
+-- (1 - distance), higher is better. saved_at, id break ties. Keep ASCII.
+SELECT
+    sqlc.embed(a),
+    (1 - (e.embedding <=> sqlc.arg('query')::vector(1536)))::double precision AS score
+FROM recally_article_embedding e
+JOIN recally_article a ON a.id = e.article_id
+WHERE e.model = sqlc.arg('model')
+  AND a.user_id = sqlc.arg('user_id')
+ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), a.saved_at DESC, a.id DESC
+LIMIT sqlc.arg('limit');
+
 -- name: CountArticlesByStatus :one
 SELECT COUNT(*) as count FROM recally_article WHERE user_id = $1 AND status = $2;
 

@@ -8,36 +8,36 @@ import (
 	"testing"
 )
 
-func TestPostgresRuntimeFromBundleWithNestedPostgresRoot(t *testing.T) {
+func TestPostgresRuntimeFromRootWithNestedPostgresRoot(t *testing.T) {
 	root := t.TempDir()
 	pgRoot := filepath.Join(root, "postgres")
 	touch(t, filepath.Join(pgRoot, "bin", pgCtlName()))
 
-	bundle, err := postgresRuntimeFromBundle(root)
+	install, err := postgresRuntimeFromRoot(root)
 	if err != nil {
-		t.Fatalf("postgresRuntimeFromBundle: %v", err)
+		t.Fatalf("postgresRuntimeFromRoot: %v", err)
 	}
-	if bundle.BinariesPath != pgRoot {
-		t.Fatalf("BinariesPath = %q, want %q", bundle.BinariesPath, pgRoot)
+	if install.BinariesPath != pgRoot {
+		t.Fatalf("BinariesPath = %q, want %q", install.BinariesPath, pgRoot)
 	}
 }
 
-func TestPostgresRuntimeFromBundleWithDirectPostgresRoot(t *testing.T) {
+func TestPostgresRuntimeFromRootWithDirectPostgresRoot(t *testing.T) {
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "bin", pgCtlName()))
 
-	bundle, err := postgresRuntimeFromBundle(root)
+	install, err := postgresRuntimeFromRoot(root)
 	if err != nil {
-		t.Fatalf("postgresRuntimeFromBundle: %v", err)
+		t.Fatalf("postgresRuntimeFromRoot: %v", err)
 	}
-	if bundle.BinariesPath != root {
-		t.Fatalf("BinariesPath = %q, want %q", bundle.BinariesPath, root)
+	if install.BinariesPath != root {
+		t.Fatalf("BinariesPath = %q, want %q", install.BinariesPath, root)
 	}
 }
 
-func TestPostgresRuntimeFromBundleWithSplitPrefixLinuxRoot(t *testing.T) {
+func TestPostgresRuntimeFromRootWithSplitPrefixLinuxRoot(t *testing.T) {
 	root := t.TempDir()
-	// PGDG linux bundles mirror /usr so the backend can relocate its share dir:
+	// PGDG linux installs mirror /usr so the backend can relocate its share dir:
 	// bin lives under postgres/lib/postgresql/<major>, not directly under postgres/.
 	home := filepath.Join(root, "postgres", "lib", "postgresql", "18")
 	touch(t, filepath.Join(home, "bin", pgCtlName()))
@@ -45,22 +45,22 @@ func TestPostgresRuntimeFromBundleWithSplitPrefixLinuxRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bundle, err := postgresRuntimeFromBundle(root)
+	install, err := postgresRuntimeFromRoot(root)
 	if err != nil {
-		t.Fatalf("postgresRuntimeFromBundle: %v", err)
+		t.Fatalf("postgresRuntimeFromRoot: %v", err)
 	}
-	if bundle.BinariesPath != home {
-		t.Fatalf("BinariesPath = %q, want %q", bundle.BinariesPath, home)
+	if install.BinariesPath != home {
+		t.Fatalf("BinariesPath = %q, want %q", install.BinariesPath, home)
 	}
-	if bundle.PgLibRoot != filepath.Join(home, "lib") {
-		t.Fatalf("PgLibRoot = %q, want %q", bundle.PgLibRoot, filepath.Join(home, "lib"))
+	if install.PgLibRoot != filepath.Join(home, "lib") {
+		t.Fatalf("PgLibRoot = %q, want %q", install.PgLibRoot, filepath.Join(home, "lib"))
 	}
 }
 
-func TestPostgresRuntimeFromBundleRejectsInvalidRoot(t *testing.T) {
-	_, err := postgresRuntimeFromBundle(t.TempDir())
+func TestPostgresRuntimeFromRootRejectsInvalidRoot(t *testing.T) {
+	_, err := postgresRuntimeFromRoot(t.TempDir())
 	if err == nil {
-		t.Fatal("postgresRuntimeFromBundle succeeded, want error")
+		t.Fatal("postgresRuntimeFromRoot succeeded, want error")
 	}
 	msg := err.Error()
 	for _, want := range []string{postgresRuntimeEnvName, "postgres/bin/" + pgCtlName(), "bin/" + pgCtlName()} {
@@ -70,7 +70,7 @@ func TestPostgresRuntimeFromBundleRejectsInvalidRoot(t *testing.T) {
 	}
 }
 
-func TestPostgresRuntimeFromBundleFindsExtensionRoots(t *testing.T) {
+func TestPostgresRuntimeFromRootFindsExtensionRoots(t *testing.T) {
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "postgres", "bin", pgCtlName()))
 	if err := os.MkdirAll(filepath.Join(root, "extensions", "share", "extension"), 0o755); err != nil {
@@ -80,19 +80,19 @@ func TestPostgresRuntimeFromBundleFindsExtensionRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bundle, err := postgresRuntimeFromBundle(root)
+	install, err := postgresRuntimeFromRoot(root)
 	if err != nil {
-		t.Fatalf("postgresRuntimeFromBundle: %v", err)
+		t.Fatalf("postgresRuntimeFromRoot: %v", err)
 	}
-	if bundle.ExtShareRoot != filepath.Join(root, "extensions", "share") {
-		t.Fatalf("ExtShareRoot = %q", bundle.ExtShareRoot)
+	if install.ExtShareRoot != filepath.Join(root, "extensions", "share") {
+		t.Fatalf("ExtShareRoot = %q", install.ExtShareRoot)
 	}
-	if bundle.ExtLibRoot != filepath.Join(root, "extensions", "lib") {
-		t.Fatalf("ExtLibRoot = %q", bundle.ExtLibRoot)
+	if install.ExtLibRoot != filepath.Join(root, "extensions", "lib") {
+		t.Fatalf("ExtLibRoot = %q", install.ExtLibRoot)
 	}
 }
 
-func TestPostgresRuntimeFromBundleFindsPostgresAppRoots(t *testing.T) {
+func TestPostgresRuntimeFromRootFindsPostgresAppRoots(t *testing.T) {
 	root := t.TempDir()
 	pgRoot := filepath.Join(root, "postgres")
 	touch(t, filepath.Join(pgRoot, "bin", pgCtlName()))
@@ -103,15 +103,15 @@ func TestPostgresRuntimeFromBundleFindsPostgresAppRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bundle, err := postgresRuntimeFromBundle(root)
+	install, err := postgresRuntimeFromRoot(root)
 	if err != nil {
-		t.Fatalf("postgresRuntimeFromBundle: %v", err)
+		t.Fatalf("postgresRuntimeFromRoot: %v", err)
 	}
-	if bundle.PgShareRoot != filepath.Join(pgRoot, "share", "postgresql") {
-		t.Fatalf("PgShareRoot = %q", bundle.PgShareRoot)
+	if install.PgShareRoot != filepath.Join(pgRoot, "share", "postgresql") {
+		t.Fatalf("PgShareRoot = %q", install.PgShareRoot)
 	}
-	if bundle.PgLibRoot != filepath.Join(pgRoot, "lib", "postgresql") {
-		t.Fatalf("PgLibRoot = %q", bundle.PgLibRoot)
+	if install.PgLibRoot != filepath.Join(pgRoot, "lib", "postgresql") {
+		t.Fatalf("PgLibRoot = %q", install.PgLibRoot)
 	}
 }
 

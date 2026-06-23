@@ -793,6 +793,44 @@ components:
       properties:
         seen:
           type: boolean
+    EmbeddingSettings:
+      type: object
+      description: >
+        Deployment-wide semantic-search configuration. The api_key is never returned; has_api_key reports whether one is stored.
+
+      required: [enabled, model, dim, base_url, normalize, has_api_key]
+      properties:
+        enabled:
+          type: boolean
+        model:
+          type: string
+        dim:
+          type: integer
+        base_url:
+          type: string
+        normalize:
+          type: boolean
+        has_api_key:
+          type: boolean
+    EmbeddingSettingsUpdate:
+      type: object
+      description: >
+        Update payload for the embedding settings. api_key is write-only; omit it or send an empty string to keep the existing key.
+
+      required: [enabled, model, dim, base_url, normalize]
+      properties:
+        enabled:
+          type: boolean
+        model:
+          type: string
+        dim:
+          type: integer
+        base_url:
+          type: string
+        normalize:
+          type: boolean
+        api_key:
+          type: string
     # ── Core resource ────────────────────────────────────────────────────────
     Goal:
       type: object

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
@@ -26,6 +27,20 @@ type Embedded struct {
 // files live: a stable path persists data across restarts (the server runtime),
 // while an empty string uses a throwaway temp dir that is removed on Stop (tests).
 func StartEmbedded(dataDir string, port uint32) (*Embedded, error) {
+	requestedPort := port
+	for attempt := 0; ; attempt++ {
+		e, err := startEmbeddedOnce(dataDir, port)
+		if err == nil {
+			return e, nil
+		}
+		if requestedPort != 0 || attempt >= 4 || !strings.Contains(err.Error(), "process already listening on port") {
+			return nil, err
+		}
+		port = 0
+	}
+}
+
+func startEmbeddedOnce(dataDir string, port uint32) (*Embedded, error) {
 	if port == 0 {
 		p, err := freePort()
 		if err != nil {

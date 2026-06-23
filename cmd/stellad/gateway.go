@@ -342,6 +342,18 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		defer s.goalSvc.Dispatcher.Stop()
 	}
 
+	// Embedding backfill periodic: a single-leader River job that drains the
+	// embedding backlog (RunOnStart kicks an initial pass). Registered against the
+	// same shared client; the defer removes it so no further firings enqueue on
+	// shutdown. Only present when the semantic lane is configured.
+	if s.embeddingSvc != nil && s.riverClient != nil {
+		handle, err := s.embeddingSvc.StartBackfill()
+		if err != nil {
+			return fmt.Errorf("start embedding backfill: %w", err)
+		}
+		defer s.embeddingSvc.StopBackfill(handle)
+	}
+
 	waitErr := g.Wait()
 	slog.Info("gateway stopped")
 	return waitErr

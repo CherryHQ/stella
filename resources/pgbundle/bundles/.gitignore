@@ -1,5 +1,0 @@
-# PostgreSQL runtime bundles are fetched at build/CI time, never committed.
-# Keep the per-platform directories (.keep) but ignore the large archives.
-*.tar.zst
-*.tar.zst.sha256
-pg-runtime.sha256

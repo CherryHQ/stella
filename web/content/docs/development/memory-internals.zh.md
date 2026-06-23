@@ -205,13 +205,15 @@ ai.Message (user/assistant/tool_result)
 
 ### 搜索
 
-搜索基于 PostgreSQL 的 **pg_search BM25** 排序。`ctx_message` 与 `ctx_summary` 各自在 `content` 上建有 `USING bm25` 索引，使用 **ICU** 分词器，因此中文会被切成词（部署方案 命中切分后的 部署 / 方案），英文按整 token 匹配。**没有回退层** — pg_search 硬依赖 `pg_search` 扩展（语义检索还需 `vector`），它们随内嵌运行时 bundle 或外部 PostgreSQL 一起提供。
+搜索基于 PostgreSQL 的 **pg_search BM25** 排序。`ctx_message` 与 `ctx_summary` 各自在 `content` 上建有 `USING bm25` 索引，使用 **ICU** 分词器，因此中文会被切成词（部署方案 命中切分后的 部署 / 方案），英文按整 token 匹配。**没有回退层** — pg_search 硬依赖 `pg_search` 扩展（语义检索还需 `vector`），它们随下载的 runtime 或外部 PostgreSQL 一起提供。
 
 - 原始用户文本直接交给 `paradedb.match`，它用 ICU 分词，且对标点或查询语法字符永不报错 — 因此既无需单独的清洗步骤，短查询和中文查询也能原生命中（没有最小 token 长度限制，没有 `LIKE` 回退）。
 - 命中包含 pg_search 片段（`<b>term</b>` 高亮）和 `paradedb.score` BM25 分数（越大越相关）。
 - `both` 范围分别以完整 limit 查询消息和摘要，再按分数合并取前 N — 强摘要命中可以排在弱消息命中之前。摘要命中可通过 `describe`/`expand` 下钻。
 - BM25 索引位于 schema 基线（`internal/db/migrations`）；`vector`/`pg_search` 扩展在**运行时**（`internal/db/database.go` 的 `ensureExtensions`）于迁移前创建，因为 `CREATE EXTENSION` 需要二进制（以及 `shared_preload_libraries=pg_search`），迁移无法保证这些。
-- 语义检索使用按来源拆分的 sidecar 表（`ctx_message_embedding`、`ctx_summary_embedding`、`recally_article_embedding`），各持有一列 `vector(1536)` 并建有 HNSW 索引，以来源 id 为键。它们初始为空：embedding 生产/回填在后续 PR 落地。
+- 语义检索使用按来源拆分的 sidecar 表（`ctx_message_embedding`、`ctx_summary_embedding`、`recally_article_embedding`），各持有一列 `vector(1536)` 并建有 HNSW（`vector_cosine_ops`）索引，以来源 id 为键。该通道**默认关闭、运行时配置**——没有任何 embedding 环境变量。管理员在 **设置 → 向量嵌入** 页面设置提供商密钥、Base URL、模型、维度与是否归一化（以一条 JSON 存入 `app_setting` 的 `embedding` 键），修改即时生效，无需重启。
+- 启用后，基于 River 的 worker 会为新内容生成向量并回填存量行；关闭时 worker 空转，检索回退为纯 BM25。每一行在其 `model` 列记录一个**空间键**（`model@dim`），查询按 `WHERE model = $space` 过滤——因此用不同模型/维度生成的查询向量只会返回空结果而非错配结果；切换模型或维度会重新嵌入到全新的向量空间。
+- 当两个通道都有命中时，`retrieval.go` 会分别对每个通道的分数做 min-max 归一化，再以 50/50 权重融合，并按 `source_type/source_id` 合并两路结果。
 
 ## Simple 插件
 

@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Release: default binaries no longer ship PostgreSQL runtime archives. Non-Docker installs can run `stellad postgres download-runtime` for the embedded database path; Docker images require `STELLA_DATABASE_URL` pointing at an external PostgreSQL 18 server with `pg_search` and `pgvector`. ([#590](https://github.com/CherryHQ/stella/pull/590))
+
+## [0.50.2] - 2026-06-23
+
+### ✨ Features
+
+- Runtime: support Ubuntu LTS PostgreSQL runtime sources. ([#581](https://github.com/CherryHQ/stella/pull/581))
+- Upgrade: allow pinning a target version and show download progress. ([#584](https://github.com/CherryHQ/stella/pull/584))
+- Search: tune BM25 lexical search with jieba tokenization, native field boosts, and cross-source RRF. ([#587](https://github.com/CherryHQ/stella/pull/587))
+
+### 🐛 Bug Fixes
+
+- Release: embed Linux PostgreSQL runtimes so Linux packages include the required runtime resources. ([#585](https://github.com/CherryHQ/stella/pull/585))
+- Scheduler: stabilize one-time cleanup tests. ([8d5e032](https://github.com/CherryHQ/stella/commit/8d5e0325))
+
+### ♻️ Refactoring
+
+- Build: install goose from the prebuilt GitHub binary instead of `go install`. ([c014114](https://github.com/CherryHQ/stella/commit/c0141149))
+
+**Full Changelog**: [v0.50.1...v0.50.2](https://github.com/CherryHQ/stella/compare/v0.50.1...v0.50.2)
+
 ## [0.50.1] - 2026-06-23
 
 ### 🐛 Bug Fixes

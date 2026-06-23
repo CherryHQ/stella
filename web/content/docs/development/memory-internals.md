@@ -211,13 +211,15 @@ Every assembly emits a structured log entry (`lcm tail telemetry`) with `tail_it
 
 ### Search
 
-Search runs on PostgreSQL with **pg_search BM25** ranking. The `ctx_message` and `ctx_summary` tables each carry a `USING bm25` index over `content`, tokenized with the **ICU** tokenizer, so CJK is segmented into words (部署方案 matches the segmented 部署 / 方案 in a longer sentence) and English matches whole tokens. There is **no fallback tier** — pg_search hard-requires the `pg_search` extension (and `vector` for the semantic lane), which ship in the embedded runtime bundle or an external PostgreSQL.
+Search runs on PostgreSQL with **pg_search BM25** ranking. The `ctx_message` and `ctx_summary` tables each carry a `USING bm25` index over `content`, tokenized with the **ICU** tokenizer, so CJK is segmented into words (部署方案 matches the segmented 部署 / 方案 in a longer sentence) and English matches whole tokens. There is **no fallback tier** — pg_search hard-requires the `pg_search` extension (and `vector` for the semantic lane), which ship in the downloaded runtime or an external PostgreSQL.
 
 - Raw user text goes straight to `paradedb.match`, which tokenizes with ICU and never errors on punctuation or query-syntax characters — so there is no separate sanitize step, and short or CJK queries match natively (no minimum-token-length rule, no `LIKE` fallback).
 - Hits carry a pg_search snippet (`<b>term</b>` highlights) and a `paradedb.score` BM25 score (higher is better).
 - `both` scope queries messages and summaries separately with the full limit, then merges by score and keeps the top N — a strong summary hit can outrank a weak message hit. Summary hits drill down via `describe`/`expand`.
 - The BM25 indexes live in the schema baseline (`internal/db/migrations`); the `vector`/`pg_search` extensions are created at **runtime** (`ensureExtensions` in `internal/db/database.go`) before migrations run, because `CREATE EXTENSION` needs binaries (and `shared_preload_libraries=pg_search`) that a migration cannot guarantee.
-- Semantic search uses per-source sidecar tables (`ctx_message_embedding`, `ctx_summary_embedding`, `recally_article_embedding`) holding a `vector(1536)` with an HNSW index, keyed by the source id. They start empty: embedding production/backfill lands in a follow-up.
+- Semantic search uses per-source sidecar tables (`ctx_message_embedding`, `ctx_summary_embedding`, `recally_article_embedding`) holding a `vector(1536)` with an HNSW (`vector_cosine_ops`) index, keyed by the source id. The lane is **opt-in and runtime-configured** — there are no embedding env vars. Admins set the provider key, base URL, model, dimension, and normalization on the **Settings → Embedding** page (stored as one JSON value under the `embedding` key in `app_setting`); changes take effect immediately, with no restart.
+- When enabled, a River-backed worker embeds new content and backfills the existing rows; when disabled, the worker idles and search falls back to pure BM25. Each row records a **space key** (`model@dim`) in its `model` column, and queries filter `WHERE model = $space`, so a query embedded under a different model/dimension simply returns no rows rather than mismatched ones — switching model or dimension re-embeds into a fresh space.
+- When both lanes return hits, `retrieval.go` fuses them by min-max normalizing each lane's scores independently and combining them with a 50/50 weight, merging the two lanes by `source_type/source_id`.
 
 ## Simple Plugin
 

@@ -55,15 +55,6 @@ jobs:
       - name: Install bubblewrap
         run: sudo apt-get install -y bubblewrap
 
-      - name: Fetch PostgreSQL runtime bundle
-        # Tests boot embedded PostgreSQL, and search now hard-requires pgvector +
-        # pg_search, which only ship in the runtime bundle. Fetch it so it embeds
-        # into the test binary; ubuntu-latest (noble, linux/amd64) has a bundle.
-        run: scripts/fetch-pg-runtime.sh
-        env:
-          GOOS: linux
-          GOARCH: amd64
-
       - name: Generate code
         run: mise run generate
 
@@ -87,17 +78,17 @@ jobs:
             echo "**Total coverage: ${TOTAL}** (generated files excluded)"
             echo ""
             echo "<details>"
-            echo "<summary>Per-package breakdown</summary>"
+            echo "<summary>Lowest-covered entries (first 200)</summary>"
             echo ""
             echo '```'
-            go tool cover -func=coverage-filtered.out | grep -v '^total:' | awk '{printf "%-60s %s\n", $1, $NF}' | sort -t'%' -k2 -n
+            go tool cover -func=coverage-filtered.out | grep -v '^total:' | awk '{printf "%-60s %s\n", $1, $NF}' | sort -k2 -n | head -n 200
             echo '```'
             echo ""
             echo "</details>"
           } > coverage-report.md
 
       - name: Post coverage comment on PR
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: coverage-report
