@@ -38,6 +38,7 @@ CREATE UNIQUE INDEX uniq_agent_knowledge_owner_kind_name ON agent_knowledge (
 )
 WHERE status <> 'deprecated';
 
+-- +goose StatementBegin
 DO $$
 DECLARE
     offending_skill TEXT;
@@ -73,7 +74,9 @@ BEGIN
             offending_skill;
     END IF;
 END $$;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 DO $$
 DECLARE
     duplicate_key TEXT;
@@ -101,6 +104,7 @@ BEGIN
             duplicate_key;
     END IF;
 END $$;
+-- +goose StatementEnd
 
 WITH migrated AS (
     INSERT INTO agent_knowledge (
