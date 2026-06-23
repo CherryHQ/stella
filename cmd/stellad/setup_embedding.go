@@ -1,88 +1,44 @@
 package main
 
 import (
+	"context"
 	"log/slog"
-	"os"
-	"strconv"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/embedding"
 )
 
-const (
-	// defaultEmbeddingModel is the canonical day-1 vector space: OpenAI's
-	// text-embedding-3-small emits 1536-dim vectors natively, matching the
-	// sidecar storage width with no padding.
-	defaultEmbeddingModel = "text-embedding-3-small"
-	// defaultEmbeddingName labels the provider instance in logs.
-	defaultEmbeddingName = "openai-embedding"
-)
-
-// setupEmbedding builds the optional semantic-search lane from STELLA_EMBEDDING_*
-// env. The lane is opt-in: with no STELLA_EMBEDDING_API_KEY it returns nil and the
-// deployment stays pure-BM25 (no query embedding, no backfill worker). When a key
-// is present it constructs the API-first chain + backfill indexer; the caller
-// wires the returned Service into the memory provider (query embedder) and the
-// shared River client (backfill worker + periodic).
-func setupEmbedding(db *pgxpool.Pool, logger *slog.Logger) *embedding.Service {
-	apiKey := os.Getenv("STELLA_EMBEDDING_API_KEY")
-	if apiKey == "" {
-		return nil
-	}
-
-	model := os.Getenv("STELLA_EMBEDDING_MODEL")
-	if model == "" {
-		model = defaultEmbeddingModel
-	}
-
-	// Dim pins the requested output width to the sidecar storage width so no
-	// padding is needed; text-embedding-3-* honor the API `dimensions` param.
-	dim := embedding.StorageDim
-	if raw := os.Getenv("STELLA_EMBEDDING_DIM"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			dim = n
-		} else {
-			logger.Warn("embedding: STELLA_EMBEDDING_DIM unparseable, using default", "value", raw, "default", dim)
-		}
-	}
-
-	// Normalize defaults off: cosine distance (the <=> operator backing the HNSW
-	// index) is scale-invariant, so L2-normalizing query and document vectors is
-	// redundant. Enable only for a provider whose vectors are not already unit
-	// length and where exact cosine matters.
-	normalize := false
-	if raw := os.Getenv("STELLA_EMBEDDING_NORMALIZE"); raw != "" {
-		if b, err := strconv.ParseBool(raw); err == nil {
-			normalize = b
-		} else {
-			logger.Warn("embedding: STELLA_EMBEDDING_NORMALIZE unparseable, using default", "value", raw, "default", normalize)
-		}
-	}
-
-	var interval time.Duration
-	if raw := os.Getenv("STELLA_EMBEDDING_BACKFILL_INTERVAL"); raw != "" {
-		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
-			interval = d
-		} else {
-			logger.Warn("embedding: STELLA_EMBEDDING_BACKFILL_INTERVAL unparseable, using default", "value", raw)
-		}
-	}
-
-	svc := embedding.Boot(embedding.BootConfig{
-		DB: db,
-		API: embedding.APIConfig{
-			Name:    defaultEmbeddingName,
-			Model:   model,
-			Dim:     dim,
-			APIKey:  apiKey,
-			BaseURL: os.Getenv("STELLA_EMBEDDING_BASE_URL"),
-		},
-		Normalize: normalize,
-		Interval:  interval,
-		Logger:    logger,
+// setupEmbedding builds the always-present semantic-search lane. The lane is
+// config-driven at runtime: it reads the embedding settings from the DB config
+// store on each query and backfill pass, so enabling/disabling it or changing the
+// model/key/dimension in the web settings page takes effect without a restart.
+// When disabled (the default for a fresh deployment) the query embedder reports
+// no vector space and the backfill worker idles, keeping pure-BM25 behavior.
+func setupEmbedding(db *pgxpool.Pool, store config.Store, logger *slog.Logger) *embedding.Service {
+	return embedding.Boot(embedding.BootConfig{
+		DB:       db,
+		Settings: embeddingSettingsProvider{store: store},
+		Logger:   logger,
 	})
-	logger.Info("embedding: semantic search lane enabled", "model", model, "dim", dim, "normalize", normalize)
-	return svc
+}
+
+// embeddingSettingsProvider adapts the DB config store to the embedding package's
+// SettingsProvider, keeping the embedding package free of a config dependency.
+type embeddingSettingsProvider struct{ store config.Store }
+
+func (p embeddingSettingsProvider) EmbeddingSettings(ctx context.Context) (embedding.Settings, error) {
+	s, err := config.LoadEmbeddingSettings(ctx, p.store)
+	if err != nil {
+		return embedding.Settings{}, err
+	}
+	return embedding.Settings{
+		Enabled:   s.Enabled,
+		Model:     s.Model,
+		Dim:       s.Dim,
+		APIKey:    s.APIKey,
+		BaseURL:   s.BaseURL,
+		Normalize: s.Normalize,
+	}, nil
 }

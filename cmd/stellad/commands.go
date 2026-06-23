@@ -149,11 +149,11 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		})
 	}
 
-	// Optional semantic-search lane (STELLA_EMBEDDING_*). Built before the memory
-	// provider so its query embedder can be injected, and before the shared River
-	// client so its backfill worker joins the single electable client. nil when no
-	// embedding provider is configured (pure-BM25 deployment).
-	embeddingSvc := setupEmbedding(db, slog.With("component", "embedding"))
+	// Semantic-search lane (config-driven via the web settings page). Always built:
+	// it reads its config from the DB at runtime and idles when disabled. Built
+	// before the memory provider so its query embedder can be injected, and before
+	// the shared River client so its backfill worker joins the single electable client.
+	embeddingSvc := setupEmbedding(db, store, slog.With("component", "embedding"))
 
 	memProvider, err := setupMemoryProvider(parent, db, store, providerStreamBuilder, embeddingSvc)
 	if err != nil {

@@ -168,6 +168,12 @@ func (r *retrievalEngine) vectorSearch(ctx context.Context, userID, agentID, tex
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
+	// An empty space key means the embedder reported no vector space (lane disabled
+	// or unconfigured): there is no semantic lane to run, so return no hits and let
+	// the caller use lexical results unchanged.
+	if model == "" {
+		return nil, nil
+	}
 
 	var results []memory.SearchResult
 	if scope == scopeMessages || scope == scopeBoth {
