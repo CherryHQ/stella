@@ -78,10 +78,10 @@ jobs:
             echo "**Total coverage: ${TOTAL}** (generated files excluded)"
             echo ""
             echo "<details>"
-            echo "<summary>Per-package breakdown</summary>"
+            echo "<summary>Lowest-covered entries (first 200)</summary>"
             echo ""
             echo '```'
-            go tool cover -func=coverage-filtered.out | grep -v '^total:' | awk '{printf "%-60s %s\n", $1, $NF}' | sort -t'%' -k2 -n
+            go tool cover -func=coverage-filtered.out | grep -v '^total:' | awk '{printf "%-60s %s\n", $1, $NF}' | sort -k2 -n | head -n 200
             echo '```'
             echo ""
             echo "</details>"
