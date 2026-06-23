@@ -52,19 +52,15 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 
 	bundleRoot := os.Getenv(postgresRuntimeEnvName)
 	if bundleRoot == "" {
-		if root, ok := downloadedPostgresRuntimeRoot(dataDir, tmpDir); ok {
+		if root, ok := downloadedPostgresRuntimeRoot(dataDir); ok {
 			bundleRoot = root
-		} else if root, ok, err := pgbundle.EnsureBundle(postgresBundleCacheRoot(dataDir, tmpDir)); err != nil {
-			return postgresRuntimeInfo{}, err
-		} else if !ok {
+		} else {
 			// Embedded PostgreSQL only carries pgvector and pg_search when a Stella
-			// runtime bundle is present. Refuse instead of booting vanilla PostgreSQL
-			// and failing later with missing extension errors.
+			// runtime is installed. Refuse instead of booting vanilla PostgreSQL and
+			// failing later with missing extension errors.
 			return postgresRuntimeInfo{}, fmt.Errorf(
 				"db: no PostgreSQL runtime for %s/%s (expected %s). Download it with `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or set %s to an extracted runtime bundle. %s",
 				runtime.GOOS, runtime.GOARCH, postgresBundleID, postgresRuntimeEnvName, pgbundle.MissingBundleHint())
-		} else {
-			bundleRoot = root
 		}
 	}
 
@@ -88,7 +84,7 @@ func PostgresRuntimeDownloadRoot(stellaHome, source string) string {
 	return filepath.Join(stellaHome, "pg-runtime", postgresRuntimeCacheName(), "downloaded", source)
 }
 
-func downloadedPostgresRuntimeRoot(dataDir, tmpDir string) (string, bool) {
+func downloadedPostgresRuntimeRoot(dataDir string) (string, bool) {
 	source, ok := pgbundle.DefaultRuntimeSource()
 	if !ok {
 		return "", false
@@ -117,13 +113,6 @@ func stellaHomeForRuntime() (string, bool) {
 		return "", false
 	}
 	return filepath.Join(home, ".stella"), true
-}
-
-func postgresBundleCacheRoot(dataDir, tmpDir string) string {
-	if dataDir != "" {
-		return filepath.Join(filepath.Dir(dataDir), "pg-runtime", postgresRuntimeCacheName(), "bundles")
-	}
-	return filepath.Join(tmpDir, "bundles")
 }
 
 type postgresRuntimeBundle struct {
