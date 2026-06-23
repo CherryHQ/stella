@@ -415,6 +415,98 @@ func TestFindChecksumAsset(t *testing.T) {
 	}
 }
 
+func TestFetchRelease(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/CherryHQ/stella/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"tag_name":"v9.9.9"}`)
+	})
+	mux.HandleFunc("/repos/CherryHQ/stella/releases/tags/v1.2.3", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"tag_name":"v1.2.3"}`)
+	})
+	mux.HandleFunc("/repos/CherryHQ/stella/releases/tags/v0.0.0", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	prev := upgradeAPIBaseURL
+	upgradeAPIBaseURL = srv.URL
+	t.Cleanup(func() { upgradeAPIBaseURL = prev })
+
+	t.Run("empty version fetches latest", func(t *testing.T) {
+		rel, err := fetchRelease(context.Background(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rel.TagName != "v9.9.9" {
+			t.Fatalf("tag = %q, want v9.9.9", rel.TagName)
+		}
+	})
+
+	t.Run("specific version fetches that tag", func(t *testing.T) {
+		rel, err := fetchRelease(context.Background(), "1.2.3")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rel.TagName != "v1.2.3" {
+			t.Fatalf("tag = %q, want v1.2.3", rel.TagName)
+		}
+	})
+
+	t.Run("missing version reports a helpful error", func(t *testing.T) {
+		_, err := fetchRelease(context.Background(), "0.0.0")
+		if err == nil || !strings.Contains(err.Error(), "v0.0.0 not found") {
+			t.Fatalf("error = %v, want not-found message", err)
+		}
+	})
+}
+
+func TestDownloadFile(t *testing.T) {
+	content := []byte(strings.Repeat("stella", 5000))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(content)
+	}))
+	t.Cleanup(srv.Close)
+
+	dest := filepath.Join(t.TempDir(), "archive.bin")
+	var out strings.Builder // not an *os.File, so the progress bar stays silent
+	if err := downloadFile(context.Background(), &out, srv.URL, dest); err != nil {
+		t.Fatalf("downloadFile: %v", err)
+	}
+
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(content) {
+		t.Fatalf("downloaded %d bytes, want %d", len(got), len(content))
+	}
+	if out.Len() != 0 {
+		t.Fatalf("expected no progress output to a non-terminal writer, got %q", out.String())
+	}
+}
+
+func TestHumanBytes(t *testing.T) {
+	tests := []struct {
+		n    int64
+		want string
+	}{
+		{512, "512 B"},
+		{1024, "1.0 KiB"},
+		{1536, "1.5 KiB"},
+		{1 << 20, "1.0 MiB"},
+		{150 << 20, "150.0 MiB"},
+		{1 << 30, "1.0 GiB"},
+	}
+	for _, tt := range tests {
+		if got := humanBytes(tt.n); got != tt.want {
+			t.Errorf("humanBytes(%d) = %q, want %q", tt.n, got, tt.want)
+		}
+	}
+}
+
 func TestVerifyChecksumIntegration(t *testing.T) {
 	const archiveName = "stella_linux_amd64.tar.gz"
 	content := []byte("fake archive content")

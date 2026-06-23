@@ -79,6 +79,7 @@ Skills are reusable playbooks that teach Stella how to perform specific tasks. S
 stellad server                          # Start server; Web UI at http://localhost:25678
 stellad server --port 8080              # Custom port
 stellad upgrade                         # Self-update to latest release
+stellad upgrade 0.50.0                   # Self-update to a specific release
 stella scheduler list                   # List scheduled jobs
 stella vault list                       # List stored secrets
 stella version                          # Print version

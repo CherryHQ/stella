@@ -10,10 +10,11 @@ stella version
 
 ```bash
 stellad upgrade
+stellad upgrade 0.50.0                             # install a specific release
 stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
 ```
 
-Downloads the latest stable release from GitHub for your platform and replaces the running `stellad` binary by default. If the target directory is not writable, rerun with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
+Downloads a stable release from GitHub for your platform (the latest by default, or the version you pass) and replaces the running `stellad` binary by default. Progress is shown while the archive downloads. If the target directory is not writable, rerun with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
 
 ## Other methods
 
