@@ -1,0 +1,44 @@
+paths:
+  /api/embedding-settings:
+    get:
+      tags: [embedding]
+      summary: Get embedding settings (admin only)
+      operationId: getEmbeddingSettings
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/EmbeddingSettings",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+    put:
+      tags: [embedding]
+      summary: Update embedding settings (admin only)
+      operationId: updateEmbeddingSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/EmbeddingSettingsUpdate",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/EmbeddingSettings",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
