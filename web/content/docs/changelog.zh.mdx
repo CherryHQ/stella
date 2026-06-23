@@ -11,9 +11,18 @@ icon: History
 
 ## [Unreleased]
 
-### 变更
+## [0.50.3] - 2026-06-23
+
+### ✨ 功能
+
+- 搜索：新增词法与语义向量混合检索。([#589](https://github.com/CherryHQ/stella/pull/589))
+
+### 🐛 修复
 
 - 发布：默认二进制不再携带 PostgreSQL runtime 压缩包。非 Docker 安装可运行 `stellad postgres download-runtime` 使用内嵌数据库路径；Docker 镜像要求通过 `STELLA_DATABASE_URL` 指向已安装 `pg_search` 和 `pgvector` 的外部 PostgreSQL 18。([#590](https://github.com/CherryHQ/stella/pull/590))
+- CI：稳定 coverage workflow，并跳过 fork PR 的 coverage 评论。([c336e47](https://github.com/CherryHQ/stella/commit/c336e472), [90d0f07](https://github.com/CherryHQ/stella/commit/90d0f074))
+
+**完整变更日志**：[v0.50.2...v0.50.3](https://github.com/CherryHQ/stella/compare/v0.50.2...v0.50.3)
 
 ## [0.50.2] - 2026-06-23
 

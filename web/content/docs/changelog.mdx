@@ -11,9 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.50.3] - 2026-06-23
+
+### ✨ Features
+
+- Search: add hybrid lexical and semantic vector retrieval. ([#589](https://github.com/CherryHQ/stella/pull/589))
+
+### 🐛 Bug Fixes
 
 - Release: default binaries no longer ship PostgreSQL runtime archives. Non-Docker installs can run `stellad postgres download-runtime` for the embedded database path; Docker images require `STELLA_DATABASE_URL` pointing at an external PostgreSQL 18 server with `pg_search` and `pgvector`. ([#590](https://github.com/CherryHQ/stella/pull/590))
+- CI: stabilize coverage workflow and skip coverage comments for fork PRs. ([c336e47](https://github.com/CherryHQ/stella/commit/c336e472), [90d0f07](https://github.com/CherryHQ/stella/commit/90d0f074))
+
+**Full Changelog**: [v0.50.2...v0.50.3](https://github.com/CherryHQ/stella/compare/v0.50.2...v0.50.3)
 
 ## [0.50.2] - 2026-06-23
 
