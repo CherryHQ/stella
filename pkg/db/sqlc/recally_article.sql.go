@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
 const countArticlesByStatus = `-- name: CountArticlesByStatus :one
@@ -416,6 +417,80 @@ func (q *Queries) ListUnreadArticlesOlderThan(ctx context.Context, arg ListUnrea
 	return items, nil
 }
 
+const searchArticleEmbeddings = `-- name: SearchArticleEmbeddings :many
+SELECT
+    a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at,
+    (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
+FROM recally_article_embedding e
+JOIN recally_article a ON a.id = e.article_id
+WHERE e.model = $2
+  AND a.user_id = $3
+ORDER BY e.embedding <=> $1::vector(1536), a.saved_at DESC, a.id DESC
+LIMIT $4
+`
+
+type SearchArticleEmbeddingsParams struct {
+	Query  pgvector_go.Vector `json:"query"`
+	Model  string             `json:"model"`
+	UserID string             `json:"user_id"`
+	Limit  int32              `json:"limit"`
+}
+
+type SearchArticleEmbeddingsRow struct {
+	RecallyArticle RecallyArticle `json:"recally_article"`
+	Score          float64        `json:"score"`
+}
+
+// Vector KNN over article embeddings, scoped to user_id (articles carry user_id
+// directly, no conversation join). WHERE model pins the vector space; ORDER BY
+// the <=> operator drives the HNSW cosine index. score is cosine similarity
+// (1 - distance), higher is better. saved_at, id break ties. Keep ASCII.
+func (q *Queries) SearchArticleEmbeddings(ctx context.Context, arg SearchArticleEmbeddingsParams) ([]SearchArticleEmbeddingsRow, error) {
+	rows, err := q.db.Query(ctx, searchArticleEmbeddings,
+		arg.Query,
+		arg.Model,
+		arg.UserID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchArticleEmbeddingsRow{}
+	for rows.Next() {
+		var i SearchArticleEmbeddingsRow
+		if err := rows.Scan(
+			&i.RecallyArticle.ID,
+			&i.RecallyArticle.UserID,
+			&i.RecallyArticle.AgentID,
+			&i.RecallyArticle.Url,
+			&i.RecallyArticle.CanonicalUrl,
+			&i.RecallyArticle.SourceType,
+			&i.RecallyArticle.Title,
+			&i.RecallyArticle.Author,
+			&i.RecallyArticle.Summary,
+			&i.RecallyArticle.Tags,
+			&i.RecallyArticle.Status,
+			&i.RecallyArticle.Starred,
+			&i.RecallyArticle.FilePath,
+			&i.RecallyArticle.Metadata,
+			&i.RecallyArticle.PublishedAt,
+			&i.RecallyArticle.SavedAt,
+			&i.RecallyArticle.ReadAt,
+			&i.RecallyArticle.CreatedAt,
+			&i.RecallyArticle.UpdatedAt,
+			&i.Score,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchArticles = `-- name: SearchArticles :many
 SELECT
     a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at,
@@ -567,4 +642,32 @@ func (q *Queries) UpdateArticle(ctx context.Context, arg UpdateArticleParams) (R
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const upsertArticleEmbedding = `-- name: UpsertArticleEmbedding :exec
+INSERT INTO recally_article_embedding (article_id, model, content_hash, embedding)
+VALUES ($1, $2, $3, $4::vector(1536))
+ON CONFLICT (article_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    updated_at   = now()
+`
+
+type UpsertArticleEmbeddingParams struct {
+	ArticleID   string             `json:"article_id"`
+	Model       string             `json:"model"`
+	ContentHash []byte             `json:"content_hash"`
+	Embedding   pgvector_go.Vector `json:"embedding"`
+}
+
+// Semantic-search vector for one article; see UpsertMessageEmbedding. Keep ASCII.
+func (q *Queries) UpsertArticleEmbedding(ctx context.Context, arg UpsertArticleEmbeddingParams) error {
+	_, err := q.db.Exec(ctx, upsertArticleEmbedding,
+		arg.ArticleID,
+		arg.Model,
+		arg.ContentHash,
+		arg.Embedding,
+	)
+	return err
 }

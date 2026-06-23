@@ -59,6 +59,34 @@ JOIN ctx_summary_parent sp ON sp.summary_id = s.id
 WHERE sp.parent_summary_id = $1
 ORDER BY sp.ordinal ASC;
 
+-- name: UpsertSummaryEmbedding :exec
+-- Semantic-search vector for one summary; see UpsertMessageEmbedding. Keep ASCII.
+INSERT INTO ctx_summary_embedding (summary_id, model, content_hash, embedding)
+VALUES (sqlc.arg('summary_id'), sqlc.arg('model'), sqlc.arg('content_hash'), sqlc.arg('embedding')::vector(1536))
+ON CONFLICT (summary_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    updated_at   = now();
+
+-- name: SearchSummaryEmbeddings :many
+-- Vector KNN over summary embeddings; mirror of SearchMessageEmbeddings (same
+-- space + scope guards, cosine similarity score). Tie-break by content time then
+-- id. Keep ASCII.
+SELECT
+    s.*,
+    c.session_id AS session_id,
+    c.title AS conversation_title,
+    (1 - (e.embedding <=> sqlc.arg('query')::vector(1536)))::double precision AS score
+FROM ctx_summary_embedding e
+JOIN ctx_summary s ON s.id = e.summary_id
+JOIN ctx_conversation c ON c.id = s.conversation_id
+WHERE e.model = sqlc.arg('model')
+  AND c.user_id = sqlc.arg('user_id')
+  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
+LIMIT sqlc.arg('limit');
+
 -- name: SearchSummaries :many
 -- Spans every conversation of the current (user_id, agent_id); see SearchMessages.
 -- Lexical ranking is pg_search BM25; paradedb.match tokenizes the raw user text

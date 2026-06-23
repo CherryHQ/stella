@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
 const createSummary = `-- name: CreateSummary :exec
@@ -509,4 +510,119 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const searchSummaryEmbeddings = `-- name: SearchSummaryEmbeddings :many
+SELECT
+    s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at,
+    c.session_id AS session_id,
+    c.title AS conversation_title,
+    (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
+FROM ctx_summary_embedding e
+JOIN ctx_summary s ON s.id = e.summary_id
+JOIN ctx_conversation c ON c.id = s.conversation_id
+WHERE e.model = $2
+  AND c.user_id = $3
+  AND c.agent_id IS NOT DISTINCT FROM $4
+ORDER BY e.embedding <=> $1::vector(1536), COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
+LIMIT $5
+`
+
+type SearchSummaryEmbeddingsParams struct {
+	Query   pgvector_go.Vector `json:"query"`
+	Model   string             `json:"model"`
+	UserID  pgtype.Text        `json:"user_id"`
+	AgentID pgtype.Text        `json:"agent_id"`
+	Limit   int32              `json:"limit"`
+}
+
+type SearchSummaryEmbeddingsRow struct {
+	ID                      string             `json:"id"`
+	ConversationID          string             `json:"conversation_id"`
+	Kind                    string             `json:"kind"`
+	Depth                   int64              `json:"depth"`
+	Content                 string             `json:"content"`
+	TokenCount              int64              `json:"token_count"`
+	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
+	LatestAt                pgtype.Timestamptz `json:"latest_at"`
+	DescendantCount         int64              `json:"descendant_count"`
+	DescendantTokenCount    int64              `json:"descendant_token_count"`
+	SourceMessageTokenCount int64              `json:"source_message_token_count"`
+	CreatedAt               time.Time          `json:"created_at"`
+	SessionID               string             `json:"session_id"`
+	ConversationTitle       pgtype.Text        `json:"conversation_title"`
+	Score                   float64            `json:"score"`
+}
+
+// Vector KNN over summary embeddings; mirror of SearchMessageEmbeddings (same
+// space + scope guards, cosine similarity score). Tie-break by content time then
+// id. Keep ASCII.
+func (q *Queries) SearchSummaryEmbeddings(ctx context.Context, arg SearchSummaryEmbeddingsParams) ([]SearchSummaryEmbeddingsRow, error) {
+	rows, err := q.db.Query(ctx, searchSummaryEmbeddings,
+		arg.Query,
+		arg.Model,
+		arg.UserID,
+		arg.AgentID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchSummaryEmbeddingsRow{}
+	for rows.Next() {
+		var i SearchSummaryEmbeddingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Kind,
+			&i.Depth,
+			&i.Content,
+			&i.TokenCount,
+			&i.EarliestAt,
+			&i.LatestAt,
+			&i.DescendantCount,
+			&i.DescendantTokenCount,
+			&i.SourceMessageTokenCount,
+			&i.CreatedAt,
+			&i.SessionID,
+			&i.ConversationTitle,
+			&i.Score,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const upsertSummaryEmbedding = `-- name: UpsertSummaryEmbedding :exec
+INSERT INTO ctx_summary_embedding (summary_id, model, content_hash, embedding)
+VALUES ($1, $2, $3, $4::vector(1536))
+ON CONFLICT (summary_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    updated_at   = now()
+`
+
+type UpsertSummaryEmbeddingParams struct {
+	SummaryID   string             `json:"summary_id"`
+	Model       string             `json:"model"`
+	ContentHash []byte             `json:"content_hash"`
+	Embedding   pgvector_go.Vector `json:"embedding"`
+}
+
+// Semantic-search vector for one summary; see UpsertMessageEmbedding. Keep ASCII.
+func (q *Queries) UpsertSummaryEmbedding(ctx context.Context, arg UpsertSummaryEmbeddingParams) error {
+	_, err := q.db.Exec(ctx, upsertSummaryEmbedding,
+		arg.SummaryID,
+		arg.Model,
+		arg.ContentHash,
+		arg.Embedding,
+	)
+	return err
 }
