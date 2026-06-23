@@ -556,7 +556,7 @@ JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE m.id @@@ paradedb.match('content', $1::text)
   AND c.user_id = $2
   AND c.agent_id IS NOT DISTINCT FROM $3
-ORDER BY score DESC
+ORDER BY score DESC, m.created_at DESC, m.id DESC
 LIMIT $4
 `
 
@@ -586,9 +586,13 @@ type SearchMessagesRow struct {
 // survives across sessions. Joins ctx_conversation to pin the scope and surface
 // provenance (session_id, title). Global ORDER BY score + LIMIT keeps the best
 // matches across the merged corpus, not per-conversation truncations. Lexical
-// ranking is pg_search BM25; paradedb.match tokenizes the raw user text with ICU
-// (so CJK matches natively, no fallback tier) and never errors on punctuation or
-// query-syntax characters. The match arg is the raw user text.
+// ranking is pg_search BM25; paradedb.match tokenizes the raw user text with the
+// jieba tokenizer (dictionary + statistical CJK word segmentation, so CJK matches
+// natively with no fallback tier) and never errors on punctuation or query-syntax
+// characters. The match arg is the raw user text. Multi-term queries are OR'd and
+// ranked by BM25, which sinks weak partial matches below strong full matches.
+// created_at, id break score ties deterministically: cross-source RRF uses each
+// row's rank, so a stable order keeps the same query from reshuffling the merge.
 func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) ([]SearchMessagesRow, error) {
 	rows, err := q.db.Query(ctx, searchMessages,
 		arg.Match,

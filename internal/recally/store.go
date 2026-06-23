@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -252,14 +253,18 @@ func (s *Store) ListArticles(ctx context.Context, userID string, filter ArticleF
 }
 
 // SearchArticles searches articles by title, summary, tags, or author using the
-// pg_search BM25 index, ordered by relevance (title hits rank highest). The raw
-// query goes straight to paradedb.match, which tokenizes with ICU (short and CJK
-// queries match) and never errors on punctuation, so there is no fallback tier.
+// pg_search BM25 index, ordered by relevance (title hits rank highest via native
+// paradedb.boost). The raw query goes straight to paradedb.match, which tokenizes
+// with the jieba tokenizer (short and CJK queries match) and never errors on
+// punctuation, so there is no fallback tier.
 func (s *Store) SearchArticles(ctx context.Context, userID string, query string, limit int) ([]Article, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	match := strings.TrimSpace(query)
+	// normalizeQuery folds punctuation to spaces so jieba never emits a punctuation
+	// token that matches unrelated rows; a letter/digit-free query normalizes to ""
+	// and short-circuits instead of issuing a no-op query.
+	match := normalizeQuery(query)
 	if match == "" {
 		return []Article{}, nil
 	}
@@ -279,6 +284,22 @@ func (s *Store) SearchArticles(ctx context.Context, userID string, query string,
 		articles = append(articles, article)
 	}
 	return articles, nil
+}
+
+// normalizeQuery folds punctuation and symbols to spaces and collapses runs of
+// whitespace, so jieba never emits a punctuation token that matches unrelated
+// rows (index-side whitespace stopwords then drop the spaces). A query with no
+// letters or digits normalizes to "", which callers treat as a no-op search.
+func normalizeQuery(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsPunct(r) || unicode.IsSymbol(r) {
+			b.WriteByte(' ')
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 // CreateFeed creates a new feed subscription. kind is the extraction-dispatch
