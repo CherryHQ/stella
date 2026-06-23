@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -89,9 +88,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	dsn := config.DatabaseURL()
 	var embedded *appdb.Embedded
 	if dsn == "" {
-		if os.Getenv("STELLA_REQUIRE_DATABASE_URL") == "1" {
-			return nil, fmt.Errorf("STELLA_DATABASE_URL is required in the Docker image; run PostgreSQL separately and pass its connection URL to the container")
-		}
 		// Zero-config default: no external DSN, so run a managed PostgreSQL whose
 		// cluster lives under the stella home and persists across restarts.
 		emb, err := appdb.StartEmbedded(filepath.Join(config.StellaHome(), "postgres"), 0)

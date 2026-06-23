@@ -13,7 +13,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/resources/pgbundle"
+	"github.com/CherryHQ/stella/internal/pgruntime"
 )
 
 func postgresCommand() *ucli.Command {
@@ -35,17 +35,17 @@ func postgresDownloadRuntimeCommand() *ucli.Command {
 			"Set STELLA_DATABASE_URL instead if you run PostgreSQL yourself.",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "source", Usage: "Runtime source to download (Linux: bookworm, noble, trixie; macOS arm64: postgresapp)"},
-			&ucli.StringFlag{Name: "repo", Usage: "Runtime release repository", Value: pgbundle.DefaultRuntimeRepo},
-			&ucli.StringFlag{Name: "version", Usage: "Runtime release tag", Value: pgbundle.RuntimeVersion},
+			&ucli.StringFlag{Name: "repo", Usage: "Runtime release repository", Value: pgruntime.DefaultRuntimeRepo},
+			&ucli.StringFlag{Name: "version", Usage: "Runtime release tag", Value: pgruntime.RuntimeVersion},
 			&ucli.BoolFlag{Name: "force", Usage: "Replace an already installed runtime"},
 		},
 		Action: func(c *ucli.Context) error {
 			source := c.String("source")
 			if source == "" {
 				var ok bool
-				source, ok = pgbundle.DefaultRuntimeSource()
+				source, ok = pgruntime.DefaultRuntimeSource()
 				if !ok {
-					return fmt.Errorf("postgres download-runtime: no default runtime source for %s/%s. %s", runtime.GOOS, runtime.GOARCH, pgbundle.MissingBundleHint())
+					return fmt.Errorf("postgres download-runtime: no default runtime source for %s/%s. %s", runtime.GOOS, runtime.GOARCH, pgruntime.MissingRuntimeHint())
 				}
 			}
 			root, err := downloadPostgresRuntime(c.Context, os.Stderr, config.StellaHome(), c.String("repo"), c.String("version"), source, c.Bool("force"))
@@ -66,8 +66,8 @@ func downloadPostgresRuntime(ctx context.Context, out io.Writer, stellaHome, rep
 	}
 
 	assetName := runtimeAssetName(version, runtime.GOOS, runtime.GOARCH, source)
-	assetURL := pgbundle.RuntimeAssetURL(repo, version, runtime.GOOS, runtime.GOARCH, source)
-	checksumURL := pgbundle.RuntimeChecksumURL(repo, version, runtime.GOOS, runtime.GOARCH, source)
+	assetURL := pgruntime.RuntimeAssetURL(repo, version, runtime.GOOS, runtime.GOARCH, source)
+	checksumURL := pgruntime.RuntimeChecksumURL(repo, version, runtime.GOOS, runtime.GOARCH, source)
 
 	tmpDir, err := os.MkdirTemp(filepath.Dir(root), ".pg-runtime-download-*")
 	if err != nil {
@@ -105,7 +105,7 @@ func downloadPostgresRuntime(ctx context.Context, out io.Writer, stellaHome, rep
 	if err := os.MkdirAll(extractDir, 0o755); err != nil {
 		return "", fmt.Errorf("create PostgreSQL runtime extraction dir: %w", err)
 	}
-	if err := pgbundle.ExtractTarZstdFile(archivePath, extractDir); err != nil {
+	if err := pgruntime.ExtractTarZstdFile(archivePath, extractDir); err != nil {
 		return "", err
 	}
 	if err := os.RemoveAll(root); err != nil {

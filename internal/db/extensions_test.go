@@ -20,7 +20,7 @@ func TestEnsureExtensionRequirementsCreatesExtension(t *testing.T) {
 	}
 	defer conn.Release()
 
-	// vector ships in the runtime bundle's extension overlay (no preload needed),
+	// vector ships in the runtime's extension overlay (no preload needed),
 	// so it exercises the create path against a real, always-present extension.
 	reqs := []ExtensionRequirement{{Name: "vector", Required: true}}
 	if err := ensureExtensionRequirements(ctx, conn, reqs); err != nil {
@@ -81,9 +81,9 @@ func TestCheckExtensionPreloadedReportsMissingLibrary(t *testing.T) {
 		}
 	}
 
-	// The embedded runtime bundle preloads pg_search, so the real check passes.
+	// The downloaded runtime preloads pg_search, so the real check passes.
 	if err := checkExtensionPreloaded(ctx, conn, "pg_search"); err != nil {
-		t.Fatalf("pg_search should be preloaded by the bundle: %v", err)
+		t.Fatalf("pg_search should be preloaded by the runtime: %v", err)
 	}
 }
 

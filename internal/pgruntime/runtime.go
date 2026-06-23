@@ -1,4 +1,4 @@
-package pgbundle
+package pgruntime
 
 import (
 	"archive/tar"
@@ -21,13 +21,13 @@ const (
 	stellaIssueURL               = "https://github.com/CherryHQ/stella/issues/new"
 )
 
-// MissingBundleHint explains why automatic PostgreSQL runtime selection failed.
-func MissingBundleHint() string {
+// MissingRuntimeHint explains why automatic PostgreSQL runtime selection failed.
+func MissingRuntimeHint() string {
 	switch runtime.GOOS {
 	case "linux":
 		data, err := os.ReadFile("/etc/os-release")
 		if err != nil {
-			return fmt.Sprintf("Could not read /etc/os-release to select a Linux runtime bundle. Supported Linux runtime sources: %s. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your OS details: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+			return fmt.Sprintf("Could not read /etc/os-release to select a Linux runtime. Supported Linux runtime sources: %s. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your OS details: %s", supportedLinuxRuntimeSources, stellaIssueURL)
 		}
 		codename := linuxRuntimeCodenameFromOSRelease(string(data))
 		if codename == "" {
@@ -97,7 +97,7 @@ func linuxRuntimeCodenameFromOSRelease(data string) string {
 }
 
 func supportedLinuxRuntimeSource(codename string) (string, bool) {
-	// Runtime bundles are built from distro packages; do not guess across distro
+	// Runtime archives are built from distro packages; do not guess across distro
 	// families because glibc and extension ABI mismatches fail later and uglier.
 	switch codename {
 	case "bookworm", "noble", "trixie":
