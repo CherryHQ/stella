@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/pgruntime"
 )
 
 func TestPostgresDownloadRuntimeHelp(t *testing.T) {
@@ -18,7 +20,7 @@ func TestPostgresDownloadRuntimeHelp(t *testing.T) {
 
 func TestDownloadPostgresRuntimeUsesExistingInstall(t *testing.T) {
 	stellaHome := t.TempDir()
-	root := filepath.Join(stellaHome, "pg-runtime", "pg18.4-pgvector0.8.2-pgsearch0.24.1-"+runtime.GOOS+"-"+runtime.GOARCH, "downloaded", "testsource")
+	root := pgruntime.RuntimeRoot(stellaHome, "testsource")
 	mkdir := filepath.Join(root, "postgres", "bin")
 	if err := os.MkdirAll(mkdir, 0o755); err != nil {
 		t.Fatal(err)
@@ -32,7 +34,7 @@ func TestDownloadPostgresRuntimeUsesExistingInstall(t *testing.T) {
 	}
 
 	var out strings.Builder
-	got, err := downloadPostgresRuntime(context.Background(), &out, stellaHome, "invalid/repo", "bad", "testsource", false)
+	got, err := downloadPostgresRuntime(context.Background(), &out, stellaHome, "invalid/repo", "testsource", false)
 	if err != nil {
 		t.Fatalf("downloadPostgresRuntime: %v", err)
 	}

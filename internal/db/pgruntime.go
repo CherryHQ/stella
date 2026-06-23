@@ -80,10 +80,6 @@ func postgresRuntimeCacheName() string {
 	return postgresRuntimeID + "-" + runtime.GOOS + "-" + runtime.GOARCH
 }
 
-func PostgresRuntimeDownloadRoot(stellaHome, source string) string {
-	return filepath.Join(stellaHome, "pg-runtime", postgresRuntimeCacheName(), "downloaded", source)
-}
-
 func downloadedPostgresRuntimeRoot(dataDir string) (string, bool) {
 	source, ok := pgruntime.DefaultRuntimeSource()
 	if !ok {
@@ -98,7 +94,7 @@ func downloadedPostgresRuntimeRoot(dataDir string) (string, bool) {
 	default:
 		return "", false
 	}
-	root := PostgresRuntimeDownloadRoot(home, source)
+	root := pgruntime.RuntimeRoot(home, source)
 	if _, err := postgresRuntimeFromRoot(root); err != nil {
 		return "", false
 	}

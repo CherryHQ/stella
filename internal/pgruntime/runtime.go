@@ -59,9 +59,16 @@ func DefaultRuntimeSource() (string, bool) {
 	return "", false
 }
 
+func RuntimeRoot(stellaHome, source string) string {
+	return filepath.Join(stellaHome, "pg-runtime", RuntimeVersion+"-"+runtime.GOOS+"-"+runtime.GOARCH, "downloaded", source)
+}
+
+func RuntimeAssetName(version, goos, goarch, source string) string {
+	return fmt.Sprintf("stella-pg-runtime-%s-%s-%s-%s.tar.zst", version, goos, goarch, source)
+}
+
 func RuntimeAssetURL(repo, version, goos, goarch, source string) string {
-	asset := fmt.Sprintf("stella-pg-runtime-%s-%s-%s-%s.tar.zst", version, goos, goarch, source)
-	return fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, version, asset)
+	return fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, version, RuntimeAssetName(version, goos, goarch, source))
 }
 
 func RuntimeChecksumURL(repo, version, goos, goarch, source string) string {
