@@ -59,7 +59,7 @@ jobs:
           set -euo pipefail
           GOOS=darwin GOARCH=arm64 STELLA_PG_RUNTIME_SOURCE=postgresapp scripts/fetch-pg-runtime.sh
           for arch in amd64 arm64; do
-            for source in bookworm noble trixie; do
+            for source in bookworm jammy noble resolute trixie; do
               GOOS=linux GOARCH="$arch" STELLA_PG_RUNTIME_SOURCE="$source" scripts/fetch-pg-runtime.sh
             done
           done

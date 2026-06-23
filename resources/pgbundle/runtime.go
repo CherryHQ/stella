@@ -140,7 +140,7 @@ func linuxRuntimeSourceFromOSRelease(data string) (string, bool) {
 	// Runtime bundles are built from distro packages; do not guess across distro
 	// families because glibc and extension ABI mismatches fail later and uglier.
 	switch codename {
-	case "bookworm", "noble", "trixie":
+	case "bookworm", "jammy", "noble", "resolute", "trixie":
 		return codename, true
 	default:
 		return "", false
