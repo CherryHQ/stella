@@ -11,6 +11,25 @@ icon: History
 
 ## [Unreleased]
 
+## [0.50.2] - 2026-06-23
+
+### ✨ 功能
+
+- 运行时：支持 Ubuntu LTS PostgreSQL 运行时来源。([#581](https://github.com/CherryHQ/stella/pull/581))
+- 升级：支持指定目标版本，并展示下载进度。([#584](https://github.com/CherryHQ/stella/pull/584))
+- 搜索：优化 BM25 词法搜索，加入 jieba 分词、原生字段权重和跨来源 RRF。([#587](https://github.com/CherryHQ/stella/pull/587))
+
+### 🐛 修复
+
+- 发布：内置 Linux PostgreSQL 运行时，确保 Linux 包包含所需运行时资源。([#585](https://github.com/CherryHQ/stella/pull/585))
+- 调度器：稳定一次性清理测试。([8d5e032](https://github.com/CherryHQ/stella/commit/8d5e0325))
+
+### ♻️ 重构
+
+- 构建：改为从 GitHub 预构建二进制安装 goose，而不是使用 `go install`。([c014114](https://github.com/CherryHQ/stella/commit/c0141149))
+
+**完整变更日志**：[v0.50.1...v0.50.2](https://github.com/CherryHQ/stella/compare/v0.50.1...v0.50.2)
+
 ## [0.50.1] - 2026-06-23
 
 ### 🐛 修复
