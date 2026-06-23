@@ -206,7 +206,7 @@ Every assembly emits a structured log entry (`lcm tail telemetry`) with `tail_it
 
 ### Search
 
-Search runs on PostgreSQL with **pg_search BM25** ranking. The `ctx_message` and `ctx_summary` tables each carry a `USING bm25` index over `content`, tokenized with the **ICU** tokenizer, so CJK is segmented into words (部署方案 matches the segmented 部署 / 方案 in a longer sentence) and English matches whole tokens. There is **no fallback tier** — pg_search hard-requires the `pg_search` extension (and `vector` for the semantic lane), which ship in the embedded runtime bundle or an external PostgreSQL.
+Search runs on PostgreSQL with **pg_search BM25** ranking. The `ctx_message` and `ctx_summary` tables each carry a `USING bm25` index over `content`, tokenized with the **ICU** tokenizer, so CJK is segmented into words (部署方案 matches the segmented 部署 / 方案 in a longer sentence) and English matches whole tokens. There is **no fallback tier** — pg_search hard-requires the `pg_search` extension (and `vector` for the semantic lane), which ship in the downloaded runtime or an external PostgreSQL.
 
 - Raw user text goes straight to `paradedb.match`, which tokenizes with ICU and never errors on punctuation or query-syntax characters — so there is no separate sanitize step, and short or CJK queries match natively (no minimum-token-length rule, no `LIKE` fallback).
 - Hits carry a pg_search snippet (`<b>term</b>` highlights) and a `paradedb.score` BM25 score (higher is better).

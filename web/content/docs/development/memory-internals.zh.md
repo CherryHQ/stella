@@ -206,7 +206,7 @@ ai.Message (user/assistant/tool_result)
 
 ### 搜索
 
-搜索基于 PostgreSQL 的 **pg_search BM25** 排序。`ctx_message` 与 `ctx_summary` 各自在 `content` 上建有 `USING bm25` 索引，使用 **ICU** 分词器，因此中文会被切成词（部署方案 命中切分后的 部署 / 方案），英文按整 token 匹配。**没有回退层** — pg_search 硬依赖 `pg_search` 扩展（语义检索还需 `vector`），它们随内嵌运行时 bundle 或外部 PostgreSQL 一起提供。
+搜索基于 PostgreSQL 的 **pg_search BM25** 排序。`ctx_message` 与 `ctx_summary` 各自在 `content` 上建有 `USING bm25` 索引，使用 **ICU** 分词器，因此中文会被切成词（部署方案 命中切分后的 部署 / 方案），英文按整 token 匹配。**没有回退层** — pg_search 硬依赖 `pg_search` 扩展（语义检索还需 `vector`），它们随下载的 runtime 或外部 PostgreSQL 一起提供。
 
 - 原始用户文本直接交给 `paradedb.match`，它用 ICU 分词，且对标点或查询语法字符永不报错 — 因此既无需单独的清洗步骤，短查询和中文查询也能原生命中（没有最小 token 长度限制，没有 `LIKE` 回退）。
 - 命中包含 pg_search 片段（`<b>term</b>` 高亮）和 `paradedb.score` BM25 分数（越大越相关）。

@@ -79,9 +79,9 @@ func checkExtensionPreloaded(ctx context.Context, conn *pgxpool.Conn, name strin
 func missingExtensionError(name string) error {
 	switch name {
 	case "pg_search":
-		return fmt.Errorf("stella embedded PostgreSQL runtime is missing extension %q. Expected bundle: %s. External PostgreSQL must install pg_search and set shared_preload_libraries='pg_search', then restart PostgreSQL", name, postgresBundleID)
+		return fmt.Errorf("stella PostgreSQL runtime is missing extension %q. Expected runtime: %s. External PostgreSQL must install pg_search and set shared_preload_libraries='pg_search', then restart PostgreSQL", name, postgresRuntimeID)
 	case "vector":
-		return fmt.Errorf("stella embedded PostgreSQL runtime is missing extension %q. Expected bundle: %s. External PostgreSQL must install pgvector before Stella starts", name, postgresBundleID)
+		return fmt.Errorf("stella PostgreSQL runtime is missing extension %q. Expected runtime: %s. External PostgreSQL must install pgvector before Stella starts", name, postgresRuntimeID)
 	default:
 		return fmt.Errorf("PostgreSQL extension %q is not available; install the extension files before starting Stella", name)
 	}

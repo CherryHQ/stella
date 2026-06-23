@@ -1,0 +1,180 @@
+package pgruntime
+
+import (
+	"archive/tar"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"github.com/klauspost/compress/zstd"
+)
+
+const (
+	RuntimeVersion     = "pg18.4-pgvector0.8.2-pgsearch0.24.1"
+	DefaultRuntimeRepo = "CherryHQ/stella-pg-runtime"
+
+	supportedLinuxRuntimeSources = "bookworm, noble, trixie"
+	stellaIssueURL               = "https://github.com/CherryHQ/stella/issues/new"
+)
+
+// MissingRuntimeHint explains why automatic PostgreSQL runtime selection failed.
+func MissingRuntimeHint() string {
+	switch runtime.GOOS {
+	case "linux":
+		data, err := os.ReadFile("/etc/os-release")
+		if err != nil {
+			return fmt.Sprintf("Could not read /etc/os-release to select a Linux runtime. Supported Linux runtime sources: %s. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your OS details: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+		}
+		codename := linuxRuntimeCodenameFromOSRelease(string(data))
+		if codename == "" {
+			return fmt.Sprintf("Could not detect VERSION_CODENAME or UBUNTU_CODENAME from /etc/os-release. Supported Linux runtime sources: %s. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your /etc/os-release: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+		}
+		if _, ok := supportedLinuxRuntimeSource(codename); !ok {
+			return fmt.Sprintf("Detected Linux runtime source %q, but Stella only publishes PostgreSQL runtimes for: %s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue requesting this distro: %s", codename, supportedLinuxRuntimeSources, stellaIssueURL)
+		}
+		return fmt.Sprintf("Detected supported Linux runtime source %q, but no PostgreSQL runtime is installed. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download-runtime fails: %s", codename, stellaIssueURL)
+	case "darwin":
+		if runtime.GOARCH == "arm64" {
+			return fmt.Sprintf("No PostgreSQL runtime is installed for darwin/arm64. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download-runtime fails: %s", stellaIssueURL)
+		}
+		return fmt.Sprintf("PostgreSQL runtime downloads are not published for darwin/%s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", runtime.GOARCH, stellaIssueURL)
+	default:
+		return fmt.Sprintf("PostgreSQL runtime downloads are currently published for linux/amd64|arm64 (%s) and darwin/arm64. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+	}
+}
+
+func DefaultRuntimeSource() (string, bool) {
+	switch runtime.GOOS {
+	case "darwin":
+		if runtime.GOARCH == "arm64" {
+			return "postgresapp", true
+		}
+	case "linux":
+		return linuxRuntimeSource()
+	}
+	return "", false
+}
+
+func RuntimeRoot(stellaHome, source string) string {
+	return filepath.Join(stellaHome, "pg-runtime", RuntimeVersion+"-"+runtime.GOOS+"-"+runtime.GOARCH, "downloaded", source)
+}
+
+func RuntimeAssetName(version, goos, goarch, source string) string {
+	return fmt.Sprintf("stella-pg-runtime-%s-%s-%s-%s.tar.zst", version, goos, goarch, source)
+}
+
+func RuntimeAssetURL(repo, version, goos, goarch, source string) string {
+	return fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, version, RuntimeAssetName(version, goos, goarch, source))
+}
+
+func RuntimeChecksumURL(repo, version, goos, goarch, source string) string {
+	return RuntimeAssetURL(repo, version, goos, goarch, source) + ".sha256"
+}
+
+func linuxRuntimeSource() (string, bool) {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return "", false
+	}
+	return linuxRuntimeSourceFromOSRelease(string(data))
+}
+
+func linuxRuntimeSourceFromOSRelease(data string) (string, bool) {
+	return supportedLinuxRuntimeSource(linuxRuntimeCodenameFromOSRelease(data))
+}
+
+func linuxRuntimeCodenameFromOSRelease(data string) string {
+	values := map[string]string{}
+	for line := range strings.SplitSeq(data, "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		value = strings.Trim(value, "\"'")
+		values[key] = value
+	}
+	if codename := values["VERSION_CODENAME"]; codename != "" {
+		return codename
+	}
+	return values["UBUNTU_CODENAME"]
+}
+
+func supportedLinuxRuntimeSource(codename string) (string, bool) {
+	// Runtime archives are built from distro packages; do not guess across distro
+	// families because glibc and extension ABI mismatches fail later and uglier.
+	switch codename {
+	case "bookworm", "noble", "trixie":
+		return codename, true
+	default:
+		return "", false
+	}
+}
+
+func ExtractTarZstdFile(archivePath, dest string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("open PostgreSQL runtime archive: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	return extractTarZstdReader(f, dest)
+}
+
+func extractTarZstdReader(r io.Reader, dest string) error {
+	zr, err := zstd.NewReader(r)
+	if err != nil {
+		return fmt.Errorf("open PostgreSQL runtime zstd archive: %w", err)
+	}
+	defer zr.Close()
+
+	tr := tar.NewReader(zr)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read PostgreSQL runtime tar archive: %w", err)
+		}
+		name := filepath.Clean(hdr.Name)
+		if name == "." {
+			continue
+		}
+		if strings.HasPrefix(name, "..") || filepath.IsAbs(name) {
+			return fmt.Errorf("unsafe PostgreSQL runtime archive path %q", hdr.Name)
+		}
+		target := filepath.Join(dest, name)
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)); err != nil {
+				return fmt.Errorf("create PostgreSQL runtime dir %s: %w", target, err)
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return fmt.Errorf("create PostgreSQL runtime parent %s: %w", target, err)
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
+			if err != nil {
+				return fmt.Errorf("create PostgreSQL runtime file %s: %w", target, err)
+			}
+			_, copyErr := io.Copy(out, tr)
+			closeErr := out.Close()
+			if copyErr != nil {
+				return fmt.Errorf("write PostgreSQL runtime file %s: %w", target, copyErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("close PostgreSQL runtime file %s: %w", target, closeErr)
+			}
+		case tar.TypeSymlink:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return fmt.Errorf("create PostgreSQL runtime symlink parent %s: %w", target, err)
+			}
+			if err := os.Symlink(hdr.Linkname, target); err != nil {
+				return fmt.Errorf("create PostgreSQL runtime symlink %s: %w", target, err)
+			}
+		}
+	}
+}
