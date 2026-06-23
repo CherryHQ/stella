@@ -11,6 +11,14 @@ icon: History
 
 ## [Unreleased]
 
+## [0.50.1] - 2026-06-23
+
+### 🐛 修复
+
+- Docker：修复多架构发布构建——`mise run build` 在目标 `GOARCH` 下交叉安装 goose CLI，导致 `linux/arm64` 镜像构建失败，v0.50.0 因此没有发布多架构 manifest。([224ee964](https://github.com/CherryHQ/stella/commit/224ee964))
+
+**完整变更日志**：[v0.50.0...v0.50.1](https://github.com/CherryHQ/stella/compare/v0.50.0...v0.50.1)
+
 ## [0.50.0] - 2026-06-23
 
 > **重大变更：** Stella 现已从 SQLite 切换到 PostgreSQL。后端默认内置嵌入式 PostgreSQL 集群，也可通过 `STELLA_DATABASE_URL` 指向外部服务器。现有 SQLite 部署需在升级前迁移数据。

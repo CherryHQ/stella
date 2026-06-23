@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.1] - 2026-06-23
+
+### 🐛 Bug Fixes
+
+- Docker: fix the multi-arch release build — `mise run build` cross-installed the goose CLI under the target `GOARCH`, failing the `linux/arm64` image and leaving v0.50.0 without a published multi-arch manifest. ([224ee964](https://github.com/CherryHQ/stella/commit/224ee964))
+
+**Full Changelog**: [v0.50.0...v0.50.1](https://github.com/CherryHQ/stella/compare/v0.50.0...v0.50.1)
+
 ## [0.50.0] - 2026-06-23
 
 > **Breaking:** Stella now runs on PostgreSQL instead of SQLite. The backend ships an embedded PostgreSQL cluster by default, or you can point it at an external server with `STELLA_DATABASE_URL`. Existing SQLite deployments must migrate their data before upgrading.
