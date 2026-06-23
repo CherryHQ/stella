@@ -52,7 +52,7 @@ Start the server — the Web UI is available at `http://localhost:25678`:
 stellad server
 ```
 
-This starts the server and the Web UI where you configure API keys, channels, and agent profiles. All configuration is stored in PostgreSQL — by default an embedded cluster under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. No config files needed.
+This starts the server and the Web UI where you configure API keys, channels, and agent profiles. All configuration is stored in PostgreSQL — either an embedded cluster under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. If the embedded runtime is missing, run `stellad postgres download-runtime` once before `stellad server`. No config files needed.
 
 ```bash
 stellad server --port 8080             # custom port
@@ -209,11 +209,12 @@ All data lives under the stella home directory (`~/.stella` by default, configur
 | Path                                  | Purpose                                                                                       |
 | ------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                 | Embedded PostgreSQL data (config, memory, scheduler); absent when using `STELLA_DATABASE_URL` |
+| `~/.stella/pg-runtime/`               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download-runtime`     |
 | `~/.stella/agents/{agent-id}/skills/` | Per-agent installed skills                                                                    |
 | `~/.stella/agents/{agent-id}/SOUL.md` | Optional per-agent soul/identity override                                                     |
 | `~/.stella/cache/`                    | Model cache (regenerable, safe to delete)                                                     |
 
-The PostgreSQL data is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs. With the embedded cluster, back up the `~/.stella/postgres/` directory (with the server stopped); with an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database.
+The PostgreSQL data is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs. With the embedded cluster, back up the `~/.stella/postgres/` directory (with the server stopped); `~/.stella/pg-runtime/` is downloaded code and can be recreated. With an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database.
 
 ## Environment Variables
 

@@ -52,7 +52,7 @@ cd stella && go build -o stella ./cmd/stella/ && go build -o stellad ./cmd/stell
 stellad server
 ```
 
-这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 PostgreSQL 中——默认是 `~/.stella` 下的内嵌集群，或在设置 `STELLA_DATABASE_URL` 时使用外部服务器。无需手动配置文件。
+这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 PostgreSQL 中——可以使用 `~/.stella` 下的内嵌集群，也可以在设置 `STELLA_DATABASE_URL` 时使用外部服务器。如果缺少内嵌 runtime，先运行一次 `stellad postgres download-runtime` 再启动 `stellad server`。无需手动配置文件。
 
 ```bash
 stellad server --port 8080                  # 自定义端口
@@ -209,11 +209,12 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 | 路径                                  | 用途                                                                            |
 | ------------------------------------- | ------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                 | 内嵌 PostgreSQL 数据（配置、记忆、调度器）；使用 `STELLA_DATABASE_URL` 时不存在 |
+| `~/.stella/pg-runtime/`               | 下载的内嵌 PostgreSQL runtime；可用 `stellad postgres download-runtime` 重建    |
 | `~/.stella/agents/{agent-id}/skills/` | 每个 agent 安装的技能                                                           |
 | `~/.stella/agents/{agent-id}/SOUL.md` | 可选的每个 agent 的灵魂/身份覆盖                                                |
 | `~/.stella/cache/`                    | 模型缓存（可重新生成，安全删除）                                                |
 
-PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、消息历史、摘要和调度器任务。使用内嵌集群时，停止服务后备份 `~/.stella/postgres/` 目录；使用外部服务器时，对 `STELLA_DATABASE_URL` 所指数据库执行 `pg_dump`。
+PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、消息历史、摘要和调度器任务。使用内嵌集群时，停止服务后备份 `~/.stella/postgres/` 目录；`~/.stella/pg-runtime/` 是下载的程序文件，可重新生成。使用外部服务器时，对 `STELLA_DATABASE_URL` 所指数据库执行 `pg_dump`。
 
 ## 环境变量
 

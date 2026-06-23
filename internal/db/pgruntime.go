@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	postgresBundleID = "pg18.4-pgvector0.8.2-pgsearch0.24.1"
+	postgresBundleID = pgbundle.RuntimeVersion
 
 	// postgresRuntimeEnvName is an internal escape hatch for testing a Stella-built
 	// PostgreSQL runtime before release artifacts exist. The directory may either
@@ -52,18 +52,17 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 
 	bundleRoot := os.Getenv(postgresRuntimeEnvName)
 	if bundleRoot == "" {
-		if root, ok, err := pgbundle.EnsureBundle(postgresBundleCacheRoot(dataDir, tmpDir)); err != nil {
+		if root, ok := downloadedPostgresRuntimeRoot(dataDir, tmpDir); ok {
+			bundleRoot = root
+		} else if root, ok, err := pgbundle.EnsureBundle(postgresBundleCacheRoot(dataDir, tmpDir)); err != nil {
 			return postgresRuntimeInfo{}, err
 		} else if !ok {
-			// No bundle for this build/platform. Embedded PostgreSQL only carries
-			// pgvector and pg_search when a runtime bundle is present; booting vanilla
-			// embedded-postgres would silently drop them, and search now hard-requires
-			// both. Refuse instead of degrading: a supported platform must embed the
-			// bundle, anything else must point at an external PostgreSQL that already
-			// has the extensions.
+			// Embedded PostgreSQL only carries pgvector and pg_search when a Stella
+			// runtime bundle is present. Refuse instead of booting vanilla PostgreSQL
+			// and failing later with missing extension errors.
 			return postgresRuntimeInfo{}, fmt.Errorf(
-				"db: no embedded PostgreSQL runtime bundle for %s/%s (expected %s). %s",
-				runtime.GOOS, runtime.GOARCH, postgresBundleID, pgbundle.MissingBundleHint())
+				"db: no PostgreSQL runtime for %s/%s (expected %s). Download it with `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or set %s to an extracted runtime bundle. %s",
+				runtime.GOOS, runtime.GOARCH, postgresBundleID, postgresRuntimeEnvName, pgbundle.MissingBundleHint())
 		} else {
 			bundleRoot = root
 		}
@@ -83,6 +82,41 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 
 func postgresRuntimeCacheName() string {
 	return postgresBundleID + "-" + runtime.GOOS + "-" + runtime.GOARCH
+}
+
+func PostgresRuntimeDownloadRoot(stellaHome, source string) string {
+	return filepath.Join(stellaHome, "pg-runtime", postgresRuntimeCacheName(), "downloaded", source)
+}
+
+func downloadedPostgresRuntimeRoot(dataDir, tmpDir string) (string, bool) {
+	source, ok := pgbundle.DefaultRuntimeSource()
+	if !ok {
+		return "", false
+	}
+	var home string
+	switch detected, ok := stellaHomeForRuntime(); {
+	case dataDir != "":
+		home = filepath.Dir(dataDir)
+	case ok:
+		home = detected
+	default:
+		return "", false
+	}
+	root := PostgresRuntimeDownloadRoot(home, source)
+	if _, err := postgresRuntimeFromBundle(root); err != nil {
+		return "", false
+	}
+	return root, true
+}
+
+func stellaHomeForRuntime() (string, bool) {
+	// Ephemeral test clusters often override STELLA_HOME per test; the runtime is
+	// immutable, so keep one shared download in the user's default Stella home.
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", false
+	}
+	return filepath.Join(home, ".stella"), true
 }
 
 func postgresBundleCacheRoot(dataDir, tmpDir string) string {

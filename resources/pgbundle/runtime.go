@@ -18,6 +18,9 @@ import (
 )
 
 const (
+	RuntimeVersion     = "pg18.4-pgvector0.8.2-pgsearch0.24.1"
+	DefaultRuntimeRepo = "CherryHQ/stella-pg-runtime"
+
 	archiveName     = "pg-runtime.tar.zst"
 	checksumName    = "pg-runtime.sha256"
 	versionFileName = ".pg-runtime-sha256"
@@ -26,11 +29,10 @@ const (
 	stellaIssueURL               = "https://github.com/CherryHQ/stella/issues/new"
 )
 
-// EnsureBundle extracts the embedded PostgreSQL runtime bundle into cacheRoot and
-// returns the extracted bundle root. Development builds may omit the archive; in
-// that case ok is false and callers can fall back to embedded-postgres' default
-// downloader. Release builds should call VerifyBundlePresent to enforce that the
-// platform archive was embedded.
+// EnsureBundle extracts an embedded PostgreSQL runtime bundle into cacheRoot and
+// returns the extracted bundle root. Official release builds normally omit the
+// archive; callers should then use a downloaded runtime or ask the user to run
+// `stellad postgres download-runtime`.
 func EnsureBundle(cacheRoot string) (root string, ok bool, err error) {
 	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
 		return "", false, fmt.Errorf("create PostgreSQL runtime cache: %w", err)
@@ -133,15 +135,40 @@ func MissingBundleHint() string {
 		if _, ok := supportedLinuxRuntimeSource(codename); !ok {
 			return fmt.Sprintf("Detected Linux runtime source %q, but Stella only embeds PostgreSQL runtimes for: %s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue requesting this distro: %s", codename, supportedLinuxRuntimeSources, stellaIssueURL)
 		}
-		return fmt.Sprintf("Detected supported Linux runtime source %q, but this binary does not contain its PostgreSQL runtime bundle. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector; if this is an official Stella release, file a packaging bug: %s", codename, stellaIssueURL)
+		return fmt.Sprintf("Detected supported Linux runtime source %q, but this binary does not contain its PostgreSQL runtime bundle. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download-runtime fails: %s", codename, stellaIssueURL)
 	case "darwin":
 		if runtime.GOARCH == "arm64" {
-			return fmt.Sprintf("This darwin/arm64 binary does not contain its PostgreSQL runtime bundle. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector; if this is an official Stella release, file a packaging bug: %s", stellaIssueURL)
+			return fmt.Sprintf("This darwin/arm64 binary does not contain its PostgreSQL runtime bundle. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download-runtime fails: %s", stellaIssueURL)
 		}
 		return fmt.Sprintf("Embedded PostgreSQL release bundles are not published for darwin/%s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", runtime.GOARCH, stellaIssueURL)
 	default:
 		return fmt.Sprintf("Embedded PostgreSQL release bundles are currently published for linux/amd64|arm64 (%s) and darwin/arm64. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", supportedLinuxRuntimeSources, stellaIssueURL)
 	}
+}
+
+func DefaultRuntimeSource() (string, bool) {
+	switch runtime.GOOS {
+	case "darwin":
+		if runtime.GOARCH == "arm64" {
+			return "postgresapp", true
+		}
+	case "linux":
+		return linuxRuntimeSource()
+	}
+	return "", false
+}
+
+func RuntimeAssetName(goos, goarch, source string) string {
+	return fmt.Sprintf("stella-pg-runtime-%s-%s-%s-%s.tar.zst", RuntimeVersion, goos, goarch, source)
+}
+
+func RuntimeAssetURL(repo, version, goos, goarch, source string) string {
+	asset := fmt.Sprintf("stella-pg-runtime-%s-%s-%s-%s.tar.zst", version, goos, goarch, source)
+	return fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", repo, version, asset)
+}
+
+func RuntimeChecksumURL(repo, version, goos, goarch, source string) string {
+	return RuntimeAssetURL(repo, version, goos, goarch, source) + ".sha256"
 }
 
 func linuxRuntimeSource() (string, bool) {
@@ -197,8 +224,21 @@ func bundleChecksum(archive []byte, checksumPath string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+func ExtractTarZstdFile(archivePath, dest string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("open PostgreSQL runtime archive: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	return extractTarZstdReader(f, dest)
+}
+
 func extractTarZstd(archive []byte, dest string) error {
-	zr, err := zstd.NewReader(bytes.NewReader(archive))
+	return extractTarZstdReader(bytes.NewReader(archive), dest)
+}
+
+func extractTarZstdReader(r io.Reader, dest string) error {
+	zr, err := zstd.NewReader(r)
 	if err != nil {
 		return fmt.Errorf("open PostgreSQL runtime zstd archive: %w", err)
 	}
