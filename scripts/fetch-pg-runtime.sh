@@ -13,7 +13,7 @@ linux_source() {
     codename="$(. /etc/os-release && printf '%s' "${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}")"
   fi
   case "$codename" in
-    bookworm|jammy|noble|resolute|trixie) printf '%s' "$codename" ;;
+    bookworm|noble|trixie) printf '%s' "$codename" ;;
     *) return 1 ;;
   esac
 }
@@ -24,7 +24,7 @@ if [[ -z "$SOURCE" ]]; then
     linux-amd64|linux-arm64)
       if ! SOURCE="$(linux_source)"; then
         echo "no default PostgreSQL runtime source for $GOOS_VALUE-$GOARCH_VALUE on this Linux distro" >&2
-        echo "set STELLA_PG_RUNTIME_SOURCE to one of: bookworm, jammy, noble, resolute, trixie" >&2
+        echo "set STELLA_PG_RUNTIME_SOURCE to one of: bookworm, noble, trixie" >&2
         exit 1
       fi
       ;;
@@ -39,6 +39,9 @@ fi
 ASSET="stella-pg-runtime-$VERSION-$GOOS_VALUE-$GOARCH_VALUE-$SOURCE.tar.zst"
 TAG="$VERSION"
 DEST_DIR="resources/pgbundle/bundles/$GOOS_VALUE-$GOARCH_VALUE"
+if [[ "$GOOS_VALUE" == "linux" ]]; then
+  DEST_DIR="$DEST_DIR/$SOURCE"
+fi
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 

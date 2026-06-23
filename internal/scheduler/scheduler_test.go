@@ -317,13 +317,19 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 	}
 	mu.Unlock()
 
-	// Wait a bit for the async cleanup goroutine.
-	time.Sleep(200 * time.Millisecond)
-
-	// Job should be auto-removed.
-	jobs := svc.ListJobs()
-	if len(jobs) != 0 {
-		t.Errorf("ListJobs after one-time fire: got %d, want 0", len(jobs))
+	// Job cleanup runs after the callback returns; wait for the observable state
+	// instead of sleeping and racing the cleanup goroutine.
+	deadline = time.After(2 * time.Second)
+	for {
+		jobs := svc.ListJobs()
+		if len(jobs) == 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("ListJobs after one-time fire: got %d, want 0", len(jobs))
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }
 

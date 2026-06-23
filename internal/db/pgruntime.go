@@ -62,10 +62,8 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 			// bundle, anything else must point at an external PostgreSQL that already
 			// has the extensions.
 			return postgresRuntimeInfo{}, fmt.Errorf(
-				"db: no embedded PostgreSQL runtime bundle for %s/%s (expected %s). "+
-					"Run scripts/fetch-pg-runtime.sh on a supported platform to embed it, "+
-					"or set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector installed",
-				runtime.GOOS, runtime.GOARCH, postgresBundleID)
+				"db: no embedded PostgreSQL runtime bundle for %s/%s (expected %s). %s",
+				runtime.GOOS, runtime.GOARCH, postgresBundleID, pgbundle.MissingBundleHint())
 		} else {
 			bundleRoot = root
 		}
