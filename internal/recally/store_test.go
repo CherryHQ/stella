@@ -334,7 +334,7 @@ func TestStore_SearchArticles_CJKAndCaseInsensitive(t *testing.T) {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
 
-	// CJK is segmented by ICU, so both a multi-word and a single-word CJK query
+	// CJK is segmented by jieba, so both a multi-word and a single-word CJK query
 	// match via BM25 with no fallback tier.
 	results, err := store.SearchArticles(ctx, testUserID, "部署方案", 10)
 	if err != nil {
@@ -359,7 +359,7 @@ func TestStore_SearchArticles_CJKAndCaseInsensitive(t *testing.T) {
 		t.Errorf("Expected search to stay user-scoped, got %d hits", len(results))
 	}
 
-	// ICU lowercases tokens, so an uppercase query finds the "K8s" summary token.
+	// jieba lowercases tokens, so an uppercase query finds the "K8s" summary token.
 	results, err = store.SearchArticles(ctx, testUserID, "K8S", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)

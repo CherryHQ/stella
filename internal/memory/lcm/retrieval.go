@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -54,14 +55,16 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 	}
 
 	// Raw user text goes straight to pg_search: paradedb.match tokenizes it with
-	// ICU (so short and CJK queries match) and never errors on punctuation, so
-	// there is no separate sanitize/fallback tier.
+	// the jieba tokenizer (so short and CJK queries match) and never errors on
+	// punctuation, so there is no separate sanitize/fallback tier. A query with no
+	// letter or digit (empty, whitespace, or pure punctuation) has nothing the BM25
+	// index can match, so short-circuit instead of issuing a no-op query.
 	match := strings.TrimSpace(query.Text)
-	if match == "" {
+	if !hasSearchableToken(match) {
 		return nil, nil
 	}
 
-	var results []memory.SearchResult
+	var msgResults, sumResults []memory.SearchResult
 
 	if scope == scopeMessages || scope == scopeBoth {
 		msgs, err := r.q.SearchMessages(ctx, sqlc.SearchMessagesParams{
@@ -74,7 +77,7 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 			return nil, fmt.Errorf("search messages: %w", err)
 		}
 		for _, msg := range msgs {
-			results = append(results, memory.SearchResult{
+			msgResults = append(msgResults, memory.SearchResult{
 				SourceType:        itemTypeMessage,
 				SourceID:          fmt.Sprint(msg.ID),
 				Content:           searchSnippet(msg.Snippet, msg.Content),
@@ -97,7 +100,7 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 			return nil, fmt.Errorf("search summaries: %w", err)
 		}
 		for _, s := range sums {
-			results = append(results, memory.SearchResult{
+			sumResults = append(sumResults, memory.SearchResult{
 				SourceType:        itemTypeSummary,
 				SourceID:          s.ID,
 				Content:           searchSnippet(s.Snippet, s.Content),
@@ -109,20 +112,55 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 		}
 	}
 
-	// Both-scope queries each table with the full limit, then keep the global
-	// top N so a strong summary hit can outrank a weak message hit. BM25 from
-	// the two indexes shares the same corpus statistics family closely enough
-	// for cross-source ordering.
-	sort.SliceStable(results, func(i, j int) bool {
-		if results[i].Score != results[j].Score {
-			return results[i].Score > results[j].Score
-		}
-		return results[i].OccurredAt.After(results[j].OccurredAt)
-	})
-	if len(results) > limit {
-		results = results[:limit]
+	// A single-scope query returns its one BM25-ranked list as-is (already sorted
+	// best-first by SQL): within one index the raw score is a meaningful absolute
+	// relevance signal worth preserving.
+	switch scope {
+	case scopeMessages:
+		return capResults(msgResults, limit), nil
+	case scopeSummaries:
+		return capResults(sumResults, limit), nil
+	default:
+		return fuseRRF(msgResults, sumResults, limit), nil
 	}
-	return results, nil
+}
+
+// rrfK is the Reciprocal Rank Fusion damping constant: 60, the value from the
+// original RRF paper and the de facto default. Larger values flatten the
+// contribution curve so rank position matters less.
+const rrfK = 60
+
+// fuseRRF merges two BM25-ranked result lists with Reciprocal Rank Fusion. The
+// two lists come from independent pg_search indexes whose raw scores share no
+// common scale (IDF is per-index), so comparing them directly mis-orders the
+// merge. RRF instead fuses on 1/(k+rank): each input must already be sorted
+// best-first, so a slice index is its within-list rank, and the fused value
+// replaces the now-meaningless cross-index raw score.
+func fuseRRF(a, b []memory.SearchResult, limit int) []memory.SearchResult {
+	merged := make([]memory.SearchResult, 0, len(a)+len(b))
+	for i := range a {
+		a[i].Score = 1.0 / float64(rrfK+i+1)
+		merged = append(merged, a[i])
+	}
+	for i := range b {
+		b[i].Score = 1.0 / float64(rrfK+i+1)
+		merged = append(merged, b[i])
+	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		if merged[i].Score != merged[j].Score {
+			return merged[i].Score > merged[j].Score
+		}
+		return merged[i].OccurredAt.After(merged[j].OccurredAt)
+	})
+	return capResults(merged, limit)
+}
+
+// capResults truncates to the top limit, leaving order untouched.
+func capResults(results []memory.SearchResult, limit int) []memory.SearchResult {
+	if len(results) > limit {
+		return results[:limit]
+	}
+	return results
 }
 
 // summaryContentTime returns when a summary's underlying content actually
@@ -284,6 +322,19 @@ func (r *retrievalEngine) expand(ctx context.Context, sum sqlc.CtxSummary, token
 	}
 
 	return result, nil
+}
+
+// hasSearchableToken reports whether s holds at least one letter or digit. A
+// query of only whitespace or punctuation tokenizes to nothing the BM25 index
+// can match (jieba drops whitespace via stopwords; punctuation carries no
+// signal), so search short-circuits to empty rather than issue a no-op query.
+func hasSearchableToken(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // truncateUTF8 truncates s to at most maxLen runes, appending "..." if truncated.

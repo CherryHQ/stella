@@ -587,8 +587,14 @@ CREATE TABLE "ctx_message" (
 );
 -- Create index "idx_ctx_message_conv_seq" to table: "ctx_message"
 CREATE INDEX "idx_ctx_message_conv_seq" ON "ctx_message" ("conversation_id", "seq");
--- Create index "idx_ctx_message_bm25" to table: "ctx_message" (pg_search BM25, ICU tokenizer for CJK)
-CREATE INDEX "idx_ctx_message_bm25" ON "ctx_message" USING bm25 ("id", ("content"::pdb.icu)) WITH (key_field = 'id');
+-- Create index "idx_ctx_message_bm25" to table: "ctx_message" (pg_search BM25, jieba
+-- tokenizer for CJK word segmentation). jieba emits whitespace as its own tokens, so
+-- stopwords drop them; otherwise a multi-term query's spaces would match every row.
+-- Punctuation tokens are not enumerated here (jieba splits them per-char and the list
+-- would never be complete); pure-punctuation queries are short-circuited in the Go
+-- search layer instead. Configured via JSON text_fields because the ::pdb.jieba cast
+-- form takes no tokenizer arguments.
+CREATE INDEX "idx_ctx_message_bm25" ON "ctx_message" USING bm25 ("id", "content") WITH (key_field = 'id', text_fields = '{"content":{"tokenizer":{"type":"jieba","stopwords":[" ","\t","\n","\r"]}}}');
 -- Create "ctx_message_part" table
 CREATE TABLE "ctx_message_part" (
   "id" uuid NOT NULL DEFAULT uuidv7(),
@@ -622,8 +628,9 @@ CREATE TABLE "ctx_summary" (
 );
 -- Create index "idx_ctx_summary_conv" to table: "ctx_summary"
 CREATE INDEX "idx_ctx_summary_conv" ON "ctx_summary" ("conversation_id", "created_at");
--- Create index "idx_ctx_summary_bm25" to table: "ctx_summary" (pg_search BM25, ICU tokenizer for CJK)
-CREATE INDEX "idx_ctx_summary_bm25" ON "ctx_summary" USING bm25 ("id", ("content"::pdb.icu)) WITH (key_field = 'id');
+-- Create index "idx_ctx_summary_bm25" to table: "ctx_summary" (pg_search BM25, jieba
+-- tokenizer for CJK; whitespace stopwords as in idx_ctx_message_bm25).
+CREATE INDEX "idx_ctx_summary_bm25" ON "ctx_summary" USING bm25 ("id", "content") WITH (key_field = 'id', text_fields = '{"content":{"tokenizer":{"type":"jieba","stopwords":[" ","\t","\n","\r"]}}}');
 -- Create "ctx_summary_message" table
 CREATE TABLE "ctx_summary_message" (
   "summary_id" text NOT NULL,
@@ -734,8 +741,11 @@ CREATE TABLE "recally_article" (
 );
 -- Create index "idx_recally_article_saved_at" to table: "recally_article"
 CREATE INDEX "idx_recally_article_saved_at" ON "recally_article" ("saved_at");
--- Create index "idx_recally_article_bm25" to table: "recally_article" (pg_search BM25, ICU tokenizer for CJK)
-CREATE INDEX "idx_recally_article_bm25" ON "recally_article" USING bm25 ("id", ("title"::pdb.icu), ("summary"::pdb.icu), ("tags"::pdb.icu), ("author"::pdb.icu)) WITH (key_field = 'id');
+-- Create index "idx_recally_article_bm25" to table: "recally_article" (pg_search BM25, jieba
+-- tokenizer for CJK over title/summary/tags/author; whitespace stopwords as in
+-- idx_ctx_message_bm25). Per-field relevance weighting is applied at query time with
+-- paradedb.boost, not here.
+CREATE INDEX "idx_recally_article_bm25" ON "recally_article" USING bm25 ("id", "title", "summary", "tags", "author") WITH (key_field = 'id', text_fields = '{"title":{"tokenizer":{"type":"jieba","stopwords":[" ","\t","\n","\r"]}},"summary":{"tokenizer":{"type":"jieba","stopwords":[" ","\t","\n","\r"]}},"tags":{"tokenizer":{"type":"jieba","stopwords":[" ","\t","\n","\r"]}},"author":{"tokenizer":{"type":"jieba","stopwords":[" ","\t","\n","\r"]}}}');
 -- Create index "idx_recally_article_user_canonical" to table: "recally_article"
 CREATE UNIQUE INDEX "idx_recally_article_user_canonical" ON "recally_article" ("user_id", "canonical_url");
 -- Create index "idx_recally_article_user_source" to table: "recally_article"

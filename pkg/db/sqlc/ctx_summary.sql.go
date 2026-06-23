@@ -464,8 +464,9 @@ type SearchSummariesRow struct {
 
 // Spans every conversation of the current (user_id, agent_id); see SearchMessages.
 // Lexical ranking is pg_search BM25; paradedb.match tokenizes the raw user text
-// with ICU (CJK matches natively) and never errors on punctuation. The match arg
-// is the raw user text.
+// with the jieba tokenizer (dictionary + statistical CJK word segmentation, CJK
+// matches natively) and never errors on punctuation. The match arg is the raw
+// user text.
 func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams) ([]SearchSummariesRow, error) {
 	rows, err := q.db.Query(ctx, searchSummaries,
 		arg.Match,

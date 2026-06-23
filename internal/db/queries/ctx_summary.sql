@@ -62,8 +62,9 @@ ORDER BY sp.ordinal ASC;
 -- name: SearchSummaries :many
 -- Spans every conversation of the current (user_id, agent_id); see SearchMessages.
 -- Lexical ranking is pg_search BM25; paradedb.match tokenizes the raw user text
--- with ICU (CJK matches natively) and never errors on punctuation. The match arg
--- is the raw user text.
+-- with the jieba tokenizer (dictionary + statistical CJK word segmentation, CJK
+-- matches natively) and never errors on punctuation. The match arg is the raw
+-- user text.
 SELECT
     s.*,
     c.session_id AS session_id,

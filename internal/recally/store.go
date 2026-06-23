@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -252,15 +253,18 @@ func (s *Store) ListArticles(ctx context.Context, userID string, filter ArticleF
 }
 
 // SearchArticles searches articles by title, summary, tags, or author using the
-// pg_search BM25 index, ordered by relevance (title hits rank highest). The raw
-// query goes straight to paradedb.match, which tokenizes with ICU (short and CJK
-// queries match) and never errors on punctuation, so there is no fallback tier.
+// pg_search BM25 index, ordered by relevance (title hits rank highest via native
+// paradedb.boost). The raw query goes straight to paradedb.match, which tokenizes
+// with the jieba tokenizer (short and CJK queries match) and never errors on
+// punctuation, so there is no fallback tier.
 func (s *Store) SearchArticles(ctx context.Context, userID string, query string, limit int) ([]Article, error) {
 	if limit <= 0 {
 		limit = 50
 	}
+	// A query with no letter or digit (whitespace or pure punctuation) has nothing
+	// the BM25 index can match, so short-circuit instead of issuing a no-op query.
 	match := strings.TrimSpace(query)
-	if match == "" {
+	if !hasSearchableToken(match) {
 		return []Article{}, nil
 	}
 	rows, err := s.q.SearchArticles(ctx, sqlc.SearchArticlesParams{
@@ -279,6 +283,19 @@ func (s *Store) SearchArticles(ctx context.Context, userID string, query string,
 		articles = append(articles, article)
 	}
 	return articles, nil
+}
+
+// hasSearchableToken reports whether s holds at least one letter or digit. A
+// query of only whitespace or punctuation tokenizes to nothing the BM25 index
+// can match (jieba drops whitespace via stopwords; punctuation carries no
+// signal), so search short-circuits to empty rather than issue a no-op query.
+func hasSearchableToken(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // CreateFeed creates a new feed subscription. kind is the extraction-dispatch

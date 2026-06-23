@@ -180,20 +180,35 @@ func TestSearch_ScopeIsolation(t *testing.T) {
 }
 
 func TestSearch_BothMergesAndRanks(t *testing.T) {
+	// Merging two independent BM25 indexes can't compare their raw scores (IDF is
+	// per-index), so search fuses by Reciprocal Rank Fusion: each source's rank-0
+	// hit outranks both sources' rank-1 hits. Give messages and summaries each a
+	// strong (rank 0) and a weak (rank 1) "delta" hit, then assert the two strong
+	// hits land first and come from different sources — RRF lifts each index's
+	// best hit, it does not just sort everything by raw score.
 	db, p, sess := newSearchTestEnv(t, "fts-both")
 	convID := conversationID(t, db, sess.ID)
-	appendUser(t, p, sess, "delta mentioned once among many other unrelated padding words in this message")
-	insertSummary(t, db, convID, "sum-fts-3", "delta delta delta focused summary")
+	appendUser(t, p, sess, "delta delta delta strong message focus")
+	appendUser(t, p, sess, "delta weak among other padding words here")
+	insertSummary(t, db, convID, "sum-strong", "delta delta delta strong summary focus")
+	insertSummary(t, db, convID, "sum-weak", "delta weak among other padding words")
 
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "delta", Scope: memory.SearchScopeBoth})
-	if len(results) != 2 {
-		t.Fatalf("expected 2 hits across sources, got %d", len(results))
+	if len(results) != 4 {
+		t.Fatalf("expected 4 hits across sources, got %d: %+v", len(results), results)
 	}
-	if results[0].SourceType != "summary" {
-		t.Errorf("expected strong summary hit ranked above weak message hit, got %+v", results)
+	for i, r := range results[:2] {
+		if !strings.Contains(r.Content, "strong") {
+			t.Errorf("RRF: result[%d] should be a rank-0 (strong) hit, got %q", i, r.Content)
+		}
 	}
-	if results[1].SourceType != "message" {
-		t.Errorf("expected message hit second, got %+v", results[1])
+	if results[0].SourceType == results[1].SourceType {
+		t.Errorf("RRF should interleave both sources' top hits, got two %q", results[0].SourceType)
+	}
+	for i, r := range results[2:] {
+		if !strings.Contains(r.Content, "weak") {
+			t.Errorf("RRF: result[%d] should be a rank-1 (weak) hit, got %q", i+2, r.Content)
+		}
 	}
 }
 
@@ -320,7 +335,7 @@ func TestSearch_CJKMatch(t *testing.T) {
 	_, p, sess := newSearchTestEnv(t, "fts-cjk")
 	appendUser(t, p, sess, "今天讨论了部署方案的细节和时间表")
 
-	// pg_search tokenizes CJK with ICU word segmentation, so a CJK query is a
+	// pg_search tokenizes CJK with jieba word segmentation, so a CJK query is a
 	// real BM25 hit (positive score), not a degraded substring fallback.
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署方案", Scope: memory.SearchScopeMessages})
 	if len(results) != 1 {
@@ -337,7 +352,7 @@ func TestSearch_ShortCJKQueryMatches(t *testing.T) {
 	appendUser(t, p, sess, "今天讨论了部署方案的细节")
 	insertSummary(t, db, convID, "sum-fts-short", "总结：部署流程已经确定")
 
-	// A short 2-char CJK token is segmented by ICU and matches via BM25 in both
+	// A short 2-char CJK token is segmented by jieba and matches via BM25 in both
 	// scopes, with a positive score and no fallback tier.
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署", Scope: memory.SearchScopeBoth})
 	if len(results) != 2 {
@@ -438,7 +453,7 @@ func TestSearch_IsCaseInsensitive(t *testing.T) {
 	appendUser(t, p, sess, "golang runtime notes")
 	insertSummary(t, db, convID, "sum-like-case", "GoLang summary header")
 
-	// ICU lowercases tokens, so an uppercase query matches the lowercase
+	// jieba lowercases tokens, so an uppercase query matches the lowercase
 	// "golang" message and the mixed-case "GoLang" summary alike.
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "GOLANG", Scope: memory.SearchScopeBoth})
 	if len(results) != 2 {

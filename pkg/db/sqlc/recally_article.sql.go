@@ -421,11 +421,11 @@ SELECT
     a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at,
     -- snippet highlights the title; NULL when the hit was on another field only.
     COALESCE(paradedb.snippet(a.title), '')::text AS snippet,
-    (paradedb.score(a.id) * (CASE WHEN a.id @@@ paradedb.match('title', $1::text) THEN 3 ELSE 1 END))::double precision AS score
+    paradedb.score(a.id)::double precision AS score
 FROM recally_article a
-WHERE (a.id @@@ paradedb.match('title', $1::text)
+WHERE (a.id @@@ paradedb.boost(3.0, paradedb.match('title', $1::text))
+    OR a.id @@@ paradedb.boost(2.0, paradedb.match('tags', $1::text))
     OR a.id @@@ paradedb.match('summary', $1::text)
-    OR a.id @@@ paradedb.match('tags', $1::text)
     OR a.id @@@ paradedb.match('author', $1::text))
   AND a.user_id = $2
 ORDER BY score DESC
@@ -446,10 +446,13 @@ type SearchArticlesRow struct {
 
 // Multi-field BM25 search over title/summary/tags/author via pg_search. Each
 // field is matched with paradedb.match, which tokenizes the raw user text with
-// ICU (CJK matches natively, no fallback tier) and never errors on punctuation.
-// Title is weighted above the other fields (the old setweight A=title intent) by
-// boosting the row score when the title matches, so a title hit outranks a body
-// or author hit. snippet highlights the title. The match arg is raw user text.
+// the jieba tokenizer (dictionary + statistical CJK word segmentation, CJK
+// matches natively with no fallback tier) and never errors on punctuation.
+// Per-field relevance is weighted natively with paradedb.boost (title 3x, tags 2x,
+// summary/author 1x): boost scales each field's BM25 contribution to the row
+// score, so a title hit outranks a tags hit outranks a body/author hit, with no
+// CASE multiplier on the whole row. snippet highlights the title. match is raw
+// user text.
 func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) ([]SearchArticlesRow, error) {
 	rows, err := q.db.Query(ctx, searchArticles, arg.Match, arg.UserID, arg.Limit)
 	if err != nil {
