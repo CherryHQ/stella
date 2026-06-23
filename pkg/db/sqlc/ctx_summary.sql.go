@@ -432,7 +432,7 @@ JOIN ctx_conversation c ON c.id = s.conversation_id
 WHERE s.id @@@ paradedb.match('content', $1::text)
   AND c.user_id = $2
   AND c.agent_id IS NOT DISTINCT FROM $3
-ORDER BY score DESC
+ORDER BY score DESC, COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
 LIMIT $4
 `
 
@@ -464,8 +464,11 @@ type SearchSummariesRow struct {
 
 // Spans every conversation of the current (user_id, agent_id); see SearchMessages.
 // Lexical ranking is pg_search BM25; paradedb.match tokenizes the raw user text
-// with ICU (CJK matches natively) and never errors on punctuation. The match arg
-// is the raw user text.
+// with the jieba tokenizer (dictionary + statistical CJK word segmentation, CJK
+// matches natively) and never errors on punctuation. The match arg is the raw
+// user text.
+// Stable score tie-break (see SearchMessages): content time, then id, so the
+// per-source rank that cross-source RRF consumes is deterministic.
 func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams) ([]SearchSummariesRow, error) {
 	rows, err := q.db.Query(ctx, searchSummaries,
 		arg.Match,

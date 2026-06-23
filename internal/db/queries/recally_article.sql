@@ -44,22 +44,27 @@ DELETE FROM recally_article WHERE id = $1 AND user_id = $2;
 -- name: SearchArticles :many
 -- Multi-field BM25 search over title/summary/tags/author via pg_search. Each
 -- field is matched with paradedb.match, which tokenizes the raw user text with
--- ICU (CJK matches natively, no fallback tier) and never errors on punctuation.
--- Title is weighted above the other fields (the old setweight A=title intent) by
--- boosting the row score when the title matches, so a title hit outranks a body
--- or author hit. snippet highlights the title. The match arg is raw user text.
+-- the jieba tokenizer (dictionary + statistical CJK word segmentation, CJK
+-- matches natively with no fallback tier) and never errors on punctuation.
+-- Per-field relevance is weighted natively with paradedb.boost (title 3x, tags 2x,
+-- summary/author 1x): boost scales each field's BM25 contribution to the row
+-- score, so a title hit outranks a tags hit outranks a body/author hit, with no
+-- CASE multiplier on the whole row. snippet highlights the title. match is raw
+-- user text.
 SELECT
     sqlc.embed(a),
     -- snippet highlights the title; NULL when the hit was on another field only.
     COALESCE(paradedb.snippet(a.title), '')::text AS snippet,
-    (paradedb.score(a.id) * (CASE WHEN a.id @@@ paradedb.match('title', sqlc.arg('match')::text) THEN 3 ELSE 1 END))::double precision AS score
+    paradedb.score(a.id)::double precision AS score
 FROM recally_article a
-WHERE (a.id @@@ paradedb.match('title', sqlc.arg('match')::text)
+WHERE (a.id @@@ paradedb.boost(3.0, paradedb.match('title', sqlc.arg('match')::text))
+    OR a.id @@@ paradedb.boost(2.0, paradedb.match('tags', sqlc.arg('match')::text))
     OR a.id @@@ paradedb.match('summary', sqlc.arg('match')::text)
-    OR a.id @@@ paradedb.match('tags', sqlc.arg('match')::text)
     OR a.id @@@ paradedb.match('author', sqlc.arg('match')::text))
   AND a.user_id = sqlc.arg('user_id')
-ORDER BY score DESC
+-- saved_at, id break score ties deterministically so identical queries return a
+-- stable order.
+ORDER BY score DESC, a.saved_at DESC, a.id DESC
 LIMIT sqlc.arg('limit');
 
 -- name: CountArticlesByStatus :one
