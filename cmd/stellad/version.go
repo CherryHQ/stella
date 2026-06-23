@@ -16,8 +16,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	ucli "github.com/urfave/cli/v2"
+	"golang.org/x/term"
 
 	"github.com/CherryHQ/stella/internal/version"
 	"github.com/CherryHQ/stella/pkg/httpclient"
@@ -34,15 +36,19 @@ const (
 )
 
 var (
-	upgradeHTTPClient   = httpclient.New()
-	upgradeAPIBaseURL   = "https://api.github.com"
-	upgradeUserAgent    = "stella-upgrade"
-	errUnsupportedAsset = errors.New("no release asset for current platform")
-	errInvalidTarget    = errors.New("existing target is not a replaceable file")
-	executablePath      = os.Executable
-	renameFile          = os.Rename
-	removeFile          = os.Remove
-	currentGOOS         = runtime.GOOS
+	upgradeHTTPClient = httpclient.New()
+	// upgradeDownloadClient streams the release archive (100 MB+). It uses a
+	// generous timeout so a slow link is not cut off mid-download; cancellation
+	// still flows through the request context.
+	upgradeDownloadClient = httpclient.NewWithTimeout(15 * time.Minute)
+	upgradeAPIBaseURL     = "https://api.github.com"
+	upgradeUserAgent      = "stella-upgrade"
+	errUnsupportedAsset   = errors.New("no release asset for current platform")
+	errInvalidTarget      = errors.New("existing target is not a replaceable file")
+	executablePath        = os.Executable
+	renameFile            = os.Rename
+	removeFile            = os.Remove
+	currentGOOS           = runtime.GOOS
 )
 
 type githubRelease struct {
@@ -76,9 +82,12 @@ func versionCommand() *ucli.Command {
 
 func upgradeCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:     "upgrade",
-		Usage:    "Upgrade stella to the latest stable GitHub release",
-		Category: "System",
+		Name:      "upgrade",
+		Usage:     "Upgrade stella to a GitHub release (latest by default)",
+		Category:  "System",
+		ArgsUsage: "[version]",
+		Description: "Upgrade stella to the latest stable GitHub release.\n" +
+			"Pass an optional version (e.g. 0.50.0 or v0.50.0) to install that specific release instead.",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{
 				Name:  "install-dir",
@@ -91,7 +100,7 @@ func upgradeCommand() *ucli.Command {
 				return err
 			}
 
-			result, err := runUpgrade(c.Context, installDir, version.DisplayVersion(), runtime.GOOS, runtime.GOARCH)
+			result, err := runUpgrade(c.Context, os.Stdout, installDir, version.DisplayVersion(), c.Args().First(), runtime.GOOS, runtime.GOARCH)
 			if err != nil {
 				return err
 			}
@@ -100,8 +109,8 @@ func upgradeCommand() *ucli.Command {
 				return nil
 			}
 
-			fmt.Printf("Upgraded stella from %s to %s\n", result.CurrentVersion, result.LatestVersion)
-			fmt.Printf("Installed to %s\n", installDir)
+			fmt.Printf("\n%s Upgraded stella %s -> %s\n", okMark(os.Stdout), result.CurrentVersion, result.LatestVersion)
+			fmt.Printf("  Installed to %s\n", installDir)
 			return nil
 		},
 	}
@@ -136,8 +145,16 @@ func binariesToUpgrade(goos string) []string {
 	return []string{"stella", "stellad"}
 }
 
-func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
-	url := strings.TrimRight(upgradeAPIBaseURL, "/") + "/repos/" + githubOwner + "/" + githubRepo + "/releases/latest"
+// fetchRelease fetches a release from GitHub. An empty targetVersion fetches the
+// latest stable release; otherwise it fetches the release tagged "v<version>".
+func fetchRelease(ctx context.Context, targetVersion string) (*githubRelease, error) {
+	base := strings.TrimRight(upgradeAPIBaseURL, "/") + "/repos/" + githubOwner + "/" + githubRepo + "/releases/"
+	what := "latest release"
+	url := base + "latest"
+	if targetVersion != "" {
+		what = fmt.Sprintf("release v%s", targetVersion)
+		url = base + "tags/v" + targetVersion
+	}
 
 	var parsed githubRelease
 	resp, err := upgradeHTTPClient.R().
@@ -147,19 +164,28 @@ func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
 		SetResult(&parsed).
 		Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("fetch latest release: %w", err)
+		return nil, fmt.Errorf("fetch %s: %w", what, err)
+	}
+	if resp.StatusCode() == http.StatusNotFound && targetVersion != "" {
+		return nil, fmt.Errorf("release v%s not found — check available versions at https://github.com/%s/%s/releases", targetVersion, githubOwner, githubRepo)
 	}
 	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("fetch latest release: unexpected status %d: %s", resp.StatusCode(), strings.TrimSpace(resp.String()))
+		return nil, fmt.Errorf("fetch %s: unexpected status %d: %s", what, resp.StatusCode(), strings.TrimSpace(resp.String()))
 	}
 	if version.NormalizeVersion(parsed.TagName) == "" {
-		return nil, fmt.Errorf("latest release tag %q is invalid", parsed.TagName)
+		return nil, fmt.Errorf("%s tag %q is invalid", what, parsed.TagName)
 	}
 	return &parsed, nil
 }
 
-func runUpgrade(ctx context.Context, installDir, currentVersion, goos, goarch string) (*upgradeResult, error) {
-	release, err := fetchLatestRelease(ctx)
+func runUpgrade(ctx context.Context, out io.Writer, installDir, currentVersion, targetVersion, goos, goarch string) (*upgradeResult, error) {
+	targetVersion = version.NormalizeVersion(targetVersion)
+	if targetVersion == "" {
+		fprintln(out, "Checking for the latest release...")
+	} else {
+		fprintf(out, "Looking up release v%s...\n", targetVersion)
+	}
+	release, err := fetchRelease(ctx, targetVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +210,8 @@ func runUpgrade(ctx context.Context, installDir, currentVersion, goos, goarch st
 		return nil, err
 	}
 
-	if err := installReleaseAsset(ctx, asset, installDir, goos, release); err != nil {
+	fprintf(out, "Upgrading stella %s -> %s  (%s/%s)\n", result.CurrentVersion, result.LatestVersion, goos, goarch)
+	if err := installReleaseAsset(ctx, out, asset, installDir, goos, release); err != nil {
 		return nil, err
 	}
 	result.InstallDir = installDir
@@ -208,7 +235,7 @@ func releaseAssetSuffixes(goos, goarch string) []string {
 	return []string{base + ".tar.gz", base + ".zip"}
 }
 
-func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installDir, goos string, release *githubRelease) (err error) {
+func installReleaseAsset(ctx context.Context, out io.Writer, asset githubReleaseAsset, installDir, goos string, release *githubRelease) (err error) {
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
 		return fmt.Errorf("create install dir: %w", err)
 	}
@@ -224,14 +251,17 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 	}()
 
 	archivePath := filepath.Join(tmpDir, filepath.Base(asset.Name))
-	if err := downloadFile(ctx, asset.BrowserDownloadURL, archivePath); err != nil {
+	fprintf(out, "  Downloading %s\n", asset.Name)
+	if err := downloadFile(ctx, out, asset.BrowserDownloadURL, archivePath); err != nil {
 		return err
 	}
 
+	fprintln(out, "  Verifying checksum...")
 	if err := verifyChecksum(ctx, release, asset.Name, archivePath); err != nil {
 		return err
 	}
 
+	fprintf(out, "  Installing to %s...\n", installDir)
 	bins := binariesToUpgrade(goos)
 
 	// Extract all binaries first — fail fast before modifying anything.
@@ -453,19 +483,133 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func downloadFile(ctx context.Context, url, dest string) error {
-	resp, err := upgradeHTTPClient.R().
+func downloadFile(ctx context.Context, out io.Writer, url, dest string) (err error) {
+	resp, err := upgradeDownloadClient.R().
 		SetContext(ctx).
 		SetHeader("User-Agent", upgradeUserAgent).
-		SetOutput(dest).
+		SetDoNotParseResponse(true).
 		Get(url)
 	if err != nil {
 		return fmt.Errorf("download asset: %w", err)
 	}
+	body := resp.RawBody()
+	defer func() { _ = body.Close() }()
 	if resp.StatusCode() != http.StatusOK {
 		return fmt.Errorf("download asset: unexpected status %d", resp.StatusCode())
 	}
+
+	file, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("create download file: %w", err)
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close download file: %w", closeErr)
+		}
+	}()
+
+	bar := newProgressBar(out, resp.RawResponse.ContentLength)
+	if _, err := io.Copy(io.MultiWriter(file, bar), body); err != nil {
+		bar.abort()
+		return fmt.Errorf("download asset: %w", err)
+	}
+	bar.done()
 	return nil
+}
+
+// progressBar renders a download progress line that updates in place on a
+// terminal. On a non-terminal writer (pipe, CI log) it stays silent so output
+// is not flooded with carriage-return spam; the surrounding step messages still
+// convey what is happening.
+type progressBar struct {
+	w       io.Writer
+	total   int64 // expected bytes; <=0 when the server sent no Content-Length
+	written int64
+	tty     bool
+	lastPct int
+}
+
+func newProgressBar(w io.Writer, total int64) *progressBar {
+	return &progressBar{w: w, total: total, tty: isTerminalWriter(w), lastPct: -1}
+}
+
+func (b *progressBar) Write(p []byte) (int, error) {
+	n := len(p)
+	b.written += int64(n)
+	b.render()
+	return n, nil
+}
+
+func (b *progressBar) render() {
+	if !b.tty {
+		return
+	}
+	if b.total > 0 {
+		pct := min(int(b.written*100/b.total), 100)
+		if pct == b.lastPct {
+			return
+		}
+		b.lastPct = pct
+		const width = 30
+		filled := pct * width / 100
+		bar := strings.Repeat("=", filled) + strings.Repeat(" ", width-filled)
+		fprintf(b.w, "\r  [%s] %3d%%  %s / %s", bar, pct, humanBytes(b.written), humanBytes(b.total))
+		return
+	}
+	// Unknown size: show a growing byte count, throttled to whole megabytes.
+	mb := int(b.written >> 20)
+	if mb == b.lastPct {
+		return
+	}
+	b.lastPct = mb
+	fprintf(b.w, "\r  %s downloaded", humanBytes(b.written))
+}
+
+func (b *progressBar) done() {
+	if b.tty {
+		fprintln(b.w)
+	}
+}
+
+// abort moves off the progress line so an error message starts on a fresh line.
+func (b *progressBar) abort() {
+	if b.tty && b.lastPct >= 0 {
+		fprintln(b.w)
+	}
+}
+
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGT"[exp])
+}
+
+// fprintf and fprintln write progress text to the upgrade output stream.
+// Output to stdout never meaningfully fails, so the error is dropped — matching
+// how the rest of this file treats UI writes.
+func fprintf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+func fprintln(w io.Writer, a ...any)               { _, _ = fmt.Fprintln(w, a...) }
+
+// isTerminalWriter reports whether w is an *os.File attached to a terminal.
+func isTerminalWriter(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
+
+// okMark returns a check mark when writing to a terminal, else a plain ASCII
+// marker so logs stay readable.
+func okMark(w io.Writer) string {
+	if isTerminalWriter(w) {
+		return "✓"
+	}
+	return "OK:"
 }
 
 func extractBinaryFromArchive(archivePath, destDir, binaryName string) (string, error) {

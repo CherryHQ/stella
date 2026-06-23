@@ -64,10 +64,11 @@ stellad server --host 0.0.0.0 --port 8080  # bind to all interfaces
 ```bash
 stella version
 stellad upgrade
+stellad upgrade 0.50.0                             # install a specific release
 stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
 ```
 
-`stellad upgrade` fetches the latest stable release from GitHub, downloads the matching archive for the current OS/architecture, and replaces the running `stellad` binary by default. If the target directory is not writable, rerun the command with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
+`stellad upgrade` fetches a stable release from GitHub (the latest by default, or the version you pass as an argument), downloads the matching archive for the current OS/architecture while showing download progress, and replaces the running `stellad` binary by default. If the target directory is not writable, rerun the command with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
 
 ## Run as a Background Service
 
