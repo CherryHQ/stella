@@ -179,6 +179,60 @@ func TestPatchAndDeprecateKnowledgeUseKnowledgeTool(t *testing.T) {
 	}
 }
 
+func TestPatchAndDeprecateIgnoreDeprecatedSameNameEntries(t *testing.T) {
+	store := &memoryKnowledgeStore{
+		knowledge: []pkgplugins.KnowledgeEntry{
+			{
+				ID:            "k1",
+				Name:          "replaceable",
+				Content:       "Old fact",
+				KnowledgeType: pkgplugins.KnowledgeTypeFact,
+				Status:        statusDeprecated,
+			},
+			{
+				ID:            "k2",
+				Name:          "replaceable",
+				Content:       "New fact",
+				KnowledgeType: pkgplugins.KnowledgeTypeFact,
+				Status:        statusDraft,
+			},
+		},
+		owners: map[string]knowledgeOwner{
+			"k1": {scope: "user", userID: "u1"},
+			"k2": {scope: "user", userID: "u1"},
+		},
+	}
+	tool := NewTool(store)
+	ctx := ctxWithUserAndAgent("u1", "a1")
+
+	// Regression for CR-007: a retired row with the same name must not make the
+	// replacement entry ambiguous for normal patch/deprecate operations.
+	if _, err := tool.patch(ctx, map[string]any{
+		"name":    "replaceable",
+		"kind":    "fact",
+		"status":  "active",
+		"content": "Updated fact",
+	}); err != nil {
+		t.Fatalf("patch replacement knowledge: %v", err)
+	}
+	if store.knowledge[1].Status != statusActive || store.knowledge[1].Content != "Updated fact" {
+		t.Fatalf("unexpected patched replacement: %+v", store.knowledge[1])
+	}
+	if store.knowledge[0].Status != statusDeprecated {
+		t.Fatalf("deprecated predecessor was modified: %+v", store.knowledge[0])
+	}
+
+	if _, err := tool.deprecate(ctx, map[string]any{
+		"name": "replaceable",
+		"kind": "fact",
+	}); err != nil {
+		t.Fatalf("deprecate replacement knowledge: %v", err)
+	}
+	if store.knowledge[1].Status != statusDeprecated {
+		t.Fatalf("expected replacement deprecated, got %+v", store.knowledge[1])
+	}
+}
+
 func ctxWithUserAndAgent(userID, agentID string) context.Context {
 	ctx := context.Background()
 	ctx = memory.WithUserID(ctx, userID)

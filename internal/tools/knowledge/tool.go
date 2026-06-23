@@ -253,6 +253,11 @@ func (t *Tool) resolve(ctx context.Context, args map[string]any, name string, ki
 	}
 	var matches []pkgplugins.KnowledgeEntry
 	for _, row := range rows {
+		// Deprecated predecessors can share a name with their replacement; they
+		// must not participate in patch/deprecate resolution.
+		if row.Status == statusDeprecated {
+			continue
+		}
 		if row.KnowledgeType == kind {
 			matches = append(matches, row)
 		}

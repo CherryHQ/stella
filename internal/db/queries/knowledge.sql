@@ -58,6 +58,7 @@ ORDER BY updated_at DESC;
 -- name: ListKnowledgeByNameAndScope :many
 SELECT * FROM agent_knowledge
 WHERE name = sqlc.arg(name)
+  AND status <> 'deprecated'
   AND scope = sqlc.arg(scope)
   AND COALESCE(user_id::TEXT, '') = COALESCE(sqlc.narg(user_id)::TEXT, '')
   AND COALESCE(agent_id, '') = COALESCE(sqlc.narg(agent_id), '')

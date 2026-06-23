@@ -158,6 +158,39 @@ func TestDeprecatedKnowledgeDoesNotBlockSameNameCreate(t *testing.T) {
 	}
 }
 
+func TestListByNameAndScopeExcludesDeprecatedKnowledge(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+
+	oldEntry, err := store.Create(ctx, CreateParams{
+		Kind: KindFact, Scope: "user", UserID: userID, Name: "replaceable", Content: "old", Status: StatusActive,
+	})
+	if err != nil {
+		t.Fatalf("create old entry: %v", err)
+	}
+	if err := store.Deprecate(ctx, oldEntry.ID); err != nil {
+		t.Fatalf("deprecate old entry: %v", err)
+	}
+	replacement, err := store.Create(ctx, CreateParams{
+		Kind: KindFact, Scope: "user", UserID: userID, Name: "replaceable", Content: "new", Status: StatusDraft,
+	})
+	if err != nil {
+		t.Fatalf("create replacement after deprecate: %v", err)
+	}
+
+	// Tool patch/deprecate resolution should only see the live replacement row.
+	rows, err := store.ListByNameAndScope(ctx, "replaceable", "user", userID, "")
+	if err != nil {
+		t.Fatalf("list replacement by name and scope: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected one non-deprecated row, got %d: %+v", len(rows), rows)
+	}
+	if rows[0].ID != replacement.ID || rows[0].Status == StatusDeprecated {
+		t.Fatalf("unexpected replacement row: %+v", rows[0])
+	}
+}
+
 func TestListActiveRejectsMultipleKindFilters(t *testing.T) {
 	store, _, ctx := newTestStore(t)
 

@@ -218,6 +218,7 @@ func (q *Queries) ListActiveKnowledge(ctx context.Context, arg ListActiveKnowled
 const listKnowledgeByNameAndScope = `-- name: ListKnowledgeByNameAndScope :many
 SELECT id, kind, scope, user_id, agent_id, name, content, status, evidence, confidence, expires_at, supersedes, metadata, created_at, updated_at FROM agent_knowledge
 WHERE name = $1
+  AND status <> 'deprecated'
   AND scope = $2
   AND COALESCE(user_id::TEXT, '') = COALESCE($3::TEXT, '')
   AND COALESCE(agent_id, '') = COALESCE($4, '')
