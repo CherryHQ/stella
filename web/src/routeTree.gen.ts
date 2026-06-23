@@ -31,6 +31,7 @@ import { Route as AppSettingsSkillsRouteImport } from './routes/_app/settings/sk
 import { Route as AppSettingsSandboxRouteImport } from './routes/_app/settings/sandbox'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
 import { Route as AppSettingsPluginsRouteImport } from './routes/_app/settings/plugins'
+import { Route as AppSettingsEmbeddingRouteImport } from './routes/_app/settings/embedding'
 import { Route as AppSettingsCredentialsRouteImport } from './routes/_app/settings/credentials'
 import { Route as AppSettingsChannelsRouteImport } from './routes/_app/settings/channels'
 import { Route as AppSettingsAgentsRouteImport } from './routes/_app/settings/agents'
@@ -184,6 +185,13 @@ const AppSettingsPluginsRoute = AppSettingsPluginsRouteImport.update({
   getParentRoute: () => AppSettingsRoute,
 } as any).lazy(() =>
   import('./routes/_app/settings/plugins.lazy').then((d) => d.Route),
+)
+const AppSettingsEmbeddingRoute = AppSettingsEmbeddingRouteImport.update({
+  id: '/embedding',
+  path: '/embedding',
+  getParentRoute: () => AppSettingsRoute,
+} as any).lazy(() =>
+  import('./routes/_app/settings/embedding.lazy').then((d) => d.Route),
 )
 const AppSettingsCredentialsRoute = AppSettingsCredentialsRouteImport.update({
   id: '/credentials',
@@ -490,6 +498,7 @@ export interface FileRoutesByFullPath {
   '/settings/agents': typeof AppSettingsAgentsRouteWithChildren
   '/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
+  '/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/sandbox': typeof AppSettingsSandboxRoute
@@ -544,6 +553,7 @@ export interface FileRoutesByTo {
   '/settings/agents': typeof AppSettingsAgentsRouteWithChildren
   '/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
+  '/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/sandbox': typeof AppSettingsSandboxRoute
@@ -603,6 +613,7 @@ export interface FileRoutesById {
   '/_app/settings/agents': typeof AppSettingsAgentsRouteWithChildren
   '/_app/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/_app/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
+  '/_app/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/_app/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/_app/settings/sandbox': typeof AppSettingsSandboxRoute
@@ -662,6 +673,7 @@ export interface FileRouteTypes {
     | '/settings/agents'
     | '/settings/channels'
     | '/settings/credentials'
+    | '/settings/embedding'
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/sandbox'
@@ -716,6 +728,7 @@ export interface FileRouteTypes {
     | '/settings/agents'
     | '/settings/channels'
     | '/settings/credentials'
+    | '/settings/embedding'
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/sandbox'
@@ -774,6 +787,7 @@ export interface FileRouteTypes {
     | '/_app/settings/agents'
     | '/_app/settings/channels'
     | '/_app/settings/credentials'
+    | '/_app/settings/embedding'
     | '/_app/settings/plugins'
     | '/_app/settings/providers'
     | '/_app/settings/sandbox'
@@ -974,6 +988,13 @@ declare module '@tanstack/react-router' {
       path: '/plugins'
       fullPath: '/settings/plugins'
       preLoaderRoute: typeof AppSettingsPluginsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/embedding': {
+      id: '/_app/settings/embedding'
+      path: '/embedding'
+      fullPath: '/settings/embedding'
+      preLoaderRoute: typeof AppSettingsEmbeddingRouteImport
       parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/credentials': {
@@ -1399,6 +1420,7 @@ interface AppSettingsRouteChildren {
   AppSettingsAgentsRoute: typeof AppSettingsAgentsRouteWithChildren
   AppSettingsChannelsRoute: typeof AppSettingsChannelsRouteWithChildren
   AppSettingsCredentialsRoute: typeof AppSettingsCredentialsRouteWithChildren
+  AppSettingsEmbeddingRoute: typeof AppSettingsEmbeddingRoute
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRouteWithChildren
   AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
   AppSettingsSandboxRoute: typeof AppSettingsSandboxRoute
@@ -1413,6 +1435,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsAgentsRoute: AppSettingsAgentsRouteWithChildren,
   AppSettingsChannelsRoute: AppSettingsChannelsRouteWithChildren,
   AppSettingsCredentialsRoute: AppSettingsCredentialsRouteWithChildren,
+  AppSettingsEmbeddingRoute: AppSettingsEmbeddingRoute,
   AppSettingsPluginsRoute: AppSettingsPluginsRouteWithChildren,
   AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
   AppSettingsSandboxRoute: AppSettingsSandboxRoute,

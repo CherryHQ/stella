@@ -43,6 +43,7 @@ tags:
   - name: groups
   - name: weixin
   - name: providers
+  - name: embedding
   - name: sessions
   - name: shares
   - name: agents
@@ -185,6 +186,9 @@ paths:
     $ref: "./domain/providers/paths.yaml#/paths/~1api~1providers~1{id}~1models"
   /api/provider-types:
     $ref: "./domain/providers/paths.yaml#/paths/~1api~1provider-types"
+  # ── Embedding ──────────────────────────────────────────────────────────────
+  /api/embedding-settings:
+    $ref: "./domain/embedding/paths.yaml#/paths/~1api~1embedding-settings"
   # ── Sessions ───────────────────────────────────────────────────────────────
   /api/agents/{agentId}/sessions:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions"

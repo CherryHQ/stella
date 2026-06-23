@@ -109,6 +109,53 @@ WHERE m.id @@@ paradedb.match('content', sqlc.arg('match')::text)
 ORDER BY score DESC, m.created_at DESC, m.id DESC
 LIMIT sqlc.arg('limit');
 
+-- name: UpsertMessageEmbedding :exec
+-- Write or replace the semantic-search vector for one message. model is the
+-- vector-space key every KNN query must filter on; content_hash is the hash of
+-- the embedded text so a later pass can spot rows whose source content changed.
+-- Keep this comment ASCII (sqlc rewriter offsets).
+INSERT INTO ctx_message_embedding (message_id, model, content_hash, embedding)
+VALUES (sqlc.arg('message_id'), sqlc.arg('model'), sqlc.arg('content_hash'), sqlc.arg('embedding')::vector(1536))
+ON CONFLICT (message_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    updated_at   = now();
+
+-- name: ListMessagesNeedingEmbedding :many
+-- Backfill candidates: messages with no embedding, or one produced by a
+-- different model (a model switch invalidates the old vector space). Messages
+-- are immutable, so a row whose model already matches is never stale and is not
+-- returned. embedded_model/embedded_hash carry existing provenance so the writer
+-- can skip rows already current. Keep ASCII.
+SELECT m.id, m.content, e.model AS embedded_model, e.content_hash AS embedded_hash
+FROM ctx_message m
+LEFT JOIN ctx_message_embedding e ON e.message_id = m.id
+WHERE e.message_id IS NULL OR e.model <> sqlc.arg('model')
+ORDER BY m.created_at DESC
+LIMIT sqlc.arg('limit');
+
+-- name: SearchMessageEmbeddings :many
+-- Vector KNN over message embeddings, scoped to (user_id, agent_id) across every
+-- session like SearchMessages. WHERE model pins the query to a single vector
+-- space so a vector produced by a different model never matches; ORDER BY the
+-- <=> operator lets the HNSW cosine index drive the scan. score is cosine
+-- similarity (1 - distance), higher is better, matching the BM25 lane's score
+-- orientation for fusion. created_at, id break ties deterministically.
+SELECT
+    m.*,
+    c.session_id AS session_id,
+    c.title AS conversation_title,
+    (1 - (e.embedding <=> sqlc.arg('query')::vector(1536)))::double precision AS score
+FROM ctx_message_embedding e
+JOIN ctx_message m ON m.id = e.message_id
+JOIN ctx_conversation c ON c.id = m.conversation_id
+WHERE e.model = sqlc.arg('model')
+  AND c.user_id = sqlc.arg('user_id')
+  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), m.created_at DESC, m.id DESC
+LIMIT sqlc.arg('limit');
+
 -- name: GetMessagesSince :many
 SELECT * FROM ctx_message
 WHERE conversation_id = $1 AND created_at > $2

@@ -46,10 +46,25 @@ type Provider struct {
 	log          *slog.Logger
 }
 
+// Option configures optional Provider behavior at construction.
+type Option func(*Provider)
+
+// WithQueryEmbedder enables the semantic search lane: search() embeds the query
+// with emb and fuses vector KNN hits with the BM25 lexical results. Without it
+// (the default) search stays pure lexical. A nil emb is ignored so callers can
+// pass an unconditionally-built option.
+func WithQueryEmbedder(emb QueryEmbedder) Option {
+	return func(p *Provider) {
+		if emb != nil {
+			p.retrieval.embedder = emb
+		}
+	}
+}
+
 // New creates a new LCM provider.
 // summarizerFn provides LLM access for compaction; if nil, compaction is disabled.
 // cfg is the plugin-specific configuration from the plugin.config JSON.
-func New(db *pgxpool.Pool, summarizerFn func(ctx context.Context, prompt string) (string, error), cfg map[string]any) (*Provider, error) {
+func New(db *pgxpool.Pool, summarizerFn func(ctx context.Context, prompt string) (string, error), cfg map[string]any, opts ...Option) (*Provider, error) {
 	q := sqlc.New(db)
 
 	freshTail := defaultFreshTail
@@ -68,12 +83,15 @@ func New(db *pgxpool.Pool, summarizerFn func(ctx context.Context, prompt string)
 		db:        db,
 		q:         q,
 		assembler: newAssembler(q, slog.Default()),
-		retrieval: newRetrievalEngine(q),
+		retrieval: newRetrievalEngine(q, slog.Default()),
 		freshTail: freshTail,
 		log:       slog.Default(),
 	}
 	p.summarizer = summarizer
 	p.compaction = newCompactionEngine(db, q, summarizer, freshTail)
+	for _, opt := range opts {
+		opt(p)
+	}
 	return p, nil
 }
 

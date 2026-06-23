@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/memory"
 	memorylcm "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -66,9 +67,16 @@ func buildMemorySummarizer(store config.Store, providerStreamBuilder agent.Provi
 	}
 }
 
-func setupMemoryProvider(_ context.Context, memDB *pgxpool.Pool, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) (memory.Provider, error) {
+func setupMemoryProvider(_ context.Context, memDB *pgxpool.Pool, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder, embeddingSvc *embedding.Service) (memory.Provider, error) {
 	summarizer := buildMemorySummarizer(store, providerStreamBuilder)
-	mem, err := memorylcm.New(memDB, summarizer, nil)
+	// Guard the option on the concrete pointer: passing a typed-nil *Service as the
+	// QueryEmbedder interface would make a non-nil interface wrapping a nil pointer,
+	// defeating the engine's nil check and panicking on first search.
+	var opts []memorylcm.Option
+	if embeddingSvc != nil {
+		opts = append(opts, memorylcm.WithQueryEmbedder(embeddingSvc))
+	}
+	mem, err := memorylcm.New(memDB, summarizer, nil, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("init lcm memory: %w", err)
 	}

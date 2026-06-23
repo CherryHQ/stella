@@ -146,7 +146,31 @@ const en = {
   "settings.nav.plugins": "Plugins",
   "settings.nav.sandbox": "Sandbox",
   "settings.nav.providers": "Providers",
+  "settings.nav.embedding": "Embedding",
   "settings.nav.users": "Users",
+  "embedding.title": "Embedding",
+  "embedding.description":
+    "Configure the semantic-search lane. When enabled, memory search blends vector similarity with keyword matching; when off, search stays pure keyword.",
+  "embedding.enableTitle": "Enable semantic search",
+  "embedding.enableHint":
+    "Embed new content and fuse vector results into search. Changes take effect immediately, no restart needed.",
+  "embedding.apiKey": "API key",
+  "embedding.apiKeyStored": "•••••••• (stored, leave blank to keep)",
+  "embedding.apiKeyHint": "Stored as-is. Leave blank to keep the existing key.",
+  "embedding.baseURL": "Base URL",
+  "embedding.baseURLHint":
+    "OpenAI-compatible embeddings endpoint. Leave blank for the OpenAI default.",
+  "embedding.model": "Model",
+  "embedding.dim": "Dimensions",
+  "embedding.dimHint":
+    "Must match the model's output dimension. Changing it re-embeds content into a new vector space.",
+  "embedding.normalizeTitle": "Normalize vectors",
+  "embedding.normalizeHint":
+    "L2-normalize embeddings before storing. Leave on unless your provider already normalizes.",
+  "embedding.save": "Save",
+  "embedding.saved": "Embedding settings saved",
+  "embedding.saveFailed": "Failed to save embedding settings",
+  "embedding.apiKeyRequired": "An API key is required to enable embedding",
   "settings.nav.about": "About",
 
   // About
@@ -1799,7 +1823,27 @@ const zh: Record<MessageKey, string> = {
   "settings.nav.plugins": "插件",
   "settings.nav.sandbox": "沙盒",
   "settings.nav.providers": "提供商",
+  "settings.nav.embedding": "向量嵌入",
   "settings.nav.users": "用户",
+  "embedding.title": "向量嵌入",
+  "embedding.description":
+    "配置语义搜索通道。开启后,记忆搜索会将向量相似度与关键词匹配融合;关闭时则只使用关键词搜索。",
+  "embedding.enableTitle": "启用语义搜索",
+  "embedding.enableHint": "为新内容生成向量并将向量结果融合进搜索。修改即时生效,无需重启。",
+  "embedding.apiKey": "API 密钥",
+  "embedding.apiKeyStored": "•••••••• (已保存,留空则保留)",
+  "embedding.apiKeyHint": "原样保存。留空则保留已有密钥。",
+  "embedding.baseURL": "Base URL",
+  "embedding.baseURLHint": "兼容 OpenAI 的嵌入接口地址。留空则使用 OpenAI 默认地址。",
+  "embedding.model": "模型",
+  "embedding.dim": "维度",
+  "embedding.dimHint": "必须与模型输出维度一致。修改后会将内容重新嵌入到新的向量空间。",
+  "embedding.normalizeTitle": "归一化向量",
+  "embedding.normalizeHint": "存储前对向量做 L2 归一化。除非提供商已归一化,否则建议保持开启。",
+  "embedding.save": "保存",
+  "embedding.saved": "嵌入设置已保存",
+  "embedding.saveFailed": "保存嵌入设置失败",
+  "embedding.apiKeyRequired": "启用向量嵌入需要提供 API 密钥",
   "settings.nav.about": "关于",
 
   // About
