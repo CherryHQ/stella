@@ -54,13 +54,11 @@ func (r *retrievalEngine) search(ctx context.Context, userID, agentID string, qu
 		scope = scopeSummaries
 	}
 
-	// Raw user text goes straight to pg_search: paradedb.match tokenizes it with
-	// the jieba tokenizer (so short and CJK queries match) and never errors on
-	// punctuation, so there is no separate sanitize/fallback tier. A query with no
-	// letter or digit (empty, whitespace, or pure punctuation) has nothing the BM25
-	// index can match, so short-circuit instead of issuing a no-op query.
-	match := strings.TrimSpace(query.Text)
-	if !hasSearchableToken(match) {
+	// normalizeQuery folds punctuation to spaces before pg_search tokenizes it, so
+	// the jieba tokenizer never emits a punctuation token that matches unrelated
+	// rows; a query with no letters/digits normalizes to "" and short-circuits.
+	match := normalizeQuery(query.Text)
+	if match == "" {
 		return nil, nil
 	}
 
@@ -324,17 +322,22 @@ func (r *retrievalEngine) expand(ctx context.Context, sum sqlc.CtxSummary, token
 	return result, nil
 }
 
-// hasSearchableToken reports whether s holds at least one letter or digit. A
-// query of only whitespace or punctuation tokenizes to nothing the BM25 index
-// can match (jieba drops whitespace via stopwords; punctuation carries no
-// signal), so search short-circuits to empty rather than issue a no-op query.
-func hasSearchableToken(s string) bool {
+// normalizeQuery folds punctuation and symbols to spaces and collapses runs of
+// whitespace. jieba emits punctuation and whitespace as their own tokens, so a
+// raw query like "alpha, beaver" would have the "," token match every row that
+// contains a comma; folding it to "alpha beaver" leaves only real search terms
+// (index-side whitespace stopwords then drop the spaces). A query with no
+// letters or digits normalizes to "", which callers treat as a no-op search.
+func normalizeQuery(s string) string {
+	var b strings.Builder
 	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return true
+		if unicode.IsPunct(r) || unicode.IsSymbol(r) {
+			b.WriteByte(' ')
+		} else {
+			b.WriteRune(r)
 		}
 	}
-	return false
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 // truncateUTF8 truncates s to at most maxLen runes, appending "..." if truncated.

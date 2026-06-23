@@ -104,7 +104,9 @@ JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE m.id @@@ paradedb.match('content', sqlc.arg('match')::text)
   AND c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
-ORDER BY score DESC
+-- created_at, id break score ties deterministically: cross-source RRF uses each
+-- row's rank, so a stable order keeps the same query from reshuffling the merge.
+ORDER BY score DESC, m.created_at DESC, m.id DESC
 LIMIT sqlc.arg('limit');
 
 -- name: GetMessagesSince :many

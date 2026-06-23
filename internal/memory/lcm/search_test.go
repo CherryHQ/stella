@@ -331,6 +331,26 @@ func TestSearch_SpecialCharactersDoNotError(t *testing.T) {
 	}
 }
 
+func TestSearch_PunctuationInQueryDoesNotPollute(t *testing.T) {
+	// jieba emits punctuation as its own token, so "alpha, beaver" would otherwise
+	// match every row containing a comma. normalizeQuery folds the comma to a
+	// space, so only rows with the real terms come back — the comma-only row must
+	// not appear.
+	_, p, sess := newSearchTestEnv(t, "fts-punct")
+	appendUser(t, p, sess,
+		"alpha beaver strong match",
+		"hello, world, unrelated commas only",
+	)
+
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "alpha, beaver", Scope: memory.SearchScopeMessages})
+	if len(results) != 1 {
+		t.Fatalf("expected 1 hit (comma-only row must not pollute), got %d: %+v", len(results), results)
+	}
+	if !strings.Contains(results[0].Content, "alpha") {
+		t.Errorf("expected the alpha/beaver row, got %q", results[0].Content)
+	}
+}
+
 func TestSearch_CJKMatch(t *testing.T) {
 	_, p, sess := newSearchTestEnv(t, "fts-cjk")
 	appendUser(t, p, sess, "今天讨论了部署方案的细节和时间表")

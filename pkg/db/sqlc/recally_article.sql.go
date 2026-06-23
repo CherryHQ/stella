@@ -428,7 +428,7 @@ WHERE (a.id @@@ paradedb.boost(3.0, paradedb.match('title', $1::text))
     OR a.id @@@ paradedb.match('summary', $1::text)
     OR a.id @@@ paradedb.match('author', $1::text))
   AND a.user_id = $2
-ORDER BY score DESC
+ORDER BY score DESC, a.saved_at DESC, a.id DESC
 LIMIT $3
 `
 
@@ -453,6 +453,8 @@ type SearchArticlesRow struct {
 // score, so a title hit outranks a tags hit outranks a body/author hit, with no
 // CASE multiplier on the whole row. snippet highlights the title. match is raw
 // user text.
+// saved_at, id break score ties deterministically so identical queries return a
+// stable order.
 func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) ([]SearchArticlesRow, error) {
 	rows, err := q.db.Query(ctx, searchArticles, arg.Match, arg.UserID, arg.Limit)
 	if err != nil {

@@ -62,7 +62,9 @@ WHERE (a.id @@@ paradedb.boost(3.0, paradedb.match('title', sqlc.arg('match')::t
     OR a.id @@@ paradedb.match('summary', sqlc.arg('match')::text)
     OR a.id @@@ paradedb.match('author', sqlc.arg('match')::text))
   AND a.user_id = sqlc.arg('user_id')
-ORDER BY score DESC
+-- saved_at, id break score ties deterministically so identical queries return a
+-- stable order.
+ORDER BY score DESC, a.saved_at DESC, a.id DESC
 LIMIT sqlc.arg('limit');
 
 -- name: CountArticlesByStatus :one

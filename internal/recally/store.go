@@ -261,10 +261,11 @@ func (s *Store) SearchArticles(ctx context.Context, userID string, query string,
 	if limit <= 0 {
 		limit = 50
 	}
-	// A query with no letter or digit (whitespace or pure punctuation) has nothing
-	// the BM25 index can match, so short-circuit instead of issuing a no-op query.
-	match := strings.TrimSpace(query)
-	if !hasSearchableToken(match) {
+	// normalizeQuery folds punctuation to spaces so jieba never emits a punctuation
+	// token that matches unrelated rows; a letter/digit-free query normalizes to ""
+	// and short-circuits instead of issuing a no-op query.
+	match := normalizeQuery(query)
+	if match == "" {
 		return []Article{}, nil
 	}
 	rows, err := s.q.SearchArticles(ctx, sqlc.SearchArticlesParams{
@@ -285,17 +286,20 @@ func (s *Store) SearchArticles(ctx context.Context, userID string, query string,
 	return articles, nil
 }
 
-// hasSearchableToken reports whether s holds at least one letter or digit. A
-// query of only whitespace or punctuation tokenizes to nothing the BM25 index
-// can match (jieba drops whitespace via stopwords; punctuation carries no
-// signal), so search short-circuits to empty rather than issue a no-op query.
-func hasSearchableToken(s string) bool {
+// normalizeQuery folds punctuation and symbols to spaces and collapses runs of
+// whitespace, so jieba never emits a punctuation token that matches unrelated
+// rows (index-side whitespace stopwords then drop the spaces). A query with no
+// letters or digits normalizes to "", which callers treat as a no-op search.
+func normalizeQuery(s string) string {
+	var b strings.Builder
 	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return true
+		if unicode.IsPunct(r) || unicode.IsSymbol(r) {
+			b.WriteByte(' ')
+		} else {
+			b.WriteRune(r)
 		}
 	}
-	return false
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 // CreateFeed creates a new feed subscription. kind is the extraction-dispatch

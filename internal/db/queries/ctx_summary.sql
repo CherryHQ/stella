@@ -76,5 +76,7 @@ JOIN ctx_conversation c ON c.id = s.conversation_id
 WHERE s.id @@@ paradedb.match('content', sqlc.arg('match')::text)
   AND c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
-ORDER BY score DESC
+-- Stable score tie-break (see SearchMessages): content time, then id, so the
+-- per-source rank that cross-source RRF consumes is deterministic.
+ORDER BY score DESC, COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
 LIMIT sqlc.arg('limit');
