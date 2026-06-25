@@ -56,3 +56,11 @@ ON CONFLICT(user_id, agent_id) DO UPDATE SET
     version = ctx_agent_memory.version + 1,
     updated_at = now()
 RETURNING *;
+
+-- name: BumpAgentMemoryVersion :one
+INSERT INTO ctx_agent_memory (user_id, agent_id, version, updated_at)
+VALUES ($1, $2, 1, now())
+ON CONFLICT(user_id, agent_id) DO UPDATE SET
+    version = ctx_agent_memory.version + 1,
+    updated_at = now()
+RETURNING *;

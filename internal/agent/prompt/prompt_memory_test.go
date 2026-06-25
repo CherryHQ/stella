@@ -2,6 +2,7 @@ package prompt_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -164,5 +165,35 @@ func TestDMSessionDoesNotShowGroupMemory(t *testing.T) {
 	}
 	if !strings.Contains(p, "DM profile content") {
 		t.Error("DM session should contain user profile content")
+	}
+}
+
+func TestKnowledgeFactsRenderedFromMemory(t *testing.T) {
+	fake := memorytest.New()
+	ctx := context.Background()
+
+	fake.AddFact("u1", "a1", memory.Fact{
+		ID:       "knowledge-1",
+		Subject:  memory.FactSubjectWorld,
+		Content:  "PostgreSQL bundles target Ubuntu LTS runtimes.",
+		Status:   memory.FactStatusActive,
+		Metadata: json.RawMessage(`{"name":"Runtime support","knowledge_type":"fact"}`),
+	})
+
+	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
+		SystemPrompt: "You are Stella.",
+		Memory:       fake,
+		UserID:       "u1",
+		AgentID:      "a1",
+	})
+
+	if !strings.Contains(p, "## Knowledge") {
+		t.Fatal("expected Knowledge section")
+	}
+	if !strings.Contains(p, "Runtime support") {
+		t.Error("expected fact metadata name in Knowledge section")
+	}
+	if !strings.Contains(p, "PostgreSQL bundles target Ubuntu LTS runtimes.") {
+		t.Error("expected world fact content in Knowledge section")
 	}
 }

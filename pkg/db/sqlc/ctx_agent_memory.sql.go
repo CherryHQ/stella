@@ -10,6 +10,37 @@ import (
 	"encoding/json"
 )
 
+const bumpAgentMemoryVersion = `-- name: BumpAgentMemoryVersion :one
+INSERT INTO ctx_agent_memory (user_id, agent_id, version, updated_at)
+VALUES ($1, $2, 1, now())
+ON CONFLICT(user_id, agent_id) DO UPDATE SET
+    version = ctx_agent_memory.version + 1,
+    updated_at = now()
+RETURNING user_id, agent_id, content, soul, version, constraints, profile_entries, created_at, updated_at
+`
+
+type BumpAgentMemoryVersionParams struct {
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) BumpAgentMemoryVersion(ctx context.Context, arg BumpAgentMemoryVersionParams) (CtxAgentMemory, error) {
+	row := q.db.QueryRow(ctx, bumpAgentMemoryVersion, arg.UserID, arg.AgentID)
+	var i CtxAgentMemory
+	err := row.Scan(
+		&i.UserID,
+		&i.AgentID,
+		&i.Content,
+		&i.Soul,
+		&i.Version,
+		&i.Constraints,
+		&i.ProfileEntries,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const deleteUserAgentMemory = `-- name: DeleteUserAgentMemory :exec
 DELETE FROM ctx_agent_memory WHERE user_id = $1 AND agent_id = $2
 `

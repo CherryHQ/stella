@@ -20,3 +20,19 @@ func TestCombinedReviewPrompt_ExplicitlyProhibitsConstraintActions(t *testing.T)
 		t.Error("expected 'off-limits' in reflect prompt constraints section")
 	}
 }
+
+func TestCombinedReviewPrompt_UsesFactSubjectRouting(t *testing.T) {
+	for _, phrase := range []string{
+		"subject=user",
+		"subject=agent",
+		"subject=world",
+		"Do NOT use the skills tool for knowledge facts",
+	} {
+		if !strings.Contains(combinedReviewPrompt, phrase) {
+			t.Errorf("expected reflect prompt to contain %q", phrase)
+		}
+	}
+	if strings.Contains(combinedReviewPrompt, `knowledge_type="fact"`) {
+		t.Error("reflect prompt should not route knowledge facts through skill metadata")
+	}
+}

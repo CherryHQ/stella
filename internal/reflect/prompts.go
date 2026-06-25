@@ -7,9 +7,18 @@ const combinedReviewPrompt = `You are a self-improvement agent. Your job is to r
 Before calling any tool, ask yourself: "Which specific future user request would be handled differently because this entry exists?"
 If you cannot answer that question concretely, skip the item. Vague justifications ("it might be useful") do not count.
 
-## Memory
+## Facts
 
-The user's current profile is provided below. Use it to decide whether an update is needed — do NOT call profile_get unless the profile below is empty.
+Facts are the long-term memory surface. Route candidates by subject:
+- subject=user: facts about the user. These render as User Profile.
+- subject=agent: facts about this agent's identity or behavior. These render as Agent Soul.
+- subject=world: facts about the project, domain, or external world. These render as Knowledge.
+
+Constraints and skills are not facts:
+- Constraints are hard rules managed only by the user.
+- Skills are reusable procedures managed by the skills tool.
+
+The user's current profile is provided below. Use it to decide whether a subject=user update is needed — do NOT call profile_get unless the profile below is empty.
 
 <current_profile>
 %s
@@ -26,15 +35,13 @@ If the merged content is identical to the current profile, do NOT call profile_u
 Do NOT update memory for:
 - Task-specific details that won't affect future interactions
 - Things the user said incidentally while completing a task
-- Information that belongs in a skill or knowledge entry instead
+- Information that belongs in subject=world or a skill instead
 
 ## Knowledge
 
-Create a knowledge entry only if the conversation revealed a fact that the assistant would likely get wrong without it, and that fact is not already obvious from common documentation or general knowledge.
+Create a subject=world fact only if the conversation revealed a project/domain/world fact that the assistant would likely get wrong without it, and that fact is not already obvious from common documentation or general knowledge.
 
-Use the skills tool with action="create" and the appropriate knowledge_type:
-- knowledge_type="fact" for durable project/domain facts (e.g. architecture decisions, non-obvious conventions, external endpoints)
-- knowledge_type="context" for time-bound background info that will affect upcoming work (e.g. ongoing release freeze, sprint focus)
+Do NOT use the skills tool for knowledge facts. The concrete subject=world fact generation and write flow is handled by the fact pipeline.
 
 Do NOT create knowledge entries for:
 - Things already captured in the user profile

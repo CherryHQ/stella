@@ -22,6 +22,8 @@ var (
 	_ memory.SessionSnapshotStore     = (*Provider)(nil)
 	_ memory.ProfileEntryStore        = (*Provider)(nil)
 	_ memory.GroupMemoryStore         = (*Provider)(nil)
+	_ memory.FactStore                = (*Provider)(nil)
+	_ memory.VersionedFactStore       = (*Provider)(nil)
 )
 
 // getMemoryRow fetches the ctx_agent_memory row, returning nil for non-existent rows.
@@ -40,37 +42,57 @@ func (p *Provider) getMemoryRow(ctx context.Context, userID string, agentID stri
 }
 
 func (p *Provider) GetProfile(ctx context.Context, userID string, agentID string) (string, error) {
-	row, err := p.getMemoryRow(ctx, userID, agentID)
-	if err != nil {
-		return "", fmt.Errorf("get profile: %w", err)
-	}
-	if row == nil {
-		return "", nil
-	}
-	return row.Content, nil
+	return p.getSingletonFactContent(ctx, userID, agentID, memory.FactSubjectUser)
 }
 
 func (p *Provider) SetProfile(ctx context.Context, userID string, agentID string, content string) error {
-	if err := memorywrite.SetProfile(ctx, p.db, p.q, userID, agentID, content); err != nil {
+	if err := p.setSingletonFact(ctx, userID, agentID, memory.FactSubjectUser, content); err != nil {
 		return fmt.Errorf("set profile: %w", err)
 	}
 	return nil
 }
 
 func (p *Provider) GetAgentSoul(ctx context.Context, userID string, agentID string) (string, error) {
-	row, err := p.getMemoryRow(ctx, userID, agentID)
-	if err != nil {
-		return "", fmt.Errorf("get agent soul: %w", err)
-	}
-	if row == nil {
-		return "", nil
-	}
-	return row.Soul, nil
+	return p.getSingletonFactContent(ctx, userID, agentID, memory.FactSubjectAgent)
 }
 
 func (p *Provider) SetAgentSoul(ctx context.Context, userID string, agentID string, content string) error {
-	if err := memorywrite.SetAgentSoul(ctx, p.db, p.q, userID, agentID, content); err != nil {
+	if err := p.setSingletonFact(ctx, userID, agentID, memory.FactSubjectAgent, content); err != nil {
 		return fmt.Errorf("set agent soul: %w", err)
+	}
+	return nil
+}
+
+func (p *Provider) getSingletonFactContent(ctx context.Context, userID string, agentID string, subject memory.FactSubject) (string, error) {
+	facts, err := memorywrite.ListActiveFacts(ctx, p.q, userID, agentID, subject)
+	if err != nil {
+		return "", fmt.Errorf("get fact %s: %w", subject, err)
+	}
+	if len(facts) == 0 {
+		return "", nil
+	}
+	return facts[0].Content, nil
+}
+
+func (p *Provider) setSingletonFact(ctx context.Context, userID string, agentID string, subject memory.FactSubject, content string) error {
+	facts, err := memorywrite.ListActiveFacts(ctx, p.q, userID, agentID, subject)
+	if err != nil {
+		return fmt.Errorf("list existing fact: %w", err)
+	}
+	write := memory.FactWrite{
+		UserID:  userID,
+		AgentID: agentID,
+		Subject: subject,
+		Content: content,
+		Source:  memory.SourceManual,
+	}
+	if len(facts) == 0 {
+		_, err = memorywrite.CreateFact(ctx, p.db, p.q, write)
+	} else {
+		_, err = memorywrite.ReplaceFact(ctx, p.db, p.q, facts[0].ID, write)
+	}
+	if err != nil {
+		return fmt.Errorf("write fact %s: %w", subject, err)
 	}
 	return nil
 }
@@ -95,22 +117,14 @@ func (p *Provider) GetProfileAt(ctx context.Context, userID string, agentID stri
 	if version <= 0 {
 		return p.GetProfile(ctx, userID, agentID)
 	}
-	entry, err := p.q.GetMemoryChangelogAtVersion(ctx, sqlc.GetMemoryChangelogAtVersionParams{
-		UserID:             userID,
-		AgentID:            agentID,
-		Scope:              "profile",
-		MemoryVersionAfter: pgtype.Int8{Int64: version, Valid: true},
-	})
-	if err == nil {
-		if entry.AfterText.Valid {
-			return entry.AfterText.String, nil
-		}
+	facts, err := p.ListActiveFactsAt(ctx, userID, agentID, memory.FactSubjectUser, version)
+	if err != nil {
+		return "", fmt.Errorf("get profile at version %d: %w", version, err)
+	}
+	if len(facts) == 0 {
 		return "", nil
 	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		return p.GetProfile(ctx, userID, agentID)
-	}
-	return "", fmt.Errorf("get profile at version %d: %w", version, err)
+	return facts[0].Content, nil
 }
 
 // GetAgentSoulAt implements memory.VersionedProfileStore.
@@ -118,22 +132,25 @@ func (p *Provider) GetAgentSoulAt(ctx context.Context, userID string, agentID st
 	if version <= 0 {
 		return p.GetAgentSoul(ctx, userID, agentID)
 	}
-	entry, err := p.q.GetMemoryChangelogAtVersion(ctx, sqlc.GetMemoryChangelogAtVersionParams{
-		UserID:             userID,
-		AgentID:            agentID,
-		Scope:              "soul",
-		MemoryVersionAfter: pgtype.Int8{Int64: version, Valid: true},
-	})
-	if err == nil {
-		if entry.AfterText.Valid {
-			return entry.AfterText.String, nil
-		}
+	facts, err := p.ListActiveFactsAt(ctx, userID, agentID, memory.FactSubjectAgent, version)
+	if err != nil {
+		return "", fmt.Errorf("get agent soul at version %d: %w", version, err)
+	}
+	if len(facts) == 0 {
 		return "", nil
 	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		return p.GetAgentSoul(ctx, userID, agentID)
-	}
-	return "", fmt.Errorf("get agent soul at version %d: %w", version, err)
+	return facts[0].Content, nil
+}
+
+// ListActiveFacts implements memory.FactStore.
+func (p *Provider) ListActiveFacts(ctx context.Context, userID string, agentID string, subject memory.FactSubject) ([]memory.Fact, error) {
+	return memorywrite.ListActiveFacts(ctx, p.q, userID, agentID, subject)
+}
+
+// ListActiveFactsAt implements memory.VersionedFactStore. The snapshot clock is
+// ctx_agent_memory.version; fact.version remains local to each fact row.
+func (p *Provider) ListActiveFactsAt(ctx context.Context, userID string, agentID string, subject memory.FactSubject, version int64) ([]memory.Fact, error) {
+	return memorywrite.ListActiveFactsAt(ctx, p.q, userID, agentID, subject, version)
 }
 
 // GetConstraintsAt implements memory.VersionedConstraintStore.

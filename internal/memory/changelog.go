@@ -8,6 +8,7 @@ type ChangeSource string
 const (
 	SourceUser    ChangeSource = "user"
 	SourceAgent   ChangeSource = "agent"
+	SourceManual  ChangeSource = "manual"
 	SourceReflect ChangeSource = "reflect"
 	SourceSystem  ChangeSource = "system"
 )
