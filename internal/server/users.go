@@ -150,7 +150,7 @@ func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id str
 		source = memory.SourceUser
 	}
 	ctx := memory.WithChangeSource(r.Context(), source)
-	if _, err := memorywrite.DeleteSingletonFact(ctx, s.db, s.q, targetUserID, agentID, memory.FactSubjectUser); err != nil {
+	if err := memorywrite.ResetUserAgentMemory(ctx, s.db, s.q, targetUserID, agentID); err != nil {
 		s.writeInternalError(w, err)
 		return
 	}

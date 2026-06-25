@@ -140,6 +140,79 @@ func DeleteSingletonFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries,
 	return true, nil
 }
 
+// ResetUserAgentMemory resets the user-agent memory surface: it deprecates the
+// profile and soul singleton facts, then removes the legacy memory row so
+// constraints and profile entries are cleared as well.
+func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string) error {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return err
+	}
+
+	qtx := q.WithTx(tx)
+	beforeVersion, err := currentMemoryVersion(ctx, qtx, userID, agentID)
+	if err != nil {
+		return err
+	}
+	source := factSourceFromContext(ctx)
+
+	type deprecatedFact struct {
+		before memory.Fact
+		after  memory.Fact
+	}
+	var deprecated []deprecatedFact
+	for _, subject := range []memory.FactSubject{memory.FactSubjectUser, memory.FactSubjectAgent} {
+		active, err := qtx.ListActiveFactsBySubject(ctx, sqlc.ListActiveFactsBySubjectParams{
+			UserID:  userID,
+			AgentID: agentID,
+			Subject: string(subject),
+		})
+		if err != nil {
+			return fmt.Errorf("list reset facts: %w", err)
+		}
+		for _, row := range active {
+			deprecatedRow, err := qtx.DeprecateFact(ctx, sqlc.DeprecateFactParams{
+				ID:      row.ID,
+				UserID:  userID,
+				AgentID: agentID,
+			})
+			if err != nil {
+				return fmt.Errorf("deprecate reset fact: %w", err)
+			}
+			deprecated = append(deprecated, deprecatedFact{
+				before: factFromRow(row),
+				after:  factFromRow(deprecatedRow),
+			})
+		}
+	}
+
+	memoryRow, err := qtx.BumpAgentMemoryVersion(ctx, sqlc.BumpAgentMemoryVersionParams{
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		return fmt.Errorf("bump memory version: %w", err)
+	}
+	for _, fact := range deprecated {
+		if _, err := writeFactChangelog(ctx, qtx, userID, agentID, "delete", source, beforeVersion, memoryRow.Version, fact.before, fact.after); err != nil {
+			return err
+		}
+	}
+	if err := qtx.DeleteUserAgentMemory(ctx, sqlc.DeleteUserAgentMemoryParams{
+		UserID:  userID,
+		AgentID: agentID,
+	}); err != nil {
+		return fmt.Errorf("delete user-agent memory: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
 type factWritePlan struct {
 	action    string
 	oldFactID string

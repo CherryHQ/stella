@@ -287,6 +287,65 @@ func TestProfileSoulAPIWritesFactsBackedSoul(t *testing.T) {
 	}
 }
 
+func TestDeleteProfileMemoryResetsFactsAndConstraints(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+
+	if rr := doRequest(t, env, http.MethodPatch, "/api/users/me/memories/"+agentID, map[string]string{
+		"content": "Profile to reset.",
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("set profile status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPatch, "/api/users/me/soul/"+agentID, map[string]string{
+		"soul": "Soul to reset.",
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("set soul status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPost, "/api/users/me/memories/"+agentID+"/constraints", map[string]string{
+		"text": "Always be formal.",
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("add constraint status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr := doRequest(t, env, http.MethodDelete, "/api/users/me/memories/"+agentID, nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+
+	profiles := env.mem.(memory.ProfileStore)
+	profile, err := profiles.GetProfile(context.Background(), env.adminUser.ID, agentID)
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if profile != "" {
+		t.Fatalf("profile after delete = %q, want empty", profile)
+	}
+	soul, err := profiles.GetAgentSoul(context.Background(), env.adminUser.ID, agentID)
+	if err != nil {
+		t.Fatalf("GetAgentSoul: %v", err)
+	}
+	if soul != "" {
+		t.Fatalf("soul after delete = %q, want empty", soul)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/users/me/memories/"+agentID+"/constraints", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("constraints status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var body struct {
+		Constraints []struct {
+			Text string `json:"text"`
+		} `json:"constraints"`
+	}
+	if err := json.Unmarshal(resp.Data, &body); err != nil {
+		t.Fatalf("unmarshal constraints: %v", err)
+	}
+	if len(body.Constraints) != 0 {
+		t.Fatalf("constraints after delete = %+v, want empty", body.Constraints)
+	}
+}
+
 func TestProfilePageRoute(t *testing.T) {
 	env := setupAdmin(t)
 
