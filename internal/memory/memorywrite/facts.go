@@ -140,9 +140,9 @@ func DeleteSingletonFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries,
 	return true, nil
 }
 
-// ResetUserAgentMemory resets the user-agent memory surface: it deprecates the
-// profile and soul singleton facts, then removes the legacy memory row so
-// constraints and profile entries are cleared as well.
+// ResetUserAgentMemory resets the user-agent memory surface: it deprecates all
+// active fact-backed memories, then removes the legacy memory row so constraints
+// and profile entries are cleared as well.
 func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string) error {
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -166,7 +166,7 @@ func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries
 		after  memory.Fact
 	}
 	var deprecated []deprecatedFact
-	for _, subject := range []memory.FactSubject{memory.FactSubjectUser, memory.FactSubjectAgent} {
+	for _, subject := range []memory.FactSubject{memory.FactSubjectUser, memory.FactSubjectAgent, memory.FactSubjectWorld} {
 		active, err := qtx.ListActiveFactsBySubject(ctx, sqlc.ListActiveFactsBySubjectParams{
 			UserID:  userID,
 			AgentID: agentID,

@@ -11,6 +11,8 @@ import (
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestListProfileIdentitiesEmpty(t *testing.T) {
@@ -306,6 +308,16 @@ func TestDeleteProfileMemoryResetsFactsAndConstraints(t *testing.T) {
 	}); rr.Code != http.StatusOK {
 		t.Fatalf("add constraint status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
+	q := sqlc.New(env.db)
+	if _, err := memorywrite.CreateFact(context.Background(), env.db, q, memory.FactWrite{
+		UserID:  env.adminUser.ID,
+		AgentID: agentID,
+		Subject: memory.FactSubjectWorld,
+		Content: "Knowledge to reset.",
+		Source:  memory.SourceManual,
+	}); err != nil {
+		t.Fatalf("create knowledge fact: %v", err)
+	}
 
 	rr := doRequest(t, env, http.MethodDelete, "/api/users/me/memories/"+agentID, nil)
 	if rr.Code != http.StatusNoContent {
@@ -343,6 +355,18 @@ func TestDeleteProfileMemoryResetsFactsAndConstraints(t *testing.T) {
 	}
 	if len(body.Constraints) != 0 {
 		t.Fatalf("constraints after delete = %+v, want empty", body.Constraints)
+	}
+
+	activeKnowledge, err := q.ListActiveFactsBySubject(context.Background(), sqlc.ListActiveFactsBySubjectParams{
+		UserID:  env.adminUser.ID,
+		AgentID: agentID,
+		Subject: string(memory.FactSubjectWorld),
+	})
+	if err != nil {
+		t.Fatalf("ListActiveFactsBySubject(world): %v", err)
+	}
+	if len(activeKnowledge) != 0 {
+		t.Fatalf("active knowledge facts after delete = %+v, want none", activeKnowledge)
 	}
 }
 
