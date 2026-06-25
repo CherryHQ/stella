@@ -144,7 +144,7 @@ func TestReplaceFact_DeprecatesOldFactAndSupersedesIt(t *testing.T) {
 		t.Fatalf("active profile facts = %+v, want only %s", active, newFact.ID)
 	}
 
-	oldAfter, err := q.GetFact(ctx, oldFact.ID)
+	oldAfter, err := q.GetFact(ctx, sqlc.GetFactParams{ID: oldFact.ID, UserID: userID, AgentID: agentID})
 	if err != nil {
 		t.Fatalf("GetFact old: %v", err)
 	}
@@ -191,5 +191,73 @@ func TestListActiveFactsAt_UsesMemoryVersionSnapshot(t *testing.T) {
 	}
 	if len(current) != 1 || current[0].ID != newFact.ID {
 		t.Fatalf("current facts = %+v, want new fact %s", current, newFact.ID)
+	}
+}
+
+func TestSetSingletonFact_DecidesCreateOrReplaceUnderLock(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := memory.WithChangeSource(context.Background(), memory.SourceReflect)
+
+	first, err := SetSingletonFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectUser, Content: "First profile.", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("SetSingletonFact first: %v", err)
+	}
+	second, err := SetSingletonFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectUser, Content: "Second profile.", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("SetSingletonFact second: %v", err)
+	}
+	if second.Supersedes != first.ID {
+		t.Fatalf("second supersedes = %q, want %q", second.Supersedes, first.ID)
+	}
+
+	active, err := ListActiveFacts(ctx, q, userID, agentID, memory.FactSubjectUser)
+	if err != nil {
+		t.Fatalf("ListActiveFacts: %v", err)
+	}
+	if len(active) != 1 || active[0].ID != second.ID {
+		t.Fatalf("active profile facts = %+v, want only second fact", active)
+	}
+}
+
+func TestDeleteSingletonFact_DeprecatesCurrentFact(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := memory.WithChangeSource(context.Background(), memory.SourceReflect)
+
+	fact, err := SetSingletonFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectUser, Content: "Profile to delete.", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("SetSingletonFact: %v", err)
+	}
+	deleted, err := DeleteSingletonFact(ctx, db, q, userID, agentID, memory.FactSubjectUser)
+	if err != nil {
+		t.Fatalf("DeleteSingletonFact: %v", err)
+	}
+	if !deleted {
+		t.Fatal("DeleteSingletonFact deleted = false, want true")
+	}
+
+	active, err := ListActiveFacts(ctx, q, userID, agentID, memory.FactSubjectUser)
+	if err != nil {
+		t.Fatalf("ListActiveFacts: %v", err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("active profile facts = %+v, want none", active)
+	}
+
+	row, err := q.GetFact(ctx, sqlc.GetFactParams{ID: fact.ID, UserID: userID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("GetFact: %v", err)
+	}
+	if row.Status != string(memory.FactStatusDeprecated) {
+		t.Fatalf("deleted fact status = %q, want deprecated", row.Status)
 	}
 }

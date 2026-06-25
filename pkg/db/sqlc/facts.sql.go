@@ -18,11 +18,19 @@ SET status = 'deprecated',
     version = version + 1,
     updated_at = now()
 WHERE id = $1
+  AND user_id = $2
+  AND agent_id = $3
 RETURNING id, subject, scope, user_id, agent_id, content, status, metadata, supersedes, version, source, created_at, updated_at
 `
 
-func (q *Queries) DeprecateFact(ctx context.Context, id string) (Fact, error) {
-	row := q.db.QueryRow(ctx, deprecateFact, id)
+type DeprecateFactParams struct {
+	ID      string `json:"id"`
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) DeprecateFact(ctx context.Context, arg DeprecateFactParams) (Fact, error) {
+	row := q.db.QueryRow(ctx, deprecateFact, arg.ID, arg.UserID, arg.AgentID)
 	var i Fact
 	err := row.Scan(
 		&i.ID,
@@ -43,11 +51,20 @@ func (q *Queries) DeprecateFact(ctx context.Context, id string) (Fact, error) {
 }
 
 const getFact = `-- name: GetFact :one
-SELECT id, subject, scope, user_id, agent_id, content, status, metadata, supersedes, version, source, created_at, updated_at FROM facts WHERE id = $1
+SELECT id, subject, scope, user_id, agent_id, content, status, metadata, supersedes, version, source, created_at, updated_at FROM facts
+WHERE id = $1
+  AND user_id = $2
+  AND agent_id = $3
 `
 
-func (q *Queries) GetFact(ctx context.Context, id string) (Fact, error) {
-	row := q.db.QueryRow(ctx, getFact, id)
+type GetFactParams struct {
+	ID      string `json:"id"`
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) GetFact(ctx context.Context, arg GetFactParams) (Fact, error) {
+	row := q.db.QueryRow(ctx, getFact, arg.ID, arg.UserID, arg.AgentID)
 	var i Fact
 	err := row.Scan(
 		&i.ID,
@@ -211,41 +228,4 @@ func (q *Queries) ListFactChangelogUpToVersion(ctx context.Context, arg ListFact
 		return nil, err
 	}
 	return items, nil
-}
-
-const updateFact = `-- name: UpdateFact :one
-UPDATE facts
-SET content = $2,
-    metadata = $3,
-    version = version + 1,
-    updated_at = now()
-WHERE id = $1
-RETURNING id, subject, scope, user_id, agent_id, content, status, metadata, supersedes, version, source, created_at, updated_at
-`
-
-type UpdateFactParams struct {
-	ID       string          `json:"id"`
-	Content  string          `json:"content"`
-	Metadata json.RawMessage `json:"metadata"`
-}
-
-func (q *Queries) UpdateFact(ctx context.Context, arg UpdateFactParams) (Fact, error) {
-	row := q.db.QueryRow(ctx, updateFact, arg.ID, arg.Content, arg.Metadata)
-	var i Fact
-	err := row.Scan(
-		&i.ID,
-		&i.Subject,
-		&i.Scope,
-		&i.UserID,
-		&i.AgentID,
-		&i.Content,
-		&i.Status,
-		&i.Metadata,
-		&i.Supersedes,
-		&i.Version,
-		&i.Source,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
 }

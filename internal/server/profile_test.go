@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 func TestListProfileIdentitiesEmpty(t *testing.T) {
@@ -211,6 +212,78 @@ func TestUnlinkIdentityOtherUser(t *testing.T) {
 	rr := doRequest(t, env, "DELETE", "/api/users/me/identities/"+identity.ID, nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
+
+func TestProfileMemoryAPIWritesFactsBackedProfile(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+
+	rr := doRequest(t, env, http.MethodPatch, "/api/users/me/memories/"+agentID, map[string]string{
+		"content": "Prefers concise answers in Chinese.",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	profiles := env.mem.(memory.ProfileStore)
+	got, err := profiles.GetProfile(context.Background(), env.adminUser.ID, agentID)
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if got != "Prefers concise answers in Chinese." {
+		t.Fatalf("profile fact = %q, want updated content", got)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/users/me/memories/"+agentID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(resp.Data, &body); err != nil {
+		t.Fatalf("unmarshal GET memory: %v", err)
+	}
+	if body.Content != "Prefers concise answers in Chinese." {
+		t.Fatalf("GET content = %q, want fact-backed profile", body.Content)
+	}
+}
+
+func TestProfileSoulAPIWritesFactsBackedSoul(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+
+	rr := doRequest(t, env, http.MethodPatch, "/api/users/me/soul/"+agentID, map[string]string{
+		"soul": "Be crisp and practical.",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	profiles := env.mem.(memory.ProfileStore)
+	got, err := profiles.GetAgentSoul(context.Background(), env.adminUser.ID, agentID)
+	if err != nil {
+		t.Fatalf("GetAgentSoul: %v", err)
+	}
+	if got != "Be crisp and practical." {
+		t.Fatalf("soul fact = %q, want updated soul", got)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/users/me/memories/"+agentID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var body struct {
+		Soul string `json:"soul"`
+	}
+	if err := json.Unmarshal(resp.Data, &body); err != nil {
+		t.Fatalf("unmarshal GET memory: %v", err)
+	}
+	if body.Soul != "Be crisp and practical." {
+		t.Fatalf("GET soul = %q, want fact-backed soul", body.Soul)
 	}
 }
 

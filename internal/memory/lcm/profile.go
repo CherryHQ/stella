@@ -75,10 +75,6 @@ func (p *Provider) getSingletonFactContent(ctx context.Context, userID string, a
 }
 
 func (p *Provider) setSingletonFact(ctx context.Context, userID string, agentID string, subject memory.FactSubject, content string) error {
-	facts, err := memorywrite.ListActiveFacts(ctx, p.q, userID, agentID, subject)
-	if err != nil {
-		return fmt.Errorf("list existing fact: %w", err)
-	}
 	write := memory.FactWrite{
 		UserID:  userID,
 		AgentID: agentID,
@@ -86,12 +82,7 @@ func (p *Provider) setSingletonFact(ctx context.Context, userID string, agentID 
 		Content: content,
 		Source:  memory.SourceManual,
 	}
-	if len(facts) == 0 {
-		_, err = memorywrite.CreateFact(ctx, p.db, p.q, write)
-	} else {
-		_, err = memorywrite.ReplaceFact(ctx, p.db, p.q, facts[0].ID, write)
-	}
-	if err != nil {
+	if _, err := memorywrite.SetSingletonFact(ctx, p.db, p.q, write); err != nil {
 		return fmt.Errorf("write fact %s: %w", subject, err)
 	}
 	return nil

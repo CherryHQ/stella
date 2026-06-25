@@ -1,6 +1,9 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -188,26 +191,10 @@ func (s *Server) GetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 		return
 	}
 
-	mem, err := s.q.GetUserAgentMemory(r.Context(), sqlc.GetUserAgentMemoryParams{UserID: info.UserID, AgentID: agentID})
-	if isNotFound(err) {
-		writeData(w, http.StatusOK, map[string]any{
-			"user_id":     info.UserID,
-			"agent_id":    agentID,
-			"content":     "",
-			"soul":        prompt.DefaultAgentSoul(),
-			"version":     0,
-			"constraints": "[]",
-			"created_at":  "",
-			"updated_at":  "",
-		})
-		return
-	}
+	mem, err := s.loadProfileMemory(r.Context(), info.UserID, agentID)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
-	}
-	if mem.Soul == "" {
-		mem.Soul = prompt.DefaultAgentSoul()
 	}
 	writeData(w, http.StatusOK, mem)
 }
@@ -237,7 +224,12 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 		return
 	}
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
-	if err := memorywrite.SetAgentSoul(ctx, s.db, s.q, info.UserID, agentID, body.Soul); err != nil {
+	profiles, ok := s.mem.(memory.ProfileStore)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "profile memory store not configured")
+		return
+	}
+	if err := profiles.SetAgentSoul(ctx, info.UserID, agentID, body.Soul); err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
@@ -247,15 +239,51 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 // writeProfileMemory loads the user/agent memory and writes the full resource,
 // applying the default soul when none is stored.
 func (s *Server) writeProfileMemory(w http.ResponseWriter, r *http.Request, userID, agentID string) {
-	mem, err := s.q.GetUserAgentMemory(r.Context(), sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	mem, err := s.loadProfileMemory(r.Context(), userID, agentID)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
+	writeData(w, http.StatusOK, mem)
+}
+
+func (s *Server) loadProfileMemory(ctx context.Context, userID string, agentID string) (sqlc.CtxAgentMemory, error) {
+	mem, err := s.q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	if isNotFound(err) {
+		mem = sqlc.CtxAgentMemory{
+			UserID:         userID,
+			AgentID:        agentID,
+			Constraints:    json.RawMessage(`[]`),
+			ProfileEntries: json.RawMessage(`[]`),
+		}
+	} else if err != nil {
+		return sqlc.CtxAgentMemory{}, err
+	}
+	if err := s.applyProfileFacts(ctx, &mem); err != nil {
+		return sqlc.CtxAgentMemory{}, err
+	}
+	return mem, nil
+}
+
+func (s *Server) applyProfileFacts(ctx context.Context, mem *sqlc.CtxAgentMemory) error {
+	profiles, ok := s.mem.(memory.ProfileStore)
+	if !ok {
+		return errors.New("profile memory store not configured")
+	}
+	content, err := profiles.GetProfile(ctx, mem.UserID, mem.AgentID)
+	if err != nil {
+		return err
+	}
+	soul, err := profiles.GetAgentSoul(ctx, mem.UserID, mem.AgentID)
+	if err != nil {
+		return err
+	}
+	mem.Content = content
+	mem.Soul = soul
 	if mem.Soul == "" {
 		mem.Soul = prompt.DefaultAgentSoul()
 	}
-	writeData(w, http.StatusOK, mem)
+	return nil
 }
 
 // DeleteProfileMemory handles DELETE /api/users/me/memories/{agentID}.

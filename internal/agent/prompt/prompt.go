@@ -77,7 +77,7 @@ type DBPromptParams struct {
 	SystemPrompt      string                    // agent's base system prompt from DB
 	AgentSoul         string                    // agent's default soul from DB (fallback for all users)
 	Memory            memory.Provider           // active provider for profile loading (may be nil)
-	KnowledgeStore    pkgplugins.KnowledgeStore // optional; injects ## Knowledge section when set
+	KnowledgeStore    pkgplugins.KnowledgeStore // legacy field; v1 prompt knowledge is read from facts
 	UserID            string                    // auth user ID for profile lookup
 	AgentID           string                    // agent ID for profile lookup
 	GroupID           string                    // group ID for group memory lookup (D4); mutually exclusive with UserID
@@ -201,21 +201,6 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		}
 	}
 
-	// Legacy fallback: skill-backed knowledge remains readable until existing
-	// installations have migrated into facts.
-	if len(data.Knowledge) == 0 && p.KnowledgeStore != nil && p.UserID != "" && p.AgentID != "" {
-		vc := pkgplugins.SkillViewContext{UserID: p.UserID, AgentID: p.AgentID}
-		if entries, err := p.KnowledgeStore.ListKnowledge(ctx, vc); err == nil {
-			if p.SnapshotVersion > 0 && !p.SnapshotUpdatedAt.IsZero() {
-				cutoff := p.SnapshotUpdatedAt
-				entries = slices.DeleteFunc(entries, func(e pkgplugins.KnowledgeEntry) bool {
-					return e.UpdatedAt.After(cutoff)
-				})
-			}
-			data.Knowledge = entries
-		}
-	}
-
 	for _, s := range p.Sections {
 		if s.Inline {
 			data.PluginPrompts = append(data.PluginPrompts, s)
@@ -260,7 +245,7 @@ func knowledgeEntriesFromFacts(facts []memory.Fact) []pkgplugins.KnowledgeEntry 
 		if kt == "" {
 			kt = pkgplugins.KnowledgeType(strings.TrimSpace(meta.LegacyKnowledgeType))
 		}
-		if kt != pkgplugins.KnowledgeTypeContext {
+		if kt == "" {
 			kt = pkgplugins.KnowledgeTypeFact
 		}
 		entries = append(entries, pkgplugins.KnowledgeEntry{

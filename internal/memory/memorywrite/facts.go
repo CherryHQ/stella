@@ -37,6 +37,109 @@ func ReplaceFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, oldFact
 	})
 }
 
+// SetSingletonFact creates or replaces the single active fact for subject=user
+// or subject=agent under the same advisory lock used for the write itself.
+func SetSingletonFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, in memory.FactWrite) (memory.Fact, error) {
+	if in.Subject == memory.FactSubjectWorld {
+		return memory.Fact{}, fmt.Errorf("world facts are not singleton facts")
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return memory.Fact{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockMemory(ctx, tx, in.UserID, in.AgentID); err != nil {
+		return memory.Fact{}, err
+	}
+
+	qtx := q.WithTx(tx)
+	active, err := qtx.ListActiveFactsBySubject(ctx, sqlc.ListActiveFactsBySubjectParams{
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+		Subject: string(in.Subject),
+	})
+	if err != nil {
+		return memory.Fact{}, fmt.Errorf("list singleton fact: %w", err)
+	}
+	if len(active) == 0 {
+		return writeFactLocked(ctx, tx, qtx, factWritePlan{action: "create", write: in})
+	}
+
+	in.Supersedes = active[0].ID
+	return writeFactLocked(ctx, tx, qtx, factWritePlan{
+		action:    "replace",
+		oldFactID: active[0].ID,
+		write:     in,
+	})
+}
+
+// DeleteSingletonFact deprecates the active singleton fact, if one exists. It
+// leaves world facts alone because knowledge lifecycle is handled separately.
+func DeleteSingletonFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, subject memory.FactSubject) (bool, error) {
+	if subject == memory.FactSubjectWorld {
+		return false, fmt.Errorf("world facts are not singleton facts")
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return false, err
+	}
+
+	qtx := q.WithTx(tx)
+	active, err := qtx.ListActiveFactsBySubject(ctx, sqlc.ListActiveFactsBySubjectParams{
+		UserID:  userID,
+		AgentID: agentID,
+		Subject: string(subject),
+	})
+	if err != nil {
+		return false, fmt.Errorf("list singleton fact: %w", err)
+	}
+	if len(active) == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return false, fmt.Errorf("commit empty singleton delete: %w", err)
+		}
+		return false, nil
+	}
+
+	source := factSourceFromContext(ctx)
+	beforeVersion, err := currentMemoryVersion(ctx, qtx, userID, agentID)
+	if err != nil {
+		return false, err
+	}
+	before := factFromRow(active[0])
+	deprecatedRow, err := qtx.DeprecateFact(ctx, sqlc.DeprecateFactParams{
+		ID:      active[0].ID,
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("deprecate singleton fact: %w", err)
+	}
+	deprecated := factFromRow(deprecatedRow)
+
+	memoryRow, err := qtx.BumpAgentMemoryVersion(ctx, sqlc.BumpAgentMemoryVersionParams{
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("bump memory version: %w", err)
+	}
+	if _, err := writeFactChangelog(ctx, qtx, userID, agentID, "delete", source, beforeVersion, memoryRow.Version, before, deprecated); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit singleton delete: %w", err)
+	}
+	return true, nil
+}
+
 type factWritePlan struct {
 	action    string
 	oldFactID string
@@ -54,33 +157,41 @@ func writeFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, plan fact
 		return memory.Fact{}, err
 	}
 
-	qtx := q.WithTx(tx)
+	return writeFactLocked(ctx, tx, q.WithTx(tx), plan)
+}
+
+func writeFactLocked(ctx context.Context, tx pgx.Tx, qtx *sqlc.Queries, plan factWritePlan) (memory.Fact, error) {
 	source := plan.write.Source
 	if source == "" {
 		source = factSourceFromContext(ctx)
 	}
 	source = normalizeFactSource(source)
 
-	oldMemory, err := qtx.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{
-		UserID:  plan.write.UserID,
-		AgentID: plan.write.AgentID,
-	})
-	var beforeVersion int64
-	if err == nil {
-		beforeVersion = oldMemory.Version
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return memory.Fact{}, fmt.Errorf("read memory version: %w", err)
+	beforeVersion, err := currentMemoryVersion(ctx, qtx, plan.write.UserID, plan.write.AgentID)
+	if err != nil {
+		return memory.Fact{}, err
 	}
 
 	var deprecatedOld *memory.Fact
 	var oldBefore memory.Fact
 	if plan.oldFactID != "" {
-		oldRow, err := qtx.GetFact(ctx, plan.oldFactID)
+		oldRow, err := qtx.GetFact(ctx, sqlc.GetFactParams{
+			ID:      plan.oldFactID,
+			UserID:  plan.write.UserID,
+			AgentID: plan.write.AgentID,
+		})
 		if err != nil {
 			return memory.Fact{}, fmt.Errorf("read old fact: %w", err)
 		}
+		if oldRow.Subject != string(plan.write.Subject) {
+			return memory.Fact{}, fmt.Errorf("old fact subject %q does not match %q", oldRow.Subject, plan.write.Subject)
+		}
 		oldBefore = factFromRow(oldRow)
-		row, err := qtx.DeprecateFact(ctx, plan.oldFactID)
+		row, err := qtx.DeprecateFact(ctx, sqlc.DeprecateFactParams{
+			ID:      plan.oldFactID,
+			UserID:  plan.write.UserID,
+			AgentID: plan.write.AgentID,
+		})
 		if err != nil {
 			return memory.Fact{}, fmt.Errorf("deprecate old fact: %w", err)
 		}
@@ -131,6 +242,20 @@ func writeFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, plan fact
 		return memory.Fact{}, fmt.Errorf("commit fact write: %w", err)
 	}
 	return fact, nil
+}
+
+func currentMemoryVersion(ctx context.Context, q *sqlc.Queries, userID string, agentID string) (int64, error) {
+	oldMemory, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err == nil {
+		return oldMemory.Version, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	return 0, fmt.Errorf("read memory version: %w", err)
 }
 
 func writeFactChangelog(ctx context.Context, q *sqlc.Queries, userID string, agentID string, action string, source memory.ChangeSource, beforeVersion int64, afterVersion int64, before memory.Fact, after memory.Fact) (string, error) {

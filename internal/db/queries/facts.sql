@@ -4,16 +4,10 @@ VALUES ($1, $2, 'user_agent', $3, $4, $5, 'active', $6, $7, 1, $8, now(), now())
 RETURNING *;
 
 -- name: GetFact :one
-SELECT * FROM facts WHERE id = $1;
-
--- name: UpdateFact :one
-UPDATE facts
-SET content = $2,
-    metadata = $3,
-    version = version + 1,
-    updated_at = now()
+SELECT * FROM facts
 WHERE id = $1
-RETURNING *;
+  AND user_id = $2
+  AND agent_id = $3;
 
 -- name: DeprecateFact :one
 UPDATE facts
@@ -21,6 +15,8 @@ SET status = 'deprecated',
     version = version + 1,
     updated_at = now()
 WHERE id = $1
+  AND user_id = $2
+  AND agent_id = $3
 RETURNING *;
 
 -- name: ListActiveFactsBySubject :many

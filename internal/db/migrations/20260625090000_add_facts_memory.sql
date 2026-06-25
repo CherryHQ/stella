@@ -40,7 +40,7 @@ WITH inserted AS (
   WHERE btrim("content") <> ''
   RETURNING *
 )
-INSERT INTO "ctx_agent_memory_changelog" ("id", "user_id", "agent_id", "entity_id", "scope", "action", "source", "memory_version_after", "after_text", "created_at")
+INSERT INTO "ctx_agent_memory_changelog" ("id", "user_id", "agent_id", "entity_id", "scope", "action", "source", "memory_version_after", "after_text", "metadata", "created_at")
 SELECT
   uuidv7(),
   f."user_id",
@@ -49,7 +49,7 @@ SELECT
   'fact',
   'create',
   'manual',
-  m."version",
+  1,
   jsonb_build_object(
     'id', f."id"::text,
     'subject', f."subject",
@@ -64,6 +64,10 @@ SELECT
     'created_at', f."created_at",
     'updated_at', f."updated_at"
   )::text,
+  jsonb_build_object(
+    'migration', '20260625090000_add_facts_memory',
+    'created_memory_row', false
+  )::text,
   f."created_at"
 FROM inserted f
 JOIN "ctx_agent_memory" m ON m."user_id" = f."user_id" AND m."agent_id" = f."agent_id";
@@ -76,7 +80,7 @@ WITH inserted AS (
   WHERE btrim("soul") <> ''
   RETURNING *
 )
-INSERT INTO "ctx_agent_memory_changelog" ("id", "user_id", "agent_id", "entity_id", "scope", "action", "source", "memory_version_after", "after_text", "created_at")
+INSERT INTO "ctx_agent_memory_changelog" ("id", "user_id", "agent_id", "entity_id", "scope", "action", "source", "memory_version_after", "after_text", "metadata", "created_at")
 SELECT
   uuidv7(),
   f."user_id",
@@ -85,7 +89,7 @@ SELECT
   'fact',
   'create',
   'manual',
-  m."version",
+  1,
   jsonb_build_object(
     'id', f."id"::text,
     'subject', f."subject",
@@ -99,6 +103,10 @@ SELECT
     'source', f."source",
     'created_at', f."created_at",
     'updated_at', f."updated_at"
+  )::text,
+  jsonb_build_object(
+    'migration', '20260625090000_add_facts_memory',
+    'created_memory_row', false
   )::text,
   f."created_at"
 FROM inserted f
@@ -142,7 +150,7 @@ inserted AS (
   FROM legacy
   RETURNING *
 )
-INSERT INTO "ctx_agent_memory_changelog" ("id", "user_id", "agent_id", "entity_id", "scope", "action", "source", "memory_version_after", "after_text", "created_at")
+INSERT INTO "ctx_agent_memory_changelog" ("id", "user_id", "agent_id", "entity_id", "scope", "action", "source", "memory_version_after", "after_text", "metadata", "created_at")
 SELECT
   uuidv7(),
   f."user_id",
@@ -151,7 +159,7 @@ SELECT
   'fact',
   'create',
   'manual',
-  m."version",
+  1,
   jsonb_build_object(
     'id', f."id"::text,
     'subject', f."subject",
@@ -166,9 +174,31 @@ SELECT
     'created_at', f."created_at",
     'updated_at', f."updated_at"
   )::text,
+  jsonb_build_object(
+    'migration', '20260625090000_add_facts_memory',
+    'created_memory_row', mr."user_id" IS NOT NULL
+  )::text,
   f."created_at"
 FROM inserted f
-JOIN "ctx_agent_memory" m ON m."user_id" = f."user_id" AND m."agent_id" = f."agent_id";
+JOIN "ctx_agent_memory" m ON m."user_id" = f."user_id" AND m."agent_id" = f."agent_id"
+LEFT JOIN memory_rows mr ON mr."user_id" = f."user_id" AND mr."agent_id" = f."agent_id";
 
 -- +goose Down
+DELETE FROM "ctx_agent_memory" m
+USING "ctx_agent_memory_changelog" c
+WHERE c."scope" = 'fact'
+  AND c."user_id" = m."user_id"
+  AND c."agent_id" = m."agent_id"
+  AND (c."metadata"::jsonb)->>'migration' = '20260625090000_add_facts_memory'
+  AND (c."metadata"::jsonb)->>'created_memory_row' = 'true'
+  AND m."content" = ''
+  AND m."soul" = ''
+  AND m."version" = 1
+  AND m."constraints" = '[]'::jsonb
+  AND m."profile_entries" = '[]'::jsonb;
+
+DELETE FROM "ctx_agent_memory_changelog"
+WHERE "scope" = 'fact'
+  AND ("metadata"::jsonb)->>'migration' = '20260625090000_add_facts_memory';
+
 DROP TABLE IF EXISTS "facts";
