@@ -7,24 +7,22 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 )
 
-func ptr(s string) *string { return &s }
-
 func TestValidateSchedule_Cron(t *testing.T) {
-	err := validateScheduleInput(apiserver.JobInput{Cron: ptr("0 * * * *")})
+	err := validateScheduleInput(apiserver.JobInput{Cron: new("0 * * * *")})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateSchedule_Every(t *testing.T) {
-	err := validateScheduleInput(apiserver.JobInput{Every: ptr("1h")})
+	err := validateScheduleInput(apiserver.JobInput{Every: new("1h")})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateSchedule_At(t *testing.T) {
-	err := validateScheduleInput(apiserver.JobInput{At: ptr("09:00")})
+	err := validateScheduleInput(apiserver.JobInput{At: new("09:00")})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -38,14 +36,14 @@ func TestValidateSchedule_None(t *testing.T) {
 }
 
 func TestValidateSchedule_Multiple(t *testing.T) {
-	err := validateScheduleInput(apiserver.JobInput{Cron: ptr("* * * * *"), Every: ptr("1h")})
+	err := validateScheduleInput(apiserver.JobInput{Cron: new("* * * * *"), Every: new("1h")})
 	if err == nil {
 		t.Error("expected error when multiple schedule types are set")
 	}
 }
 
 func TestValidateSchedule_InvalidDuration(t *testing.T) {
-	err := validateScheduleInput(apiserver.JobInput{Every: ptr("not-a-duration")})
+	err := validateScheduleInput(apiserver.JobInput{Every: new("not-a-duration")})
 	if err == nil {
 		t.Error("expected error for invalid duration")
 	}

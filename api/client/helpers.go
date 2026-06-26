@@ -108,4 +108,6 @@ func WrapServerErr(err error) error {
 }
 
 // Ptr returns a pointer to v.
-func Ptr[T any](v T) *T { return &v }
+//
+//go:fix inline
+func Ptr[T any](v T) *T { return new(v) }

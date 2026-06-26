@@ -11,7 +11,7 @@
 # Cross-compile from the build host's arch (BUILDPLATFORM) to the target arch so
 # buildx multi-arch builds don't run the Go toolchain under QEMU. TARGETOS/ARCH
 # are auto-populated by BuildKit (default to the host arch for a plain build).
-FROM --platform=$BUILDPLATFORM golang:1.25 AS stella-builder
+FROM --platform=$BUILDPLATFORM golang:1.26 AS stella-builder
 
 WORKDIR /src
 COPY go.mod go.sum ./

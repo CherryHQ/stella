@@ -172,7 +172,7 @@ func recallyListCommand() *ucli.Command {
 		},
 		Action: func(c *ucli.Context) error {
 			params := &apiclient.ListArticlesParams{
-				PageSize: apiclient.Ptr(c.Int("limit")),
+				PageSize: new(c.Int("limit")),
 			}
 			if v := c.String("status"); v != "" {
 				st := apiclient.ArticleStatus(v)
@@ -183,7 +183,7 @@ func recallyListCommand() *ucli.Command {
 				params.SourceType = &st
 			}
 			if c.IsSet("starred") {
-				params.Starred = apiclient.Ptr(c.Bool("starred"))
+				params.Starred = new(c.Bool("starred"))
 			}
 			list, err := apiclient.Call[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListArticles(c.Context, params)
@@ -231,7 +231,7 @@ func recallySearchCommand() *ucli.Command {
 			list, err := apiclient.Call[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListArticles(c.Context, &apiclient.ListArticlesParams{
 					Q:        &query,
-					PageSize: apiclient.Ptr(c.Int("limit")),
+					PageSize: new(c.Int("limit")),
 				})
 			})
 			if err != nil {
@@ -319,10 +319,10 @@ Options must be placed before the article ID. Trailing options are rejected.`,
 				body.Status = &st
 			}
 			if c.IsSet("starred") {
-				body.Starred = apiclient.Ptr(c.Bool("starred"))
+				body.Starred = new(c.Bool("starred"))
 			}
 			if c.IsSet("summary") {
-				body.Summary = apiclient.Ptr(c.String("summary"))
+				body.Summary = new(c.String("summary"))
 			}
 			if c.IsSet("tags") {
 				tags := c.StringSlice("tags")

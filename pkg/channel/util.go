@@ -105,19 +105,35 @@ func TextContent(text string) []ai.ContentBlock {
 }
 
 // FileReceivedContent returns the standard content block telling the agent
-// about a file that has been saved to disk, with a kreuzberg extraction hint.
-// assetsDir is the host-side assets directory; savedPath is the host-side absolute
-// path returned by SaveAsset. The hint uses a path relative to the user root
-// (parent of assetsDir) so it resolves correctly inside the bwrap sandbox at /workspace.
+// about a file that has been saved to disk. assetsDir is the host-side assets
+// directory; savedPath is the host-side absolute path returned by SaveAsset. The
+// path is relative to the user root (parent of assetsDir) so it resolves
+// correctly inside the bwrap sandbox at /workspace.
 func FileReceivedContent(fileName, assetsDir, savedPath string) []ai.ContentBlock {
+	displayPath := savedAssetDisplayPath(assetsDir, savedPath)
+	return TextContent(fmt.Sprintf(
+		"[File: %s — saved to %s]\nUse the read tool on %q when you need the file content. Stella will extract supported documents and images when possible.",
+		fileName, displayPath, displayPath,
+	))
+}
+
+func FileReceivedWithExtractionContent(fileName, assetsDir, savedPath, preview string) []ai.ContentBlock {
+	displayPath := savedAssetDisplayPath(assetsDir, savedPath)
+	if strings.TrimSpace(preview) == "" {
+		return FileReceivedContent(fileName, assetsDir, savedPath)
+	}
+	return TextContent(fmt.Sprintf(
+		"[File: %s — saved to %s]\nStella extracted a preview:\n\n%s\n\nUse the read tool on %q if you need more.",
+		fileName, displayPath, preview, displayPath,
+	))
+}
+
+func savedAssetDisplayPath(assetsDir, savedPath string) string {
 	displayPath := savedPath
 	if assetsDir != "" {
 		if rel, err := filepath.Rel(filepath.Dir(assetsDir), savedPath); err == nil {
 			displayPath = rel
 		}
 	}
-	return TextContent(fmt.Sprintf(
-		"[File: %s — saved to %s]\n Read kreuzberg skill and use `kreuzberg extract %q` to read its content.",
-		fileName, displayPath, displayPath,
-	))
+	return displayPath
 }

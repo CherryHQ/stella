@@ -171,7 +171,7 @@ func (s *Store) UpdateArticle(ctx context.Context, userID string, articleID stri
 		}
 		status = v
 		if v == string(StatusRead) && current.Status != string(StatusRead) {
-			readAt = toNullTime(ptrTime(time.Now().UTC()))
+			readAt = toNullTime(new(time.Now().UTC()))
 		}
 	}
 	if v, ok := updates["starred"].(bool); ok {
@@ -839,8 +839,4 @@ func toNullTime(value *time.Time) pgtype.Timestamptz {
 		return pgtype.Timestamptz{}
 	}
 	return pgtype.Timestamptz{Time: value.UTC(), Valid: true}
-}
-
-func ptrTime(value time.Time) *time.Time {
-	return &value
 }

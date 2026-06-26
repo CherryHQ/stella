@@ -1,6 +1,6 @@
 module github.com/CherryHQ/stella
 
-go 1.25.7
+go 1.26.4
 
 require (
 	filippo.io/age v1.3.1
@@ -147,6 +147,7 @@ require (
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
+	github.com/xberg-io/xberg v0.0.0-20260625181435-5a68c8bb4623
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -183,3 +184,5 @@ require (
 )
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
+
+replace github.com/xberg-io/xberg => github.com/xberg-io/xberg/packages/go v0.0.0-20260625181435-5a68c8bb4623

@@ -1189,17 +1189,17 @@ func TestSyncGroupsEnsuresMembersAcrossPages(t *testing.T) {
 			case 1:
 				return &larkim.ListChatResp{Data: &larkim.ListChatRespData{
 					Items: []*larkim.ListChat{
-						{ChatId: testStringPtr("oc_1")},
+						{ChatId: new("oc_1")},
 						{},
-						{ChatId: testStringPtr("oc_2")},
+						{ChatId: new("oc_2")},
 					},
-					HasMore:   testBoolPtr(true),
-					PageToken: testStringPtr("next"),
+					HasMore:   new(true),
+					PageToken: new("next"),
 				}}, nil
 			case 2:
 				return &larkim.ListChatResp{Data: &larkim.ListChatRespData{
-					Items:   []*larkim.ListChat{{ChatId: testStringPtr("oc_3")}},
-					HasMore: testBoolPtr(false),
+					Items:   []*larkim.ListChat{{ChatId: new("oc_3")}},
+					HasMore: new(false),
 				}}, nil
 			default:
 				t.Fatalf("unexpected ListChat call %d", calls)
@@ -1342,10 +1342,6 @@ func (m *mockGroupProvisioner) RemovePlatformGroupMember(_ context.Context, plat
 	m.removed = append(m.removed, strings.Join([]string{platform, platformGroupID, channelID}, ":"))
 	return nil
 }
-
-func testStringPtr(v string) *string { return &v }
-
-func testBoolPtr(v bool) *bool { return &v }
 
 type mockHandler struct {
 	handleIncomingFn  func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)

@@ -14,9 +14,29 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/document"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
+
+type fakeDocumentExtractor struct {
+	content string
+	err     error
+}
+
+func (f fakeDocumentExtractor) ExtractFile(context.Context, string, document.Options) (*document.Result, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &document.Result{Content: f.content}, nil
+}
+
+func (f fakeDocumentExtractor) ExtractBytes(context.Context, []byte, string, document.Options) (*document.Result, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &document.Result{Content: f.content}, nil
+}
 
 func writePNG(t *testing.T, path string, w, h int) {
 	t.Helper()
@@ -34,7 +54,7 @@ func writePNG(t *testing.T, path string, w, h int) {
 }
 
 func newTestReadTool(projectRoot string) *hostReadTool {
-	return &hostReadTool{projectRoot: projectRoot}
+	return &hostReadTool{projectRoot: projectRoot, extractor: fakeDocumentExtractor{content: "extracted text"}}
 }
 
 func TestReadImageVisionReturnsImageBlock(t *testing.T) {
@@ -135,8 +155,9 @@ func TestReadImageNonVisionFallsBackToText(t *testing.T) {
 	if ai.HasImage(blocks) {
 		t.Fatal("non-vision model must not receive an image block")
 	}
-	if !strings.Contains(ai.FlattenText(blocks), "cannot view images") {
-		t.Errorf("expected non-vision note, got %q", ai.FlattenText(blocks))
+	text := ai.FlattenText(blocks)
+	if !strings.Contains(text, "cannot view images") || !strings.Contains(text, "extracted text") {
+		t.Errorf("expected non-vision extraction note, got %q", text)
 	}
 }
 

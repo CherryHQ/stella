@@ -7,7 +7,7 @@ yq = "4.49.2"
 act = "0.2.88"
 # Go
 "github:pressly/goose" = "3.27.1"
-go = "1.25.9"
+go = "1.26.4"
 "github:golangci/golangci-lint" = "2.11.1"
 "github:goreleaser/goreleaser" = "2.14.1"
 "github:sqlc-dev/sqlc" = "1.29.0"

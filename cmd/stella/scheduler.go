@@ -269,7 +269,7 @@ default schedule. Omit them to use the template default.`,
 			}
 			enabled := true
 			body := apiclient.CreateSchedulerJobJSONRequestBody{
-				TemplateKey: apiclient.Ptr(key),
+				TemplateKey: new(key),
 				Enabled:     &enabled,
 			}
 			if cron != "" {

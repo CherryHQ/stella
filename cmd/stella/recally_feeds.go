@@ -271,7 +271,7 @@ Options must be placed before the optional feed ID. Trailing options are rejecte
 
 			results := make([]apiclient.FeedPollResult, 0, len(feedIDs))
 			for _, id := range feedIDs {
-				resp, err := api.PollFeed(c.Context, id, &apiclient.PollFeedParams{Limit: apiclient.Ptr(c.Int("limit"))})
+				resp, err := api.PollFeed(c.Context, id, &apiclient.PollFeedParams{Limit: new(c.Int("limit"))})
 				if err != nil {
 					return apiclient.WrapServerErr(err)
 				}

@@ -9,7 +9,7 @@ COPY api/spec/ /api/spec/
 COPY web/ ./
 RUN pnpm openapi-ts && CI=true pnpm build
 
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS builder
 
 WORKDIR /go/src/app
 

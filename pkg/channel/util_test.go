@@ -120,3 +120,23 @@ func TestTextContent(t *testing.T) {
 		t.Errorf("expected 'hello', got %q", tc.Text)
 	}
 }
+
+func TestFileReceivedContentUsesReadToolHint(t *testing.T) {
+	text := ai.FlattenText(FileReceivedContent("doc.pdf", "/tmp/user/assets", "/tmp/user/assets/doc.pdf"))
+	if !strings.Contains(text, "saved to assets/doc.pdf") {
+		t.Fatalf("missing display path: %q", text)
+	}
+	if !strings.Contains(text, "Use the read tool") {
+		t.Fatalf("missing read hint: %q", text)
+	}
+	if strings.Contains(text, "kreuzberg") {
+		t.Fatalf("must not mention kreuzberg: %q", text)
+	}
+}
+
+func TestFileReceivedWithExtractionContentIncludesPreview(t *testing.T) {
+	text := ai.FlattenText(FileReceivedWithExtractionContent("doc.pdf", "/tmp/user/assets", "/tmp/user/assets/doc.pdf", "hello preview"))
+	if !strings.Contains(text, "Stella extracted a preview") || !strings.Contains(text, "hello preview") {
+		t.Fatalf("missing preview: %q", text)
+	}
+}

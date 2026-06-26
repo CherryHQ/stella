@@ -112,7 +112,7 @@ func goalListCommand() *ucli.Command {
 			}
 			params := &apiclient.ListGoalsParams{AgentId: &agentID}
 			if c.IsSet("terminal") {
-				params.Terminal = apiclient.Ptr(c.Bool("terminal"))
+				params.Terminal = new(c.Bool("terminal"))
 			}
 			if v := c.String("q"); v != "" {
 				params.Q = &v
