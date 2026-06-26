@@ -41,6 +41,28 @@ func (q *Queries) BumpAgentMemoryVersion(ctx context.Context, arg BumpAgentMemor
 	return i, err
 }
 
+const clearUserAgentMemory = `-- name: ClearUserAgentMemory :exec
+UPDATE ctx_agent_memory
+SET content = '',
+    soul = '',
+    constraints = '[]',
+    profile_entries = '[]',
+    updated_at = now()
+WHERE user_id = $1 AND agent_id = $2
+`
+
+type ClearUserAgentMemoryParams struct {
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+// Reset the durable memory columns without deleting the row, so the version
+// clock stays monotonic for snapshot/changelog replay.
+func (q *Queries) ClearUserAgentMemory(ctx context.Context, arg ClearUserAgentMemoryParams) error {
+	_, err := q.db.Exec(ctx, clearUserAgentMemory, arg.UserID, arg.AgentID)
+	return err
+}
+
 const deleteUserAgentMemory = `-- name: DeleteUserAgentMemory :exec
 DELETE FROM ctx_agent_memory WHERE user_id = $1 AND agent_id = $2
 `

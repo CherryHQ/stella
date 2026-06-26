@@ -75,74 +75,11 @@ func SetSingletonFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, in
 	})
 }
 
-// DeleteSingletonFact deprecates the active singleton fact, if one exists. It
-// leaves world facts alone because knowledge lifecycle is handled separately.
-func DeleteSingletonFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, subject memory.FactSubject) (bool, error) {
-	if subject == memory.FactSubjectWorld {
-		return false, fmt.Errorf("world facts are not singleton facts")
-	}
-
-	tx, err := db.Begin(ctx)
-	if err != nil {
-		return false, fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
-		return false, err
-	}
-
-	qtx := q.WithTx(tx)
-	active, err := qtx.ListActiveFactsBySubject(ctx, sqlc.ListActiveFactsBySubjectParams{
-		UserID:  userID,
-		AgentID: agentID,
-		Subject: string(subject),
-	})
-	if err != nil {
-		return false, fmt.Errorf("list singleton fact: %w", err)
-	}
-	if len(active) == 0 {
-		if err := tx.Commit(ctx); err != nil {
-			return false, fmt.Errorf("commit empty singleton delete: %w", err)
-		}
-		return false, nil
-	}
-
-	source := factSourceFromContext(ctx)
-	beforeVersion, err := currentMemoryVersion(ctx, qtx, userID, agentID)
-	if err != nil {
-		return false, err
-	}
-	before := factFromRow(active[0])
-	deprecatedRow, err := qtx.DeprecateFact(ctx, sqlc.DeprecateFactParams{
-		ID:      active[0].ID,
-		UserID:  userID,
-		AgentID: agentID,
-	})
-	if err != nil {
-		return false, fmt.Errorf("deprecate singleton fact: %w", err)
-	}
-	deprecated := factFromRow(deprecatedRow)
-
-	memoryRow, err := qtx.BumpAgentMemoryVersion(ctx, sqlc.BumpAgentMemoryVersionParams{
-		UserID:  userID,
-		AgentID: agentID,
-	})
-	if err != nil {
-		return false, fmt.Errorf("bump memory version: %w", err)
-	}
-	if _, err := writeFactChangelog(ctx, qtx, userID, agentID, "delete", source, beforeVersion, memoryRow.Version, before, deprecated); err != nil {
-		return false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit singleton delete: %w", err)
-	}
-	return true, nil
-}
-
 // ResetUserAgentMemory resets the user-agent memory surface: it deprecates all
-// active fact-backed memories, then removes the legacy memory row so constraints
-// and profile entries are cleared as well.
+// active fact-backed memories, then clears the legacy memory row columns
+// (constraints and profile entries) in place. The row itself is kept so the
+// version clock stays monotonic; deleting it would restart versions at 1 and
+// let frozen sessions replay stale fact changelog state.
 func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string) error {
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -203,11 +140,11 @@ func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries
 			return err
 		}
 	}
-	if err := qtx.DeleteUserAgentMemory(ctx, sqlc.DeleteUserAgentMemoryParams{
+	if err := qtx.ClearUserAgentMemory(ctx, sqlc.ClearUserAgentMemoryParams{
 		UserID:  userID,
 		AgentID: agentID,
 	}); err != nil {
-		return fmt.Errorf("delete user-agent memory: %w", err)
+		return fmt.Errorf("clear user-agent memory: %w", err)
 	}
 
 	return tx.Commit(ctx)

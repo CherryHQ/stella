@@ -18,6 +18,17 @@ ON CONFLICT(user_id, agent_id) DO UPDATE SET
 -- name: DeleteUserAgentMemory :exec
 DELETE FROM ctx_agent_memory WHERE user_id = $1 AND agent_id = $2;
 
+-- name: ClearUserAgentMemory :exec
+-- Reset the durable memory columns without deleting the row, so the version
+-- clock stays monotonic for snapshot/changelog replay.
+UPDATE ctx_agent_memory
+SET content = '',
+    soul = '',
+    constraints = '[]',
+    profile_entries = '[]',
+    updated_at = now()
+WHERE user_id = $1 AND agent_id = $2;
+
 -- name: ListUserAgentMemoriesByUser :many
 SELECT * FROM ctx_agent_memory WHERE user_id = $1 ORDER BY agent_id;
 

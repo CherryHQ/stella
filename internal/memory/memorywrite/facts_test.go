@@ -225,39 +225,60 @@ func TestSetSingletonFact_DecidesCreateOrReplaceUnderLock(t *testing.T) {
 	}
 }
 
-func TestDeleteSingletonFact_DeprecatesCurrentFact(t *testing.T) {
+func TestResetUserAgentMemory_KeepsVersionMonotonicAndDoesNotResurrect(t *testing.T) {
 	db, q, userID, agentID, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	ctx := memory.WithChangeSource(context.Background(), memory.SourceReflect)
 
-	fact, err := SetSingletonFact(ctx, db, q, memory.FactWrite{
-		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectUser, Content: "Profile to delete.", Source: memory.SourceReflect,
+	if _, err := SetSingletonFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectUser, Content: "Old profile.", Source: memory.SourceReflect,
+	}); err != nil {
+		t.Fatalf("set old profile: %v", err)
+	}
+	before, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("get memory before reset: %v", err)
+	}
+
+	if err := ResetUserAgentMemory(ctx, db, q, userID, agentID); err != nil {
+		t.Fatalf("ResetUserAgentMemory: %v", err)
+	}
+
+	// The memory row must survive the reset so the version clock never restarts
+	// at 1; deleting it would let frozen sessions replay stale fact state.
+	afterReset, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("memory row should survive reset: %v", err)
+	}
+	if afterReset.Version <= before.Version {
+		t.Fatalf("reset version = %d, want > %d (monotonic)", afterReset.Version, before.Version)
+	}
+	if string(afterReset.Constraints) != "[]" || string(afterReset.ProfileEntries) != "[]" {
+		t.Fatalf("reset did not clear constraints/profile_entries: %+v", afterReset)
+	}
+
+	newFact, err := SetSingletonFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectUser, Content: "New profile.", Source: memory.SourceReflect,
 	})
 	if err != nil {
-		t.Fatalf("SetSingletonFact: %v", err)
+		t.Fatalf("set new profile: %v", err)
 	}
-	deleted, err := DeleteSingletonFact(ctx, db, q, userID, agentID, memory.FactSubjectUser)
+	postWrite, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
 	if err != nil {
-		t.Fatalf("DeleteSingletonFact: %v", err)
+		t.Fatalf("get memory after new write: %v", err)
 	}
-	if !deleted {
-		t.Fatal("DeleteSingletonFact deleted = false, want true")
+	if postWrite.Version <= afterReset.Version {
+		t.Fatalf("post-reset write version = %d, want > %d", postWrite.Version, afterReset.Version)
 	}
 
-	active, err := ListActiveFacts(ctx, q, userID, agentID, memory.FactSubjectUser)
+	// Reconstructing at the post-reset version must return only the live profile,
+	// never the deprecated pre-reset fact.
+	at, err := ListActiveFactsAt(ctx, q, userID, agentID, memory.FactSubjectUser, postWrite.Version)
 	if err != nil {
-		t.Fatalf("ListActiveFacts: %v", err)
+		t.Fatalf("ListActiveFactsAt: %v", err)
 	}
-	if len(active) != 0 {
-		t.Fatalf("active profile facts = %+v, want none", active)
-	}
-
-	row, err := q.GetFact(ctx, sqlc.GetFactParams{ID: fact.ID, UserID: userID, AgentID: agentID})
-	if err != nil {
-		t.Fatalf("GetFact: %v", err)
-	}
-	if row.Status != string(memory.FactStatusDeprecated) {
-		t.Fatalf("deleted fact status = %q, want deprecated", row.Status)
+	if len(at) != 1 || at[0].ID != newFact.ID {
+		t.Fatalf("reconstructed facts = %+v, want only new fact %s", at, newFact.ID)
 	}
 }
