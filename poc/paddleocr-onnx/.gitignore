@@ -1,0 +1,4 @@
+# POC build artifacts and large binaries — regenerate via README
+/poc
+/runtime/
+/models/
