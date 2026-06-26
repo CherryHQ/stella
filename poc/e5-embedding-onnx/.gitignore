@@ -1,0 +1,5 @@
+# Large assets and build artifacts — regenerate via README
+/e5
+/model/
+/lib/
+/runtime
