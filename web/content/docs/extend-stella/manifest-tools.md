@@ -13,7 +13,7 @@ Stella ships with a built-in manifest that declares the default manifest-managed
 
 At startup, Stella:
 
-1. Loads the embedded built-in manifest (`builtin_plugins.yaml`)
+1. Loads the embedded built-in manifests (`resources/oauth.yaml` and `resources/tools.yaml`)
 2. Loads your user manifest (`$STELLA_HOME/plugins.yaml`) if it exists
 3. Merges them: user entries override built-in entries per plugin ID
 4. Registers enabled manifest plugins into the plugin host
@@ -27,7 +27,7 @@ Do not treat host `$STELLA_HOME/bin` as the source of Docker sandbox executables
 
 For Docker:
 
-- Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Stella release, so one release image can contain the built-in tool set for that Stella version. The image build runs `stella mise reconcile-builtins` — the same reconcile path the daemon uses — so it installs the exact identifiers and versions declared in `resources/plugins.yaml`. There is no separate Docker tool list to keep in sync.
+- Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Stella release, so one release image can contain the built-in tool set for that Stella version. The image build runs `stella mise reconcile-builtins` — the same reconcile path the daemon uses — so it installs the exact identifiers and versions declared in `resources/tools.yaml`. There is no separate Docker tool list to keep in sync.
 - `$STELLA_HOME/plugins.yaml` remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
 - User-configured CLI binaries need a container-native provisioning path. They should be installed for Linux inside the Docker environment, not copied from the host's `$STELLA_HOME/bin`.
 
