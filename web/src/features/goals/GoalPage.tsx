@@ -9,6 +9,7 @@ import {
   deleteGoal,
   reattemptGoal,
   rejectPlan,
+  saveGoalAsWorkflow,
   submitVerdict,
   unarchiveGoal,
   waiveEdge,
@@ -312,6 +313,10 @@ function HeaderActions({
         </Button>
       )}
 
+      {isComposite && lc === "accepted" && !archived && (
+        <SaveAsWorkflowButton agentId={agentId} goalId={d.id} />
+      )}
+
       {!archived && ["accepted", "rejected_final", "abandoned", "cancelled"].includes(lc) && (
         <Button
           variant="outline"
@@ -337,6 +342,38 @@ function HeaderActions({
       {["draft", "ready", "active"].includes(lc) && cancelBtn}
       {lc === "blocked" && cancelBtn}
     </>
+  );
+}
+
+// SaveAsWorkflowButton freezes an accepted composite's plan into a reusable
+// workflow, then jumps to it. The name defaults to the goal's title server-side.
+function SaveAsWorkflowButton({ agentId, goalId }: { agentId: string; goalId: string }) {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const { data } = await saveGoalAsWorkflow({
+        path: { id: goalId },
+        body: {},
+        throwOnError: true,
+      });
+      if (data)
+        void navigate({
+          to: "/agents/$agentId/workflows/$workflowId",
+          params: { agentId, workflowId: data.id },
+        });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Button variant="outline" size="sm" loading={saving} onClick={save}>
+      {t("goals.saveAsWorkflow")}
+    </Button>
   );
 }
 
