@@ -221,10 +221,17 @@ export function SessionDetail({
     const merged = mergeToolResults(historyMessages);
     if (merged.length === 0) return;
     const uiMessages = merged.map(messageToUIMessage);
-    const newIDs = new Set(uiMessages.map((m) => m.id));
-    historicalIDsRef.current = newIDs;
+    // Accumulate every id history has ever produced. Incremental page loads can
+    // momentarily orphan a tool result at a page boundary — its assistant lives
+    // in an older, not-yet-loaded page, so it renders as a standalone assistant
+    // text bubble and is assigned an id here. Once that older page arrives the
+    // result merges into its tool_call block and drops out of the current id
+    // set; filtering liveSlice on the current set alone would keep the stale
+    // text copy forever (duplicated, un-collapsed tool output). Excluding
+    // everything history has ever owned drops it.
+    for (const m of uiMessages) historicalIDsRef.current.add(m.id);
     setChatMessages((prev) => {
-      const liveSlice = prev.filter((m) => !newIDs.has(m.id));
+      const liveSlice = prev.filter((m) => !historicalIDsRef.current.has(m.id));
       return [...uiMessages, ...liveSlice];
     });
   }, [historyMessages, setChatMessages]);
@@ -240,6 +247,7 @@ export function SessionDetail({
     sessionIDRef.current = session.id;
     initialScrollSessionRef.current = null;
     shouldAutoScrollRef.current = true;
+    historicalIDsRef.current = new Set();
   }, [session?.id]);
 
   const historyReady = hasContextSummaries
@@ -255,6 +263,34 @@ export function SessionDetail({
         transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }, 0);
   }, [session, historyReady]);
+
+  // The transcript loads older pages on scroll-up, but that can only fire once
+  // the column overflows. A newest page made entirely of assistant/tool turns
+  // collapses into a single short bubble that never fills the viewport, so the
+  // scroll trigger stays dead and every earlier page is unreachable. Keep
+  // pulling older pages until the column overflows (or runs out), pinned to the
+  // bottom so the newest turn stays in view.
+  useEffect(() => {
+    if (hasContextSummaries) return;
+    const el = transcriptRef.current;
+    if (!el) return;
+    if (!messagesQuery.isSuccess || messagesQuery.isFetchingNextPage || !messagesQuery.hasNextPage)
+      return;
+    if (el.scrollHeight > el.clientHeight) return;
+    void messagesQuery.fetchNextPage().then(() => {
+      requestAnimationFrame(() => {
+        if (transcriptRef.current)
+          transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+      });
+    });
+  }, [
+    hasContextSummaries,
+    messages.length,
+    messagesQuery.isSuccess,
+    messagesQuery.isFetchingNextPage,
+    messagesQuery.hasNextPage,
+    messagesQuery.fetchNextPage,
+  ]);
 
   // Auto-scroll to bottom as new messages stream in (if the user is already near the bottom)
   useEffect(() => {
