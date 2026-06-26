@@ -159,7 +159,6 @@ type AgentWorkflow struct {
 	Plan               json.RawMessage `json:"plan"`
 	Version            int64           `json:"version"`
 	SourceGoalID       pgtype.Text     `json:"source_goal_id"`
-	WorkflowKey        string          `json:"workflow_key"`
 	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at"`
 }

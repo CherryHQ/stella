@@ -2,17 +2,18 @@
 INSERT INTO agent_workflow (
     owner_kind, user_id, agent_id, name, intent,
     acceptance_contract, convergence_policy, plan, version,
-    source_goal_id, workflow_key
+    source_goal_id
 )
 VALUES (
     sqlc.arg(owner_kind), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(name), sqlc.arg(intent),
     sqlc.arg(acceptance_contract), sqlc.arg(convergence_policy), sqlc.arg(plan), sqlc.arg(version),
-    sqlc.narg(source_goal_id), sqlc.arg(workflow_key)
+    sqlc.narg(source_goal_id)
 )
 RETURNING *;
 
 -- name: GetWorkflow :one
-SELECT * FROM agent_workflow WHERE id = $1;
+SELECT * FROM agent_workflow
+WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id);
 
 -- name: ListWorkflowsByUser :many
 SELECT * FROM agent_workflow
@@ -33,8 +34,8 @@ UPDATE agent_workflow SET
     name = sqlc.arg(name),
     intent = sqlc.arg(intent),
     updated_at = now()
-WHERE id = sqlc.arg(id)
+WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
 RETURNING *;
 
 -- name: DeleteWorkflow :execrows
-DELETE FROM agent_workflow WHERE id = sqlc.arg(id);
+DELETE FROM agent_workflow WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id);

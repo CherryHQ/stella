@@ -15,24 +15,20 @@ CREATE TABLE "agent_workflow" (
     "plan"                jsonb NOT NULL DEFAULT '{}',
     "version"             bigint NOT NULL DEFAULT 1,
     "source_goal_id"      text NULL REFERENCES "agent_goal"("id") ON DELETE SET NULL,
-    "workflow_key"        text NOT NULL DEFAULT '',
     "created_at"          timestamptz NOT NULL DEFAULT now(),
     "updated_at"          timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY ("id"),
     CONSTRAINT "agent_workflow_check" CHECK ((version >= 1)),
-    -- A user workflow is owned by a (user, agent); a system preset is keyed by a
-    -- non-empty workflow_key for late-binding subscription (follow-up).
+    -- Every workflow is owned by a (user, agent). owner_kind is a forward-compat
+    -- discriminator pinned to 'user'; a system-preset branch can be added when
+    -- that feature lands (issue #594 follow-up).
     CONSTRAINT "agent_workflow_owner_check" CHECK (
-        ((owner_kind = 'user')   AND (user_id IS NOT NULL) AND (agent_id IS NOT NULL))
-        OR ((owner_kind = 'system') AND (workflow_key <> ''))
+        (owner_kind = 'user') AND (user_id IS NOT NULL) AND (agent_id IS NOT NULL)
     )
 );
 
 -- List a user's workflows by name.
 CREATE INDEX "idx_agent_workflow_owner" ON "agent_workflow" ("user_id", "name");
--- A system preset's workflow_key is unique across presets.
-CREATE UNIQUE INDEX "idx_agent_workflow_key" ON "agent_workflow" ("workflow_key")
-    WHERE owner_kind = 'system';
 
 -- Scheduler dispatch routing: a fired job runs a chat turn (default) or
 -- instantiates a workflow (payload carries {"workflow_id": ...}).

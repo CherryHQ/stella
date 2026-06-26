@@ -333,7 +333,7 @@ func TestDispatchJob_MissingTemplate_ErrorRun(t *testing.T) {
 		UserID:    "user-1",
 		Message:   "",
 	}
-	err := svc.dispatchJob(context.Background(), orphan)
+	_, err := svc.dispatchJob(context.Background(), orphan)
 	if err == nil {
 		t.Fatal("expected error for missing template, got nil")
 	}
@@ -594,7 +594,7 @@ func TestDispatchJob_InjectsTemplateMessage(t *testing.T) {
 		Message:   "", // intentionally empty — resolved at fire time
 	}
 
-	if err := svc.dispatchJob(context.Background(), subJob); err != nil {
+	if _, err := svc.dispatchJob(context.Background(), subJob); err != nil {
 		// dispatchJob without Start still calls onJob if wired; ok.
 		if !errors.Is(err, context.Canceled) {
 			// Not a fatal failure in unit-test context where svc.ctx may be nil.

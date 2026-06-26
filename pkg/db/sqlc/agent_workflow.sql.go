@@ -36,14 +36,14 @@ const createWorkflow = `-- name: CreateWorkflow :one
 INSERT INTO agent_workflow (
     owner_kind, user_id, agent_id, name, intent,
     acceptance_contract, convergence_policy, plan, version,
-    source_goal_id, workflow_key
+    source_goal_id
 )
 VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9,
-    $10, $11
+    $10
 )
-RETURNING id, owner_kind, user_id, agent_id, name, intent, acceptance_contract, convergence_policy, plan, version, source_goal_id, workflow_key, created_at, updated_at
+RETURNING id, owner_kind, user_id, agent_id, name, intent, acceptance_contract, convergence_policy, plan, version, source_goal_id, created_at, updated_at
 `
 
 type CreateWorkflowParams struct {
@@ -57,7 +57,6 @@ type CreateWorkflowParams struct {
 	Plan               json.RawMessage `json:"plan"`
 	Version            int64           `json:"version"`
 	SourceGoalID       pgtype.Text     `json:"source_goal_id"`
-	WorkflowKey        string          `json:"workflow_key"`
 }
 
 func (q *Queries) CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) (AgentWorkflow, error) {
@@ -72,7 +71,6 @@ func (q *Queries) CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) 
 		arg.Plan,
 		arg.Version,
 		arg.SourceGoalID,
-		arg.WorkflowKey,
 	)
 	var i AgentWorkflow
 	err := row.Scan(
@@ -87,7 +85,6 @@ func (q *Queries) CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) 
 		&i.Plan,
 		&i.Version,
 		&i.SourceGoalID,
-		&i.WorkflowKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -95,11 +92,16 @@ func (q *Queries) CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) 
 }
 
 const deleteWorkflow = `-- name: DeleteWorkflow :execrows
-DELETE FROM agent_workflow WHERE id = $1
+DELETE FROM agent_workflow WHERE id = $1 AND user_id = $2
 `
 
-func (q *Queries) DeleteWorkflow(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteWorkflow, id)
+type DeleteWorkflowParams struct {
+	ID     string      `json:"id"`
+	UserID pgtype.Text `json:"user_id"`
+}
+
+func (q *Queries) DeleteWorkflow(ctx context.Context, arg DeleteWorkflowParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteWorkflow, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -107,11 +109,17 @@ func (q *Queries) DeleteWorkflow(ctx context.Context, id string) (int64, error) 
 }
 
 const getWorkflow = `-- name: GetWorkflow :one
-SELECT id, owner_kind, user_id, agent_id, name, intent, acceptance_contract, convergence_policy, plan, version, source_goal_id, workflow_key, created_at, updated_at FROM agent_workflow WHERE id = $1
+SELECT id, owner_kind, user_id, agent_id, name, intent, acceptance_contract, convergence_policy, plan, version, source_goal_id, created_at, updated_at FROM agent_workflow
+WHERE id = $1 AND user_id = $2
 `
 
-func (q *Queries) GetWorkflow(ctx context.Context, id string) (AgentWorkflow, error) {
-	row := q.db.QueryRow(ctx, getWorkflow, id)
+type GetWorkflowParams struct {
+	ID     string      `json:"id"`
+	UserID pgtype.Text `json:"user_id"`
+}
+
+func (q *Queries) GetWorkflow(ctx context.Context, arg GetWorkflowParams) (AgentWorkflow, error) {
+	row := q.db.QueryRow(ctx, getWorkflow, arg.ID, arg.UserID)
 	var i AgentWorkflow
 	err := row.Scan(
 		&i.ID,
@@ -125,7 +133,6 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (AgentWorkflow, er
 		&i.Plan,
 		&i.Version,
 		&i.SourceGoalID,
-		&i.WorkflowKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -133,7 +140,7 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (AgentWorkflow, er
 }
 
 const listWorkflowsByUser = `-- name: ListWorkflowsByUser :many
-SELECT id, owner_kind, user_id, agent_id, name, intent, acceptance_contract, convergence_policy, plan, version, source_goal_id, workflow_key, created_at, updated_at FROM agent_workflow
+SELECT id, owner_kind, user_id, agent_id, name, intent, acceptance_contract, convergence_policy, plan, version, source_goal_id, created_at, updated_at FROM agent_workflow
 WHERE user_id = $1
   AND ($2::text IS NULL OR agent_id = $2::text)
   AND ($3::text IS NULL OR name ILIKE '%' || $3 || '%' OR intent ILIKE '%' || $3 || '%')
@@ -176,7 +183,6 @@ func (q *Queries) ListWorkflowsByUser(ctx context.Context, arg ListWorkflowsByUs
 			&i.Plan,
 			&i.Version,
 			&i.SourceGoalID,
-			&i.WorkflowKey,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -195,18 +201,24 @@ UPDATE agent_workflow SET
     name = $1,
     intent = $2,
     updated_at = now()
-WHERE id = $3
-RETURNING id, owner_kind, user_id, agent_id, name, intent, acceptance_contract, convergence_policy, plan, version, source_goal_id, workflow_key, created_at, updated_at
+WHERE id = $3 AND user_id = $4
+RETURNING id, owner_kind, user_id, agent_id, name, intent, acceptance_contract, convergence_policy, plan, version, source_goal_id, created_at, updated_at
 `
 
 type UpdateWorkflowMetaParams struct {
-	Name   string `json:"name"`
-	Intent string `json:"intent"`
-	ID     string `json:"id"`
+	Name   string      `json:"name"`
+	Intent string      `json:"intent"`
+	ID     string      `json:"id"`
+	UserID pgtype.Text `json:"user_id"`
 }
 
 func (q *Queries) UpdateWorkflowMeta(ctx context.Context, arg UpdateWorkflowMetaParams) (AgentWorkflow, error) {
-	row := q.db.QueryRow(ctx, updateWorkflowMeta, arg.Name, arg.Intent, arg.ID)
+	row := q.db.QueryRow(ctx, updateWorkflowMeta,
+		arg.Name,
+		arg.Intent,
+		arg.ID,
+		arg.UserID,
+	)
 	var i AgentWorkflow
 	err := row.Scan(
 		&i.ID,
@@ -220,7 +232,6 @@ func (q *Queries) UpdateWorkflowMeta(ctx context.Context, arg UpdateWorkflowMeta
 		&i.Plan,
 		&i.Version,
 		&i.SourceGoalID,
-		&i.WorkflowKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

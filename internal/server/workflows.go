@@ -36,19 +36,16 @@ func (s *Server) workflowAuth(w http.ResponseWriter, r *http.Request) (string, b
 }
 
 // workflowError maps the package's sentinels to HTTP status codes: not-found →
-// 404, ineligible source → 409, validation → 400, else 500.
+// 404, ineligible source → 409, validation → 400, else 500. The workflow service
+// translates goal-subsystem errors into these sentinels at its boundary, so this
+// handler never reasons about the goal package's error taxonomy.
 func workflowError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, workflow.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, workflow.ErrSourceNotEligible):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, workflow.ErrInvalidInput),
-		errors.Is(err, goal.ErrInvalidDecomposition),
-		errors.Is(err, goal.ErrInvalidContract),
-		errors.Is(err, goal.ErrCompositeDeterministicContract),
-		errors.Is(err, goal.ErrDepthExceeded),
-		errors.Is(err, goal.ErrCycle):
+	case errors.Is(err, workflow.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
 		slog.Error("workflow handler internal error", "err", err)
@@ -102,15 +99,37 @@ func (s *Server) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	in := workflow.CreateInput{Name: body.Name, AgentID: body.AgentId, Plan: decodeFrozenPlan(body.Plan)}
+	// The caller must be able to use the managing agent: at instantiate time a
+	// workflow runs goal trees under this agent's identity, so an unchecked
+	// agent_id would let a user execute under another tenant's agent.
+	if _, code, msg := s.requireAgentAccess(r.Context(), body.AgentId); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	plan, err := decodeFrozenPlan(body.Plan)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid plan: "+err.Error())
+		return
+	}
+	in := workflow.CreateInput{Name: body.Name, AgentID: body.AgentId, Plan: plan}
 	if body.Intent != nil {
 		in.Intent = *body.Intent
 	}
 	if body.AcceptanceContract != nil {
-		in.Contract = decodeContract(*body.AcceptanceContract)
+		c, err := decodeContract(*body.AcceptanceContract)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid acceptance_contract: "+err.Error())
+			return
+		}
+		in.Contract = c
 	}
 	if body.ConvergencePolicy != nil {
-		in.Convergence = decodePolicy(*body.ConvergencePolicy)
+		p, err := decodePolicy(*body.ConvergencePolicy)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid convergence_policy: "+err.Error())
+			return
+		}
+		in.Convergence = p
 	}
 	wf, err := s.workflowSvc.Create(r.Context(), userID, in)
 	if err != nil {
@@ -186,6 +205,9 @@ func (s *Server) InstantiateWorkflow(w http.ResponseWriter, r *http.Request, id 
 	if body.ProjectId != nil {
 		projectID = *body.ProjectId
 	}
+	if !s.validateWorkflowProject(w, r, userID, projectID) {
+		return
+	}
 	root, err := s.workflowSvc.Instantiate(r.Context(), userID, id, projectID)
 	if err != nil {
 		workflowError(w, err)
@@ -240,17 +262,35 @@ func (s *Server) ScheduleWorkflow(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	projectID := derefStr(body.ProjectId)
+	if !s.validateWorkflowProject(w, r, userID, projectID) {
+		return
+	}
 	sched := scheduler.Schedule{Cron: derefStr(body.Cron), Every: derefStr(body.Every), At: derefStr(body.At)}
 	agentID := ""
 	if wf.AgentID.Valid {
 		agentID = wf.AgentID.String
 	}
-	job, err := s.schedulerSvc.AddWorkflowJob(body.Name, wf.ID, derefStr(body.ProjectId), sched, agentID, userID)
+	job, err := s.schedulerSvc.AddWorkflowJob(body.Name, wf.ID, projectID, sched, agentID, userID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeData(w, http.StatusCreated, s.schedulerJobToAPI(job))
+}
+
+// validateWorkflowProject confirms that a non-empty projectID belongs to the
+// caller, writing a 404 and returning false otherwise. An empty projectID (no
+// project scoping) always passes.
+func (s *Server) validateWorkflowProject(w http.ResponseWriter, r *http.Request, userID, projectID string) bool {
+	if projectID == "" {
+		return true
+	}
+	if _, err := s.q.GetProject(r.Context(), sqlc.GetProjectParams{ID: projectID, UserID: userID}); err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return false
+	}
+	return true
 }
 
 // ── mappers ──────────────────────────────────────────────────────────────────
@@ -273,7 +313,6 @@ func workflowToAPI(wf sqlc.AgentWorkflow) apitypes.Workflow {
 		OwnerKind:          wf.OwnerKind,
 		Name:               wf.Name,
 		Version:            wf.Version,
-		WorkflowKey:        optStr(wf.WorkflowKey),
 		Intent:             optStr(wf.Intent),
 		AcceptanceContract: jsonObject(wf.AcceptanceContract),
 		ConvergencePolicy:  jsonObject(wf.ConvergencePolicy),
@@ -291,29 +330,32 @@ func workflowToAPI(wf sqlc.AgentWorkflow) apitypes.Workflow {
 }
 
 // decodeFrozenPlan / decodeContract / decodePolicy round-trip the opaque API
-// objects through JSON into the typed goal structures (the server validates).
-func decodeFrozenPlan(m map[string]any) goal.FrozenPlan {
+// objects through JSON into the typed goal structures. They return the decode
+// error rather than swallowing it: a type-mismatched contract/policy would
+// otherwise silently become a zero-value (trivial, auto-accept) struct instead
+// of a clear 400.
+func decodeFrozenPlan(m map[string]any) (goal.FrozenPlan, error) {
 	var p goal.FrozenPlan
-	remarshal(m, &p)
-	return p
+	err := remarshal(m, &p)
+	return p, err
 }
 
-func decodeContract(m map[string]any) goal.AcceptanceContract {
+func decodeContract(m map[string]any) (goal.AcceptanceContract, error) {
 	var c goal.AcceptanceContract
-	remarshal(m, &c)
-	return c
+	err := remarshal(m, &c)
+	return c, err
 }
 
-func decodePolicy(m map[string]any) goal.ConvergencePolicy {
+func decodePolicy(m map[string]any) (goal.ConvergencePolicy, error) {
 	var p goal.ConvergencePolicy
-	remarshal(m, &p)
-	return p
+	err := remarshal(m, &p)
+	return p, err
 }
 
-func remarshal(src any, dst any) {
+func remarshal(src any, dst any) error {
 	b, err := json.Marshal(src)
 	if err != nil {
-		return
+		return err
 	}
-	_ = json.Unmarshal(b, dst)
+	return json.Unmarshal(b, dst)
 }

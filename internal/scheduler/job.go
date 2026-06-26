@@ -123,43 +123,6 @@ func RunOutputSinkFromContext(ctx context.Context) *RunOutputSink {
 	return nil
 }
 
-// RunRootGoalSink is a context-carried slot the workflow dispatch callback fills
-// with the instantiated tree's root goal id so the run record can link to it.
-type RunRootGoalSink struct {
-	mu sync.Mutex
-	id string
-}
-
-func (s *RunRootGoalSink) Set(id string) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.id = id
-	s.mu.Unlock()
-}
-
-func (s *RunRootGoalSink) get() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.id
-}
-
-type runRootGoalSinkKey struct{}
-
-func withRunRootGoalSink(ctx context.Context, sink *RunRootGoalSink) context.Context {
-	return context.WithValue(ctx, runRootGoalSinkKey{}, sink)
-}
-
-// RunRootGoalSinkFromContext returns the root-goal sink for the current run, or
-// nil when the job was not dispatched through the run lifecycle.
-func RunRootGoalSinkFromContext(ctx context.Context) *RunRootGoalSink {
-	if v, ok := ctx.Value(runRootGoalSinkKey{}).(*RunRootGoalSink); ok {
-		return v
-	}
-	return nil
-}
-
 type runSessionIDKey struct{}
 
 func WithRunSessionID(ctx context.Context, sid string) context.Context {

@@ -411,27 +411,36 @@ func jsonObjectArg(c *ucli.Context, inlineFlag, fileFlag string) (*map[string]an
 		return nil, fmt.Errorf("pass only one of --%s or --%s", inlineFlag, fileFlag)
 	}
 	var raw []byte
+	srcFlag := inlineFlag // the flag whose value produced raw, for error messages
 	switch {
 	case inline != "":
 		raw = []byte(inline)
 	case file == "-":
+		if stdinConsumed {
+			return nil, fmt.Errorf("--%s: stdin can only be read once per invocation", fileFlag)
+		}
+		stdinConsumed = true
 		b, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return nil, fmt.Errorf("read --%s from stdin: %w", fileFlag, err)
 		}
-		raw = b
+		raw, srcFlag = b, fileFlag
 	case file != "":
 		b, err := os.ReadFile(file)
 		if err != nil {
 			return nil, fmt.Errorf("read --%s: %w", fileFlag, err)
 		}
-		raw = b
+		raw, srcFlag = b, fileFlag
 	default:
 		return nil, nil
 	}
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, fmt.Errorf("invalid JSON for --%s: %w", inlineFlag, err)
+		return nil, fmt.Errorf("invalid JSON for --%s: %w", srcFlag, err)
 	}
 	return &m, nil
 }
+
+// stdinConsumed guards against two file flags both reading "-" in one invocation,
+// where the second read would silently get an empty stream.
+var stdinConsumed bool

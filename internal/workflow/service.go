@@ -93,7 +93,6 @@ func (s *Service) Create(ctx context.Context, userID string, in CreateInput) (sq
 		Plan:               marshal(in.Plan),
 		Version:            1,
 		SourceGoalID:       pgnull.Text(""),
-		WorkflowKey:        "",
 	})
 }
 
@@ -124,7 +123,7 @@ func (s *Service) SaveGoalAsWorkflow(ctx context.Context, userID string, in Save
 
 	plan, err := s.trees.SnapshotFrozenPlan(ctx, g.ID)
 	if err != nil {
-		return sqlc.AgentWorkflow{}, fmt.Errorf("snapshot plan: %w", err)
+		return sqlc.AgentWorkflow{}, mapGoalErr(err)
 	}
 	var convergence goal.ConvergencePolicy
 	_ = json.Unmarshal(g.ConvergencePolicy, &convergence)
@@ -148,7 +147,6 @@ func (s *Service) SaveGoalAsWorkflow(ctx context.Context, userID string, in Save
 		Plan:               marshal(plan),
 		Version:            1,
 		SourceGoalID:       pgnull.Text(g.ID),
-		WorkflowKey:        "",
 	})
 }
 
@@ -175,7 +173,7 @@ func (s *Service) Instantiate(ctx context.Context, userID, workflowID, projectID
 		"version":     wf.Version,
 		"plan_hash":   plan.Hash(),
 	})
-	return s.trees.InstantiateFrozen(ctx, goal.FrozenRootSpec{
+	root, err := s.trees.InstantiateFrozen(ctx, goal.FrozenRootSpec{
 		UserID:      userID,
 		AgentID:     wf.AgentID.String,
 		ProjectID:   projectID,
@@ -185,6 +183,10 @@ func (s *Service) Instantiate(ctx context.Context, userID, workflowID, projectID
 		Convergence: convergence,
 		Context:     rootCtx,
 	}, plan)
+	if err != nil {
+		return sqlc.AgentGoal{}, mapGoalErr(err)
+	}
+	return root, nil
 }
 
 // ── Read + lifecycle surface ────────────────────────────────────────────────
@@ -236,7 +238,7 @@ func (s *Service) UpdateMeta(ctx context.Context, userID, id, name, intent strin
 	if intent == "" {
 		intent = wf.Intent
 	}
-	return s.q.UpdateWorkflowMeta(ctx, sqlc.UpdateWorkflowMetaParams{Name: name, Intent: intent, ID: id})
+	return s.q.UpdateWorkflowMeta(ctx, sqlc.UpdateWorkflowMetaParams{Name: name, Intent: intent, ID: id, UserID: pgnull.Text(userID)})
 }
 
 // Delete removes a workflow owned by the caller.
@@ -244,7 +246,7 @@ func (s *Service) Delete(ctx context.Context, userID, id string) error {
 	if _, err := s.get(ctx, userID, id); err != nil {
 		return err
 	}
-	rows, err := s.q.DeleteWorkflow(ctx, id)
+	rows, err := s.q.DeleteWorkflow(ctx, sqlc.DeleteWorkflowParams{ID: id, UserID: pgnull.Text(userID)})
 	if err != nil {
 		return err
 	}
@@ -254,23 +256,42 @@ func (s *Service) Delete(ctx context.Context, userID, id string) error {
 	return nil
 }
 
-// get loads a workflow and enforces caller ownership, mapping a missing row or a
-// cross-owner read to ErrNotFound.
+// get loads a workflow scoped to the caller. The query filters by user_id, so a
+// missing row and a cross-owner read both surface as ErrNotFound (no existence
+// leak); isolation is enforced in the data layer, not just here.
 func (s *Service) get(ctx context.Context, userID, id string) (sqlc.AgentWorkflow, error) {
-	wf, err := s.q.GetWorkflow(ctx, id)
+	wf, err := s.q.GetWorkflow(ctx, sqlc.GetWorkflowParams{ID: id, UserID: pgnull.Text(userID)})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return sqlc.AgentWorkflow{}, ErrNotFound
 		}
 		return sqlc.AgentWorkflow{}, err
 	}
-	if !wf.UserID.Valid || wf.UserID.String != userID {
-		return sqlc.AgentWorkflow{}, ErrNotFound
-	}
 	return wf, nil
 }
 
 const ownerUser = "user"
+
+// mapGoalErr seals the goal subsystem's error vocabulary at this boundary so the
+// HTTP layer only ever sees workflow sentinels: goal validation sentinels become
+// ErrInvalidInput (400) and a missing goal becomes ErrNotFound (404). Other
+// errors pass through as internal failures.
+func mapGoalErr(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, goal.ErrNotFound):
+		return ErrNotFound
+	case errors.Is(err, goal.ErrInvalidDecomposition),
+		errors.Is(err, goal.ErrInvalidContract),
+		errors.Is(err, goal.ErrCompositeDeterministicContract),
+		errors.Is(err, goal.ErrDepthExceeded),
+		errors.Is(err, goal.ErrCycle):
+		return fmt.Errorf("%w: %w", ErrInvalidInput, err)
+	default:
+		return err
+	}
+}
 
 // marshal encodes a value to json.RawMessage; an encode error degrades to "{}"
 // (the same discipline as the goal package's marshalJSON).

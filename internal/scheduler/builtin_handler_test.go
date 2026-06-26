@@ -158,7 +158,7 @@ func TestUserJobCannotHijackBuiltinHandler(t *testing.T) {
 		Message:   "hi",
 		UserID:    "user-1",
 	}
-	if err := svc.dispatchJob(context.Background(), userJob); err != nil {
+	if _, err := svc.dispatchJob(context.Background(), userJob); err != nil {
 		t.Logf("dispatchJob returned %v (expected — no onJob wired in test)", err)
 	}
 	if got := atomic.LoadInt32(&handlerCalls); got != 0 {

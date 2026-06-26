@@ -3572,8 +3572,6 @@ components:
           type: string
           nullable: true
           description: The accepted composite this workflow was frozen from, if any.
-        workflow_key:
-          type: string
         acceptance_contract:
           type: object
           additionalProperties: {}

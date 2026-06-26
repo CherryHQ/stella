@@ -614,14 +614,13 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 
 	outputSink := &RunOutputSink{}
-	rootGoalSink := &RunRootGoalSink{}
-	runCtx := withRunRootGoalSink(withRunOutputSink(WithRunSessionID(ctx, sessionID), outputSink), rootGoalSink)
+	runCtx := withRunOutputSink(WithRunSessionID(ctx, sessionID), outputSink)
 
 	// Inject user into job copy so the callback can read job.UserID correctly.
 	jobRun := job
 	jobRun.UserID = userID
 
-	runErr := s.dispatchJob(runCtx, jobRun)
+	rootGoalID, runErr := s.dispatchJob(runCtx, jobRun)
 
 	finishedAt := time.Now().UTC()
 	status := RunStatusSuccess
@@ -638,14 +637,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	if err := s.finishJobRun(bookkeepingCtx, runID, job.ID, status, finishedAt, errStr, outputSink.get()); err != nil {
 		s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 	}
-	if rootGoalID := rootGoalSink.get(); rootGoalID != "" {
-		if err := s.q.SetSchedJobRunRootGoal(bookkeepingCtx, sqlc.SetSchedJobRunRootGoalParams{
-			RootGoalID: pgtype.Text{String: rootGoalID, Valid: true},
-			ID:         runID,
-		}); err != nil {
-			s.log.Warn("failed to record workflow run root goal", "run_id", runID, "error", err)
-		}
-	}
+	s.recordRunRootGoal(bookkeepingCtx, runID, rootGoalID)
 
 	s.mu.Lock()
 	if jobState, ok := s.jobs[job.ID]; ok {
@@ -707,7 +699,7 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	go func() {
 		outputSink := &RunOutputSink{}
 		runCtx := withRunOutputSink(WithRunSessionID(svcCtx, sessionID), outputSink)
-		runErr := s.dispatchJob(runCtx, job)
+		rootGoalID, runErr := s.dispatchJob(runCtx, job)
 
 		finishedAt := time.Now().UTC()
 		status := RunStatusSuccess
@@ -720,6 +712,7 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 		if err := s.finishJobRun(svcCtx, runID, jobID, status, finishedAt, errStr, outputSink.get()); err != nil {
 			s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 		}
+		s.recordRunRootGoal(svcCtx, runID, rootGoalID)
 		if err := s.recordJobRun(svcCtx, jobID, finishedAt, runErr); err != nil {
 			s.log.Warn("failed to record scheduler job run", "id", jobID, "error", err)
 		}
@@ -787,20 +780,32 @@ func (s *Service) removeOneTimeJob(id string) {
 // callback (which instantiates the frozen workflow) and records the resulting
 // root goal id on the run via the context sink. An unset callback is a loud
 // misconfiguration, not a silent fall-through to chat.
-func (s *Service) dispatchWorkflow(ctx context.Context, job Job, onWorkflow OnWorkflowFunc) error {
-	if onWorkflow == nil {
-		s.log.Error("scheduler: workflow job fired with no workflow dispatcher wired", "job_id", job.ID, "name", job.Name)
-		return fmt.Errorf("scheduler: no workflow dispatcher configured for job %q", job.ID)
+// recordRunRootGoal links a run row to the goal tree a workflow-dispatch job
+// instantiated. A no-op for non-workflow runs (empty rootGoalID), so both the
+// scheduled and run-now paths can call it unconditionally.
+func (s *Service) recordRunRootGoal(ctx context.Context, runID, rootGoalID string) {
+	if rootGoalID == "" {
+		return
 	}
-	rootGoalID, err := onWorkflow(ctx, job)
-	if rootGoalID != "" {
-		RunRootGoalSinkFromContext(ctx).Set(rootGoalID)
+	if err := s.q.SetSchedJobRunRootGoal(ctx, sqlc.SetSchedJobRunRootGoalParams{
+		RootGoalID: pgtype.Text{String: rootGoalID, Valid: true},
+		ID:         runID,
+	}); err != nil {
+		s.log.Warn("failed to record workflow run root goal", "run_id", runID, "error", err)
 	}
-	return err
 }
 
-// first error seen across primary + listeners.
-func (s *Service) dispatchJob(ctx context.Context, job Job) error {
+func (s *Service) dispatchWorkflow(ctx context.Context, job Job, onWorkflow OnWorkflowFunc) (string, error) {
+	if onWorkflow == nil {
+		s.log.Error("scheduler: workflow job fired with no workflow dispatcher wired", "job_id", job.ID, "name", job.Name)
+		return "", fmt.Errorf("scheduler: no workflow dispatcher configured for job %q", job.ID)
+	}
+	return onWorkflow(ctx, job)
+}
+
+// dispatchJob returns the instantiated root goal id (empty for non-workflow
+// jobs) plus the first error seen across primary dispatch + listeners.
+func (s *Service) dispatchJob(ctx context.Context, job Job) (string, error) {
 	s.mu.Lock()
 	handler := s.runtimeBuiltins[job.Name].Handler
 	fn := s.onJob
@@ -809,17 +814,17 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 	s.mu.Unlock()
 
 	// Workflow dispatch is its own path: instantiate the frozen workflow into a
-	// live goal tree, record its root on the run, and skip the chat/template
-	// machinery entirely (the chat OnJobFunc path below is untouched). Listeners
-	// still run so notify/inbox hooks fire on workflow runs too.
+	// live goal tree, return its root so the caller links the run to the tree, and
+	// skip the chat/template machinery entirely (the chat OnJobFunc path below is
+	// untouched). Listeners still run so notify/inbox hooks fire on workflow runs.
 	if job.DispatchKind == DispatchKindWorkflow {
-		runErr := s.dispatchWorkflow(ctx, job, onWorkflow)
+		rootGoalID, runErr := s.dispatchWorkflow(ctx, job, onWorkflow)
 		for _, listener := range listeners {
 			if err := listener(ctx, job); err != nil && runErr == nil {
 				runErr = err
 			}
 		}
-		return runErr
+		return rootGoalID, runErr
 	}
 
 	// Subscription instances carry an empty message; resolve from the template
@@ -832,7 +837,7 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 			// silently dropping the execution.
 			err := fmt.Errorf("scheduler: template %q not found for subscription job %q", job.JobKey, job.ID)
 			s.log.Error("dropping subscription run: template missing", "job_id", job.ID, "template_key", job.JobKey)
-			return err
+			return "", err
 		}
 		job.Message = msg
 	}
@@ -858,5 +863,5 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 			runErr = err
 		}
 	}
-	return runErr
+	return "", runErr
 }

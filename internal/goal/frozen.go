@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -61,12 +62,41 @@ func (p FrozenPlan) Hash() string {
 	return hex.EncodeToString(h[:])
 }
 
+// maxFrozenPlanNodes caps the total nodes in one frozen plan. Per-level breadth
+// (maxDecompositionBreadth) and depth (maxDepth) alone bound a *level*, not the
+// whole tree: a max-wide, max-deep plan is ~64^4 nodes. InstantiateFrozen builds
+// the entire tree in one transaction and pre-mints a session per node, so an
+// unbounded plan is a resource-exhaustion vector. A real save-as snapshot of an
+// accepted tree is far smaller than this ceiling.
+const maxFrozenPlanNodes = 1024
+
 // ValidateFrozenPlan checks a frozen plan recursively: every level satisfies the
 // same structural invariants as a planner decomposition (ValidateDecomposition),
-// and a composite child with a frozen sub-plan is validated one level deeper.
-// parentDepth is the depth of the composite that owns this plan (the root sits at
-// depth 0). Returns the same sentinels as ValidateDecomposition.
+// a composite child with a frozen sub-plan is validated one level deeper, and the
+// whole tree fits the total-node budget. parentDepth is the depth of the
+// composite that owns this plan (the root sits at depth 0). Returns the same
+// sentinels as ValidateDecomposition.
 func ValidateFrozenPlan(p FrozenPlan, parentDepth, maxDepth int) error {
+	if n := countFrozenNodes(p); n > maxFrozenPlanNodes {
+		return fmt.Errorf("%w: frozen plan has %d nodes, exceeds budget of %d", ErrInvalidDecomposition, n, maxFrozenPlanNodes)
+	}
+	return validateFrozenLevels(p, parentDepth, maxDepth)
+}
+
+// countFrozenNodes totals the nodes across every frozen level (children plus
+// their frozen sub-plans). Semi-frozen composites (nil Plan) contribute only
+// themselves; the planner bounds whatever they expand to at instantiate time.
+func countFrozenNodes(p FrozenPlan) int {
+	n := len(p.Children)
+	for _, c := range p.Children {
+		if c.Plan != nil {
+			n += countFrozenNodes(*c.Plan)
+		}
+	}
+	return n
+}
+
+func validateFrozenLevels(p FrozenPlan, parentDepth, maxDepth int) error {
 	if err := ValidateDecomposition(p.decomposition(), parentDepth, maxDepth); err != nil {
 		return err
 	}
@@ -77,7 +107,7 @@ func ValidateFrozenPlan(p FrozenPlan, parentDepth, maxDepth int) error {
 		if n.Child.Kind != KindComposite {
 			return ErrInvalidDecomposition // only a composite carries a sub-plan
 		}
-		if err := ValidateFrozenPlan(*n.Plan, parentDepth+1, maxDepth); err != nil {
+		if err := validateFrozenLevels(*n.Plan, parentDepth+1, maxDepth); err != nil {
 			return err
 		}
 	}
@@ -230,6 +260,19 @@ func (s *GoalService) InstantiateFrozen(ctx context.Context, spec FrozenRootSpec
 		out, err = getGoal(ctx, q, rootID)
 		return err
 	})
+	if err != nil {
+		// Sessions are minted outside the tx for latency, so a rollback leaves them
+		// orphaned (no goal references them). We can't delete them on the held
+		// connection here; log the ids at WARN so they are reclaimable rather than
+		// silently lost. The leak is bounded by maxFrozenPlanNodes.
+		orphans := make([]string, 0, len(sessions)+1)
+		orphans = append(orphans, rootSession)
+		for _, sid := range sessions {
+			orphans = append(orphans, sid)
+		}
+		slog.Warn("workflow instantiate rolled back; orphaned pre-minted sessions",
+			"root_id", rootID, "session_count", len(orphans), "session_ids", orphans, "error", err)
+	}
 	return out, err
 }
 
