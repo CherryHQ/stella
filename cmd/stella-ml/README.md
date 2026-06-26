@@ -11,11 +11,11 @@ parent's `go build ./...` skips this nested module automatically.
 
 ## Endpoints (protocol v1)
 
-| Method + path | Body in | Body out |
-| --- | --- | --- |
-| `GET /healthz` | — | JSON: runtime/protocol version, model-manifest digest, loaded models |
-| `POST /v1/embed` | JSON `{texts[], mode}` | `application/octet-stream`: little-endian f32, `count*dim` |
-| `POST /v1/extract` | raw bytes (octet-stream) | JSON `{content, mime_type}` — **501 until Phase 4a** |
+| Method + path      | Body in                  | Body out                                                             |
+| ------------------ | ------------------------ | -------------------------------------------------------------------- |
+| `GET /healthz`     | —                        | JSON: runtime/protocol version, model-manifest digest, loaded models |
+| `POST /v1/embed`   | JSON `{texts[], mode}`   | `application/octet-stream`: little-endian f32, `count*dim`           |
+| `POST /v1/extract` | raw bytes (octet-stream) | JSON `{content, mime_type}` — **501 until Phase 4a**                 |
 
 Every request carries `X-Stella-Tenant`, `X-Stella-Request-Id`, and an optional
 `X-Stella-Deadline-Unix-Ms`. Per-endpoint lanes + a per-tenant in-flight cap keep a
