@@ -10,9 +10,23 @@ components:
       description: >
         Deployment-wide semantic-search configuration. The api_key is never
         returned; has_api_key reports whether one is stored.
-      required: [enabled, model, dim, base_url, normalize, has_api_key]
+      required: [
+        enabled,
+        provider,
+        model,
+        dim,
+        base_url,
+        normalize,
+        has_api_key,
+      ]
       properties:
         enabled: { type: boolean }
+        provider:
+          type: string
+          enum: [api, local]
+          description: >
+            api = remote OpenAI-compatible endpoint; local = the built-in
+            multilingual-e5 model in the ML sidecar (no key, no network egress).
         model: { type: string }
         dim: { type: integer }
         base_url: { type: string }
@@ -24,9 +38,12 @@ components:
       description: >
         Update payload for the embedding settings. api_key is write-only; omit it
         or send an empty string to keep the existing key.
-      required: [enabled, model, dim, base_url, normalize]
+      required: [enabled, provider, model, dim, base_url, normalize]
       properties:
         enabled: { type: boolean }
+        provider:
+          type: string
+          enum: [api, local]
         model: { type: string }
         dim: { type: integer }
         base_url: { type: string }

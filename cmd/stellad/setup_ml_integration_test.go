@@ -9,10 +9,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/document"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/mlruntime"
 )
+
+// memSettingStore is an in-memory config.SettingStore for the integration test.
+type memSettingStore struct{ m map[string]string }
+
+func newMemSettingStore() *memSettingStore { return &memSettingStore{m: map[string]string{}} }
+
+func (s *memSettingStore) GetSetting(_ context.Context, key string) (string, error) {
+	return s.m[key], nil
+}
+
+func (s *memSettingStore) SetSetting(_ context.Context, key, value string) error {
+	s.m[key] = value
+	return nil
+}
 
 // TestSetupMLSidecarIntegration drives the full stellad-side wiring against a real
 // stella-ml binary: resolve -> supervisor -> LocalEmbedder adapter -> e5 vector.
@@ -60,14 +75,17 @@ func TestSetupMLSidecarIntegration(t *testing.T) {
 	det, rec, keys := os.Getenv("STELLA_ML_OCR_DET"), os.Getenv("STELLA_ML_OCR_REC"), os.Getenv("STELLA_ML_OCR_KEYS")
 	ocrImage := os.Getenv("STELLA_ML_OCR_IMAGE")
 	testOCR := det != "" && rec != "" && keys != "" && ocrImage != ""
+	store := newMemSettingStore()
 	if testOCR {
 		symlink(t, det, filepath.Join(mdDir, "det.onnx"))
 		symlink(t, rec, filepath.Join(mdDir, "rec.onnx"))
 		symlink(t, keys, filepath.Join(mdDir, "rec_keys.txt"))
-		t.Setenv("STELLA_LOCAL_OCR", "1")
+		if err := config.SaveOCRSettings(context.Background(), store, config.OCRSettings{Enabled: true}); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	sup, emb := setupMLSidecar(home, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	sup, emb := setupMLSidecar(home, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if sup == nil || emb == nil {
 		t.Fatal("expected a resolved supervisor + embedder")
 	}

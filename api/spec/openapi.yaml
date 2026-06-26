@@ -44,6 +44,7 @@ tags:
   - name: weixin
   - name: providers
   - name: embedding
+  - name: ocr
   - name: sessions
   - name: shares
   - name: agents
@@ -189,6 +190,9 @@ paths:
   # ── Embedding ──────────────────────────────────────────────────────────────
   /api/embedding-settings:
     $ref: "./domain/embedding/paths.yaml#/paths/~1api~1embedding-settings"
+  # ── OCR ────────────────────────────────────────────────────────────────────
+  /api/ocr-settings:
+    $ref: "./domain/ocr/paths.yaml#/paths/~1api~1ocr-settings"
   # ── Sessions ───────────────────────────────────────────────────────────────
   /api/agents/{agentId}/sessions:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions"

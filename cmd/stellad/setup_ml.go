@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"log/slog"
-	"os"
 	"path/filepath"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/document"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/ml"
@@ -18,7 +18,11 @@ import (
 // features stay disabled with no error — the same graceful-degrade contract as an
 // unconfigured lane. Start the returned supervisor on the app context after the
 // background task group exists.
-func setupMLSidecar(stellaHome string, logger *slog.Logger) (*ml.Supervisor, embedding.LocalEmbedder) {
+//
+// store backs the runtime OCR toggle: when the OCR models are installed the engine
+// is always loaded, but each OCR-eligible read re-reads config.LoadOCRSettings, so
+// an admin can flip local OCR on/off from the settings UI without a restart.
+func setupMLSidecar(stellaHome string, store config.SettingStore, logger *slog.Logger) (*ml.Supervisor, embedding.LocalEmbedder) {
 	r, found, err := mlruntime.Resolve(stellaHome)
 	if err != nil {
 		logger.Warn("ml runtime resolve failed; local ML disabled", "err", err)
@@ -38,14 +42,15 @@ func setupMLSidecar(stellaHome string, logger *slog.Logger) (*ml.Supervisor, emb
 		"-tokenizer", r.TokenizerPath,
 		"-runtime-version", r.RuntimeVersion,
 	}
-	ocrWired := false
-	if r.HasOCR() && localOCREnabled() {
+	// Load OCR whenever the models are present; the enable/disable decision is a
+	// per-request config check below, not a boot-time flag, so the toggle is live.
+	// // always-load when installed; lazy load/unload if sidecar memory matters.
+	if r.HasOCR() {
 		args = append(args,
 			"-ocr-det-model", r.OCRDetPath,
 			"-ocr-rec-model", r.OCRRecPath,
 			"-ocr-keys", r.OCRKeysPath,
 		)
-		ocrWired = true
 	}
 	sup := ml.NewSupervisor(ml.SupervisorConfig{
 		BinPath:    r.BinPath,
@@ -54,36 +59,36 @@ func setupMLSidecar(stellaHome string, logger *slog.Logger) (*ml.Supervisor, emb
 	}, logger)
 
 	// Install the document-extraction OCR fallback as a process-wide capability so
-	// every read-tool extractor picks it up. Gated by STELLA_LOCAL_OCR for the MVP;
-	// the toggle moves to deployment config + the settings UI in a later phase.
-	if ocrWired {
-		document.SetLocalOCR(mlOCR{client: sup.Client(), tenant: "ocr"})
+	// every read-tool extractor picks it up. The adapter gates each call on the
+	// stored OCR setting, so this is a no-op until an admin enables it.
+	if r.HasOCR() {
+		document.SetLocalOCR(mlOCR{client: sup.Client(), tenant: "ocr", store: store})
 	}
 
-	logger.Info("native ML sidecar resolved", "bin", r.BinPath, "runtime", r.RuntimeVersion, "model", r.ModelVersion, "ocr", ocrWired)
+	logger.Info("native ML sidecar resolved", "bin", r.BinPath, "runtime", r.RuntimeVersion, "model", r.ModelVersion, "ocr", r.HasOCR())
 	return sup, mlLocalEmbedder{client: sup.Client(), tenant: "embedding"}
 }
 
-// localOCREnabled reports whether the operator opted into local OCR. Explicit
-// opt-in keeps OCR off by default even when the models happen to be installed.
-func localOCREnabled() bool {
-	switch os.Getenv("STELLA_LOCAL_OCR") {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
-}
-
-// mlOCR adapts the sidecar client to document.OCR, mapping the sidecar's extract
-// result to a document.Result and pinning a fixed fairness tenant. // fixed tenant;
-// per-account once the read tool carries account context.
+// mlOCR adapts the sidecar client to document.OCR. It maps the sidecar's extract
+// result to a document.Result and gates each call on the stored OCR toggle so the
+// fallback stays off until an admin enables it. // fixed tenant; per-account once
+// the read tool carries account context.
 type mlOCR struct {
 	client *ml.Client
 	tenant string
+	store  config.SettingStore
 }
 
 func (o mlOCR) Extract(ctx context.Context, mime string, data []byte, forceOCR bool) (*document.Result, error) {
+	s, err := config.LoadOCRSettings(ctx, o.store)
+	if err != nil {
+		return nil, err
+	}
+	if !s.Enabled {
+		// Off by config: behave as if no OCR backend is installed so the composite
+		// extractor falls through to its base result.
+		return nil, document.ErrUnavailable
+	}
 	res, err := o.client.Extract(ctx, o.tenant, mime, data, forceOCR)
 	if err != nil {
 		return nil, err

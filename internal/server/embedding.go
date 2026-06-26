@@ -32,6 +32,7 @@ func (s *Server) UpdateEmbeddingSettings(w http.ResponseWriter, r *http.Request)
 	}
 	var body struct {
 		Enabled   bool    `json:"enabled"`
+		Provider  string  `json:"provider"`
 		Model     string  `json:"model"`
 		Dim       int     `json:"dim"`
 		BaseURL   string  `json:"base_url"`
@@ -40,6 +41,14 @@ func (s *Server) UpdateEmbeddingSettings(w http.ResponseWriter, r *http.Request)
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	if body.Provider == "" {
+		body.Provider = config.EmbeddingProviderAPI
+	}
+	if body.Provider != config.EmbeddingProviderAPI && body.Provider != config.EmbeddingProviderLocal {
+		writeError(w, http.StatusBadRequest, "provider must be \"api\" or \"local\"")
 		return
 	}
 
@@ -65,6 +74,7 @@ func (s *Server) UpdateEmbeddingSettings(w http.ResponseWriter, r *http.Request)
 
 	next := config.EmbeddingSettings{
 		Enabled:   body.Enabled,
+		Provider:  body.Provider,
 		Model:     body.Model,
 		Dim:       body.Dim,
 		BaseURL:   body.BaseURL,
@@ -75,10 +85,10 @@ func (s *Server) UpdateEmbeddingSettings(w http.ResponseWriter, r *http.Request)
 		next.APIKey = *body.APIKey
 	}
 
-	// Enabling the lane without a key would silently no-op (the service treats a
-	// keyless config as disabled); reject it so the operator gets clear feedback.
-	if next.Enabled && next.APIKey == "" {
-		writeError(w, http.StatusBadRequest, "api_key is required to enable embedding")
+	// The api provider needs a key to do anything (a keyless config silently
+	// no-ops); the local provider runs the in-process sidecar model and needs none.
+	if next.Enabled && next.Provider == config.EmbeddingProviderAPI && next.APIKey == "" {
+		writeError(w, http.StatusBadRequest, "api_key is required to enable the api provider")
 		return
 	}
 
@@ -92,6 +102,7 @@ func (s *Server) UpdateEmbeddingSettings(w http.ResponseWriter, r *http.Request)
 func embeddingSettingsView(c config.EmbeddingSettings) map[string]any {
 	return map[string]any{
 		"enabled":     c.Enabled,
+		"provider":    c.Provider,
 		"model":       c.Model,
 		"dim":         c.Dim,
 		"base_url":    c.BaseURL,

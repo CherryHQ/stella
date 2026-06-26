@@ -798,10 +798,24 @@ components:
       description: >
         Deployment-wide semantic-search configuration. The api_key is never returned; has_api_key reports whether one is stored.
 
-      required: [enabled, model, dim, base_url, normalize, has_api_key]
+      required: [
+        enabled,
+        provider,
+        model,
+        dim,
+        base_url,
+        normalize,
+        has_api_key,
+      ]
       properties:
         enabled:
           type: boolean
+        provider:
+          type: string
+          enum: [api, local]
+          description: >
+            api = remote OpenAI-compatible endpoint; local = the built-in multilingual-e5 model in the ML sidecar (no key, no network egress).
+
         model:
           type: string
         dim:
@@ -817,10 +831,13 @@ components:
       description: >
         Update payload for the embedding settings. api_key is write-only; omit it or send an empty string to keep the existing key.
 
-      required: [enabled, model, dim, base_url, normalize]
+      required: [enabled, provider, model, dim, base_url, normalize]
       properties:
         enabled:
           type: boolean
+        provider:
+          type: string
+          enum: [api, local]
         model:
           type: string
         dim:
@@ -1614,6 +1631,24 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CachedModel"
+    OCRSettings:
+      type: object
+      description: >
+        Deployment-wide local-OCR configuration. When enabled, the read tool falls back to the built-in PP-OCRv5 model in the ML sidecar for images it cannot otherwise turn into text. available reports whether the OCR models are installed; enabling without them is accepted but stays a no-op.
+
+      required: [enabled, available]
+      properties:
+        enabled:
+          type: boolean
+        available:
+          type: boolean
+    OCRSettingsUpdate:
+      type: object
+      description: Update payload for the local-OCR settings.
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
     PluginView:
       type: object
       properties:

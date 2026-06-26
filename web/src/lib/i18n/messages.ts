@@ -154,6 +154,13 @@ const en = {
   "embedding.enableTitle": "Enable semantic search",
   "embedding.enableHint":
     "Embed new content and fuse vector results into search. Changes take effect immediately, no restart needed.",
+  "embedding.provider": "Provider",
+  "embedding.providerHint":
+    "API uses a remote OpenAI-compatible endpoint. Local runs the built-in multilingual-e5 model in the ML sidecar — no key, no network egress (requires the local ML runtime installed).",
+  "embedding.providerApi": "API (remote)",
+  "embedding.providerLocal": "Local (built-in)",
+  "embedding.localNote":
+    "The local provider uses multilingual-e5-small (384-dim). Model, dimension, key, and base URL are managed for you.",
   "embedding.apiKey": "API key",
   "embedding.apiKeyStored": "•••••••• (stored, leave blank to keep)",
   "embedding.apiKeyHint": "Stored as-is. Leave blank to keep the existing key.",
@@ -170,7 +177,19 @@ const en = {
   "embedding.save": "Save",
   "embedding.saved": "Embedding settings saved",
   "embedding.saveFailed": "Failed to save embedding settings",
-  "embedding.apiKeyRequired": "An API key is required to enable embedding",
+  "embedding.apiKeyRequired": "An API key is required to enable the API provider",
+  "settings.nav.ocr": "Local OCR",
+  "ocr.title": "Local OCR",
+  "ocr.description":
+    "Read text from images the model can't view, using the built-in PP-OCRv5 model in the ML sidecar — fully offline, no API key.",
+  "ocr.enableTitle": "Enable local OCR",
+  "ocr.enableHint":
+    "When on, the read tool falls back to local OCR for images with no extractable text. Takes effect immediately, no restart needed.",
+  "ocr.unavailable":
+    "The OCR models are not installed on this host. Enabling has no effect until the local ML runtime with OCR models is present.",
+  "ocr.save": "Save",
+  "ocr.saved": "OCR settings saved",
+  "ocr.saveFailed": "Failed to save OCR settings",
   "settings.nav.about": "About",
 
   // About
@@ -1830,6 +1849,13 @@ const zh: Record<MessageKey, string> = {
     "配置语义搜索通道。开启后,记忆搜索会将向量相似度与关键词匹配融合;关闭时则只使用关键词搜索。",
   "embedding.enableTitle": "启用语义搜索",
   "embedding.enableHint": "为新内容生成向量并将向量结果融合进搜索。修改即时生效,无需重启。",
+  "embedding.provider": "提供方",
+  "embedding.providerHint":
+    "API 使用兼容 OpenAI 的远程接口;本地则在 ML sidecar 内运行内置的 multilingual-e5 模型 —— 无需密钥、不联网(需先安装本地 ML 运行时)。",
+  "embedding.providerApi": "API(远程)",
+  "embedding.providerLocal": "本地(内置)",
+  "embedding.localNote":
+    "本地提供方使用 multilingual-e5-small(384 维)。模型、维度、密钥与 Base URL 均由系统托管。",
   "embedding.apiKey": "API 密钥",
   "embedding.apiKeyStored": "•••••••• (已保存,留空则保留)",
   "embedding.apiKeyHint": "原样保存。留空则保留已有密钥。",
@@ -1843,7 +1869,18 @@ const zh: Record<MessageKey, string> = {
   "embedding.save": "保存",
   "embedding.saved": "嵌入设置已保存",
   "embedding.saveFailed": "保存嵌入设置失败",
-  "embedding.apiKeyRequired": "启用向量嵌入需要提供 API 密钥",
+  "embedding.apiKeyRequired": "启用 API 提供方需要提供 API 密钥",
+  "settings.nav.ocr": "本地 OCR",
+  "ocr.title": "本地 OCR",
+  "ocr.description":
+    "用 ML sidecar 内置的 PP-OCRv5 模型,从模型无法查看的图片中读取文字 —— 完全离线、无需 API 密钥。",
+  "ocr.enableTitle": "启用本地 OCR",
+  "ocr.enableHint":
+    "开启后,read 工具会对没有可提取文字的图片回退到本地 OCR。修改即时生效,无需重启。",
+  "ocr.unavailable": "本机未安装 OCR 模型。在安装带 OCR 模型的本地 ML 运行时之前,开启不会生效。",
+  "ocr.save": "保存",
+  "ocr.saved": "OCR 设置已保存",
+  "ocr.saveFailed": "保存 OCR 设置失败",
   "settings.nav.about": "关于",
 
   // About

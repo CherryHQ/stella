@@ -7,7 +7,16 @@ import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+
+type Provider = "api" | "local";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
@@ -34,6 +43,7 @@ export function EmbeddingPage() {
   // Form draft. The api_key is write-only: blank means "keep the stored key",
   // so we never seed it from the server (which only reports has_api_key).
   const [enabled, setEnabled] = useState(false);
+  const [provider, setProvider] = useState<Provider>("api");
   const [model, setModel] = useState("");
   const [dim, setDim] = useState("");
   const [baseURL, setBaseURL] = useState("");
@@ -46,12 +56,15 @@ export function EmbeddingPage() {
   useEffect(() => {
     if (!settings) return;
     setEnabled(settings.enabled);
+    setProvider(settings.provider);
     setModel(settings.model);
     setDim(String(settings.dim));
     setBaseURL(settings.base_url);
     setNormalize(settings.normalize);
     setApiKey("");
   }, [settings]);
+
+  const isLocal = provider === "local";
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -64,6 +77,7 @@ export function EmbeddingPage() {
     mutationFn: async () => {
       const body: EmbeddingSettingsUpdate = {
         enabled,
+        provider,
         model: model.trim(),
         dim: Number(dim) || 0,
         base_url: baseURL.trim(),
@@ -83,12 +97,12 @@ export function EmbeddingPage() {
   });
 
   const onSave = useCallback(() => {
-    if (enabled && !hasStoredKey && !apiKey.trim()) {
+    if (enabled && !isLocal && !hasStoredKey && !apiKey.trim()) {
       showToast(t("embedding.apiKeyRequired"), "error");
       return;
     }
     save.mutate();
-  }, [enabled, hasStoredKey, apiKey, save, showToast, t]);
+  }, [enabled, isLocal, hasStoredKey, apiKey, save, showToast, t]);
 
   return (
     <div className="h-full overflow-y-auto bg-background">
@@ -109,74 +123,101 @@ export function EmbeddingPage() {
 
           <div className="border-t border-border" />
 
-          {/* Provider credentials */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5 md:col-span-2">
-              <label className="block text-xs font-medium text-muted-foreground">
-                {t("embedding.apiKey")}
-              </label>
-              <Input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={hasStoredKey ? t("embedding.apiKeyStored") : "sk-..."}
-                autoComplete="off"
-                nativeInput
-              />
-              <p className="text-xs text-muted-foreground">{t("embedding.apiKeyHint")}</p>
-            </div>
-
-            <div className="space-y-1.5 md:col-span-2">
-              <label className="block text-xs font-medium text-muted-foreground">
-                {t("embedding.baseURL")}
-              </label>
-              <Input
-                value={baseURL}
-                onChange={(e) => setBaseURL(e.target.value)}
-                placeholder="https://api.openai.com/v1"
-                nativeInput
-              />
-              <p className="text-xs text-muted-foreground">{t("embedding.baseURLHint")}</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground">
-                {t("embedding.model")}
-              </label>
-              <Input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="text-embedding-3-small"
-                nativeInput
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground">
-                {t("embedding.dim")}
-              </label>
-              <Input
-                type="number"
-                value={dim}
-                onChange={(e) => setDim(e.target.value)}
-                placeholder="1536"
-                min={1}
-                nativeInput
-              />
-              <p className="text-xs text-muted-foreground">{t("embedding.dimHint")}</p>
-            </div>
-          </div>
-
-          {/* Normalize toggle */}
+          {/* Provider selector */}
           <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <h2 className="text-sm font-semibold text-foreground">
-                {t("embedding.normalizeTitle")}
-              </h2>
-              <p className="text-xs text-muted-foreground">{t("embedding.normalizeHint")}</p>
+            <div className="space-y-1 max-w-md">
+              <h2 className="text-sm font-semibold text-foreground">{t("embedding.provider")}</h2>
+              <p className="text-xs text-muted-foreground">{t("embedding.providerHint")}</p>
             </div>
-            <Switch checked={normalize} onCheckedChange={setNormalize} />
+            <Select value={provider} onValueChange={(v) => setProvider(v as Provider)}>
+              <SelectTrigger size="sm" className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value="api">{t("embedding.providerApi")}</SelectItem>
+                <SelectItem value="local">{t("embedding.providerLocal")}</SelectItem>
+              </SelectPopup>
+            </Select>
           </div>
+
+          {isLocal ? (
+            <p className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+              {t("embedding.localNote")}
+            </p>
+          ) : null}
+
+          {/* Provider credentials (API provider only) */}
+          {!isLocal ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-medium text-muted-foreground">
+                  {t("embedding.apiKey")}
+                </label>
+                <Input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={hasStoredKey ? t("embedding.apiKeyStored") : "sk-..."}
+                  autoComplete="off"
+                  nativeInput
+                />
+                <p className="text-xs text-muted-foreground">{t("embedding.apiKeyHint")}</p>
+              </div>
+
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-medium text-muted-foreground">
+                  {t("embedding.baseURL")}
+                </label>
+                <Input
+                  value={baseURL}
+                  onChange={(e) => setBaseURL(e.target.value)}
+                  placeholder="https://api.openai.com/v1"
+                  nativeInput
+                />
+                <p className="text-xs text-muted-foreground">{t("embedding.baseURLHint")}</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-muted-foreground">
+                  {t("embedding.model")}
+                </label>
+                <Input
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder="text-embedding-3-small"
+                  nativeInput
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-muted-foreground">
+                  {t("embedding.dim")}
+                </label>
+                <Input
+                  type="number"
+                  value={dim}
+                  onChange={(e) => setDim(e.target.value)}
+                  placeholder="1536"
+                  min={1}
+                  nativeInput
+                />
+                <p className="text-xs text-muted-foreground">{t("embedding.dimHint")}</p>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Normalize toggle (API provider only; the local model already L2-normalizes) */}
+          {!isLocal ? (
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <h2 className="text-sm font-semibold text-foreground">
+                  {t("embedding.normalizeTitle")}
+                </h2>
+                <p className="text-xs text-muted-foreground">{t("embedding.normalizeHint")}</p>
+              </div>
+              <Switch checked={normalize} onCheckedChange={setNormalize} />
+            </div>
+          ) : null}
 
           <div className="flex justify-end pt-2">
             <Button size="sm" loading={save.isPending} onClick={onSave}>

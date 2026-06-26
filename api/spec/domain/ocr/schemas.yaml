@@ -1,0 +1,25 @@
+openapi: 3.0.3
+info:
+  title: OCR Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    OCRSettings:
+      type: object
+      description: >
+        Deployment-wide local-OCR configuration. When enabled, the read tool
+        falls back to the built-in PP-OCRv5 model in the ML sidecar for images it
+        cannot otherwise turn into text. available reports whether the OCR models
+        are installed; enabling without them is accepted but stays a no-op.
+      required: [enabled, available]
+      properties:
+        enabled: { type: boolean }
+        available: { type: boolean }
+
+    OCRSettingsUpdate:
+      type: object
+      description: Update payload for the local-OCR settings.
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }

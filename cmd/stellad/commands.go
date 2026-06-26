@@ -153,7 +153,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	// Native ML sidecar (local OCR/embedding). Resolved here so its local embedder
 	// can be injected into the embedding lane; started below once the background
 	// task group exists. nil when no runtime is installed (feature stays disabled).
-	mlSupervisor, mlLocalEmbed := setupMLSidecar(config.StellaHome(), slog.With("component", "ml"))
+	mlSupervisor, mlLocalEmbed := setupMLSidecar(config.StellaHome(), store, slog.With("component", "ml"))
 
 	// Semantic-search lane (config-driven via the web settings page). Always built:
 	// it reads its config from the DB at runtime and idles when disabled. Built
