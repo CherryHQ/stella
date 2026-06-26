@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
+	knowledgetool "github.com/CherryHQ/stella/internal/tools/knowledge"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -64,6 +65,7 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 
 	span.SetAttributes(
 		attribute.Int("stella.reflect.skills_mutated", result.SkillsMutated),
+		attribute.Int("stella.reflect.knowledge_mutated", result.KnowledgeMutated),
 		attribute.Bool("stella.reflect.memory_updated", result.MemoryUpdated),
 	)
 
@@ -74,7 +76,7 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 
 	s.notifyReviewResult(ctx, userID, result)
 	s.log.Info("reflect: reviewed", "session", c.session.ID, "agent", snap.AgentID, "user", userID,
-		"skills_created", result.SkillsMutated, "memory_updated", result.MemoryUpdated)
+		"skills_created", result.SkillsMutated, "knowledge_mutated", result.KnowledgeMutated, "memory_updated", result.MemoryUpdated)
 
 	return nil
 }
@@ -91,6 +93,12 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 	if ps, ok := s.memory.(memory.ProfileStore); ok {
 		profile, _ = ps.GetProfile(ctx, userID, snap.AgentID)
 	}
+	var knowledgeTool *knowledgetool.Tool
+	if ks, ok := s.skillStore.(knowledgetool.Store); ok {
+		// The reflect reviewer records extracted facts/context through the first-class
+		// knowledge tool while keeping reusable procedures in the skills tool.
+		knowledgeTool = knowledgetool.NewTool(ks)
+	}
 	return newReviewer(reviewerConfig{
 		Stream: stream,
 		Model:  model,
@@ -98,6 +106,7 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 		// content (from the DB) and writes back through the store, which mirrors to
 		// disk itself. The tool needs no skill-path knowledge here.
 		SkillsTool:     skillstool.NewTool(s.skillStore, "", ""),
+		KnowledgeTool:  knowledgeTool,
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
 		ExistingSkills: loadExistingSkillSummaries(context.Background(), s.skillStore, userID),
 		CurrentProfile: profile,
@@ -125,7 +134,7 @@ func loadExistingSkillSummaries(ctx context.Context, store pkgplugins.SkillStore
 }
 
 func (s *Service) notifyReviewResult(ctx context.Context, userID string, result reviewResult) {
-	if (result.SkillsMutated <= 0 && !result.MemoryUpdated) || s.notifier == nil {
+	if (result.SkillsMutated <= 0 && result.KnowledgeMutated <= 0 && !result.MemoryUpdated) || s.notifier == nil {
 		return
 	}
 
@@ -139,6 +148,9 @@ func buildNotificationText(r reviewResult) string {
 	var parts []string
 	if r.SkillsMutated > 0 {
 		parts = append(parts, fmt.Sprintf("%d new draft skill(s) extracted", r.SkillsMutated))
+	}
+	if r.KnowledgeMutated > 0 {
+		parts = append(parts, fmt.Sprintf("%d knowledge entr(y/ies) extracted", r.KnowledgeMutated))
 	}
 	if r.MemoryUpdated {
 		parts = append(parts, "user memory updated")

@@ -2,6 +2,7 @@ package pluginhost
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -13,6 +14,14 @@ import (
 // Both interfaces have identical shapes but use locally-defined types, so a
 // thin adapter is needed to bridge the two packages without a circular import.
 type skillStoreAdapter struct{ s skills.Store }
+
+// readOnlyPluginSkillStore exposes only the pkgplugins.SkillStore surface to
+// runtime plugins. The full adapter may also implement KnowledgeWriter for
+// built-in agent tools, but plugin Platform has no per-user write context, so
+// exposing those extra methods would let plugins choose arbitrary owners.
+type readOnlyPluginSkillStore struct {
+	pkgplugins.SkillStore
+}
 
 func (a skillStoreAdapter) List(ctx context.Context, vc pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
 	rows, err := a.s.List(ctx, skills.ViewContext{
@@ -151,11 +160,90 @@ func (a skillStoreAdapter) ListKnowledge(ctx context.Context, vc pkgplugins.Skil
 			Content:       r.Content,
 			KnowledgeType: pkgplugins.KnowledgeType(r.KnowledgeType),
 			Status:        r.Status,
+			Evidence:      r.Evidence,
+			Confidence:    r.Confidence,
+			ExpiresAt:     r.ExpiresAt,
+			Supersedes:    r.Supersedes,
+			Metadata:      r.Metadata,
 			CreatedAt:     r.CreatedAt,
 			UpdatedAt:     r.UpdatedAt,
 		}
 	}
 	return out, nil
+}
+
+// CreateKnowledge implements pkgplugins.KnowledgeWriter when the underlying store supports it.
+func (a skillStoreAdapter) CreateKnowledge(ctx context.Context, params pkgplugins.KnowledgeCreateParams) (pkgplugins.KnowledgeEntry, error) {
+	ks, ok := a.s.(skills.KnowledgeStore)
+	if !ok {
+		return pkgplugins.KnowledgeEntry{}, fmt.Errorf("knowledge store unavailable")
+	}
+	row, err := ks.CreateKnowledge(ctx, skills.KnowledgeCreateParams{
+		Name:          params.Name,
+		Description:   params.Description,
+		Content:       params.Content,
+		KnowledgeType: skills.KnowledgeType(params.KnowledgeType),
+		Scope:         params.Scope,
+		UserID:        params.UserID,
+		AgentID:       params.AgentID,
+		Status:        params.Status,
+		Evidence:      params.Evidence,
+		Confidence:    params.Confidence,
+		ExpiresAt:     params.ExpiresAt,
+		Supersedes:    params.Supersedes,
+		Metadata:      params.Metadata,
+	})
+	if err != nil {
+		return pkgplugins.KnowledgeEntry{}, err
+	}
+	return knowledgeToPlugin(row), nil
+}
+
+func (a skillStoreAdapter) ListKnowledgeByNameAndScope(ctx context.Context, name string, scope string, userID string, agentID string) ([]pkgplugins.KnowledgeEntry, error) {
+	ks, ok := a.s.(skills.KnowledgeStore)
+	if !ok {
+		return nil, fmt.Errorf("knowledge store unavailable")
+	}
+	rows, err := ks.ListKnowledgeByNameAndScope(ctx, name, scope, userID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pkgplugins.KnowledgeEntry, len(rows))
+	for i, row := range rows {
+		out[i] = knowledgeToPlugin(row)
+	}
+	return out, nil
+}
+
+func (a skillStoreAdapter) UpdateKnowledge(ctx context.Context, params pkgplugins.KnowledgeUpdateParams) (pkgplugins.KnowledgeEntry, error) {
+	ks, ok := a.s.(skills.KnowledgeStore)
+	if !ok {
+		return pkgplugins.KnowledgeEntry{}, fmt.Errorf("knowledge store unavailable")
+	}
+	row, err := ks.UpdateKnowledge(ctx, skills.KnowledgeUpdateParams{
+		ID:          params.ID,
+		Name:        params.Name,
+		Description: params.Description,
+		Content:     params.Content,
+		Status:      params.Status,
+		Evidence:    params.Evidence,
+		Confidence:  params.Confidence,
+		ExpiresAt:   params.ExpiresAt,
+		Supersedes:  params.Supersedes,
+		Metadata:    params.Metadata,
+	})
+	if err != nil {
+		return pkgplugins.KnowledgeEntry{}, err
+	}
+	return knowledgeToPlugin(row), nil
+}
+
+func (a skillStoreAdapter) DeprecateKnowledge(ctx context.Context, id string) error {
+	ks, ok := a.s.(skills.KnowledgeStore)
+	if !ok {
+		return fmt.Errorf("knowledge store unavailable")
+	}
+	return ks.DeprecateKnowledge(ctx, id)
 }
 
 // ExpireKnowledgeDraftsByType implements pkgplugins.KnowledgeStore when the underlying
@@ -209,6 +297,24 @@ func skillFromPlugin(s pkgplugins.Skill) skills.Skill {
 	}
 }
 
+func knowledgeToPlugin(r skills.KnowledgeEntry) pkgplugins.KnowledgeEntry {
+	return pkgplugins.KnowledgeEntry{
+		ID:            r.ID,
+		Name:          r.Name,
+		Description:   r.Description,
+		Content:       r.Content,
+		KnowledgeType: pkgplugins.KnowledgeType(r.KnowledgeType),
+		Status:        r.Status,
+		Evidence:      r.Evidence,
+		Confidence:    r.Confidence,
+		ExpiresAt:     r.ExpiresAt,
+		Supersedes:    r.Supersedes,
+		Metadata:      r.Metadata,
+		CreatedAt:     r.CreatedAt,
+		UpdatedAt:     r.UpdatedAt,
+	}
+}
+
 func (h *Host) platform(pluginID string) pkgplugins.Platform {
 	return pluginPlatform{host: h, pluginID: pluginID}
 }
@@ -242,7 +348,7 @@ func (p pluginPlatform) SkillStore() pkgplugins.SkillStore {
 	if s == nil {
 		return nil
 	}
-	return skillStoreAdapter{s: s}
+	return readOnlyPluginSkillStore{SkillStore: skillStoreAdapter{s: s}}
 }
 
 type scopedConfigStore struct {
