@@ -32,7 +32,7 @@ COPY --from=stella-builder /out/stella /usr/local/bin/stella
 # mise lives at /opt/stella/bin/mise — the same path the bwrap sandbox exposes —
 # so per-user and system shims (which relink to ../../bin/mise) resolve to it.
 # bun, uv (+uvx), fd, rg, and lightpanda are NOT vendored here: `stella mise
-# reconcile-builtins` below installs them from resources/plugins.yaml, exposing
+# reconcile-builtins` below installs them from resources/tools.yaml, exposing
 # them via mise shims exactly as the host does. Only non-mise base runtime deps
 # are installed via apt.
 COPY --from=jdxcode/mise:2026.4.25 /usr/local/bin/mise /opt/stella/bin/mise
@@ -73,7 +73,7 @@ ENV PATH=/opt/stella/.mise-tools/shims:/opt/stella/bin:/usr/local/sbin:/usr/loca
 
 # Install the builtin tools through the SAME reconcile path the daemon runs, so
 # the image's tool identifiers and versions are byte-for-byte what the host
-# produces from resources/plugins.yaml (single source of truth, no drift). This
+# produces from resources/tools.yaml (single source of truth, no drift). This
 # writes /opt/stella/.mise-tools/configs/_builtin.toml, installs every enabled
 # plugin binary, and relinks shims to relative targets.
 RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
