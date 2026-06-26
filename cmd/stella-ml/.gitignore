@@ -1,0 +1,4 @@
+/stella-ml
+*.a
+*.so
+*.dylib
