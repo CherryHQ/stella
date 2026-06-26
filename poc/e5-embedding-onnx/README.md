@@ -40,30 +40,30 @@ similarity is a plain dot product.
 e5-small has a 250k-token vocabulary, so the embedding table dominates; the model
 is large despite being "small" by layer count (12 layers, hidden 384).
 
-| Variant | Size | Accuracy vs fp32 | Note |
-| --- | --- | --- | --- |
-| `model.onnx` (fp32) | 448M | 1.00000 | reference; too big to ship |
-| `model_int8.onnx` | **113M** | **0.99897** | **recommended for built-in** |
-| `model_fp16.onnx` | 224M | — | Xenova export fails to load on ORT 1.27 (graph fusion) |
+| Variant             | Size     | Accuracy vs fp32 | Note                                                   |
+| ------------------- | -------- | ---------------- | ------------------------------------------------------ |
+| `model.onnx` (fp32) | 448M     | 1.00000          | reference; too big to ship                             |
+| `model_int8.onnx`   | **113M** | **0.99897**      | **recommended for built-in**                           |
+| `model_fp16.onnx`   | 224M     | —                | Xenova export fails to load on ORT 1.27 (graph fusion) |
 
 The statically-linked `libtokenizers.a` adds ~19M to the Go binary (it links in,
 no runtime sidecar, unlike the onnxruntime dylib which is `dlopen`-ed).
 
 ## Assets (not committed)
 
-| Path | Source |
-| --- | --- |
-| `model/model.onnx`, `model/tokenizer.json`, `config.json` | HF `intfloat/multilingual-e5-small` (`onnx/` dir) |
-| `model/model_int8.onnx` | HF `Xenova/multilingual-e5-small` → `onnx/model_quantized.onnx` |
-| `lib/libtokenizers.a` | [daulet/tokenizers v1.27.0 release](https://github.com/daulet/tokenizers/releases/tag/v1.27.0), `libtokenizers.darwin-arm64.tar.gz` |
-| `runtime/` | symlink to the OCR POC's onnxruntime 1.27.0 (shared) |
+| Path                                                      | Source                                                                                                                              |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `model/model.onnx`, `model/tokenizer.json`, `config.json` | HF `intfloat/multilingual-e5-small` (`onnx/` dir)                                                                                   |
+| `model/model_int8.onnx`                                   | HF `Xenova/multilingual-e5-small` → `onnx/model_quantized.onnx`                                                                     |
+| `lib/libtokenizers.a`                                     | [daulet/tokenizers v1.27.0 release](https://github.com/daulet/tokenizers/releases/tag/v1.27.0), `libtokenizers.darwin-arm64.tar.gz` |
+| `runtime/`                                                | symlink to the OCR POC's onnxruntime 1.27.0 (shared)                                                                                |
 
 ## Files
 
-| File | Role |
-| --- | --- |
-| `e5.go` | tokenize → encoder → mean pool → L2 normalize |
-| `ort.go` | ORT init (shared onnxruntime dylib) |
+| File      | Role                                                      |
+| --------- | --------------------------------------------------------- |
+| `e5.go`   | tokenize → encoder → mean pool → L2 normalize             |
+| `ort.go`  | ORT init (shared onnxruntime dylib)                       |
 | `main.go` | CLI (`demo` / `vec`), `E5_MODEL` env to switch model file |
 
 ## Known POC simplifications

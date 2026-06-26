@@ -42,12 +42,12 @@ detected 4 text regions
 
 ## Assets (not committed)
 
-| Path | Source |
-| --- | --- |
+| Path                                    | Source                                                                                                                             |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `runtime/onnxruntime-osx-arm64-1.27.0/` | [ONNX Runtime v1.27.0 release](https://github.com/microsoft/onnxruntime/releases/tag/v1.27.0) (`onnxruntime-osx-arm64-1.27.0.tgz`) |
-| `models/det.onnx` | HF `PaddlePaddle/PP-OCRv5_mobile_det_onnx` → `inference.onnx` |
-| `models/rec.onnx` | HF `PaddlePaddle/PP-OCRv5_mobile_rec_onnx` → `inference.onnx` |
-| `models/rec_keys.txt` | extracted from rec `inference.yml` `PostProcess.character_dict` |
+| `models/det.onnx`                       | HF `PaddlePaddle/PP-OCRv5_mobile_det_onnx` → `inference.onnx`                                                                      |
+| `models/rec.onnx`                       | HF `PaddlePaddle/PP-OCRv5_mobile_rec_onnx` → `inference.onnx`                                                                      |
+| `models/rec_keys.txt`                   | extracted from rec `inference.yml` `PostProcess.character_dict`                                                                    |
 
 Model hyperparameters (rec shape `3x48x320`, det `resize_long 960`, DB
 `thresh 0.3 / box_thresh 0.6 / unclip 1.5`) were read from each model's
@@ -55,14 +55,14 @@ Model hyperparameters (rec shape `3x48x320`, det `resize_long 960`, DB
 
 ## Files
 
-| File | Role |
-| --- | --- |
-| `ort.go` | ORT init + single-input/output dynamic session helper |
-| `charset.go` | CTC charset table builder |
-| `rec.go` | rec preprocess (BGR, [-1,1], pad to 320) + greedy CTC decode |
-| `det.go` | det preprocess + pure-Go DB postprocess + crop + full OCR pipeline |
-| `imageutil.go` | RGBA conversion + bilinear resize |
-| `main.go` | CLI (`rec` / `ocr`) |
+| File           | Role                                                               |
+| -------------- | ------------------------------------------------------------------ |
+| `ort.go`       | ORT init + single-input/output dynamic session helper              |
+| `charset.go`   | CTC charset table builder                                          |
+| `rec.go`       | rec preprocess (BGR, [-1,1], pad to 320) + greedy CTC decode       |
+| `det.go`       | det preprocess + pure-Go DB postprocess + crop + full OCR pipeline |
+| `imageutil.go` | RGBA conversion + bilinear resize                                  |
+| `main.go`      | CLI (`rec` / `ocr`)                                                |
 
 ## Known POC simplifications (gaps vs production)
 

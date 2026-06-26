@@ -7,13 +7,13 @@ for all target platforms from a single macOS host, using `zig cc`?
 
 ## Result matrix
 
-| Target | Method | Built | Ran |
-| --- | --- | --- | --- |
-| darwin/arm64 | native `clang` (no zig) | ✅ | ✅ (host + e5 POC) |
-| darwin/amd64 | native `clang`, cross-arch | ✅ | — |
-| linux/amd64 | `zig cc` + libstdc++ shim | ✅ | ✅ (docker, real tokenizer call) |
-| linux/arm64 | `zig cc` + libstdc++ shim | ✅ | — |
-| windows/* | — | dropped | — |
+| Target       | Method                     | Built   | Ran                              |
+| ------------ | -------------------------- | ------- | -------------------------------- |
+| darwin/arm64 | native `clang` (no zig)    | ✅      | ✅ (host + e5 POC)               |
+| darwin/amd64 | native `clang`, cross-arch | ✅      | —                                |
+| linux/amd64  | `zig cc` + libstdc++ shim  | ✅      | ✅ (docker, real tokenizer call) |
+| linux/arm64  | `zig cc` + libstdc++ shim  | ✅      | —                                |
+| windows/*    | —                          | dropped | —                                |
 
 `./build-all.sh` reproduces all four from macOS.
 
@@ -77,10 +77,10 @@ zig-from-mac (this spike) stays the fast path for **local dev** cross-builds.
 
 ## Files
 
-| File | Role |
-| --- | --- |
-| `main.go` | imports + calls both native deps (linker stand-in for the sidecar) |
-| `cc/zigcc-linux-*` | zig wrapper appending libc++ for linux targets |
-| `stub.c` | no-op GNU libstdc++ iostream-init symbols (linux only) |
-| `build-all.sh` | reproduce all 4 darwin+linux builds from macOS |
-| `libs/<target>/` | per-target `libtokenizers.a` (gitignored; from daulet release) |
+| File               | Role                                                               |
+| ------------------ | ------------------------------------------------------------------ |
+| `main.go`          | imports + calls both native deps (linker stand-in for the sidecar) |
+| `cc/zigcc-linux-*` | zig wrapper appending libc++ for linux targets                     |
+| `stub.c`           | no-op GNU libstdc++ iostream-init symbols (linux only)             |
+| `build-all.sh`     | reproduce all 4 darwin+linux builds from macOS                     |
+| `libs/<target>/`   | per-target `libtokenizers.a` (gitignored; from daulet release)     |
