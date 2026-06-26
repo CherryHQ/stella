@@ -11,3 +11,5 @@ require (
 	github.com/daulet/tokenizers v1.27.0
 	github.com/yalue/onnxruntime_go v1.31.0
 )
+
+require golang.org/x/image v0.43.0

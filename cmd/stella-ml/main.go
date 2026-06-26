@@ -17,12 +17,35 @@ import (
 	"time"
 )
 
+// config holds the resolved flags. The embedding model is required; OCR is
+// optional (its three paths are all-or-nothing) so an embedding-only bundle still
+// boots and /v1/extract reports 503 until OCR models are installed.
+type config struct {
+	socketPath  string
+	runtimeLib  string
+	embedModel  string
+	tokenizer   string
+	ocrDet      string
+	ocrRec      string
+	ocrKeys     string
+	runtimeVer  string
+	modelDigest string
+	intraOp     int
+	interOp     int
+	embedConc   int
+	extractConc int
+}
+
 func main() {
 	var (
+		cfg         config
 		socketPath  = flag.String("socket", "", "unix socket path to listen on (required)")
 		runtimeLib  = flag.String("runtime-lib", "", "path to libonnxruntime (dir or file) (required)")
 		modelPath   = flag.String("embed-model", "", "path to the e5 embedding model.onnx (required)")
 		tokenizer   = flag.String("tokenizer", "", "path to tokenizer.json (required)")
+		ocrDet      = flag.String("ocr-det-model", "", "path to the PP-OCR detection model.onnx (optional; enables /v1/extract)")
+		ocrRec      = flag.String("ocr-rec-model", "", "path to the PP-OCR recognition model.onnx (optional)")
+		ocrKeys     = flag.String("ocr-keys", "", "path to the PP-OCR rec character dictionary (optional)")
 		runtimeVer  = flag.String("runtime-version", "dev", "runtime version reported on /healthz")
 		modelDigest = flag.String("model-digest", "", "model-manifest digest reported on /healthz")
 		intraOp     = flag.Int("intra-op-threads", 1, "onnxruntime intra-op thread count (pinned)")
@@ -39,32 +62,49 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := run(log, *socketPath, *runtimeLib, *modelPath, *tokenizer, *runtimeVer, *modelDigest, *intraOp, *interOp, *embedConc, *extractConc); err != nil {
+	cfg = config{
+		socketPath: *socketPath, runtimeLib: *runtimeLib, embedModel: *modelPath, tokenizer: *tokenizer,
+		ocrDet: *ocrDet, ocrRec: *ocrRec, ocrKeys: *ocrKeys,
+		runtimeVer: *runtimeVer, modelDigest: *modelDigest,
+		intraOp: *intraOp, interOp: *interOp, embedConc: *embedConc, extractConc: *extractConc,
+	}
+	if err := run(log, cfg); err != nil {
 		log.Error("stella-ml exited", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(log *slog.Logger, socketPath, runtimeLib, modelPath, tokenizer, runtimeVer, modelDigest string, intraOp, interOp, embedConc, extractConc int) error {
-	if err := initORT(runtimeLib); err != nil {
+func run(log *slog.Logger, cfg config) error {
+	if err := initORT(cfg.runtimeLib); err != nil {
 		return err
 	}
 	defer shutdownORT()
 
-	embed, err := newE5Engine(modelPath, tokenizer, intraOp, interOp)
+	embed, err := newE5Engine(cfg.embedModel, cfg.tokenizer, cfg.intraOp, cfg.interOp)
 	if err != nil {
 		return err
 	}
 	defer embed.close()
 	log.Info("embed engine loaded", "model", embedModelID)
 
-	ln, err := listenUnix(socketPath)
+	// OCR is optional and all-or-nothing across its three assets.
+	var ocr *ocrEngine
+	if cfg.ocrDet != "" && cfg.ocrRec != "" && cfg.ocrKeys != "" {
+		ocr, err = newOCREngine(cfg.ocrDet, cfg.ocrRec, cfg.ocrKeys, cfg.intraOp, cfg.interOp)
+		if err != nil {
+			return err
+		}
+		defer ocr.close()
+		log.Info("ocr engine loaded", "model", ocrModelID)
+	}
+
+	ln, err := listenUnix(cfg.socketPath)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(socketPath) }()
+	defer func() { _ = os.Remove(cfg.socketPath) }()
 
-	srv := newServer(embed, runtimeVer, modelDigest, defaultLimits(), embedConc, extractConc, log)
+	srv := newServer(embed, ocr, cfg.runtimeVer, cfg.modelDigest, defaultLimits(), cfg.embedConc, cfg.extractConc, log)
 	httpSrv := &http.Server{
 		Handler:           srv.handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -83,7 +123,7 @@ func run(log *slog.Logger, socketPath, runtimeLib, modelPath, tokenizer, runtime
 		_ = httpSrv.Shutdown(shCtx)
 	}()
 
-	log.Info("listening", "socket", socketPath, "runtime_version", runtimeVer)
+	log.Info("listening", "socket", cfg.socketPath, "runtime_version", cfg.runtimeVer)
 	if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

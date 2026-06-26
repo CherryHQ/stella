@@ -13,10 +13,12 @@ import (
 	"time"
 )
 
-// server hosts the ML engines behind the UDS HTTP contract. extract is nil until
-// the OCR engine lands (Phase 4a); its endpoint returns 501 until then.
+// server hosts the ML engines behind the UDS HTTP contract. Either engine may be
+// nil — an embedding-only or OCR-only deployment is valid; the matching endpoint
+// returns 503 when its engine is not loaded.
 type server struct {
 	embed   *e5Engine
+	ocr     *ocrEngine
 	lim     limits
 	embedLn *lane
 	extLn   *lane
@@ -26,9 +28,10 @@ type server struct {
 	log            *slog.Logger
 }
 
-func newServer(embed *e5Engine, runtimeVersion, modelDigest string, lim limits, embedSlots, extractSlots int, log *slog.Logger) *server {
+func newServer(embed *e5Engine, ocr *ocrEngine, runtimeVersion, modelDigest string, lim limits, embedSlots, extractSlots int, log *slog.Logger) *server {
 	return &server{
 		embed:          embed,
+		ocr:            ocr,
 		lim:            lim,
 		embedLn:        newLane(embedSlots, lim.perTenantInflight),
 		extLn:          newLane(extractSlots, lim.perTenantInflight),
@@ -77,6 +80,10 @@ func (s *server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	if s.embed != nil {
 		status = "ok"
 		models["embed"] = embedModelID
+	}
+	if s.ocr != nil {
+		status = "ok"
+		models["ocr"] = ocrModelID
 	}
 	writeJSON(w, http.StatusOK, healthResponse{
 		Status:              status,
@@ -145,12 +152,55 @@ func (s *server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleExtract runs OCR over the raw image bytes in the request body. The MVP
+// path is image-only: the text-layer fast path (PDF/native text) lives on the
+// stellad side, which calls extract only when it needs pixels read. X-Stella-Mime
+// hints the decoder; X-Stella-Force-Ocr is accepted for protocol completeness but
+// is a no-op here since this endpoint always OCRs.
 func (s *server) handleExtract(w http.ResponseWriter, r *http.Request) {
-	_, rc, cancel := s.withContext(r)
+	r, rc, cancel := s.withContext(r)
 	defer cancel()
-	// OCR engine lands in Phase 4a; the endpoint exists now so the protocol and
-	// supervisor contract can be exercised end-to-end.
-	s.fail(w, rc, http.StatusNotImplemented, errors.New("extract not implemented yet"))
+
+	if s.ocr == nil {
+		s.fail(w, rc, http.StatusServiceUnavailable, errors.New("ocr engine not loaded"))
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(r.Body, s.lim.maxExtractBody))
+	if err != nil {
+		s.fail(w, rc, http.StatusBadRequest, errwrap("read extract body", err))
+		return
+	}
+	if len(data) == 0 {
+		s.fail(w, rc, http.StatusBadRequest, errors.New("empty extract body"))
+		return
+	}
+
+	mime := r.Header.Get(headerExtMime)
+	img, err := decodeImage(data, mime)
+	if err != nil {
+		s.fail(w, rc, http.StatusUnsupportedMediaType, errwrap("decode image", err))
+		return
+	}
+
+	release, err := s.extLn.acquire(r.Context(), rc.tenant)
+	if err != nil {
+		s.failAdmission(w, rc, err)
+		return
+	}
+	defer release()
+
+	text, err := s.ocr.Recognize(img)
+	if err != nil {
+		s.fail(w, rc, http.StatusInternalServerError, errwrap("ocr", err))
+		return
+	}
+
+	outMime := mime
+	if outMime == "" {
+		outMime = "text/plain"
+	}
+	writeJSON(w, http.StatusOK, extractResponse{Content: text, MimeType: outMime})
 }
 
 // writeVectors streams vectors as little-endian float32, count*dim contiguous.
