@@ -11,7 +11,7 @@ import (
 
 type xbergExtractor struct{}
 
-func NewExtractor() Extractor {
+func newBaseExtractor() Extractor {
 	return xbergExtractor{}
 }
 

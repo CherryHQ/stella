@@ -2,6 +2,6 @@
 
 package document
 
-func NewExtractor() Extractor {
+func newBaseExtractor() Extractor {
 	return cliExtractor{}
 }

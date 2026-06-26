@@ -34,16 +34,30 @@ const (
 	embedModelFile = "model_int8.onnx"
 	tokenizerFile  = "tokenizer.json"
 	binFile        = "stella-ml"
+
+	ocrDetFile  = "det.onnx"
+	ocrRecFile  = "rec.onnx"
+	ocrKeysFile = "rec_keys.txt"
 )
 
-// Resolved is the set of paths a supervisor needs to launch the sidecar.
+// Resolved is the set of paths a supervisor needs to launch the sidecar. The OCR
+// paths are empty when the OCR models are not installed; embedding and OCR are
+// independently optional.
 type Resolved struct {
 	BinPath        string // stella-ml executable
 	LibDir         string // directory holding libonnxruntime.{dylib,so}
 	EmbedModelPath string // e5 embedding model
 	TokenizerPath  string // tokenizer.json
+	OCRDetPath     string // PP-OCR detection model (optional)
+	OCRRecPath     string // PP-OCR recognition model (optional)
+	OCRKeysPath    string // PP-OCR rec character dictionary (optional)
 	RuntimeVersion string
 	ModelVersion   string
+}
+
+// HasOCR reports whether all three OCR assets resolved.
+func (r Resolved) HasOCR() bool {
+	return r.OCRDetPath != "" && r.OCRRecPath != "" && r.OCRKeysPath != ""
 }
 
 // Supported reports whether the current platform can run the sidecar at all.
@@ -102,6 +116,15 @@ func Resolve(stellaHome string) (Resolved, bool, error) {
 		if !fileExists(p) {
 			return Resolved{}, false, nil
 		}
+	}
+
+	// OCR is optional: fill its paths only when the full det+rec+keys set is present
+	// so a partial install never half-enables the extract endpoint.
+	det := filepath.Join(modelDir, ocrDetFile)
+	rec := filepath.Join(modelDir, ocrRecFile)
+	keys := filepath.Join(modelDir, ocrKeysFile)
+	if fileExists(det) && fileExists(rec) && fileExists(keys) {
+		r.OCRDetPath, r.OCRRecPath, r.OCRKeysPath = det, rec, keys
 	}
 	return r, true, nil
 }

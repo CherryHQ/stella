@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/document"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/mlruntime"
 )
@@ -54,6 +55,18 @@ func TestSetupMLSidecarIntegration(t *testing.T) {
 	t.Setenv(mlruntime.EnvRuntimeDir, rtDir)
 	t.Setenv(mlruntime.EnvModelDir, mdDir)
 
+	// OCR is optional: only exercised when its three models + a test image are
+	// provided via STELLA_ML_OCR_{DET,REC,KEYS} and STELLA_ML_OCR_IMAGE.
+	det, rec, keys := os.Getenv("STELLA_ML_OCR_DET"), os.Getenv("STELLA_ML_OCR_REC"), os.Getenv("STELLA_ML_OCR_KEYS")
+	ocrImage := os.Getenv("STELLA_ML_OCR_IMAGE")
+	testOCR := det != "" && rec != "" && keys != "" && ocrImage != ""
+	if testOCR {
+		symlink(t, det, filepath.Join(mdDir, "det.onnx"))
+		symlink(t, rec, filepath.Join(mdDir, "rec.onnx"))
+		symlink(t, keys, filepath.Join(mdDir, "rec_keys.txt"))
+		t.Setenv("STELLA_LOCAL_OCR", "1")
+	}
+
 	sup, emb := setupMLSidecar(home, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if sup == nil || emb == nil {
 		t.Fatal("expected a resolved supervisor + embedder")
@@ -76,6 +89,23 @@ func TestSetupMLSidecarIntegration(t *testing.T) {
 	}
 	if len(vecs) != 1 || len(vecs[0]) != 384 {
 		t.Fatalf("vector shape = %dx%d, want 1x384", len(vecs), len(vecs[0]))
+	}
+
+	if testOCR {
+		// setupMLSidecar installed the OCR fallback globally; drive it through the
+		// real document extractor to prove the full read-tool path OCRs an image.
+		img, rerr := os.ReadFile(ocrImage)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		res, oerr := document.NewExtractor().ExtractBytes(ctx, img, "image/png", document.Options{Timeout: 30 * time.Second})
+		if oerr != nil {
+			t.Fatalf("OCR ExtractBytes: %v", oerr)
+		}
+		if len(res.Content) == 0 {
+			t.Fatal("OCR returned empty content")
+		}
+		t.Logf("OCR extracted %d chars", len(res.Content))
 	}
 }
 

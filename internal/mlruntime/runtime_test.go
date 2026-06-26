@@ -54,6 +54,49 @@ func TestResolveDevOverride(t *testing.T) {
 	}
 }
 
+func TestResolveOCROptional(t *testing.T) {
+	if !Supported() {
+		t.Skip("unsupported platform")
+	}
+	rt := t.TempDir()
+	md := t.TempDir()
+	mustWrite(t, filepath.Join(rt, binFile), "#!/bin/true\n")
+	if err := os.MkdirAll(filepath.Join(rt, "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(md, embedModelFile), "x")
+	mustWrite(t, filepath.Join(md, tokenizerFile), "{}")
+	t.Setenv(EnvRuntimeDir, rt)
+	t.Setenv(EnvModelDir, md)
+
+	// Without OCR assets, embedding still resolves and HasOCR is false.
+	got, found, err := Resolve("/unused")
+	if err != nil || !found {
+		t.Fatalf("resolve embed-only: found=%v err=%v", found, err)
+	}
+	if got.HasOCR() {
+		t.Fatal("HasOCR true with no OCR models present")
+	}
+
+	// A partial OCR install (det only) must not half-enable OCR.
+	mustWrite(t, filepath.Join(md, ocrDetFile), "d")
+	got, _, _ = Resolve("/unused")
+	if got.HasOCR() {
+		t.Fatal("HasOCR true with a partial OCR install")
+	}
+
+	// Full det+rec+keys set enables OCR.
+	mustWrite(t, filepath.Join(md, ocrRecFile), "r")
+	mustWrite(t, filepath.Join(md, ocrKeysFile), "k")
+	got, _, _ = Resolve("/unused")
+	if !got.HasOCR() {
+		t.Fatal("HasOCR false with a full OCR install")
+	}
+	if got.OCRDetPath != filepath.Join(md, ocrDetFile) {
+		t.Errorf("det path = %q", got.OCRDetPath)
+	}
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
