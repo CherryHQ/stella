@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import {
   AlertCircle,
   Download,
-  MessageCircleDashed,
+  MessageSquarePlus,
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
@@ -429,15 +429,14 @@ export function SessionDetail({
                   <DropdownMenuTrigger
                     render={
                       <Button
-                        variant="outline"
-                        size="sm"
+                        variant="ghost"
+                        size="icon-sm"
                         aria-disabled={exportDisabled || undefined}
                         data-disabled={exportDisabled || undefined}
                         className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                         aria-label={t("sessions.export.button")}
                       >
                         <Download />
-                        <span className="max-sm:hidden">{t("sessions.export.label")}</span>
                       </Button>
                     }
                   />
@@ -465,13 +464,12 @@ export function SessionDetail({
               <TooltipTrigger
                 render={
                   <Button
-                    variant="outline"
-                    size="sm"
+                    variant="ghost"
+                    size="icon-sm"
                     onClick={onNewSession}
                     aria-label={t("sessions.startThread")}
                   >
-                    <MessageCircleDashed />
-                    <span className="max-sm:hidden">{t("sessions.startThread")}</span>
+                    <MessageSquarePlus />
                   </Button>
                 }
               />
@@ -480,13 +478,13 @@ export function SessionDetail({
           )}
           {onToggleWorkspace && (
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon-sm"
               onClick={onToggleWorkspace}
+              aria-label={workspaceOpen ? t("sessions.hideInspector") : t("sessions.showInspector")}
               title={workspaceOpen ? t("sessions.hideInspector") : t("sessions.showInspector")}
             >
               {workspaceOpen ? <PanelRightClose /> : <PanelRightOpen />}
-              <span className="max-sm:hidden">{t("sessions.inspectorPanel")}</span>
             </Button>
           )}
         </div>
