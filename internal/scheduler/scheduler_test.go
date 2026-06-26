@@ -261,6 +261,64 @@ func TestAddJobWithOwner(t *testing.T) {
 	}
 }
 
+func TestAddWorkflowJob(t *testing.T) {
+	db := dbtest.New(t)
+
+	svc1 := newTestService(t, db)
+	if err := svc1.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	job, err := svc1.AddWorkflowJob("nightly-report", "wf-123", "proj-9", Schedule{Cron: "0 9 * * *"}, "agent-x", "42")
+	if err != nil {
+		t.Fatalf("AddWorkflowJob: %v", err)
+	}
+	if job.DispatchKind != DispatchKindWorkflow {
+		t.Errorf("DispatchKind = %q, want %q", job.DispatchKind, DispatchKindWorkflow)
+	}
+	if got, _ := job.Payload["workflow_id"].(string); got != "wf-123" {
+		t.Errorf("payload workflow_id = %q, want wf-123", got)
+	}
+	if got, _ := job.Payload["project_id"].(string); got != "proj-9" {
+		t.Errorf("payload project_id = %q, want proj-9", got)
+	}
+	if job.AgentID != "agent-x" || job.UserID != "42" {
+		t.Errorf("owner = (%q,%q), want (agent-x,42)", job.AgentID, job.UserID)
+	}
+	_ = svc1.Stop()
+
+	// It survives a restart with its dispatch kind and payload intact (the
+	// dispatcher keys on DispatchKind, so a lossy round-trip would break runs).
+	svc2 := newTestService(t, db)
+	if err := svc2.Start(context.Background()); err != nil {
+		t.Fatalf("restart Start: %v", err)
+	}
+	t.Cleanup(func() { _ = svc2.Stop() })
+	jobs := svc2.ListJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("ListJobs after restart: got %d, want 1", len(jobs))
+	}
+	if jobs[0].DispatchKind != DispatchKindWorkflow {
+		t.Errorf("after restart DispatchKind = %q, want %q", jobs[0].DispatchKind, DispatchKindWorkflow)
+	}
+	if got, _ := jobs[0].Payload["workflow_id"].(string); got != "wf-123" {
+		t.Errorf("after restart payload workflow_id = %q, want wf-123", got)
+	}
+}
+
+func TestAddWorkflowJobValidation(t *testing.T) {
+	svc := testService(t)
+
+	if _, err := svc.AddWorkflowJob("", "wf-1", "", Schedule{Every: "1h"}, "", "1"); err == nil {
+		t.Error("empty name: expected error")
+	}
+	if _, err := svc.AddWorkflowJob("no-wf", "", "", Schedule{Every: "1h"}, "", "1"); err == nil {
+		t.Error("empty workflow_id: expected error")
+	}
+	if _, err := svc.AddWorkflowJob("no-sched", "wf-1", "", Schedule{}, "", "1"); err == nil {
+		t.Error("missing schedule: expected error")
+	}
+}
+
 func TestOneTimeJobCreation(t *testing.T) {
 	svc := testService(t)
 

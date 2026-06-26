@@ -56,6 +56,7 @@ tags:
   - name: plugins
   - name: status
   - name: goals
+  - name: workflows
   - name: projects
   - name: inbox
 paths:
@@ -310,6 +311,16 @@ paths:
   /api/agents/{agentId}/scheduler/jobs/{jobId}/runs:
     $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentId}~1scheduler~1jobs~1{jobId}~1runs"
   # ── Goals ─────────────────────────────────────────────────────────
+  /api/workflows:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows"
+  /api/workflows/{id}:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows~1{id}"
+  /api/workflows/{id}/instantiate:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows~1{id}~1instantiate"
+  /api/workflows/{id}/schedule:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows~1{id}~1schedule"
+  /api/goals/{id}/save-as-workflow:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1goals~1{id}~1save-as-workflow"
   /api/goals:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals"
   /api/goals/{id}:

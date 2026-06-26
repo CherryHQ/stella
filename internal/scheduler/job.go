@@ -36,26 +36,34 @@ const (
 	JobOwnerSystem = "system"
 )
 
+// Dispatch kinds route a fired job. The default runs a chat turn through the
+// agent; workflow instantiates a frozen workflow into a live goal tree.
+const (
+	DispatchKindChat     = "chat"
+	DispatchKindWorkflow = "workflow"
+)
+
 type Job struct {
-	ID          string         `json:"id"`
-	OwnerKind   string         `json:"owner_kind,omitempty"`
-	ExecScope   string         `json:"exec_scope,omitempty"`
-	PluginID    string         `json:"plugin_id,omitempty"`
-	JobKey      string         `json:"job_key,omitempty"`
-	RuntimeName string         `json:"runtime_name,omitempty"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Schedule    Schedule       `json:"schedule"`
-	Message     string         `json:"message,omitempty"`
-	Payload     map[string]any `json:"payload,omitempty"`
-	SessionMode string         `json:"session_mode"` // "reuse" (default) or "new"
-	Enabled     bool           `json:"enabled"`
-	AgentID     string         `json:"agent_id,omitempty"` // agent to route to (empty = default)
-	UserID      string         `json:"user_id,omitempty"`  // user context (empty = none)
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	LastRunAt   *time.Time     `json:"last_run_at,omitempty"`
-	LastError   string         `json:"last_error,omitempty"`
+	ID           string         `json:"id"`
+	OwnerKind    string         `json:"owner_kind,omitempty"`
+	ExecScope    string         `json:"exec_scope,omitempty"`
+	PluginID     string         `json:"plugin_id,omitempty"`
+	JobKey       string         `json:"job_key,omitempty"`
+	RuntimeName  string         `json:"runtime_name,omitempty"`
+	Name         string         `json:"name"`
+	Description  string         `json:"description,omitempty"`
+	Schedule     Schedule       `json:"schedule"`
+	Message      string         `json:"message,omitempty"`
+	Payload      map[string]any `json:"payload,omitempty"`
+	SessionMode  string         `json:"session_mode"`            // "reuse" (default) or "new"
+	DispatchKind string         `json:"dispatch_kind,omitempty"` // "chat" (default) or "workflow"
+	Enabled      bool           `json:"enabled"`
+	AgentID      string         `json:"agent_id,omitempty"` // agent to route to (empty = default)
+	UserID       string         `json:"user_id,omitempty"`  // user context (empty = none)
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	LastRunAt    *time.Time     `json:"last_run_at,omitempty"`
+	LastError    string         `json:"last_error,omitempty"`
 }
 
 const (
@@ -110,6 +118,43 @@ func withRunOutputSink(ctx context.Context, sink *RunOutputSink) context.Context
 // when the job was not dispatched through the run lifecycle.
 func RunOutputSinkFromContext(ctx context.Context) *RunOutputSink {
 	if v, ok := ctx.Value(runOutputSinkKey{}).(*RunOutputSink); ok {
+		return v
+	}
+	return nil
+}
+
+// RunRootGoalSink is a context-carried slot the workflow dispatch callback fills
+// with the instantiated tree's root goal id so the run record can link to it.
+type RunRootGoalSink struct {
+	mu sync.Mutex
+	id string
+}
+
+func (s *RunRootGoalSink) Set(id string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.id = id
+	s.mu.Unlock()
+}
+
+func (s *RunRootGoalSink) get() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.id
+}
+
+type runRootGoalSinkKey struct{}
+
+func withRunRootGoalSink(ctx context.Context, sink *RunRootGoalSink) context.Context {
+	return context.WithValue(ctx, runRootGoalSinkKey{}, sink)
+}
+
+// RunRootGoalSinkFromContext returns the root-goal sink for the current run, or
+// nil when the job was not dispatched through the run lifecycle.
+func RunRootGoalSinkFromContext(ctx context.Context) *RunRootGoalSink {
+	if v, ok := ctx.Value(runRootGoalSinkKey{}).(*RunRootGoalSink); ok {
 		return v
 	}
 	return nil

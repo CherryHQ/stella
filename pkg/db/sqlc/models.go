@@ -147,6 +147,23 @@ type AgentKnowledge struct {
 	UpdatedAt  time.Time          `json:"updated_at"`
 }
 
+type AgentWorkflow struct {
+	ID                 string          `json:"id"`
+	OwnerKind          string          `json:"owner_kind"`
+	UserID             pgtype.Text     `json:"user_id"`
+	AgentID            pgtype.Text     `json:"agent_id"`
+	Name               string          `json:"name"`
+	Intent             string          `json:"intent"`
+	AcceptanceContract json.RawMessage `json:"acceptance_contract"`
+	ConvergencePolicy  json.RawMessage `json:"convergence_policy"`
+	Plan               json.RawMessage `json:"plan"`
+	Version            int64           `json:"version"`
+	SourceGoalID       pgtype.Text     `json:"source_goal_id"`
+	WorkflowKey        string          `json:"workflow_key"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+}
+
 type AppSetting struct {
 	Key       string    `json:"key"`
 	Value     string    `json:"value"`
@@ -659,6 +676,7 @@ type SchedJob struct {
 	UpdatedAt     time.Time          `json:"updated_at"`
 	LastRunAt     pgtype.Timestamptz `json:"last_run_at"`
 	LastError     string             `json:"last_error"`
+	DispatchKind  string             `json:"dispatch_kind"`
 }
 
 type SchedJobRun struct {
@@ -671,6 +689,7 @@ type SchedJobRun struct {
 	Error      string             `json:"error"`
 	Output     string             `json:"output"`
 	UserID     pgtype.Text        `json:"user_id"`
+	RootGoalID pgtype.Text        `json:"root_goal_id"`
 }
 
 type Share struct {

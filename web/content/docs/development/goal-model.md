@@ -219,6 +219,37 @@ The recursion folds several once-separate concepts into the single Goal abstract
 | synthesizer              | the parent goal's acceptance evaluation                  |
 | rework / reopen          | the next attempt in the convergence loop (automatic)     |
 
+## Workflows: freezing an accepted plan
+
+The convergence loop earns a good decomposition the expensive way — through planning and
+rework. A **workflow** captures that earned plan so the next run skips it. A workflow is a
+**frozen goal**: the decomposition of an _accepted_ composite, snapshotted as a recursive
+`FrozenPlan` (`{children, edges}` nested to arbitrary depth) plus the root's acceptance
+contract, convergence policy, version, and a content hash of the plan.
+
+Instantiating a workflow inverts the normal flow: instead of `create → plan → decompose`, it
+rebuilds the subtree **deterministically** from the snapshot — each frozen composite is
+materialized and activated in one transaction, skipping the planner entirely, then handed to
+the same dispatcher, acceptance, rollup, and scheduler machinery as any other goal. Nothing
+downstream knows the tree was frozen rather than planned.
+
+The freeze is **per-node**, which is what makes it a spectrum rather than a switch. A composite
+node carrying a frozen subplan executes its children deterministically; a composite node with
+_no_ subplan is left to the planner at instantiation time ("semi-frozen"). So a workflow can
+pin the parts of a plan you trust and re-plan the parts that vary.
+
+Two surfaces mint and run workflows, both over the workflow HTTP API:
+
+- **save-as** freezes an accepted composite you own (`stella workflow save-as <goal-id>`),
+  capturing edges verbatim so sibling dependencies survive the round-trip.
+- **instantiate** rebuilds a fresh goal tree on demand (`stella workflow instantiate <id>`),
+  and **schedule** wires a scheduler job that instantiates one run per fire
+  (`stella workflow schedule <id> --cron …`) — the scheduler's workflow dispatch branch calls
+  the same instantiation path and records the new root goal on the run.
+
+A workflow is a reusable, schedulable artifact built **on top of** the core entities — it adds
+no new runtime concept, only a frozen starting point for the loop that already exists.
+
 ## Simplicity and scalability
 
 An honest assessment — this design is a deep-module trade, not a free lunch.

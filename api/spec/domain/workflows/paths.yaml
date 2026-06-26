@@ -1,0 +1,198 @@
+paths:
+  /api/workflows:
+    get:
+      tags: [workflows]
+      summary: List workflows
+      operationId: listWorkflows
+      parameters:
+        - name: agent_id
+          in: query
+          required: false
+          description: Scope the list to one managing agent.
+          schema: { type: string }
+        - name: q
+          in: query
+          required: false
+          description: Case-insensitive substring match on name/intent.
+          schema: { type: string }
+        - {
+            name: page_size,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - { name: page_token, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/WorkflowList",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+    post:
+      tags: [workflows]
+      summary: Create a hand-authored workflow
+      operationId: createWorkflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/WorkflowCreateInput",
+              }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Workflow" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/workflows/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [workflows]
+      summary: Get a workflow
+      operationId: getWorkflow
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Workflow" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404":
+          { $ref: "../../components.yaml#/components/responses/NotFound" }
+    patch:
+      tags: [workflows]
+      summary: Update a workflow's name/intent
+      operationId: updateWorkflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/WorkflowUpdateInput",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Workflow" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404":
+          { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [workflows]
+      summary: Delete a workflow
+      operationId: deleteWorkflow
+      responses:
+        "204": { description: deleted }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404":
+          { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/workflows/{id}/instantiate:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [workflows]
+      summary: Instantiate a workflow into a live goal tree
+      operationId: instantiateWorkflow
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/InstantiateWorkflowInput",
+              }
+      responses:
+        "201":
+          description: instantiated; returns the new root goal
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Goal" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404":
+          { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/workflows/{id}/schedule:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [workflows]
+      summary: Schedule a workflow to instantiate on a recurring or one-time basis
+      operationId: scheduleWorkflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/ScheduleWorkflowInput",
+              }
+      responses:
+        "201":
+          description: scheduled; returns the created scheduler job
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Job" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404":
+          { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/goals/{id}/save-as-workflow:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [workflows]
+      summary: Freeze an accepted composite goal into a reusable workflow
+      operationId: saveGoalAsWorkflow
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/SaveAsWorkflowInput",
+              }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Workflow" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404":
+          { $ref: "../../components.yaml#/components/responses/NotFound" }

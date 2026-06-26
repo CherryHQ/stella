@@ -87,6 +87,7 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		UpdatedAt:     updatedAt.UTC(),
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
+		DispatchKind:  normalizeDispatchKind(job.DispatchKind),
 	}
 }
 
@@ -115,6 +116,7 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 		UpdatedAt:     updatedAt.UTC(),
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
+		DispatchKind:  normalizeDispatchKind(job.DispatchKind),
 		ID:            job.ID,
 	}
 }
@@ -136,13 +138,14 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 			Every: r.ScheduleEvery,
 			At:    r.ScheduleAt,
 		},
-		Message:     r.Message,
-		Payload:     decodePayload(r.Payload),
-		SessionMode: r.SessionMode,
-		Enabled:     r.Enabled,
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
-		LastError:   r.LastError,
+		Message:      r.Message,
+		Payload:      decodePayload(r.Payload),
+		SessionMode:  r.SessionMode,
+		DispatchKind: normalizeDispatchKind(r.DispatchKind),
+		Enabled:      r.Enabled,
+		CreatedAt:    createdAt,
+		UpdatedAt:    updatedAt,
+		LastError:    r.LastError,
 	}
 	if r.AgentID.Valid {
 		j.AgentID = r.AgentID.String
@@ -166,6 +169,13 @@ func normalizeOwnerKind(kind string) string {
 	default:
 		return JobOwnerUser
 	}
+}
+
+func normalizeDispatchKind(kind string) string {
+	if kind == DispatchKindWorkflow {
+		return DispatchKindWorkflow
+	}
+	return DispatchKindChat
 }
 
 func normalizeExecScope(scope string) string {

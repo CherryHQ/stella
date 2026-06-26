@@ -30,6 +30,11 @@ var errJobAlreadyRunning = errors.New("job already has a run in progress")
 // OnJobFunc is called when a scheduled job fires.
 type OnJobFunc func(ctx context.Context, job Job) error
 
+// OnWorkflowFunc is called when a dispatch_kind=workflow job fires. It
+// instantiates the workflow named by the job's payload and returns the live root
+// goal id so the run record can link to the materialized tree.
+type OnWorkflowFunc func(ctx context.Context, job Job) (rootGoalID string, err error)
+
 // TaskFunc is a lightweight scheduled callback that is not persisted as a scheduled job.
 type TaskFunc func(ctx context.Context)
 
@@ -40,6 +45,7 @@ type Service struct {
 	ownsRiver       bool // true when Service built its own River client (default/test); false in external-river mode
 	externalRiver   bool // set by WithExternalRiver: caller injects+owns the shared client
 	onJob           OnJobFunc
+	onWorkflow      OnWorkflowFunc
 	listeners       []OnJobFunc
 	db              *pgxpool.Pool
 	q               *sqlc.Queries
@@ -143,6 +149,15 @@ func (s *Service) SetOnJob(fn OnJobFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onJob = fn
+}
+
+// SetOnWorkflow sets the callback invoked when a dispatch_kind=workflow job
+// fires. Leaving it unset makes a workflow job fail loudly rather than silently
+// fall through to the chat path.
+func (s *Service) SetOnWorkflow(fn OnWorkflowFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onWorkflow = fn
 }
 
 // AddOnJobListener appends an additional callback invoked when a job fires.
@@ -300,6 +315,57 @@ func (s *Service) AddJobWithOwner(name, message string, sched Schedule, sessionM
 		execScope = ExecScopeUser
 	}
 	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope)
+}
+
+// AddWorkflowJob creates a user-owned job that, on each fire, instantiates a
+// frozen workflow into a fresh goal tree instead of running a chat prompt. The
+// workflow id (and optional project) ride in the payload; the dispatcher's
+// workflow branch reads them via the wired OnWorkflow callback.
+func (s *Service) AddWorkflowJob(name, workflowID, projectID string, sched Schedule, agentID, userID string) (Job, error) {
+	if name == "" {
+		return Job{}, fmt.Errorf("name is required")
+	}
+	if workflowID == "" {
+		return Job{}, fmt.Errorf("workflow_id is required")
+	}
+	if err := validateSchedule(sched); err != nil {
+		return Job{}, err
+	}
+	if s.nameIsReservedBuiltin(name) {
+		return Job{}, fmt.Errorf("job name %q is reserved for a builtin", name)
+	}
+	payload := map[string]any{"workflow_id": workflowID}
+	if projectID != "" {
+		payload["project_id"] = projectID
+	}
+	execScope := ExecScopeSystem
+	if userID != "" {
+		execScope = ExecScopeUser
+	}
+	now := time.Now().UTC()
+	job := Job{
+		ID:           uuid.New().String()[:8],
+		OwnerKind:    JobOwnerUser,
+		ExecScope:    normalizeExecScope(execScope),
+		Name:         name,
+		Schedule:     sched,
+		Payload:      payload,
+		SessionMode:  SessionReuse,
+		DispatchKind: DispatchKindWorkflow,
+		Enabled:      true,
+		AgentID:      agentID,
+		UserID:       userID,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.addJobLocked(job); err != nil {
+		return Job{}, err
+	}
+	s.log.Info("workflow job added", "id", job.ID, "name", name, "workflow_id", workflowID, "user_id", userID)
+	return job, nil
 }
 
 func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMode, agentID string, userID string, ownerKind, execScope string) (Job, error) {
@@ -548,7 +614,8 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 
 	outputSink := &RunOutputSink{}
-	runCtx := withRunOutputSink(WithRunSessionID(ctx, sessionID), outputSink)
+	rootGoalSink := &RunRootGoalSink{}
+	runCtx := withRunRootGoalSink(withRunOutputSink(WithRunSessionID(ctx, sessionID), outputSink), rootGoalSink)
 
 	// Inject user into job copy so the callback can read job.UserID correctly.
 	jobRun := job
@@ -570,6 +637,14 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	bookkeepingCtx := context.WithoutCancel(ctx)
 	if err := s.finishJobRun(bookkeepingCtx, runID, job.ID, status, finishedAt, errStr, outputSink.get()); err != nil {
 		s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
+	}
+	if rootGoalID := rootGoalSink.get(); rootGoalID != "" {
+		if err := s.q.SetSchedJobRunRootGoal(bookkeepingCtx, sqlc.SetSchedJobRunRootGoalParams{
+			RootGoalID: pgtype.Text{String: rootGoalID, Valid: true},
+			ID:         runID,
+		}); err != nil {
+			s.log.Warn("failed to record workflow run root goal", "run_id", runID, "error", err)
+		}
 	}
 
 	s.mu.Lock()
@@ -708,13 +783,44 @@ func (s *Service) removeOneTimeJob(id string) {
 
 // dispatchJob routes a fired job to its handler-mode callback, the default
 // agent OnJob, or an orphan error; then runs every listener. Returns the
+// dispatchWorkflow runs a dispatch_kind=workflow job: it calls the workflow
+// callback (which instantiates the frozen workflow) and records the resulting
+// root goal id on the run via the context sink. An unset callback is a loud
+// misconfiguration, not a silent fall-through to chat.
+func (s *Service) dispatchWorkflow(ctx context.Context, job Job, onWorkflow OnWorkflowFunc) error {
+	if onWorkflow == nil {
+		s.log.Error("scheduler: workflow job fired with no workflow dispatcher wired", "job_id", job.ID, "name", job.Name)
+		return fmt.Errorf("scheduler: no workflow dispatcher configured for job %q", job.ID)
+	}
+	rootGoalID, err := onWorkflow(ctx, job)
+	if rootGoalID != "" {
+		RunRootGoalSinkFromContext(ctx).Set(rootGoalID)
+	}
+	return err
+}
+
 // first error seen across primary + listeners.
 func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 	s.mu.Lock()
 	handler := s.runtimeBuiltins[job.Name].Handler
 	fn := s.onJob
+	onWorkflow := s.onWorkflow
 	listeners := append([]OnJobFunc(nil), s.listeners...)
 	s.mu.Unlock()
+
+	// Workflow dispatch is its own path: instantiate the frozen workflow into a
+	// live goal tree, record its root on the run, and skip the chat/template
+	// machinery entirely (the chat OnJobFunc path below is untouched). Listeners
+	// still run so notify/inbox hooks fire on workflow runs too.
+	if job.DispatchKind == DispatchKindWorkflow {
+		runErr := s.dispatchWorkflow(ctx, job, onWorkflow)
+		for _, listener := range listeners {
+			if err := listener(ctx, job); err != nil && runErr == nil {
+				runErr = err
+			}
+		}
+		return runErr
+	}
 
 	// Subscription instances carry an empty message; resolve from the template
 	// registry at fire time so prompt improvements propagate automatically.

@@ -417,5 +417,18 @@ func (s *Service) RejectPlan(ctx context.Context, goalID, reason string, by Acto
 	return s.Goal.RejectPlan(ctx, goalID, reason, by)
 }
 
+// SnapshotFrozenPlan freezes an accepted composite's subtree into a FrozenPlan
+// (issue #594) — the workflow package's save-as path calls this.
+func (s *Service) SnapshotFrozenPlan(ctx context.Context, goalID string) (FrozenPlan, error) {
+	return s.Goal.SnapshotFrozenPlan(ctx, goalID)
+}
+
+// InstantiateFrozen materializes a frozen tree into a live goal subtree without
+// running the planner (issue #594) — the workflow package's instantiate path
+// calls this.
+func (s *Service) InstantiateFrozen(ctx context.Context, spec FrozenRootSpec, plan FrozenPlan) (sqlc.AgentGoal, error) {
+	return s.Goal.InstantiateFrozen(ctx, spec, plan)
+}
+
 // nilIfEmpty returns an invalid pgtype.Text for an empty string so a sqlc
 // narg filter matches all rows; otherwise it returns the value to filter on.

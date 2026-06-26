@@ -50,3 +50,7 @@ A goal you hand off isn't just a chat reply — it becomes a tracked **Goal** th
 The agent decomposes a composite goal into child goals and runs each to acceptance, reworking against the gaps until the acceptance contract passes. A direct (single-step) goal runs immediately; a decomposed one is planned first, then activated. Completion is **derived** from the contract — the agent never marks it done itself.
 
 Use chat for context and decisions; watch execution on the **Goals** tab of the agent. See [Goals](/docs/task-system/overview) for the full model.
+
+Once a composite goal is accepted and you expect to run the same plan again, ask the agent to **save it as a workflow** — a frozen, reusable copy of the decomposition. Re-running a workflow skips planning entirely and rebuilds the same steps straight to acceptance, and it can be put on a schedule:
+
+> Save this accepted goal as a workflow, then schedule it to run every weekday morning.

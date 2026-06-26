@@ -52,6 +52,17 @@ A composite holds child goals produced by a **decomposition** (the only way chil
 
 Decomposition is automatic: `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become ready), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
 
+## Workflows (frozen goals)
+
+A **workflow** is a frozen goal: the decomposition plan of an **accepted composite**, snapshotted so a later run skips the planner and deterministically rebuilds the same subtree. Use it for a recurring objective whose plan you already trust — re-running it costs no planning.
+
+- `stella workflow save-as <goal-id>` freezes an accepted composite you own into a workflow (records its version + plan hash). The plan is captured **verbatim**, including sibling edges.
+- `stella workflow instantiate <workflow-id>` (alias `run`) rebuilds the frozen plan into a fresh goal tree and activates it; it returns the new root goal — track it with `stella goal get <id>`. A composite node with no frozen subplan is left to the planner ("semi-frozen"); everything else is deterministic.
+- `stella workflow schedule <workflow-id> --cron/--every/--at` creates a scheduler job that instantiates a fresh run on each fire (routed to the workflow's managing agent).
+- `stella workflow list/get/update/delete` manage your workflows. `stella workflow create` authors one from a hand-written frozen plan (rare; `save-as` is the usual path).
+
+See each subcommand's `--help` for flags and JSON shapes.
+
 ## Worker: the `goal_control` contract
 
 If you see a `goal_control` tool in your toolset, you are a worker. The goal's intent and acceptance criteria arrive as your prompt. Do the work, then call `goal_control` **exactly once** with one terminal action:

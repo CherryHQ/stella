@@ -1,0 +1,113 @@
+openapi: 3.0.3
+info:
+  title: Workflow Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    Workflow:
+      type: object
+      description: >-
+        A workflow is a frozen goal: the decomposition plan of a once-accepted
+        composite, snapshotted so a later run skips the planner and materializes
+        a deterministic subtree.
+      required: [id, owner_kind, name, version, created_at, updated_at]
+      properties:
+        id: { type: string }
+        owner_kind:
+          type: string
+          description: "Ownership class: 'user' or 'system'."
+        agent_id: { type: string }
+        name: { type: string }
+        intent: { type: string }
+        version: { type: integer, format: int64 }
+        source_goal_id:
+          type: string
+          nullable: true
+          description: The accepted composite this workflow was frozen from, if any.
+        workflow_key: { type: string }
+        acceptance_contract:
+          type: object
+          additionalProperties: {}
+          description: Root acceptance contract (opaque structure).
+        convergence_policy:
+          type: object
+          additionalProperties: {}
+          description: Root convergence policy (opaque structure).
+        plan:
+          type: object
+          additionalProperties: {}
+          description: The frozen recursive plan (children + edges, nested).
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    WorkflowList:
+      type: object
+      required: [workflows]
+      properties:
+        workflows:
+          type: array
+          items: { $ref: "#/components/schemas/Workflow" }
+        total: { type: integer }
+        next_page_token: { type: string }
+
+    WorkflowCreateInput:
+      type: object
+      required: [agent_id, name, plan]
+      properties:
+        agent_id: { type: string }
+        name: { type: string }
+        intent: { type: string }
+        acceptance_contract:
+          type: object
+          additionalProperties: {}
+        convergence_policy:
+          type: object
+          additionalProperties: {}
+        plan:
+          type: object
+          additionalProperties: {}
+          description: The frozen recursive plan to freeze (children + edges, nested).
+
+    WorkflowUpdateInput:
+      type: object
+      properties:
+        name: { type: string }
+        intent: { type: string }
+
+    SaveAsWorkflowInput:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Workflow name; defaults to the source goal's title when omitted.
+
+    InstantiateWorkflowInput:
+      type: object
+      properties:
+        project_id:
+          type: string
+          description: Project to scope the instantiated goal tree to (optional).
+
+    ScheduleWorkflowInput:
+      type: object
+      description: >-
+        Schedule a workflow so the dispatcher instantiates a fresh goal tree on
+        each fire. Provide exactly one of cron, every, or at.
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Scheduler job name.
+        cron:
+          type: string
+          description: Cron expression (mutually exclusive with every/at).
+        every:
+          type: string
+          description: Go duration, e.g. '12h' (mutually exclusive with cron/at).
+        at:
+          type: string
+          description: RFC3339 one-time timestamp (mutually exclusive with cron/every).
+        project_id:
+          type: string
+          description: Project to scope each instantiated goal tree to (optional).

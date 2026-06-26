@@ -32,6 +32,7 @@ import (
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tools"
 	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -72,6 +73,7 @@ type setupResult struct {
 	poolManager              *agent.PoolManager
 	schedulerSvc             *scheduler.Service
 	goalSvc                  *goal.Service
+	workflowSvc              *workflow.Service
 	embeddingSvc             *embedding.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []pkgtools.Tool
@@ -243,6 +245,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
+	workflowSvc := workflow.New(goalSvc.Queries, goalSvc)
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
@@ -296,6 +299,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		poolManager:              poolMgr,
 		schedulerSvc:             schedulerSvc,
 		goalSvc:                  goalSvc,
+		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
@@ -385,9 +389,29 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	return client, nil
 }
 
-func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher) {
+func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher, workflowSvc *workflow.Service) {
 	if svc == nil {
 		return
+	}
+	if workflowSvc != nil {
+		// dispatch_kind=workflow: instantiate the frozen workflow named by the
+		// job's payload into a live goal tree, owned by the job's user. The first
+		// acceptance closure for scheduled tasks (issue #594).
+		svc.SetOnWorkflow(func(ctx context.Context, job scheduler.Job) (string, error) {
+			workflowID, _ := job.Payload["workflow_id"].(string)
+			if workflowID == "" {
+				return "", fmt.Errorf("scheduler: workflow job %s has no payload.workflow_id", job.ID)
+			}
+			if job.UserID == "" {
+				return "", fmt.Errorf("scheduler: workflow job %s has no user owner", job.ID)
+			}
+			projectID, _ := job.Payload["project_id"].(string)
+			root, err := workflowSvc.Instantiate(ctx, job.UserID, workflowID, projectID)
+			if err != nil {
+				return "", fmt.Errorf("instantiate workflow %s: %w", workflowID, err)
+			}
+			return root.ID, nil
+		})
 	}
 	svc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
 		if job.OwnerKind == scheduler.JobOwnerPlugin {

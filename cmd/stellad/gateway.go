@@ -163,6 +163,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if s.goalSvc != nil {
 		adminSrv.SetGoalService(s.goalSvc)
 	}
+	if s.workflowSvc != nil {
+		adminSrv.SetWorkflowService(s.workflowSvc)
+	}
 
 	// Wire the shared credentials service: inject invalidator so token
 	// refresh propagates to running pools.
@@ -314,7 +317,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// client but do not start or stop it.
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
-		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
+		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier, s.workflowSvc)
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}

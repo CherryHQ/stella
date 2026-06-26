@@ -8,6 +8,12 @@ UPDATE sched_job_run
 SET status = $1, finished_at = $2, error = $3, output = $4
 WHERE id = $5 AND job_id = $6;
 
+-- name: SetSchedJobRunRootGoal :exec
+-- Link a workflow-dispatch run to the goal tree it instantiated.
+UPDATE sched_job_run
+SET root_goal_id = sqlc.arg(root_goal_id)
+WHERE id = sqlc.arg(id);
+
 -- name: ListSchedJobRuns :many
 SELECT * FROM sched_job_run
 WHERE job_id = sqlc.arg('job_id')
