@@ -10,11 +10,16 @@ import (
 // the single source of truth for plugin defaults; overrides live in the
 // plugin_override DB table.
 func LoadBuiltin() (*Manifest, error) {
-	rm, err := parseRawYAML(resources.BuiltinPluginsYAML())
+	oauth, err := parseRawYAML(resources.BuiltinOAuthYAML())
 	if err != nil {
 		return nil, err
 	}
-	return rawToManifest(rm), nil
+	tools, err := parseRawYAML(resources.BuiltinToolsYAML())
+	if err != nil {
+		return nil, err
+	}
+	oauth.Plugins = tools.Plugins
+	return rawToManifest(oauth), nil
 }
 
 func parseRawYAML(data []byte) (rawManifest, error) {

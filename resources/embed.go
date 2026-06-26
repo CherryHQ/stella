@@ -11,11 +11,26 @@ import (
 //go:embed all:skills all:souls all:delegates all:templates
 var fsys embed.FS
 
-//go:embed plugins.yaml
-var builtinPluginsYAML []byte
+//go:embed oauth.yaml
+var builtinOAuthYAML []byte
 
-// BuiltinPluginsYAML returns the raw bytes of the builtin plugin manifest.
-func BuiltinPluginsYAML() []byte { return builtinPluginsYAML }
+//go:embed tools.yaml
+var builtinToolsYAML []byte
+
+// BuiltinOAuthYAML returns the raw bytes of the builtin OAuth provider manifest.
+func BuiltinOAuthYAML() []byte { return builtinOAuthYAML }
+
+// BuiltinToolsYAML returns the raw bytes of the builtin tool plugin manifest.
+func BuiltinToolsYAML() []byte { return builtinToolsYAML }
+
+// BuiltinPluginsYAML returns the legacy combined builtin plugin manifest.
+func BuiltinPluginsYAML() []byte {
+	out := make([]byte, 0, len(builtinOAuthYAML)+1+len(builtinToolsYAML))
+	out = append(out, builtinOAuthYAML...)
+	out = append(out, '\n')
+	out = append(out, builtinToolsYAML...)
+	return out
+}
 
 // FS returns the full embedded filesystem rooted at the package directory.
 // Prefer SubFS for kind-scoped access.

@@ -44,16 +44,87 @@ tap browser screenshot [--output <path>]
 tap browser pdf [--output <path>]
 tap browser snapshot [--interactive] [-f json]
 tap browser click <selector|@eN>
+tap browser dblclick <selector|@eN>
 tap browser type <selector|@eN> <text>
 tap browser fill <selector|@eN> <value> [<selector|@eN> <value> ...] [--submit <selector|@eN>]
 tap browser hover <selector>
+tap browser focus <selector|@eN>
+tap browser check <selector|@eN>
+tap browser uncheck <selector|@eN>
 tap browser scroll [selector]
+tap browser scrollintoview <selector|@eN>
 tap browser select <selector|@eN> <value>
-tap browser wait <selector>
+tap browser upload <selector> <file> [file...]
+tap browser drag <src-selector> <dst-selector>
+tap browser wait <selector|duration> [--state visible|hidden|attached|detached]
+tap browser wait --text <substring> | --url <glob> | --load load|domcontentloaded|networkidle | --fn <js>
 tap browser keypress <key>
+tap browser keydown <key>
+tap browser keyup <key>
+tap browser keyboard type <text>
+tap browser keyboard insert <text>
+tap browser mouse move <x> <y>
+tap browser mouse down|up [left|right|middle]
+tap browser mouse wheel <dy> [dx]
 tap browser dialog
 tap browser forms
 tap browser cookies get|set|clear
+```
+
+### Queries
+
+```bash
+tap browser get text|html|value|title|url <selector|@eN>
+tap browser get attr <selector|@eN> <attr>
+tap browser get count <selector>           # CSS selector only
+tap browser get box <selector|@eN>         # JSON {x,y,width,height}
+tap browser get styles <selector|@eN>      # JSON computed-style map
+
+tap browser is visible|enabled|checked <selector|@eN>  # prints true/false, exits 0
+```
+
+### Semantic locators
+
+```bash
+tap browser find role <role> <action> [value] [--name <accessible-name>]
+tap browser find text <text> <action> [value] [--exact]
+tap browser find label|placeholder|alt|title|testid <query> <action> [value]
+tap browser find first|last <css-selector> <action> [value]
+tap browser find nth <n> <css-selector> <action> [value]   # 1-based
+```
+
+Actions: `click`, `fill <value>`, `type <value>`, `hover`, `focus`, `check`, `uncheck`, `text`.
+
+### Web storage
+
+```bash
+tap browser storage local                  # dump all localStorage as JSON
+tap browser storage local <key>            # get one value
+tap browser storage local set <k> <v>      # set entry
+tap browser storage local clear            # clear all
+tap browser storage session [...]          # same forms for sessionStorage
+```
+
+### Auth state
+
+```bash
+tap browser state save <path>   # export cookies + current-origin localStorage (0600)
+tap browser state load <path>   # import; cookies applied globally, localStorage only for current origin
+```
+
+### Emulation (`set`)
+
+Settings are persisted per tab and re-applied automatically on every browser command.
+
+```bash
+tap browser set viewport <w> <h> [scale]
+tap browser set device "<name>"             # e.g. "iPhone 14", "Pixel 5"
+tap browser set geo <lat> <lng>
+tap browser set offline on|off
+tap browser set headers '<json>'            # e.g. '{"Authorization":"Bearer tok"}'
+tap browser set media dark|light
+tap browser set useragent "<ua>"
+tap browser set clear                       # remove all persisted overrides
 ```
 
 ## Common workflows
