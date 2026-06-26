@@ -16,11 +16,12 @@ import (
 // model/key/dimension in the web settings page takes effect without a restart.
 // When disabled (the default for a fresh deployment) the query embedder reports
 // no vector space and the backfill worker idles, keeping pure-BM25 behavior.
-func setupEmbedding(db *pgxpool.Pool, store config.Store, logger *slog.Logger) *embedding.Service {
+func setupEmbedding(db *pgxpool.Pool, store config.Store, localEmbedder embedding.LocalEmbedder, logger *slog.Logger) *embedding.Service {
 	return embedding.Boot(embedding.BootConfig{
-		DB:       db,
-		Settings: embeddingSettingsProvider{store: store},
-		Logger:   logger,
+		DB:            db,
+		Settings:      embeddingSettingsProvider{store: store},
+		LocalEmbedder: localEmbedder,
+		Logger:        logger,
 	})
 }
 

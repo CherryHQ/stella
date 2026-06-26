@@ -150,11 +150,16 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		})
 	}
 
+	// Native ML sidecar (local OCR/embedding). Resolved here so its local embedder
+	// can be injected into the embedding lane; started below once the background
+	// task group exists. nil when no runtime is installed (feature stays disabled).
+	mlSupervisor, mlLocalEmbed := setupMLSidecar(config.StellaHome(), slog.With("component", "ml"))
+
 	// Semantic-search lane (config-driven via the web settings page). Always built:
 	// it reads its config from the DB at runtime and idles when disabled. Built
 	// before the memory provider so its query embedder can be injected, and before
 	// the shared River client so its backfill worker joins the single electable client.
-	embeddingSvc := setupEmbedding(db, store, slog.With("component", "embedding"))
+	embeddingSvc := setupEmbedding(db, store, mlLocalEmbed, slog.With("component", "embedding"))
 
 	memProvider, err := setupMemoryProvider(parent, db, store, providerStreamBuilder, embeddingSvc)
 	if err != nil {
@@ -283,6 +288,13 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	backgroundTasks := &sync.WaitGroup{}
 	if ps.manifestToReconcile != nil {
 		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
+	}
+	if mlSupervisor != nil {
+		// The supervisor manages the sidecar for the app's lifetime and reaps it on
+		// parent cancel (shutdown waits on backgroundTasks).
+		backgroundTasks.Go(func() {
+			_ = mlSupervisor.Run(parent)
+		})
 	}
 
 	result := &setupResult{
