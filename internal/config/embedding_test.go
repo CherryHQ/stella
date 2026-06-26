@@ -28,11 +28,14 @@ func TestLoadEmbeddingSettings_DefaultsWhenUnset(t *testing.T) {
 	if got.Model != DefaultEmbeddingModel || got.Dim != DefaultEmbeddingDim {
 		t.Errorf("defaults not applied: %+v", got)
 	}
+	if got.Provider != EmbeddingProviderAPI {
+		t.Errorf("unset provider must default to api (backward compat), got %q", got.Provider)
+	}
 }
 
 func TestEmbeddingSettings_RoundTrip(t *testing.T) {
 	st := &fakeSettingStore{m: map[string]string{}}
-	want := EmbeddingSettings{Enabled: true, Model: "m", Dim: 512, APIKey: "sk-x", BaseURL: "https://x", Normalize: true}
+	want := EmbeddingSettings{Enabled: true, Provider: EmbeddingProviderLocal, Model: "m", Dim: 512, APIKey: "sk-x", BaseURL: "https://x", Normalize: true}
 	if err := SaveEmbeddingSettings(context.Background(), st, want); err != nil {
 		t.Fatalf("save: %v", err)
 	}

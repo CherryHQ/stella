@@ -19,6 +19,14 @@ const (
 	DefaultEmbeddingDim   = 1536
 )
 
+// Embedding providers. "api" is a remote OpenAI-compatible endpoint (the default,
+// preserving the original behavior); "local" runs the built-in multilingual-e5
+// model in the ML sidecar with no API key and no network egress.
+const (
+	EmbeddingProviderAPI   = "api"
+	EmbeddingProviderLocal = "local"
+)
+
 // SettingStore is the slice of Store the embedding helpers need: the key-value
 // setting accessors. Narrowing the dependency keeps the helpers testable with a
 // trivial fake instead of the full Store; config.Store satisfies it.
@@ -32,7 +40,11 @@ type SettingStore interface {
 // is opt-in: with Enabled false (the default) search stays pure-BM25. APIKey is
 // stored as-is, consistent with how provider credentials are stored.
 type EmbeddingSettings struct {
-	Enabled   bool   `json:"enabled"`
+	Enabled bool `json:"enabled"`
+	// Provider selects the embedding backend: "api" (default) or "local". A local
+	// deployment needs no APIKey; the enable-gate is decoupled from the key so an
+	// offline, key-less setup can still run the lane.
+	Provider  string `json:"provider"`
 	Model     string `json:"model"`
 	Dim       int    `json:"dim"`
 	APIKey    string `json:"api_key"`
@@ -53,6 +65,9 @@ func LoadEmbeddingSettings(ctx context.Context, store SettingStore) (EmbeddingSe
 		if err := json.Unmarshal([]byte(raw), &s); err != nil {
 			return EmbeddingSettings{}, fmt.Errorf("parse embedding settings: %w", err)
 		}
+	}
+	if s.Provider == "" {
+		s.Provider = EmbeddingProviderAPI // backward compat: pre-Provider configs are API
 	}
 	if s.Model == "" {
 		s.Model = DefaultEmbeddingModel

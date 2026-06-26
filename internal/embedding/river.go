@@ -37,15 +37,24 @@ const (
 // SetRiverClient call (a composition-root wiring bug, not a runtime condition).
 var errNoRiverClient = errors.New("embedding: StartBackfill before SetRiverClient")
 
-// ErrDisabled is returned by resolve when the lane is turned off or unconfigured
-// (no API key). It is a control signal, not a failure: query and backfill paths
-// treat it as "no semantic lane", not as an error to surface or retry.
+// ErrDisabled is returned by resolve when the lane is turned off or its selected
+// provider is not usable (API provider without a key, or local provider without an
+// available ML sidecar). It is a control signal, not a failure: query and backfill
+// paths treat it as "no semantic lane", not as an error to surface or retry.
 var ErrDisabled = errors.New("embedding: lane disabled")
+
+// Provider ids, kept in sync with config.EmbeddingProvider* (the embedding package
+// stays free of a config dependency).
+const (
+	providerAPI   = "api"
+	providerLocal = "local"
+)
 
 // Settings is the runtime embedding configuration the Service reads on every query
 // and backfill pass, so changes made in the UI take effect without a restart.
 type Settings struct {
 	Enabled   bool
+	Provider  string // "api" (default) | "local"
 	Model     string // model id sent to the API
 	Dim       int    // requested output dimension (0 = model native)
 	APIKey    string
@@ -75,6 +84,10 @@ type Service struct {
 	interval  time.Duration
 	logger    *slog.Logger
 
+	// localEmbedder backs the "local" provider. It is nil when no ML sidecar is
+	// available, in which case selecting the local provider disables the lane.
+	localEmbedder LocalEmbedder
+
 	river *river.Client[pgx.Tx]
 
 	// mu guards the cached build so concurrent queries reuse one chain and a config
@@ -95,11 +108,12 @@ type resolved struct {
 
 // BootConfig is the wiring the composition root supplies to build the lane.
 type BootConfig struct {
-	DB        *pgxpool.Pool
-	Settings  SettingsProvider // live config source (DB-backed)
-	BatchSize int              // indexer batch size (0 => defaultBatchSize)
-	Interval  time.Duration    // backfill tick (0 => defaultInterval)
-	Logger    *slog.Logger
+	DB            *pgxpool.Pool
+	Settings      SettingsProvider // live config source (DB-backed)
+	LocalEmbedder LocalEmbedder    // backs the "local" provider; nil if no ML sidecar
+	BatchSize     int              // indexer batch size (0 => defaultBatchSize)
+	Interval      time.Duration    // backfill tick (0 => defaultInterval)
+	Logger        *slog.Logger
 }
 
 // Boot constructs the always-present embedding lane. The backfill periodic is not
@@ -119,44 +133,76 @@ func Boot(cfg BootConfig) *Service {
 		batchSize = defaultBatchSize
 	}
 	return &Service{
-		settings:  cfg.Settings,
-		q:         sqlc.New(cfg.DB),
-		batchSize: batchSize,
-		interval:  interval,
-		logger:    logger,
+		settings:      cfg.Settings,
+		q:             sqlc.New(cfg.DB),
+		batchSize:     batchSize,
+		interval:      interval,
+		logger:        logger,
+		localEmbedder: cfg.LocalEmbedder,
 	}
 }
 
 // resolve returns the chain + indexer for the current configuration, building (or
-// rebuilding on change) under the lock. ErrDisabled when the lane is off or has no
-// API key.
+// rebuilding on change) under the lock. ErrDisabled when the lane is off or its
+// selected provider is unusable (API without a key, or local without a sidecar).
+//
+// The canonical space follows the selected provider: API uses the model@dim key,
+// local uses the e5-small key. Whichever provider is primary, the indexer writes
+// and the query lane filters on that one space, so the corpus is never fragmented
+// across spaces (the indexer rejects any vector in a different space).
 func (s *Service) resolve(ctx context.Context) (*resolved, error) {
 	cfg, err := s.settings.EmbeddingSettings(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load embedding settings: %w", err)
 	}
-	if !cfg.Enabled || cfg.APIKey == "" {
+	if !cfg.Enabled {
 		return nil, ErrDisabled
 	}
+	provider := cfg.Provider
+	if provider == "" {
+		provider = providerAPI
+	}
 
-	api := APIConfig{Model: cfg.Model, Dim: cfg.Dim, APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
-	// Fingerprint detects config changes that require rebuilding the chain. Hash it
-	// rather than keep the tuple verbatim so the plaintext API key does not linger
-	// in a long-lived in-memory string (heap dumps, panics). The key stays in the
-	// hash input: rotating it must still change the fingerprint and force a rebuild.
-	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%d\x00%s\x00%s\x00%t", cfg.Model, cfg.Dim, cfg.APIKey, cfg.BaseURL, cfg.Normalize))
-	fp := hex.EncodeToString(sum[:])
+	var (
+		space string
+		chain *Chain
+		fp    string
+	)
+	switch provider {
+	case providerLocal:
+		// Local is decoupled from APIKey: a key-less offline deployment runs here.
+		// Without a wired sidecar the lane simply stays disabled.
+		if s.localEmbedder == nil {
+			return nil, ErrDisabled
+		}
+		space = LocalModelID
+		chain = NewChain([]Provider{NewLocalProvider(s.localEmbedder)}, BreakerConfig{}, nil)
+		sum := sha256.Sum256(fmt.Appendf(nil, "local\x00%s\x00%t", space, cfg.Normalize))
+		fp = hex.EncodeToString(sum[:])
+
+	case providerAPI:
+		if cfg.APIKey == "" {
+			return nil, ErrDisabled
+		}
+		api := APIConfig{Model: cfg.Model, Dim: cfg.Dim, APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
+		space = api.SpaceKey()
+		chain = NewChain([]Provider{NewAPIProvider(api)}, BreakerConfig{}, nil)
+		// Fingerprint detects config changes that require rebuilding the chain. Hash
+		// it rather than keep the tuple verbatim so the plaintext API key does not
+		// linger in a long-lived in-memory string (heap dumps, panics). The key stays
+		// in the hash input: rotating it must still change the fingerprint and rebuild.
+		sum := sha256.Sum256(fmt.Appendf(nil, "api\x00%s\x00%d\x00%s\x00%s\x00%t", cfg.Model, cfg.Dim, cfg.APIKey, cfg.BaseURL, cfg.Normalize))
+		fp = hex.EncodeToString(sum[:])
+
+	default:
+		return nil, fmt.Errorf("embedding: unknown provider %q", provider)
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cached != nil && s.cached.fingerprint == fp {
 		return s.cached, nil
 	}
-	// space is the vector-space key (model id + requested dim): the indexer writes
-	// it and the query lane filters on it, so both stay aligned with what the chain
-	// stamps onto Result.Model (the provider's Model()).
-	space := api.SpaceKey()
-	chain := NewChain([]Provider{NewAPIProvider(api)}, BreakerConfig{}, nil)
 	r := &resolved{
 		fingerprint: fp,
 		space:       space,
