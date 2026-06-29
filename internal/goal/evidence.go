@@ -19,6 +19,11 @@ type AttemptInput struct {
 	Contract        AcceptanceContract `json:"contract"`                   // the bar the attempt must clear
 	ResolvedVerdict string             `json:"resolved_verdict,omitempty"` // a human answer that unblocked needs_verdict
 	AttemptNo       int                `json:"attempt_no"`
+	// MaxDepth is the root's recursion ceiling, frozen here so a decomposition
+	// attempt can validate its proposed plan in-turn (against parentDepth =
+	// goal.Depth) instead of only out-of-turn at SubmitDecomposition. Zero for
+	// non-decomposition attempts, which never decompose.
+	MaxDepth int `json:"max_depth,omitempty"`
 }
 
 // Evaluation carries the shortfalls from one acceptance fold; it feeds the next

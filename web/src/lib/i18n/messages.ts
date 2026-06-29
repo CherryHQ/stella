@@ -897,6 +897,21 @@ const en = {
   "goals.outputResult": "Result",
   "goals.outputArtifacts": "Artifacts",
 
+  // Goals — common agent-authored output field labels (humanized fallback for unknown keys)
+  "goals.fieldReport": "Report",
+  "goals.fieldMaterial": "Material",
+  "goals.fieldResult": "Result",
+  "goals.fieldSummary": "Summary",
+  "goals.fieldAnalysis": "Analysis",
+  "goals.fieldConclusion": "Conclusion",
+  "goals.fieldRecommendation": "Recommendation",
+  "goals.fieldFindings": "Findings",
+  "goals.fieldContent": "Content",
+  "goals.fieldNotes": "Notes",
+  "goals.fieldPlan": "Plan",
+  "goals.fieldData": "Data",
+  "goals.fieldDetails": "Details",
+
   // Goals — new (create form)
   "goals.new": "New goal",
   "goals.newTitle": "Title",
@@ -2560,6 +2575,21 @@ const zh: Record<MessageKey, string> = {
   "goals.outputHash": "哈希",
   "goals.outputResult": "结果",
   "goals.outputArtifacts": "产物文件",
+
+  // Goals — common agent-authored output field labels (humanized fallback for unknown keys)
+  "goals.fieldReport": "报告",
+  "goals.fieldMaterial": "材料",
+  "goals.fieldResult": "结果",
+  "goals.fieldSummary": "摘要",
+  "goals.fieldAnalysis": "分析",
+  "goals.fieldConclusion": "结论",
+  "goals.fieldRecommendation": "建议",
+  "goals.fieldFindings": "发现",
+  "goals.fieldContent": "内容",
+  "goals.fieldNotes": "备注",
+  "goals.fieldPlan": "计划",
+  "goals.fieldData": "数据",
+  "goals.fieldDetails": "详情",
 
   // Goals — new (create form)
   "goals.new": "新建目标",

@@ -1219,9 +1219,29 @@ function AcceptedOutputView({ output }: { output: Record<string, unknown> }) {
   );
 }
 
-// Payload keys are agent-authored data fields (`test_items`, `name`), not UI
-// strings, so they can't go through i18n. Humanize them for display:
-// snake/kebab-case to spaced, first letter capitalized.
+// Payload keys are agent-authored data fields. Common deliverable field names
+// get a localized label; everything else humanizes the raw key (snake/kebab to
+// spaced, capitalized) since arbitrary agent keys can't all go through i18n.
+const FIELD_LABEL_KEY: Record<string, MessageKey> = {
+  report: "goals.fieldReport",
+  material: "goals.fieldMaterial",
+  materials: "goals.fieldMaterial",
+  result: "goals.fieldResult",
+  results: "goals.fieldResult",
+  summary: "goals.fieldSummary",
+  analysis: "goals.fieldAnalysis",
+  conclusion: "goals.fieldConclusion",
+  conclusions: "goals.fieldConclusion",
+  recommendation: "goals.fieldRecommendation",
+  recommendations: "goals.fieldRecommendation",
+  findings: "goals.fieldFindings",
+  content: "goals.fieldContent",
+  notes: "goals.fieldNotes",
+  plan: "goals.fieldPlan",
+  data: "goals.fieldData",
+  details: "goals.fieldDetails",
+};
+
 function humanizeKey(key: string) {
   const s = key.replace(/[_-]+/g, " ").trim();
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -1230,6 +1250,7 @@ function humanizeKey(key: string) {
 // JsonView renders arbitrary JSON as readable structure: objects as labelled
 // rows, arrays as stacked cards, primitives as plain text — no raw dump.
 function JsonView({ value }: { value: unknown }) {
+  const { t } = useI18n();
   if (value === null || value === undefined) {
     return <span className="text-muted-foreground">—</span>;
   }
@@ -1253,7 +1274,9 @@ function JsonView({ value }: { value: unknown }) {
         {entries.map(([k, v]) => (
           <div key={k} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
             <dt className="shrink-0 text-[11.5px] font-medium text-muted-foreground sm:w-36">
-              {humanizeKey(k)}
+              {FIELD_LABEL_KEY[k.toLowerCase()]
+                ? t(FIELD_LABEL_KEY[k.toLowerCase()])
+                : humanizeKey(k)}
             </dt>
             <dd className="min-w-0 flex-1 text-[12.5px] text-foreground">
               <JsonView value={v} />
@@ -1263,11 +1286,16 @@ function JsonView({ value }: { value: unknown }) {
       </dl>
     );
   }
-  return (
-    <span className="break-words text-[12.5px] text-foreground">
-      {typeof value === "string" ? value : JSON.stringify(value)}
-    </span>
-  );
+  if (typeof value === "string") {
+    // Agent prose (reports, analyses) arrives as one string with newlines and
+    // markdown; render it as markdown so headings/tables/lists are readable
+    // instead of a raw wall of text. Short single-line values stay plain.
+    if (value.includes("\n")) {
+      return <MarkdownPreview content={value} className="text-[12.5px]" />;
+    }
+    return <span className="break-words text-[12.5px] text-foreground">{value}</span>;
+  }
+  return <span className="break-words text-[12.5px] text-foreground">{JSON.stringify(value)}</span>;
 }
 
 // ── Shared ───────────────────────────────────────────────────────────
