@@ -140,7 +140,7 @@ func TestReview_BudgetDegradesToHuman(t *testing.T) {
 	h.runLeaf(d.ID)
 
 	// Burn the review budget: each attempt fails and leaves the goal blocked.
-	for i := 0; i < defaultMaxReviewAttempts; i++ {
+	for i := range defaultMaxReviewAttempts {
 		h.runReview(d.ID)
 		if got := h.get(d.ID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockNeedsVerdict {
 			t.Fatalf("after failed review %d lifecycle=%q reason=%q want still blocked/needs_verdict", i, got.Lifecycle, got.BlockReason)
@@ -181,6 +181,28 @@ func TestReview_HumanOnlyNotReviewed(t *testing.T) {
 	}
 	if _, err := h.svc.BeginReview(context.Background(), d.ID, nil); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("BeginReview on human-only contract err=%v want ErrInvalidTransition", err)
+	}
+}
+
+// TestReview_SkipsWhenInFlight proves the dispatcher does not re-mint while a
+// review attempt is already queued/running. The goal stays blocked(needs_verdict)
+// across the review, so scanAndReview lists it every tick; without the in-flight
+// guard each tick would mint a throwaway session and collide on
+// uniq_agent_goal_active_attempt. A second BeginReview must be a no-op.
+func TestReview_SkipsWhenInFlight(t *testing.T) {
+	h := newHarness(t)
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "lgtm"))
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+	h.runLeaf(d.ID)
+
+	// First BeginReview mints a queued review attempt (no worker run yet).
+	if _, err := h.svc.BeginReview(context.Background(), d.ID, nil); err != nil {
+		t.Fatalf("first BeginReview: %v", err)
+	}
+	// Second BeginReview sees the in-flight attempt and is a no-op.
+	if _, err := h.svc.BeginReview(context.Background(), d.ID, nil); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("second BeginReview err=%v want ErrInvalidTransition", err)
 	}
 }
 

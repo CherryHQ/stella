@@ -136,6 +136,17 @@ func (s *GoalService) pendingReviewWork(ctx context.Context, q *sqlc.Queries, d 
 	if len(contract.AgentJudgmentItems()) == 0 {
 		return nil, "", AttemptOutput{}, false // no agent items: a human verdict path
 	}
+	// Skip if a review attempt is already in flight. The goal STAYS
+	// blocked(needs_verdict) while the reviewer runs, so scanAndReview keeps
+	// listing it every tick; without this guard each tick would mint a fresh
+	// review session and only then collide on uniq_agent_goal_active_attempt,
+	// leaking a session per tick and spamming the log. One in-flight review per
+	// goal is enough -- its verdict folds the goal out of needs_verdict.
+	if _, err := q.GetActiveAttempt(ctx, sqlc.GetActiveAttemptParams{GoalID: d.ID, Purpose: PurposeReview}); err == nil {
+		return nil, "", AttemptOutput{}, false
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, "", AttemptOutput{}, false
+	}
 	execID, execOut := s.evaluatedAttempt(ctx, q, d)
 	events, err := q.ListAcceptanceEventByGoal(ctx, d.ID)
 	if err != nil {
