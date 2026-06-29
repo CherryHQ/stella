@@ -165,7 +165,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	memProvider = wrapMemoryWithTracing(memProvider, &poolMgr)
 
 	builtinTools := []pkgtools.Tool{
-		memory.BuildTool(memProvider),
+		memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites()),
 	}
 	if notifyTool := tools.NewNotifyTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, notifyTool)

@@ -241,7 +241,7 @@ The hard rules:
 - **No automatic private profile injection.** `## Current Speaker` exposes the display name and linked/unlinked status only. It does not include the speaker's profile blob, dated entries, soul, or constraints: a public room is not the place to disclose one member's private memory or apply their hard rules to the whole group.
 - **Resolution by hard facts.** Platform senders resolve through channel identity lookup (linked → auth user id, unlinked → empty UserID → name only). Web senders trust the authenticated `actor_id` as the speaker only for a genuine human actor, failing closed otherwise.
 
-The `memory` tool mirrors this in group turns: with no session user, `profile_get` / `profile_update` fall back to the current speaker only when the model explicitly calls the tool. `soul_*`, `constraint_*`, and `profile_history` / `profile_rollback` stay strict and fail closed.
+The `memory` tool mirrors this in group turns: with no session user, ordinary chat can only use read-only `profile_get` to fall back to the current speaker when the model explicitly calls the tool. `profile_update` exists only for explicitly write-enabled internal tools. `soul_*`, `constraint_*`, and `profile_history` / `profile_rollback` stay strict and fail closed.
 
 ## Implementation order
 

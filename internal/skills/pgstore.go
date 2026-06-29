@@ -360,8 +360,8 @@ func (s *PGStore) DeleteSystemSkill(ctx context.Context, id string) error {
 	return nil
 }
 
-// ExpireDrafts deprecates all draft skills (disable_model_invocation=0) whose
-// created-at metadata timestamp is before the given cutoff.
+// ExpireDrafts deprecates draft skills whose created-at metadata timestamp is
+// before the given cutoff. Knowledge facts are managed outside the skills table.
 func (s *PGStore) ExpireDrafts(ctx context.Context, before time.Time) error {
 	if err := s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339)); err != nil {
 		return fmt.Errorf("skills: expire drafts: %w", err)
@@ -369,75 +369,8 @@ func (s *PGStore) ExpireDrafts(ctx context.Context, before time.Time) error {
 	return nil
 }
 
-// ListKnowledge returns active knowledge entries for the given view context.
-// Pass knowledge types to filter; no types means all.
-func (s *PGStore) ListKnowledge(ctx context.Context, vc ViewContext, types ...KnowledgeType) ([]KnowledgeEntry, error) {
-	typeFilter := ""
-	if len(types) == 1 {
-		typeFilter = string(types[0])
-	}
-	rows, err := s.q.ListActiveKnowledgeByType(ctx, sqlc.ListActiveKnowledgeByTypeParams{
-		AgentID:       pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:        pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""},
-		KnowledgeType: typeFilter,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("skills: list knowledge: %w", err)
-	}
-	entries := make([]KnowledgeEntry, 0, len(rows))
-	for _, row := range rows {
-		content, _ := s.LoadFile(ctx, row.ID, MainFile)
-		entries = append(entries, KnowledgeEntry{
-			ID:            row.ID,
-			Name:          row.Name,
-			Description:   row.Description,
-			Content:       content,
-			KnowledgeType: knowledgeTypeFromMetadata(row.Metadata),
-			Status:        row.Status,
-			CreatedAt:     row.CreatedAt.UTC(),
-			UpdatedAt:     row.UpdatedAt.UTC(),
-		})
-	}
-	return entries, nil
-}
-
-// ExpireKnowledgeDraftsByType deprecates draft knowledge entries of the given type
-// whose created-at timestamp is before the cutoff.
-func (s *PGStore) ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType KnowledgeType, before time.Time) error {
-	if err := s.q.ExpireKnowledgeDraftsByType(ctx, sqlc.ExpireKnowledgeDraftsByTypeParams{
-		KnowledgeType: string(knowledgeType),
-		Cutoff:        before.UTC().Format(time.RFC3339),
-	}); err != nil {
-		return fmt.Errorf("skills: expire knowledge drafts by type %q: %w", knowledgeType, err)
-	}
-	return nil
-}
-
-// knowledgeTypeFromMetadata extracts the knowledge_type field from metadata JSON.
-func knowledgeTypeFromMetadata(raw json.RawMessage) KnowledgeType {
-	if len(raw) == 0 {
-		return KnowledgeTypeSkill
-	}
-	var meta map[string]any
-	if json.Unmarshal(raw, &meta) != nil {
-		return KnowledgeTypeSkill
-	}
-	kt, _ := meta["knowledge_type"].(string)
-	switch KnowledgeType(kt) {
-	case KnowledgeTypeFact:
-		return KnowledgeTypeFact
-	case KnowledgeTypeContext:
-		return KnowledgeTypeContext
-	default:
-		return KnowledgeTypeSkill
-	}
-}
-
 // Compile-time assertions.
-var (
-	_ Store          = (*PGStore)(nil)
-	_ KnowledgeStore = (*PGStore)(nil)
-)
+var _ Store = (*PGStore)(nil)
 
 // mapRow converts a sqlc Skill to the domain Skill type.
 func mapRow(r sqlc.Skill) Skill {

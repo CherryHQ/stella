@@ -351,18 +351,17 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 		sections := pm.promptSections(ctx, snap, info, userRoot)
 
 		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt:      snap.SystemPrompt,
-			AgentSoul:         snap.Soul,
-			Memory:            pm.mem,
-			UserID:            promptUserID,
-			AgentID:           info.AgentID,
-			GroupID:           groupID,
-			StellaHome:        config.StellaHome(),
-			AgentRoot:         snap.Workspace,
-			UserRoot:          userRoot,
-			Sections:          sections,
-			SnapshotVersion:   ss.Version,
-			SnapshotUpdatedAt: ss.UpdatedAt,
+			SystemPrompt:    snap.SystemPrompt,
+			AgentSoul:       snap.Soul,
+			Memory:          pm.mem,
+			UserID:          promptUserID,
+			AgentID:         info.AgentID,
+			GroupID:         groupID,
+			StellaHome:      config.StellaHome(),
+			AgentRoot:       snap.Workspace,
+			UserRoot:        userRoot,
+			Sections:        sections,
+			SnapshotVersion: ss.Version,
 		})
 	}
 }

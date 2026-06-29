@@ -50,6 +50,8 @@ type Fake struct {
 	constraints map[string][]memory.ConstraintEntry
 	// profileEntries maps "userID:agentID" -> []ProfileEntry.
 	profileEntries map[string][]memory.ProfileEntry
+	// facts maps "userID:agentID" -> []Fact.
+	facts map[string][]memory.Fact
 	// groupMemory maps groupID -> content.
 	groupMemory map[string]string
 	// summaries maps summary ID -> FakeSummary.
@@ -74,6 +76,7 @@ func New() *Fake {
 		souls:          make(map[string]string),
 		constraints:    make(map[string][]memory.ConstraintEntry),
 		profileEntries: make(map[string][]memory.ProfileEntry),
+		facts:          make(map[string][]memory.Fact),
 		groupMemory:    make(map[string]string),
 		summaries:      make(map[string]FakeSummary),
 		sessionInfos:   make(map[string]fakeSessionInfo),
@@ -99,6 +102,8 @@ var (
 	_ memory.SessionSnapshotStore     = (*Fake)(nil)
 	_ memory.ProfileEntryStore        = (*Fake)(nil)
 	_ memory.GroupMemoryStore         = (*Fake)(nil)
+	_ memory.FactStore                = (*Fake)(nil)
+	_ memory.VersionedFactStore       = (*Fake)(nil)
 )
 
 // ---------------------------------------------------------------------------
@@ -333,6 +338,50 @@ func (f *Fake) SetAgentSoul(_ context.Context, userID string, agentID string, co
 	defer f.mu.Unlock()
 	f.souls[profileKey(userID, agentID)] = content
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// FactStore
+// ---------------------------------------------------------------------------
+
+// ListActiveFacts implements memory.FactStore.
+func (f *Fake) ListActiveFacts(_ context.Context, userID string, agentID string, subject memory.FactSubject) ([]memory.Fact, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listActiveFactsLocked(userID, agentID, subject), nil
+}
+
+// ListActiveFactsAt implements memory.VersionedFactStore.
+// The fake ignores version and returns the current facts, which is sufficient
+// for prompt unit tests that only need the interface shape.
+func (f *Fake) ListActiveFactsAt(_ context.Context, userID string, agentID string, subject memory.FactSubject, _ int64) ([]memory.Fact, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listActiveFactsLocked(userID, agentID, subject), nil
+}
+
+// AddFact is a test helper to populate active facts.
+func (f *Fake) AddFact(userID string, agentID string, fact memory.Fact) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if fact.Status == "" {
+		fact.Status = memory.FactStatusActive
+	}
+	if fact.Scope == "" {
+		fact.Scope = "user_agent"
+	}
+	f.facts[profileKey(userID, agentID)] = append(f.facts[profileKey(userID, agentID)], fact)
+}
+
+func (f *Fake) listActiveFactsLocked(userID string, agentID string, subject memory.FactSubject) []memory.Fact {
+	facts := f.facts[profileKey(userID, agentID)]
+	out := make([]memory.Fact, 0, len(facts))
+	for _, fact := range facts {
+		if fact.Subject == subject && fact.Status == memory.FactStatusActive {
+			out = append(out, fact)
+		}
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------

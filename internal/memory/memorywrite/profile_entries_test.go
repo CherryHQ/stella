@@ -93,7 +93,13 @@ func TestSetProfileDoesNotEraseEntries(t *testing.T) {
 	}
 
 	ctx = memory.WithChangeSource(ctx, memory.SourceUser)
-	if err := memorywrite.SetProfile(ctx, db, q, userID, "a1", "manual profile text"); err != nil {
+	if _, err := memorywrite.SetSingletonFact(ctx, db, q, memory.FactWrite{
+		UserID:  userID,
+		AgentID: "a1",
+		Subject: memory.FactSubjectUser,
+		Content: "manual profile text",
+		Source:  memory.SourceManual,
+	}); err != nil {
 		t.Fatalf("set profile: %v", err)
 	}
 

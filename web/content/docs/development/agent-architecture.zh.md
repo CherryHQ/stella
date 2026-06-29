@@ -193,7 +193,7 @@ Runtime snapshot flow：
 
 1. 如果存在 per-run system override，把它作为 base system，并跳过 snapshot reconstruction。
 2. 否则，如果 memory 实现 `SessionSnapshotStore`，每轮对 `(session_id, user_id, agent_id)` 调用 `GetOrCreateSessionSnapshot`。
-3. 把 `SnapshotVersion` 和 `SnapshotUpdatedAt` 传入 prompt builder。
+3. 把 `SnapshotVersion` 传入 prompt builder。
 4. 用这个 base system 执行 before-run hooks。
 5. 把最终 system prompt 通过 per-run context override 传给 runner。
 

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // PathResolver maps a skill's (scope, agentID, userID) to the base directory
@@ -204,24 +203,6 @@ func removeOrphanDiskFiles(ctx context.Context, skillDir string, dbFiles map[str
 	})
 }
 
-// ListKnowledge forwards to the inner store if it implements KnowledgeStore.
-// DiskSyncStore embeds Store (not KnowledgeStore), so without this method,
-// skillStoreAdapter's type assertion to KnowledgeStore would fail silently.
-func (d *DiskSyncStore) ListKnowledge(ctx context.Context, vc ViewContext, types ...KnowledgeType) ([]KnowledgeEntry, error) {
-	if ks, ok := d.Store.(KnowledgeStore); ok {
-		return ks.ListKnowledge(ctx, vc, types...)
-	}
-	return nil, nil
-}
-
-// ExpireKnowledgeDraftsByType forwards to the inner store if it implements KnowledgeStore.
-func (d *DiskSyncStore) ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType KnowledgeType, before time.Time) error {
-	if ks, ok := d.Store.(KnowledgeStore); ok {
-		return ks.ExpireKnowledgeDraftsByType(ctx, knowledgeType, before)
-	}
-	return nil
-}
-
 // findByID looks up a skill by ID using ListAll. This is only called on write
 // paths which are not hot.
 func (d *DiskSyncStore) findByID(ctx context.Context, id string) (*Skill, error) {
@@ -273,7 +254,4 @@ func writeFile(path, content string) error {
 }
 
 // Compile-time assertions.
-var (
-	_ Store          = (*DiskSyncStore)(nil)
-	_ KnowledgeStore = (*DiskSyncStore)(nil)
-)
+var _ Store = (*DiskSyncStore)(nil)

@@ -471,6 +471,22 @@ type CtxSummaryParent struct {
 	Ordinal         int64  `json:"ordinal"`
 }
 
+type Fact struct {
+	ID         string          `json:"id"`
+	Subject    string          `json:"subject"`
+	Scope      string          `json:"scope"`
+	UserID     string          `json:"user_id"`
+	AgentID    string          `json:"agent_id"`
+	Content    string          `json:"content"`
+	Status     string          `json:"status"`
+	Metadata   json.RawMessage `json:"metadata"`
+	Supersedes pgtype.Text     `json:"supersedes"`
+	Version    int64           `json:"version"`
+	Source     string          `json:"source"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+}
+
 type Plugin struct {
 	ID        string          `json:"id"`
 	Kind      string          `json:"kind"`

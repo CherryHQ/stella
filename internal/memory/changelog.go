@@ -8,6 +8,7 @@ type ChangeSource string
 const (
 	SourceUser    ChangeSource = "user"
 	SourceAgent   ChangeSource = "agent"
+	SourceManual  ChangeSource = "manual"
 	SourceReflect ChangeSource = "reflect"
 	SourceSystem  ChangeSource = "system"
 )
@@ -19,7 +20,7 @@ type ChangeEntry struct {
 	AgentID             string
 	SessionID           string
 	Scope               string // "profile", "soul", "constraint", "skill", "compaction"
-	Action              string // "create", "update", "delete", "compact"
+	Action              string // "create", "update", "delete", "deprecate", "compact"
 	Source              ChangeSource
 	MemoryVersionBefore *int64
 	MemoryVersionAfter  *int64

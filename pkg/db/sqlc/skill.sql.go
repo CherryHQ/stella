@@ -114,25 +114,6 @@ func (q *Queries) DeprecateExpiredDrafts(ctx context.Context, cutoff string) err
 	return err
 }
 
-const expireKnowledgeDraftsByType = `-- name: ExpireKnowledgeDraftsByType :exec
-UPDATE skill
-SET status = 'deprecated', updated_at = now()
-WHERE status = 'draft'
-  AND disable_model_invocation = true
-  AND metadata->>'knowledge_type' = $1::text
-  AND metadata->>'created-at' < $2::text
-`
-
-type ExpireKnowledgeDraftsByTypeParams struct {
-	KnowledgeType string `json:"knowledge_type"`
-	Cutoff        string `json:"cutoff"`
-}
-
-func (q *Queries) ExpireKnowledgeDraftsByType(ctx context.Context, arg ExpireKnowledgeDraftsByTypeParams) error {
-	_, err := q.db.Exec(ctx, expireKnowledgeDraftsByType, arg.KnowledgeType, arg.Cutoff)
-	return err
-}
-
 const getSkill = `-- name: GetSkill :one
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
 WHERE id = $1
@@ -284,58 +265,6 @@ func (q *Queries) GetUserSkillByName(ctx context.Context, arg GetUserSkillByName
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const listActiveKnowledgeByType = `-- name: ListActiveKnowledgeByType :many
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
-WHERE disable_model_invocation = true
-  AND status = 'active'
-  AND (
-    scope = 'system'
-    OR (scope = 'system_agent' AND agent_id = $1)
-    OR (scope = 'user'         AND user_id  = $2)
-    OR (scope = 'user_agent'   AND user_id  = $2 AND agent_id = $1)
-  )
-  AND ($3::text = '' OR metadata->>'knowledge_type' = $3::text)
-ORDER BY created_at DESC
-`
-
-type ListActiveKnowledgeByTypeParams struct {
-	AgentID       pgtype.Text `json:"agent_id"`
-	UserID        pgtype.Text `json:"user_id"`
-	KnowledgeType string      `json:"knowledge_type"`
-}
-
-func (q *Queries) ListActiveKnowledgeByType(ctx context.Context, arg ListActiveKnowledgeByTypeParams) ([]Skill, error) {
-	rows, err := q.db.Query(ctx, listActiveKnowledgeByType, arg.AgentID, arg.UserID, arg.KnowledgeType)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Skill{}
-	for rows.Next() {
-		var i Skill
-		if err := rows.Scan(
-			&i.ID,
-			&i.Scope,
-			&i.UserID,
-			&i.AgentID,
-			&i.Name,
-			&i.Description,
-			&i.Status,
-			&i.DisableModelInvocation,
-			&i.Metadata,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listAllSkills = `-- name: ListAllSkills :many

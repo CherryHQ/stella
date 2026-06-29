@@ -3,7 +3,6 @@ package server
 import (
 	"net/http"
 
-	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 )
@@ -95,10 +94,10 @@ func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id str
 		s.writeInternalError(w, err)
 		return
 	}
-	defaultSoul := prompt.DefaultAgentSoul()
 	for i := range memories {
-		if memories[i].Soul == "" {
-			memories[i].Soul = defaultSoul
+		if err := s.applyProfileFacts(r.Context(), &memories[i]); err != nil {
+			s.writeInternalError(w, err)
+			return
 		}
 	}
 	writeData(w, http.StatusOK, map[string]any{"memories": memories})
@@ -125,7 +124,12 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 		source = memory.SourceUser
 	}
 	ctx := memory.WithChangeSource(r.Context(), source)
-	if err := memorywrite.SetProfile(ctx, s.db, s.q, targetUserID, agentID, body.Content); err != nil {
+	profiles, ok := s.mem.(memory.ProfileStore)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "profile memory store not configured")
+		return
+	}
+	if err := profiles.SetProfile(ctx, targetUserID, agentID, body.Content); err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
@@ -146,7 +150,7 @@ func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id str
 		source = memory.SourceUser
 	}
 	ctx := memory.WithChangeSource(r.Context(), source)
-	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, targetUserID, agentID); err != nil {
+	if err := memorywrite.ResetUserAgentMemory(ctx, s.db, s.q, targetUserID, agentID); err != nil {
 		s.writeInternalError(w, err)
 		return
 	}

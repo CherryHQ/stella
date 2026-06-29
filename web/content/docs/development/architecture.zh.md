@@ -165,7 +165,7 @@ type Tool interface {
 | `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）                 |
 | `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                             |
 
-内存工具由 `memory.BuildTool(provider)` 自动生成，它会检查提供商的能力并生成匹配的工具操作。使用 LCM 提供商时：`status`、`search`、`describe`、`expand`、`get_message`、`profile_get`、`profile_update`。使用 Simple 提供商时：`status`、`profile_get`、`profile_update`。每用户笔记通过 `profile_get`/`profile_update` 管理，并在会话开始时注入系统提示。
+内存工具由 `memory.BuildTool(provider)` 自动生成，它会检查 provider 能力并生成匹配动作。普通聊天 runner 会用 `WithSessionReadOnlyWrites()` 收窄它：使用 LCM provider 时暴露 `status`、`search`、`describe`、`expand`、`get_message`、`profile_get`、`soul_get`、`profile_history` 和 `constraint_list`；Simple provider 暴露对应的只读子集。持久 profile/soul/constraint 写入由 Reflect 或 UI/API/CLI 等 manual 路径完成，并注入新会话的系统提示。
 
 ## 会话生命周期
 

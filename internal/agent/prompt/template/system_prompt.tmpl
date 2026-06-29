@@ -85,7 +85,7 @@ The following knowledge entries are relevant to this session:
 {{ .Content }}
 {{ end }}{{ end }}## Agent Soul
 
-Your identity, personality, and behavior. Edit via the memory tool (soul_get / soul_update).
+Your identity, personality, and behavior. Session tools can read this; durable edits happen through Reflect or manual memory settings.
 
 <agent_soul>
 {{ .AgentSoul }}
@@ -100,7 +100,7 @@ Shared knowledge about this group conversation.
 </group_memory>
 {{ else }}## User Profile
 
-What you know about this user. Edit via the memory tool (profile_get / profile_update).
+What you know about this user. Session tools can read this; durable edits happen through Reflect or manual memory settings.
 
 <user_profile>
 {{ .UserProfile }}{{ range .ProfileEntries }}

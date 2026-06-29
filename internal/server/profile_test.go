@@ -10,6 +10,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestListProfileIdentitiesEmpty(t *testing.T) {
@@ -211,6 +214,253 @@ func TestUnlinkIdentityOtherUser(t *testing.T) {
 	rr := doRequest(t, env, "DELETE", "/api/users/me/identities/"+identity.ID, nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
+
+func TestProfileMemoryAPIWritesFactsBackedProfile(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+
+	rr := doRequest(t, env, http.MethodPatch, "/api/users/me/memories/"+agentID, map[string]string{
+		"content": "Prefers concise answers in Chinese.",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	profiles := env.mem.(memory.ProfileStore)
+	got, err := profiles.GetProfile(context.Background(), env.adminUser.ID, agentID)
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if got != "Prefers concise answers in Chinese." {
+		t.Fatalf("profile fact = %q, want updated content", got)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/users/me/memories/"+agentID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(resp.Data, &body); err != nil {
+		t.Fatalf("unmarshal GET memory: %v", err)
+	}
+	if body.Content != "Prefers concise answers in Chinese." {
+		t.Fatalf("GET content = %q, want fact-backed profile", body.Content)
+	}
+}
+
+func TestProfileSoulAPIWritesFactsBackedSoul(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+
+	rr := doRequest(t, env, http.MethodPatch, "/api/users/me/soul/"+agentID, map[string]string{
+		"soul": "Be crisp and practical.",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	profiles := env.mem.(memory.ProfileStore)
+	got, err := profiles.GetAgentSoul(context.Background(), env.adminUser.ID, agentID)
+	if err != nil {
+		t.Fatalf("GetAgentSoul: %v", err)
+	}
+	if got != "Be crisp and practical." {
+		t.Fatalf("soul fact = %q, want updated soul", got)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/users/me/memories/"+agentID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var body struct {
+		Soul string `json:"soul"`
+	}
+	if err := json.Unmarshal(resp.Data, &body); err != nil {
+		t.Fatalf("unmarshal GET memory: %v", err)
+	}
+	if body.Soul != "Be crisp and practical." {
+		t.Fatalf("GET soul = %q, want fact-backed soul", body.Soul)
+	}
+}
+
+func TestProfileChangelogAPIReadsFactsBackedProfileAndSoul(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+
+	if rr := doRequest(t, env, http.MethodPatch, "/api/users/me/memories/"+agentID, map[string]string{
+		"content": "Profile history entry from facts.",
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("set profile status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPatch, "/api/users/me/soul/"+agentID, map[string]string{
+		"soul": "Soul history entry from facts.",
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("set soul status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	assertChangelogEntry := func(scope string, wantAfter string) {
+		t.Helper()
+		rr := doRequest(t, env, http.MethodGet, "/api/users/me/memories/"+agentID+"/changelog?scope="+scope, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s changelog status = %d, want %d (body: %s)", scope, rr.Code, http.StatusOK, rr.Body.String())
+		}
+		resp := parseResponse(t, rr)
+		var body struct {
+			Entries []struct {
+				Scope     string  `json:"scope"`
+				AfterText *string `json:"after_text"`
+			} `json:"entries"`
+		}
+		if err := json.Unmarshal(resp.Data, &body); err != nil {
+			t.Fatalf("unmarshal %s changelog: %v", scope, err)
+		}
+		if len(body.Entries) == 0 {
+			t.Fatalf("%s changelog entries = 0, want facts-backed entry", scope)
+		}
+		if body.Entries[0].Scope != scope {
+			t.Fatalf("%s changelog scope = %q, want %q", scope, body.Entries[0].Scope, scope)
+		}
+		if body.Entries[0].AfterText == nil || *body.Entries[0].AfterText != wantAfter {
+			t.Fatalf("%s changelog after_text = %v, want %q", scope, body.Entries[0].AfterText, wantAfter)
+		}
+	}
+
+	assertChangelogEntry("profile", "Profile history entry from facts.")
+	assertChangelogEntry("soul", "Soul history entry from facts.")
+}
+
+func TestProfileConstraintAPIWritesManualChangelogSource(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+
+	rr := doRequest(t, env, http.MethodPost, "/api/users/me/memories/"+agentID+"/constraints", map[string]string{
+		"text": "Ask before deleting files.",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("add constraint status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var body struct {
+		Constraints []struct {
+			ID string `json:"id"`
+		} `json:"constraints"`
+	}
+	if err := json.Unmarshal(resp.Data, &body); err != nil {
+		t.Fatalf("unmarshal add constraint response: %v", err)
+	}
+	if len(body.Constraints) != 1 || body.Constraints[0].ID == "" {
+		t.Fatalf("constraints after add = %+v, want one constraint with ID", body.Constraints)
+	}
+
+	rr = doRequest(t, env, http.MethodDelete, "/api/users/me/memories/"+agentID+"/constraints/"+body.Constraints[0].ID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("delete constraint status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	q := sqlc.New(env.db)
+	logs, err := q.ListMemoryChangelog(context.Background(), sqlc.ListMemoryChangelogParams{
+		UserID:  env.adminUser.ID,
+		AgentID: agentID,
+		Scope:   "constraint",
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("ListMemoryChangelog: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("constraint changelog entries = %d, want 2", len(logs))
+	}
+	for _, log := range logs {
+		if log.Source != string(memory.SourceManual) {
+			t.Fatalf("constraint changelog action %q source = %q, want %q", log.Action, log.Source, memory.SourceManual)
+		}
+	}
+}
+
+func TestDeleteProfileMemoryResetsFactsAndConstraints(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+
+	if rr := doRequest(t, env, http.MethodPatch, "/api/users/me/memories/"+agentID, map[string]string{
+		"content": "Profile to reset.",
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("set profile status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPatch, "/api/users/me/soul/"+agentID, map[string]string{
+		"soul": "Soul to reset.",
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("set soul status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPost, "/api/users/me/memories/"+agentID+"/constraints", map[string]string{
+		"text": "Always be formal.",
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("add constraint status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	q := sqlc.New(env.db)
+	if _, err := memorywrite.CreateFact(context.Background(), env.db, q, memory.FactWrite{
+		UserID:  env.adminUser.ID,
+		AgentID: agentID,
+		Subject: memory.FactSubjectWorld,
+		Content: "Knowledge to reset.",
+		Source:  memory.SourceManual,
+	}); err != nil {
+		t.Fatalf("create knowledge fact: %v", err)
+	}
+
+	rr := doRequest(t, env, http.MethodDelete, "/api/users/me/memories/"+agentID, nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+
+	profiles := env.mem.(memory.ProfileStore)
+	profile, err := profiles.GetProfile(context.Background(), env.adminUser.ID, agentID)
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if profile != "" {
+		t.Fatalf("profile after delete = %q, want empty", profile)
+	}
+	soul, err := profiles.GetAgentSoul(context.Background(), env.adminUser.ID, agentID)
+	if err != nil {
+		t.Fatalf("GetAgentSoul: %v", err)
+	}
+	if soul != "" {
+		t.Fatalf("soul after delete = %q, want empty", soul)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/users/me/memories/"+agentID+"/constraints", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("constraints status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var body struct {
+		Constraints []struct {
+			Text string `json:"text"`
+		} `json:"constraints"`
+	}
+	if err := json.Unmarshal(resp.Data, &body); err != nil {
+		t.Fatalf("unmarshal constraints: %v", err)
+	}
+	if len(body.Constraints) != 0 {
+		t.Fatalf("constraints after delete = %+v, want empty", body.Constraints)
+	}
+
+	activeKnowledge, err := q.ListActiveFactsBySubject(context.Background(), sqlc.ListActiveFactsBySubjectParams{
+		UserID:  env.adminUser.ID,
+		AgentID: agentID,
+		Subject: string(memory.FactSubjectWorld),
+	})
+	if err != nil {
+		t.Fatalf("ListActiveFactsBySubject(world): %v", err)
+	}
+	if len(activeKnowledge) != 0 {
+		t.Fatalf("active knowledge facts after delete = %+v, want none", activeKnowledge)
 	}
 }
 

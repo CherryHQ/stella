@@ -32,9 +32,10 @@ const (
 type ToolOption func(*toolConfig)
 
 type toolConfig struct {
-	readOnlyProfile bool
-	readOnlySoul    bool
-	actionsOnly     map[string]bool // nil means all available
+	readOnlyProfile       bool
+	readOnlySoul          bool
+	sessionReadOnlyWrites bool
+	actionsOnly           map[string]bool // nil means all available
 }
 
 // WithReadOnlyProfile disables the profile_update action.
@@ -50,6 +51,14 @@ func WithReadOnlyProfile() ToolOption {
 func WithReadOnlySoul() ToolOption {
 	return func(c *toolConfig) {
 		c.readOnlySoul = true
+	}
+}
+
+// WithSessionReadOnlyWrites removes actions that mutate durable memory from the
+// model-facing session tool. Manual APIs and reflect use their own tool options.
+func WithSessionReadOnlyWrites() ToolOption {
+	return func(c *toolConfig) {
+		c.sessionReadOnlyWrites = true
 	}
 }
 
@@ -163,25 +172,27 @@ func (t *memoryTool) buildActions() []actionMeta {
 
 	if t.profileStore != nil {
 		add(actionSoulGet, "Read the current agent soul (identity, personality, behavior) for this user+agent pair.")
-		if !t.cfg.readOnlySoul {
+		if !t.cfg.sessionReadOnlyWrites && !t.cfg.readOnlySoul {
 			add(actionSoulUpdate, "Update the agent soul. Replaces entire content — include the full updated text.")
 		}
 		add(actionProfileGet, "Read the current user profile (facts and context about this user).")
-		if !t.cfg.readOnlyProfile {
+		if !t.cfg.sessionReadOnlyWrites && !t.cfg.readOnlyProfile {
 			add(actionProfileUpdate, "Update the user profile. Replaces entire content — include the full updated text.")
 		}
 		if t.changelogReader != nil {
 			add(actionProfileHistory, "Show recent profile or soul change history. Use scope='profile' or scope='soul'.")
 		}
-		if t.changelogReader != nil && t.changelogWriter != nil && !t.cfg.readOnlyProfile {
+		if t.changelogReader != nil && t.changelogWriter != nil && !t.cfg.sessionReadOnlyWrites && !t.cfg.readOnlyProfile {
 			add(actionProfileRollback, "Roll back profile or soul to a previous version. Requires scope and version from profile_history.")
 		}
 	}
 
 	if t.constraintStore != nil {
 		add(actionConstraintList, "List all active constraints (hard rules the agent must follow).")
-		add(actionConstraintAdd, "Add a new constraint. Only call after getting explicit user confirmation.")
-		add(actionConstraintRemove, "Remove a constraint by its ID.")
+		if !t.cfg.sessionReadOnlyWrites {
+			add(actionConstraintAdd, "Add a new constraint. Only call after getting explicit user confirmation.")
+			add(actionConstraintRemove, "Remove a constraint by its ID.")
+		}
 	}
 
 	return actions

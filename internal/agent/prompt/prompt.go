@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -73,22 +73,20 @@ type promptData struct {
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt      string                    // agent's base system prompt from DB
-	AgentSoul         string                    // agent's default soul from DB (fallback for all users)
-	Memory            memory.Provider           // active provider for profile loading (may be nil)
-	KnowledgeStore    pkgplugins.KnowledgeStore // optional; injects ## Knowledge section when set
-	UserID            string                    // auth user ID for profile lookup
-	AgentID           string                    // agent ID for profile lookup
-	GroupID           string                    // group ID for group memory lookup (D4); mutually exclusive with UserID
-	GroupMemory       string                    // pre-loaded group memory content; injected when non-empty
-	StellaHome        string
-	AgentRoot         string
-	ProjectRoot       string // optional project root for local/project-attached runs
-	UserRoot          string // per-user writable root
-	Sections          []pkgplugins.SystemPromptSection
-	Host              sandbox.Host
-	SnapshotVersion   int64     // frozen memory version for this session; 0 means current
-	SnapshotUpdatedAt time.Time // wall-clock time of the last snapshot advance; used to filter knowledge
+	SystemPrompt    string          // agent's base system prompt from DB
+	AgentSoul       string          // agent's default soul from DB (fallback for all users)
+	Memory          memory.Provider // active provider for profile loading (may be nil)
+	UserID          string          // auth user ID for profile lookup
+	AgentID         string          // agent ID for profile lookup
+	GroupID         string          // group ID for group memory lookup (D4); mutually exclusive with UserID
+	GroupMemory     string          // pre-loaded group memory content; injected when non-empty
+	StellaHome      string
+	AgentRoot       string
+	ProjectRoot     string // optional project root for local/project-attached runs
+	UserRoot        string // per-user writable root
+	Sections        []pkgplugins.SystemPromptSection
+	Host            sandbox.Host
+	SnapshotVersion int64 // frozen memory version for this session; 0 means current
 
 	// CurrentSpeaker is retained for compatibility with callers/tests that still
 	// populate it, but it is intentionally not rendered into the system prompt.
@@ -184,20 +182,19 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// Current speaker (D9): intentionally not rendered into the system prompt.
 	// Runtime injects it as per-turn message context instead, preserving the group
 	// system prompt prefix across speakers for provider prompt caches.
-	// Knowledge: active fact/context entries injected as ## Knowledge section.
-	// When a session snapshot is active, filter out entries that became active
-	// after the snapshot was last advanced so that background knowledge changes
-	// do not affect frozen sessions.
-	if p.KnowledgeStore != nil && p.UserID != "" && p.AgentID != "" {
-		vc := pkgplugins.SkillViewContext{UserID: p.UserID, AgentID: p.AgentID}
-		if entries, err := p.KnowledgeStore.ListKnowledge(ctx, vc); err == nil {
-			if p.SnapshotVersion > 0 && !p.SnapshotUpdatedAt.IsZero() {
-				cutoff := p.SnapshotUpdatedAt
-				entries = slices.DeleteFunc(entries, func(e pkgplugins.KnowledgeEntry) bool {
-					return e.UpdatedAt.After(cutoff)
-				})
+	// Knowledge facts: prefer the v1 facts table, sharing the same snapshot
+	// version clock as profile/soul/constraints.
+	if p.UserID != "" && p.AgentID != "" {
+		if p.SnapshotVersion > 0 {
+			if fs, ok := p.Memory.(memory.VersionedFactStore); ok {
+				if facts, err := fs.ListActiveFactsAt(ctx, p.UserID, p.AgentID, memory.FactSubjectWorld, p.SnapshotVersion); err == nil {
+					data.Knowledge = knowledgeEntriesFromFacts(facts)
+				}
 			}
-			data.Knowledge = entries
+		} else if fs, ok := p.Memory.(memory.FactStore); ok {
+			if facts, err := fs.ListActiveFacts(ctx, p.UserID, p.AgentID, memory.FactSubjectWorld); err == nil {
+				data.Knowledge = knowledgeEntriesFromFacts(facts)
+			}
 		}
 	}
 
@@ -217,6 +214,58 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	var buf bytes.Buffer
 	_ = systemTmpl.Execute(&buf, data)
 	return buf.String()
+}
+
+type factKnowledgeMetadata struct {
+	Name                string `json:"name"`
+	Description         string `json:"description"`
+	KnowledgeType       string `json:"knowledge_type"`
+	LegacySkillName     string `json:"legacy_skill_name"`
+	LegacyKnowledgeType string `json:"legacy_knowledge_type"`
+}
+
+func knowledgeEntriesFromFacts(facts []memory.Fact) []pkgplugins.KnowledgeEntry {
+	entries := make([]pkgplugins.KnowledgeEntry, 0, len(facts))
+	for _, fact := range facts {
+		if fact.Status != memory.FactStatusActive {
+			continue
+		}
+		meta := parseFactKnowledgeMetadata(fact.Metadata)
+		name := strings.TrimSpace(meta.Name)
+		if name == "" {
+			name = strings.TrimSpace(meta.LegacySkillName)
+		}
+		if name == "" {
+			name = "Knowledge"
+		}
+		kt := pkgplugins.KnowledgeType(strings.TrimSpace(meta.KnowledgeType))
+		if kt == "" {
+			kt = pkgplugins.KnowledgeType(strings.TrimSpace(meta.LegacyKnowledgeType))
+		}
+		if kt == "" {
+			kt = pkgplugins.KnowledgeTypeFact
+		}
+		entries = append(entries, pkgplugins.KnowledgeEntry{
+			ID:            fact.ID,
+			Name:          name,
+			Description:   meta.Description,
+			Content:       fact.Content,
+			KnowledgeType: kt,
+			Status:        string(fact.Status),
+			CreatedAt:     fact.CreatedAt,
+			UpdatedAt:     fact.UpdatedAt,
+		})
+	}
+	return entries
+}
+
+func parseFactKnowledgeMetadata(raw json.RawMessage) factKnowledgeMetadata {
+	var meta factKnowledgeMetadata
+	if len(raw) == 0 {
+		return meta
+	}
+	_ = json.Unmarshal(raw, &meta)
+	return meta
 }
 
 // resolvePromptContextHost returns the host to use for reading prompt context

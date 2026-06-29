@@ -58,7 +58,7 @@ func (s *Server) ListTools(w http.ResponseWriter, r *http.Request) {
 func (s *Server) builtinToolDefinitions() []pkgtools.Definition {
 	var defs []pkgtools.Definition
 	if s.mem != nil {
-		defs = append(defs, memory.BuildTool(s.mem).Definition())
+		defs = append(defs, memory.BuildTool(s.mem, memory.WithSessionReadOnlyWrites()).Definition())
 	}
 	return defs
 }

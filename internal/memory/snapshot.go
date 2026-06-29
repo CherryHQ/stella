@@ -26,8 +26,8 @@ type SessionSnapshot struct {
 	AgentID   string
 	Version   int64
 	// UpdatedAt is the wall-clock time when this snapshot was last advanced.
-	// Used to filter knowledge entries so that knowledge activated after the
-	// snapshot was taken does not appear in the frozen session.
+	// It remains for legacy skill-backed knowledge filtering; v1 facts use
+	// Version as their snapshot clock.
 	UpdatedAt time.Time
 }
 

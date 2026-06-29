@@ -283,6 +283,43 @@ func TestBuildTool_WithActionsOnly(t *testing.T) {
 	}
 }
 
+func TestBuildTool_WithSessionReadOnlyWrites(t *testing.T) {
+	fake := memorytest.New()
+	tool := memory.BuildTool(fake, memory.WithSessionReadOnlyWrites())
+	def := tool.Definition()
+
+	actions := extractActionEnum(t, def.InputSchema)
+	assertActions(t, actions, []string{
+		"status",
+		"search",
+		"describe",
+		"expand",
+		"soul_get",
+		"profile_get",
+		"profile_history",
+		"constraint_list",
+	})
+
+	for _, forbidden := range []string{
+		"soul_update",
+		"profile_update",
+		"profile_rollback",
+		"constraint_add",
+		"constraint_remove",
+	} {
+		if containsString2(actions, forbidden) {
+			t.Fatalf("session read-only tool exposed write action %q", forbidden)
+		}
+	}
+
+	props := def.InputSchema["properties"].(map[string]any)
+	for _, key := range []string{"content", "rollback_version", "constraint_text", "constraint_id"} {
+		if _, ok := props[key]; ok {
+			t.Fatalf("session read-only tool exposed write-only schema property %q", key)
+		}
+	}
+}
+
 func TestExecute_Status(t *testing.T) {
 	tool := memory.BuildTool(&bareProvider{})
 	ctx := memory.WithSessionID(context.Background(), "test-session")

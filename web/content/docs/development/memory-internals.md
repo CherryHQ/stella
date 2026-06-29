@@ -37,35 +37,35 @@ The LCM plugin implements the full set. The Simple plugin implements the core pr
 
 ## Memory Tool
 
-`memory.BuildTool(provider)` inspects the provider's capabilities and generates a `tools.Tool` with matching actions:
+`memory.BuildTool(provider)` inspects the provider's capabilities and generates a `tools.Tool` with matching actions. Callers can further narrow the action set: ordinary chat runners use `WithSessionReadOnlyWrites()` so model-facing sessions only expose read/retrieval actions, while Reflect/manual paths opt into the specific write actions they own.
 
-| Action              | Requires                           | Description                                                   |
-| ------------------- | ---------------------------------- | ------------------------------------------------------------- |
-| `status`            | always                             | Show session stats                                            |
-| `search`            | `Searcher`                         | Search messages and summaries by pattern                      |
-| `describe`          | `Explorer`                         | Inspect a summary's metadata and lineage                      |
-| `expand`            | `Explorer`                         | Drill into compacted summaries                                |
-| `profile_get`       | `ProfileStore`                     | Read persistent user profile notes                            |
-| `profile_update`    | `ProfileStore`                     | Replace persistent user profile notes                         |
-| `soul_get`          | `ProfileStore`                     | Read per-user agent soul override                             |
-| `soul_update`       | `ProfileStore`                     | Update per-user agent soul override                           |
-| `profile_history`   | `ChangelogReader`                  | Read recent profile/soul change history                       |
-| `profile_rollback`  | `ChangelogReader` + `ProfileStore` | Restore profile/soul text from a previous changelog version   |
-| `constraint_list`   | `ConstraintStore`                  | List hard constraints                                         |
-| `constraint_add`    | `ConstraintStore`                  | Add a hard constraint after user confirmation in conversation |
-| `constraint_remove` | `ConstraintStore`                  | Remove a hard constraint by ID                                |
+| Action              | Requires                           | Description                                                              |
+| ------------------- | ---------------------------------- | ------------------------------------------------------------------------ |
+| `status`            | always                             | Show session stats                                                       |
+| `search`            | `Searcher`                         | Search messages and summaries by pattern                                 |
+| `describe`          | `Explorer`                         | Inspect a summary's metadata and lineage                                 |
+| `expand`            | `Explorer`                         | Drill into compacted summaries                                           |
+| `profile_get`       | `ProfileStore`                     | Read persistent user profile notes                                       |
+| `profile_update`    | `ProfileStore`                     | Replace persistent user profile notes; Reflect/manual only               |
+| `soul_get`          | `ProfileStore`                     | Read per-user agent soul override                                        |
+| `soul_update`       | `ProfileStore`                     | Update per-user agent soul override; manual only                         |
+| `profile_history`   | `ChangelogReader`                  | Read recent profile/soul change history                                  |
+| `profile_rollback`  | `ChangelogReader` + `ProfileStore` | Restore profile/soul text from a previous changelog version; manual only |
+| `constraint_list`   | `ConstraintStore`                  | List hard constraints                                                    |
+| `constraint_add`    | `ConstraintStore`                  | Add a hard constraint; manual only                                       |
+| `constraint_remove` | `ConstraintStore`                  | Remove a hard constraint by ID; manual only                              |
 
-The tool's JSON schema, description, and dispatch all adapt dynamically. A provider with fewer capabilities produces a tool with fewer actions.
+The tool's JSON schema, description, and dispatch all adapt dynamically. A provider with fewer capabilities produces a tool with fewer actions. A model-facing chat session is additionally read-only for durable memory writes: it cannot call `profile_update`, `soul_update`, `profile_rollback`, `constraint_add`, or `constraint_remove`.
 
 ### Group turns: current-speaker fallback
 
-In a group session the runtime identity is the group, so there is no session user (D9). To still let an agent remember facts about the person speaking, `profile_get` and `profile_update` fall back to the current speaker when no session user is present:
+In a group session the runtime identity is the group, so there is no session user (D9). To still let an agent read facts about the person speaking, `profile_get` falls back to the current speaker when no session user is present. The lower-level resolver also supports `profile_update` for explicitly write-enabled tools, but ordinary chat runners do not expose that action:
 
 1. Session user (`UserIDFromContext`) — normal DM behavior.
 2. Otherwise the linked current speaker (`CurrentSpeaker.UserID`) — group personalization.
 3. Otherwise fail closed with `no linked current speaker` (unlinked sender).
 
-The fallback is deliberately narrow. **Only `profile_get` / `profile_update` get it, and only when the model explicitly calls the tool.** `soul_get`, `soul_update`, `constraint_*`, `profile_history`, and `profile_rollback` stay on the strict session-user resolver, so in a group turn they fail closed — a public room is not a place to read or rewrite one member's soul, constraints, or history through a shared agent. A `profile_update` via the fallback advances the speaker's own snapshot row `(session, speaker.UserID, agent)`, never the group's.
+The fallback is deliberately narrow. **Only `profile_get` gets it in ordinary chat, and only when the model explicitly calls the tool.** `soul_get`, `soul_update`, `constraint_*`, `profile_history`, and `profile_rollback` stay on the strict session-user resolver, so in a group turn they fail closed — a public room is not a place to read or rewrite one member's soul, constraints, or history through a shared agent. If an explicitly write-enabled internal tool calls `profile_update` through the fallback, it advances the speaker's own snapshot row `(session, speaker.UserID, agent)`, never the group's.
 
 See [Group chat: current speaker (D10)](/docs/development/group-chat-multi-agent#current-speaker-per-turn-personalization-d10).
 
@@ -78,12 +78,12 @@ Each turn can rebuild the system prompt from the current or frozen memory versio
 3. **Constraints** — user-approved hard rules from `ConstraintStore`; injected before soul/profile and not touched by Reflect.
 4. **Agent soul** — agent identity/personality text.
 5. **User profile** — durable user notes. **Group turns replace this with `## Group Memory` (the shared group drawer) plus an optional `## Current Speaker` section** that contains only speaker name and linked status; the per-user profile is never rendered in a group turn. Group mode is keyed on the session having a `group_id`, not on group memory being non-empty.
-6. **Knowledge** — active fact/context entries from `KnowledgeStore`.
+6. **Knowledge** — active `subject=world` facts from the facts table.
 7. **Project context** — `AGENTS.md` and related project instructions.
 
 Conversation history is assembled separately by the memory provider. Constraints, identity, and knowledge live in the system prompt, so conversation compaction does not remove them.
 
-For group turns the PoolManager before-run path re-renders the full prompt with the current speaker metadata; the cached group runner never holds speaker data, so one speaker's turn context cannot leak into another speaker's turn. The speaker's profile blob and dated entries are intentionally not auto-injected into public group prompts; profile access remains behind explicit `memory.profile_get` / `memory.profile_update` tool calls.
+For group turns the PoolManager before-run path re-renders the full prompt with the current speaker metadata; the cached group runner never holds speaker data, so one speaker's turn context cannot leak into another speaker's turn. The speaker's profile blob and dated entries are intentionally not auto-injected into public group prompts; profile access remains behind explicit read-only `memory.profile_get` calls.
 
 ## Changelog and Rollback
 
@@ -93,7 +93,7 @@ The changelog records:
 
 - user and agent
 - scope (`profile`, `soul`, `constraint`, `skill`, `compaction`)
-- action (`create`, `update`, `delete`, `compact`)
+- action (`create`, `update`, `delete`, `deprecate`, `compact`)
 - source (`user`, `agent`, `reflect`, `system`)
 - before/after text
 - before/after memory versions
@@ -111,7 +111,7 @@ Constraints are intended for rules the user explicitly wants Stella to preserve,
 - "Never run production database migrations unless I approve."
 - "Do not expose secrets in chat."
 
-Reflect is explicitly instructed not to add, remove, or edit constraints. The current protection is convention-level: the model should propose a constraint in natural language and call `constraint_add` only after the user agrees.
+Reflect is explicitly instructed not to add, remove, or edit constraints. Normal session tools also do not expose constraint write actions; constraints are written through manual UI/API/CLI paths after explicit user intent.
 
 ## Session Snapshots
 
@@ -121,28 +121,22 @@ On the first chat turn, Stella stores a frozen `ctx_agent_memory.version` in `me
 
 Visibility rules:
 
-| Write path                                             | Current session sees it? | Why                                                                  |
-| ------------------------------------------------------ | ------------------------ | -------------------------------------------------------------------- |
-| User asks Stella to remember something via memory tool | Yes, from the next turn  | The memory tool advances the current session snapshot                |
-| User adds/removes a constraint via memory tool         | Yes, from the next turn  | The snapshot advances after the foreground write                     |
-| Reflect updates profile/knowledge in the background    | No                       | Reflect has no active session context and does not advance snapshots |
-| A new session starts                                   | Yes                      | It snapshots the latest memory version                               |
+| Write path                                  | Current session sees it? | Why                                                                  |
+| ------------------------------------------- | ------------------------ | -------------------------------------------------------------------- |
+| Manual UI/API/CLI updates profile/soul      | New sessions             | Manual writes update durable facts; active sessions stay snapshotted |
+| Manual UI/API/CLI adds/removes a constraint | New sessions             | Manual writes update constraints; active sessions stay snapshotted   |
+| Reflect updates profile in the background   | No                       | Reflect has no active session context and does not advance snapshots |
+| A new session starts                        | Yes                      | It snapshots the latest memory version                               |
 
-This keeps foreground user intent immediate while preventing background reflection from causing behavior drift inside an ongoing session.
+This prevents both foreground tool writes and background reflection from changing behavior inside an ongoing session.
 
 ## Knowledge
 
-Knowledge extends the skills table with `metadata.knowledge_type`:
+Knowledge is stored as active `facts` rows with `subject=world` and `scope=user_agent` in v1. The prompt renderer projects those facts into the `## Knowledge` section.
 
-| Type      | Meaning                           | Model-callable? | Default expiry     |
-| --------- | --------------------------------- | --------------- | ------------------ |
-| `skill`   | Reusable procedure or workflow    | Yes             | 30 days for drafts |
-| `fact`    | Durable project/domain fact       | No              | 90 days for drafts |
-| `context` | Time-bound background information | No              | 30 days for drafts |
+Skills remain reusable procedures and no longer create or store fact/context knowledge via `metadata.knowledge_type`. Legacy `user_agent` skill-backed knowledge is migrated into `subject=world` facts by the v1 facts migration; broader knowledge scopes are intentionally left for a follow-up design.
 
-Fact/context entries are stored in `skills` with `disable_model_invocation=true`. They do not appear in `<available_skills>` and cannot be loaded through the skills tool as executable skills. Active entries are injected into the `## Knowledge` section of the system prompt.
-
-Reflect may draft fact/context entries, but drafts do not affect sessions until activated through the skills/admin management path.
+Reflect may maintain the user profile and skills, but normal conversation tools do not directly write facts. New `subject=world` fact generation/write tooling, related-fact search, confidence, usage tracking, and lifecycle maintenance are follow-up work.
 
 ## LCM Plugin
 

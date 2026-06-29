@@ -124,53 +124,7 @@ func (a skillStoreAdapter) ExpireDrafts(ctx context.Context, before time.Time) e
 	return a.s.ExpireDrafts(ctx, before)
 }
 
-// ListKnowledge implements pkgplugins.KnowledgeStore when the underlying store
-// supports it (i.e. implements skills.KnowledgeStore).
-func (a skillStoreAdapter) ListKnowledge(ctx context.Context, vc pkgplugins.SkillViewContext, types ...pkgplugins.KnowledgeType) ([]pkgplugins.KnowledgeEntry, error) {
-	ks, ok := a.s.(skills.KnowledgeStore)
-	if !ok {
-		return nil, nil
-	}
-	internalTypes := make([]skills.KnowledgeType, 0, len(types))
-	for _, t := range types {
-		internalTypes = append(internalTypes, skills.KnowledgeType(t))
-	}
-	rows, err := ks.ListKnowledge(ctx, skills.ViewContext{
-		UserID:  vc.UserID,
-		AgentID: vc.AgentID,
-	}, internalTypes...)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]pkgplugins.KnowledgeEntry, len(rows))
-	for i, r := range rows {
-		out[i] = pkgplugins.KnowledgeEntry{
-			ID:            r.ID,
-			Name:          r.Name,
-			Description:   r.Description,
-			Content:       r.Content,
-			KnowledgeType: pkgplugins.KnowledgeType(r.KnowledgeType),
-			Status:        r.Status,
-			CreatedAt:     r.CreatedAt,
-			UpdatedAt:     r.UpdatedAt,
-		}
-	}
-	return out, nil
-}
-
-// ExpireKnowledgeDraftsByType implements pkgplugins.KnowledgeStore when the underlying
-// store supports it.
-func (a skillStoreAdapter) ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType pkgplugins.KnowledgeType, before time.Time) error {
-	ks, ok := a.s.(skills.KnowledgeStore)
-	if !ok {
-		return nil
-	}
-	return ks.ExpireKnowledgeDraftsByType(ctx, skills.KnowledgeType(knowledgeType), before)
-}
-
 // NewSkillStoreAdapter wraps an internal/skills.Store as a pkgplugins.SkillStore.
-// The returned value also satisfies pkgplugins.KnowledgeStore when the underlying
-// store implements skills.KnowledgeStore.
 // Exported so that test code and CLI code can construct a typed adapter without
 // depending on the unexported adapter type.
 func NewSkillStoreAdapter(s skills.Store) pkgplugins.SkillStore {
