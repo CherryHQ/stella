@@ -66,6 +66,13 @@ func SetSingletonFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, in
 	if len(active) == 0 {
 		return writeFactLocked(ctx, tx, qtx, factWritePlan{action: "create", write: in})
 	}
+	if active[0].Content == in.Content {
+		fact := factFromRow(active[0])
+		if err := tx.Commit(ctx); err != nil {
+			return memory.Fact{}, fmt.Errorf("commit unchanged singleton fact read: %w", err)
+		}
+		return fact, nil
+	}
 
 	in.Supersedes = active[0].ID
 	return writeFactLocked(ctx, tx, qtx, factWritePlan{
@@ -97,6 +104,16 @@ func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries
 		return err
 	}
 	source := factSourceFromContext(ctx)
+	constraintsBefore := "[]"
+	memoryBefore, err := qtx.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err == nil {
+		constraintsBefore = string(memoryBefore.Constraints)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("read memory before reset: %w", err)
+	}
 
 	type deprecatedFact struct {
 		before memory.Fact
@@ -136,8 +153,25 @@ func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries
 		return fmt.Errorf("bump memory version: %w", err)
 	}
 	for _, fact := range deprecated {
-		if _, err := writeFactChangelog(ctx, qtx, userID, agentID, "delete", source, beforeVersion, memoryRow.Version, fact.before, fact.after); err != nil {
+		if _, err := writeFactChangelog(ctx, qtx, userID, agentID, "deprecate", source, beforeVersion, memoryRow.Version, fact.before, fact.after); err != nil {
 			return err
+		}
+	}
+	if constraintsBefore != "[]" {
+		id := uuid.Must(uuid.NewV7()).String()
+		if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
+			ID:                  id,
+			UserID:              userID,
+			AgentID:             agentID,
+			Scope:               "constraint",
+			Action:              "delete",
+			Source:              string(source),
+			MemoryVersionBefore: pgtype.Int8{Int64: beforeVersion, Valid: true},
+			MemoryVersionAfter:  pgtype.Int8{Int64: memoryRow.Version, Valid: true},
+			BeforeText:          pgtype.Text{String: constraintsBefore, Valid: true},
+			AfterText:           pgtype.Text{String: "[]", Valid: true},
+		}); err != nil {
+			return fmt.Errorf("write reset constraint changelog: %w", err)
 		}
 	}
 	if err := qtx.ClearUserAgentMemory(ctx, sqlc.ClearUserAgentMemoryParams{
@@ -335,8 +369,17 @@ func ListActiveFacts(ctx context.Context, q *sqlc.Queries, userID string, agentI
 // ListActiveFactsAt reconstructs active facts at a frozen memory version from
 // fact changelog payloads.
 func ListActiveFactsAt(ctx context.Context, q *sqlc.Queries, userID string, agentID string, subject memory.FactSubject, version int64) ([]memory.Fact, error) {
+	facts, _, err := ListActiveFactsAtSnapshot(ctx, q, userID, agentID, subject, version)
+	return facts, err
+}
+
+// ListActiveFactsAtSnapshot reconstructs active facts and reports whether any
+// fact changelog existed for that subject. Callers use the flag to distinguish
+// "facts prove this version is empty" from "this snapshot predates facts".
+func ListActiveFactsAtSnapshot(ctx context.Context, q *sqlc.Queries, userID string, agentID string, subject memory.FactSubject, version int64) ([]memory.Fact, bool, error) {
 	if version <= 0 {
-		return ListActiveFacts(ctx, q, userID, agentID, subject)
+		facts, err := ListActiveFacts(ctx, q, userID, agentID, subject)
+		return facts, true, err
 	}
 	rows, err := q.ListFactChangelogUpToVersion(ctx, sqlc.ListFactChangelogUpToVersionParams{
 		UserID:             userID,
@@ -344,16 +387,29 @@ func ListActiveFactsAt(ctx context.Context, q *sqlc.Queries, userID string, agen
 		MemoryVersionAfter: pgtype.Int8{Int64: version, Valid: true},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list fact changelog: %w", err)
+		return nil, false, fmt.Errorf("list fact changelog: %w", err)
 	}
 	byID := map[string]memory.Fact{}
+	seenSubject := false
 	for _, row := range rows {
+		if row.BeforeText.Valid {
+			var before memory.Fact
+			if err := json.Unmarshal([]byte(row.BeforeText.String), &before); err != nil {
+				return nil, false, fmt.Errorf("parse fact changelog before state: %w", err)
+			}
+			if before.Subject == subject {
+				seenSubject = true
+			}
+		}
 		if !row.AfterText.Valid {
 			continue
 		}
 		var fact memory.Fact
 		if err := json.Unmarshal([]byte(row.AfterText.String), &fact); err != nil {
-			return nil, fmt.Errorf("parse fact changelog state: %w", err)
+			return nil, false, fmt.Errorf("parse fact changelog state: %w", err)
+		}
+		if fact.Subject == subject {
+			seenSubject = true
 		}
 		byID[fact.ID] = fact
 	}
@@ -363,7 +419,7 @@ func ListActiveFactsAt(ctx context.Context, q *sqlc.Queries, userID string, agen
 			out = append(out, fact)
 		}
 	}
-	return out, nil
+	return out, seenSubject, nil
 }
 
 func factFromRow(row sqlc.Fact) memory.Fact {

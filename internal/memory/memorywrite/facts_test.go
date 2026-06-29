@@ -225,6 +225,63 @@ func TestSetSingletonFact_DecidesCreateOrReplaceUnderLock(t *testing.T) {
 	}
 }
 
+func TestSetSingletonFact_NoopsWhenContentUnchanged(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := memory.WithChangeSource(context.Background(), memory.SourceReflect)
+
+	first, err := SetSingletonFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectUser, Content: "Same profile.", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("SetSingletonFact first: %v", err)
+	}
+	before, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("get memory before no-op: %v", err)
+	}
+	beforeLogs, err := q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
+		UserID:  userID,
+		AgentID: agentID,
+		Scope:   "fact",
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("list changelog before no-op: %v", err)
+	}
+
+	second, err := SetSingletonFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectUser, Content: "Same profile.", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("SetSingletonFact same content: %v", err)
+	}
+	after, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("get memory after no-op: %v", err)
+	}
+	afterLogs, err := q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
+		UserID:  userID,
+		AgentID: agentID,
+		Scope:   "fact",
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("list changelog after no-op: %v", err)
+	}
+
+	if second.ID != first.ID {
+		t.Fatalf("same content returned fact %s, want existing fact %s", second.ID, first.ID)
+	}
+	if after.Version != before.Version {
+		t.Fatalf("same content bumped memory version from %d to %d", before.Version, after.Version)
+	}
+	if len(afterLogs) != len(beforeLogs) {
+		t.Fatalf("same content wrote %d changelog entries, want unchanged %d", len(afterLogs), len(beforeLogs))
+	}
+}
+
 func TestResetUserAgentMemory_KeepsVersionMonotonicAndDoesNotResurrect(t *testing.T) {
 	db, q, userID, agentID, cleanup := setupTestDB(t)
 	defer cleanup()
@@ -235,6 +292,9 @@ func TestResetUserAgentMemory_KeepsVersionMonotonicAndDoesNotResurrect(t *testin
 		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectUser, Content: "Old profile.", Source: memory.SourceReflect,
 	}); err != nil {
 		t.Fatalf("set old profile: %v", err)
+	}
+	if _, err := AddConstraint(ctx, db, q, userID, agentID, "Old constraint."); err != nil {
+		t.Fatalf("add old constraint: %v", err)
 	}
 	before, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
 	if err != nil {
@@ -280,5 +340,49 @@ func TestResetUserAgentMemory_KeepsVersionMonotonicAndDoesNotResurrect(t *testin
 	}
 	if len(at) != 1 || at[0].ID != newFact.ID {
 		t.Fatalf("reconstructed facts = %+v, want only new fact %s", at, newFact.ID)
+	}
+
+	factLogs, err := q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
+		UserID:  userID,
+		AgentID: agentID,
+		Scope:   "fact",
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("list fact changelog: %v", err)
+	}
+	var sawDeprecate bool
+	for _, log := range factLogs {
+		if log.Action == "delete" {
+			t.Fatalf("reset fact changelog action = delete, want deprecate")
+		}
+		if log.Action == "deprecate" {
+			sawDeprecate = true
+		}
+	}
+	if !sawDeprecate {
+		t.Fatalf("reset did not write a fact deprecate changelog entry: %+v", factLogs)
+	}
+
+	constraintLogs, err := q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
+		UserID:  userID,
+		AgentID: agentID,
+		Scope:   "constraint",
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("list constraint changelog: %v", err)
+	}
+	if len(constraintLogs) != 2 {
+		t.Fatalf("constraint changelog entries = %d, want create plus reset delete", len(constraintLogs))
+	}
+	if constraintLogs[0].Action != "delete" {
+		t.Fatalf("reset constraint changelog action = %q, want delete", constraintLogs[0].Action)
+	}
+	if !constraintLogs[0].BeforeText.Valid || constraintLogs[0].BeforeText.String == "[]" {
+		t.Fatalf("reset constraint changelog missing non-empty before_text: %+v", constraintLogs[0])
+	}
+	if !constraintLogs[0].AfterText.Valid || constraintLogs[0].AfterText.String != "[]" {
+		t.Fatalf("reset constraint changelog after_text = %q, want []", constraintLogs[0].AfterText.String)
 	}
 }

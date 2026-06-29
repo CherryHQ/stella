@@ -39,9 +39,11 @@ Do NOT update memory for:
 
 ## Knowledge
 
-Create a subject=world fact only if the conversation revealed a project/domain/world fact that the assistant would likely get wrong without it, and that fact is not already obvious from common documentation or general knowledge.
+Identify subject=world candidates only if the conversation revealed a project/domain/world fact that the assistant would likely get wrong without it, and that fact is not already obvious from common documentation or general knowledge.
 
-Do NOT use the skills tool for knowledge facts. The concrete subject=world fact generation and write flow is handled by the fact pipeline.
+Do NOT create or write subject=world facts in this review. The concrete subject=world fact generation and write flow is deferred to the fact pipeline.
+
+Do NOT use the skills tool for knowledge facts.
 
 Do NOT create knowledge entries for:
 - Things already captured in the user profile

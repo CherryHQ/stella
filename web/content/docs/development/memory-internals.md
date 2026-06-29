@@ -93,7 +93,7 @@ The changelog records:
 
 - user and agent
 - scope (`profile`, `soul`, `constraint`, `skill`, `compaction`)
-- action (`create`, `update`, `delete`, `compact`)
+- action (`create`, `update`, `delete`, `deprecate`, `compact`)
 - source (`user`, `agent`, `reflect`, `system`)
 - before/after text
 - before/after memory versions
@@ -121,12 +121,12 @@ On the first chat turn, Stella stores a frozen `ctx_agent_memory.version` in `me
 
 Visibility rules:
 
-| Write path                                          | Current session sees it? | Why                                                                  |
-| --------------------------------------------------- | ------------------------ | -------------------------------------------------------------------- |
-| Manual UI/API/CLI updates profile/soul/knowledge    | New sessions             | Manual writes update durable facts; active sessions stay snapshotted |
-| Manual UI/API/CLI adds/removes a constraint         | New sessions             | Manual writes update constraints; active sessions stay snapshotted   |
-| Reflect updates profile/knowledge in the background | No                       | Reflect has no active session context and does not advance snapshots |
-| A new session starts                                | Yes                      | It snapshots the latest memory version                               |
+| Write path                                  | Current session sees it? | Why                                                                  |
+| ------------------------------------------- | ------------------------ | -------------------------------------------------------------------- |
+| Manual UI/API/CLI updates profile/soul      | New sessions             | Manual writes update durable facts; active sessions stay snapshotted |
+| Manual UI/API/CLI adds/removes a constraint | New sessions             | Manual writes update constraints; active sessions stay snapshotted   |
+| Reflect updates profile in the background   | No                       | Reflect has no active session context and does not advance snapshots |
+| A new session starts                        | Yes                      | It snapshots the latest memory version                               |
 
 This prevents both foreground tool writes and background reflection from changing behavior inside an ongoing session.
 
@@ -136,7 +136,7 @@ Knowledge is stored as active `facts` rows with `subject=world` and `scope=user_
 
 Skills remain reusable procedures and no longer create or store fact/context knowledge via `metadata.knowledge_type`. Legacy `user_agent` skill-backed knowledge is migrated into `subject=world` facts by the v1 facts migration; broader knowledge scopes are intentionally left for a follow-up design.
 
-Reflect may maintain facts and skills, but normal conversation tools do not directly write facts. Complex fact generation, related-fact search, confidence, usage tracking, and lifecycle maintenance are follow-up work.
+Reflect may maintain the user profile and skills, but normal conversation tools do not directly write facts. New `subject=world` fact generation/write tooling, related-fact search, confidence, usage tracking, and lifecycle maintenance are follow-up work.
 
 ## LCM Plugin
 

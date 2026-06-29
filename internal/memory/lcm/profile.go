@@ -2,6 +2,7 @@ package lcm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -108,14 +109,11 @@ func (p *Provider) GetProfileAt(ctx context.Context, userID string, agentID stri
 	if version <= 0 {
 		return p.GetProfile(ctx, userID, agentID)
 	}
-	facts, err := p.ListActiveFactsAt(ctx, userID, agentID, memory.FactSubjectUser, version)
+	content, err := p.getIdentityFactAt(ctx, userID, agentID, memory.FactSubjectUser, "profile", version)
 	if err != nil {
 		return "", fmt.Errorf("get profile at version %d: %w", version, err)
 	}
-	if len(facts) == 0 {
-		return "", nil
-	}
-	return facts[0].Content, nil
+	return content, nil
 }
 
 // GetAgentSoulAt implements memory.VersionedProfileStore.
@@ -123,14 +121,57 @@ func (p *Provider) GetAgentSoulAt(ctx context.Context, userID string, agentID st
 	if version <= 0 {
 		return p.GetAgentSoul(ctx, userID, agentID)
 	}
-	facts, err := p.ListActiveFactsAt(ctx, userID, agentID, memory.FactSubjectAgent, version)
+	content, err := p.getIdentityFactAt(ctx, userID, agentID, memory.FactSubjectAgent, "soul", version)
 	if err != nil {
 		return "", fmt.Errorf("get agent soul at version %d: %w", version, err)
 	}
-	if len(facts) == 0 {
+	return content, nil
+}
+
+func (p *Provider) getIdentityFactAt(ctx context.Context, userID string, agentID string, subject memory.FactSubject, legacyScope string, version int64) (string, error) {
+	facts, seenFacts, err := memorywrite.ListActiveFactsAtSnapshot(ctx, p.q, userID, agentID, subject, version)
+	if err != nil {
+		return "", err
+	}
+	if seenFacts {
+		if len(facts) == 0 {
+			return "", nil
+		}
+		return facts[0].Content, nil
+	}
+	return p.getLegacyIdentityAt(ctx, userID, agentID, legacyScope, version)
+}
+
+func (p *Provider) getLegacyIdentityAt(ctx context.Context, userID string, agentID string, scope string, version int64) (string, error) {
+	entry, err := p.q.GetMemoryChangelogAtVersion(ctx, sqlc.GetMemoryChangelogAtVersionParams{
+		UserID:             userID,
+		AgentID:            agentID,
+		Scope:              scope,
+		MemoryVersionAfter: pgtype.Int8{Int64: version, Valid: true},
+	})
+	if err == nil {
+		if entry.AfterText.Valid {
+			return entry.AfterText.String, nil
+		}
 		return "", nil
 	}
-	return facts[0].Content, nil
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("get legacy %s at version %d: %w", scope, version, err)
+	}
+
+	// Pre-facts snapshots may only have the legacy row, not a full changelog.
+	row, err := p.getMemoryRow(ctx, userID, agentID)
+	if err != nil || row == nil {
+		return "", err
+	}
+	switch scope {
+	case "profile":
+		return row.Content, nil
+	case "soul":
+		return row.Soul, nil
+	default:
+		return "", nil
+	}
 }
 
 // ListActiveFacts implements memory.FactStore.
@@ -236,6 +277,9 @@ func (p *Provider) WriteChangelog(ctx context.Context, entry memory.ChangeEntry)
 
 // ReadChangelog implements memory.ChangelogReader.
 func (p *Provider) ReadChangelog(ctx context.Context, userID string, agentID string, scope string, limit int) ([]memory.ChangeEntry, error) {
+	if subject, ok := identitySubjectForHistoryScope(scope); ok {
+		return p.readIdentityFactChangelog(ctx, userID, agentID, scope, subject, limit)
+	}
 	rows, err := p.q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
 		UserID:  userID,
 		AgentID: agentID,
@@ -250,6 +294,131 @@ func (p *Provider) ReadChangelog(ctx context.Context, userID string, agentID str
 		entries[i] = changelogRowToEntry(r)
 	}
 	return entries, nil
+}
+
+func identitySubjectForHistoryScope(scope string) (memory.FactSubject, bool) {
+	switch scope {
+	case "profile":
+		return memory.FactSubjectUser, true
+	case "soul":
+		return memory.FactSubjectAgent, true
+	default:
+		return "", false
+	}
+}
+
+func (p *Provider) readIdentityFactChangelog(ctx context.Context, userID string, agentID string, scope string, subject memory.FactSubject, limit int) ([]memory.ChangeEntry, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := p.q.ListFactChangelogBySubject(ctx, sqlc.ListFactChangelogBySubjectParams{
+		UserID:     userID,
+		AgentID:    agentID,
+		Subject:    pgtype.Text{String: string(subject), Valid: true},
+		LimitCount: int32(limit * 3),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list fact changelog: %w", err)
+	}
+
+	type group struct {
+		version int64
+		rows    []sqlc.CtxAgentMemoryChangelog
+	}
+	var groups []group
+	for _, row := range rows {
+		if !row.MemoryVersionAfter.Valid {
+			continue
+		}
+		version := row.MemoryVersionAfter.Int64
+		if len(groups) == 0 || groups[len(groups)-1].version != version {
+			groups = append(groups, group{version: version})
+		}
+		groups[len(groups)-1].rows = append(groups[len(groups)-1].rows, row)
+	}
+
+	entries := make([]memory.ChangeEntry, 0, limit)
+	for _, group := range groups {
+		entry, ok, err := projectIdentityFactChangelogGroup(scope, subject, group.rows)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		entries = append(entries, entry)
+		if len(entries) >= limit {
+			break
+		}
+	}
+	return entries, nil
+}
+
+type changelogFactState struct {
+	row    sqlc.CtxAgentMemoryChangelog
+	before *memory.Fact
+	after  *memory.Fact
+}
+
+func projectIdentityFactChangelogGroup(scope string, subject memory.FactSubject, rows []sqlc.CtxAgentMemoryChangelog) (memory.ChangeEntry, bool, error) {
+	var active *changelogFactState
+	var deprecated *changelogFactState
+	for _, row := range rows {
+		before, err := parseChangelogFact(row.BeforeText)
+		if err != nil {
+			return memory.ChangeEntry{}, false, err
+		}
+		after, err := parseChangelogFact(row.AfterText)
+		if err != nil {
+			return memory.ChangeEntry{}, false, err
+		}
+		if after == nil || after.Subject != subject {
+			continue
+		}
+		state := changelogFactState{row: row, before: before, after: after}
+		switch after.Status {
+		case memory.FactStatusActive:
+			active = &state
+		case memory.FactStatusDeprecated:
+			if deprecated == nil {
+				deprecated = &state
+			}
+		}
+	}
+
+	if active != nil {
+		entry := changelogRowToEntry(active.row)
+		entry.Scope = scope
+		entry.AfterText = active.after.Content
+		if active.before != nil && active.before.Subject == subject {
+			entry.BeforeText = active.before.Content
+		} else if deprecated != nil && deprecated.before != nil && deprecated.before.Subject == subject {
+			entry.BeforeText = deprecated.before.Content
+		}
+		return entry, true, nil
+	}
+	if deprecated != nil {
+		entry := changelogRowToEntry(deprecated.row)
+		entry.Scope = scope
+		entry.Action = "deprecate"
+		entry.AfterText = ""
+		if deprecated.before != nil && deprecated.before.Subject == subject {
+			entry.BeforeText = deprecated.before.Content
+		}
+		return entry, true, nil
+	}
+	return memory.ChangeEntry{}, false, nil
+}
+
+func parseChangelogFact(text pgtype.Text) (*memory.Fact, error) {
+	if !text.Valid || text.String == "" {
+		return nil, nil
+	}
+	var fact memory.Fact
+	if err := json.Unmarshal([]byte(text.String), &fact); err != nil {
+		return nil, fmt.Errorf("parse fact changelog state: %w", err)
+	}
+	return &fact, nil
 }
 
 func changeEntryToParams(e memory.ChangeEntry) sqlc.InsertMemoryChangelogParams {

@@ -34,3 +34,15 @@ WHERE user_id = $1
   AND scope = 'fact'
   AND memory_version_after <= $3
 ORDER BY memory_version_after ASC, id ASC;
+
+-- name: ListFactChangelogBySubject :many
+SELECT * FROM ctx_agent_memory_changelog
+WHERE user_id = $1
+  AND agent_id = $2
+  AND scope = 'fact'
+  AND (
+    (before_text IS NOT NULL AND before_text::jsonb->>'subject' = sqlc.arg(subject))
+    OR (after_text IS NOT NULL AND after_text::jsonb->>'subject' = sqlc.arg(subject))
+  )
+ORDER BY memory_version_after DESC NULLS LAST, id DESC
+LIMIT sqlc.arg(limit_count);

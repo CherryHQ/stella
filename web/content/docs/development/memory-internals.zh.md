@@ -93,7 +93,7 @@ changelog 记录：
 
 - 用户和 agent
 - scope（`profile`、`soul`、`constraint`、`skill`、`compaction`）
-- action（`create`、`update`、`delete`、`compact`）
+- action（`create`、`update`、`delete`、`deprecate`、`compact`）
 - source（`user`、`agent`、`reflect`、`system`）
 - 写入前/后的文本
 - 写入前/后的记忆版本
@@ -121,12 +121,12 @@ Reflect 被明确禁止添加、删除或编辑约束。普通会话工具也不
 
 可见性规则：
 
-| 写入路径                                   | 当前会话是否可见？ | 原因                                              |
-| ------------------------------------------ | ------------------ | ------------------------------------------------- |
-| UI/API/CLI 手动更新 profile/soul/knowledge | 新会话可见         | manual 写入更新 durable facts；当前会话保持快照   |
-| UI/API/CLI 手动添加/删除 constraint        | 新会话可见         | manual 写入更新 constraints；当前会话保持快照     |
-| Reflect 在后台更新 profile/knowledge       | 否                 | Reflect 没有活跃 session context，不推进 snapshot |
-| 新会话开始                                 | 是                 | 新会话会快照最新记忆版本                          |
+| 写入路径                            | 当前会话是否可见？ | 原因                                              |
+| ----------------------------------- | ------------------ | ------------------------------------------------- |
+| UI/API/CLI 手动更新 profile/soul    | 新会话可见         | manual 写入更新 durable facts；当前会话保持快照   |
+| UI/API/CLI 手动添加/删除 constraint | 新会话可见         | manual 写入更新 constraints；当前会话保持快照     |
+| Reflect 在后台更新 profile          | 否                 | Reflect 没有活跃 session context，不推进 snapshot |
+| 新会话开始                          | 是                 | 新会话会快照最新记忆版本                          |
 
 这样可以避免普通会话工具写入和后台反思在进行中的会话里造成行为漂移。
 
@@ -136,7 +136,7 @@ Reflect 被明确禁止添加、删除或编辑约束。普通会话工具也不
 
 Skills 仍然只表示可复用流程，不再通过 `metadata.knowledge_type` 创建或存储 fact/context knowledge。旧的 `user_agent` skill-backed knowledge 会由 v1 facts migration 迁移为 `subject=world` facts；更宽的 knowledge scope 留给后续设计。
 
-Reflect 可以维护 facts 和 skills，但普通会话工具不直接写 facts。复杂 fact 生成、related-fact search、confidence、usage tracking 和生命周期维护都是后续工作。
+Reflect 可以维护 user profile 和 skills，但普通会话工具不直接写 facts。新的 `subject=world` fact 生成/写入工具链、related-fact search、confidence、usage tracking 和生命周期维护都是后续工作。
 
 ## LCM 插件
 

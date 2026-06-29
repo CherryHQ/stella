@@ -49,7 +49,7 @@ SELECT
   'fact',
   'create',
   'manual',
-  1,
+  m."version",
   jsonb_build_object(
     'id', f."id"::text,
     'subject', f."subject",
@@ -89,7 +89,7 @@ SELECT
   'fact',
   'create',
   'manual',
-  1,
+  m."version",
   jsonb_build_object(
     'id', f."id"::text,
     'subject', f."subject",
@@ -159,7 +159,7 @@ SELECT
   'fact',
   'create',
   'manual',
-  1,
+  m."version",
   jsonb_build_object(
     'id', f."id"::text,
     'subject', f."subject",
@@ -184,6 +184,24 @@ JOIN "ctx_agent_memory" m ON m."user_id" = f."user_id" AND m."agent_id" = f."age
 LEFT JOIN memory_rows mr ON mr."user_id" = f."user_id" AND mr."agent_id" = f."agent_id";
 
 -- +goose Down
+INSERT INTO "ctx_agent_memory" ("user_id", "agent_id", "content", "version", "updated_at")
+SELECT "user_id", "agent_id", "content", 1, now()
+FROM "facts"
+WHERE "subject" = 'user'
+  AND "status" = 'active'
+ON CONFLICT ("user_id", "agent_id") DO UPDATE SET
+  "content" = EXCLUDED."content",
+  "updated_at" = now();
+
+INSERT INTO "ctx_agent_memory" ("user_id", "agent_id", "soul", "version", "updated_at")
+SELECT "user_id", "agent_id", "content", 1, now()
+FROM "facts"
+WHERE "subject" = 'agent'
+  AND "status" = 'active'
+ON CONFLICT ("user_id", "agent_id") DO UPDATE SET
+  "soul" = EXCLUDED."soul",
+  "updated_at" = now();
+
 DELETE FROM "ctx_agent_memory" m
 USING "ctx_agent_memory_changelog" c
 WHERE c."scope" = 'fact'

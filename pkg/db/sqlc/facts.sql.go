@@ -180,6 +180,66 @@ func (q *Queries) ListActiveFactsBySubject(ctx context.Context, arg ListActiveFa
 	return items, nil
 }
 
+const listFactChangelogBySubject = `-- name: ListFactChangelogBySubject :many
+SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at FROM ctx_agent_memory_changelog
+WHERE user_id = $1
+  AND agent_id = $2
+  AND scope = 'fact'
+  AND (
+    (before_text IS NOT NULL AND before_text::jsonb->>'subject' = $3)
+    OR (after_text IS NOT NULL AND after_text::jsonb->>'subject' = $3)
+  )
+ORDER BY memory_version_after DESC NULLS LAST, id DESC
+LIMIT $4
+`
+
+type ListFactChangelogBySubjectParams struct {
+	UserID     string      `json:"user_id"`
+	AgentID    string      `json:"agent_id"`
+	Subject    pgtype.Text `json:"subject"`
+	LimitCount int32       `json:"limit_count"`
+}
+
+func (q *Queries) ListFactChangelogBySubject(ctx context.Context, arg ListFactChangelogBySubjectParams) ([]CtxAgentMemoryChangelog, error) {
+	rows, err := q.db.Query(ctx, listFactChangelogBySubject,
+		arg.UserID,
+		arg.AgentID,
+		arg.Subject,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxAgentMemoryChangelog{}
+	for rows.Next() {
+		var i CtxAgentMemoryChangelog
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.SessionID,
+			&i.EntityID,
+			&i.Scope,
+			&i.Action,
+			&i.Source,
+			&i.MemoryVersionBefore,
+			&i.MemoryVersionAfter,
+			&i.BeforeText,
+			&i.AfterText,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFactChangelogUpToVersion = `-- name: ListFactChangelogUpToVersion :many
 SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at FROM ctx_agent_memory_changelog
 WHERE user_id = $1
