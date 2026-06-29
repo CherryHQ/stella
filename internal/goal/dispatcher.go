@@ -360,6 +360,11 @@ func (d *Dispatcher) scanAndDecompose(ctx context.Context, _ time.Time) {
 // returns ErrInvalidTransition for goals awaiting a human, with no pending agent
 // item, or out of review budget — all skipped here. A nil enqueuer (test wiring)
 // skips dispatch, the same gate scanAndClaim/scanAndDecompose use.
+//
+// Review attempts are LLM jobs like execution attempts, so they share the per-root
+// and per-user concurrency caps (§5/§10.8): a user with many blocked goals can no
+// longer burst a review job for each one past their execution budget. A goal over
+// the cap stays blocked(needs_verdict) and is retried next tick once a slot frees.
 func (d *Dispatcher) scanAndReview(ctx context.Context, _ time.Time) {
 	if d.cfg.Enqueuer == nil {
 		return
@@ -369,16 +374,33 @@ func (d *Dispatcher) scanAndReview(ctx context.Context, _ time.Time) {
 		d.cfg.Logger.Warn("dispatcher: list needs-verdict goals", "err", err)
 		return
 	}
+	// Per-tick concurrency snapshot shared across the candidates, mirroring
+	// scanAndClaim: a minted review raises the in-flight count, so cache counts per
+	// root/user and bump locally to honor the cap across a burst within one tick.
+	rootInflight := map[string]int64{}
+	userInflight := map[string]int64{}
+
 	for _, goal := range candidates {
 		if d.isStopped() {
 			return
+		}
+		ok, err := d.underConcurrencyCap(ctx, goal, rootInflight, userInflight)
+		if err != nil {
+			d.cfg.Logger.Warn("dispatcher: review concurrency count", "goal", goal.ID, "err", err)
+			continue
+		}
+		if !ok {
+			continue // over the per-root or per-user budget; retry next tick
 		}
 		if _, err := d.cfg.Service.BeginReview(ctx, goal.ID, d.enqueueAttemptTx); err != nil {
 			if errors.Is(err, ErrInvalidTransition) {
 				continue // nothing to agent-review (human-only, budget spent, or raced)
 			}
 			d.cfg.Logger.Warn("dispatcher: begin review", "goal", goal.ID, "err", err)
+			continue
 		}
+		rootInflight[goal.RootID]++
+		userInflight[goal.UserID]++
 	}
 }
 

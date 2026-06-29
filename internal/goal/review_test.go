@@ -5,6 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -376,6 +381,139 @@ func TestReview_SubmitRejectsUncoveredVerdicts(t *testing.T) {
 	}
 	if got := h.get(d.ID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockNeedsVerdict {
 		t.Fatalf("after rejected verdict lifecycle=%q reason=%q want still blocked/needs_verdict", got.Lifecycle, got.BlockReason)
+	}
+}
+
+// TestReview_ContractRetypeDropsVerdict proves a goal edit that retypes a frozen
+// review item invalidates an in-flight agent verdict: the fold resolves verdicts
+// against the LIVE contract by item id alone, so without the under-lock recheck an
+// agent verdict could satisfy a gate the user just changed to authority=human.
+// SubmitReview finalizes the attempt but appends nothing and does not fold.
+func TestReview_ContractRetypeDropsVerdict(t *testing.T) {
+	h := newHarness(t)
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "lgtm"))
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+	h.runLeaf(d.ID) // exec H1 -> blocked(needs_verdict)
+
+	ctx := context.Background()
+	att, err := h.svc.BeginReview(ctx, d.ID, nil) // frozen: item "review" authority=agent
+	if err != nil {
+		t.Fatalf("begin review: %v", err)
+	}
+	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
+		t.Fatalf("promote review: %v", err)
+	}
+	// The user retypes the same item id to authority=human while the reviewer runs.
+	cur := h.get(d.ID)
+	retyped := AcceptanceContract{Policy: PolicyDetThenJudgment, Items: []AcceptanceItem{
+		{ID: "review", Kind: ItemJudgment, Required: true, Authority: AuthorityHuman, Prompt: "is it good?"},
+	}}
+	if err := h.q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
+		Title:              cur.Title,
+		Intent:             cur.Intent,
+		AcceptanceContract: marshalJSON(retyped),
+		ConvergencePolicy:  cur.ConvergencePolicy,
+		ReviewPolicy:       cur.ReviewPolicy,
+		Priority:           cur.Priority,
+		ID:                 d.ID,
+	}); err != nil {
+		t.Fatalf("retype contract: %v", err)
+	}
+	// The agent verdict must not satisfy the now-human gate.
+	if err := h.svc.SubmitReview(ctx, att.ID, AttemptEvidence{Summary: "ok"},
+		[]ReviewVerdict{{ItemID: "review", Pass: true, Rationale: "lgtm"}}); err != nil {
+		t.Fatalf("submit review after retype: %v", err)
+	}
+	if got := h.get(d.ID); got.Lifecycle == LifecycleAccepted {
+		t.Fatalf("stale agent verdict satisfied a retyped human gate; want still blocked")
+	}
+}
+
+// TestReview_DropsVerdictWhenAlreadyResolved proves the under-lock lifecycle
+// recheck drops a late reviewer verdict for a goal that already left
+// blocked(needs_verdict): a human verdict accepts the goal before the reviewer
+// submits, so a (fail) verdict folded in now would wrongly rework an accepted
+// goal. SubmitReview is a clean no-op (no error), and the goal stays accepted.
+func TestReview_DropsVerdictWhenAlreadyResolved(t *testing.T) {
+	h := newHarness(t)
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "lgtm"))
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+	h.runLeaf(d.ID)
+
+	ctx := context.Background()
+	att, err := h.svc.BeginReview(ctx, d.ID, nil)
+	if err != nil {
+		t.Fatalf("begin review: %v", err)
+	}
+	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
+		t.Fatalf("promote review: %v", err)
+	}
+	// A human verdict resolves (accepts) the goal before the reviewer submits.
+	if err := h.svc.SubmitVerdict(ctx, VerdictInput{
+		GoalID: d.ID, ItemID: "review", Result: ResultPass, ScopeHash: "H1", ReviewerUserID: h.userID,
+	}); err != nil {
+		t.Fatalf("human verdict: %v", err)
+	}
+	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+		t.Fatalf("precondition: human verdict should have accepted, got %q", got.Lifecycle)
+	}
+	// The late reviewer submit (a fail) must be dropped, not fold into a rework.
+	if err := h.svc.SubmitReview(ctx, att.ID, AttemptEvidence{Summary: "ok"},
+		[]ReviewVerdict{{ItemID: "review", Pass: false, Rationale: "reject"}}); err != nil {
+		t.Fatalf("submit review after resolved: %v", err)
+	}
+	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+		t.Fatalf("late verdict moved a resolved goal lifecycle=%q want accepted", got.Lifecycle)
+	}
+}
+
+// fakeEnqueuer is a no-op goalEnqueuer for dispatcher scan tests: it records
+// nothing and reports a successful (non-duplicate) insert so the claim/review tx
+// commits without a real River client.
+type fakeEnqueuer struct{}
+
+func (fakeEnqueuer) InsertTx(_ context.Context, _ pgx.Tx, _ river.JobArgs, _ *river.InsertOpts) (*rivertype.JobInsertResult, error) {
+	return &rivertype.JobInsertResult{Job: &rivertype.JobRow{}}, nil
+}
+
+// TestReview_RespectsConcurrencyCap proves scanAndReview honors the per-user
+// concurrency cap: a user saturated by an inflight execution attempt gets no
+// review minted for a blocked(needs_verdict) goal until a slot frees. Review
+// attempts are LLM jobs, so they share the cap rather than bursting one per
+// blocked goal.
+func TestReview_RespectsConcurrencyCap(t *testing.T) {
+	h := newHarness(t)
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "lgtm"))
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+	h.runLeaf(d.ID) // blocked(needs_verdict)
+
+	ctx := context.Background()
+	// Saturate the per-user cap with one inflight (queued) execution attempt on
+	// another goal of the same user — never run, so it stays inflight.
+	other := h.createRoot(KindLeaf, AcceptanceContract{})
+	h.activate(other.ID)
+	if _, err := h.svc.Claim(ctx, other.ID, "w-1", nil); err != nil {
+		t.Fatalf("claim other: %v", err)
+	}
+
+	fake := fakeEnqueuer{}
+	overCap := NewDispatcher(DispatcherConfig{
+		Service: h.svc, Queries: h.q, Enqueuer: fake, MaxConcurrentPerUser: 1, BatchLimit: 50,
+	})
+	overCap.scanAndReview(ctx, time.Time{})
+	if _, err := h.q.GetActiveAttempt(ctx, sqlc.GetActiveAttemptParams{GoalID: d.ID, Purpose: PurposeReview}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("review minted while over per-user cap (err=%v); want none", err)
+	}
+
+	underCap := NewDispatcher(DispatcherConfig{
+		Service: h.svc, Queries: h.q, Enqueuer: fake, MaxConcurrentPerUser: 10, BatchLimit: 50,
+	})
+	underCap.scanAndReview(ctx, time.Time{})
+	if _, err := h.q.GetActiveAttempt(ctx, sqlc.GetActiveAttemptParams{GoalID: d.ID, Purpose: PurposeReview}); err != nil {
+		t.Fatalf("review not minted under cap: %v", err)
 	}
 }
 

@@ -41,7 +41,10 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 	}
 	// Cheap pre-checks before minting a session: skip goals awaiting a human, with
 	// no pending agent item, or out of review budget. Re-checked under the lock.
-	_, execID, _, ok := s.pendingReviewWork(ctx, s.q, d)
+	_, execID, _, ok, err := s.pendingReviewWork(ctx, s.q, d)
+	if err != nil {
+		return sqlc.AgentGoalAttempt{}, err
+	}
 	if !ok {
 		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
 	}
@@ -73,7 +76,10 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 		if err != nil {
 			return err
 		}
-		items, execID, execOut, ok := s.pendingReviewWork(ctx, q, cur)
+		items, execID, execOut, ok, err := s.pendingReviewWork(ctx, q, cur)
+		if err != nil {
+			return err
+		}
 		if !ok {
 			return ErrInvalidTransition
 		}
@@ -128,17 +134,21 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 
 // pendingReviewWork reports whether a goal needs an agent verdict and, if so, the
 // pending authority=agent items, the execution attempt whose output is judged,
-// and that output. ok is false unless the goal is blocked(needs_verdict) with at
-// least one pending agent item — a human-only or already-resolved goal is left
-// for its existing path. Pure of writes; safe to call with s.q or a tx querier.
-func (s *GoalService) pendingReviewWork(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) ([]AcceptanceItem, string, AttemptOutput, bool) {
+// and that output. ok is false (err nil) when the goal legitimately has no agent
+// review to do — awaiting a human, no pending agent item, no output to judge, or a
+// review already in flight; the caller skips it. A non-nil err is a real DB
+// failure: it must NOT be flattened to "nothing to review" (a bad connection would
+// masquerade as a healthy skip and the goal would silently never get reviewed),
+// so it bubbles up to be logged and retried next tick. Pure of writes; safe to
+// call with s.q or a tx querier.
+func (s *GoalService) pendingReviewWork(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) ([]AcceptanceItem, string, AttemptOutput, bool, error) {
 	if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockNeedsVerdict {
-		return nil, "", AttemptOutput{}, false
+		return nil, "", AttemptOutput{}, false, nil
 	}
 	var contract AcceptanceContract
 	_ = unmarshalJSON(d.AcceptanceContract, &contract)
 	if len(contract.AgentJudgmentItems()) == 0 {
-		return nil, "", AttemptOutput{}, false // no agent items: a human verdict path
+		return nil, "", AttemptOutput{}, false, nil // no agent items: a human verdict path
 	}
 	// Skip if a review attempt is already in flight. The goal STAYS
 	// blocked(needs_verdict) while the reviewer runs, so scanAndReview keeps
@@ -147,26 +157,26 @@ func (s *GoalService) pendingReviewWork(ctx context.Context, q *sqlc.Queries, d 
 	// leaking a session per tick and spamming the log. One in-flight review per
 	// goal is enough -- its verdict folds the goal out of needs_verdict.
 	if _, err := q.GetActiveAttempt(ctx, sqlc.GetActiveAttemptParams{GoalID: d.ID, Purpose: PurposeReview}); err == nil {
-		return nil, "", AttemptOutput{}, false
+		return nil, "", AttemptOutput{}, false, nil
 	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, "", AttemptOutput{}, false
+		return nil, "", AttemptOutput{}, false, fmt.Errorf("check in-flight review: %w", err)
 	}
 	execID, execOut := s.evaluatedAttempt(ctx, q, d)
 	if execID == "" {
 		// No submitted execution output to judge (e.g. a composite carrying an
 		// agent judgment item). There is nothing for a reviewer to score against, so
 		// leave it for a human verdict.
-		return nil, "", AttemptOutput{}, false
+		return nil, "", AttemptOutput{}, false, nil
 	}
 	events, err := q.ListAcceptanceEventByGoal(ctx, d.ID)
 	if err != nil {
-		return nil, "", AttemptOutput{}, false
+		return nil, "", AttemptOutput{}, false, fmt.Errorf("list acceptance events: %w", err)
 	}
 	items := PendingAgentReviewItems(contract, execOut.Hash, events)
 	if len(items) == 0 {
-		return nil, "", AttemptOutput{}, false // every agent item already has a valid verdict
+		return nil, "", AttemptOutput{}, false, nil // every agent item already has a valid verdict
 	}
-	return items, execID, execOut, true
+	return items, execID, execOut, true, nil
 }
 
 // frozenReviewHash returns the hash of the execution output a review attempt was
@@ -176,6 +186,28 @@ func frozenReviewHash(in AttemptInput) string {
 		return ""
 	}
 	return in.ReviewOutput.Hash
+}
+
+// reviewItemsStillCurrent reports whether every frozen review item is still a
+// required authority=agent judgment item in the goal's CURRENT contract. The fold
+// resolves verdicts against the live contract by item id alone, so a goal edit
+// that retyped an item (agent->human), made it non-required, or dropped it would
+// otherwise let a stale agent verdict satisfy a gate it no longer owns. Checked
+// under the goal lock at SubmitReview so the verdict binds to the contract the
+// reviewer was actually asked about.
+func reviewItemsStillCurrent(d sqlc.AgentGoal, frozen []AcceptanceItem) bool {
+	var c AcceptanceContract
+	_ = unmarshalJSON(d.AcceptanceContract, &c)
+	cur := make(map[string]struct{})
+	for _, it := range c.AgentJudgmentItems() {
+		cur[it.ID] = struct{}{}
+	}
+	for _, it := range frozen {
+		if _, ok := cur[it.ID]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // reviewBudgetSpent counts agent-review attempts already spent on the CURRENT
@@ -231,6 +263,13 @@ func (s *GoalService) SubmitReview(ctx context.Context, attemptID string, ev Att
 			return fmt.Errorf("review verdicts reject: %w", err)
 		}
 
+		// Lock the goal so the staleness checks below see a stable snapshot: a
+		// concurrent human verdict, rework-claim, or goal edit cannot move the goal
+		// (or its evaluated output / contract) between the reads here and the fold.
+		// Mirrors BeginReview / ApprovePlan, which also lock + re-read under the lock.
+		if err := q.LockGoalForWrite(ctx, att.GoalID); err != nil {
+			return fmt.Errorf("lock goal for review submit: %w", err)
+		}
 		d, err := getGoal(ctx, q, att.GoalID)
 		if err != nil {
 			return err
@@ -248,14 +287,26 @@ func (s *GoalService) SubmitReview(ctx context.Context, attemptID string, ev Att
 			return ErrInvalidTransition // not the running attempt (reaped / raced)
 		}
 
-		// Bind to the EXACT execution output the reviewer judged (frozen at mint),
-		// not whatever evaluatedAttempt resolves now. If the evaluated output moved
-		// since mint (a rework produced a newer execution attempt while this review
-		// ran), the verdict is stale: the attempt is finalized above, but we do NOT
-		// append it or fold. The goal stays blocked(needs_verdict) and the dispatcher
-		// mints a fresh review against the new output (a new episode, full budget).
+		// Drop the verdict (attempt already finalized above) unless the goal still
+		// awaits exactly the episode the reviewer judged:
+		//   - still blocked(needs_verdict): a concurrent verdict/rework may have woken
+		//     it; folding now could move a goal that is no longer awaiting this verdict.
+		//   - evaluated output unchanged: a rework that produced a newer execution
+		//     attempt while this review ran makes the verdict stale (bind to the EXACT
+		//     output frozen at mint, not whatever evaluatedAttempt resolves now).
+		//   - frozen items are still required authority=agent items: a goal edit that
+		//     retyped an item (agent->human), dropped it, or made it non-required must
+		//     not let a stale agent verdict satisfy a different (or human) gate.
+		// On any mismatch the goal stays blocked(needs_verdict) and the dispatcher
+		// mints a fresh review against the current output (a new episode, full budget).
+		if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockNeedsVerdict {
+			return nil
+		}
 		curID, curOut := s.evaluatedAttempt(ctx, q, d)
 		if in.ReviewedAttemptID == "" || curID != in.ReviewedAttemptID || curOut.Hash != frozenReviewHash(in) {
+			return nil
+		}
+		if !reviewItemsStillCurrent(d, in.ReviewItems) {
 			return nil
 		}
 		for _, v := range verdicts {
