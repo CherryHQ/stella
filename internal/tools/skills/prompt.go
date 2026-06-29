@@ -39,38 +39,16 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 	}
 
 	var content strings.Builder
-	content.WriteString("Load a skill with the skills tool before following its instructions: action=\"load\", name=\"<skill-name>\". " +
-		"To load a specific file within a skill, use action=\"load\", name=\"<skill-name>\", path=\"<relative-path>\" " +
-		"(path is relative to the skill root, e.g. \"references/api.md\").")
-	content.WriteString("\n\n<available_skills>\n")
-	for _, skill := range all {
-		content.WriteString("  <skill>\n")
-		content.WriteString("    <name>")
-		content.WriteString(escapeXML(skill.Name))
-		content.WriteString("</name>\n")
-		content.WriteString("    <description>")
-		content.WriteString(escapeXML(skill.Description))
-		content.WriteString("</description>\n")
-		content.WriteString("    <status>")
-		content.WriteString(escapeXML(skill.Status))
-		content.WriteString("</status>\n")
-		content.WriteString("  </skill>\n")
-	}
-	content.WriteString("</available_skills>")
+	content.WriteString("Search installed skills before loading skill instructions. ")
+	content.WriteString("Call the skills tool with action=\"search_installed\" and a compact task-oriented query. ")
+	content.WriteString("Then load the selected skill with action=\"load\", name=\"<skill-name>\". ")
+	content.WriteString("To load a specific file within a selected skill, use action=\"load\", name=\"<skill-name>\", path=\"<relative-path>\" ")
+	content.WriteString("(path is relative to the skill root, e.g. \"references/api.md\").")
 
 	return pkgplugins.SystemPromptSection{
 		Title:   "Skills",
 		Content: content.String(),
 	}, nil
-}
-
-func escapeXML(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, `"`, "&quot;")
-	s = strings.ReplaceAll(s, "'", "&apos;")
-	return s
 }
 
 func filterVisibleSkills(skills []pkgplugins.Skill, build pkgplugins.SystemPromptContext) []pkgplugins.Skill {

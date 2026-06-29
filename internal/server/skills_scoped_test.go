@@ -160,7 +160,7 @@ func TestAgentSkills_ListPrecedenceDedup(t *testing.T) {
 	}
 }
 
-func TestSessionSystemPromptIncludesSkills(t *testing.T) {
+func TestSessionSystemPromptAdvertisesSkillSearch(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := createAgentAsUser(t, env, env.bearerToken, "prompt-skills-agent")
 	createTestSkill(t, env, "system", "", "", "inspect-skill")
@@ -191,10 +191,14 @@ func TestSessionSystemPromptIncludesSkills(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, want := range []string{"## Skills", "<name>inspect-skill</name>", "action=\"load\", name=\"<skill-name>\""} {
+	for _, want := range []string{"## Skills", `action="search_installed"`, `action="load", name="<skill-name>"`} {
 		if !strings.Contains(got.SystemPrompt, want) {
 			t.Fatalf("system prompt missing %q:\n%s", want, got.SystemPrompt)
 		}
+	}
+	// Search-first prompts advertise retrieval, not the full installed skill list.
+	if strings.Contains(got.SystemPrompt, "inspect-skill") {
+		t.Fatalf("system prompt should not inject installed skill names:\n%s", got.SystemPrompt)
 	}
 }
 

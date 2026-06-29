@@ -573,6 +573,26 @@ func (t *tracedProvider) AdvanceSessionSnapshot(ctx context.Context, sessionID s
 }
 
 // ---------------------------------------------------------------------------
+// FactStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) ListActiveFacts(ctx context.Context, userID string, agentID string, subject FactSubject) ([]Fact, error) {
+	fs, ok := t.inner.(FactStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("FactStore")
+	}
+	return fs.ListActiveFacts(ctx, userID, agentID, subject)
+}
+
+func (t *tracedProvider) ListActiveFactsAt(ctx context.Context, userID string, agentID string, subject FactSubject, version int64) ([]Fact, error) {
+	fs, ok := t.inner.(VersionedFactStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("VersionedFactStore")
+	}
+	return fs.ListActiveFactsAt(ctx, userID, agentID, subject, version)
+}
+
+// ---------------------------------------------------------------------------
 // ProfileEntryStore
 // ---------------------------------------------------------------------------
 
