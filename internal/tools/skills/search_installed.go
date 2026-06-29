@@ -59,7 +59,7 @@ func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string
 	if len(ranked) == 0 {
 		return "No installed skills found.", nil
 	}
-	boostSkillNameMatches(query, ranked)
+	rerankInstalledSkillHits(query, ranked, byName)
 	if len(ranked) > limit {
 		ranked = ranked[:limit]
 	}
@@ -102,7 +102,7 @@ func (t *Tool) visibleSearchableSkills(merged []ResolvedSkill) []pkgplugins.Skil
 	return out
 }
 
-func boostSkillNameMatches(query string, hits []searchrank.Result) {
+func rerankInstalledSkillHits(query string, hits []searchrank.Result, skillsByName map[string]pkgplugins.Skill) {
 	q := strings.ToLower(strings.TrimSpace(query))
 	for i := range hits {
 		name := strings.ToLower(hits[i].ID)
@@ -115,8 +115,32 @@ func boostSkillNameMatches(query string, hits []searchrank.Result) {
 	}
 	sort.SliceStable(hits, func(i, j int) bool {
 		if hits[i].Score == hits[j].Score {
+			leftScope := skillScopePrecedence(skillsByName[hits[i].ID].Scope)
+			rightScope := skillScopePrecedence(skillsByName[hits[j].ID].Scope)
+			if leftScope != rightScope {
+				return leftScope > rightScope
+			}
 			return hits[i].ID < hits[j].ID
 		}
 		return hits[i].Score > hits[j].Score
 	})
+}
+
+func skillScopePrecedence(scope string) int {
+	// Match the existing effective-skill precedence and use it only as a
+	// relevance tie-breaker: project > user_agent > user > system_agent > system.
+	switch scope {
+	case "project":
+		return 5
+	case "user_agent":
+		return 4
+	case "user":
+		return 3
+	case "system_agent":
+		return 2
+	case "system":
+		return 1
+	default:
+		return 0
+	}
 }

@@ -407,6 +407,57 @@ func TestSearchInstalledRanksVisibleSkills(t *testing.T) {
 	}
 }
 
+func TestSearchInstalledUsesScopePrecedenceTieBreak(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	// These skills have identical searchable text and equal BM25 scores; scope
+	// precedence should decide the order before falling back to name.
+	for _, skill := range []pkgplugins.Skill{
+		{
+			Scope:       "system",
+			Name:        "aaa-system",
+			Description: "Needle release helper",
+			Status:      "active",
+		},
+		{
+			Scope:       "user_agent",
+			UserID:      userID,
+			AgentID:     agentID,
+			Name:        "zzz-agent",
+			Description: "Needle release helper",
+			Status:      "active",
+		},
+	} {
+		if _, err := store.Create(ctx, skill, map[string]string{pkgplugins.SkillMainFile: "# " + skill.Name}); err != nil {
+			t.Fatalf("create %s skill: %v", skill.Scope, err)
+		}
+	}
+
+	tool := NewTool(store, "", "")
+	out, err := tool.Execute(ctx, map[string]any{
+		"action": "search_installed",
+		"query":  "needle",
+	})
+	if err != nil {
+		t.Fatalf("search_installed: %v", err)
+	}
+
+	var results []struct {
+		Name  string `json:"name"`
+		Scope string `json:"scope"`
+	}
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("unmarshal search_installed results: %v\n%s", err, out)
+	}
+	if len(results) < 2 {
+		t.Fatalf("results = %#v, want at least two matches", results)
+	}
+	if results[0].Name != "zzz-agent" || results[0].Scope != "user_agent" {
+		t.Fatalf("top result = %#v, want user_agent scope tie-break", results[0])
+	}
+}
+
 func TestSearchInstalledDoesNotSearchSkillBody(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
