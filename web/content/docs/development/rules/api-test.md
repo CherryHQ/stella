@@ -21,11 +21,11 @@ Where this sits in the test pyramid:
 
 ## Environment
 
-| Variable              | Purpose                              | Example                                                              |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------- |
-| `STELLA_HOME`         | Server data dir                      | `~/.stella-dev`                                                      |
+| Variable              | Purpose                              | Example                                                               |
+| --------------------- | ------------------------------------ | --------------------------------------------------------------------- |
+| `STELLA_HOME`         | Server data dir                      | `~/.stella-dev`                                                       |
 | `STELLA_DATABASE_URL` | External Postgres (server + asserts) | `postgres://postgres:postgres@localhost:15433/stella?sslmode=disable` |
-| `STELLA_TOKEN`        | Bearer token for the HTTP client     | `stella_<base64url>`                                                 |
+| `STELLA_TOKEN`        | Bearer token for the HTTP client     | `stella_<base64url>`                                                  |
 
 Base URL: `http://localhost:25678`. `psql` (Postgres.app): `/Applications/Postgres.app/Contents/Versions/18/bin/psql`.
 
@@ -164,6 +164,6 @@ Assertions:
    -- expect root / decompose / execute / review rows, all archived = f
    ```
 
-3. Disposal *on rollback* is covered deterministically by
+3. Disposal _on rollback_ is covered deterministically by
    `TestReview_DisposesSessionOnRollback` / `TestDisposeOnRollback`; forcing the
    live `uniq_agent_goal_active_attempt` race is brittle and adds little.
