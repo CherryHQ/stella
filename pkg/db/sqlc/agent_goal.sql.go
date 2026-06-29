@@ -786,6 +786,76 @@ func (q *Queries) ListGoalSubtree(ctx context.Context, id string) ([]AgentGoal, 
 	return items, nil
 }
 
+const listGoalsBlockedNeedsVerdict = `-- name: ListGoalsBlockedNeedsVerdict :many
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
+WHERE lifecycle = 'blocked'
+  AND block_reason = 'needs_verdict'
+ORDER BY priority DESC, created_at ASC
+LIMIT $1
+`
+
+// Goals parked blocked(needs_verdict): a required judgment item has no valid
+// verdict. The dispatcher (scanAndReview) drives an agent reviewer for any with a
+// pending authority=agent item (contract section 10.13); the rest await a human.
+// Both leaf and composite goals can carry an authored judgment contract.
+func (q *Queries) ListGoalsBlockedNeedsVerdict(ctx context.Context, limit int32) ([]AgentGoal, error) {
+	rows, err := q.db.Query(ctx, listGoalsBlockedNeedsVerdict, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentGoal{}
+	for rows.Next() {
+		var i AgentGoal
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.ProjectID,
+			&i.ParentID,
+			&i.RootID,
+			&i.Depth,
+			&i.Position,
+			&i.SessionID,
+			&i.Title,
+			&i.Intent,
+			&i.Kind,
+			&i.Priority,
+			&i.Required,
+			&i.AcceptanceContract,
+			&i.ConvergencePolicy,
+			&i.ReviewPolicy,
+			&i.Lifecycle,
+			&i.BlockReason,
+			&i.AcceptanceState,
+			&i.AcceptedOutput,
+			&i.AcceptanceSeq,
+			&i.ActiveAttemptID,
+			&i.AttemptCount,
+			&i.RequiredTotal,
+			&i.RequiredAccepted,
+			&i.RequiredFailed,
+			&i.RequiredBlocked,
+			&i.Context,
+			&i.DispatchHint,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AcceptedAt,
+			&i.CancelledAt,
+			&i.ArchivedAt,
+			&i.Plan,
+			&i.PlannedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInboxGoals = `-- name: ListInboxGoals :many
 SELECT
     d.id,

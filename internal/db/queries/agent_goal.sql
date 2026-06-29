@@ -248,6 +248,17 @@ WHERE kind = 'composite'
 ORDER BY updated_at ASC
 LIMIT $1;
 
+-- name: ListGoalsBlockedNeedsVerdict :many
+-- Goals parked blocked(needs_verdict): a required judgment item has no valid
+-- verdict. The dispatcher (scanAndReview) drives an agent reviewer for any with a
+-- pending authority=agent item (contract section 10.13); the rest await a human.
+-- Both leaf and composite goals can carry an authored judgment contract.
+SELECT * FROM agent_goal
+WHERE lifecycle = 'blocked'
+  AND block_reason = 'needs_verdict'
+ORDER BY priority DESC, created_at ASC
+LIMIT $1;
+
 -- name: CancelGoal :exec
 UPDATE agent_goal SET
     lifecycle = 'cancelled',

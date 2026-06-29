@@ -24,6 +24,15 @@ type AttemptInput struct {
 	// goal.Depth) instead of only out-of-turn at SubmitDecomposition. Zero for
 	// non-decomposition attempts, which never decompose.
 	MaxDepth int `json:"max_depth,omitempty"`
+	// ReviewItems / ReviewOutput / ReviewedAttemptID are frozen onto a
+	// purpose=review attempt: the agent-authority judgment items the reviewer must
+	// answer, the execution output it judges, and the execution attempt that
+	// produced that output (contract §10.13). The reviewed id+hash pin the episode
+	// — SubmitReview binds verdicts to this output and refuses to fold if the
+	// evaluated output has moved since mint. Empty for non-review attempts.
+	ReviewItems       []AcceptanceItem `json:"review_items,omitempty"`
+	ReviewOutput      *AttemptOutput   `json:"review_output,omitempty"`
+	ReviewedAttemptID string           `json:"reviewed_attempt_id,omitempty"`
 }
 
 // Evaluation carries the shortfalls from one acceptance fold; it feeds the next

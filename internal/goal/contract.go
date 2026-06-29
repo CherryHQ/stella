@@ -8,6 +8,13 @@ const (
 	defaultMaxDepth    = 4
 	// defaultMaxConcurrent bounds breadth-of-fanout per root (§5).
 	defaultMaxConcurrent = 8
+	// defaultMaxReviewAttempts bounds how many agent auto-review attempts are spent
+	// per needs_verdict episode — reviews of ONE execution output — before
+	// degrading to a human verdict (contract §10.13). A reviewer that cannot
+	// produce a verdict after this many tries against the same output leaves the
+	// goal blocked(needs_verdict) for a human. A rework that yields a new execution
+	// output starts a fresh episode with full budget (see CountRanReviewAttemptsForOutput).
+	defaultMaxReviewAttempts = 2
 )
 
 // AcceptanceContract is the composite policy tree of deterministic + judgment
@@ -62,6 +69,20 @@ func (c AcceptanceContract) HasDeterministicItem() bool {
 		}
 	}
 	return false
+}
+
+// AgentJudgmentItems returns the required judgment items resolved by a reviewer
+// agent (authority=agent) — the items the agent auto-review producer must answer
+// with a verdict (contract §10.13). A non-required or human-authority judgment
+// item is excluded; the former is advisory, the latter awaits a human verdict.
+func (c AcceptanceContract) AgentJudgmentItems() []AcceptanceItem {
+	var out []AcceptanceItem
+	for _, it := range c.Items {
+		if it.Required && it.Kind == ItemJudgment && it.Authority == AuthorityAgent {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // expectExit returns the item's expected exit code (default 0).
