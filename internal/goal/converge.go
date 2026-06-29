@@ -404,6 +404,9 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 		for _, ch := range content.Children {
 			sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
 			if err != nil {
+				// A mid-batch mint failure orphans the children minted before it (no tx
+				// has run yet); archive them so the partial batch does not leak.
+				s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
 				return fmt.Errorf("mint child session %q: %w", ch.Key, err)
 			}
 			childSessions[ch.Key] = sid
@@ -462,11 +465,9 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 		}
 		return s.releaseChildren(ctx, q, parent.ID)
 	})
-	if err != nil {
-		// The tx rolled back (lost race / collision); archive the child sessions
-		// pre-minted above (none on the human-review path) so they are not orphaned.
-		s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
-	}
+	// On a definite rollback, archive the child sessions pre-minted above (none on
+	// the human-review path) so they are not orphaned.
+	s.disposeOnRollback(ctx, err, parent.UserID, parent.AgentID, mapValues(childSessions)...)
 	return err
 }
 
@@ -498,6 +499,9 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 	for _, ch := range content.Children {
 		sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
 		if err != nil {
+			// A mid-batch mint failure orphans the children minted before it (no tx
+			// has run yet); archive them so the partial batch does not leak.
+			s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
 			return fmt.Errorf("mint child session %q: %w", ch.Key, err)
 		}
 		childSessions[ch.Key] = sid
@@ -532,11 +536,9 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 		}
 		return s.releaseChildren(ctx, q, cur.ID)
 	})
-	if err != nil {
-		// The tx rolled back (concurrent reject/approve / collision); archive the
-		// child sessions pre-minted above so they are not orphaned.
-		s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
-	}
+	// On a definite rollback (concurrent reject/approve / collision), archive the
+	// child sessions pre-minted above so they are not orphaned.
+	s.disposeOnRollback(ctx, err, parent.UserID, parent.AgentID, mapValues(childSessions)...)
 	return err
 }
 

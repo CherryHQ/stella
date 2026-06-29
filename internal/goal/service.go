@@ -161,20 +161,35 @@ func WithSessionDisposer(d SessionDisposer) Option {
 	return func(s *GoalService) { s.disposeSession = d }
 }
 
-// disposeOrphanSessions archives sessions that were minted before a tx that then
-// failed, so a rolled-back mint-then-write does not orphan them. Best effort and
-// nil-safe: empty ids are skipped and a disposer error only logs (the caller's tx
-// already failed and is the real error to surface). Call ONLY on the tx-error
-// path — a committed flow owns its sessions.
+// disposeOnRollback archives pre-minted sessions when txErr indicates the tx
+// DEFINITELY rolled back, so a lost race / collision does not orphan them. A nil
+// err (committed) or an AMBIGUOUS commit failure (errTxCommit — the server may have
+// committed, so the session may now be live) is left alone: archiving a live
+// session would break the worker that resumes it. The orphan sweep is the backstop
+// for the ambiguous case. Use this at every mint-then-tx site.
+func (s *GoalService) disposeOnRollback(ctx context.Context, txErr error, userID, agentID string, sessionIDs ...string) {
+	if txErr == nil || errors.Is(txErr, errTxCommit) {
+		return
+	}
+	s.disposeOrphanSessions(ctx, userID, agentID, sessionIDs...)
+}
+
+// disposeOrphanSessions archives sessions minted before a write that did not take,
+// so they are not orphaned. Best effort and nil-safe: empty ids are skipped and a
+// disposer error only logs. It detaches from the caller's cancellation — the tx
+// often failed BECAUSE ctx was cancelled/timed out, and reusing it would fail the
+// cleanup too — keeping ctx values but bounding the cleanup with a short timeout.
 func (s *GoalService) disposeOrphanSessions(ctx context.Context, userID, agentID string, sessionIDs ...string) {
 	if s.disposeSession == nil {
 		return
 	}
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	for _, sid := range sessionIDs {
 		if sid == "" {
 			continue
 		}
-		if err := s.disposeSession(ctx, userID, agentID, sid); err != nil {
+		if err := s.disposeSession(dctx, userID, agentID, sid); err != nil {
 			slog.Default().Warn("goal: dispose orphaned session failed",
 				"component", "goal/service", "session_id", sid, "err", err)
 		}
@@ -251,10 +266,19 @@ func (s *GoalService) withTxRaw(ctx context.Context, fn func(*sqlc.Queries, pgx.
 		return err
 	}
 	if cerr := tx.Commit(ctx); cerr != nil {
-		err = fmt.Errorf("commit: %w", cerr)
+		// Tag commit failures so callers can tell a DEFINITE rollback (body error /
+		// begin error — nothing committed) from an AMBIGUOUS commit (the server may
+		// have committed even though the client saw an error). Compensating cleanup
+		// that assumes rollback (disposeOnRollback) must skip the ambiguous case.
+		err = fmt.Errorf("%w: %w", errTxCommit, cerr)
 	}
 	return err
 }
+
+// errTxCommit tags a withTxRaw error that originated in tx.Commit — an ambiguous
+// outcome (the row may be committed on the server). Distinct from a body/begin
+// error, which is a definite rollback. See disposeOnRollback.
+var errTxCommit = errors.New("commit")
 
 // getGoal loads a row, mapping pgx.ErrNoRows to ErrNotFound.
 func getGoal(ctx context.Context, q *sqlc.Queries, id string) (sqlc.AgentGoal, error) {
@@ -440,10 +464,10 @@ func (s *GoalService) CreateRoot(ctx context.Context, in CreateInput) (sqlc.Agen
 		minted = sid
 	}
 	out, err := s.CreateGoal(ctx, in)
-	if err != nil && minted != "" {
-		// The insert rolled back; archive only the session we minted here (never a
+	if minted != "" {
+		// On a definite rollback, archive only the session we minted here (never a
 		// caller-supplied one) so it is not orphaned.
-		s.disposeOrphanSessions(ctx, in.UserID, in.AgentID, minted)
+		s.disposeOnRollback(ctx, err, in.UserID, in.AgentID, minted)
 	}
 	return out, err
 }
