@@ -289,6 +289,52 @@ func TestProfileSoulAPIWritesFactsBackedSoul(t *testing.T) {
 	}
 }
 
+func TestProfileChangelogAPIReadsFactsBackedProfileAndSoul(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+
+	if rr := doRequest(t, env, http.MethodPatch, "/api/users/me/memories/"+agentID, map[string]string{
+		"content": "Profile history entry from facts.",
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("set profile status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPatch, "/api/users/me/soul/"+agentID, map[string]string{
+		"soul": "Soul history entry from facts.",
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("set soul status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	assertChangelogEntry := func(scope string, wantAfter string) {
+		t.Helper()
+		rr := doRequest(t, env, http.MethodGet, "/api/users/me/memories/"+agentID+"/changelog?scope="+scope, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s changelog status = %d, want %d (body: %s)", scope, rr.Code, http.StatusOK, rr.Body.String())
+		}
+		resp := parseResponse(t, rr)
+		var body struct {
+			Entries []struct {
+				Scope     string  `json:"scope"`
+				AfterText *string `json:"after_text"`
+			} `json:"entries"`
+		}
+		if err := json.Unmarshal(resp.Data, &body); err != nil {
+			t.Fatalf("unmarshal %s changelog: %v", scope, err)
+		}
+		if len(body.Entries) == 0 {
+			t.Fatalf("%s changelog entries = 0, want facts-backed entry", scope)
+		}
+		if body.Entries[0].Scope != scope {
+			t.Fatalf("%s changelog scope = %q, want %q", scope, body.Entries[0].Scope, scope)
+		}
+		if body.Entries[0].AfterText == nil || *body.Entries[0].AfterText != wantAfter {
+			t.Fatalf("%s changelog after_text = %v, want %q", scope, body.Entries[0].AfterText, wantAfter)
+		}
+	}
+
+	assertChangelogEntry("profile", "Profile history entry from facts.")
+	assertChangelogEntry("soul", "Soul history entry from facts.")
+}
+
 func TestProfileConstraintAPIWritesManualChangelogSource(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)

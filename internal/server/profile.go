@@ -419,6 +419,23 @@ func (s *Server) ListProfileChangelog(w http.ResponseWriter, r *http.Request, ag
 
 	entries := make([]apiserver.ChangelogEntry, 0, limit)
 	for _, scope := range scopes {
+		if scope == "profile" || scope == "soul" {
+			reader, ok := s.mem.(memory.ChangelogReader)
+			if !ok {
+				writeError(w, http.StatusServiceUnavailable, "memory changelog reader not configured")
+				return
+			}
+			rows, err := reader.ReadChangelog(r.Context(), info.UserID, agentID, scope, limit)
+			if err != nil {
+				s.writeInternalError(w, err)
+				return
+			}
+			for _, row := range rows {
+				entries = append(entries, memoryChangelogEntryToAPI(row))
+			}
+			continue
+		}
+
 		rows, err := s.q.ListMemoryChangelog(r.Context(), sqlc.ListMemoryChangelogParams{
 			UserID:  info.UserID,
 			AgentID: agentID,
@@ -455,6 +472,22 @@ func profileConstraintListToAPI(constraints []memory.ConstraintEntry) apiserver.
 	return apiserver.ConstraintList{Constraints: out}
 }
 
+// memoryChangelogEntryToAPI preserves Provider-projected changelog entries,
+// including fact-backed profile/soul history, for the HTTP changelog endpoint.
+func memoryChangelogEntryToAPI(entry memory.ChangeEntry) apiserver.ChangelogEntry {
+	return apiserver.ChangelogEntry{
+		Id:                  entry.ID,
+		Scope:               entry.Scope,
+		Action:              entry.Action,
+		Source:              string(entry.Source),
+		MemoryVersionBefore: int64PtrToIntPtr(entry.MemoryVersionBefore),
+		MemoryVersionAfter:  int64PtrToIntPtr(entry.MemoryVersionAfter),
+		BeforeText:          stringPtrIfNotEmpty(entry.BeforeText),
+		AfterText:           stringPtrIfNotEmpty(entry.AfterText),
+		CreatedAt:           parseTime(entry.CreatedAt),
+	}
+}
+
 func profileChangelogEntryToAPI(row sqlc.CtxAgentMemoryChangelog) apiserver.ChangelogEntry {
 	return apiserver.ChangelogEntry{
 		Id:                  row.ID,
@@ -467,6 +500,14 @@ func profileChangelogEntryToAPI(row sqlc.CtxAgentMemoryChangelog) apiserver.Chan
 		AfterText:           nullStringToPtr(row.AfterText),
 		CreatedAt:           row.CreatedAt.UTC(),
 	}
+}
+
+func int64PtrToIntPtr(value *int64) *int {
+	if value == nil {
+		return nil
+	}
+	v := int(*value)
+	return &v
 }
 
 func nullIntToPtr(value pgtype.Int8) *int {
@@ -482,6 +523,13 @@ func nullStringToPtr(value pgtype.Text) *string {
 		return nil
 	}
 	return &value.String
+}
+
+func stringPtrIfNotEmpty(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // OauthCallback handles GET /api/auth/oauth/{provider}/callback.
