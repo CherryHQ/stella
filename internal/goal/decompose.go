@@ -252,6 +252,11 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 		out = att
 		return nil
 	})
+	if err != nil {
+		// The tx rolled back (lost race / collision); archive the planning session
+		// minted above so it is not orphaned.
+		s.disposeOrphanSessions(ctx, d.UserID, d.AgentID, sessionID)
+	}
 	return out, err
 }
 
@@ -347,6 +352,11 @@ func (s *GoalService) BeginAutoDecomposition(ctx context.Context, id string, enq
 		out = att
 		return nil
 	})
+	if err != nil {
+		// The tx rolled back (lost race / collision); archive the planning session
+		// minted above so it is not orphaned.
+		s.disposeOrphanSessions(ctx, d.UserID, d.AgentID, sessionID)
+	}
 	return out, err
 }
 

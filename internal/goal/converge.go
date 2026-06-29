@@ -410,7 +410,7 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 		}
 	}
 
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
+	err = s.withTx(ctx, func(q *sqlc.Queries) error {
 		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
 			return fmt.Errorf("lock goal for decomposition submit: %w", err)
 		}
@@ -462,6 +462,12 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 		}
 		return s.releaseChildren(ctx, q, parent.ID)
 	})
+	if err != nil {
+		// The tx rolled back (lost race / collision); archive the child sessions
+		// pre-minted above (none on the human-review path) so they are not orphaned.
+		s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
+	}
+	return err
 }
 
 // ApprovePlan applies a human approval of a composite's proposed plan: it
@@ -497,7 +503,7 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 		childSessions[ch.Key] = sid
 	}
 
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
+	err = s.withTx(ctx, func(q *sqlc.Queries) error {
 		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
 			return fmt.Errorf("lock goal for plan approval: %w", err)
 		}
@@ -526,6 +532,22 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 		}
 		return s.releaseChildren(ctx, q, cur.ID)
 	})
+	if err != nil {
+		// The tx rolled back (concurrent reject/approve / collision); archive the
+		// child sessions pre-minted above so they are not orphaned.
+		s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
+	}
+	return err
+}
+
+// mapValues returns a map's values as a slice in unspecified order. Used to feed
+// a pre-minted child-session map to disposeOrphanSessions on a rollback.
+func mapValues(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	return out
 }
 
 // RejectPlan applies a human rejection of a composite's proposed plan: it clears

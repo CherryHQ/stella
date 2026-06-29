@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,6 +24,16 @@ import (
 // a row the outer tx holds) and pin a pooled connection. Implementations land in
 // the integration phase (session.go).
 type SessionMinter func(ctx context.Context, userID, agentID, projectID string) (string, error)
+
+// SessionDisposer archives a session that was minted OUTSIDE a tx whose durable
+// write then rolled back (a lost race re-checking eligibility under the lock, a
+// budget re-check, or a unique-attempt collision). Without it the orphaned hidden
+// session lingers forever — no attempt or goal references it, but it persists. It
+// is best effort: it runs outside the tx and a failure only logs (the leak is rare
+// — the in-flight guards reject the common re-mint before any session is minted —
+// and a future orphan sweep can backstop). A nil disposer is a no-op (tests).
+// Implementations land in session.go alongside the minters.
+type SessionDisposer func(ctx context.Context, userID, agentID, sessionID string) error
 
 // Executor owns agent interaction for one attempt and is PURE with respect to
 // durable state: Execute returns the action it wants; the WORKER applies the
@@ -102,8 +113,9 @@ const (
 type GoalService struct {
 	db                 *pgxpool.Pool
 	q                  *sqlc.Queries
-	newSession         SessionMinter // worker session (KindTask)
-	newPlanningSession SessionMinter // decomposition session (KindDelegate)
+	newSession         SessionMinter   // worker session (KindTask)
+	newPlanningSession SessionMinter   // decomposition session (KindDelegate)
+	disposeSession     SessionDisposer // archives a session orphaned by a rolled-back mint
 	checks             CheckRunner
 	exec               Executor
 	clock              func() time.Time
@@ -140,6 +152,33 @@ func WithSessionMinter(m SessionMinter) Option {
 // WithPlanningSessionMinter sets the decomposition planning-session minter.
 func WithPlanningSessionMinter(m SessionMinter) Option {
 	return func(s *GoalService) { s.newPlanningSession = m }
+}
+
+// WithSessionDisposer sets the disposer used to archive sessions orphaned when a
+// mint-then-tx flow rolls back. Optional: a nil disposer leaves the (rare) leak in
+// place rather than failing the flow.
+func WithSessionDisposer(d SessionDisposer) Option {
+	return func(s *GoalService) { s.disposeSession = d }
+}
+
+// disposeOrphanSessions archives sessions that were minted before a tx that then
+// failed, so a rolled-back mint-then-write does not orphan them. Best effort and
+// nil-safe: empty ids are skipped and a disposer error only logs (the caller's tx
+// already failed and is the real error to surface). Call ONLY on the tx-error
+// path — a committed flow owns its sessions.
+func (s *GoalService) disposeOrphanSessions(ctx context.Context, userID, agentID string, sessionIDs ...string) {
+	if s.disposeSession == nil {
+		return
+	}
+	for _, sid := range sessionIDs {
+		if sid == "" {
+			continue
+		}
+		if err := s.disposeSession(ctx, userID, agentID, sid); err != nil {
+			slog.Default().Warn("goal: dispose orphaned session failed",
+				"component", "goal/service", "session_id", sid, "err", err)
+		}
+	}
 }
 
 // WithCheckRunner sets the deterministic check runner.
@@ -388,6 +427,7 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 // pre-minted child sessions). Child goals get their sessions from
 // Materialize instead, so this entry is root-only.
 func (s *GoalService) CreateRoot(ctx context.Context, in CreateInput) (sqlc.AgentGoal, error) {
+	var minted string
 	if in.SessionID == "" {
 		if s.newSession == nil {
 			return sqlc.AgentGoal{}, fmt.Errorf("goal: no session minter configured")
@@ -397,8 +437,15 @@ func (s *GoalService) CreateRoot(ctx context.Context, in CreateInput) (sqlc.Agen
 			return sqlc.AgentGoal{}, fmt.Errorf("goal: mint root session: %w", err)
 		}
 		in.SessionID = sid
+		minted = sid
 	}
-	return s.CreateGoal(ctx, in)
+	out, err := s.CreateGoal(ctx, in)
+	if err != nil && minted != "" {
+		// The insert rolled back; archive only the session we minted here (never a
+		// caller-supplied one) so it is not orphaned.
+		s.disposeOrphanSessions(ctx, in.UserID, in.AgentID, minted)
+	}
+	return out, err
 }
 
 // UpdateInput is the mutable metadata of a goal (PATCH). A nil pointer

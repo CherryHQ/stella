@@ -517,6 +517,49 @@ func TestReview_RespectsConcurrencyCap(t *testing.T) {
 	}
 }
 
+// TestReview_DisposesSessionOnRollback proves the session minted before
+// BeginReview's tx is archived when that tx rolls back, so a lost race / collision
+// does not orphan it. A failing enqueue forces the rollback deterministically
+// (mint happens outside the tx; enqueue inside it).
+func TestReview_DisposesSessionOnRollback(t *testing.T) {
+	h := newHarness(t)
+	// Record every minted session (the last one is the review session) and every
+	// disposed session, replacing the minter/disposer on the service directly.
+	base := h.sessionMinter()
+	var minted []string
+	h.svc.newSession = func(ctx context.Context, u, a, p string) (string, error) {
+		id, err := base(ctx, u, a, p)
+		if err == nil {
+			minted = append(minted, id)
+		}
+		return id, err
+	}
+	var disposed []string
+	h.svc.disposeSession = func(_ context.Context, _, _, sid string) error {
+		disposed = append(disposed, sid)
+		return nil
+	}
+
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "lgtm"))
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+	h.runLeaf(d.ID) // blocked(needs_verdict)
+
+	ctx := context.Background()
+	boom := errors.New("enqueue boom")
+	if _, err := h.svc.BeginReview(ctx, d.ID, func(_ context.Context, _ pgx.Tx, _, _ string) error {
+		return boom
+	}); !errors.Is(err, boom) {
+		t.Fatalf("BeginReview err=%v want enqueue boom", err)
+	}
+	if len(disposed) != 1 {
+		t.Fatalf("disposed %d sessions, want 1 (the rolled-back review session)", len(disposed))
+	}
+	if want := minted[len(minted)-1]; disposed[0] != want {
+		t.Fatalf("disposed %q want the review session %q", disposed[0], want)
+	}
+}
+
 // TestValidateReviewVerdicts pins the in-turn coverage guard: a review must
 // answer every required item exactly once and name no unknown item.
 func TestValidateReviewVerdicts(t *testing.T) {

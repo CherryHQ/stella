@@ -129,6 +129,11 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 		out = att
 		return nil
 	})
+	if err != nil {
+		// The tx rolled back (lost race / budget / collision); archive the session
+		// minted above so it is not orphaned.
+		s.disposeOrphanSessions(ctx, d.UserID, d.AgentID, sessionID)
+	}
 	return out, err
 }
 

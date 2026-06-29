@@ -48,6 +48,21 @@ func RegistryPlanningSessionMinter(sm agent.ServiceManager) SessionMinter {
 	}
 }
 
+// RegistrySessionDisposer archives a session orphaned by a rolled-back
+// mint-then-write, through the same registry the minters use. Archiving (not
+// hard-delete) is the registry's dispose primitive: the row is flagged so it is
+// never resumed or listed, which is all an orphaned hidden session needs.
+// Satisfies SessionDisposer.
+func RegistrySessionDisposer(sm agent.ServiceManager) SessionDisposer {
+	return func(ctx context.Context, userID, agentID, sessionID string) error {
+		svc, err := resolveService(sm, userID, agentID)
+		if err != nil {
+			return err
+		}
+		return svc.Sessions.Archive(ctx, session.Scope{UserID: userID, AgentID: agentID}, sessionID)
+	}
+}
+
 // resolveService validates the owner identity and resolves the executor agent's
 // Service from the registry. A missing user/agent or unknown agent is a caller
 // error, not a panic — minting cannot proceed without an owner.
