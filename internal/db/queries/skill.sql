@@ -20,7 +20,7 @@ SELECT * FROM skill WHERE id = $1;
 -- user_agent > user > system_agent > system.
 -- name: ListSkillsVisible :many
 SELECT * FROM skill
-WHERE status = 'active'
+WHERE status != 'deprecated'
   AND disable_model_invocation = false
   AND (
     scope = 'system'
@@ -84,7 +84,7 @@ ORDER BY scope, created_at;
 -- name: ResolveSkill :one
 SELECT * FROM skill
 WHERE name = sqlc.arg(name)
-  AND status = 'active'
+  AND status != 'deprecated'
   AND disable_model_invocation = false
   AND (
     scope = 'system'
@@ -159,6 +159,28 @@ SELECT * FROM skill WHERE scope = 'user' AND user_id = $1 AND name = $2;
 UPDATE skill
 SET status = 'deprecated', updated_at = now()
 WHERE status = 'draft'
+  AND disable_model_invocation = false
+  AND metadata->>'created-at' < sqlc.arg(cutoff)::text;
+
+-- name: ListActiveKnowledgeByType :many
+SELECT * FROM skill
+WHERE disable_model_invocation = true
+  AND status = 'active'
+  AND (
+    scope = 'system'
+    OR (scope = 'system_agent' AND agent_id = sqlc.arg(agent_id))
+    OR (scope = 'user'         AND user_id  = sqlc.arg(user_id))
+    OR (scope = 'user_agent'   AND user_id  = sqlc.arg(user_id) AND agent_id = sqlc.arg(agent_id))
+  )
+  AND (sqlc.arg(knowledge_type)::text = '' OR metadata->>'knowledge_type' = sqlc.arg(knowledge_type)::text)
+ORDER BY created_at DESC;
+
+-- name: ExpireKnowledgeDraftsByType :exec
+UPDATE skill
+SET status = 'deprecated', updated_at = now()
+WHERE status = 'draft'
+  AND disable_model_invocation = true
+  AND metadata->>'knowledge_type' = sqlc.arg(knowledge_type)::text
   AND metadata->>'created-at' < sqlc.arg(cutoff)::text;
 
 -- name: ListAllSkills :many

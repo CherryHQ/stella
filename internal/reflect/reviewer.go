@@ -13,16 +13,14 @@ import (
 )
 
 const (
-	toolNameKnowledge = "knowledge"
-	toolNameSkills    = "skills"
-	toolNameMemory    = "memory"
+	toolNameSkills = "skills"
+	toolNameMemory = "memory"
 )
 
 // reviewResult holds the outcome of a single conversation review.
 type reviewResult struct {
-	SkillsMutated    int  // number of skills created or patched
-	KnowledgeMutated int  // number of knowledge entries created, patched, or deprecated
-	MemoryUpdated    bool // whether user memory was updated
+	SkillsMutated int  // number of skills created or patched
+	MemoryUpdated bool // whether user memory was updated
 }
 
 // reviewerConfig holds the tools and context needed to construct a reviewer.
@@ -30,7 +28,6 @@ type reviewerConfig struct {
 	Stream         providers.StreamFunc
 	Model          ai.Model
 	SkillsTool     tools.Tool
-	KnowledgeTool  tools.Tool // nil if knowledge review is not available
 	MemoryTool     tools.Tool // nil if memory review is not available
 	ExistingSkills []string
 	CurrentProfile string // injected into system prompt so the LLM can skip profile_get
@@ -44,9 +41,6 @@ type reviewer struct {
 func newReviewer(cfg reviewerConfig) (*reviewer, error) {
 	reg := tools.NewRegistry()
 	reg.Register(cfg.SkillsTool)
-	if cfg.KnowledgeTool != nil {
-		reg.Register(cfg.KnowledgeTool)
-	}
 	if cfg.MemoryTool != nil {
 		reg.Register(cfg.MemoryTool)
 	}
@@ -126,10 +120,6 @@ func countMutations(messages []ai.Message) reviewResult {
 			continue
 		}
 		switch meta.toolName {
-		case toolNameKnowledge:
-			if meta.action == "create" || meta.action == "patch" || meta.action == "deprecate" {
-				r.KnowledgeMutated++
-			}
 		case toolNameSkills:
 			if meta.action == "create" || meta.action == "patch" {
 				r.SkillsMutated++

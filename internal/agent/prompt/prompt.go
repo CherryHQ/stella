@@ -188,7 +188,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// When a session snapshot is active, filter out entries that became active
 	// after the snapshot was last advanced so that background knowledge changes
 	// do not affect frozen sessions.
-	if p.KnowledgeStore != nil && p.AgentID != "" {
+	if p.KnowledgeStore != nil && p.UserID != "" && p.AgentID != "" {
 		vc := pkgplugins.SkillViewContext{UserID: p.UserID, AgentID: p.AgentID}
 		if entries, err := p.KnowledgeStore.ListKnowledge(ctx, vc); err == nil {
 			if p.SnapshotVersion > 0 && !p.SnapshotUpdatedAt.IsZero() {

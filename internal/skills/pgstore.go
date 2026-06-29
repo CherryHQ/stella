@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/knowledge"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -370,146 +369,68 @@ func (s *PGStore) ExpireDrafts(ctx context.Context, before time.Time) error {
 	return nil
 }
 
-// ListKnowledge returns active first-class knowledge entries for the given view context.
+// ListKnowledge returns active knowledge entries for the given view context.
 // Pass knowledge types to filter; no types means all.
 func (s *PGStore) ListKnowledge(ctx context.Context, vc ViewContext, types ...KnowledgeType) ([]KnowledgeEntry, error) {
-	kinds := make([]knowledge.Kind, 0, len(types))
-	for _, t := range types {
-		kinds = append(kinds, knowledge.Kind(t))
+	typeFilter := ""
+	if len(types) == 1 {
+		typeFilter = string(types[0])
 	}
-	rows, err := knowledge.New(s.db).ListActive(ctx, knowledge.ViewContext{
-		UserID:  vc.UserID,
-		AgentID: vc.AgentID,
-	}, kinds...)
+	rows, err := s.q.ListActiveKnowledgeByType(ctx, sqlc.ListActiveKnowledgeByTypeParams{
+		AgentID:       pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""},
+		UserID:        pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""},
+		KnowledgeType: typeFilter,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list knowledge: %w", err)
 	}
 	entries := make([]KnowledgeEntry, 0, len(rows))
 	for _, row := range rows {
-		entries = append(entries, knowledgeEntryFromDomain(row))
+		content, _ := s.LoadFile(ctx, row.ID, MainFile)
+		entries = append(entries, KnowledgeEntry{
+			ID:            row.ID,
+			Name:          row.Name,
+			Description:   row.Description,
+			Content:       content,
+			KnowledgeType: knowledgeTypeFromMetadata(row.Metadata),
+			Status:        row.Status,
+			CreatedAt:     row.CreatedAt.UTC(),
+			UpdatedAt:     row.UpdatedAt.UTC(),
+		})
 	}
 	return entries, nil
-}
-
-// CreateKnowledge creates a first-class fact/context entry without creating a skill row.
-func (s *PGStore) CreateKnowledge(ctx context.Context, params KnowledgeCreateParams) (KnowledgeEntry, error) {
-	meta := metadataWithDescription(params.Metadata, params.Description)
-	row, err := knowledge.New(s.db).Create(ctx, knowledge.CreateParams{
-		Kind:       knowledge.Kind(params.KnowledgeType),
-		Scope:      params.Scope,
-		UserID:     params.UserID,
-		AgentID:    params.AgentID,
-		Name:       params.Name,
-		Content:    params.Content,
-		Status:     knowledge.Status(params.Status),
-		Evidence:   params.Evidence,
-		Confidence: params.Confidence,
-		ExpiresAt:  params.ExpiresAt,
-		Supersedes: params.Supersedes,
-		Metadata:   meta,
-	})
-	if err != nil {
-		return KnowledgeEntry{}, fmt.Errorf("skills: create knowledge: %w", err)
-	}
-	return knowledgeEntryFromDomain(row), nil
-}
-
-// ListKnowledgeByNameAndScope returns exact writable-scope matches for tool patch/deprecate.
-func (s *PGStore) ListKnowledgeByNameAndScope(ctx context.Context, name string, scope string, userID string, agentID string) ([]KnowledgeEntry, error) {
-	rows, err := knowledge.New(s.db).ListByNameAndScope(ctx, name, scope, userID, agentID)
-	if err != nil {
-		return nil, fmt.Errorf("skills: list knowledge by name: %w", err)
-	}
-	out := make([]KnowledgeEntry, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, knowledgeEntryFromDomain(row))
-	}
-	return out, nil
-}
-
-// UpdateKnowledge replaces mutable fields on an existing knowledge entry.
-func (s *PGStore) UpdateKnowledge(ctx context.Context, params KnowledgeUpdateParams) (KnowledgeEntry, error) {
-	meta := metadataWithDescription(params.Metadata, params.Description)
-	row, err := knowledge.New(s.db).Update(ctx, knowledge.UpdateParams{
-		ID:         params.ID,
-		Name:       params.Name,
-		Content:    params.Content,
-		Status:     knowledge.Status(params.Status),
-		Evidence:   params.Evidence,
-		Confidence: params.Confidence,
-		ExpiresAt:  params.ExpiresAt,
-		Supersedes: params.Supersedes,
-		Metadata:   meta,
-	})
-	if err != nil {
-		return KnowledgeEntry{}, fmt.Errorf("skills: update knowledge: %w", err)
-	}
-	return knowledgeEntryFromDomain(row), nil
-}
-
-// DeprecateKnowledge marks a knowledge entry deprecated.
-func (s *PGStore) DeprecateKnowledge(ctx context.Context, id string) error {
-	if err := knowledge.New(s.db).Deprecate(ctx, id); err != nil {
-		return fmt.Errorf("skills: deprecate knowledge: %w", err)
-	}
-	return nil
 }
 
 // ExpireKnowledgeDraftsByType deprecates draft knowledge entries of the given type
 // whose created-at timestamp is before the cutoff.
 func (s *PGStore) ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType KnowledgeType, before time.Time) error {
-	if err := knowledge.New(s.db).ExpireDraftsByType(ctx, knowledge.Kind(knowledgeType), before); err != nil {
+	if err := s.q.ExpireKnowledgeDraftsByType(ctx, sqlc.ExpireKnowledgeDraftsByTypeParams{
+		KnowledgeType: string(knowledgeType),
+		Cutoff:        before.UTC().Format(time.RFC3339),
+	}); err != nil {
 		return fmt.Errorf("skills: expire knowledge drafts by type %q: %w", knowledgeType, err)
 	}
 	return nil
 }
 
-func knowledgeEntryFromDomain(row knowledge.Entry) KnowledgeEntry {
-	return KnowledgeEntry{
-		ID:            row.ID,
-		Name:          row.Name,
-		Description:   descriptionFromMetadata(row.Metadata),
-		Content:       row.Content,
-		KnowledgeType: KnowledgeType(row.Kind),
-		Status:        string(row.Status),
-		Evidence:      row.Evidence,
-		Confidence:    row.Confidence,
-		ExpiresAt:     row.ExpiresAt,
-		Supersedes:    row.Supersedes,
-		Metadata:      row.Metadata,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
+// knowledgeTypeFromMetadata extracts the knowledge_type field from metadata JSON.
+func knowledgeTypeFromMetadata(raw json.RawMessage) KnowledgeType {
+	if len(raw) == 0 {
+		return KnowledgeTypeSkill
 	}
-}
-
-func metadataWithDescription(raw json.RawMessage, description string) json.RawMessage {
-	meta := map[string]any{}
-	if len(raw) > 0 {
-		_ = json.Unmarshal(raw, &meta)
-	}
-	if description != "" {
-		meta["description"] = description
-	}
-	if len(meta) == 0 {
-		return json.RawMessage("{}")
-	}
-	encoded, err := json.Marshal(meta)
-	if err != nil {
-		return json.RawMessage("{}")
-	}
-	return encoded
-}
-
-func descriptionFromMetadata(raw json.RawMessage) string {
 	var meta map[string]any
 	if json.Unmarshal(raw, &meta) != nil {
-		return ""
+		return KnowledgeTypeSkill
 	}
-	if desc, _ := meta["description"].(string); desc != "" {
-		return desc
+	kt, _ := meta["knowledge_type"].(string)
+	switch KnowledgeType(kt) {
+	case KnowledgeTypeFact:
+		return KnowledgeTypeFact
+	case KnowledgeTypeContext:
+		return KnowledgeTypeContext
+	default:
+		return KnowledgeTypeSkill
 	}
-	desc, _ := meta["legacy_description"].(string)
-	return desc
 }
 
 // Compile-time assertions.

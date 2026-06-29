@@ -2,68 +2,35 @@ package plugins
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 )
 
-// KnowledgeType classifies a first-class knowledge entry.
+// KnowledgeType classifies a knowledge entry stored in the skills table.
 type KnowledgeType string
 
 const (
+	KnowledgeTypeSkill   KnowledgeType = "skill"   // existing behavior
 	KnowledgeTypeFact    KnowledgeType = "fact"    // durable project/domain fact
 	KnowledgeTypeContext KnowledgeType = "context" // time-bound background info
 )
 
-// KnowledgeEntry is a fact or context entry from the knowledge domain.
+// KnowledgeEntry is a fact or context entry derived from the skills table.
+// These entries have DisableModelInvocation=true and never appear in the Skills prompt section.
 // Active entries are injected into the ## Knowledge system prompt section.
 type KnowledgeEntry struct {
 	ID            string
 	Name          string
 	Description   string
-	Content       string
+	Content       string // the actual knowledge text (from SKILL.md)
 	KnowledgeType KnowledgeType
 	Status        string // draft | active | deprecated
-	Evidence      json.RawMessage
-	Confidence    *float64
-	ExpiresAt     *time.Time
-	Supersedes    *string
-	Metadata      json.RawMessage
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
-// KnowledgeCreateParams describes a new first-class knowledge entry.
-type KnowledgeCreateParams struct {
-	Name          string
-	Description   string
-	Content       string
-	KnowledgeType KnowledgeType
-	Scope         string
-	UserID        string
-	AgentID       string
-	Status        string
-	Evidence      json.RawMessage
-	Confidence    *float64
-	ExpiresAt     *time.Time
-	Supersedes    *string
-	Metadata      json.RawMessage
-}
-
-// KnowledgeUpdateParams replaces mutable fields on an existing knowledge entry.
-type KnowledgeUpdateParams struct {
-	ID          string
-	Name        string
-	Description string
-	Content     string
-	Status      string
-	Evidence    json.RawMessage
-	Confidence  *float64
-	ExpiresAt   *time.Time
-	Supersedes  *string
-	Metadata    json.RawMessage
-}
-
-// KnowledgeStore queries first-class fact/context knowledge.
+// KnowledgeStore queries knowledge entries (fact/context) from the skills table.
+// Knowledge entries have disable_model_invocation=true and are never exposed via the skills tool.
+// Active entries appear in the ## Knowledge system prompt section.
 type KnowledgeStore interface {
 	// ListKnowledge returns active knowledge entries. When types is empty, all knowledge
 	// types are returned. Pass KnowledgeTypeFact or KnowledgeTypeContext to filter.
@@ -72,12 +39,4 @@ type KnowledgeStore interface {
 	// ExpireKnowledgeDraftsByType deprecates draft knowledge entries of the given type
 	// whose created-at timestamp is before the cutoff.
 	ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType KnowledgeType, before time.Time) error
-}
-
-// KnowledgeWriter creates and maintains first-class knowledge records from tools.
-type KnowledgeWriter interface {
-	CreateKnowledge(ctx context.Context, params KnowledgeCreateParams) (KnowledgeEntry, error)
-	ListKnowledgeByNameAndScope(ctx context.Context, name string, scope string, userID string, agentID string) ([]KnowledgeEntry, error)
-	UpdateKnowledge(ctx context.Context, params KnowledgeUpdateParams) (KnowledgeEntry, error)
-	DeprecateKnowledge(ctx context.Context, id string) error
 }

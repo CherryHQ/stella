@@ -1525,8 +1525,6 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		s.writeInternalError(w, err)
 		return
 	}
-	skillStore := pluginhost.NewSkillStoreAdapter(s.skillStore())
-	knowledgeStore, _ := skillStore.(pkgplugins.KnowledgeStore)
 	promptBuild := pkgplugins.SystemPromptContext{
 		StellaHome:          config.StellaHome(),
 		HomeDir:             homeDir,
@@ -1536,7 +1534,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		AgentID:             info.AgentID,
 		UserRoot:            userRoot,
 		WorkspaceRoot:       userRoot,
-		SkillStore:          skillStore,
+		SkillStore:          pluginhost.NewSkillStoreAdapter(s.skillStore()),
 		RegisteredPluginIDs: pluginView.RegisteredPluginIDs,
 		EnabledPluginIDs:    pluginView.EnabledPluginIDs,
 	}
@@ -1552,15 +1550,14 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		promptSections = append(promptSections, skillsSection)
 	}
 	systemPrompt := prompt.BuildSystemPromptFromDB(r.Context(), prompt.DBPromptParams{
-		SystemPrompt:   agentCfg.SystemPrompt,
-		Memory:         s.mem,
-		KnowledgeStore: knowledgeStore,
-		UserID:         info.UserID,
-		AgentID:        info.AgentID,
-		StellaHome:     config.StellaHome(),
-		AgentRoot:      agentCfg.Workspace,
-		UserRoot:       userRoot,
-		Sections:       append(promptSections, s.pluginHost.ManifestPluginPrompts()...),
+		SystemPrompt: agentCfg.SystemPrompt,
+		Memory:       s.mem,
+		UserID:       info.UserID,
+		AgentID:      info.AgentID,
+		StellaHome:   config.StellaHome(),
+		AgentRoot:    agentCfg.Workspace,
+		UserRoot:     userRoot,
+		Sections:     append(promptSections, s.pluginHost.ManifestPluginPrompts()...),
 	})
 
 	writeData(w, http.StatusOK, map[string]string{"system_prompt": systemPrompt})

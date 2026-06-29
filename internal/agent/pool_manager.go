@@ -354,7 +354,6 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 			SystemPrompt:      snap.SystemPrompt,
 			AgentSoul:         snap.Soul,
 			Memory:            pm.mem,
-			KnowledgeStore:    knowledgeStoreFromSkillStore(pm.skillStore),
 			UserID:            promptUserID,
 			AgentID:           info.AgentID,
 			GroupID:           groupID,

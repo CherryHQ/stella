@@ -214,35 +214,6 @@ func (d *DiskSyncStore) ListKnowledge(ctx context.Context, vc ViewContext, types
 	return nil, nil
 }
 
-// CreateKnowledge forwards first-class knowledge writes to the inner store.
-func (d *DiskSyncStore) CreateKnowledge(ctx context.Context, params KnowledgeCreateParams) (KnowledgeEntry, error) {
-	if ks, ok := d.Store.(KnowledgeStore); ok {
-		return ks.CreateKnowledge(ctx, params)
-	}
-	return KnowledgeEntry{}, fmt.Errorf("disk_sync: inner store does not support knowledge create")
-}
-
-func (d *DiskSyncStore) ListKnowledgeByNameAndScope(ctx context.Context, name string, scope string, userID string, agentID string) ([]KnowledgeEntry, error) {
-	if ks, ok := d.Store.(KnowledgeStore); ok {
-		return ks.ListKnowledgeByNameAndScope(ctx, name, scope, userID, agentID)
-	}
-	return nil, nil
-}
-
-func (d *DiskSyncStore) UpdateKnowledge(ctx context.Context, params KnowledgeUpdateParams) (KnowledgeEntry, error) {
-	if ks, ok := d.Store.(KnowledgeStore); ok {
-		return ks.UpdateKnowledge(ctx, params)
-	}
-	return KnowledgeEntry{}, fmt.Errorf("disk_sync: inner store does not support knowledge update")
-}
-
-func (d *DiskSyncStore) DeprecateKnowledge(ctx context.Context, id string) error {
-	if ks, ok := d.Store.(KnowledgeStore); ok {
-		return ks.DeprecateKnowledge(ctx, id)
-	}
-	return fmt.Errorf("disk_sync: inner store does not support knowledge deprecate")
-}
-
 // ExpireKnowledgeDraftsByType forwards to the inner store if it implements KnowledgeStore.
 func (d *DiskSyncStore) ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType KnowledgeType, before time.Time) error {
 	if ks, ok := d.Store.(KnowledgeStore); ok {

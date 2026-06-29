@@ -129,24 +129,6 @@ type AgentGoalEdge struct {
 	CreatedAt    time.Time          `json:"created_at"`
 }
 
-type AgentKnowledge struct {
-	ID         string             `json:"id"`
-	Kind       string             `json:"kind"`
-	Scope      string             `json:"scope"`
-	UserID     pgtype.Text        `json:"user_id"`
-	AgentID    pgtype.Text        `json:"agent_id"`
-	Name       string             `json:"name"`
-	Content    string             `json:"content"`
-	Status     string             `json:"status"`
-	Evidence   json.RawMessage    `json:"evidence"`
-	Confidence pgtype.Float8      `json:"confidence"`
-	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
-	Supersedes pgtype.Text        `json:"supersedes"`
-	Metadata   json.RawMessage    `json:"metadata"`
-	CreatedAt  time.Time          `json:"created_at"`
-	UpdatedAt  time.Time          `json:"updated_at"`
-}
-
 type AppSetting struct {
 	Key       string    `json:"key"`
 	Value     string    `json:"value"`

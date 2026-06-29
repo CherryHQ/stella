@@ -66,6 +66,11 @@ var skillsInputSchema = func() map[string]any {
     "path": {
       "type": "string",
       "description": "Relative path within the skill to load (e.g. references/api.md). Defaults to SKILL.md"
+    },
+    "knowledge_type": {
+      "type": "string",
+      "enum": ["skill", "fact", "context"],
+      "description": "Type of knowledge entry (for create only). Default 'skill' (normal reusable procedure). Use 'fact' for durable project/domain facts (e.g. architecture decisions, API base URLs). Use 'context' for time-bound background info (e.g. current sprint focus, temporary constraints). fact/context entries are NOT shown in the skills tool list — they appear in a dedicated Knowledge section of the system prompt."
     }
   },
   "required": ["action"]
@@ -458,23 +463,36 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 		return "", fmt.Errorf("skills store unavailable")
 	}
 
+	// Determine knowledge_type; default to "skill" for normal reusable procedures.
+	knowledgeType, _ := args["knowledge_type"].(string)
+	switch knowledgeType {
+	case "fact", "context":
+		// valid knowledge types
+	default:
+		knowledgeType = "skill"
+	}
+
 	if content == "" {
 		content = fmt.Sprintf("# %s\n", name)
 	}
 
-	vc := t.viewContext(ctx)
 	createdAt := time.Now().UTC().Format(time.RFC3339)
-	metaJSON := fmt.Sprintf(`{"created-at":%q}`, createdAt)
-
 	mainContent := buildSkillFile(name, description, SkillStatusDraft, createdAt, content)
+
 	sk := pkgplugins.Skill{
-		Scope:                  scope,
-		Name:                   name,
-		Description:            description,
-		Status:                 SkillStatusDraft,
-		DisableModelInvocation: false,
-		Metadata:               json.RawMessage(metaJSON),
+		Scope:       scope,
+		Name:        name,
+		Description: description,
+		Status:      SkillStatusDraft,
+		// fact/context entries are invisible to the skills tool and only appear
+		// in the ## Knowledge system prompt section when status=active.
+		DisableModelInvocation: knowledgeType == "fact" || knowledgeType == "context",
 	}
+	// Set metadata with created-at for expiry tracking and knowledge_type for classification.
+	metaJSON := fmt.Sprintf(`{"created-at":%q,"knowledge_type":%q}`, createdAt, knowledgeType)
+	sk.Metadata = json.RawMessage(metaJSON)
+
+	vc := t.viewContext(ctx)
 	switch scope {
 	case "user":
 		sk.UserID = vc.UserID
@@ -489,7 +507,15 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 	if _, err := t.store.Create(ctx, sk, files); err != nil {
 		return "", fmt.Errorf("create skill %q: %w", name, err)
 	}
-	return fmt.Sprintf("Skill %q created as draft (scope=%s).", name, scope), nil
+
+	switch knowledgeType {
+	case "fact":
+		return fmt.Sprintf("Knowledge fact %q created as draft (scope=%s). Activate it with action=\"patch\", status=\"active\" to include it in sessions.", name, scope), nil
+	case "context":
+		return fmt.Sprintf("Knowledge context %q created as draft (scope=%s). Activate it with action=\"patch\", status=\"active\" to include it in sessions.", name, scope), nil
+	default:
+		return fmt.Sprintf("Skill %q created as draft (scope=%s).", name, scope), nil
+	}
 }
 
 func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {

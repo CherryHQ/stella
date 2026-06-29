@@ -32,11 +32,9 @@ Do NOT update memory for:
 
 Create a knowledge entry only if the conversation revealed a fact that the assistant would likely get wrong without it, and that fact is not already obvious from common documentation or general knowledge.
 
-Use the knowledge tool with action="create" and the appropriate kind:
-- kind="fact" for durable project/domain facts (e.g. architecture decisions, non-obvious conventions, external endpoints)
-- kind="context" for time-bound background info that will affect upcoming work (e.g. ongoing release freeze, sprint focus)
-
-Knowledge entries are created as drafts. When a new entry should affect future sessions immediately, use the knowledge tool again with action="patch", the same kind, the same name/scope, and status="active".
+Use the skills tool with action="create" and the appropriate knowledge_type:
+- knowledge_type="fact" for durable project/domain facts (e.g. architecture decisions, non-obvious conventions, external endpoints)
+- knowledge_type="context" for time-bound background info that will affect upcoming work (e.g. ongoing release freeze, sprint focus)
 
 Do NOT create knowledge entries for:
 - Things already captured in the user profile
