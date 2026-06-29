@@ -100,6 +100,13 @@ After each action, verify the result before moving on:
 
 If an assertion fails, report what was expected vs what was found. Do not silently continue.
 
+## Related
+
+This covers the browser layer. To assert what a UI action actually wrote, pair it
+with the DB checks in `api-test.md` — browser drive here + DB assertions there is a
+full `browser -> API -> DB` e2e. For backend behavior alone, use `api-test.md`
+directly (no browser).
+
 ## Notes
 
 - Snapshot refs (`@e1`, `@e2`, ...) are invalidated after navigation — always re-snapshot.

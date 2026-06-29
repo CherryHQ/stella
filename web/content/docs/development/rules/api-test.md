@@ -1,14 +1,23 @@
-# Backend E2E Test
+# Backend API Test
 
-Exercise a feature end to end against a running `stellad` and a real Postgres. Use
-this when behavior only shows up with the live server — background workers, the goal
-dispatcher, scheduler ticks, real model calls, multi-request flows — that a Go unit
-test cannot reach. Keep deterministic logic in Go tests (`mise run test`); this
-runbook is for the wired-up, stateful path those tests cannot exercise.
+Drive the backend HTTP API directly against a running `stellad` and a real Postgres,
+then assert in the database. This is API / integration testing, not end-to-end —
+there is no browser in the loop. Use it when behavior only shows up with the live
+server — background workers, the goal dispatcher, scheduler ticks, real model calls,
+multi-request flows — that a Go unit test cannot reach. Keep deterministic logic in
+Go tests (`mise run test`); this runbook is for the wired-up, stateful path those
+tests cannot exercise.
 
 The shape is always the same: **start the server against an external DB, get a
 bearer token, drive the HTTP API with `curl`, assert against the DB, clean up.**
 The goal lifecycle at the end is one worked example — the harness is generic.
+
+Where this sits in the test pyramid:
+
+- **Unit** — Go tests, isolated, no server (`mise run test`).
+- **API / integration** — this doc: `curl` -> HTTP API -> DB assertions, no browser.
+- **E2E** — full user path `browser -> API -> DB`. Drive the UI per `web-ui-test.md`
+  and add the DB assertions from this doc when you need to confirm what landed.
 
 ## Environment
 
