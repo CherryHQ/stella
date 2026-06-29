@@ -46,6 +46,27 @@ func DeriveAcceptance(c AcceptanceContract, currentOutputHash string, events []s
 	}
 }
 
+// PendingAgentReviewItems returns the required authority=agent judgment items
+// that still have no VALID event against the current output — the items the
+// agent auto-review producer must judge (contract §10.13). It is the same
+// latest-valid-by-item fold acceptance uses, filtered to agent-authored
+// judgment: an item with a stale verdict (scope_hash moved) reads as pending and
+// is re-requested. A resolved item (valid pass OR fail) is excluded — the fold
+// already accounts for it. Pure: no DB, no clock.
+func PendingAgentReviewItems(c AcceptanceContract, currentOutputHash string, events []sqlc.AgentGoalAcceptanceEvent) []AcceptanceItem {
+	if c.IsTrivial() {
+		return nil
+	}
+	latest := latestValidByItem(currentOutputHash, events)
+	var out []AcceptanceItem
+	for _, it := range c.AgentJudgmentItems() {
+		if _, ok := latest[it.ID]; !ok {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
 // itemOutcome is the salient outcome of the latest valid event for an item.
 type itemOutcome struct {
 	kind      string // ItemDeterministic | ItemJudgment
@@ -107,10 +128,11 @@ func evalAll(c AcceptanceContract, latest map[string]itemOutcome) Projection {
 		switch {
 		case !ok:
 			p.PendingItems = append(p.PendingItems, it.ID)
-			// Any pending required judgment item gates on a verdict. Agent-authored
-			// auto-review is not yet wired, so an authority=agent item also routes to
-			// a human verdict for now — consistent with the det-then-judgment path,
-			// which already blocks for a human on any pending judgment item.
+			// Any pending required judgment item gates on a verdict. The fold parks
+			// the goal NeedsVerdict regardless of authority; the dispatcher's
+			// scanAndReview then mints an agent reviewer for authority=agent items
+			// (contract §10.13) and falls back to a human verdict when none applies
+			// or the review budget is spent.
 			if it.Kind == ItemJudgment {
 				p.NeedsVerdict = true
 			}
@@ -137,10 +159,11 @@ func evalAny(c AcceptanceContract, latest map[string]itemOutcome) Projection {
 		switch {
 		case !ok:
 			p.PendingItems = append(p.PendingItems, it.ID)
-			// Any pending required judgment item gates on a verdict. Agent-authored
-			// auto-review is not yet wired, so an authority=agent item also routes to
-			// a human verdict for now — consistent with the det-then-judgment path,
-			// which already blocks for a human on any pending judgment item.
+			// Any pending required judgment item gates on a verdict. The fold parks
+			// the goal NeedsVerdict regardless of authority; the dispatcher's
+			// scanAndReview then mints an agent reviewer for authority=agent items
+			// (contract §10.13) and falls back to a human verdict when none applies
+			// or the review budget is spent.
 			if it.Kind == ItemJudgment {
 				p.NeedsVerdict = true
 			}

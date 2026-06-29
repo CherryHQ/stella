@@ -289,6 +289,13 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason string)
 			// one plan-budget unit.
 			return s.recoverDecomposition(ctx, q, d, true)
 		}
+		if att.Purpose == PurposeReview {
+			// A failed review attempt leaves the goal blocked(needs_verdict): the
+			// dispatcher re-mints within the review budget, then degrades to a human
+			// verdict. The attempt is already finalized failed above; the failed
+			// attempt_no charges the review budget so a broken reviewer cannot loop.
+			return nil
+		}
 		return s.branchOnFailure(ctx, q, d, attemptID, Evaluation{Gaps: []Gap{{Reason: reason}}})
 	})
 }

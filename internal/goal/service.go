@@ -52,9 +52,20 @@ type ExecutorResult struct {
 	Evidence      AttemptEvidence
 	Output        AttemptOutput
 	Decomposition *DecompositionContent // purpose=decomposition only
+	Verdicts      []ReviewVerdict       // purpose=review only
 	Failed        bool
 	FailReason    string
 	Retryable     bool
+}
+
+// ReviewVerdict is one agent reviewer decision for a required authority=agent
+// judgment item (contract §10.13). The worker folds each into an
+// authority=agent acceptance_event via SubmitReview; the agent never writes
+// lifecycle.
+type ReviewVerdict struct {
+	ItemID    string `json:"item_id"`
+	Pass      bool   `json:"pass"`
+	Rationale string `json:"rationale"`
 }
 
 // CheckRunner runs ONE deterministic acceptance item in the sandbox and returns

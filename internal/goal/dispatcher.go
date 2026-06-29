@@ -120,6 +120,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	d.propagateDepFailures(ctx, now)
 	d.rollupComposites(ctx, now)
 	d.scanAndDecompose(ctx, now)
+	d.scanAndReview(ctx, now)
 	d.scanAndClaim(ctx, now)
 }
 
@@ -352,6 +353,35 @@ func (d *Dispatcher) scanAndDecompose(ctx context.Context, _ time.Time) {
 	}
 }
 
+// scanAndReview drives agent auto-review: every goal parked blocked(needs_verdict)
+// with a pending authority=agent item gets a headless purpose=review attempt
+// minted + enqueued in one tx, leaving the goal blocked until the verdict folds
+// in (contract §10.13). BeginReview re-checks eligibility under the row lock and
+// returns ErrInvalidTransition for goals awaiting a human, with no pending agent
+// item, or out of review budget — all skipped here. A nil enqueuer (test wiring)
+// skips dispatch, the same gate scanAndClaim/scanAndDecompose use.
+func (d *Dispatcher) scanAndReview(ctx context.Context, _ time.Time) {
+	if d.cfg.Enqueuer == nil {
+		return
+	}
+	candidates, err := d.cfg.Queries.ListGoalsBlockedNeedsVerdict(ctx, int32(d.cfg.BatchLimit))
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: list needs-verdict goals", "err", err)
+		return
+	}
+	for _, goal := range candidates {
+		if d.isStopped() {
+			return
+		}
+		if _, err := d.cfg.Service.BeginReview(ctx, goal.ID, d.enqueueAttemptTx); err != nil {
+			if errors.Is(err, ErrInvalidTransition) {
+				continue // nothing to agent-review (human-only, budget spent, or raced)
+			}
+			d.cfg.Logger.Warn("dispatcher: begin review", "goal", goal.ID, "err", err)
+		}
+	}
+}
+
 // enqueueAttemptTx inserts the durable execution job for a claimed attempt inside
 // the claim's transaction (River Phase 2c). Passed to GoalService.Claim as the
 // AttemptEnqueuer so claim+enqueue are atomic; an error here aborts the claim.
@@ -500,6 +530,13 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		// FinalizeAttempt) — do not reorder without revisiting this.
 		if att.Purpose == PurposeDecomposition {
 			return s.recoverDecomposition(ctx, q, d, att.Status == AttemptRunning)
+		}
+		// A reaped review attempt (orphaned / never picked up) leaves the goal
+		// blocked(needs_verdict); the dispatcher re-mints within the review budget,
+		// then degrades to a human verdict. The interrupted attempt_no charges the
+		// review budget — a queued reap costs one try but never loops the goal.
+		if att.Purpose == PurposeReview {
+			return nil
 		}
 
 		// A still-'queued' reap never executed: its River job sat behind the queue's

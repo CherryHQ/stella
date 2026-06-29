@@ -151,6 +151,12 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 		// case so a decomposition never falls through to the leaf checks.
 		return w.applyDecompositionResult(ctx, goalID, att, res)
 
+	case att.Purpose == PurposeReview:
+		// A reviewer attempt's outcome is verdicts, not an output, and runs no
+		// deterministic checks. Routed by purpose BEFORE the generic submit case so
+		// it never falls through to the leaf checks/Submit.
+		return w.applyReviewResult(ctx, goalID, att, res)
+
 	case res.Submitted:
 		// Run deterministic checks (sandbox IO, no DB tx held), append
 		// each as an acceptance_event, then apply the one submit transition.
@@ -216,6 +222,29 @@ func (w *Worker) applyDecompositionResult(ctx context.Context, goalID string, at
 	reason := res.FailReason
 	if reason == "" {
 		reason = "decomposition produced no plan"
+	}
+	w.failAttempt(goalID, att.ID, reason)
+	return nil
+}
+
+// applyReviewResult applies a reviewer attempt's outcome as the single durable
+// transition. A submitted attempt carries verdicts, which SubmitReview folds in
+// as authority=agent acceptance_events and re-derives acceptance (accept on pass,
+// rework on fail). Any non-verdict terminal (fail / no verdict / protocol miss)
+// is a failed review attempt that leaves the goal blocked(needs_verdict); the
+// dispatcher re-mints within the review budget, then degrades to a human verdict.
+// Errors are recorded as a failed attempt, not returned, so applyResult always
+// succeeds. Mirrors applyDecompositionResult.
+func (w *Worker) applyReviewResult(ctx context.Context, goalID string, att sqlc.AgentGoalAttempt, res ExecutorResult) error {
+	if res.Submitted && len(res.Verdicts) > 0 {
+		if rerr := w.svc.SubmitReview(ctx, att.ID, res.Evidence, res.Verdicts); rerr != nil {
+			w.failAttempt(goalID, att.ID, "apply review: "+rerr.Error())
+		}
+		return nil
+	}
+	reason := res.FailReason
+	if reason == "" {
+		reason = "review produced no verdict"
 	}
 	w.failAttempt(goalID, att.ID, reason)
 	return nil
