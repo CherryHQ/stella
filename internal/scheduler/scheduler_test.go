@@ -555,9 +555,20 @@ func TestRunJobNow_SingleRun(t *testing.T) {
 		t.Errorf("callback fired for %v, want [%s]", fired, job.ID)
 	}
 
-	runs, err := svc.ListJobRuns(context.Background(), job.ID, 10)
-	if err != nil {
-		t.Fatalf("ListJobRuns: %v", err)
+	var runs []JobRun
+	// The callback returns before RunJobNow finalizes the run row. Under
+	// race/coverage builds that bookkeeping can lag long enough to observe
+	// the intermediate "running" state, so wait for the durable final status.
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		runs, err = svc.ListJobRuns(context.Background(), job.ID, 10)
+		if err != nil {
+			t.Fatalf("ListJobRuns: %v", err)
+		}
+		if len(runs) == 1 && runs[0].Status == RunStatusSuccess {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if len(runs) != 1 {
 		t.Fatalf("ListJobRuns: got %d runs, want 1", len(runs))
