@@ -8,10 +8,12 @@ const (
 	defaultMaxDepth    = 4
 	// defaultMaxConcurrent bounds breadth-of-fanout per root (§5).
 	defaultMaxConcurrent = 8
-	// defaultMaxReviewAttempts bounds how many agent auto-review attempts a goal
-	// gets per needs_verdict episode before degrading to a human verdict
-	// (contract §10.13). A reviewer that cannot produce a verdict after this many
-	// tries leaves the goal blocked(needs_verdict) for a human rather than looping.
+	// defaultMaxReviewAttempts bounds how many agent auto-review attempts are spent
+	// per needs_verdict episode — reviews of ONE execution output — before
+	// degrading to a human verdict (contract §10.13). A reviewer that cannot
+	// produce a verdict after this many tries against the same output leaves the
+	// goal blocked(needs_verdict) for a human. A rework that yields a new execution
+	// output starts a fresh episode with full budget (see CountRanReviewAttemptsForOutput).
 	defaultMaxReviewAttempts = 2
 )
 

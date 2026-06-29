@@ -3,7 +3,11 @@ package goal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // agentJudgmentContract is a single required agent-verdict item — the gate the
@@ -203,6 +207,175 @@ func TestReview_SkipsWhenInFlight(t *testing.T) {
 	// Second BeginReview sees the in-flight attempt and is a no-op.
 	if _, err := h.svc.BeginReview(context.Background(), d.ID, nil); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("second BeginReview err=%v want ErrInvalidTransition", err)
+	}
+}
+
+// submitSyntheticExec injects a freshly-submitted execution attempt carrying the
+// given output hash, so evaluatedAttempt (most-recent submitted execution) now
+// resolves to it — simulating a rework that landed a new output while a prior
+// review was mid-flight.
+func (h *harness) submitSyntheticExec(goalID, hash string) {
+	h.t.Helper()
+	ctx := context.Background()
+	d := h.get(goalID)
+	maxNo, err := h.q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{GoalID: goalID, Purpose: PurposeExecution})
+	if err != nil {
+		h.t.Fatalf("max exec no: %v", err)
+	}
+	att, err := h.q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
+		ID:              newID(),
+		GoalID:          goalID,
+		UserID:          d.UserID,
+		AgentID:         pgnull.Text(d.AgentID),
+		ExecutorAgentID: pgnull.Text(d.AgentID),
+		SessionID:       d.SessionID,
+		Purpose:         PurposeExecution,
+		AttemptNo:       maxNo + 1,
+		Status:          AttemptQueued,
+		InputContext:    marshalJSON(AttemptInput{}),
+	})
+	if err != nil {
+		h.t.Fatalf("create synthetic exec: %v", err)
+	}
+	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
+		h.t.Fatalf("promote synthetic exec: %v", err)
+	}
+	if _, err := h.q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
+		Evidence: emptyJSON,
+		Output:   marshalJSON(AttemptOutput{Summary: hash, Hash: hash}),
+		ID:       att.ID,
+	}); err != nil {
+		h.t.Fatalf("submit synthetic exec: %v", err)
+	}
+}
+
+// TestReview_StaleVerdictDoesNotAccept proves a verdict scoped to a now-superseded
+// execution output never accepts the goal: if the evaluated output moves between a
+// review's mint and its submit (a rework landed a new attempt while the reviewer
+// ran), SubmitReview finalizes the review but appends no verdict and does not
+// fold. The goal stays blocked(needs_verdict) for a fresh review against the new
+// output — it must not pass the new output on a verdict that judged the old one.
+func TestReview_StaleVerdictDoesNotAccept(t *testing.T) {
+	h := newHarness(t)
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "lgtm"))
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+	h.runLeaf(d.ID) // exec H1 -> blocked(needs_verdict)
+
+	ctx := context.Background()
+	att, err := h.svc.BeginReview(ctx, d.ID, nil) // frozen on exec H1
+	if err != nil {
+		t.Fatalf("begin review: %v", err)
+	}
+	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
+		t.Fatalf("promote review: %v", err)
+	}
+	// A newer execution output lands before the reviewer submits.
+	h.submitSyntheticExec(d.ID, "H2")
+
+	// The reviewer (still judging H1) returns a pass; it must be discarded.
+	if err := h.svc.SubmitReview(ctx, att.ID, AttemptEvidence{Summary: "ok"},
+		[]ReviewVerdict{{ItemID: "review", Pass: true, Rationale: "lgtm"}}); err != nil {
+		t.Fatalf("submit stale review: %v", err)
+	}
+	if got := h.get(d.ID); got.Lifecycle == LifecycleAccepted {
+		t.Fatalf("stale verdict accepted the goal against a superseded output; want still blocked")
+	}
+}
+
+// TestReview_BudgetResetsPerEpisode proves the review budget is per needs_verdict
+// episode, not per goal lifetime: a healthy reviewer that fails two outputs (each
+// reworked) must still review the third. With a cumulative budget the dispatcher
+// would refuse the third review and wrongly degrade a working reviewer to a human.
+func TestReview_BudgetResetsPerEpisode(t *testing.T) {
+	h := newHarness(t)
+	var execN int
+	h.exec.fn = func(req ExecutorRequest) (ExecutorResult, error) {
+		if req.Attempt.Purpose == PurposeReview {
+			hash := ""
+			if req.Input.ReviewOutput != nil {
+				hash = req.Input.ReviewOutput.Hash
+			}
+			pass := hash == "H3" // accept only the third episode's output
+			var vs []ReviewVerdict
+			for _, it := range req.Input.ReviewItems {
+				vs = append(vs, ReviewVerdict{ItemID: it.ID, Pass: pass, Rationale: "r"})
+			}
+			return ExecutorResult{Submitted: true, Evidence: AttemptEvidence{Summary: "reviewed"}, Verdicts: vs}, nil
+		}
+		execN++
+		return ExecutorResult{Submitted: true, Evidence: AttemptEvidence{Summary: "done"}, Output: AttemptOutput{Summary: "done", Hash: fmt.Sprintf("H%d", execN)}}, nil
+	}
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+
+	for ep := 1; ep <= 2; ep++ {
+		h.runLeaf(d.ID) // new output Hep
+		h.runReview(d.ID)
+		if got := h.get(d.ID); got.Lifecycle != LifecycleReady {
+			t.Fatalf("episode %d lifecycle=%q want ready (fail verdict reworks)", ep, got.Lifecycle)
+		}
+	}
+	// Episode 3: a cumulative budget (the bug) would have been spent by now and
+	// BeginReview inside runReview would fail; a per-episode budget reviews freely.
+	h.runLeaf(d.ID) // H3
+	h.runReview(d.ID)
+	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+		t.Fatalf("episode 3 lifecycle=%q want accepted (budget must reset per episode)", got.Lifecycle)
+	}
+}
+
+// TestReview_QueuedReapDoesNotChargeBudget proves a review attempt reaped before
+// it ever ran (queued backpressure) does not consume the episode budget — only
+// attempts that actually ran do (started_at set), mirroring the queued
+// decomposition refund. Otherwise River queue lag would degrade a goal to a human
+// without a single reviewer turn.
+func TestReview_QueuedReapDoesNotChargeBudget(t *testing.T) {
+	h := newHarness(t)
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "lgtm"))
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+	h.runLeaf(d.ID)
+
+	ctx := context.Background()
+	for i := range defaultMaxReviewAttempts {
+		att, err := h.svc.BeginReview(ctx, d.ID, nil) // queued
+		if err != nil {
+			t.Fatalf("begin review %d: %v", i, err)
+		}
+		if err := h.svc.ReapAttempt(ctx, att.ID); err != nil { // reaped while queued
+			t.Fatalf("reap %d: %v", i, err)
+		}
+	}
+	// Budget intact: a real review still mints, runs, and accepts.
+	h.runReview(d.ID)
+	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+		t.Fatalf("after %d queued reaps lifecycle=%q want accepted (queued reap must not charge)", defaultMaxReviewAttempts, got.Lifecycle)
+	}
+}
+
+// TestReview_SubmitRejectsUncoveredVerdicts proves coverage is re-validated at the
+// durable boundary, not only in the tool: SubmitReview refuses a verdict set that
+// names an unknown item / misses a required one, so no partial or bogus ledger is
+// written even if a non-tool executor bypasses the in-turn check.
+func TestReview_SubmitRejectsUncoveredVerdicts(t *testing.T) {
+	h := newHarness(t)
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "lgtm"))
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+	h.runLeaf(d.ID)
+
+	ctx := context.Background()
+	att, err := h.svc.BeginReview(ctx, d.ID, nil)
+	if err != nil {
+		t.Fatalf("begin review: %v", err)
+	}
+	if err := h.svc.SubmitReview(ctx, att.ID, AttemptEvidence{},
+		[]ReviewVerdict{{ItemID: "bogus", Pass: true}}); err == nil {
+		t.Fatalf("SubmitReview accepted an unknown-item verdict; want rejection")
+	}
+	if got := h.get(d.ID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockNeedsVerdict {
+		t.Fatalf("after rejected verdict lifecycle=%q reason=%q want still blocked/needs_verdict", got.Lifecycle, got.BlockReason)
 	}
 }
 

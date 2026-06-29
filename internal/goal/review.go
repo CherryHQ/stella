@@ -41,15 +41,14 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 	}
 	// Cheap pre-checks before minting a session: skip goals awaiting a human, with
 	// no pending agent item, or out of review budget. Re-checked under the lock.
-	if _, _, _, ok := s.pendingReviewWork(ctx, s.q, d); !ok {
+	_, execID, _, ok := s.pendingReviewWork(ctx, s.q, d)
+	if !ok {
 		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
 	}
-	spent, err := s.q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{GoalID: d.ID, Purpose: PurposeReview})
-	if err != nil {
-		return sqlc.AgentGoalAttempt{}, fmt.Errorf("max review attempt no: %w", err)
-	}
-	if int(spent) >= defaultMaxReviewAttempts {
-		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition // review budget spent; degrade to human
+	if spent, err := s.reviewBudgetSpent(ctx, s.q, d.ID, execID); err != nil {
+		return sqlc.AgentGoalAttempt{}, err
+	} else if spent >= defaultMaxReviewAttempts {
+		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition // episode budget spent; degrade to human
 	}
 
 	// Mint the review session OUTSIDE the tx (it opens its own tx and would
@@ -74,22 +73,27 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 		if err != nil {
 			return err
 		}
-		items, _, execOut, ok := s.pendingReviewWork(ctx, q, cur)
+		items, execID, execOut, ok := s.pendingReviewWork(ctx, q, cur)
 		if !ok {
 			return ErrInvalidTransition
 		}
-		spent, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{GoalID: cur.ID, Purpose: PurposeReview})
+		if spent, err := s.reviewBudgetSpent(ctx, q, cur.ID, execID); err != nil {
+			return err
+		} else if spent >= defaultMaxReviewAttempts {
+			return ErrInvalidTransition
+		}
+		// attempt_no stays the global per-purpose sequence (uniq_agent_goal_attempt_no
+		// is on goal+purpose+attempt_no); only the budget is per-episode.
+		maxNo, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{GoalID: cur.ID, Purpose: PurposeReview})
 		if err != nil {
 			return fmt.Errorf("max review attempt no: %w", err)
 		}
-		if int(spent) >= defaultMaxReviewAttempts {
-			return ErrInvalidTransition
-		}
-		attemptNo := int(spent) + 1
+		attemptNo := int(maxNo) + 1
 		input := buildInputContext(cur, nil, nil, "", attemptNo)
 		input.ReviewItems = items
 		judged := execOut
 		input.ReviewOutput = &judged
+		input.ReviewedAttemptID = execID
 
 		att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
 			ID:              newID(),
@@ -148,6 +152,12 @@ func (s *GoalService) pendingReviewWork(ctx context.Context, q *sqlc.Queries, d 
 		return nil, "", AttemptOutput{}, false
 	}
 	execID, execOut := s.evaluatedAttempt(ctx, q, d)
+	if execID == "" {
+		// No submitted execution output to judge (e.g. a composite carrying an
+		// agent judgment item). There is nothing for a reviewer to score against, so
+		// leave it for a human verdict.
+		return nil, "", AttemptOutput{}, false
+	}
 	events, err := q.ListAcceptanceEventByGoal(ctx, d.ID)
 	if err != nil {
 		return nil, "", AttemptOutput{}, false
@@ -157,6 +167,37 @@ func (s *GoalService) pendingReviewWork(ctx context.Context, q *sqlc.Queries, d 
 		return nil, "", AttemptOutput{}, false // every agent item already has a valid verdict
 	}
 	return items, execID, execOut, true
+}
+
+// frozenReviewHash returns the hash of the execution output a review attempt was
+// minted to judge, or "" when none was frozen.
+func frozenReviewHash(in AttemptInput) string {
+	if in.ReviewOutput == nil {
+		return ""
+	}
+	return in.ReviewOutput.Hash
+}
+
+// reviewBudgetSpent counts agent-review attempts already spent on the CURRENT
+// needs_verdict episode: reviews of execID (the execution attempt whose output is
+// being judged) that actually ran. A rework that produces a newer execution
+// output starts a fresh episode with full budget, so a healthy reviewer that
+// returns a fail (legitimate rework) never starves later episodes — only a
+// reviewer that keeps failing to produce a verdict against the SAME output is
+// bounded, then degraded to a human (contract §10.13).
+func (s *GoalService) reviewBudgetSpent(ctx context.Context, q *sqlc.Queries, goalID, execID string) (int, error) {
+	exec, err := q.GetAttempt(ctx, execID)
+	if err != nil {
+		return 0, fmt.Errorf("review budget: load reviewed attempt: %w", err)
+	}
+	n, err := q.CountRanReviewAttemptsForOutput(ctx, sqlc.CountRanReviewAttemptsForOutputParams{
+		GoalID: goalID,
+		Since:  exec.CreatedAt,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("review budget: count attempts: %w", err)
+	}
+	return int(n), nil
 }
 
 // SubmitReview applies a reviewer agent's verdicts: it finalizes the review
@@ -179,15 +220,21 @@ func (s *GoalService) SubmitReview(ctx context.Context, attemptID string, ev Att
 		if att.Purpose != PurposeReview {
 			return ErrInvalidTransition
 		}
+		// Re-derive the frozen episode the reviewer judged (mint-time input), and
+		// re-validate coverage at this durable boundary — not only in-turn. The
+		// verdicts must answer exactly the frozen required items so a non-tool
+		// executor or a stale prompt can never append an unknown, duplicate, or
+		// partial verdict set the fold would misread.
+		var in AttemptInput
+		_ = unmarshalJSON(att.InputContext, &in)
+		if err := ValidateReviewVerdicts(verdicts, in.ReviewItems); err != nil {
+			return fmt.Errorf("review verdicts reject: %w", err)
+		}
+
 		d, err := getGoal(ctx, q, att.GoalID)
 		if err != nil {
 			return err
 		}
-		// The verdict judges the current evaluated execution output. active_attempt_id
-		// is cleared while blocked, so this resolves to the most recent submitted
-		// execution attempt — its hash anchors every verdict's scope (§4.2).
-		execID, execOut := s.evaluatedAttempt(ctx, q, d)
-
 		// Finalize the review attempt so the reaper never recovers it after we fold.
 		rows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
 			Evidence: marshalJSON(ev),
@@ -200,12 +247,23 @@ func (s *GoalService) SubmitReview(ctx context.Context, attemptID string, ev Att
 		if rows == 0 {
 			return ErrInvalidTransition // not the running attempt (reaped / raced)
 		}
+
+		// Bind to the EXACT execution output the reviewer judged (frozen at mint),
+		// not whatever evaluatedAttempt resolves now. If the evaluated output moved
+		// since mint (a rework produced a newer execution attempt while this review
+		// ran), the verdict is stale: the attempt is finalized above, but we do NOT
+		// append it or fold. The goal stays blocked(needs_verdict) and the dispatcher
+		// mints a fresh review against the new output (a new episode, full budget).
+		curID, curOut := s.evaluatedAttempt(ctx, q, d)
+		if in.ReviewedAttemptID == "" || curID != in.ReviewedAttemptID || curOut.Hash != frozenReviewHash(in) {
+			return nil
+		}
 		for _, v := range verdicts {
-			params := AgentVerdictEvent(d.ID, v.ItemID, execID, attemptID, execOut.Hash, v.Pass, v.Rationale)
+			params := AgentVerdictEvent(d.ID, v.ItemID, in.ReviewedAttemptID, attemptID, curOut.Hash, v.Pass, v.Rationale)
 			if _, err := s.appendAcceptanceEvent(ctx, q, params); err != nil {
 				return fmt.Errorf("append agent verdict %q: %w", v.ItemID, err)
 			}
 		}
-		return s.foldAndTransition(ctx, q, d.ID, execID, execOut)
+		return s.foldAndTransition(ctx, q, d.ID, in.ReviewedAttemptID, curOut)
 	})
 }

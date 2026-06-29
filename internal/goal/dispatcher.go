@@ -531,10 +531,11 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		if att.Purpose == PurposeDecomposition {
 			return s.recoverDecomposition(ctx, q, d, att.Status == AttemptRunning)
 		}
-		// A reaped review attempt (orphaned / never picked up) leaves the goal
-		// blocked(needs_verdict); the dispatcher re-mints within the review budget,
-		// then degrades to a human verdict. The interrupted attempt_no charges the
-		// review budget — a queued reap costs one try but never loops the goal.
+		// A reaped review attempt leaves the goal blocked(needs_verdict); the
+		// dispatcher re-mints within the per-episode review budget, then degrades to
+		// a human. A running reap (started_at set) charges one budget unit; a queued
+		// reap that never ran does not (CountRanReviewAttemptsForOutput filters on
+		// started_at), mirroring the queued-decomposition refund below.
 		if att.Purpose == PurposeReview {
 			return nil
 		}
