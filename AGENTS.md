@@ -28,6 +28,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | Web theming      | `web-theming.md`     | Changing the web visual style or tokens                                    |
 | Documentation    | `doc-style.md`       | Writing or editing user/developer docs                                     |
 | Web UI testing   | `web-ui-test.md`     | Testing the web UI with browser automation                                 |
+| Backend E2E test | `e2e-test.md`        | Running a live feature e2e against `stellad` (HTTP + DB assertions)         |
 | Project tracking | `project-tracker.md` | Managing GitHub issues and project board                                   |
 | Release          | `release.md`         | Cutting a release, tagging, changelog                                      |
 | Marketing        | `marketing.md`       | Writing a landing page, README opener, hero copy, or any marketing content |
