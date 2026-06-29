@@ -129,6 +129,9 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 		out = att
 		return nil
 	})
+	// On a definite rollback (lost race / budget / collision), archive the session
+	// minted above so it is not orphaned.
+	s.disposeOnRollback(ctx, err, d.UserID, d.AgentID, sessionID)
 	return out, err
 }
 

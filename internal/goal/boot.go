@@ -170,6 +170,7 @@ func Boot(cfg BootConfig) (*Service, error) {
 		WithExecutor(bootExecutor(cfg.Chat, logger)),
 		WithSessionMinter(RegistrySessionMinter(cfg.Services)),
 		WithPlanningSessionMinter(RegistryPlanningSessionMinter(cfg.Services)),
+		WithSessionDisposer(RegistrySessionDisposer(cfg.Services)),
 		WithConfig(Config{LeaseTTL: cfg.LeaseTTL}),
 	)
 

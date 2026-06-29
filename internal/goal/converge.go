@@ -404,13 +404,16 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 		for _, ch := range content.Children {
 			sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
 			if err != nil {
+				// A mid-batch mint failure orphans the children minted before it (no tx
+				// has run yet); archive them so the partial batch does not leak.
+				s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
 				return fmt.Errorf("mint child session %q: %w", ch.Key, err)
 			}
 			childSessions[ch.Key] = sid
 		}
 	}
 
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
+	err = s.withTx(ctx, func(q *sqlc.Queries) error {
 		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
 			return fmt.Errorf("lock goal for decomposition submit: %w", err)
 		}
@@ -462,6 +465,10 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 		}
 		return s.releaseChildren(ctx, q, parent.ID)
 	})
+	// On a definite rollback, archive the child sessions pre-minted above (none on
+	// the human-review path) so they are not orphaned.
+	s.disposeOnRollback(ctx, err, parent.UserID, parent.AgentID, mapValues(childSessions)...)
+	return err
 }
 
 // ApprovePlan applies a human approval of a composite's proposed plan: it
@@ -492,12 +499,15 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 	for _, ch := range content.Children {
 		sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
 		if err != nil {
+			// A mid-batch mint failure orphans the children minted before it (no tx
+			// has run yet); archive them so the partial batch does not leak.
+			s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
 			return fmt.Errorf("mint child session %q: %w", ch.Key, err)
 		}
 		childSessions[ch.Key] = sid
 	}
 
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
+	err = s.withTx(ctx, func(q *sqlc.Queries) error {
 		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
 			return fmt.Errorf("lock goal for plan approval: %w", err)
 		}
@@ -526,6 +536,20 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 		}
 		return s.releaseChildren(ctx, q, cur.ID)
 	})
+	// On a definite rollback (concurrent reject/approve / collision), archive the
+	// child sessions pre-minted above so they are not orphaned.
+	s.disposeOnRollback(ctx, err, parent.UserID, parent.AgentID, mapValues(childSessions)...)
+	return err
+}
+
+// mapValues returns a map's values as a slice in unspecified order. Used to feed
+// a pre-minted child-session map to disposeOrphanSessions on a rollback.
+func mapValues(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	return out
 }
 
 // RejectPlan applies a human rejection of a composite's proposed plan: it clears

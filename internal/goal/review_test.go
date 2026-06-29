@@ -517,6 +517,92 @@ func TestReview_RespectsConcurrencyCap(t *testing.T) {
 	}
 }
 
+// TestReview_DisposesSessionOnRollback proves the session minted before
+// BeginReview's tx is archived when that tx rolls back, so a lost race / collision
+// does not orphan it. A failing enqueue forces the rollback deterministically
+// (mint happens outside the tx; enqueue inside it).
+func TestReview_DisposesSessionOnRollback(t *testing.T) {
+	h := newHarness(t)
+	// Record every minted session (the last one is the review session) and every
+	// disposed session, replacing the minter/disposer on the service directly.
+	base := h.sessionMinter()
+	var minted []string
+	h.svc.newSession = func(ctx context.Context, u, a, p string) (string, error) {
+		id, err := base(ctx, u, a, p)
+		if err == nil {
+			minted = append(minted, id)
+		}
+		return id, err
+	}
+	var disposed []string
+	h.svc.disposeSession = func(_ context.Context, _, _, sid string) error {
+		disposed = append(disposed, sid)
+		return nil
+	}
+
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "lgtm"))
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+	h.runLeaf(d.ID) // blocked(needs_verdict)
+
+	ctx := context.Background()
+	boom := errors.New("enqueue boom")
+	if _, err := h.svc.BeginReview(ctx, d.ID, func(_ context.Context, _ pgx.Tx, _, _ string) error {
+		return boom
+	}); !errors.Is(err, boom) {
+		t.Fatalf("BeginReview err=%v want enqueue boom", err)
+	}
+	if len(disposed) != 1 {
+		t.Fatalf("disposed %d sessions, want 1 (the rolled-back review session)", len(disposed))
+	}
+	if want := minted[len(minted)-1]; disposed[0] != want {
+		t.Fatalf("disposed %q want the review session %q", disposed[0], want)
+	}
+}
+
+// TestDisposeOnRollback pins the rollback gate: a session is archived only on a
+// DEFINITE rollback. A committed flow (nil err) and an AMBIGUOUS commit failure
+// (errTxCommit — the row may be live) are both left alone, so a commit blip can
+// never archive a live session.
+func TestDisposeOnRollback(t *testing.T) {
+	var disposed []string
+	svc := &GoalService{disposeSession: func(_ context.Context, _, _, sid string) error {
+		disposed = append(disposed, sid)
+		return nil
+	}}
+	ctx := context.Background()
+	svc.disposeOnRollback(ctx, nil, "u", "a", "s1")                                 // committed: keep
+	svc.disposeOnRollback(ctx, fmt.Errorf("%w: boom", errTxCommit), "u", "a", "s2") // ambiguous: keep
+	svc.disposeOnRollback(ctx, errors.New("body boom"), "u", "a", "s3")             // rolled back: dispose
+	if len(disposed) != 1 || disposed[0] != "s3" {
+		t.Fatalf("disposed=%v want [s3] (only the definite rollback)", disposed)
+	}
+}
+
+// TestReview_SuccessfulReviewKeepsSession proves the happy path never disposes: a
+// full create -> run -> agent-review -> accept commits every tx, so no session is
+// archived. Guards against a rollback-gate regression that would archive live
+// sessions on success.
+func TestReview_SuccessfulReviewKeepsSession(t *testing.T) {
+	h := newHarness(t)
+	var disposed []string
+	h.svc.disposeSession = func(_ context.Context, _, _, sid string) error {
+		disposed = append(disposed, sid)
+		return nil
+	}
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "lgtm"))
+	d := h.createRoot(KindLeaf, agentJudgmentContract())
+	h.activate(d.ID)
+	h.runLeaf(d.ID)
+	h.runReview(d.ID)
+	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+		t.Fatalf("want accepted, got %q", got.Lifecycle)
+	}
+	if len(disposed) != 0 {
+		t.Fatalf("successful flow disposed %v; want none", disposed)
+	}
+}
+
 // TestValidateReviewVerdicts pins the in-turn coverage guard: a review must
 // answer every required item exactly once and name no unknown item.
 func TestValidateReviewVerdicts(t *testing.T) {
