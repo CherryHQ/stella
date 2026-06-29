@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -39,6 +40,33 @@ func (q *Queries) CountInflightAttemptsByUser(ctx context.Context, userID string
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const countRanReviewAttemptsForOutput = `-- name: CountRanReviewAttemptsForOutput :one
+SELECT COUNT(*)
+FROM agent_goal_attempt
+WHERE goal_id = $1
+  AND purpose = 'review'
+  AND started_at IS NOT NULL
+  AND created_at > $2
+`
+
+type CountRanReviewAttemptsForOutputParams struct {
+	GoalID string    `json:"goal_id"`
+	Since  time.Time `json:"since"`
+}
+
+// Review attempts spent on the CURRENT needs_verdict episode: those created after
+// the reviewed execution attempt (a later execution attempt starts a fresh
+// episode) that actually ran (started_at set). A queued attempt reaped before it
+// was promoted never ran and does not charge the budget, mirroring how a queued
+// decomposition reap is refunded. This is the agent-review budget; attempt_no is
+// still assigned globally per purpose via GetMaxAttemptNo.
+func (q *Queries) CountRanReviewAttemptsForOutput(ctx context.Context, arg CountRanReviewAttemptsForOutputParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRanReviewAttemptsForOutput, arg.GoalID, arg.Since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const createAttempt = `-- name: CreateAttempt :one

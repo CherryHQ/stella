@@ -120,6 +120,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	d.propagateDepFailures(ctx, now)
 	d.rollupComposites(ctx, now)
 	d.scanAndDecompose(ctx, now)
+	d.scanAndReview(ctx, now)
 	d.scanAndClaim(ctx, now)
 }
 
@@ -352,6 +353,57 @@ func (d *Dispatcher) scanAndDecompose(ctx context.Context, _ time.Time) {
 	}
 }
 
+// scanAndReview drives agent auto-review: every goal parked blocked(needs_verdict)
+// with a pending authority=agent item gets a headless purpose=review attempt
+// minted + enqueued in one tx, leaving the goal blocked until the verdict folds
+// in (contract §10.13). BeginReview re-checks eligibility under the row lock and
+// returns ErrInvalidTransition for goals awaiting a human, with no pending agent
+// item, or out of review budget — all skipped here. A nil enqueuer (test wiring)
+// skips dispatch, the same gate scanAndClaim/scanAndDecompose use.
+//
+// Review attempts are LLM jobs like execution attempts, so they share the per-root
+// and per-user concurrency caps (§5/§10.8): a user with many blocked goals can no
+// longer burst a review job for each one past their execution budget. A goal over
+// the cap stays blocked(needs_verdict) and is retried next tick once a slot frees.
+func (d *Dispatcher) scanAndReview(ctx context.Context, _ time.Time) {
+	if d.cfg.Enqueuer == nil {
+		return
+	}
+	candidates, err := d.cfg.Queries.ListGoalsBlockedNeedsVerdict(ctx, int32(d.cfg.BatchLimit))
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: list needs-verdict goals", "err", err)
+		return
+	}
+	// Per-tick concurrency snapshot shared across the candidates, mirroring
+	// scanAndClaim: a minted review raises the in-flight count, so cache counts per
+	// root/user and bump locally to honor the cap across a burst within one tick.
+	rootInflight := map[string]int64{}
+	userInflight := map[string]int64{}
+
+	for _, goal := range candidates {
+		if d.isStopped() {
+			return
+		}
+		ok, err := d.underConcurrencyCap(ctx, goal, rootInflight, userInflight)
+		if err != nil {
+			d.cfg.Logger.Warn("dispatcher: review concurrency count", "goal", goal.ID, "err", err)
+			continue
+		}
+		if !ok {
+			continue // over the per-root or per-user budget; retry next tick
+		}
+		if _, err := d.cfg.Service.BeginReview(ctx, goal.ID, d.enqueueAttemptTx); err != nil {
+			if errors.Is(err, ErrInvalidTransition) {
+				continue // nothing to agent-review (human-only, budget spent, or raced)
+			}
+			d.cfg.Logger.Warn("dispatcher: begin review", "goal", goal.ID, "err", err)
+			continue
+		}
+		rootInflight[goal.RootID]++
+		userInflight[goal.UserID]++
+	}
+}
+
 // enqueueAttemptTx inserts the durable execution job for a claimed attempt inside
 // the claim's transaction (River Phase 2c). Passed to GoalService.Claim as the
 // AttemptEnqueuer so claim+enqueue are atomic; an error here aborts the claim.
@@ -500,6 +552,14 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		// FinalizeAttempt) — do not reorder without revisiting this.
 		if att.Purpose == PurposeDecomposition {
 			return s.recoverDecomposition(ctx, q, d, att.Status == AttemptRunning)
+		}
+		// A reaped review attempt leaves the goal blocked(needs_verdict); the
+		// dispatcher re-mints within the per-episode review budget, then degrades to
+		// a human. A running reap (started_at set) charges one budget unit; a queued
+		// reap that never ran does not (CountRanReviewAttemptsForOutput filters on
+		// started_at), mirroring the queued-decomposition refund below.
+		if att.Purpose == PurposeReview {
+			return nil
 		}
 
 		// A still-'queued' reap never executed: its River job sat behind the queue's

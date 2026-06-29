@@ -17,6 +17,20 @@ SELECT CAST(COALESCE(MAX(attempt_no), 0) AS BIGINT)
 FROM agent_goal_attempt
 WHERE goal_id = sqlc.arg(goal_id) AND purpose = sqlc.arg(purpose);
 
+-- name: CountRanReviewAttemptsForOutput :one
+-- Review attempts spent on the CURRENT needs_verdict episode: those created after
+-- the reviewed execution attempt (a later execution attempt starts a fresh
+-- episode) that actually ran (started_at set). A queued attempt reaped before it
+-- was promoted never ran and does not charge the budget, mirroring how a queued
+-- decomposition reap is refunded. This is the agent-review budget; attempt_no is
+-- still assigned globally per purpose via GetMaxAttemptNo.
+SELECT COUNT(*)
+FROM agent_goal_attempt
+WHERE goal_id = sqlc.arg(goal_id)
+  AND purpose = 'review'
+  AND started_at IS NOT NULL
+  AND created_at > sqlc.arg(since);
+
 -- name: ListAttemptByGoal :many
 SELECT * FROM agent_goal_attempt
 WHERE goal_id = sqlc.arg(goal_id)

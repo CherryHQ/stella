@@ -59,6 +59,25 @@ func HumanVerdictEvent(v HumanVerdict, item AcceptanceItem) sqlc.AppendAcceptanc
 	})
 }
 
+// AgentVerdictEvent builds the append params for a reviewer-agent verdict
+// (authority=agent, contract §10.13). evaluatedAttemptID is the execution
+// attempt whose output the verdict judges; reviewerAttemptID is the purpose=review
+// attempt that authored it; scopeHash binds the verdict to the judged output so a
+// later output edit invalidates it (§4.2). The fold already consumes these events
+// identically to a human verdict.
+func AgentVerdictEvent(goalID, itemID, evaluatedAttemptID, reviewerAttemptID, scopeHash string, pass bool, rationale string) sqlc.AppendAcceptanceEventParams {
+	return verdictEvent(verdictRow{
+		goalID:            goalID,
+		attemptID:         evaluatedAttemptID,
+		itemID:            itemID,
+		pass:              pass,
+		authority:         AuthorityAgent,
+		rationale:         rationale,
+		scopeHash:         scopeHash,
+		reviewerAttemptID: reviewerAttemptID,
+	})
+}
+
 // verdictRow is the shared input to verdictEvent for both authorities.
 type verdictRow struct {
 	goalID            string

@@ -35,6 +35,7 @@ const (
 	terminalBlock     TerminalAction = "block"
 	terminalFail      TerminalAction = "fail"
 	terminalDecompose TerminalAction = "decompose"
+	terminalVerdict   TerminalAction = "verdict"
 )
 
 // Blocker carries a block action's payload. The goal model resolves
@@ -62,6 +63,7 @@ type Result struct {
 	Evidence      AttemptEvidence
 	Output        AttemptOutput
 	Decomposition *DecompositionContent // purpose=decomposition only
+	Verdicts      []ReviewVerdict       // purpose=review only
 	Blocker       *Blocker
 	Failure       *Failure
 	// RepairAttempted is set when a text-only first turn triggered one bounded
@@ -157,8 +159,14 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	}
 
 	decompose := req.Attempt.Purpose == PurposeDecomposition
+	review := req.Attempt.Purpose == PurposeReview
 	rec := &terminalRecorder{}
-	ctTool := newRecordingControlTool(rec, decompose, int(req.Goal.Depth), req.Input.MaxDepth, e.log)
+	var ctTool *recordingControlTool
+	if review {
+		ctTool = newReviewControlTool(rec, req.Input.ReviewItems, e.log)
+	} else {
+		ctTool = newRecordingControlTool(rec, decompose, int(req.Goal.Depth), req.Input.MaxDepth, e.log)
+	}
 	projectID := req.Goal.ProjectID.String
 
 	turn := func(prompt string) <-chan agent.Event {
@@ -173,8 +181,15 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 		})
 	}
 
+	firstPrompt := buildAttemptPrompt(req, decompose)
+	repairPrompt := func(text string) string { return buildRepairPrompt(text, decompose) }
+	if review {
+		firstPrompt = buildReviewPrompt(req)
+		repairPrompt = buildReviewRepairPrompt
+	}
+
 	// First turn against the frozen input context.
-	text, res, done, fail := e.runTurn(ctx, turn(buildAttemptPrompt(req, decompose)), rec)
+	text, res, done, fail := e.runTurn(ctx, turn(firstPrompt), rec)
 	if fail != nil {
 		return *fail, nil
 	}
@@ -190,7 +205,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 		return Result{Action: terminalNone}, nil
 	}
 
-	_, res, done, fail = e.runTurn(ctx, turn(buildRepairPrompt(text, decompose)), rec)
+	_, res, done, fail = e.runTurn(ctx, turn(repairPrompt(text)), rec)
 	if fail != nil {
 		return *fail, nil
 	}
@@ -251,6 +266,12 @@ func foldResult(res Result, req ExecutorRequest) ExecutorResult {
 			Evidence:      res.Evidence,
 			Output:        res.Output,
 			Decomposition: res.Decomposition,
+		}
+	case terminalVerdict:
+		return ExecutorResult{
+			Submitted: true,
+			Evidence:  res.Evidence,
+			Verdicts:  res.Verdicts,
 		}
 	case terminalFail:
 		f := res.Failure
@@ -406,6 +427,67 @@ You MUST now call goal_control exactly once with one terminal action:
 Do not answer in plain text again.`
 }
 
+// buildReviewPrompt assembles the reviewer turn for a purpose=review attempt: the
+// goal intent, the submitted output under review, and each required
+// agent-authority item's rubric. The reviewer judges the output against each
+// item and reports a verdict via goal_control. It never edits the work — a
+// failing verdict feeds the next execution attempt as a gap.
+func buildReviewPrompt(req ExecutorRequest) string {
+	in := req.Input
+	var b strings.Builder
+	b.WriteString(`You are reviewing a completed Stella goal's output against its acceptance criteria.
+
+Protocol:
+- Judge ONLY whether the output below meets each criterion. Do not redo or edit the work.
+- You may use tools to verify claims.
+- Before ending this turn, you MUST call goal_control exactly once:
+  - action="verdict" with a "verdicts" array — one {item_id, pass, rationale} per criterion below.
+  - action="fail" with reason/retryable only if the output cannot be judged at all.
+
+Goal:
+`)
+	b.WriteString(strings.TrimSpace(in.Intent))
+
+	if out := in.ReviewOutput; out != nil {
+		b.WriteString("\n\nOutput under review:\n")
+		if s := strings.TrimSpace(out.Summary); s != "" {
+			b.WriteString(s + "\n")
+		}
+		if len(out.Result) > 0 {
+			if rb, err := json.Marshal(out.Result); err == nil {
+				b.WriteString("Structured result: " + string(rb) + "\n")
+			}
+		}
+	}
+
+	b.WriteString("\nCriteria to judge (return one verdict per item_id):\n")
+	for _, it := range in.ReviewItems {
+		line := "- item_id=" + it.ID
+		if r := strings.TrimSpace(it.Rubric); r != "" {
+			line += ": " + r
+		}
+		b.WriteString(line + "\n")
+	}
+	return b.String()
+}
+
+// buildReviewRepairPrompt is the single bounded correction turn for a reviewer
+// that answered in plain text without calling goal_control.
+func buildReviewRepairPrompt(priorText string) string {
+	return `Your previous response did not call goal_control, so this review is not recorded.
+
+Your previous message was:
+"""
+` + priorText + `
+"""
+
+You MUST now call goal_control exactly once:
+  - action="verdict" with a "verdicts" array of {item_id, pass, rationale} covering every criterion.
+  - action="fail" with reason/retryable only if the output cannot be judged.
+
+Do not answer in plain text again.`
+}
+
 // ── recording control tool ──────────────────────────────────────────────────
 
 // recordingControlTool is the agent-facing goal_control tool. It is PURE
@@ -422,6 +504,11 @@ type recordingControlTool struct {
 	// in the same turn instead of failing out-of-turn and burning budget.
 	parentDepth int
 	maxDepth    int
+	// review switches the accepted action set to verdict/fail; reviewItems are the
+	// required agent-authority judgment items the verdict must cover, validated
+	// in-turn (the same coverage the SubmitReview boundary expects).
+	review      bool
+	reviewItems []AcceptanceItem
 }
 
 // newRecordingControlTool wires a recording tool for one attempt. decompose
@@ -431,7 +518,17 @@ func newRecordingControlTool(rec *terminalRecorder, decompose bool, parentDepth,
 	return &recordingControlTool{rec: rec, decompose: decompose, log: log, parentDepth: parentDepth, maxDepth: maxDepth}
 }
 
+// newReviewControlTool wires a recording tool for a purpose=review attempt: the
+// accepted action set is verdict/fail and the proposed verdicts are validated
+// in-turn against the required agent-authority items.
+func newReviewControlTool(rec *terminalRecorder, reviewItems []AcceptanceItem, log *slog.Logger) *recordingControlTool {
+	return &recordingControlTool{rec: rec, review: true, reviewItems: reviewItems, log: log}
+}
+
 func (t *recordingControlTool) Definition() tools.Definition {
+	if t.review {
+		return t.reviewDefinition()
+	}
 	if t.decompose {
 		return ai.ToolDefinition{
 			Name:        "goal_control",
@@ -566,8 +663,50 @@ func (t *recordingControlTool) Definition() tools.Definition {
 	}
 }
 
+// reviewDefinition is the goal_control schema for a purpose=review attempt: a
+// verdict array covering each required agent-authority item, or a fail.
+func (t *recordingControlTool) reviewDefinition() tools.Definition {
+	return ai.ToolDefinition{
+		Name:        "goal_control",
+		Description: "Report review outcome. Call exactly one of verdict/fail before exiting.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"action": map[string]any{
+					"type":        "string",
+					"enum":        []string{"verdict", "fail"},
+					"description": "Which terminal action to take.",
+				},
+				"summary": map[string]any{
+					"type":        "string",
+					"description": "verdict: one-line summary of the review.",
+				},
+				"verdicts": map[string]any{
+					"type":        "array",
+					"description": "verdict: one entry per required item being reviewed.",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"item_id":   map[string]any{"type": "string", "description": "The acceptance item id this verdict answers."},
+							"pass":      map[string]any{"type": "boolean", "description": "true if the output satisfies the item."},
+							"rationale": map[string]any{"type": "string", "description": "Why it passes or fails; a fail rationale feeds the next attempt."},
+						},
+						"required": []string{"item_id", "pass"},
+					},
+				},
+				"reason":    map[string]any{"type": "string", "description": "fail: why the output cannot be judged."},
+				"retryable": map[string]any{"type": "boolean", "description": "fail: true if a retry may succeed."},
+			},
+			"required": []string{"action"},
+		},
+	}
+}
+
 func (t *recordingControlTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	action, _ := args["action"].(string)
+	if t.review {
+		return t.executeReview(action, args)
+	}
 	if t.decompose {
 		return t.executeDecompose(action, args)
 	}
@@ -649,6 +788,41 @@ func (t *recordingControlTool) executeDecompose(action string, args map[string]a
 	}
 }
 
+// executeReview handles the purpose=review action set: a verdict covering every
+// required agent-authority item, or a fail when the output cannot be judged.
+func (t *recordingControlTool) executeReview(action string, args map[string]any) (string, error) {
+	switch action {
+	case "verdict":
+		verdicts, err := decodeVerdicts(args["verdicts"])
+		if err != nil {
+			return "", err
+		}
+		// Validate in-turn: every required agent item must get exactly one verdict
+		// and no verdict may name an unknown item, so an incomplete review is
+		// returned to the model for self-correction now rather than appending a
+		// partial ledger that strands the goal pending out-of-turn.
+		if err := ValidateReviewVerdicts(verdicts, t.reviewItems); err != nil {
+			return "", fmt.Errorf("goal_control: review rejected: %w; provide exactly one verdict "+
+				"{item_id,pass,rationale} for each required item and call goal_control again", err)
+		}
+		ev := AttemptEvidence{Summary: stringArg(args, "summary")}
+		if err := t.rec.record(Result{Action: terminalVerdict, Evidence: ev, Verdicts: verdicts}); err != nil {
+			return "", err
+		}
+		return `{"ok":true,"recorded":"verdict"}`, nil
+	case "fail":
+		if err := t.rec.record(Result{Action: terminalFail, Failure: &Failure{
+			Reason:    stringArg(args, "reason"),
+			Retryable: boolArg(args, "retryable"),
+		}}); err != nil {
+			return "", err
+		}
+		return `{"ok":true,"recorded":"fail"}`, nil
+	default:
+		return "", fmt.Errorf("goal_control: unknown action %q", action)
+	}
+}
+
 // ── arg decoders ────────────────────────────────────────────────────────────
 
 func stringArg(args map[string]any, key string) string {
@@ -706,4 +880,56 @@ func decodeDecomposition(v any) (DecompositionContent, error) {
 			"edges[].{downstream_key,upstream_key,kind,on_failure}): %w", err)
 	}
 	return c, nil
+}
+
+// decodeVerdicts round-trips the loosely-typed verdicts arg into []ReviewVerdict.
+// A strict decode rejects unknown/misnamed fields in-turn (use item_id/pass/
+// rationale) rather than silently dropping them into an incomplete review.
+func decodeVerdicts(v any) ([]ReviewVerdict, error) {
+	if v == nil {
+		return nil, fmt.Errorf("goal_control: verdict requires a verdicts array")
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("goal_control: verdicts not serialisable: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	var out []ReviewVerdict
+	if err := dec.Decode(&out); err != nil {
+		return nil, fmt.Errorf("goal_control: verdicts have invalid or unknown fields "+
+			"(use verdicts[].{item_id,pass,rationale}): %w", err)
+	}
+	return out, nil
+}
+
+// ValidateReviewVerdicts checks a review covers exactly the required
+// agent-authority items: every required item has one verdict, no verdict names an
+// unknown item, and no item is judged twice. It is the in-turn mirror of the
+// coverage SubmitReview relies on so an incomplete review never reaches the
+// ledger (contract §10.13).
+func ValidateReviewVerdicts(verdicts []ReviewVerdict, items []AcceptanceItem) error {
+	want := make(map[string]bool, len(items))
+	for _, it := range items {
+		want[it.ID] = true
+	}
+	seen := make(map[string]bool, len(verdicts))
+	for _, v := range verdicts {
+		if v.ItemID == "" {
+			return fmt.Errorf("a verdict is missing item_id")
+		}
+		if !want[v.ItemID] {
+			return fmt.Errorf("verdict for unknown item %q", v.ItemID)
+		}
+		if seen[v.ItemID] {
+			return fmt.Errorf("duplicate verdict for item %q", v.ItemID)
+		}
+		seen[v.ItemID] = true
+	}
+	for id := range want {
+		if !seen[id] {
+			return fmt.Errorf("missing verdict for required item %q", id)
+		}
+	}
+	return nil
 }
