@@ -336,7 +336,7 @@ func (s *Server) AddProfileConstraint(w http.ResponseWriter, r *http.Request, ag
 		return
 	}
 
-	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
+	ctx := memory.WithChangeSource(r.Context(), memory.SourceManual)
 	constraints, err := memorywrite.AddConstraint(ctx, s.db, s.q, info.UserID, agentID, text)
 	if err != nil {
 		s.writeInternalError(w, err)
@@ -374,7 +374,7 @@ func (s *Server) DeleteProfileConstraint(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
+	ctx := memory.WithChangeSource(r.Context(), memory.SourceManual)
 	updated, err := memorywrite.RemoveConstraint(ctx, s.db, s.q, info.UserID, agentID, constraintID)
 	if err != nil {
 		s.writeInternalError(w, err)

@@ -289,6 +289,54 @@ func TestProfileSoulAPIWritesFactsBackedSoul(t *testing.T) {
 	}
 }
 
+func TestProfileConstraintAPIWritesManualChangelogSource(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+
+	rr := doRequest(t, env, http.MethodPost, "/api/users/me/memories/"+agentID+"/constraints", map[string]string{
+		"text": "Ask before deleting files.",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("add constraint status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var body struct {
+		Constraints []struct {
+			ID string `json:"id"`
+		} `json:"constraints"`
+	}
+	if err := json.Unmarshal(resp.Data, &body); err != nil {
+		t.Fatalf("unmarshal add constraint response: %v", err)
+	}
+	if len(body.Constraints) != 1 || body.Constraints[0].ID == "" {
+		t.Fatalf("constraints after add = %+v, want one constraint with ID", body.Constraints)
+	}
+
+	rr = doRequest(t, env, http.MethodDelete, "/api/users/me/memories/"+agentID+"/constraints/"+body.Constraints[0].ID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("delete constraint status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	q := sqlc.New(env.db)
+	logs, err := q.ListMemoryChangelog(context.Background(), sqlc.ListMemoryChangelogParams{
+		UserID:  env.adminUser.ID,
+		AgentID: agentID,
+		Scope:   "constraint",
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("ListMemoryChangelog: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("constraint changelog entries = %d, want 2", len(logs))
+	}
+	for _, log := range logs {
+		if log.Source != string(memory.SourceManual) {
+			t.Fatalf("constraint changelog action %q source = %q, want %q", log.Action, log.Source, memory.SourceManual)
+		}
+	}
+}
+
 func TestDeleteProfileMemoryResetsFactsAndConstraints(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
