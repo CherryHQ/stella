@@ -27,7 +27,7 @@ func (p *skillStorePlatform) RuntimeLookup() pkgplugins.RuntimeLookup     { retu
 func (p *skillStorePlatform) ChannelPlatform() pkgplugins.ChannelPlatform { return nil }
 func (p *skillStorePlatform) SkillStore() pkgplugins.SkillStore           { return p.store }
 
-func TestBuildPromptSectionIncludesVisibleSkills(t *testing.T) {
+func TestBuildPromptSectionUsesSearchFirstInstructions(t *testing.T) {
 	store, userID, _ := newTestSkillStore(t)
 	ctx := context.Background()
 
@@ -84,14 +84,16 @@ func TestBuildPromptSectionIncludesVisibleSkills(t *testing.T) {
 	if section.Title != "Skills" {
 		t.Fatalf("unexpected section title: %q", section.Title)
 	}
-	if !strings.Contains(section.Content, "<name>project-skill</name>") {
-		t.Fatalf("expected project skill in prompt content: %s", section.Content)
+	if !strings.Contains(section.Content, `action="search_installed"`) {
+		t.Fatalf("expected search_installed instruction in prompt content: %s", section.Content)
 	}
-	if !strings.Contains(section.Content, "<name>user-skill</name>") {
-		t.Fatalf("expected user skill in prompt content: %s", section.Content)
+	if !strings.Contains(section.Content, `action="load"`) {
+		t.Fatalf("expected load instruction in prompt content: %s", section.Content)
 	}
-	if strings.Contains(section.Content, "<name>old-skill</name>") {
-		t.Fatalf("did not expect deprecated skill in prompt content: %s", section.Content)
+	for _, leaked := range []string{"project-skill", "Project skill", "user-skill", "User skill", "old-skill"} {
+		if strings.Contains(section.Content, leaked) {
+			t.Fatalf("prompt content leaked skill catalog item %q: %s", leaked, section.Content)
+		}
 	}
 }
 
@@ -122,7 +124,7 @@ func TestBuildPromptSectionNilPlatform(t *testing.T) {
 	}
 }
 
-func TestBuildPromptSectionAlwaysIncludesSystemSkills(t *testing.T) {
+func TestBuildPromptSectionShowsSearchInstructionsWhenSystemSkillsExist(t *testing.T) {
 	store, userID, _ := newTestSkillStore(t)
 	ctx := context.Background()
 
@@ -154,9 +156,12 @@ func TestBuildPromptSectionAlwaysIncludesSystemSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(section.Content, `action="search_installed"`) {
+		t.Fatalf("expected search_installed instruction in prompt content: %s", section.Content)
+	}
 	for _, name := range []string{"stella", "code-review", "research", "user-skill"} {
-		if !strings.Contains(section.Content, "<name>"+name+"</name>") {
-			t.Fatalf("expected %s in prompt content: %s", name, section.Content)
+		if strings.Contains(section.Content, name) {
+			t.Fatalf("prompt content should not enumerate %s: %s", name, section.Content)
 		}
 	}
 }
@@ -191,6 +196,9 @@ func TestBuildPromptSectionFiltersPluginOwnedSystemSkillsByPluginState(t *testin
 	if strings.Contains(section.Content, "<name>lark-cli</name>") {
 		t.Fatalf("expected disabled plugin-owned skill to be hidden: %s", section.Content)
 	}
+	if section.Title != "" || section.Content != "" {
+		t.Fatalf("expected no skills section when the only skill is disabled by plugin visibility: %#v", section)
+	}
 
 	section, err = BuildPromptSection(ctx, pkgplugins.SystemPromptContext{
 		Platform:            platform,
@@ -200,7 +208,13 @@ func TestBuildPromptSectionFiltersPluginOwnedSystemSkillsByPluginState(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(section.Content, "<name>lark-cli</name>") {
-		t.Fatalf("expected enabled plugin-owned skill to be visible: %s", section.Content)
+	if section.Title != "Skills" {
+		t.Fatalf("expected Skills section for enabled plugin-owned skill: %#v", section)
+	}
+	if !strings.Contains(section.Content, `action="search_installed"`) {
+		t.Fatalf("expected search_installed instruction for enabled plugin-owned skill: %s", section.Content)
+	}
+	if strings.Contains(section.Content, "lark-cli") {
+		t.Fatalf("prompt content should not enumerate enabled plugin-owned skill: %s", section.Content)
 	}
 }

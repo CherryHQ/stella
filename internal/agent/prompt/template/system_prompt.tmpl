@@ -76,14 +76,7 @@ The following are hard rules set by the user that you must ALWAYS follow, regard
 
 {{ range .Constraints }}- [{{ .CreatedAt }}] {{ .Text }}
 {{ end }}
-{{ end }}{{ if .Knowledge }}## Knowledge
-
-The following knowledge entries are relevant to this session:
-
-{{ range .Knowledge }}### {{ .Name }} ({{ .KnowledgeType }})
-
-{{ .Content }}
-{{ end }}{{ end }}## Agent Soul
+{{ end }}## Agent Soul
 
 Your identity, personality, and behavior. Session tools can read this; durable edits happen through Reflect or manual memory settings.
 
