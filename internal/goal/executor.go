@@ -1,6 +1,7 @@
 package goal
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -157,7 +158,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 
 	decompose := req.Attempt.Purpose == PurposeDecomposition
 	rec := &terminalRecorder{}
-	ctTool := newRecordingControlTool(rec, decompose, e.log)
+	ctTool := newRecordingControlTool(rec, decompose, int(req.Goal.Depth), req.Input.MaxDepth, e.log)
 	projectID := req.Goal.ProjectID.String
 
 	turn := func(prompt string) <-chan agent.Event {
@@ -415,12 +416,19 @@ type recordingControlTool struct {
 	rec       *terminalRecorder
 	decompose bool
 	log       *slog.Logger
+	// parentDepth/maxDepth let a decomposition action validate its proposed plan
+	// in-turn (the same ValidateDecomposition the write boundary runs), so a
+	// structurally-doomed plan is rejected back to the model for self-correction
+	// in the same turn instead of failing out-of-turn and burning budget.
+	parentDepth int
+	maxDepth    int
 }
 
 // newRecordingControlTool wires a recording tool for one attempt. decompose
-// switches the accepted action set to decomposition.
-func newRecordingControlTool(rec *terminalRecorder, decompose bool, log *slog.Logger) *recordingControlTool {
-	return &recordingControlTool{rec: rec, decompose: decompose, log: log}
+// switches the accepted action set to decomposition; parentDepth/maxDepth feed
+// in-turn decomposition validation (ignored for non-decomposition attempts).
+func newRecordingControlTool(rec *terminalRecorder, decompose bool, parentDepth, maxDepth int, log *slog.Logger) *recordingControlTool {
+	return &recordingControlTool{rec: rec, decompose: decompose, log: log, parentDepth: parentDepth, maxDepth: maxDepth}
 }
 
 func (t *recordingControlTool) Definition() tools.Definition {
@@ -442,7 +450,70 @@ func (t *recordingControlTool) Definition() tools.Definition {
 					},
 					"decomposition": map[string]any{
 						"type":        "object",
-						"description": "decompose: {children:[...], edges:[...]} per the decomposition schema.",
+						"description": "decompose: the proposed plan as children + sibling edges.",
+						"properties": map[string]any{
+							"children": map[string]any{
+								"type":        "array",
+								"description": "Child goals; at least one must have required=true.",
+								"items": map[string]any{
+									"type": "object",
+									"properties": map[string]any{
+										"key":      map[string]any{"type": "string", "description": "Stable unique id of this child within the plan; edges reference it."},
+										"title":    map[string]any{"type": "string"},
+										"intent":   map[string]any{"type": "string", "description": "What this child must accomplish."},
+										"kind":     map[string]any{"type": "string", "enum": []string{"leaf", "composite"}},
+										"required": map[string]any{"type": "boolean"},
+										"acceptance_contract": map[string]any{
+											"type":        "object",
+											"description": "How this child's output is judged.",
+											"properties": map[string]any{
+												"policy": map[string]any{"type": "string", "enum": []string{"deterministic_then_judgment", "all", "any"}},
+												"items": map[string]any{
+													"type": "array",
+													"items": map[string]any{
+														"type": "object",
+														"properties": map[string]any{
+															"id":        map[string]any{"type": "string"},
+															"kind":      map[string]any{"type": "string", "enum": []string{"deterministic", "judgment"}},
+															"required":  map[string]any{"type": "boolean"},
+															"command":   map[string]any{"type": "string", "description": "deterministic: shell check."},
+															"authority": map[string]any{"type": "string", "enum": []string{"agent", "human"}},
+															"rubric":    map[string]any{"type": "string", "description": "judgment: agent reviewer prompt."},
+															"prompt":    map[string]any{"type": "string", "description": "judgment: human verdict prompt."},
+														},
+													},
+												},
+											},
+										},
+										"convergence_policy": map[string]any{
+											"type": "object",
+											"properties": map[string]any{
+												"max_attempts": map[string]any{"type": "integer"},
+												"escalation":   map[string]any{"type": "string", "enum": []string{"block", "abandon"}},
+												"max_depth":    map[string]any{"type": "integer"},
+											},
+										},
+										"review_policy": map[string]any{"type": "string"},
+									},
+									"required": []string{"key", "title"},
+								},
+							},
+							"edges": map[string]any{
+								"type":        "array",
+								"description": "Sibling dependencies by child key: downstream depends on upstream.",
+								"items": map[string]any{
+									"type": "object",
+									"properties": map[string]any{
+										"downstream_key": map[string]any{"type": "string", "description": "Child key that depends on the upstream."},
+										"upstream_key":   map[string]any{"type": "string", "description": "Child key that must finish first."},
+										"kind":           map[string]any{"type": "string", "enum": []string{"hard", "soft"}},
+										"on_failure":     map[string]any{"type": "string", "enum": []string{"block", "fail", "ignore"}},
+									},
+									"required": []string{"downstream_key", "upstream_key"},
+								},
+							},
+						},
+						"required": []string{"children"},
 					},
 					"reason":    map[string]any{"type": "string", "description": "fail: error message."},
 					"retryable": map[string]any{"type": "boolean", "description": "fail: true if a retry may succeed."},
@@ -548,6 +619,18 @@ func (t *recordingControlTool) executeDecompose(action string, args map[string]a
 		if err != nil {
 			return "", err
 		}
+		// Validate in-turn against the same structural guards the write boundary
+		// runs (ValidateDecomposition), so a doomed plan is returned to the model
+		// for self-correction now rather than recorded ok and rejected out-of-turn.
+		maxDepth := t.maxDepth
+		if maxDepth <= 0 { // unset on an attempt minted before MaxDepth was frozen
+			maxDepth = defaultMaxDepth
+		}
+		if err := ValidateDecomposition(content, t.parentDepth, maxDepth); err != nil {
+			return "", fmt.Errorf("goal_control: decomposition rejected: %w; fix the plan and call goal_control again "+
+				"(need >=1 child with required=true, every edge key must match a child key, no cycles, "+
+				"composites need depth headroom and no deterministic acceptance items)", err)
+		}
 		ev := AttemptEvidence{Summary: stringArg(args, "summary")}
 		if err := t.rec.record(Result{Action: terminalDecompose, Evidence: ev, Decomposition: &content}); err != nil {
 			return "", err
@@ -610,9 +693,17 @@ func decodeDecomposition(v any) (DecompositionContent, error) {
 	if err != nil {
 		return DecompositionContent{}, fmt.Errorf("goal_control: decomposition not serialisable: %w", err)
 	}
+	// Strict decode: an unknown or misnamed field (e.g. edges using from/to/type
+	// instead of downstream_key/upstream_key/kind) is rejected in-turn with an
+	// actionable message rather than silently dropped — a dropped field used to
+	// produce empty edge keys that failed validation out-of-turn and burned budget.
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
 	var c DecompositionContent
-	if err := json.Unmarshal(b, &c); err != nil {
-		return DecompositionContent{}, fmt.Errorf("goal_control: decomposition not valid: %w", err)
+	if err := dec.Decode(&c); err != nil {
+		return DecompositionContent{}, fmt.Errorf("goal_control: decomposition has invalid or unknown fields "+
+			"(use children[].{key,title,intent,kind,required,acceptance_contract,convergence_policy} and "+
+			"edges[].{downstream_key,upstream_key,kind,on_failure}): %w", err)
 	}
 	return c, nil
 }

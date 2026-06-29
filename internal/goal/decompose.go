@@ -215,6 +215,7 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 		}
 		attemptNo := int(maxNo) + 1
 		input := buildInputContext(d, nil, nil, "", attemptNo)
+		input.MaxDepth = rootMaxDepth(ctx, q, d.RootID)
 		att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
 			ID:              newID(),
 			GoalID:          d.ID,
@@ -307,6 +308,7 @@ func (s *GoalService) BeginAutoDecomposition(ctx context.Context, id string, enq
 		}
 		attemptNo := int(maxNo) + 1
 		input := buildInputContext(cur, nil, nil, "", attemptNo)
+		input.MaxDepth = rootMaxDepth(ctx, q, cur.RootID)
 		att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
 			ID:              newID(),
 			GoalID:          cur.ID,
@@ -353,12 +355,20 @@ func (s *GoalService) BeginAutoDecomposition(ctx context.Context, id string, enq
 // SubmitDecomposition and ApprovePlan so a malformed plan is rejected at the
 // write boundary, not at materialize.
 func (s *GoalService) validateContent(ctx context.Context, d sqlc.AgentGoal, content DecompositionContent) error {
+	return ValidateDecomposition(content, int(d.Depth), rootMaxDepth(ctx, s.q, d.RootID))
+}
+
+// rootMaxDepth resolves the recursion ceiling from the root's convergence
+// policy, falling back to the default if the root or its policy is unreadable.
+// Shared by validateContent (the write-boundary guard) and the decomposition
+// mint sites (which freeze it into AttemptInput for in-turn validation).
+func rootMaxDepth(ctx context.Context, q *sqlc.Queries, rootID string) int {
 	maxDepth := defaultMaxDepth
-	if root, err := s.q.GetGoal(ctx, d.RootID); err == nil {
+	if root, err := q.GetGoal(ctx, rootID); err == nil {
 		var rp ConvergencePolicy
 		if err := unmarshalJSON(root.ConvergencePolicy, &rp); err == nil {
 			maxDepth = rp.Normalized().MaxDepth
 		}
 	}
-	return ValidateDecomposition(content, int(d.Depth), maxDepth)
+	return maxDepth
 }
