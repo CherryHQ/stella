@@ -36,7 +36,14 @@ func TestExecutorRoutesDecomposeFlag(t *testing.T) {
 				// the attempt resolves without a real agent runtime.
 				args := map[string]any{"action": tc.action}
 				if tc.action == "decompose" {
-					args["decomposition"] = map[string]any{"children": []any{}, "edges": []any{}}
+					// A minimal plan that clears in-turn ValidateDecomposition (>=1
+					// required child); this test only pins the Decompose routing flag.
+					args["decomposition"] = map[string]any{
+						"children": []any{map[string]any{
+							"key": "c1", "title": "t", "kind": "leaf", "required": true,
+						}},
+						"edges": []any{},
+					}
 				}
 				if _, err := p.ExtraTools[0].Execute(context.Background(), args); err != nil {
 					t.Errorf("control tool execute: %v", err)
