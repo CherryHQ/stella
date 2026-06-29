@@ -12,7 +12,6 @@ import (
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/skills"
-	knowledgetool "github.com/CherryHQ/stella/internal/tools/knowledge"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -145,18 +144,17 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			promptUserID = ""
 		}
 		system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt:   cfg.Snap.SystemPrompt,
-			AgentSoul:      cfg.Snap.Soul,
-			Memory:         memProvider,
-			KnowledgeStore: knowledgeStoreFromSkillStore(cfg.SkillStore),
-			UserID:         promptUserID,
-			AgentID:        params.AgentID,
-			GroupID:        params.GroupID,
-			StellaHome:     config.StellaHome(),
-			AgentRoot:      cfg.Snap.Workspace,
-			ProjectRoot:    projectRoot,
-			UserRoot:       userRoot,
-			Sections:       sections,
+			SystemPrompt: cfg.Snap.SystemPrompt,
+			AgentSoul:    cfg.Snap.Soul,
+			Memory:       memProvider,
+			UserID:       promptUserID,
+			AgentID:      params.AgentID,
+			GroupID:      params.GroupID,
+			StellaHome:   config.StellaHome(),
+			AgentRoot:    cfg.Snap.Workspace,
+			ProjectRoot:  projectRoot,
+			UserRoot:     userRoot,
+			Sections:     sections,
 		})
 
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.
@@ -227,11 +225,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				stellaHome,
 				toolProjectRoot,
 			).WithSkillDiskLayout(layout).WithSkillDirView(view))
-			if knowledgeStore, ok := cfg.SkillStore.(knowledgetool.Store); ok {
-				// Knowledge is a first-class domain, so expose it through its own
-				// tool when the configured store supports knowledge reads and writes.
-				runnerTools = append(runnerTools, knowledgetool.NewTool(knowledgeStore))
-			}
 		}
 
 		return newRunner(ctx, runnerConfig{

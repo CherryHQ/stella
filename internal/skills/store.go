@@ -89,23 +89,13 @@ type Store interface {
 	ExpireDrafts(ctx context.Context, before time.Time) error
 }
 
-// KnowledgeStore queries and manages first-class fact/context knowledge entries.
+// KnowledgeStore queries and manages knowledge entries (fact/context) stored in the
+// skills table with disable_model_invocation=true. These entries never appear via the
+// skills tool; they are injected into the ## Knowledge system prompt section.
 type KnowledgeStore interface {
 	// ListKnowledge returns active knowledge entries for the given view context.
 	// Pass knowledge types to filter; no types means all knowledge types.
 	ListKnowledge(ctx context.Context, vc ViewContext, types ...KnowledgeType) ([]KnowledgeEntry, error)
-
-	// CreateKnowledge creates a fact/context entry without creating a skill row.
-	CreateKnowledge(ctx context.Context, params KnowledgeCreateParams) (KnowledgeEntry, error)
-
-	// ListKnowledgeByNameAndScope returns exact writable-scope matches for tool patch/deprecate.
-	ListKnowledgeByNameAndScope(ctx context.Context, name string, scope string, userID string, agentID string) ([]KnowledgeEntry, error)
-
-	// UpdateKnowledge replaces mutable fields on a knowledge entry.
-	UpdateKnowledge(ctx context.Context, params KnowledgeUpdateParams) (KnowledgeEntry, error)
-
-	// DeprecateKnowledge marks a knowledge entry deprecated.
-	DeprecateKnowledge(ctx context.Context, id string) error
 
 	// ExpireKnowledgeDraftsByType deprecates draft knowledge entries of the given type
 	// whose created-at timestamp is before the cutoff.
@@ -116,54 +106,19 @@ type KnowledgeStore interface {
 type KnowledgeType string
 
 const (
+	KnowledgeTypeSkill   KnowledgeType = "skill"
 	KnowledgeTypeFact    KnowledgeType = "fact"
 	KnowledgeTypeContext KnowledgeType = "context"
 )
 
-// KnowledgeCreateParams describes a new first-class knowledge entry.
-type KnowledgeCreateParams struct {
-	Name          string
-	Description   string
-	Content       string
-	KnowledgeType KnowledgeType
-	Scope         string
-	UserID        string
-	AgentID       string
-	Status        string
-	Evidence      json.RawMessage
-	Confidence    *float64
-	ExpiresAt     *time.Time
-	Supersedes    *string
-	Metadata      json.RawMessage
-}
-
-// KnowledgeUpdateParams replaces mutable fields on an existing knowledge entry.
-type KnowledgeUpdateParams struct {
-	ID          string
-	Name        string
-	Description string
-	Content     string
-	Status      string
-	Evidence    json.RawMessage
-	Confidence  *float64
-	ExpiresAt   *time.Time
-	Supersedes  *string
-	Metadata    json.RawMessage
-}
-
-// KnowledgeEntry is a fact or context entry from the knowledge domain.
+// KnowledgeEntry is a fact or context entry derived from the skills table.
 type KnowledgeEntry struct {
 	ID            string
 	Name          string
 	Description   string
-	Content       string
+	Content       string // body text from SKILL.md
 	KnowledgeType KnowledgeType
 	Status        string // draft | active | deprecated
-	Evidence      json.RawMessage
-	Confidence    *float64
-	ExpiresAt     *time.Time
-	Supersedes    *string
-	Metadata      json.RawMessage
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

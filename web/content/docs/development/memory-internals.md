@@ -132,22 +132,17 @@ This keeps foreground user intent immediate while preventing background reflecti
 
 ## Knowledge
 
-Knowledge is a first-class domain stored in `agent_knowledge`. Skills remain
-model-callable procedures in the `skill` table; fact/context knowledge does not
-share the skills tool surface and is managed through the dedicated `knowledge`
-tool.
+Knowledge extends the skills table with `metadata.knowledge_type`:
 
-| Kind      | Meaning                           | Model-callable? | Default expiry     |
+| Type      | Meaning                           | Model-callable? | Default expiry     |
 | --------- | --------------------------------- | --------------- | ------------------ |
+| `skill`   | Reusable procedure or workflow    | Yes             | 30 days for drafts |
 | `fact`    | Durable project/domain fact       | No              | 90 days for drafts |
 | `context` | Time-bound background information | No              | 30 days for drafts |
 
-Fact/context entries do not appear in `<available_skills>` and cannot be loaded
-through the skills tool as executable skills. Active entries are injected into
-the `## Knowledge` section of the system prompt.
+Fact/context entries are stored in `skills` with `disable_model_invocation=true`. They do not appear in `<available_skills>` and cannot be loaded through the skills tool as executable skills. Active entries are injected into the `## Knowledge` section of the system prompt.
 
-Reflect may draft fact/context entries with the `knowledge` tool, but drafts do
-not affect sessions until activated through knowledge management.
+Reflect may draft fact/context entries, but drafts do not affect sessions until activated through the skills/admin management path.
 
 ## LCM Plugin
 

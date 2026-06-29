@@ -5,11 +5,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
-	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -113,57 +111,6 @@ func (s *stubStore) GetSetting(context.Context, string) (string, error)         
 func (s *stubStore) SetSetting(context.Context, string, string) error                   { return nil }
 func (s *stubStore) Snapshot(context.Context, string) (*config.Snapshot, error)         { return nil, nil }
 
-type platformSkillStoreStub struct{}
-
-func (platformSkillStoreStub) List(context.Context, skills.ViewContext) ([]skills.Skill, error) {
-	return nil, nil
-}
-func (platformSkillStoreStub) ListAll(context.Context) ([]skills.Skill, error) { return nil, nil }
-func (platformSkillStoreStub) ListForAgentContext(context.Context, string, string) ([]skills.Skill, error) {
-	return nil, nil
-}
-
-func (platformSkillStoreStub) ListByScope(context.Context, string, string, string) ([]skills.Skill, error) {
-	return nil, nil
-}
-
-func (platformSkillStoreStub) ListForAdmin(context.Context, string) ([]skills.Skill, error) {
-	return nil, nil
-}
-
-func (platformSkillStoreStub) ListForUser(context.Context, string, []string) ([]skills.Skill, error) {
-	return nil, nil
-}
-
-func (platformSkillStoreStub) Resolve(context.Context, string, skills.ViewContext) (*skills.Skill, error) {
-	return nil, nil
-}
-
-func (platformSkillStoreStub) LoadFile(context.Context, string, string) (string, error) {
-	return "", nil
-}
-func (platformSkillStoreStub) ListFiles(context.Context, string) ([]string, error) { return nil, nil }
-func (platformSkillStoreStub) ListFilesWithContent(context.Context, string) (map[string]string, error) {
-	return nil, nil
-}
-
-func (platformSkillStoreStub) Create(context.Context, skills.Skill, map[string]string) (string, error) {
-	return "", nil
-}
-
-func (platformSkillStoreStub) Update(context.Context, string, skills.ViewContext, skills.UpdatePatch) error {
-	return nil
-}
-
-func (platformSkillStoreStub) UpsertFile(context.Context, string, string, string) error {
-	return nil
-}
-func (platformSkillStoreStub) DeleteFile(context.Context, string, string) error { return nil }
-func (platformSkillStoreStub) Delete(context.Context, string, skills.ViewContext) error {
-	return nil
-}
-func (platformSkillStoreStub) ExpireDrafts(context.Context, time.Time) error { return nil }
-
 func TestConfigServiceUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{"tool/test": {ID: "tool/test", Enabled: true, Config: map[string]any{"x": 1}}}}
 	host := New(store)
@@ -173,22 +120,6 @@ func TestConfigServiceUsesPluginIDDirectly(t *testing.T) {
 	}
 	if state.ID != "tool/test" || !state.Enabled || state.Config["x"] != 1 {
 		t.Fatalf("bad state: %#v", state)
-	}
-}
-
-func TestPluginPlatformSkillStoreDoesNotExposeKnowledgeWriter(t *testing.T) {
-	host := New(&stubStore{plugins: map[string]config.Plugin{}})
-	host.SetSkillStore(platformSkillStoreStub{})
-
-	store := host.platform("tool/test").SkillStore()
-	if store == nil {
-		t.Fatal("expected plugin platform skill store")
-	}
-	if _, ok := any(store).(pkgplugins.KnowledgeWriter); ok {
-		t.Fatal("plugin platform skill store must not expose knowledge writer")
-	}
-	if _, ok := any(NewSkillStoreAdapter(platformSkillStoreStub{})).(pkgplugins.KnowledgeWriter); !ok {
-		t.Fatal("full adapter should still expose knowledge writer for built-in tools")
 	}
 }
 

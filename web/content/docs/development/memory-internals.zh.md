@@ -132,16 +132,17 @@ Reflect 被明确禁止添加、删除或编辑约束。当前保护是约定级
 
 ## 知识
 
-知识是存储在 `agent_knowledge` 中的一等 domain。Skills 仍然是 `skill` 表里的模型可调用流程；fact/context knowledge 不再共用 skills tool，而是通过独立的 `knowledge` tool 管理。
+知识通过 `metadata.knowledge_type` 扩展 skills 表：
 
-| Kind      | 含义               | 模型可调用？ | 默认过期    |
-| --------- | ------------------ | ------------ | ----------- |
-| `fact`    | 持久项目/领域事实  | 否           | draft 90 天 |
-| `context` | 有时效性的背景信息 | 否           | draft 30 天 |
+| 类型      | 含义                 | 模型可调用？ | 默认过期    |
+| --------- | -------------------- | ------------ | ----------- |
+| `skill`   | 可复用流程或操作步骤 | 是           | draft 30 天 |
+| `fact`    | 持久项目/领域事实    | 否           | draft 90 天 |
+| `context` | 有时效性的背景信息   | 否           | draft 30 天 |
 
-Fact/context 条目不会出现在 `<available_skills>` 中，也不能通过 skills tool 当作可执行技能加载。Active 条目会注入系统提示的 `## Knowledge` 区块。
+Fact/context 条目存储在 `skills` 表中，并设置 `disable_model_invocation=true`。它们不会出现在 `<available_skills>` 中，也不能通过 skills tool 当作可执行技能加载。Active 条目会注入系统提示的 `## Knowledge` 区块。
 
-Reflect 可以通过 `knowledge` tool 创建 fact/context 草稿，但草稿不会影响会话；需要通过 knowledge 管理激活后才会进入系统提示。
+Reflect 可以创建 fact/context 草稿，但草稿不会影响会话；需要通过 skills/admin 管理路径激活后才会进入系统提示。
 
 ## LCM 插件
 

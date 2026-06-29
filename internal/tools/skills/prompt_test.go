@@ -43,13 +43,13 @@ func TestBuildPromptSectionIncludesVisibleSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Seed an active user-scoped skill; prompt rendering only includes model-visible skills.
+	// Seed a user-scoped skill (draft — should still appear since ListSkillsVisible only filters deprecated)
 	_, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "user",
 		UserID:      userID,
 		Name:        "user-skill",
 		Description: "User skill",
-		Status:      "active",
+		Status:      "draft",
 	}, map[string]string{pkgplugins.SkillMainFile: "# User Skill"})
 	if err != nil {
 		t.Fatalf("create user skill: %v", err)

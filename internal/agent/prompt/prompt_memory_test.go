@@ -4,29 +4,11 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
-
-type fakeKnowledgeStore struct {
-	entries []pkgplugins.KnowledgeEntry
-	onList  func(pkgplugins.SkillViewContext)
-}
-
-func (s fakeKnowledgeStore) ListKnowledge(_ context.Context, vc pkgplugins.SkillViewContext, _ ...pkgplugins.KnowledgeType) ([]pkgplugins.KnowledgeEntry, error) {
-	if s.onList != nil {
-		s.onList(vc)
-	}
-	return append([]pkgplugins.KnowledgeEntry(nil), s.entries...), nil
-}
-
-func (s fakeKnowledgeStore) ExpireKnowledgeDraftsByType(context.Context, pkgplugins.KnowledgeType, time.Time) error {
-	return nil
-}
 
 func TestConstraintsDatesRendered(t *testing.T) {
 	fake := memorytest.New()
@@ -161,40 +143,6 @@ func TestGroupSessionWithEmptyGroupMemory(t *testing.T) {
 	}
 }
 
-func TestGroupSessionInjectsAgentScopedKnowledgeWithoutUser(t *testing.T) {
-	ctx := context.Background()
-	var sawList bool
-	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt: "You are Stella.",
-		UserID:       "",
-		AgentID:      "a1",
-		GroupID:      "grp-knowledge",
-		KnowledgeStore: fakeKnowledgeStore{
-			entries: []pkgplugins.KnowledgeEntry{{
-				Name:          "agent-policy",
-				Content:       "System agent knowledge remains visible in groups.",
-				KnowledgeType: pkgplugins.KnowledgeTypeFact,
-			}},
-			onList: func(vc pkgplugins.SkillViewContext) {
-				sawList = true
-				if vc.UserID != "" {
-					t.Fatalf("group knowledge lookup user id = %q, want empty", vc.UserID)
-				}
-				if vc.AgentID != "a1" {
-					t.Fatalf("group knowledge lookup agent id = %q, want a1", vc.AgentID)
-				}
-			},
-		},
-	})
-
-	if !sawList {
-		t.Fatal("expected group prompt to query knowledge store")
-	}
-	if !strings.Contains(p, "System agent knowledge remains visible in groups.") {
-		t.Fatalf("expected group prompt to include agent knowledge: %s", p)
-	}
-}
-
 func TestDMSessionDoesNotShowGroupMemory(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()
@@ -216,41 +164,5 @@ func TestDMSessionDoesNotShowGroupMemory(t *testing.T) {
 	}
 	if !strings.Contains(p, "DM profile content") {
 		t.Error("DM session should contain user profile content")
-	}
-}
-
-func TestKnowledgeEntriesRenderedAndSnapshotFiltered(t *testing.T) {
-	ctx := context.Background()
-	cutoff := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
-	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt: "You are Stella.",
-		UserID:       "u1",
-		AgentID:      "a1",
-		KnowledgeStore: fakeKnowledgeStore{entries: []pkgplugins.KnowledgeEntry{
-			{
-				Name:          "database",
-				Content:       "Stella uses PostgreSQL.",
-				KnowledgeType: pkgplugins.KnowledgeTypeFact,
-				UpdatedAt:     cutoff.Add(-time.Minute),
-			},
-			{
-				Name:          "future",
-				Content:       "This should not appear.",
-				KnowledgeType: pkgplugins.KnowledgeTypeContext,
-				UpdatedAt:     cutoff.Add(time.Minute),
-			},
-		}},
-		SnapshotVersion:   1,
-		SnapshotUpdatedAt: cutoff,
-	})
-
-	if !strings.Contains(p, "## Knowledge") {
-		t.Fatal("expected Knowledge section")
-	}
-	if !strings.Contains(p, "Stella uses PostgreSQL.") {
-		t.Fatal("expected active knowledge content")
-	}
-	if strings.Contains(p, "This should not appear.") {
-		t.Fatal("expected snapshot filter to remove future knowledge")
 	}
 }
