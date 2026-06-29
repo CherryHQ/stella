@@ -37,35 +37,35 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 
 ## 记忆工具
 
-`memory.BuildTool(provider)` 会检查 provider 能力，并生成匹配动作的 `tools.Tool`：
+`memory.BuildTool(provider)` 会检查 provider 能力，并生成匹配动作的 `tools.Tool`。调用方还可以继续收窄动作集合：普通聊天 runner 使用 `WithSessionReadOnlyWrites()`，所以暴露给模型的会话工具只包含读取/检索动作；Reflect 和 manual 路径只开启自己负责的特定写动作。
 
-| 动作                | 需要接口                           | 说明                                        |
-| ------------------- | ---------------------------------- | ------------------------------------------- |
-| `status`            | 始终可用                           | 显示会话统计                                |
-| `search`            | `Searcher`                         | 按模式搜索消息和摘要                        |
-| `describe`          | `Explorer`                         | 检查摘要的元数据和血统                      |
-| `expand`            | `Explorer`                         | 深入压缩后的摘要                            |
-| `profile_get`       | `ProfileStore`                     | 读取持久用户画像笔记                        |
-| `profile_update`    | `ProfileStore`                     | 替换持久用户画像笔记                        |
-| `soul_get`          | `ProfileStore`                     | 读取每用户 agent soul 覆盖                  |
-| `soul_update`       | `ProfileStore`                     | 更新每用户 agent soul 覆盖                  |
-| `profile_history`   | `ChangelogReader`                  | 查看最近 profile/soul 变更历史              |
-| `profile_rollback`  | `ChangelogReader` + `ProfileStore` | 从 changelog 的旧版本恢复 profile/soul 文本 |
-| `constraint_list`   | `ConstraintStore`                  | 列出硬性约束                                |
-| `constraint_add`    | `ConstraintStore`                  | 在对话中获得用户确认后添加硬性约束          |
-| `constraint_remove` | `ConstraintStore`                  | 按 ID 删除硬性约束                          |
+| 动作                | 需要接口                           | 说明                                                   |
+| ------------------- | ---------------------------------- | ------------------------------------------------------ |
+| `status`            | 始终可用                           | 显示会话统计                                           |
+| `search`            | `Searcher`                         | 按模式搜索消息和摘要                                   |
+| `describe`          | `Explorer`                         | 检查摘要的元数据和血统                                 |
+| `expand`            | `Explorer`                         | 深入压缩后的摘要                                       |
+| `profile_get`       | `ProfileStore`                     | 读取持久用户画像笔记                                   |
+| `profile_update`    | `ProfileStore`                     | 替换持久用户画像笔记；仅 Reflect/manual                |
+| `soul_get`          | `ProfileStore`                     | 读取每用户 agent soul 覆盖                             |
+| `soul_update`       | `ProfileStore`                     | 更新每用户 agent soul 覆盖；仅 manual                  |
+| `profile_history`   | `ChangelogReader`                  | 查看最近 profile/soul 变更历史                         |
+| `profile_rollback`  | `ChangelogReader` + `ProfileStore` | 从 changelog 的旧版本恢复 profile/soul 文本；仅 manual |
+| `constraint_list`   | `ConstraintStore`                  | 列出硬性约束                                           |
+| `constraint_add`    | `ConstraintStore`                  | 添加硬性约束；仅 manual                                |
+| `constraint_remove` | `ConstraintStore`                  | 按 ID 删除硬性约束；仅 manual                          |
 
-工具的 JSON schema、描述和调度都会动态适配。能力较少的 provider 会生成动作较少的工具。
+工具的 JSON schema、描述和调度都会动态适配。能力较少的 provider 会生成动作较少的工具。面向模型的聊天会话还会对持久记忆写入只读化：不能调用 `profile_update`、`soul_update`、`profile_rollback`、`constraint_add` 或 `constraint_remove`。
 
 ### 群聊回合:当前发言人回退
 
-群 session 的运行时身份是群,因此没有 session 用户(D9)。为了仍能让 agent 记住正在说话的人的事实,当不存在 session 用户时,`profile_get` 与 `profile_update` 回退到当前发言人:
+群 session 的运行时身份是群,因此没有 session 用户(D9)。为了仍能让 agent 读取正在说话的人的事实,当不存在 session 用户时,`profile_get` 会回退到当前发言人。底层 resolver 也支持显式开启写入的工具使用 `profile_update`，但普通聊天 runner 不暴露该动作:
 
 1. session 用户(`UserIDFromContext`)—— 正常 DM 行为。
 2. 否则已关联的当前发言人(`CurrentSpeaker.UserID`)—— 群个性化。
 3. 否则 fail-closed,报 `no linked current speaker`(未关联发送者)。
 
-回退刻意收窄。**只有 `profile_get` / `profile_update` 获得它,且只有模型显式调用工具时才会发生。** `soul_get`、`soul_update`、`constraint_*`、`profile_history`、`profile_rollback` 仍走严格的 session-用户解析器,因此群聊回合中它们 fail-closed——公开群不是通过共享 agent 读取或改写某成员 soul、constraints、历史的地方。经回退的 `profile_update` 推进发言人自己的快照行 `(session, speaker.UserID, agent)`,绝不推进群的。
+回退刻意收窄。**普通聊天中只有 `profile_get` 获得它,且只有模型显式调用工具时才会发生。** `soul_get`、`soul_update`、`constraint_*`、`profile_history`、`profile_rollback` 仍走严格的 session-用户解析器,因此群聊回合中它们 fail-closed——公开群不是通过共享 agent 读取或改写某成员 soul、constraints、历史的地方。如果显式开启写入的内部工具经回退调用 `profile_update`，它只推进发言人自己的快照行 `(session, speaker.UserID, agent)`,绝不推进群的。
 
 参见[群聊:当前发言人(D10)](/docs/development/group-chat-multi-agent#current-speaker-per-turn-personalization-d10)。
 
@@ -78,12 +78,12 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 3. **约束** —— 来自 `ConstraintStore` 的用户确认硬规则；位于 soul/profile 之前，Reflect 不会修改。
 4. **Agent soul** —— agent 身份、人格和语气文本。
 5. **用户画像** —— 持久用户笔记。**群聊回合用 `## Group Memory`(共享群抽屉)加可选的 `## Current Speaker` 段替换它**,该段只包含发言人姓名和关联状态;群聊回合绝不渲染按用户的画像。群模式按 session 是否有 `group_id` 分支,而非按群记忆是否为空。
-6. **知识** —— 来自 `KnowledgeStore` 的 active fact/context 条目。
+6. **知识** —— facts 表里的 active `subject=world` 事实。
 7. **项目上下文** —— `AGENTS.md` 等项目指令。
 
 对话历史由记忆 provider 单独组装。约束、身份和知识位于系统提示中，因此对话压缩不会删除它们。
 
-群聊回合由 PoolManager 的 before-run 路径带当前发言人元数据重渲整份提示词;缓存的群 runner 不持有发言人数据,故一个发言人的回合上下文不会泄漏到另一个发言人的回合。发言人的 profile 正文和带日期条目不会自动注入公开群 prompt;profile 访问仍必须通过显式的 `memory.profile_get` / `memory.profile_update` 工具调用。
+群聊回合由 PoolManager 的 before-run 路径带当前发言人元数据重渲整份提示词;缓存的群 runner 不持有发言人数据,故一个发言人的回合上下文不会泄漏到另一个发言人的回合。发言人的 profile 正文和带日期条目不会自动注入公开群 prompt;profile 访问仍必须通过显式的只读 `memory.profile_get` 工具调用。
 
 ## Changelog 与回滚
 
@@ -111,7 +111,7 @@ changelog 记录：
 - "未经我批准，不要运行生产数据库迁移。"
 - "不要在聊天中暴露密钥。"
 
-Reflect 被明确禁止添加、删除或编辑约束。当前保护是约定级：模型应该先用自然语言提出约束，只有用户同意后才调用 `constraint_add`。
+Reflect 被明确禁止添加、删除或编辑约束。普通会话工具也不暴露 constraint 写入动作；constraints 只通过 UI/API/CLI 等 manual 入口，在用户明确意图下写入。
 
 ## 会话快照
 
@@ -121,28 +121,22 @@ Reflect 被明确禁止添加、删除或编辑约束。当前保护是约定级
 
 可见性规则：
 
-| 写入路径                             | 当前会话是否可见？ | 原因                                              |
-| ------------------------------------ | ------------------ | ------------------------------------------------- |
-| 用户通过记忆工具要求 Stella 记住某事 | 是，从下一轮开始   | 记忆工具会推进当前会话快照                        |
-| 用户通过记忆工具添加/删除约束        | 是，从下一轮开始   | 前台写入后推进 snapshot                           |
-| Reflect 在后台更新 profile/knowledge | 否                 | Reflect 没有活跃 session context，不推进 snapshot |
-| 新会话开始                           | 是                 | 新会话会快照最新记忆版本                          |
+| 写入路径                                   | 当前会话是否可见？ | 原因                                              |
+| ------------------------------------------ | ------------------ | ------------------------------------------------- |
+| UI/API/CLI 手动更新 profile/soul/knowledge | 新会话可见         | manual 写入更新 durable facts；当前会话保持快照   |
+| UI/API/CLI 手动添加/删除 constraint        | 新会话可见         | manual 写入更新 constraints；当前会话保持快照     |
+| Reflect 在后台更新 profile/knowledge       | 否                 | Reflect 没有活跃 session context，不推进 snapshot |
+| 新会话开始                                 | 是                 | 新会话会快照最新记忆版本                          |
 
-这样既保证用户前台意图能及时生效，又避免后台反思在进行中的会话里造成行为漂移。
+这样可以避免普通会话工具写入和后台反思在进行中的会话里造成行为漂移。
 
 ## 知识
 
-知识通过 `metadata.knowledge_type` 扩展 skills 表：
+知识在 v1 中存储为 facts 表里的 active `subject=world`、`scope=user_agent` 记录。prompt renderer 会把这些 facts 投影到 `## Knowledge` 区块。
 
-| 类型      | 含义                 | 模型可调用？ | 默认过期    |
-| --------- | -------------------- | ------------ | ----------- |
-| `skill`   | 可复用流程或操作步骤 | 是           | draft 30 天 |
-| `fact`    | 持久项目/领域事实    | 否           | draft 90 天 |
-| `context` | 有时效性的背景信息   | 否           | draft 30 天 |
+Skills 仍然只表示可复用流程，不再通过 `metadata.knowledge_type` 创建或存储 fact/context knowledge。旧的 `user_agent` skill-backed knowledge 会由 v1 facts migration 迁移为 `subject=world` facts；更宽的 knowledge scope 留给后续设计。
 
-Fact/context 条目存储在 `skills` 表中，并设置 `disable_model_invocation=true`。它们不会出现在 `<available_skills>` 中，也不能通过 skills tool 当作可执行技能加载。Active 条目会注入系统提示的 `## Knowledge` 区块。
-
-Reflect 可以创建 fact/context 草稿，但草稿不会影响会话；需要通过 skills/admin 管理路径激活后才会进入系统提示。
+Reflect 可以维护 facts 和 skills，但普通会话工具不直接写 facts。复杂 fact 生成、related-fact search、confidence、usage tracking 和生命周期维护都是后续工作。
 
 ## LCM 插件
 

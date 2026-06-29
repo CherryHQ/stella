@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -74,22 +73,20 @@ type promptData struct {
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt      string                    // agent's base system prompt from DB
-	AgentSoul         string                    // agent's default soul from DB (fallback for all users)
-	Memory            memory.Provider           // active provider for profile loading (may be nil)
-	KnowledgeStore    pkgplugins.KnowledgeStore // legacy field; v1 prompt knowledge is read from facts
-	UserID            string                    // auth user ID for profile lookup
-	AgentID           string                    // agent ID for profile lookup
-	GroupID           string                    // group ID for group memory lookup (D4); mutually exclusive with UserID
-	GroupMemory       string                    // pre-loaded group memory content; injected when non-empty
-	StellaHome        string
-	AgentRoot         string
-	ProjectRoot       string // optional project root for local/project-attached runs
-	UserRoot          string // per-user writable root
-	Sections          []pkgplugins.SystemPromptSection
-	Host              sandbox.Host
-	SnapshotVersion   int64     // frozen memory version for this session; 0 means current
-	SnapshotUpdatedAt time.Time // legacy cutoff for skill-backed knowledge fallback
+	SystemPrompt    string          // agent's base system prompt from DB
+	AgentSoul       string          // agent's default soul from DB (fallback for all users)
+	Memory          memory.Provider // active provider for profile loading (may be nil)
+	UserID          string          // auth user ID for profile lookup
+	AgentID         string          // agent ID for profile lookup
+	GroupID         string          // group ID for group memory lookup (D4); mutually exclusive with UserID
+	GroupMemory     string          // pre-loaded group memory content; injected when non-empty
+	StellaHome      string
+	AgentRoot       string
+	ProjectRoot     string // optional project root for local/project-attached runs
+	UserRoot        string // per-user writable root
+	Sections        []pkgplugins.SystemPromptSection
+	Host            sandbox.Host
+	SnapshotVersion int64 // frozen memory version for this session; 0 means current
 
 	// CurrentSpeaker is retained for compatibility with callers/tests that still
 	// populate it, but it is intentionally not rendered into the system prompt.

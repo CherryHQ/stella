@@ -193,7 +193,7 @@ Runtime snapshot flow:
 
 1. If a per-run system override is present, use it as the base system and skip snapshot reconstruction.
 2. Otherwise, if memory implements `SessionSnapshotStore`, call `GetOrCreateSessionSnapshot` for `(session_id, user_id, agent_id)` on every turn.
-3. Pass `SnapshotVersion` and `SnapshotUpdatedAt` into the prompt builder.
+3. Pass `SnapshotVersion` into the prompt builder.
 4. Run before-run hooks with that base system prompt.
 5. Apply the resulting system prompt to the runner via per-run context override.
 

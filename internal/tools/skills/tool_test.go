@@ -242,6 +242,40 @@ func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) err
 	return s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339))
 }
 
+func TestCreateIgnoresLegacyKnowledgeType(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	tool := NewTool(store, "", "")
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), userID), agentID)
+
+	if _, err := tool.Execute(ctx, map[string]any{
+		"action":         "create",
+		"name":           "deployment-notes",
+		"description":    "Reusable deployment procedure",
+		"content":        "# deployment-notes\n",
+		"knowledge_type": "fact",
+	}); err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	sk, err := store.Resolve(ctx, "deployment-notes", pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("resolve created skill: %v", err)
+	}
+	if sk == nil {
+		t.Fatal("created skill not found")
+	}
+	if sk.DisableModelInvocation {
+		t.Fatal("legacy knowledge_type must not create a hidden knowledge skill")
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(sk.Metadata, &meta); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if _, ok := meta["knowledge_type"]; ok {
+		t.Fatalf("skill metadata must not preserve legacy knowledge_type: %s", sk.Metadata)
+	}
+}
+
 func tsMapRow(r sqlc.Skill) pkgplugins.Skill {
 	meta := json.RawMessage("{}")
 	if len(r.Metadata) != 0 {

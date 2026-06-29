@@ -241,7 +241,7 @@ D9 让群 session 保持匿名,没有任何真人拥有运行时。但 agent 仍
 - **不自动注入私有 profile。** `## Current Speaker` 只暴露显示名与已关联/未关联状态,不包含发言人的 profile 正文、带日期条目、soul 或 constraints:公开群不是披露某成员私有记忆,也不是把某成员硬规则套到整群的地方。
 - **按硬事实解析。** 平台发送者经渠道身份查找解析(已关联 → auth 用户 id;未关联 → 空 UserID → 仅名字)。Web 发送者仅当是真正的 human actor 时才信任已认证的 `actor_id` 作为发言人,否则 fail-closed。
 
-`memory` 工具在群聊回合中对应:没有 session 用户时,只有模型显式调用工具时 `profile_get` / `profile_update` 才回退到当前发言人;`soul_*`、`constraint_*`、`profile_history` / `profile_rollback` 保持严格并 fail-closed。
+`memory` 工具在群聊回合中对应:没有 session 用户时,普通聊天只能在模型显式调用工具时用只读 `profile_get` 回退到当前发言人；`profile_update` 只保留给显式开启写入的内部工具。`soul_*`、`constraint_*`、`profile_history` / `profile_rollback` 保持严格并 fail-closed。
 
 ## 实现顺序
 
