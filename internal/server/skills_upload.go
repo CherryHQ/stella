@@ -42,8 +42,11 @@ type uploadedSkillFrontmatter struct {
 }
 
 func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentID string) {
-	up, code, msg := parseUploadedSkill(r)
+	up, code, msg, err := parseUploadedSkill(r)
 	if code != 0 {
+		if err != nil {
+			s.log.Warn("skill upload rejected", "agent_id", agentID, "status", code, "message", msg, "error", err)
+		}
 		writeError(w, code, msg)
 		return
 	}
@@ -73,10 +76,10 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 	writeData(w, http.StatusCreated, map[string]string{"id": skillID, "name": up.name})
 }
 
-func parseUploadedSkill(r *http.Request) (*uploadedSkill, int, string) {
+func parseUploadedSkill(r *http.Request) (*uploadedSkill, int, string, error) {
 	r.Body = http.MaxBytesReader(nil, r.Body, maxSkillUploadZipBytes+(1<<20))
 	if err := r.ParseMultipartForm(maxSkillUploadZipBytes); err != nil {
-		return nil, http.StatusBadRequest, "invalid multipart form"
+		return nil, http.StatusBadRequest, "invalid multipart form", err
 	}
 	defer func() {
 		if r.MultipartForm != nil {
@@ -85,14 +88,14 @@ func parseUploadedSkill(r *http.Request) (*uploadedSkill, int, string) {
 	}()
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		return nil, http.StatusBadRequest, "file is required"
+		return nil, http.StatusBadRequest, "file is required", err
 	}
 	defer func() { _ = file.Close() }()
 	up, err := readUploadedSkillArchive(file, header)
 	if err != nil {
-		return nil, http.StatusBadRequest, "invalid skill archive"
+		return nil, http.StatusBadRequest, "invalid skill archive", err
 	}
-	return up, 0, ""
+	return up, 0, "", nil
 }
 
 func readUploadedSkillArchive(file multipart.File, header *multipart.FileHeader) (*uploadedSkill, error) {
@@ -212,7 +215,20 @@ func normalizeUploadedSkillPath(name string) (string, bool, error) {
 	if strings.HasPrefix(clean, "../") || clean == ".." || strings.HasPrefix(clean, "/") {
 		return "", false, fmt.Errorf("invalid archive path %q", name)
 	}
+	if hasHiddenUploadedSkillDirectorySegment(clean) {
+		return "", true, nil
+	}
 	return clean, false, nil
+}
+
+func hasHiddenUploadedSkillDirectorySegment(name string) bool {
+	parts := strings.Split(name, "/")
+	for _, part := range parts[:len(parts)-1] {
+		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 func readZipEntry(entry *zip.File, remaining int64) (string, int64, error) {

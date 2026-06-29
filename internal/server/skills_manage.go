@@ -297,8 +297,11 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	up, code, msg := parseUploadedSkill(r)
+	up, code, msg, err := parseUploadedSkill(r)
 	if code != 0 {
+		if err != nil {
+			s.log.Warn("skill upload rejected", "status", code, "message", msg, "error", err)
+		}
 		writeError(w, code, msg)
 		return
 	}

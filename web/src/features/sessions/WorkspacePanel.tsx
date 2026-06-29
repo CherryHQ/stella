@@ -415,8 +415,8 @@ function WorkspaceScopeSection({
           ) : (
             <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
           )}
-          <span className="min-w-0 truncate text-xs font-semibold text-foreground">{label}</span>
-          <span className="shrink-0 truncate font-mono text-[10px] text-muted-foreground/70">
+          <span className="shrink-0 truncate text-xs font-semibold text-foreground">{label}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground/70">
             {displayRoot || hint}
           </span>
         </button>
