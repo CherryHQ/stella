@@ -224,7 +224,9 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				cfg.SkillStore,
 				stellaHome,
 				toolProjectRoot,
-			).WithSkillDiskLayout(layout).WithSkillDirView(view))
+			).WithSkillDiskLayout(layout).
+				WithSkillDirView(view).
+				WithPluginVisibility(pluginView.RegisteredPluginIDs, pluginView.EnabledPluginIDs))
 		}
 
 		return newRunner(ctx, runnerConfig{

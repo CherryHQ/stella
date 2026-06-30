@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/CherryHQ/stella/internal/searchrank"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -22,6 +24,7 @@ const (
 	actionProfileUpdate   = "profile_update"
 	actionProfileHistory  = "profile_history"
 	actionProfileRollback = "profile_rollback"
+	actionSearchKnowledge = "search_knowledge"
 
 	actionConstraintList   = "constraint_list"
 	actionConstraintAdd    = "constraint_add"
@@ -117,6 +120,12 @@ func BuildTool(provider Provider, opts ...ToolOption) tools.Tool {
 	if _, ok := inner.(SessionSnapshotStore); ok {
 		t.snapshotStore, _ = provider.(SessionSnapshotStore)
 	}
+	if _, ok := inner.(FactStore); ok {
+		t.factStore, _ = provider.(FactStore)
+	}
+	if _, ok := inner.(VersionedFactStore); ok {
+		t.versionedFacts, _ = provider.(VersionedFactStore)
+	}
 
 	// Build the list of available actions.
 	t.actions = t.buildActions()
@@ -142,6 +151,8 @@ type memoryTool struct {
 	changelogWriter ChangelogWriter
 	constraintStore ConstraintStore
 	snapshotStore   SessionSnapshotStore
+	factStore       FactStore
+	versionedFacts  VersionedFactStore
 	actions         []actionMeta
 }
 
@@ -195,6 +206,10 @@ func (t *memoryTool) buildActions() []actionMeta {
 		}
 	}
 
+	if t.factStore != nil {
+		add(actionSearchKnowledge, "Search long-term knowledge facts (subject=world) visible to this DM session snapshot. Searches fact content only and never returns profile, soul, skills, or constraints.")
+	}
+
 	return actions
 }
 
@@ -242,9 +257,19 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 			"enum":        []any{"messages", "summaries", "both"},
 			"description": "Where to search: 'messages', 'summaries', or 'both' (default). Only for search",
 		}
+	}
+
+	if t.hasAction(actionSearchKnowledge) {
+		properties["query"] = map[string]any{
+			"type":        "string",
+			"description": "Fact-oriented query to search over snapshot-visible knowledge facts (required for search_knowledge)",
+		}
+	}
+
+	if t.hasAction(actionSearch) || t.hasAction(actionSearchKnowledge) {
 		properties["limit"] = map[string]any{
 			"type":        "integer",
-			"description": "Maximum number of results to return (default 20). Only for search",
+			"description": "Maximum number of results to return (default 20 for search, 10 for search_knowledge)",
 		}
 	}
 
@@ -367,6 +392,8 @@ func (t *memoryTool) Execute(ctx context.Context, args map[string]any) (string, 
 		return t.execConstraintAdd(ctx, args)
 	case actionConstraintRemove:
 		return t.execConstraintRemove(ctx, args)
+	case actionSearchKnowledge:
+		return t.execSearchKnowledge(ctx, args)
 	default:
 		return "", fmt.Errorf("unhandled action %q", action)
 	}
@@ -408,6 +435,138 @@ func (t *memoryTool) execSearch(ctx context.Context, args map[string]any) (strin
 	}
 
 	return marshalJSON(results)
+}
+
+type knowledgeSearchResult struct {
+	FactID       string       `json:"fact_id"`
+	Content      string       `json:"content"`
+	Score        float64      `json:"score"`
+	MatchedField string       `json:"matched_field"`
+	Snippet      string       `json:"snippet"`
+	Source       ChangeSource `json:"source"`
+	UpdatedAt    time.Time    `json:"updated_at"`
+}
+
+func (t *memoryTool) execSearchKnowledge(ctx context.Context, args map[string]any) (string, error) {
+	if t.factStore == nil {
+		return "", fmt.Errorf("memory search_knowledge: not supported by provider")
+	}
+	query, _ := args["query"].(string)
+	if strings.TrimSpace(query) == "" {
+		return "", fmt.Errorf("memory search_knowledge: query is required")
+	}
+	userID, agentID, err := t.requireKnowledgeCtx(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	facts, err := t.searchKnowledgeFacts(ctx, userID, agentID)
+	if err != nil {
+		return "", err
+	}
+	results := rankKnowledgeFacts(query, facts, knowledgeSearchLimit(args))
+	if len(results) == 0 {
+		return "No knowledge facts found.", nil
+	}
+	return marshalJSON(results)
+}
+
+func (t *memoryTool) requireKnowledgeCtx(ctx context.Context) (string, string, error) {
+	if t.factStore == nil {
+		return "", "", fmt.Errorf("memory %s: not supported by provider", actionSearchKnowledge)
+	}
+	userID := UserIDFromContext(ctx)
+	if userID == "" {
+		return "", "", fmt.Errorf("memory %s: no user context", actionSearchKnowledge)
+	}
+	agentID := AgentIDFromContext(ctx)
+	if agentID == "" {
+		return "", "", fmt.Errorf("memory %s: no agent context", actionSearchKnowledge)
+	}
+	return userID, agentID, nil
+}
+
+func (t *memoryTool) searchKnowledgeFacts(ctx context.Context, userID string, agentID string) ([]Fact, error) {
+	snapshotVersion := int64(0)
+	if t.snapshotStore != nil {
+		if sessionID := SessionIDFromContext(ctx); sessionID != "" {
+			snap, err := t.snapshotStore.GetOrCreateSessionSnapshot(ctx, sessionID, userID, agentID)
+			if err != nil {
+				return nil, fmt.Errorf("memory search_knowledge: get snapshot: %w", err)
+			}
+			snapshotVersion = snap.Version
+		}
+	}
+	if snapshotVersion > 0 {
+		if t.versionedFacts == nil {
+			return nil, fmt.Errorf("memory search_knowledge: snapshot facts are not supported by provider")
+		}
+		facts, err := t.versionedFacts.ListActiveFactsAt(ctx, userID, agentID, FactSubjectWorld, snapshotVersion)
+		if err != nil {
+			return nil, fmt.Errorf("memory search_knowledge: list snapshot facts: %w", err)
+		}
+		return filterWorldKnowledgeFacts(facts), nil
+	}
+	facts, err := t.factStore.ListActiveFacts(ctx, userID, agentID, FactSubjectWorld)
+	if err != nil {
+		return nil, fmt.Errorf("memory search_knowledge: list active facts: %w", err)
+	}
+	return filterWorldKnowledgeFacts(facts), nil
+}
+
+func filterWorldKnowledgeFacts(facts []Fact) []Fact {
+	out := make([]Fact, 0, len(facts))
+	for _, fact := range facts {
+		if fact.Subject != FactSubjectWorld || fact.Scope != "user_agent" || fact.Status != FactStatusActive {
+			continue
+		}
+		out = append(out, fact)
+	}
+	return out
+}
+
+func knowledgeSearchLimit(args map[string]any) int {
+	const (
+		defaultLimit = 10
+		maxLimit     = 100
+	)
+	limit := intArg(args, "limit", defaultLimit)
+	if limit <= 0 {
+		return defaultLimit
+	}
+	if limit > maxLimit {
+		return maxLimit
+	}
+	return limit
+}
+
+func rankKnowledgeFacts(query string, facts []Fact, limit int) []knowledgeSearchResult {
+	docs := make([]searchrank.Document, 0, len(facts))
+	byID := make(map[string]Fact, len(facts))
+	for _, fact := range facts {
+		byID[fact.ID] = fact
+		docs = append(docs, searchrank.Document{
+			ID: fact.ID,
+			Fields: []searchrank.Field{
+				{Name: "content", Text: fact.Content, Weight: 1},
+			},
+		})
+	}
+	ranked := searchrank.Rank(query, docs, limit)
+	out := make([]knowledgeSearchResult, 0, len(ranked))
+	for _, hit := range ranked {
+		fact := byID[hit.ID]
+		out = append(out, knowledgeSearchResult{
+			FactID:       fact.ID,
+			Content:      fact.Content,
+			Score:        hit.Score,
+			MatchedField: "content",
+			Snippet:      hit.Snippet,
+			Source:       fact.Source,
+			UpdatedAt:    fact.UpdatedAt,
+		})
+	}
+	return out
 }
 
 func (t *memoryTool) execDescribe(ctx context.Context, args map[string]any) (string, error) {

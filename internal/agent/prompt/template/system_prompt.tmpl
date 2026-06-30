@@ -62,6 +62,7 @@ Each user message starts with a `ts:<unix>` line containing the send time as a U
 
 ### When to recall
 - User references past conversations or asks "do you remember…": use search (it spans all your past sessions with this user), then describe/expand for summary hits or get_message to read a message hit in full.
+- User asks about long-term world knowledge or facts that may not be in this prompt: use search_knowledge (it searches snapshot-visible subject=world facts).
 - Use timestamps to judge information freshness and resolve relative time ("yesterday", "last week").
 
 ### When to write
@@ -76,14 +77,7 @@ The following are hard rules set by the user that you must ALWAYS follow, regard
 
 {{ range .Constraints }}- [{{ .CreatedAt }}] {{ .Text }}
 {{ end }}
-{{ end }}{{ if .Knowledge }}## Knowledge
-
-The following knowledge entries are relevant to this session:
-
-{{ range .Knowledge }}### {{ .Name }} ({{ .KnowledgeType }})
-
-{{ .Content }}
-{{ end }}{{ end }}## Agent Soul
+{{ end }}## Agent Soul
 
 Your identity, personality, and behavior. Session tools can read this; durable edits happen through Reflect or manual memory settings.
 

@@ -26,16 +26,16 @@ var skillsInputSchema = func() map[string]any {
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["load", "search", "install", "list", "remove", "create", "patch", "deprecate"],
-      "description": "Action to perform: 'load' reads a skill's content by name, 'search' finds skills from the ecosystem, 'install' adds a skill, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new skill (draft), 'patch' updates an existing skill's fields, 'deprecate' marks a skill as deprecated"
+      "enum": ["load", "search_installed", "search", "install", "list", "remove", "create", "patch", "deprecate"],
+      "description": "Action to perform: 'load' reads a skill's content by name, 'search_installed' searches installed visible skills, 'search' finds skills from the remote ecosystem, 'install' adds a skill, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new skill (draft), 'patch' updates an existing skill's fields, 'deprecate' marks a skill as deprecated"
     },
     "query": {
       "type": "string",
-      "description": "Search query (required for search)"
+      "description": "Search query (required for search and search_installed)"
     },
     "limit": {
       "type": "integer",
-      "description": "Max results to return (default 10, for search)"
+      "description": "Max results to return (default 10, for search and search_installed)"
     },
     "source": {
       "type": "string",
@@ -82,6 +82,10 @@ type Tool struct {
 	// disk, by scope; it must agree with the write side that materialized them.
 	layout coreskills.SkillDiskLayout
 	view   SkillDirView
+	// Plugin visibility is captured at runner construction so tool search and
+	// prompt search instructions use the same visible system-skill set.
+	registeredPluginIDs []string
+	enabledPluginIDs    []string
 }
 
 func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool {
@@ -106,6 +110,13 @@ func (t *Tool) WithSkillDiskLayout(l coreskills.SkillDiskLayout) *Tool {
 // emits host paths, which is correct for host-execution and non-sandbox callers.
 func (t *Tool) WithSkillDirView(v SkillDirView) *Tool {
 	t.view = v
+	return t
+}
+
+// WithPluginVisibility limits plugin-owned system skills to enabled plugins.
+func (t *Tool) WithPluginVisibility(registered, enabled []string) *Tool {
+	t.registeredPluginIDs = append([]string(nil), registered...)
+	t.enabledPluginIDs = append([]string(nil), enabled...)
 	return t
 }
 
@@ -237,7 +248,7 @@ func (t *Tool) viewContext(ctx context.Context) pkgplugins.SkillViewContext {
 func pkgskillsToolDefinition() tools.Definition {
 	return tools.Definition{
 		Name:        "skills",
-		Description: "Manage agent skills. Use 'load' to read a skill by name (includes project skills from {PROJECT_ROOT}/.agents/skills), 'search' to find skills from the ecosystem, 'install' to add a skill (scope=user by default, or scope=agent), 'list' to see installed skills (includes project skills from the repo), 'remove' to delete one, 'create' to create a new skill (draft), 'patch' to update fields, 'deprecate' to mark as deprecated. Project skills come with the repo and are read-only — edit their files in git directly.",
+		Description: "Manage agent skills. Use 'search_installed' to discover installed visible skills by task query, then 'load' to read a selected skill by name. Use 'search' only to find remote ecosystem skills for installation. Use 'install' to add a skill (scope=user by default, or scope=agent), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new skill (draft), 'patch' to update fields, 'deprecate' to mark as deprecated. Project skills come with the repo and are read-only — edit their files in git directly.",
 		InputSchema: skillsInputSchema,
 	}
 }
@@ -251,6 +262,8 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	switch action {
 	case "load":
 		return t.load(ctx, args)
+	case "search_installed":
+		return t.searchInstalled(ctx, args)
 	case "search":
 		return t.search(ctx, args)
 	case "install":
@@ -266,7 +279,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	case "deprecate":
 		return t.deprecate(ctx, args)
 	default:
-		return "", fmt.Errorf("unknown action %q, expected load/search/install/list/remove/create/patch/deprecate", action)
+		return "", fmt.Errorf("unknown action %q, expected load/search_installed/search/install/list/remove/create/patch/deprecate", action)
 	}
 }
 

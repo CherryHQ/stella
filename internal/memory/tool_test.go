@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,12 +48,12 @@ func TestBuildTool_FullProvider(t *testing.T) {
 
 	// All actions should be present.
 	actions := extractActionEnum(t, def.InputSchema)
-	expected := []string{"status", "search", "describe", "expand", "soul_get", "soul_update", "profile_get", "profile_update", "profile_history", "profile_rollback", "constraint_list", "constraint_add", "constraint_remove"}
+	expected := []string{"status", "search", "describe", "expand", "soul_get", "soul_update", "profile_get", "profile_update", "profile_history", "profile_rollback", "constraint_list", "constraint_add", "constraint_remove", "search_knowledge"}
 	assertActions(t, actions, expected)
 
 	// Schema should include all action-specific parameters.
 	props := def.InputSchema["properties"].(map[string]any)
-	for _, key := range []string{"pattern", "scope", "limit", "summary_id", "token_cap", "content", "history_scope", "history_limit", "rollback_version", "constraint_text", "constraint_id"} {
+	for _, key := range []string{"pattern", "query", "scope", "limit", "summary_id", "token_cap", "content", "history_scope", "history_limit", "rollback_version", "constraint_text", "constraint_id"} {
 		if _, ok := props[key]; !ok {
 			t.Errorf("expected property %q in schema", key)
 		}
@@ -298,6 +299,7 @@ func TestBuildTool_WithSessionReadOnlyWrites(t *testing.T) {
 		"profile_get",
 		"profile_history",
 		"constraint_list",
+		"search_knowledge",
 	})
 
 	for _, forbidden := range []string{
@@ -394,6 +396,129 @@ func TestExecute_SearchNoResults(t *testing.T) {
 	}
 	if result != "No matches found." {
 		t.Errorf("expected 'No matches found.', got %q", result)
+	}
+}
+
+func TestExecute_SearchKnowledgeCurrentFacts(t *testing.T) {
+	fake := memorytest.New()
+	now := time.Now().UTC()
+	fake.AddFact("1", "agent1", memory.Fact{
+		ID:        "world-1",
+		Subject:   memory.FactSubjectWorld,
+		Content:   "PostgreSQL runtime bundles target Ubuntu LTS.",
+		Status:    memory.FactStatusActive,
+		Source:    memory.SourceManual,
+		UpdatedAt: now,
+	})
+	fake.AddFact("1", "agent1", memory.Fact{
+		ID:      "profile-1",
+		Subject: memory.FactSubjectUser,
+		Content: "The user studies Ubuntu runtime behavior.",
+		Status:  memory.FactStatusActive,
+	})
+	fake.AddFact("1", "agent1", memory.Fact{
+		ID:      "agent-1",
+		Subject: memory.FactSubjectAgent,
+		Content: "The agent knows Ubuntu runtime behavior.",
+		Status:  memory.FactStatusActive,
+	})
+
+	tool := memory.BuildTool(fake)
+	execCtx := memory.WithAgentID(memory.WithUserID(context.Background(), "1"), "agent1")
+	out, err := tool.Execute(execCtx, map[string]any{
+		"action": "search_knowledge",
+		"query":  "Ubuntu runtime",
+	})
+	if err != nil {
+		t.Fatalf("search_knowledge: %v", err)
+	}
+
+	var results []struct {
+		FactID       string  `json:"fact_id"`
+		Content      string  `json:"content"`
+		MatchedField string  `json:"matched_field"`
+		Score        float64 `json:"score"`
+		Snippet      string  `json:"snippet"`
+	}
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("unmarshal search_knowledge results: %v\n%s", err, out)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %#v, want only world fact", results)
+	}
+	if results[0].FactID != "world-1" || results[0].MatchedField != "content" || results[0].Score <= 0 || results[0].Snippet == "" {
+		t.Fatalf("unexpected search_knowledge result: %#v", results[0])
+	}
+}
+
+type snapshotKnowledgeProvider struct {
+	*memorytest.Fake
+	atVersion int64
+}
+
+func (p *snapshotKnowledgeProvider) GetOrCreateSessionSnapshot(_ context.Context, sessionID string, userID string, agentID string) (memory.SessionSnapshot, error) {
+	return memory.SessionSnapshot{
+		SessionID: sessionID,
+		UserID:    userID,
+		AgentID:   agentID,
+		Version:   7,
+		UpdatedAt: time.Now().UTC(),
+	}, nil
+}
+
+func (p *snapshotKnowledgeProvider) ListActiveFactsAt(_ context.Context, userID string, agentID string, subject memory.FactSubject, version int64) ([]memory.Fact, error) {
+	p.atVersion = version
+	return []memory.Fact{
+		{
+			ID:      "snapshot-world",
+			Subject: subject,
+			Scope:   "user_agent",
+			UserID:  userID,
+			AgentID: agentID,
+			Content: "Snapshot-visible deployment region is us-west.",
+			Status:  memory.FactStatusActive,
+			Source:  memory.SourceManual,
+		},
+	}, nil
+}
+
+func TestExecute_SearchKnowledgeUsesSessionSnapshot(t *testing.T) {
+	provider := &snapshotKnowledgeProvider{Fake: memorytest.New()}
+	tool := memory.BuildTool(provider)
+	execCtx := memory.WithSessionID(context.Background(), "s1")
+	execCtx = memory.WithUserID(execCtx, "1")
+	execCtx = memory.WithAgentID(execCtx, "agent1")
+
+	out, err := tool.Execute(execCtx, map[string]any{
+		"action": "search_knowledge",
+		"query":  "deployment region",
+	})
+	if err != nil {
+		t.Fatalf("search_knowledge: %v", err)
+	}
+	if provider.atVersion != 7 {
+		t.Fatalf("ListActiveFactsAt version = %d, want 7", provider.atVersion)
+	}
+	if !strings.Contains(out, "snapshot-world") {
+		t.Fatalf("expected snapshot-visible fact in results: %s", out)
+	}
+}
+
+func TestExecute_SearchKnowledgeNoUserContextFailsClosed(t *testing.T) {
+	fake := memorytest.New()
+	tool := memory.BuildTool(fake)
+	ctx := memory.WithAgentID(context.Background(), "agent1")
+	ctx = memory.WithCurrentSpeaker(ctx, memory.CurrentSpeaker{UserID: "speaker-user"})
+
+	_, err := tool.Execute(ctx, map[string]any{
+		"action": "search_knowledge",
+		"query":  "anything",
+	})
+	if err == nil {
+		t.Fatal("expected search_knowledge to fail without session user context")
+	}
+	if !strings.Contains(err.Error(), "no user context") {
+		t.Fatalf("error = %q, want no user context", err.Error())
 	}
 }
 

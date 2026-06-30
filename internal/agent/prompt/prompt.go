@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"encoding/json"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -60,7 +59,6 @@ type promptData struct {
 	ProfileEntries []memory.ProfileEntry
 	GroupMemory    string // group-scoped shared memory (non-empty only for group sessions)
 	Constraints    []memory.ConstraintEntry
-	Knowledge      []pkgplugins.KnowledgeEntry // active fact/context knowledge entries
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
 	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
@@ -182,21 +180,9 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// Current speaker (D9): intentionally not rendered into the system prompt.
 	// Runtime injects it as per-turn message context instead, preserving the group
 	// system prompt prefix across speakers for provider prompt caches.
-	// Knowledge facts: prefer the v1 facts table, sharing the same snapshot
-	// version clock as profile/soul/constraints.
-	if p.UserID != "" && p.AgentID != "" {
-		if p.SnapshotVersion > 0 {
-			if fs, ok := p.Memory.(memory.VersionedFactStore); ok {
-				if facts, err := fs.ListActiveFactsAt(ctx, p.UserID, p.AgentID, memory.FactSubjectWorld, p.SnapshotVersion); err == nil {
-					data.Knowledge = knowledgeEntriesFromFacts(facts)
-				}
-			}
-		} else if fs, ok := p.Memory.(memory.FactStore); ok {
-			if facts, err := fs.ListActiveFacts(ctx, p.UserID, p.AgentID, memory.FactSubjectWorld); err == nil {
-				data.Knowledge = knowledgeEntriesFromFacts(facts)
-			}
-		}
-	}
+	// World facts are deliberately search-first: they remain available through
+	// memory.search_knowledge under the same snapshot/version semantics, but are
+	// not injected into every prompt by default.
 
 	for _, s := range p.Sections {
 		if s.Inline {
@@ -214,58 +200,6 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	var buf bytes.Buffer
 	_ = systemTmpl.Execute(&buf, data)
 	return buf.String()
-}
-
-type factKnowledgeMetadata struct {
-	Name                string `json:"name"`
-	Description         string `json:"description"`
-	KnowledgeType       string `json:"knowledge_type"`
-	LegacySkillName     string `json:"legacy_skill_name"`
-	LegacyKnowledgeType string `json:"legacy_knowledge_type"`
-}
-
-func knowledgeEntriesFromFacts(facts []memory.Fact) []pkgplugins.KnowledgeEntry {
-	entries := make([]pkgplugins.KnowledgeEntry, 0, len(facts))
-	for _, fact := range facts {
-		if fact.Status != memory.FactStatusActive {
-			continue
-		}
-		meta := parseFactKnowledgeMetadata(fact.Metadata)
-		name := strings.TrimSpace(meta.Name)
-		if name == "" {
-			name = strings.TrimSpace(meta.LegacySkillName)
-		}
-		if name == "" {
-			name = "Knowledge"
-		}
-		kt := pkgplugins.KnowledgeType(strings.TrimSpace(meta.KnowledgeType))
-		if kt == "" {
-			kt = pkgplugins.KnowledgeType(strings.TrimSpace(meta.LegacyKnowledgeType))
-		}
-		if kt == "" {
-			kt = pkgplugins.KnowledgeTypeFact
-		}
-		entries = append(entries, pkgplugins.KnowledgeEntry{
-			ID:            fact.ID,
-			Name:          name,
-			Description:   meta.Description,
-			Content:       fact.Content,
-			KnowledgeType: kt,
-			Status:        string(fact.Status),
-			CreatedAt:     fact.CreatedAt,
-			UpdatedAt:     fact.UpdatedAt,
-		})
-	}
-	return entries
-}
-
-func parseFactKnowledgeMetadata(raw json.RawMessage) factKnowledgeMetadata {
-	var meta factKnowledgeMetadata
-	if len(raw) == 0 {
-		return meta
-	}
-	_ = json.Unmarshal(raw, &meta)
-	return meta
 }
 
 // resolvePromptContextHost returns the host to use for reading prompt context

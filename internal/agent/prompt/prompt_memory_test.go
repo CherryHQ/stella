@@ -2,7 +2,6 @@ package prompt_test
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -168,17 +167,20 @@ func TestDMSessionDoesNotShowGroupMemory(t *testing.T) {
 	}
 }
 
-func TestKnowledgeFactsRenderedFromMemory(t *testing.T) {
+func TestKnowledgeFactsNotInjectedIntoPrompt(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()
 
 	fake.AddFact("u1", "a1", memory.Fact{
-		ID:       "knowledge-1",
-		Subject:  memory.FactSubjectWorld,
-		Content:  "PostgreSQL bundles target Ubuntu LTS runtimes.",
-		Status:   memory.FactStatusActive,
-		Metadata: json.RawMessage(`{"name":"Runtime support","knowledge_type":"fact"}`),
+		ID:      "knowledge-1",
+		Subject: memory.FactSubjectWorld,
+		Content: "PostgreSQL bundles target Ubuntu LTS runtimes.",
+		Status:  memory.FactStatusActive,
 	})
+	facts, err := fake.ListActiveFacts(ctx, "u1", "a1", memory.FactSubjectWorld)
+	if err != nil || len(facts) != 1 {
+		t.Fatalf("test setup failed, facts=%#v err=%v", facts, err)
+	}
 
 	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 		SystemPrompt: "You are Stella.",
@@ -187,13 +189,10 @@ func TestKnowledgeFactsRenderedFromMemory(t *testing.T) {
 		AgentID:      "a1",
 	})
 
-	if !strings.Contains(p, "## Knowledge") {
-		t.Fatal("expected Knowledge section")
+	if strings.Contains(p, "## Knowledge") {
+		t.Fatalf("did not expect Knowledge section; knowledge should be retrieved with memory.search_knowledge:\n%s", p)
 	}
-	if !strings.Contains(p, "Runtime support") {
-		t.Error("expected fact metadata name in Knowledge section")
-	}
-	if !strings.Contains(p, "PostgreSQL bundles target Ubuntu LTS runtimes.") {
-		t.Error("expected world fact content in Knowledge section")
+	if strings.Contains(p, "PostgreSQL bundles target Ubuntu LTS runtimes.") {
+		t.Fatalf("did not expect world fact content to be injected into prompt:\n%s", p)
 	}
 }
