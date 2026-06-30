@@ -26,10 +26,7 @@ func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string
 	if strings.TrimSpace(query) == "" {
 		return "", fmt.Errorf("query is required for search_installed action")
 	}
-	limit := 10
-	if v, ok := args["limit"].(float64); ok && v > 0 {
-		limit = int(v)
-	}
+	limit := installedSkillSearchLimit(args)
 
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
 	merged, err := t.svc.ListMerged(ctx, t.viewContext(ctx), projectRoot)
@@ -55,7 +52,7 @@ func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string
 		})
 	}
 
-	ranked := searchrank.Rank(query, docs, limit)
+	ranked := searchrank.Rank(query, docs, len(docs))
 	if len(ranked) == 0 {
 		return "No installed skills found.", nil
 	}
@@ -100,6 +97,28 @@ func (t *Tool) visibleSearchableSkills(merged []ResolvedSkill) []pkgplugins.Skil
 		out = append(out, skill)
 	}
 	return out
+}
+
+func installedSkillSearchLimit(args map[string]any) int {
+	const (
+		defaultLimit = 10
+		maxLimit     = 100
+	)
+	limit := defaultLimit
+	switch v := args["limit"].(type) {
+	case float64:
+		if v > 0 {
+			limit = int(v)
+		}
+	case int:
+		if v > 0 {
+			limit = v
+		}
+	}
+	if limit > maxLimit {
+		return maxLimit
+	}
+	return limit
 }
 
 func boostSkillNameMatches(query string, hits []searchrank.Result) {

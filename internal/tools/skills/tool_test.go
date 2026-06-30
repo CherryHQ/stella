@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -404,6 +405,89 @@ func TestSearchInstalledRanksVisibleSkills(t *testing.T) {
 	}
 	if results[0].Description == "" || results[0].Scope != "user" || results[0].Score <= 0 || results[0].Snippet == "" {
 		t.Fatalf("result missing compact metadata: %#v", results[0])
+	}
+}
+
+func TestSearchInstalledBoostsExactNameBeforeLimit(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	for i := range 12 {
+		if _, err := store.Create(ctx, pkgplugins.Skill{
+			Scope:       "user",
+			UserID:      userID,
+			Name:        fmt.Sprintf("strong-description-%02d", i),
+			Description: "target skill target skill target skill target skill target skill",
+			Status:      "active",
+		}, map[string]string{pkgplugins.SkillMainFile: "# Strong"}); err != nil {
+			t.Fatalf("create strong skill %d: %v", i, err)
+		}
+	}
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "user",
+		UserID:      userID,
+		Name:        "target-skill",
+		Description: "Generic helper",
+		Status:      "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# Target"}); err != nil {
+		t.Fatalf("create target skill: %v", err)
+	}
+
+	tool := NewTool(store, "", "")
+	out, err := tool.Execute(ctx, map[string]any{
+		"action": "search_installed",
+		"query":  "target-skill",
+		"limit":  1,
+	})
+	if err != nil {
+		t.Fatalf("search_installed: %v", err)
+	}
+
+	var results []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("unmarshal search_installed results: %v\n%s", err, out)
+	}
+	if len(results) != 1 || results[0].Name != "target-skill" {
+		t.Fatalf("results = %#v, want exact name match before truncation", results)
+	}
+}
+
+func TestSearchInstalledAcceptsIntLimit(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	for i := range 2 {
+		if _, err := store.Create(ctx, pkgplugins.Skill{
+			Scope:       "user",
+			UserID:      userID,
+			Name:        fmt.Sprintf("deploy-%d", i),
+			Description: "release checklist",
+			Status:      "active",
+		}, map[string]string{pkgplugins.SkillMainFile: "# Deploy"}); err != nil {
+			t.Fatalf("create deploy skill %d: %v", i, err)
+		}
+	}
+
+	tool := NewTool(store, "", "")
+	out, err := tool.Execute(ctx, map[string]any{
+		"action": "search_installed",
+		"query":  "release checklist",
+		"limit":  1,
+	})
+	if err != nil {
+		t.Fatalf("search_installed: %v", err)
+	}
+
+	var results []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("unmarshal search_installed results: %v\n%s", err, out)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want int limit respected; results=%#v", len(results), results)
 	}
 }
 

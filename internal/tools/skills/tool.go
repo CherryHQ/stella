@@ -31,11 +31,11 @@ var skillsInputSchema = func() map[string]any {
     },
     "query": {
       "type": "string",
-      "description": "Search query (required for search)"
+      "description": "Search query (required for search and search_installed)"
     },
     "limit": {
       "type": "integer",
-      "description": "Max results to return (default 10, for search)"
+      "description": "Max results to return (default 10, for search and search_installed)"
     },
     "source": {
       "type": "string",
