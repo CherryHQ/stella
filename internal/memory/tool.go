@@ -464,7 +464,7 @@ func (t *memoryTool) execSearchKnowledge(ctx context.Context, args map[string]an
 	if err != nil {
 		return "", err
 	}
-	results := rankKnowledgeFacts(query, facts, intArg(args, "limit", 10))
+	results := rankKnowledgeFacts(query, facts, knowledgeSearchLimit(args))
 	if len(results) == 0 {
 		return "No knowledge facts found.", nil
 	}
@@ -523,6 +523,21 @@ func filterWorldKnowledgeFacts(facts []Fact) []Fact {
 		out = append(out, fact)
 	}
 	return out
+}
+
+func knowledgeSearchLimit(args map[string]any) int {
+	const (
+		defaultLimit = 10
+		maxLimit     = 100
+	)
+	limit := intArg(args, "limit", defaultLimit)
+	if limit <= 0 {
+		return defaultLimit
+	}
+	if limit > maxLimit {
+		return maxLimit
+	}
+	return limit
 }
 
 func rankKnowledgeFacts(query string, facts []Fact, limit int) []knowledgeSearchResult {

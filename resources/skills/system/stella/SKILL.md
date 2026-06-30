@@ -48,7 +48,7 @@ The system prompt is composed in layers:
 3. **Constraints** — user-approved hard rules from memory `ConstraintStore`; Reflect must not modify them
 4. **Agent soul** — per-user identity/personality customisation from memory `ProfileStore`
 5. **User profile** — per-user facts/preferences from memory `ProfileStore`
-6. **Knowledge** — active `subject=world` facts; these are not callable skills
+6. **Knowledge retrieval** — active `subject=world` facts are searched on demand with `memory.search_knowledge`; these are not callable skills
 
 Project context (AGENTS.md files) is appended after these layers.
 
