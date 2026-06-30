@@ -196,9 +196,9 @@ func TestSessionSystemPromptAdvertisesSkillSearch(t *testing.T) {
 			t.Fatalf("system prompt missing %q:\n%s", want, got.SystemPrompt)
 		}
 	}
-	// Search-first prompts advertise retrieval, not the full installed skill list.
-	if strings.Contains(got.SystemPrompt, "inspect-skill") {
-		t.Fatalf("system prompt should not inject installed skill names:\n%s", got.SystemPrompt)
+	// System skills stay visible; project/user/agent skills are discovered through search_installed.
+	if !strings.Contains(got.SystemPrompt, "<name>inspect-skill</name>") {
+		t.Fatalf("system prompt should list system skill names:\n%s", got.SystemPrompt)
 	}
 }
 

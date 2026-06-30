@@ -124,7 +124,7 @@ func TestBuildPromptSectionNilPlatform(t *testing.T) {
 	}
 }
 
-func TestBuildPromptSectionShowsSearchInstructionsWhenSystemSkillsExist(t *testing.T) {
+func TestBuildPromptSectionListsSystemSkillsAndSearchesOthers(t *testing.T) {
 	store, userID, _ := newTestSkillStore(t)
 	ctx := context.Background()
 
@@ -159,10 +159,13 @@ func TestBuildPromptSectionShowsSearchInstructionsWhenSystemSkillsExist(t *testi
 	if !strings.Contains(section.Content, `action="search_installed"`) {
 		t.Fatalf("expected search_installed instruction in prompt content: %s", section.Content)
 	}
-	for _, name := range []string{"stella", "code-review", "research", "user-skill"} {
-		if strings.Contains(section.Content, name) {
-			t.Fatalf("prompt content should not enumerate %s: %s", name, section.Content)
+	for _, name := range []string{"stella", "code-review", "research"} {
+		if !strings.Contains(section.Content, "<name>"+name+"</name>") {
+			t.Fatalf("expected system skill %s in prompt content: %s", name, section.Content)
 		}
+	}
+	if strings.Contains(section.Content, "user-skill") {
+		t.Fatalf("prompt content should not enumerate non-system user skill: %s", section.Content)
 	}
 }
 
@@ -214,7 +217,7 @@ func TestBuildPromptSectionFiltersPluginOwnedSystemSkillsByPluginState(t *testin
 	if !strings.Contains(section.Content, `action="search_installed"`) {
 		t.Fatalf("expected search_installed instruction for enabled plugin-owned skill: %s", section.Content)
 	}
-	if strings.Contains(section.Content, "lark-cli") {
-		t.Fatalf("prompt content should not enumerate enabled plugin-owned skill: %s", section.Content)
+	if !strings.Contains(section.Content, "<name>lark-cli</name>") {
+		t.Fatalf("expected enabled plugin-owned system skill to be listed: %s", section.Content)
 	}
 }
