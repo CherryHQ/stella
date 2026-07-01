@@ -85,7 +85,7 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, id
 		writeError(w, http.StatusNotFound, "not_found")
 		return sqlc.AgentGoal{}, false
 	}
-	if info := UserFromContext(ctx); info != nil && info.Scoped != nil && d.AgentID != info.Scoped.AgentID {
+	if agentID, _, ok := UserFromContext(ctx).scopedBoundary(); ok && d.AgentID != agentID {
 		writeError(w, http.StatusForbidden, "permission denied")
 		return sqlc.AgentGoal{}, false
 	}

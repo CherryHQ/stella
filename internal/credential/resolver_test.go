@@ -53,6 +53,19 @@ func (f *fakeStore) RevokePAT(_ context.Context, id, userID string) (int64, erro
 	return 0, nil
 }
 
+func (f *fakeStore) RevokePATByUser(_ context.Context, userID string) (int64, error) {
+	var n int64
+	for k, r := range f.byPublicID {
+		if r.UserID == userID && r.RevokedAt == nil {
+			now := time.Now()
+			r.RevokedAt = &now
+			f.byPublicID[k] = r
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (f *fakeStore) TouchPATLastUsed(_ context.Context, id string) (int64, error) {
 	f.touched = append(f.touched, id)
 	return 1, nil

@@ -58,6 +58,10 @@ func (p patStore) RevokePAT(ctx context.Context, id, userID string) (int64, erro
 	return p.q.RevokePersonalAccessToken(ctx, sqlc.RevokePersonalAccessTokenParams{ID: id, UserID: userID})
 }
 
+func (p patStore) RevokePATByUser(ctx context.Context, userID string) (int64, error) {
+	return p.q.RevokePersonalAccessTokenByUser(ctx, userID)
+}
+
 func (p patStore) TouchPATLastUsed(ctx context.Context, id string) (int64, error) {
 	return p.q.UpdatePersonalAccessTokenLastUsed(ctx, id)
 }

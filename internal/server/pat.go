@@ -94,7 +94,12 @@ func (s *Server) CreatePersonalAccessToken(w http.ResponseWriter, r *http.Reques
 
 	plaintext, rec, err := s.credResolver.CreatePAT(r.Context(), info.UserID, name, body.Scopes, expiresAt)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		if errors.Is(err, credential.ErrPATScopeInvalid) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.log.Error("create personal access token", "error", err, "user_id", info.UserID)
+		writeError(w, http.StatusInternalServerError, "create token failed")
 		return
 	}
 	writeData(w, http.StatusCreated, apitypes.CreatePersonalAccessTokenResponse{
@@ -163,6 +168,10 @@ func patToAPI(rec credential.PATRecord) apitypes.PersonalAccessToken {
 //   - neverExpires   -> nil (explicit no-expiry opt-in)
 //   - expiresAt set  -> that instant, rejected if in the past or beyond the max
 //   - neither        -> now + defaultPATLifetime (expiry is default-required)
+//
+// maxPATLifetime deliberately bounds only explicit expiries; never_expires is an
+// intentional opt-in that is NOT capped. No org-level policy toggle exists today;
+// gate the neverExpires branch behind one if PAT lifetime limits are ever needed.
 func resolvePATExpiry(expiresAt *time.Time, neverExpires bool, now time.Time) (*time.Time, error) {
 	if neverExpires {
 		return nil, nil
