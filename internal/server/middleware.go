@@ -2,14 +2,12 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"slices"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/credential"
 	pkgauth "github.com/CherryHQ/stella/pkg/auth"
 )
 
@@ -29,6 +27,9 @@ type AuthInfo struct {
 	Name      string `json:"name,omitempty"`
 	AvatarURL string `json:"avatar_url,omitempty"`
 	Scoped    *pkgauth.ScopedTokenClaims
+	// principal is the resolved bearer credential, used by the enforcement gate.
+	// nil for cookie/OIDC sessions (which skip API-scope enforcement).
+	principal *credential.Principal
 }
 
 // UserFromContext extracts the AuthInfo from a request context.
@@ -57,11 +58,16 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 
-		var info *AuthInfo
-		if i := s.authInfoFromBearer(ctx, r.Header.Get("Authorization")); i != nil {
-			info = i
-		} else if i := s.authInfoFromOIDCSession(ctx, r); i != nil {
-			info = i
+		// A present-but-invalid bearer credential is a hard deny: it must never
+		// fall through to the cookie session or any full-access path.
+		info, err := s.authInfoFromBearer(ctx, r.Header.Get("Authorization"))
+		if err != nil {
+			s.log.Warn("bearer credential rejected", "error", err, "path", path)
+			s.denyAccess(w, r)
+			return
+		}
+		if info == nil {
+			info = s.authInfoFromOIDCSession(ctx, r)
 		}
 
 		if info == nil {
@@ -74,9 +80,15 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if info.Scoped != nil && !scopedTokenAllowsRequest(info.Scoped, r) {
-			writeError(w, http.StatusForbidden, "permission denied")
-			return
+		// Scoped bearers (PAT / OAuth / sandbox scoped tokens) carry a credential
+		// kind and go through the unified enforcement gate. Cookie/OIDC sessions
+		// have no kind and skip API-scope enforcement (handler ownership/admin
+		// checks still apply to them).
+		if info.principal != nil {
+			if err := credential.Enforce(info.principal, r.Method, path); err != nil {
+				writeError(w, http.StatusForbidden, "permission denied")
+				return
+			}
 		}
 
 		next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
@@ -106,56 +118,44 @@ func (s *Server) authInfoFromOIDCSession(ctx context.Context, r *http.Request) *
 	}
 }
 
-func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInfo {
-	if s.tokenSvc == nil {
-		return nil
+// authInfoFromBearer resolves an Authorization bearer through the unified
+// credential front door. It returns:
+//   - (nil, nil)  when there is no bearer to resolve (fall back to cookie auth);
+//   - (nil, err)  when a bearer is present but invalid/unknown/reserved (deny);
+//   - (info, nil) on success.
+func (s *Server) authInfoFromBearer(ctx context.Context, header string) (*AuthInfo, error) {
+	if s.credResolver == nil {
+		return nil, nil
 	}
-	scheme, rawToken, ok := strings.Cut(strings.TrimSpace(header), " ")
-	if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(rawToken) == "" {
-		return nil
-	}
-	if pkgauth.IsScopedToken(rawToken) {
-		user, claims, err := s.tokenSvc.AuthenticateScoped(ctx, rawToken)
-		if err != nil {
-			s.log.Warn("scoped bearer token auth failed", "error", err)
-			return nil
-		}
-		if !user.IsActive {
-			s.log.Warn("scoped bearer auth rejected: user deactivated", "user_id", user.ID)
-			return nil
-		}
-		return &AuthInfo{
-			UserID:    user.ID,
-			Username:  user.Email,
-			Email:     user.Email,
-			Name:      user.Name,
-			AvatarURL: user.AvatarURL,
-			Role:      user.Role,
-			IsAdmin:   false,
-			Scoped:    &claims,
-		}
-	}
-
-	user, err := s.tokenSvc.Authenticate(ctx, rawToken)
+	p, err := s.credResolver.Resolve(ctx, header)
 	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			s.log.Warn("bearer token auth failed", "error", err)
+		return nil, err
+	}
+	if p == nil {
+		return nil, nil
+	}
+	info := &AuthInfo{
+		UserID:    p.UserID,
+		Username:  p.Username,
+		Email:     p.Email,
+		Name:      p.Name,
+		AvatarURL: p.AvatarURL,
+		Role:      p.Role,
+		IsAdmin:   p.IsAdmin,
+		principal: p,
+	}
+	// Preserve the scoped-claims view handlers use for finer session/agent
+	// object checks (sessions, goals, vault, shares).
+	if p.Kind == credential.KindScoped {
+		info.Scoped = &pkgauth.ScopedTokenClaims{
+			UserID:    p.UserID,
+			AgentID:   p.AgentID,
+			SessionID: p.SessionID,
+			ProjectID: p.ProjectID,
+			Scopes:    p.Scopes,
 		}
-		return nil
 	}
-	if !user.IsActive {
-		s.log.Warn("bearer auth rejected: user deactivated", "user_id", user.ID)
-		return nil
-	}
-	return &AuthInfo{
-		UserID:    user.ID,
-		Username:  user.Email,
-		Email:     user.Email,
-		Name:      user.Name,
-		AvatarURL: user.AvatarURL,
-		Role:      user.Role,
-		IsAdmin:   user.Role == auth.RoleAdmin,
-	}
+	return info, nil
 }
 
 // requireAuth extracts the authenticated user from the request context.

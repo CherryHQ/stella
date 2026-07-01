@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/credential"
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -46,6 +47,7 @@ type Server struct {
 	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
 	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
 	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
+	credResolver   *credential.Service  // unified bearer credential front door (set with tokenSvc)
 	credSvc        *credentials.Service // shared credentials service
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
@@ -142,9 +144,19 @@ func (s *Server) SetVaultService(svc *vault.Service) {
 	s.credSvc.SetVaultService(svc)
 }
 
-// SetTokenService wires bearer token authentication into the admin server.
+// SetTokenService wires bearer token authentication into the admin server. It
+// also builds the unified credential front door: PAT storage over the shared
+// query set, and legacy/scoped bearer verification delegated to the token
+// service.
 func (s *Server) SetTokenService(svc *auth.TokenService) {
 	s.tokenSvc = svc
+	ps := patStore{q: s.q}
+	s.credResolver = credential.NewService(credential.Config{
+		PATs:   ps,
+		Users:  ps,
+		Tokens: tokenBackend{svc: svc},
+		Logger: s.log,
+	})
 }
 
 // SetSchedulerService wires the live scheduler service into the admin server.

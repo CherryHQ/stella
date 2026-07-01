@@ -1,0 +1,74 @@
+paths:
+  /api/users/me/tokens:
+    get:
+      tags: [pat]
+      summary: List the current user's personal access tokens
+      operationId: listPersonalAccessTokens
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PersonalAccessTokenList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+    post:
+      tags: [pat]
+      summary: Create a personal access token
+      operationId: createPersonalAccessToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreatePersonalAccessTokenRequest",
+            }
+      responses:
+        "201":
+          description: created; plaintext token returned once
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/CreatePersonalAccessTokenResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/users/me/tokens/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [pat]
+      summary: Revoke a personal access token
+      operationId: revokePersonalAccessToken
+      responses:
+        "204":
+          description: revoked
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/users/me/token-scopes:
+    get:
+      tags: [pat]
+      summary: List the scopes grantable to a personal access token
+      operationId: listPersonalAccessTokenScopes
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PersonalAccessTokenScopeList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }

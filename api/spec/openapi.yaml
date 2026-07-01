@@ -52,6 +52,7 @@ tags:
   - name: users
   - name: auth-users
   - name: profile
+  - name: pat
   - name: auth
   - name: plugins
   - name: status
@@ -245,6 +246,14 @@ paths:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1identities~1{identityId}"
   /api/users/{id}/active:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1active"
+  # ── Personal Access Tokens ───────────────────────────────────────────────────
+  /api/users/me/tokens:
+    $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens"
+  /api/users/me/tokens/{id}:
+    $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens~1{id}"
+  /api/users/me/token-scopes:
+    $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1token-scopes"
+
   # ── Profile ────────────────────────────────────────────────────────────────
   /api/users/me/identities:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1identities"
