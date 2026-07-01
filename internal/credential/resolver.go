@@ -57,6 +57,7 @@ type TokenBackend interface {
 // HTTP middleware.
 type Service struct {
 	pats   PATStore
+	oauth  OAuthAccessStore
 	users  UserLookup
 	tokens TokenBackend
 	now    func() time.Time
@@ -67,6 +68,7 @@ type Service struct {
 // disabled); Tokens may be nil (legacy/scoped bearer auth disabled).
 type Config struct {
 	PATs   PATStore
+	OAuth  OAuthAccessStore
 	Users  UserLookup
 	Tokens TokenBackend
 	Now    func() time.Time
@@ -81,7 +83,7 @@ func NewService(cfg Config) *Service {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	return &Service{pats: cfg.PATs, users: cfg.Users, tokens: cfg.Tokens, now: cfg.Now, log: cfg.Logger}
+	return &Service{pats: cfg.PATs, oauth: cfg.OAuth, users: cfg.Users, tokens: cfg.Tokens, now: cfg.Now, log: cfg.Logger}
 }
 
 // Resolve turns a raw Authorization header value into a Principal, dispatched by
@@ -108,9 +110,10 @@ func (s *Service) Resolve(ctx context.Context, header string) (*Principal, error
 	case strings.HasPrefix(raw, PATPrefix):
 		return s.resolvePAT(ctx, raw)
 	case strings.HasPrefix(raw, OAuthAccessPrefix):
-		// Reserved for #613. Dispatched here so it can NEVER fall through to the
-		// legacy full-access path; rejected until the OAuth2 AS lands.
-		return nil, fmt.Errorf("oauth access tokens are not yet supported")
+		// Opaque OAuth2 access token. Resolved from oauth_access_token storage --
+		// NEVER JWKS-validated as a JWT. This is the non-negotiable guardrail: the
+		// /api boundary accepts identity only from this front door.
+		return s.resolveOAuth(ctx, raw)
 	case strings.HasPrefix(raw, OAuthRefreshPrefix):
 		// Refresh tokens are valid only at the token endpoint, never the API.
 		return nil, fmt.Errorf("refresh tokens are not valid at the API boundary")

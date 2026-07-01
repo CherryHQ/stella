@@ -1,0 +1,132 @@
+paths:
+  /api/users/me/oauth-clients:
+    get:
+      tags: [oauth-clients]
+      summary: List the current user's registered OAuth2 clients
+      operationId: listOAuthClients
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/OAuthClientList",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+    post:
+      tags: [oauth-clients]
+      summary: Register an OAuth2 client
+      operationId: createOAuthClient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/CreateOAuthClientRequest",
+              }
+      responses:
+        "201":
+          description: created; plaintext secret returned once for confidential clients
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/CreateOAuthClientResponse",
+                }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/users/me/oauth-clients/{clientId}:
+    parameters:
+      - { name: clientId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [oauth-clients]
+      summary: Disable an OAuth2 client
+      operationId: disableOAuthClient
+      responses:
+        "204": { description: disabled }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/users/me/oauth-clients/{clientId}/rotate-secret:
+    parameters:
+      - { name: clientId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [oauth-clients]
+      summary: Rotate a confidential client's secret
+      operationId: rotateOAuthClientSecret
+      responses:
+        "200":
+          description: ok; new plaintext secret returned once
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/RotateOAuthClientSecretResponse",
+                }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/users/me/oauth-client-scopes:
+    get:
+      tags: [oauth-clients]
+      summary: List the scopes grantable to an OAuth2 client
+      operationId: listOAuthClientScopes
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/OAuthClientScopeList",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/users/me/authorized-apps:
+    get:
+      tags: [oauth-clients]
+      summary: List apps the user has authorized
+      operationId: listAuthorizedApps
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/AuthorizedAppList",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/users/me/authorized-apps/{clientId}:
+    parameters:
+      - { name: clientId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [oauth-clients]
+      summary: Revoke the user's grant to an app
+      operationId: revokeAuthorizedApp
+      responses:
+        "204": { description: revoked }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }

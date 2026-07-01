@@ -1,0 +1,94 @@
+openapi: 3.0.3
+info:
+  title: OAuth2 Client Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    OAuthClient:
+      type: object
+      required:
+        [
+          client_id,
+          name,
+          client_type,
+          redirect_uris,
+          scopes,
+          disabled,
+          created_at,
+        ]
+      properties:
+        client_id: { type: string }
+        name: { type: string }
+        client_type: { type: string, enum: [confidential, public] }
+        redirect_uris: { type: array, items: { type: string } }
+        scopes: { type: array, items: { type: string } }
+        disabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    OAuthClientList:
+      type: object
+      required: [oauth_clients]
+      properties:
+        oauth_clients:
+          type: array
+          items: { $ref: "#/components/schemas/OAuthClient" }
+
+    CreateOAuthClientRequest:
+      type: object
+      required: [name, redirect_uris, scopes]
+      properties:
+        name: { type: string }
+        client_type: {
+          type: string,
+          enum: [confidential, public],
+          default: confidential,
+        }
+        redirect_uris: { type: array, items: { type: string } }
+        scopes: { type: array, items: { type: string } }
+
+    CreateOAuthClientResponse:
+      type: object
+      required: [oauth_client]
+      properties:
+        # Plaintext client secret, returned exactly once (empty for public clients).
+        client_secret: { type: string }
+        oauth_client: { $ref: "#/components/schemas/OAuthClient" }
+
+    RotateOAuthClientSecretResponse:
+      type: object
+      required: [client_secret]
+      properties:
+        client_secret: { type: string }
+
+    OAuthClientScope:
+      type: object
+      required: [id, description]
+      properties:
+        id: { type: string }
+        description: { type: string }
+
+    OAuthClientScopeList:
+      type: object
+      required: [scopes]
+      properties:
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/OAuthClientScope" }
+
+    AuthorizedApp:
+      type: object
+      required: [client_id, client_name, scopes, granted_at]
+      properties:
+        client_id: { type: string }
+        client_name: { type: string }
+        scopes: { type: array, items: { type: string } }
+        granted_at: { type: string, format: date-time }
+
+    AuthorizedAppList:
+      type: object
+      required: [authorized_apps]
+      properties:
+        authorized_apps:
+          type: array
+          items: { $ref: "#/components/schemas/AuthorizedApp" }
