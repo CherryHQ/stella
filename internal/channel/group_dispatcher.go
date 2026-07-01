@@ -365,18 +365,38 @@ func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Querie
 	return nil
 }
 
-// decideResponders selects which agents respond. Explicit mentions always take
-// the deterministic rule path. A no-mention message uses the semantic arbiter
-// when one is configured; otherwise it falls back to platform group-mode policy.
+// decideResponders selects which agents respond. Explicit mentions that resolve
+// to a group member take the deterministic rule path. A mention that resolves to
+// no member, and a no-mention message, both fall through to the semantic arbiter
+// when one is configured; otherwise they fall back to platform group-mode policy.
 func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, envelope GroupOutboxEnvelope, groupMembers []GroupMember) []string {
 	if len(envelope.Mentions) > 0 {
+		var responding []string
 		if d.coord != nil && d.coord.arbiter != nil {
-			return d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
+			responding = d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
 				AllMembersFallback: false,
 				DisableDebounce:    true,
 			}).RespondingAgents
+		} else {
+			responding = fallbackGroupDecision(envelope.Mentions, groupMembers, false).RespondingAgents
 		}
-		return fallbackGroupDecision(envelope.Mentions, groupMembers, false).RespondingAgents
+		if len(responding) > 0 {
+			return responding
+		}
+		// Mentions were present but none resolved to a member agent. Silently
+		// dropping the turn here (the old behavior) made explicit mentions
+		// strictly less reliable than no-mention routing: a bot-identity/registry
+		// miss, a human-only @mention, or a mention of a non-member bot all looked
+		// accepted (the platform acked) yet produced no reply (#619). Fall through
+		// to the same no-mention path so semantic routing still gets a chance.
+		d.log.Warn("group mention resolved to no member agent; falling back to no-mention routing",
+			"group_id", outbox.GroupID,
+			"platform", state.Platform,
+			"mention_count", len(envelope.Mentions),
+			"mentions_raw", mentionRawTexts(envelope.Mentions),
+			"mention_platform_ids", mentionPlatformIDs(envelope.Mentions),
+			"member_count", len(groupMembers),
+		)
 	}
 	if d.coord != nil && d.coord.semanticGroupArbiter != nil {
 		return d.semanticResponders(ctx, q, outbox.GroupID, message, state, groupMembers)
@@ -915,6 +935,25 @@ func fallbackGroupDecision(mentions []pkgchannel.Mention, members []GroupMember,
 		return ArbiterDecision{RespondingAgents: responding}
 	}
 	return ArbiterDecision{}
+}
+
+// mentionRawTexts returns the raw @mention labels for diagnostics.
+func mentionRawTexts(mentions []pkgchannel.Mention) []string {
+	out := make([]string, 0, len(mentions))
+	for _, m := range mentions {
+		out = append(out, m.Raw)
+	}
+	return out
+}
+
+// mentionPlatformIDs returns the platform IDs of mentions for diagnostics. An
+// empty entry means the platform delivered a mention with no resolvable id.
+func mentionPlatformIDs(mentions []pkgchannel.Mention) []string {
+	out := make([]string, 0, len(mentions))
+	for _, m := range mentions {
+		out = append(out, m.PlatformID)
+	}
+	return out
 }
 
 func backoff(attempts int64) time.Duration {
