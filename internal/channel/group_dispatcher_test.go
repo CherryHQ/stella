@@ -389,6 +389,27 @@ func TestGroupDispatcherWebNoMentionMultiMemberStaysSilent(t *testing.T) {
 	}
 }
 
+// A multi-member platform (non-web) group with no semantic arbiter takes the
+// degraded Warn path and stays silent — it must never broadcast to every member
+// the way the deleted `group_mode: always` fallback once did. This is the
+// positive lock on that branch: it fails if any all-members fallback is
+// reintroduced for platform groups.
+func TestGroupDispatcherPlatformNoMentionMultiMemberNoArbiterStaysSilent(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	addSecondMember(t, fx)
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	count, err := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID)
+	if err != nil {
+		t.Fatalf("count dispatch: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("dispatch rows = %d, want 0 (platform multi-member, no arbiter)", count)
+	}
+}
+
 func TestGroupDispatcherZeroRespondersCompletesOutbox(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
 
