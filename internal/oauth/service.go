@@ -38,7 +38,7 @@ const (
 // the opaque access token. Kept as an interface so the flow never reaches around
 // the front door to emit its own token.
 type AccessIssuer interface {
-	IssueOAuthAccess(ctx context.Context, userID, clientID string, scopes []string, refreshFamilyID string, ttl time.Duration) (plaintext string, rec credential.OAuthAccessRecord, err error)
+	IssueOAuthAccess(ctx context.Context, userID, clientID string, scopes []string, refreshFamilyID string, ttl time.Duration) (plaintext string, err error)
 }
 
 // Service is the authorization-server flow.
@@ -280,7 +280,8 @@ func (s *Service) exchangeCode(ctx context.Context, req TokenRequest) (*TokenRes
 	} else if req.CodeVerifier != "" {
 		return nil, oidc.ErrInvalidGrant().WithDescription("no PKCE challenge was registered")
 	}
-	return s.issueTokens(ctx, code.UserID, client, code.Scopes, "")
+	// New grant: familyID "" opens a fresh family; nothing to rotate from.
+	return s.issueTokens(ctx, code.UserID, client, code.Scopes, "", "")
 }
 
 func (s *Service) exchangeRefresh(ctx context.Context, req TokenRequest) (*TokenResult, error) {
@@ -299,17 +300,19 @@ func (s *Service) exchangeRefresh(ctx context.Context, req TokenRequest) (*Token
 	if err != nil {
 		return nil, oidc.ErrInvalidGrant().WithDescription("unknown refresh token")
 	}
-	if subtle.ConstantTimeCompare([]byte(hashSecret(secret)), []byte(rec.TokenHash)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(credential.HashSecret(secret)), []byte(rec.TokenHash)) != 1 {
 		return nil, oidc.ErrInvalidGrant().WithDescription("invalid refresh token")
+	}
+	// Reuse detection runs before the client-binding check: a token whose secret
+	// is valid but is already consumed or whose family is revoked signals a
+	// compromised family, so revoke it regardless of which authenticated client
+	// presents it.
+	if rec.Consumed || rec.FamilyRevoked {
+		s.revokeFamily(ctx, rec.FamilyID)
+		return nil, oidc.ErrInvalidGrant().WithDescription("refresh token reuse detected; family revoked")
 	}
 	if rec.ClientID != client.ClientID {
 		return nil, oidc.ErrInvalidGrant().WithDescription("refresh token was issued to a different client")
-	}
-	// Reuse detection: a consumed or revoked token means the family is
-	// compromised -- revoke every token in it (access + refresh) and deny.
-	if rec.Consumed || rec.Revoked {
-		s.revokeFamily(ctx, rec.FamilyID)
-		return nil, oidc.ErrInvalidGrant().WithDescription("refresh token reuse detected; family revoked")
 	}
 	if !s.now().UTC().Before(rec.ExpiresAt) {
 		return nil, oidc.ErrInvalidGrant().WithDescription("refresh token expired")
@@ -322,20 +325,33 @@ func (s *Service) exchangeRefresh(ctx context.Context, req TokenRequest) (*Token
 		}
 		scopes = req.Scope
 	}
-	return s.issueTokens(ctx, rec.UserID, client, scopes, rec.PublicID)
+	return s.issueTokens(ctx, rec.UserID, client, scopes, rec.FamilyID, rec.PublicID)
 }
 
-// issueTokens mints a new access token and a new refresh token in a family. When
-// rotating, rotateFromPublicID is the presented refresh token's public id: the
-// new token joins the same family and the old one is consumed pointing at it. A
-// concurrent double-use loses the atomic ConsumeRefresh and revokes the family.
-func (s *Service) issueTokens(ctx context.Context, userID string, client Client, scopes []string, rotateFromPublicID string) (*TokenResult, error) {
-	familyID := ""
-	if rotateFromPublicID != "" {
-		if old, err := s.store.GetRefreshByPublicID(ctx, rotateFromPublicID); err == nil {
-			familyID = old.FamilyID
+// issueTokens mints a new access token and a new refresh token in a family.
+// familyID is "" for the initial authorization_code exchange (a fresh family is
+// opened) and the presented token's family when rotating. When rotating,
+// rotateFromPublicID is the old token's public id: the new token joins the same
+// family and the old one is atomically consumed pointing at it. A concurrent
+// double-use loses ConsumeRefresh and revokes the family; because access-token
+// resolution checks the family at read time, no token minted here can outlive
+// that revoke, so the rotation needs no surrounding transaction.
+func (s *Service) issueTokens(ctx context.Context, userID string, client Client, scopes []string, familyID, rotateFromPublicID string) (*TokenResult, error) {
+	if familyID == "" {
+		// Fresh authorization_code grant: open a family; nothing to rotate from.
+		newFamily, err := s.store.CreateFamily(ctx, userID, client.ClientID)
+		if err != nil {
+			return nil, oidc.ErrServerError().WithParent(err)
 		}
+		familyID = newFamily
 	}
+	return s.mintPair(ctx, userID, client, scopes, familyID, rotateFromPublicID)
+}
+
+// mintPair creates the refresh token in familyID, consumes the rotated-from token
+// if any, and mints the access token. Split from issueTokens so the family is
+// resolved exactly once.
+func (s *Service) mintPair(ctx context.Context, userID string, client Client, scopes []string, familyID, rotateFromPublicID string) (*TokenResult, error) {
 	newRefresh, err := mintRefreshToken()
 	if err != nil {
 		return nil, oidc.ErrServerError().WithParent(err)
@@ -343,11 +359,10 @@ func (s *Service) issueTokens(ctx context.Context, userID string, client Client,
 	created, err := s.store.CreateRefresh(ctx, RefreshCreate{
 		PublicID:  newRefresh.PublicID,
 		TokenHash: newRefresh.TokenHash,
-		Last4:     newRefresh.Last4,
 		ClientID:  client.ClientID,
 		UserID:    userID,
 		Scopes:    scopes,
-		FamilyID:  familyID, // empty => store assigns a new family id
+		FamilyID:  familyID,
 		ExpiresAt: s.now().UTC().Add(s.refreshTTL),
 	})
 	if err != nil {
@@ -360,12 +375,13 @@ func (s *Service) issueTokens(ctx context.Context, userID string, client Client,
 		}
 		if !found {
 			// Lost the race: someone else already rotated this token. Treat as
-			// reuse and revoke the whole family (including the token we just made).
-			s.revokeFamily(ctx, created.FamilyID)
+			// reuse and revoke the whole family (including the token we just made,
+			// which shares familyID and so is rejected at resolve time).
+			s.revokeFamily(ctx, familyID)
 			return nil, oidc.ErrInvalidGrant().WithDescription("refresh token reuse detected; family revoked")
 		}
 	}
-	accessPlain, _, err := s.issuer.IssueOAuthAccess(ctx, userID, client.ClientID, scopes, created.FamilyID, s.accessTTL)
+	accessPlain, err := s.issuer.IssueOAuthAccess(ctx, userID, client.ClientID, scopes, familyID, s.accessTTL)
 	if err != nil {
 		return nil, oidc.ErrServerError().WithParent(err)
 	}
@@ -378,17 +394,15 @@ func (s *Service) issueTokens(ctx context.Context, userID string, client Client,
 	}, nil
 }
 
-// revokeFamily kills a refresh family and its access tokens. Best-effort: logged,
-// not surfaced, since it runs on an already-failing path.
+// revokeFamily kills a refresh family: a single flag that revokes every access
+// and refresh token under it at resolve time. Best-effort: logged, not surfaced,
+// since it runs on an already-failing path.
 func (s *Service) revokeFamily(ctx context.Context, familyID string) {
 	if familyID == "" {
 		return
 	}
-	if _, err := s.store.RevokeRefreshFamily(ctx, familyID); err != nil {
-		s.log.Warn("oauth: revoke refresh family failed", "error", err, "family_id", familyID)
-	}
-	if _, err := s.store.RevokeAccessByFamily(ctx, familyID); err != nil {
-		s.log.Warn("oauth: revoke access by family failed", "error", err, "family_id", familyID)
+	if err := s.store.RevokeFamily(ctx, familyID); err != nil {
+		s.log.Warn("oauth: revoke family failed", "error", err, "family_id", familyID)
 	}
 }
 
@@ -499,16 +513,15 @@ func (s *Service) ListAuthorizedApps(ctx context.Context, userID string) ([]Auth
 	return s.store.ListAuthorizedApps(ctx, userID)
 }
 
-// RevokeGrant revokes a user's grant to a client: every refresh token and every
-// access token the user holds for that client. Idempotent.
+// RevokeGrant revokes a user's grant to a client: every family the user holds for
+// that client (which covers all its refresh + access tokens via the resolve-time
+// family check) plus any outstanding authorization codes, so an in-flight code
+// cannot re-establish the grant. Idempotent.
 func (s *Service) RevokeGrant(ctx context.Context, userID, clientID string) error {
-	if _, err := s.store.RevokeGrantForUser(ctx, userID, clientID); err != nil {
+	if err := s.store.RevokeFamiliesForUserClient(ctx, userID, clientID); err != nil {
 		return err
 	}
-	if _, err := s.store.RevokeAccessForUserClient(ctx, userID, clientID); err != nil {
-		return err
-	}
-	return nil
+	return s.store.RevokeCodesForUserClient(ctx, userID, clientID)
 }
 
 // randToken returns a high-entropy opaque token (used for authorization codes).

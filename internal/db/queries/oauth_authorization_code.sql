@@ -11,3 +11,10 @@ UPDATE oauth_authorization_code
 SET consumed_at = now()
 WHERE code_hash = $1 AND consumed_at IS NULL
 RETURNING *;
+
+-- name: RevokeOAuthAuthorizationCodesForUserClient :execrows
+-- Burn any outstanding (unconsumed) codes when a user revokes a grant, so a code
+-- issued seconds before the revoke cannot be exchanged into a fresh grant.
+UPDATE oauth_authorization_code
+SET consumed_at = now()
+WHERE user_id = $1 AND client_id = $2 AND consumed_at IS NULL;

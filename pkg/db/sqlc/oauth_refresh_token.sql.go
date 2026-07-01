@@ -15,8 +15,8 @@ import (
 const consumeOAuthRefreshToken = `-- name: ConsumeOAuthRefreshToken :one
 UPDATE oauth_refresh_token
 SET consumed_at = now(), replaced_by_id = $2
-WHERE public_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL
-RETURNING id, public_id, token_hash, last4, client_id, user_id, scopes, family_id, replaced_by_id, consumed_at, expires_at, revoked_at, created_at
+WHERE public_id = $1 AND consumed_at IS NULL
+RETURNING id, public_id, token_hash, client_id, user_id, scopes, family_id, replaced_by_id, consumed_at, expires_at, created_at
 `
 
 type ConsumeOAuthRefreshTokenParams struct {
@@ -26,7 +26,8 @@ type ConsumeOAuthRefreshTokenParams struct {
 
 // Rotation: mark the presented token consumed and point it at its replacement,
 // only if it is still active. No row returned means it was already consumed
-// (reuse) or revoked, and the caller must revoke the whole family.
+// (reuse), and the caller must revoke the whole family. Family-level revocation
+// is checked separately at read time via GetOAuthRefreshTokenByPublicID.
 func (q *Queries) ConsumeOAuthRefreshToken(ctx context.Context, arg ConsumeOAuthRefreshTokenParams) (OauthRefreshToken, error) {
 	row := q.db.QueryRow(ctx, consumeOAuthRefreshToken, arg.PublicID, arg.ReplacedByID)
 	var i OauthRefreshToken
@@ -34,7 +35,6 @@ func (q *Queries) ConsumeOAuthRefreshToken(ctx context.Context, arg ConsumeOAuth
 		&i.ID,
 		&i.PublicID,
 		&i.TokenHash,
-		&i.Last4,
 		&i.ClientID,
 		&i.UserID,
 		&i.Scopes,
@@ -42,7 +42,6 @@ func (q *Queries) ConsumeOAuthRefreshToken(ctx context.Context, arg ConsumeOAuth
 		&i.ReplacedByID,
 		&i.ConsumedAt,
 		&i.ExpiresAt,
-		&i.RevokedAt,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -50,15 +49,14 @@ func (q *Queries) ConsumeOAuthRefreshToken(ctx context.Context, arg ConsumeOAuth
 
 const createOAuthRefreshToken = `-- name: CreateOAuthRefreshToken :one
 INSERT INTO oauth_refresh_token (
-    public_id, token_hash, last4, client_id, user_id, scopes, family_id, expires_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, public_id, token_hash, last4, client_id, user_id, scopes, family_id, replaced_by_id, consumed_at, expires_at, revoked_at, created_at
+    public_id, token_hash, client_id, user_id, scopes, family_id, expires_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, public_id, token_hash, client_id, user_id, scopes, family_id, replaced_by_id, consumed_at, expires_at, created_at
 `
 
 type CreateOAuthRefreshTokenParams struct {
 	PublicID  string    `json:"public_id"`
 	TokenHash string    `json:"token_hash"`
-	Last4     string    `json:"last4"`
 	ClientID  string    `json:"client_id"`
 	UserID    string    `json:"user_id"`
 	Scopes    []string  `json:"scopes"`
@@ -70,7 +68,6 @@ func (q *Queries) CreateOAuthRefreshToken(ctx context.Context, arg CreateOAuthRe
 	row := q.db.QueryRow(ctx, createOAuthRefreshToken,
 		arg.PublicID,
 		arg.TokenHash,
-		arg.Last4,
 		arg.ClientID,
 		arg.UserID,
 		arg.Scopes,
@@ -82,7 +79,6 @@ func (q *Queries) CreateOAuthRefreshToken(ctx context.Context, arg CreateOAuthRe
 		&i.ID,
 		&i.PublicID,
 		&i.TokenHash,
-		&i.Last4,
 		&i.ClientID,
 		&i.UserID,
 		&i.Scopes,
@@ -90,25 +86,43 @@ func (q *Queries) CreateOAuthRefreshToken(ctx context.Context, arg CreateOAuthRe
 		&i.ReplacedByID,
 		&i.ConsumedAt,
 		&i.ExpiresAt,
-		&i.RevokedAt,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getOAuthRefreshTokenByPublicID = `-- name: GetOAuthRefreshTokenByPublicID :one
-SELECT id, public_id, token_hash, last4, client_id, user_id, scopes, family_id, replaced_by_id, consumed_at, expires_at, revoked_at, created_at FROM oauth_refresh_token
-WHERE public_id = $1
+SELECT rt.id, rt.public_id, rt.token_hash, rt.client_id, rt.user_id, rt.scopes, rt.family_id, rt.replaced_by_id, rt.consumed_at, rt.expires_at, rt.created_at, f.revoked_at AS family_revoked_at
+FROM oauth_refresh_token rt
+JOIN oauth_refresh_family f ON f.id = rt.family_id
+WHERE rt.public_id = $1
 `
 
-func (q *Queries) GetOAuthRefreshTokenByPublicID(ctx context.Context, publicID string) (OauthRefreshToken, error) {
+type GetOAuthRefreshTokenByPublicIDRow struct {
+	ID              string             `json:"id"`
+	PublicID        string             `json:"public_id"`
+	TokenHash       string             `json:"token_hash"`
+	ClientID        string             `json:"client_id"`
+	UserID          string             `json:"user_id"`
+	Scopes          []string           `json:"scopes"`
+	FamilyID        string             `json:"family_id"`
+	ReplacedByID    pgtype.Text        `json:"replaced_by_id"`
+	ConsumedAt      pgtype.Timestamptz `json:"consumed_at"`
+	ExpiresAt       time.Time          `json:"expires_at"`
+	CreatedAt       time.Time          `json:"created_at"`
+	FamilyRevokedAt pgtype.Timestamptz `json:"family_revoked_at"`
+}
+
+// Joins the family so the caller sees family-level revocation without a second
+// round-trip: a token whose family is revoked is dead even if its own row looks
+// active.
+func (q *Queries) GetOAuthRefreshTokenByPublicID(ctx context.Context, publicID string) (GetOAuthRefreshTokenByPublicIDRow, error) {
 	row := q.db.QueryRow(ctx, getOAuthRefreshTokenByPublicID, publicID)
-	var i OauthRefreshToken
+	var i GetOAuthRefreshTokenByPublicIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.PublicID,
 		&i.TokenHash,
-		&i.Last4,
 		&i.ClientID,
 		&i.UserID,
 		&i.Scopes,
@@ -116,8 +130,8 @@ func (q *Queries) GetOAuthRefreshTokenByPublicID(ctx context.Context, publicID s
 		&i.ReplacedByID,
 		&i.ConsumedAt,
 		&i.ExpiresAt,
-		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.FamilyRevokedAt,
 	)
 	return i, err
 }
@@ -131,8 +145,10 @@ SELECT DISTINCT ON (rt.client_id)
     c.name AS client_name
 FROM oauth_refresh_token rt
 JOIN oauth_client c ON c.client_id = rt.client_id
+JOIN oauth_refresh_family f ON f.id = rt.family_id
 WHERE rt.user_id = $1
-  AND rt.revoked_at IS NULL
+  AND f.revoked_at IS NULL
+  AND rt.consumed_at IS NULL
   AND rt.expires_at > now()
 ORDER BY rt.client_id, rt.created_at DESC
 `
@@ -145,8 +161,9 @@ type ListOAuthAuthorizedAppsRow struct {
 	ClientName string    `json:"client_name"`
 }
 
-// One row per client the user has an active (non-revoked, unexpired) refresh
-// token for: the user-facing "authorized apps" list. Latest grant per client.
+// One row per client the user has an active grant for: the current (unconsumed,
+// unexpired) refresh token of each non-revoked family. The user-facing
+// "authorized apps" list.
 func (q *Queries) ListOAuthAuthorizedApps(ctx context.Context, userID string) ([]ListOAuthAuthorizedAppsRow, error) {
 	rows, err := q.db.Query(ctx, listOAuthAuthorizedApps, userID)
 	if err != nil {
@@ -171,39 +188,4 @@ func (q *Queries) ListOAuthAuthorizedApps(ctx context.Context, userID string) ([
 		return nil, err
 	}
 	return items, nil
-}
-
-const revokeOAuthGrantForUser = `-- name: RevokeOAuthGrantForUser :execrows
-UPDATE oauth_refresh_token
-SET revoked_at = now()
-WHERE user_id = $1 AND client_id = $2 AND revoked_at IS NULL
-`
-
-type RevokeOAuthGrantForUserParams struct {
-	UserID   string `json:"user_id"`
-	ClientID string `json:"client_id"`
-}
-
-// User-initiated per-client revoke: kill every refresh token the user holds for
-// a client. Access-token cascade is handled separately by family.
-func (q *Queries) RevokeOAuthGrantForUser(ctx context.Context, arg RevokeOAuthGrantForUserParams) (int64, error) {
-	result, err := q.db.Exec(ctx, revokeOAuthGrantForUser, arg.UserID, arg.ClientID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const revokeOAuthRefreshFamily = `-- name: RevokeOAuthRefreshFamily :execrows
-UPDATE oauth_refresh_token
-SET revoked_at = now()
-WHERE family_id = $1 AND revoked_at IS NULL
-`
-
-func (q *Queries) RevokeOAuthRefreshFamily(ctx context.Context, familyID string) (int64, error) {
-	result, err := q.db.Exec(ctx, revokeOAuthRefreshFamily, familyID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }

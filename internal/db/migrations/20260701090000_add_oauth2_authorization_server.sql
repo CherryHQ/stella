@@ -47,24 +47,40 @@ CREATE TABLE oauth_authorization_code (
     CONSTRAINT oauth_authorization_code_code_hash_key UNIQUE (code_hash)
 );
 CREATE INDEX idx_oauth_authorization_code_client ON oauth_authorization_code (client_id);
+CREATE INDEX idx_oauth_authorization_code_user_client ON oauth_authorization_code (user_id, client_id);
+
+-- oauth_refresh_family is the unit of revocation. A grant (one authorization_code
+-- exchange) opens one family; every refresh token in the rotation chain and every
+-- access token minted under it point at this row. Revocation -- reuse detection or
+-- a user disconnecting the app -- sets revoked_at on this ONE row, and resolution
+-- of both refresh and access tokens fails closed by joining here. This replaces a
+-- fragile cascade of per-row UPDATEs with a single authoritative flag checked at
+-- read time, so a token can never outlive its revoked family (issue #617 review).
+CREATE TABLE oauth_refresh_family (
+    id         UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id    UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    client_id  TEXT NOT NULL,
+    revoked_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_oauth_refresh_family_user_client ON oauth_refresh_family (user_id, client_id);
 
 -- oauth_refresh_token is the long-lived rotating credential (stella_ort_). Never
 -- resolved at the API boundary -- only at /oauth/token. Rotation: a used token
 -- gets consumed_at + replaced_by_id; presenting a consumed token (reuse) revokes
--- the entire family_id. token_hash is SHA-256 of the opaque secret.
+-- the whole family. token_hash is SHA-256 of the opaque secret. Revocation state
+-- lives on oauth_refresh_family, not here.
 CREATE TABLE oauth_refresh_token (
     id             UUID PRIMARY KEY DEFAULT uuidv7(),
     public_id      TEXT NOT NULL,
     token_hash     TEXT NOT NULL,
-    last4          TEXT NOT NULL DEFAULT '',
     client_id      TEXT NOT NULL,
     user_id        UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     scopes         TEXT[] NOT NULL DEFAULT '{}',
-    family_id      UUID NOT NULL,
+    family_id      UUID NOT NULL REFERENCES oauth_refresh_family(id) ON DELETE CASCADE,
     replaced_by_id UUID NULL,
     consumed_at    TIMESTAMPTZ NULL,
     expires_at     TIMESTAMPTZ NOT NULL,
-    revoked_at     TIMESTAMPTZ NULL,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT oauth_refresh_token_public_id_key UNIQUE (public_id)
 );
@@ -74,8 +90,9 @@ CREATE INDEX idx_oauth_refresh_token_client ON oauth_refresh_token (client_id);
 
 -- oauth_access_token is the opaque stella_oat_ bearer resolved through
 -- internal/credential (kind=oauth). Mirrors personal_access_token: indexed
--- public_id lookup, SHA-256 token_hash, throttled last_used_at, revocation.
--- refresh_family_id ties an access token to its refresh family for cascade revoke.
+-- public_id lookup, SHA-256 token_hash, throttled last_used_at. refresh_family_id
+-- is NOT NULL: every access token belongs to a refresh family and is revoked with
+-- it (checked at resolve time via the family join, not a per-row revoked flag).
 CREATE TABLE oauth_access_token (
     id                UUID PRIMARY KEY DEFAULT uuidv7(),
     public_id         TEXT NOT NULL,
@@ -84,10 +101,9 @@ CREATE TABLE oauth_access_token (
     client_id         TEXT NOT NULL,
     user_id           UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     scopes            TEXT[] NOT NULL DEFAULT '{}',
-    refresh_family_id UUID NULL,
+    refresh_family_id UUID NOT NULL REFERENCES oauth_refresh_family(id) ON DELETE CASCADE,
     expires_at        TIMESTAMPTZ NOT NULL,
     last_used_at      TIMESTAMPTZ NULL,
-    revoked_at        TIMESTAMPTZ NULL,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT oauth_access_token_public_id_key UNIQUE (public_id)
 );
@@ -98,5 +114,6 @@ CREATE INDEX idx_oauth_access_token_family ON oauth_access_token (refresh_family
 -- +goose Down
 DROP TABLE oauth_access_token;
 DROP TABLE oauth_refresh_token;
+DROP TABLE oauth_refresh_family;
 DROP TABLE oauth_authorization_code;
 DROP TABLE oauth_client;

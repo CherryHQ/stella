@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -36,13 +35,26 @@ func (o oauthStore) CreateOAuthAccess(ctx context.Context, rec credential.OAuthA
 		ClientID:        rec.ClientID,
 		UserID:          rec.UserID,
 		Scopes:          rec.Scopes,
-		RefreshFamilyID: textFromString(rec.RefreshFamilyID),
+		RefreshFamilyID: rec.RefreshFamilyID,
 		ExpiresAt:       rec.ExpiresAt.UTC(),
 	})
 	if err != nil {
 		return credential.OAuthAccessRecord{}, err
 	}
-	return oauthAccessFromRow(row), nil
+	// A freshly created access token's family is live, so FamilyRevokedAt is nil.
+	return credential.OAuthAccessRecord{
+		ID:              row.ID,
+		PublicID:        row.PublicID,
+		TokenHash:       row.TokenHash,
+		Last4:           row.Last4,
+		ClientID:        row.ClientID,
+		UserID:          row.UserID,
+		Scopes:          row.Scopes,
+		RefreshFamilyID: row.RefreshFamilyID,
+		ExpiresAt:       row.ExpiresAt.UTC(),
+		LastUsedAt:      ptrFromTimestamptz(row.LastUsedAt),
+		CreatedAt:       row.CreatedAt.UTC(),
+	}, nil
 }
 
 func (o oauthStore) GetOAuthAccessByPublicID(ctx context.Context, publicID string) (credential.OAuthAccessRecord, error) {
@@ -50,28 +62,24 @@ func (o oauthStore) GetOAuthAccessByPublicID(ctx context.Context, publicID strin
 	if err != nil {
 		return credential.OAuthAccessRecord{}, err
 	}
-	return oauthAccessFromRow(row), nil
+	return credential.OAuthAccessRecord{
+		ID:              row.ID,
+		PublicID:        row.PublicID,
+		TokenHash:       row.TokenHash,
+		Last4:           row.Last4,
+		ClientID:        row.ClientID,
+		UserID:          row.UserID,
+		Scopes:          row.Scopes,
+		RefreshFamilyID: row.RefreshFamilyID,
+		ExpiresAt:       row.ExpiresAt.UTC(),
+		LastUsedAt:      ptrFromTimestamptz(row.LastUsedAt),
+		FamilyRevokedAt: ptrFromTimestamptz(row.FamilyRevokedAt),
+		CreatedAt:       row.CreatedAt.UTC(),
+	}, nil
 }
 
 func (o oauthStore) TouchOAuthAccessLastUsed(ctx context.Context, id string) (int64, error) {
 	return o.q.UpdateOAuthAccessTokenLastUsed(ctx, id)
-}
-
-func oauthAccessFromRow(r sqlc.OauthAccessToken) credential.OAuthAccessRecord {
-	return credential.OAuthAccessRecord{
-		ID:              r.ID,
-		PublicID:        r.PublicID,
-		TokenHash:       r.TokenHash,
-		Last4:           r.Last4,
-		ClientID:        r.ClientID,
-		UserID:          r.UserID,
-		Scopes:          r.Scopes,
-		RefreshFamilyID: stringFromText(r.RefreshFamilyID),
-		ExpiresAt:       r.ExpiresAt.UTC(),
-		LastUsedAt:      ptrFromTimestamptz(r.LastUsedAt),
-		RevokedAt:       ptrFromTimestamptz(r.RevokedAt),
-		CreatedAt:       r.CreatedAt.UTC(),
-	}
 }
 
 // ---- oauth.Store: clients ----
@@ -175,29 +183,62 @@ func (o oauthStore) ConsumeCode(ctx context.Context, codeHash string) (oauth.Aut
 	}, true, nil
 }
 
+func (o oauthStore) RevokeCodesForUserClient(ctx context.Context, userID, clientID string) error {
+	_, err := o.q.RevokeOAuthAuthorizationCodesForUserClient(ctx, sqlc.RevokeOAuthAuthorizationCodesForUserClientParams{
+		UserID:   userID,
+		ClientID: clientID,
+	})
+	return err
+}
+
+// ---- oauth.Store: refresh families (the revocation unit) ----
+
+func (o oauthStore) CreateFamily(ctx context.Context, userID, clientID string) (string, error) {
+	row, err := o.q.CreateOAuthRefreshFamily(ctx, sqlc.CreateOAuthRefreshFamilyParams{
+		UserID:   userID,
+		ClientID: clientID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return row.ID, nil
+}
+
+func (o oauthStore) RevokeFamily(ctx context.Context, familyID string) error {
+	_, err := o.q.RevokeOAuthRefreshFamily(ctx, familyID)
+	return err
+}
+
+func (o oauthStore) RevokeFamiliesForUserClient(ctx context.Context, userID, clientID string) error {
+	_, err := o.q.RevokeOAuthRefreshFamiliesForUserClient(ctx, sqlc.RevokeOAuthRefreshFamiliesForUserClientParams{
+		UserID:   userID,
+		ClientID: clientID,
+	})
+	return err
+}
+
 // ---- oauth.Store: refresh tokens ----
 
 func (o oauthStore) CreateRefresh(ctx context.Context, r oauth.RefreshCreate) (oauth.RefreshRecord, error) {
-	familyID := r.FamilyID
-	if familyID == "" {
-		// New family: a fresh grouping key. uuid v4 is fine here -- it is only a
-		// join key for reuse-detection cascade, not an ordered surrogate.
-		familyID = uuid.NewString()
-	}
 	row, err := o.q.CreateOAuthRefreshToken(ctx, sqlc.CreateOAuthRefreshTokenParams{
 		PublicID:  r.PublicID,
 		TokenHash: r.TokenHash,
-		Last4:     r.Last4,
 		ClientID:  r.ClientID,
 		UserID:    r.UserID,
 		Scopes:    r.Scopes,
-		FamilyID:  familyID,
+		FamilyID:  r.FamilyID,
 		ExpiresAt: r.ExpiresAt.UTC(),
 	})
 	if err != nil {
 		return oauth.RefreshRecord{}, err
 	}
-	return oauthRefreshFromRow(row), nil
+	// A freshly created token's family is live; FamilyRevoked stays false.
+	return oauth.RefreshRecord{
+		ID: row.ID, PublicID: row.PublicID, TokenHash: row.TokenHash,
+		ClientID: row.ClientID, UserID: row.UserID, Scopes: row.Scopes,
+		FamilyID: row.FamilyID, ExpiresAt: row.ExpiresAt.UTC(),
+		Consumed: row.ConsumedAt.Valid,
+	}, nil
 }
 
 func (o oauthStore) GetRefreshByPublicID(ctx context.Context, publicID string) (oauth.RefreshRecord, error) {
@@ -205,7 +246,13 @@ func (o oauthStore) GetRefreshByPublicID(ctx context.Context, publicID string) (
 	if err != nil {
 		return oauth.RefreshRecord{}, err
 	}
-	return oauthRefreshFromRow(row), nil
+	return oauth.RefreshRecord{
+		ID: row.ID, PublicID: row.PublicID, TokenHash: row.TokenHash,
+		ClientID: row.ClientID, UserID: row.UserID, Scopes: row.Scopes,
+		FamilyID: row.FamilyID, ExpiresAt: row.ExpiresAt.UTC(),
+		Consumed:      row.ConsumedAt.Valid,
+		FamilyRevoked: row.FamilyRevokedAt.Valid,
+	}, nil
 }
 
 func (o oauthStore) ConsumeRefresh(ctx context.Context, publicID, replacedByID string) (oauth.RefreshRecord, bool, error) {
@@ -219,11 +266,12 @@ func (o oauthStore) ConsumeRefresh(ctx context.Context, publicID, replacedByID s
 	if err != nil {
 		return oauth.RefreshRecord{}, false, err
 	}
-	return oauthRefreshFromRow(row), true, nil
-}
-
-func (o oauthStore) RevokeRefreshFamily(ctx context.Context, familyID string) (int64, error) {
-	return o.q.RevokeOAuthRefreshFamily(ctx, familyID)
+	return oauth.RefreshRecord{
+		ID: row.ID, PublicID: row.PublicID, TokenHash: row.TokenHash,
+		ClientID: row.ClientID, UserID: row.UserID, Scopes: row.Scopes,
+		FamilyID: row.FamilyID, ExpiresAt: row.ExpiresAt.UTC(),
+		Consumed: row.ConsumedAt.Valid,
+	}, true, nil
 }
 
 func (o oauthStore) ListAuthorizedApps(ctx context.Context, userID string) ([]oauth.AuthorizedApp, error) {
@@ -244,43 +292,9 @@ func (o oauthStore) ListAuthorizedApps(ctx context.Context, userID string) ([]oa
 	return out, nil
 }
 
-func (o oauthStore) RevokeGrantForUser(ctx context.Context, userID, clientID string) (int64, error) {
-	return o.q.RevokeOAuthGrantForUser(ctx, sqlc.RevokeOAuthGrantForUserParams{UserID: userID, ClientID: clientID})
-}
-
-func (o oauthStore) RevokeAccessByFamily(ctx context.Context, familyID string) (int64, error) {
-	return o.q.RevokeOAuthAccessTokensByFamily(ctx, textFromString(familyID))
-}
-
-func (o oauthStore) RevokeAccessForUserClient(ctx context.Context, userID, clientID string) (int64, error) {
-	return o.q.RevokeOAuthAccessTokensForUserClient(ctx, sqlc.RevokeOAuthAccessTokensForUserClientParams{UserID: userID, ClientID: clientID})
-}
-
-func oauthRefreshFromRow(r sqlc.OauthRefreshToken) oauth.RefreshRecord {
-	return oauth.RefreshRecord{
-		ID:        r.ID,
-		PublicID:  r.PublicID,
-		TokenHash: r.TokenHash,
-		ClientID:  r.ClientID,
-		UserID:    r.UserID,
-		Scopes:    r.Scopes,
-		FamilyID:  r.FamilyID,
-		ExpiresAt: r.ExpiresAt.UTC(),
-		Consumed:  r.ConsumedAt.Valid,
-		Revoked:   r.RevokedAt.Valid,
-	}
-}
-
 func textFromString(s string) pgtype.Text {
 	if s == "" {
 		return pgtype.Text{}
 	}
 	return pgtype.Text{String: s, Valid: true}
-}
-
-func stringFromText(t pgtype.Text) string {
-	if !t.Valid {
-		return ""
-	}
-	return t.String
 }

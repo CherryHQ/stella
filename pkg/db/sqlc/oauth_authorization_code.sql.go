@@ -83,3 +83,24 @@ func (q *Queries) CreateOAuthAuthorizationCode(ctx context.Context, arg CreateOA
 	)
 	return i, err
 }
+
+const revokeOAuthAuthorizationCodesForUserClient = `-- name: RevokeOAuthAuthorizationCodesForUserClient :execrows
+UPDATE oauth_authorization_code
+SET consumed_at = now()
+WHERE user_id = $1 AND client_id = $2 AND consumed_at IS NULL
+`
+
+type RevokeOAuthAuthorizationCodesForUserClientParams struct {
+	UserID   string `json:"user_id"`
+	ClientID string `json:"client_id"`
+}
+
+// Burn any outstanding (unconsumed) codes when a user revokes a grant, so a code
+// issued seconds before the revoke cannot be exchanged into a fresh grant.
+func (q *Queries) RevokeOAuthAuthorizationCodesForUserClient(ctx context.Context, arg RevokeOAuthAuthorizationCodesForUserClientParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeOAuthAuthorizationCodesForUserClient, arg.UserID, arg.ClientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

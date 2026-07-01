@@ -39,9 +39,12 @@ func (s *Service) resolveOAuth(ctx context.Context, raw string) (*Principal, err
 	if subtle.ConstantTimeCompare([]byte(hashSecret(secret)), []byte(rec.TokenHash)) != 1 {
 		return nil, fmt.Errorf("credential: oauth token secret mismatch")
 	}
-	now := s.now()
-	if rec.RevokedAt != nil {
-		return nil, fmt.Errorf("credential: oauth token revoked")
+	now := s.now().UTC()
+	// Revocation is enforced at the family, checked here at read time: an access
+	// token is dead the moment its refresh family is revoked, regardless of any
+	// write-time cascade. This makes reuse detection fail closed by construction.
+	if rec.FamilyRevokedAt != nil {
+		return nil, fmt.Errorf("credential: oauth token family revoked")
 	}
 	if !now.Before(rec.ExpiresAt) {
 		return nil, fmt.Errorf("credential: oauth token expired")
@@ -71,19 +74,23 @@ func (s *Service) resolveOAuth(ctx context.Context, raw string) (*Principal, err
 	}, nil
 }
 
-// IssueOAuthAccess mints an opaque stella_oat_ access token and persists it. It
-// is the ONLY way the authorization-server token endpoint obtains an access
-// token: internal/oauth calls this instead of ever emitting a JWT, so the
-// opaque-token guardrail holds by construction. The plaintext is returned once.
-func (s *Service) IssueOAuthAccess(ctx context.Context, userID, clientID string, scopes []string, refreshFamilyID string, ttl time.Duration) (plaintext string, rec OAuthAccessRecord, err error) {
+// IssueOAuthAccess mints an opaque stella_oat_ access token and persists it under
+// a refresh family. It is the ONLY way the authorization-server token endpoint
+// obtains an access token: internal/oauth calls this instead of ever emitting a
+// JWT, so the opaque-token guardrail holds by construction. The plaintext is
+// returned once; the persisted record is not, since no caller uses it.
+func (s *Service) IssueOAuthAccess(ctx context.Context, userID, clientID string, scopes []string, refreshFamilyID string, ttl time.Duration) (plaintext string, err error) {
 	if s.oauth == nil {
-		return "", OAuthAccessRecord{}, fmt.Errorf("credential: oauth store not configured")
+		return "", fmt.Errorf("credential: oauth store not configured")
+	}
+	if refreshFamilyID == "" {
+		return "", fmt.Errorf("credential: oauth access token requires a refresh family")
 	}
 	minted, err := MintOpaque(KindOAuth)
 	if err != nil {
-		return "", OAuthAccessRecord{}, err
+		return "", err
 	}
-	rec, err = s.oauth.CreateOAuthAccess(ctx, OAuthAccessRecord{
+	if _, err := s.oauth.CreateOAuthAccess(ctx, OAuthAccessRecord{
 		PublicID:        minted.PublicID,
 		TokenHash:       minted.TokenHash,
 		Last4:           minted.Last4,
@@ -92,9 +99,8 @@ func (s *Service) IssueOAuthAccess(ctx context.Context, userID, clientID string,
 		Scopes:          scopes,
 		RefreshFamilyID: refreshFamilyID,
 		ExpiresAt:       s.now().UTC().Add(ttl),
-	})
-	if err != nil {
-		return "", OAuthAccessRecord{}, fmt.Errorf("credential: create oauth access token: %w", err)
+	}); err != nil {
+		return "", fmt.Errorf("credential: create oauth access token: %w", err)
 	}
-	return minted.Plaintext, rec, nil
+	return minted.Plaintext, nil
 }

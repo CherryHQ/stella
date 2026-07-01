@@ -16,18 +16,18 @@ const createOAuthAccessToken = `-- name: CreateOAuthAccessToken :one
 INSERT INTO oauth_access_token (
     public_id, token_hash, last4, client_id, user_id, scopes, refresh_family_id, expires_at
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, public_id, token_hash, last4, client_id, user_id, scopes, refresh_family_id, expires_at, last_used_at, revoked_at, created_at
+RETURNING id, public_id, token_hash, last4, client_id, user_id, scopes, refresh_family_id, expires_at, last_used_at, created_at
 `
 
 type CreateOAuthAccessTokenParams struct {
-	PublicID        string      `json:"public_id"`
-	TokenHash       string      `json:"token_hash"`
-	Last4           string      `json:"last4"`
-	ClientID        string      `json:"client_id"`
-	UserID          string      `json:"user_id"`
-	Scopes          []string    `json:"scopes"`
-	RefreshFamilyID pgtype.Text `json:"refresh_family_id"`
-	ExpiresAt       time.Time   `json:"expires_at"`
+	PublicID        string    `json:"public_id"`
+	TokenHash       string    `json:"token_hash"`
+	Last4           string    `json:"last4"`
+	ClientID        string    `json:"client_id"`
+	UserID          string    `json:"user_id"`
+	Scopes          []string  `json:"scopes"`
+	RefreshFamilyID string    `json:"refresh_family_id"`
+	ExpiresAt       time.Time `json:"expires_at"`
 }
 
 func (q *Queries) CreateOAuthAccessToken(ctx context.Context, arg CreateOAuthAccessTokenParams) (OauthAccessToken, error) {
@@ -53,20 +53,38 @@ func (q *Queries) CreateOAuthAccessToken(ctx context.Context, arg CreateOAuthAcc
 		&i.RefreshFamilyID,
 		&i.ExpiresAt,
 		&i.LastUsedAt,
-		&i.RevokedAt,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getOAuthAccessTokenByPublicID = `-- name: GetOAuthAccessTokenByPublicID :one
-SELECT id, public_id, token_hash, last4, client_id, user_id, scopes, refresh_family_id, expires_at, last_used_at, revoked_at, created_at FROM oauth_access_token
-WHERE public_id = $1
+SELECT at.id, at.public_id, at.token_hash, at.last4, at.client_id, at.user_id, at.scopes, at.refresh_family_id, at.expires_at, at.last_used_at, at.created_at, f.revoked_at AS family_revoked_at
+FROM oauth_access_token at
+JOIN oauth_refresh_family f ON f.id = at.refresh_family_id
+WHERE at.public_id = $1
 `
 
-func (q *Queries) GetOAuthAccessTokenByPublicID(ctx context.Context, publicID string) (OauthAccessToken, error) {
+type GetOAuthAccessTokenByPublicIDRow struct {
+	ID              string             `json:"id"`
+	PublicID        string             `json:"public_id"`
+	TokenHash       string             `json:"token_hash"`
+	Last4           string             `json:"last4"`
+	ClientID        string             `json:"client_id"`
+	UserID          string             `json:"user_id"`
+	Scopes          []string           `json:"scopes"`
+	RefreshFamilyID string             `json:"refresh_family_id"`
+	ExpiresAt       time.Time          `json:"expires_at"`
+	LastUsedAt      pgtype.Timestamptz `json:"last_used_at"`
+	CreatedAt       time.Time          `json:"created_at"`
+	FamilyRevokedAt pgtype.Timestamptz `json:"family_revoked_at"`
+}
+
+// Joins the family so resolution fails closed on a revoked family without a
+// per-row revoked flag: an access token is valid only while its family lives.
+func (q *Queries) GetOAuthAccessTokenByPublicID(ctx context.Context, publicID string) (GetOAuthAccessTokenByPublicIDRow, error) {
 	row := q.db.QueryRow(ctx, getOAuthAccessTokenByPublicID, publicID)
-	var i OauthAccessToken
+	var i GetOAuthAccessTokenByPublicIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.PublicID,
@@ -78,45 +96,10 @@ func (q *Queries) GetOAuthAccessTokenByPublicID(ctx context.Context, publicID st
 		&i.RefreshFamilyID,
 		&i.ExpiresAt,
 		&i.LastUsedAt,
-		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.FamilyRevokedAt,
 	)
 	return i, err
-}
-
-const revokeOAuthAccessTokensByFamily = `-- name: RevokeOAuthAccessTokensByFamily :execrows
-UPDATE oauth_access_token
-SET revoked_at = now()
-WHERE refresh_family_id = $1 AND revoked_at IS NULL
-`
-
-// Cascade: revoking a refresh family also kills every access token minted under
-// it (refresh replay, user disconnect, client disable).
-func (q *Queries) RevokeOAuthAccessTokensByFamily(ctx context.Context, refreshFamilyID pgtype.Text) (int64, error) {
-	result, err := q.db.Exec(ctx, revokeOAuthAccessTokensByFamily, refreshFamilyID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const revokeOAuthAccessTokensForUserClient = `-- name: RevokeOAuthAccessTokensForUserClient :execrows
-UPDATE oauth_access_token
-SET revoked_at = now()
-WHERE user_id = $1 AND client_id = $2 AND revoked_at IS NULL
-`
-
-type RevokeOAuthAccessTokensForUserClientParams struct {
-	UserID   string `json:"user_id"`
-	ClientID string `json:"client_id"`
-}
-
-func (q *Queries) RevokeOAuthAccessTokensForUserClient(ctx context.Context, arg RevokeOAuthAccessTokensForUserClientParams) (int64, error) {
-	result, err := q.db.Exec(ctx, revokeOAuthAccessTokensForUserClient, arg.UserID, arg.ClientID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const updateOAuthAccessTokenLastUsed = `-- name: UpdateOAuthAccessTokenLastUsed :execrows

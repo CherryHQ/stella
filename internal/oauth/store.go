@@ -5,11 +5,13 @@ import (
 	"time"
 )
 
-// Store is the authorization-server storage the flow needs: clients,
-// single-use authorization codes, and the rotating refresh-token family, plus
-// the access-token cascade-revocation queries. Opaque access-token creation and
-// resolution do NOT live here -- those go through credential.Service so the /api
-// front door stays single. The concrete implementation adapts sqlc in
+// Store is the authorization-server storage the flow needs: clients, single-use
+// authorization codes, refresh families (the revocation unit), and the rotating
+// refresh tokens. Opaque access-token creation and resolution do NOT live here --
+// those go through credential.Service so the /api front door stays single.
+// Revocation is a single flag on the family: killing a family (reuse detection or
+// a user disconnect) revokes every access + refresh token under it, enforced at
+// resolve time by joining the family. The concrete implementation adapts sqlc in
 // internal/server/oauth_wire.go.
 type Store interface {
 	// Clients.
@@ -24,21 +26,30 @@ type Store interface {
 	// ConsumeCode atomically marks a code consumed and returns it. found=false
 	// means the code was unknown or already consumed (replay).
 	ConsumeCode(ctx context.Context, codeHash string) (code AuthCode, found bool, err error)
+	// RevokeCodesForUserClient burns any outstanding codes for a user+client, so a
+	// grant revoke cannot be undone by exchanging an in-flight code.
+	RevokeCodesForUserClient(ctx context.Context, userID, clientID string) error
 
-	// Refresh tokens (rotating family).
+	// Refresh families (the revocation unit).
+	CreateFamily(ctx context.Context, userID, clientID string) (familyID string, err error)
+	// RevokeFamily kills one family (reuse detection or a single-grant revoke).
+	RevokeFamily(ctx context.Context, familyID string) error
+	// RevokeFamiliesForUserClient kills every family a user holds for a client
+	// (user-initiated app disconnect).
+	RevokeFamiliesForUserClient(ctx context.Context, userID, clientID string) error
+
+	// Refresh tokens (rotating within a family).
 	CreateRefresh(ctx context.Context, r RefreshCreate) (RefreshRecord, error)
+	// GetRefreshByPublicID returns the token joined with its family's revoked
+	// state (RefreshRecord.FamilyRevoked), so callers see family revocation at
+	// read time without a second query.
 	GetRefreshByPublicID(ctx context.Context, publicID string) (RefreshRecord, error)
 	// ConsumeRefresh atomically consumes the presented token and links it to its
-	// replacement. found=false means it was already consumed or revoked (replay).
+	// replacement. found=false means it was already consumed (replay); the caller
+	// then revokes the family. Family-level revocation is checked separately via
+	// GetRefreshByPublicID.
 	ConsumeRefresh(ctx context.Context, publicID, replacedByID string) (rec RefreshRecord, found bool, err error)
-	RevokeRefreshFamily(ctx context.Context, familyID string) (int64, error)
 	ListAuthorizedApps(ctx context.Context, userID string) ([]AuthorizedApp, error)
-	RevokeGrantForUser(ctx context.Context, userID, clientID string) (int64, error)
-
-	// Access-token cascade revocation (the rows themselves are owned by
-	// credential; these are the family/user-client kill switches).
-	RevokeAccessByFamily(ctx context.Context, familyID string) (int64, error)
-	RevokeAccessForUserClient(ctx context.Context, userID, clientID string) (int64, error)
 }
 
 // ClientType values.
@@ -99,25 +110,25 @@ type AuthCodeCreate struct {
 	ExpiresAt           time.Time
 }
 
-// RefreshRecord is a stored refresh token.
+// RefreshRecord is a stored refresh token. FamilyRevoked reflects the joined
+// family's revoked state -- the single source of truth for revocation.
 type RefreshRecord struct {
-	ID        string
-	PublicID  string
-	TokenHash string
-	ClientID  string
-	UserID    string
-	Scopes    []string
-	FamilyID  string
-	ExpiresAt time.Time
-	Consumed  bool
-	Revoked   bool
+	ID            string
+	PublicID      string
+	TokenHash     string
+	ClientID      string
+	UserID        string
+	Scopes        []string
+	FamilyID      string
+	ExpiresAt     time.Time
+	Consumed      bool
+	FamilyRevoked bool
 }
 
 // RefreshCreate is the input for persisting a fresh refresh token.
 type RefreshCreate struct {
 	PublicID  string
 	TokenHash string
-	Last4     string
 	ClientID  string
 	UserID    string
 	Scopes    []string

@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
-
-	"github.com/CherryHQ/stella/internal/credential"
 )
 
 // memStore is an in-memory oauth.Store for flow tests. It models the single-use
@@ -18,21 +16,28 @@ import (
 type memStore struct {
 	clients  map[string]Client
 	codes    map[string]AuthCodeCreate // by code_hash; deleted on consume
+	families map[string]*familyRow     // by family id; the revocation unit
 	refresh  map[string]*refreshRow    // by public_id
 	seq      int
-	revokedA map[string]bool // access-token families revoked (by family id)
+}
+
+// familyRow is a refresh family: revoking it kills every refresh + access token
+// under it at read time, mirroring the oauth_refresh_family.revoked_at flag.
+type familyRow struct {
+	userID   string
+	clientID string
+	revoked  bool
 }
 
 type refreshRow struct {
 	rec      RefreshRecord
 	consumed bool
-	revoked  bool
 }
 
 func newMemStore() *memStore {
 	return &memStore{
 		clients: map[string]Client{}, codes: map[string]AuthCodeCreate{},
-		refresh: map[string]*refreshRow{}, revokedA: map[string]bool{},
+		families: map[string]*familyRow{}, refresh: map[string]*refreshRow{},
 	}
 }
 
@@ -101,15 +106,43 @@ func (m *memStore) ConsumeCode(_ context.Context, codeHash string) (AuthCode, bo
 	}, true, nil
 }
 
+func (m *memStore) RevokeCodesForUserClient(_ context.Context, userID, clientID string) error {
+	for h, c := range m.codes {
+		if c.UserID == userID && c.ClientID == clientID {
+			delete(m.codes, h)
+		}
+	}
+	return nil
+}
+
+func (m *memStore) CreateFamily(_ context.Context, userID, clientID string) (string, error) {
+	m.seq++
+	id := fmt.Sprintf("fam-%d", m.seq)
+	m.families[id] = &familyRow{userID: userID, clientID: clientID}
+	return id, nil
+}
+
+func (m *memStore) RevokeFamily(_ context.Context, familyID string) error {
+	if f, ok := m.families[familyID]; ok {
+		f.revoked = true
+	}
+	return nil
+}
+
+func (m *memStore) RevokeFamiliesForUserClient(_ context.Context, userID, clientID string) error {
+	for _, f := range m.families {
+		if f.userID == userID && f.clientID == clientID {
+			f.revoked = true
+		}
+	}
+	return nil
+}
+
 func (m *memStore) CreateRefresh(_ context.Context, r RefreshCreate) (RefreshRecord, error) {
 	m.seq++
-	fam := r.FamilyID
-	if fam == "" {
-		fam = fmt.Sprintf("fam-%d", m.seq)
-	}
 	rec := RefreshRecord{
 		ID: fmt.Sprintf("rid-%d", m.seq), PublicID: r.PublicID, TokenHash: r.TokenHash,
-		ClientID: r.ClientID, UserID: r.UserID, Scopes: r.Scopes, FamilyID: fam, ExpiresAt: r.ExpiresAt,
+		ClientID: r.ClientID, UserID: r.UserID, Scopes: r.Scopes, FamilyID: r.FamilyID, ExpiresAt: r.ExpiresAt,
 	}
 	m.refresh[r.PublicID] = &refreshRow{rec: rec}
 	return rec, nil
@@ -122,50 +155,33 @@ func (m *memStore) GetRefreshByPublicID(_ context.Context, publicID string) (Ref
 	}
 	rec := row.rec
 	rec.Consumed = row.consumed
-	rec.Revoked = row.revoked
+	if f, ok := m.families[rec.FamilyID]; ok {
+		rec.FamilyRevoked = f.revoked
+	}
 	return rec, nil
 }
 
 func (m *memStore) ConsumeRefresh(_ context.Context, publicID, _ string) (RefreshRecord, bool, error) {
+	// Mirrors the SQL: consume is guarded by consumed_at only. Family revocation
+	// is enforced separately at read time via GetRefreshByPublicID.
 	row, ok := m.refresh[publicID]
-	if !ok || row.consumed || row.revoked {
+	if !ok || row.consumed {
 		return RefreshRecord{}, false, nil
 	}
 	row.consumed = true
 	return row.rec, true, nil
 }
 
-func (m *memStore) RevokeRefreshFamily(_ context.Context, familyID string) (int64, error) {
-	var n int64
-	for _, row := range m.refresh {
-		if row.rec.FamilyID == familyID && !row.revoked {
-			row.revoked = true
-			n++
-		}
-	}
-	return n, nil
-}
-
 func (m *memStore) ListAuthorizedApps(context.Context, string) ([]AuthorizedApp, error) {
 	return nil, nil
 }
-func (m *memStore) RevokeGrantForUser(context.Context, string, string) (int64, error) { return 0, nil }
 
-func (m *memStore) RevokeAccessByFamily(_ context.Context, familyID string) (int64, error) {
-	m.revokedA[familyID] = true
-	return 1, nil
-}
-
-func (m *memStore) RevokeAccessForUserClient(context.Context, string, string) (int64, error) {
-	return 0, nil
-}
-
-// fakeIssuer records the access tokens minted through the credential front door.
+// fakeIssuer records the refresh families the access tokens were minted under.
 type fakeIssuer struct{ families []string }
 
-func (f *fakeIssuer) IssueOAuthAccess(_ context.Context, userID, clientID string, scopes []string, family string, _ time.Duration) (string, credential.OAuthAccessRecord, error) {
+func (f *fakeIssuer) IssueOAuthAccess(_ context.Context, _, _ string, _ []string, family string, _ time.Duration) (string, error) {
 	f.families = append(f.families, family)
-	return "stella_oat_fake_" + family, credential.OAuthAccessRecord{UserID: userID, ClientID: clientID, Scopes: scopes}, nil
+	return "stella_oat_fake_" + family, nil
 }
 
 func newTestFlow() (*Service, *memStore, *fakeIssuer) {
@@ -308,9 +324,16 @@ func TestRefreshRotationAndReuseRevokesFamily(t *testing.T) {
 	}); err == nil {
 		t.Fatal("reuse detection must revoke the whole family")
 	}
-	// Access tokens in the family are revoked via cascade.
-	if len(store.revokedA) == 0 {
-		t.Fatal("access-token family cascade revoke must have run")
+	// Reuse detection revokes the family; because access-token resolution checks
+	// the family at read time, every access token under it is dead too.
+	revoked := false
+	for _, f := range store.families {
+		if f.revoked {
+			revoked = true
+		}
+	}
+	if !revoked {
+		t.Fatal("reuse detection must revoke the refresh family")
 	}
 }
 

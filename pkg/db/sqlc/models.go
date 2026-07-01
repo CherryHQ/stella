@@ -495,10 +495,9 @@ type OauthAccessToken struct {
 	ClientID        string             `json:"client_id"`
 	UserID          string             `json:"user_id"`
 	Scopes          []string           `json:"scopes"`
-	RefreshFamilyID pgtype.Text        `json:"refresh_family_id"`
+	RefreshFamilyID string             `json:"refresh_family_id"`
 	ExpiresAt       time.Time          `json:"expires_at"`
 	LastUsedAt      pgtype.Timestamptz `json:"last_used_at"`
-	RevokedAt       pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt       time.Time          `json:"created_at"`
 }
 
@@ -531,11 +530,18 @@ type OauthClient struct {
 	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
+type OauthRefreshFamily struct {
+	ID        string             `json:"id"`
+	UserID    string             `json:"user_id"`
+	ClientID  string             `json:"client_id"`
+	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt time.Time          `json:"created_at"`
+}
+
 type OauthRefreshToken struct {
 	ID           string             `json:"id"`
 	PublicID     string             `json:"public_id"`
 	TokenHash    string             `json:"token_hash"`
-	Last4        string             `json:"last4"`
 	ClientID     string             `json:"client_id"`
 	UserID       string             `json:"user_id"`
 	Scopes       []string           `json:"scopes"`
@@ -543,7 +549,6 @@ type OauthRefreshToken struct {
 	ReplacedByID pgtype.Text        `json:"replaced_by_id"`
 	ConsumedAt   pgtype.Timestamptz `json:"consumed_at"`
 	ExpiresAt    time.Time          `json:"expires_at"`
-	RevokedAt    pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt    time.Time          `json:"created_at"`
 }
 

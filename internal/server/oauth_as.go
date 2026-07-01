@@ -20,16 +20,20 @@ import (
 // stays behind authMiddleware so it has a Stella session; /oauth/token is
 // auth-exempt (it authenticates the client itself).
 
+// parseAuthorizeRequest reads the OAuth parameters via FormValue so a single
+// path serves both the GET consent screen (params in the query) and the approval
+// POST (params echoed as hidden form fields) -- ParseForm merges query and body,
+// so the request no longer depends on the browser preserving the query string on
+// submit.
 func parseAuthorizeRequest(r *http.Request) oauth.AuthorizeRequest {
-	q := r.URL.Query()
 	return oauth.AuthorizeRequest{
-		ClientID:            q.Get("client_id"),
-		RedirectURI:         q.Get("redirect_uri"),
-		ResponseType:        q.Get("response_type"),
-		Scopes:              splitScopes(q.Get("scope")),
-		State:               q.Get("state"),
-		CodeChallenge:       q.Get("code_challenge"),
-		CodeChallengeMethod: q.Get("code_challenge_method"),
+		ClientID:            r.FormValue("client_id"),
+		RedirectURI:         r.FormValue("redirect_uri"),
+		ResponseType:        r.FormValue("response_type"),
+		Scopes:              splitScopes(r.FormValue("scope")),
+		State:               r.FormValue("state"),
+		CodeChallenge:       r.FormValue("code_challenge"),
+		CodeChallengeMethod: r.FormValue("code_challenge_method"),
 	}
 }
 
@@ -100,6 +104,14 @@ func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		writeTokenError(w, oidc.ErrServerError().WithDescription("oauth authorization server is not enabled"))
 		return
 	}
+	// Throttle by IP: the token endpoint is auth-exempt and lets a caller guess
+	// client secrets, authorization codes, and refresh-token secrets, so it needs
+	// the same brute-force ceiling as the login endpoints.
+	ip := clientIP(r)
+	if err := s.rateLimiter.CheckIP(ip); err != nil {
+		writeTokenError(w, oidc.ErrSlowDown().WithDescription("%s", err.Error()))
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		writeTokenError(w, oidc.ErrInvalidRequest().WithDescription("malformed request body"))
 		return
@@ -118,6 +130,11 @@ func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var oerr *oidc.Error
 		if errors.As(err, &oerr) {
+			// Count only credential-guessing failures toward the IP ceiling;
+			// server_error is our fault, not an attacker probing.
+			if oerr.ErrorType == oidc.InvalidClient || oerr.ErrorType == oidc.InvalidGrant {
+				s.rateLimiter.RecordIPAttempt(ip)
+			}
 			writeTokenError(w, oerr)
 			return
 		}

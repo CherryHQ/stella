@@ -58,15 +58,19 @@ func newOAuthTestService() (*Service, *fakeOAuthStore) {
 }
 
 func TestResolveOAuthAccessRoundTrip(t *testing.T) {
-	svc, _ := newOAuthTestService()
+	svc, store := newOAuthTestService()
 	ctx := context.Background()
 
-	plaintext, rec, err := svc.IssueOAuthAccess(ctx, "u1", "client-1", []string{"tasks:read"}, "fam-1", time.Hour)
+	plaintext, err := svc.IssueOAuthAccess(ctx, "u1", "client-1", []string{"tasks:read"}, "fam-1", time.Hour)
 	if err != nil {
 		t.Fatalf("issue oauth access: %v", err)
 	}
-	if rec.PublicID == "" || rec.TokenHash == "" {
-		t.Fatal("issued record missing public id or hash")
+	publicID, _, err := ParseOpaqueToken(OAuthAccessPrefix, plaintext)
+	if err != nil {
+		t.Fatalf("parse issued token: %v", err)
+	}
+	if rec, ok := store.byPublicID[publicID]; !ok || rec.TokenHash == "" {
+		t.Fatal("issued record missing or unhashed")
 	}
 
 	p, err := svc.Resolve(ctx, "Bearer "+plaintext)
@@ -88,21 +92,29 @@ func TestResolveOAuthRevokedAndExpired(t *testing.T) {
 	svc, store := newOAuthTestService()
 	ctx := context.Background()
 
-	// Revoked.
-	plaintext, rec, _ := svc.IssueOAuthAccess(ctx, "u1", "c", []string{"tasks:read"}, "f", time.Hour)
+	// Family revoked -> the access token is dead at read time.
+	plaintext, err := svc.IssueOAuthAccess(ctx, "u1", "c", []string{"tasks:read"}, "f", time.Hour)
+	if err != nil {
+		t.Fatalf("issue oauth access: %v", err)
+	}
+	publicID, _, _ := ParseOpaqueToken(OAuthAccessPrefix, plaintext)
 	now := time.Now()
-	r := store.byPublicID[rec.PublicID]
-	r.RevokedAt = &now
-	store.byPublicID[rec.PublicID] = r
+	r := store.byPublicID[publicID]
+	r.FamilyRevokedAt = &now
+	store.byPublicID[publicID] = r
 	if _, err := svc.Resolve(ctx, "Bearer "+plaintext); err == nil {
-		t.Fatal("revoked oauth token must be denied")
+		t.Fatal("revoked-family oauth token must be denied")
 	}
 
 	// Expired.
-	plaintext2, rec2, _ := svc.IssueOAuthAccess(ctx, "u1", "c", []string{"tasks:read"}, "f", time.Hour)
-	r2 := store.byPublicID[rec2.PublicID]
+	plaintext2, err := svc.IssueOAuthAccess(ctx, "u1", "c", []string{"tasks:read"}, "f", time.Hour)
+	if err != nil {
+		t.Fatalf("issue oauth access: %v", err)
+	}
+	publicID2, _, _ := ParseOpaqueToken(OAuthAccessPrefix, plaintext2)
+	r2 := store.byPublicID[publicID2]
 	r2.ExpiresAt = time.Now().Add(-time.Minute)
-	store.byPublicID[rec2.PublicID] = r2
+	store.byPublicID[publicID2] = r2
 	if _, err := svc.Resolve(ctx, "Bearer "+plaintext2); err == nil {
 		t.Fatal("expired oauth token must be denied")
 	}

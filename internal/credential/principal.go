@@ -89,9 +89,12 @@ type OAuthAccessRecord struct {
 	ClientID        string
 	UserID          string
 	Scopes          []string
-	RefreshFamilyID string // links to a refresh-token family for cascade revoke; "" if none
+	RefreshFamilyID string // the refresh family this token belongs to; always set
 	ExpiresAt       time.Time
 	LastUsedAt      *time.Time
-	RevokedAt       *time.Time
+	// FamilyRevokedAt is the revoked_at of the token's refresh family (nil while
+	// live). Revocation is a single flag on the family, checked here at read time
+	// so an access token can never outlive its revoked family.
+	FamilyRevokedAt *time.Time
 	CreatedAt       time.Time
 }
