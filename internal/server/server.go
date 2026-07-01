@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
+	oauthas "github.com/CherryHQ/stella/internal/oauth"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -48,6 +49,7 @@ type Server struct {
 	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
 	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
 	credResolver   *credential.Service  // unified bearer credential front door (set with tokenSvc)
+	oauthAS        *oauthas.Service     // OAuth2 authorization server (set with tokenSvc)
 	credSvc        *credentials.Service // shared credentials service
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
@@ -151,10 +153,19 @@ func (s *Server) SetVaultService(svc *vault.Service) {
 func (s *Server) SetTokenService(svc *auth.TokenService) {
 	s.tokenSvc = svc
 	ps := patStore{q: s.q}
+	os := oauthStore{q: s.q}
 	s.credResolver = credential.NewService(credential.Config{
 		PATs:   ps,
+		OAuth:  os,
 		Users:  ps,
 		Tokens: tokenBackend{svc: svc},
+		Logger: s.log,
+	})
+	// The authorization server mints access tokens through the credential front
+	// door (never its own JWT) and owns the client/code/refresh storage.
+	s.oauthAS = oauthas.NewService(oauthas.Config{
+		Store:  os,
+		Issuer: s.credResolver,
 		Logger: s.log,
 	})
 }

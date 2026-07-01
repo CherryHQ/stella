@@ -77,3 +77,24 @@ type PATRecord struct {
 	RevokedAt  *time.Time
 	CreatedAt  time.Time
 }
+
+// OAuthAccessRecord is the storage-agnostic shape of an oauth_access_token row.
+// It is the opaque stella_oat_ credential that resolves to a Principal{Kind:oauth}
+// through the same front door as a PAT. Access tokens are NEVER JWTs.
+type OAuthAccessRecord struct {
+	ID              string
+	PublicID        string
+	TokenHash       string
+	Last4           string
+	ClientID        string
+	UserID          string
+	Scopes          []string
+	RefreshFamilyID string // the refresh family this token belongs to; always set
+	ExpiresAt       time.Time
+	LastUsedAt      *time.Time
+	// FamilyRevokedAt is the revoked_at of the token's refresh family (nil while
+	// live). Revocation is a single flag on the family, checked here at read time
+	// so an access token can never outlive its revoked family.
+	FamilyRevokedAt *time.Time
+	CreatedAt       time.Time
+}

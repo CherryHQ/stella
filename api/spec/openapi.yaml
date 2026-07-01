@@ -53,6 +53,7 @@ tags:
   - name: auth-users
   - name: profile
   - name: pat
+  - name: oauth-clients
   - name: auth
   - name: plugins
   - name: status
@@ -253,6 +254,20 @@ paths:
     $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens~1{id}"
   /api/token-scopes:
     $ref: "./domain/pat/paths.yaml#/paths/~1api~1token-scopes"
+
+  # ── OAuth2 clients & authorized apps ─────────────────────────────────────────
+  /api/users/me/oauth-clients:
+    $ref: "./domain/oauth-clients/paths.yaml#/paths/~1api~1users~1me~1oauth-clients"
+  /api/users/me/oauth-clients/{clientId}:
+    $ref: "./domain/oauth-clients/paths.yaml#/paths/~1api~1users~1me~1oauth-clients~1{clientId}"
+  /api/users/me/oauth-clients/{clientId}/rotate-secret:
+    $ref: "./domain/oauth-clients/paths.yaml#/paths/~1api~1users~1me~1oauth-clients~1{clientId}~1rotate-secret"
+  /api/users/me/oauth-client-scopes:
+    $ref: "./domain/oauth-clients/paths.yaml#/paths/~1api~1users~1me~1oauth-client-scopes"
+  /api/users/me/authorized-apps:
+    $ref: "./domain/oauth-clients/paths.yaml#/paths/~1api~1users~1me~1authorized-apps"
+  /api/users/me/authorized-apps/{clientId}:
+    $ref: "./domain/oauth-clients/paths.yaml#/paths/~1api~1users~1me~1authorized-apps~1{clientId}"
 
   # ── Profile ────────────────────────────────────────────────────────────────
   /api/users/me/identities:

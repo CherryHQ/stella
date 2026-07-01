@@ -202,6 +202,16 @@ func TestResolveNonBearerReturnsNilNil(t *testing.T) {
 	}
 }
 
+func TestResolveEmptyBearerHardRejected(t *testing.T) {
+	svc, _ := newTestService(t)
+	for _, header := range []string{"Bearer", "Bearer   "} {
+		p, err := svc.Resolve(context.Background(), header)
+		if p != nil || err == nil {
+			t.Fatalf("empty bearer %q must be hard-rejected; got p=%v err=%v", header, p, err)
+		}
+	}
+}
+
 func TestResolveRefreshTokenHardRejected(t *testing.T) {
 	svc, _ := newTestService(t)
 	p, err := svc.Resolve(context.Background(), "Bearer stella_ort_refreshtoken")

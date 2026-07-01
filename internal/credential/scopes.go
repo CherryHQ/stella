@@ -20,6 +20,10 @@ type Scope struct {
 	// ExposableToPAT controls whether a PAT may be granted this resource.
 	// vault/oauth are sandbox-internal and default-denied to external tokens.
 	ExposableToPAT bool
+	// ExposableToOAuth controls whether a third-party OAuth2 client may be
+	// granted this resource via consent. Same default-deny policy as PATs:
+	// vault:* / oauth:* are never grantable to an OAuth client.
+	ExposableToOAuth bool
 }
 
 // catalog is the single authoritative scope registry. Wildcard resource:* is
@@ -31,18 +35,18 @@ var catalog = []Scope{
 	// messages, and writing workspace files. The Description states this so PAT
 	// consent is not misleading. Splitting sessions/workspace into finer scopes is
 	// a deferred product decision -- keep the copy honest until then.
-	{Resource: "agent", Description: "Full agent access: read config, sessions, messages, and workspace files; write can delete agents, manage members, post messages, and modify files", ExposableToPAT: true},
-	{Resource: "tasks", Description: "Manage tasks", ExposableToPAT: true},
-	{Resource: "goals", Description: "Manage goals", ExposableToPAT: true},
-	{Resource: "scheduler", Description: "Manage scheduled jobs", ExposableToPAT: true},
-	{Resource: "skills", Description: "Manage skills, including installing and uploading skills that run as code in your sandbox", ExposableToPAT: true},
-	{Resource: "shares", Description: "Manage public shares", ExposableToPAT: true},
-	{Resource: "recally", Description: "Manage Recally articles, feeds, and digests", ExposableToPAT: true},
-	{Resource: "email", Description: "Read and send email", ExposableToPAT: true},
+	{Resource: "agent", Description: "Full agent access: read config, sessions, messages, and workspace files; write can delete agents, manage members, post messages, and modify files", ExposableToPAT: true, ExposableToOAuth: true},
+	{Resource: "tasks", Description: "Manage tasks", ExposableToPAT: true, ExposableToOAuth: true},
+	{Resource: "goals", Description: "Manage goals", ExposableToPAT: true, ExposableToOAuth: true},
+	{Resource: "scheduler", Description: "Manage scheduled jobs", ExposableToPAT: true, ExposableToOAuth: true},
+	{Resource: "skills", Description: "Manage skills, including installing and uploading skills that run as code in your sandbox", ExposableToPAT: true, ExposableToOAuth: true},
+	{Resource: "shares", Description: "Manage public shares", ExposableToPAT: true, ExposableToOAuth: true},
+	{Resource: "recally", Description: "Manage Recally articles, feeds, and digests", ExposableToPAT: true, ExposableToOAuth: true},
+	{Resource: "email", Description: "Read and send email", ExposableToPAT: true, ExposableToOAuth: true},
 	// Sandbox-internal capabilities. Dangerous to hand a third party, so they are
-	// NOT exposable to PATs by default (default-deny exposability policy).
-	{Resource: "vault", Description: "Read and write encrypted secrets", ExposableToPAT: false},
-	{Resource: "oauth", Description: "Manage linked OAuth accounts", ExposableToPAT: false},
+	// NOT exposable to PATs or OAuth clients by default (default-deny policy).
+	{Resource: "vault", Description: "Read and write encrypted secrets", ExposableToPAT: false, ExposableToOAuth: false},
+	{Resource: "oauth", Description: "Manage linked OAuth accounts", ExposableToPAT: false, ExposableToOAuth: false},
 }
 
 var catalogByResource = func() map[string]Scope {
@@ -92,6 +96,54 @@ func ValidatePATScopes(scopes []string) (string, bool) {
 		}
 		if action != ActionRead && action != ActionWrite && action != "*" {
 			return sc, false
+		}
+	}
+	return "", true
+}
+
+// OAuthGrantableScopes returns the concrete scope strings an OAuth2 client may
+// be granted (resource:read, resource:write, and resource:* for every
+// OAuth-exposable resource).
+func OAuthGrantableScopes() []string {
+	var out []string
+	for _, s := range catalog {
+		if !s.ExposableToOAuth {
+			continue
+		}
+		out = append(out, s.Resource+":"+ActionRead, s.Resource+":"+ActionWrite, s.Resource+":*")
+	}
+	return out
+}
+
+// ValidateOAuthScopes rejects unknown, malformed, or non-OAuth-exposable scopes,
+// returning the first offending scope. It is the client-allowed-scope gate: a
+// client may only be registered with scopes that pass here. An empty set is
+// allowed (a client with no default scopes requests them per-authorization).
+func ValidateOAuthScopes(scopes []string) (string, bool) {
+	for _, sc := range scopes {
+		resource, action, ok := strings.Cut(sc, ":")
+		if !ok || resource == "" || action == "" {
+			return sc, false
+		}
+		entry, known := catalogByResource[resource]
+		if !known || !entry.ExposableToOAuth {
+			return sc, false
+		}
+		if action != ActionRead && action != ActionWrite && action != "*" {
+			return sc, false
+		}
+	}
+	return "", true
+}
+
+// ScopesSubset reports whether every scope in sub is satisfied by super, where a
+// resource:* in super covers resource:read/resource:write in sub. This is the
+// subset-chain primitive: issued scopes <= code scopes <= client scopes <= user
+// permissions. It returns the first scope in sub not covered by super.
+func ScopesSubset(sub, super []string) (string, bool) {
+	for _, s := range sub {
+		if !MatchScope(super, s) {
+			return s, false
 		}
 	}
 	return "", true
