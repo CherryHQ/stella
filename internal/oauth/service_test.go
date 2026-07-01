@@ -394,3 +394,46 @@ func TestUnknownRedirectURINotRedirected(t *testing.T) {
 		t.Fatalf("unregistered redirect_uri must be a hard error, not a redirect; got %v", err)
 	}
 }
+
+func TestRegisterClientValidatesRedirectURIs(t *testing.T) {
+	svc, _, _ := newTestFlow()
+	bad := []string{
+		"//evil.example/cb",
+		"/callback",
+		"javascript:alert(1)",
+		"http://evil.example/cb",
+		"https://app.example/cb#fragment",
+		" https://app.example/cb",
+	}
+	for _, redirectURI := range bad {
+		_, _, err := svc.RegisterClient(context.Background(), "u1", ClientRegistration{
+			Name: "bad", RedirectURIs: []string{redirectURI}, Scopes: []string{"tasks:read"},
+		})
+		if err == nil {
+			t.Fatalf("redirect_uri %q must be rejected", redirectURI)
+		}
+	}
+
+	if _, _, err := svc.RegisterClient(context.Background(), "u1", ClientRegistration{
+		Name: "loopback", RedirectURIs: []string{"http://127.0.0.1:8080/cb"}, Scopes: []string{"tasks:read"},
+	}); err != nil {
+		t.Fatalf("loopback http redirect_uri should be allowed: %v", err)
+	}
+}
+
+func TestRotateSecretClassifiesErrors(t *testing.T) {
+	svc, _, _ := newTestFlow()
+	if _, err := svc.RotateSecret(context.Background(), "u1", "missing"); !errors.Is(err, ErrClientNotFound) {
+		t.Fatalf("missing client should return ErrClientNotFound, got %v", err)
+	}
+	client, _, err := svc.RegisterClient(context.Background(), "u1", ClientRegistration{
+		Name: "SPA", ClientType: ClientTypePublic,
+		RedirectURIs: []string{"https://spa.example/cb"}, Scopes: []string{"tasks:read"},
+	})
+	if err != nil {
+		t.Fatalf("register public client: %v", err)
+	}
+	if _, err := svc.RotateSecret(context.Background(), "u1", client.ClientID); !errors.Is(err, ErrPublicClientNoSecret) {
+		t.Fatalf("public client should return ErrPublicClientNoSecret, got %v", err)
+	}
+}

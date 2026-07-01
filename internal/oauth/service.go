@@ -16,11 +16,15 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 
@@ -408,6 +412,11 @@ func (s *Service) revokeFamily(ctx context.Context, familyID string) {
 
 // ---- Client management ----
 
+var (
+	ErrClientNotFound       = errors.New("oauth: client not found")
+	ErrPublicClientNoSecret = errors.New("oauth: public clients have no secret")
+)
+
 // ClientRegistration is the input for registering a client.
 type ClientRegistration struct {
 	Name         string
@@ -416,14 +425,61 @@ type ClientRegistration struct {
 	Scopes       []string
 }
 
+func validateRedirectURIs(raw []string) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("at least one redirect_uri is required")
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]bool, len(raw))
+	for _, candidate := range raw {
+		u, err := validateRedirectURI(candidate)
+		if err != nil {
+			return nil, err
+		}
+		if seen[u] {
+			continue
+		}
+		seen[u] = true
+		out = append(out, u)
+	}
+	return out, nil
+}
+
+func validateRedirectURI(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed != raw || strings.ContainsFunc(trimmed, unicode.IsControl) {
+		return "", fmt.Errorf("redirect_uri must be a valid absolute https URI")
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil || !u.IsAbs() || u.Host == "" || u.Fragment != "" || u.User != nil {
+		return "", fmt.Errorf("redirect_uri must be a valid absolute https URI")
+	}
+	if u.Scheme == "https" {
+		return u.String(), nil
+	}
+	if u.Scheme == "http" && isLoopbackHost(u.Hostname()) {
+		return u.String(), nil
+	}
+	return "", fmt.Errorf("redirect_uri must use https, except http loopback for local clients")
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // RegisterClient validates and creates a client. For confidential clients the
 // plaintext secret is returned once (empty for public clients).
 func (s *Service) RegisterClient(ctx context.Context, ownerUserID string, reg ClientRegistration) (Client, string, error) {
 	if strings.TrimSpace(reg.Name) == "" {
 		return Client{}, "", fmt.Errorf("name is required")
 	}
-	if len(reg.RedirectURIs) == 0 {
-		return Client{}, "", fmt.Errorf("at least one redirect_uri is required")
+	redirectURIs, err := validateRedirectURIs(reg.RedirectURIs)
+	if err != nil {
+		return Client{}, "", err
 	}
 	clientType := reg.ClientType
 	if clientType == "" {
@@ -458,7 +514,7 @@ func (s *Service) RegisterClient(ctx context.Context, ownerUserID string, reg Cl
 		Name:             reg.Name,
 		ClientSecretHash: secretHash,
 		ClientType:       clientType,
-		RedirectURIs:     reg.RedirectURIs,
+		RedirectURIs:     redirectURIs,
 		GrantTypes:       []string{string(oidc.GrantTypeCode), string(oidc.GrantTypeRefreshToken)},
 		Scopes:           reg.Scopes,
 		OwnerUserID:      ownerUserID,
@@ -478,10 +534,10 @@ func (s *Service) ListClients(ctx context.Context, ownerUserID string) ([]Client
 func (s *Service) RotateSecret(ctx context.Context, ownerUserID, clientID string) (string, error) {
 	client, err := s.store.GetClient(ctx, clientID)
 	if err != nil || client.OwnerUserID != ownerUserID {
-		return "", fmt.Errorf("client not found")
+		return "", ErrClientNotFound
 	}
 	if client.IsPublic() {
-		return "", fmt.Errorf("public clients have no secret")
+		return "", ErrPublicClientNoSecret
 	}
 	plaintext, err := generateClientSecret()
 	if err != nil {
@@ -496,7 +552,7 @@ func (s *Service) RotateSecret(ctx context.Context, ownerUserID, clientID string
 		return "", err
 	}
 	if n == 0 {
-		return "", fmt.Errorf("client not found")
+		return "", ErrClientNotFound
 	}
 	return plaintext, nil
 }

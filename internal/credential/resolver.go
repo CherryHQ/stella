@@ -97,14 +97,14 @@ func NewService(cfg Config) *Service {
 //     here and never reaches the legacy STELLA_TOKEN lookup.
 //   - (principal, nil): success.
 func (s *Service) Resolve(ctx context.Context, header string) (*Principal, error) {
-	scheme, raw, ok := strings.Cut(strings.TrimSpace(header), " ")
-	if !ok || !strings.EqualFold(scheme, "Bearer") {
+	fields := strings.Fields(header)
+	if len(fields) == 0 || !strings.EqualFold(fields[0], "Bearer") {
 		return nil, nil
 	}
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, nil
+	if len(fields) != 2 {
+		return nil, fmt.Errorf("credential: invalid bearer token")
 	}
+	raw := fields[1]
 
 	switch {
 	case strings.HasPrefix(raw, PATPrefix):

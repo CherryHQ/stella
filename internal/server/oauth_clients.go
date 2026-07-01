@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -107,6 +108,10 @@ func (s *Server) RotateOAuthClientSecret(w http.ResponseWriter, r *http.Request,
 	}
 	secret, err := s.oauthAS.RotateSecret(r.Context(), info.UserID, clientId)
 	if err != nil {
+		if errors.Is(err, oauth.ErrClientNotFound) {
+			writeError(w, http.StatusNotFound, "client not found")
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
