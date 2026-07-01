@@ -26,7 +26,7 @@ Stella 内置了一个通过 WebSocket 连接的 QQ 机器人 —— 持久连�
 5. 输入你的 AppID 和 AppSecret，然后保存。
 6. 重启 `stellad server` 以激活新频道。
 
-所有频道配置（凭据、群组模式、允许的 ID 等）都通过Web UI管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
+所有频道配置（凭据、允许的 ID 等）都通过Web UI管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
 
 ## 多用户支持
 
@@ -50,11 +50,7 @@ Stella 内置了一个通过 WebSocket 连接的 QQ 机器人 —— 持久连�
 
 ## 群组支持
 
-QQ 群组消息作为 @提及事件接收。你可以在Web UI中设置群组模式：
-
-- `mention` -- 响应 @提及（默认）
-- `always` -- 对于 QQ 与 mention 相同（AT 事件始终是提及）
-- `disabled` -- 完全忽略群组消息
+QQ 群组消息作为 @提及事件接收。在群聊中机器人会自动参与，并在被 @提及时响应。若要让机器人不再参与某个群，把它移出该群即可。
 
 ## 访问控制
 
@@ -95,12 +91,11 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 以下所有设置都通过Web UI管理。
 
-| 字段          | 描述                                      | 默认值    |
-| ------------- | ----------------------------------------- | --------- |
-| `app_id`      | QQ Bot AppID                              | （必需）  |
-| `app_secret`  | QQ Bot AppSecret                          | （必需）  |
-| `group_mode`  | 群组行为：`mention`、`always`、`disabled` | `mention` |
-| `allowed_ids` | 允许的用户 OpenID（空 = 所有人）          | `[]`      |
+| 字段          | 描述                             | 默认值   |
+| ------------- | -------------------------------- | -------- |
+| `app_id`      | QQ Bot AppID                     | （必需） |
+| `app_secret`  | QQ Bot AppSecret                 | （必需） |
+| `allowed_ids` | 允许的用户 OpenID（空 = 所有人） | `[]`     |
 
 ## 故障排除
 
@@ -112,8 +107,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 **机器人在群组中不响应？**
 
-- 检查Web UI中的 `group_mode` 设置。默认为 `mention`，即你需要 @提及机器人。
-- QQ 群消息需要 @提及才能触发机器人，即使在 `always` 模式下也是如此。
+- QQ 群消息需要 @提及才能触发机器人。请确认机器人已在群内，并且你 @提及了它。
 
 **文件未被分析？**
 

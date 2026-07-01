@@ -67,7 +67,6 @@ func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message strin
 		UpdatedAt: now,
 		Metadata: map[string]any{
 			"channel_id":          cfg.ChannelID,
-			"group_mode":          cfg.GroupMode,
 			"has_default_channel": cfg.ChannelID != "",
 		},
 	}

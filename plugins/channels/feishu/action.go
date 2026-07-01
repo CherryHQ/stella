@@ -61,9 +61,6 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 	} else if b.client != nil && chatID != "" {
 		chatType = b.getChatType(chatID)
 	}
-	if chatType == "group" && !b.shouldIngestGroup(chatID) {
-		return nil, nil
-	}
 
 	// Extract the action label for the agent message.
 	action, _ := req.Action.Value["action"].(string)

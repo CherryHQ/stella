@@ -2,7 +2,6 @@ package channel
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -407,24 +406,17 @@ func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries,
 	if d.coord != nil && d.coord.semanticGroupArbiter != nil {
 		return d.semanticResponders(ctx, q, outbox.GroupID, message, state, groupMembers)
 	}
-	groupMode := effectivePlatformGroupMode(ctx, q, groupMembers, state)
-	if state.Platform == "web" && groupMode == "mention" {
-		if len(groupMembers) == 1 {
-			return []string{groupMembers[0].AgentID}
-		}
-		if len(groupMembers) > 1 {
-			d.log.Warn("web group has multiple members and no semantic arbiter; configure semantic arbiter", "group_id", outbox.GroupID, "member_count", len(groupMembers))
-		}
-		return nil
+	// No semantic arbiter (degraded/legacy setup with no routing model). A resolved
+	// @mention already returned above; the only remaining auto-reply is a
+	// single-member web group. Every other group stays silent until a semantic
+	// arbiter is wired — there is no all-members broadcast mode anymore.
+	if state.Platform == "web" && len(groupMembers) == 1 {
+		return []string{groupMembers[0].AgentID}
 	}
-	allMembersFallback := groupMode == "always"
-	if d.coord != nil && d.coord.arbiter != nil {
-		return d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
-			AllMembersFallback: allMembersFallback,
-			DisableDebounce:    true,
-		}).RespondingAgents
+	if len(groupMembers) > 1 {
+		d.log.Warn("group has multiple members and no semantic arbiter; configure a routing model for group auto-reply", "group_id", outbox.GroupID, "platform", state.Platform, "member_count", len(groupMembers))
 	}
-	return fallbackGroupDecision(envelope.Mentions, groupMembers, allMembersFallback).RespondingAgents
+	return nil
 }
 
 // semanticResponders builds the semantic request from current DB facts and asks
@@ -722,42 +714,6 @@ func (d *GroupDispatcher) messageAndStateWithQueries(ctx context.Context, q *sql
 		return sqlc.CtxGroupMessage{}, sqlc.CtxGroupState{}, fmt.Errorf("get group state: %w", err)
 	}
 	return message, state, nil
-}
-
-type groupModeConfig struct {
-	GroupMode string                          `json:"group_mode"`
-	Groups    map[string]groupModeGroupConfig `json:"groups"`
-}
-
-type groupModeGroupConfig struct {
-	GroupMode string `json:"group_mode"`
-}
-
-func effectivePlatformGroupMode(ctx context.Context, q *sqlc.Queries, members []GroupMember, state sqlc.CtxGroupState) string {
-	if state.Platform == "web" {
-		return "mention"
-	}
-	for _, member := range members {
-		if member.ReplyChannelID == "" {
-			continue
-		}
-		ch, err := q.GetChannel(ctx, member.ReplyChannelID)
-		if err != nil {
-			continue
-		}
-		var cfg groupModeConfig
-		if err := json.Unmarshal([]byte(ch.Config), &cfg); err != nil {
-			continue
-		}
-		mode := cfg.GroupMode
-		if gc, ok := cfg.Groups[state.PlatformGroupID]; ok && gc.GroupMode != "" {
-			mode = gc.GroupMode
-		}
-		if mode == "always" {
-			return "always"
-		}
-	}
-	return "mention"
 }
 
 func (d *GroupDispatcher) chatDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {

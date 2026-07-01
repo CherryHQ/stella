@@ -37,7 +37,6 @@ func logger() *slog.Logger { return slog.With("component", "feishu") }
 
 // GroupConfig holds per-group overrides, keyed by chat_id in Config.Groups.
 type GroupConfig struct {
-	GroupMode    string   `json:"group_mode"`    // override global group_mode for this group
 	SystemPrompt string   `json:"system_prompt"` // prepend to user message in this group
 	ToolAllow    []string `json:"tool_allow"`    // reserved: only these tools (not yet enforced)
 	ToolDeny     []string `json:"tool_deny"`     // reserved: deny these tools (not yet enforced)
@@ -50,8 +49,7 @@ type Config struct {
 	AppSecret         string                 `json:"app_secret"`
 	EncryptKey        string                 `json:"encrypt_key"`
 	VerificationToken string                 `json:"verification_token"`
-	GroupMode         string                 `json:"group_mode"` // "mention" | "always" | "disabled"
-	Groups            map[string]GroupConfig `json:"groups"`     // per-group overrides keyed by chat_id
+	Groups            map[string]GroupConfig `json:"groups"` // per-group overrides keyed by chat_id
 	TenantKey         string                 `json:"tenant_key"`
 	AutoProvision     bool                   `json:"auto_provision"`
 }
@@ -90,10 +88,6 @@ type Bot struct {
 func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("feishu: app_id and app_secret are required")
-	}
-
-	if cfg.GroupMode == "" {
-		cfg.GroupMode = "mention"
 	}
 
 	b := &Bot{

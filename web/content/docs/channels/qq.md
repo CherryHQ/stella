@@ -26,7 +26,7 @@ Before you start, make sure you have:
 5. Enter your AppID and AppSecret, then save.
 6. Restart `stellad server` to activate the new channel.
 
-All channel configuration (credentials, group mode, allowed IDs, etc.) is managed through the Web UI. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
+All channel configuration (credentials, allowed IDs, etc.) is managed through the Web UI. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
 
 ## Multi-User Support
 
@@ -50,11 +50,7 @@ While the assistant runs tools, you will see status indicators in the stream:
 
 ## Group Support
 
-QQ group messages are received as @mention events. You can set the group mode in the Web UI:
-
-- `mention` -- respond to @mentions (default)
-- `always` -- same as mention for QQ (AT events are always mentions)
-- `disabled` -- ignore group messages entirely
+QQ group messages are received as @mention events. In group chats the bot participates automatically and responds when @mentioned. To stop a bot from participating in a group, remove it from that group.
 
 ## Access Control
 
@@ -95,12 +91,11 @@ Send these commands as text messages to the bot:
 
 All settings below are managed through the Web UI.
 
-| Field         | Description                                     | Default    |
-| ------------- | ----------------------------------------------- | ---------- |
-| `app_id`      | QQ Bot AppID                                    | (required) |
-| `app_secret`  | QQ Bot AppSecret                                | (required) |
-| `group_mode`  | Group behavior: `mention`, `always`, `disabled` | `mention`  |
-| `allowed_ids` | User OpenIDs allowed (empty = all)              | `[]`       |
+| Field         | Description                        | Default    |
+| ------------- | ---------------------------------- | ---------- |
+| `app_id`      | QQ Bot AppID                       | (required) |
+| `app_secret`  | QQ Bot AppSecret                   | (required) |
+| `allowed_ids` | User OpenIDs allowed (empty = all) | `[]`       |
 
 ## Troubleshooting
 
@@ -112,8 +107,7 @@ All settings below are managed through the Web UI.
 
 **Bot not responding in groups?**
 
-- Check the `group_mode` setting in the Web UI. The default is `mention`, which means you need to @mention the bot.
-- QQ group messages require an @mention to trigger the bot, even in `always` mode.
+- QQ group messages require an @mention to trigger the bot. Make sure the bot is a member of the group and that you @mention it.
 
 **Files not being analyzed?**
 

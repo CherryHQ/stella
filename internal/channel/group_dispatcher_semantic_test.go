@@ -121,43 +121,20 @@ func TestSemanticDispatchUnresolvedMentionFallsBackToArbiter(t *testing.T) {
 }
 
 // When a mention resolves to no member and no semantic arbiter is configured, a
-// mention-mode platform group still stays silent — the fallback only borrows the
-// no-mention path, it does not invent a broadcast.
+// platform group still stays silent — the fallback only borrows the no-mention
+// path, it does not invent a broadcast.
 func TestSemanticDispatchUnresolvedMentionNoArbiterStaysSilent(t *testing.T) {
 	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@ghost", PlatformID: "other-bot"}})
 	if err != nil {
 		t.Fatalf("encode envelope: %v", err)
 	}
 	fx := newDispatcherFixture(t, "telegram", envelope)
-	// No semantic arbiter; default group mode is "mention".
+	// No semantic arbiter configured.
 	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
 		t.Fatalf("process outbox: %v", err)
 	}
 	if count, _ := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID); count != 0 {
-		t.Fatalf("dispatch rows = %d, want 0 (mention mode, no arbiter)", count)
-	}
-}
-
-// Positive proof the fall-through path is actually exercised: an unresolved
-// mention in an always-mode group broadcasts via the no-mention path. The
-// pre-#619 code returned zero rows here (mention branch, AllMembersFallback
-// off), so a non-zero result can only come from the new fall-through.
-func TestSemanticDispatchUnresolvedMentionAlwaysModeBroadcasts(t *testing.T) {
-	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@ghost", PlatformID: "other-bot"}})
-	if err != nil {
-		t.Fatalf("encode envelope: %v", err)
-	}
-	fx := newDispatcherFixture(t, "telegram", envelope)
-	if _, err := fx.db.Exec(context.Background(), `UPDATE channel SET config = '{"group_mode":"always"}' WHERE id = 'ch-1'`); err != nil {
-		t.Fatalf("set always mode: %v", err)
-	}
-	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
-
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process outbox: %v", err)
-	}
-	if got := dispatchAgentsByMessage(t, fx.db, fx.message.ID); len(got) != 1 || got[0] != "agent-1" {
-		t.Fatalf("dispatch agents = %v, want [agent-1] (always-mode fall-through)", got)
+		t.Fatalf("dispatch rows = %d, want 0 (no arbiter)", count)
 	}
 }
 
@@ -230,13 +207,10 @@ func TestSemanticDispatchNoReplyProducesZeroRows(t *testing.T) {
 	}
 }
 
-// L1 routing applies even to mention-mode platform groups, where the legacy
-// no-mention path would have stayed silent.
-func TestSemanticDispatchTargetedInMentionMode(t *testing.T) {
+// L1 routing applies to platform groups, where the legacy no-mention path would
+// have stayed silent.
+func TestSemanticDispatchTargetedPlatformGroup(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
-	if _, err := fx.db.Exec(context.Background(), `UPDATE channel SET config = '{"group_mode":"mention"}' WHERE id = 'ch-1'`); err != nil {
-		t.Fatalf("set mention mode: %v", err)
-	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: true, RespondingAgents: []string{"agent-1"}}}
 	fx.d.coord.semanticGroupArbiter = stub
 	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})

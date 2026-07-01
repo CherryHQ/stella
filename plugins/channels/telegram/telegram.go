@@ -30,7 +30,6 @@ type Config struct {
 	InstanceID string // configured channel instance ID
 	Token      string // bot token
 	ChannelID  string // broadcast channel ID or @username
-	GroupMode  string // "mention" | "always" | "disabled"
 }
 
 // Bot wraps a Telegram bot with agent pool integration.
@@ -58,10 +57,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create bot: %w", err)
-	}
-
-	if cfg.GroupMode == "" {
-		cfg.GroupMode = "mention"
 	}
 
 	b := &Bot{
@@ -159,16 +154,9 @@ type chatRef string
 
 func (c chatRef) Recipient() string { return string(c) }
 
-// guard wraps a handler with group mode checks.
+// guard wraps a handler, logging callback pass-through for diagnostics.
 func (b *Bot) guard(h tele.HandlerFunc) tele.HandlerFunc {
 	return func(c tele.Context) error {
-		// Skip group filtering for callback queries — they originate from
-		// the bot's own inline keyboards (e.g. model selection) and don't
-		// carry mention/reply context.
-		if isGroup(c) && c.Callback() == nil && !b.shouldIngestGroup(c) {
-			logger().Debug("guard: skipped disabled group message", "chat", c.Chat().ID)
-			return nil
-		}
 		if c.Callback() != nil {
 			logger().Debug("guard: passing callback through", "data", c.Callback().Data, "unique", c.Callback().Unique)
 		}
@@ -180,10 +168,6 @@ func (b *Bot) guard(h tele.HandlerFunc) tele.HandlerFunc {
 func isGroup(c tele.Context) bool {
 	t := c.Chat().Type
 	return t == tele.ChatGroup || t == tele.ChatSuperGroup
-}
-
-func (b *Bot) shouldIngestGroup(c tele.Context) bool {
-	return b.cfg.GroupMode != "disabled"
 }
 
 // stripBotMention removes @botname from the message text.

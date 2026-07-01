@@ -1084,11 +1084,6 @@ const en = {
   // Channels (additions)
   "channels.linked": "Linked",
   "channels.notLinked": "Not linked",
-  "channels.groupMode": "Group Mode",
-  "channels.groupModeDefault": "Default",
-  "channels.groupModeMention": "Mention",
-  "channels.groupModeAlways": "Always",
-  "channels.groupModeDisabled": "Disabled",
 
   // Credentials (additions)
   "credentials.tab.oauth": "OAuth",
@@ -2766,11 +2761,6 @@ const zh: Record<MessageKey, string> = {
   // Channels (additions)
   "channels.linked": "已关联",
   "channels.notLinked": "未关联",
-  "channels.groupMode": "群组模式",
-  "channels.groupModeDefault": "默认",
-  "channels.groupModeMention": "提及",
-  "channels.groupModeAlways": "始终",
-  "channels.groupModeDisabled": "禁用",
 
   // Credentials (additions)
   "credentials.tab.oauth": "OAuth",
