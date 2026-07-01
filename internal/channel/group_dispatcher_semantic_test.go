@@ -138,6 +138,29 @@ func TestSemanticDispatchUnresolvedMentionNoArbiterStaysSilent(t *testing.T) {
 	}
 }
 
+// Positive proof the fall-through path is actually exercised: an unresolved
+// mention in an always-mode group broadcasts via the no-mention path. The
+// pre-#619 code returned zero rows here (mention branch, AllMembersFallback
+// off), so a non-zero result can only come from the new fall-through.
+func TestSemanticDispatchUnresolvedMentionAlwaysModeBroadcasts(t *testing.T) {
+	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@ghost", PlatformID: "other-bot"}})
+	if err != nil {
+		t.Fatalf("encode envelope: %v", err)
+	}
+	fx := newDispatcherFixture(t, "telegram", envelope)
+	if _, err := fx.db.Exec(context.Background(), `UPDATE channel SET config = '{"group_mode":"always"}' WHERE id = 'ch-1'`); err != nil {
+		t.Fatalf("set always mode: %v", err)
+	}
+	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if got := dispatchAgentsByMessage(t, fx.db, fx.message.ID); len(got) != 1 || got[0] != "agent-1" {
+		t.Fatalf("dispatch agents = %v, want [agent-1] (always-mode fall-through)", got)
+	}
+}
+
 // The mention that DOES resolve still takes the deterministic path and never
 // consults the semantic arbiter, even when other mentions in the same message
 // fail to resolve.
