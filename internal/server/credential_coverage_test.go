@@ -20,9 +20,12 @@ func (m *recordingMux) HandleFunc(pattern string, _ func(http.ResponseWriter, *h
 func (m *recordingMux) ServeHTTP(http.ResponseWriter, *http.Request) {}
 
 // TestEveryAPIRouteHasRegisteredScope is the registration-discipline gate: every
-// generated /api route must be classified by credential.RequiredScope (either an
-// exposed scope or an explicit deny). An unclassified route is a security gap --
-// this fails the build so a new endpoint can never silently default.
+// generated /api route -- down to its sub-resource -- must be classified by
+// credential.RequiredScope (either a scope or an explicit token-deny). An
+// unclassified route is a security gap, so this fails the build. Because
+// RequiredScope now classifies at sub-resource granularity, a newly added
+// /api/agents/{id}/<new> that nobody mapped fails here rather than silently
+// inheriting the broad agent scope.
 func TestEveryAPIRouteHasRegisteredScope(t *testing.T) {
 	rm := &recordingMux{}
 	apiserver.HandlerFromMux(&Server{}, rm)
@@ -34,8 +37,8 @@ func TestEveryAPIRouteHasRegisteredScope(t *testing.T) {
 			continue
 		}
 		seen = true
-		if _, _, registered := credential.RequiredScope(method, path); !registered {
-			t.Errorf("route %s %s has no registered scope classification; add its resource to credential.RequiredScope (exposed) or deniedResources (denied)", method, path)
+		if _, registered := credential.RequiredScope(method, path); !registered {
+			t.Errorf("route %s %s has no registered scope classification; add its resource to credential.RequiredScope or deniedResources", method, path)
 		}
 	}
 	if !seen {

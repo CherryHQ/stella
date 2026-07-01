@@ -25,11 +25,17 @@ type Scope struct {
 // catalog is the single authoritative scope registry. Wildcard resource:* is
 // derived from these entries (a granted "tasks:*" covers tasks:read/tasks:write).
 var catalog = []Scope{
-	{Resource: "agent", Description: "Read agent status and metadata", ExposableToPAT: true},
+	// NOTE: the "agent" scope is coarse. Read grants the full agent surface --
+	// config, sessions, conversation messages, and workspace file contents;
+	// write additionally allows deleting the agent, managing its members, posting
+	// messages, and writing workspace files. The Description states this so PAT
+	// consent is not misleading. Splitting sessions/workspace into finer scopes is
+	// a deferred product decision -- keep the copy honest until then.
+	{Resource: "agent", Description: "Full agent access: read config, sessions, messages, and workspace files; write can delete agents, manage members, post messages, and modify files", ExposableToPAT: true},
 	{Resource: "tasks", Description: "Manage tasks", ExposableToPAT: true},
 	{Resource: "goals", Description: "Manage goals", ExposableToPAT: true},
 	{Resource: "scheduler", Description: "Manage scheduled jobs", ExposableToPAT: true},
-	{Resource: "skills", Description: "Manage skills", ExposableToPAT: true},
+	{Resource: "skills", Description: "Manage skills, including installing and uploading skills that run as code in your sandbox", ExposableToPAT: true},
 	{Resource: "shares", Description: "Manage public shares", ExposableToPAT: true},
 	{Resource: "recally", Description: "Manage Recally articles, feeds, and digests", ExposableToPAT: true},
 	{Resource: "email", Description: "Read and send email", ExposableToPAT: true},

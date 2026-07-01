@@ -85,6 +85,75 @@ func TestEnforceUnregisteredRouteDenied(t *testing.T) {
 	}
 }
 
+// A sandbox scoped token carries broad DefaultSandboxScopes (email:*, skills:*,
+// scheduler:*), but must NOT reach the top-level user-facing APIs -- only the
+// legacy sandbox surface and the agent-bound subtree. This locks the CRITICAL
+// privilege-widening regression (CR-011) where the unified registry exposed
+// top-level email/skills/scheduler to every injected sandbox token.
+func TestEnforceScopedTokenCannotReachTopLevelExternalAPIs(t *testing.T) {
+	p := &Principal{Kind: KindScoped, AgentID: "agent-1", Scopes: pkgauth.DefaultSandboxScopes}
+
+	denied := [][2]string{
+		{"GET", "/api/email/messages"},
+		{"POST", "/api/email/send"},
+		{"GET", "/api/skills"},
+		{"POST", "/api/skills/upload"},
+		{"GET", "/api/scheduler"},
+	}
+	for _, d := range denied {
+		if err := Enforce(p, d[0], d[1]); err == nil {
+			t.Errorf("sandbox scoped token must be denied top-level %s %s", d[0], d[1])
+		}
+	}
+	// The agent-bound equivalents remain reachable (that is why the sandbox scope
+	// set keeps skills:*/scheduler:*).
+	if err := Enforce(p, "POST", "/api/agents/agent-1/skills/install"); err != nil {
+		t.Fatalf("agent-bound skills must stay reachable by a sandbox token: %v", err)
+	}
+}
+
+// A PAT reaches the top-level external APIs (its whole purpose) but must never
+// reach the sandbox-internal vault/oauth surface, even if it somehow presented
+// those scopes. Counterpart to the scoped-token restriction above (CR-011).
+func TestEnforcePATReachesExternalButNotSandboxInternal(t *testing.T) {
+	p := &Principal{Kind: KindPAT, UserID: "u1", Scopes: []string{"email:*", "skills:*", "vault:*", "oauth:*"}}
+
+	if err := Enforce(p, "POST", "/api/email/send"); err != nil {
+		t.Fatalf("PAT with email:* must reach /api/email/send: %v", err)
+	}
+	if err := Enforce(p, "GET", "/api/skills"); err != nil {
+		t.Fatalf("PAT with skills:* must reach /api/skills: %v", err)
+	}
+	if err := Enforce(p, "GET", "/api/vault/EMAIL_CONFIG"); err == nil {
+		t.Fatal("PAT must never reach vault even with vault:* present")
+	}
+	if err := Enforce(p, "POST", "/api/users/me/oauth/github/start"); err == nil {
+		t.Fatal("PAT must never reach oauth even with oauth:* present")
+	}
+}
+
+// An unknown agent sub-resource must fail closed (registered=false) rather than
+// inherit the broad agent scope -- this is what makes the coverage test catch a
+// newly added /api/agents/{id}/<new> at build time (CR-002).
+func TestRequiredScopeUnknownAgentSubResourceFailsClosed(t *testing.T) {
+	if _, registered := RequiredScope("POST", "/api/agents/a1/secrets"); registered {
+		t.Fatal("unknown agent sub-resource must be registered=false (fail-closed)")
+	}
+	// Known sub-resources stay registered.
+	for _, path := range []string{
+		"/api/agents/a1/sessions",
+		"/api/agents/a1/skills",
+		"/api/agents/a1/scheduler/jobs",
+		"/api/agents/a1/projects",
+		"/api/agents/a1/users",
+		"/api/agents/a1",
+	} {
+		if _, registered := RequiredScope("GET", path); !registered {
+			t.Errorf("known route %s must be registered", path)
+		}
+	}
+}
+
 func TestValidatePATScopes(t *testing.T) {
 	if _, ok := ValidatePATScopes(nil); ok {
 		t.Fatal("empty scope set must be rejected")
