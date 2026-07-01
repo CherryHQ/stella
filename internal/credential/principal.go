@@ -1,0 +1,79 @@
+// Package credential is the single front door for turning any bearer credential
+// presented to the HTTP API into an authenticated Principal, and for enforcing
+// what that principal may do.
+//
+// Anti-scatter rule: all credential resolution and authorization lives here.
+// Per-kind differences are thin sub-resolvers (pat.go, scoped.go, internal.go),
+// not logic sprinkled across handlers. Adding a scope touches scopes.go;
+// changing the token format touches mint.go; changing authz touches enforce.go;
+// adding a token kind adds one sub-resolver and leaves the front door intact.
+package credential
+
+import "time"
+
+// Kind identifies which credential family a Principal was resolved from.
+type Kind string
+
+const (
+	// KindPAT is a user-owned personal access token (stella_pat_).
+	KindPAT Kind = "pat"
+	// KindOAuth is an OAuth2 access token (stella_oat_). Reserved for #613.
+	KindOAuth Kind = "oauth"
+	// KindScoped is the existing sandbox scoped token (stella_scoped_).
+	KindScoped Kind = "scoped"
+	// KindLegacyStellaToken is the vault-injected STELLA_TOKEN. Named for
+	// honesty: it bypasses API-scope checks ONLY, not handler ownership/admin.
+	KindLegacyStellaToken Kind = "legacy_stella_token"
+)
+
+// Principal is the single output type of Resolve: the authenticated identity
+// plus the authorization inputs Enforce needs. Identity fields are a snapshot
+// taken at resolve time so callers can build their request context without a
+// second user lookup.
+type Principal struct {
+	Kind   Kind
+	UserID string
+	// AgentID/SessionID/ProjectID are set only for scoped tokens, which are
+	// locked to one agent-session; the enforce subject/object boundary uses them.
+	AgentID   string
+	SessionID string
+	ProjectID string
+	// Scopes is the granted API-permission scope set (resource:action /
+	// resource:*). Empty for legacy_stella_token, which bypasses scope checks.
+	Scopes []string
+
+	// Identity snapshot.
+	Username  string
+	Email     string
+	Name      string
+	AvatarURL string
+	Role      string
+	IsAdmin   bool
+}
+
+// Identity is the user snapshot a backend returns for a resolved credential.
+type Identity struct {
+	UserID    string
+	Username  string
+	Email     string
+	Name      string
+	AvatarURL string
+	Role      string
+	IsAdmin   bool
+	IsActive  bool
+}
+
+// PATRecord is the storage-agnostic shape of a personal_access_token row.
+type PATRecord struct {
+	ID         string
+	PublicID   string
+	UserID     string
+	Name       string
+	TokenHash  string
+	Last4      string
+	Scopes     []string
+	ExpiresAt  *time.Time
+	LastUsedAt *time.Time
+	RevokedAt  *time.Time
+	CreatedAt  time.Time
+}

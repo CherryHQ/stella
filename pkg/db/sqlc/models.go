@@ -487,6 +487,21 @@ type Fact struct {
 	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
+type PersonalAccessToken struct {
+	ID         string             `json:"id"`
+	PublicID   string             `json:"public_id"`
+	UserID     string             `json:"user_id"`
+	Name       string             `json:"name"`
+	TokenHash  string             `json:"token_hash"`
+	Last4      string             `json:"last4"`
+	Scopes     []string           `json:"scopes"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt  time.Time          `json:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at"`
+}
+
 type Plugin struct {
 	ID        string          `json:"id"`
 	Kind      string          `json:"kind"`

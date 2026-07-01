@@ -241,11 +241,11 @@ func (s *Server) resolveVaultScope(w http.ResponseWriter, r *http.Request, info 
 	// admin-managed system scopes. Without this, any agent's sandbox token could
 	// pass scope=user_agent&agent_id=<sibling> to read or overwrite a different
 	// agent's credentials under the same user.
-	if info.Scoped != nil {
+	if boundAgent, _, ok := info.scopedBoundary(); ok {
 		switch scope {
 		case vault.ScopeUser:
 		case vault.ScopeUserAgent:
-			if agentID != info.Scoped.AgentID {
+			if agentID != boundAgent {
 				writeError(w, http.StatusForbidden, "scoped token cannot access another agent's vault")
 				return "", "", false
 			}

@@ -293,9 +293,17 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	// If deactivating, delete all their sessions to force logout.
-	if !body.IsActive && s.sessions != nil {
-		_ = s.sessions.DeleteUserSessions(r.Context(), targetUserID)
+	// If deactivating, delete all their sessions to force logout and cascade-
+	// revoke their PATs so the tokens do not silently reactivate with the account.
+	if !body.IsActive {
+		if s.sessions != nil {
+			_ = s.sessions.DeleteUserSessions(r.Context(), targetUserID)
+		}
+		if s.credResolver != nil {
+			if _, err := s.credResolver.RevokeUserPATs(r.Context(), targetUserID); err != nil {
+				s.log.Error("revoke PATs on deactivation", "error", err, "user_id", targetUserID)
+			}
+		}
 	}
 
 	s.writeAuthUser(w, r, targetUserID)

@@ -1,0 +1,63 @@
+openapi: 3.0.3
+info:
+  title: Personal Access Token Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    PersonalAccessToken:
+      type: object
+      required: [id, name, scopes, last4, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        scopes: { type: array, items: { type: string } }
+        last4: { type: string }
+        expires_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    PersonalAccessTokenList:
+      type: object
+      required: [tokens]
+      properties:
+        tokens:
+          type: array
+          items: { $ref: "#/components/schemas/PersonalAccessToken" }
+
+    CreatePersonalAccessTokenRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name: { type: string }
+        scopes: { type: array, items: { type: string } }
+        # Explicit expiry. Omit for the server default expiry.
+        expires_at: { type: string, format: date-time }
+        # Opt in to a token that never expires. Overrides expires_at.
+        never_expires: { type: boolean, default: false }
+
+    CreatePersonalAccessTokenResponse:
+      type: object
+      required: [token, personal_access_token]
+      properties:
+        # Plaintext token, returned exactly once at creation and never again.
+        token: { type: string }
+        personal_access_token: {
+          $ref: "#/components/schemas/PersonalAccessToken",
+        }
+
+    PersonalAccessTokenScope:
+      type: object
+      required: [id, description]
+      properties:
+        id: { type: string }
+        description: { type: string }
+
+    PersonalAccessTokenScopeList:
+      type: object
+      required: [scopes]
+      properties:
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/PersonalAccessTokenScope" }

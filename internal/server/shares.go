@@ -147,8 +147,8 @@ func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, "agent_id is required for artifact shares")
 		return "", "", nil, errors.New("missing agent_id")
 	}
-	if info := UserFromContext(r.Context()); info != nil && info.Scoped != nil {
-		if agentID != info.Scoped.AgentID || sessionID != info.Scoped.SessionID {
+	if boundAgent, boundSession, ok := UserFromContext(r.Context()).scopedBoundary(); ok {
+		if agentID != boundAgent || sessionID != boundSession {
 			writeError(w, http.StatusForbidden, "permission denied")
 			return "", "", nil, errors.New("permission denied")
 		}
