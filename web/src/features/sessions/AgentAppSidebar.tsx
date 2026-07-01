@@ -3,6 +3,8 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Bell,
+  ChevronDown,
+  ChevronRight,
   Folder,
   FolderPlus,
   MessageSquarePlus,
@@ -39,10 +41,12 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogPopup,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -87,6 +91,22 @@ function parseDirs(paths: string[]): DirEntry[] {
       const parts = clean.split("/");
       return { path: clean, name: parts[parts.length - 1], depth: parts.length - 1 };
     });
+}
+
+// Derive a filesystem-safe folder segment from a project name. Keeps Unicode
+// (Chinese names are valid dir names) but neutralizes path separators and
+// whitespace so the derived path stays a single new child of the root.
+function toFolderSegment(name: string): string {
+  return name
+    .trim()
+    .replace(/[/\\]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/^\.+/, "");
+}
+
+function joinPath(root: string, rel: string): string {
+  const base = root.replace(/\/$/, "");
+  return rel ? `${base}/${rel}` : base;
 }
 
 function FolderTree({
@@ -156,7 +176,7 @@ function FolderTree({
               key={dir.path}
               type="button"
               className={cn(
-                "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs transition-colors",
+                "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors",
                 selected === dir.path
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
@@ -168,7 +188,7 @@ function FolderTree({
               <span className="truncate">{dir.name}</span>
               {hasChildren && (
                 <span
-                  className="ml-auto text-muted-foreground"
+                  className="ml-auto flex size-4 items-center justify-center rounded text-muted-foreground hover:bg-muted"
                   onClick={(event) => {
                     event.stopPropagation();
                     setExpanded((prev) => {
@@ -179,7 +199,11 @@ function FolderTree({
                     });
                   }}
                 >
-                  {expanded.has(dir.path) ? "-" : "+"}
+                  {expanded.has(dir.path) ? (
+                    <ChevronDown className="size-3" />
+                  ) : (
+                    <ChevronRight className="size-3" />
+                  )}
                 </span>
               )}
             </button>
@@ -204,11 +228,20 @@ function CreateProjectDialog({
   const [root, setRoot] = useState("");
   const [selectedDir, setSelectedDir] = useState("");
   const [name, setName] = useState("");
+  const [showLocation, setShowLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const folderName = selectedDir.split("/").pop() ?? "";
-  const effectiveName = name || folderName;
-  const canSubmit = !!root && !!selectedDir && !!effectiveName && !submitting;
+
+  // Two location modes share one form:
+  //   auto   — selectedDir === "": the project gets a fresh folder derived
+  //            from its name (<root>/<segment>); the common case, no browsing.
+  //   custom — selectedDir set: attach to an existing folder the user picked.
+  const custom = !!selectedDir;
+  const segment = toFolderSegment(name);
+  const relDir = custom ? selectedDir : segment;
+  const folderBasename = selectedDir.split("/").pop() ?? "";
+  const effectiveName = custom ? name.trim() || folderBasename : name.trim();
+  const canSubmit = !!root && !!relDir && !!effectiveName && !submitting;
 
   const submit = useCallback(async () => {
     if (!canSubmit) return;
@@ -217,7 +250,7 @@ function CreateProjectDialog({
     try {
       await createProject({
         path: { agentId },
-        body: { name: effectiveName, base_dir: `${root}/${selectedDir}` },
+        body: { name: effectiveName, base_dir: joinPath(root, relDir) },
         throwOnError: true,
       });
       onCreated();
@@ -225,42 +258,67 @@ function CreateProjectDialog({
       setError(err instanceof Error ? err.message : "Failed to create project");
       setSubmitting(false);
     }
-  }, [agentId, canSubmit, effectiveName, onCreated, root, selectedDir]);
+  }, [agentId, canSubmit, effectiveName, onCreated, relDir, root]);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogPopup showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{t("sessions.sidebar.newProject")}</DialogTitle>
-          <DialogDescription>{t("sessions.sidebar.selectFolder")}</DialogDescription>
+          <DialogDescription>{t("sessions.sidebar.projectNameDesc")}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 px-6 py-2">
-          {sessionId ? (
-            <div className="overflow-hidden rounded-lg border border-border">
-              <FolderTree
-                agentId={agentId}
-                sessionId={sessionId}
-                selected={selectedDir}
-                onSelect={(path) => {
-                  setSelectedDir(path);
-                  setName("");
-                }}
-                onRootResolved={setRoot}
-              />
+        <DialogPanel className="space-y-5">
+          {/* Name + its live location caption form one group. */}
+          <div className="space-y-2.5">
+            <Input
+              autoFocus
+              placeholder={t("sessions.sidebar.projectName")}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void submit();
+              }}
+            />
+            <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+              <Folder className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {t("sessions.sidebar.workspaceRoot")}
+                {relDir ? ` / ${relDir}` : ` / ${t("sessions.sidebar.projectName")}`}
+              </span>
             </div>
+          </div>
+
+          {sessionId ? (
+            <Collapsible open={showLocation} onOpenChange={setShowLocation} className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <CollapsibleTrigger render={<Button variant="ghost" size="xs" />}>
+                  {showLocation ? <ChevronDown /> : <ChevronRight />}
+                  {t("sessions.sidebar.changeLocation")}
+                </CollapsibleTrigger>
+                {custom && (
+                  <Button variant="ghost" size="xs" onClick={() => setSelectedDir("")}>
+                    {t("sessions.sidebar.useDefaultFolder")}
+                  </Button>
+                )}
+              </div>
+              <CollapsibleContent keepMounted>
+                <div className="overflow-hidden rounded-lg border border-border p-1">
+                  <FolderTree
+                    agentId={agentId}
+                    sessionId={sessionId}
+                    selected={selectedDir}
+                    onSelect={setSelectedDir}
+                    onRootResolved={setRoot}
+                  />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           ) : (
             <p className="text-xs text-muted-foreground">{t("sessions.sidebar.noActiveSession")}</p>
           )}
-          <Input
-            placeholder={folderName || t("sessions.sidebar.projectName")}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void submit();
-            }}
-          />
+
           {error && <p className="text-xs text-destructive">{error}</p>}
-        </div>
+        </DialogPanel>
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={onClose}>
             {t("common.cancel")}
