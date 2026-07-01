@@ -24,6 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -176,6 +177,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Wire vault service if STELLA_VAULT_KEY is set.
 	var coordOpts []channel.CoordinatorOption
 	var tokenSvc *auth.TokenService
+	var mcpVault mcp.Vault // nil when the vault is unavailable; MCP bearer auth then rejected
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
 	if vaultKey := os.Getenv("STELLA_VAULT_KEY"); vaultKey != "" {
 		vaultSvc, err := vault.NewService(sqlc.New(s.db), vaultKey)
@@ -183,6 +185,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			slog.Warn("vault service init failed; vault endpoints will return 503", "error", err)
 		} else {
 			tokenSvc = auth.NewTokenService(as, vaultSvc)
+			mcpVault = vaultSvc
 			adminSrv.SetVaultService(vaultSvc)
 			adminSrv.SetTokenService(tokenSvc)
 			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
@@ -192,6 +195,13 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
 		}
 	}
+
+	// Wire the MCP client: one registration service shared by the HTTP API
+	// (add/list/remove) and the agent runtime (tool exposure). Servers using
+	// auth_type=none work even without the vault; bearer auth requires it.
+	mcpSvc := mcp.NewService(sqlc.New(s.db), mcpVault)
+	adminSrv.SetMCPService(mcpSvc)
+	s.poolManager.SetMCPToolProvider(gctx, mcp.NewToolProvider(mcpSvc))
 
 	// Wire authentication (external OIDC/OAuth providers and local password auth).
 	oidcStore := appdb.NewOIDCStore(s.db)

@@ -22,6 +22,7 @@ import (
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	oauthas "github.com/CherryHQ/stella/internal/oauth"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -47,6 +48,7 @@ type Server struct {
 	log            *slog.Logger
 	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
 	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
+	mcpSvc         *mcp.Service         // optional; if nil, MCP endpoints return 503
 	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
 	credResolver   *credential.Service  // unified bearer credential front door (set with tokenSvc)
 	oauthAS        *oauthas.Service     // OAuth2 authorization server (set with tokenSvc)
@@ -144,6 +146,12 @@ func (s *Server) SetVaultRecipient(r *age.X25519Recipient) {
 func (s *Server) SetVaultService(svc *vault.Service) {
 	s.vaultSvc = svc
 	s.credSvc.SetVaultService(svc)
+}
+
+// SetMCPService wires the MCP registration service into the admin server.
+// Call before serving requests. If not set (nil), MCP API endpoints return 503.
+func (s *Server) SetMCPService(svc *mcp.Service) {
+	s.mcpSvc = svc
 }
 
 // SetTokenService wires bearer token authentication into the admin server. It

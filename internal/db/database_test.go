@@ -55,7 +55,7 @@ func TestFactsMigrationDownFlushesActiveIdentityFacts(t *testing.T) {
 	}
 	// Roll back to just before the facts migration (20260625090000), so this
 	// test exercises the facts Down regardless of any later migrations stacked
-	// on top of it (e.g. personal_access_token).
+	// on top of it.
 	if _, err := provider.DownTo(ctx, 20260622051501); err != nil {
 		t.Fatalf("goose down to before facts migration: %v", err)
 	}

@@ -31,6 +31,7 @@ import { Route as AppSettingsSkillsRouteImport } from './routes/_app/settings/sk
 import { Route as AppSettingsSandboxRouteImport } from './routes/_app/settings/sandbox'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
 import { Route as AppSettingsPluginsRouteImport } from './routes/_app/settings/plugins'
+import { Route as AppSettingsMcpRouteImport } from './routes/_app/settings/mcp'
 import { Route as AppSettingsEmbeddingRouteImport } from './routes/_app/settings/embedding'
 import { Route as AppSettingsCredentialsRouteImport } from './routes/_app/settings/credentials'
 import { Route as AppSettingsChannelsRouteImport } from './routes/_app/settings/channels'
@@ -185,6 +186,13 @@ const AppSettingsPluginsRoute = AppSettingsPluginsRouteImport.update({
   getParentRoute: () => AppSettingsRoute,
 } as any).lazy(() =>
   import('./routes/_app/settings/plugins.lazy').then((d) => d.Route),
+)
+const AppSettingsMcpRoute = AppSettingsMcpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => AppSettingsRoute,
+} as any).lazy(() =>
+  import('./routes/_app/settings/mcp.lazy').then((d) => d.Route),
 )
 const AppSettingsEmbeddingRoute = AppSettingsEmbeddingRouteImport.update({
   id: '/embedding',
@@ -499,6 +507,7 @@ export interface FileRoutesByFullPath {
   '/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
+  '/settings/mcp': typeof AppSettingsMcpRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/sandbox': typeof AppSettingsSandboxRoute
@@ -554,6 +563,7 @@ export interface FileRoutesByTo {
   '/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
+  '/settings/mcp': typeof AppSettingsMcpRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/sandbox': typeof AppSettingsSandboxRoute
@@ -614,6 +624,7 @@ export interface FileRoutesById {
   '/_app/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/_app/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/_app/settings/embedding': typeof AppSettingsEmbeddingRoute
+  '/_app/settings/mcp': typeof AppSettingsMcpRoute
   '/_app/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/_app/settings/sandbox': typeof AppSettingsSandboxRoute
@@ -674,6 +685,7 @@ export interface FileRouteTypes {
     | '/settings/channels'
     | '/settings/credentials'
     | '/settings/embedding'
+    | '/settings/mcp'
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/sandbox'
@@ -729,6 +741,7 @@ export interface FileRouteTypes {
     | '/settings/channels'
     | '/settings/credentials'
     | '/settings/embedding'
+    | '/settings/mcp'
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/sandbox'
@@ -788,6 +801,7 @@ export interface FileRouteTypes {
     | '/_app/settings/channels'
     | '/_app/settings/credentials'
     | '/_app/settings/embedding'
+    | '/_app/settings/mcp'
     | '/_app/settings/plugins'
     | '/_app/settings/providers'
     | '/_app/settings/sandbox'
@@ -988,6 +1002,13 @@ declare module '@tanstack/react-router' {
       path: '/plugins'
       fullPath: '/settings/plugins'
       preLoaderRoute: typeof AppSettingsPluginsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/mcp': {
+      id: '/_app/settings/mcp'
+      path: '/mcp'
+      fullPath: '/settings/mcp'
+      preLoaderRoute: typeof AppSettingsMcpRouteImport
       parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/embedding': {
@@ -1421,6 +1442,7 @@ interface AppSettingsRouteChildren {
   AppSettingsChannelsRoute: typeof AppSettingsChannelsRouteWithChildren
   AppSettingsCredentialsRoute: typeof AppSettingsCredentialsRouteWithChildren
   AppSettingsEmbeddingRoute: typeof AppSettingsEmbeddingRoute
+  AppSettingsMcpRoute: typeof AppSettingsMcpRoute
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRouteWithChildren
   AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
   AppSettingsSandboxRoute: typeof AppSettingsSandboxRoute
@@ -1436,6 +1458,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsChannelsRoute: AppSettingsChannelsRouteWithChildren,
   AppSettingsCredentialsRoute: AppSettingsCredentialsRouteWithChildren,
   AppSettingsEmbeddingRoute: AppSettingsEmbeddingRoute,
+  AppSettingsMcpRoute: AppSettingsMcpRoute,
   AppSettingsPluginsRoute: AppSettingsPluginsRouteWithChildren,
   AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
   AppSettingsSandboxRoute: AppSettingsSandboxRoute,

@@ -1,0 +1,50 @@
+-- name: CreateMCPServer :one
+INSERT INTO mcp_server (id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING *;
+
+-- name: GetMCPServerByID :one
+SELECT * FROM mcp_server WHERE id = $1;
+
+-- ListMCPServersByScope returns every registration in exactly one scope/owner
+-- bucket, for management (list/delete) operations.
+-- name: ListMCPServersByScope :many
+SELECT * FROM mcp_server
+WHERE scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
+ORDER BY name;
+
+-- ListMCPServersForAgentContext returns the visible, enabled registrations for
+-- one (user, agent), ordered most-specific-first so a name-dedup downstream
+-- keeps the effective server: user_agent > user > system_agent > system.
+-- name: ListMCPServersForAgentContext :many
+SELECT * FROM mcp_server
+WHERE enabled = true
+  AND (
+    scope = 'system'
+    OR (scope = 'system_agent' AND agent_id = sqlc.narg(agent_id))
+    OR (scope = 'user'         AND user_id = sqlc.narg(user_id))
+    OR (scope = 'user_agent'   AND user_id = sqlc.narg(user_id) AND agent_id = sqlc.narg(agent_id))
+  )
+ORDER BY CASE scope
+    WHEN 'user_agent'   THEN 1
+    WHEN 'user'         THEN 2
+    WHEN 'system_agent' THEN 3
+    WHEN 'system'       THEN 4
+  END, name;
+
+-- name: DeleteMCPServerByScope :exec
+DELETE FROM mcp_server
+WHERE id = sqlc.arg(id)
+  AND scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '');
+
+-- name: UpdateMCPServerEnabled :exec
+UPDATE mcp_server
+SET enabled = sqlc.arg(enabled), updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND scope = sqlc.arg(scope)
+  AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+  AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '');
