@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listPersonalAccessTokens,
-  listPersonalAccessTokenScopes,
+  listTokenScopes,
   createPersonalAccessToken,
   revokePersonalAccessToken,
 } from "@/lib/api-client/sdk.gen";
@@ -39,12 +39,12 @@ export function TokensSection({ notify }: { notify: Notify }) {
   const scopesQuery = useQuery({
     queryKey: ["personalAccessTokenScopes"],
     queryFn: async () => {
-      const { data } = await listPersonalAccessTokenScopes({ throwOnError: true });
+      const { data } = await listTokenScopes({ throwOnError: true });
       return data;
     },
   });
 
-  const tokens = tokensQuery.data?.personal_access_tokens ?? [];
+  const tokens = tokensQuery.data?.tokens ?? [];
   const scopeCatalog = useMemo(() => scopesQuery.data?.scopes ?? [], [scopesQuery.data]);
 
   const toggleScope = useCallback((id: string) => {

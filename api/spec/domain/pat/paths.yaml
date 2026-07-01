@@ -44,6 +44,22 @@ paths:
   /api/users/me/tokens/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [pat]
+      summary: Get a personal access token
+      operationId: getPersonalAccessToken
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PersonalAccessToken",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
       tags: [pat]
       summary: Revoke a personal access token
@@ -56,11 +72,11 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/users/me/token-scopes:
+  /api/token-scopes:
     get:
       tags: [pat]
       summary: List the scopes grantable to a personal access token
-      operationId: listPersonalAccessTokenScopes
+      operationId: listTokenScopes
       responses:
         "200":
           description: ok

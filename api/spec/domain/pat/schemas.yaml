@@ -20,9 +20,9 @@ components:
 
     PersonalAccessTokenList:
       type: object
-      required: [personal_access_tokens]
+      required: [tokens]
       properties:
-        personal_access_tokens:
+        tokens:
           type: array
           items: { $ref: "#/components/schemas/PersonalAccessToken" }
 

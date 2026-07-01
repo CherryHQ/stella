@@ -29,6 +29,7 @@ var deniedResources = map[string]bool{
 	"plugins":            true,
 	"provider-types":     true,
 	"providers":          true,
+	"token-scopes":       true,
 	"tools":              true,
 }
 

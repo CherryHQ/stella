@@ -37,7 +37,31 @@ func (s *Server) ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request
 	for _, rec := range recs {
 		out = append(out, patToAPI(rec))
 	}
-	writeData(w, http.StatusOK, apitypes.PersonalAccessTokenList{PersonalAccessTokens: out})
+	writeData(w, http.StatusOK, apitypes.PersonalAccessTokenList{Tokens: out})
+}
+
+// GetPersonalAccessToken handles GET /api/users/me/tokens/{id}. The lookup is
+// scoped to the caller, so a token owned by another user is indistinguishable
+// from a missing one (404) -- ownership is checked before existence is revealed.
+func (s *Server) GetPersonalAccessToken(w http.ResponseWriter, r *http.Request, id string) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	if s.credResolver == nil {
+		writeError(w, http.StatusServiceUnavailable, "personal access tokens not configured")
+		return
+	}
+	rec, found, err := s.credResolver.GetPAT(r.Context(), id, info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "get token failed")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "token not found")
+		return
+	}
+	writeData(w, http.StatusOK, patToAPI(rec))
 }
 
 // CreatePersonalAccessToken handles POST /api/users/me/tokens. The plaintext
@@ -101,10 +125,11 @@ func (s *Server) RevokePersonalAccessToken(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListPersonalAccessTokenScopes handles GET /api/users/me/token-scopes. It is
-// the single source of truth for the PAT creation UI: server-side catalog +
+// ListTokenScopes handles GET /api/token-scopes. The grantable-scope catalog is
+// global metadata (identical for every user), so it lives at the top level. It
+// is the single source of truth for the PAT creation UI: server-side catalog +
 // exposability policy.
-func (s *Server) ListPersonalAccessTokenScopes(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListTokenScopes(w http.ResponseWriter, r *http.Request) {
 	if info := requireAuth(w, r); info == nil {
 		return
 	}

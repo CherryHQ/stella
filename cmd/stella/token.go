@@ -46,7 +46,7 @@ func tokenListCommand() *ucli.Command {
 				return cli.PrintJSON(c, list)
 			}
 			o := cli.Stdout(c)
-			toks := list.PersonalAccessTokens
+			toks := list.Tokens
 			if len(toks) == 0 {
 				o.Println("No personal access tokens.")
 				return o.Err()
@@ -68,7 +68,7 @@ func tokenScopesCommand() *ucli.Command {
 		Flags: []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			list, err := apiclient.Call[apitypes.PersonalAccessTokenScopeList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListPersonalAccessTokenScopes(c.Context)
+				return api.ListTokenScopes(c.Context)
 			})
 			if err != nil {
 				return err

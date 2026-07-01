@@ -153,6 +153,27 @@ func (s *Service) ListPAT(ctx context.Context, userID string) ([]PATRecord, erro
 	return s.pats.ListPATByUser(ctx, userID)
 }
 
+// GetPAT returns one of the user's own PATs by id. The scan is over the caller's
+// tokens only, so ownership is enforced before existence is revealed: a token
+// owned by another user reports found=false, identical to a missing one.
+// Linear over the user's list (bounded, a handful per user); add a scoped
+// single-row query if that ever stops holding.
+func (s *Service) GetPAT(ctx context.Context, id, userID string) (PATRecord, bool, error) {
+	if s.pats == nil {
+		return PATRecord{}, false, fmt.Errorf("credential: PAT store not configured")
+	}
+	recs, err := s.pats.ListPATByUser(ctx, userID)
+	if err != nil {
+		return PATRecord{}, false, err
+	}
+	for _, rec := range recs {
+		if rec.ID == id {
+			return rec, true, nil
+		}
+	}
+	return PATRecord{}, false, nil
+}
+
 // RevokePAT revokes one of the user's own PATs. It reports whether a row was
 // revoked (false = not found or already revoked).
 func (s *Service) RevokePAT(ctx context.Context, id, userID string) (bool, error) {

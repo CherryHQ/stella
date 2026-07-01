@@ -251,8 +251,8 @@ paths:
     $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens"
   /api/users/me/tokens/{id}:
     $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens~1{id}"
-  /api/users/me/token-scopes:
-    $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1token-scopes"
+  /api/token-scopes:
+    $ref: "./domain/pat/paths.yaml#/paths/~1api~1token-scopes"
 
   # ── Profile ────────────────────────────────────────────────────────────────
   /api/users/me/identities:
