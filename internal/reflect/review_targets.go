@@ -9,58 +9,58 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
-// candidate represents a session that may need review.
-type candidate struct {
+// reviewTarget represents a session that may need review.
+type reviewTarget struct {
 	session    memory.Session
 	lastActive time.Time // from SessionInfo — used as tiebreaker
 	lastReview time.Time // zero if never reviewed
 }
 
-func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, agentID string) ([]candidate, error) {
+func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, agentID string) ([]reviewTarget, error) {
 	sessions, err := listSessionInfoForReview(ctx, sm, agentID)
 	if err != nil {
 		return nil, err
 	}
 
-	candidates := make([]candidate, 0, len(sessions))
+	targets := make([]reviewTarget, 0, len(sessions))
 	for _, sess := range sessions {
-		cand, ok := s.unreviewedCandidate(ctx, sess)
+		target, ok := s.unreviewedTarget(ctx, sess)
 		if !ok {
 			continue
 		}
-		candidates = append(candidates, cand)
+		targets = append(targets, target)
 	}
 
-	sortCandidates(candidates)
-	if len(candidates) > s.batch {
-		candidates = candidates[:s.batch]
+	sortReviewTargets(targets)
+	if len(targets) > s.batch {
+		targets = targets[:s.batch]
 	}
-	return candidates, nil
+	return targets, nil
 }
 
 // listUnreviewedFromRegistry uses session.Registry.ListForReview to apply the
 // default review policy (excludes delegate/task/scheduler sessions) and
 // Registry.MemoryScope to build authorised memory.Session values.
-func (s *Service) listUnreviewedFromRegistry(ctx context.Context, reg *session.Registry, agentID string) ([]candidate, error) {
+func (s *Service) listUnreviewedFromRegistry(ctx context.Context, reg *session.Registry, agentID string) ([]reviewTarget, error) {
 	infos, err := reg.ListForReview(ctx, session.ReviewRequest{AgentID: agentID, Policy: session.DefaultReviewPolicy()})
 	if err != nil {
 		return nil, err
 	}
 
-	candidates := make([]candidate, 0, len(infos))
+	targets := make([]reviewTarget, 0, len(infos))
 	for _, info := range infos {
-		cand, ok := s.unreviewedCandidateFromRegistry(ctx, reg, info)
+		target, ok := s.unreviewedTargetFromRegistry(ctx, reg, info)
 		if !ok {
 			continue
 		}
-		candidates = append(candidates, cand)
+		targets = append(targets, target)
 	}
 
-	sortCandidates(candidates)
-	if len(candidates) > s.batch {
-		candidates = candidates[:s.batch]
+	sortReviewTargets(targets)
+	if len(targets) > s.batch {
+		targets = targets[:s.batch]
 	}
-	return candidates, nil
+	return targets, nil
 }
 
 func listSessionInfoForReview(ctx context.Context, sm memory.SessionManager, agentID string) ([]memory.SessionInfo, error) {
@@ -74,42 +74,42 @@ func listSessionInfoForReview(ctx context.Context, sm memory.SessionManager, age
 	return sm.ListInfo(ctx, opts)
 }
 
-func (s *Service) unreviewedCandidateFromRegistry(ctx context.Context, reg *session.Registry, info session.Info) (candidate, bool) {
+func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session.Registry, info session.Info) (reviewTarget, bool) {
 	if info.UserID == "" {
-		return candidate{}, false
+		return reviewTarget{}, false
 	}
 
 	wm, err := s.wm.get(ctx, info.ID)
 	if err != nil {
 		s.log.Warn("reflect: watermark lookup failed, skipping session", "session", info.ID, "error", err)
-		return candidate{}, false
+		return reviewTarget{}, false
 	}
 	if !info.LastActive.After(wm) {
-		return candidate{}, false
+		return reviewTarget{}, false
 	}
 
-	return candidate{
+	return reviewTarget{
 		session:    reg.MemoryScope(info),
 		lastActive: info.LastActive,
 		lastReview: wm,
 	}, true
 }
 
-func (s *Service) unreviewedCandidate(ctx context.Context, sess memory.SessionInfo) (candidate, bool) {
+func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo) (reviewTarget, bool) {
 	if sess.UserID == "" {
-		return candidate{}, false
+		return reviewTarget{}, false
 	}
 
 	wm, err := s.wm.get(ctx, sess.ID)
 	if err != nil {
 		s.log.Warn("reflect: watermark lookup failed, skipping session", "session", sess.ID, "error", err)
-		return candidate{}, false
+		return reviewTarget{}, false
 	}
 	if !sess.LastActive.After(wm) {
-		return candidate{}, false
+		return reviewTarget{}, false
 	}
 
-	return candidate{
+	return reviewTarget{
 		session: memory.Session{
 			ID:      sess.ID,
 			AgentID: sess.AgentID,
@@ -121,11 +121,11 @@ func (s *Service) unreviewedCandidate(ctx context.Context, sess memory.SessionIn
 	}, true
 }
 
-func sortCandidates(candidates []candidate) {
-	sort.Slice(candidates, func(i, j int) bool {
-		ri, rj := candidates[i].lastReview, candidates[j].lastReview
+func sortReviewTargets(targets []reviewTarget) {
+	sort.Slice(targets, func(i, j int) bool {
+		ri, rj := targets[i].lastReview, targets[j].lastReview
 		if ri.Equal(rj) {
-			return candidates[i].lastActive.Before(candidates[j].lastActive)
+			return targets[i].lastActive.Before(targets[j].lastActive)
 		}
 		return ri.Before(rj)
 	})

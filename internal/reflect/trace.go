@@ -34,13 +34,13 @@ func startAgentSpan(ctx context.Context, agentID string) (context.Context, trace
 }
 
 // startConversationSpan starts a span covering a single conversation review.
-func startConversationSpan(ctx context.Context, c candidate) (context.Context, trace.Span) {
+func startConversationSpan(ctx context.Context, target reviewTarget) (context.Context, trace.Span) {
 	ctx, span := tracer.Start(ctx, "reflect.review_conversation",
 		trace.WithAttributes(
-			attribute.String("gen_ai.conversation.id", c.session.ID),
-			attribute.String("agent_id", c.session.AgentID),
-			attribute.String("user_id", c.session.UserID),
-			attribute.String("stella.chat.channel", c.session.Channel),
+			attribute.String("gen_ai.conversation.id", target.session.ID),
+			attribute.String("agent_id", target.session.AgentID),
+			attribute.String("user_id", target.session.UserID),
+			attribute.String("stella.chat.channel", target.session.Channel),
 		),
 	)
 	return ctx, span

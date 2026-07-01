@@ -65,33 +65,33 @@ func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, 
 	ctx, span := startAgentSpan(ctx, snap.AgentID)
 	defer span.End()
 
-	var candidates []candidate
+	var targets []reviewTarget
 	var err error
 
 	if s.services != nil {
 		if svc := s.services.GetService(snap.AgentID); svc != nil {
-			candidates, err = s.listUnreviewedFromRegistry(ctx, svc.Sessions, snap.AgentID)
+			targets, err = s.listUnreviewedFromRegistry(ctx, svc.Sessions, snap.AgentID)
 		}
 	}
-	if candidates == nil && err == nil {
+	if targets == nil && err == nil {
 		// Fallback: use direct SessionManager if services not wired.
 		sm, ok := s.memory.(memory.SessionManager)
 		if !ok {
 			return 0, nil
 		}
-		candidates, err = s.listUnreviewed(ctx, sm, snap.AgentID)
+		targets, err = s.listUnreviewed(ctx, sm, snap.AgentID)
 	}
 	if err != nil {
 		recordError(span, err)
 		return 0, fmt.Errorf("list unreviewed: %w", err)
 	}
 
-	span.SetAttributes(attribute.Int("stella.reflect.candidate_count", len(candidates)))
+	span.SetAttributes(attribute.Int("stella.reflect.review_target_count", len(targets)))
 
 	reviewed := 0
-	for _, c := range candidates {
-		if err := s.reviewConversation(ctx, snap, c); err != nil {
-			s.log.Error("reflect: review conversation", "session", c.session.ID, "error", err)
+	for _, target := range targets {
+		if err := s.reviewConversation(ctx, snap, target); err != nil {
+			s.log.Error("reflect: review conversation", "session", target.session.ID, "error", err)
 			continue
 		}
 		reviewed++

@@ -80,16 +80,37 @@ func TestListUnreviewed_SkipsAnonymous(t *testing.T) {
 	seedFakeSession(t, fake, "s1", "a", "", now)  // anonymous
 	seedFakeSession(t, fake, "s2", "a", "1", now) // has user
 
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 review target, got %d", len(targets))
 	}
-	if candidates[0].session.ID != "s2" {
-		t.Errorf("expected session s2, got %s", candidates[0].session.ID)
+	if targets[0].session.ID != "s2" {
+		t.Errorf("expected session s2, got %s", targets[0].session.ID)
 	}
+}
+
+func TestListUnreviewed_ReturnsReviewTargets(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
+
+	now := time.Now().UTC()
+	seedFakeSession(t, fake, "s1", "a", "1", now)
+
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertReviewTargets(t, targets)
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 review target, got %d", len(targets))
+	}
+}
+
+func assertReviewTargets(t *testing.T, _ []reviewTarget) {
+	t.Helper()
 }
 
 func TestListUnreviewed_UsesReviewListerWithoutUserScope(t *testing.T) {
@@ -97,15 +118,15 @@ func TestListUnreviewed_UsesReviewListerWithoutUserScope(t *testing.T) {
 	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
 
 	seedFakeSession(t, fake.Fake, "s1", "a", "1", time.Now().UTC())
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !fake.reviewCalled {
 		t.Fatal("expected ListInfoForReview to be used")
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 review target, got %d", len(targets))
 	}
 }
 
@@ -121,15 +142,15 @@ func TestListUnreviewed_SkipsAlreadyReviewed(t *testing.T) {
 	// Mark s1 as reviewed at or after its LastActive.
 	wm.marks["s1"] = now
 
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 review target, got %d", len(targets))
 	}
-	if candidates[0].session.ID != "s2" {
-		t.Errorf("expected session s2, got %s", candidates[0].session.ID)
+	if targets[0].session.ID != "s2" {
+		t.Errorf("expected session s2, got %s", targets[0].session.ID)
 	}
 }
 
@@ -145,16 +166,16 @@ func TestListUnreviewed_OldestFirst(t *testing.T) {
 	// Give "new" a recent watermark so it still qualifies but is "more recently reviewed".
 	wm.marks["new"] = now.Add(-10 * time.Minute)
 
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 2 {
-		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 review targets, got %d", len(targets))
 	}
 	// "old" has zero watermark, so should sort first.
-	if candidates[0].session.ID != "old" {
-		t.Errorf("expected oldest-first ordering, got %s first", candidates[0].session.ID)
+	if targets[0].session.ID != "old" {
+		t.Errorf("expected oldest-first ordering, got %s first", targets[0].session.ID)
 	}
 }
 
@@ -168,15 +189,15 @@ func TestListUnreviewed_ZeroWatermarkTiebreaker(t *testing.T) {
 	seedFakeSession(t, fake, "newer", "a", "1", now)
 	seedFakeSession(t, fake, "older", "a", "2", now.Add(-3*time.Hour))
 
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 2 {
-		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 review targets, got %d", len(targets))
 	}
-	if candidates[0].session.ID != "older" {
-		t.Errorf("expected older session first when both have zero watermark, got %s", candidates[0].session.ID)
+	if targets[0].session.ID != "older" {
+		t.Errorf("expected older session first when both have zero watermark, got %s", targets[0].session.ID)
 	}
 }
 
@@ -189,11 +210,11 @@ func TestListUnreviewed_BatchLimit(t *testing.T) {
 		seedFakeSession(t, fake, fmt.Sprintf("s%d", i), "a", fmt.Sprintf("%d", i+1), now.Add(time.Duration(i)*time.Minute))
 	}
 
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 2 {
-		t.Fatalf("expected 2 candidates (batch limit), got %d", len(candidates))
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 review targets (batch limit), got %d", len(targets))
 	}
 }

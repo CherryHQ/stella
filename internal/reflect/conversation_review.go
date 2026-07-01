@@ -17,11 +17,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot, c candidate) error {
-	ctx, span := startConversationSpan(ctx, c)
+func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot, target reviewTarget) error {
+	ctx, span := startConversationSpan(ctx, target)
 	defer span.End()
 
-	userID := c.session.UserID
+	userID := target.session.UserID
 	model := snap.ResolveModelTier(config.ModelTierFast)
 	creds := snap.ResolveProviderCreds(model.API)
 
@@ -37,14 +37,14 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 	}
 
 	watermark := time.Now().UTC()
-	text, err := s.buildReviewContext(ctx, c.session, c.lastReview)
+	text, err := s.buildReviewContext(ctx, target.session, target.lastReview)
 	if err != nil {
 		recordError(span, err)
 		return fmt.Errorf("build review context: %w", err)
 	}
 	if text == "" {
 		span.SetAttributes(attribute.Bool("stella.reflect.skipped", true))
-		return s.wm.set(ctx, c.session.ID, watermark)
+		return s.wm.set(ctx, target.session.ID, watermark)
 	}
 
 	reviewer, err := s.newConversationReviewer(ctx, snap, userID, model, stream)
@@ -67,13 +67,13 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 		attribute.Bool("stella.reflect.memory_updated", result.MemoryUpdated),
 	)
 
-	if err := s.wm.set(ctx, c.session.ID, watermark); err != nil {
+	if err := s.wm.set(ctx, target.session.ID, watermark); err != nil {
 		recordError(span, err)
 		return fmt.Errorf("mark reviewed: %w", err)
 	}
 
 	s.notifyReviewResult(ctx, userID, result)
-	s.log.Info("reflect: reviewed", "session", c.session.ID, "agent", snap.AgentID, "user", userID,
+	s.log.Info("reflect: reviewed", "session", target.session.ID, "agent", snap.AgentID, "user", userID,
 		"skills_created", result.SkillsMutated, "memory_updated", result.MemoryUpdated)
 
 	return nil

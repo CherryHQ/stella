@@ -16,8 +16,8 @@ const (
 	// automatically deprecated.
 	defaultDraftMaxAge = 30 * 24 * time.Hour
 
-	// defaultReviewBatch caps how many candidate sessions a single review
-	// cycle processes per agent.
+	// defaultReviewBatch caps how many review targets a single cycle processes
+	// per agent.
 	defaultReviewBatch = 5
 )
 
@@ -31,7 +31,7 @@ type Config struct {
 	Workspace  string
 	Log        *slog.Logger
 	Providers  func(api, apiKey, baseURL string) (providers.StreamFunc, error)
-	// Services provides per-agent session registries for review candidate listing.
+	// Services provides per-agent session registries for review target listing.
 	// When set, reflect uses Registry.ListForReview and Registry.MemoryScope
 	// instead of calling memory.SessionManager directly.
 	Services agent.ServiceManager
