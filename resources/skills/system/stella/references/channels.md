@@ -31,7 +31,6 @@ Telegram channel config (JSON):
 {
   "token": "BOT_TOKEN",
   "channel_id": "@my_channel",
-  "group_mode": "mention",
   "enable_notify": true
 }
 ```
@@ -49,11 +48,7 @@ Or set `STELLA_TELEGRAM_TOKEN` env var for the token only.
 
 ### Group support
 
-Set `group_mode` in the channel config:
-
-- `"mention"` -- respond when @mentioned (default)
-- `"always"` -- respond to all messages
-- `"disabled"` -- ignore group messages
+In group chats the bot participates automatically and group routing is decided semantically. @mentions always route to the mentioned bot. To stop a bot from participating in a group, remove it from that group.
 
 ### Access control
 
@@ -75,7 +70,6 @@ QQ channel config (JSON):
 {
   "app_id": "YOUR_APP_ID",
   "app_secret": "YOUR_APP_SECRET",
-  "group_mode": "mention",
   "enable_notify": false
 }
 ```
@@ -106,7 +100,6 @@ Feishu channel config (JSON):
   "app_secret": "YOUR_APP_SECRET",
   "encrypt_key": "",
   "verification_token": "",
-  "group_mode": "mention",
   "enable_notify": false
 }
 ```

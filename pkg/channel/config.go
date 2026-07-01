@@ -5,7 +5,6 @@ type TelegramConfig struct {
 	InstanceID   string `json:"-"`
 	Token        string `json:"token"`
 	ChannelID    string `json:"channel_id"`
-	GroupMode    string `json:"group_mode"`
 	EnableNotify bool   `json:"enable_notify"`
 }
 
@@ -14,13 +13,11 @@ type QQConfig struct {
 	InstanceID   string `json:"-"`
 	AppID        string `json:"app_id"`
 	AppSecret    string `json:"app_secret"`
-	GroupMode    string `json:"group_mode"`
 	EnableNotify bool   `json:"enable_notify"`
 }
 
 // FeishuGroup is a per-chat override in the persisted Feishu channel config.
 type FeishuGroup struct {
-	GroupMode    string   `json:"group_mode"`
 	SystemPrompt string   `json:"system_prompt"`
 	ToolAllow    []string `json:"tool_allow"`
 	ToolDeny     []string `json:"tool_deny"`
@@ -33,7 +30,6 @@ type FeishuConfig struct {
 	AppSecret         string                 `json:"app_secret"`
 	EncryptKey        string                 `json:"encrypt_key"`
 	VerificationToken string                 `json:"verification_token"`
-	GroupMode         string                 `json:"group_mode"`
 	Groups            map[string]FeishuGroup `json:"groups"`
 	EnableNotify      bool                   `json:"enable_notify"`
 	TenantKey         string                 `json:"tenant_key"`

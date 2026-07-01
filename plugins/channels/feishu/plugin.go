@@ -38,7 +38,6 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 				AppSecret:         cfg.AppSecret,
 				EncryptKey:        cfg.EncryptKey,
 				VerificationToken: cfg.VerificationToken,
-				GroupMode:         cfg.GroupMode,
 				Groups:            groupsToPluginConfig(cfg.Groups),
 				TenantKey:         cfg.TenantKey,
 				AutoProvision:     cfg.AutoProvision,

@@ -252,9 +252,6 @@ func TestNewValidConfig(t *testing.T) {
 		t.Fatal("expected bot, got nil")
 		return
 	}
-	if bot.cfg.GroupMode != "mention" {
-		t.Errorf("default group_mode = %q, want %q", bot.cfg.GroupMode, "mention")
-	}
 }
 
 func TestNewMissingAppID(t *testing.T) {
@@ -271,14 +268,6 @@ func TestNewMissingAppSecret(t *testing.T) {
 	}
 }
 
-func TestNewCustomGroupMode(t *testing.T) {
-	cfg := Config{AppID: "1", AppSecret: "s", GroupMode: "always"}
-	bot, _ := New(cfg, nil)
-	if bot.cfg.GroupMode != "always" {
-		t.Errorf("group_mode = %q, want %q", bot.cfg.GroupMode, "always")
-	}
-}
-
 // --- channelForC2C / channelForGroup ---
 
 func TestChannelForC2C(t *testing.T) {
@@ -290,29 +279,6 @@ func TestChannelForC2C(t *testing.T) {
 func TestChannelForGroup(t *testing.T) {
 	if got := channelForGroup("group456"); got != "qq:group:group456" {
 		t.Errorf("channelForGroup = %q", got)
-	}
-}
-
-// --- shouldRespondInGroup ---
-
-func TestShouldRespondInGroupMention(t *testing.T) {
-	bot := &Bot{cfg: Config{GroupMode: "mention"}}
-	if !bot.shouldRespondInGroup() {
-		t.Error("mention mode should respond")
-	}
-}
-
-func TestShouldRespondInGroupAlways(t *testing.T) {
-	bot := &Bot{cfg: Config{GroupMode: "always"}}
-	if !bot.shouldRespondInGroup() {
-		t.Error("always mode should respond")
-	}
-}
-
-func TestShouldRespondInGroupDisabled(t *testing.T) {
-	bot := &Bot{cfg: Config{GroupMode: "disabled"}}
-	if bot.shouldRespondInGroup() {
-		t.Error("disabled mode should not respond")
 	}
 }
 

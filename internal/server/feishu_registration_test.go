@@ -88,7 +88,6 @@ func TestPollFeishuRegistrationCreatesChannel(t *testing.T) {
 		"agent_id":    agentID,
 		"name":        "Feishu Auto",
 		"config": map[string]any{
-			"group_mode":     "mention",
 			"auto_provision": true,
 		},
 	})
@@ -115,7 +114,7 @@ func TestPollFeishuRegistrationCreatesChannel(t *testing.T) {
 	if err := json.Unmarshal([]byte(got.Channel.Config), &cfg); err != nil {
 		t.Fatalf("unmarshal config: %v", err)
 	}
-	if cfg["app_id"] != "cli_a" || cfg["app_secret"] != "sec_b" || cfg["group_mode"] != "mention" || cfg["auto_provision"] != true {
+	if cfg["app_id"] != "cli_a" || cfg["app_secret"] != "sec_b" || cfg["auto_provision"] != true {
 		t.Fatalf("config = %#v", cfg)
 	}
 }

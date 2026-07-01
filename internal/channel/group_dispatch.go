@@ -117,21 +117,35 @@ func (c *Coordinator) resolveMentionAgentsWithMembers(ctx context.Context, _ str
 		memberSet[m.AgentID] = struct{}{}
 	}
 
+	log := slog.With("component", "group_dispatch", "platform", platform)
 	for i := range mentions {
 		if mentions[i].AgentID != "" || mentions[i].PlatformID == "" {
 			continue
 		}
 		channelID, ok := c.botRegistry.ChannelIDForBot(platform, mentions[i].PlatformID)
 		if !ok {
+			// Registry miss: the mentioned platform id is not a Stella bot, or the
+			// owning channel never registered its identity (e.g. the bot open_id
+			// fetch failed at startup). Left unresolved; decideResponders will fall
+			// back to semantic routing instead of suppressing the turn (#619).
+			log.Debug("mention platform id not in bot registry",
+				"mention_raw", mentions[i].Raw, "platform_id", mentions[i].PlatformID)
 			continue
 		}
 		ch, err := c.store.GetChannel(ctx, channelID)
 		if err != nil || ch.AgentID == "" {
+			log.Debug("mention channel lookup missed",
+				"mention_raw", mentions[i].Raw, "platform_id", mentions[i].PlatformID,
+				"channel_id", channelID, "channel_agent", ch.AgentID, "error", err)
 			continue
 		}
-		if _, isMember := memberSet[ch.AgentID]; isMember {
-			mentions[i].AgentID = ch.AgentID
+		if _, isMember := memberSet[ch.AgentID]; !isMember {
+			log.Debug("mention resolved to a non-member agent",
+				"mention_raw", mentions[i].Raw, "platform_id", mentions[i].PlatformID,
+				"channel_agent", ch.AgentID)
+			continue
 		}
+		mentions[i].AgentID = ch.AgentID
 	}
 }
 

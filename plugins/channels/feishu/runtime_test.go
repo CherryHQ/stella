@@ -56,9 +56,8 @@ func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		"app_secret":         "fs-secret",
 		"encrypt_key":        "enc",
 		"verification_token": "verify",
-		"group_mode":         "mention",
 		"groups": map[string]any{
-			"chat-1": map[string]any{"group_mode": "always", "system_prompt": "be brief", "tool_allow": []any{"shell"}},
+			"chat-1": map[string]any{"system_prompt": "be brief", "tool_allow": []any{"shell"}},
 		},
 	}}
 	if err := runtime.Apply(context.Background(), state); err != nil {
@@ -139,16 +138,15 @@ func TestDecodeAndRedactFeishuPluginConfig(t *testing.T) {
 		"app_secret":         "fs-secret",
 		"encrypt_key":        "enc",
 		"verification_token": "verify",
-		"group_mode":         "mention",
 		"enable_notify":      true,
 		"groups": map[string]any{
-			"chat-1": map[string]any{"group_mode": "always", "system_prompt": "be brief", "tool_allow": []any{"shell"}, "tool_deny": []any{"danger"}},
+			"chat-1": map[string]any{"system_prompt": "be brief", "tool_allow": []any{"shell"}, "tool_deny": []any{"danger"}},
 		},
 	})
 	if err != nil {
 		t.Fatalf("DecodeConfig: %v", err)
 	}
-	if cfg.AppID != "fs-app" || cfg.AppSecret != "fs-secret" || cfg.EncryptKey != "enc" || cfg.VerificationToken != "verify" || cfg.GroupMode != "mention" || !cfg.EnableNotify {
+	if cfg.AppID != "fs-app" || cfg.AppSecret != "fs-secret" || cfg.EncryptKey != "enc" || cfg.VerificationToken != "verify" || !cfg.EnableNotify {
 		t.Fatalf("decoded config = %#v", cfg)
 	}
 	if len(cfg.Groups) != 1 || cfg.Groups["chat-1"].SystemPrompt != "be brief" {

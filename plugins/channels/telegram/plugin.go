@@ -31,7 +31,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Handler:       handler,
 		Notifications: channelRuntime.Notifications(),
 		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, ChannelID: cfg.ChannelID, GroupMode: cfg.GroupMode}, handler)
+			return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, ChannelID: cfg.ChannelID}, handler)
 		},
 	}), nil
 }
@@ -78,11 +78,6 @@ func configSchema() map[string]any {
 			"channel_id": map[string]any{
 				"type":        "string",
 				"description": "Optional default channel or chat ID.",
-			},
-			"group_mode": map[string]any{
-				"type":        "string",
-				"enum":        []any{"", "mention"},
-				"description": "How group chats are handled.",
 			},
 		},
 		"required": []any{"token"},

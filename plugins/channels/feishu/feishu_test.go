@@ -3,13 +3,10 @@ package feishu
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	lark "github.com/larksuite/oapi-sdk-go/v3"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
@@ -234,9 +231,6 @@ func TestNewValidConfig(t *testing.T) {
 		t.Fatal("expected bot, got nil")
 		return
 	}
-	if bot.cfg.GroupMode != "mention" {
-		t.Errorf("default group_mode = %q, want %q", bot.cfg.GroupMode, "mention")
-	}
 }
 
 func TestNewMissingAppID(t *testing.T) {
@@ -250,46 +244,6 @@ func TestNewMissingAppSecret(t *testing.T) {
 	_, err := New(Config{AppID: "123"}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing app_secret")
-	}
-}
-
-func TestNewCustomGroupMode(t *testing.T) {
-	cfg := Config{AppID: "1", AppSecret: "s", GroupMode: "always"}
-	bot, _ := New(cfg, nil)
-	if bot.cfg.GroupMode != "always" {
-		t.Errorf("group_mode = %q, want %q", bot.cfg.GroupMode, "always")
-	}
-}
-
-// --- shouldRespondInGroup ---
-
-func TestShouldRespondInGroupMention(t *testing.T) {
-	bot := &Bot{cfg: Config{GroupMode: "mention"}}
-	key := "@_user_1"
-	mentions := []*larkim.MentionEvent{{Key: &key}}
-	if !bot.shouldRespondInGroup("oc_test", mentions) {
-		t.Error("mention mode with mention should respond")
-	}
-}
-
-func TestShouldRespondInGroupMentionNoMentions(t *testing.T) {
-	bot := &Bot{cfg: Config{GroupMode: "mention"}}
-	if bot.shouldRespondInGroup("oc_test", nil) {
-		t.Error("mention mode without mentions should not respond")
-	}
-}
-
-func TestShouldRespondInGroupAlways(t *testing.T) {
-	bot := &Bot{cfg: Config{GroupMode: "always"}}
-	if !bot.shouldRespondInGroup("oc_test", nil) {
-		t.Error("always mode should respond")
-	}
-}
-
-func TestShouldRespondInGroupDisabled(t *testing.T) {
-	bot := &Bot{cfg: Config{GroupMode: "disabled"}}
-	if bot.shouldRespondInGroup("oc_test", nil) {
-		t.Error("disabled mode should not respond")
 	}
 }
 
@@ -537,69 +491,6 @@ func TestCardContentEmpty(t *testing.T) {
 	got := cardContent("")
 	if !strings.Contains(got, `"content":""`) {
 		t.Errorf("cardContent empty: %s", got)
-	}
-}
-
-// --- isBotMentioned ---
-
-func TestIsBotMentionedEmptyMentions(t *testing.T) {
-	bot := &Bot{}
-	if bot.isBotMentioned(nil) {
-		t.Error("nil mentions should return false")
-	}
-	if bot.isBotMentioned([]*larkim.MentionEvent{}) {
-		t.Error("empty mentions should return false")
-	}
-}
-
-func TestIsBotMentionedNoKnownID(t *testing.T) {
-	bot := &Bot{}
-	key := "@_user_1"
-	mentions := []*larkim.MentionEvent{{Key: &key}}
-	if !bot.isBotMentioned(mentions) {
-		t.Error("unknown bot id with non-@all mention should return true (fallback)")
-	}
-}
-
-func TestIsBotMentionedNoKnownIDAtAll(t *testing.T) {
-	bot := &Bot{}
-	key := "@_all"
-	mentions := []*larkim.MentionEvent{{Key: &key}}
-	if bot.isBotMentioned(mentions) {
-		t.Error("@_all mention without known bot id should return false")
-	}
-}
-
-func TestIsBotMentionedWithKnownID(t *testing.T) {
-	bot := &Bot{}
-	bot.botOpenID.Store("ou_bot123")
-	openID := "ou_bot123"
-	mentions := []*larkim.MentionEvent{{
-		Id: &larkim.UserId{OpenId: &openID},
-	}}
-	if !bot.isBotMentioned(mentions) {
-		t.Error("matching open_id should return true")
-	}
-}
-
-func TestIsBotMentionedWithKnownIDNoMatch(t *testing.T) {
-	bot := &Bot{}
-	bot.botOpenID.Store("ou_bot123")
-	openID := "ou_other456"
-	mentions := []*larkim.MentionEvent{{
-		Id: &larkim.UserId{OpenId: &openID},
-	}}
-	if bot.isBotMentioned(mentions) {
-		t.Error("non-matching open_id should return false")
-	}
-}
-
-func TestIsBotMentionedNilMentionID(t *testing.T) {
-	bot := &Bot{}
-	bot.botOpenID.Store("ou_bot123")
-	mentions := []*larkim.MentionEvent{{Id: nil}}
-	if bot.isBotMentioned(mentions) {
-		t.Error("nil Id should be skipped")
 	}
 }
 
@@ -1107,55 +998,6 @@ func TestStreamResponseElapsedTiming(t *testing.T) {
 
 // --- Phase 5b: Per-group config ---
 
-func TestGroupModeGlobal(t *testing.T) {
-	bot := &Bot{cfg: Config{GroupMode: "always"}}
-	if bot.groupMode("oc_unknown") != "always" {
-		t.Error("should fall back to global group_mode")
-	}
-}
-
-func TestGroupModeOverride(t *testing.T) {
-	bot := &Bot{cfg: Config{
-		GroupMode: "mention",
-		Groups: map[string]GroupConfig{
-			"oc_123": {GroupMode: "always"},
-		},
-	}}
-	if bot.groupMode("oc_123") != "always" {
-		t.Error("should use per-group override")
-	}
-	if bot.groupMode("oc_other") != "mention" {
-		t.Error("other groups should use global")
-	}
-}
-
-func TestGroupModeOverrideEmpty(t *testing.T) {
-	bot := &Bot{cfg: Config{
-		GroupMode: "always",
-		Groups: map[string]GroupConfig{
-			"oc_123": {GroupMode: ""},
-		},
-	}}
-	if bot.groupMode("oc_123") != "always" {
-		t.Error("empty override should fall back to global")
-	}
-}
-
-func TestShouldRespondInGroupPerGroupOverride(t *testing.T) {
-	bot := &Bot{cfg: Config{
-		GroupMode: "disabled",
-		Groups: map[string]GroupConfig{
-			"oc_special": {GroupMode: "always"},
-		},
-	}}
-	if !bot.shouldRespondInGroup("oc_special", nil) {
-		t.Error("per-group always should respond")
-	}
-	if bot.shouldRespondInGroup("oc_other", nil) {
-		t.Error("global disabled should not respond")
-	}
-}
-
 func TestGroupSystemPrompt(t *testing.T) {
 	bot := &Bot{cfg: Config{
 		Groups: map[string]GroupConfig{
@@ -1505,49 +1347,6 @@ func TestCardActionSyntheticMessageDoesNotReuseCardMessageID(t *testing.T) {
 	msg := waitMessage(t, captured)
 	if msg.MessageID != "" {
 		t.Errorf("MessageID = %q, want empty synthetic action id", msg.MessageID)
-	}
-}
-
-func TestCardActionDisabledGroupIgnored(t *testing.T) {
-	// Mock the Get Chat API to return chat_mode=group so getChatType resolves correctly.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.Contains(r.URL.Path, "/im/v1/chats/"):
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"code":0,"data":{"chat_mode":"group"}}`))
-		case strings.Contains(r.URL.Path, "/im/v1/messages/"):
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"chat_id":"oc_chat1","root_id":""}]}}`))
-		default:
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"code":0}`))
-		}
-	}))
-	defer srv.Close()
-
-	client := lark.NewClient("test", "test", lark.WithOpenBaseUrl(srv.URL))
-	bot := &Bot{
-		cfg:         Config{GroupMode: "disabled"},
-		handler:     &mockHandler{},
-		client:      client,
-		chatModels:  make(map[string]channel.ModelOption),
-		seenMsgs:    make(map[string]time.Time),
-		provisioned: make(map[string]time.Time),
-	}
-	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
-		Event: &callback.CardActionTriggerRequest{
-			Operator: &callback.Operator{OpenID: "ou_user1"},
-			Action: &callback.CallBackAction{
-				Value: map[string]any{"action": "retry"},
-			},
-			Context: &callback.Context{
-				OpenChatID:    "oc_chat1",
-				OpenMessageID: "om_msg1",
-			},
-		},
-	})
-	if err != nil || resp != nil {
-		t.Errorf("disabled group should be ignored: resp=%v err=%v", resp, err)
 	}
 }
 

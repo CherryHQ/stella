@@ -25,7 +25,6 @@ func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.Runtime {
 				InstanceID: cfg.InstanceID,
 				AppID:      cfg.AppID,
 				AppSecret:  cfg.AppSecret,
-				GroupMode:  cfg.GroupMode,
 			}, handler)
 		}
 	}
@@ -79,11 +78,6 @@ func configSchema() map[string]any {
 				"type":        "string",
 				"description": "QQ bot app secret.",
 			},
-			"group_mode": map[string]any{
-				"type":        "string",
-				"enum":        []any{"", "mention", "always", "disabled"},
-				"description": "How group chats are handled.",
-			},
 		},
 		"required": []any{"app_id", "app_secret"},
 	}
@@ -102,8 +96,7 @@ func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message strin
 		Message:   message,
 		UpdatedAt: now,
 		Metadata: map[string]any{
-			"app_id":     cfg.AppID,
-			"group_mode": cfg.GroupMode,
+			"app_id": cfg.AppID,
 		},
 	}
 }

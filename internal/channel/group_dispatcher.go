@@ -2,7 +2,6 @@ package channel
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -365,40 +364,58 @@ func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Querie
 	return nil
 }
 
-// decideResponders selects which agents respond. Explicit mentions always take
-// the deterministic rule path. A no-mention message uses the semantic arbiter
-// when one is configured; otherwise it falls back to platform group-mode policy.
+// decideResponders selects which agents respond. Explicit mentions that resolve
+// to a group member take the deterministic rule path. A mention that resolves to
+// no member, and a no-mention message, both fall through to the semantic arbiter
+// when one is configured; otherwise the only auto-reply is a single-member web
+// group, and every other group stays silent until a semantic arbiter is wired.
 func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, envelope GroupOutboxEnvelope, groupMembers []GroupMember) []string {
 	if len(envelope.Mentions) > 0 {
+		var responding []string
 		if d.coord != nil && d.coord.arbiter != nil {
-			return d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
+			responding = d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
 				AllMembersFallback: false,
 				DisableDebounce:    true,
 			}).RespondingAgents
+		} else {
+			responding = fallbackGroupDecision(envelope.Mentions, groupMembers).RespondingAgents
 		}
-		return fallbackGroupDecision(envelope.Mentions, groupMembers, false).RespondingAgents
+		if len(responding) > 0 {
+			return responding
+		}
+		// Mentions were present but none resolved to a member agent. Silently
+		// dropping the turn here (the old behavior) made explicit mentions
+		// strictly less reliable than no-mention routing: a bot-identity/registry
+		// miss, a human-only @mention, or a mention of a non-member bot all looked
+		// accepted (the platform acked) yet produced no reply (#619). Fall through
+		// to the same no-mention path so semantic routing still gets a chance.
+		// Debug, not Warn: @-mentioning a human or a non-member bot is ordinary
+		// group traffic. The genuinely anomalous case — a mention that hit the bot
+		// registry yet still failed to resolve — is logged per-mention in
+		// resolveMentionAgentsWithMembers, so a Warn here would only bury it.
+		d.log.Debug("group mention resolved to no member agent; falling back to no-mention routing",
+			"group_id", outbox.GroupID,
+			"platform", state.Platform,
+			"mention_count", len(envelope.Mentions),
+			"member_count", len(groupMembers),
+		)
+		// Fall through to the shared no-mention path below; it routes purely off
+		// groupMembers and never re-reads envelope.Mentions.
 	}
 	if d.coord != nil && d.coord.semanticGroupArbiter != nil {
 		return d.semanticResponders(ctx, q, outbox.GroupID, message, state, groupMembers)
 	}
-	groupMode := effectivePlatformGroupMode(ctx, q, groupMembers, state)
-	if state.Platform == "web" && groupMode == "mention" {
-		if len(groupMembers) == 1 {
-			return []string{groupMembers[0].AgentID}
-		}
-		if len(groupMembers) > 1 {
-			d.log.Warn("web group has multiple members and no semantic arbiter; configure semantic arbiter", "group_id", outbox.GroupID, "member_count", len(groupMembers))
-		}
-		return nil
+	// No semantic arbiter (degraded/legacy setup with no routing model). A resolved
+	// @mention already returned above; the only remaining auto-reply is a
+	// single-member web group. Every other group stays silent until a semantic
+	// arbiter is wired — there is no all-members broadcast mode anymore.
+	if state.Platform == "web" && len(groupMembers) == 1 {
+		return []string{groupMembers[0].AgentID}
 	}
-	allMembersFallback := groupMode == "always"
-	if d.coord != nil && d.coord.arbiter != nil {
-		return d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
-			AllMembersFallback: allMembersFallback,
-			DisableDebounce:    true,
-		}).RespondingAgents
+	if len(groupMembers) > 1 {
+		d.log.Warn("group has multiple members and no semantic arbiter; configure a routing model for group auto-reply", "group_id", outbox.GroupID, "platform", state.Platform, "member_count", len(groupMembers))
 	}
-	return fallbackGroupDecision(envelope.Mentions, groupMembers, allMembersFallback).RespondingAgents
+	return nil
 }
 
 // semanticResponders builds the semantic request from current DB facts and asks
@@ -698,42 +715,6 @@ func (d *GroupDispatcher) messageAndStateWithQueries(ctx context.Context, q *sql
 	return message, state, nil
 }
 
-type groupModeConfig struct {
-	GroupMode string                          `json:"group_mode"`
-	Groups    map[string]groupModeGroupConfig `json:"groups"`
-}
-
-type groupModeGroupConfig struct {
-	GroupMode string `json:"group_mode"`
-}
-
-func effectivePlatformGroupMode(ctx context.Context, q *sqlc.Queries, members []GroupMember, state sqlc.CtxGroupState) string {
-	if state.Platform == "web" {
-		return "mention"
-	}
-	for _, member := range members {
-		if member.ReplyChannelID == "" {
-			continue
-		}
-		ch, err := q.GetChannel(ctx, member.ReplyChannelID)
-		if err != nil {
-			continue
-		}
-		var cfg groupModeConfig
-		if err := json.Unmarshal([]byte(ch.Config), &cfg); err != nil {
-			continue
-		}
-		mode := cfg.GroupMode
-		if gc, ok := cfg.Groups[state.PlatformGroupID]; ok && gc.GroupMode != "" {
-			mode = gc.GroupMode
-		}
-		if mode == "always" {
-			return "always"
-		}
-	}
-	return "mention"
-}
-
 func (d *GroupDispatcher) chatDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
 	stream, doneC, err := d.queue.Enqueue(ctx, sessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
@@ -892,29 +873,24 @@ func (d *GroupDispatcher) wrapGroupResponseStream(ctx context.Context, stream *p
 	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}, responseC
 }
 
-func fallbackGroupDecision(mentions []pkgchannel.Mention, members []GroupMember, allMembersFallback bool) ArbiterDecision {
+// fallbackGroupDecision resolves responders when no arbiter is wired: only
+// mentions that name a current member reply; anything else stays silent.
+func fallbackGroupDecision(mentions []pkgchannel.Mention, members []GroupMember) ArbiterDecision {
 	mentioned := mentionedAgentIDs(mentions)
-	if len(mentioned) > 0 {
-		memberSet := make(map[string]struct{}, len(members))
-		for _, m := range members {
-			memberSet[m.AgentID] = struct{}{}
-		}
-		var responding []string
-		for _, id := range mentioned {
-			if _, ok := memberSet[id]; ok {
-				responding = append(responding, id)
-			}
-		}
-		return ArbiterDecision{RespondingAgents: responding}
+	if len(mentioned) == 0 {
+		return ArbiterDecision{}
 	}
-	if allMembersFallback {
-		responding := make([]string, len(members))
-		for i, m := range members {
-			responding[i] = m.AgentID
-		}
-		return ArbiterDecision{RespondingAgents: responding}
+	memberSet := make(map[string]struct{}, len(members))
+	for _, m := range members {
+		memberSet[m.AgentID] = struct{}{}
 	}
-	return ArbiterDecision{}
+	var responding []string
+	for _, id := range mentioned {
+		if _, ok := memberSet[id]; ok {
+			responding = append(responding, id)
+		}
+	}
+	return ArbiterDecision{RespondingAgents: responding}
 }
 
 func backoff(attempts int64) time.Duration {

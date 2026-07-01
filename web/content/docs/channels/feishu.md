@@ -198,11 +198,7 @@ When you message inside a Feishu thread, Stella keeps the response in that threa
 
 ## Group Behavior
 
-`group_mode` controls how Stella considers group messages:
-
-- `mention`: @mentions always route to the mentioned bot. Other clear group questions may also be routed by Stella's semantic group routing when an eligible routing model is available; otherwise they stay silent.
-- `always`: consider every group message. Non-mention messages still pass through semantic routing first, so chatter can stay silent; if semantic routing is unavailable, Stella falls back to the legacy all-members response.
-- `disabled`: never respond in groups
+In group chats the bot participates automatically. @mentions always route to the mentioned bot; other clear group questions may also be routed by Stella's semantic group routing when an eligible routing model is available, otherwise they stay silent. To stop a bot from participating in a group, remove it from that group.
 
 You can also set per-group overrides with the `groups` map in channel config.
 
@@ -227,30 +223,27 @@ Feishu supports the standard chat commands:
   "app_secret": "FEISHU_APP_SECRET",
   "encrypt_key": "",
   "verification_token": "",
-  "group_mode": "mention",
   "enable_notify": false,
   "tenant_key": "",
   "auto_provision": false,
   "groups": {
     "oc_example": {
-      "group_mode": "always",
       "system_prompt": "Answer as the infra assistant for this group."
     }
   }
 }
 ```
 
-| Field                | Description                                                                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `app_id`             | Feishu app ID                                                                                                                            |
-| `app_secret`         | Feishu app secret                                                                                                                        |
-| `encrypt_key`        | Optional event encryption key                                                                                                            |
-| `verification_token` | Optional event verification token                                                                                                        |
-| `group_mode`         | Default group behavior: `mention`, `always`, or `disabled`. @mentions are deterministic; no-mention messages may be routed semantically. |
-| `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                                       |
-| `tenant_key`         | Your enterprise tenant key. Optional: Stella can auto-detect it at startup, but setting it explicitly is recommended                     |
-| `auto_provision`     | Automatically create Stella accounts for users handled by this Feishu channel instance                                                   |
-| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                                                    |
+| Field                | Description                                                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `app_id`             | Feishu app ID                                                                                                        |
+| `app_secret`         | Feishu app secret                                                                                                    |
+| `encrypt_key`        | Optional event encryption key                                                                                        |
+| `verification_token` | Optional event verification token                                                                                    |
+| `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                   |
+| `tenant_key`         | Your enterprise tenant key. Optional: Stella can auto-detect it at startup, but setting it explicitly is recommended |
+| `auto_provision`     | Automatically create Stella accounts for users handled by this Feishu channel instance                               |
+| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                                |
 
 ## Troubleshooting
 
@@ -262,7 +255,7 @@ Feishu supports the standard chat commands:
 
 **Bot not responding in groups?**
 
-- Check the `group_mode` setting in the Web UI. @mention the bot for the most reliable trigger.
+- @mention the bot for the most reliable trigger.
 - If you expect replies without @mentions, make sure at least one group agent has a routing-capable model and that the message is a clear request, not casual chatter.
 
 **Auto-provisioning not creating users?**
@@ -282,12 +275,11 @@ A reliable auto-provisioning configuration looks like:
   "app_id": "FEISHU_APP_ID",
   "app_secret": "FEISHU_APP_SECRET",
   "tenant_key": "YOUR_TENANT_KEY",
-  "auto_provision": true,
-  "group_mode": "always"
+  "auto_provision": true
 }
 ```
 
-Use `group_mode: "always"` only if you want Stella to consider every group message. Semantic routing may still keep chatter silent, so users should @mention the bot for reliable first contact and auto-provisioning.
+Semantic routing may keep chatter silent, so users should @mention the bot for reliable first contact and auto-provisioning.
 
 **Images or files not being analyzed?**
 

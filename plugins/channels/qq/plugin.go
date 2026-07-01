@@ -36,7 +36,6 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 				InstanceID: cfg.InstanceID,
 				AppID:      cfg.AppID,
 				AppSecret:  cfg.AppSecret,
-				GroupMode:  cfg.GroupMode,
 			}, handler)
 		},
 	}), nil
