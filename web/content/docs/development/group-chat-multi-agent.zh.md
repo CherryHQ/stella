@@ -177,7 +177,7 @@ CREATE TABLE ctx_group_memory (
 ```
 
 - 任何 `@mention` 信号都留在 L0 规则路径。已解析的 mention 绕过 `MaxRepliesPerTrigger`:用户一条消息 @ 多个群成员时,所有被 @ 的成员都会回复。平台 mention 无法解析到 Stella 群成员时不会被静默丢弃:dispatcher 会 fall-through 到同一条无 mention 语义路径,因此显式 `@mention` 绝不会比普通消息更不可靠。Web 文本 mention 解析不出成员时仍按普通文本进入同一条无 mention 路径。
-- 无 mention 消息在配置了语义仲裁时走 L1 语义路由。分类器可以返回静默、单 agent 或受上限保护的多 agent 广播。失败、超时、无效 JSON 或无合格路由模型都折叠为静默。未配置语义仲裁时,唯一的自动回复是 Web 单成员群路由到唯一成员;其余任何群(Web 多成员群,或任何 platform 群)都静默并写 WARN,提示配置语义仲裁。
+- 无 mention 消息在配置了语义仲裁时走 L1 语义路由。分类器可以返回静默、单 agent 或受上限保护的多 agent 广播。失败、超时、无效 JSON 或无合格路由模型都折叠为静默。未配置语义仲裁时,唯一的自动回复是 Web 单成员群路由到唯一成员;其余任何群都静默,且多成员群会额外写 WARN 提示配置语义仲裁。
 - L1 路由模型按归属选择,不是随便取第一个成员。Web 群优先群 owner 自己的 agent,再退到 system-scope agent。Platform 群只允许 system-scope agent,避免把私有 agent 的凭据用于共享路由决策。
 - L1 只接收有界的公开路由元数据:agent ID/name、成员摘要(`system_prompt` 前 180 字符,有意发送以便正确路由),以及 `seq < currentSeq` 的有界历史群上下文。延迟 outbox 重试不会把未来消息当成历史上下文。
 - decide 与 generate 分离,**decide 只出意图、不出草稿**(省 token)。
