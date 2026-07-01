@@ -226,9 +226,9 @@ func usersRouteScope(method string, sub []string) (scope string, registered bool
 // enforceAgentBoundary locks a scoped token to its own agent: any
 // /api/agents/{id}/... request must target the token's agentID.
 func enforceAgentBoundary(p *Principal, path string) error {
-	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	if len(parts) >= 3 && parts[1] == "agents" {
-		if p.AgentID == "" || parts[2] != p.AgentID {
+	seg := apiSegments(path)
+	if len(seg) >= 2 && seg[0] == "agents" {
+		if p.AgentID == "" || seg[1] != p.AgentID {
 			return fmt.Errorf("%w: scoped token is bound to a different agent", ErrForbidden)
 		}
 	}
