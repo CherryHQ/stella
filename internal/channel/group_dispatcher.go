@@ -367,7 +367,8 @@ func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Querie
 // decideResponders selects which agents respond. Explicit mentions that resolve
 // to a group member take the deterministic rule path. A mention that resolves to
 // no member, and a no-mention message, both fall through to the semantic arbiter
-// when one is configured; otherwise they fall back to platform group-mode policy.
+// when one is configured; otherwise the only auto-reply is a single-member web
+// group, and every other group stays silent until a semantic arbiter is wired.
 func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, envelope GroupOutboxEnvelope, groupMembers []GroupMember) []string {
 	if len(envelope.Mentions) > 0 {
 		var responding []string
@@ -377,7 +378,7 @@ func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries,
 				DisableDebounce:    true,
 			}).RespondingAgents
 		} else {
-			responding = fallbackGroupDecision(envelope.Mentions, groupMembers, false).RespondingAgents
+			responding = fallbackGroupDecision(envelope.Mentions, groupMembers).RespondingAgents
 		}
 		if len(responding) > 0 {
 			return responding
@@ -398,10 +399,8 @@ func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries,
 			"mention_count", len(envelope.Mentions),
 			"member_count", len(groupMembers),
 		)
-		// Clear the unresolvable mentions so the shared no-mention path below is
-		// unambiguously mention-free, instead of leaning on the arbiter to re-derive
-		// "none of these are members" from the same mentions a second time.
-		envelope.Mentions = nil
+		// Fall through to the shared no-mention path below; it routes purely off
+		// groupMembers and never re-reads envelope.Mentions.
 	}
 	if d.coord != nil && d.coord.semanticGroupArbiter != nil {
 		return d.semanticResponders(ctx, q, outbox.GroupID, message, state, groupMembers)
@@ -874,29 +873,24 @@ func (d *GroupDispatcher) wrapGroupResponseStream(ctx context.Context, stream *p
 	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}, responseC
 }
 
-func fallbackGroupDecision(mentions []pkgchannel.Mention, members []GroupMember, allMembersFallback bool) ArbiterDecision {
+// fallbackGroupDecision resolves responders when no arbiter is wired: only
+// mentions that name a current member reply; anything else stays silent.
+func fallbackGroupDecision(mentions []pkgchannel.Mention, members []GroupMember) ArbiterDecision {
 	mentioned := mentionedAgentIDs(mentions)
-	if len(mentioned) > 0 {
-		memberSet := make(map[string]struct{}, len(members))
-		for _, m := range members {
-			memberSet[m.AgentID] = struct{}{}
-		}
-		var responding []string
-		for _, id := range mentioned {
-			if _, ok := memberSet[id]; ok {
-				responding = append(responding, id)
-			}
-		}
-		return ArbiterDecision{RespondingAgents: responding}
+	if len(mentioned) == 0 {
+		return ArbiterDecision{}
 	}
-	if allMembersFallback {
-		responding := make([]string, len(members))
-		for i, m := range members {
-			responding[i] = m.AgentID
-		}
-		return ArbiterDecision{RespondingAgents: responding}
+	memberSet := make(map[string]struct{}, len(members))
+	for _, m := range members {
+		memberSet[m.AgentID] = struct{}{}
 	}
-	return ArbiterDecision{}
+	var responding []string
+	for _, id := range mentioned {
+		if _, ok := memberSet[id]; ok {
+			responding = append(responding, id)
+		}
+	}
+	return ArbiterDecision{RespondingAgents: responding}
 }
 
 func backoff(attempts int64) time.Duration {
