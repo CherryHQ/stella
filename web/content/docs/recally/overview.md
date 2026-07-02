@@ -49,9 +49,9 @@ Beyond RSS, you can follow:
 
 - **Twitter/X accounts** — subscribe with a profile URL like `https://x.com/<handle>` and Recally treats new tweets as feed entries, saved and summarized like any other source. Only profile timelines are subscribable; lists, search, individual posts, and bookmarks are rejected.
 - **YouTube channels** — subscribe to the channel's RSS feed (`https://www.youtube.com/feeds/videos.xml?channel_id=...`) to track new uploads.
-- **Websites with no RSS** — subscribe to a page that lists items (a blog index, release notes, a "What's new" page) with `--kind website`. Recally scrapes the item links from the page and saves each one like any other source.
+- **Websites with no RSS** — subscribe to a page that lists items (a blog index, release notes, a "What's new" page) and choose the website feed kind. Recally scrapes the item links from the page and saves each one like any other source.
 
-Recally detects the source type from the URL, so subscribing is the same one step regardless of where the content lives. For RSS-less pages, pass `--kind website` to tell Recally to scrape the page instead of looking for a feed.
+Recally detects the source type from the URL, so subscribing is the same one step regardless of where the content lives. For RSS-less pages, choose the website kind to tell Recally to scrape the page instead of looking for a feed.
 
 ## Maintain a reading list
 

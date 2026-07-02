@@ -28,9 +28,10 @@ type MCPToolProvider interface {
 }
 
 type DomainToolMount struct {
-	Name      string
-	Tool      tools.Tool
-	Predicate func(RunnerParams) bool
+	Name         string
+	Tool         tools.Tool
+	Predicate    func(RunnerParams) bool
+	PredicateCtx func(context.Context, RunnerParams) bool
 }
 
 func DomainToolAvailable(params RunnerParams) bool {
@@ -41,6 +42,16 @@ func DomainToolAvailable(params RunnerParams) bool {
 		if tool != nil && tool.Definition().Name == "goal_control" {
 			return false
 		}
+	}
+	return true
+}
+
+func domainToolMountEnabled(ctx context.Context, mount DomainToolMount, params RunnerParams) bool {
+	if mount.PredicateCtx != nil {
+		return mount.PredicateCtx(ctx, params)
+	}
+	if mount.Predicate != nil {
+		return mount.Predicate(params)
 	}
 	return true
 }
@@ -217,7 +228,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			if mount.Tool == nil {
 				return nil, fmt.Errorf("domain tool %q is nil", mount.Name)
 			}
-			if mount.Predicate != nil && !mount.Predicate(params) {
+			if !domainToolMountEnabled(ctx, mount, params) {
 				continue
 			}
 			runnerTools = append(runnerTools, mount.Tool)

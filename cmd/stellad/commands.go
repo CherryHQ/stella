@@ -278,8 +278,8 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	domainToolMounts := []agent.DomainToolMount{
 		{Name: "goal", Tool: domaintools.NewGoalTool(goalSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "scheduler", Tool: domaintools.NewSchedulerTool(schedulerSvc), Predicate: agent.DomainToolAvailable},
-		{Name: "oauth", Tool: domaintools.NewOauthTool(credSvc), Predicate: agent.DomainToolAvailable},
-		{Name: "email", Tool: domaintools.NewEmailTool(emailSvc), Predicate: agent.DomainToolAvailable},
+		{Name: "oauth", Tool: domaintools.NewOauthTool(credSvc), PredicateCtx: oauthToolAvailable(credSvc)},
+		{Name: "email", Tool: domaintools.NewEmailTool(emailSvc), PredicateCtx: emailToolAvailable(vaultSvc)},
 		{Name: "share", Tool: domaintools.NewShareTool(shareSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "recally", Tool: domaintools.NewRecallyTool(recallySvc), Predicate: agent.DomainToolAvailable},
 	}

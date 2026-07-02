@@ -84,11 +84,11 @@ The `stella` CLI is self-documenting. These are the command groups and their sub
 ```
 stellad server                  # Start server (channels + scheduler); web UI at http://localhost:25678
 stellad upgrade                 # Self-update to latest release
-stella vault      list/get/set/delete        # user secrets; Web UI also supports agent/system scopes
-stella oauth      providers/connect/status/disconnect
-stella share      artifact/article
-scheduler CLI     add/list/remove              # human/operator surface; agents use scheduler tool
-goal CLI          create/list/show/...         # human/operator surface; agents use goal tool
+vault tool                    # agent secret storage metadata/set/delete; no read-back
+oauth tool                    # agent OAuth provider list/connect/status/disconnect
+share tool                    # agent artifact/article public links
+scheduler CLI                 # human/operator surface; agents use scheduler tool
+goal CLI                      # human/operator surface; agents use goal tool
 stella version                  # Print version
 ```
 
@@ -124,7 +124,7 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 ## Memory, scheduler, notifications
 
-Memory, scheduler, and goals are native agent tools when available; skills use the `skills` tool; vault, oauth, notifications, and operator surfaces remain available through the `stella` CLI and Web UI. Briefly:
+Memory, scheduler, goals, vault, OAuth connections, Recally, email, and sharing are native agent tools when available; skills use the `skills` tool; notifications and operator surfaces remain available through the CLI and Web UI. Briefly:
 
 - **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
 - **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (`subject=world` facts). Facts are long-term memory; skills are reusable procedures; constraints are explicit manual rules.
@@ -136,6 +136,7 @@ Memory, scheduler, and goals are native agent tools when available; skills use t
 - **Memory retrieval**: The `memory` tool provides `search` (searches all of this user+agent's past sessions — keyword matching, blended with semantic similarity when embedding is enabled; each hit carries its origin session and content timestamp), `search_knowledge` (searches snapshot-visible `subject=world` facts), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
 - **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **goals** for async persistent work that converges through an acceptance contract (author with the native `goal` tool; you may also be dispatched as a worker), and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks.
 - **Scheduler**: agents use the native `scheduler` tool to add/list/update/delete/pause/resume scheduled or one-time jobs. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the `scheduler` tool with `action=create` and `template_key`, the Web UI (Tasks tab → New Schedule → From template), or the HTTP API. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
+- **Vault/OAuth/Recally/Email/Share**: agents use native tools for these domains. OAuth connect returns a verification URI and user code; give those to the user, wait for authorization, then poll status with the returned flow id. Recally save requires the agent to fetch article content first. Email send requires explicit user confirmation and an idempotency key. Share creates public links only when the user asks.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
 - **Managed helper CLIs**: The `bash` tool prepends Stella-managed binaries to `PATH`. Expect `fd`, `rg`, `mise`, and `tap` to be available even when the host machine doesn't have them installed separately.

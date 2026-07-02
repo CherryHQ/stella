@@ -96,8 +96,8 @@ Stella 可以给你一份每日阅读总结：
 
 你可以把它安排为每天早上的自动简报——直接让 Stella "每天早上8点给我一份阅读摘要"。
 
-## CLI 参考
+## Agent 和 CLI 访问
 
-所有阅读助手命令都通过 `stella recally` 子命令使用。你通常通过对话交互，但 CLI 也可用于脚本。
+在聊天中，Stella 使用原生 Recally 工具保存文章、管理 feeds、生成摘要。聊天外自动化脚本仍然可以使用 CLI。
 
-使用 [Recally CLI 参考](/docs/recally/cli) 先找到对应 help 命令。例如，从脚本保存文章前，先阅读 `stella recally save --help`。
+编写脚本时再参考 [Recally CLI 参考](/docs/recally/cli)。

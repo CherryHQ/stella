@@ -7,15 +7,7 @@ re-lists and Go drops the duplicates.
 
 ## 1. Identify Twitter feeds
 
-Before listing feeds, read the command help:
-
-```bash
-stella recally feed list --help
-```
-
-List feeds with JSON output. Process each feed whose `kind` is `twitter`. The feed's `metadata.external_id`
-holds the stable numeric X user id (rename-proof); fall back to the handle in the
-feed `url` if it is missing.
+Use `recally` `action=feed_list` to list feeds. Process each feed whose `kind` is `twitter`. The feed's metadata may hold the stable numeric X user id (rename-proof); fall back to the handle in the feed `url` if it is missing.
 
 ## 2. List recent tweets
 
@@ -37,7 +29,8 @@ For each returned status:
 
 ## 3. Push entries (Go dedups)
 
-Before adding feed entries, read the command help:
+Entry insertion still runs through the CLI — the native `recally` tool does not
+expose it yet. Before adding feed entries, read the command help:
 
 ```bash
 stella recally feed entry add --help
