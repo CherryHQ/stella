@@ -31,8 +31,8 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate code
-        run: mise run generate
+      - name: Generate code and check drift
+        run: mise run generate:check
 
       - name: Run pre-commit hooks
         run: prek run --all-files
@@ -55,8 +55,8 @@ jobs:
       - name: Install bubblewrap
         run: sudo apt-get install -y bubblewrap
 
-      - name: Generate code
-        run: mise run generate
+      - name: Generate code and check drift
+        run: mise run generate:check
 
       - name: Run tests with race detection and coverage
         run: mise run test:coverage:race
