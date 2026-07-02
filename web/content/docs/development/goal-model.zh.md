@@ -53,10 +53,11 @@ children 是 goal；再下一层也是——同一个形状一路到底。`kind`
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `goal`             | intent + `acceptance_contract` + `convergence_policy` + 可空 `parent_id` + 可空 accepted output。复合 goal 另在 `plan`（jsonb）与 `planned_at` 栅栏内联保存其分解。 |
 | `goal_edge`        | 兄弟 goal 间的 accepted-output 依赖（`hard` 阻塞；`soft` 是建议性上下文）。                                                                                         |
-| `attempt`          | 一次执行 episode：一个持久 agent session、冻结的输入上下文、提交的 evidence（evidence 折进 attempt，不单独建表）。                                                  |
+| `attempt`          | 一次执行 episode：一个一次性内部 agent session、冻结的输入上下文、提交的 evidence（evidence 折进 attempt，不单独建表）。                                            |
 | `acceptance_event` | 确定性 check 结果或判断性 verdict 的 append-only 记录。Goal 的验收状态是这些事件之上的**缓存投影**，不是可变列。                                                    |
+| `goal_event`       | 面向人的 append-only 时间线：计划、尝试、验收、生命周期与人工留言事件。这是 UI 叙事；执行 session 只是内部管道。                                                    |
 
-`acceptance_event` 做成 append-only（而非可变的评估表）对审计与投影重建更友好——见
+`acceptance_event` 与 `goal_event` 做成 append-only（而非可变的评估表）对审计与投影重建更友好——见
 [简单性与可扩展性](#简单性与可扩展性)。
 
 ## 完成是派生的，从不被断言
@@ -116,12 +117,12 @@ agent 永远不设 `done`。它提交 **evidence**；系统**派生**验收。
 ```text
 依赖满足 → lifecycle: ready → active
 loop:
-  Attempt[i]，输入 = intent + 上游 accepted output + Evaluation[i-1].gaps
-  agent 在 attempt.session 干活 → 提交 Evidence → attempt 结束
-  验收：跑确定性 checks；若通过且策略需要，请求 verdicts
+  Attempt[i]，输入 = intent + 上游 accepted output + 近期时间线指引 + Evaluation[i-1].gaps
+  agent 在一次性内部 session 干活 → 提交 Evidence → attempt 结束
+  验收：在同一个活 sandbox 里跑确定性 checks；若通过且策略需要，请求 verdicts
     ├ 全满足         → accepted；冻结 accepted_output
     ├ 失败, i < max  → rejected(gaps) → 下一轮（gaps 成为输入）   ← 返工
-    ├ 失败, i == max → blocked(budget_exhausted) → 人决定
+    ├ 失败, i == max → blocked(budget_exhausted) → 人重试或补充时间线指引
     └ 需 verdict      → blocked(needs_verdict) → 人提交 → 继续
 ```
 
@@ -164,7 +165,7 @@ design/impl 最多是 category 或内部阶段。
 - **Handoff**——**只有 accepted output** 才往下游流；在途 attempt 的 evidence 永不泄漏进依赖项的
   输入。
 - **executor 边界**——agent 返回结果；service 拥有持久状态。
-- **持久 session** 与 **pending-vs-accepted 内容隔离**——让在途编辑不进入正在运行的 prompt。
+- **一次性 attempt session** 与 **pending-vs-accepted 内容隔离**——让在途编辑不进入正在运行的 prompt。attempt session 为审计保留，但从用户会话列表隐藏；目标时间线才是 UI 表面。
 
 ### 词汇
 
@@ -180,8 +181,10 @@ design/impl 最多是 category 或内部阶段。
 | worker 执行的 task | 叶子 `goal`                                |
 | task running       | `attempt` running                          |
 | task done          | `goal` accepted（**派生**）                |
-| 瞬时 task 失败     | `attempt` interrupted → 新 attempt         |
-| 语义 task 失败     | 验收 rejected → 下一轮，或耗尽预算 blocked |
+| 模型责任失败       | 验收 rejected → 下一轮，或耗尽预算 blocked |
+| 环境失败           | `blocked(env_unavailable)`；报告管理员     |
+| 契约失败           | `blocked(contract_conflict)`；编辑契约     |
+| 基建抖动           | 不扣业务预算重试，直到 flaky 上限          |
 | 验收标准           | `acceptance_contract` 项（绑定、机器核对） |
 | verify 步骤        | 该 goal 的验收评估                         |
 | design / impl role | goal category / 内部阶段                   |
@@ -207,8 +210,7 @@ accepted-output DAG 天然并行。真正的天花板不在模型：
 1. **agent 成本与延迟是第一堵墙**，早于任何数据库极限。每次 rejected attempt 是又一整轮 agent
    episode；深度 × 多轮 × 判断评审会放大 token 与墙钟。`max_attempts` 与
    `deterministic_then_judgment` 是载重护栏，不是可选项。
-2. **session 与 evidence 增长**紧随其后：每轮一个 attempt 会膨胀 session，而 evidence（stdout、
-   diff、artifact、rationale）比状态行长得更快。默认 truncate、外置 artifact、按 hash 寻址。
+2. **时间线、session 与 evidence 增长**紧随其后：每轮 attempt 会追加时间线事件并创建一次性内部 session，而 evidence（stdout、diff、artifact、rationale）比状态行长得更快。session 为审计保留，但用户列表隐藏内部 task/delegate kind；默认 truncate、外置 artifact、按 hash 寻址。
 3. **单写者数据库**是真约束，但*可以设计掉*。不要每个事件全扫树：子项验收只更新父项的增量计数器，
    父项验收是缓存投影，下游就绪由 accepted-output 事件推动。单写者禁止全量 rollup——不禁止模型。
 4. **check 结果缓存**是必需的，免得一个 3 轮叶子重构三次。难点是 cache key，必须包含

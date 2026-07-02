@@ -37,7 +37,7 @@ draft ──activate──▶ ready ──claim──▶ active ──submit─�
 - `accepted` — terminal-good; the accepted output is frozen.
 - `rejected_final` — a verdict said no with no rework path left.
 - `abandoned` — convergence budget exhausted and the policy gave up.
-- `blocked` is **recoverable**, not terminal. Block reasons: `budget_exhausted` > `needs_plan_approval` > `planning_invalid` > `needs_verdict` > `dep`.
+- `blocked` is **recoverable**, not terminal. Block reasons include `budget_exhausted`, `needs_plan_approval`, `planning_invalid`, `needs_verdict`, `dep`, `env_unavailable`, and `contract_conflict`. Responsibility matters: model failures spend business budget; environment/contract failures park for human action; flaky infrastructure retries outside business budget until its cap.
 
 Acceptance is a separate projection from lifecycle: `pending | passed | failed`. A goal reaches `accepted` only when its contract's acceptance fold passes.
 
@@ -67,6 +67,8 @@ Rules:
 - `submit` does **not** mark the goal done — the acceptance contract decides. If your previous attempt fell short, the gaps come back in the next prompt; address them.
 - Block only when you truly need a human or external dependency. Do not fake completion to avoid blocking.
 
-## Recovery
+## Timeline and recovery
 
-Attempts carry a lease and heartbeat. If a worker crashes or Stella restarts, the lease expires and the dispatcher reclaims the goal if the convergence budget remains. Submitted evidence and terminal state are durable because they are written to the goal's append-only acceptance ledger.
+Each goal has an append-only timeline. The Web UI uses it as the human surface for plan submissions, attempt start/finish, acceptance results, lifecycle changes, and human messages; one-shot execution sessions are internal audit plumbing and are hidden from normal user session lists. If a non-dependency blocked goal receives a human timeline message, Stella records the message, authorizes one extra attempt, and dispatches it with that guidance. Dependency-blocked goals record the message but do not retry until the upstream changes or is waived.
+
+Attempts carry a lease and heartbeat. If a worker crashes or Stella restarts, the lease expires and the dispatcher reclaims the goal if the convergence budget remains. Submitted evidence and terminal state are durable because they are written to the append-only acceptance ledger and goal timeline.

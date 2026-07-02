@@ -24,12 +24,12 @@ If the contract passes, the goal becomes **Accepted** and its output is frozen f
 A leaf goal runs as a bounded rework loop, not a one-shot:
 
 1. Dependencies satisfied → the goal becomes **Active**.
-2. The agent works in its session and submits evidence.
-3. The system evaluates the acceptance contract.
+2. The agent works in a one-shot internal execution session and submits evidence.
+3. The system evaluates the acceptance contract; deterministic checks run in that same sandbox session, so the command sees the files and environment the agent just used.
 4. Pass → **Accepted**. Fail → the gaps become input to the next attempt — that is the rework.
-5. Out of attempts → **Blocked** so you can raise the budget or abandon it.
+5. Out of attempts → **Blocked** so you can retry, add human guidance on the timeline, or abandon it.
 
-Each attempt is preserved, so the trail reads cleanly: attempt 1 produced X, acceptance found gaps Y, attempt 2 produced Z, accepted.
+Each attempt is preserved, but the Web UI treats execution sessions as internal plumbing. The goal **Timeline** is the human-readable trail: attempt 1 produced X, acceptance found gaps Y, you added guidance Z, attempt 2 was accepted.
 
 ## Lifecycle states
 
@@ -38,7 +38,7 @@ A goal moves through:
 - **Draft** — created, not yet activated.
 - **Ready** — eligible to run once dependencies and scheduling allow.
 - **Active** — the agent is working on it.
-- **Blocked** — paused for your verdict, a failed dependency, or an exhausted attempt budget.
+- **Blocked** — paused for your verdict, a failed dependency, exhausted budget, unavailable environment, or a contract conflict.
 - **Needs review** — evidence submitted, waiting on a judgment verdict.
 - **Accepted** — the acceptance contract passed. (Derived, terminal.)
 - **Rejected** — closed with no rework path.
@@ -63,7 +63,7 @@ Use a dependency when:
 - A downstream goal should stop if an upstream one fails.
 - You want the readiness view to explain exactly what is still waiting.
 
-A failed hard dependency blocks the downstream goal until you waive it with a reason.
+A failed hard dependency blocks the downstream goal until you waive it with a reason. A dependency block is not retryable from the downstream goal because the downstream input has not changed.
 
 ## Review and judgment
 
@@ -83,13 +83,21 @@ Chat history is a bad project tracker. In the Web UI, open an agent and choose t
 
 Open a goal to inspect:
 
+- **Timeline** — the default view: plan events, attempts, acceptance results, lifecycle changes, and your messages.
 - Its current lifecycle state and readiness.
 - **Children** and their rollup (for a composite).
 - **Attempts** — each execution episode and the gaps that drove the next one.
 - The **Acceptance** ledger — every check result and judgment verdict.
 - **Dependencies** and what's still waiting.
-- The accepted output, and the session behind any attempt.
+- The accepted output.
 
-When a goal is blocked on you, its page shows what it needs — submit your verdict, or waive a failed dependency, right there. The agent picks the work back up with your input.
+Blocked cards show the one-line cause and only useful actions:
+
+- **Environment unavailable** — report an administrator.
+- **Contract conflict** — edit the acceptance contract.
+- **Budget exhausted** — retry, or leave a timeline message; a message on a non-dependency blocked goal authorizes one more attempt.
+- **Waiting on upstream** — wait or waive the dependency; retry is intentionally hidden.
+
+When a goal is blocked on you, its page shows what it needs — submit your verdict, waive a failed dependency, or add guidance on the timeline. The agent picks the work back up with your input when the block is retryable.
 
 The practical rule: use chat to describe outcomes and decisions; use goals to track execution.
