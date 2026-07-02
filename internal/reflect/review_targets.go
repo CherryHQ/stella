@@ -11,9 +11,11 @@ import (
 
 // reviewTarget represents a session that may need review.
 type reviewTarget struct {
-	session    memory.Session
-	lastActive time.Time // from SessionInfo — used as tiebreaker
-	lastReview time.Time // zero if never reviewed
+	session         memory.Session
+	lastActive      time.Time // from SessionInfo — used as tiebreaker
+	lastReview      time.Time // zero if never reviewed
+	sourceGroupID   string
+	privateOneToOne bool
 }
 
 func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, agentID string) ([]reviewTarget, error) {
@@ -89,9 +91,11 @@ func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session
 	}
 
 	return reviewTarget{
-		session:    reg.MemoryScope(info),
-		lastActive: info.LastActive,
-		lastReview: wm,
+		session:         reg.MemoryScope(info),
+		lastActive:      info.LastActive,
+		lastReview:      wm,
+		sourceGroupID:   info.GroupID,
+		privateOneToOne: info.GroupID == "" && info.UserID != "",
 	}, true
 }
 
@@ -115,9 +119,12 @@ func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo)
 			AgentID: sess.AgentID,
 			UserID:  sess.UserID,
 			Channel: sess.Channel,
+			GroupID: sess.GroupID,
 		},
-		lastActive: sess.LastActive,
-		lastReview: wm,
+		lastActive:      sess.LastActive,
+		lastReview:      wm,
+		sourceGroupID:   sess.GroupID,
+		privateOneToOne: sess.GroupID == "" && sess.UserID != "",
 	}, true
 }
 

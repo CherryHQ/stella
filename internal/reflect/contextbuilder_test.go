@@ -163,6 +163,167 @@ func TestBuildReviewContext_FallbackFiltersToolResults(t *testing.T) {
 	}
 }
 
+func TestBuildReviewUnit_ChronologicalWindow(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+
+	ctx := context.Background()
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+
+	old := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+	freshOne := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	freshTwo := time.Date(2026, 7, 2, 10, 5, 0, 0, time.UTC)
+	if err := fake.Append(ctx, sess,
+		ai.UserMessage{Content: "old context", Timestamp: old},
+		ai.UserMessage{Content: "fresh one", Timestamp: freshOne},
+		ai.UserMessage{Content: strings.Repeat("b", 80), Timestamp: freshTwo},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
+		session:         sess,
+		privateOneToOne: true,
+	}, old.Add(time.Minute), 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(unit.Text, "old context") {
+		t.Fatalf("expected prior context in review unit, got %q", unit.Text)
+	}
+	if !strings.Contains(unit.Text, "fresh one") {
+		t.Fatalf("expected first fresh message in review unit, got %q", unit.Text)
+	}
+	if strings.Contains(unit.Text, strings.Repeat("b", 80)) {
+		t.Fatalf("did not expect second fresh message beyond budget, got %q", unit.Text)
+	}
+	if !unit.LastIncludedAt.Equal(freshOne) {
+		t.Fatalf("expected last included timestamp %v, got %v", freshOne, unit.LastIncludedAt)
+	}
+	if unit.FreshCount != 1 {
+		t.Fatalf("expected one fresh message included, got %d", unit.FreshCount)
+	}
+}
+
+func TestBuildReviewUnit_SkipsOversizedSingleMessage(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+
+	ctx := context.Background()
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+
+	hugeAt := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	smallAt := time.Date(2026, 7, 2, 10, 5, 0, 0, time.UTC)
+	huge := strings.Repeat("x", 2000)
+	if err := fake.Append(ctx, sess,
+		ai.UserMessage{Content: huge, Timestamp: hugeAt},
+		ai.UserMessage{Content: "small after huge", Timestamp: smallAt},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
+		session:         sess,
+		privateOneToOne: true,
+	}, time.Time{}, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(unit.Text, huge) {
+		t.Fatalf("oversized message should not be included")
+	}
+	if !strings.Contains(unit.Text, "small after huge") {
+		t.Fatalf("expected later small message to be included, got %q", unit.Text)
+	}
+	if !unit.LastIncludedAt.Equal(smallAt) {
+		t.Fatalf("expected watermark to advance to small message %v, got %v", smallAt, unit.LastIncludedAt)
+	}
+	if len(unit.Skipped) != 1 || unit.Skipped[0].Reason != reviewSkipOversizedSingleMessage {
+		t.Fatalf("expected oversized skip, got %#v", unit.Skipped)
+	}
+}
+
+func TestBuildReviewUnit_IncludesRedactedToolSummary(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+
+	ctx := context.Background()
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	if err := fake.Append(ctx, sess,
+		ai.UserMessage{Content: "inspect token", Timestamp: now},
+		ai.ToolResultMessage{
+			ToolCallID: "tc1",
+			ToolName:   "shell",
+			Content: []ai.ContentBlock{
+				ai.TextContent{Text: "token ghp_abcdefghijklmnopqrstuvwxyz1234567890 plus " + strings.Repeat("z", 3000)},
+			},
+			Timestamp: now.Add(time.Second),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
+		session:         sess,
+		privateOneToOne: true,
+	}, time.Time{}, 400)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(unit.Text, "[tool_result_summary]") {
+		t.Fatalf("expected tool summary in review unit, got %q", unit.Text)
+	}
+	if strings.Contains(unit.Text, "ghp_abcdefghijklmnopqrstuvwxyz1234567890") {
+		t.Fatalf("expected token-like value to be redacted, got %q", unit.Text)
+	}
+	if strings.Contains(unit.Text, strings.Repeat("z", 3000)) {
+		t.Fatalf("expected tool output to be truncated")
+	}
+}
+
+func TestBuildReviewUnit_FailsClosedForGroupSession(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+
+	ctx := context.Background()
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1", GroupID: "g1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.Append(ctx, sess, ai.UserMessage{Content: "group memory", Timestamp: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
+		session:         sess,
+		privateOneToOne: false,
+	}, time.Time{}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if unit.Text != "" {
+		t.Fatalf("expected group session to be skipped, got %q", unit.Text)
+	}
+	if len(unit.Skipped) != 1 || unit.Skipped[0].Reason != reviewSkipNotPrivateOneToOne {
+		t.Fatalf("expected one-to-one skip, got %#v", unit.Skipped)
+	}
+}
+
 func TestTailByBudget_FitsAll(t *testing.T) {
 	lines := []string{"short", "lines", "here"}
 	got := tailByBudget(lines, 10000)
