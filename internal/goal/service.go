@@ -347,7 +347,13 @@ func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries
 		// immaterial — both callers discard it.
 		return sqlc.AgentGoalAcceptanceEvent{}, nil
 	}
-	return row, err
+	if err != nil {
+		return sqlc.AgentGoalAcceptanceEvent{}, err
+	}
+	if err := s.appendTimelineAcceptanceRecorded(ctx, q, e); err != nil {
+		return sqlc.AgentGoalAcceptanceEvent{}, err
+	}
+	return row, nil
 }
 
 // applyAcceptance is the single fold→transition mapper (contract §4.3). It runs
@@ -591,12 +597,7 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		if d.Kind == KindComposite {
 			parentTarget = LifecycleActive
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   parentTarget,
-			BlockReason:   "",
-			ID:            d.ID,
-			FromLifecycle: LifecycleDraft,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, parentTarget, "")
 		if err != nil {
 			return fmt.Errorf("activate: %w", err)
 		}
@@ -645,10 +646,7 @@ func (s *GoalService) Block(ctx context.Context, id, reason string, by Actor) er
 		if err != nil {
 			return err
 		}
-		rows, err := q.BlockGoal(ctx, sqlc.BlockGoalParams{
-			BlockReason: reason,
-			ID:          id,
-		})
+		rows, err := s.blockGoal(ctx, q, d, reason)
 		if err != nil {
 			return fmt.Errorf("block goal: %w", err)
 		}
@@ -688,12 +686,7 @@ func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 		if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockDep {
 			return ErrInvalidTransition // only a recoverable dep block clears
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   recoveryLifecycle(d),
-			BlockReason:   "",
-			ID:            id,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
 		if err != nil {
 			return fmt.Errorf("unblock goal: %w", err)
 		}
@@ -720,12 +713,7 @@ func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error 
 			return ErrInvalidTransition
 		}
 		if d.BlockReason == BlockPlanningInvalid {
-			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-				ToLifecycle:   recoveryLifecycle(d),
-				BlockReason:   "",
-				ID:            id,
-				FromLifecycle: LifecycleBlocked,
-			})
+			rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
 			if err != nil {
 				return fmt.Errorf("reattempt planning invalid: %w", err)
 			}
@@ -764,12 +752,7 @@ func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error 
 		}); err != nil {
 			return fmt.Errorf("raise budget: %w", err)
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   recoveryLifecycle(d),
-			BlockReason:   "",
-			ID:            id,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
 		if err != nil {
 			return fmt.Errorf("reattempt: %w", err)
 		}
@@ -808,16 +791,15 @@ func (s *GoalService) Cancel(ctx context.Context, id, reason string, by Actor) e
 			}
 			// Cancel any in-flight attempt for this descendant before flipping it.
 			if d.ActiveAttemptID.Valid && d.ActiveAttemptID.String != "" {
-				if _, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-					ToStatus:     AttemptCancelled,
-					Error:        reason,
-					FailureClass: "",
-					ID:           d.ActiveAttemptID.String,
-				}); err != nil {
+				att, err := q.GetAttempt(ctx, d.ActiveAttemptID.String)
+				if err != nil {
+					return err
+				}
+				if _, err := s.finalizeAttempt(ctx, q, att, AttemptCancelled, reason, ""); err != nil {
 					return fmt.Errorf("cancel in-flight attempt: %w", err)
 				}
 			}
-			if err := q.CancelGoal(ctx, d.ID); err != nil {
+			if err := s.cancelGoal(ctx, q, d); err != nil {
 				return fmt.Errorf("cancel goal: %w", err)
 			}
 			// A descendant that was blocked had bumped its parent's required_blocked;
@@ -854,12 +836,7 @@ func (s *GoalService) Abandon(ctx context.Context, id, reason string, by Actor) 
 		if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockBudgetExhausted {
 			return ErrInvalidTransition
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleAbandoned,
-			BlockReason:   "",
-			ID:            id,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleAbandoned, "")
 		if err != nil {
 			return fmt.Errorf("abandon: %w", err)
 		}
@@ -1001,12 +978,7 @@ func (s *GoalService) WaiveEdge(ctx context.Context, downstreamID, upstreamID, r
 			return err
 		}
 		if d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockDep {
-			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-				ToLifecycle:   recoveryLifecycle(d),
-				BlockReason:   "",
-				ID:            downstreamID,
-				FromLifecycle: LifecycleBlocked,
-			})
+			rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
 			if err != nil {
 				return fmt.Errorf("unblock waived downstream: %w", err)
 			}
@@ -1150,12 +1122,7 @@ func (s *GoalService) RecoverBlockedComposite(ctx context.Context, id string) er
 		// folds the refreshed counters (accept / fail / wait). Re-activating bumps no
 		// parent counter — this composite's own parent, if itself blocked(dep), is
 		// reconciled by its turn through this same recovery scan.
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleActive,
-			BlockReason:   "",
-			ID:            id,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, cur, LifecycleActive, "")
 		if err != nil {
 			return fmt.Errorf("recover blocked composite: %w", err)
 		}

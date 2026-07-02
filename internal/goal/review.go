@@ -95,7 +95,11 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 			return fmt.Errorf("max review attempt no: %w", err)
 		}
 		attemptNo := int(maxNo) + 1
-		input := buildInputContext(cur, nil, nil, "", attemptNo)
+		timeline, err := s.recentTimelineContext(ctx, q, cur.ID)
+		if err != nil {
+			return err
+		}
+		input := buildInputContext(cur, nil, nil, timeline, "", attemptNo)
 		input.ReviewItems = items
 		judged := execOut
 		input.ReviewOutput = &judged
@@ -278,11 +282,7 @@ func (s *GoalService) SubmitReview(ctx context.Context, attemptID string, ev Att
 			return err
 		}
 		// Finalize the review attempt so the reaper never recovers it after we fold.
-		rows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
-			Evidence: marshalJSON(ev),
-			Output:   emptyJSON,
-			ID:       attemptID,
-		})
+		rows, err := s.submitAttempt(ctx, q, att, ev, emptyJSON)
 		if err != nil {
 			return fmt.Errorf("submit review attempt: %w", err)
 		}

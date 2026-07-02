@@ -91,19 +91,11 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		return fmt.Errorf("worker: load goal: %w", err)
 	}
 
-	promoted, perr := w.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{
-		LeaseExpiresAt: w.leaseUntil(),
-		ID:             attemptID,
-	})
-	if perr != nil {
-		return fmt.Errorf("worker: promote attempt: %w", perr)
-	}
-	// PromoteAttempt only matches a still-queued attempt. Zero rows means it was
-	// interrupted or cancelled (lease reap, shutdown) before the worker started;
-	// abort so a superseded attempt never runs the executor or applies a
-	// terminal transition against a retry that re-claimed the goal.
-	if promoted == 0 {
-		return ErrInvalidTransition
+	if err := w.svc.promoteAttempt(ctx, attemptID, w.leaseUntil()); err != nil {
+		if errors.Is(err, ErrInvalidTransition) {
+			return ErrInvalidTransition
+		}
+		return fmt.Errorf("worker: promote attempt: %w", err)
 	}
 
 	// Start the heartbeat loop in the background.
@@ -392,6 +384,13 @@ func (w *Worker) appendCheckEvent(ctx context.Context, goalID, attemptID string,
 		CacheHit: cr.CacheHit,
 	})
 	err := w.svc.withTx(ctx, func(qtx *sqlc.Queries) error {
+		att, err := qtx.GetAttempt(ctx, attemptID)
+		if err != nil {
+			return err
+		}
+		if att.Status != AttemptRunning {
+			return ErrInvalidTransition
+		}
 		_, e := w.svc.appendAcceptanceEvent(ctx, qtx, sqlc.AppendAcceptanceEventParams{
 			GoalID:    goalID,
 			AttemptID: pgnull.Text(attemptID),

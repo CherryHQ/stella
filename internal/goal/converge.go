@@ -25,7 +25,7 @@ import (
 // ACCEPTED upstream outputs + the prior fold's gaps + the contract + a resolved
 // verdict, stamped with attempt_no. Freezing here is what keeps an in-flight
 // edit to intent/contract from mutating a running attempt's context.
-func buildInputContext(d sqlc.AgentGoal, upstream []AcceptedOutput, priorGaps *Evaluation, resolvedVerdict string, attemptNo int) AttemptInput {
+func buildInputContext(d sqlc.AgentGoal, upstream []AcceptedOutput, priorGaps *Evaluation, timeline []TimelineContextEvent, resolvedVerdict string, attemptNo int) AttemptInput {
 	var c AcceptanceContract
 	_ = unmarshalJSON(d.AcceptanceContract, &c)
 	return AttemptInput{
@@ -34,6 +34,7 @@ func buildInputContext(d sqlc.AgentGoal, upstream []AcceptedOutput, priorGaps *E
 		Context:         d.Context,
 		UpstreamOutputs: upstream,
 		PriorGaps:       priorGaps,
+		TimelineContext: timeline,
 		Contract:        c,
 		ResolvedVerdict: resolvedVerdict,
 		AttemptNo:       attemptNo,
@@ -64,33 +65,14 @@ func upstreamAcceptedOutputs(ctx context.Context, q *sqlc.Queries, goalID string
 	return outs, nil
 }
 
-// priorGapsFor returns the most recent execution attempt's recorded gaps as the
-// next attempt's input (the "rework = next attempt" loop, §5 step 7). nil on the
-// first attempt or when no gaps were recorded. The prior attempt is 'submitted'
-// (not active), so it is read off the attempt_no-DESC list.
+// priorGapsFor returns recent failed acceptance items from the goal timeline as
+// the next attempt's gap context. The attempt history remains the audit source,
+// but job input now reads the L3 timeline instead of stitching attempt rows.
 func (s *GoalService) priorGapsFor(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) (*Evaluation, error) {
 	if d.AttemptCount == 0 {
 		return nil, nil
 	}
-	prev := PurposeExecution
-	atts, err := q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{
-		GoalID:  d.ID,
-		Purpose: pgnull.Text(prev),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list attempts: %w", err)
-	}
-	if len(atts) == 0 {
-		return nil, nil
-	}
-	// Best-effort parse: a malformed gaps blob is simply "no prior evaluation",
-	// not an error worth propagating — the next attempt starts clean.
-	var ev Evaluation
-	_ = unmarshalJSON(atts[0].Gaps, &ev)
-	if len(ev.Gaps) == 0 {
-		return nil, nil
-	}
-	return &ev, nil
+	return s.priorGapsFromTimeline(ctx, q, d.ID)
 }
 
 // ── Mint next attempt (contract §5 step 1) ──────────────────────────────────
@@ -116,7 +98,11 @@ func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sq
 	}
 
 	attemptNo := int(d.AttemptCount) + 1
-	input := buildInputContext(d, upstream, prior, resolvedVerdict, attemptNo)
+	timeline, err := s.recentTimelineContext(ctx, q, d.ID)
+	if err != nil {
+		return sqlc.AgentGoalAttempt{}, err
+	}
+	input := buildInputContext(d, upstream, prior, timeline, resolvedVerdict, attemptNo)
 
 	att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
 		ID:              newID(),
@@ -259,11 +245,7 @@ func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEv
 		if out.Hash == "" {
 			out.Hash = HashWithArtifacts(out, ev.Artifacts)
 		}
-		rows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
-			Evidence: marshalJSON(ev),
-			Output:   marshalJSON(out),
-			ID:       attemptID,
-		})
+		rows, err := s.submitAttempt(ctx, q, att, ev, marshalJSON(out))
 		if err != nil {
 			return fmt.Errorf("submit attempt: %w", err)
 		}
@@ -306,12 +288,7 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failur
 		if err != nil {
 			return err
 		}
-		rows, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-			ToStatus:     AttemptFailed,
-			Error:        reason,
-			FailureClass: failureClass,
-			ID:           attemptID,
-		})
+		rows, err := s.finalizeAttempt(ctx, q, att, AttemptFailed, reason, failureClass, blockedBy)
 		if err != nil {
 			return fmt.Errorf("finalize failed attempt: %w", err)
 		}
@@ -384,12 +361,7 @@ func (s *GoalService) recoverDecomposition(ctx context.Context, q *sqlc.Queries,
 			return fmt.Errorf("refund decomposition budget on queued reap: %w", err)
 		}
 	}
-	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-		ToLifecycle:   LifecycleDraft,
-		BlockReason:   "",
-		ID:            d.ID,
-		FromLifecycle: LifecycleActive,
-	})
+	rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleDraft, "")
 	if err != nil {
 		return fmt.Errorf("recover decomposition: %w", err)
 	}
@@ -457,13 +429,12 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 		if err := q.SetGoalPlan(ctx, sqlc.SetGoalPlanParams{Plan: marshalJSON(content), ID: parent.ID}); err != nil {
 			return fmt.Errorf("set goal plan: %w", err)
 		}
+		if _, err := s.appendGoalEvent(ctx, q, parent.ID, attemptID, GoalEventPlanSubmitted, planPayload(content)); err != nil {
+			return err
+		}
 		// Finalize the decomposition attempt (running->submitted) so the reaper
 		// never recovers it after we move the goal on.
-		subRows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
-			Evidence: marshalJSON(ev),
-			Output:   emptyJSON,
-			ID:       attemptID,
-		})
+		subRows, err := s.submitAttempt(ctx, q, att, ev, emptyJSON)
 		if err != nil {
 			return fmt.Errorf("submit decomposition attempt: %w", err)
 		}
@@ -479,12 +450,7 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 			// in goal.plan until ApprovePlan materializes it or RejectPlan re-plans.
 			// Mirror the budget-block path: do NOT eagerly bump the parent counter;
 			// the reconcile backstop counts lifecycle='blocked' children.
-			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-				ToLifecycle:   LifecycleBlocked,
-				BlockReason:   BlockNeedsPlanApproval,
-				ID:            parent.ID,
-				FromLifecycle: LifecycleActive,
-			})
+			rows, err := s.transitionGoalLifecycle(ctx, q, parent, LifecycleBlocked, BlockNeedsPlanApproval)
 			if err != nil {
 				return fmt.Errorf("block for plan approval: %w", err)
 			}
@@ -558,12 +524,7 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 		if err := s.Materialize(ctx, q, cur, content, childSessions); err != nil {
 			return err
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleActive,
-			BlockReason:   "",
-			ID:            cur.ID,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, cur, LifecycleActive, "")
 		if err != nil {
 			return fmt.Errorf("activate after plan approval: %w", err)
 		}
@@ -609,12 +570,7 @@ func (s *GoalService) RejectPlan(ctx context.Context, goalID, reason string, by 
 		if err := q.SetGoalPlan(ctx, sqlc.SetGoalPlanParams{Plan: emptyJSON, ID: cur.ID}); err != nil {
 			return fmt.Errorf("clear goal plan: %w", err)
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleDraft,
-			BlockReason:   "",
-			ID:            cur.ID,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, cur, LifecycleDraft, "")
 		if err != nil {
 			return fmt.Errorf("return goal to draft after plan reject: %w", err)
 		}
@@ -638,12 +594,7 @@ func (s *GoalService) releaseChildren(ctx context.Context, q *sqlc.Queries, pare
 		if c.Lifecycle != LifecycleDraft || c.Kind == KindComposite {
 			continue // composite children await their own decomposition (still draft)
 		}
-		if _, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleReady,
-			BlockReason:   "",
-			ID:            c.ID,
-			FromLifecycle: LifecycleDraft,
-		}); err != nil {
+		if _, err := s.transitionGoalLifecycle(ctx, q, c, LifecycleReady, ""); err != nil {
 			return fmt.Errorf("release child: %w", err)
 		}
 	}
@@ -779,12 +730,7 @@ func (s *GoalService) wakeIfBlocked(ctx context.Context, q *sqlc.Queries, d *sql
 	if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockNeedsVerdict {
 		return nil
 	}
-	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-		ToLifecycle:   LifecycleActive,
-		BlockReason:   "",
-		ID:            d.ID,
-		FromLifecycle: LifecycleBlocked,
-	})
+	rows, err := s.transitionGoalLifecycle(ctx, q, *d, LifecycleActive, "")
 	if err != nil {
 		return fmt.Errorf("wake needs_verdict: %w", err)
 	}
@@ -818,10 +764,7 @@ func (s *GoalService) acceptLeaf(ctx context.Context, q *sqlc.Queries, d sqlc.Ag
 		AcceptedAt:    s.now(),
 		SourceAttempt: attemptID,
 	}
-	rows, err := q.AcceptGoal(ctx, sqlc.AcceptGoalParams{
-		AcceptedOutput: marshalNullJSON(accepted),
-		ID:             d.ID,
-	})
+	rows, err := s.acceptGoal(ctx, q, d, accepted)
 	if err != nil {
 		return fmt.Errorf("accept goal: %w", err)
 	}
@@ -842,10 +785,7 @@ func (s *GoalService) blockForVerdict(ctx context.Context, q *sqlc.Queries, d sq
 	if d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockNeedsVerdict {
 		return nil
 	}
-	rows, err := q.BlockGoal(ctx, sqlc.BlockGoalParams{
-		BlockReason: BlockNeedsVerdict,
-		ID:          d.ID,
-	})
+	rows, err := s.blockGoal(ctx, q, d, BlockNeedsVerdict)
 	if err != nil {
 		return fmt.Errorf("block goal: %w", err)
 	}
@@ -933,12 +873,7 @@ func (s *GoalService) reopenForRework(ctx context.Context, q *sqlc.Queries, d sq
 	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 		return fmt.Errorf("clear active attempt: %w", err)
 	}
-	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-		ToLifecycle:   LifecycleReady,
-		BlockReason:   "",
-		ID:            d.ID,
-		FromLifecycle: LifecycleActive,
-	})
+	rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleReady, "")
 	if err != nil {
 		return fmt.Errorf("reopen for rework: %w", err)
 	}
@@ -994,11 +929,7 @@ func (s *GoalService) refundAttemptBudget(ctx context.Context, q *sqlc.Queries, 
 }
 
 func (s *GoalService) blockFailureCause(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, cause string) error {
-	rows, err := q.BlockGoalWithCause(ctx, sqlc.BlockGoalWithCauseParams{
-		BlockReason: cause,
-		BlockedBy:   cause,
-		ID:          d.ID,
-	})
+	rows, err := s.blockGoalWithCause(ctx, q, d, cause, cause)
 	if err != nil {
 		return fmt.Errorf("block %s: %w", cause, err)
 	}
@@ -1011,10 +942,7 @@ func (s *GoalService) blockFailureCause(ctx context.Context, q *sqlc.Queries, d 
 // blockBudget parks an exhausted goal: active→blocked(budget_exhausted),
 // awaiting a human Reattempt (raise budget) or Abandon (contract §2.1).
 func (s *GoalService) blockBudget(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
-	rows, err := q.BlockGoal(ctx, sqlc.BlockGoalParams{
-		BlockReason: BlockBudgetExhausted,
-		ID:          d.ID,
-	})
+	rows, err := s.blockGoal(ctx, q, d, BlockBudgetExhausted)
 	if err != nil {
 		return fmt.Errorf("block budget: %w", err)
 	}
@@ -1031,12 +959,7 @@ func (s *GoalService) transition(ctx context.Context, q *sqlc.Queries, d sqlc.Ag
 	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 		return fmt.Errorf("clear active attempt: %w", err)
 	}
-	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-		ToLifecycle:   to,
-		BlockReason:   blockReason,
-		ID:            d.ID,
-		FromLifecycle: LifecycleActive,
-	})
+	rows, err := s.transitionGoalLifecycle(ctx, q, d, to, blockReason)
 	if err != nil {
 		return fmt.Errorf("transition to %s: %w", to, err)
 	}

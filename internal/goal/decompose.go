@@ -147,7 +147,11 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 			return fmt.Errorf("max decomposition attempt no: %w", err)
 		}
 		attemptNo := int(maxNo) + 1
-		input := buildInputContext(d, nil, nil, "", attemptNo)
+		timeline, err := s.recentTimelineContext(ctx, q, d.ID)
+		if err != nil {
+			return err
+		}
+		input := buildInputContext(d, nil, nil, timeline, "", attemptNo)
 		input.MaxDepth = rootMaxDepth(ctx, q, d.RootID)
 		att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
 			ID:              newID(),
@@ -170,12 +174,7 @@ func (s *GoalService) BeginDecomposition(ctx context.Context, id string) (sqlc.A
 		if err != nil {
 			return fmt.Errorf("create decomposition attempt: %w", err)
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleActive,
-			BlockReason:   "",
-			ID:            d.ID,
-			FromLifecycle: LifecycleDraft,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleActive, "")
 		if err != nil {
 			return fmt.Errorf("begin decomposition: %w", err)
 		}
@@ -243,7 +242,11 @@ func (s *GoalService) BeginAutoDecomposition(ctx context.Context, id string, enq
 			return fmt.Errorf("max decomposition attempt no: %w", err)
 		}
 		attemptNo := int(maxNo) + 1
-		input := buildInputContext(cur, nil, nil, "", attemptNo)
+		timeline, err := s.recentTimelineContext(ctx, q, cur.ID)
+		if err != nil {
+			return err
+		}
+		input := buildInputContext(cur, nil, nil, timeline, "", attemptNo)
 		input.MaxDepth = rootMaxDepth(ctx, q, cur.RootID)
 		att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
 			ID:              newID(),
@@ -263,12 +266,7 @@ func (s *GoalService) BeginAutoDecomposition(ctx context.Context, id string, enq
 		if err != nil {
 			return fmt.Errorf("create decomposition attempt: %w", err)
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleActive,
-			BlockReason:   "",
-			ID:            cur.ID,
-			FromLifecycle: LifecycleDraft,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, cur, LifecycleActive, "")
 		if err != nil {
 			return fmt.Errorf("begin auto decomposition: %w", err)
 		}

@@ -334,6 +334,14 @@ func (s *Service) ListAcceptanceEvents(ctx context.Context, id string) ([]sqlc.A
 	return s.Queries.ListAcceptanceEventByGoal(ctx, id)
 }
 
+// ListTimeline returns the goal timeline in chronological order.
+func (s *Service) ListTimeline(ctx context.Context, id string, limit, offset int64) ([]sqlc.AgentGoalEvent, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return s.Queries.ListGoalEventByGoal(ctx, sqlc.ListGoalEventByGoalParams{GoalID: id, Limit: int32(limit), Offset: int32(offset)})
+}
+
 // HealthReport aggregates execution health metrics for a time window.
 func (s *Service) HealthReport(ctx context.Context, filter HealthFilter) (HealthReport, error) {
 	return s.Goal.HealthReport(ctx, filter)
@@ -415,6 +423,11 @@ func (s *Service) WaiveEdge(ctx context.Context, downstreamID, upstreamID, reaso
 // SubmitVerdict appends a human verdict event and re-folds acceptance.
 func (s *Service) SubmitVerdict(ctx context.Context, in VerdictInput) error {
 	return s.Goal.SubmitVerdict(ctx, in)
+}
+
+// AddHumanMessage appends a human timeline message and reattempts non-dep blocks.
+func (s *Service) AddHumanMessage(ctx context.Context, in HumanMessageInput) (sqlc.AgentGoalEvent, error) {
+	return s.Goal.AddHumanMessage(ctx, in)
 }
 
 // ApprovePlan approves a composite's proposed plan (blocked(needs_plan_approval)),

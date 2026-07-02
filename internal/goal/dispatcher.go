@@ -528,12 +528,7 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		// Finalize the stale attempt as interrupted. A 0-row update means it is no
 		// longer queued/running (already finalized/raced) — idempotent no-op the
 		// dispatcher ignores as ErrInvalidTransition.
-		rows, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-			ToStatus:     AttemptInterrupted,
-			Error:        "lease expired; reaped by dispatcher",
-			FailureClass: FailureClassFlaky,
-			ID:           attemptID,
-		})
+		rows, err := s.finalizeAttempt(ctx, q, att, AttemptInterrupted, "lease expired; reaped by dispatcher", FailureClassFlaky)
 		if err != nil {
 			return fmt.Errorf("finalize stale attempt: %w", err)
 		}
@@ -648,10 +643,7 @@ func (s *GoalService) RollupAccept(ctx context.Context, id string) error {
 			AcceptedAt: s.now(),
 			Children:   kids,
 		}
-		rows, err := q.AcceptGoal(ctx, sqlc.AcceptGoalParams{
-			AcceptedOutput: marshalNullJSON(accepted),
-			ID:             cur.ID,
-		})
+		rows, err := s.acceptGoal(ctx, q, cur, accepted)
 		if err != nil {
 			return fmt.Errorf("rollup accept: %w", err)
 		}
@@ -677,12 +669,7 @@ func (s *GoalService) RollupFail(ctx context.Context, id string) error {
 		if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 			return fmt.Errorf("clear active attempt: %w", err)
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleRejectedFinal,
-			BlockReason:   "",
-			ID:            d.ID,
-			FromLifecycle: LifecycleActive,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleRejectedFinal, "")
 		if err != nil {
 			return fmt.Errorf("rollup fail: %w", err)
 		}
