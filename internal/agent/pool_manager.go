@@ -634,6 +634,21 @@ func (pm *PoolManager) InvalidateUser(userID string) error {
 	return lastErr
 }
 
+// InvalidateUserAgent closes live runners for one user on one agent.
+func (pm *PoolManager) InvalidateUserAgent(userID, agentID string) error {
+	pm.mu.RLock()
+	svc, ok := pm.services[agentID]
+	pm.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	if err := svc.Runtime.ResetRunnersForUser(userID); err != nil {
+		pm.log.Error("reset runners for user agent", "user_id", userID, "agent_id", agentID, "error", err)
+		return err
+	}
+	return nil
+}
+
 // InvalidateAgent closes all live runners for one agent across every user.
 func (pm *PoolManager) InvalidateAgent(agentID string) error {
 	pm.mu.RLock()

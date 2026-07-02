@@ -131,6 +131,7 @@ func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.invalidateMCPRunners(reg.Scope, reg.UserID, reg.AgentID)
 	writeData(w, http.StatusCreated, mcpServerResponse(reg))
 }
 
@@ -168,5 +169,26 @@ func (s *Server) DeleteScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	s.invalidateMCPRunners(scope, userID, agentID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) invalidateMCPRunners(scope, userID, agentID string) {
+	if s.poolManager == nil {
+		return
+	}
+	var err error
+	switch scope {
+	case mcp.ScopeUser:
+		err = s.poolManager.InvalidateUser(userID)
+	case mcp.ScopeUserAgent:
+		err = s.poolManager.InvalidateUserAgent(userID, agentID)
+	case mcp.ScopeSystemAgent:
+		err = s.poolManager.InvalidateAgent(agentID)
+	case mcp.ScopeSystem:
+		err = s.poolManager.InvalidateAll()
+	}
+	if err != nil {
+		s.log.Warn("invalidate runners after mcp registration change", "scope", scope, "user_id", userID, "agent_id", agentID, "error", err)
+	}
 }
