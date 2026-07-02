@@ -43,6 +43,7 @@ var catalog = []Scope{
 	{Resource: "shares", Description: "Manage public shares", ExposableToPAT: true, ExposableToOAuth: true},
 	{Resource: "recally", Description: "Manage Recally articles, feeds, and digests", ExposableToPAT: true, ExposableToOAuth: true},
 	{Resource: "email", Description: "Read and send email", ExposableToPAT: true, ExposableToOAuth: true},
+	{Resource: "mcp", Description: "Manage MCP server registrations", ExposableToPAT: true, ExposableToOAuth: true},
 	// Sandbox-internal capabilities. Dangerous to hand a third party, so they are
 	// NOT exposable to PATs or OAuth clients by default (default-deny policy).
 	{Resource: "vault", Description: "Read and write encrypted secrets", ExposableToPAT: false, ExposableToOAuth: false},

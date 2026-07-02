@@ -487,6 +487,22 @@ type Fact struct {
 	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
+type McpServer struct {
+	ID            string          `json:"id"`
+	Scope         string          `json:"scope"`
+	UserID        pgtype.Text     `json:"user_id"`
+	AgentID       pgtype.Text     `json:"agent_id"`
+	Name          string          `json:"name"`
+	Url           string          `json:"url"`
+	Transport     string          `json:"transport"`
+	AuthType      string          `json:"auth_type"`
+	CredentialRef string          `json:"credential_ref"`
+	Enabled       bool            `json:"enabled"`
+	Metadata      json.RawMessage `json:"metadata"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+}
+
 type OauthAccessToken struct {
 	ID              string             `json:"id"`
 	PublicID        string             `json:"public_id"`

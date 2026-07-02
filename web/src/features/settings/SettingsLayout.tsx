@@ -144,7 +144,7 @@ const settingsNav: {
         id: "plugins",
         label: "settings.nav.plugins",
         href: "/settings/plugins",
-        adminOnly: true,
+        adminOnly: false,
         icon: (
           <svg
             viewBox="0 0 24 24"

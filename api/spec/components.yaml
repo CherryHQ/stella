@@ -1596,6 +1596,94 @@ components:
         next_page_token:
           type: string
           nullable: true
+    MCPServer:
+      type: object
+      required: [id, scope, name, url, transport, auth_type, enabled]
+      properties:
+        id:
+          type: string
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        user_id:
+          type: string
+        agent_id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        auth_type:
+          type: string
+          enum: [none, bearer]
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    MCPServerList:
+      type: object
+      required: [servers]
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/MCPServer"
+    CreateMCPServerRequest:
+      type: object
+      required: [name, url, scope]
+      properties:
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        agent_id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+          default: streamable_http
+        auth_type:
+          type: string
+          enum: [none, bearer]
+          default: none
+        # token is the bearer credential; stored encrypted in the vault and never
+        # returned by any response.
+        token:
+          type: string
+    UpdateMCPServerRequest:
+      type: object
+      properties:
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        agent_id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        auth_type:
+          type: string
+          enum: [none, bearer]
+        enabled:
+          type: boolean
+        # Omit token to keep the existing bearer token. Send with auth_type=bearer
+        # to replace it. Send auth_type=none to delete any stored token.
+        token:
+          type: string
     CachedModel:
       type: object
       required: [provider, model]
