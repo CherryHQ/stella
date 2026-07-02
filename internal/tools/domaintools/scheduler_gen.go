@@ -208,7 +208,7 @@ type SchedulerCreateInput struct {
 	At          string `json:"at,omitempty"`
 	Cron        string `json:"cron,omitempty"`
 	Description string `json:"description,omitempty"`
-	Enabled     bool   `json:"enabled,omitempty"`
+	Enabled     *bool  `json:"enabled,omitempty"`
 	Every       string `json:"every,omitempty"`
 	Message     string `json:"message,omitempty"`
 	Name        string `json:"name,omitempty"`
@@ -239,7 +239,7 @@ type SchedulerUpdateInput struct {
 	At          string `json:"at,omitempty"`
 	Cron        string `json:"cron,omitempty"`
 	Description string `json:"description,omitempty"`
-	Enabled     bool   `json:"enabled,omitempty"`
+	Enabled     *bool  `json:"enabled,omitempty"`
 	Every       string `json:"every,omitempty"`
 	Id          string `json:"id,omitempty"`
 	Message     string `json:"message,omitempty"`

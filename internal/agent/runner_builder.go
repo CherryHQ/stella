@@ -27,6 +27,24 @@ type MCPToolProvider interface {
 	ToolsForContext(ctx context.Context, userID, agentID string) []tools.Tool
 }
 
+type DomainToolMount struct {
+	Name      string
+	Tool      tools.Tool
+	Predicate func(RunnerParams) bool
+}
+
+func DomainToolAvailable(params RunnerParams) bool {
+	if params.UserID == "" || params.AgentID == "" {
+		return false
+	}
+	for _, tool := range params.ExtraTools {
+		if tool != nil && tool.Definition().Name == "goal_control" {
+			return false
+		}
+	}
+	return true
+}
+
 // runnerBuilderConfig holds all dependencies needed to assemble a NewRunnerFunc.
 type runnerBuilderConfig struct {
 	Snap                     *config.Snapshot
@@ -37,6 +55,7 @@ type runnerBuilderConfig struct {
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	SkillStore               pkgplugins.SkillStore
 	MCPToolProvider          MCPToolProvider
+	DomainToolMounts         []DomainToolMount
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SandboxBackendFn         func(ctx context.Context) string
 	VaultEnvLoader           sandbox.VaultEnvLoader
@@ -194,6 +213,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		runnerTools := append([]tools.Tool{}, cfg.BuiltinTools...)
 		runnerTools = append(runnerTools, params.ExtraTools...)
+		for _, mount := range cfg.DomainToolMounts {
+			if mount.Tool == nil {
+				return nil, fmt.Errorf("domain tool %q is nil", mount.Name)
+			}
+			if mount.Predicate != nil && !mount.Predicate(params) {
+				continue
+			}
+			runnerTools = append(runnerTools, mount.Tool)
+		}
 		if cfg.SkillStore != nil {
 			// User skills live under the shared user-data root (mounted as /user); the
 			// skill_dir emitted to the model is remapped to the sandbox-visible path for

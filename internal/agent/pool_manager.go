@@ -103,6 +103,10 @@ func WithMCPToolProvider(p MCPToolProvider) PoolManagerOption {
 	return func(pm *PoolManager) { pm.mcpToolProvider = p }
 }
 
+func WithDomainToolMounts(mounts []DomainToolMount) PoolManagerOption {
+	return func(pm *PoolManager) { pm.domainToolMounts = append([]DomainToolMount(nil), mounts...) }
+}
+
 func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 	return func(pm *PoolManager) { pm.tokenManager = tm }
 }
@@ -137,6 +141,7 @@ type PoolManager struct {
 	providerStreamBuilder    ProviderStreamBuilder
 	skillStore               pkgplugins.SkillStore
 	mcpToolProvider          MCPToolProvider
+	domainToolMounts         []DomainToolMount
 	vaultEnvLoader           sandbox.VaultEnvLoader
 	tokenEnsurer             sandbox.TokenEnsurer
 	projectResolver          ProjectResolverFunc
@@ -590,6 +595,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		SkillStore:               pm.skillStore,
 		MCPToolProvider:          pm.mcpToolProvider,
+		DomainToolMounts:         append([]DomainToolMount(nil), pm.domainToolMounts...),
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,

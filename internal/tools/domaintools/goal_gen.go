@@ -265,7 +265,7 @@ type GoalCancelInput struct {
 
 type GoalCreateInput struct {
 	AcceptanceContract map[string]any `json:"acceptance_contract,omitempty"`
-	Activate           bool           `json:"activate,omitempty"`
+	Activate           *bool          `json:"activate,omitempty"`
 	ConvergencePolicy  map[string]any `json:"convergence_policy,omitempty"`
 	Intent             string         `json:"intent,omitempty"`
 	Kind               string         `json:"kind,omitempty"`
@@ -280,7 +280,7 @@ type GoalGetInput struct {
 }
 
 type GoalListInput struct {
-	Archived  bool   `json:"archived,omitempty"`
+	Archived  *bool  `json:"archived,omitempty"`
 	Lifecycle string `json:"lifecycle,omitempty"`
 	PageSize  int    `json:"page_size,omitempty"`
 	PageToken string `json:"page_token,omitempty"`
@@ -288,7 +288,7 @@ type GoalListInput struct {
 	ProjectId string `json:"project_id,omitempty"`
 	Q         string `json:"q,omitempty"`
 	Root      string `json:"root,omitempty"`
-	Terminal  bool   `json:"terminal,omitempty"`
+	Terminal  *bool  `json:"terminal,omitempty"`
 }
 
 func DispatchGoal(ctx context.Context, h GoalHandler, action string, args map[string]any) (any, error) {

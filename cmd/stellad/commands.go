@@ -31,6 +31,7 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tools"
+	"github.com/CherryHQ/stella/internal/tools/domaintools"
 	"github.com/CherryHQ/stella/internal/version"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -258,6 +259,10 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		}),
 		agent.WithToolLifecyclePM(toolLifecycle),
 		agent.WithSkillStore(skillStoreAdapter),
+		agent.WithDomainToolMounts([]agent.DomainToolMount{
+			{Name: "goal", Tool: domaintools.NewGoalTool(goalSvc), Predicate: agent.DomainToolAvailable},
+			{Name: "scheduler", Tool: domaintools.NewSchedulerTool(schedulerSvc), Predicate: agent.DomainToolAvailable},
+		}),
 		agent.WithProjectResolver(func(ctx context.Context, projectID, userID string) (string, error) {
 			p, err := sqlc.New(db).GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
 			if err != nil {

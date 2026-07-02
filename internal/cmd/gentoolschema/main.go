@@ -398,9 +398,10 @@ func renderTool(tool string, actions []toolAction) ([]byte, error) {
 	out.WriteString("}\n\n")
 	for _, action := range actions {
 		fmt.Fprintf(&out, "type %s%sInput struct {\n", exportTool, exportName(action.Action))
+		required := requiredSet(action.Required)
 		for _, prop := range sortedPropertyNames(action.Schema) {
 			fieldName := exportName(camel(prop))
-			fmt.Fprintf(&out, "\t%s %s `json:\"%s,omitempty\"`\n", fieldName, goType(action.Schema["properties"].(map[string]any)[prop]), prop)
+			fmt.Fprintf(&out, "\t%s %s `json:\"%s,omitempty\"`\n", fieldName, goType(action.Schema["properties"].(map[string]any)[prop], required[prop]), prop)
 		}
 		out.WriteString("}\n\n")
 	}
@@ -443,14 +444,17 @@ func toolSchema(actions []toolAction) map[string]any {
 	}
 }
 
-func goType(schema any) string {
+func goType(schema any, required bool) string {
 	m, _ := schema.(map[string]any)
 	t, _ := m["type"].(string)
 	switch t {
 	case "string":
 		return "string"
 	case "boolean":
-		return "bool"
+		if required {
+			return "bool"
+		}
+		return "*bool"
 	case "integer":
 		return "int"
 	case "number":
@@ -524,6 +528,14 @@ func addRequired(schema map[string]any, name string) {
 		out[i] = item
 	}
 	schema["required"] = out
+}
+
+func requiredSet(items []string) map[string]bool {
+	out := make(map[string]bool, len(items))
+	for _, item := range items {
+		out[item] = true
+	}
+	return out
 }
 
 func stringSlice(v any) []string {
