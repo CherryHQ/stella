@@ -75,7 +75,7 @@ func TestQQManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		},
 	})
 
-	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"app_id": "qq-app", "app_secret": "qq-secret", "group_mode": "mention"}}
+	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"app_id": "qq-app", "app_secret": "qq-secret"}}
 	if err := runtime.Apply(context.Background(), state); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
@@ -148,13 +148,12 @@ func TestDecodeAndRedactQQPluginConfig(t *testing.T) {
 	cfg, err := DecodeConfig(map[string]any{
 		"app_id":        "qq-app",
 		"app_secret":    "qq-secret",
-		"group_mode":    "mention",
 		"enable_notify": true,
 	})
 	if err != nil {
 		t.Fatalf("DecodeConfig: %v", err)
 	}
-	if cfg.AppID != "qq-app" || cfg.AppSecret != "qq-secret" || cfg.GroupMode != "mention" || !cfg.EnableNotify {
+	if cfg.AppID != "qq-app" || cfg.AppSecret != "qq-secret" || !cfg.EnableNotify {
 		t.Fatalf("decoded config = %#v", cfg)
 	}
 

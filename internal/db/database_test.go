@@ -53,8 +53,11 @@ func TestFactsMigrationDownFlushesActiveIdentityFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create migration provider: %v", err)
 	}
-	if _, err := provider.Down(ctx); err != nil {
-		t.Fatalf("goose down facts migration: %v", err)
+	// Roll back to just before the facts migration (20260625090000), so this
+	// test exercises the facts Down regardless of any later migrations stacked
+	// on top of it.
+	if _, err := provider.DownTo(ctx, 20260622051501); err != nil {
+		t.Fatalf("goose down to before facts migration: %v", err)
 	}
 
 	var content, soul string

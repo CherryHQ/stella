@@ -1596,6 +1596,94 @@ components:
         next_page_token:
           type: string
           nullable: true
+    MCPServer:
+      type: object
+      required: [id, scope, name, url, transport, auth_type, enabled]
+      properties:
+        id:
+          type: string
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        user_id:
+          type: string
+        agent_id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        auth_type:
+          type: string
+          enum: [none, bearer]
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    MCPServerList:
+      type: object
+      required: [servers]
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/MCPServer"
+    CreateMCPServerRequest:
+      type: object
+      required: [name, url, scope]
+      properties:
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        agent_id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+          default: streamable_http
+        auth_type:
+          type: string
+          enum: [none, bearer]
+          default: none
+        # token is the bearer credential; stored encrypted in the vault and never
+        # returned by any response.
+        token:
+          type: string
+    UpdateMCPServerRequest:
+      type: object
+      properties:
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        agent_id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        auth_type:
+          type: string
+          enum: [none, bearer]
+        enabled:
+          type: boolean
+        # Omit token to keep the existing bearer token. Send with auth_type=bearer
+        # to replace it. Send auth_type=none to delete any stored token.
+        token:
+          type: string
     CachedModel:
       type: object
       required: [provider, model]
@@ -1614,6 +1702,195 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CachedModel"
+    OAuthClient:
+      type: object
+      required: [
+        client_id,
+        name,
+        client_type,
+        redirect_uris,
+        scopes,
+        disabled,
+        created_at,
+      ]
+      properties:
+        client_id:
+          type: string
+        name:
+          type: string
+        client_type:
+          type: string
+          enum: [confidential, public]
+        redirect_uris:
+          type: array
+          items:
+            type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        disabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    OAuthClientList:
+      type: object
+      required: [oauth_clients]
+      properties:
+        oauth_clients:
+          type: array
+          items:
+            $ref: "#/components/schemas/OAuthClient"
+    CreateOAuthClientRequest:
+      type: object
+      required: [name, redirect_uris, scopes]
+      properties:
+        name:
+          type: string
+        client_type:
+          type: string
+          enum: [confidential, public]
+          default: confidential
+        redirect_uris:
+          type: array
+          items:
+            type: string
+        scopes:
+          type: array
+          items:
+            type: string
+    CreateOAuthClientResponse:
+      type: object
+      required: [oauth_client]
+      properties:
+        # Plaintext client secret, returned exactly once (empty for public clients).
+        client_secret:
+          type: string
+        oauth_client:
+          $ref: "#/components/schemas/OAuthClient"
+    RotateOAuthClientSecretResponse:
+      type: object
+      required: [client_secret]
+      properties:
+        client_secret:
+          type: string
+    OAuthClientScope:
+      type: object
+      required: [id, description]
+      properties:
+        id:
+          type: string
+        description:
+          type: string
+    OAuthClientScopeList:
+      type: object
+      required: [scopes]
+      properties:
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/OAuthClientScope"
+    AuthorizedApp:
+      type: object
+      required: [client_id, client_name, scopes, granted_at]
+      properties:
+        client_id:
+          type: string
+        client_name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        granted_at:
+          type: string
+          format: date-time
+    AuthorizedAppList:
+      type: object
+      required: [authorized_apps]
+      properties:
+        authorized_apps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuthorizedApp"
+    PersonalAccessToken:
+      type: object
+      required: [id, name, scopes, last4, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        last4:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    PersonalAccessTokenList:
+      type: object
+      required: [tokens]
+      properties:
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonalAccessToken"
+    CreatePersonalAccessTokenRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        # Explicit expiry. Omit for the server default expiry.
+        expires_at:
+          type: string
+          format: date-time
+        # Opt in to a token that never expires. Overrides expires_at.
+        never_expires:
+          type: boolean
+          default: false
+    CreatePersonalAccessTokenResponse:
+      type: object
+      required: [token, personal_access_token]
+      properties:
+        # Plaintext token, returned exactly once at creation and never again.
+        token:
+          type: string
+        personal_access_token:
+          $ref: "#/components/schemas/PersonalAccessToken"
+    PersonalAccessTokenScope:
+      type: object
+      required: [id, description]
+      properties:
+        id:
+          type: string
+        description:
+          type: string
+    PersonalAccessTokenScopeList:
+      type: object
+      required: [scopes]
+      properties:
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonalAccessTokenScope"
     PluginView:
       type: object
       properties:

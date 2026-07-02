@@ -27,7 +27,6 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.Runtime {
 				AppSecret:         cfg.AppSecret,
 				EncryptKey:        cfg.EncryptKey,
 				VerificationToken: cfg.VerificationToken,
-				GroupMode:         cfg.GroupMode,
 				Groups:            groupsToPluginConfig(cfg.Groups),
 				TenantKey:         cfg.TenantKey,
 				AutoProvision:     cfg.AutoProvision,
@@ -98,21 +97,11 @@ func configSchema() map[string]any {
 				"type":        "string",
 				"description": "Optional Feishu verification token.",
 			},
-			"group_mode": map[string]any{
-				"type":        "string",
-				"enum":        []any{"", "mention", "always", "disabled"},
-				"description": "Default group-chat handling mode.",
-			},
 			"groups": map[string]any{
 				"type": "object",
 				"additionalProperties": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"group_mode": map[string]any{
-							"type":        "string",
-							"enum":        []any{"", "mention", "always", "disabled"},
-							"description": "Override group mode for this chat.",
-						},
 						"system_prompt": map[string]any{
 							"type":        "string",
 							"description": "Optional system prompt override for this chat.",
@@ -159,7 +148,6 @@ func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message strin
 		UpdatedAt: now,
 		Metadata: map[string]any{
 			"app_id":                 cfg.AppID,
-			"group_mode":             cfg.GroupMode,
 			"group_count":            len(cfg.Groups),
 			"has_encrypt_key":        cfg.EncryptKey != "",
 			"has_verification_token": cfg.VerificationToken != "",
@@ -174,7 +162,6 @@ func groupsToPluginConfig(groups map[string]pkgchannel.FeishuGroup) map[string]G
 	out := make(map[string]GroupConfig, len(groups))
 	for k, v := range groups {
 		out[k] = GroupConfig{
-			GroupMode:    v.GroupMode,
 			SystemPrompt: v.SystemPrompt,
 			ToolAllow:    append([]string(nil), v.ToolAllow...),
 			ToolDeny:     append([]string(nil), v.ToolDeny...),

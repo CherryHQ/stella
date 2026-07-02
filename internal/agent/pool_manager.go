@@ -97,6 +97,12 @@ func WithVaultEnvLoader(v sandbox.VaultEnvLoader) PoolManagerOption {
 	return func(pm *PoolManager) { pm.vaultEnvLoader = v }
 }
 
+// WithMCPToolProvider wires the provider that surfaces external MCP-server tools
+// into each agent's tool registry. Optional: nil means no MCP tools.
+func WithMCPToolProvider(p MCPToolProvider) PoolManagerOption {
+	return func(pm *PoolManager) { pm.mcpToolProvider = p }
+}
+
 func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 	return func(pm *PoolManager) { pm.tokenManager = tm }
 }
@@ -130,6 +136,7 @@ type PoolManager struct {
 	toolLifecycle            *coreagent.ToolLifecycle
 	providerStreamBuilder    ProviderStreamBuilder
 	skillStore               pkgplugins.SkillStore
+	mcpToolProvider          MCPToolProvider
 	vaultEnvLoader           sandbox.VaultEnvLoader
 	tokenEnsurer             sandbox.TokenEnsurer
 	projectResolver          ProjectResolverFunc
@@ -194,6 +201,23 @@ func (pm *PoolManager) SetTokenEnsurer(ctx context.Context, te sandbox.TokenEnsu
 	for agentID := range services {
 		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after token ensurer set", "agent_id", agentID, "error", err)
+		}
+	}
+}
+
+// SetMCPToolProvider wires (or replaces) the MCP tool provider and rebuilds
+// every runner factory so existing agents pick up external MCP-server tools.
+// It is called after the DB and vault are ready, mirroring SetVaultEnvLoader.
+func (pm *PoolManager) SetMCPToolProvider(ctx context.Context, p MCPToolProvider) {
+	pm.mu.Lock()
+	pm.mcpToolProvider = p
+	services := make(map[string]*Service, len(pm.services))
+	maps.Copy(services, pm.services)
+	pm.mu.Unlock()
+
+	for agentID := range services {
+		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
+			pm.log.Error("failed to rebuild factory after mcp provider set", "agent_id", agentID, "error", err)
 		}
 	}
 }
@@ -565,6 +589,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		SkillStore:               pm.skillStore,
+		MCPToolProvider:          pm.mcpToolProvider,
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,
@@ -607,6 +632,21 @@ func (pm *PoolManager) InvalidateUser(userID string) error {
 		}
 	}
 	return lastErr
+}
+
+// InvalidateUserAgent closes live runners for one user on one agent.
+func (pm *PoolManager) InvalidateUserAgent(userID, agentID string) error {
+	pm.mu.RLock()
+	svc, ok := pm.services[agentID]
+	pm.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	if err := svc.Runtime.ResetRunnersForUser(userID); err != nil {
+		pm.log.Error("reset runners for user agent", "user_id", userID, "agent_id", agentID, "error", err)
+		return err
+	}
+	return nil
 }
 
 // InvalidateAgent closes all live runners for one agent across every user.

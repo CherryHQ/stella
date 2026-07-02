@@ -46,14 +46,13 @@ Channels are stored in `settings_channels`. Each row is a channel instance with 
 
 - `token` -- Bot token
 - `channel_id` -- Broadcast channel ID or @username
-- `group_mode` -- "mention" | "always" | "disabled"
 - `enable_notify` -- Allow notify tool for this channel
 
 Access control is handled by RBAC (auth_identities + policy engine). Notification targets are resolved from auth_identities.
 
-**QQ config fields:** `app_id`, `app_secret`, `group_mode`, `enable_notify`
+**QQ config fields:** `app_id`, `app_secret`, `enable_notify`
 
-**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `group_mode`, `enable_notify`
+**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`
 
 Feishu is a chat channel only. Lark workspace operations no longer ship as built-in `feishu_*` tools; add a `lark-cli` skill yourself if you want that workflow.
 

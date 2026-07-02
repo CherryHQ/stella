@@ -2,15 +2,12 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"slices"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/CherryHQ/stella/internal/auth"
-	pkgauth "github.com/CherryHQ/stella/pkg/auth"
+	"github.com/CherryHQ/stella/internal/credential"
 )
 
 // contextKey is used for storing auth info in request context.
@@ -28,7 +25,22 @@ type AuthInfo struct {
 	Email     string `json:"email,omitempty"`
 	Name      string `json:"name,omitempty"`
 	AvatarURL string `json:"avatar_url,omitempty"`
-	Scoped    *pkgauth.ScopedTokenClaims
+	// principal is the resolved bearer credential and the single carrier of its
+	// authz data (kind, scopes, and the scoped-token agent/session binding). nil
+	// for cookie/OIDC sessions (which skip API-scope enforcement).
+	principal *credential.Principal
+}
+
+// scopedBoundary reports the agent/session a sandbox scoped token is locked to.
+// ok is true only when this request is authenticated by a scoped token; handlers
+// use it for object-level checks (a scoped token may touch only its own agent /
+// session). PAT/OAuth and cookie principals are not agent-bound, so ok is false
+// and the handler's ordinary user-ownership checks apply instead.
+func (a *AuthInfo) scopedBoundary() (agentID, sessionID string, ok bool) {
+	if a == nil || a.principal == nil || a.principal.Kind != credential.KindScoped {
+		return "", "", false
+	}
+	return a.principal.AgentID, a.principal.SessionID, true
 }
 
 // UserFromContext extracts the AuthInfo from a request context.
@@ -57,11 +69,16 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 
-		var info *AuthInfo
-		if i := s.authInfoFromBearer(ctx, r.Header.Get("Authorization")); i != nil {
-			info = i
-		} else if i := s.authInfoFromOIDCSession(ctx, r); i != nil {
-			info = i
+		// A present-but-invalid bearer credential is a hard deny: it must never
+		// fall through to the cookie session or any full-access path.
+		info, err := s.authInfoFromBearer(ctx, r.Header.Get("Authorization"))
+		if err != nil {
+			s.log.Warn("bearer credential rejected", "error", err, "path", path)
+			s.denyAccess(w, r)
+			return
+		}
+		if info == nil {
+			info = s.authInfoFromOIDCSession(ctx, r)
 		}
 
 		if info == nil {
@@ -74,9 +91,17 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if info.Scoped != nil && !scopedTokenAllowsRequest(info.Scoped, r) {
-			writeError(w, http.StatusForbidden, "permission denied")
-			return
+		// Scoped bearers (PAT / OAuth / sandbox scoped tokens) carry a credential
+		// kind and go through the unified enforcement gate. Cookie/OIDC sessions
+		// have no kind and skip API-scope enforcement (handler ownership/admin
+		// checks still apply to them). /api/status is a public health endpoint
+		// (reachable anonymously above), so a valid but narrowly-scoped bearer
+		// must not get a 403 there where an anonymous caller gets 200.
+		if info.principal != nil && path != "/api/status" {
+			if err := credential.Enforce(info.principal, r.Method, path); err != nil {
+				writeError(w, http.StatusForbidden, "permission denied")
+				return
+			}
 		}
 
 		next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
@@ -106,56 +131,33 @@ func (s *Server) authInfoFromOIDCSession(ctx context.Context, r *http.Request) *
 	}
 }
 
-func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInfo {
-	if s.tokenSvc == nil {
-		return nil
+// authInfoFromBearer resolves an Authorization bearer through the unified
+// credential front door. It returns:
+//   - (nil, nil)  when there is no bearer to resolve (fall back to cookie auth);
+//   - (nil, err)  when a bearer is present but invalid/unknown/reserved (deny);
+//   - (info, nil) on success.
+func (s *Server) authInfoFromBearer(ctx context.Context, header string) (*AuthInfo, error) {
+	if s.credResolver == nil {
+		return nil, nil
 	}
-	scheme, rawToken, ok := strings.Cut(strings.TrimSpace(header), " ")
-	if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(rawToken) == "" {
-		return nil
-	}
-	if pkgauth.IsScopedToken(rawToken) {
-		user, claims, err := s.tokenSvc.AuthenticateScoped(ctx, rawToken)
-		if err != nil {
-			s.log.Warn("scoped bearer token auth failed", "error", err)
-			return nil
-		}
-		if !user.IsActive {
-			s.log.Warn("scoped bearer auth rejected: user deactivated", "user_id", user.ID)
-			return nil
-		}
-		return &AuthInfo{
-			UserID:    user.ID,
-			Username:  user.Email,
-			Email:     user.Email,
-			Name:      user.Name,
-			AvatarURL: user.AvatarURL,
-			Role:      user.Role,
-			IsAdmin:   false,
-			Scoped:    &claims,
-		}
-	}
-
-	user, err := s.tokenSvc.Authenticate(ctx, rawToken)
+	p, err := s.credResolver.Resolve(ctx, header)
 	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			s.log.Warn("bearer token auth failed", "error", err)
-		}
-		return nil
+		return nil, err
 	}
-	if !user.IsActive {
-		s.log.Warn("bearer auth rejected: user deactivated", "user_id", user.ID)
-		return nil
+	if p == nil {
+		return nil, nil
 	}
-	return &AuthInfo{
-		UserID:    user.ID,
-		Username:  user.Email,
-		Email:     user.Email,
-		Name:      user.Name,
-		AvatarURL: user.AvatarURL,
-		Role:      user.Role,
-		IsAdmin:   user.Role == auth.RoleAdmin,
+	info := &AuthInfo{
+		UserID:    p.UserID,
+		Username:  p.Username,
+		Email:     p.Email,
+		Name:      p.Name,
+		AvatarURL: p.AvatarURL,
+		Role:      p.Role,
+		IsAdmin:   p.IsAdmin,
+		principal: p,
 	}
+	return info, nil
 }
 
 // requireAuth extracts the authenticated user from the request context.
@@ -205,6 +207,11 @@ func isAuthExempt(method, path string) bool {
 	case method == http.MethodGet && strings.HasPrefix(path, "/api/shares/public/"):
 		return true
 	case strings.HasPrefix(path, "/auth/login/") || strings.HasPrefix(path, "/auth/callback/"):
+		return true
+	case method == http.MethodPost && path == "/oauth/token":
+		// OAuth2 token endpoint authenticates the client itself; it must NOT
+		// require a Stella user session. /oauth/authorize is deliberately NOT
+		// exempt -- it needs a logged-in user to render consent.
 		return true
 	case strings.HasPrefix(path, "/api/auth/"):
 		if slices.Contains(publicAuthAPIPaths, path) {

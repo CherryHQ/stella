@@ -75,43 +75,93 @@ func TestSemanticDispatchMentionBypassesArbiter(t *testing.T) {
 	}
 }
 
-func TestSemanticDispatchPlatformUnresolvedMentionBypassesArbiter(t *testing.T) {
-	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{PlatformID: "other-bot"}})
+// A platform mention that resolves to no group member must not silently suppress
+// the turn: it falls back to semantic routing so an explicit @mention is never
+// less reliable than a no-mention message (#619).
+func TestSemanticDispatchPlatformUnresolvedMentionFallsBackToArbiter(t *testing.T) {
+	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@other-bot", PlatformID: "other-bot"}})
 	if err != nil {
 		t.Fatalf("encode envelope: %v", err)
 	}
 	fx := newDispatcherFixture(t, "telegram", envelope)
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: true, RespondingAgents: []string{"agent-1"}}}
 	fx.d.coord.semanticGroupArbiter = stub
+	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
 
 	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
 		t.Fatalf("process outbox: %v", err)
 	}
-	if stub.called {
-		t.Fatal("semantic arbiter must not be called for unresolved platform mentions")
+	if !stub.called {
+		t.Fatal("semantic arbiter must be called when a platform mention resolves to no member")
 	}
-	if count, _ := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID); count != 0 {
-		t.Fatalf("dispatch rows = %d, want 0 (unresolved platform mention)", count)
+	if count, _ := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID); count != 1 {
+		t.Fatalf("dispatch rows = %d, want 1 (semantic fallback)", count)
 	}
 }
 
-func TestSemanticDispatchUnresolvedMentionBypassesArbiter(t *testing.T) {
-	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{PlatformID: "other-bot"}})
+func TestSemanticDispatchUnresolvedMentionFallsBackToArbiter(t *testing.T) {
+	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@ghost", PlatformID: "other-bot"}})
 	if err != nil {
 		t.Fatalf("encode envelope: %v", err)
 	}
 	fx := newDispatcherFixture(t, "web", envelope)
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: true, RespondingAgents: []string{"agent-1"}}}
 	fx.d.coord.semanticGroupArbiter = stub
+	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if !stub.called {
+		t.Fatal("semantic arbiter must be called when a mention resolves to no member")
+	}
+	if count, _ := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID); count != 1 {
+		t.Fatalf("dispatch rows = %d, want 1 (semantic fallback)", count)
+	}
+}
+
+// When a mention resolves to no member and no semantic arbiter is configured, a
+// platform group still stays silent — the fallback only borrows the no-mention
+// path, it does not invent a broadcast.
+func TestSemanticDispatchUnresolvedMentionNoArbiterStaysSilent(t *testing.T) {
+	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@ghost", PlatformID: "other-bot"}})
+	if err != nil {
+		t.Fatalf("encode envelope: %v", err)
+	}
+	fx := newDispatcherFixture(t, "telegram", envelope)
+	// No semantic arbiter configured.
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if count, _ := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID); count != 0 {
+		t.Fatalf("dispatch rows = %d, want 0 (no arbiter)", count)
+	}
+}
+
+// The mention that DOES resolve still takes the deterministic path and never
+// consults the semantic arbiter, even when other mentions in the same message
+// fail to resolve.
+func TestSemanticDispatchResolvedMentionSkipsArbiter(t *testing.T) {
+	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{
+		{Raw: "@ghost", PlatformID: "other-bot"},
+		{Raw: "@agent-1", AgentID: "agent-1"},
+	})
+	if err != nil {
+		t.Fatalf("encode envelope: %v", err)
+	}
+	fx := newDispatcherFixture(t, "telegram", envelope)
+	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: true, RespondingAgents: []string{"agent-1"}}}
+	fx.d.coord.semanticGroupArbiter = stub
+	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
 
 	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
 		t.Fatalf("process outbox: %v", err)
 	}
 	if stub.called {
-		t.Fatal("semantic arbiter must not be called for unresolved mentions")
+		t.Fatal("semantic arbiter must not be called when a mention resolves to a member")
 	}
-	if count, _ := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID); count != 0 {
-		t.Fatalf("dispatch rows = %d, want 0 (unresolved mention)", count)
+	if got := dispatchAgentsByMessage(t, fx.db, fx.message.ID); len(got) != 1 || got[0] != "agent-1" {
+		t.Fatalf("dispatch agents = %v, want [agent-1]", got)
 	}
 }
 
@@ -157,13 +207,10 @@ func TestSemanticDispatchNoReplyProducesZeroRows(t *testing.T) {
 	}
 }
 
-// L1 routing applies even to mention-mode platform groups, where the legacy
-// no-mention path would have stayed silent.
-func TestSemanticDispatchTargetedInMentionMode(t *testing.T) {
+// L1 routing applies to platform groups, where the legacy no-mention path would
+// have stayed silent.
+func TestSemanticDispatchTargetedPlatformGroup(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
-	if _, err := fx.db.Exec(context.Background(), `UPDATE channel SET config = '{"group_mode":"mention"}' WHERE id = 'ch-1'`); err != nil {
-		t.Fatalf("set mention mode: %v", err)
-	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: true, RespondingAgents: []string{"agent-1"}}}
 	fx.d.coord.semanticGroupArbiter = stub
 	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})

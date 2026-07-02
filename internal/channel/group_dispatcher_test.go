@@ -389,6 +389,27 @@ func TestGroupDispatcherWebNoMentionMultiMemberStaysSilent(t *testing.T) {
 	}
 }
 
+// A multi-member platform (non-web) group with no semantic arbiter takes the
+// degraded Warn path and stays silent — it must never broadcast to every member
+// the way the deleted `group_mode: always` fallback once did. This is the
+// positive lock on that branch: it fails if any all-members fallback is
+// reintroduced for platform groups.
+func TestGroupDispatcherPlatformNoMentionMultiMemberNoArbiterStaysSilent(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	addSecondMember(t, fx)
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	count, err := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID)
+	if err != nil {
+		t.Fatalf("count dispatch: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("dispatch rows = %d, want 0 (platform multi-member, no arbiter)", count)
+	}
+}
+
 func TestGroupDispatcherZeroRespondersCompletesOutbox(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
 
@@ -408,75 +429,6 @@ func TestGroupDispatcherZeroRespondersCompletesOutbox(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("dispatch rows = %d, want 0", count)
-	}
-}
-
-func TestGroupDispatcherPlatformMentionModeDoesNotUseObserverFallback(t *testing.T) {
-	fx := newDispatcherFixture(t, "telegram", `{}`)
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-1' WHERE id = $1`, fx.message.ID); err != nil {
-		t.Fatalf("set source channel: %v", err)
-	}
-	if _, err := fx.db.Exec(context.Background(), `UPDATE channel SET config = '{"group_mode":"mention"}' WHERE id = 'ch-1'`); err != nil {
-		t.Fatalf("set channel config: %v", err)
-	}
-
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process outbox: %v", err)
-	}
-	count, err := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID)
-	if err != nil {
-		t.Fatalf("count dispatch: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("dispatch rows = %d, want 0", count)
-	}
-}
-
-func TestGroupDispatcherPlatformAlwaysModeUsesMemberFallback(t *testing.T) {
-	fx := newDispatcherFixture(t, "telegram", `{}`)
-	if _, err := fx.q.CreateAgent(context.Background(), sqlc.CreateAgentParams{
-		ID:                   "agent-2",
-		Name:                 "Agent Two",
-		Workspace:            t.TempDir(),
-		Sandbox:              json.RawMessage("{}"),
-		EnabledBuiltinSkills: json.RawMessage("[]"),
-		Scope:                "system",
-		Enabled:              true,
-	}); err != nil {
-		t.Fatalf("create second agent: %v", err)
-	}
-	if err := fx.q.CreateWebChannelIfNotExists(context.Background(), sqlc.CreateWebChannelIfNotExistsParams{
-		ID:      "ch-2",
-		AgentID: pgtype.Text{String: "agent-2", Valid: true},
-	}); err != nil {
-		t.Fatalf("create second channel: %v", err)
-	}
-	if _, err := fx.q.AddGroupMember(context.Background(), sqlc.AddGroupMemberParams{
-		GroupID:        "11111111-1111-1111-1111-111111111111",
-		AgentID:        "agent-2",
-		ReplyChannelID: "ch-2",
-	}); err != nil {
-		t.Fatalf("add second member: %v", err)
-	}
-	firstPublisher := &recordingGroupPublisher{}
-	secondPublisher := &recordingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", firstPublisher)
-	fx.d.publishers.Register("ch-2", secondPublisher)
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-2' WHERE id = $1`, fx.message.ID); err != nil {
-		t.Fatalf("set source channel: %v", err)
-	}
-	if _, err := fx.db.Exec(context.Background(), `UPDATE channel SET config = '{"group_mode":"always"}' WHERE id = 'ch-1'`); err != nil {
-		t.Fatalf("set first channel config: %v", err)
-	}
-	if _, err := fx.db.Exec(context.Background(), `UPDATE channel SET config = '{"group_mode":"mention"}' WHERE id = 'ch-2'`); err != nil {
-		t.Fatalf("set second channel config: %v", err)
-	}
-
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process outbox: %v", err)
-	}
-	if firstPublisher.calls != 1 {
-		t.Fatalf("first publisher calls = %d, want 1", firstPublisher.calls)
 	}
 }
 

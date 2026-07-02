@@ -28,7 +28,7 @@ Before you start, make sure you have:
 
 You can create multiple Telegram channel instances if you have multiple bots. Each instance can optionally be bound to a dedicated agent in the Web UI.
 
-All channel configuration (token, group mode, allowed IDs, dedicated agent binding, etc.) is managed through the Web UI. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
+All channel configuration (token, allowed IDs, dedicated agent binding, etc.) is managed through the Web UI. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
 
 ## Multi-User Support
 
@@ -98,11 +98,7 @@ The agent can then use the `kreuzberg extract` command to parse the file.
 
 ## Group Support
 
-The bot supports group chats with configurable response behavior. Set the group mode in the Web UI:
-
-- `mention` -- @mentions always route to the mentioned bot. Other clear group questions may also be routed by Stella's semantic group routing when an eligible routing model is available; otherwise they stay silent. This is the default.
-- `always` -- consider every group message. Non-mention messages still pass through semantic routing first, so chatter can stay silent; if semantic routing is unavailable, Stella falls back to the legacy all-members response.
-- `disabled` -- ignore group messages entirely
+The bot supports group chats. In group chats it participates automatically: @mentions always route to the mentioned bot, and other clear group questions may also be routed by Stella's semantic group routing when an eligible routing model is available, otherwise they stay silent. To stop a bot from participating in a group, remove it from that group.
 
 For semantic no-mention routing, the bot must be able to read normal group messages. In Telegram, disable privacy mode for the bot in BotFather.
 
@@ -142,13 +138,12 @@ You can switch models mid-conversation using the `/model` command, which opens a
 
 All settings below are managed through the Web UI.
 
-| Field         | Description                                                                                                                   | Default    |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `token`       | Bot API token                                                                                                                 | (required) |
-| `notify_chat` | Chat ID for proactive notifications                                                                                           |            |
-| `channel_id`  | Broadcast channel (@name or numeric ID)                                                                                       |            |
-| `group_mode`  | Group behavior: `mention`, `always`, `disabled`. @mentions are deterministic; no-mention messages may be routed semantically. | `mention`  |
-| `allowed_ids` | User IDs allowed to use bot (empty = all)                                                                                     | `[]`       |
+| Field         | Description                               | Default    |
+| ------------- | ----------------------------------------- | ---------- |
+| `token`       | Bot API token                             | (required) |
+| `notify_chat` | Chat ID for proactive notifications       |            |
+| `channel_id`  | Broadcast channel (@name or numeric ID)   |            |
+| `allowed_ids` | User IDs allowed to use bot (empty = all) | `[]`       |
 
 ## Troubleshooting
 
@@ -160,7 +155,7 @@ All settings below are managed through the Web UI.
 
 **Bot not responding in groups?**
 
-- Check the `group_mode` setting in the Web UI. @mention the bot for the most reliable trigger.
+- @mention the bot for the most reliable trigger.
 - If you expect replies without @mentions, make sure at least one group agent has a routing-capable model and that the message is a clear request, not casual chatter.
 - Make sure the bot has been added to the group and has permission to read messages. For Telegram, disable bot privacy mode in BotFather if you want no-mention routing.
 

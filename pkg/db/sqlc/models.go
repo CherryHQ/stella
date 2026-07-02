@@ -487,6 +487,102 @@ type Fact struct {
 	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
+type McpServer struct {
+	ID            string          `json:"id"`
+	Scope         string          `json:"scope"`
+	UserID        pgtype.Text     `json:"user_id"`
+	AgentID       pgtype.Text     `json:"agent_id"`
+	Name          string          `json:"name"`
+	Url           string          `json:"url"`
+	Transport     string          `json:"transport"`
+	AuthType      string          `json:"auth_type"`
+	CredentialRef string          `json:"credential_ref"`
+	Enabled       bool            `json:"enabled"`
+	Metadata      json.RawMessage `json:"metadata"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+}
+
+type OauthAccessToken struct {
+	ID              string             `json:"id"`
+	PublicID        string             `json:"public_id"`
+	TokenHash       string             `json:"token_hash"`
+	Last4           string             `json:"last4"`
+	ClientID        string             `json:"client_id"`
+	UserID          string             `json:"user_id"`
+	Scopes          []string           `json:"scopes"`
+	RefreshFamilyID string             `json:"refresh_family_id"`
+	ExpiresAt       time.Time          `json:"expires_at"`
+	LastUsedAt      pgtype.Timestamptz `json:"last_used_at"`
+	CreatedAt       time.Time          `json:"created_at"`
+}
+
+type OauthAuthorizationCode struct {
+	ID                  string             `json:"id"`
+	CodeHash            string             `json:"code_hash"`
+	ClientID            string             `json:"client_id"`
+	UserID              string             `json:"user_id"`
+	RedirectUri         string             `json:"redirect_uri"`
+	Scopes              []string           `json:"scopes"`
+	CodeChallenge       string             `json:"code_challenge"`
+	CodeChallengeMethod string             `json:"code_challenge_method"`
+	ExpiresAt           time.Time          `json:"expires_at"`
+	ConsumedAt          pgtype.Timestamptz `json:"consumed_at"`
+	CreatedAt           time.Time          `json:"created_at"`
+}
+
+type OauthClient struct {
+	ID               string             `json:"id"`
+	ClientID         string             `json:"client_id"`
+	Name             string             `json:"name"`
+	ClientSecretHash string             `json:"client_secret_hash"`
+	ClientType       string             `json:"client_type"`
+	RedirectUris     []string           `json:"redirect_uris"`
+	GrantTypes       []string           `json:"grant_types"`
+	Scopes           []string           `json:"scopes"`
+	OwnerUserID      string             `json:"owner_user_id"`
+	DisabledAt       pgtype.Timestamptz `json:"disabled_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
+type OauthRefreshFamily struct {
+	ID        string             `json:"id"`
+	UserID    string             `json:"user_id"`
+	ClientID  string             `json:"client_id"`
+	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt time.Time          `json:"created_at"`
+}
+
+type OauthRefreshToken struct {
+	ID           string             `json:"id"`
+	PublicID     string             `json:"public_id"`
+	TokenHash    string             `json:"token_hash"`
+	ClientID     string             `json:"client_id"`
+	UserID       string             `json:"user_id"`
+	Scopes       []string           `json:"scopes"`
+	FamilyID     string             `json:"family_id"`
+	ReplacedByID pgtype.Text        `json:"replaced_by_id"`
+	ConsumedAt   pgtype.Timestamptz `json:"consumed_at"`
+	ExpiresAt    time.Time          `json:"expires_at"`
+	CreatedAt    time.Time          `json:"created_at"`
+}
+
+type PersonalAccessToken struct {
+	ID         string             `json:"id"`
+	PublicID   string             `json:"public_id"`
+	UserID     string             `json:"user_id"`
+	Name       string             `json:"name"`
+	TokenHash  string             `json:"token_hash"`
+	Last4      string             `json:"last4"`
+	Scopes     []string           `json:"scopes"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt  time.Time          `json:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at"`
+}
+
 type Plugin struct {
 	ID        string          `json:"id"`
 	Kind      string          `json:"kind"`

@@ -50,10 +50,6 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 		authorID := msg.Author.ID
 		groupID := msg.GroupID
 
-		if !b.shouldRespondInGroup() {
-			return nil
-		}
-
 		assetsDir := b.resolveAssetsDir(b.incomingMsg(authorID, groupID, nil), msg)
 		content := b.buildMessageContent(msg, assetsDir)
 		if content == nil {
@@ -291,11 +287,6 @@ func (b *Bot) handleLocalCommand(incoming channel.IncomingMessage, text string, 
 	}
 
 	return false
-}
-
-// shouldRespondInGroup checks whether the bot should respond based on group_mode.
-func (b *Bot) shouldRespondInGroup() bool {
-	return b.cfg.GroupMode != "disabled"
 }
 
 // sendReply is a convenience wrapper that dispatches to the correct scope.

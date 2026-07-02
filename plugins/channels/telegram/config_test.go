@@ -6,13 +6,12 @@ func TestDecodeConfig(t *testing.T) {
 	cfg, err := DecodeConfig(map[string]any{
 		"token":         "tg-token",
 		"channel_id":    "@stella",
-		"group_mode":    "mention",
 		"enable_notify": true,
 	})
 	if err != nil {
 		t.Fatalf("DecodeConfig: %v", err)
 	}
-	if cfg.Token != "tg-token" || cfg.ChannelID != "@stella" || cfg.GroupMode != "mention" || !cfg.EnableNotify {
+	if cfg.Token != "tg-token" || cfg.ChannelID != "@stella" || !cfg.EnableNotify {
 		t.Fatalf("decoded config = %#v", cfg)
 	}
 }

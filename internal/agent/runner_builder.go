@@ -19,6 +19,14 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
+// MCPToolProvider surfaces external MCP-server tools into an agent's tool
+// registry for a (user, agent) context. Implemented by *mcp.ToolProvider; kept
+// as an interface here so the agent package need not depend on the MCP client
+// internals and tests can stub it.
+type MCPToolProvider interface {
+	ToolsForContext(ctx context.Context, userID, agentID string) []tools.Tool
+}
+
 // runnerBuilderConfig holds all dependencies needed to assemble a NewRunnerFunc.
 type runnerBuilderConfig struct {
 	Snap                     *config.Snapshot
@@ -28,6 +36,7 @@ type runnerBuilderConfig struct {
 	PromptSectionsBuilder    prompt.SectionsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	SkillStore               pkgplugins.SkillStore
+	MCPToolProvider          MCPToolProvider
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SandboxBackendFn         func(ctx context.Context) string
 	VaultEnvLoader           sandbox.VaultEnvLoader
@@ -227,6 +236,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			).WithSkillDiskLayout(layout).
 				WithSkillDirView(view).
 				WithPluginVisibility(pluginView.RegisteredPluginIDs, pluginView.EnabledPluginIDs))
+		}
+
+		// External MCP-server tools, resolved for this (user, agent) context and
+		// namespaced (mcp__<server>__<tool>) so they never collide with core,
+		// plugin, or skill tools. A down server is skipped inside the provider.
+		if cfg.MCPToolProvider != nil {
+			runnerTools = append(runnerTools, cfg.MCPToolProvider.ToolsForContext(ctx, params.UserID, params.AgentID)...)
 		}
 
 		return newRunner(ctx, runnerConfig{

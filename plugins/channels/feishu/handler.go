@@ -60,9 +60,6 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	// Look up the reacted message to get its chat context so we resolve
 	// against the correct session (group vs private, threaded vs not).
 	chatID, chatType, rootID := b.getMessageContext(messageID)
-	if chatType == "group" && !b.shouldIngestGroup(chatID) {
-		return nil
-	}
 
 	// Auto-provision the reacting user. TenantKey is not available in reaction
 	// events; the contact API failure acts as the implicit tenant filter.
@@ -126,10 +123,6 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	if messageID != "" && b.markSeen(messageID) {
 		logger().Debug("duplicate message ignored", "message_id", messageID)
-		return nil
-	}
-
-	if chatType == "group" && !b.shouldIngestGroup(chatID) {
 		return nil
 	}
 

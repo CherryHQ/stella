@@ -196,11 +196,7 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 
 ## 群组行为
 
-`group_mode` 控制 Stella 如何考虑群消息：
-
-- `mention`：被 @提及时一定会路由给被提及的机器人；其他明确问题在存在可用路由模型时，也可能由 Stella 的语义群聊路由选中回复，否则保持静默。
-- `always`：会考虑每条群消息。无 @提及的消息仍先经过语义路由，所以闲聊可以保持静默；如果语义路由不可用，Stella 会回退到旧的全成员响应行为。
-- `disabled`：从不在群里回复
+在群聊中机器人会自动参与。被 @提及时一定会路由给被提及的机器人；其他明确问题在存在可用路由模型时，也可能由 Stella 的语义群聊路由选中回复，否则保持静默。若要让机器人不再参与某个群，把它移出该群即可。
 
 你也可以通过 `groups` 字段为特定群单独覆盖配置。
 
@@ -225,30 +221,27 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
   "app_secret": "FEISHU_APP_SECRET",
   "encrypt_key": "",
   "verification_token": "",
-  "group_mode": "mention",
   "enable_notify": false,
   "tenant_key": "",
   "auto_provision": false,
   "groups": {
     "oc_example": {
-      "group_mode": "always",
       "system_prompt": "这个群里请作为基础设施助手回复。"
     }
   }
 }
 ```
 
-| 字段                 | 说明                                                                                                 |
-| -------------------- | ---------------------------------------------------------------------------------------------------- |
-| `app_id`             | 飞书应用 App ID                                                                                      |
-| `app_secret`         | 飞书应用 App Secret                                                                                  |
-| `encrypt_key`        | 可选的事件加密密钥                                                                                   |
-| `verification_token` | 可选的事件校验 token                                                                                 |
-| `group_mode`         | 默认群聊行为：`mention`、`always` 或 `disabled`。@提及是确定性触发；无 @提及消息可能由语义路由处理。 |
-| `enable_notify`      | 允许调度器和 `notify` 输出发送到飞书                                                                 |
-| `tenant_key`         | 企业 Tenant Key。可选：Stella 可在启动时自动探测，但仍建议显式配置                                   |
-| `auto_provision`     | 自动为这个飞书频道实例实际处理到的用户创建 Stella 账号                                               |
-| `groups`             | 按飞书 `chat_id` 配置的群级覆盖项                                                                    |
+| 字段                 | 说明                                                               |
+| -------------------- | ------------------------------------------------------------------ |
+| `app_id`             | 飞书应用 App ID                                                    |
+| `app_secret`         | 飞书应用 App Secret                                                |
+| `encrypt_key`        | 可选的事件加密密钥                                                 |
+| `verification_token` | 可选的事件校验 token                                               |
+| `enable_notify`      | 允许调度器和 `notify` 输出发送到飞书                               |
+| `tenant_key`         | 企业 Tenant Key。可选：Stella 可在启动时自动探测，但仍建议显式配置 |
+| `auto_provision`     | 自动为这个飞书频道实例实际处理到的用户创建 Stella 账号             |
+| `groups`             | 按飞书 `chat_id` 配置的群级覆盖项                                  |
 
 ## 故障排除
 
@@ -260,7 +253,7 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 
 **机器人在群组中不响应？**
 
-- 检查Web UI中的 `group_mode` 设置。最可靠的触发方式是 @提及机器人。
+- 最可靠的触发方式是 @提及机器人。
 - 如果你期望无 @提及也能回复，确认至少一个群内 agent 配置了可用于路由的模型，并且消息是明确请求而不是闲聊。
 
 **自动注册未创建用户？**
@@ -280,12 +273,11 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
   "app_id": "FEISHU_APP_ID",
   "app_secret": "FEISHU_APP_SECRET",
   "tenant_key": "YOUR_TENANT_KEY",
-  "auto_provision": true,
-  "group_mode": "always"
+  "auto_provision": true
 }
 ```
 
-只有在你希望 Stella 考虑群里每条消息时，才使用 `group_mode: "always"`。语义路由仍可能让闲聊保持静默；如果要稳定触发首次联系和自动注册，请让用户 @提及机器人。
+语义路由仍可能让闲聊保持静默；如果要稳定触发首次联系和自动注册，请让用户 @提及机器人。
 
 **图片或文件未被分析？**
 

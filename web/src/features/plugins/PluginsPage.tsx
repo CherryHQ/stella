@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   getPluginConfig,
@@ -41,6 +42,8 @@ import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { SettingsGridPage, SettingsDetailSheet } from "@/features/settings/SettingsCardGrid";
+import { meQueryOptions } from "@/lib/queries/me";
+import { MCPServersPanel } from "@/features/mcp/MCPServersPage";
 import { Plus } from "lucide-react";
 
 function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
@@ -49,6 +52,8 @@ function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData
 
 export function PluginsPage() {
   const { t } = useI18n();
+  const { data: me } = useQuery(meQueryOptions);
+  const isAdmin = me?.is_admin ?? false;
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { pluginId?: string };
   const pluginId = params.pluginId;
@@ -147,11 +152,12 @@ export function PluginsPage() {
   }
 
   useEffect(() => {
+    if (!isAdmin) return;
     void (async () => {
       await loadPlugins();
       await loadManifestPlugins();
     })();
-  }, [loadPlugins, loadManifestPlugins]);
+  }, [isAdmin, loadPlugins, loadManifestPlugins]);
 
   // Load config for selected plugin
   useEffect(() => {
@@ -415,40 +421,47 @@ export function PluginsPage() {
       <SettingsGridPage
         title={t("plugins.title")}
         action={
-          <Button
-            render={<Link to="/settings/plugins/$pluginId" params={{ pluginId: "new" }} />}
-            variant="outline"
-            size="sm"
-          >
-            <Plus className="size-4" />
-            {t("plugins.addTool")}
-          </Button>
+          isAdmin ? (
+            <Button
+              render={<Link to="/settings/plugins/$pluginId" params={{ pluginId: "new" }} />}
+              variant="outline"
+              size="sm"
+            >
+              <Plus className="size-4" />
+              {t("plugins.addTool")}
+            </Button>
+          ) : null
         }
       >
-        <PluginSection
-          icon={bucketIcon.integration}
-          title={t("plugins.bucket.integrations")}
-          description={t("plugins.bucket.integrationsDesc")}
-          plugins={integrationPlugins}
-          activeName={selectedPlugin?.name}
-          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
-        />
-        <PluginSection
-          icon={bucketIcon.tool}
-          title={t("plugins.bucket.tools")}
-          description={t("plugins.bucket.toolsDesc")}
-          plugins={capabilityPlugins}
-          activeName={selectedPlugin?.name}
-          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
-        />
-        <PluginSection
-          icon={bucketIcon.system}
-          title={t("plugins.bucket.system")}
-          description={t("plugins.bucket.systemDesc")}
-          plugins={systemPlugins}
-          activeName={selectedPlugin?.name}
-          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
-        />
+        <MCPServersPanel embedded />
+        {isAdmin && (
+          <>
+            <PluginSection
+              icon={bucketIcon.integration}
+              title={t("plugins.bucket.integrations")}
+              description={t("plugins.bucket.integrationsDesc")}
+              plugins={integrationPlugins}
+              activeName={selectedPlugin?.name}
+              onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+            />
+            <PluginSection
+              icon={bucketIcon.tool}
+              title={t("plugins.bucket.tools")}
+              description={t("plugins.bucket.toolsDesc")}
+              plugins={capabilityPlugins}
+              activeName={selectedPlugin?.name}
+              onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+            />
+            <PluginSection
+              icon={bucketIcon.system}
+              title={t("plugins.bucket.system")}
+              description={t("plugins.bucket.systemDesc")}
+              plugins={systemPlugins}
+              activeName={selectedPlugin?.name}
+              onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+            />
+          </>
+        )}
       </SettingsGridPage>
 
       <SettingsDetailSheet open={sheetOpen} onClose={closeSheet}>

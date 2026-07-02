@@ -1,0 +1,129 @@
+paths:
+  /api/mcp/servers:
+    get:
+      tags: [mcp]
+      summary: List scoped MCP server registrations
+      operationId: listScopedMCPServers
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user, user_agent, system, system_agent]
+            default: user
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPServerList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+    post:
+      tags: [mcp]
+      summary: Register a scoped MCP server
+      operationId: createScopedMCPServer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreateMCPServerRequest",
+            }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPServer",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/mcp/servers/{id}:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string },
+          description: "MCP server id",
+        }
+    patch:
+      tags: [mcp]
+      summary: Update a scoped MCP server registration
+      operationId: updateScopedMCPServer
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user, user_agent, system, system_agent]
+            default: user
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateMCPServerRequest",
+            }
+      responses:
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPServer",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [mcp]
+      summary: Remove a scoped MCP server registration
+      operationId: deleteScopedMCPServer
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user, user_agent, system, system_agent]
+            default: user
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "204":
+          description: deleted
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

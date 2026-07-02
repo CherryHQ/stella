@@ -50,7 +50,7 @@ func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		},
 	})
 
-	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"token": "tg-token", "group_mode": "mention"}}
+	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"token": "tg-token"}}
 	if err := runtime.Apply(context.Background(), state); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}

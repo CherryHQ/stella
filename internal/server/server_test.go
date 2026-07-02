@@ -555,7 +555,7 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 
 	rr := doRequest(t, env, "PATCH", "/api/channels/telegram", map[string]any{
 		"enabled": true,
-		"config":  `{"token":"tg-token","enable_notify":true,"group_mode":"mention"}`,
+		"config":  `{"token":"tg-token","enable_notify":true}`,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
@@ -601,7 +601,7 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 
 	rr := doRequest(t, env, "PATCH", "/api/channels/qq", map[string]any{
 		"enabled": true,
-		"config":  `{"app_id":"qq-app","app_secret":"qq-secret","enable_notify":true,"group_mode":"mention"}`,
+		"config":  `{"app_id":"qq-app","app_secret":"qq-secret","enable_notify":true}`,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
@@ -647,7 +647,7 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 
 	rr := doRequest(t, env, "PATCH", "/api/channels/feishu", map[string]any{
 		"enabled": true,
-		"config":  `{"app_id":"fs-app","app_secret":"fs-secret","encrypt_key":"enc","verification_token":"verify","enable_notify":true,"group_mode":"mention","groups":{"oc_123":{"group_mode":"always","system_prompt":"be brief"}}}`,
+		"config":  `{"app_id":"fs-app","app_secret":"fs-secret","encrypt_key":"enc","verification_token":"verify","enable_notify":true,"groups":{"oc_123":{"system_prompt":"be brief"}}}`,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())

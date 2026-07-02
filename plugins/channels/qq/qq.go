@@ -28,7 +28,6 @@ type Config struct {
 	InstanceID string
 	AppID      string
 	AppSecret  string
-	GroupMode  string // "mention" | "always" | "disabled"
 }
 
 // Bot wraps a QQ bot with agent pool integration.
@@ -51,10 +50,6 @@ type Bot struct {
 func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("qq: app_id and app_secret are required")
-	}
-
-	if cfg.GroupMode == "" {
-		cfg.GroupMode = "mention"
 	}
 
 	b := &Bot{

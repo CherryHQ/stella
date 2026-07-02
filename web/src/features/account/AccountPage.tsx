@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+import { TokensSection } from "@/features/account/TokensSection";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
@@ -192,6 +193,9 @@ export function AccountPage() {
             </div>
           </section>
         )}
+
+        {/* Personal access tokens section */}
+        <TokensSection notify={showToast} />
 
         {/* Sessions section */}
         <section>
