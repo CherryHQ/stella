@@ -366,6 +366,8 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1attempts~1{attemptId}"
   /api/goals/{id}/acceptance-events:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1acceptance-events"
+  /api/goals/{id}/timeline:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1timeline"
   /api/goals/{id}/verdict:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1verdict"
   /api/goals/{id}/edges:

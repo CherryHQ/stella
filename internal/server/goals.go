@@ -526,6 +526,57 @@ func (s *Server) ListAcceptanceEvents(w http.ResponseWriter, r *http.Request, id
 	writeData(w, http.StatusOK, acceptanceEventListAPI(rows))
 }
 
+// ListGoalTimeline lists a goal's L3 timeline in chronological order.
+func (s *Server) ListGoalTimeline(w http.ResponseWriter, r *http.Request, id string, params apiserver.ListGoalTimelineParams) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	rows, err := s.goalSvc.ListTimeline(ctx, id, int64(limit+1), int64(offset))
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	page, next := nextPageTokenForRows(rows, limit, offset)
+	writeData(w, http.StatusOK, goalTimelineAPI(page, next))
+}
+
+// CreateGoalTimelineEvent appends a human message and reattempts non-dep blocks.
+func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	var body apitypes.GoalTimelineMessageRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Text == "" {
+		writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	event, err := s.goalSvc.AddHumanMessage(ctx, goal.HumanMessageInput{GoalID: id, Text: body.Text, ResponderUserID: userID})
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusCreated, goalTimelineEventToAPI(event))
+}
+
 // ── Verdict + edges ──────────────────────────────────────────────────────────
 
 // SubmitVerdict appends a human verdict against a contract item and re-folds.
@@ -865,6 +916,29 @@ func acceptanceEventListAPI(rows []sqlc.AgentGoalAcceptanceEvent) apitypes.Accep
 	return apitypes.AcceptanceEventList{AcceptanceEvents: out}
 }
 
+func goalTimelineAPI(rows []sqlc.AgentGoalEvent, nextToken string) apitypes.GoalTimeline {
+	items := make([]apitypes.GoalTimelineEvent, 0, len(rows))
+	for _, e := range rows {
+		items = append(items, goalTimelineEventToAPI(e))
+	}
+	out := apitypes.GoalTimeline{Events: items}
+	if nextToken != "" {
+		out.NextPageToken = &nextToken
+	}
+	return out
+}
+
+func goalTimelineEventToAPI(e sqlc.AgentGoalEvent) apitypes.GoalTimelineEvent {
+	return apitypes.GoalTimelineEvent{
+		Id:        e.ID,
+		GoalId:    e.GoalID,
+		AttemptId: nullToPtr(e.AttemptID),
+		EventType: apitypes.GoalTimelineEventEventType(e.EventType),
+		Payload:   jsonMap(e.Payload),
+		CreatedAt: e.CreatedAt.UTC(),
+	}
+}
+
 func acceptanceEventToAPI(e sqlc.AgentGoalAcceptanceEvent) apitypes.AcceptanceEvent {
 	out := apitypes.AcceptanceEvent{
 		Id:                e.ID,
@@ -986,6 +1060,17 @@ func nullToPtr(ns pgtype.Text) *string {
 	}
 	v := ns.String
 	return &v
+}
+
+func jsonMap(s json.RawMessage) map[string]any {
+	if len(s) == 0 || string(s) == "{}" {
+		return map[string]any{}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(s, &m); err != nil {
+		return map[string]any{}
+	}
+	return m
 }
 
 func jsonObject(s json.RawMessage) *map[string]any {

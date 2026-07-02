@@ -201,6 +201,47 @@ func TestGoals_GetCrossTenant_404(t *testing.T) {
 
 // TestGoals_CreateAndGet covers the happy path: POST creates a composite
 // (every goal is planned first) and GET returns it for the owner.
+
+func TestGoals_TimelinePaginationAndPost(t *testing.T) {
+	env := setupGoalEnv(t)
+	agentID := findStellaID(t, env)
+	id := createGoal(t, env, env.bearerToken, agentID, "timeline")
+
+	for _, text := range []string{"one", "two", "three"} {
+		rr := doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/goals/"+id+"/timeline", apitypes.GoalTimelineMessageRequest{Text: text})
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("POST timeline %q: status=%d body=%s", text, rr.Code, rr.Body.String())
+		}
+	}
+
+	rr := doRequestWithSession(t, env.srv, env.bearerToken, "GET", "/api/goals/"+id+"/timeline?page_size=2", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET timeline page1: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var page1 apitypes.GoalTimeline
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &page1); err != nil {
+		t.Fatalf("unmarshal page1: %v", err)
+	}
+	if len(page1.Events) != 2 || page1.NextPageToken == nil || *page1.NextPageToken == "" {
+		t.Fatalf("page1 len=%d next=%v want 2+next", len(page1.Events), page1.NextPageToken)
+	}
+
+	rr = doRequestWithSession(t, env.srv, env.bearerToken, "GET", "/api/goals/"+id+"/timeline?page_size=2&page_token="+*page1.NextPageToken, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET timeline page2: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var page2 apitypes.GoalTimeline
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &page2); err != nil {
+		t.Fatalf("unmarshal page2: %v", err)
+	}
+	if len(page2.Events) != 1 || page2.NextPageToken != nil {
+		t.Fatalf("page2 len=%d next=%v want 1 no-next", len(page2.Events), page2.NextPageToken)
+	}
+	if page2.Events[0].EventType != apitypes.HumanMessage || page2.Events[0].Payload["text"] != "three" {
+		t.Fatalf("page2 event=%+v want third human message", page2.Events[0])
+	}
+}
+
 func TestGoals_CreateAndGet(t *testing.T) {
 	env := setupGoalEnv(t)
 	agentID := findStellaID(t, env)
