@@ -376,7 +376,7 @@ func (s *Service) Abandon(ctx context.Context, id, reason string, by Actor) erro
 	return s.Goal.Abandon(ctx, id, reason, by)
 }
 
-// Reattempt raises the budget on a blocked(budget_exhausted) goal.
+// Reattempt resumes a recoverably blocked goal, raising budget only for budget_exhausted.
 func (s *Service) Reattempt(ctx context.Context, id string, by Actor) error {
 	return s.Goal.Reattempt(ctx, id, by)
 }

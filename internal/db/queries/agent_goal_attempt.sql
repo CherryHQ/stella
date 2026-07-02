@@ -82,6 +82,7 @@ WHERE id = sqlc.arg(id);
 UPDATE agent_goal_attempt
 SET status = sqlc.arg(to_status),
     error = sqlc.arg(error),
+    failure_class = sqlc.arg(failure_class),
     finished_at = now(),
     updated_at = now()
 WHERE id = sqlc.arg(id) AND status IN ('queued', 'running');

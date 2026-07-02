@@ -33,6 +33,7 @@ const (
 const (
 	BlockBudgetExhausted   = "budget_exhausted"
 	BlockNeedsPlanApproval = "needs_plan_approval"
+	BlockPlanningInvalid   = "planning_invalid"
 	BlockNeedsVerdict      = "needs_verdict"
 	BlockDep               = "dep"
 )
@@ -59,6 +60,14 @@ const (
 	PurposeExecution     = "execution"
 	PurposeDecomposition = "decomposition"
 	PurposeReview        = "review"
+)
+
+// Failure class records why a failed/interrupted attempt did not produce a
+// usable terminal result.
+const (
+	FailureClassStructural = "structural"
+	FailureClassSemantic   = "semantic"
+	FailureClassTransient  = "transient"
 )
 
 // Goal kind.
@@ -137,7 +146,7 @@ func ValidLifecycle(s string) bool {
 // ValidBlockReason reports whether s is a known block reason.
 func ValidBlockReason(s string) bool {
 	switch s {
-	case BlockBudgetExhausted, BlockNeedsPlanApproval, BlockNeedsVerdict, BlockDep:
+	case BlockBudgetExhausted, BlockNeedsPlanApproval, BlockPlanningInvalid, BlockNeedsVerdict, BlockDep:
 		return true
 	}
 	return false
@@ -166,6 +175,16 @@ func ValidAttemptStatus(s string) bool {
 func ValidPurpose(s string) bool {
 	switch s {
 	case PurposeExecution, PurposeDecomposition, PurposeReview:
+		return true
+	}
+	return false
+}
+
+// ValidFailureClass reports whether s is a known failure class. Empty is valid
+// for non-failure final states such as cancelled attempts.
+func ValidFailureClass(s string) bool {
+	switch s {
+	case "", FailureClassStructural, FailureClassSemantic, FailureClassTransient:
 		return true
 	}
 	return false

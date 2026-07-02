@@ -775,7 +775,7 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 }
 
 func attemptToAPI(a sqlc.AgentGoalAttempt) apitypes.Attempt {
-	return apitypes.Attempt{
+	out := apitypes.Attempt{
 		Id:              a.ID,
 		GoalId:          a.GoalID,
 		SessionId:       a.SessionID,
@@ -798,6 +798,11 @@ func attemptToAPI(a sqlc.AgentGoalAttempt) apitypes.Attempt {
 		StartedAt:       parseTimePtr(a.StartedAt),
 		FinishedAt:      parseTimePtr(a.FinishedAt),
 	}
+	if a.FailureClass != "" {
+		fc := apitypes.AttemptFailureClass(a.FailureClass)
+		out.FailureClass = &fc
+	}
+	return out
 }
 
 func acceptanceEventListAPI(rows []sqlc.AgentGoalAcceptanceEvent) apitypes.AcceptanceEventList {

@@ -917,7 +917,14 @@ components:
           ]
         block_reason:
           type: string
-          enum: ["", budget_exhausted, needs_plan_approval, needs_verdict, dep]
+          enum: [
+            "",
+            budget_exhausted,
+            needs_plan_approval,
+            planning_invalid,
+            needs_verdict,
+            dep,
+          ]
           description: Meaningful only when lifecycle=blocked.
         acceptance_state:
           type: string
@@ -1112,6 +1119,9 @@ components:
         max_depth:
           type: integer
           description: Recursion ceiling. Default 4.
+        planner_repair_max:
+          type: integer
+          description: Structural planning repair turns in the same session. Default 2.
         max_concurrent:
           type: integer
           description: Per-root breadth-of-fanout cap. Default 8.
@@ -1165,6 +1175,10 @@ components:
           additionalProperties: {}
         error:
           type: string
+        failure_class:
+          type: string
+          enum: ["", structural, semantic, transient]
+          description: Class for failed or interrupted attempts.
         worker_id:
           type: string
         heartbeat_at:

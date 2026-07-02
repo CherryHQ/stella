@@ -60,74 +60,7 @@ const maxDecompositionBreadth = 64
 //
 // parentDepth is the composite's own depth; a child sits at parentDepth+1.
 func ValidateDecomposition(c DecompositionContent, parentDepth, maxDepth int) error {
-	if len(c.Children) > maxDecompositionBreadth {
-		return ErrInvalidDecomposition
-	}
-	keys := make(map[string]ProposedChild, len(c.Children))
-	requiredCount := 0
-	for _, ch := range c.Children {
-		if ch.Key == "" {
-			return ErrInvalidDecomposition
-		}
-		if _, dup := keys[ch.Key]; dup {
-			return ErrInvalidDecomposition
-		}
-		if ch.Kind != "" && !ValidKind(ch.Kind) {
-			return ErrInvalidDecomposition
-		}
-		if !ch.AcceptanceContract.Valid() || !ch.ConvergencePolicy.Valid() {
-			return ErrInvalidContract
-		}
-		if ch.Kind == KindComposite {
-			// A composite child can never satisfy a deterministic item and must have
-			// room to decompose its own children at parentDepth+2.
-			if ch.AcceptanceContract.HasDeterministicItem() {
-				return ErrCompositeDeterministicContract
-			}
-			if parentDepth+2 > maxDepth {
-				return ErrDepthExceeded
-			}
-		}
-		if ch.ReviewPolicy != "" && !ValidReviewPolicy(ch.ReviewPolicy) {
-			return ErrInvalidDecomposition
-		}
-		if ch.Required {
-			requiredCount++
-		}
-		keys[ch.Key] = ch
-	}
-	if requiredCount < 1 {
-		return ErrInvalidDecomposition // a decomposition must commit to ≥1 required child
-	}
-	if parentDepth+1 > maxDepth {
-		return ErrDepthExceeded
-	}
-
-	// Edges: keys resolve, kinds/policies known.
-	adj := make(map[string][]string, len(c.Children))
-	for _, e := range c.Edges {
-		if _, ok := keys[e.DownstreamKey]; !ok {
-			return ErrInvalidDecomposition
-		}
-		if _, ok := keys[e.UpstreamKey]; !ok {
-			return ErrInvalidDecomposition
-		}
-		if e.DownstreamKey == e.UpstreamKey {
-			return ErrCycle
-		}
-		if e.Kind != "" && !ValidEdgeKind(e.Kind) {
-			return ErrInvalidDecomposition
-		}
-		if e.OnFailure != "" && !ValidOnFailure(e.OnFailure) {
-			return ErrInvalidDecomposition
-		}
-		// Edge downstream depends on upstream: upstream → downstream in the DAG.
-		adj[e.UpstreamKey] = append(adj[e.UpstreamKey], e.DownstreamKey)
-	}
-	if hasCycleDFS(keys, adj) {
-		return ErrCycle
-	}
-	return nil
+	return validateDecompositionError(c, parentDepth, maxDepth)
 }
 
 // hasCycleDFS reports whether the key dependency graph contains a cycle, via a
