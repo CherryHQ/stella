@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { useI18n } from "@/lib/i18n";
@@ -13,9 +12,6 @@ export interface TimelineRun {
   duration?: string;
   error?: string;
   output?: string;
-  sessionId?: string;
-  /** Agent that owns the session when it differs from the page agent (system jobs). */
-  sessionAgentId?: string;
 }
 
 function statusTone(status: string): string {
@@ -26,8 +22,8 @@ function statusTone(status: string): string {
   return "text-muted-foreground";
 }
 
-/** Run history: session link visible on every row, output/error expandable inline. */
-export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: string }) {
+/** Run history with output/error expandable inline. */
+export function RunsTimeline({ runs }: { runs: TimelineRun[] }) {
   const { t } = useI18n();
   const [open, setOpen] = useState<string | null>(null);
 
@@ -78,16 +74,6 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
               >
                 {run.error || run.output || ""}
               </span>
-              {run.sessionId && (
-                <Link
-                  to="/agents/$agentId/sessions/$sessionId"
-                  params={{ agentId: run.sessionAgentId || agentId, sessionId: run.sessionId }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="shrink-0 text-xs font-medium text-primary hover:underline"
-                >
-                  {t("hub.openSession")}
-                </Link>
-              )}
               {expandable && (
                 <ChevronRight
                   className={cn(

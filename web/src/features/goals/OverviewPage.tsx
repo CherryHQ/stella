@@ -321,10 +321,13 @@ function SectionHead({
   );
 }
 
-// hook copy + an inline affordance both follow from block_reason: a needs_verdict
-// block routes to the Acceptance tab for the verdict, a budget block offers
-// reattempt/abandon in place, and a dep block just opens the detail.
+// hook copy + an inline affordance both follow from block responsibility: a
+// needs_verdict block routes to Acceptance, budget offers reattempt/comment,
+// environment reports to an admin, contract opens the contract surface, and dep
+// only opens the detail.
 function hookLabel(t: ReturnType<typeof useI18n>["t"], d: ComponentsGoal): string {
+  if (d.blocked_by === "env_unavailable") return t("goals.blockEnvUnavailable");
+  if (d.blocked_by === "contract_conflict") return t("goals.blockContractConflict");
   switch (d.block_reason) {
     case "needs_verdict":
       return t("goals.hookNeedsVerdict");
@@ -334,6 +337,10 @@ function hookLabel(t: ReturnType<typeof useI18n>["t"], d: ComponentsGoal): strin
       return t("goals.hookBudget");
     case "dep":
       return t("goals.hookDep");
+    case "env_unavailable":
+      return t("goals.blockEnvUnavailable");
+    case "contract_conflict":
+      return t("goals.blockContractConflict");
     default:
       return blockReasonLabel(t, d) ?? t("goals.statusBlocked");
   }
@@ -355,6 +362,8 @@ function NeedsYouCard({
   const s = displayStatus(d);
   const isReview = s === "review";
   const isBudget = d.block_reason === "budget_exhausted";
+  const isEnvironment = d.blocked_by === "env_unavailable" || d.block_reason === "env_unavailable";
+  const isContract = d.blocked_by === "contract_conflict" || d.block_reason === "contract_conflict";
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["goals", agentId] });
@@ -421,6 +430,21 @@ function NeedsYouCard({
               {t("goals.abandon")}
             </Button>
           </>
+        ) : isEnvironment ? (
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={(e) => {
+              e.stopPropagation();
+              window.alert(t("goals.reportAdminHint"));
+            }}
+          >
+            {t("goals.reportAdmin")}
+          </Button>
+        ) : isContract ? (
+          <Button variant="outline" size="xs">
+            {t("goals.editContract")}
+          </Button>
         ) : (
           <Button variant="outline" size="xs">
             {t("hub.view")}

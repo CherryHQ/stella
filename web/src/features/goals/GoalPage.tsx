@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
   abandonGoal,
@@ -54,8 +54,9 @@ import {
   statusLabel,
 } from "@/features/goals/lib";
 import { AgentChip, DetailSection, DetailShell, MetaSep } from "@/features/goals/DetailShell";
+import { GoalTimeline } from "@/features/goals/GoalTimeline";
 
-type TabKey = "overview" | "children" | "attempts" | "acceptance" | "deps" | "plan";
+type TabKey = "timeline" | "overview" | "children" | "attempts" | "acceptance" | "deps" | "plan";
 
 export function GoalPage() {
   const { t } = useI18n();
@@ -112,7 +113,7 @@ export function GoalPage() {
 
   const isComposite = d.kind === "composite";
   const path = { id: d.id };
-  const active = tab ?? "overview";
+  const active = tab ?? "timeline";
 
   return (
     <DetailShell
@@ -123,12 +124,13 @@ export function GoalPage() {
       actions={
         <HeaderActions
           d={d}
-          agentId={agentId}
           acting={acting}
           act={act}
           path={path}
           onVerdict={() => goTab("acceptance")}
           onWaive={() => goTab("deps")}
+          onTimeline={() => goTab("timeline")}
+          onContract={() => goTab("acceptance")}
         />
       }
     >
@@ -156,6 +158,7 @@ export function GoalPage() {
 
       <Tabs value={active} onValueChange={(v) => goTab(v as TabKey)} className="mt-6">
         <TabsList variant="underline">
+          <TabsTab value="timeline">{t("goals.tabTimeline")}</TabsTab>
           <TabsTab value="overview">{t("goals.tabOverview")}</TabsTab>
           {isComposite && <TabsTab value="children">{t("goals.tabChildren")}</TabsTab>}
           {!isComposite && <TabsTab value="attempts">{t("goals.tabAttempts")}</TabsTab>}
@@ -164,6 +167,9 @@ export function GoalPage() {
           {isComposite && <TabsTab value="plan">{t("goals.tabRevisions")}</TabsTab>}
         </TabsList>
 
+        <TabsPanel value="timeline" className="mt-5">
+          <GoalTimeline goalId={d.id} />
+        </TabsPanel>
         <TabsPanel value="overview" className="mt-5">
           <OverviewTab
             d={d}
@@ -173,6 +179,8 @@ export function GoalPage() {
             onVerdict={() => goTab("acceptance")}
             onWaive={() => goTab("deps")}
             onPlan={() => goTab("plan")}
+            onTimeline={() => goTab("timeline")}
+            onContract={() => goTab("acceptance")}
           />
         </TabsPanel>
         {isComposite && (
@@ -182,7 +190,7 @@ export function GoalPage() {
         )}
         {!isComposite && (
           <TabsPanel value="attempts" className="mt-5">
-            <AttemptsTab id={d.id} agentId={agentId} />
+            <AttemptsTab id={d.id} />
           </TabsPanel>
         )}
         <TabsPanel value="acceptance" className="mt-5">
@@ -195,7 +203,7 @@ export function GoalPage() {
         )}
         {isComposite && (
           <TabsPanel value="plan" className="mt-5">
-            <PlanTab d={d} acting={acting} act={act} />
+            <PlanTab d={d} agentId={agentId} acting={acting} act={act} />
           </TabsPanel>
         )}
       </Tabs>
@@ -207,22 +215,47 @@ export function GoalPage() {
 
 type ActRun = (fn: () => Promise<unknown>) => Promise<void>;
 
+type BlockActionKind =
+  | "budget"
+  | "environment"
+  | "contract"
+  | "dependency"
+  | "review"
+  | "plan"
+  | "other";
+
+function blockActionKind(d: ComponentsGoal): BlockActionKind {
+  if (d.blocked_by === "env_unavailable" || d.block_reason === "env_unavailable") {
+    return "environment";
+  }
+  if (d.blocked_by === "contract_conflict" || d.block_reason === "contract_conflict") {
+    return "contract";
+  }
+  if (d.block_reason === "budget_exhausted") return "budget";
+  if (d.block_reason === "dep") return "dependency";
+  if (d.block_reason === "needs_verdict") return "review";
+  if (d.block_reason === "needs_plan_approval") return "plan";
+  return "other";
+}
+
 function HeaderActions({
   d,
-  agentId,
   acting,
   act,
   path,
   onVerdict,
   onWaive,
+  onTimeline,
+  onContract,
 }: {
   d: ComponentsGoal;
-  agentId: string;
   acting: boolean;
   act: ActRun;
   path: { id: string };
   onVerdict: () => void;
   onWaive: () => void;
+  onTimeline: () => void;
+  onContract: () => void;
 }) {
   const { t } = useI18n();
   const archived = !!d.archived_at;
@@ -271,7 +304,7 @@ function HeaderActions({
         </Button>
       )}
 
-      {lc === "blocked" && reason === "budget_exhausted" && (
+      {lc === "blocked" && blockActionKind(d) === "budget" && (
         <>
           <Button
             size="sm"
@@ -279,6 +312,9 @@ function HeaderActions({
             onClick={() => act(() => reattemptGoal({ path, throwOnError: true }))}
           >
             {t("goals.reattempt")}
+          </Button>
+          <Button variant="outline" size="sm" onClick={onTimeline}>
+            {t("goals.timelineComment")}
           </Button>
           <Button
             variant="outline"
@@ -291,24 +327,25 @@ function HeaderActions({
         </>
       )}
 
-      {lc === "blocked" && reason === "dep" && (
-        <Button variant="outline" size="sm" onClick={onWaive}>
-          {t("goals.waive")}
+      {lc === "blocked" && blockActionKind(d) === "environment" && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.alert(t("goals.reportAdminHint"))}
+        >
+          {t("goals.reportAdmin")}
         </Button>
       )}
 
-      {d.session_id && (
-        <Button
-          render={
-            <Link
-              to="/agents/$agentId/sessions/$sessionId"
-              params={{ agentId: d.agent_id || agentId, sessionId: d.session_id }}
-            />
-          }
-          variant="outline"
-          size="sm"
-        >
-          {t("goals.openSession")}
+      {lc === "blocked" && blockActionKind(d) === "contract" && (
+        <Button variant="outline" size="sm" onClick={onContract}>
+          {t("goals.editContract")}
+        </Button>
+      )}
+
+      {lc === "blocked" && reason === "dep" && (
+        <Button variant="outline" size="sm" onClick={onWaive}>
+          {t("goals.waive")}
         </Button>
       )}
 
@@ -350,6 +387,8 @@ function OverviewTab({
   onVerdict,
   onWaive,
   onPlan,
+  onTimeline,
+  onContract,
 }: {
   d: ComponentsGoal;
   agentId: string;
@@ -358,6 +397,8 @@ function OverviewTab({
   onVerdict: () => void;
   onWaive: () => void;
   onPlan: () => void;
+  onTimeline: () => void;
+  onContract: () => void;
 }) {
   const { t } = useI18n();
   const { data: readiness } = useQuery(goalReadinessOptions(d.id));
@@ -384,7 +425,7 @@ function OverviewTab({
                 {t("goals.verdictSubmit")}
               </Button>
             )}
-            {d.block_reason === "budget_exhausted" && (
+            {blockActionKind(d) === "budget" && (
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button
                   size="sm"
@@ -394,6 +435,9 @@ function OverviewTab({
                   }
                 >
                   {t("goals.reattempt")}
+                </Button>
+                <Button variant="outline" size="sm" onClick={onTimeline}>
+                  {t("goals.timelineComment")}
                 </Button>
                 <Button
                   variant="outline"
@@ -406,6 +450,21 @@ function OverviewTab({
                   {t("goals.abandon")}
                 </Button>
               </div>
+            )}
+            {blockActionKind(d) === "environment" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => window.alert(t("goals.reportAdminHint"))}
+              >
+                {t("goals.reportAdmin")}
+              </Button>
+            )}
+            {blockActionKind(d) === "contract" && (
+              <Button variant="outline" size="sm" className="mt-3" onClick={onContract}>
+                {t("goals.editContract")}
+              </Button>
             )}
             {d.block_reason === "dep" && (
               <Button variant="outline" size="sm" className="mt-3" onClick={onWaive}>
@@ -610,7 +669,7 @@ const ATTEMPT_STATUS_KEY: Record<ComponentsAttempt["status"], MessageKey> = {
   cancelled: "goals.attemptCancelled",
 };
 
-function AttemptsTab({ id, agentId }: { id: string; agentId: string }) {
+function AttemptsTab({ id }: { id: string }) {
   const { t } = useI18n();
   const { data: attempts = [] } = useQuery(goalAttemptsOptions(id));
   if (attempts.length === 0) return <Empty text={t("goals.noAttempts")} />;
@@ -618,19 +677,19 @@ function AttemptsTab({ id, agentId }: { id: string; agentId: string }) {
   return (
     <ul className="space-y-2">
       {sorted.map((a) => (
-        <AttemptItem key={a.id} a={a} agentId={agentId} />
+        <AttemptItem key={a.id} a={a} />
       ))}
     </ul>
   );
 }
 
-function AttemptItem({ a, agentId }: { a: ComponentsAttempt; agentId: string }) {
+function AttemptItem({ a }: { a: ComponentsAttempt }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const output = a.output && typeof a.output === "object" ? a.output : null;
   const hasOutput = !!output && Object.keys(output).length > 0;
   const hasGaps = !!a.gaps && Object.keys(a.gaps).length > 0;
-  const canExpand = hasOutput || hasGaps || !!a.error || !!a.session_id;
+  const canExpand = hasOutput || hasGaps || !!a.error;
 
   return (
     <li className="rounded-xl border border-border bg-background">
@@ -665,20 +724,6 @@ function AttemptItem({ a, agentId }: { a: ComponentsAttempt; agentId: string }) 
       </button>
       {open && canExpand && (
         <div className="space-y-3 border-t border-border px-3.5 py-3">
-          {a.session_id && (
-            <Button
-              render={
-                <Link
-                  to="/agents/$agentId/sessions/$sessionId"
-                  params={{ agentId: a.agent_id || agentId, sessionId: a.session_id }}
-                />
-              }
-              variant="outline"
-              size="xs"
-            >
-              {t("goals.openSession")}
-            </Button>
-          )}
           {a.error && <p className="text-[12px] text-destructive">{a.error}</p>}
           {hasOutput && (
             <div>
@@ -983,7 +1028,17 @@ const EDGE_ON_FAILURE_KEY: Record<NonNullable<ComponentsProposedEdge["on_failure
   ignore: "goals.onFailureIgnore",
 };
 
-function PlanTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean; act: ActRun }) {
+function PlanTab({
+  d,
+  agentId,
+  acting,
+  act,
+}: {
+  d: ComponentsGoal;
+  agentId: string;
+  acting: boolean;
+  act: ActRun;
+}) {
   const { t } = useI18n();
   // The plan lives inline on the goal (DecompositionContent). It is empty for a
   // leaf or an unplanned composite, and holds the proposal while the composite
@@ -991,10 +1046,23 @@ function PlanTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean; act: 
   const plan = (d.plan ?? {}) as ComponentsDecompositionContent;
   const children = plan.children ?? [];
   const edges = plan.edges ?? [];
+  const { data: materializedChildren = [] } = useQuery(goalChildrenOptions(d.id));
+  const childIDs = useMemo(
+    () => new Set(materializedChildren.map((child) => child.id)),
+    [materializedChildren],
+  );
+  const edgeQueries = useQueries({
+    queries: materializedChildren.map((child) => goalEdgesOptions(child.id)),
+  });
+  const materializedEdges = edgeQueries
+    .flatMap((query) => query.data ?? [])
+    .filter((edge) => childIDs.has(edge.upstream_id));
   const needsApproval =
     d.lifecycle === "blocked" && d.block_reason === "needs_plan_approval" && !d.archived_at;
 
-  if (children.length === 0) return <Empty text={t("goals.noRevisions")} />;
+  if (children.length === 0 && materializedChildren.length === 0) {
+    return <Empty text={t("goals.noRevisions")} />;
+  }
 
   // Edges reference children by their stable `key`; show the human title instead
   // (falling back to the key if a child was dropped from the plan).
@@ -1011,11 +1079,21 @@ function PlanTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean; act: 
         </div>
       )}
 
-      <ul className="space-y-2">
-        {children.map((c) => (
-          <ProposedChildItem key={c.key} c={c} />
-        ))}
-      </ul>
+      {materializedChildren.length > 0 && (
+        <MaterializedPlanDag
+          children={materializedChildren}
+          edges={materializedEdges}
+          agentId={agentId}
+        />
+      )}
+
+      {children.length > 0 && (
+        <ul className="space-y-2">
+          {children.map((c) => (
+            <ProposedChildItem key={c.key} c={c} />
+          ))}
+        </ul>
+      )}
 
       {edges.length > 0 && (
         <div>
@@ -1044,6 +1122,82 @@ function PlanTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean; act: 
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+function MaterializedPlanDag({
+  children,
+  edges,
+  agentId,
+}: {
+  children: ComponentsGoal[];
+  edges: ComponentsEdge[];
+  agentId: string;
+}) {
+  const { t } = useI18n();
+  const incoming = new Map<string, ComponentsEdge[]>();
+  for (const edge of edges) {
+    const list = incoming.get(edge.goal_id) ?? [];
+    list.push(edge);
+    incoming.set(edge.goal_id, list);
+  }
+  const titleOf = (id: string) =>
+    children.find((child) => child.id === id)?.title ?? id.slice(0, 8);
+  const onFailureKey: Record<ComponentsEdge["on_failure"], MessageKey> = {
+    block: "goals.onFailureBlock",
+    fail: "goals.onFailureFail",
+    ignore: "goals.onFailureIgnore",
+  };
+
+  return (
+    <div>
+      <div className="mb-2 font-mono text-[10.5px] font-semibold text-muted-foreground">
+        {t("goals.planMaterializedDag")}
+      </div>
+      <ul className="space-y-2">
+        {children.map((child) => {
+          const deps = incoming.get(child.id) ?? [];
+          return (
+            <li key={child.id} className="rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusDot status={displayStatus(child)} />
+                <Link
+                  to="/agents/$agentId/goals/$goalId"
+                  params={{ agentId, goalId: child.id }}
+                  className="min-w-0 flex-1 truncate text-[13px] font-medium hover:underline"
+                >
+                  {child.title}
+                </Link>
+                <span className="font-mono text-[10.5px] text-muted-foreground">
+                  {statusLabel(t, displayStatus(child))}
+                </span>
+              </div>
+              {deps.length > 0 ? (
+                <ul className="mt-2 space-y-1 text-[11.5px] text-muted-foreground">
+                  {deps.map((edge) => (
+                    <li key={edge.upstream_id} className="flex flex-wrap items-center gap-1.5">
+                      <span>{titleOf(edge.upstream_id)}</span>
+                      <span>→</span>
+                      <span className="font-medium text-foreground">{child.title}</span>
+                      <span className="font-mono text-[10px]">
+                        {t(edge.edge_kind === "soft" ? "goals.planDepSoft" : "goals.planDepHard")}
+                      </span>
+                      <span className="font-mono text-[10px]">
+                        {t(onFailureKey[edge.on_failure] ?? "goals.onFailureBlock")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1.5 text-[11.5px] text-muted-foreground">
+                  {t("goals.planNoIncomingDeps")}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
