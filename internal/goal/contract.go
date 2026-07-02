@@ -15,6 +15,9 @@ const (
 	// goal blocked(needs_verdict) for a human. A rework that yields a new execution
 	// output starts a fresh episode with full budget (see CountRanReviewAttemptsForOutput).
 	defaultMaxReviewAttempts = 2
+	// defaultPlannerRepairMax bounds structural decomposition repair turns inside
+	// the same planning session before the composite blocks as planning_invalid.
+	defaultPlannerRepairMax = 2
 )
 
 // AcceptanceContract is the composite policy tree of deterministic + judgment
@@ -47,6 +50,9 @@ type ConvergencePolicy struct {
 	MaxAttempts int    `json:"max_attempts"`        // default 3; exhaustion → blocked(budget_exhausted)
 	Escalation  string `json:"escalation"`          // block (default) | abandon
 	MaxDepth    int    `json:"max_depth,omitempty"` // recursion ceiling; default 4
+	// PlannerRepairMax bounds structural decomposition repair turns inside one
+	// planning session; these do not consume MaxAttempts plan budget.
+	PlannerRepairMax int `json:"planner_repair_max,omitempty"`
 	// MaxConcurrent bounds breadth-of-fanout per root (§5, default 8). Read from
 	// the root's policy by the dispatcher; 0 ⇒ default.
 	MaxConcurrent int `json:"max_concurrent,omitempty"`
@@ -133,14 +139,15 @@ func (i AcceptanceItem) Valid() bool {
 // Valid reports whether the convergence policy is well-formed. A zero-value
 // policy is valid; Normalized fills the defaults.
 func (p ConvergencePolicy) Valid() bool {
-	if p.MaxAttempts < 0 || p.MaxDepth < 0 || p.MaxConcurrent < 0 {
+	if p.MaxAttempts < 0 || p.MaxDepth < 0 || p.PlannerRepairMax < 0 || p.MaxConcurrent < 0 {
 		return false
 	}
 	return p.Escalation == "" || ValidEscalation(p.Escalation)
 }
 
 // Normalized returns the policy with defaults applied (MaxAttempts 3,
-// Escalation block, MaxDepth 4, MaxConcurrent 8). It never mutates the receiver.
+// Escalation block, MaxDepth 4, PlannerRepairMax 2, MaxConcurrent 8). It never
+// mutates the receiver.
 func (p ConvergencePolicy) Normalized() ConvergencePolicy {
 	if p.MaxAttempts <= 0 {
 		p.MaxAttempts = defaultMaxAttempts
@@ -150,6 +157,9 @@ func (p ConvergencePolicy) Normalized() ConvergencePolicy {
 	}
 	if p.MaxDepth <= 0 {
 		p.MaxDepth = defaultMaxDepth
+	}
+	if p.PlannerRepairMax <= 0 {
+		p.PlannerRepairMax = defaultPlannerRepairMax
 	}
 	if p.MaxConcurrent <= 0 {
 		p.MaxConcurrent = defaultMaxConcurrent

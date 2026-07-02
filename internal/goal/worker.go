@@ -118,7 +118,7 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		hbWG.Wait()
 		if r := recover(); r != nil {
 			w.log.Error("worker executor panicked", "goal_id", goalID, "attempt_id", attemptID, "panic", r)
-			w.failAttempt(goalID, attemptID, fmt.Sprintf("executor panic: %v", r))
+			w.failAttempt(goalID, attemptID, fmt.Sprintf("executor panic: %v", r), FailureClassTransient)
 			err = fmt.Errorf("executor panic: %v", r)
 		}
 	}()
@@ -149,7 +149,7 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 		// and never runs deterministic checks, so it is handled wholly apart from
 		// the execution/review fold. Routed by purpose BEFORE the generic submit
 		// case so a decomposition never falls through to the leaf checks.
-		return w.applyDecompositionResult(ctx, goalID, att, res)
+		return w.applyDecompositionResult(ctx, goal, att, res)
 
 	case att.Purpose == PurposeReview:
 		// A reviewer attempt's outcome is verdicts, not an output, and runs no
@@ -167,7 +167,7 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 			// goal 'active' on a pending item with no future event source
 			// (issue #543); fail the attempt so convergence retries within budget
 			// and ultimately blocks for a human if it persists.
-			w.failAttempt(goalID, att.ID, "deterministic check could not be evaluated: "+cerr.Error())
+			w.failAttempt(goalID, att.ID, "deterministic check could not be evaluated: "+cerr.Error(), FailureClassTransient)
 			return nil //nolint:nilerr // failAttempt records the failure transition; applyResult succeeded
 		}
 		err := w.svc.Submit(ctx, att.ID, res.Evidence, res.Output)
@@ -176,7 +176,7 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 			// a goal failure: finalize this attempt as a retryable failure
 			// so convergence re-mints with the same budget.
 			reason := "submitted without a handoff summary"
-			w.failAttempt(goalID, att.ID, reason)
+			w.failAttempt(goalID, att.ID, reason, FailureClassSemantic)
 			return nil
 		}
 		return err
@@ -191,7 +191,7 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 		if reason == "" {
 			reason = "unspecified executor failure"
 		}
-		w.failAttempt(goalID, att.ID, reason)
+		w.failAttempt(goalID, att.ID, reason, failureClassForResult(res))
 		return nil
 
 	default:
@@ -199,32 +199,68 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 		// / silent exit). Treat as a failed attempt so the goal never
 		// strands with a live attempt that produced nothing.
 		w.log.Warn("worker: executor produced no action", "goal_id", goalID, "attempt_id", att.ID)
-		w.failAttempt(goalID, att.ID, "agent exited without submitting or failing")
+		w.failAttempt(goalID, att.ID, "agent exited without submitting or failing", FailureClassSemantic)
 		return nil
 	}
 }
 
 // applyDecompositionResult applies a planner attempt's outcome as the single
-// durable transition. A successful attempt carries the produced plan, which
-// SubmitDecomposition stores inline on the goal and (review_policy=none)
-// materializes + releases children in one tx, or (human) parks it
-// blocked(needs_plan_approval). Any non-submit terminal (fail / no decomposition /
-// protocol miss) is a failed plan attempt that convergence recovers within the
-// plan budget (recoverDecomposition). Errors are recorded as a failed attempt,
-// not returned, so applyResult itself always succeeds.
-func (w *Worker) applyDecompositionResult(ctx context.Context, goalID string, att sqlc.AgentGoalAttempt, res ExecutorResult) error {
-	if res.Submitted && res.Decomposition != nil {
-		if derr := w.svc.SubmitDecomposition(ctx, att.ID, res.Evidence, *res.Decomposition); derr != nil {
-			w.failAttempt(goalID, att.ID, "apply decomposition: "+derr.Error())
+// durable transition. Structural plan errors are fed back to the same planning
+// session for a bounded repair loop; semantic/transient failures keep the old
+// recoverDecomposition budget path.
+func (w *Worker) applyDecompositionResult(ctx context.Context, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, res ExecutorResult) error {
+	input := w.attemptInput(att)
+	repairMax := plannerRepairMax(goal)
+	for repairs := 0; ; {
+		if res.Submitted && res.Decomposition != nil {
+			if derr := w.svc.SubmitDecomposition(ctx, att.ID, res.Evidence, *res.Decomposition); derr != nil {
+				errs := decompositionSubmitErrors(goal, input.MaxDepth, *res.Decomposition, derr)
+				if len(errs) > 0 {
+					if repairs < repairMax {
+						repairs++
+						input.PriorErrors = errs
+						next, eerr := w.exec.Execute(ctx, ExecutorRequest{Goal: goal, Attempt: att, Input: input})
+						if eerr != nil {
+							w.log.Warn("worker: planner repair executor returned error", "goal_id", goal.ID, "attempt_id", att.ID, "err", eerr)
+							res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), Retryable: true}
+						} else {
+							res = next
+						}
+						continue
+					}
+					w.failAttempt(goal.ID, att.ID, "planning invalid:\n"+RenderErrorsText(errs), FailureClassStructural)
+					return nil
+				}
+				w.failAttempt(goal.ID, att.ID, "apply decomposition: "+derr.Error(), FailureClassTransient)
+			}
+			return nil
 		}
+		reason := res.FailReason
+		if reason == "" {
+			reason = "decomposition produced no plan"
+		}
+		w.failAttempt(goal.ID, att.ID, reason, failureClassForResult(res))
 		return nil
 	}
-	reason := res.FailReason
-	if reason == "" {
-		reason = "decomposition produced no plan"
+}
+
+func plannerRepairMax(goal sqlc.AgentGoal) int {
+	var pol ConvergencePolicy
+	_ = unmarshalJSON(goal.ConvergencePolicy, &pol)
+	return pol.Normalized().PlannerRepairMax
+}
+
+func decompositionSubmitErrors(goal sqlc.AgentGoal, maxDepth int, content DecompositionContent, err error) []ValidationError {
+	if len(structuralValidationErrors(err)) == 0 {
+		return nil
 	}
-	w.failAttempt(goalID, att.ID, reason)
-	return nil
+	if maxDepth <= 0 {
+		maxDepth = defaultMaxDepth
+	}
+	if errs := validateDecompositionDetailed(content, int(goal.Depth), maxDepth); len(errs) > 0 {
+		return errs
+	}
+	return structuralValidationErrors(err)
 }
 
 // applyReviewResult applies a reviewer attempt's outcome as the single durable
@@ -238,7 +274,7 @@ func (w *Worker) applyDecompositionResult(ctx context.Context, goalID string, at
 func (w *Worker) applyReviewResult(ctx context.Context, goalID string, att sqlc.AgentGoalAttempt, res ExecutorResult) error {
 	if res.Submitted && len(res.Verdicts) > 0 {
 		if rerr := w.svc.SubmitReview(ctx, att.ID, res.Evidence, res.Verdicts); rerr != nil {
-			w.failAttempt(goalID, att.ID, "apply review: "+rerr.Error())
+			w.failAttempt(goalID, att.ID, "apply review: "+rerr.Error(), FailureClassTransient)
 		}
 		return nil
 	}
@@ -246,7 +282,7 @@ func (w *Worker) applyReviewResult(ctx context.Context, goalID string, att sqlc.
 	if reason == "" {
 		reason = "review produced no verdict"
 	}
-	w.failAttempt(goalID, att.ID, reason)
+	w.failAttempt(goalID, att.ID, reason, failureClassForResult(res))
 	return nil
 }
 
@@ -376,11 +412,18 @@ func (w *Worker) attemptInput(att sqlc.AgentGoalAttempt) AttemptInput {
 // goal never strands 'active' with no live attempt (issue #543). Uses a
 // fresh context so a cancelled dispatch still records the outcome. ErrInvalidTransition
 // is benign — the attempt was already reaped/raced and the goal recovered.
-func (w *Worker) failAttempt(goalID, attemptID, reason string) {
+func (w *Worker) failAttempt(goalID, attemptID, reason, failureClass string) {
 	ctx := context.Background()
-	if err := w.svc.FailAttempt(ctx, attemptID, reason); err != nil && !errors.Is(err, ErrInvalidTransition) {
+	if err := w.svc.FailAttempt(ctx, attemptID, reason, failureClass); err != nil && !errors.Is(err, ErrInvalidTransition) {
 		w.log.Warn("worker: finalize failed attempt failed", "goal_id", goalID, "attempt_id", attemptID, "err", err)
 	}
+}
+
+func failureClassForResult(res ExecutorResult) string {
+	if res.Retryable {
+		return FailureClassTransient
+	}
+	return FailureClassSemantic
 }
 
 // truncStdout caps captured stdout before it touches event detail. Zero/absent

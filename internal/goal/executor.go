@@ -353,7 +353,25 @@ Goal:
 `)
 	}
 
+	if title := strings.TrimSpace(in.Title); title != "" {
+		b.WriteString("Title: " + title + "\n")
+	}
 	b.WriteString(strings.TrimSpace(in.Intent))
+
+	if len(in.Context) > 0 && string(in.Context) != "{}" {
+		b.WriteString("\n\nGoal context:\n")
+		b.WriteString(string(in.Context))
+		b.WriteString("\n")
+	}
+
+	if len(in.PriorErrors) > 0 {
+		b.WriteString("\nYour previous decomposition was structurally invalid. Fix these errors and call goal_control again.\n")
+		b.WriteString("prior_errors JSON:\n")
+		b.WriteString(RenderErrorsJSON(in.PriorErrors))
+		b.WriteString("\n\nprior_errors text:\n")
+		b.WriteString(RenderErrorsText(in.PriorErrors))
+		b.WriteString("\n")
+	}
 
 	if c := in.Contract; len(c.Items) > 0 {
 		b.WriteString("\n\nAcceptance criteria (your work is accepted only when these are met):\n")
@@ -446,7 +464,16 @@ Protocol:
 
 Goal:
 `)
+	if title := strings.TrimSpace(in.Title); title != "" {
+		b.WriteString("Title: " + title + "\n")
+	}
 	b.WriteString(strings.TrimSpace(in.Intent))
+
+	if len(in.Context) > 0 && string(in.Context) != "{}" {
+		b.WriteString("\n\nGoal context:\n")
+		b.WriteString(string(in.Context))
+		b.WriteString("\n")
+	}
 
 	if out := in.ReviewOutput; out != nil {
 		b.WriteString("\n\nOutput under review:\n")
@@ -765,10 +792,8 @@ func (t *recordingControlTool) executeDecompose(action string, args map[string]a
 		if maxDepth <= 0 { // unset on an attempt minted before MaxDepth was frozen
 			maxDepth = defaultMaxDepth
 		}
-		if err := ValidateDecomposition(content, t.parentDepth, maxDepth); err != nil {
-			return "", fmt.Errorf("goal_control: decomposition rejected: %w; fix the plan and call goal_control again "+
-				"(need >=1 child with required=true, every edge key must match a child key, no cycles, "+
-				"composites need depth headroom and no deterministic acceptance items)", err)
+		if errs := validateDecompositionDetailed(content, t.parentDepth, maxDepth); len(errs) > 0 {
+			return "", fmt.Errorf("goal_control: decomposition rejected:\n%s\nprior_errors JSON:\n%s", RenderErrorsText(errs), RenderErrorsJSON(errs))
 		}
 		ev := AttemptEvidence{Summary: stringArg(args, "summary")}
 		if err := t.rec.record(Result{Action: terminalDecompose, Evidence: ev, Decomposition: &content}); err != nil {

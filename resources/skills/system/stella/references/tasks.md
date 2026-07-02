@@ -37,7 +37,7 @@ draft ──activate──▶ ready ──claim──▶ active ──submit─�
 - `accepted` — terminal-good; the accepted output is frozen.
 - `rejected_final` — a verdict said no with no rework path left.
 - `abandoned` — convergence budget exhausted and the policy gave up.
-- `blocked` is **recoverable**, not terminal. Block reasons: `budget_exhausted` > `needs_verdict` > `dep`.
+- `blocked` is **recoverable**, not terminal. Block reasons: `budget_exhausted` > `needs_plan_approval` > `planning_invalid` > `needs_verdict` > `dep`.
 
 Acceptance is a separate projection from lifecycle: `pending | passed | failed`. A goal reaches `accepted` only when its contract's acceptance fold passes.
 
@@ -50,7 +50,7 @@ A composite holds child goals produced by a **decomposition** (the only way chil
 - a required child blocked → parent blocks
 - a blocked parent recovers when the blocking child clears
 
-Decomposition is automatic: `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become ready), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
+Decomposition is automatic: `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. Structural planning errors are repaired in the same planning session with `prior_errors`; if those repairs are exhausted, the goal parks at `blocked(planning_invalid)`. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become ready), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
 
 ## Worker: the `goal_control` contract
 
@@ -59,7 +59,7 @@ If you see a `goal_control` tool in your toolset, you are a worker. The goal's i
 - `submit` — provide `evidence` (summary + optional artifacts) and `output` when the work meets the acceptance criteria.
 - `block` — pause with `kind`/`question` when you need input or an external dependency.
 - `fail` — report `reason`/`retryable` when the work cannot be completed.
-- `decompose` — **when dispatched to plan a goal** — return a `decomposition` `{children, edges}`. Each child needs `key`, `title`, `intent`, `kind` (`leaf|composite`), `required`, and `acceptance_contract`; edges declare hard/soft deps by child key. If the goal cannot be decomposed, use `fail` instead.
+- `decompose` — **when dispatched to plan a goal** — return a `decomposition` `{children, edges}`. Each child needs `key`, `title`, `intent`, `kind` (`leaf|composite`), `required`, and `acceptance_contract`; edges declare hard/soft deps by child key. If the prompt includes `prior_errors`, fix those structural errors in the next `decompose` call. If the goal cannot be decomposed, use `fail` instead.
 
 Rules:
 

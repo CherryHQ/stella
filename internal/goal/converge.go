@@ -29,7 +29,9 @@ func buildInputContext(d sqlc.AgentGoal, upstream []AcceptedOutput, priorGaps *E
 	var c AcceptanceContract
 	_ = unmarshalJSON(d.AcceptanceContract, &c)
 	return AttemptInput{
+		Title:           d.Title,
 		Intent:          d.Intent,
+		Context:         d.Context,
 		UpstreamOutputs: upstream,
 		PriorGaps:       priorGaps,
 		Contract:        c,
@@ -260,7 +262,10 @@ func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEv
 // A 0-row FinalizeAttempt means the attempt is no longer queued/running (already
 // reaped/raced); the tx rolls back and the caller treats ErrInvalidTransition as a
 // no-op (the goal already recovered).
-func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason string) error {
+func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failureClass string) error {
+	if !ValidFailureClass(failureClass) || failureClass == "" {
+		return ErrInvalidTransition
+	}
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		att, err := q.GetAttempt(ctx, attemptID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -270,9 +275,10 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason string)
 			return err
 		}
 		rows, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-			ToStatus: AttemptFailed,
-			Error:    reason,
-			ID:       attemptID,
+			ToStatus:     AttemptFailed,
+			Error:        reason,
+			FailureClass: failureClass,
+			ID:           attemptID,
 		})
 		if err != nil {
 			return fmt.Errorf("finalize failed attempt: %w", err)
@@ -285,8 +291,14 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason string)
 			return err
 		}
 		if att.Purpose == PurposeDecomposition {
-			// A reported decomposition failure always ran the planner, so it charges
-			// one plan-budget unit.
+			// Structural planner failures are repaired inside the same planning session.
+			// If the repair loop gives up, park the composite on a distinct block reason
+			// without charging the semantic/transient plan budget.
+			if failureClass == FailureClassStructural {
+				return s.blockPlanningInvalid(ctx, q, d)
+			}
+			// A reported semantic/transient decomposition failure ran the planner, so it
+			// charges one plan-budget unit as before.
 			return s.recoverDecomposition(ctx, q, d, true)
 		}
 		if att.Purpose == PurposeReview {
@@ -913,6 +925,28 @@ func (s *GoalService) blockBudget(ctx context.Context, q *sqlc.Queries, d sqlc.A
 	})
 	if err != nil {
 		return fmt.Errorf("block budget: %w", err)
+	}
+	if rows == 0 {
+		return ErrInvalidTransition
+	}
+	return nil
+}
+
+// blockPlanningInvalid parks a composite whose planner exhausted structural
+// repairs. This is not convergence-budget exhaustion, so Reattempt does not use
+// the semantic/transient plan budget path.
+func (s *GoalService) blockPlanningInvalid(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
+	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
+		return fmt.Errorf("clear active attempt: %w", err)
+	}
+	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+		ToLifecycle:   LifecycleBlocked,
+		BlockReason:   BlockPlanningInvalid,
+		ID:            d.ID,
+		FromLifecycle: LifecycleActive,
+	})
+	if err != nil {
+		return fmt.Errorf("block planning invalid: %w", err)
 	}
 	if rows == 0 {
 		return ErrInvalidTransition

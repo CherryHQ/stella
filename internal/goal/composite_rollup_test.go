@@ -554,7 +554,7 @@ func TestCompositeRollup_ReattemptComposite(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BeginDecomposition #%d: %v", i+1, err)
 		}
-		if err := h.svc.FailAttempt(ctx, att.ID, "planner boom"); err != nil {
+		if err := h.svc.FailAttempt(ctx, att.ID, "planner boom", FailureClassSemantic); err != nil {
 			t.Fatalf("FailAttempt #%d: %v", i+1, err)
 		}
 	}
@@ -621,8 +621,10 @@ func TestCompositeRollup_RedecomposeAfterInterrupt(t *testing.T) {
 	// Simulate an interrupted decomposition (worker crash / restart): finalize the
 	// attempt out of queued/running and reset the goal active->draft for a re-plan.
 	if _, err := h.q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-		ToStatus: AttemptInterrupted,
-		ID:       att1.ID,
+		ToStatus:     AttemptInterrupted,
+		Error:        "interrupted in test",
+		FailureClass: FailureClassTransient,
+		ID:           att1.ID,
 	}); err != nil {
 		t.Fatalf("FinalizeAttempt: %v", err)
 	}

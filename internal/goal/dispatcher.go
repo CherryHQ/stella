@@ -529,9 +529,10 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		// longer queued/running (already finalized/raced) — idempotent no-op the
 		// dispatcher ignores as ErrInvalidTransition.
 		rows, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-			ToStatus: AttemptInterrupted,
-			Error:    "lease expired; reaped by dispatcher",
-			ID:       attemptID,
+			ToStatus:     AttemptInterrupted,
+			Error:        "lease expired; reaped by dispatcher",
+			FailureClass: FailureClassTransient,
+			ID:           attemptID,
 		})
 		if err != nil {
 			return fmt.Errorf("finalize stale attempt: %w", err)

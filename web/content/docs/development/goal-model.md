@@ -153,8 +153,10 @@ produced X, acceptance rejected with gaps Y, attempt 2 produced Z, accepted.
 A composite goal produces a **decomposition** as the output of an attempt, stored inline on
 `goal.plan`, gated by a review policy (`none` materializes immediately; `human` parks the
 composite at `blocked(needs_plan_approval)` until a human approves — the plan-review gate).
-Once materialized, child goals and their edges exist and each child runs its own convergence
-loop.
+Structural decomposition errors are repaired inside the same planning session with
+`prior_errors`; exhausting `planner_repair_max` parks the composite at
+`blocked(planning_invalid)` without spending the semantic/transient plan budget. Once
+materialized, child goals and their edges exist and each child runs its own convergence loop.
 
 When all required children are accepted, the parent runs **its own** acceptance evaluation.
 That step _is_ the root-level final acceptance / synthesizer — not a special, separate
