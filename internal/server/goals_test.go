@@ -30,6 +30,11 @@ func (noopExecutor) Execute(context.Context, goal.ExecutorRequest) (goal.Executo
 // package's own harness — and a no-op executor.
 func setupGoalEnv(t *testing.T) *testEnv {
 	t.Helper()
+	return setupGoalEnvWithOptions(t)
+}
+
+func setupGoalEnvWithOptions(t *testing.T, opts ...goal.Option) *testEnv {
+	t.Helper()
 	env := setupAdmin(t)
 
 	mint := func(ctx context.Context, userID, agentID, projectID string) (string, error) {
@@ -45,11 +50,13 @@ func setupGoalEnv(t *testing.T) *testEnv {
 	}
 
 	q := sqlc.New(env.db)
-	svc := goal.New(env.db, q,
+	baseOpts := []goal.Option{
 		goal.WithSessionMinter(mint),
 		goal.WithPlanningSessionMinter(mint),
 		goal.WithExecutor(noopExecutor{}),
-	)
+	}
+	baseOpts = append(baseOpts, opts...)
+	svc := goal.New(env.db, q, baseOpts...)
 	bundle := &goal.Service{Queries: q, Goal: svc}
 	env.srv.SetGoalService(bundle)
 	return env
@@ -74,6 +81,41 @@ func createGoal(t *testing.T, env *testEnv, token, agentID, title string) string
 		t.Fatalf("create goal %q: empty id (body: %s)", title, rr.Body.String())
 	}
 	return d.Id
+}
+
+func TestGoals_CreateDeterministicWithoutSandboxReturnsStructuredError(t *testing.T) {
+	env := setupGoalEnvWithOptions(t, goal.WithCapabilityProbe(goal.CapabilityProbeFunc(func() bool { return false })))
+	agentID := findStellaID(t, env)
+	required := true
+	command := "true"
+	rr := doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/goals", apitypes.CreateGoalRequest{
+		AgentId: agentID,
+		Title:   "deterministic",
+		AcceptanceContract: &apitypes.AcceptanceContract{Items: &[]apitypes.AcceptanceItem{{
+			Id:       "cmd",
+			Kind:     apitypes.AcceptanceItemKindDeterministic,
+			Required: &required,
+			Command:  &command,
+		}}},
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d want %d body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Message string         `json:"message"`
+			Details map[string]any `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if body.Error.Details["code"] != "deterministic_checks_unsupported" {
+		t.Fatalf("details=%v want code deterministic_checks_unsupported", body.Error.Details)
+	}
+	if body.Error.Message == "" || body.Error.Details["fix"] == "" {
+		t.Fatalf("error is not actionable: %+v", body.Error)
+	}
 }
 
 // TestGoals_AddEdge_CrossTenant_404 is the IDOR regression: the AddEdge

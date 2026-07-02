@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -59,5 +60,22 @@ func TestCloseSessionWithSandboxInvokesCallbackBeforeClose(t *testing.T) {
 	}
 	if !r.closed || r.sess.Alive() {
 		t.Fatalf("runner/sandbox not closed after callback")
+	}
+}
+
+func TestCloseSessionWithSandboxClosesAfterCallbackError(t *testing.T) {
+	want := errors.New("check failed")
+	r := &sandboxRunner{sess: sandbox.NopSession()}
+	cache := newRunnerCache(func(context.Context, RunnerParams) (Runner, error) { return r, nil }, fakeMemory{}, 10*time.Minute, slog.Default())
+	info := session.NewInfo("s1", "agent1", "u1", "web", session.KindTask, "", time.Now().UTC())
+	if _, _, err := cache.getOrCreate(context.Background(), info, "", ""); err != nil {
+		t.Fatalf("getOrCreate: %v", err)
+	}
+	err := cache.closeWithSandbox("s1", func(sandbox.Session) error { return want })
+	if !errors.Is(err, want) {
+		t.Fatalf("closeWithSandbox err=%v want callback error", err)
+	}
+	if !r.closed || r.sess.Alive() {
+		t.Fatalf("runner/sandbox not closed after callback error")
 	}
 }

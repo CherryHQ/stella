@@ -92,6 +92,49 @@ func TestExecutorWaitsForOneShotSessionClose(t *testing.T) {
 	}
 }
 
+func TestExecutorRunsSandboxCallbackOnlyForTerminalSubmitTurn(t *testing.T) {
+	turns := 0
+	chat := func(_ context.Context, p TaskChatParams) <-chan agent.Event {
+		turns++
+		ch := make(chan agent.Event, 1)
+		if turns == 1 {
+			ch <- agent.Event{Text: "I did work but forgot the tool"}
+		} else {
+			if _, err := p.ExtraTools[0].Execute(context.Background(), map[string]any{"action": "submit", "summary": "done"}); err != nil {
+				ch <- agent.Event{Err: err}
+			}
+		}
+		if p.OnSandboxSession != nil {
+			if err := p.OnSandboxSession(sandbox.NopSession()); err != nil {
+				ch <- agent.Event{Err: err}
+			}
+		}
+		close(ch)
+		return ch
+	}
+
+	callbacks := 0
+	ex := newWorkerExecutor(chat, nil)
+	if _, err := ex.Execute(context.Background(), ExecutorRequest{
+		Attempt: sqlc.AgentGoalAttempt{
+			Purpose:         PurposeExecution,
+			UserID:          "u",
+			SessionID:       "s",
+			ExecutorAgentID: pgtype.Text{String: "a", Valid: true},
+		},
+		Input: AttemptInput{Intent: "do the thing"},
+		OnSandboxSession: func(sandbox.Session) error {
+			callbacks++
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if turns != 2 || callbacks != 1 {
+		t.Fatalf("turns=%d callbacks=%d, want two turns and callback only on terminal submit", turns, callbacks)
+	}
+}
+
 // TestExecutorRoutesDecomposeFlag pins the executor->chat contract the
 // session-kind routing depends on: a purpose=decomposition attempt MUST set
 // TaskChatParams.Decompose so stellad runs the turn on the KindDelegate planning

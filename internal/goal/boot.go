@@ -137,9 +137,10 @@ type TaskChatFunc func(ctx context.Context, p TaskChatParams) <-chan agent.Event
 // tasks.BootConfig: a DB handle, the agent ServiceManager for session minting,
 // the Chat callback for worker turns, and the dispatcher tunables.
 type BootConfig struct {
-	DB       *pgxpool.Pool
-	Services agent.ServiceManager // registry-backed session minting
-	Chat     TaskChatFunc         // runs persisted worker turns; nil => noop executor
+	DB           *pgxpool.Pool
+	Services     agent.ServiceManager // registry-backed session minting
+	Chat         TaskChatFunc         // runs persisted worker turns; nil => noop executor
+	Capabilities CapabilityProbe      // nil => deterministic checks are allowed
 	// MaxWorkers caps concurrent attempt executions per node on the goal River
 	// queue (0 => defaultGoalMaxWorkers). TickEvery/LeaseTTL override the
 	// dispatcher/service defaults; zero values use them.
@@ -170,6 +171,8 @@ func Boot(cfg BootConfig) (*Service, error) {
 
 	svc := New(cfg.DB, q,
 		WithExecutor(bootExecutor(cfg.Chat, logger)),
+		WithCheckRunner(NewCheckRunner(q, 0)),
+		WithCapabilityProbe(cfg.Capabilities),
 		WithSessionMinter(RegistrySessionMinter(cfg.Services)),
 		WithPlanningSessionMinter(RegistryPlanningSessionMinter(cfg.Services)),
 		WithSessionDisposer(RegistrySessionDisposer(cfg.Services)),

@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -24,7 +25,19 @@ type scriptedExecutor struct {
 
 func (e *scriptedExecutor) Execute(_ context.Context, req ExecutorRequest) (ExecutorResult, error) {
 	if e.fn != nil {
-		return e.fn(req)
+		res, err := e.fn(req)
+		if err != nil || !res.Submitted || req.OnSandboxSession == nil {
+			return res, err
+		}
+		if err := req.OnSandboxSession(sandbox.NopSession()); err != nil {
+			return ExecutorResult{}, err
+		}
+		return res, nil
+	}
+	if req.OnSandboxSession != nil {
+		if err := req.OnSandboxSession(sandbox.NopSession()); err != nil {
+			return ExecutorResult{}, err
+		}
 	}
 	return ExecutorResult{
 		Submitted: true,

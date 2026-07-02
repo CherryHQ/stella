@@ -11,6 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -117,6 +118,19 @@ func (r *terminalRecorder) snapshot() (Result, bool) {
 	return r.result, r.done
 }
 
+func terminalSubmitSandboxCallback(rec *terminalRecorder, cb func(sandbox.Session) error) func(sandbox.Session) error {
+	if cb == nil {
+		return nil
+	}
+	return func(sess sandbox.Session) error {
+		res, ok := rec.snapshot()
+		if !ok || res.Action != terminalSubmit {
+			return nil
+		}
+		return cb(sess)
+	}
+}
+
 // workerExecutor is the agent-backed Executor for execution and decomposition
 // attempts. It wires a recording goal_control tool, runs each turn
 // through ChatFunc (which persists the transcript to the goal session),
@@ -185,7 +199,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 				Prompt:           prompt,
 				Decompose:        decompose,
 				ExtraTools:       []tools.Tool{ctTool},
-				OnSandboxSession: req.OnSandboxSession,
+				OnSandboxSession: terminalSubmitSandboxCallback(rec, req.OnSandboxSession),
 			}),
 			cancel: cancel,
 		}

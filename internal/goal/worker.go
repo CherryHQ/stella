@@ -12,6 +12,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // heartbeatInterval is how often the worker extends lease_expires_at on the
@@ -74,9 +75,9 @@ func (w *Worker) SetLease(d time.Duration) { w.lease = d }
 //     out from under us — abort with ErrInvalidTransition so a superseded
 //     attempt never executes or applies a transition);
 //   - keep lease_expires_at fresh while the executor runs (heartbeat);
-//   - run the executor, then for a submitted attempt run the deterministic
-//     CheckRunner, append the results as acceptance_events via the service, and
-//     apply the single submit transition (service.Submit → applyAcceptance);
+//   - run the executor and, for a submitted attempt, run the deterministic
+//     CheckRunner from the terminal turn's live sandbox close callback, append
+//     acceptance_events, and apply Submit → applyAcceptance;
 //   - for a failed (or no-action) attempt apply the single finalize-failed
 //     transition so convergence can mint the next attempt or block;
 //   - turn an executor panic into a non-retryable failure.
@@ -123,10 +124,17 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		}
 	}()
 
+	var checkErr error
+	checksRan := false
 	res, eerr := w.exec.Execute(ctx, ExecutorRequest{
 		Goal:    goal,
 		Attempt: att,
 		Input:   w.attemptInput(att),
+		OnSandboxSession: func(sess sandbox.Session) error {
+			checksRan = true
+			checkErr = w.runChecks(ctx, goal, att, sess)
+			return nil
+		},
 	})
 	if eerr != nil {
 		if errors.Is(eerr, context.Canceled) || errors.Is(eerr, context.DeadlineExceeded) {
@@ -137,13 +145,13 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		w.log.Warn("worker: executor returned error", "goal_id", goalID, "attempt_id", attemptID, "err", eerr)
 		res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), Retryable: true}
 	}
-	return w.applyResult(goalID, goal, att, actor, res)
+	return w.applyResult(goalID, goal, att, actor, res, checksRan, checkErr)
 }
 
 // applyResult maps the executor's Result to the SINGLE durable transition. A
 // fresh context is used so the outcome is recorded even if the dispatch context
 // was cancelled (e.g. on shutdown).
-func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, actor Actor, res ExecutorResult) error {
+func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, actor Actor, res ExecutorResult, checksRan bool, checkErr error) error {
 	ctx := context.Background()
 
 	switch {
@@ -161,10 +169,13 @@ func (w *Worker) applyResult(goalID string, goal sqlc.AgentGoal, att sqlc.AgentG
 		return w.applyReviewResult(ctx, goalID, att, res)
 
 	case res.Submitted:
-		// Run deterministic checks (sandbox IO, no DB tx held), append
-		// each as an acceptance_event, then apply the one submit transition.
-		// Submit folds the now-complete ledger via applyAcceptance.
-		if cerr := w.runChecks(ctx, goal, att, res.Output); cerr != nil {
+		// Deterministic checks ran in the terminal turn's pre-close sandbox callback
+		// so they used the exact live sandbox the agent just modified. Submit folds
+		// the now-complete ledger via applyAcceptance.
+		if w.hasRequiredDeterministic(goal) && !checksRan {
+			checkErr = ErrNoSandbox
+		}
+		if cerr := checkErr; cerr != nil {
 			// A required deterministic gate could not be evaluated (no runner, a
 			// sandbox error, or a failed append). Submitting now would strand the
 			// goal 'active' on a pending item with no future event source
@@ -263,6 +274,9 @@ func decompositionSubmitErrors(goal sqlc.AgentGoal, maxDepth int, content Decomp
 	if errs := validateDecompositionDetailed(content, int(goal.Depth), maxDepth); len(errs) > 0 {
 		return errs
 	}
+	if errors.Is(err, ErrDeterministicChecksUnsupported) {
+		return deterministicCapabilityErrors(content)
+	}
 	return structuralValidationErrors(err)
 }
 
@@ -302,7 +316,7 @@ func (w *Worker) applyReviewResult(ctx context.Context, goalID string, att sqlc.
 // retries within budget and ultimately blocks for a human. A legitimate check
 // FAIL is a recorded event, not an error. A contract with no required
 // deterministic item is a no-op (judgment items are routed by the fold).
-func (w *Worker) runChecks(ctx context.Context, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, out AttemptOutput) error {
+func (w *Worker) runChecks(ctx context.Context, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, sess sandbox.Session) error {
 	var contract AcceptanceContract
 	if err := unmarshalJSON(goal.AcceptanceContract, &contract); err != nil {
 		// An unparseable contract has no runnable checks; the fold treats it as
@@ -310,12 +324,7 @@ func (w *Worker) runChecks(ctx context.Context, goal sqlc.AgentGoal, att sqlc.Ag
 		w.log.Warn("worker: unmarshal contract for checks failed", "goal_id", goal.ID, "err", err)
 		return nil
 	}
-	var required []AcceptanceItem
-	for _, item := range contract.Items {
-		if item.Kind == ItemDeterministic && item.Required {
-			required = append(required, item)
-		}
-	}
+	required := requiredDeterministicItems(contract)
 	if len(required) == 0 {
 		return nil
 	}
@@ -324,7 +333,7 @@ func (w *Worker) runChecks(ctx context.Context, goal sqlc.AgentGoal, att sqlc.Ag
 	}
 	env := w.checkEnv(ctx, goal)
 	for _, item := range required {
-		cr, err := w.checks.Run(ctx, item, env)
+		cr, err := w.checks.Run(ctx, item, env, sess)
 		if err != nil {
 			return fmt.Errorf("run deterministic check %q: %w", item.ID, err)
 		}
@@ -333,6 +342,24 @@ func (w *Worker) runChecks(ctx context.Context, goal sqlc.AgentGoal, att sqlc.Ag
 		}
 	}
 	return nil
+}
+
+func (w *Worker) hasRequiredDeterministic(goal sqlc.AgentGoal) bool {
+	var contract AcceptanceContract
+	if err := unmarshalJSON(goal.AcceptanceContract, &contract); err != nil {
+		return false
+	}
+	return len(requiredDeterministicItems(contract)) > 0
+}
+
+func requiredDeterministicItems(contract AcceptanceContract) []AcceptanceItem {
+	var required []AcceptanceItem
+	for _, item := range contract.Items {
+		if item.Kind == ItemDeterministic && item.Required {
+			required = append(required, item)
+		}
+	}
+	return required
 }
 
 // appendCheckEvent writes one deterministic acceptance_event in a single

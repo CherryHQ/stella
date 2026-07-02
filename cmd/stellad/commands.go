@@ -210,6 +210,13 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:       db,
 		Services: &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
+		Capabilities: goal.CapabilityProbeFunc(func() bool {
+			plugins, err := store.ListPlugins(context.Background())
+			if err != nil {
+				return false
+			}
+			return config.ActiveSandboxBackend(plugins) != config.SandboxBackendNone
+		}),
 		Chat: func(ctx context.Context, p goal.TaskChatParams) <-chan agent.Event {
 			var svc *agent.Service
 			if poolMgr != nil {

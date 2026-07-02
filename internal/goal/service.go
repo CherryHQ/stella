@@ -71,6 +71,16 @@ type ExecutorResult struct {
 	Retryable     bool
 }
 
+// CapabilityProbe reports deployment capabilities that affect contract
+// evaluability at write boundaries.
+type CapabilityProbe interface {
+	CanRunDeterministic() bool
+}
+
+type CapabilityProbeFunc func() bool
+
+func (f CapabilityProbeFunc) CanRunDeterministic() bool { return f() }
+
 // ReviewVerdict is one agent reviewer decision for a required authority=agent
 // judgment item (contract §10.13). The worker folds each into an
 // authority=agent acceptance_event via SubmitReview; the agent never writes
@@ -88,7 +98,7 @@ type ReviewVerdict struct {
 // exec must never run inside a DB tx, which would pin a pooled connection). The implementation lands in the
 // integration phase (runner.go).
 type CheckRunner interface {
-	Run(ctx context.Context, item AcceptanceItem, env CheckEnv) (CheckResult, error)
+	Run(ctx context.Context, item AcceptanceItem, env CheckEnv, sess sandbox.Session) (CheckResult, error)
 }
 
 // Config carries the service's tunables. Zero values fall back to package
@@ -120,6 +130,7 @@ type GoalService struct {
 	disposeSession     SessionDisposer // archives a session orphaned by a rolled-back mint
 	checks             CheckRunner
 	exec               Executor
+	capabilities       CapabilityProbe
 	clock              func() time.Time
 	cfg                Config
 }
@@ -204,6 +215,11 @@ func WithCheckRunner(r CheckRunner) Option { return func(s *GoalService) { s.che
 // WithExecutor sets the attempt executor.
 func WithExecutor(e Executor) Option { return func(s *GoalService) { s.exec = e } }
 
+// WithCapabilityProbe sets the deployment capability probe.
+func WithCapabilityProbe(p CapabilityProbe) Option {
+	return func(s *GoalService) { s.capabilities = p }
+}
+
 // WithConfig overrides the service config (defaults filled for zero fields).
 func WithConfig(c Config) Option {
 	return func(s *GoalService) {
@@ -229,6 +245,10 @@ func (s *GoalService) now() string {
 // nowTime returns the current UTC instant for TIMESTAMPTZ params, anchored to
 // the service clock so tests can drive it.
 func (s *GoalService) nowTime() time.Time { return s.clock().UTC() }
+
+func (s *GoalService) canRunDeterministic() bool {
+	return s.capabilities == nil || s.capabilities.CanRunDeterministic()
+}
 
 // nullTime wraps a time as a non-NULL pgtype.Timestamptz for nullable TIMESTAMPTZ params.
 func nullTime(t time.Time) pgtype.Timestamptz {
@@ -387,6 +407,9 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 	if kind == "" {
 		kind = KindLeaf
 	}
+	if in.Contract.HasRequiredDeterministicItem() && !s.canRunDeterministic() {
+		return sqlc.AgentGoal{}, ErrDeterministicChecksUnsupported
+	}
 	// A composite produces no executed output, so a deterministic acceptance item
 	// would never get a check event and the fold would stall pending forever.
 	// Reject it at the write boundary (issue #579 CR-001).
@@ -498,6 +521,9 @@ func (s *GoalService) UpdateMetadata(ctx context.Context, id string, in UpdateIn
 	}
 	if in.Contract != nil && !in.Contract.Valid() {
 		return sqlc.AgentGoal{}, ErrInvalidContract
+	}
+	if in.Contract != nil && in.Contract.HasRequiredDeterministicItem() && !s.canRunDeterministic() {
+		return sqlc.AgentGoal{}, ErrDeterministicChecksUnsupported
 	}
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {

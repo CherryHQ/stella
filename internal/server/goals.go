@@ -45,6 +45,11 @@ func goalError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, goal.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
+	case errors.Is(err, goal.ErrDeterministicChecksUnsupported):
+		writeErrorDetails(w, http.StatusBadRequest, "required deterministic acceptance checks need a sandbox-capable backend; enable a sandbox backend or change those checks to judgment items", map[string]any{
+			"code": "deterministic_checks_unsupported",
+			"fix":  "enable a sandbox backend or remove required deterministic acceptance items",
+		})
 	case errors.Is(err, goal.ErrInvalidContract),
 		errors.Is(err, goal.ErrCompositeDeterministicContract),
 		errors.Is(err, goal.ErrInvalidDecomposition),

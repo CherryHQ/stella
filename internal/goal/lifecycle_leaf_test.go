@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // lifecycle_leaf_test.go exercises the leaf goal lifecycle through the
@@ -53,7 +54,7 @@ func lcl_fail(reason string) func(ExecutorRequest) (ExecutorResult, error) {
 // the scripted executor's fn.
 type lcl_checkRunner struct{ pass bool }
 
-func (r *lcl_checkRunner) Run(_ context.Context, item AcceptanceItem, _ CheckEnv) (CheckResult, error) {
+func (r *lcl_checkRunner) Run(_ context.Context, item AcceptanceItem, _ CheckEnv, _ sandbox.Session) (CheckResult, error) {
 	return CheckResult{ItemID: item.ID, Pass: r.pass}, nil
 }
 

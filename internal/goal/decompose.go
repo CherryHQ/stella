@@ -294,7 +294,21 @@ func (s *GoalService) BeginAutoDecomposition(ctx context.Context, id string, enq
 // SubmitDecomposition and ApprovePlan so a malformed plan is rejected at the
 // write boundary, not at materialize.
 func (s *GoalService) validateContent(ctx context.Context, d sqlc.AgentGoal, content DecompositionContent) error {
-	return ValidateDecomposition(content, int(d.Depth), rootMaxDepth(ctx, s.q, d.RootID))
+	if err := ValidateDecomposition(content, int(d.Depth), rootMaxDepth(ctx, s.q, d.RootID)); err != nil {
+		return err
+	}
+	if !s.canRunDeterministic() {
+		for _, ch := range content.Children {
+			kind := ch.Kind
+			if kind == "" {
+				kind = KindLeaf
+			}
+			if kind == KindLeaf && ch.AcceptanceContract.HasRequiredDeterministicItem() {
+				return ErrDeterministicChecksUnsupported
+			}
+		}
+	}
+	return nil
 }
 
 // rootMaxDepth resolves the recursion ceiling from the root's convergence

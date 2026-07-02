@@ -296,6 +296,10 @@ var (
 	// forever. Put deterministic checks on a leaf child, or use judgment items.
 	ErrCompositeDeterministicContract = errors.New("goal: composite contract cannot contain deterministic items")
 
+	// ErrDeterministicChecksUnsupported is returned when the current deployment
+	// cannot execute required deterministic acceptance checks.
+	ErrDeterministicChecksUnsupported = errors.New("goal: deterministic acceptance checks require a sandbox-capable backend")
+
 	// ErrInvalidDecomposition is returned when a composite's DecompositionContent
 	// fails validation (no required child, dangling edge key, etc.).
 	ErrInvalidDecomposition = errors.New("goal: invalid decomposition")
