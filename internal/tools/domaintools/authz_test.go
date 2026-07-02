@@ -227,6 +227,47 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	if _, err := shareTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("share unauthenticated err=%v, want no user identity", err)
 	}
+
+	recallySvc := recally.NewService(recally.NewStore(db), recally.NewFileManager(home), home)
+	recallyTool := NewRecallyTool(recallySvc)
+	ownerRecallyCtx := memory.WithAgentID(memory.WithUserID(ctx, ownerUser), agentID)
+	out, err = recallyTool.Execute(ownerRecallyCtx, map[string]any{"action": "save", "articles": []any{
+		map[string]any{"url": "https://example.com/one", "title": "One", "content": "one body"},
+		map[string]any{"url": "https://example.com/missing", "title": "Missing"},
+		map[string]any{"url": "https://example.com/one?utm_source=x", "canonical_url": "https://example.com/one", "title": "One updated", "content": "updated body"},
+	}})
+	if err != nil {
+		t.Fatalf("recally save err=%v", err)
+	}
+	if !strings.Contains(out, "created") || !strings.Contains(out, "updated") || !strings.Contains(out, "error") {
+		t.Fatalf("recally save did not report partial results: %s", out)
+	}
+	if articles, err := recallySvc.ListArticlesOwned(ctx, ownerIdentity(ownerUser, agentID), recally.ArticleFilter{Limit: 10}); err != nil || len(articles) != 1 {
+		t.Fatalf("recally dedup articles=%d err=%v, want one", len(articles), err)
+	}
+	ownerFeed, err := recallySvc.CreateFeedOwned(ctx, ownerIdentity(ownerUser, agentID), "https://x.com/cherry", recally.FeedKindTwitter, "Cherry", nil)
+	if err != nil {
+		t.Fatalf("CreateFeedOwned: %v", err)
+	}
+	if out, err := recallyTool.Execute(foreignCtx, map[string]any{"action": "list_articles"}); err != nil {
+		t.Fatalf("recally foreign list_articles err=%v", err)
+	} else if strings.Contains(out, "https://example.com/one") {
+		t.Fatalf("recally list_articles leaked owner article: %s", out)
+	}
+	if out, err := recallyTool.Execute(foreignCtx, map[string]any{"action": "get_article", "id": ownerFeed.ID}); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
+		t.Fatalf("recally foreign get_article out=%q err=%v, want not found", out, err)
+	}
+	if out, err := recallyTool.Execute(foreignCtx, map[string]any{"action": "feed_list"}); err != nil {
+		t.Fatalf("recally foreign feed_list err=%v", err)
+	} else if strings.Contains(out, ownerFeed.ID) {
+		t.Fatalf("recally feed_list leaked owner feed: %s", out)
+	}
+	if out, err := recallyTool.Execute(foreignCtx, map[string]any{"action": "feed_remove", "id": ownerFeed.ID}); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
+		t.Fatalf("recally foreign feed_remove out=%q err=%v, want not found", out, err)
+	}
+	if _, err := recallyTool.Execute(context.Background(), map[string]any{"action": "list_articles"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
+		t.Fatalf("recally unauthenticated err=%v, want no user identity", err)
+	}
 }
 
 func ownerIdentity(userID, agentID string) toolctx.Identity {

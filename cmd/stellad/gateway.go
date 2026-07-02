@@ -162,6 +162,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if s.shareSvc != nil {
 		adminSrv.SetShareService(s.shareSvc)
 	}
+	if s.recallySvc != nil {
+		adminSrv.SetRecallyService(s.recallySvc)
+	}
 	adminSrv.SetBaseURL(resolveBaseURL(adminHost, adminPort))
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)

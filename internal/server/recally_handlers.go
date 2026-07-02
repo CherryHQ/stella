@@ -17,6 +17,7 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/recally"
+	"github.com/CherryHQ/stella/internal/toolctx"
 )
 
 // recallyHandlers implements the recally portion of apiserver.ServerInterface and is the
@@ -26,12 +27,13 @@ import (
 type recallyHandlers struct {
 	store *recally.Store
 	files *recally.FileManager
+	svc   *recally.Service
 	feeds *gofeed.Parser
 	log   *slog.Logger
 }
 
-func newRecallyHandlers(store *recally.Store, files *recally.FileManager, log *slog.Logger) *recallyHandlers {
-	return &recallyHandlers{store: store, files: files, feeds: gofeed.NewParser(), log: log.With("component", "recally-api")}
+func newRecallyHandlersWithService(store *recally.Store, files *recally.FileManager, svc *recally.Service, log *slog.Logger) *recallyHandlers {
+	return &recallyHandlers{store: store, files: files, svc: svc, feeds: gofeed.NewParser(), log: log.With("component", "recally-api")}
 }
 
 func (h *recallyHandlers) writeInternalError(w http.ResponseWriter, err error) {
@@ -166,15 +168,6 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 		canonical = recally.NormalizeURL(body.Url)
 	}
 
-	// Look up existing first so we can decide between create and metadata-only update,
-	// and resolve content from the existing file when none was sent.
-	existing, lookupErr := h.store.GetArticleByCanonicalURL(r.Context(), userID, canonical)
-	content := strDeref(body.Content)
-	if content == "" && lookupErr != nil {
-		writeError(w, http.StatusBadRequest, "content is required for new articles")
-		return
-	}
-
 	sourceType := recally.SourceType("web")
 	if body.SourceType != nil {
 		sourceType = recally.SourceType(*body.SourceType)
@@ -187,51 +180,22 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 		Author:       strDeref(body.Author),
 		Summary:      strDeref(body.Summary),
 		Tags:         strSliceDeref(body.Tags),
-		Content:      content,
+		Content:      strDeref(body.Content),
 		Metadata:     mapDeref(body.Metadata),
 		PublishedAt:  body.PublishedAt,
 		AgentID:      body.AgentId,
 	}
 
-	article, isNew, err := h.store.SaveArticle(r.Context(), userID, req)
+	result, err := h.svc.SaveOwned(r.Context(), toolctx.Identity{UserID: userID}, req)
 	if err != nil {
-		h.writeInternalError(w, err)
-		return
-	}
-
-	// If new, write the markdown file and persist the relative path. If the
-	// caller is updating an existing article without supplying new content, we
-	// rewrite the existing file with the refreshed frontmatter so it stays in
-	// sync with DB metadata.
-	stellaHome := config.StellaHome()
-	var filePath string
-	switch {
-	case isNew:
-		filePath = h.files.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
-	case existing != nil && existing.FilePath != "":
-		filePath = existing.FilePath
-		if !filepath.IsAbs(filePath) {
-			filePath = filepath.Join(stellaHome, filePath)
+		if strings.Contains(err.Error(), "content is required") {
+			writeError(w, http.StatusBadRequest, "content is required for new articles")
+			return
 		}
-		if content == "" {
-			body2, readErr := h.files.ReadArticle(filePath)
-			if readErr == nil {
-				content = body2
-			}
-		}
-	default:
-		filePath = h.files.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
-	}
-	if err := h.files.WriteArticle(filePath, article, content); err != nil {
 		h.writeInternalError(w, err)
 		return
 	}
-	relPath := h.files.RelativePath(filePath)
-	if err := h.store.UpdateArticleFilePath(r.Context(), userID, article.ID, relPath); err != nil {
-		h.writeInternalError(w, err)
-		return
-	}
-	article.FilePath = relPath
+	article, isNew := result.Article, result.Created
 
 	status := http.StatusOK
 	if isNew {

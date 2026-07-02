@@ -142,6 +142,50 @@ components:
 	}
 }
 
+func TestBatchAnnotationWrapsRequestBody(t *testing.T) {
+	doc := mustDoc(t, []byte(`
+paths:
+  /api/articles:
+    post:
+      x-agent-tool: { tool: recally, action: save, batch: articles }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string }
+                title: { type: string }
+                agent_id: { type: string }
+components:
+  schemas: {}
+`))
+	tools, err := collectTools(doc)
+	if err != nil {
+		t.Fatalf("collectTools: %v", err)
+	}
+	action := tools["recally"][0]
+	if action.Batch != "articles" {
+		t.Fatalf("Batch=%q, want articles", action.Batch)
+	}
+	props := action.Schema["properties"].(map[string]any)
+	articles := props["articles"].(map[string]any)
+	if articles["minItems"] != 1 || articles["maxItems"] != 20 {
+		t.Fatalf("articles bounds=%#v", articles)
+	}
+	itemProps := articles["items"].(map[string]any)["properties"].(map[string]any)
+	if _, ok := itemProps["agent_id"]; ok {
+		t.Fatal("identity field must be omitted from batch item")
+	}
+	if _, ok := itemProps["url"]; !ok {
+		t.Fatal("url missing from batch item")
+	}
+	if got := action.Required; len(got) != 1 || got[0] != "articles" {
+		t.Fatalf("required=%v, want [articles]", got)
+	}
+}
+
 func TestFixedWithRestrictKeepsBodyFields(t *testing.T) {
 	doc := mustDoc(t, []byte(`
 paths:

@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/credentials"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/toolctx"
@@ -230,6 +232,167 @@ func (h oauthHandler) Disconnect(ctx context.Context, in OauthDisconnectInput) (
 		return nil, err
 	}
 	return map[string]any{"provider": in.Provider, "status": "disconnected"}, nil
+}
+
+type RecallyTool struct {
+	svc *recally.Service
+}
+
+func NewRecallyTool(svc *recally.Service) *RecallyTool {
+	return &RecallyTool{svc: svc}
+}
+
+func (t *RecallyTool) Definition() tools.Definition {
+	return tools.Definition{
+		Name:        "recally",
+		Description: "Save and read the user's Recally library. Actions: save batches fetched article content, list_articles, get_article, feed_add/feed_list/feed_remove, digest. For save, fetch the article content yourself first (for example with web/tap tools) and include markdown content for new articles; content is required for new articles. The library is shared across this user's agents.",
+		InputSchema: RecallyInputSchema(),
+	}
+}
+
+func (t *RecallyTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	if t == nil || t.svc == nil {
+		return "", fmt.Errorf("recally service is unavailable — try again later")
+	}
+	ident, err := toolIdentity(ctx, "recally")
+	if err != nil {
+		return "", err
+	}
+	action, err := actionArg(args, "recally")
+	if err != nil {
+		return "", err
+	}
+	out, err := DispatchRecally(ctx, recallyHandler{svc: t.svc, ident: ident}, action, args)
+	if err != nil {
+		return "", mapToolError("recally", err)
+	}
+	return marshalToolResult(out)
+}
+
+type recallyHandler struct {
+	svc   *recally.Service
+	ident toolctx.Identity
+}
+
+func (h recallyHandler) Save(ctx context.Context, in RecallySaveInput) (any, error) {
+	results := make([]recallySaveResult, 0, len(in.Items))
+	for _, item := range in.Items {
+		result := recallySaveResult{URL: item.Url}
+		saved, err := h.svc.SaveOwned(ctx, h.ident, recallySaveRequest(item))
+		if err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		result.ID = saved.Article.ID
+		if saved.Created {
+			result.Status = "created"
+		} else {
+			result.Status = "updated"
+		}
+		results = append(results, result)
+	}
+	return map[string]any{"results": results}, nil
+}
+
+func (h recallyHandler) List_articles(ctx context.Context, in RecallyList_articlesInput) (any, error) {
+	limit, offset, err := parseToolPage(in.PageSize, in.PageToken)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
+	}
+	if in.CanonicalUrl != "" {
+		article, err := h.svc.GetArticleByCanonicalURLOwned(ctx, h.ident, in.CanonicalUrl)
+		if err != nil {
+			if errors.Is(err, toolctx.ErrNotFound) {
+				return listResponse[recallyArticleListItem]{Items: []recallyArticleListItem{}, HasMore: false}, nil
+			}
+			return nil, err
+		}
+		return listResponse[recallyArticleListItem]{Items: []recallyArticleListItem{recallyArticleListSummary(*article)}, HasMore: false}, nil
+	}
+	var articles []recally.Article
+	if in.Q != "" {
+		articles, err = h.svc.SearchArticlesOwned(ctx, h.ident, in.Q, limit)
+	} else {
+		articles, err = h.svc.ListArticlesOwned(ctx, h.ident, recally.ArticleFilter{Status: recally.ArticleStatus(in.Status), SourceType: recally.SourceType(in.SourceType), Starred: in.Starred, Limit: limit + 1, Offset: offset})
+	}
+	if err != nil {
+		return nil, err
+	}
+	page, next := pageRows(articles, limit, offset)
+	items := make([]recallyArticleListItem, 0, len(page))
+	for _, article := range page {
+		items = append(items, recallyArticleListSummary(article))
+	}
+	return listResponse[recallyArticleListItem]{Items: items, HasMore: next != "", NextPageToken: next}, nil
+}
+
+func (h recallyHandler) Get_article(ctx context.Context, in RecallyGet_articleInput) (any, error) {
+	article, err := h.svc.GetArticleOwned(ctx, h.ident, in.Id)
+	if err != nil {
+		return nil, err
+	}
+	content, err := h.svc.ReadArticleBody(article)
+	if err != nil {
+		return nil, err
+	}
+	truncated := false
+	if len(content) > 50*1024 {
+		content = content[:50*1024]
+		truncated = true
+	}
+	return recallyArticleDetail{Article: recallyArticleListSummary(*article), Content: content, Truncated: truncated, Note: recallyTruncationNote(truncated)}, nil
+}
+
+func (h recallyHandler) Feed_add(ctx context.Context, in RecallyFeed_addInput) (any, error) {
+	feed, err := h.svc.CreateFeedOwned(ctx, h.ident, in.Url, recally.FeedKind(in.Kind), in.Title, nil)
+	if err != nil {
+		return nil, err
+	}
+	return recallyFeedSummary(*feed), nil
+}
+
+func (h recallyHandler) Feed_list(ctx context.Context, in RecallyFeed_listInput) (any, error) {
+	limit, offset, err := parseToolPage(in.PageSize, in.PageToken)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
+	}
+	if in.Url != "" {
+		feed, err := h.svc.GetFeedByURLOwned(ctx, h.ident, in.Url)
+		if err != nil {
+			if errors.Is(err, toolctx.ErrNotFound) {
+				return listResponse[recallyFeedItem]{Items: []recallyFeedItem{}, HasMore: false}, nil
+			}
+			return nil, err
+		}
+		return listResponse[recallyFeedItem]{Items: []recallyFeedItem{recallyFeedSummary(*feed)}, HasMore: false}, nil
+	}
+	feeds, err := h.svc.ListFeedsOwned(ctx, h.ident, limit+1, offset)
+	if err != nil {
+		return nil, err
+	}
+	page, next := pageRows(feeds, limit, offset)
+	items := make([]recallyFeedItem, 0, len(page))
+	for _, feed := range page {
+		items = append(items, recallyFeedSummary(feed))
+	}
+	return listResponse[recallyFeedItem]{Items: items, HasMore: next != "", NextPageToken: next}, nil
+}
+
+func (h recallyHandler) Feed_remove(ctx context.Context, in RecallyFeed_removeInput) (any, error) {
+	if err := h.svc.DeleteFeedOwned(ctx, h.ident, in.Id); err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": in.Id, "status": "removed"}, nil
+}
+
+func (h recallyHandler) Digest(ctx context.Context, _ RecallyDigestInput) (any, error) {
+	digest, err := h.svc.GetDigestOwned(ctx, h.ident)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"date": digest.Date.UTC().Format(time.RFC3339), "text": recallyDigestText(digest)}, nil
 }
 
 type ShareTool struct {
@@ -538,6 +701,36 @@ type goalResponse struct {
 	UpdatedAt       string `json:"updated_at"`
 }
 
+type recallySaveResult struct {
+	URL    string `json:"url"`
+	ID     string `json:"id,omitempty"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+type recallyArticleListItem struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	SavedAt string `json:"saved_at"`
+}
+
+type recallyArticleDetail struct {
+	Article   recallyArticleListItem `json:"article"`
+	Content   string                 `json:"content"`
+	Truncated bool                   `json:"truncated"`
+	Note      string                 `json:"note,omitempty"`
+}
+
+type recallyFeedItem struct {
+	ID        string `json:"id"`
+	URL       string `json:"url"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	Enabled   bool   `json:"enabled"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 type shareResponse struct {
 	ID        string `json:"id"`
 	URL       string `json:"url,omitempty"`
@@ -617,6 +810,98 @@ func oauthProviderSummary(status credentials.ProviderStatus) oauthProviderRespon
 		Connected:  status.Connected,
 		Username:   status.Username,
 	}
+}
+
+func recallySaveRequest(item RecallySaveItem) recally.SaveRequest {
+	return recally.SaveRequest{
+		URL:          item.Url,
+		CanonicalURL: item.CanonicalUrl,
+		SourceType:   recally.SourceType(item.SourceType),
+		Title:        item.Title,
+		Author:       item.Author,
+		Summary:      item.Summary,
+		Tags:         stringItems(item.Tags),
+		Content:      item.Content,
+		Metadata:     stringMap(item.Metadata),
+		PublishedAt:  parseOptionalTime(item.PublishedAt),
+	}
+}
+
+func recallyArticleListSummary(article recally.Article) recallyArticleListItem {
+	return recallyArticleListItem{ID: article.ID, Title: article.Title, URL: article.URL, SavedAt: article.SavedAt.UTC().Format(time.RFC3339)}
+}
+
+func recallyFeedSummary(feed recally.Feed) recallyFeedItem {
+	return recallyFeedItem{ID: feed.ID, URL: feed.URL, Kind: string(feed.Kind), Title: feed.Title, Enabled: feed.Enabled, UpdatedAt: feed.UpdatedAt.UTC().Format(time.RFC3339)}
+}
+
+func recallyTruncationNote(truncated bool) string {
+	if truncated {
+		return "truncated — use the web UI for the full article"
+	}
+	return ""
+}
+
+func recallyDigestText(d *recally.Digest) string {
+	if d == nil {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Digest for %s\n", d.Date.UTC().Format("2006-01-02"))
+	fmt.Fprintf(&b, "Total articles: %d; unread: %d; read: %d; archived: %d; starred: %d\n", d.TotalArticles, d.UnreadCount, d.ReadCount, d.ArchivedCount, d.StarredCount)
+	if len(d.SavedYesterday) > 0 {
+		b.WriteString("\nSaved yesterday:\n")
+		for _, article := range d.SavedYesterday {
+			fmt.Fprintf(&b, "- %s — %s\n", article.Title, article.URL)
+		}
+	}
+	if len(d.WorthRevisiting) > 0 {
+		b.WriteString("\nWorth revisiting:\n")
+		for _, article := range d.WorthRevisiting {
+			fmt.Fprintf(&b, "- %s — %s\n", article.Title, article.URL)
+		}
+	}
+	if len(d.TopTags) > 0 {
+		b.WriteString("\nTop tags:\n")
+		for _, tag := range d.TopTags {
+			fmt.Fprintf(&b, "- %s (%d)\n", tag.Tag, tag.Count)
+		}
+	}
+	return b.String()
+}
+
+func stringItems(items []any) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func stringMap(items map[string]any) map[string]string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(items))
+	for k, v := range items {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
+}
+
+func parseOptionalTime(value string) *time.Time {
+	if value == "" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil
+	}
+	return &parsed
 }
 
 func shareCreatedSummary(created sharepkg.Created) shareResponse {

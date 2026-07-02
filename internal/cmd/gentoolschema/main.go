@@ -87,12 +87,15 @@ type actionSpec struct {
 	Action   string           `yaml:"action"`
 	Fixed    map[string]any   `yaml:"fixed"`
 	Restrict map[string][]any `yaml:"restrict"`
+	Batch    string           `yaml:"batch"`
 }
 
 type toolAction struct {
-	Action   string
-	Schema   map[string]any
-	Required []string
+	Action     string
+	Schema     map[string]any
+	Required   []string
+	Batch      string
+	ItemSchema map[string]any
 }
 
 func parseDoc(data []byte) (*openAPIDoc, error) {
@@ -141,17 +144,31 @@ func collectTools(doc *openAPIDoc) (map[string][]toolAction, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%s %s params: %w", strings.ToUpper(method), path, err)
 			}
+			bodySchema, err := requestBodySchema(resolver, op)
+			if err != nil {
+				return nil, fmt.Errorf("%s %s body: %w", strings.ToUpper(method), path, err)
+			}
 			for _, spec := range specs {
 				schema := cloneMap(base)
-				if len(spec.Fixed) > 0 && len(spec.Restrict) == 0 {
+				var itemSchema map[string]any
+				if spec.Batch != "" {
+					itemSchema = cloneMap(bodySchema)
+					for field := range identityFields {
+						deleteProperty(itemSchema, field)
+					}
+					schema = batchInputSchema(spec.Batch, itemSchema)
+				} else if len(spec.Fixed) > 0 && len(spec.Restrict) == 0 {
 					schema = cloneMap(paramsOnly)
 				}
 				for fixed := range spec.Fixed {
 					deleteProperty(schema, fixed)
+					if itemSchema != nil {
+						deleteProperty(itemSchema, fixed)
+					}
 				}
 				applyRestrictions(schema, spec.Restrict)
 				req := stringSlice(schema["required"])
-				out[spec.Tool] = append(out[spec.Tool], toolAction{Action: spec.Action, Schema: schema, Required: req})
+				out[spec.Tool] = append(out[spec.Tool], toolAction{Action: spec.Action, Schema: schema, Required: req, Batch: spec.Batch, ItemSchema: itemSchema})
 			}
 		}
 	}
@@ -249,6 +266,16 @@ func requestBodySchema(resolver schemaResolver, op map[string]any) (map[string]a
 		return nil, err
 	}
 	return resolved, nil
+}
+
+func batchInputSchema(field string, item map[string]any) map[string]any {
+	return map[string]any{
+		"type":     "object",
+		"required": []any{field},
+		"properties": map[string]any{
+			field: map[string]any{"type": "array", "items": item, "minItems": 1, "maxItems": 20},
+		},
+	}
 }
 
 func mergeObjectSchema(dst, src map[string]any) {
@@ -401,11 +428,24 @@ func renderTool(tool string, actions []toolAction) ([]byte, error) {
 	}
 	out.WriteString("}\n\n")
 	for _, action := range actions {
+		if action.Batch != "" {
+			fmt.Fprintf(&out, "type %s%sItem struct {\n", exportTool, exportName(action.Action))
+			required := requiredSet(stringSlice(action.ItemSchema["required"]))
+			for _, prop := range sortedPropertyNames(action.ItemSchema) {
+				fieldName := exportName(camel(prop))
+				fmt.Fprintf(&out, "\t%s %s `json:\"%s,omitempty\"`\n", fieldName, goType(action.ItemSchema["properties"].(map[string]any)[prop], required[prop]), prop)
+			}
+			out.WriteString("}\n\n")
+		}
 		fmt.Fprintf(&out, "type %s%sInput struct {\n", exportTool, exportName(action.Action))
-		required := requiredSet(action.Required)
-		for _, prop := range sortedPropertyNames(action.Schema) {
-			fieldName := exportName(camel(prop))
-			fmt.Fprintf(&out, "\t%s %s `json:\"%s,omitempty\"`\n", fieldName, goType(action.Schema["properties"].(map[string]any)[prop], required[prop]), prop)
+		if action.Batch != "" {
+			fmt.Fprintf(&out, "\tItems []%s%sItem `json:\"%s,omitempty\"`\n", exportTool, exportName(action.Action), action.Batch)
+		} else {
+			required := requiredSet(action.Required)
+			for _, prop := range sortedPropertyNames(action.Schema) {
+				fieldName := exportName(camel(prop))
+				fmt.Fprintf(&out, "\t%s %s `json:\"%s,omitempty\"`\n", fieldName, goType(action.Schema["properties"].(map[string]any)[prop], required[prop]), prop)
+			}
 		}
 		out.WriteString("}\n\n")
 	}

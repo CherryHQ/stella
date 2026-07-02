@@ -4,6 +4,7 @@ paths:
       tags: [articles]
       summary: List or search articles
       operationId: listArticles
+      x-agent-tool: { tool: "recally", action: "list_articles" }
       parameters:
         - {
             name: q,
@@ -53,6 +54,7 @@ paths:
       tags: [articles]
       summary: Save an article (upsert by canonical URL)
       operationId: saveArticle
+      x-agent-tool: { tool: "recally", action: "save", batch: "articles" }
       requestBody:
         required: true
         content:
@@ -94,6 +96,11 @@ paths:
       tags: [articles]
       summary: Get an article
       operationId: getArticle
+      x-agent-tool: {
+        tool: "recally",
+        action: "get_article",
+        fixed: { include: "content" },
+      }
       parameters:
         - {
             name: include,
@@ -155,6 +162,7 @@ paths:
       tags: [feeds]
       summary: List subscribed feeds
       operationId: listFeeds
+      x-agent-tool: { tool: "recally", action: "feed_list" }
       parameters:
         - {
             name: url,
@@ -183,6 +191,7 @@ paths:
       tags: [feeds]
       summary: Subscribe to a new feed (server fetches metadata)
       operationId: createFeed
+      x-agent-tool: { tool: "recally", action: "feed_add" }
       requestBody:
         required: true
         content:
@@ -254,6 +263,7 @@ paths:
       tags: [feeds]
       summary: Unsubscribe from a feed (cascade deletes entries)
       operationId: deleteFeed
+      x-agent-tool: { tool: "recally", action: "feed_remove" }
       responses:
         "204": { description: deleted }
         "401": {
@@ -385,6 +395,7 @@ paths:
       tags: [digest]
       summary: Get the current user's reading digest for today
       operationId: getDigest
+      x-agent-tool: { tool: "recally", action: "digest" }
       responses:
         "200":
           description: ok

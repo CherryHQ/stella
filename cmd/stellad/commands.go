@@ -81,6 +81,7 @@ type setupResult struct {
 	vaultSvc                 *vault.Service
 	credSvc                  *credentials.Service
 	shareSvc                 *sharepkg.Service
+	recallySvc               *recally.Service
 	embeddingSvc             *embedding.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []pkgtools.Tool
@@ -267,13 +268,17 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
 	}
-	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recally.NewStore(db), recally.NewFileManager(config.StellaHome()), config.StellaHome(), "http://localhost:25678")
+	recallyStore := recally.NewStore(db)
+	recallyFiles := recally.NewFileManager(config.StellaHome())
+	recallySvc := recally.NewService(recallyStore, recallyFiles, config.StellaHome())
+	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recallyStore, recallyFiles, config.StellaHome(), "http://localhost:25678")
 
 	domainToolMounts := []agent.DomainToolMount{
 		{Name: "goal", Tool: domaintools.NewGoalTool(goalSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "scheduler", Tool: domaintools.NewSchedulerTool(schedulerSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "oauth", Tool: domaintools.NewOauthTool(credSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "share", Tool: domaintools.NewShareTool(shareSvc), Predicate: agent.DomainToolAvailable},
+		{Name: "recally", Tool: domaintools.NewRecallyTool(recallySvc), Predicate: agent.DomainToolAvailable},
 	}
 	if vaultSvc != nil {
 		domainToolMounts = append(domainToolMounts, agent.DomainToolMount{Name: "vault", Tool: domaintools.NewVaultTool(vaultSvc), Predicate: agent.DomainToolAvailable})
@@ -335,6 +340,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		vaultSvc:                 vaultSvc,
 		credSvc:                  credSvc,
 		shareSvc:                 shareSvc,
+		recallySvc:               recallySvc,
 		embeddingSvc:             embeddingSvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
