@@ -26,11 +26,10 @@ import {
 } from "@/components/ui/select";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import {
+  SettingsCard,
+  SettingsCardSection,
   SettingsDetailSheet,
   SettingsGridPage,
-  SettingsList,
-  SettingsRow,
-  SettingsSection,
 } from "@/features/settings/SettingsCardGrid";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 
@@ -63,7 +62,7 @@ function transportLabel(transport: MCPTransport) {
   return transport === "streamable_http" ? "Streamable HTTP" : "SSE";
 }
 
-export function MCPServersPage() {
+export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
@@ -242,12 +241,8 @@ export function MCPServersPage() {
     [reloadScope, showToast, t],
   );
 
-  const grouped = useMemo(
-    () =>
-      SCOPE_ORDER.map((scope) => ({
-        scope,
-        items: servers.filter((server) => server.scope === scope),
-      })).filter((group) => group.items.length > 0),
+  const sortedServers = useMemo(
+    () => [...servers].sort((a, b) => SCOPE_ORDER.indexOf(a.scope) - SCOPE_ORDER.indexOf(b.scope)),
     [servers],
   );
 
@@ -384,73 +379,77 @@ export function MCPServersPage() {
     </DetailPanel>
   );
 
+  const content = loading ? (
+    <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+  ) : sortedServers.length === 0 ? (
+    <SettingsEmptyState
+      icon={<PlugZap className="size-5" />}
+      message={t("mcp.empty")}
+      description={t("mcp.empty.description")}
+      action={<Button onClick={openAddSheet}>{t("mcp.add")}</Button>}
+    />
+  ) : (
+    <SettingsCardSection
+      icon={<PlugZap className="size-4" />}
+      title={t("mcp.title")}
+      description={t("mcp.sectionDescription")}
+      count={sortedServers.length}
+    >
+      {sortedServers.map((server) => (
+        <SettingsCard
+          key={server.id}
+          icon={<PlugZap className="size-4" />}
+          title={server.name}
+          badge={
+            <Badge variant="secondary" size="sm">
+              {t(SCOPE_LABEL_KEY[server.scope])}
+            </Badge>
+          }
+          description={server.url}
+          action={
+            <Button size="sm" variant="ghost" onClick={() => void deleteServer(server)}>
+              {t("common.delete")}
+            </Button>
+          }
+          footer={
+            <>
+              <Badge variant="outline" size="sm">
+                {transportLabel(server.transport)}
+              </Badge>
+              <Badge variant="secondary" size="sm">
+                {server.auth_type === "bearer" ? t("mcp.auth.bearer") : t("mcp.auth.none")}
+              </Badge>
+              {isAgentScope(server.scope) && server.agent_id && (
+                <span className="truncate text-xs text-muted-foreground">
+                  {agentName(server.agent_id)}
+                </span>
+              )}
+            </>
+          }
+        />
+      ))}
+    </SettingsCardSection>
+  );
+
+  const action = (
+    <Button size="sm" onClick={openAddSheet}>
+      <Plus className="size-4" />
+      {t("mcp.add")}
+    </Button>
+  );
+
   return (
     <>
-      <SettingsGridPage
-        title={t("mcp.title")}
-        action={
-          <Button size="sm" onClick={openAddSheet}>
-            <Plus className="size-4" />
-            {t("mcp.add")}
-          </Button>
-        }
-      >
-        {loading ? (
-          <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
-        ) : grouped.length === 0 ? (
-          <SettingsEmptyState
-            icon={<PlugZap className="size-5" />}
-            message={t("mcp.empty")}
-            description={t("mcp.empty.description")}
-            action={<Button onClick={openAddSheet}>{t("mcp.add")}</Button>}
-          />
-        ) : (
-          grouped.map((group) => (
-            <SettingsSection
-              key={group.scope}
-              title={t(SCOPE_LABEL_KEY[group.scope])}
-              count={group.items.length}
-            >
-              <SettingsList>
-                {group.items.map((server) => (
-                  <SettingsRow
-                    key={server.id}
-                    icon={<PlugZap className="size-4" />}
-                    title={server.name}
-                    subtitle={server.url}
-                    chip={
-                      isAgentScope(server.scope) && server.agent_id ? (
-                        <Badge variant="secondary" size="sm">
-                          {agentName(server.agent_id)}
-                        </Badge>
-                      ) : undefined
-                    }
-                    status={
-                      <div className="flex items-center gap-1.5">
-                        <Badge variant="outline" size="sm">
-                          {transportLabel(server.transport)}
-                        </Badge>
-                        <Badge variant="secondary" size="sm">
-                          {server.auth_type === "bearer"
-                            ? t("mcp.auth.bearer")
-                            : t("mcp.auth.none")}
-                        </Badge>
-                      </div>
-                    }
-                    menu={[
-                      {
-                        label: t("common.delete"),
-                        destructive: true,
-                        onClick: () => void deleteServer(server),
-                      },
-                    ]}
-                  />
-                ))}
-              </SettingsList>
-            </SettingsSection>
-          ))
-        )}
-      </SettingsGridPage>
+      {embedded ? (
+        <div className="space-y-3">
+          <div className="flex justify-end">{action}</div>
+          {content}
+        </div>
+      ) : (
+        <SettingsGridPage title={t("mcp.title")} action={action}>
+          {content}
+        </SettingsGridPage>
+      )}
 
       <SettingsDetailSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)}>
         {addPanel}
@@ -458,4 +457,8 @@ export function MCPServersPage() {
       <ToastContainer messages={toasts} />
     </>
   );
+}
+
+export function MCPServersPage() {
+  return <MCPServersPanel />;
 }

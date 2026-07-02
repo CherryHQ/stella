@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { PlugZap } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
@@ -142,17 +141,10 @@ const settingsNav: {
         ),
       },
       {
-        id: "mcp",
-        label: "settings.nav.mcp",
-        href: "/settings/mcp",
-        adminOnly: false,
-        icon: <PlugZap className="w-4 h-4 shrink-0 opacity-50 group-[.active]/item:opacity-80" />,
-      },
-      {
         id: "plugins",
         label: "settings.nav.plugins",
         href: "/settings/plugins",
-        adminOnly: true,
+        adminOnly: false,
         icon: (
           <svg
             viewBox="0 0 24 24"

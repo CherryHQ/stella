@@ -208,6 +208,7 @@ const en = {
   "mcp.empty": "No MCP servers yet",
   "mcp.empty.description":
     "Add a server to expose external MCP tools as mcp__server__tool in agent sessions.",
+  "mcp.sectionDescription": "External MCP tools exposed to agents",
   "mcp.scope": "Scope",
   "mcp.scope.description":
     "More specific scopes override broader registrations with the same name.",
@@ -1956,6 +1957,7 @@ const zh: Record<MessageKey, string> = {
   "mcp.empty": "还没有 MCP 服务器",
   "mcp.empty.description":
     "添加服务器后，外部 MCP 工具会以 mcp__server__tool 的名称进入智能体会话。",
+  "mcp.sectionDescription": "暴露给智能体的外部 MCP 工具",
   "mcp.scope": "作用域",
   "mcp.scope.description": "同名注册里，更具体的作用域会覆盖更宽泛的注册。",
   "mcp.scope.user.label": "我的所有智能体",
