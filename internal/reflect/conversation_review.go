@@ -79,6 +79,23 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 	return nil
 }
 
+func (s *Service) reviewConversationCandidates(ctx context.Context, snap *config.Snapshot, target reviewTarget) (candidatePipelineResult, error) {
+	if snap == nil {
+		return candidatePipelineResult{}, fmt.Errorf("candidate review: config snapshot is required")
+	}
+	// #532 exposes the candidate path without replacing scheduled Reflect.
+	// Until provider-backed line runners are wired, fresh content fails closed
+	// instead of advancing per-line watermarks with empty results.
+	return s.runCandidatePipeline(ctx, target, candidatePipelineOptions{
+		FactLine: func(context.Context, ReviewUnit) ([]factCandidate, error) {
+			return nil, fmt.Errorf("fact candidate line is not wired")
+		},
+		SkillLine: func(context.Context, ReviewUnit) ([]skillCandidate, error) {
+			return nil, fmt.Errorf("skill candidate line is not wired")
+		},
+	})
+}
+
 func (s *Service) buildStreamFunc(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 	if s.providers == nil {
 		return nil, fmt.Errorf("provider builder is required")
