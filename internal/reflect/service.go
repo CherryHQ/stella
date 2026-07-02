@@ -41,6 +41,8 @@ type Config struct {
 type watermarker interface {
 	get(ctx context.Context, sessionID string) (time.Time, error)
 	set(ctx context.Context, sessionID string, at time.Time) error
+	getLine(ctx context.Context, sessionID string, line reflectLine) (time.Time, error)
+	setLine(ctx context.Context, sessionID string, line reflectLine, at time.Time) error
 }
 
 // Service runs background conversation review.

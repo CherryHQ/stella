@@ -19,11 +19,15 @@ func testLogger() *slog.Logger {
 
 // fakeWatermarks is a test double for watermarker.
 type fakeWatermarks struct {
-	marks map[string]time.Time
+	marks     map[string]time.Time
+	lineMarks map[string]time.Time
 }
 
 func newFakeWatermarks() *fakeWatermarks {
-	return &fakeWatermarks{marks: make(map[string]time.Time)}
+	return &fakeWatermarks{
+		marks:     make(map[string]time.Time),
+		lineMarks: make(map[string]time.Time),
+	}
 }
 
 func (f *fakeWatermarks) get(_ context.Context, sessionID string) (time.Time, error) {
@@ -33,6 +37,30 @@ func (f *fakeWatermarks) get(_ context.Context, sessionID string) (time.Time, er
 func (f *fakeWatermarks) set(_ context.Context, sessionID string, at time.Time) error {
 	f.marks[sessionID] = at
 	return nil
+}
+
+func (f *fakeWatermarks) getLine(_ context.Context, sessionID string, line reflectLine) (time.Time, error) {
+	if at, ok := f.lineMarks[fakeLineWatermarkKey(sessionID, line)]; ok {
+		return at, nil
+	}
+	return f.marks[sessionID], nil
+}
+
+func (f *fakeWatermarks) setLine(_ context.Context, sessionID string, line reflectLine, at time.Time) error {
+	f.setLineMark(sessionID, line, at)
+	return nil
+}
+
+func (f *fakeWatermarks) setLineMark(sessionID string, line reflectLine, at time.Time) {
+	f.lineMarks[fakeLineWatermarkKey(sessionID, line)] = at
+}
+
+func (f *fakeWatermarks) lineMark(sessionID string, line reflectLine) time.Time {
+	return f.lineMarks[fakeLineWatermarkKey(sessionID, line)]
+}
+
+func fakeLineWatermarkKey(sessionID string, line reflectLine) string {
+	return sessionID + ":" + string(line)
 }
 
 type reviewListOnlyFake struct {
