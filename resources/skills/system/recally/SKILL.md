@@ -70,14 +70,10 @@ force it. Use `--kind website` for a page that lists items but has no RSS.
 **RSS polling subscription**: RSS feeds are only polled when the user has subscribed
 to the `recally-rss` job template. After adding a feed, check whether the user is
 already subscribed (the CLI prints a hint when they are not). If they are not
-subscribed and confirm they want automatic polling, run:
-
-```bash
-stella scheduler subscribe recally-rss
-```
-
-See `stella scheduler subscribe --help` for schedule overrides. Ask before
-subscribing — do not subscribe automatically.
+subscribed and confirm they want automatic polling, use the native `scheduler`
+tool with `action=create` and `template_key=recally-rss`. Add schedule override
+fields such as `every` only when the user asks. Ask before subscribing — do not
+subscribe automatically.
 
 - **rss** feeds: poll server-side, then process pending entries — see [references/rss-workflow.md](references/rss-workflow.md).
 - **twitter** feeds: discover entries via the skill — see [references/twitter-workflow.md](references/twitter-workflow.md).

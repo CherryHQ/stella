@@ -10,7 +10,7 @@ Completion is **derived, never asserted**. A goal converges through a bounded re
 
 Two surfaces author goals, both over the same goal HTTP API:
 
-- **You, the agent** — via the `stella goal` CLI (alias `stella task`). `stella goal create --title ... --intent ...` creates a goal and runs it autonomously: the server **plans first** (decomposes it into verifiable sub-tasks), then the dispatcher runs each child and converges to acceptance, with no further prompting. You do not choose leaf vs composite or call plan/approve/activate — just write a clear, self-contained intent. This is how you give yourself long-running work that outlives the current conversation; check back with `stella goal list`/`get`. For goals that need a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)`; inspect the pending plan with `stella goal get <id>` and then `stella goal approve <id>` (materialize) or `stella goal reject <id>` (re-decompose). See `stella goal --help`.
+- **You, the agent** — via the native `goal` tool. `action=create` creates a goal and runs it autonomously: the server **plans first** (decomposes it into verifiable sub-tasks), then the dispatcher runs each child and converges to acceptance, with no further prompting. You do not choose leaf vs composite or call plan/approve/activate — just write a clear, self-contained intent. This is how you give yourself long-running work that outlives the current conversation; check back with `action=list` or `action=get`. For goals that need a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` for the user to approve from the Web UI or operator surface.
 - **The user** — from the Web UI (Tasks tab); the same goal HTTP API the CLI uses.
 
 Authoring and working are separate roles: once a goal is active you may also be handed it as a **worker** (see the `goal_control` contract below).
@@ -18,7 +18,7 @@ Authoring and working are separate roles: once a goal is active you may also be 
 Before reaching for a goal at all, check you actually need one:
 
 - `delegate` — synchronous focused subtask in a persistent child session, returns inline. Use this first for short research, review, or drafting.
-- **goal** — async, durable, survives restarts, can block on input, converges through an acceptance contract. This is for work tracked to acceptance: create it yourself with `stella goal create`, or the user authors it from the Web UI.
+- **goal** — async, durable, survives restarts, can block on input, converges through an acceptance contract. This is for work tracked to acceptance: create it yourself with the native `goal` tool, or the user authors it from the Web UI.
 - `scheduler` — a time trigger, not the work itself. For long or reviewable scheduled work, schedule a prompt rather than the work inline.
 
 ## Lifecycle
@@ -50,7 +50,7 @@ A composite holds child goals produced by a **decomposition** (the only way chil
 - a required child blocked → parent blocks
 - a blocked parent recovers when the blocking child clears
 
-Decomposition is automatic: `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. Structural planning errors are repaired in the same planning session with `prior_errors`; if those repairs are exhausted, the goal parks at `blocked(planning_invalid)`. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become ready), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
+Decomposition is automatic: `goal` tool `action=create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. Structural planning errors are repaired in the same planning session with `prior_errors`; if those repairs are exhausted, the goal parks at `blocked(planning_invalid)`. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; the user can approve or reject it from the Web UI or operator surface.
 
 ## Worker: the `goal_control` contract
 

@@ -55,7 +55,7 @@ internal/
   admin/               HTTP API + embedded React SPA
   auth/                RBAC/ABAC policy engine, sessions, sandbox
   db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries
-  scheduler/           River-backed service (durable job scheduling via stella scheduler CLI)
+  scheduler/           River-backed service (durable job scheduling for Web UI, CLI, and native agent tools)
   skills/              Skills tool (search/install/list/remove via skills.sh)
 pkg/
   memory/              Memory Provider interface, types, Summarizer, tool auto-generation, test helpers

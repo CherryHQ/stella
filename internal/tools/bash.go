@@ -3,9 +3,12 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -43,6 +46,14 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	if !ok || command == "" {
 		return "", fmt.Errorf("bash: command is required")
 	}
+	if verbPath, ok := stellaCLIVerbPath(command); ok {
+		slog.Info("sandbox_stella_cli_invocation",
+			"event", "sandbox_stella_cli_invocation",
+			"user_id", memory.UserIDFromContext(ctx),
+			"agent_id", memory.AgentIDFromContext(ctx),
+			"command", verbPath,
+		)
+	}
 
 	start := time.Now()
 	timeoutSeconds := toolIntArg(args, "timeout", 0)
@@ -73,4 +84,16 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 		return norm.Content, fmt.Errorf("bash: exit code %d", result.ExitCode)
 	}
 	return norm.Content, nil
+}
+
+func stellaCLIVerbPath(command string) (string, bool) {
+	fields := strings.Fields(strings.TrimSpace(command))
+	if len(fields) < 2 || fields[0] != "stella" {
+		return "", false
+	}
+	parts := []string{fields[1]}
+	if len(fields) > 2 {
+		parts = append(parts, fields[2])
+	}
+	return strings.Join(parts, " "), true
 }

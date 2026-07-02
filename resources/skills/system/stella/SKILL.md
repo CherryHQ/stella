@@ -87,12 +87,12 @@ stellad upgrade                 # Self-update to latest release
 stella vault      list/get/set/delete        # user secrets; Web UI also supports agent/system scopes
 stella oauth      providers/connect/status/disconnect
 stella share      artifact/article
-stella scheduler  add/list/remove
-stella goal       create/list/show/...         # author async work; create plans+runs it autonomously
+scheduler CLI     add/list/remove              # human/operator surface; agents use scheduler tool
+goal CLI          create/list/show/...         # human/operator surface; agents use goal tool
 stella version                  # Print version
 ```
 
-You author goals yourself with `stella goal create` (via bash): the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. The user can also steer goals from the Web UI (Tasks tab); both go through the same HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/tasks.md](references/tasks.md) for the goal model and your worker contract.
+Agents author goals with the native `goal` tool: the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. The CLI remains available for humans/operators, and the user can also steer goals from the Web UI (Tasks tab); all surfaces go through the same goal HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/tasks.md](references/tasks.md) for the goal model and your worker contract.
 
 ## Delegation
 
@@ -124,7 +124,7 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 ## Memory, scheduler, notifications
 
-Memory is an agent tool; scheduler, skills, vault, oauth, notifications, and goals are managed via the `stella` CLI (use `bash` to call them) and also from the Web UI. Briefly:
+Memory, scheduler, and goals are native agent tools when available; skills use the `skills` tool; vault, oauth, notifications, and operator surfaces remain available through the `stella` CLI and Web UI. Briefly:
 
 - **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
 - **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (`subject=world` facts). Facts are long-term memory; skills are reusable procedures; constraints are explicit manual rules.
@@ -134,8 +134,8 @@ Memory is an agent tool; scheduler, skills, vault, oauth, notifications, and goa
 - **Knowledge**: Knowledge is facts-backed (`subject=world`, v1 `scope=user_agent`) and is not injected into the prompt by default. Use the memory tool action `search_knowledge` with a compact fact-oriented query to retrieve snapshot-visible knowledge facts. Skills do not store fact/context knowledge and must not use `metadata.knowledge_type`. New `subject=world` generation and write tooling is deferred; do not use skills as a substitute knowledge write path.
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
 - **Memory retrieval**: The `memory` tool provides `search` (searches all of this user+agent's past sessions — keyword matching, blended with semantic similarity when embedding is enabled; each hit carries its origin session and content timestamp), `search_knowledge` (searches snapshot-visible `subject=world` facts), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
-- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **goals** for async persistent work that converges through an acceptance contract (author with `stella goal create`, which plans and runs it autonomously; you may also be dispatched as a worker), and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks.
-- **Scheduler**: `stella scheduler` CLI -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the Web UI (Tasks tab → New Schedule → From template) or `POST /api/agents/{agentId}/scheduler/jobs` with `template_key` to subscribe. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
+- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **goals** for async persistent work that converges through an acceptance contract (author with the native `goal` tool; you may also be dispatched as a worker), and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks.
+- **Scheduler**: agents use the native `scheduler` tool to add/list/update/delete/pause/resume scheduled or one-time jobs. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the `scheduler` tool with `action=create` and `template_key`, the Web UI (Tasks tab → New Schedule → From template), or the HTTP API. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
 - **Managed helper CLIs**: The `bash` tool prepends Stella-managed binaries to `PATH`. Expect `fd`, `rg`, `mise`, and `tap` to be available even when the host machine doesn't have them installed separately.

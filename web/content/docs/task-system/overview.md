@@ -49,7 +49,7 @@ A goal moves through:
 
 A composite goal can't run directly — it must be planned into children first. A decomposition (a plan: the child goals and the dependencies between them) is authored, then — depending on the review policy — auto-accepted or held for your approval. Once accepted, the children are materialized and each runs its own convergence loop.
 
-> **Status.** Authoring the plan **autonomously** (the agent decomposing a composite on its own) is not yet wired end-to-end — a tracked follow-up ([#542](https://github.com/CherryHQ/stella/issues/542)). For now, plan a composite yourself from the CLI: `stella goal plan <id>` to propose the children and edges, `stella goal approve <id> <rev>` to accept and materialize them, then `stella goal activate <id>` to start the children. See `stella goal --help`.
+> **Status.** Plan authoring is now automatic for newly created goals: Stella decomposes a root goal into verifiable children and runs them through the dispatcher. When a goal uses a human review policy, Stella parks it for approval in the Tasks UI before materializing the children.
 
 When all required children are accepted, the parent runs **its own** acceptance evaluation — the same gate every goal has, applied at the root. There is no separate "final synthesis" step; it falls out of the recursion.
 
