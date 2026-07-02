@@ -560,133 +560,13 @@ func (t *recordingControlTool) Definition() tools.Definition {
 		return ai.ToolDefinition{
 			Name:        "goal_control",
 			Description: "Report decomposition outcome. Call exactly one of decompose/fail before exiting.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"action": map[string]any{
-						"type":        "string",
-						"enum":        []string{"decompose", "fail"},
-						"description": "Which terminal action to take.",
-					},
-					"summary": map[string]any{
-						"type":        "string",
-						"description": "decompose: one-line description of the plan.",
-					},
-					"decomposition": map[string]any{
-						"type":        "object",
-						"description": "decompose: the proposed plan as children + sibling edges.",
-						"properties": map[string]any{
-							"children": map[string]any{
-								"type":        "array",
-								"description": "Child goals; at least one must have required=true.",
-								"items": map[string]any{
-									"type": "object",
-									"properties": map[string]any{
-										"key":      map[string]any{"type": "string", "description": "Stable unique id of this child within the plan; edges reference it."},
-										"title":    map[string]any{"type": "string"},
-										"intent":   map[string]any{"type": "string", "description": "What this child must accomplish."},
-										"kind":     map[string]any{"type": "string", "enum": []string{"leaf", "composite"}},
-										"required": map[string]any{"type": "boolean"},
-										"acceptance_contract": map[string]any{
-											"type":        "object",
-											"description": "How this child's output is judged.",
-											"properties": map[string]any{
-												"policy": map[string]any{"type": "string", "enum": []string{"deterministic_then_judgment", "all", "any"}},
-												"items": map[string]any{
-													"type": "array",
-													"items": map[string]any{
-														"type": "object",
-														"properties": map[string]any{
-															"id":        map[string]any{"type": "string"},
-															"kind":      map[string]any{"type": "string", "enum": []string{"deterministic", "judgment"}},
-															"required":  map[string]any{"type": "boolean"},
-															"command":   map[string]any{"type": "string", "description": "deterministic: shell check."},
-															"authority": map[string]any{"type": "string", "enum": []string{"agent", "human"}},
-															"rubric":    map[string]any{"type": "string", "description": "judgment: agent reviewer prompt."},
-															"prompt":    map[string]any{"type": "string", "description": "judgment: human verdict prompt."},
-														},
-													},
-												},
-											},
-										},
-										"convergence_policy": map[string]any{
-											"type": "object",
-											"properties": map[string]any{
-												"max_attempts": map[string]any{"type": "integer"},
-												"escalation":   map[string]any{"type": "string", "enum": []string{"block", "abandon"}},
-												"max_depth":    map[string]any{"type": "integer"},
-											},
-										},
-										"review_policy": map[string]any{"type": "string"},
-									},
-									"required": []string{"key", "title"},
-								},
-							},
-							"edges": map[string]any{
-								"type":        "array",
-								"description": "Sibling dependencies by child key: downstream depends on upstream.",
-								"items": map[string]any{
-									"type": "object",
-									"properties": map[string]any{
-										"downstream_key": map[string]any{"type": "string", "description": "Child key that depends on the upstream."},
-										"upstream_key":   map[string]any{"type": "string", "description": "Child key that must finish first."},
-										"kind":           map[string]any{"type": "string", "enum": []string{"hard", "soft"}},
-										"on_failure":     map[string]any{"type": "string", "enum": []string{"block", "fail", "ignore"}},
-									},
-									"required": []string{"downstream_key", "upstream_key"},
-								},
-							},
-						},
-						"required": []string{"children"},
-					},
-					"reason":    map[string]any{"type": "string", "description": "fail: error message."},
-					"retryable": map[string]any{"type": "boolean", "description": "fail: true if a retry may succeed."},
-				},
-				"required": []string{"action"},
-			},
+			InputSchema: goalControlDecomposeInputSchema(),
 		}
 	}
 	return ai.ToolDefinition{
 		Name:        "goal_control",
 		Description: "Report goal lifecycle. Call exactly one of submit/block/fail before exiting.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"action": map[string]any{
-					"type":        "string",
-					"enum":        []string{"submit", "block", "fail"},
-					"description": "Which terminal action to take.",
-				},
-				"summary": map[string]any{
-					"type":        "string",
-					"description": "submit: handoff summary describing what you produced (required for child goals).",
-				},
-				"artifacts": map[string]any{
-					"type":        "array",
-					"description": "submit: hash-addressed artifact refs (diffs/files/stdout).",
-				},
-				"output": map[string]any{
-					"type":        "object",
-					"description": "submit: structured result the acceptance contract evaluates.",
-				},
-				"notes": map[string]any{
-					"type":        "object",
-					"description": "submit: free-form evidence notes.",
-				},
-				"kind": map[string]any{
-					"type":        "string",
-					"description": "block: blocker kind (user_input|external_dependency|tool_error|policy_hold).",
-				},
-				"question": map[string]any{
-					"type":        "string",
-					"description": "block: human-readable explanation of what's needed.",
-				},
-				"detail":    map[string]any{"type": "object", "description": "block: structured detail."},
-				"reason":    map[string]any{"type": "string", "description": "fail: error message."},
-				"retryable": map[string]any{"type": "boolean", "description": "fail: true if a retry may succeed."},
-			},
-			"required": []string{"action"},
-		},
+		InputSchema: goalControlExecuteInputSchema(),
 	}
 }
 
@@ -696,36 +576,7 @@ func (t *recordingControlTool) reviewDefinition() tools.Definition {
 	return ai.ToolDefinition{
 		Name:        "goal_control",
 		Description: "Report review outcome. Call exactly one of verdict/fail before exiting.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"action": map[string]any{
-					"type":        "string",
-					"enum":        []string{"verdict", "fail"},
-					"description": "Which terminal action to take.",
-				},
-				"summary": map[string]any{
-					"type":        "string",
-					"description": "verdict: one-line summary of the review.",
-				},
-				"verdicts": map[string]any{
-					"type":        "array",
-					"description": "verdict: one entry per required item being reviewed.",
-					"items": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"item_id":   map[string]any{"type": "string", "description": "The acceptance item id this verdict answers."},
-							"pass":      map[string]any{"type": "boolean", "description": "true if the output satisfies the item."},
-							"rationale": map[string]any{"type": "string", "description": "Why it passes or fails; a fail rationale feeds the next attempt."},
-						},
-						"required": []string{"item_id", "pass"},
-					},
-				},
-				"reason":    map[string]any{"type": "string", "description": "fail: why the output cannot be judged."},
-				"retryable": map[string]any{"type": "boolean", "description": "fail: true if a retry may succeed."},
-			},
-			"required": []string{"action"},
-		},
+		InputSchema: goalControlReviewInputSchema(),
 	}
 }
 
