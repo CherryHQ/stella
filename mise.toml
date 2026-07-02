@@ -78,6 +78,11 @@ gofmt -w internal/goal/goal_control_schema_gen.go internal/goal/cmd/gengoalcontr
 pnpm --package=@redocly/cli dlx redocly bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
 """
 
+[tasks."generate:check"]
+description = "Generate code and fail if generated files drift"
+depends = ["generate"]
+run = "git diff --exit-code"
+
 # ============================================================================
 # Run
 # ============================================================================
