@@ -88,11 +88,11 @@ stella vault      list/get/set/delete        # user secrets; Web UI also support
 stella oauth      providers/connect/status/disconnect
 stella share      artifact/article
 stella scheduler  add/list/remove
-stella goal       create/list/show/...         # author async work; create plans+runs it autonomously
+stella goal       create/list/show/health/...  # author async work; inspect execution health
 stella version                  # Print version
 ```
 
-You author goals yourself with `stella goal create` (via bash): the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. The user can also steer goals from the Web UI (Tasks tab); both go through the same HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/tasks.md](references/tasks.md) for the goal model and your worker contract.
+You author goals yourself with `stella goal create` (via bash): the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. Use `stella goal health --help` for execution-health reporting. The user can also steer goals from the Web UI (Tasks tab); both go through the same HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/tasks.md](references/tasks.md) for the goal model and your worker contract.
 
 ## Delegation
 
