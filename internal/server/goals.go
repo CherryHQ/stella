@@ -166,6 +166,47 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	writeData(w, http.StatusOK, goalListAPI(page, next, total))
 }
 
+// GetGoalHealth returns the aggregated execution health report for a time window.
+func (s *Server) GetGoalHealth(w http.ResponseWriter, r *http.Request, params apiserver.GetGoalHealthParams) {
+	if !s.goalsReady() {
+		writeError(w, http.StatusServiceUnavailable, "goals unavailable")
+		return
+	}
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	userID := info.UserID
+	if info.IsAdmin && params.UserId == nil {
+		userID = ""
+	}
+	if params.UserId != nil {
+		if *params.UserId != info.UserID && !info.IsAdmin {
+			writeError(w, http.StatusForbidden, "admin access required")
+			return
+		}
+		userID = *params.UserId
+	}
+	agentID := derefStr(params.AgentId)
+	if boundAgent, _, ok := info.scopedBoundary(); ok {
+		if agentID != "" && agentID != boundAgent {
+			writeError(w, http.StatusForbidden, "permission denied")
+			return
+		}
+		agentID = boundAgent
+	}
+	report, err := s.goalSvc.HealthReport(r.Context(), goal.HealthFilter{
+		SinceAt: params.Since,
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, healthReportToAPI(report))
+}
+
 // CreateGoal mints a root goal (goal). With activate=true a leaf is
 // activated immediately (direct run); the flag is ignored for a composite, which
 // is decomposed and materialized by the dispatcher first.
@@ -797,6 +838,7 @@ func attemptToAPI(a sqlc.AgentGoalAttempt) apitypes.Attempt {
 		LeaseExpiresAt:  parseTimePtr(a.LeaseExpiresAt),
 		StartedAt:       parseTimePtr(a.StartedAt),
 		FinishedAt:      parseTimePtr(a.FinishedAt),
+		RepairRounds:    iptr(int64(a.RepairRounds)),
 	}
 	if a.FailureClass != "" {
 		fc := apitypes.AttemptFailureClass(a.FailureClass)
@@ -859,6 +901,12 @@ func edgeToAPI(e sqlc.AgentGoalEdge) apitypes.Edge {
 		WaivedByUser: nullToPtr(e.WaivedByUser),
 		WaiverReason: optStr(e.WaiverReason),
 	}
+}
+
+func healthReportToAPI(r goal.HealthReport) apitypes.GoalHealthReport {
+	var out apitypes.GoalHealthReport
+	jsonRoundTrip(r, &out)
+	return out
 }
 
 func readinessToAPI(r goal.Readiness) apitypes.Readiness {

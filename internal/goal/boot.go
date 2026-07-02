@@ -328,6 +328,11 @@ func (s *Service) ListAcceptanceEvents(ctx context.Context, id string) ([]sqlc.A
 	return s.Queries.ListAcceptanceEventByGoal(ctx, id)
 }
 
+// HealthReport aggregates execution health metrics for a time window.
+func (s *Service) HealthReport(ctx context.Context, filter HealthFilter) (HealthReport, error) {
+	return s.Goal.HealthReport(ctx, filter)
+}
+
 // ListEdges returns the upstream dependency edges of a goal.
 func (s *Service) ListEdges(ctx context.Context, id string) ([]sqlc.AgentGoalEdge, error) {
 	return s.Queries.ListEdgeByGoal(ctx, id)

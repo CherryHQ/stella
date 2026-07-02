@@ -94,6 +94,43 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
+  /api/goals/health:
+    get:
+      tags: [goals]
+      summary: Get goal execution health metrics
+      operationId: getGoalHealth
+      parameters:
+        - name: since
+          in: query
+          required: true
+          description: Include goals created at or after this RFC3339 timestamp.
+          schema: { type: string, format: date-time }
+        - name: user_id
+          in: query
+          required: false
+          description: Admin-only filter for one user; non-admin callers are scoped to themselves.
+          schema: { type: string }
+        - name: agent_id
+          in: query
+          required: false
+          description: Filter to one managing agent.
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/GoalHealthReport",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403":
+          { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
   /api/goals/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
