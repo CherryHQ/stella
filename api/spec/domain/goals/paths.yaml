@@ -432,7 +432,9 @@ paths:
           content:
             application/json:
               schema:
-                { $ref: "../../components.yaml#/components/schemas/GoalTimeline" }
+                {
+                  $ref: "../../components.yaml#/components/schemas/GoalTimeline",
+                }
         "400":
           { $ref: "../../components.yaml#/components/responses/BadRequest" }
         "401":
