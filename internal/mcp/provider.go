@@ -17,6 +17,11 @@ import (
 // must never stall agent session startup.
 const defaultConnectTimeout = 15 * time.Second
 
+// defaultDiscoveryConcurrency caps cold tools/list discovery. A bad system-wide
+// MCP fleet should degrade by skipping servers, not by serially stalling runner
+// creation for N*timeout.
+const defaultDiscoveryConcurrency = 4
+
 // defaultToolCacheTTL bounds how stale a remote server's advertised tool list
 // may be. Tool calls still open a fresh session when needed; this cache only
 // avoids repeating tools/list during agent session startup.
@@ -46,12 +51,13 @@ type cachedToolList struct {
 // A down or misbehaving server is logged and skipped so it can never break an
 // agent session.
 type ToolProvider struct {
-	svc     *Service
-	timeout time.Duration
-	ttl     time.Duration
-	log     *slog.Logger
-	now     func() time.Time
-	connect connectFunc
+	svc         *Service
+	timeout     time.Duration
+	ttl         time.Duration
+	log         *slog.Logger
+	now         func() time.Time
+	connect     connectFunc
+	concurrency int
 
 	mu    sync.Mutex
 	cache map[string]cachedToolList
@@ -60,13 +66,14 @@ type ToolProvider struct {
 // NewToolProvider builds a provider over the registration service.
 func NewToolProvider(svc *Service) *ToolProvider {
 	return &ToolProvider{
-		svc:     svc,
-		timeout: defaultConnectTimeout,
-		ttl:     defaultToolCacheTTL,
-		log:     slog.With("component", "mcp"),
-		now:     time.Now,
-		connect: connectMCP,
-		cache:   map[string]cachedToolList{},
+		svc:         svc,
+		timeout:     defaultConnectTimeout,
+		ttl:         defaultToolCacheTTL,
+		log:         slog.With("component", "mcp"),
+		now:         time.Now,
+		connect:     connectMCP,
+		concurrency: defaultDiscoveryConcurrency,
+		cache:       map[string]cachedToolList{},
 	}
 }
 
@@ -87,9 +94,54 @@ func (p *ToolProvider) ToolsForContext(ctx context.Context, userID, agentID stri
 		p.log.Warn("resolve mcp servers", "user_id", userID, "agent_id", agentID, "error", err)
 		return nil
 	}
+	discoveryCtx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	type result struct {
+		index int
+		tools []pkgtools.Tool
+	}
+	limit := p.concurrency
+	if limit <= 0 {
+		limit = defaultDiscoveryConcurrency
+	}
+	sem := make(chan struct{}, limit)
+	results := make(chan result, len(regs))
+	var wg sync.WaitGroup
+	for i, reg := range regs {
+		wg.Add(1)
+		go func(index int, reg Registration) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-discoveryCtx.Done():
+				return
+			}
+			results <- result{index: index, tools: p.toolsForServer(discoveryCtx, reg)}
+		}(i, reg)
+	}
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	byIndex := make([][]pkgtools.Tool, len(regs))
+	for res := range results {
+		byIndex[res.index] = res.tools
+	}
+	seen := map[string]struct{}{}
 	var out []pkgtools.Tool
-	for _, reg := range regs {
-		out = append(out, p.toolsForServer(ctx, reg)...)
+	for _, tools := range byIndex {
+		for _, tool := range tools {
+			name := tool.Definition().Name
+			if _, ok := seen[name]; ok {
+				p.log.Warn("mcp tool name collision; skipping duplicate", "tool", name)
+				continue
+			}
+			seen[name] = struct{}{}
+			out = append(out, tool)
+		}
 	}
 	return out
 }

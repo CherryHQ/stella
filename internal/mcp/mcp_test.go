@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,6 +119,28 @@ func TestValidTransportRejectsStdio(t *testing.T) {
 	}
 	if ValidTransport("") || ValidTransport("websocket") {
 		t.Fatal("only HTTP-based transports are valid")
+	}
+}
+
+func TestValidateEndpointURLRejectsUnsafeTargets(t *testing.T) {
+	bad := []string{
+		"ftp://example.com/mcp",
+		"https://user:pass@example.com/mcp",
+		"http://localhost/mcp",
+		"http://127.0.0.1/mcp",
+		"http://10.0.0.1/mcp",
+		"http://172.16.0.1/mcp",
+		"http://192.168.1.1/mcp",
+		"http://169.254.169.254/latest/meta-data",
+		"http://[::1]/mcp",
+	}
+	for _, raw := range bad {
+		if err := validateEndpointURL(raw); err == nil {
+			t.Fatalf("validateEndpointURL(%q) succeeded, want rejection", raw)
+		}
+	}
+	if err := validateEndpointURL("https://example.com/mcp"); err != nil {
+		t.Fatalf("public https endpoint rejected: %v", err)
 	}
 }
 
@@ -391,6 +414,65 @@ func TestToolProviderCachesToolList(t *testing.T) {
 	}
 }
 
+func TestToolProviderDiscoversServersConcurrently(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	db := newFakeDB()
+	for i, id := range []string{"srv1", "srv2", "srv3"} {
+		db.forCtx = append(db.forCtx, sqlc.McpServer{
+			ID: id, Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: id, Url: "https://mcp.example.com",
+			Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now.Add(time.Duration(i)),
+		})
+	}
+	provider := NewToolProvider(NewService(db, newFakeVault()))
+	provider.concurrency = 3
+	var current atomic.Int32
+	var maxSeen atomic.Int32
+	provider.connect = func(ctx context.Context, reg Registration, _ string) (mcpClient, error) {
+		cur := current.Add(1)
+		for {
+			max := maxSeen.Load()
+			if cur <= max || maxSeen.CompareAndSwap(max, cur) {
+				break
+			}
+		}
+		select {
+		case <-time.After(50 * time.Millisecond):
+		case <-ctx.Done():
+		}
+		current.Add(-1)
+		return &fakeMCPClient{tools: []*mcpsdk.Tool{{Name: reg.Name, InputSchema: map[string]any{"type": "object"}}}}, nil
+	}
+
+	tools := provider.ToolsForContext(context.Background(), "u1", "a1")
+	if len(tools) != 3 {
+		t.Fatalf("tools = %d, want 3", len(tools))
+	}
+	if maxSeen.Load() < 2 {
+		t.Fatalf("MCP discovery ran serially; max concurrency = %d", maxSeen.Load())
+	}
+}
+
+func TestToolProviderSkipsCollidingToolNames(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	db := newFakeDB()
+	db.forCtx = []sqlc.McpServer{
+		{ID: "srv1", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "git-hub", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now},
+		{ID: "srv2", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "git_hub", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now},
+	}
+	provider := NewToolProvider(NewService(db, newFakeVault()))
+	provider.connect = func(context.Context, Registration, string) (mcpClient, error) {
+		return &fakeMCPClient{tools: []*mcpsdk.Tool{{Name: "foo-bar", InputSchema: map[string]any{"type": "object"}}}}, nil
+	}
+
+	tools := provider.ToolsForContext(context.Background(), "u1", "a1")
+	if len(tools) != 1 {
+		t.Fatalf("tools = %d, want one duplicate skipped", len(tools))
+	}
+	if got := tools[0].Definition().Name; got != "mcp__git_hub__foo_bar" {
+		t.Fatalf("tool name = %q", got)
+	}
+}
+
 func TestToolProviderCacheExpires(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	db := newFakeDB()
@@ -443,7 +525,10 @@ func TestDeletePurgesCredential(t *testing.T) {
 }
 
 func TestNamespacedToolName(t *testing.T) {
-	if got := NamespacedToolName("git hub", "create_issue"); got != "mcp__git_hub__create_issue" {
+	if got := NamespacedToolName("git hub", "create-issue"); got != "mcp__git_hub__create_issue" {
 		t.Fatalf("NamespacedToolName = %q", got)
+	}
+	if got := NamespacedToolName("!!!", "///"); got != "mcp__server__tool" {
+		t.Fatalf("NamespacedToolName fallback = %q", got)
 	}
 }

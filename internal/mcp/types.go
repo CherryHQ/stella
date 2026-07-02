@@ -83,14 +83,14 @@ type Registration struct {
 const ToolNamespaceSep = "__"
 
 // NamespacedToolName returns the agent-facing tool name for a remote MCP tool,
-// namespaced by server so tools from different servers (or colliding with
-// skills) never clash. Non [A-Za-z0-9_] characters in the server name are
-// replaced with '_' so the result is a valid tool identifier.
+// namespaced by server so tools from different servers do not collide with core,
+// plugin, or skill tools. Both server and remote tool segments are normalized to
+// [A-Za-z0-9_]; callers still detect collisions between normalized names.
 func NamespacedToolName(serverName, toolName string) string {
-	return "mcp" + ToolNamespaceSep + sanitizeIdent(serverName) + ToolNamespaceSep + toolName
+	return "mcp" + ToolNamespaceSep + sanitizeIdent(serverName, "server") + ToolNamespaceSep + sanitizeIdent(toolName, "tool")
 }
 
-func sanitizeIdent(s string) string {
+func sanitizeIdent(s, fallback string) string {
 	var b strings.Builder
 	for _, r := range s {
 		switch {
@@ -100,7 +100,11 @@ func sanitizeIdent(s string) string {
 			b.WriteRune('_')
 		}
 	}
-	return b.String()
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return fallback
+	}
+	return out
 }
 
 // credentialName derives a deterministic, valid vault entry name for a server's
@@ -123,6 +127,9 @@ func validateRegistration(scope, name, rawURL, transport, authType string) error
 	}
 	if strings.TrimSpace(rawURL) == "" {
 		return fmt.Errorf("mcp: url is required")
+	}
+	if err := validateEndpointURL(rawURL); err != nil {
+		return err
 	}
 	if !ValidTransport(transport) {
 		return fmt.Errorf("mcp: unsupported transport %q: only %q and %q are allowed (stdio is not supported)", transport, TransportStreamableHTTP, TransportSSE)
