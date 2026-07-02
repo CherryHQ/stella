@@ -72,8 +72,8 @@ func TestDecompositionRepairLoop_ReusesPlanningSessionAndMaterializes(t *testing
 	if err != nil {
 		t.Fatalf("ListAttemptByGoal: %v", err)
 	}
-	if len(attempts) != 1 || attempts[0].Status != AttemptSubmitted || attempts[0].FailureClass != "" {
-		t.Fatalf("attempts=%+v want one submitted attempt without failure_class", attempts)
+	if len(attempts) != 1 || attempts[0].Status != AttemptSubmitted || attempts[0].FailureClass != "" || attempts[0].RepairRounds != 1 {
+		t.Fatalf("attempts=%+v want one submitted attempt without failure_class and repair_rounds=1", attempts)
 	}
 }
 
@@ -120,8 +120,8 @@ func TestDecompositionRepairLoop_ExhaustionBlocksPlanningInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAttemptByGoal: %v", err)
 	}
-	if len(attempts) != 1 || attempts[0].Status != AttemptFailed || attempts[0].FailureClass != FailureClassStructural {
-		t.Fatalf("attempts=%+v want one failed structural attempt", attempts)
+	if len(attempts) != 1 || attempts[0].Status != AttemptFailed || attempts[0].FailureClass != FailureClassStructural || attempts[0].RepairRounds != 2 {
+		t.Fatalf("attempts=%+v want one failed structural attempt with repair_rounds=2", attempts)
 	}
 }
 

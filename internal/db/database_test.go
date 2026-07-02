@@ -21,6 +21,34 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	}
 }
 
+func TestGoalAttemptRepairRoundsMigrationDownUp(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, 20260702085628); err != nil {
+		t.Fatalf("goose down repair_rounds migration: %v", err)
+	}
+	if columnExists(t, db, "agent_goal_attempt", "repair_rounds") {
+		t.Fatal("repair_rounds should not exist after down")
+	}
+	if _, err := provider.UpTo(ctx, 20260702110624); err != nil {
+		t.Fatalf("goose up repair_rounds migration: %v", err)
+	}
+	if !columnExists(t, db, "agent_goal_attempt", "repair_rounds") {
+		t.Fatal("repair_rounds should exist after up")
+	}
+}
+
 func TestFactsMigrationDownFlushesActiveIdentityFacts(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
@@ -81,6 +109,21 @@ func tableExists(t *testing.T, db *pgxpool.Pool, name string) bool {
 	var exists bool
 	if err := db.QueryRow(context.Background(), "SELECT to_regclass($1) IS NOT NULL", name).Scan(&exists); err != nil {
 		t.Fatalf("check table %s exists: %v", name, err)
+	}
+	return exists
+}
+
+func columnExists(t *testing.T, db *pgxpool.Pool, table, column string) bool {
+	t.Helper()
+
+	var exists bool
+	if err := db.QueryRow(context.Background(), `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2
+		)`, table, column).Scan(&exists); err != nil {
+		t.Fatalf("check column %s.%s exists: %v", table, column, err)
 	}
 	return exists
 }
