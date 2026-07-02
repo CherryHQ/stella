@@ -813,7 +813,8 @@ func (s *GoalService) routeFailedAttempt(ctx context.Context, q *sqlc.Queries, d
 		}
 		return s.blockFailureCause(ctx, q, d, BlockContractConflict)
 	case FailureClassFlaky:
-		if err := s.refundAttemptBudget(ctx, q, d); err != nil {
+		refunded, err := s.refundAttemptBudgetWithGoal(ctx, q, d)
+		if err != nil {
 			return err
 		}
 		count, err := q.IncrementGoalFlakyCount(ctx, d.ID)
@@ -822,6 +823,13 @@ func (s *GoalService) routeFailedAttempt(ctx context.Context, q *sqlc.Queries, d
 		}
 		if count > 5 {
 			return s.blockFailureCause(ctx, q, d, BlockEnvUnavailable)
+		}
+		if decomposition {
+			// Decomposition budget is metered by max decomposition attempt_no inside
+			// recoverDecomposition(ran=true). A flaky planner run is infrastructure,
+			// not a planning miss, so refund exactly once by raising MaxAttempts before
+			// that check; do not use ran=false here because the worker did run.
+			return s.recoverDecomposition(ctx, q, refunded, true)
 		}
 		return s.reopenForRework(ctx, q, d)
 	default:
@@ -910,22 +918,29 @@ func (s *GoalService) refundAndReopen(ctx context.Context, q *sqlc.Queries, d sq
 }
 
 func (s *GoalService) refundAttemptBudget(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
+	_, err := s.refundAttemptBudgetWithGoal(ctx, q, d)
+	return err
+}
+
+func (s *GoalService) refundAttemptBudgetWithGoal(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) (sqlc.AgentGoal, error) {
 	var pol ConvergencePolicy
 	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
 	pol = pol.Normalized()
 	pol.MaxAttempts++
+	rawPolicy := marshalJSON(pol)
 	if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
 		Title:              d.Title,
 		Intent:             d.Intent,
 		AcceptanceContract: d.AcceptanceContract,
-		ConvergencePolicy:  marshalJSON(pol),
+		ConvergencePolicy:  rawPolicy,
 		ReviewPolicy:       d.ReviewPolicy,
 		Priority:           d.Priority,
 		ID:                 d.ID,
 	}); err != nil {
-		return fmt.Errorf("refund responsibility failure budget: %w", err)
+		return d, fmt.Errorf("refund responsibility failure budget: %w", err)
 	}
-	return nil
+	d.ConvergencePolicy = rawPolicy
+	return d, nil
 }
 
 func (s *GoalService) blockFailureCause(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, cause string) error {

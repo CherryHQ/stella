@@ -175,6 +175,88 @@ func TestDecompositionFailureClass_PersistsModelAndFlaky(t *testing.T) {
 	}
 }
 
+func TestDecompositionFlakyFailureRecoversToDraftAndCaps(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	root := h.createRoot(KindComposite, AcceptanceContract{})
+
+	for i := 1; i <= 5; i++ {
+		att, err := h.svc.BeginDecomposition(ctx, root.ID)
+		if err != nil {
+			t.Fatalf("BeginDecomposition #%d: %v", i, err)
+		}
+		if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
+			t.Fatalf("PromoteAttempt #%d: %v", i, err)
+		}
+		if err := h.svc.FailAttempt(ctx, att.ID, "runner error", FailureClassFlaky); err != nil {
+			t.Fatalf("FailAttempt #%d: %v", i, err)
+		}
+
+		got := h.get(root.ID)
+		if got.Lifecycle != LifecycleDraft || got.FlakyCount != int64(i) {
+			t.Fatalf("after flaky %d goal=(%s flaky=%d) want draft flaky=%d", i, got.Lifecycle, got.FlakyCount, i)
+		}
+		assertDecomposable(t, h, root.ID, true)
+		assertDecompositionBudgetRemaining(t, h, root.ID, defaultMaxAttempts)
+	}
+
+	att, err := h.svc.BeginDecomposition(ctx, root.ID)
+	if err != nil {
+		t.Fatalf("BeginDecomposition cap: %v", err)
+	}
+	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
+		t.Fatalf("PromoteAttempt cap: %v", err)
+	}
+	if err := h.svc.FailAttempt(ctx, att.ID, "runner error", FailureClassFlaky); err != nil {
+		t.Fatalf("FailAttempt cap: %v", err)
+	}
+	got := h.get(root.ID)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable || got.BlockedBy != BlockEnvUnavailable || got.FlakyCount != 6 {
+		t.Fatalf("after flaky cap goal=(%s,%s,%s flaky=%d) want blocked/env_unavailable flaky=6", got.Lifecycle, got.BlockReason, got.BlockedBy, got.FlakyCount)
+	}
+	assertDecomposable(t, h, root.ID, false)
+	assertDecompositionBudgetRemaining(t, h, root.ID, defaultMaxAttempts)
+}
+
+func assertDecomposable(t *testing.T, h *harness, goalID string, want bool) {
+	t.Helper()
+	rows, err := h.q.ListDecomposableComposites(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("ListDecomposableComposites: %v", err)
+	}
+	for _, row := range rows {
+		if row.ID == goalID {
+			if !want {
+				t.Fatalf("goal %s is decomposable, want not decomposable", goalID)
+			}
+			return
+		}
+	}
+	if want {
+		t.Fatalf("goal %s not listed as decomposable", goalID)
+	}
+}
+
+func assertDecompositionBudgetRemaining(t *testing.T, h *harness, goalID string, want int) {
+	t.Helper()
+	got := h.get(goalID)
+	var pol ConvergencePolicy
+	if err := unmarshalJSON(got.ConvergencePolicy, &pol); err != nil {
+		t.Fatalf("decode convergence policy: %v", err)
+	}
+	pol = pol.Normalized()
+	spent, err := h.q.GetMaxAttemptNo(context.Background(), sqlc.GetMaxAttemptNoParams{
+		GoalID:  goalID,
+		Purpose: PurposeDecomposition,
+	})
+	if err != nil {
+		t.Fatalf("GetMaxAttemptNo: %v", err)
+	}
+	if remaining := pol.MaxAttempts - int(spent); remaining != want {
+		t.Fatalf("decomposition remaining budget=%d want %d (max_attempts=%d spent=%d)", remaining, want, pol.MaxAttempts, spent)
+	}
+}
+
 func TestAttemptInputCarriesGoalContext(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
