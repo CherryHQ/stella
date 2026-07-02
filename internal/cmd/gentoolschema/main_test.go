@@ -71,6 +71,31 @@ func TestToolSchemaUsesActionEnumAndOneOf(t *testing.T) {
 	}
 }
 
+func TestRestrictAnnotationNarrowsPropertyEnum(t *testing.T) {
+	doc := mustDoc(t, []byte(`
+paths:
+  /api/vault:
+    get:
+      x-agent-tool: { tool: vault, action: list, restrict: { scope: [user, user_agent] } }
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [user, user_agent, system, system_agent], default: user }
+components:
+  schemas: {}
+`))
+	tools, err := collectTools(doc)
+	if err != nil {
+		t.Fatalf("collectTools: %v", err)
+	}
+	props := tools["vault"][0].Schema["properties"].(map[string]any)
+	scope := props["scope"].(map[string]any)
+	enum := scope["enum"].([]any)
+	if len(enum) != 2 || enum[0] != "user" || enum[1] != "user_agent" {
+		t.Fatalf("scope enum=%#v, want [user user_agent]", enum)
+	}
+}
+
 func TestMultiActionAnnotationOmitFixedFields(t *testing.T) {
 	doc := mustDoc(t, []byte(`
 paths:

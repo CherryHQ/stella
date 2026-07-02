@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -32,6 +33,7 @@ import (
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tools"
 	"github.com/CherryHQ/stella/internal/tools/domaintools"
+	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -73,6 +75,7 @@ type setupResult struct {
 	poolManager              *agent.PoolManager
 	schedulerSvc             *scheduler.Service
 	goalSvc                  *goal.Service
+	vaultSvc                 *vault.Service
 	embeddingSvc             *embedding.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []pkgtools.Tool
@@ -208,6 +211,16 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
+	var vaultSvc *vault.Service
+	if vaultKey := os.Getenv("STELLA_VAULT_KEY"); vaultKey != "" {
+		var err error
+		vaultSvc, err = vault.NewService(sqlc.New(db), vaultKey)
+		if err != nil {
+			slog.Warn("vault service init failed; vault endpoints and native vault tool will be unavailable", "error", err)
+			vaultSvc = nil
+		}
+	}
+
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:       db,
 		Services: &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
@@ -245,6 +258,14 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
+	domainToolMounts := []agent.DomainToolMount{
+		{Name: "goal", Tool: domaintools.NewGoalTool(goalSvc), Predicate: agent.DomainToolAvailable},
+		{Name: "scheduler", Tool: domaintools.NewSchedulerTool(schedulerSvc), Predicate: agent.DomainToolAvailable},
+	}
+	if vaultSvc != nil {
+		domainToolMounts = append(domainToolMounts, agent.DomainToolMount{Name: "vault", Tool: domaintools.NewVaultTool(vaultSvc), Predicate: agent.DomainToolAvailable})
+	}
+
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithBuiltinTools(builtinTools),
@@ -259,10 +280,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		}),
 		agent.WithToolLifecyclePM(toolLifecycle),
 		agent.WithSkillStore(skillStoreAdapter),
-		agent.WithDomainToolMounts([]agent.DomainToolMount{
-			{Name: "goal", Tool: domaintools.NewGoalTool(goalSvc), Predicate: agent.DomainToolAvailable},
-			{Name: "scheduler", Tool: domaintools.NewSchedulerTool(schedulerSvc), Predicate: agent.DomainToolAvailable},
-		}),
+		agent.WithDomainToolMounts(domainToolMounts),
 		agent.WithProjectResolver(func(ctx context.Context, projectID, userID string) (string, error) {
 			p, err := sqlc.New(db).GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
 			if err != nil {
@@ -301,6 +319,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		poolManager:              poolMgr,
 		schedulerSvc:             schedulerSvc,
 		goalSvc:                  goalSvc,
+		vaultSvc:                 vaultSvc,
 		embeddingSvc:             embeddingSvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,

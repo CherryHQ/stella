@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/toolctx"
+	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -151,6 +152,80 @@ func (h goalHandler) Cancel(ctx context.Context, in GoalCancelInput) (any, error
 		return nil, err
 	}
 	return goalSummary(row), nil
+}
+
+type VaultTool struct {
+	svc *vault.Service
+}
+
+func NewVaultTool(svc *vault.Service) *VaultTool {
+	return &VaultTool{svc: svc}
+}
+
+func (t *VaultTool) Definition() tools.Definition {
+	return tools.Definition{
+		Name:        "vault",
+		Description: "Store, list, and delete secrets for this user or this user+agent. Secrets are injected into sandbox processes as environment variables at session start; there is deliberately no read-back action, and list returns metadata only. Actions: list, set, delete.",
+		InputSchema: VaultInputSchema(),
+	}
+}
+
+func (t *VaultTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	if t == nil || t.svc == nil {
+		return "", fmt.Errorf("vault service is unavailable — ask an operator to configure STELLA_VAULT_KEY")
+	}
+	ident, err := toolIdentity(ctx, "vault")
+	if err != nil {
+		return "", err
+	}
+	action, err := actionArg(args, "vault")
+	if err != nil {
+		return "", err
+	}
+	out, err := DispatchVault(ctx, vaultHandler{svc: t.svc, ident: ident}, action, args)
+	if err != nil {
+		return "", mapToolError("vault", err)
+	}
+	return marshalToolResult(out)
+}
+
+type vaultHandler struct {
+	svc   *vault.Service
+	ident toolctx.Identity
+}
+
+func (h vaultHandler) List(ctx context.Context, in VaultListInput) (any, error) {
+	entries, err := h.svc.ListOwned(ctx, h.ident, in.Scope)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]vaultResponse, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, vaultSummary(entry))
+	}
+	return listResponse[vaultResponse]{Items: items, HasMore: false}, nil
+}
+
+func (h vaultHandler) Set(ctx context.Context, in VaultSetInput) (any, error) {
+	meta, err := h.svc.SetOwned(ctx, h.ident, in.Scope, in.Name, in.Value)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"name": meta.Name, "scope": meta.Scope, "status": "set"}, nil
+}
+
+func (h vaultHandler) Delete(ctx context.Context, in VaultDeleteInput) (any, error) {
+	if err := h.svc.DeleteOwned(ctx, h.ident, in.Scope, in.Name); err != nil {
+		return nil, err
+	}
+	return map[string]any{"name": in.Name, "scope": defaultVaultScope(in.Scope), "status": "deleted"}, nil
+}
+
+func defaultVaultScope(scope string) string {
+	if scope == "" {
+		return vault.ScopeUser
+	}
+	return scope
 }
 
 type SchedulerTool struct {
@@ -299,6 +374,12 @@ type schedulerResponse struct {
 	TemplateKey string        `json:"template_key,omitempty"`
 }
 
+type vaultResponse struct {
+	Name      string `json:"name"`
+	Scope     string `json:"scope"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 type schedulerView struct {
 	Cron  string `json:"cron,omitempty"`
 	Every string `json:"every,omitempty"`
@@ -333,6 +414,10 @@ func schedulerSummary(job scheduler.Job) schedulerResponse {
 		UpdatedAt:   job.UpdatedAt.UTC().Format(time.RFC3339),
 		TemplateKey: job.JobKey,
 	}
+}
+
+func vaultSummary(meta vault.EntryMeta) vaultResponse {
+	return vaultResponse{Name: meta.Name, Scope: meta.Scope, UpdatedAt: meta.UpdatedAt}
 }
 
 func toolIdentity(ctx context.Context, tool string) (toolctx.Identity, error) {

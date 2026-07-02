@@ -37,6 +37,8 @@ var identityFields = map[string]bool{
 //	  - { tool: "scheduler", action: "resume", fixed: { enabled: true } }
 //
 // fixed fields are service-owned constants and are omitted from the model input.
+// restrict narrows a generated tool schema property without changing the HTTP API,
+// for example: restrict: { scope: [user, user_agent] }.
 func main() {
 	if err := run(inputPath, outputDir); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -81,9 +83,10 @@ type openAPIDoc struct {
 }
 
 type actionSpec struct {
-	Tool   string         `yaml:"tool"`
-	Action string         `yaml:"action"`
-	Fixed  map[string]any `yaml:"fixed"`
+	Tool     string           `yaml:"tool"`
+	Action   string           `yaml:"action"`
+	Fixed    map[string]any   `yaml:"fixed"`
+	Restrict map[string][]any `yaml:"restrict"`
 }
 
 type toolAction struct {
@@ -112,7 +115,7 @@ func collectTools(doc *openAPIDoc) (map[string][]toolAction, error) {
 			continue
 		}
 		pathParams := toSlice(pathItem["parameters"])
-		for _, method := range []string{"get", "post", "patch", "delete"} {
+		for _, method := range []string{"get", "post", "put", "patch", "delete"} {
 			rawOp, ok := pathItem[method]
 			if !ok {
 				continue
@@ -146,6 +149,7 @@ func collectTools(doc *openAPIDoc) (map[string][]toolAction, error) {
 				for fixed := range spec.Fixed {
 					deleteProperty(schema, fixed)
 				}
+				applyRestrictions(schema, spec.Restrict)
 				req := stringSlice(schema["required"])
 				out[spec.Tool] = append(out[spec.Tool], toolAction{Action: spec.Action, Schema: schema, Required: req})
 			}
@@ -493,6 +497,22 @@ func toolFieldName(name string) string {
 		return "id"
 	default:
 		return name
+	}
+}
+
+func applyRestrictions(schema map[string]any, restrict map[string][]any) {
+	props, _ := schema["properties"].(map[string]any)
+	for name, allowed := range restrict {
+		prop, ok := props[name].(map[string]any)
+		if !ok {
+			continue
+		}
+		values := make([]any, len(allowed))
+		copy(values, allowed)
+		prop["enum"] = values
+		if len(values) > 0 {
+			prop["default"] = values[0]
+		}
 	}
 }
 

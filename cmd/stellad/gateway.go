@@ -30,7 +30,6 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
-	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -174,26 +173,21 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.poolManager.SetOAuthRegistry(s.oauthRegistry)
 	}
 
-	// Wire vault service if STELLA_VAULT_KEY is set.
+	// Wire vault service if STELLA_VAULT_KEY was valid during setup.
 	var coordOpts []channel.CoordinatorOption
 	var tokenSvc *auth.TokenService
 	var mcpVault mcp.Vault // nil when the vault is unavailable; MCP bearer auth then rejected
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
-	if vaultKey := os.Getenv("STELLA_VAULT_KEY"); vaultKey != "" {
-		vaultSvc, err := vault.NewService(sqlc.New(s.db), vaultKey)
-		if err != nil {
-			slog.Warn("vault service init failed; vault endpoints will return 503", "error", err)
-		} else {
-			tokenSvc = auth.NewTokenService(as, vaultSvc)
-			mcpVault = vaultSvc
-			adminSrv.SetVaultService(vaultSvc)
-			adminSrv.SetTokenService(tokenSvc)
-			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
-			s.poolManager.SetVaultEnvLoader(gctx, vaultSvc)
-			s.poolManager.SetTokenEnsurer(gctx, tokenSvc)
-			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
-			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
-		}
+	if s.vaultSvc != nil {
+		tokenSvc = auth.NewTokenService(as, s.vaultSvc)
+		mcpVault = s.vaultSvc
+		adminSrv.SetVaultService(s.vaultSvc)
+		adminSrv.SetTokenService(tokenSvc)
+		adminSrv.SetVaultRecipient(s.vaultSvc.MasterRecipient())
+		s.poolManager.SetVaultEnvLoader(gctx, s.vaultSvc)
+		s.poolManager.SetTokenEnsurer(gctx, tokenSvc)
+		coordOpts = append(coordOpts, channel.WithVaultRecipient(s.vaultSvc.MasterRecipient()))
+		coordOpts = append(coordOpts, channel.WithVaultService(s.vaultSvc))
 	}
 
 	// Wire the MCP client: one registration service shared by the HTTP API
