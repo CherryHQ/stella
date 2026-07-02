@@ -44,6 +44,7 @@ SET scope = sqlc.arg(new_scope),
     transport = sqlc.arg(transport),
     auth_type = sqlc.arg(auth_type),
     credential_ref = sqlc.arg(credential_ref),
+    enabled = sqlc.arg(enabled),
     updated_at = now()
 WHERE id = sqlc.arg(id)
   AND scope = sqlc.arg(scope)

@@ -234,11 +234,12 @@ SET scope = $1,
     transport = $6,
     auth_type = $7,
     credential_ref = $8,
+    enabled = $9,
     updated_at = now()
-WHERE id = $9
-  AND scope = $10
-  AND coalesce(user_id::text, '') = coalesce($11::text, '')
-  AND coalesce(agent_id, '') = coalesce($12, '')
+WHERE id = $10
+  AND scope = $11
+  AND coalesce(user_id::text, '') = coalesce($12::text, '')
+  AND coalesce(agent_id, '') = coalesce($13, '')
 RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at
 `
 
@@ -251,6 +252,7 @@ type UpdateMCPServerByScopeParams struct {
 	Transport     string      `json:"transport"`
 	AuthType      string      `json:"auth_type"`
 	CredentialRef string      `json:"credential_ref"`
+	Enabled       bool        `json:"enabled"`
 	ID            string      `json:"id"`
 	Scope         string      `json:"scope"`
 	UserID        pgtype.Text `json:"user_id"`
@@ -267,6 +269,7 @@ func (q *Queries) UpdateMCPServerByScope(ctx context.Context, arg UpdateMCPServe
 		arg.Transport,
 		arg.AuthType,
 		arg.CredentialRef,
+		arg.Enabled,
 		arg.ID,
 		arg.Scope,
 		arg.UserID,

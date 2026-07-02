@@ -75,6 +75,7 @@ type UpdateInput struct {
 	URL        *string
 	Transport  *string
 	AuthType   *string
+	Enabled    *bool
 	Token      *string
 }
 
@@ -202,6 +203,10 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Registration, err
 	if in.AuthType != nil {
 		authType = *in.AuthType
 	}
+	enabled := old.Enabled
+	if in.Enabled != nil {
+		enabled = *in.Enabled
+	}
 	if err := validateRegistration(newScope, name, rawURL, transport, authType); err != nil {
 		return Registration{}, err
 	}
@@ -258,6 +263,7 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Registration, err
 		Transport:     transport,
 		AuthType:      authType,
 		CredentialRef: credentialRef,
+		Enabled:       enabled,
 		ID:            in.ID,
 		Scope:         in.Scope,
 		UserID:        pgnull.Text(in.UserID),

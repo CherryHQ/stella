@@ -206,6 +206,7 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 		URL:        body.Url,
 		Transport:  transport,
 		AuthType:   authType,
+		Enabled:    body.Enabled,
 		Token:      body.Token,
 	})
 	if err != nil {

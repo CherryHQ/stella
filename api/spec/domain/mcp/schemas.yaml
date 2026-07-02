@@ -72,6 +72,7 @@ components:
         auth_type:
           type: string
           enum: [none, bearer]
+        enabled: { type: boolean }
         # Omit token to keep the existing bearer token. Send with auth_type=bearer
         # to replace it. Send auth_type=none to delete any stored token.
         token: { type: string }

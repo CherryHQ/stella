@@ -17,6 +17,7 @@ import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -262,6 +263,26 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
     url,
   ]);
 
+  const toggleServer = useCallback(
+    async (server: McpServer, enabled: boolean) => {
+      try {
+        await updateScopedMcpServer({
+          path: { id: server.id },
+          query: {
+            scope: server.scope,
+            agent_id: isAgentScope(server.scope) ? server.agent_id : undefined,
+          },
+          body: { enabled },
+          throwOnError: true,
+        });
+        await reloadScope(server.scope, isAgentScope(server.scope) ? server.agent_id : undefined);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : t("mcp.saveFailed"), "error");
+      }
+    },
+    [reloadScope, showToast, t],
+  );
+
   const deleteServer = useCallback(
     async (server: McpServer) => {
       if (!window.confirm(t("mcp.deleteConfirm", { name: server.name }))) return;
@@ -459,9 +480,10 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
           }
           description={server.url}
           action={
-            <Button size="sm" variant="ghost" onClick={() => void deleteServer(server)}>
-              {t("common.delete")}
-            </Button>
+            <Switch
+              checked={server.enabled}
+              onCheckedChange={(checked) => void toggleServer(server, checked)}
+            />
           }
           onClick={() => openEditSheet(server)}
           footer={

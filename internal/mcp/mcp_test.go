@@ -62,6 +62,7 @@ func (d *fakeDB) UpdateMCPServerByScope(_ context.Context, arg sqlc.UpdateMCPSer
 	row.Transport = arg.Transport
 	row.AuthType = arg.AuthType
 	row.CredentialRef = arg.CredentialRef
+	row.Enabled = arg.Enabled
 	d.rows[arg.ID] = row
 	return row, nil
 }
