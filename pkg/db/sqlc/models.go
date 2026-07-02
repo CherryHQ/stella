@@ -117,6 +117,7 @@ type AgentGoalAttempt struct {
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
 	FailureClass    string             `json:"failure_class"`
+	RepairRounds    int32              `json:"repair_rounds"`
 }
 
 type AgentGoalEdge struct {

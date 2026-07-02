@@ -227,6 +227,7 @@ func (w *Worker) applyDecompositionResult(ctx context.Context, goal sqlc.AgentGo
 	repairMax := plannerRepairMax(goal)
 	for repairs := 0; ; {
 		if res.Submitted && res.Decomposition != nil {
+			w.recordRepairRounds(ctx, goal.ID, att.ID, repairs)
 			if derr := w.svc.SubmitDecomposition(ctx, att.ID, res.Evidence, *res.Decomposition); derr != nil {
 				errs := decompositionSubmitErrors(goal, input.MaxDepth, *res.Decomposition, derr)
 				if len(errs) > 0 {
@@ -242,9 +243,11 @@ func (w *Worker) applyDecompositionResult(ctx context.Context, goal sqlc.AgentGo
 						}
 						continue
 					}
+					w.recordRepairRounds(ctx, goal.ID, att.ID, repairs)
 					w.failAttempt(goal.ID, att.ID, "planning invalid:\n"+RenderErrorsText(errs), FailureClassStructural)
 					return nil
 				}
+				w.recordRepairRounds(ctx, goal.ID, att.ID, repairs)
 				w.failAttempt(goal.ID, att.ID, "apply decomposition: "+derr.Error(), FailureClassTransient)
 			}
 			return nil
@@ -253,8 +256,18 @@ func (w *Worker) applyDecompositionResult(ctx context.Context, goal sqlc.AgentGo
 		if reason == "" {
 			reason = "decomposition produced no plan"
 		}
+		w.recordRepairRounds(ctx, goal.ID, att.ID, repairs)
 		w.failAttempt(goal.ID, att.ID, reason, failureClassForResult(res))
 		return nil
+	}
+}
+
+func (w *Worker) recordRepairRounds(ctx context.Context, goalID, attemptID string, repairs int) {
+	if repairs < 0 {
+		repairs = 0
+	}
+	if err := w.q.SetAttemptRepairRounds(ctx, sqlc.SetAttemptRepairRoundsParams{ID: attemptID, RepairRounds: int32(repairs)}); err != nil {
+		w.log.Warn("worker: record repair rounds failed", "goal_id", goalID, "attempt_id", attemptID, "repair_rounds", repairs, "err", err)
 	}
 }
 
