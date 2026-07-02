@@ -224,6 +224,73 @@ func (q *Queries) ListMCPServersForAgentContext(ctx context.Context, arg ListMCP
 	return items, nil
 }
 
+const updateMCPServerByScope = `-- name: UpdateMCPServerByScope :one
+UPDATE mcp_server
+SET scope = $1,
+    user_id = $2,
+    agent_id = $3,
+    name = $4,
+    url = $5,
+    transport = $6,
+    auth_type = $7,
+    credential_ref = $8,
+    updated_at = now()
+WHERE id = $9
+  AND scope = $10
+  AND coalesce(user_id::text, '') = coalesce($11::text, '')
+  AND coalesce(agent_id, '') = coalesce($12, '')
+RETURNING id, scope, user_id, agent_id, name, url, transport, auth_type, credential_ref, enabled, metadata, created_at, updated_at
+`
+
+type UpdateMCPServerByScopeParams struct {
+	NewScope      string      `json:"new_scope"`
+	NewUserID     pgtype.Text `json:"new_user_id"`
+	NewAgentID    pgtype.Text `json:"new_agent_id"`
+	Name          string      `json:"name"`
+	Url           string      `json:"url"`
+	Transport     string      `json:"transport"`
+	AuthType      string      `json:"auth_type"`
+	CredentialRef string      `json:"credential_ref"`
+	ID            string      `json:"id"`
+	Scope         string      `json:"scope"`
+	UserID        pgtype.Text `json:"user_id"`
+	AgentID       pgtype.Text `json:"agent_id"`
+}
+
+func (q *Queries) UpdateMCPServerByScope(ctx context.Context, arg UpdateMCPServerByScopeParams) (McpServer, error) {
+	row := q.db.QueryRow(ctx, updateMCPServerByScope,
+		arg.NewScope,
+		arg.NewUserID,
+		arg.NewAgentID,
+		arg.Name,
+		arg.Url,
+		arg.Transport,
+		arg.AuthType,
+		arg.CredentialRef,
+		arg.ID,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+	)
+	var i McpServer
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Url,
+		&i.Transport,
+		&i.AuthType,
+		&i.CredentialRef,
+		&i.Enabled,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateMCPServerEnabled = `-- name: UpdateMCPServerEnabled :exec
 UPDATE mcp_server
 SET enabled = $1, updated_at = now()

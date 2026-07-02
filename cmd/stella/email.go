@@ -45,7 +45,7 @@ read messages, and send mail directly from the terminal.`,
 }
 
 func loadVaultEmailConfig(ctx context.Context, api *apiclient.Client) (*email.Config, error) {
-	scope := apiclient.GetScopedVaultEntryParamsScopeUser
+	scope := apiclient.GetScopedVaultEntryParamsScope("user")
 	resp, err := api.GetScopedVaultEntry(ctx, emailConfigKey, &apiclient.GetScopedVaultEntryParams{Scope: &scope})
 	if err != nil {
 		return nil, apiclient.WrapServerErr(err)

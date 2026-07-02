@@ -1660,6 +1660,28 @@ components:
         # returned by any response.
         token:
           type: string
+    UpdateMCPServerRequest:
+      type: object
+      properties:
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        agent_id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        auth_type:
+          type: string
+          enum: [none, bearer]
+        # Omit token to keep the existing bearer token. Send with auth_type=bearer
+        # to replace it. Send auth_type=none to delete any stored token.
+        token:
+          type: string
     CachedModel:
       type: object
       required: [provider, model]

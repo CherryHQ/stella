@@ -64,6 +64,45 @@ paths:
           schema: { type: string },
           description: "MCP server id",
         }
+    patch:
+      tags: [mcp]
+      summary: Update a scoped MCP server registration
+      operationId: updateScopedMCPServer
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user, user_agent, system, system_agent]
+            default: user
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateMCPServerRequest",
+            }
+      responses:
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPServer",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
       tags: [mcp]
       summary: Remove a scoped MCP server registration

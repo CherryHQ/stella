@@ -94,7 +94,7 @@ func vaultGetCommand() *ucli.Command {
 			if name == "" {
 				return fmt.Errorf("usage: stella vault get <name>")
 			}
-			scope := apiclient.GetScopedVaultEntryParamsScopeUser
+			scope := apiclient.GetScopedVaultEntryParamsScope("user")
 			entry, err := apiclient.Call[apiclient.VaultEntryValue](func(api *apiclient.Client) (*http.Response, error) {
 				return api.GetScopedVaultEntry(c.Context, name, &apiclient.GetScopedVaultEntryParams{Scope: &scope})
 			})

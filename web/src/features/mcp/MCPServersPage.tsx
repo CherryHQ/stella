@@ -6,6 +6,7 @@ import {
   deleteScopedMcpServer as deleteScopedMcpServerRequest,
   listAgents,
   listScopedMcpServers,
+  updateScopedMcpServer,
 } from "@/lib/api-client/sdk.gen";
 import type { McpServer } from "@/lib/api-client/types.gen";
 import type { Agent } from "@/lib/types";
@@ -72,7 +73,8 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [addSheetOpen, setAddSheetOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editingServer, setEditingServer] = useState<McpServer | null>(null);
 
   const [formOwner, setFormOwner] = useState<ScopeOwner>("me");
   const [formRange, setFormRange] = useState<ScopeRange>("all");
@@ -153,6 +155,7 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
   }, [loadAgents, loadServers]);
 
   const openAddSheet = useCallback(() => {
+    setEditingServer(null);
     setFormOwner("me");
     setFormRange("all");
     setFormAgentID("");
@@ -161,10 +164,23 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
     setTransport("streamable_http");
     setAuthType("none");
     setToken("");
-    setAddSheetOpen(true);
+    setSheetOpen(true);
   }, []);
 
-  const createServer = useCallback(async () => {
+  const openEditSheet = useCallback((server: McpServer) => {
+    setEditingServer(server);
+    setFormOwner(server.scope === "system" || server.scope === "system_agent" ? "global" : "me");
+    setFormRange(isAgentScope(server.scope) ? "specific" : "all");
+    setFormAgentID(server.agent_id ?? "");
+    setName(server.name);
+    setURL(server.url);
+    setTransport(server.transport);
+    setAuthType(server.auth_type);
+    setToken("");
+    setSheetOpen(true);
+  }, []);
+
+  const saveServer = useCallback(async () => {
     const scope = toScope(formOwner, formRange);
     const agentScoped = isAgentScope(scope);
     if (!name.trim()) {
@@ -179,35 +195,61 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
       showToast(t("mcp.scope.agentMissing"), "error");
       return;
     }
-    if (authType === "bearer" && !token.trim()) {
+    if (authType === "bearer" && !editingServer && !token.trim()) {
       showToast(t("mcp.tokenRequired"), "error");
       return;
     }
 
     setSaving(true);
     try {
-      await createScopedMcpServer({
-        body: {
-          scope,
-          agent_id: agentScoped ? formAgentID : undefined,
-          name: name.trim(),
-          url: url.trim(),
-          transport,
-          auth_type: authType,
-          token: authType === "bearer" ? token : undefined,
-        },
-        throwOnError: true,
-      });
-      showToast(t("mcp.created"));
-      setAddSheetOpen(false);
+      if (editingServer) {
+        await updateScopedMcpServer({
+          path: { id: editingServer.id },
+          query: {
+            scope: editingServer.scope,
+            agent_id: isAgentScope(editingServer.scope) ? editingServer.agent_id : undefined,
+          },
+          body: {
+            scope,
+            agent_id: agentScoped ? formAgentID : undefined,
+            name: name.trim(),
+            url: url.trim(),
+            transport,
+            auth_type: authType,
+            token: authType === "bearer" && token.trim() ? token : undefined,
+          },
+          throwOnError: true,
+        });
+        showToast(t("mcp.updated"));
+        await reloadScope(
+          editingServer.scope,
+          isAgentScope(editingServer.scope) ? editingServer.agent_id : undefined,
+        );
+      } else {
+        await createScopedMcpServer({
+          body: {
+            scope,
+            agent_id: agentScoped ? formAgentID : undefined,
+            name: name.trim(),
+            url: url.trim(),
+            transport,
+            auth_type: authType,
+            token: authType === "bearer" ? token : undefined,
+          },
+          throwOnError: true,
+        });
+        showToast(t("mcp.created"));
+      }
+      setSheetOpen(false);
       await reloadScope(scope, agentScoped ? formAgentID : undefined);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : t("mcp.createFailed"), "error");
+      showToast(e instanceof Error ? e.message : t("mcp.saveFailed"), "error");
     } finally {
       setSaving(false);
     }
   }, [
     authType,
+    editingServer,
     formAgentID,
     formOwner,
     formRange,
@@ -233,12 +275,16 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
           throwOnError: true,
         });
         showToast(t("mcp.deleted"));
+        if (editingServer?.id === server.id) {
+          setSheetOpen(false);
+          setEditingServer(null);
+        }
         await reloadScope(server.scope, isAgentScope(server.scope) ? server.agent_id : undefined);
       } catch (e) {
         showToast(e instanceof Error ? e.message : t("mcp.deleteFailed"), "error");
       }
     },
-    [reloadScope, showToast, t],
+    [editingServer?.id, reloadScope, showToast, t],
   );
 
   const sortedServers = useMemo(
@@ -250,14 +296,18 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
 
   const addPanel = (
     <DetailPanel
-      onCancel={() => setAddSheetOpen(false)}
-      onSave={createServer}
-      saveLabel={t("mcp.add")}
+      onCancel={() => setSheetOpen(false)}
+      onDelete={editingServer ? () => void deleteServer(editingServer) : undefined}
+      onSave={saveServer}
+      saveLabel={editingServer ? t("common.save") : t("mcp.add")}
       cancelLabel={t("common.cancel")}
       isSaving={saving}
       canSave={!saving}
     >
-      <DetailPanelHeader title={t("mcp.addTitle")} subtitle={t("mcp.addDescription")} />
+      <DetailPanelHeader
+        title={editingServer ? t("mcp.editTitle") : t("mcp.addTitle")}
+        subtitle={editingServer ? t("mcp.editDescription") : t("mcp.addDescription")}
+      />
 
       <div className="space-y-4">
         <Field>
@@ -372,7 +422,9 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
               autoComplete="off"
               nativeInput
             />
-            <FieldDescription>{t("mcp.token.description")}</FieldDescription>
+            <FieldDescription>
+              {editingServer ? t("mcp.token.editDescription") : t("mcp.token.description")}
+            </FieldDescription>
           </Field>
         )}
       </div>
@@ -411,6 +463,7 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
               {t("common.delete")}
             </Button>
           }
+          onClick={() => openEditSheet(server)}
           footer={
             <>
               <Badge variant="outline" size="sm">
@@ -451,7 +504,7 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
         </SettingsGridPage>
       )}
 
-      <SettingsDetailSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)}>
+      <SettingsDetailSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
         {addPanel}
       </SettingsDetailSheet>
       <ToastContainer messages={toasts} />

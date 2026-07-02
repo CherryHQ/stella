@@ -18,6 +18,7 @@ type DB interface {
 	GetMCPServerByID(ctx context.Context, id string) (sqlc.McpServer, error)
 	ListMCPServersByScope(ctx context.Context, arg sqlc.ListMCPServersByScopeParams) ([]sqlc.McpServer, error)
 	ListMCPServersForAgentContext(ctx context.Context, arg sqlc.ListMCPServersForAgentContextParams) ([]sqlc.McpServer, error)
+	UpdateMCPServerByScope(ctx context.Context, arg sqlc.UpdateMCPServerByScopeParams) (sqlc.McpServer, error)
 	DeleteMCPServerByScope(ctx context.Context, arg sqlc.DeleteMCPServerByScopeParams) error
 }
 
@@ -57,6 +58,24 @@ type CreateInput struct {
 	Transport string
 	AuthType  string
 	Token     string
+}
+
+// UpdateInput describes a partial registration update. Nil fields keep the
+// current value; Token nil keeps the current bearer token, while Token != nil
+// replaces it.
+type UpdateInput struct {
+	ID         string
+	Scope      string
+	UserID     string
+	AgentID    string
+	NewScope   *string
+	NewUserID  string
+	NewAgentID string
+	Name       *string
+	URL        *string
+	Transport  *string
+	AuthType   *string
+	Token      *string
 }
 
 // Create validates the input, stores any bearer token in the vault, and inserts
@@ -130,6 +149,130 @@ func (s *Service) ListByScope(ctx context.Context, scope, userID, agentID string
 		return nil, fmt.Errorf("mcp: list registrations: %w", err)
 	}
 	return registrationsFromRows(rows), nil
+}
+
+// Update modifies a registration in the given current scope/owner bucket and
+// returns the updated row. Omitted fields keep their current values. If bearer
+// auth stays enabled and Token is omitted, the existing encrypted token is kept;
+// moving scopes copies that token to the new vault bucket.
+func (s *Service) Update(ctx context.Context, in UpdateInput) (Registration, error) {
+	if in.ID == "" {
+		return Registration{}, fmt.Errorf("mcp: id is required")
+	}
+	if err := validateScopeOwner(in.Scope, in.UserID, in.AgentID); err != nil {
+		return Registration{}, err
+	}
+
+	current, err := s.db.GetMCPServerByID(ctx, in.ID)
+	if err != nil {
+		return Registration{}, fmt.Errorf("mcp: get registration: %w", err)
+	}
+	if !rowMatchesScopeOwner(current, in.Scope, in.UserID, in.AgentID) {
+		return Registration{}, fmt.Errorf("mcp: registration not found in scope")
+	}
+	old := registrationFromRow(current)
+
+	newScope := old.Scope
+	if in.NewScope != nil {
+		newScope = *in.NewScope
+	}
+	newUserID := in.NewUserID
+	newAgentID := in.NewAgentID
+	if in.NewScope == nil {
+		newUserID = old.UserID
+		newAgentID = old.AgentID
+	}
+	if err := validateScopeOwner(newScope, newUserID, newAgentID); err != nil {
+		return Registration{}, err
+	}
+
+	name := old.Name
+	if in.Name != nil {
+		name = *in.Name
+	}
+	rawURL := old.URL
+	if in.URL != nil {
+		rawURL = *in.URL
+	}
+	transport := old.Transport
+	if in.Transport != nil {
+		transport = *in.Transport
+	}
+	authType := old.AuthType
+	if in.AuthType != nil {
+		authType = *in.AuthType
+	}
+	if err := validateRegistration(newScope, name, rawURL, transport, authType); err != nil {
+		return Registration{}, err
+	}
+
+	credentialRef := old.CredentialRef
+	var tokenToStore string
+	storeToken := false
+	deleteOldToken := false
+	oldTokenScope, oldTokenUserID, oldTokenAgentID := old.Scope, old.UserID, old.AgentID
+
+	scopeMoved := newScope != old.Scope || newUserID != old.UserID || newAgentID != old.AgentID
+	switch authType {
+	case AuthTypeNone:
+		credentialRef = ""
+		deleteOldToken = old.CredentialRef != ""
+	case AuthTypeBearer:
+		if s.vault == nil {
+			return Registration{}, fmt.Errorf("mcp: bearer auth requires the vault, which is not configured")
+		}
+		if credentialRef == "" {
+			credentialRef = credentialName(in.ID)
+		}
+		switch {
+		case in.Token != nil:
+			if *in.Token == "" {
+				return Registration{}, fmt.Errorf("mcp: auth_type %q requires a token", AuthTypeBearer)
+			}
+			tokenToStore = *in.Token
+			storeToken = true
+		case old.AuthType == AuthTypeBearer && old.CredentialRef != "" && scopeMoved:
+			tokenToStore, err = s.vault.GetScoped(ctx, old.Scope, old.UserID, old.AgentID, old.CredentialRef)
+			if err != nil {
+				return Registration{}, fmt.Errorf("mcp: read existing token: %w", err)
+			}
+			storeToken = true
+		case old.AuthType != AuthTypeBearer || old.CredentialRef == "":
+			return Registration{}, fmt.Errorf("mcp: auth_type %q requires a token", AuthTypeBearer)
+		}
+		deleteOldToken = old.CredentialRef != "" && old.CredentialRef != credentialRef || (old.CredentialRef != "" && scopeMoved)
+	}
+
+	if storeToken {
+		if err := s.storeToken(ctx, newScope, newUserID, newAgentID, credentialRef, tokenToStore); err != nil {
+			return Registration{}, fmt.Errorf("mcp: store token: %w", err)
+		}
+	}
+
+	row, err := s.db.UpdateMCPServerByScope(ctx, sqlc.UpdateMCPServerByScopeParams{
+		NewScope:      newScope,
+		NewUserID:     pgnull.Text(newUserID),
+		NewAgentID:    pgnull.Text(newAgentID),
+		Name:          name,
+		Url:           rawURL,
+		Transport:     transport,
+		AuthType:      authType,
+		CredentialRef: credentialRef,
+		ID:            in.ID,
+		Scope:         in.Scope,
+		UserID:        pgnull.Text(in.UserID),
+		AgentID:       pgnull.Text(in.AgentID),
+	})
+	if err != nil {
+		if storeToken && (scopeMoved || old.CredentialRef == "") {
+			_ = s.deleteToken(ctx, newScope, newUserID, newAgentID, credentialRef)
+		}
+		return Registration{}, fmt.Errorf("mcp: update registration: %w", err)
+	}
+	if deleteOldToken {
+		_ = s.deleteToken(ctx, oldTokenScope, oldTokenUserID, oldTokenAgentID, old.CredentialRef)
+	}
+	return registrationFromRow(row), nil
 }
 
 // Delete removes a registration in the given scope and its vault credential.
@@ -237,6 +380,10 @@ func textOrEmpty(v pgtype.Text) string {
 		return ""
 	}
 	return v.String
+}
+
+func rowMatchesScopeOwner(row sqlc.McpServer, scope, userID, agentID string) bool {
+	return row.Scope == scope && textOrEmpty(row.UserID) == userID && textOrEmpty(row.AgentID) == agentID
 }
 
 func registrationFromRow(row sqlc.McpServer) Registration {

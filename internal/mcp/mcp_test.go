@@ -18,6 +18,7 @@ type fakeDB struct {
 	rows     map[string]sqlc.McpServer // id -> row
 	forCtx   []sqlc.McpServer          // canned ResolveForContext result
 	byScope  []sqlc.McpServer
+	updated  []sqlc.UpdateMCPServerByScopeParams
 	deleted  []string
 	createFn func(sqlc.CreateMCPServerParams) (sqlc.McpServer, error)
 }
@@ -50,6 +51,21 @@ func (d *fakeDB) ListMCPServersForAgentContext(_ context.Context, _ sqlc.ListMCP
 	return d.forCtx, nil
 }
 
+func (d *fakeDB) UpdateMCPServerByScope(_ context.Context, arg sqlc.UpdateMCPServerByScopeParams) (sqlc.McpServer, error) {
+	d.updated = append(d.updated, arg)
+	row := d.rows[arg.ID]
+	row.Scope = arg.NewScope
+	row.UserID = arg.NewUserID
+	row.AgentID = arg.NewAgentID
+	row.Name = arg.Name
+	row.Url = arg.Url
+	row.Transport = arg.Transport
+	row.AuthType = arg.AuthType
+	row.CredentialRef = arg.CredentialRef
+	d.rows[arg.ID] = row
+	return row, nil
+}
+
 func (d *fakeDB) DeleteMCPServerByScope(_ context.Context, arg sqlc.DeleteMCPServerByScopeParams) error {
 	d.deleted = append(d.deleted, arg.ID)
 	return nil
@@ -64,27 +80,31 @@ type fakeVault struct {
 
 func newFakeVault() *fakeVault { return &fakeVault{stored: map[string]string{}} }
 
-func (v *fakeVault) SetScoped(_ context.Context, _, _, _, name, plaintext string) error {
-	v.stored[name] = plaintext
+func vaultKey(scope, userID, agentID, name string) string {
+	return scope + "|" + userID + "|" + agentID + "|" + name
+}
+
+func (v *fakeVault) SetScoped(_ context.Context, scope, userID, agentID, name, plaintext string) error {
+	v.stored[vaultKey(scope, userID, agentID, name)] = plaintext
 	return nil
 }
 
-func (v *fakeVault) SetSystemScoped(_ context.Context, _, _, name, plaintext string) error {
-	v.stored[name] = plaintext
+func (v *fakeVault) SetSystemScoped(_ context.Context, scope, agentID, name, plaintext string) error {
+	v.stored[vaultKey(scope, "", agentID, name)] = plaintext
 	return nil
 }
 
-func (v *fakeVault) GetScoped(_ context.Context, _, _, _, name string) (string, error) {
-	return v.stored[name], nil
+func (v *fakeVault) GetScoped(_ context.Context, scope, userID, agentID, name string) (string, error) {
+	return v.stored[vaultKey(scope, userID, agentID, name)], nil
 }
 
-func (v *fakeVault) DeleteScoped(_ context.Context, _, _, _, name string) error {
-	delete(v.stored, name)
+func (v *fakeVault) DeleteScoped(_ context.Context, scope, userID, agentID, name string) error {
+	delete(v.stored, vaultKey(scope, userID, agentID, name))
 	return nil
 }
 
-func (v *fakeVault) DeleteSystemScoped(_ context.Context, _, _, name string) error {
-	delete(v.stored, name)
+func (v *fakeVault) DeleteSystemScoped(_ context.Context, scope, agentID, name string) error {
+	delete(v.stored, vaultKey(scope, "", agentID, name))
 	return nil
 }
 
@@ -161,7 +181,7 @@ func TestCreateBearerStoresTokenInVaultNotRow(t *testing.T) {
 	}
 
 	// The token must have been handed to the vault under the credential name.
-	got, ok := vlt.stored[reg.CredentialRef]
+	got, ok := vlt.stored[vaultKey(ScopeUser, "u1", "", reg.CredentialRef)]
 	if !ok {
 		t.Fatalf("token was not stored in the vault under %q", reg.CredentialRef)
 	}
@@ -181,6 +201,69 @@ func TestCreateBearerStoresTokenInVaultNotRow(t *testing.T) {
 	// The credential name must be a valid vault entry name.
 	if err := vault.ValidateName(reg.CredentialRef); err != nil {
 		t.Fatalf("credential name %q is not a valid vault name: %v", reg.CredentialRef, err)
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+func TestUpdateBearerCanKeepTokenWhenScopeMoves(t *testing.T) {
+	db := newFakeDB()
+	vlt := newFakeVault()
+	svc := NewService(db, vlt)
+	reg, err := svc.Create(context.Background(), CreateInput{
+		Scope: ScopeUser, UserID: "u1", Name: "gh", URL: "https://old.example.com",
+		Transport: TransportStreamableHTTP, AuthType: AuthTypeBearer, Token: "secret",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := svc.Update(context.Background(), UpdateInput{
+		ID: reg.ID, Scope: ScopeUser, UserID: "u1",
+		NewScope: strPtr(ScopeUserAgent), NewUserID: "u1", NewAgentID: "a1",
+		URL: strPtr("https://new.example.com"),
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Scope != ScopeUserAgent || updated.AgentID != "a1" || updated.URL != "https://new.example.com" {
+		t.Fatalf("updated registration = %+v", updated)
+	}
+	if _, ok := vlt.stored[vaultKey(ScopeUserAgent, "u1", "a1", reg.CredentialRef)]; !ok {
+		t.Fatal("token should still exist under the stable credential name in the new scope")
+	}
+	back, err := svc.BearerToken(context.Background(), updated)
+	if err != nil {
+		t.Fatalf("BearerToken: %v", err)
+	}
+	if back != "secret" {
+		t.Fatalf("BearerToken = %q, want secret", back)
+	}
+}
+
+func TestUpdateAuthNonePurgesToken(t *testing.T) {
+	db := newFakeDB()
+	vlt := newFakeVault()
+	svc := NewService(db, vlt)
+	reg, err := svc.Create(context.Background(), CreateInput{
+		Scope: ScopeUser, UserID: "u1", Name: "gh", URL: "https://mcp.example.com",
+		Transport: TransportStreamableHTTP, AuthType: AuthTypeBearer, Token: "secret",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := svc.Update(context.Background(), UpdateInput{
+		ID: reg.ID, Scope: ScopeUser, UserID: "u1", AuthType: strPtr(AuthTypeNone),
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.AuthType != AuthTypeNone || updated.CredentialRef != "" {
+		t.Fatalf("updated auth = %q cred = %q", updated.AuthType, updated.CredentialRef)
+	}
+	if _, ok := vlt.stored[vaultKey(ScopeUser, "u1", "", reg.CredentialRef)]; ok {
+		t.Fatal("token should be deleted when auth switches to none")
 	}
 }
 
@@ -344,13 +427,13 @@ func TestDeletePurgesCredential(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, ok := vlt.stored[reg.CredentialRef]; !ok {
+	if _, ok := vlt.stored[vaultKey(ScopeUser, "u1", "", reg.CredentialRef)]; !ok {
 		t.Fatal("precondition: token should be stored")
 	}
 	if err := svc.Delete(context.Background(), reg.ID, ScopeUser, "u1", ""); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, ok := vlt.stored[reg.CredentialRef]; ok {
+	if _, ok := vlt.stored[vaultKey(ScopeUser, "u1", "", reg.CredentialRef)]; ok {
 		t.Fatal("Delete must purge the vault credential")
 	}
 	if len(db.deleted) != 1 || db.deleted[0] != reg.ID {

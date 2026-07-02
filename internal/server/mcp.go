@@ -135,6 +135,91 @@ func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, mcpServerResponse(reg))
 }
 
+// UpdateScopedMCPServer handles PATCH /api/mcp/servers/{id}.
+func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, id string, params apiserver.UpdateScopedMCPServerParams) {
+	if s.mcpSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "mcp not configured")
+		return
+	}
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+
+	var body apitypes.UpdateMCPServerRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	scope := mcp.ScopeUser
+	if params.Scope != nil {
+		scope = string(*params.Scope)
+	}
+	agentID := ""
+	if params.AgentId != nil {
+		agentID = *params.AgentId
+	}
+	userID, agentID, ok := s.resolveVaultScope(w, r, info, scope, agentID)
+	if !ok {
+		return
+	}
+
+	newScope := scope
+	if body.Scope != nil {
+		newScope = string(*body.Scope)
+	}
+	newAgentID := agentID
+	if body.AgentId != nil {
+		newAgentID = *body.AgentId
+	}
+	newUserID, newAgentID, ok := s.resolveVaultScope(w, r, info, newScope, newAgentID)
+	if !ok {
+		return
+	}
+
+	var transport *string
+	if body.Transport != nil {
+		v := string(*body.Transport)
+		transport = &v
+	}
+	var authType *string
+	if body.AuthType != nil {
+		v := string(*body.AuthType)
+		authType = &v
+	}
+
+	reg, err := s.mcpSvc.Update(r.Context(), mcp.UpdateInput{
+		ID:         id,
+		Scope:      scope,
+		UserID:     userID,
+		AgentID:    agentID,
+		NewScope:   &newScope,
+		NewUserID:  newUserID,
+		NewAgentID: newAgentID,
+		Name:       body.Name,
+		URL:        body.Url,
+		Transport:  transport,
+		AuthType:   authType,
+		Token:      body.Token,
+	})
+	if err != nil {
+		s.log.Warn("update scoped mcp server", "user_id", info.UserID, "scope", scope, "agent_id", agentID, "id", id, "error", err)
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.invalidateMCPRunners(scope, userID, agentID)
+	if newScope != scope || newUserID != userID || newAgentID != agentID {
+		s.invalidateMCPRunners(newScope, newUserID, newAgentID)
+	}
+	writeData(w, http.StatusOK, mcpServerResponse(reg))
+}
+
 // DeleteScopedMCPServer handles DELETE /api/mcp/servers/{id}.
 func (s *Server) DeleteScopedMCPServer(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteScopedMCPServerParams) {
 	if s.mcpSvc == nil {
