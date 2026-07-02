@@ -13,6 +13,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -282,9 +283,42 @@ func (s *Service) ListGoals(ctx context.Context, userID string, filter GoalFilte
 	})
 }
 
+func (s *Service) ListGoalsOwned(ctx context.Context, ident toolctx.Identity, filter GoalFilter, limit, offset int64) ([]sqlc.AgentGoal, error) {
+	if ident.UserID == "" {
+		return nil, toolctx.ErrUnauthenticated
+	}
+	if ident.AgentScoped {
+		if ident.AgentID == "" {
+			return nil, toolctx.ErrForbidden
+		}
+		if filter.AgentID != "" && filter.AgentID != ident.AgentID {
+			return nil, toolctx.ErrForbidden
+		}
+		filter.AgentID = ident.AgentID
+	}
+	return s.ListGoals(ctx, ident.UserID, filter, limit, offset)
+}
+
 // GetGoal returns one goal, mapping a missing row to ErrNotFound.
 func (s *Service) GetGoal(ctx context.Context, id string) (sqlc.AgentGoal, error) {
 	return getGoal(ctx, s.Queries, id)
+}
+
+func (s *Service) GetGoalOwned(ctx context.Context, ident toolctx.Identity, id string) (sqlc.AgentGoal, error) {
+	if ident.UserID == "" {
+		return sqlc.AgentGoal{}, toolctx.ErrUnauthenticated
+	}
+	d, err := s.GetGoal(ctx, id)
+	if err != nil {
+		return sqlc.AgentGoal{}, err
+	}
+	if d.UserID != ident.UserID {
+		return sqlc.AgentGoal{}, toolctx.ErrNotFound
+	}
+	if ident.AgentScoped && d.AgentID != ident.AgentID {
+		return sqlc.AgentGoal{}, toolctx.ErrForbidden
+	}
+	return d, nil
 }
 
 // ListChildren lists the direct children of a composite goal, in position
@@ -341,6 +375,17 @@ func (s *Service) CreateGoal(ctx context.Context, in CreateInput) (sqlc.AgentGoa
 	return s.Goal.CreateRoot(ctx, in)
 }
 
+func (s *Service) CreateGoalOwned(ctx context.Context, ident toolctx.Identity, in CreateInput) (sqlc.AgentGoal, error) {
+	if ident.UserID == "" {
+		return sqlc.AgentGoal{}, toolctx.ErrUnauthenticated
+	}
+	if ident.AgentScoped && in.AgentID != ident.AgentID {
+		return sqlc.AgentGoal{}, toolctx.ErrForbidden
+	}
+	in.UserID = ident.UserID
+	return s.CreateGoal(ctx, in)
+}
+
 // CountGoals returns the total root goals matching the same filter
 // as ListGoals — it drives the list's exact `total` and the
 // active/history/archived header badges (three counts varying only terminal/archived).
@@ -356,6 +401,22 @@ func (s *Service) CountGoals(ctx context.Context, userID string, filter GoalFilt
 	})
 }
 
+func (s *Service) CountGoalsOwned(ctx context.Context, ident toolctx.Identity, filter GoalFilter) (int64, error) {
+	if ident.UserID == "" {
+		return 0, toolctx.ErrUnauthenticated
+	}
+	if ident.AgentScoped {
+		if ident.AgentID == "" {
+			return 0, toolctx.ErrForbidden
+		}
+		if filter.AgentID != "" && filter.AgentID != ident.AgentID {
+			return 0, toolctx.ErrForbidden
+		}
+		filter.AgentID = ident.AgentID
+	}
+	return s.CountGoals(ctx, ident.UserID, filter)
+}
+
 // Activate runs the plan gate: draft→ready.
 func (s *Service) Activate(ctx context.Context, id string) (sqlc.AgentGoal, error) {
 	return s.Goal.Activate(ctx, id)
@@ -369,6 +430,13 @@ func (s *Service) UpdateGoal(ctx context.Context, id string, in UpdateInput) (sq
 // Cancel cascades a cancel over the subtree.
 func (s *Service) Cancel(ctx context.Context, id, reason string, by Actor) error {
 	return s.Goal.Cancel(ctx, id, reason, by)
+}
+
+func (s *Service) CancelOwned(ctx context.Context, ident toolctx.Identity, id, reason string) error {
+	if _, err := s.GetGoalOwned(ctx, ident, id); err != nil {
+		return err
+	}
+	return s.Cancel(ctx, id, reason, UserActor(ident.UserID))
 }
 
 // Abandon is the human give-up on a budget-exhausted block.

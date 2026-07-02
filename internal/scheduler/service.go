@@ -16,6 +16,7 @@ import (
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -520,6 +521,96 @@ func (s *Service) ListJobs() []Job {
 		result = append(result, j)
 	}
 	return result
+}
+
+func (s *Service) CreateJobOwned(ctx context.Context, ident toolctx.Identity, name, message string, sched Schedule, sessionMode, agentID string) (Job, error) {
+	if ident.UserID == "" {
+		return Job{}, toolctx.ErrUnauthenticated
+	}
+	if ident.AgentScoped && agentID != ident.AgentID {
+		return Job{}, toolctx.ErrForbidden
+	}
+	return s.AddJobWithOwner(name, message, sched, sessionMode, agentID, ident.UserID)
+}
+
+func (s *Service) SubscribeOwned(ctx context.Context, ident toolctx.Identity, agentID, key string, schedOverride Schedule) (Job, error) {
+	if ident.UserID == "" {
+		return Job{}, toolctx.ErrUnauthenticated
+	}
+	if ident.AgentScoped && agentID != ident.AgentID {
+		return Job{}, toolctx.ErrForbidden
+	}
+	return s.Subscribe(ctx, ident.UserID, agentID, key, schedOverride)
+}
+
+func (s *Service) ListJobsOwned(ctx context.Context, ident toolctx.Identity, agentID string) ([]Job, error) {
+	if ident.UserID == "" {
+		return nil, toolctx.ErrUnauthenticated
+	}
+	if ident.AgentScoped && agentID != ident.AgentID {
+		return nil, toolctx.ErrForbidden
+	}
+	rows, err := s.q.ListSchedulerJobByOwner(ctx, sqlc.ListSchedulerJobByOwnerParams{
+		AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
+		UserID:  pgtype.Text{String: ident.UserID, Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	jobs := make([]Job, 0, len(rows))
+	for _, row := range rows {
+		jobs = append(jobs, dbRowToJob(row))
+	}
+	return jobs, nil
+}
+
+func (s *Service) GetJobOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string) (Job, error) {
+	if ident.UserID == "" {
+		return Job{}, toolctx.ErrUnauthenticated
+	}
+	row, err := s.q.GetSchedulerJob(ctx, jobID)
+	if err != nil {
+		return Job{}, toolctx.ErrNotFound
+	}
+	job := dbRowToJob(row)
+	if job.OwnerKind == JobOwnerPlugin || job.OwnerKind == JobOwnerSystem {
+		return Job{}, toolctx.ErrNotFound
+	}
+	if job.AgentID != agentID {
+		return Job{}, toolctx.ErrNotFound
+	}
+	if job.UserID != ident.UserID {
+		return Job{}, toolctx.ErrForbidden
+	}
+	if ident.AgentScoped && job.AgentID != ident.AgentID {
+		return Job{}, toolctx.ErrForbidden
+	}
+	return job, nil
+}
+
+func (s *Service) UpdateJobOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string, update JobUpdate) (Job, error) {
+	if _, err := s.GetJobOwned(ctx, ident, agentID, jobID); err != nil {
+		return Job{}, err
+	}
+	return s.UpdateUserJob(ctx, jobID, update)
+}
+
+func (s *Service) DeleteJobOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string) error {
+	if _, err := s.GetJobOwned(ctx, ident, agentID, jobID); err != nil {
+		return err
+	}
+	return s.RemoveJob(jobID)
+}
+
+func (s *Service) SetJobEnabledOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string, enabled bool) (Job, error) {
+	return s.UpdateJobOwned(ctx, ident, agentID, jobID, JobUpdate{Enabled: &enabled})
+}
+
+func (s *Service) RunJobNowOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string) (string, error) {
+	if _, err := s.GetJobOwned(ctx, ident, agentID, jobID); err != nil {
+		return "", err
+	}
+	return s.RunJobNow(ctx, jobID)
 }
 
 // executeSingleRun runs one job execution for the given userID (empty = system context).

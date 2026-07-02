@@ -187,6 +187,61 @@ func (q *Queries) ListAllSchedulerJobs(ctx context.Context) ([]SchedJob, error) 
 	return items, nil
 }
 
+const listSchedulerJobByOwner = `-- name: ListSchedulerJobByOwner :many
+SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_job
+WHERE owner_kind = 'user'
+  AND agent_id = $1
+  AND user_id = $2
+ORDER BY created_at
+`
+
+type ListSchedulerJobByOwnerParams struct {
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
+}
+
+func (q *Queries) ListSchedulerJobByOwner(ctx context.Context, arg ListSchedulerJobByOwnerParams) ([]SchedJob, error) {
+	rows, err := q.db.Query(ctx, listSchedulerJobByOwner, arg.AgentID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SchedJob{}
+	for rows.Next() {
+		var i SchedJob
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerKind,
+			&i.ExecScope,
+			&i.PluginID,
+			&i.JobKey,
+			&i.RuntimeName,
+			&i.Name,
+			&i.Description,
+			&i.ScheduleCron,
+			&i.ScheduleEvery,
+			&i.ScheduleAt,
+			&i.Message,
+			&i.Payload,
+			&i.SessionMode,
+			&i.Enabled,
+			&i.AgentID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastRunAt,
+			&i.LastError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSchedulerJobs = `-- name: ListSchedulerJobs :many
 SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_job ORDER BY created_at
 `

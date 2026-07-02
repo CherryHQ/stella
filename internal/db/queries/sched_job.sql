@@ -14,6 +14,13 @@ SELECT * FROM sched_job ORDER BY created_at;
 -- name: ListAllSchedulerJobs :many
 SELECT * FROM sched_job ORDER BY created_at;
 
+-- name: ListSchedulerJobByOwner :many
+SELECT * FROM sched_job
+WHERE owner_kind = 'user'
+  AND agent_id = $1
+  AND user_id = $2
+ORDER BY created_at;
+
 -- name: ListSchedulerJobsByAgent :many
 SELECT * FROM sched_job
 WHERE owner_kind IN ('plugin', 'system')
