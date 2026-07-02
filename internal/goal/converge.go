@@ -298,12 +298,6 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failur
 	if !ValidFailureClass(failureClass) || failureClass == "" || !ValidBlockedBy(blockedBy) {
 		return ErrInvalidTransition
 	}
-	if failureClass == FailureClassEnvironment && blockedBy == "" {
-		blockedBy = BlockEnvUnavailable
-	}
-	if failureClass == FailureClassContract && blockedBy == "" {
-		blockedBy = BlockContractConflict
-	}
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		att, err := q.GetAttempt(ctx, attemptID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1023,28 +1017,6 @@ func (s *GoalService) blockBudget(ctx context.Context, q *sqlc.Queries, d sqlc.A
 	})
 	if err != nil {
 		return fmt.Errorf("block budget: %w", err)
-	}
-	if rows == 0 {
-		return ErrInvalidTransition
-	}
-	return nil
-}
-
-// blockPlanningInvalid parks a composite whose planner exhausted contract-level
-// planning validation. Model-owned decomposition failures now use the normal
-// planning budget path.
-func (s *GoalService) blockPlanningInvalid(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
-	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
-		return fmt.Errorf("clear active attempt: %w", err)
-	}
-	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-		ToLifecycle:   LifecycleBlocked,
-		BlockReason:   BlockPlanningInvalid,
-		ID:            d.ID,
-		FromLifecycle: LifecycleActive,
-	})
-	if err != nil {
-		return fmt.Errorf("block planning invalid: %w", err)
 	}
 	if rows == 0 {
 		return ErrInvalidTransition
