@@ -31,6 +31,15 @@ const goalControlExecuteInputSchemaJSON = `{
       "description": "submit: hash-addressed artifact refs (diffs/files/stdout).",
       "type": "array"
     },
+    "blocked_by": {
+      "description": "fail: optional structured blocker when the contract is impossible or the environment is unavailable.",
+      "enum": [
+        "",
+        "env_unavailable",
+        "contract_conflict"
+      ],
+      "type": "string"
+    },
     "detail": {
       "description": "block: structured detail.",
       "type": "object"
@@ -56,7 +65,7 @@ const goalControlExecuteInputSchemaJSON = `{
       "type": "string"
     },
     "retryable": {
-      "description": "fail: true if a retry may succeed.",
+      "description": "fail: legacy hint; routing uses blocked_by/failure source, not this boolean.",
       "type": "boolean"
     },
     "summary": {
@@ -81,6 +90,15 @@ const goalControlDecomposeInputSchemaJSON = `{
       "enum": [
         "decompose",
         "fail"
+      ],
+      "type": "string"
+    },
+    "blocked_by": {
+      "description": "fail: optional structured blocker when the contract is impossible or the environment is unavailable.",
+      "enum": [
+        "",
+        "env_unavailable",
+        "contract_conflict"
       ],
       "type": "string"
     },
@@ -263,7 +281,7 @@ const goalControlDecomposeInputSchemaJSON = `{
       "type": "string"
     },
     "retryable": {
-      "description": "fail: true if a retry may succeed.",
+      "description": "fail: legacy hint; routing uses blocked_by/failure source, not this boolean.",
       "type": "boolean"
     },
     "summary": {
@@ -291,12 +309,21 @@ const goalControlReviewInputSchemaJSON = `{
       ],
       "type": "string"
     },
+    "blocked_by": {
+      "description": "fail: optional structured blocker when the contract is impossible or the environment is unavailable.",
+      "enum": [
+        "",
+        "env_unavailable",
+        "contract_conflict"
+      ],
+      "type": "string"
+    },
     "reason": {
       "description": "fail: why the output cannot be judged.",
       "type": "string"
     },
     "retryable": {
-      "description": "fail: true if a retry may succeed.",
+      "description": "fail: legacy hint; routing uses blocked_by/failure source, not this boolean.",
       "type": "boolean"
     },
     "summary": {

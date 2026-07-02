@@ -116,7 +116,7 @@ func TestDecompositionBudgetExhausted_ParentBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginDecomposition(child): %v", err)
 	}
-	if err := h.svc.FailAttempt(ctx, att.ID, "planner produced no valid decomposition", FailureClassSemantic); err != nil {
+	if err := h.svc.FailAttempt(ctx, att.ID, "planner produced no valid decomposition", FailureClassModel); err != nil {
 		t.Fatalf("FailAttempt: %v", err)
 	}
 	blocked := h.get(childA)

@@ -77,7 +77,7 @@ func TestDecompositionRepairLoop_ReusesPlanningSessionAndMaterializes(t *testing
 	}
 }
 
-func TestDecompositionRepairLoop_ExhaustionBlocksPlanningInvalid(t *testing.T) {
+func TestDecompositionRepairLoop_ExhaustionRecordsModelFailure(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	root := h.createRoot(KindComposite, AcceptanceContract{})
@@ -102,30 +102,30 @@ func TestDecompositionRepairLoop_ExhaustionBlocksPlanningInvalid(t *testing.T) {
 	if calls != defaultPlannerRepairMax+1 {
 		t.Fatalf("planner calls=%d want %d", calls, defaultPlannerRepairMax+1)
 	}
-	blocked := h.get(root.ID)
-	if blocked.Lifecycle != LifecycleBlocked || blocked.BlockReason != BlockPlanningInvalid {
-		t.Fatalf("root lifecycle=%q reason=%q want blocked/planning_invalid", blocked.Lifecycle, blocked.BlockReason)
+	got := h.get(root.ID)
+	if got.Lifecycle != LifecycleDraft || got.BlockReason != "" {
+		t.Fatalf("root lifecycle=%q reason=%q want draft/unblocked", got.Lifecycle, got.BlockReason)
 	}
-	if blocked.AttemptCount != 0 {
-		t.Fatalf("attempt_count=%d want 0; structural repairs must not consume execution budget", blocked.AttemptCount)
+	if got.AttemptCount != 0 {
+		t.Fatalf("attempt_count=%d want 0; decomposition budget is metered by attempt_no", got.AttemptCount)
 	}
 	var pol ConvergencePolicy
-	if err := unmarshalJSON(blocked.ConvergencePolicy, &pol); err != nil {
+	if err := unmarshalJSON(got.ConvergencePolicy, &pol); err != nil {
 		t.Fatalf("decode convergence_policy: %v", err)
 	}
 	if pol.MaxAttempts != defaultMaxAttempts {
-		t.Fatalf("max_attempts=%d want %d; structural repairs must not mutate business plan budget", pol.MaxAttempts, defaultMaxAttempts)
+		t.Fatalf("max_attempts=%d want %d; model planning failures consume attempt_no, not mutate the ceiling", pol.MaxAttempts, defaultMaxAttempts)
 	}
 	attempts, err := h.q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: root.ID, Purpose: pgnull.Text(PurposeDecomposition)})
 	if err != nil {
 		t.Fatalf("ListAttemptByGoal: %v", err)
 	}
-	if len(attempts) != 1 || attempts[0].Status != AttemptFailed || attempts[0].FailureClass != FailureClassStructural || attempts[0].RepairRounds != 2 {
-		t.Fatalf("attempts=%+v want one failed structural attempt with repair_rounds=2", attempts)
+	if len(attempts) != 1 || attempts[0].Status != AttemptFailed || attempts[0].FailureClass != FailureClassModel || attempts[0].RepairRounds != 2 {
+		t.Fatalf("attempts=%+v want one failed model attempt with repair_rounds=2", attempts)
 	}
 }
 
-func TestDecompositionFailureClass_PersistsSemanticAndTransient(t *testing.T) {
+func TestDecompositionFailureClass_PersistsModelAndFlaky(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	cases := []struct {
@@ -135,19 +135,19 @@ func TestDecompositionFailureClass_PersistsSemanticAndTransient(t *testing.T) {
 		wantLifecycle string
 	}{
 		{
-			name: "semantic",
+			name: "model",
 			finalize: func(attemptID string) error {
-				return h.svc.FailAttempt(ctx, attemptID, "planner cannot decompose", FailureClassSemantic)
+				return h.svc.FailAttempt(ctx, attemptID, "planner cannot decompose", FailureClassModel)
 			},
-			wantClass:     FailureClassSemantic,
+			wantClass:     FailureClassModel,
 			wantLifecycle: LifecycleDraft,
 		},
 		{
-			name: "transient",
+			name: "flaky",
 			finalize: func(attemptID string) error {
 				return h.svc.ReapAttempt(ctx, attemptID)
 			},
-			wantClass:     FailureClassTransient,
+			wantClass:     FailureClassFlaky,
 			wantLifecycle: LifecycleDraft,
 		},
 	}

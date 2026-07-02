@@ -75,7 +75,7 @@ INSERT INTO agent_goal_attempt (
     purpose, attempt_no, status, input_context, lease_expires_at
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds
+RETURNING id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class
 `
 
 type CreateAttemptParams struct {
@@ -131,6 +131,7 @@ func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (A
 		&i.UpdatedAt,
 		&i.FailureClass,
 		&i.RepairRounds,
+		&i.PreviousFailureClass,
 	)
 	return i, err
 }
@@ -166,7 +167,7 @@ func (q *Queries) FinalizeAttempt(ctx context.Context, arg FinalizeAttemptParams
 }
 
 const getActiveAttempt = `-- name: GetActiveAttempt :one
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds FROM agent_goal_attempt
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt
 WHERE goal_id = $1
   AND purpose = $2
   AND status IN ('queued', 'running')
@@ -204,12 +205,13 @@ func (q *Queries) GetActiveAttempt(ctx context.Context, arg GetActiveAttemptPara
 		&i.UpdatedAt,
 		&i.FailureClass,
 		&i.RepairRounds,
+		&i.PreviousFailureClass,
 	)
 	return i, err
 }
 
 const getAttempt = `-- name: GetAttempt :one
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds FROM agent_goal_attempt WHERE id = $1
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt WHERE id = $1
 `
 
 func (q *Queries) GetAttempt(ctx context.Context, id string) (AgentGoalAttempt, error) {
@@ -239,6 +241,7 @@ func (q *Queries) GetAttempt(ctx context.Context, id string) (AgentGoalAttempt, 
 		&i.UpdatedAt,
 		&i.FailureClass,
 		&i.RepairRounds,
+		&i.PreviousFailureClass,
 	)
 	return i, err
 }
@@ -286,7 +289,7 @@ func (q *Queries) HeartbeatAttempt(ctx context.Context, arg HeartbeatAttemptPara
 }
 
 const listAttemptByGoal = `-- name: ListAttemptByGoal :many
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds FROM agent_goal_attempt
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt
 WHERE goal_id = $1
   AND ($2::text IS NULL OR purpose = $2::text)
 ORDER BY attempt_no DESC
@@ -330,6 +333,7 @@ func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalPa
 			&i.UpdatedAt,
 			&i.FailureClass,
 			&i.RepairRounds,
+			&i.PreviousFailureClass,
 		); err != nil {
 			return nil, err
 		}
@@ -342,7 +346,7 @@ func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalPa
 }
 
 const listStaleAttempts = `-- name: ListStaleAttempts :many
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds FROM agent_goal_attempt
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt
 WHERE status IN ('queued', 'running')
   AND lease_expires_at IS NOT NULL
   AND lease_expires_at < $1
@@ -394,6 +398,7 @@ func (q *Queries) ListStaleAttempts(ctx context.Context, arg ListStaleAttemptsPa
 			&i.UpdatedAt,
 			&i.FailureClass,
 			&i.RepairRounds,
+			&i.PreviousFailureClass,
 		); err != nil {
 			return nil, err
 		}

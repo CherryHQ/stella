@@ -228,9 +228,10 @@ func (n noopExecutor) Execute(_ context.Context, req ExecutorRequest) (ExecutorR
 		"goal_id", req.Goal.ID, "attempt_id", req.Attempt.ID,
 		"hint", "wire BootConfig.Chat to the agent service to execute attempts")
 	return ExecutorResult{
-		Failed:     true,
-		FailReason: "goal executor not wired (noop): wire BootConfig.Chat to the agent service",
-		Retryable:  false,
+		Failed:       true,
+		FailReason:   "goal executor not wired (noop): wire BootConfig.Chat to the agent service",
+		FailureClass: FailureClassEnvironment,
+		BlockedBy:    BlockEnvUnavailable,
 	}, nil
 }
 

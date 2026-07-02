@@ -36,6 +36,8 @@ const (
 	BlockPlanningInvalid   = "planning_invalid"
 	BlockNeedsVerdict      = "needs_verdict"
 	BlockDep               = "dep"
+	BlockEnvUnavailable    = "env_unavailable"
+	BlockContractConflict  = "contract_conflict"
 )
 
 // Acceptance projection — the evaluation RESULT, distinct from lifecycle.
@@ -65,9 +67,10 @@ const (
 // Failure class records why a failed/interrupted attempt did not produce a
 // usable terminal result.
 const (
-	FailureClassStructural = "structural"
-	FailureClassSemantic   = "semantic"
-	FailureClassTransient  = "transient"
+	FailureClassModel       = "model"
+	FailureClassEnvironment = "environment"
+	FailureClassContract    = "contract"
+	FailureClassFlaky       = "flaky"
 )
 
 // Goal kind.
@@ -146,7 +149,8 @@ func ValidLifecycle(s string) bool {
 // ValidBlockReason reports whether s is a known block reason.
 func ValidBlockReason(s string) bool {
 	switch s {
-	case BlockBudgetExhausted, BlockNeedsPlanApproval, BlockPlanningInvalid, BlockNeedsVerdict, BlockDep:
+	case BlockBudgetExhausted, BlockNeedsPlanApproval, BlockPlanningInvalid, BlockNeedsVerdict, BlockDep,
+		BlockEnvUnavailable, BlockContractConflict:
 		return true
 	}
 	return false
@@ -184,10 +188,15 @@ func ValidPurpose(s string) bool {
 // for non-failure final states such as cancelled attempts.
 func ValidFailureClass(s string) bool {
 	switch s {
-	case "", FailureClassStructural, FailureClassSemantic, FailureClassTransient:
+	case "", FailureClassModel, FailureClassEnvironment, FailureClassContract, FailureClassFlaky:
 		return true
 	}
 	return false
+}
+
+// ValidBlockedBy reports whether s is a known responsibility-specific block cause.
+func ValidBlockedBy(s string) bool {
+	return s == "" || s == BlockEnvUnavailable || s == BlockContractConflict
 }
 
 // ValidKind reports whether s is a known goal kind.

@@ -68,7 +68,8 @@ type ExecutorResult struct {
 	Verdicts      []ReviewVerdict       // purpose=review only
 	Failed        bool
 	FailReason    string
-	Retryable     bool
+	FailureClass  string
+	BlockedBy     string
 }
 
 // CapabilityProbe reports deployment capabilities that affect contract
@@ -708,7 +709,7 @@ func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 // a composite, whose budget meters DECOMPOSITION attempts, returns to draft so
 // scanAndDecompose re-plans it (contract §2.1, see recoveryLifecycle). For
 // blocked(planning_invalid), Reattempt restarts planning without raising the
-// semantic/transient budget because structural repairs are metered separately.
+// model planning budget because in-session repairs are metered separately.
 func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)

@@ -290,9 +290,19 @@ func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEv
 // A 0-row FinalizeAttempt means the attempt is no longer queued/running (already
 // reaped/raced); the tx rolls back and the caller treats ErrInvalidTransition as a
 // no-op (the goal already recovered).
-func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failureClass string) error {
-	if !ValidFailureClass(failureClass) || failureClass == "" {
+func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failureClass string, blockedByArg ...string) error {
+	blockedBy := ""
+	if len(blockedByArg) > 0 {
+		blockedBy = blockedByArg[0]
+	}
+	if !ValidFailureClass(failureClass) || failureClass == "" || !ValidBlockedBy(blockedBy) {
 		return ErrInvalidTransition
+	}
+	if failureClass == FailureClassEnvironment && blockedBy == "" {
+		blockedBy = BlockEnvUnavailable
+	}
+	if failureClass == FailureClassContract && blockedBy == "" {
+		blockedBy = BlockContractConflict
 	}
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		att, err := q.GetAttempt(ctx, attemptID)
@@ -319,15 +329,7 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failur
 			return err
 		}
 		if att.Purpose == PurposeDecomposition {
-			// Structural planner failures are repaired inside the same planning session.
-			// If the repair loop gives up, park the composite on a distinct block reason
-			// without charging the semantic/transient plan budget.
-			if failureClass == FailureClassStructural {
-				return s.blockPlanningInvalid(ctx, q, d)
-			}
-			// A reported semantic/transient decomposition failure ran the planner, so it
-			// charges one plan-budget unit as before.
-			return s.recoverDecomposition(ctx, q, d, true)
+			return s.routeFailedAttempt(ctx, q, d, attemptID, reason, failureClass, true)
 		}
 		if att.Purpose == PurposeReview {
 			// A failed review attempt (it ran but produced no usable verdict) leaves
@@ -337,7 +339,7 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failur
 			// (CountRanReviewAttemptsForOutput) and a broken reviewer cannot loop.
 			return nil
 		}
-		return s.branchOnFailure(ctx, q, d, attemptID, Evaluation{Gaps: []Gap{{Reason: reason}}})
+		return s.routeFailedAttempt(ctx, q, d, attemptID, reason, failureClass, false)
 	})
 }
 
@@ -859,6 +861,40 @@ func (s *GoalService) blockForVerdict(ctx context.Context, q *sqlc.Queries, d sq
 	return nil
 }
 
+func (s *GoalService) routeFailedAttempt(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, attemptID, reason, failureClass string, decomposition bool) error {
+	switch failureClass {
+	case FailureClassModel:
+		if decomposition {
+			return s.recoverDecomposition(ctx, q, d, true)
+		}
+		return s.branchOnFailure(ctx, q, d, attemptID, Evaluation{Gaps: []Gap{{Reason: reason}}})
+	case FailureClassEnvironment:
+		if err := s.refundAttemptBudget(ctx, q, d); err != nil {
+			return err
+		}
+		return s.blockFailureCause(ctx, q, d, BlockEnvUnavailable)
+	case FailureClassContract:
+		if err := s.refundAttemptBudget(ctx, q, d); err != nil {
+			return err
+		}
+		return s.blockFailureCause(ctx, q, d, BlockContractConflict)
+	case FailureClassFlaky:
+		if err := s.refundAttemptBudget(ctx, q, d); err != nil {
+			return err
+		}
+		count, err := q.IncrementGoalFlakyCount(ctx, d.ID)
+		if err != nil {
+			return fmt.Errorf("increment flaky count: %w", err)
+		}
+		if count > 5 {
+			return s.blockFailureCause(ctx, q, d, BlockEnvUnavailable)
+		}
+		return s.reopenForRework(ctx, q, d)
+	default:
+		return ErrInvalidTransition
+	}
+}
+
 // branchOnFailure routes an acceptance failure (contract §5 step 7). With budget
 // left it records the gaps on the rejected attempt and clears the active pointer
 // so the dispatcher mints attempt_no+1 (rework = next attempt). Budget out routes
@@ -944,6 +980,40 @@ func (s *GoalService) refundAndReopen(ctx context.Context, q *sqlc.Queries, d sq
 	return s.reopenForRework(ctx, q, d)
 }
 
+func (s *GoalService) refundAttemptBudget(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
+	var pol ConvergencePolicy
+	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
+	pol = pol.Normalized()
+	pol.MaxAttempts++
+	if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
+		Title:              d.Title,
+		Intent:             d.Intent,
+		AcceptanceContract: d.AcceptanceContract,
+		ConvergencePolicy:  marshalJSON(pol),
+		ReviewPolicy:       d.ReviewPolicy,
+		Priority:           d.Priority,
+		ID:                 d.ID,
+	}); err != nil {
+		return fmt.Errorf("refund responsibility failure budget: %w", err)
+	}
+	return nil
+}
+
+func (s *GoalService) blockFailureCause(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, cause string) error {
+	rows, err := q.BlockGoalWithCause(ctx, sqlc.BlockGoalWithCauseParams{
+		BlockReason: cause,
+		BlockedBy:   cause,
+		ID:          d.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("block %s: %w", cause, err)
+	}
+	if rows == 0 {
+		return ErrInvalidTransition
+	}
+	return nil
+}
+
 // blockBudget parks an exhausted goal: active→blocked(budget_exhausted),
 // awaiting a human Reattempt (raise budget) or Abandon (contract §2.1).
 func (s *GoalService) blockBudget(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
@@ -960,9 +1030,9 @@ func (s *GoalService) blockBudget(ctx context.Context, q *sqlc.Queries, d sqlc.A
 	return nil
 }
 
-// blockPlanningInvalid parks a composite whose planner exhausted structural
-// repairs. This is not convergence-budget exhaustion, so Reattempt does not use
-// the semantic/transient plan budget path.
+// blockPlanningInvalid parks a composite whose planner exhausted contract-level
+// planning validation. Model-owned decomposition failures now use the normal
+// planning budget path.
 func (s *GoalService) blockPlanningInvalid(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
 	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 		return fmt.Errorf("clear active attempt: %w", err)

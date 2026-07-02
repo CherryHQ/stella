@@ -110,12 +110,12 @@ func printGoalHealth(c *ucli.Context, r apitypes.GoalHealthReport) error {
 
 	ba := r.BudgetAttribution
 	o.Println("Budget attribution")
-	o.Printf("Burned business attempts: %d\n", ba.BurnedBusinessAttempts)
+	o.Printf("Model-budget attempts: %d\n", ba.ModelBudgetAttempts)
 	o.Printf("%-15s  %7s  %8s\n", "CLASS", "COUNT", "RATIO")
 	for _, b := range ba.ClassCounts {
 		o.Printf("%-15s  %7d  %7.1f%%\n", b.Key, b.Count, b.Ratio*100)
 	}
-	o.Printf("Transient-dominant budget-exhausted goals: %d\n", ba.TransientDominantBudgetExhaustedGoals)
+	o.Printf("Flaky-dominant blocked goals: %d\n", ba.FlakyDominantBlockedGoals)
 	o.Println("")
 
 	o.Println("Latency")

@@ -52,8 +52,10 @@ type Blocker struct {
 
 // Failure carries a fail action's payload.
 type Failure struct {
-	Reason    string `json:"reason"`
-	Retryable bool   `json:"retryable"`
+	Reason       string `json:"reason"`
+	Retryable    bool   `json:"retryable"`
+	BlockedBy    string `json:"blocked_by"`
+	FailureClass string `json:"-"`
 }
 
 // Result is the executor's rich internal outcome for one attempt: exactly one
@@ -151,11 +153,11 @@ func newWorkerExecutor(chat TaskChatFunc, log *slog.Logger) *workerExecutor {
 // Execute runs one attempt and returns the frozen ExecutorResult. All outcomes
 // are encoded so the worker applies a single transition uniformly:
 //   - agent declared submit       -> Submitted (+ Decomposition for purpose=decomposition)
-//   - agent declared fail         -> Failed with reason/retryable
-//   - agent declared block        -> Failed, non-retryable, reason embeds the block payload
-//   - misconfigured attempt       -> Failed, non-retryable
-//   - runner setup / stream error -> Failed, retryable
-//   - clean exit without action   -> Failed, non-retryable protocol miss
+//   - agent declared fail         -> Failed with responsibility class
+//   - agent declared block        -> Failed with contract responsibility
+//   - misconfigured attempt       -> Failed with environment responsibility
+//   - runner setup / stream error -> Failed with flaky responsibility
+//   - clean exit without action   -> Failed with model responsibility
 //
 // The agent never mutates durable state — the worker reads this and applies the
 // matching transition through GoalService.
@@ -174,7 +176,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 		agentID = req.Attempt.AgentID.String
 	}
 	if agentID == "" {
-		return failResult("no executor agent on attempt", false), nil
+		return failResult("no executor agent on attempt", FailureClassEnvironment, BlockEnvUnavailable), nil
 	}
 
 	decompose := req.Attempt.Purpose == PurposeDecomposition
@@ -263,11 +265,11 @@ func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *te
 		if ev.Err != nil {
 			if done {
 				e.log.Warn("goal executor cleanup error", "err", ev.Err)
-				f := failResult(fmt.Sprintf("runner cleanup error: %v", ev.Err), true)
+				f := failResult(fmt.Sprintf("runner cleanup error: %v", ev.Err), FailureClassFlaky, "")
 				return buf.String(), Result{}, false, &f, nil
 			}
 			e.log.Warn("goal executor stream error", "err", ev.Err)
-			f := failResult(fmt.Sprintf("runner error: %v", ev.Err), true)
+			f := failResult(fmt.Sprintf("runner error: %v", ev.Err), FailureClassFlaky, "")
 			return buf.String(), Result{}, false, &f, nil
 		}
 		if ev.Text != "" {
@@ -318,15 +320,36 @@ func foldResult(res Result, req ExecutorRequest) ExecutorResult {
 		if f == nil {
 			f = &Failure{Reason: "agent reported failure"}
 		}
-		return ExecutorResult{Failed: true, FailReason: f.Reason, Retryable: f.Retryable}
+		failureClass, blockedBy := failureResponsibility(f.FailureClass, f.BlockedBy)
+		return ExecutorResult{Failed: true, FailReason: f.Reason, FailureClass: failureClass, BlockedBy: blockedBy}
 	case terminalBlock:
-		return ExecutorResult{Failed: true, FailReason: blockReason(res.Blocker), Retryable: false}
+		return ExecutorResult{Failed: true, FailReason: blockReason(res.Blocker), FailureClass: FailureClassContract, BlockedBy: BlockContractConflict}
 	default: // terminalNone — silent or failed-repair protocol miss
 		reason := "agent ended without a goal_control terminal action"
 		if res.RepairAttempted {
 			reason = "agent failed to call goal_control after one repair turn"
 		}
-		return ExecutorResult{Failed: true, FailReason: reason, Retryable: false}
+		return ExecutorResult{Failed: true, FailReason: reason, FailureClass: FailureClassModel}
+	}
+}
+
+func failureResponsibility(failureClass, blockedBy string) (string, string) {
+	if ValidFailureClass(failureClass) && failureClass != "" {
+		if failureClass == FailureClassEnvironment {
+			return failureClass, BlockEnvUnavailable
+		}
+		if failureClass == FailureClassContract {
+			return failureClass, BlockContractConflict
+		}
+		return failureClass, ""
+	}
+	switch blockedBy {
+	case BlockEnvUnavailable:
+		return FailureClassEnvironment, BlockEnvUnavailable
+	case BlockContractConflict:
+		return FailureClassContract, BlockContractConflict
+	default:
+		return FailureClassModel, ""
 	}
 }
 
@@ -343,8 +366,8 @@ func blockReason(b *Blocker) string {
 }
 
 // failResult is a constructor for a non-agent failure outcome.
-func failResult(reason string, retryable bool) Result {
-	return Result{Action: terminalFail, Failure: &Failure{Reason: reason, Retryable: retryable}}
+func failResult(reason, failureClass, blockedBy string) Result {
+	return Result{Action: terminalFail, Failure: &Failure{Reason: reason, FailureClass: failureClass, BlockedBy: blockedBy}}
 }
 
 // ── prompt assembly ─────────────────────────────────────────────────────────
@@ -365,7 +388,7 @@ Protocol:
 - You may use tools normally while planning.
 - Before ending this turn, you MUST call goal_control exactly once with one terminal action:
   - action="decompose" with a "decomposition" object {children, edges} when the plan is ready.
-  - action="fail" with reason/retryable if the goal cannot be decomposed.
+  - action="fail" with reason/retryable and optional blocked_by="contract_conflict" if the goal cannot be decomposed.
 - Each child needs key, title, intent, kind (leaf|composite), required, acceptance_contract, convergence_policy.
 - Edges (by child key) declare hard/soft dependencies; only accepted upstream output flows downstream.
 
@@ -379,7 +402,7 @@ Protocol:
 - Before ending this turn, you MUST call goal_control exactly once with one terminal action:
   - action="submit" with evidence (summary + optional artifacts) and output when the work is complete.
   - action="block" with kind/question when you need input or an external dependency.
-  - action="fail" with reason/retryable when the work cannot be completed.
+  - action="fail" with reason/retryable and optional blocked_by="contract_conflict" when the work cannot be completed.
 - Do not just answer in chat. A final text response without goal_control is treated as a protocol failure.
 
 Goal:
@@ -460,10 +483,10 @@ Goal:
 func buildRepairPrompt(priorText string, decompose bool) string {
 	action := `  - action="submit" with evidence + output if the work is complete.
   - action="block" with kind/question if you need input or an external dependency.
-  - action="fail" with reason/retryable if the work cannot be completed.`
+  - action="fail" with reason/retryable and optional blocked_by="contract_conflict" if the work cannot be completed.`
 	if decompose {
 		action = `  - action="decompose" with a "decomposition" object {children, edges} if the plan is ready.
-  - action="fail" with reason/retryable if the goal cannot be decomposed.`
+  - action="fail" with reason/retryable and optional blocked_by="contract_conflict" if the goal cannot be decomposed.`
 	}
 	return `Your previous response did not call goal_control, so this goal is not yet resolved.
 
@@ -493,7 +516,7 @@ Protocol:
 - You may use tools to verify claims.
 - Before ending this turn, you MUST call goal_control exactly once:
   - action="verdict" with a "verdicts" array — one {item_id, pass, rationale} per criterion below.
-  - action="fail" with reason/retryable only if the output cannot be judged at all.
+  - action="fail" with reason/retryable and optional blocked_by="contract_conflict" only if the output cannot be judged at all.
 
 Goal:
 `)
@@ -543,7 +566,7 @@ Your previous message was:
 
 You MUST now call goal_control exactly once:
   - action="verdict" with a "verdicts" array of {item_id, pass, rationale} covering every criterion.
-  - action="fail" with reason/retryable only if the output cannot be judged.
+  - action="fail" with reason/retryable and optional blocked_by="contract_conflict" only if the output cannot be judged.
 
 Do not answer in plain text again.`
 }
@@ -652,6 +675,7 @@ func (t *recordingControlTool) Execute(ctx context.Context, args map[string]any)
 		if err := t.rec.record(Result{Action: terminalFail, Failure: &Failure{
 			Reason:    stringArg(args, "reason"),
 			Retryable: boolArg(args, "retryable"),
+			BlockedBy: stringArg(args, "blocked_by"),
 		}}); err != nil {
 			return "", err
 		}
@@ -688,6 +712,7 @@ func (t *recordingControlTool) executeDecompose(action string, args map[string]a
 		if err := t.rec.record(Result{Action: terminalFail, Failure: &Failure{
 			Reason:    stringArg(args, "reason"),
 			Retryable: boolArg(args, "retryable"),
+			BlockedBy: stringArg(args, "blocked_by"),
 		}}); err != nil {
 			return "", err
 		}
@@ -723,6 +748,7 @@ func (t *recordingControlTool) executeReview(action string, args map[string]any)
 		if err := t.rec.record(Result{Action: terminalFail, Failure: &Failure{
 			Reason:    stringArg(args, "reason"),
 			Retryable: boolArg(args, "retryable"),
+			BlockedBy: stringArg(args, "blocked_by"),
 		}}); err != nil {
 			return "", err
 		}

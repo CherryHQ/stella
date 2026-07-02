@@ -141,7 +141,7 @@ func TestReview_AgentVerdictFailReworks(t *testing.T) {
 func TestReview_BudgetDegradesToHuman(t *testing.T) {
 	h := newHarness(t)
 	reviewerCrashes := func(_ ExecutorRequest) (ExecutorResult, error) {
-		return ExecutorResult{Failed: true, FailReason: "reviewer crashed", Retryable: true}, nil
+		return ExecutorResult{Failed: true, FailReason: "reviewer crashed", FailureClass: FailureClassFlaky}, nil
 	}
 	h.exec.fn = reviewExec("H1", reviewerCrashes)
 	d := h.createRoot(KindLeaf, agentJudgmentContract())

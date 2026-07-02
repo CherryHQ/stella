@@ -80,6 +80,7 @@ WHERE id = $7;
 UPDATE agent_goal SET
     lifecycle = sqlc.arg(to_lifecycle),
     block_reason = sqlc.arg(block_reason),
+    blocked_by = CASE WHEN sqlc.arg(block_reason)::text = '' THEN '' ELSE blocked_by END,
     updated_at = now()
 WHERE id = sqlc.arg(id) AND lifecycle = sqlc.arg(from_lifecycle);
 
@@ -120,9 +121,26 @@ WHERE id = sqlc.arg(id) AND acceptance_seq < sqlc.arg(acceptance_seq);
 UPDATE agent_goal SET
     lifecycle = 'blocked',
     block_reason = sqlc.arg(block_reason),
+    blocked_by = '',
     active_attempt_id = NULL,
     updated_at = now()
 WHERE id = sqlc.arg(id) AND lifecycle IN ('ready', 'active');
+
+-- name: BlockGoalWithCause :execrows
+UPDATE agent_goal SET
+    lifecycle = 'blocked',
+    block_reason = sqlc.arg(block_reason),
+    blocked_by = sqlc.arg(blocked_by),
+    active_attempt_id = NULL,
+    updated_at = now()
+WHERE id = sqlc.arg(id) AND lifecycle IN ('ready', 'active');
+
+-- name: IncrementGoalFlakyCount :one
+UPDATE agent_goal SET
+    flaky_count = flaky_count + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING flaky_count;
 
 -- name: IncrGoalRequiredAccepted :exec
 UPDATE agent_goal SET

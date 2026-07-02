@@ -71,9 +71,9 @@ type HealthDecompositionQuality struct {
 }
 
 type HealthBudgetAttribution struct {
-	BurnedBusinessAttempts                int64               `json:"burned_business_attempts"`
-	ClassCounts                           []HealthRatioBucket `json:"class_counts"`
-	TransientDominantBudgetExhaustedGoals int64               `json:"transient_dominant_budget_exhausted_goals"`
+	ModelBudgetAttempts       int64               `json:"model_budget_attempts"`
+	ClassCounts               []HealthRatioBucket `json:"class_counts"`
+	FlakyDominantBlockedGoals int64               `json:"flaky_dominant_blocked_goals"`
 }
 
 type HealthLatency struct {

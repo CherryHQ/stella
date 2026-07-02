@@ -71,6 +71,10 @@ type AgentGoal struct {
 	ArchivedAt         pgtype.Timestamptz `json:"archived_at"`
 	Plan               json.RawMessage    `json:"plan"`
 	PlannedAt          pgtype.Timestamptz `json:"planned_at"`
+	// Infrastructure-flaky retry count independent of business attempt budget.
+	FlakyCount int64 `json:"flaky_count"`
+	// Responsibility-specific blocked cause for environment or contract failures.
+	BlockedBy string `json:"blocked_by"`
 }
 
 type AgentGoalAcceptanceEvent struct {
@@ -118,6 +122,8 @@ type AgentGoalAttempt struct {
 	UpdatedAt       time.Time          `json:"updated_at"`
 	FailureClass    string             `json:"failure_class"`
 	RepairRounds    int32              `json:"repair_rounds"`
+	// Audit copy of legacy failure_class before responsibility-class migration.
+	PreviousFailureClass string `json:"previous_failure_class"`
 }
 
 type AgentGoalEdge struct {

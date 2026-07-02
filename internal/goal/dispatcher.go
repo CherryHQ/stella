@@ -531,7 +531,7 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		rows, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
 			ToStatus:     AttemptInterrupted,
 			Error:        "lease expired; reaped by dispatcher",
-			FailureClass: FailureClassTransient,
+			FailureClass: FailureClassFlaky,
 			ID:           attemptID,
 		})
 		if err != nil {
@@ -552,7 +552,10 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		// executed does. att.Status is the pre-finalize status (GetAttempt ran before
 		// FinalizeAttempt) — do not reorder without revisiting this.
 		if att.Purpose == PurposeDecomposition {
-			return s.recoverDecomposition(ctx, q, d, att.Status == AttemptRunning)
+			if att.Status == AttemptQueued {
+				return s.recoverDecomposition(ctx, q, d, false)
+			}
+			return s.routeFailedAttempt(ctx, q, d, attemptID, "lease expired; reaped by dispatcher", FailureClassFlaky, true)
 		}
 		// A reaped review attempt leaves the goal blocked(needs_verdict); the
 		// dispatcher re-mints within the per-episode review budget, then degrades to
@@ -575,15 +578,9 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		if att.Status == AttemptQueued {
 			return s.refundAndReopen(ctx, q, d)
 		}
-		// Execution attempt: an interrupt is transient. Return to ready within budget
-		// so the next tick re-claims; budget out parks at blocked(budget_exhausted).
-		var pol ConvergencePolicy
-		_ = unmarshalJSON(d.ConvergencePolicy, &pol)
-		pol = pol.Normalized()
-		if d.AttemptCount < int64(pol.MaxAttempts) {
-			return s.reopenForRework(ctx, q, d)
-		}
-		return s.blockBudget(ctx, q, d)
+		// Execution attempt: a lease expiry is infrastructure-flaky. It reopens on
+		// the flaky counter without charging the model business budget.
+		return s.routeFailedAttempt(ctx, q, d, attemptID, "lease expired; reaped by dispatcher", FailureClassFlaky, false)
 	})
 }
 

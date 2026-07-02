@@ -924,8 +924,17 @@ components:
             planning_invalid,
             needs_verdict,
             dep,
+            env_unavailable,
+            contract_conflict,
           ]
           description: Meaningful only when lifecycle=blocked.
+        blocked_by:
+          type: string
+          enum: ["", env_unavailable, contract_conflict]
+          description: Responsibility-specific blocked cause for environment or contract failures.
+        flaky_count:
+          type: integer
+          description: Flaky infrastructure retries spent outside business budget.
         acceptance_state:
           type: string
           enum: [pending, passed, failed]
@@ -1177,8 +1186,8 @@ components:
           type: string
         failure_class:
           type: string
-          enum: ["", structural, semantic, transient]
-          description: Class for failed or interrupted attempts.
+          enum: ["", model, environment, contract, flaky]
+          description: Responsibility class for failed or interrupted attempts.
         repair_rounds:
           type: integer
           description: Structural decomposition repair turns spent inside this attempt.
@@ -1309,21 +1318,23 @@ components:
     GoalHealthBudgetAttribution:
       type: object
       required: [
-        burned_business_attempts,
+        model_budget_attempts,
         class_counts,
-        transient_dominant_budget_exhausted_goals,
+        flaky_dominant_blocked_goals,
       ]
       properties:
-        burned_business_attempts:
+        model_budget_attempts:
           type: integer
           format: int64
+          description: Execution failures charged to business budget (failure_class=model).
         class_counts:
           type: array
           items:
             $ref: "#/components/schemas/GoalHealthRatioBucket"
-        transient_dominant_budget_exhausted_goals:
+        flaky_dominant_blocked_goals:
           type: integer
           format: int64
+          description: Blocked goals where flaky execution failures are at least half of non-model failures.
     GoalHealthAttemptLatency:
       type: object
       required: [purpose]
@@ -1636,7 +1647,11 @@ components:
           description: "fail: error message."
         retryable:
           type: boolean
-          description: "fail: true if a retry may succeed."
+          description: "fail: legacy hint; routing uses blocked_by/failure source, not this boolean."
+        blocked_by:
+          type: string
+          enum: ["", env_unavailable, contract_conflict]
+          description: "fail: optional structured blocker when the contract is impossible or the environment is unavailable."
       required: [action]
     GoalControlDecomposeInput:
       type: object
@@ -1656,7 +1671,11 @@ components:
           description: "fail: error message."
         retryable:
           type: boolean
-          description: "fail: true if a retry may succeed."
+          description: "fail: legacy hint; routing uses blocked_by/failure source, not this boolean."
+        blocked_by:
+          type: string
+          enum: ["", env_unavailable, contract_conflict]
+          description: "fail: optional structured blocker when the contract is impossible or the environment is unavailable."
       required: [action]
     GoalControlReviewInput:
       type: object
@@ -1678,7 +1697,11 @@ components:
           description: "fail: why the output cannot be judged."
         retryable:
           type: boolean
-          description: "fail: true if a retry may succeed."
+          description: "fail: legacy hint; routing uses blocked_by/failure source, not this boolean."
+        blocked_by:
+          type: string
+          enum: ["", env_unavailable, contract_conflict]
+          description: "fail: optional structured blocker when the contract is impossible or the environment is unavailable."
       required: [action]
     GoalControlReviewVerdict:
       type: object

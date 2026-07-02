@@ -15,14 +15,14 @@ import (
 
 const getGoalHealthReport = `-- name: GetGoalHealthReport :one
 WITH scoped_goal AS (
-    SELECT g.id, g.user_id, g.agent_id, g.project_id, g.parent_id, g.root_id, g.depth, g.position, g.session_id, g.title, g.intent, g.kind, g.priority, g.required, g.acceptance_contract, g.convergence_policy, g.review_policy, g.lifecycle, g.block_reason, g.acceptance_state, g.accepted_output, g.acceptance_seq, g.active_attempt_id, g.attempt_count, g.required_total, g.required_accepted, g.required_failed, g.required_blocked, g.context, g.dispatch_hint, g.created_at, g.updated_at, g.accepted_at, g.cancelled_at, g.archived_at, g.plan, g.planned_at
+    SELECT g.id, g.user_id, g.agent_id, g.project_id, g.parent_id, g.root_id, g.depth, g.position, g.session_id, g.title, g.intent, g.kind, g.priority, g.required, g.acceptance_contract, g.convergence_policy, g.review_policy, g.lifecycle, g.block_reason, g.acceptance_state, g.accepted_output, g.acceptance_seq, g.active_attempt_id, g.attempt_count, g.required_total, g.required_accepted, g.required_failed, g.required_blocked, g.context, g.dispatch_hint, g.created_at, g.updated_at, g.accepted_at, g.cancelled_at, g.archived_at, g.plan, g.planned_at, g.flaky_count, g.blocked_by
     FROM agent_goal g
     WHERE g.created_at >= $1
       AND ($2::uuid IS NULL OR g.user_id = $2::uuid)
       AND ($3::text IS NULL OR g.agent_id = $3::text)
 ),
 scoped_attempt AS (
-    SELECT a.id, a.goal_id, a.user_id, a.agent_id, a.executor_agent_id, a.session_id, a.purpose, a.attempt_no, a.status, a.input_context, a.evidence, a.output, a.gaps, a.error, a.heartbeat_at, a.lease_expires_at, a.worker_id, a.started_at, a.finished_at, a.created_at, a.updated_at, a.failure_class, a.repair_rounds
+    SELECT a.id, a.goal_id, a.user_id, a.agent_id, a.executor_agent_id, a.session_id, a.purpose, a.attempt_no, a.status, a.input_context, a.evidence, a.output, a.gaps, a.error, a.heartbeat_at, a.lease_expires_at, a.worker_id, a.started_at, a.finished_at, a.created_at, a.updated_at, a.failure_class, a.repair_rounds, a.previous_failure_class
     FROM agent_goal_attempt a
     JOIN scoped_goal g ON g.id = a.goal_id
 ),
@@ -73,21 +73,27 @@ decomposition_counts AS (
     LEFT JOIN scoped_attempt a ON a.goal_id = g.id AND a.purpose = 'decomposition'
     GROUP BY g.id
 ),
-burned_business_attempt AS (
-    SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds
+execution_failure_attempt AS (
+    SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class
     FROM scoped_attempt
     WHERE purpose = 'execution'
       AND status IN ('failed', 'interrupted')
       AND failure_class != ''
 ),
-transient_dead_goal AS (
+model_budget_attempt AS (
+    SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class
+    FROM execution_failure_attempt
+    WHERE failure_class = 'model'
+),
+flaky_dominant_blocked_goal AS (
     SELECT g.id
     FROM scoped_goal g
-    JOIN burned_business_attempt a ON a.goal_id = g.id
+    JOIN execution_failure_attempt a ON a.goal_id = g.id
     WHERE g.lifecycle = 'blocked'
-      AND g.block_reason = 'budget_exhausted'
+      AND g.blocked_by = 'env_unavailable'
     GROUP BY g.id
-    HAVING COUNT(*) FILTER (WHERE a.failure_class = 'transient') * 2 >= COUNT(*)
+    HAVING COUNT(*) FILTER (WHERE a.failure_class = 'flaky') > 0
+       AND COUNT(*) FILTER (WHERE a.failure_class = 'flaky') * 2 >= COUNT(*)
 ),
 attempt_latency AS (
     SELECT
@@ -183,7 +189,7 @@ SELECT jsonb_build_object(
         ), '[]'::jsonb)
     ),
     'budget_attribution', jsonb_build_object(
-        'burned_business_attempts', (SELECT COUNT(*)::bigint FROM burned_business_attempt),
+        'model_budget_attempts', (SELECT COUNT(*)::bigint FROM model_budget_attempt),
         'class_counts', COALESCE((
             SELECT jsonb_agg(jsonb_build_object(
                 'key', failure_class,
@@ -192,11 +198,11 @@ SELECT jsonb_build_object(
             ) ORDER BY count DESC, failure_class ASC)
             FROM (
                 SELECT failure_class, COUNT(*)::bigint AS count, SUM(COUNT(*)) OVER ()::bigint AS total
-                FROM burned_business_attempt
+                FROM execution_failure_attempt
                 GROUP BY failure_class
             ) x
         ), '[]'::jsonb),
-        'transient_dominant_budget_exhausted_goals', (SELECT COUNT(*)::bigint FROM transient_dead_goal)
+        'flaky_dominant_blocked_goals', (SELECT COUNT(*)::bigint FROM flaky_dominant_blocked_goal)
     ),
     'latency', jsonb_build_object(
         'attempts', COALESCE((

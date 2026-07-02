@@ -789,6 +789,7 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		Intent:             optStr(d.Intent),
 		AcceptanceSeq:      iptr(d.AcceptanceSeq),
 		AttemptCount:       iptr(d.AttemptCount),
+		FlakyCount:         iptr(d.FlakyCount),
 		RequiredTotal:      iptr(d.RequiredTotal),
 		RequiredAccepted:   iptr(d.RequiredAccepted),
 		RequiredFailed:     iptr(d.RequiredFailed),
@@ -813,6 +814,10 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 	if d.BlockReason != "" {
 		br := apitypes.GoalBlockReason(d.BlockReason)
 		out.BlockReason = &br
+	}
+	if d.BlockedBy != "" {
+		bb := apitypes.GoalBlockedBy(d.BlockedBy)
+		out.BlockedBy = &bb
 	}
 	if d.AcceptedOutput.Valid {
 		out.AcceptedOutput = jsonObject(json.RawMessage(d.AcceptedOutput.String))

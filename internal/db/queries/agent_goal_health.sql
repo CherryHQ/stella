@@ -58,21 +58,27 @@ decomposition_counts AS (
     LEFT JOIN scoped_attempt a ON a.goal_id = g.id AND a.purpose = 'decomposition'
     GROUP BY g.id
 ),
-burned_business_attempt AS (
+execution_failure_attempt AS (
     SELECT *
     FROM scoped_attempt
     WHERE purpose = 'execution'
       AND status IN ('failed', 'interrupted')
       AND failure_class != ''
 ),
-transient_dead_goal AS (
+model_budget_attempt AS (
+    SELECT *
+    FROM execution_failure_attempt
+    WHERE failure_class = 'model'
+),
+flaky_dominant_blocked_goal AS (
     SELECT g.id
     FROM scoped_goal g
-    JOIN burned_business_attempt a ON a.goal_id = g.id
+    JOIN execution_failure_attempt a ON a.goal_id = g.id
     WHERE g.lifecycle = 'blocked'
-      AND g.block_reason = 'budget_exhausted'
+      AND g.blocked_by = 'env_unavailable'
     GROUP BY g.id
-    HAVING COUNT(*) FILTER (WHERE a.failure_class = 'transient') * 2 >= COUNT(*)
+    HAVING COUNT(*) FILTER (WHERE a.failure_class = 'flaky') > 0
+       AND COUNT(*) FILTER (WHERE a.failure_class = 'flaky') * 2 >= COUNT(*)
 ),
 attempt_latency AS (
     SELECT
@@ -168,7 +174,7 @@ SELECT jsonb_build_object(
         ), '[]'::jsonb)
     ),
     'budget_attribution', jsonb_build_object(
-        'burned_business_attempts', (SELECT COUNT(*)::bigint FROM burned_business_attempt),
+        'model_budget_attempts', (SELECT COUNT(*)::bigint FROM model_budget_attempt),
         'class_counts', COALESCE((
             SELECT jsonb_agg(jsonb_build_object(
                 'key', failure_class,
@@ -177,11 +183,11 @@ SELECT jsonb_build_object(
             ) ORDER BY count DESC, failure_class ASC)
             FROM (
                 SELECT failure_class, COUNT(*)::bigint AS count, SUM(COUNT(*)) OVER ()::bigint AS total
-                FROM burned_business_attempt
+                FROM execution_failure_attempt
                 GROUP BY failure_class
             ) x
         ), '[]'::jsonb),
-        'transient_dominant_budget_exhausted_goals', (SELECT COUNT(*)::bigint FROM transient_dead_goal)
+        'flaky_dominant_blocked_goals', (SELECT COUNT(*)::bigint FROM flaky_dominant_blocked_goal)
     ),
     'latency', jsonb_build_object(
         'attempts', COALESCE((

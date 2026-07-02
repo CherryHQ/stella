@@ -18,19 +18,19 @@ func TestHealthReportAggregatesGoalExecutionMetrics(t *testing.T) {
 	blocked := h.createRoot(KindLeaf, AcceptanceContract{})
 	cancelled := h.createRoot(KindLeaf, AcceptanceContract{})
 
-	h.setGoalHealthState(accepted.ID, LifecycleAccepted, "", now.Add(-10*time.Hour), now.Add(-8*time.Hour))
-	h.setGoalHealthState(blocked.ID, LifecycleBlocked, BlockBudgetExhausted, now.Add(-9*time.Hour), now.Add(-6*time.Hour))
-	h.setGoalHealthState(cancelled.ID, LifecycleCancelled, "", now.Add(-5*time.Hour), now.Add(-4*time.Hour))
+	h.setGoalHealthState(accepted.ID, LifecycleAccepted, "", "", now.Add(-10*time.Hour), now.Add(-8*time.Hour))
+	h.setGoalHealthState(blocked.ID, LifecycleBlocked, BlockEnvUnavailable, BlockEnvUnavailable, now.Add(-9*time.Hour), now.Add(-6*time.Hour))
+	h.setGoalHealthState(cancelled.ID, LifecycleCancelled, "", "", now.Add(-5*time.Hour), now.Add(-4*time.Hour))
 
 	acceptedExec2 := h.insertHealthAttempt(accepted.ID, PurposeExecution, 2, AttemptSubmitted, "", 0, now.Add(-8*time.Hour), now.Add(-8*time.Hour+2*time.Minute))
 	h.insertHealthAttempt(accepted.ID, PurposeDecomposition, 1, AttemptSubmitted, "", 2, now.Add(-10*time.Hour), now.Add(-10*time.Hour+time.Minute))
-	h.insertHealthAttempt(accepted.ID, PurposeExecution, 1, AttemptFailed, FailureClassTransient, 0, now.Add(-9*time.Hour), now.Add(-9*time.Hour+time.Minute))
+	h.insertHealthAttempt(accepted.ID, PurposeExecution, 1, AttemptFailed, FailureClassFlaky, 0, now.Add(-9*time.Hour), now.Add(-9*time.Hour+time.Minute))
 
-	h.insertHealthAttempt(blocked.ID, PurposeDecomposition, 1, AttemptFailed, FailureClassStructural, 2, now.Add(-9*time.Hour), now.Add(-9*time.Hour+time.Minute))
+	h.insertHealthAttempt(blocked.ID, PurposeDecomposition, 1, AttemptFailed, FailureClassModel, 2, now.Add(-9*time.Hour), now.Add(-9*time.Hour+time.Minute))
 	h.insertHealthAttempt(blocked.ID, PurposeDecomposition, 2, AttemptSubmitted, "", 0, now.Add(-8*time.Hour), now.Add(-8*time.Hour+time.Minute))
-	h.insertHealthAttempt(blocked.ID, PurposeExecution, 1, AttemptFailed, FailureClassTransient, 0, now.Add(-7*time.Hour), now.Add(-7*time.Hour+time.Minute))
-	h.insertHealthAttempt(blocked.ID, PurposeExecution, 2, AttemptFailed, FailureClassSemantic, 0, now.Add(-7*time.Hour), now.Add(-7*time.Hour+2*time.Minute))
-	h.insertHealthAttempt(blocked.ID, PurposeExecution, 3, AttemptInterrupted, FailureClassTransient, 0, now.Add(-7*time.Hour), now.Add(-7*time.Hour+3*time.Minute))
+	h.insertHealthAttempt(blocked.ID, PurposeExecution, 1, AttemptFailed, FailureClassFlaky, 0, now.Add(-7*time.Hour), now.Add(-7*time.Hour+time.Minute))
+	h.insertHealthAttempt(blocked.ID, PurposeExecution, 2, AttemptFailed, FailureClassModel, 0, now.Add(-7*time.Hour), now.Add(-7*time.Hour+2*time.Minute))
+	h.insertHealthAttempt(blocked.ID, PurposeExecution, 3, AttemptInterrupted, FailureClassFlaky, 0, now.Add(-7*time.Hour), now.Add(-7*time.Hour+3*time.Minute))
 
 	h.insertAcceptanceEvent(accepted.ID, acceptedExec2, 0, "pass")
 	h.insertAcceptanceEvent(accepted.ID, acceptedExec2, 1, "fail")
@@ -45,15 +45,14 @@ func TestHealthReportAggregatesGoalExecutionMetrics(t *testing.T) {
 	assertCount(t, report.LifecycleCounts, LifecycleAccepted, 1)
 	assertCount(t, report.LifecycleCounts, LifecycleBlocked, 1)
 	assertCount(t, report.LifecycleCounts, LifecycleCancelled, 1)
-	assertCount(t, report.BlockedReasonCounts, BlockBudgetExhausted, 1)
+	assertCount(t, report.BlockedReasonCounts, BlockEnvUnavailable, 1)
 
 	exec := findPurpose(t, report.AttemptPurposes, PurposeExecution)
 	if exec.Total != 5 || exec.Succeeded != 1 || exec.MaxRetries != 2 || !near(exec.AverageRetries, 1.5) {
 		t.Fatalf("execution purpose=%+v want total=5 succeeded=1 avg_retries=1.5 max_retries=2", exec)
 	}
-	assertCount(t, report.FailureClassCounts, FailureClassTransient, 3)
-	assertCount(t, report.FailureClassCounts, FailureClassSemantic, 1)
-	assertCount(t, report.FailureClassCounts, FailureClassStructural, 1)
+	assertCount(t, report.FailureClassCounts, FailureClassFlaky, 3)
+	assertCount(t, report.FailureClassCounts, FailureClassModel, 2)
 
 	if report.AcceptanceEvents.Total != 2 || report.AcceptanceEvents.Passed != 1 || report.AcceptanceEvents.Failed != 1 || !near(report.AcceptanceEvents.PassRate, 0.5) {
 		t.Fatalf("acceptance_events=%+v want 1/2 pass", report.AcceptanceEvents)
@@ -66,19 +65,19 @@ func TestHealthReportAggregatesGoalExecutionMetrics(t *testing.T) {
 	assertCount(t, dq.RedecompositionCounts, "1", 1)
 
 	ba := report.BudgetAttribution
-	if ba.BurnedBusinessAttempts != 4 || ba.TransientDominantBudgetExhaustedGoals != 1 {
-		t.Fatalf("budget_attribution=%+v want burned=4 transient_dead=1", ba)
+	if ba.ModelBudgetAttempts != 1 || ba.FlakyDominantBlockedGoals != 1 {
+		t.Fatalf("budget_attribution=%+v want model_budget=1 flaky_dominant=1", ba)
 	}
-	transient := findRatio(t, ba.ClassCounts, FailureClassTransient)
-	if transient.Count != 3 || !near(transient.Ratio, 0.75) {
-		t.Fatalf("transient budget ratio=%+v want 3 / 0.75", transient)
+	flaky := findRatio(t, ba.ClassCounts, FailureClassFlaky)
+	if flaky.Count != 3 || !near(flaky.Ratio, 0.75) {
+		t.Fatalf("flaky budget ratio=%+v want 3 / 0.75", flaky)
 	}
 	if report.Latency.GoalE2E.P50Ms == nil || *report.Latency.GoalE2E.P50Ms <= 0 {
 		t.Fatalf("goal e2e p50 missing: %+v", report.Latency.GoalE2E)
 	}
 }
 
-func (h *harness) setGoalHealthState(id, lifecycle, blockReason string, createdAt, endedAt time.Time) {
+func (h *harness) setGoalHealthState(id, lifecycle, blockReason, blockedBy string, createdAt, endedAt time.Time) {
 	h.t.Helper()
 	acceptedOutput := any(nil)
 	acceptedAt := any(nil)
@@ -96,13 +95,14 @@ func (h *harness) setGoalHealthState(id, lifecycle, blockReason string, createdA
 		UPDATE agent_goal
 		SET lifecycle = $2,
 		    block_reason = $3,
-		    acceptance_state = $4,
-		    accepted_output = $5,
-		    accepted_at = $6,
-		    cancelled_at = $7,
-		    created_at = $8,
-		    updated_at = $9
-		WHERE id = $1`, id, lifecycle, blockReason, acceptanceState, acceptedOutput, acceptedAt, cancelledAt, createdAt, endedAt); err != nil {
+		    blocked_by = $4,
+		    acceptance_state = $5,
+		    accepted_output = $6,
+		    accepted_at = $7,
+		    cancelled_at = $8,
+		    created_at = $9,
+		    updated_at = $10
+		WHERE id = $1`, id, lifecycle, blockReason, blockedBy, acceptanceState, acceptedOutput, acceptedAt, cancelledAt, createdAt, endedAt); err != nil {
 		h.t.Fatalf("set goal state: %v", err)
 	}
 }

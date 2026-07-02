@@ -35,8 +35,12 @@ func lcl_passOutput(hash string) func(ExecutorRequest) (ExecutorResult, error) {
 // lcl_fail scripts a reported executor failure (the worker's finalize-failed
 // branch, §5 step 7).
 func lcl_fail(reason string) func(ExecutorRequest) (ExecutorResult, error) {
+	return lcl_failClass(reason, FailureClassModel, "")
+}
+
+func lcl_failClass(reason, failureClass, blockedBy string) func(ExecutorRequest) (ExecutorResult, error) {
 	return func(_ ExecutorRequest) (ExecutorResult, error) {
-		return ExecutorResult{Failed: true, FailReason: reason, Retryable: false}, nil
+		return ExecutorResult{Failed: true, FailReason: reason, FailureClass: failureClass, BlockedBy: blockedBy}, nil
 	}
 }
 
@@ -413,7 +417,7 @@ func TestLcl_WorkerReportedFailureReopensToReady(t *testing.T) {
 	d := h.createRoot(KindLeaf, AcceptanceContract{}) // default budget 3
 	h.activate(d.ID)
 
-	h.exec.fn = lcl_fail("transient")
+	h.exec.fn = lcl_fail("model failure")
 	attID := h.runLeaf(d.ID)
 
 	got := h.get(d.ID)
@@ -439,6 +443,80 @@ func TestLcl_WorkerReportedFailureReopensToReady(t *testing.T) {
 // same path (issue #543): a worker-reported failure on a MaxAttempts=1 leaf has no
 // rework budget, so convergence parks it blocked(budget_exhausted) — visible to a
 // human — rather than stranding it 'active'.
+func TestLcl_ResponsibilityFailureRoutes(t *testing.T) {
+	cases := []struct {
+		name        string
+		class       string
+		blockedBy   string
+		wantLife    string
+		wantReason  string
+		wantBlocked string
+	}{
+		{name: "model", class: FailureClassModel, wantLife: LifecycleReady},
+		{name: "environment", class: FailureClassEnvironment, blockedBy: BlockEnvUnavailable, wantLife: LifecycleBlocked, wantReason: BlockEnvUnavailable, wantBlocked: BlockEnvUnavailable},
+		{name: "contract", class: FailureClassContract, blockedBy: BlockContractConflict, wantLife: LifecycleBlocked, wantReason: BlockContractConflict, wantBlocked: BlockContractConflict},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			d := h.createRoot(KindLeaf, AcceptanceContract{})
+			h.activate(d.ID)
+			h.exec.fn = lcl_failClass(tc.name+" failure", tc.class, tc.blockedBy)
+			h.runLeaf(d.ID)
+
+			got := h.get(d.ID)
+			if got.Lifecycle != tc.wantLife || got.BlockReason != tc.wantReason || got.BlockedBy != tc.wantBlocked {
+				t.Fatalf("goal=(%s,%s,%s) want (%s,%s,%s)", got.Lifecycle, got.BlockReason, got.BlockedBy, tc.wantLife, tc.wantReason, tc.wantBlocked)
+			}
+			remaining := remainingBudget(t, got)
+			if tc.class == FailureClassModel {
+				if remaining != defaultMaxAttempts-1 {
+					t.Fatalf("model remaining=%d want %d", remaining, defaultMaxAttempts-1)
+				}
+			} else if remaining != defaultMaxAttempts {
+				t.Fatalf("%s remaining=%d want unchanged %d", tc.name, remaining, defaultMaxAttempts)
+			}
+		})
+	}
+}
+
+func TestLcl_FlakyFailureRetriesOutsideBusinessBudgetThenBlocksEnvironment(t *testing.T) {
+	h := newHarness(t)
+	d := h.createRoot(KindLeaf, AcceptanceContract{})
+	h.activate(d.ID)
+	h.exec.fn = lcl_failClass("network timeout", FailureClassFlaky, "")
+
+	for i := 1; i <= 5; i++ {
+		h.runLeaf(d.ID)
+		got := h.get(d.ID)
+		if got.Lifecycle != LifecycleReady || got.FlakyCount != int64(i) {
+			t.Fatalf("after flaky %d goal=(%s flaky=%d) want ready flaky=%d", i, got.Lifecycle, got.FlakyCount, i)
+		}
+		if remaining := remainingBudget(t, got); remaining != defaultMaxAttempts {
+			t.Fatalf("after flaky %d remaining=%d want unchanged %d", i, remaining, defaultMaxAttempts)
+		}
+	}
+
+	h.runLeaf(d.ID)
+	got := h.get(d.ID)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable || got.BlockedBy != BlockEnvUnavailable || got.FlakyCount != 6 {
+		t.Fatalf("after flaky limit goal=(%s,%s,%s flaky=%d) want blocked/env_unavailable flaky=6", got.Lifecycle, got.BlockReason, got.BlockedBy, got.FlakyCount)
+	}
+	if remaining := remainingBudget(t, got); remaining != defaultMaxAttempts {
+		t.Fatalf("after flaky limit remaining=%d want unchanged %d", remaining, defaultMaxAttempts)
+	}
+}
+
+func remainingBudget(t *testing.T, d sqlc.AgentGoal) int {
+	t.Helper()
+	var pol ConvergencePolicy
+	if err := unmarshalJSON(d.ConvergencePolicy, &pol); err != nil {
+		t.Fatalf("decode convergence policy: %v", err)
+	}
+	pol = pol.Normalized()
+	return pol.MaxAttempts - int(d.AttemptCount)
+}
+
 func TestLcl_WorkerReportedFailureBudgetOutBlocks(t *testing.T) {
 	h := newHarness(t)
 	d, err := h.svc.CreateRoot(context.Background(), CreateInput{
@@ -465,13 +543,12 @@ func TestLcl_WorkerReportedFailureBudgetOutBlocks(t *testing.T) {
 	}
 }
 
-// TestLcl_MissingCheckRunnerFailsAttempt asserts the deterministic-strand guard
-// (issue #543): a leaf with a REQUIRED deterministic item run by a service with NO
-// CheckRunner cannot evaluate the gate, so the worker fails the attempt instead of
-// submitting into a pending strand — the goal reopens to ready (budget
-// left) rather than hanging 'active' on a never-satisfiable item. (The base
-// harness service wires no CheckRunner; lcl_newRig is the one that does.)
-func TestLcl_MissingCheckRunnerFailsAttempt(t *testing.T) {
+// TestLcl_MissingCheckRunnerBlocksEnvironment asserts the deterministic-strand
+// guard (issue #543): a leaf with a REQUIRED deterministic item run by a service
+// with NO CheckRunner cannot evaluate the gate, so the worker classifies the
+// attempt as environment-owned and blocks without charging business budget. (The
+// base harness service wires no CheckRunner; lcl_newRig is the one that does.)
+func TestLcl_MissingCheckRunnerBlocksEnvironment(t *testing.T) {
 	h := newHarness(t)
 	d := h.createRoot(KindLeaf, AcceptanceContract{
 		Policy: PolicyDetThenJudgment,
@@ -486,15 +563,18 @@ func TestLcl_MissingCheckRunnerFailsAttempt(t *testing.T) {
 	attID := h.runLeaf(d.ID)
 
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleReady {
-		t.Fatalf("missing-check-runner lifecycle=%q want ready (attempt failed, reopened), not stranded active", got.Lifecycle)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable || got.BlockedBy != BlockEnvUnavailable {
+		t.Fatalf("missing-check-runner goal=(%s,%s,%s) want blocked/env_unavailable", got.Lifecycle, got.BlockReason, got.BlockedBy)
+	}
+	if remaining := remainingBudget(t, got); remaining != defaultMaxAttempts {
+		t.Fatalf("missing-check-runner remaining=%d want unchanged %d", remaining, defaultMaxAttempts)
 	}
 	att, err := h.q.GetAttempt(context.Background(), attID)
 	if err != nil {
 		t.Fatalf("get attempt: %v", err)
 	}
-	if att.Status != AttemptFailed {
-		t.Fatalf("attempt status=%q want failed (check could not be evaluated)", att.Status)
+	if att.Status != AttemptFailed || att.FailureClass != FailureClassEnvironment {
+		t.Fatalf("attempt=(%s,%s) want failed/environment", att.Status, att.FailureClass)
 	}
 }
 
