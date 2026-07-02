@@ -28,6 +28,7 @@ func (r *sandboxRunner) SystemPrompt() string    { return "" }
 func (r *sandboxRunner) SandboxSession() sandbox.Session {
 	return r.sess
 }
+
 func (r *sandboxRunner) Close() error {
 	r.closed = true
 	return r.sess.Close()

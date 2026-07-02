@@ -25,10 +25,7 @@ func TestExecutionAttemptsMintDedicatedSessions(t *testing.T) {
 	var wg sync.WaitGroup
 	errCh := make(chan error, n)
 	for _, g := range goals {
-		g := g
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			att, err := h.svc.Claim(ctx, g.ID, "w-1", nil)
 			if err != nil {
 				errCh <- err
@@ -37,7 +34,7 @@ func TestExecutionAttemptsMintDedicatedSessions(t *testing.T) {
 			if err := h.worker.Run(ctx, g.ID, att.ID, Actor{Type: ActorWorker}); err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)
