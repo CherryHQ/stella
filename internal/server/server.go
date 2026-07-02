@@ -20,6 +20,7 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/mcp"
@@ -54,6 +55,7 @@ type Server struct {
 	credResolver   *credential.Service  // unified bearer credential front door (set with tokenSvc)
 	oauthAS        *oauthas.Service     // OAuth2 authorization server (set with tokenSvc)
 	credSvc        *credentials.Service // shared credentials service
+	emailSvc       *email.Service       // shared email service
 	shareSvc       *sharepkg.Service    // shared share service
 	recallySvc     *recally.Service     // shared recally service
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
@@ -104,6 +106,7 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 	defaultBaseURL := "http://localhost:25678"
 	flowStore := oauth.NewFlowStore()
 	credSvc := credentials.NewService(nil, sqlc.New(db), flowStore, defaultBaseURL)
+	emailSvc := email.NewService(nil, sqlc.New(db))
 	recallyStore := recally.NewStore(db)
 	recallyFiles := recally.NewFileManager(config.StellaHome())
 	recallySvc := recally.NewService(recallyStore, recallyFiles, config.StellaHome())
@@ -125,6 +128,7 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		log:         log,
 		baseURL:     defaultBaseURL,
 		credSvc:     credSvc,
+		emailSvc:    emailSvc,
 		shareSvc:    shareSvc,
 		recallySvc:  recallySvc,
 		recally:     newRecallyHandlersWithService(recallyStore, recallyFiles, recallySvc, log),
@@ -155,6 +159,7 @@ func (s *Server) SetVaultRecipient(r *age.X25519Recipient) {
 func (s *Server) SetVaultService(svc *vault.Service) {
 	s.vaultSvc = svc
 	s.credSvc.SetVaultService(svc)
+	s.emailSvc = email.NewService(svc, s.q)
 }
 
 // SetMCPService wires the MCP registration service into the admin server.

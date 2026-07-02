@@ -318,6 +318,8 @@ paths:
   /api/admin/oauth-providers/{id}/config:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1admin~1oauth-providers~1{id}~1config"
   # ── Email ───────────────────────────────────────────────────────────────────
+  /api/email/accounts:
+    $ref: "./domain/email/paths.yaml#/paths/~1api~1email~1accounts"
   /api/email/folders:
     $ref: "./domain/email/paths.yaml#/paths/~1api~1email~1folders"
   /api/email/messages:
@@ -737,6 +739,9 @@ components:
     }
     EmailFolderList: {
       $ref: "./components.yaml#/components/schemas/EmailFolderList",
+    }
+    EmailAccountList: {
+      $ref: "./components.yaml#/components/schemas/EmailAccountList",
     }
     EmailEnvelope: {
       $ref: "./components.yaml#/components/schemas/EmailEnvelope",

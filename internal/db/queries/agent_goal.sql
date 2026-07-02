@@ -3,13 +3,17 @@ INSERT INTO agent_goal (
     id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
     session_id, title, intent, kind, priority, required,
     acceptance_contract, convergence_policy, review_policy,
-    lifecycle, context, dispatch_hint
+    lifecycle, context, dispatch_hint, idempotency_key
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 RETURNING *;
 
 -- name: GetGoal :one
 SELECT * FROM agent_goal WHERE id = $1;
+
+-- name: GetGoalByIdempotencyKey :one
+SELECT * FROM agent_goal
+WHERE user_id = $1 AND idempotency_key = $2;
 
 -- Root goals (goals: parent_id IS NULL) for a user, scoped to an agent
 -- and narrowed by lifecycle / terminal-ness / project / free-text. Every narg is

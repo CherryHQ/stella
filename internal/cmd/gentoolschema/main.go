@@ -39,6 +39,7 @@ var identityFields = map[string]bool{
 // fixed fields are service-owned constants and are omitted from the model input.
 // restrict narrows a generated tool schema property without changing the HTTP API,
 // for example: restrict: { scope: [user, user_agent] }.
+// require marks optional HTTP fields as required in the tool schema only.
 func main() {
 	if err := run(inputPath, outputDir); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -87,6 +88,7 @@ type actionSpec struct {
 	Action   string           `yaml:"action"`
 	Fixed    map[string]any   `yaml:"fixed"`
 	Restrict map[string][]any `yaml:"restrict"`
+	Require  []string         `yaml:"require"`
 	Batch    string           `yaml:"batch"`
 }
 
@@ -167,6 +169,7 @@ func collectTools(doc *openAPIDoc) (map[string][]toolAction, error) {
 					}
 				}
 				applyRestrictions(schema, spec.Restrict)
+				applyRequired(schema, spec.Require)
 				req := stringSlice(schema["required"])
 				out[spec.Tool] = append(out[spec.Tool], toolAction{Action: spec.Action, Schema: schema, Required: req, Batch: spec.Batch, ItemSchema: itemSchema})
 			}
@@ -554,6 +557,15 @@ func applyRestrictions(schema map[string]any, restrict map[string][]any) {
 		prop["enum"] = values
 		if len(values) > 0 {
 			prop["default"] = values[0]
+		}
+	}
+}
+
+func applyRequired(schema map[string]any, fields []string) {
+	props, _ := schema["properties"].(map[string]any)
+	for _, field := range fields {
+		if _, ok := props[field]; ok {
+			addRequired(schema, field)
 		}
 	}
 }

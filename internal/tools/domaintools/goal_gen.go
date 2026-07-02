@@ -135,6 +135,10 @@ const GoalInputSchemaJSON = `{
           },
           "type": "object"
         },
+        "idempotency_key": {
+          "description": "Optional key; repeated creates by the same user with the same key return the existing goal.",
+          "type": "string"
+        },
         "intent": {
           "description": "What \"done\" means for this goal.",
           "type": "string"
@@ -267,6 +271,7 @@ type GoalCreateInput struct {
 	AcceptanceContract map[string]any `json:"acceptance_contract,omitempty"`
 	Activate           *bool          `json:"activate,omitempty"`
 	ConvergencePolicy  map[string]any `json:"convergence_policy,omitempty"`
+	IdempotencyKey     string         `json:"idempotency_key,omitempty"`
 	Intent             string         `json:"intent,omitempty"`
 	Kind               string         `json:"kind,omitempty"`
 	Priority           string         `json:"priority,omitempty"`

@@ -291,7 +291,7 @@ func (s *Service) AddJobForContext(ctx context.Context, name, message string, sc
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope)
+	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope, "")
 }
 
 // AddJobWithOwner creates a user-owned job with explicit owner parameters.
@@ -300,10 +300,18 @@ func (s *Service) AddJobWithOwner(name, message string, sched Schedule, sessionM
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope)
+	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope, "")
 }
 
-func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMode, agentID string, userID string, ownerKind, execScope string) (Job, error) {
+func (s *Service) AddJobWithOwnerIdempotency(name, message string, sched Schedule, sessionMode, agentID string, userID string, idempotencyKey string) (Job, error) {
+	execScope := ExecScopeSystem
+	if userID != "" {
+		execScope = ExecScopeUser
+	}
+	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope, idempotencyKey)
+}
+
+func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMode, agentID string, userID string, ownerKind, execScope string, idempotencyKey string) (Job, error) {
 	if name == "" {
 		return Job{}, fmt.Errorf("name is required")
 	}
@@ -332,18 +340,19 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 
 	now := time.Now().UTC()
 	job := Job{
-		ID:          uuid.New().String()[:8],
-		OwnerKind:   ownerKind,
-		ExecScope:   normalizeExecScope(execScope),
-		Name:        name,
-		Schedule:    sched,
-		Message:     message,
-		SessionMode: sessionMode,
-		Enabled:     true,
-		AgentID:     agentID,
-		UserID:      userID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:             uuid.New().String()[:8],
+		OwnerKind:      ownerKind,
+		ExecScope:      normalizeExecScope(execScope),
+		Name:           name,
+		Schedule:       sched,
+		Message:        message,
+		SessionMode:    sessionMode,
+		Enabled:        true,
+		AgentID:        agentID,
+		UserID:         userID,
+		IdempotencyKey: idempotencyKey,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	s.mu.Lock()
@@ -509,7 +518,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		return j, nil
 	}
 	s.mu.Unlock()
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, "", JobOwnerSystem, execScope)
+	return s.addJobInternal(name, message, sched, sessionMode, agentID, "", JobOwnerSystem, execScope, "")
 }
 
 // ListJobs returns all jobs.
@@ -523,14 +532,20 @@ func (s *Service) ListJobs() []Job {
 	return result
 }
 
-func (s *Service) CreateJobOwned(ctx context.Context, ident toolctx.Identity, name, message string, sched Schedule, sessionMode, agentID string) (Job, error) {
+func (s *Service) CreateJobOwned(ctx context.Context, ident toolctx.Identity, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string) (Job, error) {
 	if ident.UserID == "" {
 		return Job{}, toolctx.ErrUnauthenticated
 	}
 	if ident.AgentScoped && agentID != ident.AgentID {
 		return Job{}, toolctx.ErrForbidden
 	}
-	return s.AddJobWithOwner(name, message, sched, sessionMode, agentID, ident.UserID)
+	if idempotencyKey != "" {
+		row, err := s.q.GetSchedulerJobByIdempotencyKey(ctx, sqlc.GetSchedulerJobByIdempotencyKeyParams{UserID: pgtype.Text{String: ident.UserID, Valid: true}, IdempotencyKey: pgtype.Text{String: idempotencyKey, Valid: true}})
+		if err == nil {
+			return dbRowToJob(row), nil
+		}
+	}
+	return s.AddJobWithOwnerIdempotency(name, message, sched, sessionMode, agentID, ident.UserID, idempotencyKey)
 }
 
 func (s *Service) SubscribeOwned(ctx context.Context, ident toolctx.Identity, agentID, key string, schedOverride Schedule) (Job, error) {

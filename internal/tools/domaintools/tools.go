@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/credentials"
+	emailpkg "github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -93,6 +94,7 @@ func (h goalHandler) Create(ctx context.Context, in GoalCreateInput) (any, error
 			return nil, fmt.Errorf("convergence_policy is invalid — fix the JSON object and retry")
 		}
 	}
+	create.IdempotencyKey = in.IdempotencyKey
 	row, err := h.svc.CreateGoalOwned(ctx, h.ident, create)
 	if err != nil {
 		return nil, err
@@ -157,6 +159,110 @@ func (h goalHandler) Cancel(ctx context.Context, in GoalCancelInput) (any, error
 		return nil, err
 	}
 	return goalSummary(row), nil
+}
+
+type EmailTool struct {
+	svc *emailpkg.Service
+}
+
+func NewEmailTool(svc *emailpkg.Service) *EmailTool {
+	return &EmailTool{svc: svc}
+}
+
+func (t *EmailTool) Definition() tools.Definition {
+	return tools.Definition{
+		Name:        "email",
+		Description: "Read configured email accounts, list/read messages, and send mail for this user. Actions: accounts, list, read, send. Send requires idempotency_key; reuse the same key only when retrying the exact same send. Message bodies are truncated for token safety. Never exposes passwords or EMAIL_CONFIG contents.",
+		InputSchema: EmailInputSchema(),
+	}
+}
+
+func (t *EmailTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	if t == nil || t.svc == nil {
+		return "", fmt.Errorf("email service is unavailable — try again later")
+	}
+	ident, err := toolIdentity(ctx, "email")
+	if err != nil {
+		return "", err
+	}
+	action, err := actionArg(args, "email")
+	if err != nil {
+		return "", err
+	}
+	out, err := DispatchEmail(ctx, emailHandler{svc: t.svc, ident: ident}, action, args)
+	if err != nil {
+		return "", mapToolError("email", err)
+	}
+	return marshalToolResult(out)
+}
+
+type emailHandler struct {
+	svc   *emailpkg.Service
+	ident toolctx.Identity
+}
+
+func (h emailHandler) Accounts(ctx context.Context, _ EmailAccountsInput) (any, error) {
+	accounts, err := h.svc.AccountsOwned(ctx, h.ident)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"accounts": accounts.Accounts, "default": accounts.Default}, nil
+}
+
+func (h emailHandler) List(ctx context.Context, in EmailListInput) (any, error) {
+	limit := in.Limit
+	if limit == 0 {
+		limit = defaultToolPageSize
+	}
+	if limit < 1 || limit > maxToolPageSize {
+		return nil, fmt.Errorf("invalid limit — use a value between 1 and %d", maxToolPageSize)
+	}
+	opts := emailpkg.ListOptions{Limit: limit, Folder: in.Folder, From: in.From, Subject: in.Subject}
+	if in.Unread != nil {
+		opts.Unread = *in.Unread
+	}
+	if in.Since != "" {
+		if t, err := time.Parse("2006-01-02", in.Since); err == nil {
+			opts.Since = &t
+		}
+	}
+	if in.Before != "" {
+		if t, err := time.Parse("2006-01-02", in.Before); err == nil {
+			opts.Before = &t
+		}
+	}
+	msgs, err := h.svc.ListOwned(ctx, h.ident, in.Account, opts)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]emailEnvelopeResponse, 0, len(msgs))
+	for _, msg := range msgs {
+		items = append(items, emailEnvelopeSummary(msg))
+	}
+	return listResponse[emailEnvelopeResponse]{Items: items, HasMore: false}, nil
+}
+
+func (h emailHandler) Read(ctx context.Context, in EmailReadInput) (any, error) {
+	msg, err := h.svc.ReadOwned(ctx, h.ident, in.Account, in.Folder, uint32(in.Uid))
+	if err != nil {
+		return nil, err
+	}
+	return emailMessageSummary(msg), nil
+}
+
+func (h emailHandler) Send(ctx context.Context, in EmailSendInput) (any, error) {
+	opts := emailpkg.SendOptions{To: stringItems(in.To), Cc: stringItems(in.Cc), Bcc: stringItems(in.Bcc), Subject: in.Subject, Body: in.Body, From: in.From, ReplyTo: in.ReplyTo, InReplyTo: in.InReplyTo}
+	if in.Html != nil {
+		opts.HTML = *in.Html
+	}
+	result, err := h.svc.SendOwned(ctx, h.ident, in.Account, opts, in.IdempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	if result.Duplicate {
+		return map[string]any{"status": result.Status, "duplicate_suppressed": true}, nil
+	}
+	return map[string]any{"status": result.Status}, nil
 }
 
 type OauthTool struct {
@@ -596,7 +702,7 @@ func (h schedulerHandler) Create(ctx context.Context, in SchedulerCreateInput) (
 	if in.TemplateKey != "" {
 		job, err = h.svc.SubscribeOwned(ctx, h.ident, h.ident.AgentID, in.TemplateKey, sched)
 	} else {
-		job, err = h.svc.CreateJobOwned(ctx, h.ident, in.Name, in.Message, sched, in.SessionMode, h.ident.AgentID)
+		job, err = h.svc.CreateJobOwned(ctx, h.ident, in.Name, in.Message, sched, in.SessionMode, h.ident.AgentID, in.IdempotencyKey)
 		if err == nil && in.Enabled != nil && !*in.Enabled {
 			job, err = h.svc.SetJobEnabledOwned(ctx, h.ident, h.ident.AgentID, job.ID, false)
 		}
@@ -673,6 +779,22 @@ func (h schedulerHandler) Resume(ctx context.Context, in SchedulerResumeInput) (
 		return nil, err
 	}
 	return schedulerSummary(job), nil
+}
+
+type emailEnvelopeResponse struct {
+	UID         uint32 `json:"uid"`
+	From        string `json:"from"`
+	Subject     string `json:"subject"`
+	Date        string `json:"date"`
+	Snippet     string `json:"snippet,omitempty"`
+	Attachments bool   `json:"has_attachments,omitempty"`
+}
+
+type emailMessageResponse struct {
+	Envelope  emailEnvelopeResponse `json:"envelope"`
+	Body      string                `json:"body"`
+	Truncated bool                  `json:"truncated"`
+	Note      string                `json:"note,omitempty"`
 }
 
 type oauthFlowResponse struct {
@@ -790,6 +912,27 @@ func schedulerSummary(job scheduler.Job) schedulerResponse {
 		UpdatedAt:   job.UpdatedAt.UTC().Format(time.RFC3339),
 		TemplateKey: job.JobKey,
 	}
+}
+
+func emailEnvelopeSummary(msg emailpkg.Envelope) emailEnvelopeResponse {
+	return emailEnvelopeResponse{UID: msg.UID, From: msg.From, Subject: msg.Subject, Date: msg.Date.UTC().Format(time.RFC3339), Attachments: msg.HasAttachments}
+}
+
+func emailMessageSummary(msg *emailpkg.Message) emailMessageResponse {
+	body := msg.TextBody
+	if body == "" {
+		body = msg.HTMLBody
+	}
+	truncated := false
+	if len(body) > 50*1024 {
+		body = body[:50*1024]
+		truncated = true
+	}
+	out := emailMessageResponse{Envelope: emailEnvelopeSummary(msg.Envelope), Body: body, Truncated: truncated}
+	if truncated {
+		out.Note = "truncated — use the web UI or email client for the full message"
+	}
+	return out
 }
 
 func oauthFlowSummary(status credentials.FlowStatus) oauthFlowResponse {

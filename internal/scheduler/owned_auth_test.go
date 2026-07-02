@@ -13,7 +13,7 @@ func TestOwnedMethodsRejectUnauthenticatedIdentity(t *testing.T) {
 	ctx := context.Background()
 	ident := toolctx.Identity{}
 
-	if _, err := svc.CreateJobOwned(ctx, ident, "job", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a"); !errors.Is(err, toolctx.ErrUnauthenticated) {
+	if _, err := svc.CreateJobOwned(ctx, ident, "job", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", ""); !errors.Is(err, toolctx.ErrUnauthenticated) {
 		t.Fatalf("CreateJobOwned err=%v, want unauthenticated", err)
 	}
 	if _, err := svc.ListJobsOwned(ctx, ident, "agent-a"); !errors.Is(err, toolctx.ErrUnauthenticated) {
@@ -24,11 +24,28 @@ func TestOwnedMethodsRejectUnauthenticatedIdentity(t *testing.T) {
 	}
 }
 
+func TestCreateJobOwnedIdempotencyReturnsExistingJob(t *testing.T) {
+	svc := testService(t)
+	ctx := context.Background()
+	ident := toolctx.Identity{UserID: "user-a", AgentID: "agent-a", AgentScoped: true}
+	first, err := svc.CreateJobOwned(ctx, ident, "first", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", "job-key")
+	if err != nil {
+		t.Fatalf("first CreateJobOwned: %v", err)
+	}
+	second, err := svc.CreateJobOwned(ctx, ident, "second", "msg", Schedule{Every: "2h"}, SessionReuse, "agent-a", "job-key")
+	if err != nil {
+		t.Fatalf("second CreateJobOwned: %v", err)
+	}
+	if second.ID != first.ID || second.Name != first.Name {
+		t.Fatalf("second=%+v first=%+v, want existing job", second, first)
+	}
+}
+
 func TestOwnedMethodsEnforceSchedulerUserAndAgentBoundaries(t *testing.T) {
 	svc := testService(t)
 	ctx := context.Background()
 	ident := toolctx.Identity{UserID: "user-a"}
-	job, err := svc.CreateJobOwned(ctx, ident, "job-a", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a")
+	job, err := svc.CreateJobOwned(ctx, ident, "job-a", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", "")
 	if err != nil {
 		t.Fatalf("CreateJobOwned: %v", err)
 	}
@@ -44,7 +61,7 @@ func TestOwnedMethodsEnforceSchedulerUserAndAgentBoundaries(t *testing.T) {
 		t.Fatalf("foreign DeleteJobOwned err=%v, want forbidden", err)
 	}
 
-	otherAgent, err := svc.CreateJobOwned(ctx, ident, "job-b", "msg", Schedule{Every: "2h"}, SessionReuse, "agent-b")
+	otherAgent, err := svc.CreateJobOwned(ctx, ident, "job-b", "msg", Schedule{Every: "2h"}, SessionReuse, "agent-b", "")
 	if err != nil {
 		t.Fatalf("CreateJobOwned other agent: %v", err)
 	}
@@ -52,7 +69,7 @@ func TestOwnedMethodsEnforceSchedulerUserAndAgentBoundaries(t *testing.T) {
 	if _, err := svc.GetJobOwned(ctx, scoped, "agent-b", otherAgent.ID); !errors.Is(err, toolctx.ErrForbidden) {
 		t.Fatalf("scoped GetJobOwned other agent err=%v, want forbidden", err)
 	}
-	if _, err := svc.CreateJobOwned(ctx, scoped, "bad", "msg", Schedule{Every: "3h"}, SessionReuse, "agent-b"); !errors.Is(err, toolctx.ErrForbidden) {
+	if _, err := svc.CreateJobOwned(ctx, scoped, "bad", "msg", Schedule{Every: "3h"}, SessionReuse, "agent-b", ""); !errors.Is(err, toolctx.ErrForbidden) {
 		t.Fatalf("scoped CreateJobOwned other agent err=%v, want forbidden", err)
 	}
 	if _, err := svc.ListJobsOwned(ctx, scoped, "agent-b"); !errors.Is(err, toolctx.ErrForbidden) {
@@ -73,7 +90,7 @@ func TestOwnedMethodsHidePlatformSchedulerJobsFromAgents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddPluginJob: %v", err)
 	}
-	userJob, err := svc.CreateJobOwned(ctx, ident, "user-job", "msg", Schedule{Every: "3h"}, SessionReuse, "agent-a")
+	userJob, err := svc.CreateJobOwned(ctx, ident, "user-job", "msg", Schedule{Every: "3h"}, SessionReuse, "agent-a", "")
 	if err != nil {
 		t.Fatalf("CreateJobOwned: %v", err)
 	}

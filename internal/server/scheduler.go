@@ -176,7 +176,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		Every: derefStr(body.Every),
 		At:    derefStr(body.At),
 	}
-	job, err := s.schedulerSvc.CreateJobOwned(r.Context(), schedulerIdentity(info), *body.Name, *body.Message, sched, sessionMode, agentID)
+	job, err := s.schedulerSvc.CreateJobOwned(r.Context(), schedulerIdentity(info), *body.Name, *body.Message, sched, sessionMode, agentID, derefStr(body.IdempotencyKey))
 	if err != nil {
 		if errors.Is(err, toolctx.ErrForbidden) || errors.Is(err, toolctx.ErrUnauthenticated) {
 			schedulerServiceError(w, err)

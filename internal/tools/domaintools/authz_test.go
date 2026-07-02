@@ -20,6 +20,7 @@ import (
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	emailpkg "github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
@@ -72,7 +73,7 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("scheduler.Start: %v", err)
 	}
 	t.Cleanup(func() { _ = schedulerSvc.Stop() })
-	ownerJob, err := schedulerSvc.CreateJobOwned(ctx, ownerIdentity(ownerUser, agentID), "owner job", "run", scheduler.Schedule{Every: "1h"}, scheduler.SessionReuse, agentID)
+	ownerJob, err := schedulerSvc.CreateJobOwned(ctx, ownerIdentity(ownerUser, agentID), "owner job", "run", scheduler.Schedule{Every: "1h"}, scheduler.SessionReuse, agentID, "")
 	if err != nil {
 		t.Fatalf("create owner job: %v", err)
 	}
@@ -163,6 +164,14 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	}
 	if _, err := vaultTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("vault unauthenticated err=%v, want no user identity", err)
+	}
+
+	if err := vaultSvc.SetReserved(ctx, ownerUser, "EMAIL_CONFIG", `{"default":"work","accounts":{"work":{"imap_host":"8.8.8.8","smtp_host":"1.1.1.1","username":"owner@example.com","password":"secret","from":"owner@example.com"}}}`); err != nil {
+		t.Fatalf("set owner email config: %v", err)
+	}
+	emailTool := NewEmailTool(emailpkg.NewService(vaultSvc, q))
+	if out, err := emailTool.Execute(foreignCtx, map[string]any{"action": "accounts"}); err == nil || !strings.Contains(err.Error(), "no email account configured") || strings.Contains(out, "work") || strings.Contains(out, "secret") {
+		t.Fatalf("email foreign accounts out=%q err=%v, want no leak", out, err)
 	}
 
 	flowStore := credoauth.NewFlowStore()

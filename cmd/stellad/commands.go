@@ -22,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -265,6 +266,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	}
 
 	credSvc := credentials.NewService(vaultSvc, sqlc.New(db), oauth.NewFlowStore(), "http://localhost:25678")
+	emailSvc := email.NewService(vaultSvc, sqlc.New(db))
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
 	}
@@ -277,6 +279,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		{Name: "goal", Tool: domaintools.NewGoalTool(goalSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "scheduler", Tool: domaintools.NewSchedulerTool(schedulerSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "oauth", Tool: domaintools.NewOauthTool(credSvc), Predicate: agent.DomainToolAvailable},
+		{Name: "email", Tool: domaintools.NewEmailTool(emailSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "share", Tool: domaintools.NewShareTool(shareSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "recally", Tool: domaintools.NewRecallyTool(recallySvc), Predicate: agent.DomainToolAvailable},
 	}

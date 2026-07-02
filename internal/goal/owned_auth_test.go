@@ -29,6 +29,23 @@ func TestOwnedMethodsRejectUnauthenticatedIdentity(t *testing.T) {
 	}
 }
 
+func TestCreateGoalOwnedIdempotencyReturnsExistingGoal(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	ident := toolctx.Identity{UserID: h.userID, AgentID: h.agentID, AgentScoped: true}
+	first, err := h.bundle.CreateGoalOwned(ctx, ident, CreateInput{AgentID: h.agentID, Title: "first", Kind: KindComposite, IdempotencyKey: "goal-key"})
+	if err != nil {
+		t.Fatalf("first CreateGoalOwned: %v", err)
+	}
+	second, err := h.bundle.CreateGoalOwned(ctx, ident, CreateInput{AgentID: h.agentID, Title: "second", Kind: KindComposite, IdempotencyKey: "goal-key"})
+	if err != nil {
+		t.Fatalf("second CreateGoalOwned: %v", err)
+	}
+	if second.ID != first.ID || second.Title != first.Title {
+		t.Fatalf("second=%+v first=%+v, want existing goal", second, first)
+	}
+}
+
 func TestOwnedMethodsEnforceGoalUserAndAgentBoundaries(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()

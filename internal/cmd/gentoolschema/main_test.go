@@ -96,6 +96,42 @@ components:
 	}
 }
 
+func TestRequireAnnotationMarksOptionalFieldRequired(t *testing.T) {
+	doc := mustDoc(t, []byte(`
+paths:
+  /api/email/send:
+    post:
+      x-agent-tool: { tool: email, action: send, require: [idempotency_key] }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to, subject, body]
+              properties:
+                to: { type: array, items: { type: string } }
+                subject: { type: string }
+                body: { type: string }
+                idempotency_key: { type: string }
+components:
+  schemas: {}
+`))
+	tools, err := collectTools(doc)
+	if err != nil {
+		t.Fatalf("collectTools: %v", err)
+	}
+	got := tools["email"][0].Required
+	want := []string{"body", "idempotency_key", "subject", "to"}
+	if len(got) != len(want) {
+		t.Fatalf("required=%v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("required=%v, want %v", got, want)
+		}
+	}
+}
+
 func TestMultiActionAnnotationOmitFixedFields(t *testing.T) {
 	doc := mustDoc(t, []byte(`
 paths:

@@ -383,6 +383,11 @@ func (s *Service) CreateGoalOwned(ctx context.Context, ident toolctx.Identity, i
 		return sqlc.AgentGoal{}, toolctx.ErrForbidden
 	}
 	in.UserID = ident.UserID
+	if in.IdempotencyKey != "" {
+		if existing, err := s.Queries.GetGoalByIdempotencyKey(ctx, sqlc.GetGoalByIdempotencyKeyParams{UserID: ident.UserID, IdempotencyKey: pgnull.Text(in.IdempotencyKey)}); err == nil {
+			return existing, nil
+		}
+	}
 	return s.CreateGoal(ctx, in)
 }
 

@@ -34,6 +34,10 @@ const SchedulerInputSchemaJSON = `{
         "every": {
           "type": "string"
         },
+        "idempotency_key": {
+          "description": "Optional key; repeated creates by the same user with the same key return the existing job.",
+          "type": "string"
+        },
         "message": {
           "type": "string"
         },
@@ -153,6 +157,10 @@ const SchedulerInputSchemaJSON = `{
         "id": {
           "type": "string"
         },
+        "idempotency_key": {
+          "description": "Optional key; repeated creates by the same user with the same key return the existing job.",
+          "type": "string"
+        },
         "message": {
           "type": "string"
         },
@@ -205,15 +213,16 @@ type SchedulerHandler interface {
 }
 
 type SchedulerCreateInput struct {
-	At          string `json:"at,omitempty"`
-	Cron        string `json:"cron,omitempty"`
-	Description string `json:"description,omitempty"`
-	Enabled     *bool  `json:"enabled,omitempty"`
-	Every       string `json:"every,omitempty"`
-	Message     string `json:"message,omitempty"`
-	Name        string `json:"name,omitempty"`
-	SessionMode string `json:"session_mode,omitempty"`
-	TemplateKey string `json:"template_key,omitempty"`
+	At             string `json:"at,omitempty"`
+	Cron           string `json:"cron,omitempty"`
+	Description    string `json:"description,omitempty"`
+	Enabled        *bool  `json:"enabled,omitempty"`
+	Every          string `json:"every,omitempty"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	Message        string `json:"message,omitempty"`
+	Name           string `json:"name,omitempty"`
+	SessionMode    string `json:"session_mode,omitempty"`
+	TemplateKey    string `json:"template_key,omitempty"`
 }
 
 type SchedulerDeleteInput struct {
@@ -236,16 +245,17 @@ type SchedulerResumeInput struct {
 }
 
 type SchedulerUpdateInput struct {
-	At          string `json:"at,omitempty"`
-	Cron        string `json:"cron,omitempty"`
-	Description string `json:"description,omitempty"`
-	Enabled     *bool  `json:"enabled,omitempty"`
-	Every       string `json:"every,omitempty"`
-	Id          string `json:"id,omitempty"`
-	Message     string `json:"message,omitempty"`
-	Name        string `json:"name,omitempty"`
-	SessionMode string `json:"session_mode,omitempty"`
-	TemplateKey string `json:"template_key,omitempty"`
+	At             string `json:"at,omitempty"`
+	Cron           string `json:"cron,omitempty"`
+	Description    string `json:"description,omitempty"`
+	Enabled        *bool  `json:"enabled,omitempty"`
+	Every          string `json:"every,omitempty"`
+	Id             string `json:"id,omitempty"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	Message        string `json:"message,omitempty"`
+	Name           string `json:"name,omitempty"`
+	SessionMode    string `json:"session_mode,omitempty"`
+	TemplateKey    string `json:"template_key,omitempty"`
 }
 
 func DispatchScheduler(ctx context.Context, h SchedulerHandler, action string, args map[string]any) (any, error) {

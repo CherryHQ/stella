@@ -71,6 +71,7 @@ type AgentGoal struct {
 	ArchivedAt         pgtype.Timestamptz `json:"archived_at"`
 	Plan               json.RawMessage    `json:"plan"`
 	PlannedAt          pgtype.Timestamptz `json:"planned_at"`
+	IdempotencyKey     pgtype.Text        `json:"idempotency_key"`
 }
 
 type AgentGoalAcceptanceEvent struct {
@@ -472,6 +473,15 @@ type CtxSummaryParent struct {
 	Ordinal         int64  `json:"ordinal"`
 }
 
+type EmailSendDedup struct {
+	ID             string    `json:"id"`
+	UserID         string    `json:"user_id"`
+	IdempotencyKey string    `json:"idempotency_key"`
+	SentAt         time.Time `json:"sent_at"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 type Fact struct {
 	ID         string          `json:"id"`
 	Subject    string          `json:"subject"`
@@ -733,27 +743,28 @@ type RecallyFeedEntry struct {
 }
 
 type SchedJob struct {
-	ID            string             `json:"id"`
-	OwnerKind     string             `json:"owner_kind"`
-	ExecScope     string             `json:"exec_scope"`
-	PluginID      string             `json:"plugin_id"`
-	JobKey        string             `json:"job_key"`
-	RuntimeName   string             `json:"runtime_name"`
-	Name          string             `json:"name"`
-	Description   string             `json:"description"`
-	ScheduleCron  string             `json:"schedule_cron"`
-	ScheduleEvery string             `json:"schedule_every"`
-	ScheduleAt    string             `json:"schedule_at"`
-	Message       string             `json:"message"`
-	Payload       json.RawMessage    `json:"payload"`
-	SessionMode   string             `json:"session_mode"`
-	Enabled       bool               `json:"enabled"`
-	AgentID       pgtype.Text        `json:"agent_id"`
-	UserID        pgtype.Text        `json:"user_id"`
-	CreatedAt     time.Time          `json:"created_at"`
-	UpdatedAt     time.Time          `json:"updated_at"`
-	LastRunAt     pgtype.Timestamptz `json:"last_run_at"`
-	LastError     string             `json:"last_error"`
+	ID             string             `json:"id"`
+	OwnerKind      string             `json:"owner_kind"`
+	ExecScope      string             `json:"exec_scope"`
+	PluginID       string             `json:"plugin_id"`
+	JobKey         string             `json:"job_key"`
+	RuntimeName    string             `json:"runtime_name"`
+	Name           string             `json:"name"`
+	Description    string             `json:"description"`
+	ScheduleCron   string             `json:"schedule_cron"`
+	ScheduleEvery  string             `json:"schedule_every"`
+	ScheduleAt     string             `json:"schedule_at"`
+	Message        string             `json:"message"`
+	Payload        json.RawMessage    `json:"payload"`
+	SessionMode    string             `json:"session_mode"`
+	Enabled        bool               `json:"enabled"`
+	AgentID        pgtype.Text        `json:"agent_id"`
+	UserID         pgtype.Text        `json:"user_id"`
+	CreatedAt      time.Time          `json:"created_at"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+	LastRunAt      pgtype.Timestamptz `json:"last_run_at"`
+	LastError      string             `json:"last_error"`
+	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
 }
 
 type SchedJobRun struct {

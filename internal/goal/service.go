@@ -370,8 +370,9 @@ type CreateInput struct {
 	Convergence  ConvergencePolicy
 	ReviewPolicy string // "" ⇒ none
 
-	Context      json.RawMessage // empty ⇒ "{}"
-	DispatchHint json.RawMessage // empty ⇒ "{}"
+	Context        json.RawMessage // empty ⇒ "{}"
+	DispatchHint   json.RawMessage // empty ⇒ "{}"
+	IdempotencyKey string
 }
 
 // CreateGoal inserts a goal in 'draft' (contract §2.1, (none)→draft).
@@ -435,6 +436,7 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 			Lifecycle:         LifecycleDraft,
 			Context:           contextJSON,
 			DispatchHint:      dispatchHint,
+			IdempotencyKey:    pgnull.Text(in.IdempotencyKey),
 		})
 		if err != nil {
 			return fmt.Errorf("create goal: %w", err)

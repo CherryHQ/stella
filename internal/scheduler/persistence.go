@@ -66,27 +66,28 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		updatedAt = createdAt
 	}
 	return sqlc.CreateSchedulerJobParams{
-		ID:            job.ID,
-		OwnerKind:     normalizeOwnerKind(job.OwnerKind),
-		ExecScope:     normalizeExecScope(job.ExecScope),
-		PluginID:      job.PluginID,
-		JobKey:        job.JobKey,
-		RuntimeName:   job.RuntimeName,
-		Name:          job.Name,
-		Description:   job.Description,
-		ScheduleCron:  job.Schedule.Cron,
-		ScheduleEvery: job.Schedule.Every,
-		ScheduleAt:    job.Schedule.At,
-		Message:       job.Message,
-		Payload:       encodePayload(job.Payload),
-		SessionMode:   job.SessionMode,
-		Enabled:       job.Enabled,
-		AgentID:       pgtype.Text{String: job.AgentID, Valid: job.AgentID != ""},
-		UserID:        pgtype.Text{String: job.UserID, Valid: job.UserID != ""},
-		CreatedAt:     createdAt.UTC(),
-		UpdatedAt:     updatedAt.UTC(),
-		LastRunAt:     nullableTime(job.LastRunAt),
-		LastError:     job.LastError,
+		ID:             job.ID,
+		OwnerKind:      normalizeOwnerKind(job.OwnerKind),
+		ExecScope:      normalizeExecScope(job.ExecScope),
+		PluginID:       job.PluginID,
+		JobKey:         job.JobKey,
+		RuntimeName:    job.RuntimeName,
+		Name:           job.Name,
+		Description:    job.Description,
+		ScheduleCron:   job.Schedule.Cron,
+		ScheduleEvery:  job.Schedule.Every,
+		ScheduleAt:     job.Schedule.At,
+		Message:        job.Message,
+		Payload:        encodePayload(job.Payload),
+		SessionMode:    job.SessionMode,
+		Enabled:        job.Enabled,
+		AgentID:        pgtype.Text{String: job.AgentID, Valid: job.AgentID != ""},
+		UserID:         pgtype.Text{String: job.UserID, Valid: job.UserID != ""},
+		CreatedAt:      createdAt.UTC(),
+		UpdatedAt:      updatedAt.UTC(),
+		LastRunAt:      nullableTime(job.LastRunAt),
+		LastError:      job.LastError,
+		IdempotencyKey: pgtype.Text{String: job.IdempotencyKey, Valid: job.IdempotencyKey != ""},
 	}
 }
 
@@ -149,6 +150,9 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 	}
 	if r.UserID.Valid {
 		j.UserID = r.UserID.String
+	}
+	if r.IdempotencyKey.Valid {
+		j.IdempotencyKey = r.IdempotencyKey.String
 	}
 	if r.LastRunAt.Valid {
 		t := r.LastRunAt.Time.UTC()

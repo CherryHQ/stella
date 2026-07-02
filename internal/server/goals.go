@@ -198,6 +198,9 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	if body.ConvergencePolicy != nil {
 		in.Convergence = toConvergence(*body.ConvergencePolicy)
 	}
+	if body.IdempotencyKey != nil {
+		in.IdempotencyKey = *body.IdempotencyKey
+	}
 	created, err := s.goalSvc.CreateGoalOwned(ctx, ident, in)
 	if err != nil {
 		goalError(w, err)
