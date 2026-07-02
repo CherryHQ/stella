@@ -131,8 +131,9 @@ evidence 都保留，审计链清晰：attempt 1 产出 X，验收以 gaps Y 拒
 ## 递归白送分解与终审
 
 复合 goal 由一次 attempt 产出一个 **decomposition**，由 review policy 把关（`none` 自动接
-受；`human` 等待批准——plan-review 闸，归到 decomposition）。一旦接受，子 goal 及其边被物
-化，每个子项跑自己的收敛循环。
+受；`human` 等待批准——plan-review 闸，归到 decomposition）。结构性 decomposition 错误会带着
+`prior_errors` 回灌到同一个 planning session 里修；耗尽 `planner_repair_max` 后，复合 goal 进入
+`blocked(planning_invalid)`，不消耗语义/瞬态规划预算。一旦接受，子 goal 及其边被物化，每个子项跑自己的收敛循环。
 
 当所有必需子项都 accepted，父项跑**它自己的**验收评估。这一步*就是*根级终审 / synthesizer
 ——不是一个特殊、单独的特性，而是每个叶子都有的同一个验收闸，应用在根上。synthesizer 从递归里
