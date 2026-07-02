@@ -101,10 +101,11 @@ func (s *GoalService) priorGapsFor(ctx context.Context, q *sqlc.Queries, d sqlc.
 // attempt_count. uniq_agent_goal_active_attempt enforces ≤1 active attempt per
 // (goal, purpose); a lost race surfaces as ErrInvalidTransition.
 //
+// sessionID is pre-minted outside the tx and belongs only to this attempt.
 // resolvedVerdict carries a human answer that unblocked a needs_verdict (it
 // rides in the frozen input). executorAgentID is the claim-time-resolved
 // executor ("" leaves it NULL).
-func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, executorAgentID, resolvedVerdict string) (sqlc.AgentGoalAttempt, error) {
+func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, sessionID, executorAgentID, resolvedVerdict string) (sqlc.AgentGoalAttempt, error) {
 	upstream, err := upstreamAcceptedOutputs(ctx, q, d.ID)
 	if err != nil {
 		return sqlc.AgentGoalAttempt{}, err
@@ -123,7 +124,7 @@ func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sq
 		UserID:          d.UserID,
 		AgentID:         pgnull.Text(d.AgentID),
 		ExecutorAgentID: pgnull.Text(executorAgentID),
-		SessionID:       d.SessionID,
+		SessionID:       sessionID,
 		Purpose:         PurposeExecution,
 		AttemptNo:       int64(attemptNo),
 		Status:          AttemptQueued,
@@ -167,27 +168,54 @@ func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sq
 // minting+claiming without River); its failure rolls the claim back, leaving the
 // goal ready for the next tick.
 func (s *GoalService) Claim(ctx context.Context, id, workerID string, enqueue AttemptEnqueuer) (sqlc.AgentGoalAttempt, error) {
+	// Execution attempts are one-shot task sessions. Queued attempts are executed
+	// by the current executor version; running attempts owned by an old process are
+	// recovered by the existing lease reaper, exactly like a process crash.
+	d, err := getGoal(ctx, s.q, id)
+	if err != nil {
+		return sqlc.AgentGoalAttempt{}, err
+	}
+	if d.Kind != KindLeaf || d.Lifecycle != LifecycleReady || d.ActiveAttemptID.Valid {
+		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
+	}
+	executorAgentID := dispatchExecutor(d)
+	mintAgentID := executorAgentID
+	if mintAgentID == "" {
+		mintAgentID = d.AgentID
+	}
+	if s.newSession == nil {
+		return sqlc.AgentGoalAttempt{}, fmt.Errorf("goal: no worker session minter configured")
+	}
+	sessionID, err := s.newSession(ctx, d.UserID, mintAgentID, d.ProjectID.String)
+	if err != nil {
+		return sqlc.AgentGoalAttempt{}, fmt.Errorf("mint attempt session: %w", err)
+	}
+
 	var out sqlc.AgentGoalAttempt
-	err := s.withTxRaw(ctx, func(q *sqlc.Queries, tx pgx.Tx) error {
-		d, err := getGoal(ctx, q, id)
+	err = s.withTxRaw(ctx, func(q *sqlc.Queries, tx pgx.Tx) error {
+		cur, err := getGoal(ctx, q, id)
 		if err != nil {
 			return err
 		}
-		if d.Kind != KindLeaf || d.Lifecycle != LifecycleReady || d.ActiveAttemptID.Valid {
+		if cur.Kind != KindLeaf || cur.Lifecycle != LifecycleReady || cur.ActiveAttemptID.Valid {
 			return ErrInvalidTransition
 		}
-		att, err := s.mintNextAttempt(ctx, q, d, dispatchExecutor(d), "")
+		if dispatchExecutor(cur) != executorAgentID {
+			return ErrInvalidTransition
+		}
+		att, err := s.mintNextAttempt(ctx, q, cur, sessionID, executorAgentID, "")
 		if err != nil {
 			return err
 		}
 		if enqueue != nil {
-			if err := enqueue(ctx, tx, d.ID, att.ID); err != nil {
+			if err := enqueue(ctx, tx, cur.ID, att.ID); err != nil {
 				return fmt.Errorf("enqueue attempt job: %w", err)
 			}
 		}
 		out = att
 		return nil
 	})
+	s.disposeOnRollback(ctx, err, d.UserID, mintAgentID, sessionID)
 	return out, err
 }
 

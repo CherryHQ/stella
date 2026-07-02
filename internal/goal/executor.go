@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -77,11 +76,6 @@ type Result struct {
 // TaskChatParams / TaskChatFunc — the persisted-worker-turn callback — are
 // declared in boot.go (BootConfig.Chat is a TaskChatFunc). This file consumes
 // them; it does not re-declare them.
-
-const (
-	terminalTurnDrainGrace  = 10 * time.Second
-	terminalTurnCancelGrace = 10 * time.Second
-)
 
 type executorTurn struct {
 	events <-chan agent.Event
@@ -184,13 +178,14 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 		turnCtx, cancel := context.WithCancel(ctx)
 		return executorTurn{
 			events: e.chat(turnCtx, TaskChatParams{
-				AgentID:    agentID,
-				UserID:     req.Attempt.UserID,
-				SessionID:  req.Attempt.SessionID,
-				ProjectID:  projectID,
-				Prompt:     prompt,
-				Decompose:  decompose,
-				ExtraTools: []tools.Tool{ctTool},
+				AgentID:          agentID,
+				UserID:           req.Attempt.UserID,
+				SessionID:        req.Attempt.SessionID,
+				ProjectID:        projectID,
+				Prompt:           prompt,
+				Decompose:        decompose,
+				ExtraTools:       []tools.Tool{ctTool},
+				OnSandboxSession: req.OnSandboxSession,
 			}),
 			cancel: cancel,
 		}
@@ -204,7 +199,10 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	}
 
 	// First turn against the frozen input context.
-	text, res, done, fail := e.runTurn(ctx, turn(firstPrompt), rec)
+	text, res, done, fail, err := e.runTurn(ctx, turn(firstPrompt), rec)
+	if err != nil {
+		return Result{}, err
+	}
 	if fail != nil {
 		return *fail, nil
 	}
@@ -220,7 +218,10 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 		return Result{Action: terminalNone}, nil
 	}
 
-	_, res, done, fail = e.runTurn(ctx, turn(repairPrompt(text)), rec)
+	_, res, done, fail, err = e.runTurn(ctx, turn(repairPrompt(text)), rec)
+	if err != nil {
+		return Result{}, err
+	}
 	if fail != nil {
 		return *fail, nil
 	}
@@ -230,92 +231,47 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	return Result{Action: terminalNone, RepairAttempted: true}, nil
 }
 
-// runTurn pumps one chat turn until a terminal action is recorded or the event
-// channel closes. It returns the assistant text emitted during the turn, the
-// recorded Result (when done), whether a terminal action fired, and a non-nil
-// fail Result if the stream errored before any terminal action.
-func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *terminalRecorder) (text string, res Result, done bool, fail *Result) {
-	defer turn.cancel()
+// runTurn pumps one chat turn until the event channel closes. Once a terminal
+// action is recorded, it cancels the turn but keeps draining so the one-shot
+// session can run its pre-close sandbox callback and close before Execute returns.
+func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *terminalRecorder) (text string, res Result, done bool, fail *Result, err error) {
+	cancelled := false
+	cancelTurn := func() {
+		if !cancelled {
+			cancelled = true
+			turn.cancel()
+		}
+	}
+	defer cancelTurn()
 
 	var buf strings.Builder
 	for ev := range turn.events {
 		if ev.Err != nil {
-			if rec.isDone() {
-				r, _ := rec.snapshot()
-				if err := e.drainTerminalTurn(ctx, turn); err != nil {
-					f := failResult(fmt.Sprintf("runner cleanup error: %v", err), true)
-					return buf.String(), Result{}, false, &f
-				}
-				return buf.String(), r, true, nil
+			if done {
+				e.log.Warn("goal executor cleanup error", "err", ev.Err)
+				f := failResult(fmt.Sprintf("runner cleanup error: %v", ev.Err), true)
+				return buf.String(), Result{}, false, &f, nil
 			}
 			e.log.Warn("goal executor stream error", "err", ev.Err)
 			f := failResult(fmt.Sprintf("runner error: %v", ev.Err), true)
-			return buf.String(), Result{}, false, &f
+			return buf.String(), Result{}, false, &f, nil
 		}
 		if ev.Text != "" {
 			buf.WriteString(ev.Text)
 		}
-		if rec.isDone() {
-			r, _ := rec.snapshot()
-			if err := e.drainTerminalTurn(ctx, turn); err != nil {
-				f := failResult(fmt.Sprintf("runner cleanup error: %v", err), true)
-				return buf.String(), Result{}, false, &f
-			}
-			return buf.String(), r, true, nil
+		if !done && rec.isDone() {
+			res, _ = rec.snapshot()
+			done = true
+			cancelTurn()
 		}
 	}
-	if rec.isDone() {
-		r, _ := rec.snapshot()
-		return buf.String(), r, true, nil
+	if done {
+		return buf.String(), res, true, nil, nil
 	}
-	return buf.String(), Result{}, false, nil
-}
-
-// drainTerminalTurn waits for the runtime turn to release the session busy guard
-// before the worker finalizes the attempt and convergence can dispatch a retry.
-// Most turns close immediately after goal_control; the timeout path cancels the
-// turn and gives runtime cleanup a bounded grace period instead of spinning.
-func (e *workerExecutor) drainTerminalTurn(ctx context.Context, turn executorTurn) error {
-	if turn.events == nil {
-		return nil
+	if err := ctx.Err(); err != nil {
+		return buf.String(), Result{}, false, nil, err
 	}
-
-	grace := time.NewTimer(terminalTurnDrainGrace)
-	defer grace.Stop()
-
-	for {
-		select {
-		case _, ok := <-turn.events:
-			if !ok {
-				return nil
-			}
-		case <-ctx.Done():
-			turn.cancel()
-			return ctx.Err()
-		case <-grace.C:
-			e.log.Warn("goal executor terminal turn still active after drain grace; cancelling turn")
-			turn.cancel()
-			return e.drainCancelledTurn(ctx, turn.events)
-		}
-	}
-}
-
-func (e *workerExecutor) drainCancelledTurn(ctx context.Context, events <-chan agent.Event) error {
-	cleanup := time.NewTimer(terminalTurnCancelGrace)
-	defer cleanup.Stop()
-
-	for {
-		select {
-		case _, ok := <-events:
-			if !ok {
-				return nil
-			}
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-cleanup.C:
-			return fmt.Errorf("terminal turn did not stop within %s after cancellation", terminalTurnCancelGrace)
-		}
-	}
+	return buf.String(), Result{}, false, nil, nil
 }
 
 // foldResult maps the rich internal Result onto the frozen ExecutorResult the

@@ -15,6 +15,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // SessionMinter returns a fresh durable session id for a goal's
@@ -50,9 +51,10 @@ type Executor interface {
 // not depend on the agent layer; the worker is the only caller that constructs
 // and consumes them.
 type ExecutorRequest struct {
-	Goal    sqlc.AgentGoal
-	Attempt sqlc.AgentGoalAttempt
-	Input   AttemptInput
+	Goal             sqlc.AgentGoal
+	Attempt          sqlc.AgentGoalAttempt
+	Input            AttemptInput
+	OnSandboxSession func(sandbox.Session) error
 }
 
 // ExecutorResult is the executor's declared outcome for one attempt. Exactly

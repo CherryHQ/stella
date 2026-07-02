@@ -129,6 +129,9 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		Input:   w.attemptInput(att),
 	})
 	if eerr != nil {
+		if errors.Is(eerr, context.Canceled) || errors.Is(eerr, context.DeadlineExceeded) {
+			return eerr
+		}
 		// The executor encodes outcomes in its Result; a returned error is
 		// unexpected. Record it as a failed attempt so convergence can recover.
 		w.log.Warn("worker: executor returned error", "goal_id", goalID, "attempt_id", attemptID, "err", eerr)

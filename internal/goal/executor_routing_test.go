@@ -9,14 +9,16 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// TestExecutorWaitsForTerminalTurnDrain pins the retry race: once goal_control
-// records a terminal action, Execute must still wait for the chat stream to close
-// before returning so the runtime has released the session busy guard.
-func TestExecutorWaitsForTerminalTurnDrain(t *testing.T) {
+// TestExecutorWaitsForOneShotSessionClose pins the one-shot session contract:
+// after goal_control records a terminal action, Execute waits for the session's
+// pre-close sandbox callback to run before returning.
+func TestExecutorWaitsForOneShotSessionClose(t *testing.T) {
 	eventConsumed := make(chan struct{})
-	release := make(chan struct{})
+	releaseClose := make(chan struct{})
+	callbackCalled := make(chan struct{})
 	returned := make(chan error, 1)
 
 	chat := func(ctx context.Context, p TaskChatParams) <-chan agent.Event {
@@ -29,9 +31,12 @@ func TestExecutorWaitsForTerminalTurnDrain(t *testing.T) {
 			}
 			ch <- agent.Event{Text: "terminal recorded"}
 			close(eventConsumed)
-			select {
-			case <-release:
-			case <-ctx.Done():
+			<-releaseClose
+			if p.OnSandboxSession != nil {
+				if err := p.OnSandboxSession(sandbox.NopSession()); err != nil {
+					ch <- agent.Event{Err: err}
+					return
+				}
 			}
 		}()
 		return ch
@@ -47,6 +52,10 @@ func TestExecutorWaitsForTerminalTurnDrain(t *testing.T) {
 				ExecutorAgentID: pgtype.Text{String: "a", Valid: true},
 			},
 			Input: AttemptInput{Intent: "do the thing"},
+			OnSandboxSession: func(sandbox.Session) error {
+				close(callbackCalled)
+				return nil
+			},
 		})
 		returned <- err
 	}()
@@ -61,18 +70,25 @@ func TestExecutorWaitsForTerminalTurnDrain(t *testing.T) {
 
 	select {
 	case err := <-returned:
-		t.Fatalf("Execute returned before the terminal turn drained: %v", err)
+		t.Fatalf("Execute returned before one-shot session close: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	close(release)
+	close(releaseClose)
+	select {
+	case <-callbackCalled:
+	case err := <-returned:
+		t.Fatalf("Execute returned before sandbox callback: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("sandbox callback was not called")
+	}
 	select {
 	case err := <-returned:
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("Execute did not return after the terminal turn drained")
+		t.Fatal("Execute did not return after one-shot session close")
 	}
 }
 

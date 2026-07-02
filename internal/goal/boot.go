@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -122,8 +123,9 @@ type TaskChatParams struct {
 	// Decompose routes the turn to the decomposition planning session
 	// (KindDelegate) instead of the worker session (KindTask). Set for
 	// purpose=decomposition attempts; the two session kinds resolve differently.
-	Decompose  bool
-	ExtraTools []tools.Tool
+	Decompose        bool
+	ExtraTools       []tools.Tool
+	OnSandboxSession func(sandbox.Session) error
 }
 
 // TaskChatFunc runs one worker turn through the agent service layer so the
