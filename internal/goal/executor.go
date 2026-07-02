@@ -420,6 +420,8 @@ Goal:
 		b.WriteString("\n")
 	}
 
+	renderTimelineContext(&b, in)
+
 	if len(in.PriorErrors) > 0 {
 		b.WriteString("\nYour previous decomposition was structurally invalid. Fix these errors and call goal_control again.\n")
 		b.WriteString("prior_errors JSON:\n")
@@ -474,6 +476,68 @@ Goal:
 	}
 
 	return b.String()
+}
+
+func renderTimelineContext(b *strings.Builder, in AttemptInput) {
+	var human []TimelineContextEvent
+	var facts []TimelineContextEvent
+	for _, ev := range in.TimelineContext {
+		switch ev.EventType {
+		case GoalEventHumanMessage:
+			if strings.TrimSpace(ev.Text) != "" {
+				human = append(human, ev)
+			}
+		case GoalEventAttemptFinished:
+			if strings.TrimSpace(ev.Reason) != "" || strings.TrimSpace(ev.Status) != "" {
+				facts = append(facts, ev)
+			}
+		case GoalEventAcceptanceRecorded:
+			if in.PriorGaps == nil && ev.Result == ResultFail && strings.TrimSpace(ev.Reason) != "" {
+				facts = append(facts, ev)
+			}
+		}
+	}
+
+	if len(human) > 0 {
+		b.WriteString("\n\nHuman guidance for this attempt — follow it; where it conflicts with the original framing above, the human guidance wins:\n")
+		for _, ev := range human {
+			line := "- "
+			if ev.CreatedAt != "" {
+				line += ev.CreatedAt + ": "
+			}
+			line += strings.TrimSpace(ev.Text)
+			b.WriteString(line + "\n")
+		}
+	}
+
+	if len(facts) > 0 {
+		b.WriteString("\nRecent execution facts to account for:\n")
+		for _, ev := range facts {
+			switch ev.EventType {
+			case GoalEventAttemptFinished:
+				line := "- attempt"
+				if ev.AttemptID != "" {
+					line += " " + ev.AttemptID
+				}
+				if ev.Status != "" {
+					line += " ended " + ev.Status
+				}
+				if ev.FailureClass != "" {
+					line += " (" + ev.FailureClass + ")"
+				}
+				if ev.Reason != "" {
+					line += ": " + ev.Reason
+				}
+				b.WriteString(line + "\n")
+			case GoalEventAcceptanceRecorded:
+				line := "- acceptance item " + ev.ItemID + " failed"
+				if ev.Reason != "" {
+					line += ": " + ev.Reason
+				}
+				b.WriteString(line + "\n")
+			}
+		}
+	}
 }
 
 // buildRepairPrompt is the single bounded correction turn for a worker that

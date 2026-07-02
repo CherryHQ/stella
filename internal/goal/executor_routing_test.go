@@ -2,6 +2,7 @@ package goal
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,6 +133,48 @@ func TestExecutorRunsSandboxCallbackOnlyForTerminalSubmitTurn(t *testing.T) {
 	}
 	if turns != 2 || callbacks != 1 {
 		t.Fatalf("turns=%d callbacks=%d, want two turns and callback only on terminal submit", turns, callbacks)
+	}
+}
+
+func TestBuildAttemptPromptRendersHumanTimelineGuidance(t *testing.T) {
+	prompt := buildAttemptPrompt(ExecutorRequest{Input: AttemptInput{
+		Intent: "fetch the invalid domain",
+		TimelineContext: []TimelineContextEvent{
+			{EventType: GoalEventAttemptFinished, AttemptID: "old", Status: AttemptFailed, FailureClass: FailureClassEnvironment, Reason: "invalid domain failed", CreatedAt: "2026-07-03T00:00:00Z"},
+			{EventType: GoalEventHumanMessage, Text: "换用 https://example.com", CreatedAt: "2026-07-03T00:01:00Z"},
+		},
+	}}, false)
+
+	if !strings.Contains(prompt, "Human guidance for this attempt") {
+		t.Fatalf("prompt missing human guidance heading:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "where it conflicts with the original framing above, the human guidance wins") {
+		t.Fatalf("prompt missing conflict precedence instruction:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "换用 https://example.com") {
+		t.Fatalf("prompt missing human message text:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Recent execution facts to account for") || !strings.Contains(prompt, "invalid domain failed") {
+		t.Fatalf("prompt missing recent failure facts:\n%s", prompt)
+	}
+}
+
+func TestBuildAttemptPromptOmitsHumanTimelineGuidanceWhenEmpty(t *testing.T) {
+	prompt := buildAttemptPrompt(ExecutorRequest{Input: AttemptInput{Intent: "do the thing"}}, false)
+	if strings.Contains(prompt, "Human guidance for this attempt") {
+		t.Fatalf("prompt unexpectedly rendered human guidance:\n%s", prompt)
+	}
+}
+
+func TestBuildDecompositionPromptRendersHumanTimelineGuidance(t *testing.T) {
+	prompt := buildAttemptPrompt(ExecutorRequest{Input: AttemptInput{
+		Intent: "split the work",
+		TimelineContext: []TimelineContextEvent{
+			{EventType: GoalEventHumanMessage, Text: "重新规划，先验证 example.com", CreatedAt: "2026-07-03T00:02:00Z"},
+		},
+	}}, true)
+	if !strings.Contains(prompt, "Human guidance for this attempt") || !strings.Contains(prompt, "重新规划，先验证 example.com") {
+		t.Fatalf("decomposition prompt missing human guidance:\n%s", prompt)
 	}
 }
 
