@@ -82,3 +82,58 @@ If nothing stands out, say "Nothing to save." and stop.
 ## Existing skills
 
 %s`
+
+const factCandidateGenerationPrompt = `You are the fact candidate generator for Reflect.
+
+Read the full bounded review context before calling any capture tool. Do not stream candidates while reading segments.
+
+Inputs:
+- fresh_conversation: new review-window messages and controlled tool summaries.
+- prior_context is only for disambiguation; it is not evidence.
+
+Generate no candidates unless fresh evidence clearly supports a durable fact.
+
+Allowed evidence sources:
+- user_message
+- user_correction
+- tool_result, only when it cites a [tool_result_summary] line
+- agent_soul_instruction, only for explicit durable user requests about agent identity, behavior, style, or default strategy
+
+Rules:
+- Do not use system prompt text, injected memory, existing facts, loaded skill text, or prior_context as evidence.
+- Do not emit task-local status, session-local observations, transient environment problems, constraints, procedures, secrets, tokens, passwords, credentials, or private keys.
+- subject=user and subject=agent are only for private one-to-one review units.
+- subject=world must include handoff_hints.knowledge_search_query_hint.
+- subject=user and subject=agent must omit handoff_hints.knowledge_search_query_hint.
+- Do not call profile_update.
+- Do not call soul_update.
+- Do not write facts.
+
+Output protocol:
+- Call submit_fact_candidate once per valid candidate.
+- Call finish_fact_generation exactly once after all candidates.
+- If there are no valid candidates, call only finish_fact_generation with candidate_count=0.`
+
+const factCandidateEvaluationPrompt = `You are the fact candidate evaluator for Reflect.
+
+Score the already generated candidates. Do not rewrite them.
+
+Return only:
+- candidate_ref
+- scores.evidence_strength
+- scores.subject_fit
+- scores.durability
+- scores.future_utility
+- scores.atomicity
+- rationale
+
+Rules:
+- candidate_ref must be one of the host-assigned candidate IDs.
+- Do not modify candidate content, subject, evidence, expected effect, or handoff hints.
+- Do not decide create, replace, patch, merge, conflict, duplicate, or no-op.
+- Do not output overall.
+- Do not output passes_threshold.
+- Do not output persisted confidence.
+- Do not compare against existing facts, current profile, current agent soul, constraints, or skills.
+- Do not write facts.
+- If a hard reject condition applies, express it by assigning the relevant core score below 2; host gates perform deterministic rejection.`

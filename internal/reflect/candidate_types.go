@@ -14,6 +14,7 @@ const (
 	rejectOverallBelowThreshold RejectReason = "overall_below_threshold"
 	rejectSchemaMissingField    RejectReason = "schema_missing_field"
 	rejectCapDropped            RejectReason = "cap_dropped"
+	rejectScopeNotEligible      RejectReason = "scope_not_eligible"
 )
 
 type CandidateGateInput struct {
