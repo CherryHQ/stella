@@ -99,9 +99,10 @@ components:
 func TestMultiActionAnnotationOmitFixedFields(t *testing.T) {
 	doc := mustDoc(t, []byte(`
 paths:
-  /api/jobs/{jobId}:
+  /api/jobs/{jobId}/{flowId}:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string } }
+      - { name: flowId, in: path, required: true, schema: { type: string } }
       - { name: agentId, in: path, required: true, schema: { type: string } }
     patch:
       x-agent-tool:
@@ -135,6 +136,9 @@ components:
 	}
 	if _, ok := pauseProps["id"]; !ok {
 		t.Fatal("jobId path param should become model-friendly id")
+	}
+	if _, ok := pauseProps["flow_id"]; !ok {
+		t.Fatal("flowId path param should become model-friendly flow_id")
 	}
 }
 

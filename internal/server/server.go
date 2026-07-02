@@ -240,6 +240,13 @@ func (s *Server) SetOIDCAuth(result *oidc.SetupResult) {
 	s.localAuth = result.LocalAuth
 }
 
+// SetCredentialsService replaces the shared credentials service. Call before serving.
+func (s *Server) SetCredentialsService(svc *credentials.Service) {
+	if svc != nil {
+		s.credSvc = svc
+	}
+}
+
 // CredentialsService returns the shared credentials service.
 // Used by callers that need to wire in the runner invalidator or access
 // the credentials tool from outside the admin package.

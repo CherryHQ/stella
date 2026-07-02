@@ -495,6 +495,8 @@ func toolFieldName(name string) string {
 	switch name {
 	case "jobId":
 		return "id"
+	case "flowId":
+		return "flow_id"
 	default:
 		return name
 	}

@@ -454,6 +454,7 @@ paths:
       tags: [profile]
       summary: List OAuth provider statuses for the current user
       operationId: listOAuthProviders
+      x-agent-tool: { tool: "oauth", action: "list" }
       responses:
         "200":
           description: ok
@@ -473,6 +474,7 @@ paths:
       tags: [profile]
       summary: Start an OAuth device flow for a provider
       operationId: startOAuthFlow
+      x-agent-tool: { tool: "oauth", action: "connect" }
       responses:
         "200":
           description: ok
@@ -496,6 +498,7 @@ paths:
       tags: [profile]
       summary: Poll the status of an OAuth flow
       operationId: pollOAuthFlow
+      x-agent-tool: { tool: "oauth", action: "status" }
       responses:
         "200":
           description: ok
@@ -540,6 +543,7 @@ paths:
       tags: [profile]
       summary: Disconnect an OAuth provider
       operationId: disconnectOAuth
+      x-agent-tool: { tool: "oauth", action: "disconnect" }
       responses:
         "204":
           description: no content

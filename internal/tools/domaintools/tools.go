@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/credentials"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/toolctx"
@@ -152,6 +153,81 @@ func (h goalHandler) Cancel(ctx context.Context, in GoalCancelInput) (any, error
 		return nil, err
 	}
 	return goalSummary(row), nil
+}
+
+type OauthTool struct {
+	svc *credentials.Service
+}
+
+func NewOauthTool(svc *credentials.Service) *OauthTool {
+	return &OauthTool{svc: svc}
+}
+
+func (t *OauthTool) Definition() tools.Definition {
+	return tools.Definition{
+		Name:        "oauth",
+		Description: "Connect and manage external OAuth providers for this user. Actions: list providers, connect, status, disconnect. For connect, give the user the returned verification_uri and user_code, ask them to authorize and tell you when done, then call action=status with the flow_id. Never tell the user to run commands; never expose tokens.",
+		InputSchema: OauthInputSchema(),
+	}
+}
+
+func (t *OauthTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	if t == nil || t.svc == nil {
+		return "", fmt.Errorf("oauth service is unavailable — try again later")
+	}
+	ident, err := toolIdentity(ctx, "oauth")
+	if err != nil {
+		return "", err
+	}
+	action, err := actionArg(args, "oauth")
+	if err != nil {
+		return "", err
+	}
+	out, err := DispatchOauth(ctx, oauthHandler{svc: t.svc, ident: ident}, action, args)
+	if err != nil {
+		return "", mapToolError("oauth", err)
+	}
+	return marshalToolResult(out)
+}
+
+type oauthHandler struct {
+	svc   *credentials.Service
+	ident toolctx.Identity
+}
+
+func (h oauthHandler) Connect(ctx context.Context, in OauthConnectInput) (any, error) {
+	status, err := h.svc.StartFlowOwned(ctx, h.ident, in.Provider)
+	if err != nil {
+		return nil, err
+	}
+	return oauthFlowSummary(status), nil
+}
+
+func (h oauthHandler) Status(ctx context.Context, in OauthStatusInput) (any, error) {
+	status, _, err := h.svc.PollFlowOwned(ctx, h.ident, in.Provider, in.FlowId)
+	if err != nil {
+		return nil, err
+	}
+	return oauthFlowSummary(status), nil
+}
+
+func (h oauthHandler) List(ctx context.Context, _ OauthListInput) (any, error) {
+	providers, err := h.svc.StatusesOwned(ctx, h.ident)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]oauthProviderResponse, 0, len(providers))
+	for _, provider := range providers {
+		items = append(items, oauthProviderSummary(provider))
+	}
+	return map[string]any{"providers": items}, nil
+}
+
+func (h oauthHandler) Disconnect(ctx context.Context, in OauthDisconnectInput) (any, error) {
+	if err := h.svc.DisconnectOwned(ctx, h.ident, in.Provider); err != nil {
+		return nil, err
+	}
+	return map[string]any{"provider": in.Provider, "status": "disconnected"}, nil
 }
 
 type VaultTool struct {
@@ -354,6 +430,22 @@ func (h schedulerHandler) Resume(ctx context.Context, in SchedulerResumeInput) (
 	return schedulerSummary(job), nil
 }
 
+type oauthFlowResponse struct {
+	Provider        string `json:"provider"`
+	FlowID          string `json:"flow_id"`
+	VerificationURI string `json:"verification_uri"`
+	UserCode        string `json:"user_code,omitempty"`
+	ExpiresAt       string `json:"expires_at"`
+	State           string `json:"state"`
+}
+
+type oauthProviderResponse struct {
+	Provider   string `json:"provider"`
+	Configured bool   `json:"configured"`
+	Connected  bool   `json:"connected"`
+	Username   string `json:"username,omitempty"`
+}
+
 type goalResponse struct {
 	ID              string `json:"id"`
 	Title           string `json:"title"`
@@ -416,6 +508,26 @@ func schedulerSummary(job scheduler.Job) schedulerResponse {
 	}
 }
 
+func oauthFlowSummary(status credentials.FlowStatus) oauthFlowResponse {
+	return oauthFlowResponse{
+		Provider:        status.Provider,
+		FlowID:          status.FlowID,
+		VerificationURI: status.VerificationURI,
+		UserCode:        status.UserCode,
+		ExpiresAt:       status.ExpiresAt.UTC().Format(time.RFC3339),
+		State:           status.State,
+	}
+}
+
+func oauthProviderSummary(status credentials.ProviderStatus) oauthProviderResponse {
+	return oauthProviderResponse{
+		Provider:   status.Provider,
+		Configured: status.Configured,
+		Connected:  status.Connected,
+		Username:   status.Username,
+	}
+}
+
 func vaultSummary(meta vault.EntryMeta) vaultResponse {
 	return vaultResponse{Name: meta.Name, Scope: meta.Scope, UpdatedAt: meta.UpdatedAt}
 }
@@ -443,6 +555,8 @@ func mapToolError(tool string, err error) error {
 	switch {
 	case errors.Is(err, toolctx.ErrUnauthenticated):
 		return fmt.Errorf("this session has no user identity — %s tools are unavailable here", tool)
+	case tool == "oauth" && errors.Is(err, toolctx.ErrNotFound):
+		return fmt.Errorf("flow expired or unknown — start a new connect")
 	case errors.Is(err, toolctx.ErrNotFound), errors.Is(err, goal.ErrNotFound):
 		return fmt.Errorf("%s not found — check the id with action=list", tool)
 	case errors.Is(err, toolctx.ErrForbidden):

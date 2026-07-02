@@ -11,6 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/credentials"
+	credoauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/goal"
@@ -153,6 +156,28 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	}
 	if _, err := vaultTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("vault unauthenticated err=%v, want no user identity", err)
+	}
+
+	flowStore := credoauth.NewFlowStore()
+	flowStore.Create(credoauth.FlowStatus{Provider: credoauth.ProviderGitHub, FlowID: "owner-flow", UserID: ownerUser, FlowType: "device_code"})
+	oauthSvc := credentials.NewService(nil, nil, flowStore, "http://localhost:8080")
+	registry := credoauth.NewProviderRegistry()
+	registry.Register(credoauth.ProviderConfig{ID: "github", VaultKey: credoauth.VaultKeyGitHub})
+	oauthSvc.SetRegistry(registry)
+	oauthTool := NewOauthTool(oauthSvc)
+	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "owner-flow"}); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
+		t.Fatalf("oauth foreign status out=%q err=%v, want access denied", out, err)
+	}
+	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "missing-flow"}); err == nil || !strings.Contains(err.Error(), "flow expired or unknown") || out != "" {
+		t.Fatalf("oauth missing status out=%q err=%v, want expired/unknown", out, err)
+	}
+	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "list"}); err != nil {
+		t.Fatalf("oauth list err=%v", err)
+	} else if strings.Contains(out, "token") || strings.Contains(out, "secret") {
+		t.Fatalf("oauth list leaked secret field: %s", out)
+	}
+	if _, err := oauthTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
+		t.Fatalf("oauth unauthenticated err=%v, want no user identity", err)
 	}
 }
 

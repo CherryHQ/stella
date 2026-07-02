@@ -19,6 +19,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/embedding"
@@ -76,6 +77,7 @@ type setupResult struct {
 	schedulerSvc             *scheduler.Service
 	goalSvc                  *goal.Service
 	vaultSvc                 *vault.Service
+	credSvc                  *credentials.Service
 	embeddingSvc             *embedding.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []pkgtools.Tool
@@ -258,9 +260,15 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
+	credSvc := credentials.NewService(vaultSvc, sqlc.New(db), oauth.NewFlowStore(), "http://localhost:25678")
+	if ps.oauthRegistry != nil {
+		credSvc.SetRegistry(ps.oauthRegistry)
+	}
+
 	domainToolMounts := []agent.DomainToolMount{
 		{Name: "goal", Tool: domaintools.NewGoalTool(goalSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "scheduler", Tool: domaintools.NewSchedulerTool(schedulerSvc), Predicate: agent.DomainToolAvailable},
+		{Name: "oauth", Tool: domaintools.NewOauthTool(credSvc), Predicate: agent.DomainToolAvailable},
 	}
 	if vaultSvc != nil {
 		domainToolMounts = append(domainToolMounts, agent.DomainToolMount{Name: "vault", Tool: domaintools.NewVaultTool(vaultSvc), Predicate: agent.DomainToolAvailable})
@@ -320,6 +328,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		schedulerSvc:             schedulerSvc,
 		goalSvc:                  goalSvc,
 		vaultSvc:                 vaultSvc,
+		credSvc:                  credSvc,
 		embeddingSvc:             embeddingSvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,

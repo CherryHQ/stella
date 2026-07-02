@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -403,6 +404,13 @@ func (s *Service) GetProviderStatuses(ctx context.Context, userID string) []Prov
 	return out
 }
 
+func (s *Service) StatusesOwned(ctx context.Context, ident toolctx.Identity) ([]ProviderStatus, error) {
+	if ident.UserID == "" {
+		return nil, toolctx.ErrUnauthenticated
+	}
+	return s.GetProviderStatuses(ctx, ident.UserID), nil
+}
+
 func (s *Service) getProviderStatus(ctx context.Context, userID string, provider string) ProviderStatus {
 	ps := ProviderStatus{Provider: provider}
 
@@ -475,6 +483,16 @@ func (s *Service) preferredFlowType(provider string) string {
 
 // StartFlow starts an OAuth flow for the given provider and user.
 // It prefers device_code flows when available, making it suitable for agent/CLI use.
+func (s *Service) StartFlowOwned(ctx context.Context, ident toolctx.Identity, provider string, origin ...string) (FlowStatus, error) {
+	if ident.UserID == "" {
+		return FlowStatus{}, toolctx.ErrUnauthenticated
+	}
+	if len(origin) > 0 && origin[0] != "" {
+		return s.StartFlowWithOrigin(ctx, ident.UserID, provider, origin[0])
+	}
+	return s.StartFlow(ctx, ident.UserID, provider)
+}
+
 func (s *Service) StartFlow(ctx context.Context, userID string, provider string) (FlowStatus, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
@@ -514,6 +532,23 @@ func (s *Service) StartFlowWithOrigin(ctx context.Context, userID string, provid
 // PollFlow polls an in-flight OAuth flow. For device-code flows it completes and
 // saves the token when authorized. For auth-code flows it returns completed=true
 // once the callback has finalized the flow.
+func (s *Service) PollFlowOwned(ctx context.Context, ident toolctx.Identity, provider, flowID string) (FlowStatus, bool, error) {
+	if ident.UserID == "" {
+		return FlowStatus{}, false, toolctx.ErrUnauthenticated
+	}
+	if s.flowStore == nil {
+		return FlowStatus{}, false, toolctx.ErrNotFound
+	}
+	flow, ok := s.flowStore.Get(flowID)
+	if !ok {
+		return FlowStatus{}, false, toolctx.ErrNotFound
+	}
+	if flow.UserID != ident.UserID {
+		return FlowStatus{}, false, toolctx.ErrForbidden
+	}
+	return s.PollFlow(ctx, ident.UserID, provider, flowID)
+}
+
 func (s *Service) PollFlow(ctx context.Context, userID string, provider, flowID string) (FlowStatus, bool, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, false, fmt.Errorf("vault not configured")
@@ -606,6 +641,13 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 }
 
 // Disconnect removes the OAuth bundle for the given provider and user.
+func (s *Service) DisconnectOwned(ctx context.Context, ident toolctx.Identity, provider string) error {
+	if ident.UserID == "" {
+		return toolctx.ErrUnauthenticated
+	}
+	return s.Disconnect(ctx, ident.UserID, provider)
+}
+
 func (s *Service) Disconnect(ctx context.Context, userID string, provider string) error {
 	if s.vaultSvc == nil {
 		return fmt.Errorf("vault not configured")
