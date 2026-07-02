@@ -137,6 +137,15 @@ type AgentGoalEdge struct {
 	CreatedAt    time.Time          `json:"created_at"`
 }
 
+type AgentGoalEvent struct {
+	ID        string          `json:"id"`
+	GoalID    string          `json:"goal_id"`
+	AttemptID pgtype.Text     `json:"attempt_id"`
+	EventType string          `json:"event_type"`
+	Payload   json.RawMessage `json:"payload"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
 type AppSetting struct {
 	Key       string    `json:"key"`
 	Value     string    `json:"value"`
