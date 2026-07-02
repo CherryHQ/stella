@@ -66,8 +66,15 @@ func gateCandidates(inputs []CandidateGateInput, cfg CandidateGateConfig) Candid
 }
 
 func normalizedWeightedScore(scores map[string]int, weights map[string]float64) float64 {
+	fields := make([]string, 0, len(weights))
+	for field := range weights {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+
 	var weighted, totalWeight float64
-	for field, weight := range weights {
+	for _, field := range fields {
+		weight := weights[field]
 		if weight <= 0 {
 			continue
 		}
