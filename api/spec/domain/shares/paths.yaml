@@ -4,6 +4,7 @@ paths:
       tags: [shares]
       summary: List shares for the current user
       operationId: listShares
+      x-agent-tool: { tool: "share", action: "list" }
       parameters:
         - {
             name: page_size,
@@ -32,6 +33,19 @@ paths:
       tags: [shares]
       summary: Create a public share link
       operationId: createShare
+      x-agent-tool:
+        - {
+            tool: "share",
+            action: "artifact",
+            fixed: { source: "artifact", article_id: "", session_id: "" },
+            restrict: { source: [artifact] },
+          }
+        - {
+            tool: "share",
+            action: "article",
+            fixed: { source: "article", path: "", session_id: "", scope: "" },
+            restrict: { source: [article] },
+          }
       requestBody:
         required: true
         content:
@@ -61,6 +75,7 @@ paths:
       tags: [shares]
       summary: Revoke a share
       operationId: revokeShare
+      x-agent-tool: { tool: "share", action: "revoke" }
       responses:
         "204": { description: revoked }
         "401": {

@@ -1,4 +1,4 @@
-package server
+package share
 
 import (
 	"strings"
@@ -7,7 +7,7 @@ import (
 
 func TestRenderMarkdownPage(t *testing.T) {
 	md := []byte("# Hello\n\nThis is **bold** and a [link](https://example.com).\n\n```go\nfmt.Println(\"hi\")\n```\n")
-	out, err := renderMarkdownPage(renderMarkdownOpts{
+	out, err := RenderMarkdownPage(RenderMarkdownOpts{
 		Title:     "Test Article",
 		Author:    "Alice",
 		ExpiresAt: "2026-06-01",
@@ -38,7 +38,7 @@ func TestRenderMarkdownPage(t *testing.T) {
 
 func TestRenderMarkdownPageNoMeta(t *testing.T) {
 	md := []byte("Just a paragraph.")
-	out, err := renderMarkdownPage(renderMarkdownOpts{Title: "Untitled"}, md)
+	out, err := RenderMarkdownPage(RenderMarkdownOpts{Title: "Untitled"}, md)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestRenderMarkdownPageNoMeta(t *testing.T) {
 
 func TestRenderMarkdownPageGFMTable(t *testing.T) {
 	md := []byte("| A | B |\n|---|---|\n| 1 | 2 |\n")
-	out, err := renderMarkdownPage(renderMarkdownOpts{Title: "Table Test"}, md)
+	out, err := RenderMarkdownPage(RenderMarkdownOpts{Title: "Table Test"}, md)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestRenderMarkdownPageGFMTable(t *testing.T) {
 
 func TestRenderMarkdownPageWithArticleMeta(t *testing.T) {
 	md := []byte("Article body content.")
-	out, err := renderMarkdownPage(renderMarkdownOpts{
+	out, err := RenderMarkdownPage(RenderMarkdownOpts{
 		Title:     "Deep Learning Guide",
 		Author:    "Bob",
 		SourceURL: "https://example.com/article",

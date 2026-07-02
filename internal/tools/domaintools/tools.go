@@ -11,7 +11,9 @@ import (
 
 	"github.com/CherryHQ/stella/internal/credentials"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -228,6 +230,86 @@ func (h oauthHandler) Disconnect(ctx context.Context, in OauthDisconnectInput) (
 		return nil, err
 	}
 	return map[string]any{"provider": in.Provider, "status": "disconnected"}, nil
+}
+
+type ShareTool struct {
+	svc *sharepkg.Service
+}
+
+func NewShareTool(svc *sharepkg.Service) *ShareTool {
+	return &ShareTool{svc: svc}
+}
+
+func (t *ShareTool) Definition() tools.Definition {
+	return tools.Definition{
+		Name:        "share",
+		Description: "Create and manage public share links for this user's artifacts or saved articles. Actions: artifact shares a file from the current session workspace; article shares a Recally article; list shows existing shares; revoke disables a share. For artifact, use the current session automatically and provide a workspace path. Responses include the public URL; never expose private file content unless the user asked to share it.",
+		InputSchema: ShareInputSchema(),
+	}
+}
+
+func (t *ShareTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	if t == nil || t.svc == nil {
+		return "", fmt.Errorf("share service is unavailable — try again later")
+	}
+	ident, err := toolIdentity(ctx, "share")
+	if err != nil {
+		return "", err
+	}
+	action, err := actionArg(args, "share")
+	if err != nil {
+		return "", err
+	}
+	out, err := DispatchShare(ctx, shareHandler{svc: t.svc, ident: ident}, action, args)
+	if err != nil {
+		return "", mapToolError("share", err)
+	}
+	return marshalToolResult(out)
+}
+
+type shareHandler struct {
+	svc   *sharepkg.Service
+	ident toolctx.Identity
+}
+
+func (h shareHandler) Artifact(ctx context.Context, in ShareArtifactInput) (any, error) {
+	sessionID := memory.SessionIDFromContext(ctx)
+	created, err := h.svc.ShareArtifactOwned(ctx, h.ident, sessionID, in.Path, in.Scope, in.ExpiresIn)
+	if err != nil {
+		return nil, err
+	}
+	return shareCreatedSummary(created), nil
+}
+
+func (h shareHandler) Article(ctx context.Context, in ShareArticleInput) (any, error) {
+	created, err := h.svc.ShareArticleOwned(ctx, h.ident, in.ArticleId, in.ExpiresIn)
+	if err != nil {
+		return nil, err
+	}
+	return shareCreatedSummary(created), nil
+}
+
+func (h shareHandler) List(ctx context.Context, in ShareListInput) (any, error) {
+	limit, offset, err := parseToolPage(in.PageSize, in.PageToken)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
+	}
+	result, err := h.svc.ListOwned(ctx, h.ident, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]shareResponse, 0, len(result.Shares))
+	for _, row := range result.Shares {
+		items = append(items, shareSummary(row, ""))
+	}
+	return listResponse[shareResponse]{Items: items, HasMore: result.NextPageToken != "", NextPageToken: result.NextPageToken}, nil
+}
+
+func (h shareHandler) Revoke(ctx context.Context, in ShareRevokeInput) (any, error) {
+	if err := h.svc.RevokeOwned(ctx, h.ident, in.Id); err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": in.Id, "status": "revoked"}, nil
 }
 
 type VaultTool struct {
@@ -456,6 +538,15 @@ type goalResponse struct {
 	UpdatedAt       string `json:"updated_at"`
 }
 
+type shareResponse struct {
+	ID        string `json:"id"`
+	URL       string `json:"url,omitempty"`
+	Title     string `json:"title,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
 type schedulerResponse struct {
 	ID          string        `json:"id"`
 	Name        string        `json:"name"`
@@ -528,6 +619,22 @@ func oauthProviderSummary(status credentials.ProviderStatus) oauthProviderRespon
 	}
 }
 
+func shareCreatedSummary(created sharepkg.Created) shareResponse {
+	out := shareResponse{ID: created.Share.ID, URL: created.URL, Title: created.Share.Title, MediaType: created.Share.MediaType, CreatedAt: created.Share.CreatedAt.UTC().Format(time.RFC3339)}
+	if created.Share.ExpiresAt.Valid {
+		out.ExpiresAt = created.Share.ExpiresAt.Time.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
+func shareSummary(row sqlc.ListSharesByUserRow, url string) shareResponse {
+	out := shareResponse{ID: row.ID, URL: url, Title: row.Title, MediaType: row.MediaType, CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339)}
+	if row.ExpiresAt.Valid {
+		out.ExpiresAt = row.ExpiresAt.Time.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
 func vaultSummary(meta vault.EntryMeta) vaultResponse {
 	return vaultResponse{Name: meta.Name, Scope: meta.Scope, UpdatedAt: meta.UpdatedAt}
 }
@@ -557,6 +664,12 @@ func mapToolError(tool string, err error) error {
 		return fmt.Errorf("this session has no user identity — %s tools are unavailable here", tool)
 	case tool == "oauth" && errors.Is(err, toolctx.ErrNotFound):
 		return fmt.Errorf("flow expired or unknown — start a new connect")
+	case tool == "share" && errors.Is(err, sharepkg.ErrPathEscapes):
+		return fmt.Errorf("path is outside the workspace — choose a file under /workspace or /user and retry")
+	case tool == "share" && errors.Is(err, sharepkg.ErrTooLarge):
+		return fmt.Errorf("file is too large to share — create a smaller export and retry")
+	case tool == "share" && errors.Is(err, sharepkg.ErrUnsupportedType):
+		return fmt.Errorf("unsupported artifact type — export as html, markdown, pdf, svg, or an image and retry")
 	case errors.Is(err, toolctx.ErrNotFound), errors.Is(err, goal.ErrNotFound):
 		return fmt.Errorf("%s not found — check the id with action=list", tool)
 	case errors.Is(err, toolctx.ErrForbidden):

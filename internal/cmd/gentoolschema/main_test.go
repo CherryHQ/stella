@@ -142,6 +142,46 @@ components:
 	}
 }
 
+func TestFixedWithRestrictKeepsBodyFields(t *testing.T) {
+	doc := mustDoc(t, []byte(`
+paths:
+  /api/shares:
+    post:
+      x-agent-tool:
+        - { tool: share, action: artifact, fixed: { source: artifact, article_id: "" }, restrict: { source: [artifact] } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source: { type: string, enum: [artifact, article] }
+                path: { type: string }
+                article_id: { type: string }
+                expires_in: { type: string }
+components:
+  schemas: {}
+`))
+	tools, err := collectTools(doc)
+	if err != nil {
+		t.Fatalf("collectTools: %v", err)
+	}
+	props := tools["share"][0].Schema["properties"].(map[string]any)
+	if _, ok := props["source"]; ok {
+		t.Fatal("fixed source field must be omitted")
+	}
+	if _, ok := props["article_id"]; ok {
+		t.Fatal("fixed article_id field must be omitted")
+	}
+	if _, ok := props["path"]; !ok {
+		t.Fatal("body path field should remain")
+	}
+	if _, ok := props["expires_in"]; !ok {
+		t.Fatal("body expires_in field should remain")
+	}
+}
+
 func mustDoc(t *testing.T, data []byte) *openAPIDoc {
 	t.Helper()
 	doc, err := parseDoc(data)

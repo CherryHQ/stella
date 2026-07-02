@@ -29,8 +29,10 @@ import (
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/observability/tracehook"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tools"
 	"github.com/CherryHQ/stella/internal/tools/domaintools"
@@ -78,6 +80,7 @@ type setupResult struct {
 	goalSvc                  *goal.Service
 	vaultSvc                 *vault.Service
 	credSvc                  *credentials.Service
+	shareSvc                 *sharepkg.Service
 	embeddingSvc             *embedding.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []pkgtools.Tool
@@ -264,11 +267,13 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
 	}
+	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recally.NewStore(db), recally.NewFileManager(config.StellaHome()), config.StellaHome(), "http://localhost:25678")
 
 	domainToolMounts := []agent.DomainToolMount{
 		{Name: "goal", Tool: domaintools.NewGoalTool(goalSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "scheduler", Tool: domaintools.NewSchedulerTool(schedulerSvc), Predicate: agent.DomainToolAvailable},
 		{Name: "oauth", Tool: domaintools.NewOauthTool(credSvc), Predicate: agent.DomainToolAvailable},
+		{Name: "share", Tool: domaintools.NewShareTool(shareSvc), Predicate: agent.DomainToolAvailable},
 	}
 	if vaultSvc != nil {
 		domainToolMounts = append(domainToolMounts, agent.DomainToolMount{Name: "vault", Tool: domaintools.NewVaultTool(vaultSvc), Predicate: agent.DomainToolAvailable})
@@ -329,6 +334,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		goalSvc:                  goalSvc,
 		vaultSvc:                 vaultSvc,
 		credSvc:                  credSvc,
+		shareSvc:                 shareSvc,
 		embeddingSvc:             embeddingSvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,

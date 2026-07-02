@@ -28,6 +28,7 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -53,6 +54,7 @@ type Server struct {
 	credResolver   *credential.Service  // unified bearer credential front door (set with tokenSvc)
 	oauthAS        *oauthas.Service     // OAuth2 authorization server (set with tokenSvc)
 	credSvc        *credentials.Service // shared credentials service
+	shareSvc       *sharepkg.Service    // shared share service
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
 	goalSvc        *goal.Service        // optional; if nil, goal endpoints return 503
@@ -101,6 +103,9 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 	defaultBaseURL := "http://localhost:25678"
 	flowStore := oauth.NewFlowStore()
 	credSvc := credentials.NewService(nil, sqlc.New(db), flowStore, defaultBaseURL)
+	recallyStore := recally.NewStore(db)
+	recallyFiles := recally.NewFileManager(config.StellaHome())
+	shareSvc := sharepkg.NewService(sqlc.New(db), mem, recallyStore, recallyFiles, config.StellaHome(), defaultBaseURL)
 
 	log := slog.With("component", "admin")
 	s := &Server{
@@ -118,7 +123,8 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		log:         log,
 		baseURL:     defaultBaseURL,
 		credSvc:     credSvc,
-		recally:     newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.StellaHome()), log),
+		shareSvc:    shareSvc,
+		recally:     newRecallyHandlers(recallyStore, recallyFiles, log),
 		startedAt:   time.Now(),
 		runtimeCtx:  ctx,
 	}
@@ -202,6 +208,7 @@ func (s *Server) SetGroupDispatcher(dispatcher *channel.GroupDispatcher) {
 func (s *Server) SetBaseURL(url string) {
 	s.baseURL = url
 	s.credSvc.SetBaseURL(url)
+	s.shareSvc.SetBaseURL(url)
 }
 
 // SetLoginIdentityStore wires the OIDC login identity store so the admin API
@@ -244,6 +251,13 @@ func (s *Server) SetOIDCAuth(result *oidc.SetupResult) {
 func (s *Server) SetCredentialsService(svc *credentials.Service) {
 	if svc != nil {
 		s.credSvc = svc
+	}
+}
+
+// SetShareService replaces the shared share service. Call before serving.
+func (s *Server) SetShareService(svc *sharepkg.Service) {
+	if svc != nil {
+		s.shareSvc = svc
 	}
 }
 

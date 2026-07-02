@@ -159,6 +159,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if s.credSvc != nil {
 		adminSrv.SetCredentialsService(s.credSvc)
 	}
+	if s.shareSvc != nil {
+		adminSrv.SetShareService(s.shareSvc)
+	}
 	adminSrv.SetBaseURL(resolveBaseURL(adminHost, adminPort))
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)

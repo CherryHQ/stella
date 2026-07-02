@@ -1,4 +1,4 @@
-package server
+package share
 
 import (
 	"bytes"
@@ -178,7 +178,7 @@ func (d mdTemplateData) HasMeta() bool {
 	return d.Author != "" || d.SourceURL != "" || d.ExpiresAt != ""
 }
 
-type renderMarkdownOpts struct {
+type RenderMarkdownOpts struct {
 	Title     string
 	Author    string
 	SourceURL string
@@ -187,7 +187,7 @@ type renderMarkdownOpts struct {
 	Tags      []string
 }
 
-func renderMarkdownPage(opts renderMarkdownOpts, markdown []byte) ([]byte, error) {
+func RenderMarkdownPage(opts RenderMarkdownOpts, markdown []byte) ([]byte, error) {
 	var body bytes.Buffer
 	if err := mdConverter.Convert(markdown, &body); err != nil {
 		return nil, err
@@ -199,16 +199,7 @@ func renderMarkdownPage(opts renderMarkdownOpts, markdown []byte) ([]byte, error
 			renderedSummary = template.HTML(sb.String())
 		}
 	}
-	data := mdTemplateData{
-		Title:           opts.Title,
-		Author:          opts.Author,
-		SourceURL:       opts.SourceURL,
-		ExpiresAt:       opts.ExpiresAt,
-		Summary:         opts.Summary,
-		RenderedSummary: renderedSummary,
-		Tags:            opts.Tags,
-		Body:            template.HTML(body.String()),
-	}
+	data := mdTemplateData{Title: opts.Title, Author: opts.Author, SourceURL: opts.SourceURL, ExpiresAt: opts.ExpiresAt, Summary: opts.Summary, RenderedSummary: renderedSummary, Tags: opts.Tags, Body: template.HTML(body.String())}
 	var page bytes.Buffer
 	if err := mdTemplate.Execute(&page, data); err != nil {
 		return nil, err

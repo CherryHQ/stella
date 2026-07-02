@@ -24,6 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -1178,11 +1179,7 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, ag
 // is guaranteed to stay within root. Returns an error if the result would
 // escape root (directory traversal).
 func safePath(root, rel string) (string, error) {
-	abs := filepath.Join(root, filepath.Clean("/"+rel))
-	if abs != root && !strings.HasPrefix(abs, root+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escapes workspace root")
-	}
-	return abs, nil
+	return sharepkg.SafePath(root, rel)
 }
 
 func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.CreateWorkspaceFileParams) {

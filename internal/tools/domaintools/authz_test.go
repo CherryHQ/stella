@@ -3,6 +3,8 @@ package domaintools
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agent"
+
 	"github.com/CherryHQ/stella/internal/credentials"
 	credoauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 
@@ -18,7 +22,10 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorytest"
+	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -178,6 +185,47 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	}
 	if _, err := oauthTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("oauth unauthenticated err=%v, want no user identity", err)
+	}
+
+	mem := memorytest.New()
+	home := t.TempDir()
+	ownerSession := "owner-session"
+	foreignSession := "foreign-session"
+	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: ownerSession, UserID: ownerUser, AgentID: agentID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: foreignSession, UserID: foreignUser, AgentID: agentID}); err != nil {
+		t.Fatal(err)
+	}
+	root := agent.UserAgentDir(home, foreignUser, agentID)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), recally.NewFileManager(home), home, "http://stella.test")
+	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
+	if err != nil {
+		t.Fatalf("CreateShare: %v", err)
+	}
+	shareTool := NewShareTool(shareSvc)
+	if out, err := shareTool.Execute(foreignCtx, map[string]any{"action": "list"}); err != nil {
+		t.Fatalf("share list foreign err=%v", err)
+	} else if strings.Contains(out, ownerShare.ID) || strings.Contains(out, "owner secret") {
+		t.Fatalf("share list leaked owner share: %s", out)
+	}
+	if out, err := shareTool.Execute(foreignCtx, map[string]any{"action": "revoke", "id": ownerShare.ID}); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
+		t.Fatalf("share foreign revoke out=%q err=%v, want not found", out, err)
+	}
+	shareCtx := memory.WithSessionID(foreignCtx, foreignSession)
+	if out, err := shareTool.Execute(shareCtx, map[string]any{"action": "artifact", "path": "report.html"}); err != nil {
+		t.Fatalf("share artifact err=%v", err)
+	} else if !strings.Contains(out, "http://stella.test/s/") || strings.Contains(out, "<p>ok</p>") {
+		t.Fatalf("share artifact bad response/leaked content: %s", out)
+	}
+	if _, err := shareTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
+		t.Fatalf("share unauthenticated err=%v, want no user identity", err)
 	}
 }
 

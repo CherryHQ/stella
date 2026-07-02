@@ -143,7 +143,7 @@ func collectTools(doc *openAPIDoc) (map[string][]toolAction, error) {
 			}
 			for _, spec := range specs {
 				schema := cloneMap(base)
-				if len(spec.Fixed) > 0 {
+				if len(spec.Fixed) > 0 && len(spec.Restrict) == 0 {
 					schema = cloneMap(paramsOnly)
 				}
 				for fixed := range spec.Fixed {
