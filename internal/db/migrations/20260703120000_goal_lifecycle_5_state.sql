@@ -69,4 +69,7 @@ ALTER TABLE agent_goal ADD CONSTRAINT agent_goal_check3 CHECK ((required_total >
 ALTER TABLE agent_goal ADD CONSTRAINT agent_goal_check4 CHECK ((lifecycle <> 'accepted') OR ((acceptance_state = 'passed') AND (accepted_output IS NOT NULL)));
 CREATE INDEX idx_agent_goal_dispatchable ON agent_goal (priority DESC, created_at)
 WHERE lifecycle = 'ready' AND active_attempt_id IS NULL AND kind = 'leaf';
-CREATE UNIQUE INDEX uniq_agent_goal_session ON agent_goal (session_id);
+-- Lossy down: the dropped session ids are unrecoverable, so every restored row
+-- holds the '' default. The unique index is partial so this Down still applies
+-- on a populated table; uniqueness resumes for real (non-empty) values only.
+CREATE UNIQUE INDEX uniq_agent_goal_session ON agent_goal (session_id) WHERE session_id <> '';
