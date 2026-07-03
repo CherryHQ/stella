@@ -342,6 +342,8 @@ paths:
   # ── Goals ─────────────────────────────────────────────────────────
   /api/goals:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals"
+  /api/goals/health:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1health"
   /api/goals/{id}:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}"
   /api/goals/{id}/activate:
@@ -364,6 +366,8 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1attempts~1{attemptId}"
   /api/goals/{id}/acceptance-events:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1acceptance-events"
+  /api/goals/{id}/timeline:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1timeline"
   /api/goals/{id}/verdict:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1verdict"
   /api/goals/{id}/edges:
@@ -663,6 +667,33 @@ components:
     }
     Attempt: { $ref: "./components.yaml#/components/schemas/Attempt" }
     AttemptList: { $ref: "./components.yaml#/components/schemas/AttemptList" }
+    GoalHealthReport: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthReport",
+    }
+    GoalHealthCountBucket: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthCountBucket",
+    }
+    GoalHealthRatioBucket: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthRatioBucket",
+    }
+    GoalHealthAttemptPurpose: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthAttemptPurpose",
+    }
+    GoalHealthAcceptanceEvents: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthAcceptanceEvents",
+    }
+    GoalHealthDecompositionQuality: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthDecompositionQuality",
+    }
+    GoalHealthBudgetAttribution: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthBudgetAttribution",
+    }
+    GoalHealthAttemptLatency: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthAttemptLatency",
+    }
+    GoalHealthLatency: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthLatency",
+    }
     AcceptanceEvent: {
       $ref: "./components.yaml#/components/schemas/AcceptanceEvent",
     }

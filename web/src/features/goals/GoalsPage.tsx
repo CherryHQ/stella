@@ -50,7 +50,7 @@ const VIEW_ICON: Record<GoalsView, typeof Inbox> = {
 };
 
 // Terminal lifecycles close a goal out of the active set.
-const TERMINAL_LIFECYCLES = new Set(["accepted", "rejected_final", "abandoned", "cancelled"]);
+const TERMINAL_LIFECYCLES = new Set(["done"]);
 const isTerminal = (d: ComponentsGoal) => TERMINAL_LIFECYCLES.has(d.lifecycle);
 
 // The status filter is a DisplayStatus; map it back to the lifecycle the server
@@ -60,16 +60,15 @@ const isTerminal = (d: ComponentsGoal) => TERMINAL_LIFECYCLES.has(d.lifecycle);
 // blocked set, just unsplit).
 const FILTER_TO_LIFECYCLE: Partial<Record<DisplayStatus, string>> = {
   draft: "draft",
-  ready: "ready",
+  pending: "pending",
   active: "active",
-  accepted: "accepted",
-  rejected: "rejected_final",
-  abandoned: "abandoned",
-  cancelled: "cancelled",
+  accepted: "done",
+  failed: "done",
+  cancelled: "done",
 };
 
-const ACTIVE_FILTERS: DisplayStatus[] = ["draft", "ready", "active", "review", "blocked"];
-const TERMINAL_FILTERS: DisplayStatus[] = ["accepted", "rejected", "abandoned", "cancelled"];
+const ACTIVE_FILTERS: DisplayStatus[] = ["draft", "pending", "active", "review", "blocked"];
+const TERMINAL_FILTERS: DisplayStatus[] = ["accepted", "failed", "cancelled"];
 
 export function GoalsPage() {
   const { t } = useI18n();
@@ -418,16 +417,17 @@ function hookText(t: TFunction, d: ComponentsGoal): string | null {
     if (d.block_reason === "needs_verdict") return t("goals.hookNeedsVerdict");
     if (d.block_reason === "needs_plan_approval") return t("goals.hookNeedsPlanApproval");
     if (d.block_reason === "budget_exhausted") return t("goals.hookBudget");
-    if (d.block_reason === "dep") return t("goals.hookDep");
+    if (d.block_reason === "planning_invalid") return t("goals.hookPlanningInvalid");
+    if (d.block_reason === "env_unavailable") return t("goals.hookEnvironment");
+    if (d.block_reason === "contract_conflict") return t("goals.hookContract");
     return blockReasonLabel(t, d);
   }
-  if (d.lifecycle === "accepted")
+  if (d.lifecycle === "done" && d.done_reason === "accepted")
     return t("goals.acceptedAt", {
       time: formatTime(d.accepted_at ?? d.updated_at),
     });
-  if (d.lifecycle === "rejected_final") return t("goals.hookRejected");
-  if (d.lifecycle === "abandoned") return t("goals.hookAbandoned");
-  if (d.lifecycle === "cancelled") return t("goals.hookCancelled");
+  if (d.lifecycle === "done" && d.done_reason === "cancelled") return t("goals.hookCancelled");
+  if (d.lifecycle === "done") return t("goals.hookFailed");
   return null;
 }
 
@@ -554,12 +554,12 @@ const BOARD_COLS: {
   {
     labelKey: "goals.colPlanning",
     status: "draft",
-    match: (d) => d.lifecycle === "draft" || d.lifecycle === "ready",
+    match: (d) => d.lifecycle === "draft" || d.lifecycle === "pending",
   },
   {
     labelKey: "goals.colRunning",
     status: "active",
-    match: (d) => d.lifecycle === "active",
+    match: (d) => d.lifecycle === "active" || (d.lifecycle === "blocked" && !goalNeedsYou(d)),
   },
   {
     labelKey: "goals.colNeedsYou",
@@ -644,11 +644,10 @@ const TABLE_ORDER: DisplayStatus[] = [
   "review",
   "blocked",
   "active",
-  "ready",
+  "pending",
   "draft",
-  "rejected",
+  "failed",
   "accepted",
-  "abandoned",
   "cancelled",
 ];
 
@@ -698,7 +697,7 @@ function Table({ rows, onOpen, selected, onSelect }: ViewProps) {
                     <span className="rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs font-medium text-primary">
                       {blockReasonLabel(t, d)}
                     </span>
-                  ) : d.lifecycle === "accepted" ? (
+                  ) : d.lifecycle === "done" && d.done_reason === "accepted" ? (
                     <span className="rounded-md border border-chart-3/25 bg-chart-3/10 px-2 py-0.5 font-mono text-xs font-medium text-chart-3">
                       {t("goals.hookAccepted")}
                     </span>

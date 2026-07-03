@@ -22,14 +22,6 @@ const defaultStdoutLimit = 16 << 10
 // runaway command must not pin a worker; this is a backstop, not a budget.
 const checkExecTimeout = 10 * time.Minute
 
-// SessionResolver returns the live sandbox session a goal's deterministic
-// checks run in. The session is minted OUTSIDE any service tx (sandbox boot
-// opens its own writer; see service.go's SessionMinter note) and resolved here
-// by the worker. Returning a nil session with a nil error means "no sandbox for
-// this goal" — the runner surfaces that as ErrNoSandbox rather than
-// panicking on a nil Exec.
-type SessionResolver func(ctx context.Context, goalID string) (sandbox.Session, error)
-
 // ErrNoSandbox is returned when a deterministic check cannot resolve a sandbox
 // session to run in. A check with no place to run is an infrastructure fault,
 // not an unmet acceptance — it never silently reads as a pass.
@@ -42,7 +34,6 @@ var ErrNoSandbox = errors.New("goal: no sandbox session for deterministic check"
 // writes — it reads the cache-probe index but never appends events or touches
 // acceptance_state; the service folds its CheckResult.
 type sandboxCheckRunner struct {
-	resolve     SessionResolver
 	q           *sqlc.Queries // cache probe only (ProbeCheckCache)
 	stdoutLimit int
 }
@@ -50,11 +41,11 @@ type sandboxCheckRunner struct {
 // NewCheckRunner builds the sandbox-backed CheckRunner. q is used only for the
 // read-only cache probe; stdoutLimit ≤ 0 falls back to the package default. The
 // returned value satisfies the CheckRunner interface declared in service.go.
-func NewCheckRunner(resolve SessionResolver, q *sqlc.Queries, stdoutLimit int) CheckRunner {
+func NewCheckRunner(q *sqlc.Queries, stdoutLimit int) CheckRunner {
 	if stdoutLimit <= 0 {
 		stdoutLimit = defaultStdoutLimit
 	}
-	return &sandboxCheckRunner{resolve: resolve, q: q, stdoutLimit: stdoutLimit}
+	return &sandboxCheckRunner{q: q, stdoutLimit: stdoutLimit}
 }
 
 // Run executes one deterministic acceptance item and returns its CheckResult
@@ -63,7 +54,7 @@ func NewCheckRunner(resolve SessionResolver, q *sqlc.Queries, stdoutLimit int) C
 // On a miss it runs the command in the goal's session, derives
 // Pass = (exit == item.expectExit), and truncates stdout. It never writes
 // lifecycle; the service folds the result into an acceptance_event.
-func (r *sandboxCheckRunner) Run(ctx context.Context, item AcceptanceItem, env CheckEnv) (CheckResult, error) {
+func (r *sandboxCheckRunner) Run(ctx context.Context, item AcceptanceItem, env CheckEnv, sess sandbox.Session) (CheckResult, error) {
 	if item.Kind != ItemDeterministic {
 		return CheckResult{}, fmt.Errorf("%w: check runner got non-deterministic item %q", ErrInvalidContract, item.ID)
 	}
@@ -79,10 +70,6 @@ func (r *sandboxCheckRunner) Run(ctx context.Context, item AcceptanceItem, env C
 		}, nil
 	}
 
-	sess, err := r.resolve(ctx, env.GoalID)
-	if err != nil {
-		return CheckResult{}, fmt.Errorf("resolve sandbox: %w", err)
-	}
 	if sess == nil {
 		return CheckResult{}, ErrNoSandbox
 	}

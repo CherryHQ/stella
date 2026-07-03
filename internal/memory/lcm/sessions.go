@@ -132,6 +132,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 		UserID:          pgtype.Text{String: userID, Valid: true},
 		AgentID:         pgnull.Text(agentIDValue),
 		IncludeArchived: boolToInt(opts.IncludeArchived),
+		ExcludeInternal: opts.ExcludeInternal,
 		Kind:            pgnull.Text(opts.Kind),
 		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
 		ProjectID:       pgnull.Text(opts.ProjectID),

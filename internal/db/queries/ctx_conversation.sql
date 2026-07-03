@@ -77,6 +77,7 @@ SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)
   AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
   AND (sqlc.arg(include_archived) != 0 OR archived = false)
+  AND (sqlc.arg(exclude_internal)::boolean = false OR kind NOT IN ('task', 'delegate'))
   AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))
   AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
   AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))

@@ -10,7 +10,7 @@ Completion is **derived, never asserted**. A goal converges through a bounded re
 
 Two surfaces author goals, both over the same goal HTTP API:
 
-- **You, the agent** — via the `stella goal` CLI (alias `stella task`). `stella goal create --title ... --intent ...` creates a goal and runs it autonomously: the server **plans first** (decomposes it into verifiable sub-tasks), then the dispatcher runs each child and converges to acceptance, with no further prompting. You do not choose leaf vs composite or call plan/approve/activate — just write a clear, self-contained intent. This is how you give yourself long-running work that outlives the current conversation; check back with `stella goal list`/`get`. For goals that need a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)`; inspect the pending plan with `stella goal get <id>` and then `stella goal approve <id>` (materialize) or `stella goal reject <id>` (re-decompose). See `stella goal --help`.
+- **You, the agent** — via the `stella goal` CLI (alias `stella task`). `stella goal create --title ... --intent ...` creates a goal and runs it autonomously: the server **plans first** (decomposes it into verifiable sub-tasks), then the dispatcher runs each child and converges to acceptance, with no further prompting. You do not choose leaf vs composite or call plan/approve/activate — just write a clear, self-contained intent. This is how you give yourself long-running work that outlives the current conversation; check back with `stella goal list`/`get`, or use `stella goal health --help` for aggregate execution health. For goals that need a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)`; inspect the pending plan with `stella goal get <id>` and then `stella goal approve <id>` (materialize) or `stella goal reject <id>` (re-decompose). See `stella goal --help`. When you report a created goal back to the user, mention its title — chat surfaces (Web, Feishu) render a rich status card for it automatically, so never paste the raw UUID.
 - **The user** — from the Web UI (Tasks tab); the same goal HTTP API the CLI uses.
 
 Authoring and working are separate roles: once a goal is active you may also be handed it as a **worker** (see the `goal_control` contract below).
@@ -26,47 +26,48 @@ Before reaching for a goal at all, check you actually need one:
 Every goal — root or child, leaf or composite — runs through one state machine:
 
 ```text
-draft ──activate──▶ ready ──claim──▶ active ──submit──▶ (acceptance fold)
-  │                   │                │                      │
-  │                   │                ├─ block ─▶ blocked ───┤ pass ─▶ accepted (terminal-good)
-  │                   │                │             │        └ fail ─▶ active (rework) or
-  │                   │                │             └─resolve─▶ ready    rejected_final / abandoned
-  └─ cancel ──▶ cancelled
+draft ──activate──▶ pending ──claim──▶ active ──submit──▶ (acceptance fold)
+  │                     │                │                      │
+  │                     │                ├─ block ─▶ blocked ───┤ pass ─▶ done(accepted)
+  │                     │                │             │        └ fail ─▶ active (rework) or done(failed)
+  │                     │                │             └─resolve─▶ pending
+  └─ cancel ──▶ done(cancelled)
 ```
 
-- `accepted` — terminal-good; the accepted output is frozen.
-- `rejected_final` — a verdict said no with no rework path left.
-- `abandoned` — convergence budget exhausted and the policy gave up.
-- `blocked` is **recoverable**, not terminal. Block reasons: `budget_exhausted` > `needs_plan_approval` > `planning_invalid` > `needs_verdict` > `dep`.
+- `done_reason=accepted` — terminal-good; the accepted output is frozen.
+- `done_reason=failed` — no rework path remains.
+- `done_reason=cancelled` — user/system cancellation.
+- `blocked` is **recoverable**, not terminal. Block reasons include `budget_exhausted`, `needs_plan_approval`, `planning_invalid`, `needs_verdict`, `env_unavailable`, and `contract_conflict`. Responsibility matters: model failures spend business budget; environment/contract failures park for human action; flaky infrastructure retries outside business budget until its cap.
 
-Acceptance is a separate projection from lifecycle: `pending | passed | failed`. A goal reaches `accepted` only when its contract's acceptance fold passes.
+Acceptance is a separate projection from lifecycle: `pending | passed | failed`. A goal reaches `done(accepted)` only when its contract's acceptance fold passes.
 
 ## Composition and dependencies
 
 A composite holds child goals produced by a **decomposition** (the only way children come into being — you cannot hand-attach a child). Siblings can declare dependency **edges**: `hard` blocks readiness, `soft` is advisory. Only an upstream's **accepted** output flows downstream. Rollup is automatic:
 
-- all required children accepted → composite's acceptance can pass
-- a required child `rejected_final`/`abandoned` → parent fails or blocks
-- a required child blocked → parent blocks
-- a blocked parent recovers when the blocking child clears
+- all required children `done(accepted)` → composite's acceptance can pass
+- a required child `done(failed|cancelled)` → parent fails
+- a required child blocked → parent waits; the block is derived from children, not stored on the parent
+- a hard dependency whose upstream dies is derived from edges and the upstream `done_reason`
 
-Decomposition is automatic: `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. Structural planning errors are repaired in the same planning session with `prior_errors`; if those repairs are exhausted, the goal parks at `blocked(planning_invalid)`. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become ready), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
+Decomposition is automatic: `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. Structural planning errors are repaired in the same planning session with `prior_errors`; if those repairs are exhausted, the goal parks at `blocked(planning_invalid)`. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become pending), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
 
 ## Worker: the `goal_control` contract
 
 If you see a `goal_control` tool in your toolset, you are a worker. The goal's intent and acceptance criteria arrive as your prompt. Do the work, then call `goal_control` **exactly once** with one terminal action:
 
 - `submit` — provide `evidence` (summary + optional artifacts) and `output` when the work meets the acceptance criteria.
-- `block` — pause with `kind`/`question` when you need input or an external dependency.
-- `fail` — report `reason`/`retryable` when the work cannot be completed.
+- `fail` — report `reason` plus `blocked_by` (`env_unavailable` or `contract_conflict`) when a human must fix the environment or contract.
 - `decompose` — **when dispatched to plan a goal** — return a `decomposition` `{children, edges}`. Each child needs `key`, `title`, `intent`, `kind` (`leaf|composite`), `required`, and `acceptance_contract`; edges declare hard/soft deps by child key. If the prompt includes `prior_errors`, fix those structural errors in the next `decompose` call. If the goal cannot be decomposed, use `fail` instead.
 
 Rules:
 
 - Always end with a terminal action. A final text response without `goal_control` is a protocol failure; you get exactly one repair turn, then the attempt fails.
 - `submit` does **not** mark the goal done — the acceptance contract decides. If your previous attempt fell short, the gaps come back in the next prompt; address them.
-- Block only when you truly need a human or external dependency. Do not fake completion to avoid blocking.
+- Use `fail` with `blocked_by` when you truly need a human or external dependency. Do not fake completion to avoid failing.
 
-## Recovery
+## Timeline and recovery
 
-Attempts carry a lease and heartbeat. If a worker crashes or Stella restarts, the lease expires and the dispatcher reclaims the goal if the convergence budget remains. Submitted evidence and terminal state are durable because they are written to the goal's append-only acceptance ledger.
+Each goal has an append-only timeline. The Web UI uses it as the human surface for plan submissions, attempt start/finish, acceptance results, lifecycle changes, and human messages; one-shot execution sessions are internal audit plumbing and are hidden from normal user session lists. If a non-dependency blocked goal receives a human timeline message, Stella records the message, authorizes one extra attempt, and dispatches it with that guidance. Dependency-blocked goals record the message but do not retry until the upstream changes or is waived.
+
+Attempts carry a lease and heartbeat. If a worker crashes or Stella restarts, the lease expires and the dispatcher reclaims the goal if the convergence budget remains. Submitted evidence and terminal state are durable because they are written to the append-only acceptance ledger and goal timeline.

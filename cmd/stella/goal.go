@@ -9,6 +9,7 @@ import (
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/cli"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 // goal.go is the agent-facing surface for durable, self-driven work. A goal is
@@ -36,6 +37,7 @@ multi-step builds, anything you want carried to completion on its own.`,
 			goalCreateCommand(),
 			goalListCommand(),
 			goalGetCommand(),
+			goalHealthCommand(),
 			goalCancelCommand(),
 			goalApproveCommand(),
 			goalRejectCommand(),
@@ -86,6 +88,14 @@ clear, self-contained intent describing what "done" means.`,
 			if err != nil {
 				return err
 			}
+			// Best-effort: a failed sentinel write must never fail the create.
+			_ = renderrefs.Emit(c.App.ErrWriter, renderrefs.Reference{
+				Type:    "goal",
+				ID:      d.Id,
+				Intent:  "created",
+				AgentID: agentID,
+				Preview: &renderrefs.Preview{Title: d.Title, Status: string(d.Lifecycle)},
+			})
 			if cli.IsJSON(c) {
 				return cli.PrintJSON(c, d)
 			}

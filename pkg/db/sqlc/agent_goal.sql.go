@@ -15,7 +15,8 @@ import (
 
 const acceptGoal = `-- name: AcceptGoal :execrows
 UPDATE agent_goal SET
-    lifecycle = 'accepted',
+    lifecycle = 'done',
+    done_reason = 'accepted',
     acceptance_state = 'passed',
     accepted_output = $1,
     accepted_at = now(),
@@ -55,7 +56,7 @@ UPDATE agent_goal SET
     block_reason = $1,
     active_attempt_id = NULL,
     updated_at = now()
-WHERE id = $2 AND lifecycle IN ('ready', 'active')
+WHERE id = $2 AND lifecycle IN ('pending', 'active')
 `
 
 type BlockGoalParams struct {
@@ -73,7 +74,8 @@ func (q *Queries) BlockGoal(ctx context.Context, arg BlockGoalParams) (int64, er
 
 const cancelGoal = `-- name: CancelGoal :exec
 UPDATE agent_goal SET
-    lifecycle = 'cancelled',
+    lifecycle = 'done',
+    done_reason = 'cancelled',
     cancelled_at = now(),
     active_attempt_id = NULL,
     updated_at = now()
@@ -92,7 +94,7 @@ UPDATE agent_goal SET
     attempt_count = attempt_count + 1,
     updated_at = now()
 WHERE id = $2
-  AND lifecycle = 'ready'
+  AND lifecycle = 'pending'
   AND active_attempt_id IS NULL
 `
 
@@ -121,23 +123,6 @@ func (q *Queries) ClearGoalActiveAttempt(ctx context.Context, id string) error {
 	return err
 }
 
-const consumeDispatchHint = `-- name: ConsumeDispatchHint :exec
-UPDATE agent_goal SET
-    dispatch_hint = $1,
-    updated_at = now()
-WHERE id = $2
-`
-
-type ConsumeDispatchHintParams struct {
-	DispatchHint json.RawMessage `json:"dispatch_hint"`
-	ID           string          `json:"id"`
-}
-
-func (q *Queries) ConsumeDispatchHint(ctx context.Context, arg ConsumeDispatchHintParams) error {
-	_, err := q.db.Exec(ctx, consumeDispatchHint, arg.DispatchHint, arg.ID)
-	return err
-}
-
 const countRootGoal = `-- name: CountRootGoal :one
 SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal
 WHERE parent_id IS NULL
@@ -146,7 +131,7 @@ WHERE parent_id IS NULL
   AND ($3::uuid IS NULL OR project_id = $3::uuid)
   AND ($4::text IS NULL OR lifecycle = $4::text)
   AND ($5::boolean IS NULL
-       OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = $5::boolean)
+       OR (lifecycle = 'done') = $5::boolean)
   AND ($6::text IS NULL OR title ILIKE '%' || $6 || '%' OR intent ILIKE '%' || $6 || '%')
   AND ($7::boolean OR archived_at IS NULL)
 `
@@ -182,12 +167,12 @@ func (q *Queries) CountRootGoal(ctx context.Context, arg CountRootGoalParams) (i
 const createGoal = `-- name: CreateGoal :one
 INSERT INTO agent_goal (
     id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
-    session_id, title, intent, kind, priority, required,
+    title, intent, kind, priority, required,
     acceptance_contract, convergence_policy, review_policy,
     lifecycle, context, dispatch_hint
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-RETURNING id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+RETURNING id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason
 `
 
 type CreateGoalParams struct {
@@ -199,7 +184,6 @@ type CreateGoalParams struct {
 	RootID             string          `json:"root_id"`
 	Depth              int64           `json:"depth"`
 	Position           int64           `json:"position"`
-	SessionID          string          `json:"session_id"`
 	Title              string          `json:"title"`
 	Intent             string          `json:"intent"`
 	Kind               string          `json:"kind"`
@@ -223,7 +207,6 @@ func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGo
 		arg.RootID,
 		arg.Depth,
 		arg.Position,
-		arg.SessionID,
 		arg.Title,
 		arg.Intent,
 		arg.Kind,
@@ -246,7 +229,6 @@ func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGo
 		&i.RootID,
 		&i.Depth,
 		&i.Position,
-		&i.SessionID,
 		&i.Title,
 		&i.Intent,
 		&i.Kind,
@@ -262,10 +244,6 @@ func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGo
 		&i.AcceptanceSeq,
 		&i.ActiveAttemptID,
 		&i.AttemptCount,
-		&i.RequiredTotal,
-		&i.RequiredAccepted,
-		&i.RequiredFailed,
-		&i.RequiredBlocked,
 		&i.Context,
 		&i.DispatchHint,
 		&i.CreatedAt,
@@ -275,24 +253,15 @@ func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGo
 		&i.ArchivedAt,
 		&i.Plan,
 		&i.PlannedAt,
+		&i.FlakyCount,
+		&i.BudgetBonus,
+		&i.DoneReason,
 	)
 	return i, err
 }
 
-const decrGoalRequiredBlocked = `-- name: DecrGoalRequiredBlocked :exec
-UPDATE agent_goal SET
-    required_blocked = required_blocked - 1,
-    updated_at = now()
-WHERE id = $1 AND required_blocked > 0
-`
-
-func (q *Queries) DecrGoalRequiredBlocked(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, decrGoalRequiredBlocked, id)
-	return err
-}
-
 const getGoal = `-- name: GetGoal :one
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal WHERE id = $1
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason FROM agent_goal WHERE id = $1
 `
 
 func (q *Queries) GetGoal(ctx context.Context, id string) (AgentGoal, error) {
@@ -307,7 +276,6 @@ func (q *Queries) GetGoal(ctx context.Context, id string) (AgentGoal, error) {
 		&i.RootID,
 		&i.Depth,
 		&i.Position,
-		&i.SessionID,
 		&i.Title,
 		&i.Intent,
 		&i.Kind,
@@ -323,10 +291,6 @@ func (q *Queries) GetGoal(ctx context.Context, id string) (AgentGoal, error) {
 		&i.AcceptanceSeq,
 		&i.ActiveAttemptID,
 		&i.AttemptCount,
-		&i.RequiredTotal,
-		&i.RequiredAccepted,
-		&i.RequiredFailed,
-		&i.RequiredBlocked,
 		&i.Context,
 		&i.DispatchHint,
 		&i.CreatedAt,
@@ -336,120 +300,97 @@ func (q *Queries) GetGoal(ctx context.Context, id string) (AgentGoal, error) {
 		&i.ArchivedAt,
 		&i.Plan,
 		&i.PlannedAt,
+		&i.FlakyCount,
+		&i.BudgetBonus,
+		&i.DoneReason,
 	)
 	return i, err
 }
 
-const incrGoalRequiredAccepted = `-- name: IncrGoalRequiredAccepted :exec
+const getRequiredChildRollupCounts = `-- name: GetRequiredChildRollupCounts :one
+SELECT
+    COUNT(*)::bigint AS total,
+    COUNT(*) FILTER (WHERE c.lifecycle = 'done' AND c.done_reason = 'accepted')::bigint AS accepted,
+    COUNT(*) FILTER (WHERE c.lifecycle = 'done' AND c.done_reason IN ('failed', 'cancelled'))::bigint AS failed,
+    COUNT(*) FILTER (
+        WHERE c.lifecycle = 'blocked'
+           OR EXISTS (
+                SELECT 1 FROM agent_goal_edge e
+                JOIN agent_goal u ON u.id = e.upstream_id
+                WHERE e.goal_id = c.id
+                  AND e.edge_kind = 'hard'
+                  AND e.waived_at IS NULL
+                  AND u.lifecycle = 'done'
+                  AND u.done_reason IN ('failed', 'cancelled')
+                  AND e.on_failure = 'block'
+           )
+    )::bigint AS blocked,
+    COUNT(*) FILTER (
+        WHERE EXISTS (
+                SELECT 1 FROM agent_goal_edge e
+                JOIN agent_goal u ON u.id = e.upstream_id
+                WHERE e.goal_id = c.id
+                  AND e.edge_kind = 'hard'
+                  AND e.waived_at IS NULL
+                  AND u.lifecycle = 'done'
+                  AND u.done_reason IN ('failed', 'cancelled')
+                  AND e.on_failure = 'fail'
+        )
+    )::bigint AS dep_failed
+FROM agent_goal c
+WHERE c.parent_id = $1::text AND c.required
+`
+
+type GetRequiredChildRollupCountsRow struct {
+	Total     int64 `json:"total"`
+	Accepted  int64 `json:"accepted"`
+	Failed    int64 `json:"failed"`
+	Blocked   int64 `json:"blocked"`
+	DepFailed int64 `json:"dep_failed"`
+}
+
+func (q *Queries) GetRequiredChildRollupCounts(ctx context.Context, parentID string) (GetRequiredChildRollupCountsRow, error) {
+	row := q.db.QueryRow(ctx, getRequiredChildRollupCounts, parentID)
+	var i GetRequiredChildRollupCountsRow
+	err := row.Scan(
+		&i.Total,
+		&i.Accepted,
+		&i.Failed,
+		&i.Blocked,
+		&i.DepFailed,
+	)
+	return i, err
+}
+
+const incrementGoalBudgetBonus = `-- name: IncrementGoalBudgetBonus :exec
 UPDATE agent_goal SET
-    required_accepted = required_accepted + 1,
+    budget_bonus = budget_bonus + 1,
     updated_at = now()
 WHERE id = $1
 `
 
-func (q *Queries) IncrGoalRequiredAccepted(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, incrGoalRequiredAccepted, id)
+func (q *Queries) IncrementGoalBudgetBonus(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, incrementGoalBudgetBonus, id)
 	return err
 }
 
-const incrGoalRequiredBlocked = `-- name: IncrGoalRequiredBlocked :exec
+const incrementGoalFlakyCount = `-- name: IncrementGoalFlakyCount :one
 UPDATE agent_goal SET
-    required_blocked = required_blocked + 1,
+    flaky_count = flaky_count + 1,
     updated_at = now()
 WHERE id = $1
+RETURNING flaky_count
 `
 
-func (q *Queries) IncrGoalRequiredBlocked(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, incrGoalRequiredBlocked, id)
-	return err
-}
-
-const incrGoalRequiredFailed = `-- name: IncrGoalRequiredFailed :exec
-UPDATE agent_goal SET
-    required_failed = required_failed + 1,
-    updated_at = now()
-WHERE id = $1
-`
-
-func (q *Queries) IncrGoalRequiredFailed(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, incrGoalRequiredFailed, id)
-	return err
-}
-
-const listBlockedDepComposites = `-- name: ListBlockedDepComposites :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
-WHERE kind = 'composite'
-  AND lifecycle = 'blocked'
-  AND block_reason = 'dep'
-ORDER BY updated_at ASC
-LIMIT $1
-`
-
-// Composites parked blocked(dep) by the rollup because a required child was
-// blocked. The rollup scans (ListRollupCandidates/ListStalledComposites) only see
-// active composites, so a parent driven here never re-enters rollup on its own.
-// The dispatcher re-evaluates each: once its blocking children clear, it is woken
-// back to active so the rollup resumes (see RecoverBlockedComposite).
-func (q *Queries) ListBlockedDepComposites(ctx context.Context, limit int32) ([]AgentGoal, error) {
-	rows, err := q.db.Query(ctx, listBlockedDepComposites, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentGoal{}
-	for rows.Next() {
-		var i AgentGoal
-		if err := rows.Scan(
-			&i.ID,
-			&i.UserID,
-			&i.AgentID,
-			&i.ProjectID,
-			&i.ParentID,
-			&i.RootID,
-			&i.Depth,
-			&i.Position,
-			&i.SessionID,
-			&i.Title,
-			&i.Intent,
-			&i.Kind,
-			&i.Priority,
-			&i.Required,
-			&i.AcceptanceContract,
-			&i.ConvergencePolicy,
-			&i.ReviewPolicy,
-			&i.Lifecycle,
-			&i.BlockReason,
-			&i.AcceptanceState,
-			&i.AcceptedOutput,
-			&i.AcceptanceSeq,
-			&i.ActiveAttemptID,
-			&i.AttemptCount,
-			&i.RequiredTotal,
-			&i.RequiredAccepted,
-			&i.RequiredFailed,
-			&i.RequiredBlocked,
-			&i.Context,
-			&i.DispatchHint,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.AcceptedAt,
-			&i.CancelledAt,
-			&i.ArchivedAt,
-			&i.Plan,
-			&i.PlannedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) IncrementGoalFlakyCount(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRow(ctx, incrementGoalFlakyCount, id)
+	var flaky_count int64
+	err := row.Scan(&flaky_count)
+	return flaky_count, err
 }
 
 const listDecomposableComposites = `-- name: ListDecomposableComposites :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason FROM agent_goal
 WHERE kind = 'composite'
   AND lifecycle = 'draft'
   AND planned_at IS NULL
@@ -481,7 +422,6 @@ func (q *Queries) ListDecomposableComposites(ctx context.Context, limit int32) (
 			&i.RootID,
 			&i.Depth,
 			&i.Position,
-			&i.SessionID,
 			&i.Title,
 			&i.Intent,
 			&i.Kind,
@@ -497,10 +437,6 @@ func (q *Queries) ListDecomposableComposites(ctx context.Context, limit int32) (
 			&i.AcceptanceSeq,
 			&i.ActiveAttemptID,
 			&i.AttemptCount,
-			&i.RequiredTotal,
-			&i.RequiredAccepted,
-			&i.RequiredFailed,
-			&i.RequiredBlocked,
 			&i.Context,
 			&i.DispatchHint,
 			&i.CreatedAt,
@@ -510,6 +446,9 @@ func (q *Queries) ListDecomposableComposites(ctx context.Context, limit int32) (
 			&i.ArchivedAt,
 			&i.Plan,
 			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BudgetBonus,
+			&i.DoneReason,
 		); err != nil {
 			return nil, err
 		}
@@ -522,8 +461,8 @@ func (q *Queries) ListDecomposableComposites(ctx context.Context, limit int32) (
 }
 
 const listDispatchableLeaves = `-- name: ListDispatchableLeaves :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
-WHERE lifecycle = 'ready'
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason FROM agent_goal
+WHERE lifecycle = 'pending'
   AND active_attempt_id IS NULL
   AND kind = 'leaf'
 ORDER BY priority DESC, created_at ASC
@@ -548,7 +487,6 @@ func (q *Queries) ListDispatchableLeaves(ctx context.Context, limit int32) ([]Ag
 			&i.RootID,
 			&i.Depth,
 			&i.Position,
-			&i.SessionID,
 			&i.Title,
 			&i.Intent,
 			&i.Kind,
@@ -564,10 +502,6 @@ func (q *Queries) ListDispatchableLeaves(ctx context.Context, limit int32) ([]Ag
 			&i.AcceptanceSeq,
 			&i.ActiveAttemptID,
 			&i.AttemptCount,
-			&i.RequiredTotal,
-			&i.RequiredAccepted,
-			&i.RequiredFailed,
-			&i.RequiredBlocked,
 			&i.Context,
 			&i.DispatchHint,
 			&i.CreatedAt,
@@ -577,6 +511,9 @@ func (q *Queries) ListDispatchableLeaves(ctx context.Context, limit int32) ([]Ag
 			&i.ArchivedAt,
 			&i.Plan,
 			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BudgetBonus,
+			&i.DoneReason,
 		); err != nil {
 			return nil, err
 		}
@@ -589,7 +526,7 @@ func (q *Queries) ListDispatchableLeaves(ctx context.Context, limit int32) ([]Ag
 }
 
 const listGoalByRoot = `-- name: ListGoalByRoot :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason FROM agent_goal
 WHERE root_id = $1
 ORDER BY depth ASC, position ASC, id ASC
 `
@@ -612,7 +549,6 @@ func (q *Queries) ListGoalByRoot(ctx context.Context, rootID string) ([]AgentGoa
 			&i.RootID,
 			&i.Depth,
 			&i.Position,
-			&i.SessionID,
 			&i.Title,
 			&i.Intent,
 			&i.Kind,
@@ -628,10 +564,6 @@ func (q *Queries) ListGoalByRoot(ctx context.Context, rootID string) ([]AgentGoa
 			&i.AcceptanceSeq,
 			&i.ActiveAttemptID,
 			&i.AttemptCount,
-			&i.RequiredTotal,
-			&i.RequiredAccepted,
-			&i.RequiredFailed,
-			&i.RequiredBlocked,
 			&i.Context,
 			&i.DispatchHint,
 			&i.CreatedAt,
@@ -641,6 +573,9 @@ func (q *Queries) ListGoalByRoot(ctx context.Context, rootID string) ([]AgentGoa
 			&i.ArchivedAt,
 			&i.Plan,
 			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BudgetBonus,
+			&i.DoneReason,
 		); err != nil {
 			return nil, err
 		}
@@ -653,7 +588,7 @@ func (q *Queries) ListGoalByRoot(ctx context.Context, rootID string) ([]AgentGoa
 }
 
 const listGoalChildren = `-- name: ListGoalChildren :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason FROM agent_goal
 WHERE parent_id = $1
 ORDER BY position ASC, id ASC
 `
@@ -676,7 +611,6 @@ func (q *Queries) ListGoalChildren(ctx context.Context, parentID pgtype.Text) ([
 			&i.RootID,
 			&i.Depth,
 			&i.Position,
-			&i.SessionID,
 			&i.Title,
 			&i.Intent,
 			&i.Kind,
@@ -692,10 +626,6 @@ func (q *Queries) ListGoalChildren(ctx context.Context, parentID pgtype.Text) ([
 			&i.AcceptanceSeq,
 			&i.ActiveAttemptID,
 			&i.AttemptCount,
-			&i.RequiredTotal,
-			&i.RequiredAccepted,
-			&i.RequiredFailed,
-			&i.RequiredBlocked,
 			&i.Context,
 			&i.DispatchHint,
 			&i.CreatedAt,
@@ -705,6 +635,9 @@ func (q *Queries) ListGoalChildren(ctx context.Context, parentID pgtype.Text) ([
 			&i.ArchivedAt,
 			&i.Plan,
 			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BudgetBonus,
+			&i.DoneReason,
 		); err != nil {
 			return nil, err
 		}
@@ -723,7 +656,7 @@ WITH RECURSIVE subtree(id) AS (
     SELECT d.id FROM agent_goal d
     JOIN subtree s ON d.parent_id = s.id
 )
-SELECT d.id, d.user_id, d.agent_id, d.project_id, d.parent_id, d.root_id, d.depth, d.position, d.session_id, d.title, d.intent, d.kind, d.priority, d.required, d.acceptance_contract, d.convergence_policy, d.review_policy, d.lifecycle, d.block_reason, d.acceptance_state, d.accepted_output, d.acceptance_seq, d.active_attempt_id, d.attempt_count, d.required_total, d.required_accepted, d.required_failed, d.required_blocked, d.context, d.dispatch_hint, d.created_at, d.updated_at, d.accepted_at, d.cancelled_at, d.archived_at, d.plan, d.planned_at FROM agent_goal d
+SELECT d.id, d.user_id, d.agent_id, d.project_id, d.parent_id, d.root_id, d.depth, d.position, d.title, d.intent, d.kind, d.priority, d.required, d.acceptance_contract, d.convergence_policy, d.review_policy, d.lifecycle, d.block_reason, d.acceptance_state, d.accepted_output, d.acceptance_seq, d.active_attempt_id, d.attempt_count, d.context, d.dispatch_hint, d.created_at, d.updated_at, d.accepted_at, d.cancelled_at, d.archived_at, d.plan, d.planned_at, d.flaky_count, d.budget_bonus, d.done_reason FROM agent_goal d
 JOIN subtree s ON d.id = s.id
 ORDER BY d.depth ASC, d.position ASC, d.id ASC
 `
@@ -746,7 +679,6 @@ func (q *Queries) ListGoalSubtree(ctx context.Context, id string) ([]AgentGoal, 
 			&i.RootID,
 			&i.Depth,
 			&i.Position,
-			&i.SessionID,
 			&i.Title,
 			&i.Intent,
 			&i.Kind,
@@ -762,10 +694,6 @@ func (q *Queries) ListGoalSubtree(ctx context.Context, id string) ([]AgentGoal, 
 			&i.AcceptanceSeq,
 			&i.ActiveAttemptID,
 			&i.AttemptCount,
-			&i.RequiredTotal,
-			&i.RequiredAccepted,
-			&i.RequiredFailed,
-			&i.RequiredBlocked,
 			&i.Context,
 			&i.DispatchHint,
 			&i.CreatedAt,
@@ -775,6 +703,9 @@ func (q *Queries) ListGoalSubtree(ctx context.Context, id string) ([]AgentGoal, 
 			&i.ArchivedAt,
 			&i.Plan,
 			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BudgetBonus,
+			&i.DoneReason,
 		); err != nil {
 			return nil, err
 		}
@@ -787,7 +718,7 @@ func (q *Queries) ListGoalSubtree(ctx context.Context, id string) ([]AgentGoal, 
 }
 
 const listGoalsBlockedNeedsVerdict = `-- name: ListGoalsBlockedNeedsVerdict :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason FROM agent_goal
 WHERE lifecycle = 'blocked'
   AND block_reason = 'needs_verdict'
 ORDER BY priority DESC, created_at ASC
@@ -816,7 +747,6 @@ func (q *Queries) ListGoalsBlockedNeedsVerdict(ctx context.Context, limit int32)
 			&i.RootID,
 			&i.Depth,
 			&i.Position,
-			&i.SessionID,
 			&i.Title,
 			&i.Intent,
 			&i.Kind,
@@ -832,10 +762,6 @@ func (q *Queries) ListGoalsBlockedNeedsVerdict(ctx context.Context, limit int32)
 			&i.AcceptanceSeq,
 			&i.ActiveAttemptID,
 			&i.AttemptCount,
-			&i.RequiredTotal,
-			&i.RequiredAccepted,
-			&i.RequiredFailed,
-			&i.RequiredBlocked,
 			&i.Context,
 			&i.DispatchHint,
 			&i.CreatedAt,
@@ -845,6 +771,9 @@ func (q *Queries) ListGoalsBlockedNeedsVerdict(ctx context.Context, limit int32)
 			&i.ArchivedAt,
 			&i.Plan,
 			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BudgetBonus,
+			&i.DoneReason,
 		); err != nil {
 			return nil, err
 		}
@@ -868,12 +797,16 @@ SELECT
     d.updated_at,
     d.created_at
 FROM agent_goal d
+JOIN agent_goal r ON r.id = d.root_id
 WHERE d.user_id = $1
   AND d.archived_at IS NULL
   AND ($2::text IS NULL OR d.agent_id = $2::text)
   AND (
-        d.lifecycle = 'blocked'
-        OR (d.lifecycle IN ('rejected_final', 'abandoned') AND d.updated_at >= $3)
+        (
+          d.lifecycle = 'blocked'
+                    AND r.lifecycle != 'done'
+        )
+        OR (d.lifecycle = 'done' AND d.done_reason = 'failed' AND d.updated_at >= $3 AND d.parent_id IS NULL)
       )
 ORDER BY d.updated_at DESC, d.id DESC
 LIMIT $4
@@ -898,9 +831,6 @@ type ListInboxGoalsRow struct {
 	CreatedAt   time.Time   `json:"created_at"`
 }
 
-// Goals needing user attention, for the inbox. Open blocks surface at any
-// age (they wait on the user); terminal failures are windowed like failed runs.
-// The handler splits rows into inbox kinds by lifecycle/block_reason.
 func (q *Queries) ListInboxGoals(ctx context.Context, arg ListInboxGoalsParams) ([]ListInboxGoalsRow, error) {
 	rows, err := q.db.Query(ctx, listInboxGoals,
 		arg.UserID,
@@ -937,11 +867,10 @@ func (q *Queries) ListInboxGoals(ctx context.Context, arg ListInboxGoalsParams) 
 }
 
 const listRollupCandidates = `-- name: ListRollupCandidates :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason FROM agent_goal
 WHERE kind = 'composite'
   AND lifecycle = 'active'
-  AND required_total > 0
-  AND required_accepted >= required_total
+  AND planned_at IS NOT NULL
 ORDER BY updated_at ASC
 LIMIT $1
 `
@@ -964,7 +893,6 @@ func (q *Queries) ListRollupCandidates(ctx context.Context, limit int32) ([]Agen
 			&i.RootID,
 			&i.Depth,
 			&i.Position,
-			&i.SessionID,
 			&i.Title,
 			&i.Intent,
 			&i.Kind,
@@ -980,10 +908,6 @@ func (q *Queries) ListRollupCandidates(ctx context.Context, limit int32) ([]Agen
 			&i.AcceptanceSeq,
 			&i.ActiveAttemptID,
 			&i.AttemptCount,
-			&i.RequiredTotal,
-			&i.RequiredAccepted,
-			&i.RequiredFailed,
-			&i.RequiredBlocked,
 			&i.Context,
 			&i.DispatchHint,
 			&i.CreatedAt,
@@ -993,6 +917,9 @@ func (q *Queries) ListRollupCandidates(ctx context.Context, limit int32) ([]Agen
 			&i.ArchivedAt,
 			&i.Plan,
 			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BudgetBonus,
+			&i.DoneReason,
 		); err != nil {
 			return nil, err
 		}
@@ -1005,14 +932,14 @@ func (q *Queries) ListRollupCandidates(ctx context.Context, limit int32) ([]Agen
 }
 
 const listRootGoal = `-- name: ListRootGoal :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason FROM agent_goal
 WHERE parent_id IS NULL
   AND user_id = $1
   AND ($2::text IS NULL OR agent_id = $2::text)
   AND ($3::uuid IS NULL OR project_id = $3::uuid)
   AND ($4::text IS NULL OR lifecycle = $4::text)
   AND ($5::boolean IS NULL
-       OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = $5::boolean)
+       OR (lifecycle = 'done') = $5::boolean)
   AND ($6::text IS NULL OR title ILIKE '%' || $6 || '%' OR intent ILIKE '%' || $6 || '%')
   AND ($7::boolean OR archived_at IS NULL)
 ORDER BY created_at DESC, id DESC
@@ -1034,7 +961,7 @@ type ListRootGoalParams struct {
 // Root goals (goals: parent_id IS NULL) for a user, scoped to an agent
 // and narrowed by lifecycle / terminal-ness / project / free-text. Every narg is
 // optional: NULL matches all. terminal: false = active (non-terminal) only, true =
-// history (terminal) only, NULL = both. The terminal set is the four end states.
+// history (done) only, NULL = both.
 func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]AgentGoal, error) {
 	rows, err := q.db.Query(ctx, listRootGoal,
 		arg.UserID,
@@ -1063,7 +990,6 @@ func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]A
 			&i.RootID,
 			&i.Depth,
 			&i.Position,
-			&i.SessionID,
 			&i.Title,
 			&i.Intent,
 			&i.Kind,
@@ -1079,10 +1005,6 @@ func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]A
 			&i.AcceptanceSeq,
 			&i.ActiveAttemptID,
 			&i.AttemptCount,
-			&i.RequiredTotal,
-			&i.RequiredAccepted,
-			&i.RequiredFailed,
-			&i.RequiredBlocked,
 			&i.Context,
 			&i.DispatchHint,
 			&i.CreatedAt,
@@ -1092,6 +1014,9 @@ func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]A
 			&i.ArchivedAt,
 			&i.Plan,
 			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BudgetBonus,
+			&i.DoneReason,
 		); err != nil {
 			return nil, err
 		}
@@ -1103,17 +1028,42 @@ func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]A
 	return items, nil
 }
 
-const listStalledComposites = `-- name: ListStalledComposites :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at FROM agent_goal
-WHERE kind = 'composite'
-  AND lifecycle = 'active'
-  AND required_accepted < required_total
+const listZombieGoals = `-- name: ListZombieGoals :many
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason FROM agent_goal
+WHERE lifecycle != 'done'
+  AND updated_at < now() - interval '5 minutes'
+  AND (
+    (kind = 'composite' AND lifecycle = 'pending')
+    OR (
+      lifecycle = 'active'
+      AND active_attempt_id IS NULL
+      AND (kind = 'leaf' OR planned_at IS NULL)
+      AND NOT EXISTS (
+        SELECT 1 FROM agent_goal_attempt a
+        WHERE a.goal_id = agent_goal.id AND a.status IN ('queued', 'running')
+      )
+    )
+  )
 ORDER BY updated_at ASC
 LIMIT $1
 `
 
-func (q *Queries) ListStalledComposites(ctx context.Context, limit int32) ([]AgentGoal, error) {
-	rows, err := q.db.Query(ctx, listStalledComposites, limit)
+// Liveness backstop: non-terminal goals parked in a state nothing drives.
+// Two classes:
+//  1. A pending composite: the dispatcher claims pending LEAVES and decomposes
+//     DRAFT composites, so nothing ever picks a composite out of pending. The
+//     transition table rejects writing this state; the scan catches legacy
+//     rows and out-of-band writes.
+//  2. An active goal with no active attempt pointer and no queued/running
+//     attempt, where activity cannot come from anywhere else: a leaf is only
+//     active while claimed, and an UNPLANNED active composite is only active
+//     while its decomposition attempt runs. A planned active composite is
+//     excluded -- the rollup drives it off its children.
+//
+// The updated_at grace keeps a row mid-transition in another tx from reading
+// as a zombie.
+func (q *Queries) ListZombieGoals(ctx context.Context, limit int32) ([]AgentGoal, error) {
+	rows, err := q.db.Query(ctx, listZombieGoals, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1130,7 +1080,6 @@ func (q *Queries) ListStalledComposites(ctx context.Context, limit int32) ([]Age
 			&i.RootID,
 			&i.Depth,
 			&i.Position,
-			&i.SessionID,
 			&i.Title,
 			&i.Intent,
 			&i.Kind,
@@ -1146,10 +1095,6 @@ func (q *Queries) ListStalledComposites(ctx context.Context, limit int32) ([]Age
 			&i.AcceptanceSeq,
 			&i.ActiveAttemptID,
 			&i.AttemptCount,
-			&i.RequiredTotal,
-			&i.RequiredAccepted,
-			&i.RequiredFailed,
-			&i.RequiredBlocked,
 			&i.Context,
 			&i.DispatchHint,
 			&i.CreatedAt,
@@ -1159,6 +1104,9 @@ func (q *Queries) ListStalledComposites(ctx context.Context, limit int32) ([]Age
 			&i.ArchivedAt,
 			&i.Plan,
 			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BudgetBonus,
+			&i.DoneReason,
 		); err != nil {
 			return nil, err
 		}
@@ -1206,36 +1154,6 @@ func (q *Queries) MarkGoalPlanned(ctx context.Context, id string) (int64, error)
 	return result.RowsAffected(), nil
 }
 
-const reconcileGoalCounters = `-- name: ReconcileGoalCounters :exec
-UPDATE agent_goal SET
-    required_total = (
-        SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required
-    ),
-    required_accepted = (
-        SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required
-          AND c.lifecycle = 'accepted'
-    ),
-    required_failed = (
-        SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required
-          AND c.lifecycle IN ('rejected_final', 'abandoned', 'cancelled')
-    ),
-    required_blocked = (
-        SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required
-          AND c.lifecycle = 'blocked'
-    ),
-    updated_at = now()
-WHERE agent_goal.id = $1
-`
-
-func (q *Queries) ReconcileGoalCounters(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, reconcileGoalCounters, id)
-	return err
-}
-
 const setGoalAcceptanceState = `-- name: SetGoalAcceptanceState :execrows
 UPDATE agent_goal SET
     acceptance_state = $1,
@@ -1278,33 +1196,18 @@ func (q *Queries) SetGoalPlan(ctx context.Context, arg SetGoalPlanParams) error 
 	return err
 }
 
-const setGoalRequiredTotal = `-- name: SetGoalRequiredTotal :exec
-UPDATE agent_goal SET
-    required_total = $1,
-    updated_at = now()
-WHERE id = $2
-`
-
-type SetGoalRequiredTotalParams struct {
-	RequiredTotal int64  `json:"required_total"`
-	ID            string `json:"id"`
-}
-
-func (q *Queries) SetGoalRequiredTotal(ctx context.Context, arg SetGoalRequiredTotalParams) error {
-	_, err := q.db.Exec(ctx, setGoalRequiredTotal, arg.RequiredTotal, arg.ID)
-	return err
-}
-
 const transitionGoalLifecycle = `-- name: TransitionGoalLifecycle :execrows
 UPDATE agent_goal SET
     lifecycle = $1,
-    block_reason = $2,
+    done_reason = $2,
+    block_reason = $3,
     updated_at = now()
-WHERE id = $3 AND lifecycle = $4
+WHERE id = $4 AND lifecycle = $5
 `
 
 type TransitionGoalLifecycleParams struct {
 	ToLifecycle   string `json:"to_lifecycle"`
+	DoneReason    string `json:"done_reason"`
 	BlockReason   string `json:"block_reason"`
 	ID            string `json:"id"`
 	FromLifecycle string `json:"from_lifecycle"`
@@ -1313,6 +1216,7 @@ type TransitionGoalLifecycleParams struct {
 func (q *Queries) TransitionGoalLifecycle(ctx context.Context, arg TransitionGoalLifecycleParams) (int64, error) {
 	result, err := q.db.Exec(ctx, transitionGoalLifecycle,
 		arg.ToLifecycle,
+		arg.DoneReason,
 		arg.BlockReason,
 		arg.ID,
 		arg.FromLifecycle,

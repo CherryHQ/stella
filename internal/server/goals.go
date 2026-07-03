@@ -7,8 +7,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -19,10 +23,16 @@ import (
 // SetGoalService wires the goal system into the admin server.
 // When unset, every /api/goals route returns 503.
 func (s *Server) SetGoalService(svc *goal.Service) {
-	s.goalSvc = svc
+	if svc == nil {
+		s.goalSvc = nil
+		s.goalQueries = nil
+		return
+	}
+	s.goalSvc = svc.Goal
+	s.goalQueries = svc.Queries
 }
 
-func (s *Server) goalsReady() bool { return s.goalSvc != nil }
+func (s *Server) goalsReady() bool { return s.goalSvc != nil && s.goalQueries != nil }
 
 // goalAuth gates a handler on the goal system being wired and an
 // authenticated caller, returning the caller's user id.
@@ -41,10 +51,24 @@ func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (string, bool)
 
 // goalError maps the package's sentinel errors to HTTP status codes:
 // not-found → 404, validation → 400, lifecycle/guard → 409, else 500.
+type goalFilter struct {
+	AgentID   string
+	Lifecycle string
+	ProjectID string
+	Terminal  *bool
+	Q         string
+	Archived  bool
+}
+
 func goalError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, goal.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
+	case errors.Is(err, goal.ErrDeterministicChecksUnsupported):
+		writeErrorDetails(w, http.StatusBadRequest, "required deterministic acceptance checks need a sandbox-capable backend; enable a sandbox backend or change those checks to judgment items", map[string]any{
+			"code": "deterministic_checks_unsupported",
+			"fix":  "enable a sandbox backend or remove required deterministic acceptance items",
+		})
 	case errors.Is(err, goal.ErrInvalidContract),
 		errors.Is(err, goal.ErrCompositeDeterministicContract),
 		errors.Is(err, goal.ErrInvalidDecomposition),
@@ -72,9 +96,9 @@ func goalError(w http.ResponseWriter, err error) {
 // token whose agent differs is 403. Returns false (after writing the error) on
 // any miss.
 func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, id string) (sqlc.AgentGoal, bool) {
-	d, err := s.goalSvc.GetGoal(ctx, id)
+	d, err := s.goalQueries.GetGoal(ctx, id)
 	if err != nil {
-		if errors.Is(err, goal.ErrNotFound) {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, goal.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found")
 			return sqlc.AgentGoal{}, false
 		}
@@ -107,7 +131,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		if _, ok := s.loadGoal(ctx, w, userID, *params.Parent); !ok {
 			return
 		}
-		rows, err := s.goalSvc.ListChildren(ctx, *params.Parent)
+		rows, err := s.goalQueries.ListGoalChildren(ctx, pgnull.Text(*params.Parent))
 		if err != nil {
 			goalError(w, err)
 			return
@@ -119,7 +143,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		if _, ok := s.loadGoal(ctx, w, userID, *params.Root); !ok {
 			return
 		}
-		rows, err := s.goalSvc.ListSubtree(ctx, *params.Root)
+		rows, err := s.goalQueries.ListGoalByRoot(ctx, *params.Root)
 		if err != nil {
 			goalError(w, err)
 			return
@@ -133,7 +157,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	filter := goal.GoalFilter{}
+	filter := goalFilter{}
 	if params.AgentId != nil {
 		filter.AgentID = *params.AgentId
 	}
@@ -152,18 +176,77 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	if params.Archived != nil {
 		filter.Archived = *params.Archived
 	}
-	rows, err := s.goalSvc.ListGoals(ctx, userID, filter, int64(limit+1), int64(offset))
+	rows, err := s.goalQueries.ListRootGoal(ctx, sqlc.ListRootGoalParams{
+		UserID:          userID,
+		AgentID:         pgnull.Text(filter.AgentID),
+		ProjectID:       pgnull.Text(filter.ProjectID),
+		Lifecycle:       pgnull.Text(filter.Lifecycle),
+		Terminal:        goalTerminalArg(filter.Terminal),
+		Q:               pgnull.Text(filter.Q),
+		IncludeArchived: filter.Archived,
+		Limit:           int32(limit + 1),
+		Offset:          int32(offset),
+	})
 	if err != nil {
 		goalError(w, err)
 		return
 	}
 	page, next := nextPageTokenForRows(rows, limit, offset)
 	var total *int
-	if n, err := s.goalSvc.CountGoals(ctx, userID, filter); err == nil {
+	if n, err := s.goalQueries.CountRootGoal(ctx, sqlc.CountRootGoalParams{
+		UserID:          userID,
+		AgentID:         pgnull.Text(filter.AgentID),
+		ProjectID:       pgnull.Text(filter.ProjectID),
+		Lifecycle:       pgnull.Text(filter.Lifecycle),
+		Terminal:        goalTerminalArg(filter.Terminal),
+		Q:               pgnull.Text(filter.Q),
+		IncludeArchived: filter.Archived,
+	}); err == nil {
 		v := int(n)
 		total = &v
 	}
 	writeData(w, http.StatusOK, goalListAPI(page, next, total))
+}
+
+// GetGoalHealth returns the aggregated execution health report for a time window.
+func (s *Server) GetGoalHealth(w http.ResponseWriter, r *http.Request, params apiserver.GetGoalHealthParams) {
+	if !s.goalsReady() {
+		writeError(w, http.StatusServiceUnavailable, "goals unavailable")
+		return
+	}
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	userID := info.UserID
+	if info.IsAdmin && params.UserId == nil {
+		userID = ""
+	}
+	if params.UserId != nil {
+		if *params.UserId != info.UserID && !info.IsAdmin {
+			writeError(w, http.StatusForbidden, "admin access required")
+			return
+		}
+		userID = *params.UserId
+	}
+	agentID := derefStr(params.AgentId)
+	if boundAgent, _, ok := info.scopedBoundary(); ok {
+		if agentID != "" && agentID != boundAgent {
+			writeError(w, http.StatusForbidden, "permission denied")
+			return
+		}
+		agentID = boundAgent
+	}
+	report, err := s.goalSvc.HealthReport(r.Context(), goal.HealthFilter{
+		SinceAt: params.Since,
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, healthReportToAPI(report))
 }
 
 // CreateGoal mints a root goal (goal). With activate=true a leaf is
@@ -207,7 +290,7 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	if body.ConvergencePolicy != nil {
 		in.Convergence = toConvergence(*body.ConvergencePolicy)
 	}
-	created, err := s.goalSvc.CreateGoal(ctx, in)
+	created, err := s.goalSvc.CreateRoot(ctx, in)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -246,7 +329,7 @@ func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent}
+	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent, By: goal.UserActor(userID)}
 	if body.Priority != nil {
 		v := string(*body.Priority)
 		in.Priority = &v
@@ -263,7 +346,7 @@ func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
 		c := toConvergence(*body.ConvergencePolicy)
 		in.Convergence = &c
 	}
-	updated, err := s.goalSvc.UpdateGoal(ctx, id, in)
+	updated, err := s.goalSvc.UpdateMetadata(ctx, id, in)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -394,7 +477,7 @@ func (s *Server) GetGoalReadiness(w http.ResponseWriter, r *http.Request, id str
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rd, err := s.goalSvc.GetReadiness(ctx, id)
+	rd, err := s.goalReadiness(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -414,7 +497,7 @@ func (s *Server) ListGoalChildren(w http.ResponseWriter, r *http.Request, id str
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rows, err := s.goalSvc.ListChildren(ctx, id)
+	rows, err := s.goalQueries.ListGoalChildren(ctx, pgnull.Text(id))
 	if err != nil {
 		goalError(w, err)
 		return
@@ -432,7 +515,7 @@ func (s *Server) ListAttempts(w http.ResponseWriter, r *http.Request, id string)
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rows, err := s.goalSvc.ListAttempts(ctx, id)
+	rows, err := s.goalQueries.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: id})
 	if err != nil {
 		goalError(w, err)
 		return
@@ -454,7 +537,7 @@ func (s *Server) GetAttempt(w http.ResponseWriter, r *http.Request, id string, a
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	a, err := s.goalSvc.GetAttempt(ctx, attemptId)
+	a, err := s.goalQueries.GetAttempt(ctx, attemptId)
 	if err != nil || a.GoalID != id {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
@@ -472,12 +555,63 @@ func (s *Server) ListAcceptanceEvents(w http.ResponseWriter, r *http.Request, id
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rows, err := s.goalSvc.ListAcceptanceEvents(ctx, id)
+	rows, err := s.goalQueries.ListAcceptanceEventByGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, acceptanceEventListAPI(rows))
+}
+
+// ListGoalTimeline lists a goal's L3 timeline in chronological order.
+func (s *Server) ListGoalTimeline(w http.ResponseWriter, r *http.Request, id string, params apiserver.ListGoalTimelineParams) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	rows, err := s.goalQueries.ListGoalEventByGoal(ctx, sqlc.ListGoalEventByGoalParams{GoalID: id, Limit: int32(limit + 1), Offset: int32(offset)})
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	page, next := nextPageTokenForRows(rows, limit, offset)
+	writeData(w, http.StatusOK, goalTimelineAPI(page, next))
+}
+
+// CreateGoalTimelineEvent appends a human message and reattempts non-dep blocks.
+func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request, id string) {
+	userID, ok := s.goalAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+		return
+	}
+	var body apitypes.GoalTimelineMessageRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Text == "" {
+		writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	event, err := s.goalSvc.AddHumanMessage(ctx, goal.HumanMessageInput{GoalID: id, Text: body.Text, ResponderUserID: userID})
+	if err != nil {
+		goalError(w, err)
+		return
+	}
+	writeData(w, http.StatusCreated, goalTimelineEventToAPI(event))
 }
 
 // ── Verdict + edges ──────────────────────────────────────────────────────────
@@ -511,7 +645,7 @@ func (s *Server) SubmitVerdict(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	// The verdict is the highest-seq event after the append; surface it.
-	events, err := s.goalSvc.ListAcceptanceEvents(ctx, id)
+	events, err := s.goalQueries.ListAcceptanceEventByGoal(ctx, id)
 	if err != nil || len(events) == 0 {
 		goalError(w, err)
 		return
@@ -529,7 +663,7 @@ func (s *Server) ListEdges(w http.ResponseWriter, r *http.Request, id string) {
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rows, err := s.goalSvc.ListEdges(ctx, id)
+	rows, err := s.goalQueries.ListEdgeByGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -596,7 +730,7 @@ func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, up
 		goalError(w, err)
 		return
 	}
-	edges, err := s.goalSvc.ListEdges(ctx, id)
+	edges, err := s.goalQueries.ListEdgeByGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -627,7 +761,7 @@ func (s *Server) ApprovePlan(w http.ResponseWriter, r *http.Request, id string) 
 		goalError(w, err)
 		return
 	}
-	d, err := s.goalSvc.GetGoal(ctx, id)
+	d, err := s.goalQueries.GetGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -654,7 +788,7 @@ func (s *Server) RejectPlan(w http.ResponseWriter, r *http.Request, id string) {
 		goalError(w, err)
 		return
 	}
-	d, err := s.goalSvc.GetGoal(ctx, id)
+	d, err := s.goalQueries.GetGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -667,7 +801,7 @@ func (s *Server) RejectPlan(w http.ResponseWriter, r *http.Request, id string) {
 // respondGoal re-fetches a goal and writes it; used by the
 // command handlers whose service method returns only an error.
 func (s *Server) respondGoal(ctx context.Context, w http.ResponseWriter, id string) {
-	d, err := s.goalSvc.GetGoal(ctx, id)
+	d, err := s.goalQueries.GetGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -731,22 +865,21 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		RootId:             d.RootID,
 		Depth:              int(d.Depth),
 		Position:           int(d.Position),
-		SessionId:          d.SessionID,
 		Title:              d.Title,
 		Kind:               apitypes.GoalKind(d.Kind),
 		Priority:           apitypes.GoalPriority(d.Priority),
 		Required:           d.Required,
 		Lifecycle:          apitypes.GoalLifecycle(d.Lifecycle),
+		DoneReason:         apitypes.GoalDoneReason(d.DoneReason),
 		AcceptanceState:    apitypes.GoalAcceptanceState(d.AcceptanceState),
+		NeedsAttention:     goal.NeedsAttention(d.Lifecycle, d.BlockReason),
 		CreatedAt:          d.CreatedAt.UTC(),
 		UpdatedAt:          d.UpdatedAt.UTC(),
 		Intent:             optStr(d.Intent),
 		AcceptanceSeq:      iptr(d.AcceptanceSeq),
 		AttemptCount:       iptr(d.AttemptCount),
-		RequiredTotal:      iptr(d.RequiredTotal),
-		RequiredAccepted:   iptr(d.RequiredAccepted),
-		RequiredFailed:     iptr(d.RequiredFailed),
-		RequiredBlocked:    iptr(d.RequiredBlocked),
+		BudgetBonus:        int(d.BudgetBonus),
+		FlakyCount:         iptr(d.FlakyCount),
 		AcceptanceContract: parseAcceptanceContract(d.AcceptanceContract),
 		ConvergencePolicy:  parseConvergencePolicy(d.ConvergencePolicy),
 		Context:            jsonObject(d.Context),
@@ -797,6 +930,7 @@ func attemptToAPI(a sqlc.AgentGoalAttempt) apitypes.Attempt {
 		LeaseExpiresAt:  parseTimePtr(a.LeaseExpiresAt),
 		StartedAt:       parseTimePtr(a.StartedAt),
 		FinishedAt:      parseTimePtr(a.FinishedAt),
+		RepairRounds:    iptr(int64(a.RepairRounds)),
 	}
 	if a.FailureClass != "" {
 		fc := apitypes.AttemptFailureClass(a.FailureClass)
@@ -811,6 +945,29 @@ func acceptanceEventListAPI(rows []sqlc.AgentGoalAcceptanceEvent) apitypes.Accep
 		out = append(out, acceptanceEventToAPI(e))
 	}
 	return apitypes.AcceptanceEventList{AcceptanceEvents: out}
+}
+
+func goalTimelineAPI(rows []sqlc.AgentGoalEvent, nextToken string) apitypes.GoalTimeline {
+	items := make([]apitypes.GoalTimelineEvent, 0, len(rows))
+	for _, e := range rows {
+		items = append(items, goalTimelineEventToAPI(e))
+	}
+	out := apitypes.GoalTimeline{Events: items}
+	if nextToken != "" {
+		out.NextPageToken = &nextToken
+	}
+	return out
+}
+
+func goalTimelineEventToAPI(e sqlc.AgentGoalEvent) apitypes.GoalTimelineEvent {
+	return apitypes.GoalTimelineEvent{
+		Id:        e.ID,
+		GoalId:    e.GoalID,
+		AttemptId: nullToPtr(e.AttemptID),
+		EventType: apitypes.GoalTimelineEventEventType(e.EventType),
+		Payload:   jsonMap(e.Payload),
+		CreatedAt: e.CreatedAt.UTC(),
+	}
 }
 
 func acceptanceEventToAPI(e sqlc.AgentGoalAcceptanceEvent) apitypes.AcceptanceEvent {
@@ -859,6 +1016,12 @@ func edgeToAPI(e sqlc.AgentGoalEdge) apitypes.Edge {
 		WaivedByUser: nullToPtr(e.WaivedByUser),
 		WaiverReason: optStr(e.WaiverReason),
 	}
+}
+
+func healthReportToAPI(r goal.HealthReport) apitypes.GoalHealthReport {
+	var out apitypes.GoalHealthReport
+	jsonRoundTrip(r, &out)
+	return out
 }
 
 func readinessToAPI(r goal.Readiness) apitypes.Readiness {
@@ -928,6 +1091,36 @@ func nullToPtr(ns pgtype.Text) *string {
 	}
 	v := ns.String
 	return &v
+}
+
+func goalTerminalArg(v *bool) pgtype.Bool {
+	if v == nil {
+		return pgtype.Bool{}
+	}
+	return pgtype.Bool{Bool: *v, Valid: true}
+}
+
+func (s *Server) goalReadiness(ctx context.Context, id string) (goal.Readiness, error) {
+	d, err := s.goalQueries.GetGoal(ctx, id)
+	if err != nil {
+		return goal.Readiness{}, err
+	}
+	edges, err := s.goalQueries.ListEdgeWithUpstreamState(ctx, id)
+	if err != nil {
+		return goal.Readiness{}, err
+	}
+	return goal.Compute(d, edges, time.Now().UTC()), nil
+}
+
+func jsonMap(s json.RawMessage) map[string]any {
+	if len(s) == 0 || string(s) == "{}" {
+		return map[string]any{}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(s, &m); err != nil {
+		return map[string]any{}
+	}
+	return m
 }
 
 func jsonObject(s json.RawMessage) *map[string]any {

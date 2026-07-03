@@ -28,8 +28,8 @@ type Projection struct {
 func DeriveAcceptance(c AcceptanceContract, currentOutputHash string, events []sqlc.AgentGoalAcceptanceEvent) Projection {
 	// Trivial contract = auto-accept: nothing to evaluate, the goal's
 	// acceptance is governed entirely by its children (composite) or is an
-	// immediate pass (leaf). Treat as passed; the service's composite gate still
-	// requires required_accepted == required_total before a composite accepts.
+	// immediate pass (leaf). Treat as passed; derived rollup only calls the
+	// composite accept path after all required children are done(accepted).
 	if c.IsTrivial() {
 		return Projection{State: AcceptancePassed}
 	}

@@ -49,4 +49,4 @@ A goal you hand off isn't just a chat reply — it becomes a tracked **Goal** th
 
 The agent decomposes a composite goal into child goals and runs each to acceptance, reworking against the gaps until the acceptance contract passes. A direct (single-step) goal runs immediately; a decomposed one is planned first, then activated. Completion is **derived** from the contract — the agent never marks it done itself.
 
-Use chat for context and decisions; watch execution on the **Goals** tab of the agent. See [Goals](/docs/task-system/overview) for the full model.
+Use chat for context and decisions; watch execution on the agent's **Goals** tab. A composite goal detail page opens as a workflow canvas: click the running or blocked node for attempts, readiness, and verdicts; open **Timeline** from the header to leave guidance that authorizes one more retry when the block is not an upstream dependency. See [Goals](/docs/task-system/overview) for the full model.

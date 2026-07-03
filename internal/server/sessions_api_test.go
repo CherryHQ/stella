@@ -48,3 +48,53 @@ func TestUpdateAndDeleteSession(t *testing.T) {
 		t.Fatalf("archived = %v, want true", archived)
 	}
 }
+
+func TestListSessionsHidesInternalKindsByDefault(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Session List Agent")
+	rows := []struct {
+		sessionID string
+		kind      string
+	}{
+		{sessionID: "chat-session", kind: "chat"},
+		{sessionID: "task-session", kind: "task"},
+		{sessionID: "delegate-session", kind: "delegate"},
+	}
+	for _, row := range rows {
+		_, err := env.db.Exec(context.Background(), `
+			INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+		`, uuid.NewString(), row.sessionID, row.sessionID, row.kind, row.kind, agentID, env.adminUser.ID)
+		if err != nil {
+			t.Fatalf("seed %s conversation: %v", row.kind, err)
+		}
+	}
+
+	rr := doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/sessions", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET sessions status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var list apitypes.SessionList
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		t.Fatalf("unmarshal session list: %v", err)
+	}
+	for _, session := range list.Sessions {
+		if session.Kind == "task" || session.Kind == "delegate" {
+			t.Fatalf("internal session %q kind %q leaked into default list", session.Id, session.Kind)
+		}
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/sessions?kind=task", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET task sessions status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	list = apitypes.SessionList{}
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		t.Fatalf("unmarshal task session list: %v", err)
+	}
+	if len(list.Sessions) != 1 || list.Sessions[0].Id != "task-session" {
+		t.Fatalf("task-filtered sessions = %#v, want task-session only", list.Sessions)
+	}
+}

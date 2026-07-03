@@ -13,15 +13,12 @@ SELECT * FROM agent_goal_edge
 WHERE goal_id = sqlc.arg(goal_id)
 ORDER BY created_at;
 
--- name: ListEdgeByUpstream :many
-SELECT * FROM agent_goal_edge
-WHERE upstream_id = sqlc.arg(upstream_id)
-ORDER BY created_at;
 
 -- name: ListEdgeWithUpstreamState :many
 SELECT
     e.*,
     u.lifecycle AS upstream_lifecycle,
+    u.done_reason AS upstream_done_reason,
     u.accepted_output AS upstream_output
 FROM agent_goal_edge e
 JOIN agent_goal u ON u.id = e.upstream_id
@@ -36,7 +33,3 @@ SET waived_at = now(),
 WHERE goal_id = sqlc.arg(goal_id)
   AND upstream_id = sqlc.arg(upstream_id);
 
--- name: DeleteEdge :exec
-DELETE FROM agent_goal_edge
-WHERE goal_id = sqlc.arg(goal_id)
-  AND upstream_id = sqlc.arg(upstream_id);

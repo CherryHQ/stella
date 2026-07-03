@@ -150,8 +150,10 @@ func TestListInboxAggregatesAttentionItems(t *testing.T) {
 	}
 }
 
-// Only goals that are blocked or recently terminal belong in the inbox.
-// Draft/ready/active/accepted goals and stale failures must stay out.
+// Only goals whose block has a human recovery action, plus recently failed
+// roots, belong in the inbox. Draft/pending/active/done goals
+// (they resume on their own), blocked children of dead trees, and stale
+// failures must stay out.
 func TestListInboxExcludesNonActionableGoals(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
@@ -159,13 +161,19 @@ func TestListInboxExcludesNonActionableGoals(t *testing.T) {
 
 	// Non-actionable lifecycles never surface.
 	seed.goal("goal-draft", "draft", "", "passed-unused", inboxTS(-1*time.Hour))
-	seed.goal("goal-ready", "ready", "", "pending", inboxTS(-1*time.Hour))
+	seed.goal("goal-pending", "pending", "", "pending", inboxTS(-1*time.Hour))
 	seed.goal("goal-active", "active", "", "pending", inboxTS(-1*time.Hour))
 	seed.accepted("goal-accepted", inboxTS(-1*time.Hour))
 	// A terminal failure older than the recency window is no longer nagging.
-	seed.goal("goal-stale-fail", "rejected_final", "", "failed", inboxTS(-10*24*time.Hour))
-	// Only this one is actionable.
-	seed.goal("goal-open-block", "blocked", "dep", "pending", inboxTS(-1*time.Hour))
+	seed.done("goal-stale-fail", "failed", "failed", nil, inboxTS(-10*24*time.Hour))
+	// A blocked child of a live tree surfaces (the action lives on the child)...
+	seed.child("goal-live-child", "goal-active", "blocked", "", "env_unavailable", inboxTS(-1*time.Hour))
+	// ...a blocked child of a dead tree does not: nothing left to recover.
+	seed.child("goal-zombie-child", "goal-stale-fail", "blocked", "", "env_unavailable", inboxTS(-1*time.Hour))
+	// A child failure is covered by its root's outcome.
+	seed.child("goal-child-fail", "goal-active", "done", "failed", "", inboxTS(-1*time.Hour))
+	// Human-actionable block on a root surfaces.
+	seed.goal("goal-open-block", "blocked", "budget_exhausted", "pending", inboxTS(-2*time.Hour))
 
 	rr := doRequest(t, env, http.MethodGet, "/api/inbox?page_size=100", nil)
 	if rr.Code != http.StatusOK {
@@ -175,11 +183,15 @@ func TestListInboxExcludesNonActionableGoals(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
 		t.Fatalf("decode inbox: %v", err)
 	}
-	if len(list.Items) != 1 {
-		t.Fatalf("items len = %d, want only the open block: %+v", len(list.Items), list.Items)
+	if len(list.Items) != 2 {
+		t.Fatalf("items len = %d, want live child + open block: %+v", len(list.Items), list.Items)
 	}
-	if list.Items[0].Id != "blocked:goal-open-block" {
-		t.Fatalf("item = %s, want blocked:goal-open-block", list.Items[0].Id)
+	if list.Items[0].Id != "blocked:goal-live-child" || list.Items[1].Id != "blocked:goal-open-block" {
+		t.Fatalf("items = %s, %s, want blocked:goal-live-child then blocked:goal-open-block",
+			list.Items[0].Id, list.Items[1].Id)
+	}
+	if list.Items[0].Detail == nil || *list.Items[0].Detail != "Environment unavailable" {
+		t.Fatalf("live child detail = %v, want Environment unavailable", list.Items[0].Detail)
 	}
 }
 
@@ -192,9 +204,9 @@ func seedInboxRows(t *testing.T, env *testEnv, agentID string) {
 	// One of each inbox kind from goals, plus a failed scheduler run.
 	// Timestamps are staggered so the newest three (failed scheduler, blocked,
 	// review) land on page one and exercise all three kinds.
-	seed.goal("goal-blocked", "blocked", "dep", "pending", inboxTS(-3*time.Hour))
+	seed.goal("goal-blocked", "blocked", "budget_exhausted", "pending", inboxTS(-3*time.Hour))
 	seed.goal("goal-review", "blocked", "needs_verdict", "pending", inboxTS(-4*time.Hour))
-	seed.goal("goal-failed", "rejected_final", "", "failed", inboxTS(-6*time.Hour))
+	seed.done("goal-failed", "failed", "failed", nil, inboxTS(-6*time.Hour))
 
 	_, err := env.db.Exec(ctx, `
 		INSERT INTO sched_job (
@@ -228,37 +240,48 @@ func newGoalSeeder(t *testing.T, env *testEnv, agentID string) *goalSeeder {
 
 // goal seeds a root goal with the given lifecycle/block_reason.
 func (s *goalSeeder) goal(id, lifecycle, blockReason, acceptanceState, updatedAt string) {
-	s.insert(id, lifecycle, blockReason, acceptanceState, nil, updatedAt)
+	s.insert(id, lifecycle, "", blockReason, acceptanceState, nil, updatedAt)
+}
+
+func (s *goalSeeder) done(id, doneReason, acceptanceState string, acceptedOutput *string, updatedAt string) {
+	s.insert(id, "done", doneReason, "", acceptanceState, acceptedOutput, updatedAt)
+}
+
+// child seeds a direct child of an already-seeded root goal.
+func (s *goalSeeder) child(id, rootID, lifecycle, doneReason, blockReason, updatedAt string) {
+	s.t.Helper()
+	state := "pending"
+	if lifecycle == "done" {
+		state = "failed"
+	}
+	s.insert(id, lifecycle, doneReason, blockReason, state, nil, updatedAt)
+	if _, err := s.env.db.Exec(context.Background(), `
+		UPDATE agent_goal SET parent_id = $2, root_id = $2, depth = 1 WHERE id = $1
+	`, id, rootID); err != nil {
+		s.t.Fatalf("reparent goal %s: %v", id, err)
+	}
 }
 
 // accepted seeds an accepted root, satisfying the schema's anti-drift CHECK
 // (acceptance_state='passed' AND accepted_output IS NOT NULL).
 func (s *goalSeeder) accepted(id, updatedAt string) {
 	output := "done"
-	s.insert(id, "accepted", "", "passed", &output, updatedAt)
+	s.insert(id, "done", "accepted", "", "passed", &output, updatedAt)
 }
 
-func (s *goalSeeder) insert(id, lifecycle, blockReason, acceptanceState string, acceptedOutput *string, updatedAt string) {
+func (s *goalSeeder) insert(id, lifecycle, doneReason, blockReason, acceptanceState string, acceptedOutput *string, updatedAt string) {
 	s.t.Helper()
 	ctx := context.Background()
 	userID := s.env.adminUser.ID
-	sessionID := "goal-session:" + id
 	_, err := s.env.db.Exec(ctx, `
-		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
-		VALUES ($1, $2, $3, 'task', 'task', $4, $5, $6)
-	`, uuid.NewString(), sessionID, id, s.agentID, userID, updatedAt)
-	if err != nil {
-		s.t.Fatalf("seed conversation %s: %v", sessionID, err)
-	}
-	_, err = s.env.db.Exec(ctx, `
 		INSERT INTO agent_goal (
-			id, user_id, agent_id, root_id, session_id, title,
-			lifecycle, block_reason, acceptance_state, accepted_output,
+			id, user_id, agent_id, root_id, title,
+			lifecycle, done_reason, block_reason, acceptance_state, accepted_output,
 			created_at, updated_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	`, id, userID, s.agentID, id, sessionID, id,
-		lifecycle, blockReason, acceptanceState, acceptedOutput,
+	`, id, userID, s.agentID, id, id,
+		lifecycle, doneReason, blockReason, acceptanceState, acceptedOutput,
 		updatedAt, updatedAt)
 	if err != nil {
 		s.t.Fatalf("seed goal %s: %v", id, err)

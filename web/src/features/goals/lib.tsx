@@ -7,38 +7,30 @@ import { parseGoDuration } from "@/features/goals/types";
 
 export { goalNeedsYou } from "@/features/goals/types";
 
-// A goal's lifecycle is the source of truth, but two of its states fan
-// out by a secondary field: blocked splits by block_reason (a needs_verdict
-// block wants a human verdict — a distinct "review" affordance from a dep/budget
-// stall), and the terminal states each get their own visual. displayStatus
-// collapses (lifecycle, block_reason) into one key the pill/dot render against.
+// A goal's lifecycle is the source of truth, but blocked splits by block_reason
+// and done splits by done_reason so the UI can show the actionable state.
 export type DisplayStatus =
   | "draft"
-  | "ready"
+  | "pending"
   | "active"
   | "review"
   | "blocked"
   | "accepted"
-  | "rejected"
-  | "abandoned"
+  | "failed"
   | "cancelled";
 
 export function displayStatus(d: ComponentsGoal): DisplayStatus {
   switch (d.lifecycle) {
     case "blocked":
       return d.block_reason === "needs_verdict" ? "review" : "blocked";
-    case "accepted":
-      return "accepted";
-    case "rejected_final":
-      return "rejected";
-    case "abandoned":
-      return "abandoned";
-    case "cancelled":
-      return "cancelled";
+    case "done":
+      if (d.done_reason === "accepted") return "accepted";
+      if (d.done_reason === "cancelled") return "cancelled";
+      return "failed";
     case "active":
       return "active";
-    case "ready":
-      return "ready";
+    case "pending":
+      return "pending";
     default:
       return "draft";
   }
@@ -71,15 +63,10 @@ const STATUS_META: Record<DisplayStatus, StatusMeta> = {
     pill: "bg-chart-4/10 text-chart-4 border-chart-4/25",
     bar: "bg-chart-4",
   },
-  rejected: {
+  failed: {
     dot: "bg-destructive",
     pill: "bg-destructive/10 text-destructive border-destructive/25",
     bar: "bg-destructive",
-  },
-  abandoned: {
-    dot: "bg-muted-foreground/30",
-    pill: "bg-muted text-muted-foreground border-border line-through",
-    bar: "bg-muted-foreground/30",
   },
   cancelled: {
     dot: "bg-muted-foreground/30",
@@ -91,7 +78,7 @@ const STATUS_META: Record<DisplayStatus, StatusMeta> = {
     pill: "bg-muted text-muted-foreground border-border",
     bar: "bg-muted-foreground/40",
   },
-  ready: {
+  pending: {
     dot: "bg-muted-foreground/50",
     pill: "bg-muted text-muted-foreground border-border",
     bar: "bg-muted-foreground/50",
@@ -104,13 +91,12 @@ export function statusMeta(status: DisplayStatus): StatusMeta {
 
 const STATUS_KEY: Record<DisplayStatus, MessageKey> = {
   draft: "goals.statusDraft",
-  ready: "goals.statusReady",
+  pending: "goals.statusPending",
   active: "goals.statusActive",
   review: "goals.statusReview",
   blocked: "goals.statusBlocked",
   accepted: "goals.statusAccepted",
-  rejected: "goals.statusRejected",
-  abandoned: "goals.statusAbandoned",
+  failed: "goals.statusFailed",
   cancelled: "goals.statusCancelled",
 };
 
@@ -135,7 +121,7 @@ export function StatusPill({ status, label }: { status: DisplayStatus; label: st
   return (
     <span
       className={cn(
-        "inline-flex h-[21px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs font-semibold capitalize",
+        "inline-flex h-[21px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 font-mono text-xs font-semibold capitalize",
         statusMeta(status).pill,
       )}
     >
@@ -155,8 +141,10 @@ export function blockReasonLabel(t: TFunction, d: ComponentsGoal): string | null
       return t("goals.blockNeedsPlanApproval");
     case "budget_exhausted":
       return t("goals.blockBudget");
-    case "dep":
-      return t("goals.blockDep");
+    case "env_unavailable":
+      return t("goals.blockEnvUnavailable");
+    case "contract_conflict":
+      return t("goals.blockContractConflict");
     default:
       return t("goals.statusBlocked");
   }
@@ -189,7 +177,7 @@ export function rollup(children: ComponentsGoal[]): Rollup {
     else if (s === "active") r.active++;
     else if (s === "review") r.review++;
     else if (s === "blocked") r.blocked++;
-    else if (s === "rejected" || s === "abandoned") r.failed++;
+    else if (s === "failed") r.failed++;
     else r.other++;
   }
   return r;
@@ -200,7 +188,7 @@ const BAR_ORDER: { key: keyof Rollup; status: DisplayStatus }[] = [
   { key: "active", status: "active" },
   { key: "review", status: "review" },
   { key: "blocked", status: "blocked" },
-  { key: "failed", status: "rejected" },
+  { key: "failed", status: "failed" },
 ];
 
 export function ProgressBar({ r, className }: { r: Rollup; className?: string }) {

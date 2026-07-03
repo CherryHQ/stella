@@ -62,6 +62,9 @@ type Dispatcher struct {
 
 	mu      sync.Mutex
 	stopped bool
+	// zombieLogged dedupes the liveness-backstop warning to once per goal per
+	// process, so a persistent zombie is visible without flooding every tick.
+	zombieLogged map[string]bool
 }
 
 // NewDispatcher constructs a dispatcher, filling defaults for zero-valued
@@ -82,7 +85,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default().With("component", "goal/dispatcher")
 	}
-	return &Dispatcher{cfg: cfg}
+	return &Dispatcher{cfg: cfg, zombieLogged: map[string]bool{}}
 }
 
 // SetEnqueuer injects the River enqueuer the dispatcher uses to dispatch claimed
@@ -109,19 +112,45 @@ func (d *Dispatcher) Stop() {
 }
 
 // Tick runs one pass of the dispatch loop. Public so tests can drive it
-// deterministically. The order is fixed (§5/§7): reap → propagate → rollup →
-// scan-and-decompose → scan-and-claim.
+// deterministically. The order is fixed: reap -> rollup -> decompose -> review ->
+// claim -> zombie backstop.
 func (d *Dispatcher) Tick(ctx context.Context) {
 	if d.isStopped() {
 		return
 	}
 	now := d.cfg.Service.clock().UTC()
 	d.reapStaleAttempts(ctx, now)
-	d.propagateDepFailures(ctx, now)
 	d.rollupComposites(ctx, now)
 	d.scanAndDecompose(ctx, now)
 	d.scanAndReview(ctx, now)
 	d.scanAndClaim(ctx, now)
+	d.detectZombies(ctx)
+}
+
+// detectZombies is the liveness backstop (warn-only): it surfaces non-terminal
+// goals parked in a state nothing drives (see ListZombieGoals). The transition
+// table prevents writing such states; this catches whatever slips past it —
+// legacy rows, out-of-band writes, or an invariant we have not met yet. It
+// deliberately repairs nothing: each zombie class has its own correct recovery,
+// and auto-guessing here would hide the bug that produced it.
+func (d *Dispatcher) detectZombies(ctx context.Context) {
+	rows, err := d.cfg.Queries.ListZombieGoals(ctx, int32(d.cfg.BatchLimit))
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: list zombie goals", "err", err)
+		return
+	}
+	for _, g := range rows {
+		d.mu.Lock()
+		seen := d.zombieLogged[g.ID]
+		d.zombieLogged[g.ID] = true
+		d.mu.Unlock()
+		if seen {
+			continue
+		}
+		d.cfg.Logger.Warn("dispatcher: zombie goal — non-terminal state with no driver",
+			"goal", g.ID, "kind", g.Kind, "lifecycle", g.Lifecycle,
+			"block_reason", g.BlockReason, "updated_at", g.UpdatedAt)
+	}
 }
 
 func (d *Dispatcher) isStopped() bool {
@@ -155,105 +184,40 @@ func (d *Dispatcher) reapStaleAttempts(ctx context.Context, now time.Time) {
 	}
 }
 
-// propagateDepFailures scans dispatchable-leaf candidates and blocks any whose
-// hard upstream edge is terminal-bad (rejected_final/abandoned/cancelled),
-// unwaived, with on_failure=block. Readiness.Compute already derives this
-// verdict from the pre-joined upstream state, so the dispatcher only applies the
-// service transition (contract §2.1 ready/active→blocked(dep)).
-func (d *Dispatcher) propagateDepFailures(ctx context.Context, now time.Time) {
-	candidates, err := d.cfg.Queries.ListDispatchableLeaves(ctx, int32(d.cfg.BatchLimit))
-	if err != nil {
-		d.cfg.Logger.Warn("dispatcher: list candidates for dep propagation", "err", err)
-		return
-	}
-	for _, goal := range candidates {
-		if d.isStopped() {
-			return
-		}
-		edges, err := d.cfg.Queries.ListEdgeWithUpstreamState(ctx, goal.ID)
-		if err != nil {
-			d.cfg.Logger.Warn("dispatcher: list edges", "goal", goal.ID, "err", err)
-			continue
-		}
-		r := Compute(goal, edges, now)
-		if r.State != ReadinessBlocked {
-			continue
-		}
-		if err := d.cfg.Service.Block(ctx, goal.ID, BlockDep, SystemActor()); err != nil &&
-			!errors.Is(err, ErrInvalidTransition) {
-			d.cfg.Logger.Warn("dispatcher: block on dep failure", "goal", goal.ID, "err", err)
-		}
-	}
-}
-
-// rollupComposites drives parent acceptance off the incremental counters. The
-// accept-ready scan (ListRollupCandidates) and the stalled scan
-// (ListStalledComposites) feed RollupComposite (pure); the service applies the
-// single parent transition. A genuinely stalled parent (RollupWait but
-// required_accepted < required_total) triggers the reconcileCounters backstop
-// (contract §6).
+// rollupComposites drives parent acceptance from a derived required-child tally.
+// Stored rollup counters and dep-block propagation are intentionally gone.
 func (d *Dispatcher) rollupComposites(ctx context.Context, _ time.Time) {
-	ready, err := d.cfg.Queries.ListRollupCandidates(ctx, int32(d.cfg.BatchLimit))
+	parents, err := d.cfg.Queries.ListRollupCandidates(ctx, int32(d.cfg.BatchLimit))
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: list rollup candidates", "err", err)
-	} else {
-		for _, parent := range ready {
-			d.applyRollup(ctx, parent, false)
-		}
-	}
-
-	stalled, err := d.cfg.Queries.ListStalledComposites(ctx, int32(d.cfg.BatchLimit))
-	if err != nil {
-		d.cfg.Logger.Warn("dispatcher: list stalled composites", "err", err)
 		return
 	}
-	for _, parent := range stalled {
-		d.applyRollup(ctx, parent, true)
-	}
-
-	// Recover composites parked blocked(dep): the rollup scans above only see
-	// active composites, so a parent the rollup blocked never re-enters rollup once
-	// its blocking children clear (e.g. a child plan was approved or a verdict
-	// arrived). RecoverBlockedComposite wakes it back to active.
-	blocked, err := d.cfg.Queries.ListBlockedDepComposites(ctx, int32(d.cfg.BatchLimit))
-	if err != nil {
-		d.cfg.Logger.Warn("dispatcher: list blocked-dep composites", "err", err)
-		return
-	}
-	for _, parent := range blocked {
-		if err := d.cfg.Service.RecoverBlockedComposite(ctx, parent.ID); err != nil &&
-			!errors.Is(err, ErrInvalidTransition) {
-			d.cfg.Logger.Warn("dispatcher: recover blocked composite", "goal", parent.ID, "err", err)
-		}
+	for _, parent := range parents {
+		d.applyRollup(ctx, parent)
 	}
 }
 
-// applyRollup folds one composite's counters into a verdict and applies it. On a
-// stalled parent that the verdict cannot move (RollupWait), it runs the
-// reconcileCounters backstop — never per event, only on detected stall.
-func (d *Dispatcher) applyRollup(ctx context.Context, parent sqlc.AgentGoal, stalled bool) {
-	switch RollupComposite(parent) {
+func (d *Dispatcher) applyRollup(ctx context.Context, parent sqlc.AgentGoal) {
+	tally, err := d.cfg.Queries.GetRequiredChildRollupCounts(ctx, parent.ID)
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: tally rollup", "goal", parent.ID, "err", err)
+		return
+	}
+	switch RollupComposite(parent, tally) {
 	case RollupAcceptParent:
 		if err := d.cfg.Service.RollupAccept(ctx, parent.ID); err != nil &&
 			!errors.Is(err, ErrInvalidTransition) {
 			d.cfg.Logger.Warn("dispatcher: rollup accept", "goal", parent.ID, "err", err)
 		}
 	case RollupBlock:
-		if err := d.cfg.Service.Block(ctx, parent.ID, BlockDep, SystemActor()); err != nil &&
-			!errors.Is(err, ErrInvalidTransition) {
-			d.cfg.Logger.Warn("dispatcher: rollup block", "goal", parent.ID, "err", err)
-		}
+		return
 	case RollupFail:
 		if err := d.cfg.Service.RollupFail(ctx, parent.ID); err != nil &&
 			!errors.Is(err, ErrInvalidTransition) {
 			d.cfg.Logger.Warn("dispatcher: rollup fail", "goal", parent.ID, "err", err)
 		}
 	case RollupWait:
-		if stalled {
-			if err := d.cfg.Service.reconcileCounters(ctx, parent.ID); err != nil {
-				d.cfg.Logger.Warn("dispatcher: reconcile counters", "goal", parent.ID, "err", err)
-			}
-		}
+		return
 	}
 }
 
@@ -528,12 +492,7 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		// Finalize the stale attempt as interrupted. A 0-row update means it is no
 		// longer queued/running (already finalized/raced) — idempotent no-op the
 		// dispatcher ignores as ErrInvalidTransition.
-		rows, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-			ToStatus:     AttemptInterrupted,
-			Error:        "lease expired; reaped by dispatcher",
-			FailureClass: FailureClassTransient,
-			ID:           attemptID,
-		})
+		rows, err := s.finalizeAttempt(ctx, q, att, AttemptInterrupted, "lease expired; reaped by dispatcher", FailureClassFlaky)
 		if err != nil {
 			return fmt.Errorf("finalize stale attempt: %w", err)
 		}
@@ -545,6 +504,14 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		if err != nil {
 			return err
 		}
+		// The goal may have reached a terminal state while this attempt was still
+		// leased: Cancel only finalizes the attempt named by active_attempt_id, and
+		// decomposition/review attempts are never pointed there. The attempt is
+		// finalized above; routing recovery here would resurrect a terminal
+		// lifecycle (a cancelled composite came back as ready this way). Stop.
+		if IsTerminalLifecycle(d.Lifecycle) {
+			return nil
+		}
 		// A decomposition attempt's goal is 'active' running the plan; on reap release
 		// it back to draft so it is re-decomposed within budget (or block when spent).
 		// A still-'queued' reap was never picked up by River (queue backpressure), so
@@ -552,7 +519,10 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		// executed does. att.Status is the pre-finalize status (GetAttempt ran before
 		// FinalizeAttempt) — do not reorder without revisiting this.
 		if att.Purpose == PurposeDecomposition {
-			return s.recoverDecomposition(ctx, q, d, att.Status == AttemptRunning)
+			if att.Status == AttemptQueued {
+				return s.recoverDecomposition(ctx, q, d, false)
+			}
+			return s.routeFailedAttempt(ctx, q, d, attemptID, "lease expired; reaped by dispatcher", FailureClassFlaky, true)
 		}
 		// A reaped review attempt leaves the goal blocked(needs_verdict); the
 		// dispatcher re-mints within the per-episode review budget, then degrades to
@@ -573,17 +543,11 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		// pre-finalize status (GetAttempt above runs before FinalizeAttempt) — do not
 		// reorder those without revisiting this branch.
 		if att.Status == AttemptQueued {
-			return s.refundAndReopen(ctx, q, d)
-		}
-		// Execution attempt: an interrupt is transient. Return to ready within budget
-		// so the next tick re-claims; budget out parks at blocked(budget_exhausted).
-		var pol ConvergencePolicy
-		_ = unmarshalJSON(d.ConvergencePolicy, &pol)
-		pol = pol.Normalized()
-		if d.AttemptCount < int64(pol.MaxAttempts) {
 			return s.reopenForRework(ctx, q, d)
 		}
-		return s.blockBudget(ctx, q, d)
+		// Execution attempt: a lease expiry is infrastructure-flaky. It reopens on
+		// the flaky counter without charging the model business budget.
+		return s.routeFailedAttempt(ctx, q, d, attemptID, "lease expired; reaped by dispatcher", FailureClassFlaky, false)
 	})
 }
 
@@ -651,23 +615,19 @@ func (s *GoalService) RollupAccept(ctx context.Context, id string) error {
 			AcceptedAt: s.now(),
 			Children:   kids,
 		}
-		rows, err := q.AcceptGoal(ctx, sqlc.AcceptGoalParams{
-			AcceptedOutput: marshalNullJSON(accepted),
-			ID:             cur.ID,
-		})
+		rows, err := s.acceptGoal(ctx, q, cur, accepted)
 		if err != nil {
 			return fmt.Errorf("rollup accept: %w", err)
 		}
 		if rows == 0 {
 			return ErrInvalidTransition // not active (raced)
 		}
-		return s.bumpParentCounter(ctx, q, cur, counterAccepted)
+		return nil
 	})
 }
 
-// RollupFail moves a composite to rejected_final because a required child
-// reached a terminal-bad state (contract §6, RollupComposite ⇒ fail), bumping
-// this parent's own parent required_failed counter. One tx.
+// RollupFail moves a composite to done(failed) because a required child reached
+// a terminal-bad state (contract §6, RollupComposite => fail). One tx.
 func (s *GoalService) RollupFail(ctx context.Context, id string) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
@@ -680,18 +640,13 @@ func (s *GoalService) RollupFail(ctx context.Context, id string) error {
 		if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 			return fmt.Errorf("clear active attempt: %w", err)
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleRejectedFinal,
-			BlockReason:   "",
-			ID:            d.ID,
-			FromLifecycle: LifecycleActive,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleDone, "")
 		if err != nil {
 			return fmt.Errorf("rollup fail: %w", err)
 		}
 		if rows == 0 {
 			return ErrInvalidTransition
 		}
-		return s.bumpParentCounter(ctx, q, d, counterFailed)
+		return nil
 	})
 }

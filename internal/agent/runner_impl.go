@@ -455,6 +455,10 @@ func (r *runner) Busy() bool {
 // SystemPrompt returns the runner's base system prompt before per-run overrides.
 func (r *runner) SystemPrompt() string { return r.system }
 
+// SandboxSession returns the live runner-owned sandbox for pre-close callers.
+// Callers must not retain it after the runner is closed.
+func (r *runner) SandboxSession() pkgsandbox.Session { return r.session }
+
 // Close shuts down any subprocess-backed tools and the sandbox session.
 // Guarantees cleanup of session resources regardless of state.
 func (r *runner) Close() error {

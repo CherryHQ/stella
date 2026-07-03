@@ -2,12 +2,14 @@ package goal
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -22,7 +24,8 @@ import (
 // background producer, not an executing episode, and keeping active_attempt_id
 // cleared lets evaluatedAttempt keep scoping verdicts to the execution output's
 // hash. A passing review wakes the goal to accept; a failing one wakes it to
-// rework with the reviewer rationale fed in as a gap; a review that cannot
+// rework with the reviewer rationale fed in as a gap (a composite, which cannot
+// rework, parks back at needs_verdict for a human instead); a review that cannot
 // produce a verdict (or exhausts the small review budget) leaves the goal
 // blocked(needs_verdict) for a human (the chosen degradation).
 
@@ -51,12 +54,9 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 	if spent, err := s.reviewBudgetSpent(ctx, s.q, d.ID, execID); err != nil {
 		return sqlc.AgentGoalAttempt{}, err
 	} else if spent >= defaultMaxReviewAttempts {
-		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition // episode budget spent; degrade to human
+		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
 	}
 
-	// Mint the review session OUTSIDE the tx (it opens its own tx and would
-	// self-deadlock against the held one). Reuse the worker-session minter: the
-	// review runs as a fresh hidden task session, same as an execution attempt.
 	if s.newSession == nil {
 		return sqlc.AgentGoalAttempt{}, fmt.Errorf("goal: no worker session minter configured")
 	}
@@ -65,78 +65,44 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 		return sqlc.AgentGoalAttempt{}, fmt.Errorf("mint review session: %w", err)
 	}
 
-	var out sqlc.AgentGoalAttempt
-	err = s.withTxRaw(ctx, func(q *sqlc.Queries, tx pgx.Tx) error {
-		if err := q.LockGoalForWrite(ctx, d.ID); err != nil {
-			return fmt.Errorf("lock goal for review attempt: %w", err)
-		}
-		// Re-read + re-derive under the lock: a racing verdict (human or a prior
-		// review) or a new execution attempt may have moved the goal since the scan.
-		cur, err := getGoal(ctx, q, d.ID)
-		if err != nil {
-			return err
-		}
-		items, execID, execOut, ok, err := s.pendingReviewWork(ctx, q, cur)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return ErrInvalidTransition
-		}
-		if spent, err := s.reviewBudgetSpent(ctx, q, cur.ID, execID); err != nil {
-			return err
-		} else if spent >= defaultMaxReviewAttempts {
-			return ErrInvalidTransition
-		}
-		// attempt_no stays the global per-purpose sequence (uniq_agent_goal_attempt_no
-		// is on goal+purpose+attempt_no); only the budget is per-episode.
-		maxNo, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{GoalID: cur.ID, Purpose: PurposeReview})
-		if err != nil {
-			return fmt.Errorf("max review attempt no: %w", err)
-		}
-		attemptNo := int(maxNo) + 1
-		input := buildInputContext(cur, nil, nil, "", attemptNo)
-		input.ReviewItems = items
-		judged := execOut
-		input.ReviewOutput = &judged
-		input.ReviewedAttemptID = execID
-
-		att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
-			ID:              newID(),
-			GoalID:          cur.ID,
-			UserID:          cur.UserID,
-			AgentID:         pgnull.Text(cur.AgentID),
-			ExecutorAgentID: pgnull.Text(cur.AgentID),
-			SessionID:       sessionID,
-			Purpose:         PurposeReview,
-			AttemptNo:       int64(attemptNo),
-			Status:          AttemptQueued,
-			InputContext:    marshalJSON(input),
-			// A claim-grace lease: the River worker heartbeats it forward, so an
-			// expired lease is a genuine orphan the reaper recovers (mirrors Claim).
-			// uniq_agent_goal_active_attempt (goal_id, purpose) keeps this to one
-			// in-flight review attempt per goal — a racing second mint rolls back.
-			LeaseExpiresAt: nullTime(s.nowTime().Add(claimGraceTTL)),
-		})
-		if err != nil {
-			return fmt.Errorf("create review attempt: %w", err)
-		}
-		if enqueue != nil {
-			if err := enqueue(ctx, tx, cur.ID, att.ID); err != nil {
-				return fmt.Errorf("enqueue review attempt: %w", err)
+	out, err := s.beginAttempt(ctx, id, attemptSpec{
+		purpose:       PurposeReview,
+		sessionID:     sessionID,
+		executorAgent: d.AgentID,
+		lease:         nullTime(s.nowTime().Add(claimGraceTTL)),
+		enqueue:       enqueue,
+		prepare: func(ctx context.Context, q *sqlc.Queries, cur sqlc.AgentGoal, attemptNo int) (AttemptInput, error) {
+			items, execID, execOut, ok, err := s.pendingReviewWork(ctx, q, cur)
+			if err != nil {
+				return AttemptInput{}, err
 			}
-		}
-		out = att
-		return nil
+			if !ok {
+				return AttemptInput{}, ErrInvalidTransition
+			}
+			if spent, err := s.reviewBudgetSpent(ctx, q, cur.ID, execID); err != nil {
+				return AttemptInput{}, err
+			} else if spent >= defaultMaxReviewAttempts {
+				return AttemptInput{}, ErrInvalidTransition
+			}
+			timeline, err := s.recentTimelineContext(ctx, q, cur.ID)
+			if err != nil {
+				return AttemptInput{}, err
+			}
+			input := buildInputContext(cur, nil, nil, timeline, "", attemptNo)
+			input.ReviewItems = items
+			judged := execOut
+			input.ReviewOutput = &judged
+			input.ReviewedAttemptID = execID
+			return input, nil
+		},
 	})
-	// On a definite rollback (lost race / budget / collision), archive the session
-	// minted above so it is not orphaned.
 	s.disposeOnRollback(ctx, err, d.UserID, d.AgentID, sessionID)
 	return out, err
 }
 
 // pendingReviewWork reports whether a goal needs an agent verdict and, if so, the
-// pending authority=agent items, the execution attempt whose output is judged,
+// pending authority=agent items, the execution attempt whose output is judged
+// ("" for a composite, whose judged evidence is its children's accepted outputs),
 // and that output. ok is false (err nil) when the goal legitimately has no agent
 // review to do — awaiting a human, no pending agent item, no output to judge, or a
 // review already in flight; the caller skips it. A non-nil err is a real DB
@@ -165,21 +131,62 @@ func (s *GoalService) pendingReviewWork(ctx context.Context, q *sqlc.Queries, d 
 		return nil, "", AttemptOutput{}, false, fmt.Errorf("check in-flight review: %w", err)
 	}
 	execID, execOut := s.evaluatedAttempt(ctx, q, d)
+	foldHash := execOut.Hash
 	if execID == "" {
-		// No submitted execution output to judge (e.g. a composite carrying an
-		// agent judgment item). There is nothing for a reviewer to score against, so
-		// leave it for a human verdict.
-		return nil, "", AttemptOutput{}, false, nil
+		// A composite carries no execution output: it reached needs_verdict through
+		// RollupAccept, so its judged evidence is its children's frozen accepted
+		// outputs. The fold scopes composite verdicts to the empty hash
+		// (evaluatedAttempt resolves ""), matching human verdicts on composites —
+		// evid.Hash below only fences the frozen evidence at SubmitReview, it is
+		// never a verdict scope_hash. A leaf with no submitted output has nothing
+		// for a reviewer to score against and stays with a human.
+		evid, ok, err := s.compositeReviewEvidence(ctx, q, d)
+		if err != nil || !ok {
+			return nil, "", AttemptOutput{}, false, err
+		}
+		execOut = evid
+		foldHash = ""
 	}
 	events, err := q.ListAcceptanceEventByGoal(ctx, d.ID)
 	if err != nil {
 		return nil, "", AttemptOutput{}, false, fmt.Errorf("list acceptance events: %w", err)
 	}
-	items := PendingAgentReviewItems(contract, execOut.Hash, events)
+	items := PendingAgentReviewItems(contract, foldHash, events)
 	if len(items) == 0 {
 		return nil, "", AttemptOutput{}, false, nil // every agent item already has a valid verdict
 	}
 	return items, execID, execOut, true, nil
+}
+
+// compositeReviewEvidence synthesizes the output a reviewer judges for a
+// composite: the frozen accepted output of every accepted child (a composite
+// produces no work of its own — its deliverable IS its children's). Hash
+// fingerprints that evidence (child ids + output hashes, plan order) so
+// SubmitReview can drop a verdict whose evidence moved between mint and submit;
+// it is NOT the verdict scope_hash — the composite fold scopes verdicts to ""
+// exactly like human ones (§4.2, TestCompositeRollup_AuthoredContractGate).
+// ok=false for a leaf or a composite with no accepted children (nothing
+// judgeable; leave it for a human).
+func (s *GoalService) compositeReviewEvidence(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) (AttemptOutput, bool, error) {
+	if d.Kind != KindComposite {
+		return AttemptOutput{}, false, nil
+	}
+	kids, err := childAcceptedOutputs(ctx, q, d.ID)
+	if err != nil {
+		return AttemptOutput{}, false, fmt.Errorf("collect child outputs for review: %w", err)
+	}
+	if len(kids) == 0 {
+		return AttemptOutput{}, false, nil
+	}
+	h := sha256.New()
+	for _, k := range kids {
+		writeNUL(h, k.GoalID, k.Hash)
+	}
+	return AttemptOutput{
+		Summary: fmt.Sprintf("This is a composite goal: its work was carried out by %d accepted subtask(s). Judge the criteria against their frozen outputs in the structured result.", len(kids)),
+		Result:  map[string]any{"children": kids},
+		Hash:    hex.EncodeToString(h.Sum(nil)),
+	}, true, nil
 }
 
 // frozenReviewHash returns the hash of the execution output a review attempt was
@@ -221,13 +228,21 @@ func reviewItemsStillCurrent(d sqlc.AgentGoal, frozen []AcceptanceItem) bool {
 // reviewer that keeps failing to produce a verdict against the SAME output is
 // bounded, then degraded to a human (contract §10.13).
 func (s *GoalService) reviewBudgetSpent(ctx context.Context, q *sqlc.Queries, goalID, execID string) (int, error) {
-	exec, err := q.GetAttempt(ctx, execID)
-	if err != nil {
-		return 0, fmt.Errorf("review budget: load reviewed attempt: %w", err)
+	// A composite episode has no reviewed execution attempt (execID ""), and its
+	// evidence — the children's frozen accepted outputs — never moves (accepted is
+	// terminal). The episode is therefore the goal's whole review history: a zero
+	// Since counts every review that ran.
+	var since time.Time
+	if execID != "" {
+		exec, err := q.GetAttempt(ctx, execID)
+		if err != nil {
+			return 0, fmt.Errorf("review budget: load reviewed attempt: %w", err)
+		}
+		since = exec.CreatedAt
 	}
 	n, err := q.CountRanReviewAttemptsForOutput(ctx, sqlc.CountRanReviewAttemptsForOutputParams{
 		GoalID: goalID,
-		Since:  exec.CreatedAt,
+		Since:  since,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("review budget: count attempts: %w", err)
@@ -278,11 +293,7 @@ func (s *GoalService) SubmitReview(ctx context.Context, attemptID string, ev Att
 			return err
 		}
 		// Finalize the review attempt so the reaper never recovers it after we fold.
-		rows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
-			Evidence: marshalJSON(ev),
-			Output:   emptyJSON,
-			ID:       attemptID,
-		})
+		rows, err := s.submitAttempt(ctx, q, att, ev, emptyJSON)
 		if err != nil {
 			return fmt.Errorf("submit review attempt: %w", err)
 		}
@@ -306,7 +317,20 @@ func (s *GoalService) SubmitReview(ctx context.Context, attemptID string, ev Att
 			return nil
 		}
 		curID, curOut := s.evaluatedAttempt(ctx, q, d)
-		if in.ReviewedAttemptID == "" || curID != in.ReviewedAttemptID || curOut.Hash != frozenReviewHash(in) {
+		if in.ReviewedAttemptID == "" {
+			// A composite review judged the children's frozen outputs, not an
+			// execution attempt. Re-derive that evidence and drop the verdict if it
+			// moved (or the goal is not actually a composite — a malformed freeze).
+			// Composite verdicts fold against the empty hash, same as human ones.
+			evid, ok, err := s.compositeReviewEvidence(ctx, q, d)
+			if err != nil {
+				return err
+			}
+			if !ok || curID != "" || evid.Hash != frozenReviewHash(in) {
+				return nil
+			}
+			curOut = AttemptOutput{}
+		} else if curID != in.ReviewedAttemptID || curOut.Hash != frozenReviewHash(in) {
 			return nil
 		}
 		if !reviewItemsStillCurrent(d, in.ReviewItems) {
