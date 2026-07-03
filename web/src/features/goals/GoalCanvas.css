@@ -1,15 +1,18 @@
 .goal-canvas-shell {
-  min-height: 520px;
+  min-height: 420px;
 }
 
 .goal-canvas-surface {
+  display: flex;
   background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
   background-size: 22px 22px;
 }
 
 .goal-canvas-wrap {
   position: relative;
-  margin: 0 auto;
+  /* Center the graph both ways while it fits; overflow: auto on the surface
+     takes over once it doesn't. */
+  margin: auto;
 }
 
 .goal-canvas-edges {
@@ -65,7 +68,7 @@
 .goal-canvas-node {
   position: relative;
   z-index: 1;
-  width: 190px;
+  width: 220px;
   /* Button's responsive sm:h-8 and whitespace-nowrap can't be beaten by
      unprefixed utilities through tailwind-merge; this file is unlayered so
      it wins over the utilities layer. */
@@ -143,7 +146,7 @@
   }
 
   .goal-canvas-node {
-    width: min(190px, 44vw);
+    width: min(220px, 44vw);
   }
 }
 

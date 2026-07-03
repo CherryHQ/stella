@@ -164,7 +164,7 @@ export function GoalCanvas({
   }, [graph, vertical, selectedNode]);
 
   return (
-    <div className="goal-canvas-shell flex min-w-0 overflow-hidden rounded-2xl border border-border bg-card">
+    <div className="goal-canvas-shell flex h-full min-w-0 overflow-hidden rounded-2xl border border-border bg-card">
       <div className="goal-canvas-surface min-w-0 flex-1 overflow-auto p-6 xl:p-10">
         <div ref={wrapRef} className="goal-canvas-wrap w-max max-w-none">
           <svg className="goal-canvas-edges" aria-hidden="true">

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { X } from "lucide-react";
 import {
   abandonGoal,
   activateGoal,
@@ -187,6 +186,7 @@ export function GoalPage() {
       title={d.title}
       pill={<StatusPill status={displayStatus(d)} label={goalStatusLabel(t, d)} />}
       contentClassName="max-w-[1200px]"
+      fill={isComposite}
       actions={
         <>
           <HeaderActions
@@ -227,55 +227,38 @@ export function GoalPage() {
         )}
       </div>
 
-      <div className="mt-6">
+      <div className={isComposite ? "mt-6 flex min-h-0 flex-1 flex-col" : "mt-6"}>
         {isComposite ? (
-          <div className="flex min-w-0 flex-col overflow-hidden xl:flex-row">
-            <div className="min-w-0 flex-1">
-              <GoalCanvas goal={d} selectedNode={node ?? null} onSelectNode={setNode} />
-            </div>
-            <GoalNodeDrawer
-              root={d}
-              agentId={agentId}
-              node={node ?? null}
-              children={children}
-              acting={acting}
-              act={act}
-              onClose={() => setNode(null)}
-            />
-          </div>
+          <GoalCanvas goal={d} selectedNode={node ?? null} onSelectNode={setNode} />
         ) : (
-          <div className="flex min-w-0 flex-col gap-6 xl:flex-row">
-            <main className="min-w-0 flex-1">
-              <DetailSection title={t("goals.tabAttempts")}>
-                <AttemptsTab d={d} />
-              </DetailSection>
-            </main>
-            <GoalNodeDrawer
-              root={d}
-              agentId={agentId}
-              node={node ?? null}
-              children={[]}
-              acting={acting}
-              act={act}
-              onClose={() => setNode(null)}
-            />
-          </div>
+          <DetailSection title={t("goals.tabAttempts")}>
+            <AttemptsTab d={d} />
+          </DetailSection>
         )}
       </div>
+      <GoalNodeDialog
+        root={d}
+        agentId={agentId}
+        node={node ?? null}
+        childGoals={isComposite ? children : []}
+        acting={acting}
+        act={act}
+        onClose={() => setNode(null)}
+      />
       <ToastContainer messages={toasts} />
     </DetailShell>
   );
 }
 
-// ── Node drawer ──────────────────────────────────────────────────────
+// ── Node dialog ──────────────────────────────────────────────────────
 
-type DrawerNodeKind = "plan" | "accept" | "activity" | "child";
+type DialogNodeKind = "plan" | "accept" | "activity" | "child";
 
-function GoalNodeDrawer({
+function GoalNodeDialog({
   root,
   agentId,
   node,
-  children,
+  childGoals,
   acting,
   act,
   onClose,
@@ -283,14 +266,14 @@ function GoalNodeDrawer({
   root: ComponentsGoal;
   agentId: string;
   node: string | null;
-  children: ComponentsGoal[];
+  childGoals: ComponentsGoal[];
   acting: boolean;
   act: ActRun;
   onClose: () => void;
 }) {
   const { t } = useI18n();
-  const child = children.find((c) => c.id === node) ?? null;
-  const kind: DrawerNodeKind | null =
+  const child = childGoals.find((c) => c.id === node) ?? null;
+  const kind: DialogNodeKind | null =
     node === "plan"
       ? "plan"
       : node === "accept"
@@ -300,7 +283,6 @@ function GoalNodeDrawer({
           : child
             ? "child"
             : null;
-  if (!node || !kind) return null;
 
   const title =
     kind === "plan"
@@ -312,36 +294,46 @@ function GoalNodeDrawer({
           : child?.title;
 
   return (
-    <aside className="flex max-h-[520px] min-w-0 flex-col border-border bg-card xl:ml-0 xl:w-[360px] xl:shrink-0 xl:border-l max-xl:border-t">
-      <div className="flex items-center gap-2 border-b border-border p-4">
-        {kind === "child" && child && (
-          <StatusPill status={displayStatus(child)} label={goalStatusLabel(t, child)} />
-        )}
-        <div className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</div>
-        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("common.close")}>
-          <X size={16} />
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {kind === "plan" && (
-          <PlanDrawerContent d={root} agentId={agentId} acting={acting} act={act} />
-        )}
-        {kind === "accept" && (
-          <AcceptDrawerContent d={root} agentId={agentId} acting={acting} act={act} />
-        )}
-        {kind === "activity" && <GoalTimeline goalId={root.id} live={root.lifecycle !== "done"} />}
-        {kind === "child" && child && (
-          <ChildDrawerContent
-            root={root}
-            child={child}
-            siblings={children}
-            agentId={agentId}
-            acting={acting}
-            act={act}
-          />
-        )}
-      </div>
-    </aside>
+    <Dialog
+      open={!!kind}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      {kind && (
+        <DialogPopup className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex min-w-0 items-center gap-2.5 pr-8">
+              <span className="min-w-0 truncate">{title}</span>
+              {kind === "child" && child && (
+                <StatusPill status={displayStatus(child)} label={goalStatusLabel(t, child)} />
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <DialogPanel>
+            {kind === "plan" && (
+              <PlanDrawerContent d={root} agentId={agentId} acting={acting} act={act} />
+            )}
+            {kind === "accept" && (
+              <AcceptDrawerContent d={root} agentId={agentId} acting={acting} act={act} />
+            )}
+            {kind === "activity" && (
+              <GoalTimeline goalId={root.id} live={root.lifecycle !== "done"} />
+            )}
+            {kind === "child" && child && (
+              <ChildDrawerContent
+                root={root}
+                child={child}
+                siblings={childGoals}
+                agentId={agentId}
+                acting={acting}
+                act={act}
+              />
+            )}
+          </DialogPanel>
+        </DialogPopup>
+      )}
+    </Dialog>
   );
 }
 

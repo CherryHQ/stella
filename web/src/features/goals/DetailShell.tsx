@@ -13,6 +13,9 @@ interface DetailShellProps {
   pill?: React.ReactNode;
   actions?: React.ReactNode;
   contentClassName?: string;
+  /** Fill mode: no page scroll, full width, children stretch to the viewport
+      bottom (for canvas-style pages that scroll internally). */
+  fill?: boolean;
   children: React.ReactNode;
 }
 
@@ -24,12 +27,25 @@ export function DetailShell({
   pill,
   actions,
   contentClassName = "max-w-[800px]",
+  fill = false,
   children,
 }: DetailShellProps) {
   const { t } = useI18n();
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-background">
-      <div className={`mx-auto px-6 py-7 pb-20 sm:px-8 ${contentClassName}`}>
+    <div
+      className={
+        fill
+          ? "flex h-full min-h-0 flex-col overflow-hidden bg-background"
+          : "h-full min-h-0 overflow-y-auto bg-background"
+      }
+    >
+      <div
+        className={
+          fill
+            ? "flex min-h-0 w-full flex-1 flex-col px-6 py-7 pb-6 sm:px-8"
+            : `mx-auto px-6 py-7 pb-20 sm:px-8 ${contentClassName}`
+        }
+      >
         <Link
           to="/agents/$agentId/goals"
           params={{ agentId }}

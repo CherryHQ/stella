@@ -83,14 +83,14 @@ Chat history is a bad project tracker. In the Web UI, open an agent and choose t
 
 Open a composite goal to inspect its **workflow canvas**. The canvas shows the plan, child goals, dependency edges, and final acceptance as one flow. Green edges are satisfied, animated inbound edges point at running work, and warning rings show the node that needs attention.
 
-Click a node to open its drawer:
+Click a node to open its detail dialog:
 
 - **Plan** — root intent, overview fields, and plan revisions.
 - **Child goal** — status, intent, dependencies, attempts, readiness, and any required verdict. Composite children link to their own canvas.
 - **Acceptance** — contract editor, acceptance ledger, and accepted deliverables after completion.
 - **Timeline** — opened from the header button; shows plan events, attempts, acceptance results, lifecycle changes, and your messages.
 
-Drawer state is shareable: `?node=plan`, `?node=accept`, `?node=activity`, or `?node=<child-id>` opens the matching drawer directly. Leaf goals skip the canvas and show their attempts list, with the same acceptance and timeline drawers available from the header.
+Dialog state is shareable: `?node=plan`, `?node=accept`, `?node=activity`, or `?node=<child-id>` opens the matching dialog directly. Leaf goals skip the canvas and show their attempts list, with the same acceptance and timeline dialogs available from the header.
 
 The **Needs you** list only shows blocks with a human recovery action. Goals waiting on upstream stay in **Active work** and resume automatically when upstream completes.
 
