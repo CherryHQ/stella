@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // TestCreateGoal_CompositeDeterministicRejected pins CR-001 at the create
@@ -67,6 +69,83 @@ func TestDecompositionQueuedReap_RefundsBudget(t *testing.T) {
 	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
 	if pol.MaxAttempts != defaultMaxAttempts+1 {
 		t.Fatalf("after queued reap MaxAttempts=%d want %d (refund raised the ceiling)", pol.MaxAttempts, defaultMaxAttempts+1)
+	}
+}
+
+// TestReapAfterCancel_DoesNotResurrect pins the reaper's terminal guard: a goal
+// cancelled while its decomposition attempt is still leased (Cancel only
+// finalizes the attempt named by active_attempt_id, which decomposition never
+// sets) must STAY cancelled when the reaper later collects that attempt. Without
+// the guard the flaky route resurrected the composite (cancelled -> draft/ready,
+// where nothing claims it — a live corpse walked this exact path).
+func TestReapAfterCancel_DoesNotResurrect(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	root := h.createRoot(KindComposite, AcceptanceContract{})
+	noop := AttemptEnqueuer(func(_ context.Context, _ pgx.Tx, _, _ string) error { return nil })
+
+	att, err := h.svc.BeginAutoDecomposition(ctx, root.ID, noop)
+	if err != nil {
+		t.Fatalf("BeginAutoDecomposition: %v", err)
+	}
+	// Promote to running so the reap takes the ran route (routeFailedAttempt) —
+	// the exact path that used to resurrect.
+	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
+		t.Fatalf("promote decomposition: %v", err)
+	}
+	if err := h.svc.Cancel(ctx, root.ID, "fixture dead", UserActor(h.userID)); err != nil {
+		t.Fatalf("cancel mid-decomposition: %v", err)
+	}
+
+	if err := h.svc.ReapAttempt(ctx, att.ID); err != nil {
+		t.Fatalf("reap after cancel: %v", err)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleCancelled {
+		t.Fatalf("after reap lifecycle=%q want cancelled (terminal must not resurrect)", got)
+	}
+	a, err := h.q.GetAttempt(ctx, att.ID)
+	if err != nil {
+		t.Fatalf("get reaped attempt: %v", err)
+	}
+	if a.Status != AttemptInterrupted {
+		t.Fatalf("reaped attempt status=%q want interrupted (finalize must stick)", a.Status)
+	}
+}
+
+// TestFailAfterCancel_FinalizesWithoutResurrecting pins FailAttempt's terminal
+// guard: a worker reporting failure for a goal that was cancelled mid-run must
+// finalize the attempt and leave the goal alone. Without the guard the
+// env/contract routes 0-rowed on blockGoal and rolled the finalize back, leaving
+// the attempt to be reaped in a loop.
+func TestFailAfterCancel_FinalizesWithoutResurrecting(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	root := h.createRoot(KindComposite, AcceptanceContract{})
+	noop := AttemptEnqueuer(func(_ context.Context, _ pgx.Tx, _, _ string) error { return nil })
+
+	att, err := h.svc.BeginAutoDecomposition(ctx, root.ID, noop)
+	if err != nil {
+		t.Fatalf("BeginAutoDecomposition: %v", err)
+	}
+	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
+		t.Fatalf("promote decomposition: %v", err)
+	}
+	if err := h.svc.Cancel(ctx, root.ID, "fixture dead", UserActor(h.userID)); err != nil {
+		t.Fatalf("cancel mid-decomposition: %v", err)
+	}
+
+	if err := h.svc.FailAttempt(ctx, att.ID, "sandbox gone", FailureClassEnvironment); err != nil {
+		t.Fatalf("fail after cancel: %v", err)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleCancelled {
+		t.Fatalf("after fail lifecycle=%q want cancelled (terminal must not resurrect)", got)
+	}
+	a, err := h.q.GetAttempt(ctx, att.ID)
+	if err != nil {
+		t.Fatalf("get failed attempt: %v", err)
+	}
+	if a.Status != AttemptFailed {
+		t.Fatalf("attempt status=%q want failed (finalize must not roll back)", a.Status)
 	}
 }
 

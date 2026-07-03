@@ -540,6 +540,14 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		if err != nil {
 			return err
 		}
+		// The goal may have reached a terminal state while this attempt was still
+		// leased: Cancel only finalizes the attempt named by active_attempt_id, and
+		// decomposition/review attempts are never pointed there. The attempt is
+		// finalized above; routing recovery here would resurrect a terminal
+		// lifecycle (a cancelled composite came back as ready this way). Stop.
+		if IsTerminalLifecycle(d.Lifecycle) {
+			return nil
+		}
 		// A decomposition attempt's goal is 'active' running the plan; on reap release
 		// it back to draft so it is re-decomposed within budget (or block when spent).
 		// A still-'queued' reap was never picked up by River (queue backpressure), so

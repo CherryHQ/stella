@@ -299,6 +299,14 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failur
 		if err != nil {
 			return err
 		}
+		// The goal may have reached a terminal state (e.g. cancelled) while this
+		// attempt was in flight. The attempt is finalized above; routing recovery
+		// would resurrect the terminal lifecycle — and the env/contract branches
+		// would 0-row on blockGoal and roll the finalize back, leaving the attempt
+		// to be reaped in a loop. Mirrors ReapAttempt's terminal guard.
+		if IsTerminalLifecycle(d.Lifecycle) {
+			return nil
+		}
 		if att.Purpose == PurposeDecomposition {
 			return s.routeFailedAttempt(ctx, q, d, attemptID, reason, failureClass, true)
 		}
