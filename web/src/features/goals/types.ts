@@ -27,10 +27,22 @@ export function itemUpdatedAt(item: AutomationItem): string {
 }
 
 const TERMINAL = new Set(["accepted", "rejected_final", "abandoned", "cancelled"]);
+const HUMAN_ACTIONABLE_BLOCKS = new Set([
+  "needs_verdict",
+  "needs_plan_approval",
+  "budget_exhausted",
+  "planning_invalid",
+  "contract_conflict",
+  "env_unavailable",
+]);
 
-/** A root goal needs you while blocked (verdict/dep/budget). */
+/** A root goal needs you only when its block has a human recovery action. */
 export function goalNeedsYou(d: ComponentsGoal): boolean {
-  return d.lifecycle === "blocked";
+  return (
+    d.lifecycle === "blocked" &&
+    (HUMAN_ACTIONABLE_BLOCKS.has(d.block_reason ?? "") ||
+      HUMAN_ACTIONABLE_BLOCKS.has(d.blocked_by ?? ""))
+  );
 }
 
 export type Section = "needs-you" | "active" | "schedules" | "closed";

@@ -91,13 +91,15 @@ Open a goal to inspect:
 - **Dependencies** and what's still waiting.
 - The accepted output.
 
+The **Needs you** list only shows blocks with a human recovery action. Goals waiting on upstream stay in **Active work** and resume automatically when upstream completes.
+
 Blocked cards show the one-line cause and only useful actions:
 
-- **Environment unavailable** — report an administrator.
+- **Environment unavailable** — mark the environment fixed to retry, or report an administrator.
 - **Contract conflict** — edit the acceptance contract.
-- **Budget exhausted** — retry, or leave a timeline message; a message on a non-dependency blocked goal authorizes one more attempt.
-- **Waiting on upstream** — wait or waive the dependency; retry is intentionally hidden.
+- **Budget exhausted** — retry, or abandon it.
+- **Waiting on upstream** — shown in Active work; retry is intentionally hidden.
 
-When a goal is blocked on you, its page shows what it needs — submit your verdict, waive a failed dependency, or add guidance on the timeline. The agent picks the work back up with your input when the block is retryable.
+When a goal is blocked on you, its page shows what it needs — submit your verdict, review a plan, fix a contract, or add guidance on the timeline. The agent picks the work back up with your input when the block is retryable.
 
 The practical rule: use chat to describe outcomes and decisions; use goals to track execution.
