@@ -148,6 +148,13 @@ func planPayload(content DecompositionContent) PlanSubmittedPayload {
 }
 
 func (s *GoalService) transitionGoalLifecycle(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, to, blockReason string) (int64, error) {
+	// The single generic lifecycle write: enforce the §2.1 state machine here so
+	// no routing path can invent an edge (composite→ready and terminal
+	// resurrection both shipped as bugs before this table existed). The special
+	// writes (Claim/Accept/Block/Cancel) carry their from-guard in SQL.
+	if !LegalLifecycleTransition(d.Kind, d.Lifecycle, to) {
+		return 0, fmt.Errorf("%w: %s %s -> %s (goal %s)", ErrIllegalLifecycleMove, d.Kind, d.Lifecycle, to, d.ID)
+	}
 	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
 		ToLifecycle:   to,
 		BlockReason:   blockReason,

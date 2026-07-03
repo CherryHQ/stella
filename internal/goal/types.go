@@ -245,6 +245,43 @@ func IsTerminalLifecycle(s string) bool {
 	return false
 }
 
+// legalGoalTransitions is the per-kind lifecycle state machine (contract §2.1)
+// as an enforced table: kind → from → the set of legal targets. It exists
+// because transitions are routed imperatively from many call sites
+// (rework/recovery/reap/rollup/plan-gate/human actions), and every site had to
+// independently remember all the guards — each zombie class we shipped
+// (composite in ready, cancelled resurrected to ready) was one site forgetting
+// one. LegalLifecycleTransition consults this at the single generic write
+// (transitionGoalLifecycle); the special writes (ClaimGoal, AcceptGoal,
+// BlockGoal, CancelGoal) already carry their from-guard in SQL.
+//
+// Invariants the table encodes:
+//   - a composite is NEVER 'ready': nothing claims a ready composite (the
+//     dispatcher claims ready leaves and decomposes draft composites).
+//   - a leaf is never 'draft'-bound again once released, and never decomposes.
+//   - terminal states admit nothing (resurrection is always a bug; cancel of a
+//     terminal goal is rejected by the service before this table is consulted).
+var legalGoalTransitions = map[string]map[string]map[string]bool{
+	KindLeaf: {
+		LifecycleDraft:   {LifecycleReady: true, LifecycleCancelled: true},
+		LifecycleReady:   {LifecycleActive: true, LifecycleBlocked: true, LifecycleCancelled: true},
+		LifecycleActive:  {LifecycleReady: true, LifecycleBlocked: true, LifecycleAccepted: true, LifecycleRejectedFinal: true, LifecycleAbandoned: true, LifecycleCancelled: true},
+		LifecycleBlocked: {LifecycleReady: true, LifecycleActive: true, LifecycleAbandoned: true, LifecycleCancelled: true},
+	},
+	KindComposite: {
+		LifecycleDraft:   {LifecycleActive: true, LifecycleCancelled: true},
+		LifecycleActive:  {LifecycleDraft: true, LifecycleBlocked: true, LifecycleAccepted: true, LifecycleRejectedFinal: true, LifecycleAbandoned: true, LifecycleCancelled: true},
+		LifecycleBlocked: {LifecycleDraft: true, LifecycleActive: true, LifecycleAbandoned: true, LifecycleCancelled: true},
+	},
+}
+
+// LegalLifecycleTransition reports whether moving a goal of the given kind
+// from → to is a legal edge of the §2.1 state machine. An unknown kind, from,
+// or to is illegal — fail loud, not open.
+func LegalLifecycleTransition(kind, from, to string) bool {
+	return legalGoalTransitions[kind][from][to]
+}
+
 // Actor describes who initiated a transition. Ported from the old package; the
 // goal ledger records verdict authority as a first-class column, but the
 // service still carries an Actor for audit/attribution on non-acceptance
@@ -284,6 +321,13 @@ var (
 	// ErrNotFound is returned when the target goal/attempt/edge
 	// no longer exists.
 	ErrNotFound = errors.New("goal: not found")
+
+	// ErrIllegalLifecycleMove is returned when a routing path asks for a
+	// transition the §2.1 state machine has no edge for (legalGoalTransitions).
+	// Unlike ErrInvalidTransition (a benign CAS race the dispatcher swallows),
+	// this is a PROGRAMMING BUG in the caller: it must surface loudly, never be
+	// retried into place.
+	ErrIllegalLifecycleMove = errors.New("goal: illegal lifecycle transition")
 
 	// ErrPlanGate is returned by Activate when the plan gate is unmet: a leaf
 	// with an empty non-trivial contract, or a composite that is not yet planned
