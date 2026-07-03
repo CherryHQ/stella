@@ -266,6 +266,38 @@ WHERE kind = 'composite'
 ORDER BY updated_at ASC
 LIMIT $1;
 
+-- name: ListZombieGoals :many
+-- Liveness backstop: non-terminal goals parked in a state nothing drives.
+-- Two classes:
+--   1. A ready composite: the dispatcher claims ready LEAVES and decomposes
+--      DRAFT composites, so nothing ever picks a composite out of ready. The
+--      transition table rejects writing this state; the scan catches legacy
+--      rows and out-of-band writes.
+--   2. An active goal with no active attempt pointer and no queued/running
+--      attempt, where activity cannot come from anywhere else: a leaf is only
+--      active while claimed, and an UNPLANNED active composite is only active
+--      while its decomposition attempt runs. A planned active composite is
+--      excluded -- the rollup drives it off its children.
+-- The updated_at grace keeps a row mid-transition in another tx from reading
+-- as a zombie.
+SELECT * FROM agent_goal
+WHERE lifecycle NOT IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')
+  AND updated_at < now() - interval '5 minutes'
+  AND (
+    (kind = 'composite' AND lifecycle = 'ready')
+    OR (
+      lifecycle = 'active'
+      AND active_attempt_id IS NULL
+      AND (kind = 'leaf' OR planned_at IS NULL)
+      AND NOT EXISTS (
+        SELECT 1 FROM agent_goal_attempt a
+        WHERE a.goal_id = agent_goal.id AND a.status IN ('queued', 'running')
+      )
+    )
+  )
+ORDER BY updated_at ASC
+LIMIT $1;
+
 -- name: ListGoalsBlockedNeedsVerdict :many
 -- Goals parked blocked(needs_verdict): a required judgment item has no valid
 -- verdict. The dispatcher (scanAndReview) drives an agent reviewer for any with a

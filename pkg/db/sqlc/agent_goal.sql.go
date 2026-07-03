@@ -1249,6 +1249,100 @@ func (q *Queries) ListStalledComposites(ctx context.Context, limit int32) ([]Age
 	return items, nil
 }
 
+const listZombieGoals = `-- name: ListZombieGoals :many
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, session_id, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, required_total, required_accepted, required_failed, required_blocked, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, blocked_by FROM agent_goal
+WHERE lifecycle NOT IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')
+  AND updated_at < now() - interval '5 minutes'
+  AND (
+    (kind = 'composite' AND lifecycle = 'ready')
+    OR (
+      lifecycle = 'active'
+      AND active_attempt_id IS NULL
+      AND (kind = 'leaf' OR planned_at IS NULL)
+      AND NOT EXISTS (
+        SELECT 1 FROM agent_goal_attempt a
+        WHERE a.goal_id = agent_goal.id AND a.status IN ('queued', 'running')
+      )
+    )
+  )
+ORDER BY updated_at ASC
+LIMIT $1
+`
+
+// Liveness backstop: non-terminal goals parked in a state nothing drives.
+// Two classes:
+//  1. A ready composite: the dispatcher claims ready LEAVES and decomposes
+//     DRAFT composites, so nothing ever picks a composite out of ready. The
+//     transition table rejects writing this state; the scan catches legacy
+//     rows and out-of-band writes.
+//  2. An active goal with no active attempt pointer and no queued/running
+//     attempt, where activity cannot come from anywhere else: a leaf is only
+//     active while claimed, and an UNPLANNED active composite is only active
+//     while its decomposition attempt runs. A planned active composite is
+//     excluded -- the rollup drives it off its children.
+//
+// The updated_at grace keeps a row mid-transition in another tx from reading
+// as a zombie.
+func (q *Queries) ListZombieGoals(ctx context.Context, limit int32) ([]AgentGoal, error) {
+	rows, err := q.db.Query(ctx, listZombieGoals, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentGoal{}
+	for rows.Next() {
+		var i AgentGoal
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.ProjectID,
+			&i.ParentID,
+			&i.RootID,
+			&i.Depth,
+			&i.Position,
+			&i.SessionID,
+			&i.Title,
+			&i.Intent,
+			&i.Kind,
+			&i.Priority,
+			&i.Required,
+			&i.AcceptanceContract,
+			&i.ConvergencePolicy,
+			&i.ReviewPolicy,
+			&i.Lifecycle,
+			&i.BlockReason,
+			&i.AcceptanceState,
+			&i.AcceptedOutput,
+			&i.AcceptanceSeq,
+			&i.ActiveAttemptID,
+			&i.AttemptCount,
+			&i.RequiredTotal,
+			&i.RequiredAccepted,
+			&i.RequiredFailed,
+			&i.RequiredBlocked,
+			&i.Context,
+			&i.DispatchHint,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AcceptedAt,
+			&i.CancelledAt,
+			&i.ArchivedAt,
+			&i.Plan,
+			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BlockedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockGoalForWrite = `-- name: LockGoalForWrite :exec
 SELECT pg_advisory_xact_lock(hashtextextended('goal:' || $1::text, 0))
 `

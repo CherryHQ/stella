@@ -62,6 +62,9 @@ type Dispatcher struct {
 
 	mu      sync.Mutex
 	stopped bool
+	// zombieLogged dedupes the liveness-backstop warning to once per goal per
+	// process, so a persistent zombie is visible without flooding every tick.
+	zombieLogged map[string]bool
 }
 
 // NewDispatcher constructs a dispatcher, filling defaults for zero-valued
@@ -82,7 +85,7 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default().With("component", "goal/dispatcher")
 	}
-	return &Dispatcher{cfg: cfg}
+	return &Dispatcher{cfg: cfg, zombieLogged: map[string]bool{}}
 }
 
 // SetEnqueuer injects the River enqueuer the dispatcher uses to dispatch claimed
@@ -122,6 +125,33 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	d.scanAndDecompose(ctx, now)
 	d.scanAndReview(ctx, now)
 	d.scanAndClaim(ctx, now)
+	d.detectZombies(ctx)
+}
+
+// detectZombies is the liveness backstop (warn-only): it surfaces non-terminal
+// goals parked in a state nothing drives (see ListZombieGoals). The transition
+// table prevents writing such states; this catches whatever slips past it —
+// legacy rows, out-of-band writes, or an invariant we have not met yet. It
+// deliberately repairs nothing: each zombie class has its own correct recovery,
+// and auto-guessing here would hide the bug that produced it.
+func (d *Dispatcher) detectZombies(ctx context.Context) {
+	rows, err := d.cfg.Queries.ListZombieGoals(ctx, int32(d.cfg.BatchLimit))
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: list zombie goals", "err", err)
+		return
+	}
+	for _, g := range rows {
+		d.mu.Lock()
+		seen := d.zombieLogged[g.ID]
+		d.zombieLogged[g.ID] = true
+		d.mu.Unlock()
+		if seen {
+			continue
+		}
+		d.cfg.Logger.Warn("dispatcher: zombie goal — non-terminal state with no driver",
+			"goal", g.ID, "kind", g.Kind, "lifecycle", g.Lifecycle,
+			"block_reason", g.BlockReason, "updated_at", g.UpdatedAt)
+	}
 }
 
 func (d *Dispatcher) isStopped() bool {
