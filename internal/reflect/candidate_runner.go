@@ -65,16 +65,18 @@ func (r candidateLineReviewer) runSkillLine(ctx context.Context, unit ReviewUnit
 }
 
 func (r candidateLineReviewer) generateFactCandidates(ctx context.Context, unit ReviewUnit) ([]factCandidate, error) {
-	result, err := r.capture(ctx, factCandidateGenerationPrompt, unit.Text, captureProtocol{
+	var candidates []factCandidate
+	_, err := r.capture(ctx, factCandidateGenerationPrompt, unit.Text, captureProtocol{
 		AllowedTools: allowedCaptureTools(toolSubmitFactCandidate, toolFinishFactGeneration),
 		FinishName:   toolFinishFactGeneration,
+		PayloadsValidator: func(calls []ai.ToolCall) error {
+			var err error
+			candidates, err = decodeFactCandidateCalls(calls)
+			return err
+		},
 	}, factGenerationTools())
 	if err != nil {
 		return nil, fmt.Errorf("generate fact candidates: %w", err)
-	}
-	candidates, err := decodeFactCandidateCalls(result.ToolCalls)
-	if err != nil {
-		return nil, err
 	}
 	for i := range candidates {
 		candidates[i].Ref = candidateRef("fact", i)
@@ -87,29 +89,37 @@ func (r candidateLineReviewer) evaluateFactCandidates(ctx context.Context, unit 
 	for _, candidate := range candidates {
 		refs = append(refs, candidate.Ref)
 	}
-	result, err := r.capture(ctx, factCandidateEvaluationPrompt, renderEvaluationInput(unit.Text, candidates), captureProtocol{
+	var evaluations []factEvaluation
+	_, err := r.capture(ctx, factCandidateEvaluationPrompt, renderEvaluationInput(unit.Text, candidates), captureProtocol{
 		AllowedTools:   allowedCaptureTools(toolSubmitFactEvaluation, toolFinishFactEvaluation),
 		FinishName:     toolFinishFactEvaluation,
 		EvaluationName: toolSubmitFactEvaluation,
 		ExpectedRefs:   refs,
+		PayloadsValidator: func(calls []ai.ToolCall) error {
+			var err error
+			evaluations, err = decodeFactEvaluationCalls(calls)
+			return err
+		},
 	}, factEvaluationTools())
 	if err != nil {
 		return nil, fmt.Errorf("evaluate fact candidates: %w", err)
 	}
-	return decodeFactEvaluationCalls(result.ToolCalls)
+	return evaluations, nil
 }
 
 func (r candidateLineReviewer) generateSkillCandidates(ctx context.Context, unit ReviewUnit) ([]skillCandidate, error) {
-	result, err := r.capture(ctx, skillCandidateGenerationPrompt, unit.Text, captureProtocol{
+	var candidates []skillCandidate
+	_, err := r.capture(ctx, skillCandidateGenerationPrompt, unit.Text, captureProtocol{
 		AllowedTools: allowedCaptureTools(toolSubmitSkillCandidate, toolFinishSkillGeneration),
 		FinishName:   toolFinishSkillGeneration,
+		PayloadsValidator: func(calls []ai.ToolCall) error {
+			var err error
+			candidates, err = decodeSkillCandidateCalls(calls)
+			return err
+		},
 	}, skillGenerationTools())
 	if err != nil {
 		return nil, fmt.Errorf("generate skill candidates: %w", err)
-	}
-	candidates, err := decodeSkillCandidateCalls(result.ToolCalls)
-	if err != nil {
-		return nil, err
 	}
 	for i := range candidates {
 		candidates[i].Ref = candidateRef("skill", i)
@@ -122,16 +132,22 @@ func (r candidateLineReviewer) evaluateSkillCandidates(ctx context.Context, unit
 	for _, candidate := range candidates {
 		refs = append(refs, candidate.Ref)
 	}
-	result, err := r.capture(ctx, skillCandidateEvaluationPrompt, renderEvaluationInput(unit.Text, candidates), captureProtocol{
+	var evaluations []skillEvaluation
+	_, err := r.capture(ctx, skillCandidateEvaluationPrompt, renderEvaluationInput(unit.Text, candidates), captureProtocol{
 		AllowedTools:   allowedCaptureTools(toolSubmitSkillEvaluation, toolFinishSkillEvaluation),
 		FinishName:     toolFinishSkillEvaluation,
 		EvaluationName: toolSubmitSkillEvaluation,
 		ExpectedRefs:   refs,
+		PayloadsValidator: func(calls []ai.ToolCall) error {
+			var err error
+			evaluations, err = decodeSkillEvaluationCalls(calls)
+			return err
+		},
 	}, skillEvaluationTools())
 	if err != nil {
 		return nil, fmt.Errorf("evaluate skill candidates: %w", err)
 	}
-	return decodeSkillEvaluationCalls(result.ToolCalls)
+	return evaluations, nil
 }
 
 func (r candidateLineReviewer) capture(ctx context.Context, system, input string, protocol captureProtocol, tools []ai.ToolDefinition) (captureRunResult, error) {
@@ -286,6 +302,8 @@ func renderEvaluationInput[T any](reviewText string, candidates []T) string {
 	var b strings.Builder
 	b.WriteString(reviewText)
 	b.WriteString("\n\n<candidates_json>\n")
+	// encoding/json keeps candidate free text inside JSON strings and escapes
+	// '<'/'>' as \u003c/\u003e, so generated marker text cannot close this block.
 	data, _ := json.MarshalIndent(candidates, "", "  ")
 	b.Write(data)
 	b.WriteString("\n</candidates_json>\n")

@@ -24,10 +24,11 @@ type captureRunResult struct {
 }
 
 type captureProtocol struct {
-	AllowedTools   map[string]struct{}
-	FinishName     string
-	EvaluationName string
-	ExpectedRefs   []CandidateRef
+	AllowedTools      map[string]struct{}
+	FinishName        string
+	EvaluationName    string
+	ExpectedRefs      []CandidateRef
+	PayloadsValidator func([]ai.ToolCall) error
 }
 
 type (
@@ -78,6 +79,9 @@ func validateCaptureProtocol(result captureRunResult, protocol captureProtocol) 
 	}
 	if err := validateExpectedCandidateRefs(result.ToolCalls, protocol.EvaluationName, protocol.ExpectedRefs); err != nil {
 		return err
+	}
+	if protocol.PayloadsValidator != nil {
+		return protocol.PayloadsValidator(result.ToolCalls)
 	}
 	return nil
 }
