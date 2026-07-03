@@ -851,6 +851,7 @@ components:
         lifecycle,
         acceptance_state,
         needs_attention,
+        budget_bonus,
         created_at,
         updated_at,
       ]
@@ -952,6 +953,9 @@ components:
           description: The in-flight attempt; cleared while a human verdict is pending.
         attempt_count:
           type: integer
+        budget_bonus:
+          type: integer
+          description: Human-granted extra convergence attempts beyond max_attempts.
         required_total:
           type: integer
         required_accepted:

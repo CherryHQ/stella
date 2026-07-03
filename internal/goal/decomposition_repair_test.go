@@ -245,15 +245,12 @@ func assertDecompositionBudgetRemaining(t *testing.T, h *harness, goalID string,
 		t.Fatalf("decode convergence policy: %v", err)
 	}
 	pol = pol.Normalized()
-	spent, err := h.q.GetMaxAttemptNo(context.Background(), sqlc.GetMaxAttemptNoParams{
-		GoalID:  goalID,
-		Purpose: PurposeDecomposition,
-	})
+	spent, err := h.svc.spentAttemptBudget(context.Background(), h.q, goalID, PurposeDecomposition)
 	if err != nil {
-		t.Fatalf("GetMaxAttemptNo: %v", err)
+		t.Fatalf("CountBillableAttempts: %v", err)
 	}
-	if remaining := pol.MaxAttempts - int(spent); remaining != want {
-		t.Fatalf("decomposition remaining budget=%d want %d (max_attempts=%d spent=%d)", remaining, want, pol.MaxAttempts, spent)
+	if remaining := pol.MaxAttempts + int(got.BudgetBonus) - spent; remaining != want {
+		t.Fatalf("decomposition remaining budget=%d want %d (max_attempts=%d bonus=%d spent=%d)", remaining, want, pol.MaxAttempts, got.BudgetBonus, spent)
 	}
 }
 

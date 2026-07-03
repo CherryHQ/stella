@@ -64,12 +64,17 @@ func TestDecompositionQueuedReap_RefundsBudget(t *testing.T) {
 	}
 	d := h.get(root.ID)
 	if d.Lifecycle != LifecycleDraft {
-		t.Fatalf("after queued reap lifecycle=%q want draft (not blocked — budget refunded)", d.Lifecycle)
+		t.Fatalf("after queued reap lifecycle=%q want draft (not blocked; never-run attempt is not billable)", d.Lifecycle)
 	}
-	var pol ConvergencePolicy
-	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
-	if pol.MaxAttempts != defaultMaxAttempts+1 {
-		t.Fatalf("after queued reap MaxAttempts=%d want %d (refund raised the ceiling)", pol.MaxAttempts, defaultMaxAttempts+1)
+	if d.BudgetBonus != 0 {
+		t.Fatalf("after queued reap budget_bonus=%d want 0", d.BudgetBonus)
+	}
+	spent, err := h.svc.spentAttemptBudget(ctx, h.q, d.ID, PurposeDecomposition)
+	if err != nil {
+		t.Fatalf("count decomposition budget: %v", err)
+	}
+	if spent != 0 {
+		t.Fatalf("after queued reap billable decomposition attempts=%d want 0", spent)
 	}
 }
 

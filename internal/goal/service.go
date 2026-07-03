@@ -766,34 +766,7 @@ func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error 
 			}
 			return nil
 		}
-		// Raise the budget by one attempt past what is already spent so the next tick
-		// runs one more. A leaf meters convergence by attempt_count; a composite
-		// meters planning by the max decomposition attempt_no (recoverDecomposition
-		// blocks once that reaches MaxAttempts), so reuse the same ceiling here.
-		spent := int(d.AttemptCount)
-		if d.Kind == KindComposite {
-			maxNo, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{
-				GoalID:  d.ID,
-				Purpose: PurposeDecomposition,
-			})
-			if err != nil {
-				return fmt.Errorf("max decomposition attempt no: %w", err)
-			}
-			spent = int(maxNo)
-		}
-		var pol ConvergencePolicy
-		_ = unmarshalJSON(d.ConvergencePolicy, &pol)
-		pol = pol.Normalized()
-		pol.MaxAttempts = spent + 1
-		if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
-			Title:              d.Title,
-			Intent:             d.Intent,
-			AcceptanceContract: d.AcceptanceContract,
-			ConvergencePolicy:  marshalJSON(pol),
-			ReviewPolicy:       d.ReviewPolicy,
-			Priority:           d.Priority,
-			ID:                 id,
-		}); err != nil {
+		if err := q.IncrementGoalBudgetBonus(ctx, id); err != nil {
 			return fmt.Errorf("raise budget: %w", err)
 		}
 		rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")

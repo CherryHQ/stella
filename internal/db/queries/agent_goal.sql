@@ -131,6 +131,12 @@ UPDATE agent_goal SET
 WHERE id = $1
 RETURNING flaky_count;
 
+-- name: IncrementGoalBudgetBonus :exec
+UPDATE agent_goal SET
+    budget_bonus = budget_bonus + 1,
+    updated_at = now()
+WHERE id = $1;
+
 -- name: IncrGoalRequiredAccepted :exec
 UPDATE agent_goal SET
     required_accepted = required_accepted + 1,

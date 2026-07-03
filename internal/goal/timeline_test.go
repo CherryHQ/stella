@@ -61,8 +61,11 @@ func TestTimeline_HumanMessageReattemptsNonDepBlockedGoal(t *testing.T) {
 	}
 	var pol ConvergencePolicy
 	_ = unmarshalJSON(reopened.ConvergencePolicy, &pol)
-	if got := pol.Normalized().MaxAttempts; got != 2 {
-		t.Fatalf("max_attempts=%d want 2", got)
+	if got := pol.Normalized().MaxAttempts; got != 1 {
+		t.Fatalf("max_attempts=%d want unchanged 1", got)
+	}
+	if reopened.BudgetBonus != 1 {
+		t.Fatalf("budget_bonus=%d want 1", reopened.BudgetBonus)
 	}
 
 	att, err := h.svc.Claim(context.Background(), d.ID, "w-2", nil)

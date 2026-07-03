@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -43,7 +44,7 @@ func edg_twoSiblings(h *harness, withEdge bool) (up, down sqlc.AgentGoal, compos
 
 	cmp_decompose(h.t, h, composite.ID, content)
 
-	children, err := h.bundle.ListChildren(ctx, composite.ID)
+	children, err := h.q.ListGoalChildren(ctx, pgnull.Text(composite.ID))
 	if err != nil {
 		h.t.Fatalf("edg: ListChildren: %v", err)
 	}
@@ -99,6 +100,18 @@ func edg_hasReason(rs []Reason, typ string) bool {
 // downstream in waiting_deps (NOT dispatchable) with an upstream_not_accepted
 // reason; once the upstream is accepted (or the edge waived) the downstream
 // becomes dispatchable.
+func testReadiness(ctx context.Context, h *harness, id string) (Readiness, error) {
+	d, err := h.q.GetGoal(ctx, id)
+	if err != nil {
+		return Readiness{}, err
+	}
+	edges, err := h.q.ListEdgeWithUpstreamState(ctx, id)
+	if err != nil {
+		return Readiness{}, err
+	}
+	return Compute(d, edges, h.svc.nowTime()), nil
+}
+
 func TestEdgReadinessHardUpstreamGate(t *testing.T) {
 	now := time.Now().UTC()
 
@@ -311,7 +324,7 @@ func TestEdgReadinessEndToEndAcceptUnblocks(t *testing.T) {
 	}
 
 	// Downstream is ready-lifecycle but NOT dispatchable: hard upstream unaccepted.
-	r, err := h.bundle.GetReadiness(ctx, down.ID)
+	r, err := testReadiness(ctx, h, down.ID)
 	if err != nil {
 		t.Fatalf("GetReadiness(pre): %v", err)
 	}
@@ -326,7 +339,7 @@ func TestEdgReadinessEndToEndAcceptUnblocks(t *testing.T) {
 	}
 
 	// Now the hard edge is satisfied ⇒ downstream is dispatchable.
-	r, err = h.bundle.GetReadiness(ctx, down.ID)
+	r, err = testReadiness(ctx, h, down.ID)
 	if err != nil {
 		t.Fatalf("GetReadiness(post): %v", err)
 	}
@@ -376,7 +389,7 @@ func TestEdgWaiveEdgeClearsDepBlock(t *testing.T) {
 
 	// And readiness now reports it dispatchable (the waived hard edge is satisfied
 	// even though the upstream never accepted).
-	r, err := h.bundle.GetReadiness(ctx, down.ID)
+	r, err := testReadiness(ctx, h, down.ID)
 	if err != nil {
 		t.Fatalf("GetReadiness after waive: %v", err)
 	}

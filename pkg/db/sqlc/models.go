@@ -72,7 +72,8 @@ type AgentGoal struct {
 	Plan               json.RawMessage    `json:"plan"`
 	PlannedAt          pgtype.Timestamptz `json:"planned_at"`
 	// Infrastructure-flaky retry count independent of business attempt budget.
-	FlakyCount int64 `json:"flaky_count"`
+	FlakyCount  int64 `json:"flaky_count"`
+	BudgetBonus int32 `json:"budget_bonus"`
 }
 
 type AgentGoalAcceptanceEvent struct {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -55,12 +54,9 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 	if spent, err := s.reviewBudgetSpent(ctx, s.q, d.ID, execID); err != nil {
 		return sqlc.AgentGoalAttempt{}, err
 	} else if spent >= defaultMaxReviewAttempts {
-		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition // episode budget spent; degrade to human
+		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
 	}
 
-	// Mint the review session OUTSIDE the tx (it opens its own tx and would
-	// self-deadlock against the held one). Reuse the worker-session minter: the
-	// review runs as a fresh hidden task session, same as an execution attempt.
 	if s.newSession == nil {
 		return sqlc.AgentGoalAttempt{}, fmt.Errorf("goal: no worker session minter configured")
 	}
@@ -69,76 +65,37 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 		return sqlc.AgentGoalAttempt{}, fmt.Errorf("mint review session: %w", err)
 	}
 
-	var out sqlc.AgentGoalAttempt
-	err = s.withTxRaw(ctx, func(q *sqlc.Queries, tx pgx.Tx) error {
-		if err := q.LockGoalForWrite(ctx, d.ID); err != nil {
-			return fmt.Errorf("lock goal for review attempt: %w", err)
-		}
-		// Re-read + re-derive under the lock: a racing verdict (human or a prior
-		// review) or a new execution attempt may have moved the goal since the scan.
-		cur, err := getGoal(ctx, q, d.ID)
-		if err != nil {
-			return err
-		}
-		items, execID, execOut, ok, err := s.pendingReviewWork(ctx, q, cur)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return ErrInvalidTransition
-		}
-		if spent, err := s.reviewBudgetSpent(ctx, q, cur.ID, execID); err != nil {
-			return err
-		} else if spent >= defaultMaxReviewAttempts {
-			return ErrInvalidTransition
-		}
-		// attempt_no stays the global per-purpose sequence (uniq_agent_goal_attempt_no
-		// is on goal+purpose+attempt_no); only the budget is per-episode.
-		maxNo, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{GoalID: cur.ID, Purpose: PurposeReview})
-		if err != nil {
-			return fmt.Errorf("max review attempt no: %w", err)
-		}
-		attemptNo := int(maxNo) + 1
-		timeline, err := s.recentTimelineContext(ctx, q, cur.ID)
-		if err != nil {
-			return err
-		}
-		input := buildInputContext(cur, nil, nil, timeline, "", attemptNo)
-		input.ReviewItems = items
-		judged := execOut
-		input.ReviewOutput = &judged
-		input.ReviewedAttemptID = execID
-
-		att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
-			ID:              newID(),
-			GoalID:          cur.ID,
-			UserID:          cur.UserID,
-			AgentID:         pgnull.Text(cur.AgentID),
-			ExecutorAgentID: pgnull.Text(cur.AgentID),
-			SessionID:       sessionID,
-			Purpose:         PurposeReview,
-			AttemptNo:       int64(attemptNo),
-			Status:          AttemptQueued,
-			InputContext:    marshalJSON(input),
-			// A claim-grace lease: the River worker heartbeats it forward, so an
-			// expired lease is a genuine orphan the reaper recovers (mirrors Claim).
-			// uniq_agent_goal_active_attempt (goal_id, purpose) keeps this to one
-			// in-flight review attempt per goal — a racing second mint rolls back.
-			LeaseExpiresAt: nullTime(s.nowTime().Add(claimGraceTTL)),
-		})
-		if err != nil {
-			return fmt.Errorf("create review attempt: %w", err)
-		}
-		if enqueue != nil {
-			if err := enqueue(ctx, tx, cur.ID, att.ID); err != nil {
-				return fmt.Errorf("enqueue review attempt: %w", err)
+	out, err := s.beginAttempt(ctx, id, attemptSpec{
+		purpose:       PurposeReview,
+		sessionID:     sessionID,
+		executorAgent: d.AgentID,
+		lease:         nullTime(s.nowTime().Add(claimGraceTTL)),
+		enqueue:       enqueue,
+		prepare: func(ctx context.Context, q *sqlc.Queries, cur sqlc.AgentGoal, attemptNo int) (AttemptInput, error) {
+			items, execID, execOut, ok, err := s.pendingReviewWork(ctx, q, cur)
+			if err != nil {
+				return AttemptInput{}, err
 			}
-		}
-		out = att
-		return nil
+			if !ok {
+				return AttemptInput{}, ErrInvalidTransition
+			}
+			if spent, err := s.reviewBudgetSpent(ctx, q, cur.ID, execID); err != nil {
+				return AttemptInput{}, err
+			} else if spent >= defaultMaxReviewAttempts {
+				return AttemptInput{}, ErrInvalidTransition
+			}
+			timeline, err := s.recentTimelineContext(ctx, q, cur.ID)
+			if err != nil {
+				return AttemptInput{}, err
+			}
+			input := buildInputContext(cur, nil, nil, timeline, "", attemptNo)
+			input.ReviewItems = items
+			judged := execOut
+			input.ReviewOutput = &judged
+			input.ReviewedAttemptID = execID
+			return input, nil
+		},
 	})
-	// On a definite rollback (lost race / budget / collision), archive the session
-	// minted above so it is not orphaned.
 	s.disposeOnRollback(ctx, err, d.UserID, d.AgentID, sessionID)
 	return out, err
 }

@@ -55,7 +55,8 @@ type Server struct {
 	credSvc        *credentials.Service // shared credentials service
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
-	goalSvc        *goal.Service        // optional; if nil, goal endpoints return 503
+	goalSvc        *goal.GoalService    // optional; if nil, goal endpoints return 503
+	goalQueries    *sqlc.Queries        // optional; read side for goal endpoints
 	startedAt      time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider

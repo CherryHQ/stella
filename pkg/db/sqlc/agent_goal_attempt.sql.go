@@ -13,6 +13,33 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countBillableAttempts = `-- name: CountBillableAttempts :one
+SELECT COUNT(*)
+FROM agent_goal_attempt
+WHERE goal_id = $1
+  AND purpose = $2
+  AND (
+        status IN ('queued', 'running', 'submitted')
+        OR (status NOT IN ('queued', 'running', 'submitted') AND failure_class NOT IN ('environment', 'contract', 'flaky'))
+      )
+`
+
+type CountBillableAttemptsParams struct {
+	GoalID  string `json:"goal_id"`
+	Purpose string `json:"purpose"`
+}
+
+// Budget spent for execution/decomposition convergence. In-flight attempts count
+// so a concurrent claim cannot overspend. Finished attempts count unless their
+// failure class is one old refund path: environment, contract, or flaky. Queued
+// reaps finalize as interrupted/flaky and are therefore not billable.
+func (q *Queries) CountBillableAttempts(ctx context.Context, arg CountBillableAttemptsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countBillableAttempts, arg.GoalID, arg.Purpose)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countInflightAttemptsByRoot = `-- name: CountInflightAttemptsByRoot :one
 SELECT CAST(COUNT(*) AS BIGINT)
 FROM agent_goal_attempt a
@@ -59,9 +86,9 @@ type CountRanReviewAttemptsForOutputParams struct {
 // Review attempts spent on the CURRENT needs_verdict episode: those created after
 // the reviewed execution attempt (a later execution attempt starts a fresh
 // episode) that actually ran (started_at set). A queued attempt reaped before it
-// was promoted never ran and does not charge the budget, mirroring how a queued
-// decomposition reap is refunded. This is the agent-review budget; attempt_no is
-// still assigned globally per purpose via GetMaxAttemptNo.
+// was promoted never ran and does not charge the budget, mirroring the billable
+// budget predicate below. This is the agent-review budget; attempt_no is still
+// assigned globally per purpose via GetMaxAttemptNo.
 func (q *Queries) CountRanReviewAttemptsForOutput(ctx context.Context, arg CountRanReviewAttemptsForOutputParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countRanReviewAttemptsForOutput, arg.GoalID, arg.Since)
 	var count int64

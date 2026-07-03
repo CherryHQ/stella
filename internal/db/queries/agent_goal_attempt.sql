@@ -21,15 +21,29 @@ WHERE goal_id = sqlc.arg(goal_id) AND purpose = sqlc.arg(purpose);
 -- Review attempts spent on the CURRENT needs_verdict episode: those created after
 -- the reviewed execution attempt (a later execution attempt starts a fresh
 -- episode) that actually ran (started_at set). A queued attempt reaped before it
--- was promoted never ran and does not charge the budget, mirroring how a queued
--- decomposition reap is refunded. This is the agent-review budget; attempt_no is
--- still assigned globally per purpose via GetMaxAttemptNo.
+-- was promoted never ran and does not charge the budget, mirroring the billable
+-- budget predicate below. This is the agent-review budget; attempt_no is still
+-- assigned globally per purpose via GetMaxAttemptNo.
 SELECT COUNT(*)
 FROM agent_goal_attempt
 WHERE goal_id = sqlc.arg(goal_id)
   AND purpose = 'review'
   AND started_at IS NOT NULL
   AND created_at > sqlc.arg(since);
+
+-- name: CountBillableAttempts :one
+-- Budget spent for execution/decomposition convergence. In-flight attempts count
+-- so a concurrent claim cannot overspend. Finished attempts count unless their
+-- failure class is one old refund path: environment, contract, or flaky. Queued
+-- reaps finalize as interrupted/flaky and are therefore not billable.
+SELECT COUNT(*)
+FROM agent_goal_attempt
+WHERE goal_id = sqlc.arg(goal_id)
+  AND purpose = sqlc.arg(purpose)
+  AND (
+        status IN ('queued', 'running', 'submitted')
+        OR (status NOT IN ('queued', 'running', 'submitted') AND failure_class NOT IN ('environment', 'contract', 'flaky'))
+      );
 
 -- name: ListAttemptByGoal :many
 SELECT * FROM agent_goal_attempt

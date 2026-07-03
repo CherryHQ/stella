@@ -609,7 +609,7 @@ func (s *GoalService) ReapAttempt(ctx context.Context, attemptID string) error {
 		// pre-finalize status (GetAttempt above runs before FinalizeAttempt) — do not
 		// reorder those without revisiting this branch.
 		if att.Status == AttemptQueued {
-			return s.refundAndReopen(ctx, q, d)
+			return s.reopenForRework(ctx, q, d)
 		}
 		// Execution attempt: a lease expiry is infrastructure-flaky. It reopens on
 		// the flaky counter without charging the model business budget.

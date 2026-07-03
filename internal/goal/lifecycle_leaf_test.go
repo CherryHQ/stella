@@ -467,7 +467,7 @@ func TestLcl_ResponsibilityFailureRoutes(t *testing.T) {
 			if got.Lifecycle != tc.wantLife || got.BlockReason != tc.wantReason {
 				t.Fatalf("goal=(%s,%s) want (%s,%s)", got.Lifecycle, got.BlockReason, tc.wantLife, tc.wantReason)
 			}
-			remaining := remainingBudget(t, got)
+			remaining := remainingBudget(t, h, got)
 			if tc.class == FailureClassModel {
 				if remaining != defaultMaxAttempts-1 {
 					t.Fatalf("model remaining=%d want %d", remaining, defaultMaxAttempts-1)
@@ -491,7 +491,7 @@ func TestLcl_FlakyFailureRetriesOutsideBusinessBudgetThenBlocksEnvironment(t *te
 		if got.Lifecycle != LifecycleReady || got.FlakyCount != int64(i) {
 			t.Fatalf("after flaky %d goal=(%s flaky=%d) want ready flaky=%d", i, got.Lifecycle, got.FlakyCount, i)
 		}
-		if remaining := remainingBudget(t, got); remaining != defaultMaxAttempts {
+		if remaining := remainingBudget(t, h, got); remaining != defaultMaxAttempts {
 			t.Fatalf("after flaky %d remaining=%d want unchanged %d", i, remaining, defaultMaxAttempts)
 		}
 	}
@@ -501,19 +501,18 @@ func TestLcl_FlakyFailureRetriesOutsideBusinessBudgetThenBlocksEnvironment(t *te
 	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable || got.FlakyCount != 6 {
 		t.Fatalf("after flaky limit goal=(%s,%s flaky=%d) want blocked/env_unavailable flaky=6", got.Lifecycle, got.BlockReason, got.FlakyCount)
 	}
-	if remaining := remainingBudget(t, got); remaining != defaultMaxAttempts {
+	if remaining := remainingBudget(t, h, got); remaining != defaultMaxAttempts {
 		t.Fatalf("after flaky limit remaining=%d want unchanged %d", remaining, defaultMaxAttempts)
 	}
 }
 
-func remainingBudget(t *testing.T, d sqlc.AgentGoal) int {
+func remainingBudget(t *testing.T, h *harness, d sqlc.AgentGoal) int {
 	t.Helper()
-	var pol ConvergencePolicy
-	if err := unmarshalJSON(d.ConvergencePolicy, &pol); err != nil {
-		t.Fatalf("decode convergence policy: %v", err)
+	spent, err := h.svc.spentAttemptBudget(context.Background(), h.q, d.ID, PurposeExecution)
+	if err != nil {
+		t.Fatalf("count billable attempts: %v", err)
 	}
-	pol = pol.Normalized()
-	return pol.MaxAttempts - int(d.AttemptCount)
+	return effectiveAttemptBudget(d) - spent
 }
 
 func TestLcl_WorkerReportedFailureBudgetOutBlocks(t *testing.T) {
@@ -565,7 +564,7 @@ func TestLcl_MissingCheckRunnerBlocksEnvironment(t *testing.T) {
 	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable {
 		t.Fatalf("missing-check-runner goal=(%s,%s) want blocked/env_unavailable", got.Lifecycle, got.BlockReason)
 	}
-	if remaining := remainingBudget(t, got); remaining != defaultMaxAttempts {
+	if remaining := remainingBudget(t, h, got); remaining != defaultMaxAttempts {
 		t.Fatalf("missing-check-runner remaining=%d want unchanged %d", remaining, defaultMaxAttempts)
 	}
 	att, err := h.q.GetAttempt(context.Background(), attID)

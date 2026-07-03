@@ -7,8 +7,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -19,10 +23,16 @@ import (
 // SetGoalService wires the goal system into the admin server.
 // When unset, every /api/goals route returns 503.
 func (s *Server) SetGoalService(svc *goal.Service) {
-	s.goalSvc = svc
+	if svc == nil {
+		s.goalSvc = nil
+		s.goalQueries = nil
+		return
+	}
+	s.goalSvc = svc.Goal
+	s.goalQueries = svc.Queries
 }
 
-func (s *Server) goalsReady() bool { return s.goalSvc != nil }
+func (s *Server) goalsReady() bool { return s.goalSvc != nil && s.goalQueries != nil }
 
 // goalAuth gates a handler on the goal system being wired and an
 // authenticated caller, returning the caller's user id.
@@ -41,6 +51,15 @@ func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (string, bool)
 
 // goalError maps the package's sentinel errors to HTTP status codes:
 // not-found → 404, validation → 400, lifecycle/guard → 409, else 500.
+type goalFilter struct {
+	AgentID   string
+	Lifecycle string
+	ProjectID string
+	Terminal  *bool
+	Q         string
+	Archived  bool
+}
+
 func goalError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, goal.ErrNotFound):
@@ -77,9 +96,9 @@ func goalError(w http.ResponseWriter, err error) {
 // token whose agent differs is 403. Returns false (after writing the error) on
 // any miss.
 func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, id string) (sqlc.AgentGoal, bool) {
-	d, err := s.goalSvc.GetGoal(ctx, id)
+	d, err := s.goalQueries.GetGoal(ctx, id)
 	if err != nil {
-		if errors.Is(err, goal.ErrNotFound) {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, goal.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found")
 			return sqlc.AgentGoal{}, false
 		}
@@ -112,7 +131,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		if _, ok := s.loadGoal(ctx, w, userID, *params.Parent); !ok {
 			return
 		}
-		rows, err := s.goalSvc.ListChildren(ctx, *params.Parent)
+		rows, err := s.goalQueries.ListGoalChildren(ctx, pgnull.Text(*params.Parent))
 		if err != nil {
 			goalError(w, err)
 			return
@@ -124,7 +143,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		if _, ok := s.loadGoal(ctx, w, userID, *params.Root); !ok {
 			return
 		}
-		rows, err := s.goalSvc.ListSubtree(ctx, *params.Root)
+		rows, err := s.goalQueries.ListGoalByRoot(ctx, *params.Root)
 		if err != nil {
 			goalError(w, err)
 			return
@@ -138,7 +157,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	filter := goal.GoalFilter{}
+	filter := goalFilter{}
 	if params.AgentId != nil {
 		filter.AgentID = *params.AgentId
 	}
@@ -157,14 +176,32 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	if params.Archived != nil {
 		filter.Archived = *params.Archived
 	}
-	rows, err := s.goalSvc.ListGoals(ctx, userID, filter, int64(limit+1), int64(offset))
+	rows, err := s.goalQueries.ListRootGoal(ctx, sqlc.ListRootGoalParams{
+		UserID:          userID,
+		AgentID:         pgnull.Text(filter.AgentID),
+		ProjectID:       pgnull.Text(filter.ProjectID),
+		Lifecycle:       pgnull.Text(filter.Lifecycle),
+		Terminal:        goalTerminalArg(filter.Terminal),
+		Q:               pgnull.Text(filter.Q),
+		IncludeArchived: filter.Archived,
+		Limit:           int32(limit + 1),
+		Offset:          int32(offset),
+	})
 	if err != nil {
 		goalError(w, err)
 		return
 	}
 	page, next := nextPageTokenForRows(rows, limit, offset)
 	var total *int
-	if n, err := s.goalSvc.CountGoals(ctx, userID, filter); err == nil {
+	if n, err := s.goalQueries.CountRootGoal(ctx, sqlc.CountRootGoalParams{
+		UserID:          userID,
+		AgentID:         pgnull.Text(filter.AgentID),
+		ProjectID:       pgnull.Text(filter.ProjectID),
+		Lifecycle:       pgnull.Text(filter.Lifecycle),
+		Terminal:        goalTerminalArg(filter.Terminal),
+		Q:               pgnull.Text(filter.Q),
+		IncludeArchived: filter.Archived,
+	}); err == nil {
 		v := int(n)
 		total = &v
 	}
@@ -253,7 +290,7 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	if body.ConvergencePolicy != nil {
 		in.Convergence = toConvergence(*body.ConvergencePolicy)
 	}
-	created, err := s.goalSvc.CreateGoal(ctx, in)
+	created, err := s.goalSvc.CreateRoot(ctx, in)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -309,7 +346,7 @@ func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
 		c := toConvergence(*body.ConvergencePolicy)
 		in.Convergence = &c
 	}
-	updated, err := s.goalSvc.UpdateGoal(ctx, id, in)
+	updated, err := s.goalSvc.UpdateMetadata(ctx, id, in)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -440,7 +477,7 @@ func (s *Server) GetGoalReadiness(w http.ResponseWriter, r *http.Request, id str
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rd, err := s.goalSvc.GetReadiness(ctx, id)
+	rd, err := s.goalReadiness(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -460,7 +497,7 @@ func (s *Server) ListGoalChildren(w http.ResponseWriter, r *http.Request, id str
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rows, err := s.goalSvc.ListChildren(ctx, id)
+	rows, err := s.goalQueries.ListGoalChildren(ctx, pgnull.Text(id))
 	if err != nil {
 		goalError(w, err)
 		return
@@ -478,7 +515,7 @@ func (s *Server) ListAttempts(w http.ResponseWriter, r *http.Request, id string)
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rows, err := s.goalSvc.ListAttempts(ctx, id)
+	rows, err := s.goalQueries.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: id})
 	if err != nil {
 		goalError(w, err)
 		return
@@ -500,7 +537,7 @@ func (s *Server) GetAttempt(w http.ResponseWriter, r *http.Request, id string, a
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	a, err := s.goalSvc.GetAttempt(ctx, attemptId)
+	a, err := s.goalQueries.GetAttempt(ctx, attemptId)
 	if err != nil || a.GoalID != id {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
@@ -518,7 +555,7 @@ func (s *Server) ListAcceptanceEvents(w http.ResponseWriter, r *http.Request, id
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rows, err := s.goalSvc.ListAcceptanceEvents(ctx, id)
+	rows, err := s.goalQueries.ListAcceptanceEventByGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -541,7 +578,7 @@ func (s *Server) ListGoalTimeline(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	rows, err := s.goalSvc.ListTimeline(ctx, id, int64(limit+1), int64(offset))
+	rows, err := s.goalQueries.ListGoalEventByGoal(ctx, sqlc.ListGoalEventByGoalParams{GoalID: id, Limit: int32(limit + 1), Offset: int32(offset)})
 	if err != nil {
 		goalError(w, err)
 		return
@@ -608,7 +645,7 @@ func (s *Server) SubmitVerdict(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	// The verdict is the highest-seq event after the append; surface it.
-	events, err := s.goalSvc.ListAcceptanceEvents(ctx, id)
+	events, err := s.goalQueries.ListAcceptanceEventByGoal(ctx, id)
 	if err != nil || len(events) == 0 {
 		goalError(w, err)
 		return
@@ -626,7 +663,7 @@ func (s *Server) ListEdges(w http.ResponseWriter, r *http.Request, id string) {
 	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
 		return
 	}
-	rows, err := s.goalSvc.ListEdges(ctx, id)
+	rows, err := s.goalQueries.ListEdgeByGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -693,7 +730,7 @@ func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, up
 		goalError(w, err)
 		return
 	}
-	edges, err := s.goalSvc.ListEdges(ctx, id)
+	edges, err := s.goalQueries.ListEdgeByGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -724,7 +761,7 @@ func (s *Server) ApprovePlan(w http.ResponseWriter, r *http.Request, id string) 
 		goalError(w, err)
 		return
 	}
-	d, err := s.goalSvc.GetGoal(ctx, id)
+	d, err := s.goalQueries.GetGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -751,7 +788,7 @@ func (s *Server) RejectPlan(w http.ResponseWriter, r *http.Request, id string) {
 		goalError(w, err)
 		return
 	}
-	d, err := s.goalSvc.GetGoal(ctx, id)
+	d, err := s.goalQueries.GetGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -764,7 +801,7 @@ func (s *Server) RejectPlan(w http.ResponseWriter, r *http.Request, id string) {
 // respondGoal re-fetches a goal and writes it; used by the
 // command handlers whose service method returns only an error.
 func (s *Server) respondGoal(ctx context.Context, w http.ResponseWriter, id string) {
-	d, err := s.goalSvc.GetGoal(ctx, id)
+	d, err := s.goalQueries.GetGoal(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -841,6 +878,7 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		Intent:             optStr(d.Intent),
 		AcceptanceSeq:      iptr(d.AcceptanceSeq),
 		AttemptCount:       iptr(d.AttemptCount),
+		BudgetBonus:        int(d.BudgetBonus),
 		FlakyCount:         iptr(d.FlakyCount),
 		RequiredTotal:      iptr(d.RequiredTotal),
 		RequiredAccepted:   iptr(d.RequiredAccepted),
@@ -1057,6 +1095,25 @@ func nullToPtr(ns pgtype.Text) *string {
 	}
 	v := ns.String
 	return &v
+}
+
+func goalTerminalArg(v *bool) pgtype.Bool {
+	if v == nil {
+		return pgtype.Bool{}
+	}
+	return pgtype.Bool{Bool: *v, Valid: true}
+}
+
+func (s *Server) goalReadiness(ctx context.Context, id string) (goal.Readiness, error) {
+	d, err := s.goalQueries.GetGoal(ctx, id)
+	if err != nil {
+		return goal.Readiness{}, err
+	}
+	edges, err := s.goalQueries.ListEdgeWithUpstreamState(ctx, id)
+	if err != nil {
+		return goal.Readiness{}, err
+	}
+	return goal.Compute(d, edges, time.Now().UTC()), nil
 }
 
 func jsonMap(s json.RawMessage) map[string]any {

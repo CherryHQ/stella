@@ -386,19 +386,7 @@ func (s *GoalService) AddHumanMessage(ctx context.Context, in HumanMessageInput)
 }
 
 func (s *GoalService) raiseBudgetForHumanMessage(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
-	var pol ConvergencePolicy
-	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
-	pol = pol.Normalized()
-	pol.MaxAttempts++
-	if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
-		Title:              d.Title,
-		Intent:             d.Intent,
-		AcceptanceContract: d.AcceptanceContract,
-		ConvergencePolicy:  marshalJSON(pol),
-		ReviewPolicy:       d.ReviewPolicy,
-		Priority:           d.Priority,
-		ID:                 d.ID,
-	}); err != nil {
+	if err := q.IncrementGoalBudgetBonus(ctx, d.ID); err != nil {
 		return fmt.Errorf("raise human-message budget: %w", err)
 	}
 	return nil
