@@ -15,18 +15,21 @@ import "errors"
 // Goal lifecycle (contract §2). The single state machine every
 // goal — root or child, leaf or composite — runs through.
 const (
-	LifecycleDraft         = "draft"
-	LifecycleReady         = "ready"
-	LifecycleActive        = "active"
-	LifecycleBlocked       = "blocked"
-	LifecycleAccepted      = "accepted"       // terminal-good; accepted_output frozen
-	LifecycleRejectedFinal = "rejected_final" // judgment said no, no rework path left
-	LifecycleAbandoned     = "abandoned"      // budget exhausted + give-up
-	LifecycleCancelled     = "cancelled"
+	LifecycleDraft   = "draft"
+	LifecyclePending = "pending"
+	LifecycleActive  = "active"
+	LifecycleBlocked = "blocked"
+	LifecycleDone    = "done"
+)
+
+const (
+	DoneReasonAccepted  = "accepted"
+	DoneReasonFailed    = "failed"
+	DoneReasonCancelled = "cancelled"
 )
 
 // Block reasons (meaningful only when lifecycle='blocked'). Precedence on
-// concurrent causes: budget_exhausted > needs_plan_approval > needs_verdict > dep.
+// concurrent causes: budget_exhausted > needs_plan_approval > needs_verdict.
 // needs_plan_approval is a composite's human-review gate on its proposed plan,
 // before any child is materialized; it cannot co-occur with dep/needs_verdict
 // (those require materialized children / a submitted attempt).
@@ -35,7 +38,6 @@ const (
 	BlockNeedsPlanApproval = "needs_plan_approval"
 	BlockPlanningInvalid   = "planning_invalid"
 	BlockNeedsVerdict      = "needs_verdict"
-	BlockDep               = "dep"
 	BlockEnvUnavailable    = "env_unavailable"
 	BlockContractConflict  = "contract_conflict"
 )
@@ -139,8 +141,7 @@ const (
 // ValidLifecycle reports whether s is a known goal lifecycle.
 func ValidLifecycle(s string) bool {
 	switch s {
-	case LifecycleDraft, LifecycleReady, LifecycleActive, LifecycleBlocked,
-		LifecycleAccepted, LifecycleRejectedFinal, LifecycleAbandoned, LifecycleCancelled:
+	case LifecycleDraft, LifecyclePending, LifecycleActive, LifecycleBlocked, LifecycleDone:
 		return true
 	}
 	return false
@@ -149,7 +150,7 @@ func ValidLifecycle(s string) bool {
 // ValidBlockReason reports whether s is a known block reason.
 func ValidBlockReason(s string) bool {
 	switch s {
-	case BlockBudgetExhausted, BlockNeedsPlanApproval, BlockPlanningInvalid, BlockNeedsVerdict, BlockDep,
+	case BlockBudgetExhausted, BlockNeedsPlanApproval, BlockPlanningInvalid, BlockNeedsVerdict,
 		BlockEnvUnavailable, BlockContractConflict:
 		return true
 	}
@@ -233,40 +234,31 @@ func ValidEscalation(s string) bool { return s == EscalationBlock || s == Escala
 // IsTerminalLifecycle reports whether the lifecycle admits no further
 // scheduling. 'blocked' is recoverable and so is NOT terminal.
 func IsTerminalLifecycle(s string) bool {
-	switch s {
-	case LifecycleAccepted, LifecycleRejectedFinal, LifecycleAbandoned, LifecycleCancelled:
-		return true
-	}
-	return false
+	return s == LifecycleDone
 }
 
-// legalGoalTransitions is the per-kind lifecycle state machine (contract §2.1)
-// as an enforced table: kind → from → the set of legal targets. It exists
-// because transitions are routed imperatively from many call sites
-// (rework/recovery/reap/rollup/plan-gate/human actions), and every site had to
-// independently remember all the guards — each zombie class we shipped
-// (composite in ready, cancelled resurrected to ready) was one site forgetting
-// one. LegalLifecycleTransition consults this at the single generic write
-// (transitionGoalLifecycle); the special writes (ClaimGoal, AcceptGoal,
-// BlockGoal, CancelGoal) already carry their from-guard in SQL.
+// legalGoalTransitions is the per-kind lifecycle state machine (contract §2.1).
+// Shared edges:
 //
-// Invariants the table encodes:
-//   - a composite is NEVER 'ready': nothing claims a ready composite (the
-//     dispatcher claims ready leaves and decomposes draft composites).
-//   - a leaf is never 'draft'-bound again once released, and never decomposes.
-//   - terminal states admit nothing (resurrection is always a bug; cancel of a
-//     terminal goal is rejected by the service before this table is consulted).
+//	draft -> active|done
+//	pending -> active|blocked|done
+//	active -> pending|blocked|done|draft
+//	blocked -> pending|active|draft|done
+//	done -> none
+//
+// Leaf-only guards reject draft-bound moves after creation; composite-only callers
+// use draft for decomposition/replanning.
 var legalGoalTransitions = map[string]map[string]map[string]bool{
 	KindLeaf: {
-		LifecycleDraft:   {LifecycleReady: true, LifecycleCancelled: true},
-		LifecycleReady:   {LifecycleActive: true, LifecycleBlocked: true, LifecycleCancelled: true},
-		LifecycleActive:  {LifecycleReady: true, LifecycleBlocked: true, LifecycleAccepted: true, LifecycleRejectedFinal: true, LifecycleAbandoned: true, LifecycleCancelled: true},
-		LifecycleBlocked: {LifecycleReady: true, LifecycleActive: true, LifecycleAbandoned: true, LifecycleCancelled: true},
+		LifecycleDraft:   {LifecyclePending: true, LifecycleDone: true},
+		LifecyclePending: {LifecycleActive: true, LifecycleBlocked: true, LifecycleDone: true},
+		LifecycleActive:  {LifecyclePending: true, LifecycleBlocked: true, LifecycleDone: true},
+		LifecycleBlocked: {LifecyclePending: true, LifecycleActive: true, LifecycleDone: true},
 	},
 	KindComposite: {
-		LifecycleDraft:   {LifecycleActive: true, LifecycleCancelled: true},
-		LifecycleActive:  {LifecycleDraft: true, LifecycleBlocked: true, LifecycleAccepted: true, LifecycleRejectedFinal: true, LifecycleAbandoned: true, LifecycleCancelled: true},
-		LifecycleBlocked: {LifecycleDraft: true, LifecycleActive: true, LifecycleAbandoned: true, LifecycleCancelled: true},
+		LifecycleDraft:   {LifecycleActive: true, LifecycleDone: true},
+		LifecycleActive:  {LifecycleDraft: true, LifecycleBlocked: true, LifecycleDone: true},
+		LifecycleBlocked: {LifecycleDraft: true, LifecycleActive: true, LifecycleDone: true},
 	},
 }
 
@@ -275,19 +267,6 @@ var legalGoalTransitions = map[string]map[string]map[string]bool{
 // or to is illegal — fail loud, not open.
 func LegalLifecycleTransition(kind, from, to string) bool {
 	return legalGoalTransitions[kind][from][to]
-}
-
-// humanActionableBlocks are the block reasons a human action clears: a
-// verdict, a plan approval, a budget raise, a contract
-// edit, an environment fix. 'dep' is deliberately absent — the action lives on
-// the blocked descendant, not on the dep-parked parent.
-var humanActionableBlocks = map[string]bool{
-	BlockNeedsVerdict:      true,
-	BlockNeedsPlanApproval: true,
-	BlockBudgetExhausted:   true,
-	BlockPlanningInvalid:   true,
-	BlockContractConflict:  true,
-	BlockEnvUnavailable:    true,
 }
 
 // NeedsAttention is THE canonical needs-you predicate: whether a goal is
@@ -300,7 +279,8 @@ var humanActionableBlocks = map[string]bool{
 //     must run in the DB), pinned equivalent by
 //     TestListInboxGoalsMatchesNeedsAttention.
 func NeedsAttention(lifecycle, blockReason string) bool {
-	return lifecycle == LifecycleBlocked && humanActionableBlocks[blockReason]
+	_ = blockReason
+	return lifecycle == LifecycleBlocked
 }
 
 // Actor describes who initiated a transition. Ported from the old package; the
@@ -354,7 +334,7 @@ var (
 	ErrPlanGate = errors.New("goal: plan gate not satisfied")
 
 	// ErrBudgetExhausted is informational: convergence reached MaxAttempts. The
-	// goal moves to blocked(budget_exhausted) or abandoned/rejected_final
+	// goal moves to blocked(budget_exhausted) or done(failed)
 	// rather than retrying.
 	ErrBudgetExhausted = errors.New("goal: convergence budget exhausted")
 

@@ -26,31 +26,31 @@ Before reaching for a goal at all, check you actually need one:
 Every goal — root or child, leaf or composite — runs through one state machine:
 
 ```text
-draft ──activate──▶ ready ──claim──▶ active ──submit──▶ (acceptance fold)
-  │                   │                │                      │
-  │                   │                ├─ block ─▶ blocked ───┤ pass ─▶ accepted (terminal-good)
-  │                   │                │             │        └ fail ─▶ active (rework) or
-  │                   │                │             └─resolve─▶ ready    rejected_final / abandoned
-  └─ cancel ──▶ cancelled
+draft ──activate──▶ pending ──claim──▶ active ──submit──▶ (acceptance fold)
+  │                     │                │                      │
+  │                     │                ├─ block ─▶ blocked ───┤ pass ─▶ done(accepted)
+  │                     │                │             │        └ fail ─▶ active (rework) or done(failed)
+  │                     │                │             └─resolve─▶ pending
+  └─ cancel ──▶ done(cancelled)
 ```
 
-- `accepted` — terminal-good; the accepted output is frozen.
-- `rejected_final` — a verdict said no with no rework path left.
-- `abandoned` — convergence budget exhausted and the policy gave up.
-- `blocked` is **recoverable**, not terminal. Block reasons include `budget_exhausted`, `needs_plan_approval`, `planning_invalid`, `needs_verdict`, `dep`, `env_unavailable`, and `contract_conflict`. Responsibility matters: model failures spend business budget; environment/contract failures park for human action; flaky infrastructure retries outside business budget until its cap.
+- `done_reason=accepted` — terminal-good; the accepted output is frozen.
+- `done_reason=failed` — no rework path remains.
+- `done_reason=cancelled` — user/system cancellation.
+- `blocked` is **recoverable**, not terminal. Block reasons include `budget_exhausted`, `needs_plan_approval`, `planning_invalid`, `needs_verdict`, `env_unavailable`, and `contract_conflict`. Responsibility matters: model failures spend business budget; environment/contract failures park for human action; flaky infrastructure retries outside business budget until its cap.
 
-Acceptance is a separate projection from lifecycle: `pending | passed | failed`. A goal reaches `accepted` only when its contract's acceptance fold passes.
+Acceptance is a separate projection from lifecycle: `pending | passed | failed`. A goal reaches `done(accepted)` only when its contract's acceptance fold passes.
 
 ## Composition and dependencies
 
 A composite holds child goals produced by a **decomposition** (the only way children come into being — you cannot hand-attach a child). Siblings can declare dependency **edges**: `hard` blocks readiness, `soft` is advisory. Only an upstream's **accepted** output flows downstream. Rollup is automatic:
 
-- all required children accepted → composite's acceptance can pass
-- a required child `rejected_final`/`abandoned` → parent fails or blocks
-- a required child blocked → parent blocks
-- a blocked parent recovers when the blocking child clears
+- all required children `done(accepted)` → composite's acceptance can pass
+- a required child `done(failed|cancelled)` → parent fails
+- a required child blocked → parent waits; the block is derived from children, not stored on the parent
+- a hard dependency whose upstream dies is derived from edges and the upstream `done_reason`
 
-Decomposition is automatic: `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. Structural planning errors are repaired in the same planning session with `prior_errors`; if those repairs are exhausted, the goal parks at `blocked(planning_invalid)`. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become ready), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
+Decomposition is automatic: `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. Structural planning errors are repaired in the same planning session with `prior_errors`; if those repairs are exhausted, the goal parks at `blocked(planning_invalid)`. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become pending), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
 
 ## Worker: the `goal_control` contract
 

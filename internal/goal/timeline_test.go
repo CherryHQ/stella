@@ -3,7 +3,6 @@ package goal
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -56,7 +55,7 @@ func TestTimeline_HumanMessageReattemptsNonDepBlockedGoal(t *testing.T) {
 		t.Fatalf("AddHumanMessage: %v", err)
 	}
 	reopened := h.get(d.ID)
-	if reopened.Lifecycle != LifecycleReady || reopened.BlockReason != "" {
+	if reopened.Lifecycle != LifecyclePending || reopened.BlockReason != "" {
 		t.Fatalf("after human message lifecycle=%q block=%q want ready", reopened.Lifecycle, reopened.BlockReason)
 	}
 	var pol ConvergencePolicy
@@ -87,27 +86,24 @@ func TestTimeline_HumanMessageReattemptsNonDepBlockedGoal(t *testing.T) {
 	}
 }
 
-func TestTimeline_HumanMessageDepBlockedOnlyRecords(t *testing.T) {
+func TestTimeline_HumanMessageBlockedAuthorizesReattempt(t *testing.T) {
 	h := newHarness(t)
 	d := h.createRoot(KindLeaf, AcceptanceContract{})
 	h.activate(d.ID)
-	if err := h.svc.Block(context.Background(), d.ID, BlockDep, UserActor(h.userID)); err != nil {
-		t.Fatalf("block dep: %v", err)
+	if err := h.svc.Block(context.Background(), d.ID, BlockBudgetExhausted, UserActor(h.userID)); err != nil {
+		t.Fatalf("block budget: %v", err)
 	}
 	before := h.get(d.ID)
-	if _, err := h.svc.AddHumanMessage(context.Background(), HumanMessageInput{GoalID: d.ID, Text: "上游好了再跑", ResponderUserID: h.userID}); err != nil {
+	if _, err := h.svc.AddHumanMessage(context.Background(), HumanMessageInput{GoalID: d.ID, Text: "再试一次", ResponderUserID: h.userID}); err != nil {
 		t.Fatalf("AddHumanMessage: %v", err)
 	}
 	after := h.get(d.ID)
-	if after.Lifecycle != LifecycleBlocked || after.BlockReason != BlockDep {
-		t.Fatalf("after human dep lifecycle=%q block=%q want blocked dep", after.Lifecycle, after.BlockReason)
-	}
-	if after.AttemptCount != before.AttemptCount {
-		t.Fatalf("attempt_count=%d want unchanged %d", after.AttemptCount, before.AttemptCount)
+	if after.Lifecycle != LifecyclePending || after.BudgetBonus != before.BudgetBonus+1 {
+		t.Fatalf("after human lifecycle/bonus=%q/%d want pending/%d", after.Lifecycle, after.BudgetBonus, before.BudgetBonus+1)
 	}
 	last := h.timeline(d.ID)[len(h.timeline(d.ID))-1]
-	if last.EventType != GoalEventHumanMessage || !strings.Contains(string(last.Payload), "blocked_by_dependency") {
-		t.Fatalf("last event=%q payload=%s want dep-only human message", last.EventType, string(last.Payload))
+	if last.EventType != GoalEventLifecycleChanged {
+		t.Fatalf("last event=%q want lifecycle change after authorized message", last.EventType)
 	}
 }
 

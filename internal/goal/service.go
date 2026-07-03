@@ -379,8 +379,7 @@ func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries
 
 // ── Lifecycle transitions (each one withTx) ─────────────────────────────────
 
-// CreateInput is the request to mint a root or child goal. The caller
-// pre-mints session_id OUTSIDE any tx and passes it here.
+// CreateInput is the request to mint a root or child goal.
 type CreateInput struct {
 	UserID    string
 	AgentID   string
@@ -389,7 +388,6 @@ type CreateInput struct {
 	RootID    string // = id for a root; parent.root_id for a child
 	Depth     int64
 	Position  int64
-	SessionID string
 	Title     string
 	Intent    string
 	Kind      string // leaf | composite
@@ -451,7 +449,6 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 			RootID:             rootID,
 			Depth:              in.Depth,
 			Position:           in.Position,
-			SessionID:          in.SessionID,
 			Title:              in.Title,
 			Intent:             in.Intent,
 			Kind:               kind,
@@ -478,31 +475,10 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 	return out, err
 }
 
-// CreateRoot mints a worker session for a new root goal (a goal) and
-// creates it in 'draft'. The session is minted OUTSIDE the insert tx to avoid
-// a self-deadlock and to keep slow session-minting off a pooled connection (same discipline as Materialize's
-// pre-minted child sessions). Child goals get their sessions from
-// Materialize instead, so this entry is root-only.
+// CreateRoot creates a new root goal in draft. Attempts mint their own sessions;
+// goals no longer own a session.
 func (s *GoalService) CreateRoot(ctx context.Context, in CreateInput) (sqlc.AgentGoal, error) {
-	var minted string
-	if in.SessionID == "" {
-		if s.newSession == nil {
-			return sqlc.AgentGoal{}, fmt.Errorf("goal: no session minter configured")
-		}
-		sid, err := s.newSession(ctx, in.UserID, in.AgentID, in.ProjectID)
-		if err != nil {
-			return sqlc.AgentGoal{}, fmt.Errorf("goal: mint root session: %w", err)
-		}
-		in.SessionID = sid
-		minted = sid
-	}
-	out, err := s.CreateGoal(ctx, in)
-	if minted != "" {
-		// On a definite rollback, archive only the session we minted here (never a
-		// caller-supplied one) so it is not orphaned.
-		s.disposeOnRollback(ctx, err, in.UserID, in.AgentID, minted)
-	}
-	return out, err
+	return s.CreateGoal(ctx, in)
 }
 
 // UpdateInput is the mutable metadata of a goal (PATCH). A nil pointer
@@ -637,7 +613,7 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		// scans active composites) fires once its children accept; landing it in
 		// ready would strand it there with no ready→active transition (mirrors the
 		// draft→active that BeginDecomposition applies).
-		parentTarget := LifecycleReady
+		parentTarget := LifecyclePending
 		if d.Kind == KindComposite {
 			parentTarget = LifecycleActive
 		}
@@ -667,7 +643,7 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 // passes only once its plan is materialized (planned_at set) and required_total ≥ 1.
 func (s *GoalService) planGateSatisfied(d sqlc.AgentGoal) bool {
 	if d.Kind == KindComposite {
-		return d.PlannedAt.Valid && d.RequiredTotal >= 1
+		return d.PlannedAt.Valid
 	}
 	// Leaf: an authored contract has items; a trivial ({}) contract auto-accepts.
 	// Both clear the gate — a leaf is never gated on a non-trivial empty contract
@@ -711,7 +687,7 @@ func (s *GoalService) Block(ctx context.Context, id, reason string, by Actor) er
 // no ready→active transition for composites (mirrors Activate's draft→active).
 func recoveryLifecycle(d sqlc.AgentGoal) string {
 	if d.Kind != KindComposite {
-		return LifecycleReady
+		return LifecyclePending
 	}
 	if d.PlannedAt.Valid {
 		return LifecycleActive
@@ -727,8 +703,8 @@ func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 		if err != nil {
 			return err
 		}
-		if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockDep {
-			return ErrInvalidTransition // only a recoverable dep block clears
+		if d.Lifecycle != LifecycleBlocked {
+			return ErrInvalidTransition
 		}
 		rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
 		if err != nil {
@@ -857,7 +833,7 @@ func (s *GoalService) Abandon(ctx context.Context, id, reason string, by Actor) 
 		if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockBudgetExhausted {
 			return ErrInvalidTransition
 		}
-		rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleAbandoned, "")
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleDone, "")
 		if err != nil {
 			return fmt.Errorf("abandon: %w", err)
 		}
@@ -992,22 +968,6 @@ func (s *GoalService) WaiveEdge(ctx context.Context, downstreamID, upstreamID, r
 		}); err != nil {
 			return fmt.Errorf("waive edge: %w", err)
 		}
-		// A downstream parked on this dep clears now the edge is waived: a leaf to
-		// ready, a composite to active/draft (see recoveryLifecycle).
-		d, err := getGoal(ctx, q, downstreamID)
-		if err != nil {
-			return err
-		}
-		if d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockDep {
-			rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
-			if err != nil {
-				return fmt.Errorf("unblock waived downstream: %w", err)
-			}
-			if rows == 0 {
-				return ErrInvalidTransition
-			}
-			return s.bumpParentCounter(ctx, q, d, counterBlockedDecr)
-		}
 		return nil
 	})
 }
@@ -1066,24 +1026,11 @@ func (s *GoalService) SubmitVerdict(ctx context.Context, in VerdictInput) error 
 // the arithmetic) so there is no read-modify-write and no lost update; lock
 // order is always child-before-parent.
 func (s *GoalService) bumpParentCounter(ctx context.Context, q *sqlc.Queries, child sqlc.AgentGoal, kind counterKind) error {
-	// Only a required child contributes to a parent's rollup counters; a root (no
-	// parent) and an advisory (non-required) child are no-ops.
-	if !child.ParentID.Valid || child.ParentID.String == "" || !child.Required {
-		return nil
-	}
-	parentID := child.ParentID.String
-	switch kind {
-	case counterAccepted:
-		return q.IncrGoalRequiredAccepted(ctx, parentID)
-	case counterFailed:
-		return q.IncrGoalRequiredFailed(ctx, parentID)
-	case counterBlockedIncr:
-		return q.IncrGoalRequiredBlocked(ctx, parentID)
-	case counterBlockedDecr:
-		return q.DecrGoalRequiredBlocked(ctx, parentID)
-	default:
-		return nil
-	}
+	_ = ctx
+	_ = q
+	_ = child
+	_ = kind
+	return nil
 }
 
 // counterKind selects which incremental parent counter a child transition bumps.
@@ -1095,61 +1042,3 @@ const (
 	counterBlockedIncr
 	counterBlockedDecr
 )
-
-// reconcileCounters recomputes a composite's required_* from a COUNT scan over
-// its direct children (contract §6 backstop). Run ONLY on rollup-stall
-// detection, never per event.
-func (s *GoalService) reconcileCounters(ctx context.Context, parentID string) error {
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		return q.ReconcileGoalCounters(ctx, parentID)
-	})
-}
-
-// RecoverBlockedComposite re-evaluates a composite the rollup parked in
-// blocked(dep) and wakes it back to active once its blocking children have
-// cleared (contract §6). The rollup scans (ListRollupCandidates/
-// ListStalledComposites) only see active composites, so a parent driven to
-// blocked(dep) — e.g. while a required child awaits plan approval or a verdict —
-// never re-enters rollup on its own even after that child recovers. The
-// dispatcher runs this over ListBlockedDepComposites each tick. Idempotent: a
-// no-op while any required child is still blocked.
-func (s *GoalService) RecoverBlockedComposite(ctx context.Context, id string) error {
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		if err := q.LockGoalForWrite(ctx, id); err != nil {
-			return fmt.Errorf("lock goal for recover: %w", err)
-		}
-		d, err := getGoal(ctx, q, id)
-		if err != nil {
-			return err
-		}
-		if d.Kind != KindComposite || d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockDep {
-			return ErrInvalidTransition
-		}
-		// Recompute required_* from the children's current states. The dep block was
-		// surfaced off the incremental counters, and a child's recovery (plan
-		// approval, verdict, edge waiver) does not eagerly decrement the parent —
-		// the reconcile is what observes the cleared block.
-		if err := q.ReconcileGoalCounters(ctx, id); err != nil {
-			return fmt.Errorf("reconcile counters: %w", err)
-		}
-		cur, err := getGoal(ctx, q, id)
-		if err != nil {
-			return err
-		}
-		if cur.RequiredBlocked > 0 {
-			return nil // another required child is still blocked — stay parked
-		}
-		// No required child is blocked anymore: wake to active so the next rollup tick
-		// folds the refreshed counters (accept / fail / wait). Re-activating bumps no
-		// parent counter — this composite's own parent, if itself blocked(dep), is
-		// reconciled by its turn through this same recovery scan.
-		rows, err := s.transitionGoalLifecycle(ctx, q, cur, LifecycleActive, "")
-		if err != nil {
-			return fmt.Errorf("recover blocked composite: %w", err)
-		}
-		if rows == 0 {
-			return ErrInvalidTransition
-		}
-		return nil
-	})
-}

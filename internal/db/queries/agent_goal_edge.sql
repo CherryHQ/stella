@@ -22,6 +22,7 @@ ORDER BY created_at;
 SELECT
     e.*,
     u.lifecycle AS upstream_lifecycle,
+    u.done_reason AS upstream_done_reason,
     u.accepted_output AS upstream_output
 FROM agent_goal_edge e
 JOIN agent_goal u ON u.id = e.upstream_id

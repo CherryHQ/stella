@@ -100,7 +100,7 @@ goal_latency AS (
     FROM (
         SELECT created_at, COALESCE(accepted_at, cancelled_at, updated_at) AS ended_at
         FROM scoped_goal
-        WHERE lifecycle IN ('accepted', 'rejected_final', 'blocked', 'cancelled', 'abandoned')
+        WHERE lifecycle IN ('done', 'blocked')
     ) g
 )
 SELECT jsonb_build_object(

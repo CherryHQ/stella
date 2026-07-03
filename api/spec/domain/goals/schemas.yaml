@@ -21,12 +21,12 @@ components:
           root_id,
           depth,
           position,
-          session_id,
           title,
           kind,
           priority,
           required,
           lifecycle,
+          done_reason,
           acceptance_state,
           needs_attention,
           budget_bonus,
@@ -52,7 +52,6 @@ components:
           description: The tree's root id (= id for a root).
         depth: { type: integer }
         position: { type: integer }
-        session_id: { type: string }
         title: { type: string }
         intent:
           type: string
@@ -79,17 +78,11 @@ components:
           enum: [none, human]
         lifecycle:
           type: string
-          enum:
-            [
-              draft,
-              ready,
-              active,
-              blocked,
-              accepted,
-              rejected_final,
-              abandoned,
-              cancelled,
-            ]
+          enum: [draft, pending, active, blocked, done]
+        done_reason:
+          type: string
+          enum: ["", accepted, failed, cancelled]
+          description: Set only when lifecycle=done.
         block_reason:
           type: string
           enum:
@@ -99,7 +92,6 @@ components:
               needs_plan_approval,
               planning_invalid,
               needs_verdict,
-              dep,
               env_unavailable,
               contract_conflict,
             ]
@@ -122,7 +114,7 @@ components:
           type: object
           additionalProperties: {}
           nullable: true
-          description: Frozen output, set when lifecycle=accepted.
+          description: Frozen output, set when done_reason=accepted.
         acceptance_seq: { type: integer }
         active_attempt_id:
           type: string
@@ -132,10 +124,6 @@ components:
         budget_bonus:
           type: integer
           description: Human-granted extra convergence attempts beyond max_attempts.
-        required_total: { type: integer }
-        required_accepted: { type: integer }
-        required_failed: { type: integer }
-        required_blocked: { type: integer }
         plan:
           type: object
           additionalProperties: {}

@@ -90,7 +90,7 @@ func TestWorkerRunsChecksInLiveSandboxAndRecordsExitCode(t *testing.T) {
 	if len(events) != 1 || !events[0].ExitCode.Valid || events[0].ExitCode.Int64 != 7 {
 		t.Fatalf("event exit=%+v len=%d, want real exit 7", events[0].ExitCode, len(events))
 	}
-	if got := h.get(d.ID).Lifecycle; got != LifecycleAccepted {
+	if got := h.get(d.ID).Lifecycle; got != LifecycleDone {
 		t.Fatalf("lifecycle=%q want accepted", got)
 	}
 }

@@ -90,7 +90,7 @@ func TestReview_AgentVerdictAccepts(t *testing.T) {
 	h.runReview(d.ID)
 
 	accepted := h.get(d.ID)
-	if accepted.Lifecycle != LifecycleAccepted {
+	if accepted.Lifecycle != LifecycleDone {
 		t.Fatalf("after agent verdict lifecycle=%q want accepted", accepted.Lifecycle)
 	}
 	var ao AcceptedOutput
@@ -117,7 +117,7 @@ func TestReview_AgentVerdictFailReworks(t *testing.T) {
 	h.runReview(d.ID)
 
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleReady {
+	if got.Lifecycle != LifecyclePending {
 		t.Fatalf("after fail verdict lifecycle=%q want ready (rework)", got.Lifecycle)
 	}
 	// The reviewer rationale rides as a gap on the rejected execution attempt.
@@ -171,7 +171,7 @@ func TestReview_BudgetDegradesToHuman(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("human verdict after budget: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("after human verdict lifecycle=%q want accepted", got.Lifecycle)
 	}
 }
@@ -227,13 +227,17 @@ func (h *harness) submitSyntheticExec(goalID, hash string) {
 	if err != nil {
 		h.t.Fatalf("max exec no: %v", err)
 	}
+	sid, err := h.sessionMinter()(ctx, d.UserID, d.AgentID, d.ProjectID.String)
+	if err != nil {
+		h.t.Fatalf("mint synthetic exec session: %v", err)
+	}
 	att, err := h.q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
 		ID:              newID(),
 		GoalID:          goalID,
 		UserID:          d.UserID,
 		AgentID:         pgnull.Text(d.AgentID),
 		ExecutorAgentID: pgnull.Text(d.AgentID),
-		SessionID:       d.SessionID,
+		SessionID:       sid,
 		Purpose:         PurposeExecution,
 		AttemptNo:       maxNo + 1,
 		Status:          AttemptQueued,
@@ -283,7 +287,7 @@ func TestReview_StaleVerdictDoesNotAccept(t *testing.T) {
 		[]ReviewVerdict{{ItemID: "review", Pass: true, Rationale: "lgtm"}}); err != nil {
 		t.Fatalf("submit stale review: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle == LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle == LifecycleDone {
 		t.Fatalf("stale verdict accepted the goal against a superseded output; want still blocked")
 	}
 }
@@ -317,7 +321,7 @@ func TestReview_BudgetResetsPerEpisode(t *testing.T) {
 	for ep := 1; ep <= 2; ep++ {
 		h.runLeaf(d.ID) // new output Hep
 		h.runReview(d.ID)
-		if got := h.get(d.ID); got.Lifecycle != LifecycleReady {
+		if got := h.get(d.ID); got.Lifecycle != LifecyclePending {
 			t.Fatalf("episode %d lifecycle=%q want ready (fail verdict reworks)", ep, got.Lifecycle)
 		}
 	}
@@ -325,7 +329,7 @@ func TestReview_BudgetResetsPerEpisode(t *testing.T) {
 	// BeginReview inside runReview would fail; a per-episode budget reviews freely.
 	h.runLeaf(d.ID) // H3
 	h.runReview(d.ID)
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("episode 3 lifecycle=%q want accepted (budget must reset per episode)", got.Lifecycle)
 	}
 }
@@ -354,7 +358,7 @@ func TestReview_QueuedReapDoesNotChargeBudget(t *testing.T) {
 	}
 	// Budget intact: a real review still mints, runs, and accepts.
 	h.runReview(d.ID)
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("after %d queued reaps lifecycle=%q want accepted (queued reap must not charge)", defaultMaxReviewAttempts, got.Lifecycle)
 	}
 }
@@ -425,7 +429,7 @@ func TestReview_ContractRetypeDropsVerdict(t *testing.T) {
 		[]ReviewVerdict{{ItemID: "review", Pass: true, Rationale: "lgtm"}}); err != nil {
 		t.Fatalf("submit review after retype: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle == LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle == LifecycleDone {
 		t.Fatalf("stale agent verdict satisfied a retyped human gate; want still blocked")
 	}
 }
@@ -456,7 +460,7 @@ func TestReview_DropsVerdictWhenAlreadyResolved(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("human verdict: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("precondition: human verdict should have accepted, got %q", got.Lifecycle)
 	}
 	// The late reviewer submit (a fail) must be dropped, not fold into a rework.
@@ -464,7 +468,7 @@ func TestReview_DropsVerdictWhenAlreadyResolved(t *testing.T) {
 		[]ReviewVerdict{{ItemID: "review", Pass: false, Rationale: "reject"}}); err != nil {
 		t.Fatalf("submit review after resolved: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("late verdict moved a resolved goal lifecycle=%q want accepted", got.Lifecycle)
 	}
 }
@@ -521,7 +525,7 @@ func TestReview_CompositeAgentVerdictAccepts(t *testing.T) {
 	}
 
 	accepted := h.get(root.ID)
-	if accepted.Lifecycle != LifecycleAccepted {
+	if accepted.Lifecycle != LifecycleDone {
 		t.Fatalf("after composite agent verdict lifecycle=%q want accepted", accepted.Lifecycle)
 	}
 	var ao AcceptedOutput
@@ -557,7 +561,7 @@ func TestReview_CompositeFailVerdictParksForHuman(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("human override verdict: %v", err)
 	}
-	if got := h.get(root.ID).Lifecycle; got != LifecycleAccepted {
+	if got := h.get(root.ID).Lifecycle; got != LifecycleDone {
 		t.Fatalf("after human override lifecycle=%q want accepted", got)
 	}
 }
@@ -616,7 +620,7 @@ func TestReview_CompositeBudgetDegradesToHuman(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("human verdict after budget: %v", err)
 	}
-	if got := h.get(root.ID).Lifecycle; got != LifecycleAccepted {
+	if got := h.get(root.ID).Lifecycle; got != LifecycleDone {
 		t.Fatalf("after human verdict lifecycle=%q want accepted", got)
 	}
 }
@@ -747,7 +751,7 @@ func TestReview_SuccessfulReviewKeepsSession(t *testing.T) {
 	h.activate(d.ID)
 	h.runLeaf(d.ID)
 	h.runReview(d.ID)
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("want accepted, got %q", got.Lifecycle)
 	}
 	if len(disposed) != 0 {

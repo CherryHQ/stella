@@ -34,7 +34,6 @@ import {
   goalEventsOptions,
   goalOptions,
   goalReadinessOptions,
-  goalSubtreeOptions,
 } from "@/lib/queries/goals";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -167,7 +166,6 @@ export function GoalPage() {
           act={act}
           path={path}
           onVerdict={() => goTab("acceptance")}
-          onWaive={() => goTab("deps")}
           onTimeline={() => goTab("timeline")}
           onContract={() => goTab("acceptance")}
           onEnvironmentRetry={retryEnvironment}
@@ -217,7 +215,6 @@ export function GoalPage() {
             acting={acting}
             act={act}
             onVerdict={() => goTab("acceptance")}
-            onWaive={() => goTab("deps")}
             onPlan={() => goTab("plan")}
             onTimeline={() => goTab("timeline")}
             onContract={() => goTab("acceptance")}
@@ -263,7 +260,6 @@ type BlockActionKind =
   | "budget"
   | "environment"
   | "contract"
-  | "dependency"
   | "review"
   | "plan"
   | "planning"
@@ -277,7 +273,6 @@ function blockActionKind(d: ComponentsGoal): BlockActionKind {
     return "contract";
   }
   if (d.block_reason === "budget_exhausted") return "budget";
-  if (d.block_reason === "dep") return "dependency";
   if (d.block_reason === "needs_verdict") return "review";
   if (d.block_reason === "needs_plan_approval") return "plan";
   if (d.block_reason === "planning_invalid") return "planning";
@@ -290,7 +285,6 @@ function HeaderActions({
   act,
   path,
   onVerdict,
-  onWaive,
   onTimeline,
   onContract,
   onEnvironmentRetry,
@@ -300,7 +294,6 @@ function HeaderActions({
   act: ActRun;
   path: { id: string };
   onVerdict: () => void;
-  onWaive: () => void;
   onTimeline: () => void;
   onContract: () => void;
   onEnvironmentRetry: () => void;
@@ -327,7 +320,7 @@ function HeaderActions({
 
   return (
     <>
-      {d.active_attempt_id && (lc === "active" || lc === "ready") && (
+      {d.active_attempt_id && (lc === "active" || lc === "pending") && (
         <span className="inline-flex items-center gap-1.5 self-center font-mono text-xs text-chart-2">
           <span className="size-1.5 animate-pulse rounded-full bg-chart-2" />
           {t("goals.attemptRunning")}
@@ -406,13 +399,7 @@ function HeaderActions({
         </Button>
       )}
 
-      {lc === "blocked" && reason === "dep" && (
-        <Button variant="outline" size="sm" onClick={onWaive}>
-          {t("goals.waive")}
-        </Button>
-      )}
-
-      {!archived && ["accepted", "rejected_final", "abandoned", "cancelled"].includes(lc) && (
+      {!archived && lc === "done" && (
         <Button
           variant="outline"
           size="sm"
@@ -434,7 +421,7 @@ function HeaderActions({
         </Button>
       )}
 
-      {["draft", "ready", "active"].includes(lc) && cancelBtn}
+      {["draft", "pending", "active"].includes(lc) && cancelBtn}
       {lc === "blocked" && cancelBtn}
     </>
   );
@@ -448,7 +435,6 @@ function OverviewTab({
   acting,
   act,
   onVerdict,
-  onWaive,
   onPlan,
   onTimeline,
   onContract,
@@ -459,7 +445,6 @@ function OverviewTab({
   acting: boolean;
   act: ActRun;
   onVerdict: () => void;
-  onWaive: () => void;
   onPlan: () => void;
   onTimeline: () => void;
   onContract: () => void;
@@ -469,16 +454,6 @@ function OverviewTab({
   const { data: readiness } = useQuery(goalReadinessOptions(d.id));
   const isComposite = d.kind === "composite";
   const blocked = d.lifecycle === "blocked";
-  // A dep-blocked composite is stalled by a descendant whose block carries the
-  // real recovery action; surface those culprits so the user isn't dead-ended
-  // here. Whole-tree scan, not strict-descendant/required-only — any true-cause
-  // block in the tree gates the root and is worth showing.
-  const depBlocked = blocked && isComposite && d.block_reason === "dep";
-  const { data: subtree = [] } = useQuery(goalSubtreeOptions(depBlocked ? d.root_id : undefined));
-  const culprits = subtree.filter(
-    (g) => g.id !== d.id && g.lifecycle === "blocked" && g.block_reason !== "dep",
-  );
-
   return (
     <div className="space-y-1">
       {d.intent && (
@@ -553,35 +528,6 @@ function OverviewTab({
               <Button variant="outline" size="sm" className="mt-3" onClick={onContract}>
                 {t("goals.editContract")}
               </Button>
-            )}
-            {d.block_reason === "dep" && (
-              <div className="mt-3 space-y-2">
-                {culprits.length > 0 && (
-                  <>
-                    <p className="text-xs text-muted-foreground">{t("goals.depCulpritsHint")}</p>
-                    <div className="overflow-hidden rounded-lg border border-border">
-                      {culprits.map((g) => (
-                        <Link
-                          key={g.id}
-                          to="/agents/$agentId/goals/$goalId"
-                          params={{ agentId, goalId: g.id }}
-                          className="flex w-full items-center gap-3 border-b border-border bg-background px-3 py-2.5 text-left last:border-b-0 hover:bg-muted/50"
-                        >
-                          <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                            {g.title}
-                          </span>
-                          <span className="shrink-0 text-xs text-chart-4">
-                            {blockReasonLabel(t, g)}
-                          </span>
-                        </Link>
-                      ))}
-                    </div>
-                  </>
-                )}
-                <Button variant="outline" size="sm" onClick={onWaive}>
-                  {t("goals.waive")}
-                </Button>
-              </div>
             )}
             {d.block_reason === "needs_plan_approval" && (
               <Button size="sm" className="mt-3" onClick={onPlan}>
@@ -730,8 +676,8 @@ function ChildrenTab({ d, agentId }: { d: ComponentsGoal; agentId: string }) {
           <span className="font-semibold">{t("goals.childrenTitle")}</span>
           <span>
             {t("goals.requiredOf", {
-              accepted: d.required_accepted ?? r.accepted,
-              total: d.required_total ?? r.total,
+              accepted: r.accepted,
+              total: r.total,
             })}
           </span>
         </div>

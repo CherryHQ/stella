@@ -29,7 +29,7 @@ func TestListZombieGoals(t *testing.T) {
 
 	// Zombie 1: a composite in ready — nothing claims it.
 	readyComposite := h.createRoot(KindComposite, AcceptanceContract{})
-	h.forceZombieState(readyComposite.ID, LifecycleReady, 10*time.Minute)
+	h.forceZombieState(readyComposite.ID, LifecyclePending, 10*time.Minute)
 
 	// Zombie 2: a stranded active leaf — no pointer, no in-flight attempt.
 	strandedLeaf := h.createRoot(KindLeaf, AcceptanceContract{})
@@ -44,7 +44,7 @@ func TestListZombieGoals(t *testing.T) {
 
 	// Control 2: a fresh ready composite is inside the grace window.
 	freshReady := h.createRoot(KindComposite, AcceptanceContract{})
-	h.forceZombieState(freshReady.ID, LifecycleReady, time.Minute)
+	h.forceZombieState(freshReady.ID, LifecyclePending, time.Minute)
 
 	// Control 3: terminal rows are never zombies.
 	cancelled := h.createRoot(KindLeaf, AcceptanceContract{})

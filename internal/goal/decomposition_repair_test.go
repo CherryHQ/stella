@@ -65,7 +65,7 @@ func TestDecompositionRepairLoop_ReusesPlanningSessionAndMaterializes(t *testing
 	if !got.PlannedAt.Valid || got.Lifecycle != LifecycleActive {
 		t.Fatalf("root planned=%v lifecycle=%q want planned active", got.PlannedAt.Valid, got.Lifecycle)
 	}
-	if child := h.get(childID(root.ID, "a")); child.Lifecycle != LifecycleReady {
+	if child := h.get(childID(root.ID, "a")); child.Lifecycle != LifecyclePending {
 		t.Fatalf("materialized child lifecycle=%q want ready", child.Lifecycle)
 	}
 	attempts, err := h.q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: root.ID, Purpose: pgnull.Text(PurposeDecomposition)})

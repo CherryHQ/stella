@@ -26,7 +26,7 @@ export function itemUpdatedAt(item: AutomationItem): string {
   return item.data.updated_at;
 }
 
-const TERMINAL = new Set(["accepted", "rejected_final", "abandoned", "cancelled"]);
+const TERMINAL = new Set(["done"]);
 
 /**
  * A root goal needs you only when its block has a human recovery action.

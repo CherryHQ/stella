@@ -163,6 +163,7 @@ const listEdgeWithUpstreamState = `-- name: ListEdgeWithUpstreamState :many
 SELECT
     e.goal_id, e.upstream_id, e.edge_kind, e.on_failure, e.waived_at, e.waived_by_user, e.waiver_reason, e.created_at,
     u.lifecycle AS upstream_lifecycle,
+    u.done_reason AS upstream_done_reason,
     u.accepted_output AS upstream_output
 FROM agent_goal_edge e
 JOIN agent_goal u ON u.id = e.upstream_id
@@ -171,16 +172,17 @@ ORDER BY e.created_at
 `
 
 type ListEdgeWithUpstreamStateRow struct {
-	GoalID            string             `json:"goal_id"`
-	UpstreamID        string             `json:"upstream_id"`
-	EdgeKind          string             `json:"edge_kind"`
-	OnFailure         string             `json:"on_failure"`
-	WaivedAt          pgtype.Timestamptz `json:"waived_at"`
-	WaivedByUser      pgtype.Text        `json:"waived_by_user"`
-	WaiverReason      string             `json:"waiver_reason"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpstreamLifecycle string             `json:"upstream_lifecycle"`
-	UpstreamOutput    pgtype.Text        `json:"upstream_output"`
+	GoalID             string             `json:"goal_id"`
+	UpstreamID         string             `json:"upstream_id"`
+	EdgeKind           string             `json:"edge_kind"`
+	OnFailure          string             `json:"on_failure"`
+	WaivedAt           pgtype.Timestamptz `json:"waived_at"`
+	WaivedByUser       pgtype.Text        `json:"waived_by_user"`
+	WaiverReason       string             `json:"waiver_reason"`
+	CreatedAt          time.Time          `json:"created_at"`
+	UpstreamLifecycle  string             `json:"upstream_lifecycle"`
+	UpstreamDoneReason string             `json:"upstream_done_reason"`
+	UpstreamOutput     pgtype.Text        `json:"upstream_output"`
 }
 
 func (q *Queries) ListEdgeWithUpstreamState(ctx context.Context, goalID string) ([]ListEdgeWithUpstreamStateRow, error) {
@@ -202,6 +204,7 @@ func (q *Queries) ListEdgeWithUpstreamState(ctx context.Context, goalID string) 
 			&i.WaiverReason,
 			&i.CreatedAt,
 			&i.UpstreamLifecycle,
+			&i.UpstreamDoneReason,
 			&i.UpstreamOutput,
 		); err != nil {
 			return nil, err

@@ -53,7 +53,7 @@ func upstreamAcceptedOutputs(ctx context.Context, q *sqlc.Queries, goalID string
 	}
 	var outs []AcceptedOutput
 	for _, e := range edges {
-		if e.UpstreamLifecycle != LifecycleAccepted || !e.UpstreamOutput.Valid {
+		if e.UpstreamLifecycle != LifecycleDone || !e.UpstreamOutput.Valid {
 			continue
 		}
 		var ao AcceptedOutput
@@ -96,7 +96,7 @@ func (s *GoalService) Claim(ctx context.Context, id, workerID string, enqueue At
 	if err != nil {
 		return sqlc.AgentGoalAttempt{}, err
 	}
-	if d.Kind != KindLeaf || d.Lifecycle != LifecycleReady || d.ActiveAttemptID.Valid {
+	if d.Kind != KindLeaf || d.Lifecycle != LifecyclePending || d.ActiveAttemptID.Valid {
 		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
 	}
 	executorAgentID := dispatchExecutor(d)
@@ -119,7 +119,7 @@ func (s *GoalService) Claim(ctx context.Context, id, workerID string, enqueue At
 		lease:         nullTime(s.nowTime().Add(claimGraceTTL)),
 		enqueue:       enqueue,
 		prepare: func(ctx context.Context, q *sqlc.Queries, cur sqlc.AgentGoal, attemptNo int) (AttemptInput, error) {
-			if cur.Kind != KindLeaf || cur.Lifecycle != LifecycleReady || cur.ActiveAttemptID.Valid || dispatchExecutor(cur) != executorAgentID {
+			if cur.Kind != KindLeaf || cur.Lifecycle != LifecyclePending || cur.ActiveAttemptID.Valid || dispatchExecutor(cur) != executorAgentID {
 				return AttemptInput{}, ErrInvalidTransition
 			}
 			upstream, err := upstreamAcceptedOutputs(ctx, q, cur.ID)
@@ -300,10 +300,8 @@ func (s *GoalService) recoverDecomposition(ctx context.Context, q *sqlc.Queries,
 // releases them so the tree runs; for review_policy=human it parks the composite
 // blocked(needs_plan_approval) so a human can ApprovePlan/RejectPlan. It is the
 // decomposition analogue of Submit and the single durable transition the worker
-// applies for a purpose=decomposition attempt. For the none path child sessions
-// are pre-minted OUTSIDE the tx (their own minting tx would self-deadlock against
-// the held one); everything else runs in ONE tx so a crash never leaves a
-// half-planned composite.
+// applies for a purpose=decomposition attempt. Everything runs in ONE tx so a
+// crash never leaves a half-planned composite.
 func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string, ev AttemptEvidence, content DecompositionContent) error {
 	att, err := s.q.GetAttempt(ctx, attemptID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -323,26 +321,6 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 		return err
 	}
 	humanReview := parent.ReviewPolicy == ReviewHuman
-
-	// Pre-mint a session per child OUTSIDE the tx, but only for the none path that
-	// materializes now. The human path defers materialize (and session minting) to
-	// ApprovePlan, so it mints nothing here.
-	childSessions := make(map[string]string, len(content.Children))
-	if !humanReview {
-		if s.newSession == nil {
-			return fmt.Errorf("goal: no worker session minter configured")
-		}
-		for _, ch := range content.Children {
-			sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
-			if err != nil {
-				// A mid-batch mint failure orphans the children minted before it (no tx
-				// has run yet); archive them so the partial batch does not leak.
-				s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
-				return fmt.Errorf("mint child session %q: %w", ch.Key, err)
-			}
-			childSessions[ch.Key] = sid
-		}
-	}
 
 	err = s.withTx(ctx, func(q *sqlc.Queries) error {
 		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
@@ -385,22 +363,18 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 
 		// review_policy=none: materialize now and release children. The composite
 		// stays active for rollup.
-		if err := s.Materialize(ctx, q, parent, content, childSessions); err != nil {
+		if err := s.Materialize(ctx, q, parent, content, nil); err != nil {
 			return err
 		}
 		return s.releaseChildren(ctx, q, parent.ID)
 	})
-	// On a definite rollback, archive the child sessions pre-minted above (none on
-	// the human-review path) so they are not orphaned.
-	s.disposeOnRollback(ctx, err, parent.UserID, parent.AgentID, mapValues(childSessions)...)
 	return err
 }
 
 // ApprovePlan applies a human approval of a composite's proposed plan: it
 // materializes the children and releases them, moving the composite out of
-// blocked(needs_plan_approval) back to active for rollup (contract §2.3). Child
-// sessions are pre-minted OUTSIDE the tx (mirrors the none path in
-// SubmitDecomposition). Only a composite blocked on plan approval is accepted.
+// blocked(needs_plan_approval) back to active for rollup (contract §2.3). Only a
+// composite blocked on plan approval is accepted.
 func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) error {
 	parent, err := getGoal(ctx, s.q, goalID)
 	if err != nil {
@@ -417,21 +391,6 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 	if err := s.validateContent(ctx, parent, content); err != nil {
 		return err
 	}
-	if s.newSession == nil {
-		return fmt.Errorf("goal: no worker session minter configured")
-	}
-	childSessions := make(map[string]string, len(content.Children))
-	for _, ch := range content.Children {
-		sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
-		if err != nil {
-			// A mid-batch mint failure orphans the children minted before it (no tx
-			// has run yet); archive them so the partial batch does not leak.
-			s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
-			return fmt.Errorf("mint child session %q: %w", ch.Key, err)
-		}
-		childSessions[ch.Key] = sid
-	}
-
 	err = s.withTx(ctx, func(q *sqlc.Queries) error {
 		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
 			return fmt.Errorf("lock goal for plan approval: %w", err)
@@ -444,7 +403,7 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 		if cur.Lifecycle != LifecycleBlocked || cur.BlockReason != BlockNeedsPlanApproval {
 			return ErrInvalidTransition
 		}
-		if err := s.Materialize(ctx, q, cur, content, childSessions); err != nil {
+		if err := s.Materialize(ctx, q, cur, content, nil); err != nil {
 			return err
 		}
 		rows, err := s.transitionGoalLifecycle(ctx, q, cur, LifecycleActive, "")
@@ -456,20 +415,7 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 		}
 		return s.releaseChildren(ctx, q, cur.ID)
 	})
-	// On a definite rollback (concurrent reject/approve / collision), archive the
-	// child sessions pre-minted above so they are not orphaned.
-	s.disposeOnRollback(ctx, err, parent.UserID, parent.AgentID, mapValues(childSessions)...)
 	return err
-}
-
-// mapValues returns a map's values as a slice in unspecified order. Used to feed
-// a pre-minted child-session map to disposeOrphanSessions on a rollback.
-func mapValues(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for _, v := range m {
-		out = append(out, v)
-	}
-	return out
 }
 
 // RejectPlan applies a human rejection of a composite's proposed plan: it clears
@@ -517,7 +463,7 @@ func (s *GoalService) releaseChildren(ctx context.Context, q *sqlc.Queries, pare
 		if c.Lifecycle != LifecycleDraft || c.Kind == KindComposite {
 			continue // composite children await their own decomposition (still draft)
 		}
-		if _, err := s.transitionGoalLifecycle(ctx, q, c, LifecycleReady, ""); err != nil {
+		if _, err := s.transitionGoalLifecycle(ctx, q, c, LifecyclePending, ""); err != nil {
 			return fmt.Errorf("release child: %w", err)
 		}
 	}
@@ -679,7 +625,7 @@ func (s *GoalService) acceptFolded(ctx context.Context, q *sqlc.Queries, d sqlc.
 	// state, not a conflict — return nil rather than a 0-row AcceptGoal
 	// (which guards from 'active') so the verdict path is idempotent and the
 	// parent counter is bumped exactly once. Mirrors blockForVerdict's guard.
-	if d.Lifecycle == LifecycleAccepted {
+	if d.Lifecycle == LifecycleDone {
 		return nil
 	}
 	accepted := AcceptedOutput{
@@ -804,9 +750,9 @@ func (s *GoalService) branchOnFailure(ctx context.Context, q *sqlc.Queries, d sq
 	// Budget exhausted: terminal/blocked per policy and contract shape.
 	switch {
 	case judgmentOnlyContract(d):
-		return s.transition(ctx, q, d, LifecycleRejectedFinal, "", counterFailed)
+		return s.transition(ctx, q, d, LifecycleDone, "", counterFailed)
 	case pol.Escalation == EscalationAbandon:
-		return s.transition(ctx, q, d, LifecycleAbandoned, "", counterFailed)
+		return s.transition(ctx, q, d, LifecycleDone, "", counterFailed)
 	default:
 		return s.blockBudget(ctx, q, d)
 	}
@@ -819,7 +765,7 @@ func (s *GoalService) reopenForRework(ctx context.Context, q *sqlc.Queries, d sq
 	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 		return fmt.Errorf("clear active attempt: %w", err)
 	}
-	rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleReady, "")
+	rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecyclePending, "")
 	if err != nil {
 		return fmt.Errorf("reopen for rework: %w", err)
 	}

@@ -42,7 +42,6 @@ type AgentGoal struct {
 	RootID             string             `json:"root_id"`
 	Depth              int64              `json:"depth"`
 	Position           int64              `json:"position"`
-	SessionID          string             `json:"session_id"`
 	Title              string             `json:"title"`
 	Intent             string             `json:"intent"`
 	Kind               string             `json:"kind"`
@@ -58,10 +57,6 @@ type AgentGoal struct {
 	AcceptanceSeq      int64              `json:"acceptance_seq"`
 	ActiveAttemptID    pgtype.Text        `json:"active_attempt_id"`
 	AttemptCount       int64              `json:"attempt_count"`
-	RequiredTotal      int64              `json:"required_total"`
-	RequiredAccepted   int64              `json:"required_accepted"`
-	RequiredFailed     int64              `json:"required_failed"`
-	RequiredBlocked    int64              `json:"required_blocked"`
 	Context            json.RawMessage    `json:"context"`
 	DispatchHint       json.RawMessage    `json:"dispatch_hint"`
 	CreatedAt          time.Time          `json:"created_at"`
@@ -72,8 +67,9 @@ type AgentGoal struct {
 	Plan               json.RawMessage    `json:"plan"`
 	PlannedAt          pgtype.Timestamptz `json:"planned_at"`
 	// Infrastructure-flaky retry count independent of business attempt budget.
-	FlakyCount  int64 `json:"flaky_count"`
-	BudgetBonus int32 `json:"budget_bonus"`
+	FlakyCount  int64  `json:"flaky_count"`
+	BudgetBonus int32  `json:"budget_bonus"`
+	DoneReason  string `json:"done_reason"`
 }
 
 type AgentGoalAcceptanceEvent struct {

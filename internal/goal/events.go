@@ -154,8 +154,13 @@ func (s *GoalService) transitionGoalLifecycle(ctx context.Context, q *sqlc.Queri
 	if !LegalLifecycleTransition(d.Kind, d.Lifecycle, to) {
 		return 0, fmt.Errorf("%w: %s %s -> %s (goal %s)", ErrIllegalLifecycleMove, d.Kind, d.Lifecycle, to, d.ID)
 	}
+	doneReason := ""
+	if to == LifecycleDone {
+		doneReason = DoneReasonFailed
+	}
 	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
 		ToLifecycle:   to,
+		DoneReason:    doneReason,
 		BlockReason:   blockReason,
 		ID:            d.ID,
 		FromLifecycle: d.Lifecycle,
@@ -189,7 +194,7 @@ func (s *GoalService) acceptGoal(ctx context.Context, q *sqlc.Queries, d sqlc.Ag
 	if err != nil || rows == 0 {
 		return rows, err
 	}
-	_, err = s.appendGoalEvent(ctx, q, d.ID, accepted.SourceAttempt, GoalEventLifecycleChanged, LifecycleChangedPayload{From: d.Lifecycle, To: LifecycleAccepted})
+	_, err = s.appendGoalEvent(ctx, q, d.ID, accepted.SourceAttempt, GoalEventLifecycleChanged, LifecycleChangedPayload{From: d.Lifecycle, To: LifecycleDone})
 	return rows, err
 }
 
@@ -197,7 +202,7 @@ func (s *GoalService) cancelGoal(ctx context.Context, q *sqlc.Queries, d sqlc.Ag
 	if err := q.CancelGoal(ctx, d.ID); err != nil {
 		return err
 	}
-	_, err := s.appendGoalEvent(ctx, q, d.ID, d.ActiveAttemptID.String, GoalEventLifecycleChanged, LifecycleChangedPayload{From: d.Lifecycle, To: LifecycleCancelled})
+	_, err := s.appendGoalEvent(ctx, q, d.ID, d.ActiveAttemptID.String, GoalEventLifecycleChanged, LifecycleChangedPayload{From: d.Lifecycle, To: LifecycleDone})
 	return err
 }
 
@@ -334,9 +339,9 @@ func (s *GoalService) priorGapsFromTimeline(ctx context.Context, q *sqlc.Queries
 	return &gaps, nil
 }
 
-// AddHumanMessage appends a human timeline message. A non-dependency blocked goal
-// treats the message as explicit authorization for one more attempt and re-enters
-// the existing recovery lifecycle; dependency blocks only record context.
+// AddHumanMessage appends a human timeline message. A blocked goal treats the
+// message as explicit authorization for one more attempt and re-enters the
+// existing recovery lifecycle.
 func (s *GoalService) AddHumanMessage(ctx context.Context, in HumanMessageInput) (sqlc.AgentGoalEvent, error) {
 	if in.Text == "" {
 		return sqlc.AgentGoalEvent{}, ErrInvalidEvidence
@@ -347,14 +352,10 @@ func (s *GoalService) AddHumanMessage(ctx context.Context, in HumanMessageInput)
 		if err != nil {
 			return err
 		}
-		authorize := d.Lifecycle == LifecycleBlocked && d.BlockReason != BlockDep
+		authorize := d.Lifecycle == LifecycleBlocked
 		skipped := ""
 		if !authorize {
-			if d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockDep {
-				skipped = "blocked_by_dependency"
-			} else {
-				skipped = "goal_not_blocked"
-			}
+			skipped = "goal_not_blocked"
 		}
 		row, err := s.appendGoalEvent(ctx, q, d.ID, d.ActiveAttemptID.String, GoalEventHumanMessage, HumanMessagePayload{
 			Text:                  in.Text,

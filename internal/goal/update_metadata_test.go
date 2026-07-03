@@ -32,13 +32,13 @@ func TestUpdateMetadataContractEditRecoversContractConflictLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateMetadata: %v", err)
 	}
-	if out.Lifecycle != LifecycleReady || out.BlockReason != "" {
+	if out.Lifecycle != LifecyclePending || out.BlockReason != "" {
 		t.Fatalf("after contract edit lifecycle=%q block=%q want ready", out.Lifecycle, out.BlockReason)
 	}
 	if got := maxAttempts(t, out); got != beforeBudget {
 		t.Fatalf("max_attempts=%d want unchanged %d", got, beforeBudget)
 	}
-	assertLastLifecycleEvent(t, h, d.ID, LifecycleBlocked, LifecycleReady)
+	assertLastLifecycleEvent(t, h, d.ID, LifecycleBlocked, LifecyclePending)
 }
 
 func TestUpdateMetadataContractEditRecoversContractConflictComposite(t *testing.T) {
@@ -66,7 +66,7 @@ func TestUpdateMetadataIntentEditRecoversContractConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateMetadata: %v", err)
 	}
-	if out.Lifecycle != LifecycleReady || out.BlockReason != "" {
+	if out.Lifecycle != LifecyclePending || out.BlockReason != "" {
 		t.Fatalf("after intent edit lifecycle=%q block=%q want ready", out.Lifecycle, out.BlockReason)
 	}
 	if out.Intent != intent {

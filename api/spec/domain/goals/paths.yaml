@@ -18,7 +18,7 @@ paths:
           required: false
           description: >-
             Split active vs history: false returns non-terminal roots, true
-            returns terminal ones (accepted/rejected_final/abandoned/cancelled).
+            returns terminal ones (lifecycle=done).
             Omit for both.
           schema: { type: boolean }
         - name: q
@@ -194,7 +194,7 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
-      summary: Activate a goal (plan gate; draft → ready)
+      summary: Activate a goal (plan gate; draft -> pending)
       operationId: activateGoal
       responses:
         "200":
@@ -551,7 +551,7 @@ paths:
       - { name: upstreamId, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
-      summary: Waive a hard edge so a blocked(dep) downstream can proceed
+      summary: Waive a hard edge so downstream readiness can proceed
       operationId: waiveEdge
       requestBody:
         required: false

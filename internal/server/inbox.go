@@ -147,7 +147,7 @@ func inboxFacetForGoal(lifecycle, blockReason string) (apitypes.InboxItemKind, s
 			return apitypes.InboxItemKindBlocked, "blocked", "Blocked"
 		}
 	}
-	if lifecycle == goal.LifecycleAbandoned {
+	if lifecycle == goal.LifecycleDone {
 		return apitypes.InboxItemKindFailed, "failed", "Abandoned after budget exhaustion"
 	}
 	// rejected_final

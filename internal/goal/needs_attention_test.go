@@ -13,9 +13,13 @@ import (
 // transition table would never produce.
 func (h *harness) forceBlockState(id, lifecycle, blockReason string) {
 	h.t.Helper()
+	doneReason := ""
+	if lifecycle == LifecycleDone {
+		doneReason = DoneReasonCancelled
+	}
 	if _, err := h.db.Exec(context.Background(), `
-		UPDATE agent_goal SET lifecycle = $2, block_reason = $3
-		WHERE id = $1`, id, lifecycle, blockReason); err != nil {
+		UPDATE agent_goal SET lifecycle = $2, block_reason = $3, done_reason = $4
+		WHERE id = $1`, id, lifecycle, blockReason, doneReason); err != nil {
 		h.t.Fatalf("force block state: %v", err)
 	}
 }
@@ -46,7 +50,7 @@ func TestListInboxGoalsMatchesNeedsAttention(t *testing.T) {
 	}
 
 	blockReasons := []string{
-		BlockDep, BlockNeedsVerdict, BlockNeedsPlanApproval, BlockBudgetExhausted,
+		BlockNeedsVerdict, BlockNeedsPlanApproval, BlockBudgetExhausted,
 		BlockPlanningInvalid, BlockEnvUnavailable, BlockContractConflict,
 	}
 	for _, br := range blockReasons {
@@ -55,13 +59,12 @@ func TestListInboxGoalsMatchesNeedsAttention(t *testing.T) {
 	// accepted is omitted: agent_goal_check4 demands a real accepted_output,
 	// and NeedsAttention only keys on lifecycle != blocked anyway.
 	for _, lc := range []string{
-		LifecycleDraft, LifecycleReady, LifecycleActive,
-		LifecycleRejectedFinal, LifecycleCancelled,
+		LifecycleDraft, LifecyclePending, LifecycleActive, LifecycleDone,
 	} {
 		seed(lc, "")
 	}
 	// Residual block cause on a terminal row must not resurface in the inbox.
-	seed(LifecycleCancelled, BlockNeedsVerdict)
+	seed(LifecycleDone, BlockNeedsVerdict)
 
 	rows, err := h.q.ListInboxGoals(ctx, sqlc.ListInboxGoalsParams{
 		UserID:     h.userID,

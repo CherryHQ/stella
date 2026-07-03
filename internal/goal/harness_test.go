@@ -183,11 +183,11 @@ func TestHarness_CreateActivateLeaf(t *testing.T) {
 		t.Fatalf("new leaf lifecycle=%q want draft", d.Lifecycle)
 	}
 	h.activate(d.ID)
-	if got := h.get(d.ID).Lifecycle; got != LifecycleReady {
+	if got := h.get(d.ID).Lifecycle; got != LifecyclePending {
 		t.Fatalf("after activate lifecycle=%q want ready", got)
 	}
 	h.runLeaf(d.ID)
-	if got := h.get(d.ID).Lifecycle; got != LifecycleAccepted {
+	if got := h.get(d.ID).Lifecycle; got != LifecycleDone {
 		t.Fatalf("after run lifecycle=%q want accepted", got)
 	}
 }

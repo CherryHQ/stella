@@ -60,7 +60,7 @@ function schedulerJobRecentRunsOptions(agentId: string, jobId: string) {
   });
 }
 
-const TERMINAL = new Set(["accepted", "rejected_final", "abandoned", "cancelled"]);
+const TERMINAL = new Set(["done"]);
 type GoalTab = "acceptance" | "plan";
 
 export function OverviewPage() {
@@ -114,7 +114,9 @@ export function OverviewPage() {
     const cutoff = Date.now() - 7 * 86_400_000;
     return goals.filter(
       (d) =>
-        d.lifecycle === "accepted" && new Date(d.accepted_at ?? d.updated_at).getTime() >= cutoff,
+        d.lifecycle === "done" &&
+        d.done_reason === "accepted" &&
+        new Date(d.accepted_at ?? d.updated_at).getTime() >= cutoff,
     ).length;
   }, [goals]);
 

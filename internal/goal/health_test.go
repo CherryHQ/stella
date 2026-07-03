@@ -18,9 +18,9 @@ func TestHealthReportAggregatesGoalExecutionMetrics(t *testing.T) {
 	blocked := h.createRoot(KindLeaf, AcceptanceContract{})
 	cancelled := h.createRoot(KindLeaf, AcceptanceContract{})
 
-	h.setGoalHealthState(accepted.ID, LifecycleAccepted, "", now.Add(-10*time.Hour), now.Add(-8*time.Hour))
+	h.setGoalHealthState(accepted.ID, LifecycleDone, "", now.Add(-10*time.Hour), now.Add(-8*time.Hour))
 	h.setGoalHealthState(blocked.ID, LifecycleBlocked, BlockEnvUnavailable, now.Add(-9*time.Hour), now.Add(-6*time.Hour))
-	h.setGoalHealthState(cancelled.ID, LifecycleCancelled, "", now.Add(-5*time.Hour), now.Add(-4*time.Hour))
+	h.setGoalHealthState(cancelled.ID, LifecycleDone, "", now.Add(-5*time.Hour), now.Add(-4*time.Hour))
 
 	acceptedExec2 := h.insertHealthAttempt(accepted.ID, PurposeExecution, 2, AttemptSubmitted, "", 0, now.Add(-8*time.Hour), now.Add(-8*time.Hour+2*time.Minute))
 	h.insertHealthAttempt(accepted.ID, PurposeDecomposition, 1, AttemptSubmitted, "", 2, now.Add(-10*time.Hour), now.Add(-10*time.Hour+time.Minute))
@@ -42,9 +42,8 @@ func TestHealthReportAggregatesGoalExecutionMetrics(t *testing.T) {
 	if report.TotalGoals != 3 {
 		t.Fatalf("total_goals=%d want 3", report.TotalGoals)
 	}
-	assertCount(t, report.LifecycleCounts, LifecycleAccepted, 1)
+	assertCount(t, report.LifecycleCounts, LifecycleDone, 2)
 	assertCount(t, report.LifecycleCounts, LifecycleBlocked, 1)
-	assertCount(t, report.LifecycleCounts, LifecycleCancelled, 1)
 	assertCount(t, report.BlockedReasonCounts, BlockEnvUnavailable, 1)
 
 	exec := findPurpose(t, report.AttemptPurposes, PurposeExecution)
@@ -82,26 +81,26 @@ func (h *harness) setGoalHealthState(id, lifecycle, blockReason string, createdA
 	acceptedOutput := any(nil)
 	acceptedAt := any(nil)
 	cancelledAt := any(nil)
+	doneReason := ""
 	acceptanceState := AcceptancePending
-	if lifecycle == LifecycleAccepted {
+	if lifecycle == LifecycleDone {
 		acceptedOutput = `{"summary":"ok"}`
 		acceptedAt = endedAt
 		acceptanceState = AcceptancePassed
-	}
-	if lifecycle == LifecycleCancelled {
-		cancelledAt = endedAt
+		doneReason = DoneReasonAccepted
 	}
 	if _, err := h.db.Exec(context.Background(), `
 		UPDATE agent_goal
 		SET lifecycle = $2,
 		    block_reason = $3,
-		    acceptance_state = $4,
-		    accepted_output = $5,
-		    accepted_at = $6,
-		    cancelled_at = $7,
-		    created_at = $8,
-		    updated_at = $9
-		WHERE id = $1`, id, lifecycle, blockReason, acceptanceState, acceptedOutput, acceptedAt, cancelledAt, createdAt, endedAt); err != nil {
+		    done_reason = $4,
+		    acceptance_state = $5,
+		    accepted_output = $6,
+		    accepted_at = $7,
+		    cancelled_at = $8,
+		    created_at = $9,
+		    updated_at = $10
+		WHERE id = $1`, id, lifecycle, blockReason, doneReason, acceptanceState, acceptedOutput, acceptedAt, cancelledAt, createdAt, endedAt); err != nil {
 		h.t.Fatalf("set goal state: %v", err)
 	}
 }
@@ -109,13 +108,16 @@ func (h *harness) setGoalHealthState(id, lifecycle, blockReason string, createdA
 func (h *harness) insertHealthAttempt(goalID, purpose string, attemptNo int, status, failureClass string, repairRounds int, startedAt, finishedAt time.Time) string {
 	h.t.Helper()
 	id := uuid.NewString()
-	goal := h.get(goalID)
+	sid, err := h.sessionMinter()(context.Background(), h.userID, h.agentID, "")
+	if err != nil {
+		h.t.Fatalf("mint attempt session: %v", err)
+	}
 	if _, err := h.db.Exec(context.Background(), `
 		INSERT INTO agent_goal_attempt (
 			id, goal_id, user_id, agent_id, session_id, purpose, attempt_no,
 			status, started_at, finished_at, failure_class, repair_rounds, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-		id, goalID, h.userID, h.agentID, goal.SessionID, purpose, attemptNo, status, startedAt, finishedAt, failureClass, repairRounds, startedAt, finishedAt); err != nil {
+		id, goalID, h.userID, h.agentID, sid, purpose, attemptNo, status, startedAt, finishedAt, failureClass, repairRounds, startedAt, finishedAt); err != nil {
 		h.t.Fatalf("insert attempt: %v", err)
 	}
 	return id

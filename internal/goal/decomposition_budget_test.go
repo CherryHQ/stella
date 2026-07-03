@@ -112,7 +112,7 @@ func TestCancel_FinalizesUnpointedInflightAttempts(t *testing.T) {
 	if err := h.svc.ReapAttempt(ctx, att.ID); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("reap of finalized attempt err=%v want ErrInvalidTransition", err)
 	}
-	if got := h.get(root.ID).Lifecycle; got != LifecycleCancelled {
+	if got := h.get(root.ID).Lifecycle; got != LifecycleDone {
 		t.Fatalf("lifecycle=%q want cancelled", got)
 	}
 }
@@ -129,13 +129,17 @@ func orphanDecomposition(t *testing.T, h *harness, goalID string) sqlc.AgentGoal
 	if err != nil {
 		t.Fatalf("max decomposition no: %v", err)
 	}
+	sid, err := h.sessionMinter()(ctx, d.UserID, d.AgentID, d.ProjectID.String)
+	if err != nil {
+		t.Fatalf("mint attempt session: %v", err)
+	}
 	att, err := h.q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
 		ID:              newID(),
 		GoalID:          goalID,
 		UserID:          d.UserID,
 		AgentID:         pgnull.Text(d.AgentID),
 		ExecutorAgentID: pgnull.Text(d.AgentID),
-		SessionID:       d.SessionID,
+		SessionID:       sid,
 		Purpose:         PurposeDecomposition,
 		AttemptNo:       maxNo + 1,
 		Status:          AttemptQueued,
@@ -167,7 +171,7 @@ func TestReapAfterCancel_DoesNotResurrect(t *testing.T) {
 	if err := h.svc.ReapAttempt(ctx, att.ID); err != nil {
 		t.Fatalf("reap after cancel: %v", err)
 	}
-	if got := h.get(root.ID).Lifecycle; got != LifecycleCancelled {
+	if got := h.get(root.ID).Lifecycle; got != LifecycleDone {
 		t.Fatalf("after reap lifecycle=%q want cancelled (terminal must not resurrect)", got)
 	}
 	a, err := h.q.GetAttempt(ctx, att.ID)
@@ -196,7 +200,7 @@ func TestFailAfterCancel_FinalizesWithoutResurrecting(t *testing.T) {
 	if err := h.svc.FailAttempt(ctx, att.ID, "sandbox gone", FailureClassEnvironment); err != nil {
 		t.Fatalf("fail after cancel: %v", err)
 	}
-	if got := h.get(root.ID).Lifecycle; got != LifecycleCancelled {
+	if got := h.get(root.ID).Lifecycle; got != LifecycleDone {
 		t.Fatalf("after fail lifecycle=%q want cancelled (terminal must not resurrect)", got)
 	}
 	a, err := h.q.GetAttempt(ctx, att.ID)
@@ -263,27 +267,17 @@ func TestDecompositionBudgetExhausted_ParentBlocks(t *testing.T) {
 			blocked.Lifecycle, blocked.BlockReason)
 	}
 
-	// A budget block does not eagerly maintain the parent counter; the parent only
-	// learns of the stall through the reconcile backstop.
-	if got := h.get(root.ID).RequiredBlocked; got != 0 {
-		t.Fatalf("parent required_blocked=%d want 0 before reconcile (budget block is not eager)", got)
+	tally, err := h.q.GetRequiredChildRollupCounts(ctx, root.ID)
+	if err != nil {
+		t.Fatalf("GetRequiredChildRollupCounts: %v", err)
 	}
-	if err := h.svc.reconcileCounters(ctx, root.ID); err != nil {
-		t.Fatalf("reconcileCounters: %v", err)
+	if tally.Blocked != 1 {
+		t.Fatalf("blocked tally=%d want 1", tally.Blocked)
 	}
-	p := h.get(root.ID)
-	if p.RequiredBlocked != 1 {
-		t.Fatalf("parent required_blocked=%d want 1 after reconcile", p.RequiredBlocked)
-	}
-	if v := RollupComposite(p); v != RollupBlock {
+	if v := RollupComposite(h.get(root.ID), tally); v != RollupBlock {
 		t.Fatalf("parent rollup with 1 blocked required child = %q want block", v)
 	}
-
-	// The dispatcher applies that verdict as a dep-block on the parent.
-	if err := h.svc.Block(ctx, root.ID, BlockDep, SystemActor()); err != nil {
-		t.Fatalf("Block(parent): %v", err)
-	}
-	if got := h.get(root.ID).Lifecycle; got != LifecycleBlocked {
-		t.Fatalf("parent after rollup-block lifecycle=%q want blocked", got)
+	if got := h.get(root.ID).Lifecycle; got != LifecycleActive {
+		t.Fatalf("parent lifecycle=%q want active; dep-block plumbing is gone", got)
 	}
 }
