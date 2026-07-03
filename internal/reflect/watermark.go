@@ -3,6 +3,7 @@ package reflect
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -21,6 +22,11 @@ const (
 	reflectLineFact  reflectLine = "fact"
 	reflectLineSkill reflectLine = "skill"
 )
+
+type reviewWatermark struct {
+	At  time.Time
+	Seq int64
+}
 
 func newWatermarkStore(store pkgplugins.StateStore) *watermarkStore {
 	return &watermarkStore{store: store}
@@ -65,14 +71,14 @@ func (ws *watermarkStore) set(ctx context.Context, sessionID string, at time.Tim
 	})
 }
 
-func (ws *watermarkStore) getLine(ctx context.Context, sessionID string, line reflectLine) (time.Time, error) {
+func (ws *watermarkStore) getLine(ctx context.Context, sessionID string, line reflectLine) (reviewWatermark, error) {
 	key := lineWatermarkKey(line)
 	val, ok, err := ws.store.Get(ctx, pkgplugins.StateScope{
 		Kind: pkgplugins.StateScopeSession,
 		ID:   sessionID,
 	}, key)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("get watermark %s %s: %w", sessionID, line, err)
+		return reviewWatermark{}, fmt.Errorf("get watermark %s %s: %w", sessionID, line, err)
 	}
 	if ok {
 		return parseWatermarkValue(sessionID, key, val)
@@ -80,36 +86,70 @@ func (ws *watermarkStore) getLine(ctx context.Context, sessionID string, line re
 
 	legacy, err := ws.get(ctx, sessionID)
 	if err != nil {
-		return time.Time{}, err
+		return reviewWatermark{}, err
 	}
 	if legacy.IsZero() {
-		return time.Time{}, nil
+		return reviewWatermark{}, nil
 	}
-	if err := ws.setLine(ctx, sessionID, line, legacy); err != nil {
-		return time.Time{}, err
+	mark := reviewWatermark{At: legacy}
+	if err := ws.setLine(ctx, sessionID, line, mark); err != nil {
+		return reviewWatermark{}, err
 	}
-	return legacy, nil
+	return mark, nil
 }
 
-func (ws *watermarkStore) setLine(ctx context.Context, sessionID string, line reflectLine, at time.Time) error {
+func (ws *watermarkStore) setLine(ctx context.Context, sessionID string, line reflectLine, mark reviewWatermark) error {
+	value := map[string]any{}
+	if mark.Seq > 0 {
+		value["reviewed_seq"] = mark.Seq
+	}
+	if !mark.At.IsZero() {
+		value["reviewed_at"] = mark.At.UTC().Format(time.RFC3339Nano)
+	}
 	return ws.store.Set(ctx, pkgplugins.StateScope{
 		Kind: pkgplugins.StateScopeSession,
 		ID:   sessionID,
-	}, lineWatermarkKey(line), map[string]any{
-		"reviewed_at": at.UTC().Format(time.RFC3339Nano),
-	})
+	}, lineWatermarkKey(line), value)
 }
 
-func parseWatermarkValue(sessionID, key string, val map[string]any) (time.Time, error) {
+func parseWatermarkValue(sessionID, key string, val map[string]any) (reviewWatermark, error) {
+	var mark reviewWatermark
+	if seq, ok, err := parseWatermarkSeq(val["reviewed_seq"]); err != nil {
+		return reviewWatermark{}, fmt.Errorf("parse watermark %s %s seq: %w", sessionID, key, err)
+	} else if ok {
+		mark.Seq = seq
+	}
 	raw, _ := val["reviewed_at"].(string)
 	if raw == "" {
-		return time.Time{}, nil
+		return mark, nil
 	}
 	t, err := parseWatermark(raw)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("parse watermark %s %s: %w", sessionID, key, err)
+		return reviewWatermark{}, fmt.Errorf("parse watermark %s %s: %w", sessionID, key, err)
 	}
-	return t, nil
+	mark.At = t
+	return mark, nil
+}
+
+func parseWatermarkSeq(raw any) (int64, bool, error) {
+	switch v := raw.(type) {
+	case nil:
+		return 0, false, nil
+	case int:
+		return int64(v), true, nil
+	case int64:
+		return v, true, nil
+	case float64:
+		return int64(v), true, nil
+	case string:
+		if v == "" {
+			return 0, false, nil
+		}
+		seq, err := strconv.ParseInt(v, 10, 64)
+		return seq, true, err
+	default:
+		return 0, false, fmt.Errorf("unsupported seq type %T", raw)
+	}
 }
 
 func parseWatermark(raw string) (time.Time, error) {

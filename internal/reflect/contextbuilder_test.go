@@ -187,7 +187,7 @@ func TestBuildReviewUnit_ChronologicalWindow(t *testing.T) {
 	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
 		session:         sess,
 		privateOneToOne: true,
-	}, old.Add(time.Minute), 24)
+	}, reviewWatermark{At: old.Add(time.Minute)}, 24)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,6 +206,85 @@ func TestBuildReviewUnit_ChronologicalWindow(t *testing.T) {
 	}
 	if unit.FreshCount != 1 {
 		t.Fatalf("expected one fresh message included, got %d", unit.FreshCount)
+	}
+}
+
+func TestBuildReviewUnit_DoesNotSplitSameTimestampBoundary(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+
+	ctx := context.Background()
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+
+	sharedAt := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	if err := fake.Append(ctx, sess,
+		ai.UserMessage{Content: "fresh one", Timestamp: sharedAt},
+		ai.UserMessage{Content: strings.Repeat("b", 80), Timestamp: sharedAt},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
+		session:         sess,
+		privateOneToOne: true,
+	}, reviewWatermark{}, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(unit.Text, "fresh one") {
+		t.Fatalf("same-timestamp messages must not be partially included, got %q", unit.Text)
+	}
+	if !unit.LastIncludedAt.IsZero() {
+		t.Fatalf("watermark should not advance across a partial timestamp boundary, got %v", unit.LastIncludedAt)
+	}
+	if unit.FreshCount != 0 {
+		t.Fatalf("expected no partial fresh messages included, got %d", unit.FreshCount)
+	}
+}
+
+func TestBuildReviewUnit_UsesReviewSeqBoundary(t *testing.T) {
+	at := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	svc := &Service{
+		memory: &reviewHistoryProvider{messages: []memory.ReviewMessage{
+			{
+				ID:       "msg-1",
+				FirstSeq: 1,
+				LastSeq:  1,
+				Message:  ai.UserMessage{Content: "already reviewed", Timestamp: at},
+			},
+			{
+				ID:       "msg-2",
+				FirstSeq: 2,
+				LastSeq:  2,
+				Message:  ai.UserMessage{Content: "fresh by seq", Timestamp: at},
+			},
+		}},
+		log: testLogger(),
+	}
+
+	unit, err := svc.buildReviewUnit(context.Background(), reviewTarget{
+		session:         memory.Session{ID: "s1", AgentID: "a", UserID: "u1"},
+		privateOneToOne: true,
+	}, reviewWatermark{Seq: 1}, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(unit.Text, "<prior_context>\n[user] already reviewed\n</prior_context>") {
+		t.Fatalf("expected already reviewed message only as prior context, got %q", unit.Text)
+	}
+	if !strings.Contains(unit.Text, "<fresh_conversation>\n[user] fresh by seq\n</fresh_conversation>") {
+		t.Fatalf("expected only seq-fresh message in fresh conversation, got %q", unit.Text)
+	}
+	if unit.LastIncludedSeq != 2 {
+		t.Fatalf("expected last included seq 2, got %d", unit.LastIncludedSeq)
+	}
+	if !unit.LastIncludedAt.Equal(at) {
+		t.Fatalf("expected timestamp retained for compatibility, got %v", unit.LastIncludedAt)
 	}
 }
 
@@ -232,7 +311,7 @@ func TestBuildReviewUnit_SkipsOversizedSingleMessage(t *testing.T) {
 	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
 		session:         sess,
 		privateOneToOne: true,
-	}, time.Time{}, 32)
+	}, reviewWatermark{}, 32)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +358,7 @@ func TestBuildReviewUnit_IncludesRedactedToolSummary(t *testing.T) {
 	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
 		session:         sess,
 		privateOneToOne: true,
-	}, time.Time{}, 400)
+	}, reviewWatermark{}, 400)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,6 +371,178 @@ func TestBuildReviewUnit_IncludesRedactedToolSummary(t *testing.T) {
 	}
 	if strings.Contains(unit.Text, strings.Repeat("z", 3000)) {
 		t.Fatalf("expected tool output to be truncated")
+	}
+}
+
+func TestBuildReviewUnitRedactsUserAndAssistantText(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+	ctx := context.Background()
+	at := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "u1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.Append(ctx, sess,
+		ai.UserMessage{Content: "token ghp_abcdefghijklmnopqrstuvwxyz123456", Timestamp: at},
+		ai.AssistantMessage{
+			Timestamp: at.Add(time.Second),
+			Content: []ai.ContentBlock{
+				ai.TextContent{Text: "password=supersecretvalue"},
+			},
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
+		session:         sess,
+		privateOneToOne: true,
+	}, reviewWatermark{}, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(unit.Text, "ghp_") || strings.Contains(unit.Text, "supersecretvalue") {
+		t.Fatalf("expected user and assistant text to be redacted, got %q", unit.Text)
+	}
+	if !strings.Contains(unit.Text, "[redacted_secret]") {
+		t.Fatalf("expected redaction marker, got %q", unit.Text)
+	}
+}
+
+func TestBuildReviewUnitInjectsSessionSkillUsage(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+	ctx := context.Background()
+	at := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "u1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.Append(ctx, sess, ai.AssistantMessage{
+		Timestamp: at,
+		Content: []ai.ContentBlock{
+			ai.ToolCall{
+				ID:   "skill-call-1",
+				Name: "skills",
+				Arguments: map[string]any{
+					"action": "load",
+					"name":   "stella-wsl-dev",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
+		session:         sess,
+		privateOneToOne: true,
+	}, reviewWatermark{}, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(unit.Text, "<session_skill_usage>") ||
+		!strings.Contains(unit.Text, "stella-wsl-dev") ||
+		!strings.Contains(unit.Text, "action=load") {
+		t.Fatalf("expected session skill usage metadata, got %q", unit.Text)
+	}
+}
+
+func TestBuildReviewUnitDoesNotInjectSkillUsageBeyondWindow(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+	ctx := context.Background()
+	firstAt := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	secondAt := firstAt.Add(time.Minute)
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "u1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.Append(ctx, sess,
+		ai.UserMessage{Content: strings.Repeat("a", 100), Timestamp: firstAt},
+		ai.AssistantMessage{
+			Timestamp: secondAt,
+			Content: []ai.ContentBlock{
+				ai.ToolCall{
+					ID:   "skill-call-1",
+					Name: "skills",
+					Arguments: map[string]any{
+						"action": "load",
+						"name":   "stella-wsl-dev",
+					},
+				},
+			},
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
+		session:         sess,
+		privateOneToOne: true,
+	}, reviewWatermark{}, 36)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(unit.Text, strings.Repeat("a", 100)) {
+		t.Fatalf("expected first message to fit, got %q", unit.Text)
+	}
+	if strings.Contains(unit.Text, "<session_skill_usage>") {
+		t.Fatalf("skill usage outside the included window should not be injected, got %q", unit.Text)
+	}
+	if !unit.LastIncludedAt.Equal(firstAt) {
+		t.Fatalf("expected watermark to stop at first message, got %v", unit.LastIncludedAt)
+	}
+}
+
+func TestBuildReviewUnitOmitsLoadedSkillToolResultContent(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+	ctx := context.Background()
+	at := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "u1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.Append(ctx, sess,
+		ai.AssistantMessage{
+			Timestamp: at,
+			Content: []ai.ContentBlock{
+				ai.ToolCall{
+					ID:   "skill-call-1",
+					Name: "skills",
+					Arguments: map[string]any{
+						"action": "load",
+						"name":   "stella-wsl-dev",
+					},
+				},
+			},
+		},
+		ai.ToolResultMessage{
+			Timestamp:  at.Add(time.Second),
+			ToolCallID: "skill-call-1",
+			ToolName:   "skills",
+			Content: []ai.ContentBlock{
+				ai.TextContent{Text: "SECRET SKILL PROCEDURE THAT MUST NOT BECOME EVIDENCE"},
+			},
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
+		session:         sess,
+		privateOneToOne: true,
+	}, reviewWatermark{}, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(unit.Text, "SECRET SKILL PROCEDURE") {
+		t.Fatalf("loaded skill content should be omitted from ReviewUnit text, got %q", unit.Text)
+	}
+	if !strings.Contains(unit.Text, "loaded_skill_content_omitted") {
+		t.Fatalf("expected omitted marker, got %q", unit.Text)
 	}
 }
 
@@ -311,7 +562,7 @@ func TestBuildReviewUnit_FailsClosedForGroupSession(t *testing.T) {
 	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
 		session:         sess,
 		privateOneToOne: false,
-	}, time.Time{}, 100)
+	}, reviewWatermark{}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}

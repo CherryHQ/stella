@@ -25,55 +25,59 @@ const (
 )
 
 type skillCandidate struct {
-	Ref                 CandidateRef
-	Learning            skillLearning
-	Evidence            []skillEvidence
-	Applicability       skillApplicability
-	Procedure           skillProcedure
-	SessionSkillContext *sessionSkillContext
-	HandoffHints        skillHandoffHints
+	Ref                 CandidateRef         `json:"candidate_ref,omitempty"`
+	Learning            skillLearning        `json:"learning"`
+	Evidence            []skillEvidence      `json:"evidence"`
+	Applicability       skillApplicability   `json:"applicability"`
+	Procedure           skillProcedure       `json:"procedure"`
+	SessionSkillContext *sessionSkillContext `json:"session_skill_context,omitempty"`
+	HandoffHints        skillHandoffHints    `json:"handoff_hints"`
 }
 
 type skillLearning struct {
-	Summary       string
-	ReusableDelta string
+	Summary       string `json:"summary"`
+	ReusableDelta string `json:"reusable_delta"`
 }
 
 type skillEvidence struct {
-	SignalType skillSignal
-	Source     string
-	Reason     string
+	SignalType skillSignal `json:"signal_type"`
+	Source     string      `json:"source"`
+	Reason     string      `json:"reason"`
 }
 
 type skillApplicability struct {
-	TriggerExamples    []string
-	NonTriggerExamples []string
+	TriggerExamples    []string `json:"trigger_examples"`
+	NonTriggerExamples []string `json:"non_trigger_examples"`
 }
 
 type skillProcedure struct {
-	Prerequisites  []string
-	Steps          []string
-	DecisionPoints []string
-	Pitfalls       []string
-	Verification   []string
+	Prerequisites  []string `json:"prerequisites,omitempty"`
+	Steps          []string `json:"steps"`
+	DecisionPoints []string `json:"decision_points,omitempty"`
+	Pitfalls       []string `json:"pitfalls,omitempty"`
+	Verification   []string `json:"verification"`
 }
 
 type sessionSkillContext struct {
-	UsedSkillRefs            []string
-	ChangeAgainstLoadedSkill string
+	UsedSkillRefs            []string `json:"used_skill_refs"`
+	ChangeAgainstLoadedSkill string   `json:"change_against_loaded_skill"`
 }
 
 type skillHandoffHints struct {
-	SearchQueryHint string
+	SearchQueryHint string `json:"search_query_hint"`
 }
 
 type skillEvaluation struct {
-	Ref       CandidateRef
-	Scores    map[string]int
-	Rationale string
+	Ref       CandidateRef   `json:"candidate_ref"`
+	Scores    map[string]int `json:"scores"`
+	Rationale string         `json:"rationale"`
 }
 
 func gateSkillCandidates(candidates []skillCandidate, evaluations []skillEvaluation) CandidateGateResult {
+	return gateSkillCandidatesWithSettings(candidates, evaluations, CandidateGateSettings{})
+}
+
+func gateSkillCandidatesWithSettings(candidates []skillCandidate, evaluations []skillEvaluation, settings CandidateGateSettings) CandidateGateResult {
 	evals := make(map[CandidateRef]skillEvaluation, len(evaluations))
 	var result CandidateGateResult
 	for _, evaluation := range evaluations {
@@ -111,22 +115,16 @@ func gateSkillCandidates(candidates []skillCandidate, evaluations []skillEvaluat
 		})
 	}
 
-	gated := gateCandidates(inputs, skillGateConfig(skillCandidateCap))
+	gated := gateCandidates(inputs, skillGateConfig(settings))
 	result.Accepted = append(result.Accepted, gated.Accepted...)
 	result.Rejected = append(result.Rejected, gated.Rejected...)
 	return result
 }
 
-func skillGateConfig(cap int) CandidateGateConfig {
+func skillGateConfig(settings CandidateGateSettings) CandidateGateConfig {
+	settings = settings.withDefaults()
 	return CandidateGateConfig{
-		Weights: map[string]float64{
-			skillScoreEvidenceStrength:       0.20,
-			skillScoreReusableValue:          0.24,
-			skillScoreBaselineSeparation:     0.16,
-			skillScoreProcedureActionability: 0.16,
-			skillScoreApplicabilityClarity:   0.14,
-			skillScoreVerificationQuality:    0.10,
-		},
+		Weights: settings.SkillWeights,
 		CoreFields: []string{
 			skillScoreEvidenceStrength,
 			skillScoreReusableValue,
@@ -134,8 +132,8 @@ func skillGateConfig(cap int) CandidateGateConfig {
 			skillScoreProcedureActionability,
 		},
 		CoreFloor:      2,
-		Threshold:      0.70,
-		Cap:            cap,
+		Threshold:      settings.SkillThreshold,
+		Cap:            settings.SkillCandidateCap,
 		TieBreakFields: []string{skillScoreEvidenceStrength},
 	}
 }

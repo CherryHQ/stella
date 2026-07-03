@@ -3,7 +3,6 @@ package reflect
 import (
 	"context"
 	"fmt"
-	"time"
 )
 
 type (
@@ -70,8 +69,8 @@ func (s *Service) runCandidatePipeline(ctx context.Context, target reviewTarget,
 	return result, nil
 }
 
-func (s *Service) buildCandidateReviewUnits(ctx context.Context, target reviewTarget, factSince, skillSince time.Time, budget int) (ReviewUnit, ReviewUnit, error) {
-	if factSince.Equal(skillSince) {
+func (s *Service) buildCandidateReviewUnits(ctx context.Context, target reviewTarget, factSince, skillSince reviewWatermark, budget int) (ReviewUnit, ReviewUnit, error) {
+	if factSince == skillSince {
 		unit, err := s.buildReviewUnit(ctx, target, factSince, budget)
 		if err != nil {
 			return ReviewUnit{}, ReviewUnit{}, fmt.Errorf("build shared review unit: %w", err)
@@ -93,7 +92,7 @@ func (s *Service) buildCandidateReviewUnits(ctx context.Context, target reviewTa
 func (s *Service) runFactCandidateLine(ctx context.Context, sessionID string, unit ReviewUnit, runner factCandidateLineRunner, result *candidatePipelineResult) error {
 	result.Skipped = append(result.Skipped, unit.Skipped...)
 	if unit.FreshCount == 0 {
-		return nil
+		return s.advanceCandidateLineWatermark(ctx, sessionID, reflectLineFact, unit)
 	}
 	if runner == nil {
 		return fmt.Errorf("fact candidate line is not configured")
@@ -103,16 +102,13 @@ func (s *Service) runFactCandidateLine(ctx context.Context, sessionID string, un
 		return err
 	}
 	result.FactAccepted = append(result.FactAccepted, accepted...)
-	if !unit.LastIncludedAt.IsZero() {
-		return s.wm.setLine(ctx, sessionID, reflectLineFact, unit.LastIncludedAt)
-	}
-	return nil
+	return s.advanceCandidateLineWatermark(ctx, sessionID, reflectLineFact, unit)
 }
 
 func (s *Service) runSkillCandidateLine(ctx context.Context, sessionID string, unit ReviewUnit, runner skillCandidateLineRunner, result *candidatePipelineResult) error {
 	result.Skipped = append(result.Skipped, unit.Skipped...)
 	if unit.FreshCount == 0 {
-		return nil
+		return s.advanceCandidateLineWatermark(ctx, sessionID, reflectLineSkill, unit)
 	}
 	if runner == nil {
 		return fmt.Errorf("skill candidate line is not configured")
@@ -122,8 +118,15 @@ func (s *Service) runSkillCandidateLine(ctx context.Context, sessionID string, u
 		return err
 	}
 	result.SkillAccepted = append(result.SkillAccepted, accepted...)
-	if !unit.LastIncludedAt.IsZero() {
-		return s.wm.setLine(ctx, sessionID, reflectLineSkill, unit.LastIncludedAt)
+	return s.advanceCandidateLineWatermark(ctx, sessionID, reflectLineSkill, unit)
+}
+
+func (s *Service) advanceCandidateLineWatermark(ctx context.Context, sessionID string, line reflectLine, unit ReviewUnit) error {
+	if unit.LastIncludedSeq == 0 && unit.LastIncludedAt.IsZero() {
+		return nil
 	}
-	return nil
+	return s.wm.setLine(ctx, sessionID, line, reviewWatermark{
+		Seq: unit.LastIncludedSeq,
+		At:  unit.LastIncludedAt,
+	})
 }

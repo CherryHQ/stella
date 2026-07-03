@@ -95,6 +95,10 @@ func hasRequiredScores(scores map[string]int, cfg CandidateGateConfig) bool {
 	for _, field := range cfg.CoreFields {
 		required[field] = struct{}{}
 	}
+	// Extra score dimensions are schema drift, even when required fields exist.
+	if len(scores) != len(required) {
+		return false
+	}
 	for field := range required {
 		score, ok := scores[field]
 		if !ok || score < 0 || score > maxScoreValue {

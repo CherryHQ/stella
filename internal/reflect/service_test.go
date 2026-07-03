@@ -21,12 +21,14 @@ func testLogger() *slog.Logger {
 type fakeWatermarks struct {
 	marks     map[string]time.Time
 	lineMarks map[string]time.Time
+	lineSeqs  map[string]int64
 }
 
 func newFakeWatermarks() *fakeWatermarks {
 	return &fakeWatermarks{
 		marks:     make(map[string]time.Time),
 		lineMarks: make(map[string]time.Time),
+		lineSeqs:  make(map[string]int64),
 	}
 }
 
@@ -39,15 +41,22 @@ func (f *fakeWatermarks) set(_ context.Context, sessionID string, at time.Time) 
 	return nil
 }
 
-func (f *fakeWatermarks) getLine(_ context.Context, sessionID string, line reflectLine) (time.Time, error) {
-	if at, ok := f.lineMarks[fakeLineWatermarkKey(sessionID, line)]; ok {
-		return at, nil
+func (f *fakeWatermarks) getLine(_ context.Context, sessionID string, line reflectLine) (reviewWatermark, error) {
+	key := fakeLineWatermarkKey(sessionID, line)
+	mark := reviewWatermark{Seq: f.lineSeqs[key]}
+	if at, ok := f.lineMarks[key]; ok {
+		mark.At = at
+		return mark, nil
 	}
-	return f.marks[sessionID], nil
+	mark.At = f.marks[sessionID]
+	return mark, nil
 }
 
-func (f *fakeWatermarks) setLine(_ context.Context, sessionID string, line reflectLine, at time.Time) error {
-	f.setLineMark(sessionID, line, at)
+func (f *fakeWatermarks) setLine(_ context.Context, sessionID string, line reflectLine, mark reviewWatermark) error {
+	f.setLineMark(sessionID, line, mark.At)
+	if mark.Seq > 0 {
+		f.lineSeqs[fakeLineWatermarkKey(sessionID, line)] = mark.Seq
+	}
 	return nil
 }
 
@@ -59,6 +68,10 @@ func (f *fakeWatermarks) lineMark(sessionID string, line reflectLine) time.Time 
 	return f.lineMarks[fakeLineWatermarkKey(sessionID, line)]
 }
 
+func (f *fakeWatermarks) lineSeq(sessionID string, line reflectLine) int64 {
+	return f.lineSeqs[fakeLineWatermarkKey(sessionID, line)]
+}
+
 func fakeLineWatermarkKey(sessionID string, line reflectLine) string {
 	return sessionID + ":" + string(line)
 }
@@ -66,6 +79,40 @@ func fakeLineWatermarkKey(sessionID string, line reflectLine) string {
 type reviewListOnlyFake struct {
 	*memorytest.Fake
 	reviewCalled bool
+}
+
+type reviewHistoryProvider struct {
+	messages []memory.ReviewMessage
+}
+
+func (p *reviewHistoryProvider) Name() string {
+	return "review-history-test"
+}
+
+func (p *reviewHistoryProvider) Bootstrap(context.Context, memory.Session) error {
+	return nil
+}
+
+func (p *reviewHistoryProvider) Append(context.Context, memory.Session, ...ai.Message) error {
+	return nil
+}
+
+func (p *reviewHistoryProvider) Assemble(context.Context, memory.Session, int, int) ([]ai.Message, error) {
+	return nil, nil
+}
+
+func (p *reviewHistoryProvider) Stats(context.Context, memory.Session) (memory.SessionStats, error) {
+	return memory.SessionStats{}, nil
+}
+
+func (p *reviewHistoryProvider) Close() error {
+	return nil
+}
+
+func (p *reviewHistoryProvider) LoadReviewHistory(context.Context, string) ([]memory.ReviewMessage, error) {
+	out := make([]memory.ReviewMessage, len(p.messages))
+	copy(out, p.messages)
+	return out, nil
 }
 
 func (f *reviewListOnlyFake) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {

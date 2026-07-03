@@ -97,7 +97,7 @@ func TestWatermarkStore_LineGetSeedsFromLegacy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Equal(legacy) {
+	if !got.At.Equal(legacy) {
 		t.Fatalf("expected legacy seed %v, got %v", legacy, got)
 	}
 }
@@ -106,7 +106,7 @@ func TestWatermarkStore_LineSetWritesRFC3339(t *testing.T) {
 	ws, ctx := newTestWatermarkStore(t)
 
 	at := time.Date(2026, 7, 2, 10, 5, 0, 0, time.UTC)
-	if err := ws.setLine(ctx, "s1", reflectLineSkill, at); err != nil {
+	if err := ws.setLine(ctx, "s1", reflectLineSkill, reviewWatermark{At: at}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -114,7 +114,7 @@ func TestWatermarkStore_LineSetWritesRFC3339(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Equal(at) {
+	if !got.At.Equal(at) {
 		t.Fatalf("expected %v, got %v", at, got)
 	}
 
@@ -141,7 +141,7 @@ func TestWatermarkStore_LinePrefersLineValueOverLegacy(t *testing.T) {
 	if err := ws.set(ctx, "s1", legacy); err != nil {
 		t.Fatal(err)
 	}
-	if err := ws.setLine(ctx, "s1", reflectLineFact, line); err != nil {
+	if err := ws.setLine(ctx, "s1", reflectLineFact, reviewWatermark{At: line}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -149,8 +149,25 @@ func TestWatermarkStore_LinePrefersLineValueOverLegacy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Equal(line) {
+	if !got.At.Equal(line) {
 		t.Fatalf("expected line value %v, got %v", line, got)
+	}
+}
+
+func TestWatermarkStore_LineSetWritesSeq(t *testing.T) {
+	ws, ctx := newTestWatermarkStore(t)
+
+	at := time.Date(2026, 7, 2, 10, 5, 0, 0, time.UTC)
+	if err := ws.setLine(ctx, "s1", reflectLineFact, reviewWatermark{Seq: 42, At: at}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ws.getLine(ctx, "s1", reflectLineFact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Seq != 42 || !got.At.Equal(at) {
+		t.Fatalf("expected seq 42 and at %v, got %#v", at, got)
 	}
 }
 
@@ -171,7 +188,7 @@ func TestWatermarkStore_LineParsesLegacyLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Equal(at) {
+	if !got.At.Equal(at) {
 		t.Fatalf("expected fallback parse %v, got %v", at, got)
 	}
 }

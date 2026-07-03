@@ -1,9 +1,12 @@
 package reflect
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -134,4 +137,53 @@ func validateExpectedCandidateRefs(calls []ai.ToolCall, evaluationName string, e
 		}
 	}
 	return nil
+}
+
+func normalizeCaptureToolCalls(calls []ai.ToolCall) ([]ai.ToolCall, error) {
+	normalized := make([]ai.ToolCall, 0, len(calls))
+	for _, call := range calls {
+		args, err := captureCallArguments(call)
+		if err != nil {
+			return nil, err
+		}
+		call.Arguments = args
+		normalized = append(normalized, call)
+	}
+	return normalized, nil
+}
+
+// captureCallArguments accepts both already-parsed provider arguments and the
+// raw JSON form returned by providers.Complete for streamed tool-call deltas.
+func captureCallArguments(call ai.ToolCall) (map[string]any, error) {
+	if call.Arguments == nil {
+		return map[string]any{}, nil
+	}
+	raw, _ := call.Arguments["raw"].(string)
+	if strings.TrimSpace(raw) == "" {
+		return call.Arguments, nil
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return nil, fmt.Errorf("%w: decode raw arguments for %q: %w", errCaptureProtocol, call.Name, err)
+	}
+	return args, nil
+}
+
+func decodeCapturePayload[T any](call ai.ToolCall) (T, error) {
+	var payload T
+	args, err := captureCallArguments(call)
+	if err != nil {
+		return payload, err
+	}
+	data, err := json.Marshal(args)
+	if err != nil {
+		return payload, fmt.Errorf("%w: encode arguments for %q: %w", errCaptureProtocol, call.Name, err)
+	}
+	// Capture payloads are host contracts; model-created fields must fail closed.
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("%w: decode arguments for %q: %w", errCaptureProtocol, call.Name, err)
+	}
+	return payload, nil
 }

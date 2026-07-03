@@ -62,6 +62,28 @@ func TestGateRejectsOverallBelowThreshold(t *testing.T) {
 	}
 }
 
+func TestGateRejectsUnknownScoreField(t *testing.T) {
+	result := gateCandidates([]CandidateGateInput{{
+		Ref:     "fact-0001",
+		Content: "The user explicitly prefers concise Chinese answers.",
+		Scores: map[string]int{
+			"evidence_strength": 4,
+			"subject_fit":       4,
+			"durability":        4,
+			"future_utility":    4,
+			"atomicity":         4,
+			"confidence":        4,
+		},
+	}}, factGateConfigForTest(1))
+
+	if len(result.Accepted) != 0 {
+		t.Fatalf("expected no accepted candidates, got %#v", result.Accepted)
+	}
+	if len(result.Rejected) != 1 || result.Rejected[0].Reason != rejectSchemaMissingField {
+		t.Fatalf("expected schema rejection, got %#v", result.Rejected)
+	}
+}
+
 func TestGateRejectsSecretLikeContent(t *testing.T) {
 	result := gateCandidates([]CandidateGateInput{{
 		Ref:     "fact-0001",
@@ -173,6 +195,57 @@ func TestCapOrdersSkillsByOverallEvidenceThenRef(t *testing.T) {
 	}
 	if len(result.Rejected) != 1 || result.Rejected[0].Ref != "skill-0003" || result.Rejected[0].Reason != rejectCapDropped {
 		t.Fatalf("expected skill-0003 cap drop, got %#v", result.Rejected)
+	}
+}
+
+func TestSkillGateUsesConfiguredThreshold(t *testing.T) {
+	candidate := validSkillCandidate("skill-0001")
+	evaluation := skillEvaluation{
+		Ref: candidate.Ref,
+		Scores: map[string]int{
+			skillScoreEvidenceStrength:       3,
+			skillScoreReusableValue:          3,
+			skillScoreBaselineSeparation:     3,
+			skillScoreProcedureActionability: 3,
+			skillScoreApplicabilityClarity:   3,
+			skillScoreVerificationQuality:    3,
+		},
+	}
+	defaultResult := gateSkillCandidates([]skillCandidate{candidate}, []skillEvaluation{evaluation})
+	if len(defaultResult.Accepted) != 1 {
+		t.Fatalf("expected default threshold to accept candidate, got %#v", defaultResult)
+	}
+
+	customResult := gateSkillCandidatesWithSettings([]skillCandidate{candidate}, []skillEvaluation{evaluation}, CandidateGateSettings{
+		SkillThreshold: 0.80,
+	})
+	if len(customResult.Rejected) != 1 || customResult.Rejected[0].Reason != rejectOverallBelowThreshold {
+		t.Fatalf("expected configured threshold rejection, got %#v", customResult)
+	}
+}
+
+func TestFactGateUsesConfiguredThreshold(t *testing.T) {
+	candidate := validFactCandidate("fact-0001", factSubjectWorld)
+	evaluation := factEvaluation{
+		Ref: candidate.Ref,
+		Scores: map[string]int{
+			factScoreEvidenceStrength: 3,
+			factScoreSubjectFit:       3,
+			factScoreDurability:       3,
+			factScoreFutureUtility:    3,
+			factScoreAtomicity:        3,
+		},
+	}
+	defaultResult := gateFactCandidates([]factCandidate{candidate}, []factEvaluation{evaluation}, factGateOptions{PrivateOneToOne: true})
+	if len(defaultResult.Accepted) != 1 {
+		t.Fatalf("expected default threshold to accept candidate, got %#v", defaultResult)
+	}
+
+	customResult := gateFactCandidatesWithSettings([]factCandidate{candidate}, []factEvaluation{evaluation}, factGateOptions{PrivateOneToOne: true}, CandidateGateSettings{
+		FactThreshold: 0.80,
+	})
+	if len(customResult.Rejected) != 1 || customResult.Rejected[0].Reason != rejectOverallBelowThreshold {
+		t.Fatalf("expected configured threshold rejection, got %#v", customResult)
 	}
 }
 

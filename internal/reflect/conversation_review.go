@@ -83,16 +83,20 @@ func (s *Service) reviewConversationCandidates(ctx context.Context, snap *config
 	if snap == nil {
 		return candidatePipelineResult{}, fmt.Errorf("candidate review: config snapshot is required")
 	}
-	// #532 exposes the candidate path without replacing scheduled Reflect.
-	// Until provider-backed line runners are wired, fresh content fails closed
-	// instead of advancing per-line watermarks with empty results.
+	model := snap.ResolveModelTier(config.ModelTierFast)
+	creds := snap.ResolveProviderCreds(model.API)
+	stream, err := s.buildStreamFunc(model.API, creds.APIKey, creds.BaseURL)
+	if err != nil {
+		return candidatePipelineResult{}, fmt.Errorf("build provider: %w", err)
+	}
+	reviewer := candidateLineReviewer{
+		Stream: stream,
+		Model:  model,
+		Gates:  s.candidateGates,
+	}
 	return s.runCandidatePipeline(ctx, target, candidatePipelineOptions{
-		FactLine: func(context.Context, ReviewUnit) ([]factCandidate, error) {
-			return nil, fmt.Errorf("fact candidate line is not wired")
-		},
-		SkillLine: func(context.Context, ReviewUnit) ([]skillCandidate, error) {
-			return nil, fmt.Errorf("skill candidate line is not wired")
-		},
+		FactLine:  reviewer.runFactLine,
+		SkillLine: reviewer.runSkillLine,
 	})
 }
 

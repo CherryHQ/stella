@@ -30,28 +30,28 @@ const (
 )
 
 type factCandidate struct {
-	Ref            CandidateRef
-	Subject        factSubject
-	Content        string
-	Evidence       []factEvidence
-	ExpectedEffect string
-	HandoffHints   factHandoffHints
+	Ref            CandidateRef     `json:"candidate_ref,omitempty"`
+	Subject        factSubject      `json:"subject"`
+	Content        string           `json:"content"`
+	Evidence       []factEvidence   `json:"evidence"`
+	ExpectedEffect string           `json:"expected_effect"`
+	HandoffHints   factHandoffHints `json:"handoff_hints"`
 }
 
 type factEvidence struct {
-	SourceType factEvidenceSource
-	Source     string
-	Reason     string
+	SourceType factEvidenceSource `json:"source_type"`
+	Source     string             `json:"source"`
+	Reason     string             `json:"reason"`
 }
 
 type factHandoffHints struct {
-	KnowledgeSearchQueryHint string
+	KnowledgeSearchQueryHint string `json:"knowledge_search_query_hint,omitempty"`
 }
 
 type factEvaluation struct {
-	Ref       CandidateRef
-	Scores    map[string]int
-	Rationale string
+	Ref       CandidateRef   `json:"candidate_ref"`
+	Scores    map[string]int `json:"scores"`
+	Rationale string         `json:"rationale"`
 }
 
 type factGateOptions struct {
@@ -59,6 +59,10 @@ type factGateOptions struct {
 }
 
 func gateFactCandidates(candidates []factCandidate, evaluations []factEvaluation, opts factGateOptions) CandidateGateResult {
+	return gateFactCandidatesWithSettings(candidates, evaluations, opts, CandidateGateSettings{})
+}
+
+func gateFactCandidatesWithSettings(candidates []factCandidate, evaluations []factEvaluation, opts factGateOptions, settings CandidateGateSettings) CandidateGateResult {
 	evals := make(map[CandidateRef]factEvaluation, len(evaluations))
 	var result CandidateGateResult
 	for _, evaluation := range evaluations {
@@ -97,22 +101,17 @@ func gateFactCandidates(candidates []factCandidate, evaluations []factEvaluation
 	}
 
 	for _, subject := range []factSubject{factSubjectUser, factSubjectAgent, factSubjectWorld} {
-		subjectResult := gateCandidates(inputsBySubject[subject], factGateConfig(factSubjectCap))
+		subjectResult := gateCandidates(inputsBySubject[subject], factGateConfig(settings))
 		result.Accepted = append(result.Accepted, subjectResult.Accepted...)
 		result.Rejected = append(result.Rejected, subjectResult.Rejected...)
 	}
 	return result
 }
 
-func factGateConfig(cap int) CandidateGateConfig {
+func factGateConfig(settings CandidateGateSettings) CandidateGateConfig {
+	settings = settings.withDefaults()
 	return CandidateGateConfig{
-		Weights: map[string]float64{
-			factScoreEvidenceStrength: 0.20,
-			factScoreSubjectFit:       0.20,
-			factScoreDurability:       0.20,
-			factScoreFutureUtility:    0.20,
-			factScoreAtomicity:        0.20,
-		},
+		Weights: settings.FactWeights,
 		CoreFields: []string{
 			factScoreEvidenceStrength,
 			factScoreSubjectFit,
@@ -121,8 +120,8 @@ func factGateConfig(cap int) CandidateGateConfig {
 			factScoreAtomicity,
 		},
 		CoreFloor:      2,
-		Threshold:      0.70,
-		Cap:            cap,
+		Threshold:      settings.FactThreshold,
+		Cap:            settings.FactSubjectCap,
 		TieBreakFields: []string{factScoreSubjectFit},
 	}
 }

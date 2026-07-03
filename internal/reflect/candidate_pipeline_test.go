@@ -3,6 +3,7 @@ package reflect
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,6 +155,88 @@ func TestCandidatePipelineNoFreshContentSkipsLLM(t *testing.T) {
 	}
 	if len(result.FactAccepted) != 0 || len(result.SkillAccepted) != 0 {
 		t.Fatalf("expected no candidates, got %#v", result)
+	}
+}
+
+func TestCandidatePipelineOversizedOnlyAdvancesWatermarksWithoutLLM(t *testing.T) {
+	fake := memorytest.New()
+	wm := newFakeWatermarks()
+	svc := &Service{memory: &nonReviewerProvider{fake}, wm: wm, log: testLogger()}
+
+	ctx := context.Background()
+	hugeAt := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "u1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.Append(ctx, sess, ai.UserMessage{Content: strings.Repeat("x", 2000), Timestamp: hugeAt}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.runCandidatePipeline(ctx, reviewTarget{session: sess, privateOneToOne: true}, candidatePipelineOptions{
+		ReviewBudget: 32,
+		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidate, error) {
+			t.Fatal("fact line should not run for skip-only oversized content")
+			return nil, nil
+		},
+		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidate, error) {
+			t.Fatal("skill line should not run for skip-only oversized content")
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !wm.lineMark(sess.ID, reflectLineFact).Equal(hugeAt) {
+		t.Fatalf("fact watermark should advance to skipped oversized message %v, got %v", hugeAt, wm.lineMark(sess.ID, reflectLineFact))
+	}
+	if !wm.lineMark(sess.ID, reflectLineSkill).Equal(hugeAt) {
+		t.Fatalf("skill watermark should advance to skipped oversized message %v, got %v", hugeAt, wm.lineMark(sess.ID, reflectLineSkill))
+	}
+	if len(result.Skipped) != 2 {
+		t.Fatalf("expected both lines to report oversized skip, got %#v", result.Skipped)
+	}
+}
+
+func TestCandidatePipelineOversizedOnlyAdvancesSeqWatermarksWithoutLLM(t *testing.T) {
+	hugeAt := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	wm := newFakeWatermarks()
+	svc := &Service{
+		memory: &reviewHistoryProvider{messages: []memory.ReviewMessage{
+			{
+				ID:       "msg-42",
+				FirstSeq: 42,
+				LastSeq:  42,
+				Message:  ai.UserMessage{Content: strings.Repeat("x", 2000), Timestamp: hugeAt},
+			},
+		}},
+		wm:  wm,
+		log: testLogger(),
+	}
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "u1"}
+
+	result, err := svc.runCandidatePipeline(context.Background(), reviewTarget{session: sess, privateOneToOne: true}, candidatePipelineOptions{
+		ReviewBudget: 32,
+		FactLine: func(_ context.Context, unit ReviewUnit) ([]factCandidate, error) {
+			t.Fatal("fact line should not run for skip-only oversized content")
+			return nil, nil
+		},
+		SkillLine: func(_ context.Context, unit ReviewUnit) ([]skillCandidate, error) {
+			t.Fatal("skill line should not run for skip-only oversized content")
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wm.lineSeq(sess.ID, reflectLineFact) != 42 {
+		t.Fatalf("fact watermark should advance to skipped oversized seq 42, got %d", wm.lineSeq(sess.ID, reflectLineFact))
+	}
+	if wm.lineSeq(sess.ID, reflectLineSkill) != 42 {
+		t.Fatalf("skill watermark should advance to skipped oversized seq 42, got %d", wm.lineSeq(sess.ID, reflectLineSkill))
+	}
+	if len(result.Skipped) != 2 {
+		t.Fatalf("expected both lines to report oversized skip, got %#v", result.Skipped)
 	}
 }
 

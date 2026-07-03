@@ -57,18 +57,62 @@ func TestReviewConversationUsesLegacyCombinedPrompt(t *testing.T) {
 	}
 }
 
-func TestReviewConversationCandidatesEntryPointFailsClosedWhenUnwired(t *testing.T) {
-	svc, target, wm, _ := newCandidatePipelineTestService(t)
+func TestReviewConversationCandidatesEntryPointUsesCandidateRunners(t *testing.T) {
+	svc, target, wm, freshAt := newCandidatePipelineTestService(t)
+	stream := sequentialCaptureStream(t,
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_candidate", `{
+				"subject":"world",
+				"content":"Candidate reflect uses generated candidates before reconciliation.",
+				"evidence":[{"source_type":"user_message","source":"[user] candidate reflect before reconciliation","reason":"The user stated the architecture boundary."}],
+				"expected_effect":"Future reflect implementation keeps #532 separate from #531 writes.",
+				"handoff_hints":{"knowledge_search_query_hint":"candidate reflect reconciliation boundary"}
+			}`),
+			rawToolCall("finish_fact_generation", `{"candidate_count":1,"reason":"one fact"}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_evaluation", `{
+				"candidate_ref":"fact-0001",
+				"scores":{"evidence_strength":4,"subject_fit":4,"durability":4,"future_utility":4,"atomicity":4},
+				"rationale":"clear"
+			}`),
+			rawToolCall("finish_fact_evaluation", `{"candidate_count":1,"reason":"done"}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_skill_candidate", `{
+				"learning":{"summary":"Keep candidate generation separate from writes.","reusable_delta":"This avoids replacing old reflect before reconciliation exists."},
+				"evidence":[{"signal_type":"explicit_instruction","source":"[user] complete #532 before replacing old reflect","reason":"The instruction affects reflect implementation workflow."}],
+				"applicability":{"trigger_examples":["Changing reflect architecture"],"non_trigger_examples":["One-off answer"]},
+				"procedure":{"steps":["Generate candidates","Evaluate candidates","Hand accepted candidates to #531"],"verification":["Run reflect tests"]},
+				"handoff_hints":{"search_query_hint":"reflect candidate generation write boundary"}
+			}`),
+			rawToolCall("finish_skill_generation", `{"candidate_count":1,"reason":"one skill"}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_skill_evaluation", `{
+				"candidate_ref":"skill-0001",
+				"scores":{"evidence_strength":4,"reusable_value":4,"baseline_separation":4,"procedure_actionability":4,"applicability_clarity":3,"verification_quality":3},
+				"rationale":"clear"
+			}`),
+			rawToolCall("finish_skill_evaluation", `{"candidate_count":1,"reason":"done"}`),
+		},
+	)
+	svc.providers = func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+		return stream, nil
+	}
 
-	_, err := svc.reviewConversationCandidates(context.Background(), testSnapshot(), target)
-	if err == nil {
-		t.Fatal("expected candidate entry point to fail closed until line runners are wired")
+	result, err := svc.reviewConversationCandidates(context.Background(), testSnapshot(), target)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !wm.lineMark(target.session.ID, reflectLineFact).IsZero() {
-		t.Fatal("fact watermark should not advance when candidate line is unwired")
+	if len(result.FactAccepted) != 1 || len(result.SkillAccepted) != 1 {
+		t.Fatalf("expected accepted fact and skill candidates, got %#v", result)
 	}
-	if !wm.lineMark(target.session.ID, reflectLineSkill).IsZero() {
-		t.Fatal("skill watermark should not advance when candidate line is unwired")
+	if !wm.lineMark(target.session.ID, reflectLineFact).Equal(freshAt) {
+		t.Fatal("fact watermark should advance after candidate review")
+	}
+	if !wm.lineMark(target.session.ID, reflectLineSkill).Equal(freshAt) {
+		t.Fatal("skill watermark should advance after candidate review")
 	}
 }
 

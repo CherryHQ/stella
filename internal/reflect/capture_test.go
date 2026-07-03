@@ -3,6 +3,7 @@ package reflect
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -111,6 +112,49 @@ func TestCaptureDoesNotRetryRunnerError(t *testing.T) {
 	}
 	if attempts != 1 {
 		t.Fatalf("expected no protocol retry for runner error, got %d attempts", attempts)
+	}
+}
+
+func TestDecodeCaptureArgsParsesRawJSON(t *testing.T) {
+	args, err := captureCallArguments(ai.ToolCall{
+		ID:   "call-1",
+		Name: testSubmitScore,
+		Arguments: map[string]any{
+			"raw": `{"candidate_ref":"fact-0001","scores":{"evidence_strength":4},"rationale":"clear"}`,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if args["candidate_ref"] != "fact-0001" {
+		t.Fatalf("expected parsed candidate_ref, got %#v", args)
+	}
+	scores, ok := args["scores"].(map[string]any)
+	if !ok || scores["evidence_strength"].(float64) != 4 {
+		t.Fatalf("expected parsed nested scores, got %#v", args["scores"])
+	}
+}
+
+func TestDecodeCapturePayloadRejectsUnknownFields(t *testing.T) {
+	_, err := decodeCapturePayload[factCandidate](ai.ToolCall{
+		ID:   "call-1",
+		Name: toolSubmitFactCandidate,
+		Arguments: map[string]any{
+			"raw": `{
+				"subject":"world",
+				"content":"A durable project fact.",
+				"evidence":[{"source_type":"user_message","source":"[user] durable fact","reason":"explicitly stated"}],
+				"expected_effect":"Use this when relevant later.",
+				"handoff_hints":{"knowledge_search_query_hint":"durable project fact"},
+				"confidence":0.9
+			}`,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected unknown payload field to fail closed")
+	}
+	if !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("expected unknown field error, got %v", err)
 	}
 }
 
