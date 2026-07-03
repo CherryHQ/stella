@@ -43,6 +43,15 @@ WHERE goal_id = sqlc.arg(goal_id)
   AND purpose = sqlc.arg(purpose)
   AND status IN ('queued', 'running');
 
+-- name: ListInflightAttemptsByGoal :many
+-- Every queued/running attempt for a goal regardless of purpose. Cancel uses
+-- this to finalize ALL in-flight work: only execution attempts are pointed by
+-- active_attempt_id, so decomposition/review attempts would otherwise outlive
+-- the cancel and later be reaped against a terminal goal.
+SELECT * FROM agent_goal_attempt
+WHERE goal_id = sqlc.arg(goal_id)
+  AND status IN ('queued', 'running');
+
 -- name: PromoteAttempt :execrows
 UPDATE agent_goal_attempt
 SET status = 'running',

@@ -345,6 +345,61 @@ func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalPa
 	return items, nil
 }
 
+const listInflightAttemptsByGoal = `-- name: ListInflightAttemptsByGoal :many
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt
+WHERE goal_id = $1
+  AND status IN ('queued', 'running')
+`
+
+// Every queued/running attempt for a goal regardless of purpose. Cancel uses
+// this to finalize ALL in-flight work: only execution attempts are pointed by
+// active_attempt_id, so decomposition/review attempts would otherwise outlive
+// the cancel and later be reaped against a terminal goal.
+func (q *Queries) ListInflightAttemptsByGoal(ctx context.Context, goalID string) ([]AgentGoalAttempt, error) {
+	rows, err := q.db.Query(ctx, listInflightAttemptsByGoal, goalID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentGoalAttempt{}
+	for rows.Next() {
+		var i AgentGoalAttempt
+		if err := rows.Scan(
+			&i.ID,
+			&i.GoalID,
+			&i.UserID,
+			&i.AgentID,
+			&i.ExecutorAgentID,
+			&i.SessionID,
+			&i.Purpose,
+			&i.AttemptNo,
+			&i.Status,
+			&i.InputContext,
+			&i.Evidence,
+			&i.Output,
+			&i.Gaps,
+			&i.Error,
+			&i.HeartbeatAt,
+			&i.LeaseExpiresAt,
+			&i.WorkerID,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FailureClass,
+			&i.RepairRounds,
+			&i.PreviousFailureClass,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStaleAttempts = `-- name: ListStaleAttempts :many
 SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt
 WHERE status IN ('queued', 'running')

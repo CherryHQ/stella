@@ -833,12 +833,16 @@ func (s *GoalService) Cancel(ctx context.Context, id, reason string, by Actor) e
 			if IsTerminalLifecycle(d.Lifecycle) {
 				continue
 			}
-			// Cancel any in-flight attempt for this descendant before flipping it.
-			if d.ActiveAttemptID.Valid && d.ActiveAttemptID.String != "" {
-				att, err := q.GetAttempt(ctx, d.ActiveAttemptID.String)
-				if err != nil {
-					return err
-				}
+			// Cancel EVERY in-flight attempt for this descendant before flipping it,
+			// not just the one active_attempt_id points at: decomposition and review
+			// attempts are never pointed there and would otherwise outlive the cancel,
+			// to be reaped later against a terminal goal (the reaper's terminal guard
+			// is the backstop; this is the root fix).
+			atts, err := q.ListInflightAttemptsByGoal(ctx, d.ID)
+			if err != nil {
+				return fmt.Errorf("list in-flight attempts for cancel: %w", err)
+			}
+			for _, att := range atts {
 				if _, err := s.finalizeAttempt(ctx, q, att, AttemptCancelled, reason, ""); err != nil {
 					return fmt.Errorf("cancel in-flight attempt: %w", err)
 				}

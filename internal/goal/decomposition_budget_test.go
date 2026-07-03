@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -72,13 +73,12 @@ func TestDecompositionQueuedReap_RefundsBudget(t *testing.T) {
 	}
 }
 
-// TestReapAfterCancel_DoesNotResurrect pins the reaper's terminal guard: a goal
-// cancelled while its decomposition attempt is still leased (Cancel only
-// finalizes the attempt named by active_attempt_id, which decomposition never
-// sets) must STAY cancelled when the reaper later collects that attempt. Without
-// the guard the flaky route resurrected the composite (cancelled -> draft/ready,
-// where nothing claims it — a live corpse walked this exact path).
-func TestReapAfterCancel_DoesNotResurrect(t *testing.T) {
+// TestCancel_FinalizesUnpointedInflightAttempts pins the root fix for terminal
+// resurrection: Cancel must finalize EVERY queued/running attempt on the goal,
+// not just the one active_attempt_id points at — decomposition (and review)
+// attempts are never pointed there and used to outlive the cancel, to be reaped
+// later against a terminal goal.
+func TestCancel_FinalizesUnpointedInflightAttempts(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	root := h.createRoot(KindComposite, AcceptanceContract{})
@@ -88,14 +88,76 @@ func TestReapAfterCancel_DoesNotResurrect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginAutoDecomposition: %v", err)
 	}
-	// Promote to running so the reap takes the ran route (routeFailedAttempt) —
-	// the exact path that used to resurrect.
 	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
 		t.Fatalf("promote decomposition: %v", err)
 	}
 	if err := h.svc.Cancel(ctx, root.ID, "fixture dead", UserActor(h.userID)); err != nil {
 		t.Fatalf("cancel mid-decomposition: %v", err)
 	}
+
+	a, err := h.q.GetAttempt(ctx, att.ID)
+	if err != nil {
+		t.Fatalf("get attempt: %v", err)
+	}
+	if a.Status != AttemptCancelled {
+		t.Fatalf("in-flight decomposition attempt status=%q want cancelled (unpointed attempts must not outlive Cancel)", a.Status)
+	}
+	// Nothing left for the reaper: a later reap of the finalized attempt is a
+	// clean no-op race, never a resurrection route.
+	if err := h.svc.ReapAttempt(ctx, att.ID); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("reap of finalized attempt err=%v want ErrInvalidTransition", err)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleCancelled {
+		t.Fatalf("lifecycle=%q want cancelled", got)
+	}
+}
+
+// orphanDecomposition injects a running decomposition attempt directly (bypassing
+// Cancel's finalize sweep) onto a goal, simulating an attempt raced into
+// existence against a concurrent cancel on another node — the scenario the
+// finalization entry points' terminal guards backstop.
+func orphanDecomposition(t *testing.T, h *harness, goalID string) sqlc.AgentGoalAttempt {
+	t.Helper()
+	ctx := context.Background()
+	d := h.get(goalID)
+	maxNo, err := h.q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{GoalID: goalID, Purpose: PurposeDecomposition})
+	if err != nil {
+		t.Fatalf("max decomposition no: %v", err)
+	}
+	att, err := h.q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
+		ID:              newID(),
+		GoalID:          goalID,
+		UserID:          d.UserID,
+		AgentID:         pgnull.Text(d.AgentID),
+		ExecutorAgentID: pgnull.Text(d.AgentID),
+		SessionID:       d.SessionID,
+		Purpose:         PurposeDecomposition,
+		AttemptNo:       maxNo + 1,
+		Status:          AttemptQueued,
+		InputContext:    marshalJSON(AttemptInput{}),
+	})
+	if err != nil {
+		t.Fatalf("create orphan attempt: %v", err)
+	}
+	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
+		t.Fatalf("promote orphan attempt: %v", err)
+	}
+	return att
+}
+
+// TestReapAfterCancel_DoesNotResurrect pins the reaper's terminal guard: an
+// attempt that escaped Cancel's finalize sweep (cross-node race) must be
+// finalized without routing recovery — a live corpse walked the unguarded path
+// (cancelled -> reaped flaky decomposition -> ready, where nothing claims a
+// composite).
+func TestReapAfterCancel_DoesNotResurrect(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	root := h.createRoot(KindComposite, AcceptanceContract{})
+	if err := h.svc.Cancel(ctx, root.ID, "fixture dead", UserActor(h.userID)); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	att := orphanDecomposition(t, h, root.ID)
 
 	if err := h.svc.ReapAttempt(ctx, att.ID); err != nil {
 		t.Fatalf("reap after cancel: %v", err)
@@ -113,26 +175,18 @@ func TestReapAfterCancel_DoesNotResurrect(t *testing.T) {
 }
 
 // TestFailAfterCancel_FinalizesWithoutResurrecting pins FailAttempt's terminal
-// guard: a worker reporting failure for a goal that was cancelled mid-run must
-// finalize the attempt and leave the goal alone. Without the guard the
-// env/contract routes 0-rowed on blockGoal and rolled the finalize back, leaving
-// the attempt to be reaped in a loop.
+// guard: a worker reporting failure for a goal cancelled mid-run must finalize
+// the attempt and leave the goal alone. Without the guard the env/contract
+// routes 0-rowed on blockGoal and rolled the finalize back, leaving the attempt
+// to be reaped in a loop.
 func TestFailAfterCancel_FinalizesWithoutResurrecting(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	root := h.createRoot(KindComposite, AcceptanceContract{})
-	noop := AttemptEnqueuer(func(_ context.Context, _ pgx.Tx, _, _ string) error { return nil })
-
-	att, err := h.svc.BeginAutoDecomposition(ctx, root.ID, noop)
-	if err != nil {
-		t.Fatalf("BeginAutoDecomposition: %v", err)
-	}
-	if _, err := h.q.PromoteAttempt(ctx, sqlc.PromoteAttemptParams{ID: att.ID}); err != nil {
-		t.Fatalf("promote decomposition: %v", err)
-	}
 	if err := h.svc.Cancel(ctx, root.ID, "fixture dead", UserActor(h.userID)); err != nil {
-		t.Fatalf("cancel mid-decomposition: %v", err)
+		t.Fatalf("cancel: %v", err)
 	}
+	att := orphanDecomposition(t, h, root.ID)
 
 	if err := h.svc.FailAttempt(ctx, att.ID, "sandbox gone", FailureClassEnvironment); err != nil {
 		t.Fatalf("fail after cancel: %v", err)
