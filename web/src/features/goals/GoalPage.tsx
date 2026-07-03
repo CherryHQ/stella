@@ -33,6 +33,7 @@ import {
   goalEventsOptions,
   goalOptions,
   goalReadinessOptions,
+  goalSubtreeOptions,
 } from "@/lib/queries/goals";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -461,6 +462,15 @@ function OverviewTab({
   const { data: readiness } = useQuery(goalReadinessOptions(d.id));
   const isComposite = d.kind === "composite";
   const blocked = d.lifecycle === "blocked";
+  // A dep-blocked composite is stalled by a descendant whose block carries the
+  // real recovery action; surface those culprits so the user isn't dead-ended
+  // here. Whole-tree scan, not strict-descendant/required-only — any true-cause
+  // block in the tree gates the root and is worth showing.
+  const depBlocked = blocked && isComposite && d.block_reason === "dep";
+  const { data: subtree = [] } = useQuery(goalSubtreeOptions(depBlocked ? d.root_id : undefined));
+  const culprits = subtree.filter(
+    (g) => g.id !== d.id && g.lifecycle === "blocked" && g.block_reason !== "dep",
+  );
 
   return (
     <div className="space-y-1">
@@ -538,9 +548,33 @@ function OverviewTab({
               </Button>
             )}
             {d.block_reason === "dep" && (
-              <Button variant="outline" size="sm" className="mt-3" onClick={onWaive}>
-                {t("goals.waive")}
-              </Button>
+              <div className="mt-3 space-y-2">
+                {culprits.length > 0 && (
+                  <>
+                    <p className="text-xs text-muted-foreground">{t("goals.depCulpritsHint")}</p>
+                    <div className="overflow-hidden rounded-lg border border-border">
+                      {culprits.map((g) => (
+                        <Link
+                          key={g.id}
+                          to="/agents/$agentId/goals/$goalId"
+                          params={{ agentId, goalId: g.id }}
+                          className="flex w-full items-center gap-3 border-b border-border bg-background px-3 py-2.5 text-left last:border-b-0 hover:bg-muted/50"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                            {g.title}
+                          </span>
+                          <span className="shrink-0 text-xs text-chart-4">
+                            {blockReasonLabel(t, g)}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <Button variant="outline" size="sm" onClick={onWaive}>
+                  {t("goals.waive")}
+                </Button>
+              </div>
             )}
             {d.block_reason === "needs_plan_approval" && (
               <Button size="sm" className="mt-3" onClick={onPlan}>
