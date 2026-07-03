@@ -111,7 +111,7 @@ func nullableStringParam(value *string) pgtype.Text {
 // inbox entry. The kind and detail are derived from lifecycle/block_reason — the
 // goal model has no per-block message, so the reason IS the detail.
 func goalInboxItem(row sqlc.ListInboxGoalsRow) apitypes.InboxItem {
-	kind, prefix, detail := inboxFacetForGoal(row.Lifecycle, row.BlockReason)
+	kind, prefix, detail := inboxFacetForGoal(row.Lifecycle, row.BlockReason, row.BlockedBy)
 	return apitypes.InboxItem{
 		Id:         prefix + ":" + row.ID,
 		Kind:       kind,
@@ -126,21 +126,37 @@ func goalInboxItem(row sqlc.ListInboxGoalsRow) apitypes.InboxItem {
 	}
 }
 
-// inboxFacetForGoal maps a goal's lifecycle/block_reason to its
-// inbox kind, id prefix, and a human-readable detail line.
-func inboxFacetForGoal(lifecycle, blockReason string) (apitypes.InboxItemKind, string, string) {
-	switch {
-	case lifecycle == goal.LifecycleBlocked && blockReason == goal.BlockNeedsVerdict:
-		return apitypes.InboxItemKindReview, "review", "Awaiting your verdict"
-	case lifecycle == goal.LifecycleBlocked && blockReason == goal.BlockBudgetExhausted:
-		return apitypes.InboxItemKindBlocked, "blocked", "Attempt budget exhausted"
-	case lifecycle == goal.LifecycleBlocked:
-		return apitypes.InboxItemKindBlocked, "blocked", "Blocked on a dependency"
-	case lifecycle == goal.LifecycleAbandoned:
-		return apitypes.InboxItemKindFailed, "failed", "Abandoned after budget exhaustion"
-	default: // rejected_final
-		return apitypes.InboxItemKindFailed, "failed", "Rejected with no rework path left"
+// inboxFacetForGoal maps a goal's lifecycle/block_reason/blocked_by to its
+// inbox kind, id prefix, and a human-readable detail line. blocked_by carries
+// the responsibility-specific cause and wins over the generic reason, matching
+// the web UI's blockReasonLabel.
+func inboxFacetForGoal(lifecycle, blockReason, blockedBy string) (apitypes.InboxItemKind, string, string) {
+	if lifecycle == goal.LifecycleBlocked {
+		if blockedBy == goal.BlockEnvUnavailable || blockedBy == goal.BlockContractConflict {
+			blockReason = blockedBy
+		}
+		switch blockReason {
+		case goal.BlockNeedsVerdict:
+			return apitypes.InboxItemKindReview, "review", "Awaiting your verdict"
+		case goal.BlockNeedsPlanApproval:
+			return apitypes.InboxItemKindReview, "review", "Plan awaiting your approval"
+		case goal.BlockBudgetExhausted:
+			return apitypes.InboxItemKindBlocked, "blocked", "Attempt budget exhausted"
+		case goal.BlockPlanningInvalid:
+			return apitypes.InboxItemKindBlocked, "blocked", "Planning failed"
+		case goal.BlockContractConflict:
+			return apitypes.InboxItemKindBlocked, "blocked", "Acceptance contract conflict"
+		case goal.BlockEnvUnavailable:
+			return apitypes.InboxItemKindBlocked, "blocked", "Environment unavailable"
+		default:
+			return apitypes.InboxItemKindBlocked, "blocked", "Blocked"
+		}
 	}
+	if lifecycle == goal.LifecycleAbandoned {
+		return apitypes.InboxItemKindFailed, "failed", "Abandoned after budget exhaustion"
+	}
+	// rejected_final
+	return apitypes.InboxItemKindFailed, "failed", "Rejected with no rework path left"
 }
 
 func failedSchedulerRunInboxItem(row sqlc.ListFailedInboxSchedulerRunsRow) apitypes.InboxItem {

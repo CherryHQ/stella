@@ -923,15 +923,24 @@ SELECT
     d.intent,
     d.lifecycle,
     d.block_reason,
+    d.blocked_by,
     d.updated_at,
     d.created_at
 FROM agent_goal d
+JOIN agent_goal r ON r.id = d.root_id
 WHERE d.user_id = $1
   AND d.archived_at IS NULL
   AND ($2::text IS NULL OR d.agent_id = $2::text)
   AND (
-        d.lifecycle = 'blocked'
-        OR (d.lifecycle IN ('rejected_final', 'abandoned') AND d.updated_at >= $3)
+        (
+          d.lifecycle = 'blocked'
+          AND (
+                d.block_reason IN ('needs_verdict', 'needs_plan_approval', 'budget_exhausted', 'planning_invalid', 'contract_conflict', 'env_unavailable')
+                OR d.blocked_by IN ('env_unavailable', 'contract_conflict')
+              )
+          AND r.lifecycle NOT IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')
+        )
+        OR (d.lifecycle IN ('rejected_final', 'abandoned') AND d.updated_at >= $3 AND d.parent_id IS NULL)
       )
 ORDER BY d.updated_at DESC, d.id DESC
 LIMIT $4
@@ -952,13 +961,18 @@ type ListInboxGoalsRow struct {
 	Intent      string      `json:"intent"`
 	Lifecycle   string      `json:"lifecycle"`
 	BlockReason string      `json:"block_reason"`
+	BlockedBy   string      `json:"blocked_by"`
 	UpdatedAt   time.Time   `json:"updated_at"`
 	CreatedAt   time.Time   `json:"created_at"`
 }
 
-// Goals needing user attention, for the inbox. Open blocks surface at any
-// age (they wait on the user); terminal failures are windowed like failed runs.
-// The handler splits rows into inbox kinds by lifecycle/block_reason.
+// Goals needing user attention, for the inbox. Only human-actionable blocks
+// surface (dep-blocked goals resume on their own when upstream clears), at any
+// tree depth so a block buried in a subtask is still seen -- but not under a
+// terminal root, whose tree is already dead. Open blocks surface at any age
+// (they wait on the user); terminal failures are windowed like failed runs and
+// limited to roots (a child failure is covered by its root's outcome).
+// The handler splits rows into inbox kinds by lifecycle/block_reason/blocked_by.
 func (q *Queries) ListInboxGoals(ctx context.Context, arg ListInboxGoalsParams) ([]ListInboxGoalsRow, error) {
 	rows, err := q.db.Query(ctx, listInboxGoals,
 		arg.UserID,
@@ -981,6 +995,7 @@ func (q *Queries) ListInboxGoals(ctx context.Context, arg ListInboxGoalsParams) 
 			&i.Intent,
 			&i.Lifecycle,
 			&i.BlockReason,
+			&i.BlockedBy,
 			&i.UpdatedAt,
 			&i.CreatedAt,
 		); err != nil {
