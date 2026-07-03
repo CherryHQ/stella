@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { X } from "lucide-react";
 import {
   abandonGoal,
   activateGoal,
@@ -12,7 +13,6 @@ import {
   submitVerdict,
   unarchiveGoal,
   updateGoal,
-  waiveEdge,
 } from "@/lib/api-client";
 import type {
   ComponentsAcceptanceContract,
@@ -55,13 +55,10 @@ import { Form } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import {
-  ProgressBar,
   StatusDot,
   StatusPill,
-  blockReasonLabel,
   goalStatusLabel,
   displayStatus,
   policyLabel,
@@ -70,6 +67,7 @@ import {
   statusLabel,
 } from "@/features/goals/lib";
 import { AgentChip, DetailSection, DetailShell, MetaSep } from "@/features/goals/DetailShell";
+import { GoalCanvas } from "@/features/goals/GoalCanvas";
 import { GoalTimeline } from "@/features/goals/GoalTimeline";
 import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
 import { ToastContainer, useToast } from "@/hooks/use-toast";
@@ -86,9 +84,12 @@ export function GoalPage() {
     agentId: string;
     goalId: string;
   };
+  const { node } = useSearch({ strict: false }) as { node?: string; tab?: string };
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { toasts, showToast } = useToast();
   const [acting, setActing] = useState(false);
+  const [autoOpenedAcceptFor, setAutoOpenedAcceptFor] = useState<string | null>(null);
 
   const { data: d, isError } = useQuery({
     ...goalOptions(goalId),
@@ -96,6 +97,12 @@ export function GoalPage() {
       const data = q.state.data;
       return data ? poll(data) : false;
     },
+  });
+
+  const { data: children = [] } = useQuery({
+    ...goalChildrenOptions(goalId),
+    refetchInterval: d ? poll(d) : false,
+    enabled: !!goalId,
   });
 
   const invalidate = useCallback(() => {
@@ -127,9 +134,24 @@ export function GoalPage() {
     [invalidate, showToast, t],
   );
 
-  const scrollToSection = useCallback((id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, []);
+  const setNode = useCallback(
+    (next: string | null) =>
+      void navigate({
+        to: "/agents/$agentId/goals/$goalId",
+        params: { agentId, goalId },
+        search: next ? { node: next } : {},
+        replace: true,
+      }),
+    [agentId, goalId, navigate],
+  );
+
+  useEffect(() => {
+    if (!d || node || autoOpenedAcceptFor === d.id) return;
+    if (d.lifecycle === "done" && d.done_reason === "accepted") {
+      setAutoOpenedAcceptFor(d.id);
+      setNode("accept");
+    }
+  }, [autoOpenedAcceptFor, d, node, setNode]);
 
   if (isError) {
     return (
@@ -166,16 +188,21 @@ export function GoalPage() {
       pill={<StatusPill status={displayStatus(d)} label={goalStatusLabel(t, d)} />}
       contentClassName="max-w-[1200px]"
       actions={
-        <HeaderActions
-          d={d}
-          acting={acting}
-          act={act}
-          path={path}
-          onVerdict={() => scrollToSection("goal-acceptance")}
-          onTimeline={() => scrollToSection("goal-timeline")}
-          onContract={() => scrollToSection("goal-acceptance")}
-          onEnvironmentRetry={retryEnvironment}
-        />
+        <>
+          <HeaderActions
+            d={d}
+            acting={acting}
+            act={act}
+            path={path}
+            onVerdict={() => setNode("accept")}
+            onTimeline={() => setNode("activity")}
+            onContract={() => setNode("accept")}
+            onEnvironmentRetry={retryEnvironment}
+          />
+          <Button variant="outline" size="sm" onClick={() => setNode("activity")}>
+            {t("goals.tabTimeline")}
+          </Button>
+        </>
       }
     >
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1.5 text-[12.5px] text-muted-foreground">
@@ -200,243 +227,125 @@ export function GoalPage() {
         )}
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] xl:items-start">
-        <main className="min-w-0 space-y-7">
-          <section id="goal-run-panorama" className="scroll-mt-20">
-            <DetailSection title={t("goals.runPanoramaTitle")}>
-              <RunPanorama d={d} agentId={agentId} />
-            </DetailSection>
-          </section>
-
-          <section id="goal-acceptance" className="scroll-mt-20">
-            <AcceptanceTab d={d} acting={acting} act={act} />
-          </section>
-
-          <section id="goal-details" className="scroll-mt-20">
-            <DetailsSection d={d} agentId={agentId} acting={acting} act={act} />
-          </section>
-        </main>
-
-        <aside id="goal-timeline" className="min-w-0 xl:sticky xl:top-6">
-          <DetailSection title={t("goals.tabTimeline")}>
-            <div className="max-h-[calc(100vh-7rem)] overflow-y-auto">
-              <GoalTimeline goalId={d.id} live={d.lifecycle !== "done"} />
+      <div className="mt-6">
+        {isComposite ? (
+          <div className="flex min-w-0 flex-col overflow-hidden xl:flex-row">
+            <div className="min-w-0 flex-1">
+              <GoalCanvas goal={d} selectedNode={node ?? null} onSelectNode={setNode} />
             </div>
-          </DetailSection>
-        </aside>
+            <GoalNodeDrawer
+              root={d}
+              agentId={agentId}
+              node={node ?? null}
+              children={children}
+              acting={acting}
+              act={act}
+              onClose={() => setNode(null)}
+            />
+          </div>
+        ) : (
+          <div className="flex min-w-0 flex-col gap-6 xl:flex-row">
+            <main className="min-w-0 flex-1">
+              <DetailSection title={t("goals.tabAttempts")}>
+                <AttemptsTab d={d} />
+              </DetailSection>
+            </main>
+            <GoalNodeDrawer
+              root={d}
+              agentId={agentId}
+              node={node ?? null}
+              children={[]}
+              acting={acting}
+              act={act}
+              onClose={() => setNode(null)}
+            />
+          </div>
+        )}
       </div>
       <ToastContainer messages={toasts} />
     </DetailShell>
   );
 }
 
-// ── Single-screen run panorama ───────────────────────────────────────
+// ── Node drawer ──────────────────────────────────────────────────────
 
-function RunPanorama({ d, agentId }: { d: ComponentsGoal; agentId: string }) {
-  if (d.kind === "composite") return <CompositeRunPanorama d={d} agentId={agentId} />;
-  return <AttemptsTab d={d} />;
-}
+type DrawerNodeKind = "plan" | "accept" | "activity" | "child";
 
-type PanoramaRow =
-  | { kind: "materialized"; goal: ComponentsGoal; deps: ComponentsGoal[]; failureClass?: string }
-  | { kind: "proposal"; child: ComponentsProposedChild; deps: ComponentsProposedChild[] };
-
-function CompositeRunPanorama({ d, agentId }: { d: ComponentsGoal; agentId: string }) {
+function GoalNodeDrawer({
+  root,
+  agentId,
+  node,
+  children,
+  acting,
+  act,
+  onClose,
+}: {
+  root: ComponentsGoal;
+  agentId: string;
+  node: string | null;
+  children: ComponentsGoal[];
+  acting: boolean;
+  act: ActRun;
+  onClose: () => void;
+}) {
   const { t } = useI18n();
-  const plan = (d.plan ?? {}) as ComponentsDecompositionContent;
-  const proposedChildren = plan.children ?? [];
-  const proposedEdges = plan.edges ?? [];
-  const { data: children = [] } = useQuery({
-    ...goalChildrenOptions(d.id),
-    refetchInterval: poll(d),
-  });
-  const childIDs = useMemo(() => new Set(children.map((child) => child.id)), [children]);
-  const edgeQueries = useQueries({
-    queries: children.map((child) => ({
-      ...goalEdgesOptions(child.id),
-      refetchInterval: poll(d),
-    })),
-  });
-  const attemptQueries = useQueries({
-    queries: children.map((child) => ({
-      ...goalAttemptsOptions(child.id),
-      refetchInterval: poll(d),
-      // Attempts only feed the failure_class chip, which renders solely for
-      // done(failed) children — skip the request for everyone else.
-      enabled: child.lifecycle === "done" && child.done_reason === "failed",
-    })),
-  });
-  const edges = edgeQueries
-    .flatMap((query) => query.data ?? [])
-    .filter((edge) => childIDs.has(edge.upstream_id));
-  const attemptsByGoal = new Map(
-    children.map((child, i) => [child.id, attemptQueries[i]?.data ?? []] as const),
-  );
-  const rows = useMemo(
-    () => buildPanoramaRows(children, edges, attemptsByGoal, proposedChildren, proposedEdges),
-    [children, edges, attemptsByGoal, proposedChildren, proposedEdges],
-  );
-  const r = useMemo(() => rollup(children), [children]);
+  const child = children.find((c) => c.id === node) ?? null;
+  const kind: DrawerNodeKind | null =
+    node === "plan"
+      ? "plan"
+      : node === "accept"
+        ? "accept"
+        : node === "activity"
+          ? "activity"
+          : child
+            ? "child"
+            : null;
+  if (!node || !kind) return null;
 
-  if (rows.length === 0) return <Empty text={t("goals.noChildren")} />;
+  const title =
+    kind === "plan"
+      ? t("goals.drawerPlanTitle")
+      : kind === "accept"
+        ? t("goals.drawerAcceptTitle")
+        : kind === "activity"
+          ? t("goals.drawerActivityTitle")
+          : child?.title;
 
   return (
-    <div className="space-y-4">
-      {children.length > 0 && (
-        <div>
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="text-sm font-medium">{t("goals.childrenTitle")}</span>
-            <span className="text-xs text-muted-foreground">
-              {t("goals.requiredOf", { accepted: r.accepted, total: r.total })}
-            </span>
-          </div>
-          <ProgressBar r={r} className="h-2" />
-        </div>
-      )}
-      <ol className="relative space-y-3 before:absolute before:bottom-4 before:left-3 before:top-4 before:border-l before:border-border">
-        {rows.map((row, index) => (
-          <PanoramaItem key={panoramaRowKey(row, index)} row={row} agentId={agentId} />
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-function buildPanoramaRows(
-  children: ComponentsGoal[],
-  edges: ComponentsEdge[],
-  attemptsByGoal: Map<string, ComponentsAttempt[]>,
-  proposedChildren: ComponentsProposedChild[],
-  proposedEdges: ComponentsProposedEdge[],
-): PanoramaRow[] {
-  if (children.length > 0) {
-    const byID = new Map(children.map((child) => [child.id, child]));
-    const incoming = new Map<string, ComponentsGoal[]>();
-    for (const edge of edges) {
-      const upstream = byID.get(edge.upstream_id);
-      if (!upstream) continue;
-      const list = incoming.get(edge.goal_id) ?? [];
-      list.push(upstream);
-      incoming.set(edge.goal_id, list);
-    }
-    return [...children]
-      .sort(
-        (a, b) => (a.position ?? 0) - (b.position ?? 0) || a.created_at.localeCompare(b.created_at),
-      )
-      .map((goal) => ({
-        kind: "materialized" as const,
-        goal,
-        deps: incoming.get(goal.id) ?? [],
-        failureClass: latestFailureClass(attemptsByGoal.get(goal.id) ?? []),
-      }));
-  }
-
-  const byKey = new Map(proposedChildren.map((child) => [child.key, child]));
-  const incoming = new Map<string, ComponentsProposedChild[]>();
-  for (const edge of proposedEdges) {
-    const upstream = byKey.get(edge.upstream_key);
-    if (!upstream) continue;
-    const list = incoming.get(edge.downstream_key) ?? [];
-    list.push(upstream);
-    incoming.set(edge.downstream_key, list);
-  }
-  return proposedChildren.map((child) => ({
-    kind: "proposal" as const,
-    child,
-    deps: incoming.get(child.key) ?? [],
-  }));
-}
-
-function latestFailureClass(attempts: ComponentsAttempt[]): string | undefined {
-  return [...attempts]
-    .sort((a, b) => b.attempt_no - a.attempt_no)
-    .find((attempt) => attempt.failure_class)?.failure_class;
-}
-
-function panoramaRowKey(row: PanoramaRow, index: number): string {
-  return row.kind === "materialized" ? row.goal.id : `${row.child.key}:${index}`;
-}
-
-function PanoramaItem({ row, agentId }: { row: PanoramaRow; agentId: string }) {
-  const { t } = useI18n();
-  if (row.kind === "proposal") {
-    return (
-      <li className="relative flex gap-3 pl-1 opacity-80">
-        <StatusDot status="draft" className="relative z-10 mt-3" />
-        <div className="min-w-0 flex-1 rounded-xl border border-border bg-background p-3.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.child.title}</span>
-            <Badge variant="outline" size="sm">
-              {t("goals.proposedChild")}
-            </Badge>
-            <Badge variant="secondary" size="sm">
-              {t(row.child.kind === "composite" ? "goals.kindComposite" : "goals.kindLeaf")}
-            </Badge>
-          </div>
-          {row.child.intent && (
-            <p className="mt-1.5 text-xs text-muted-foreground">{row.child.intent}</p>
-          )}
-          <DependencyChips deps={row.deps.map((dep) => dep.title)} />
-        </div>
-      </li>
-    );
-  }
-
-  const goal = row.goal;
-  const blocked = blockReasonLabel(t, goal);
-  const failed = goal.lifecycle === "done" && goal.done_reason === "failed" && row.failureClass;
-  return (
-    <li className="relative flex gap-3 pl-1">
-      <StatusDot status={displayStatus(goal)} className="relative z-10 mt-3" />
-      <div className="min-w-0 flex-1 rounded-xl border border-border bg-background p-3.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill status={displayStatus(goal)} label={goalStatusLabel(t, goal)} />
-          <Link
-            to="/agents/$agentId/goals/$goalId"
-            params={{ agentId, goalId: goal.id }}
-            className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
-          >
-            {goal.title}
-          </Link>
-          {failed && (
-            <Badge variant="destructive" size="sm">
-              {row.failureClass}
-            </Badge>
-          )}
-          {blocked && (
-            <Badge variant="warning" size="sm">
-              {blocked}
-            </Badge>
-          )}
-        </div>
-        {goal.intent && (
-          <p className="mt-1.5 truncate text-xs text-muted-foreground">{goal.intent}</p>
+    <aside className="flex max-h-[520px] min-w-0 flex-col border-border bg-card xl:ml-0 xl:w-[360px] xl:shrink-0 xl:border-l max-xl:border-t">
+      <div className="flex items-center gap-2 border-b border-border p-4">
+        {kind === "child" && child && (
+          <StatusPill status={displayStatus(child)} label={goalStatusLabel(t, child)} />
         )}
-        <DependencyChips deps={row.deps.map((dep) => dep.title)} />
+        <div className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</div>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("common.close")}>
+          <X size={16} />
+        </Button>
       </div>
-    </li>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {kind === "plan" && (
+          <PlanDrawerContent d={root} agentId={agentId} acting={acting} act={act} />
+        )}
+        {kind === "accept" && (
+          <AcceptDrawerContent d={root} agentId={agentId} acting={acting} act={act} />
+        )}
+        {kind === "activity" && <GoalTimeline goalId={root.id} live={root.lifecycle !== "done"} />}
+        {kind === "child" && child && (
+          <ChildDrawerContent
+            root={root}
+            child={child}
+            siblings={children}
+            agentId={agentId}
+            acting={acting}
+            act={act}
+          />
+        )}
+      </div>
+    </aside>
   );
 }
 
-function DependencyChips({ deps }: { deps: string[] }) {
-  const { t } = useI18n();
-  if (deps.length === 0) return null;
-  return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      {deps.map((title) => (
-        <Badge key={title} variant="outline" size="sm">
-          {t("goals.depChip", { title: shortTitle(title) })}
-        </Badge>
-      ))}
-    </div>
-  );
-}
-
-function shortTitle(title: string): string {
-  return title.length > 28 ? `${title.slice(0, 25)}…` : title;
-}
-
-function DetailsSection({
+function PlanDrawerContent({
   d,
   agentId,
   acting,
@@ -448,72 +357,212 @@ function DetailsSection({
   act: ActRun;
 }) {
   const { t } = useI18n();
-  const { data: readiness } = useQuery({
-    ...goalReadinessOptions(d.id),
-    refetchInterval: poll(d),
+  return (
+    <div className="space-y-1">
+      {d.intent && (
+        <DetailSection title={t("goals.intent")}>
+          <MarkdownPreview
+            content={d.intent}
+            className="text-[13.5px] leading-relaxed [&_ol]:pl-5 [&_ul]:pl-5"
+          />
+        </DetailSection>
+      )}
+      <DetailSection title={t("goals.tabOverview")}>
+        <GoalMetaGrid d={d} />
+      </DetailSection>
+      <DetailSection title={t("goals.tabRevisions")}>
+        <PlanTab d={d} agentId={agentId} acting={acting} act={act} />
+      </DetailSection>
+    </div>
+  );
+}
+
+function AcceptDrawerContent({
+  d,
+  agentId,
+  acting,
+  act,
+}: {
+  d: ComponentsGoal;
+  agentId: string;
+  acting: boolean;
+  act: ActRun;
+}) {
+  return (
+    <div className="space-y-1">
+      <AcceptanceTab d={d} acting={acting} act={act} />
+      {d.kind === "composite" && d.lifecycle === "done" && d.done_reason === "accepted" && (
+        <CompositeDeliverables d={d} agentId={agentId} />
+      )}
+    </div>
+  );
+}
+
+function ChildDrawerContent({
+  root,
+  child,
+  siblings,
+  agentId,
+  acting,
+  act,
+}: {
+  root: ComponentsGoal;
+  child: ComponentsGoal;
+  siblings: ComponentsGoal[];
+  agentId: string;
+  acting: boolean;
+  act: ActRun;
+}) {
+  const { t } = useI18n();
+  const { data: edges = [] } = useQuery({
+    ...goalEdgesOptions(child.id),
+    refetchInterval: poll(root),
   });
-  const defaultOpen = d.lifecycle === "draft";
+  const { data: attempts = [] } = useQuery({
+    ...goalAttemptsOptions(child.id),
+    refetchInterval: poll(child),
+  });
+  const { data: events = [] } = useQuery({
+    ...goalEventsOptions(child.id),
+    refetchInterval: poll(child),
+    enabled: child.lifecycle === "blocked" && child.block_reason === "needs_verdict",
+  });
+  const { data: readiness } = useQuery({
+    ...goalReadinessOptions(child.id),
+    refetchInterval: poll(child),
+    enabled: child.lifecycle === "blocked" || child.lifecycle === "pending",
+  });
+  const { data: grandChildren = [] } = useQuery({
+    ...goalChildrenOptions(child.id),
+    refetchInterval: poll(child),
+    enabled: child.kind === "composite",
+  });
+  const siblingByID = new Map(siblings.map((s) => [s.id, s]));
+  const deps = edges.map(
+    (edge) => siblingByID.get(edge.upstream_id)?.title ?? edge.upstream_id.slice(0, 8),
+  );
+  const needsVerdict = child.lifecycle === "blocked" && child.block_reason === "needs_verdict";
+  const itemId = needsVerdict ? pendingVerdictItemId(child, events) : null;
+  const sortedAttempts = [...attempts].sort((a, b) => b.attempt_no - a.attempt_no);
+  const childRollup = rollup(grandChildren);
 
   return (
-    <Collapsible defaultOpen={defaultOpen}>
-      <CollapsibleTrigger render={<Button variant="outline" size="sm" />}>
-        {t("goals.detailsToggle")}
-      </CollapsibleTrigger>
-      <CollapsiblePanel>
-        <div className="space-y-1 pt-4">
-          {d.intent && (
-            <DetailSection title={t("goals.intent")}>
-              <MarkdownPreview
-                content={d.intent}
-                className="text-[13.5px] leading-relaxed [&_ol]:pl-5 [&_ul]:pl-5"
-              />
-            </DetailSection>
+    <div className="space-y-1">
+      <DetailSection title={t("goals.tabOverview")}>
+        <div className="space-y-3">
+          <StatusPill status={displayStatus(child)} label={goalStatusLabel(t, child)} />
+          {child.intent && (
+            <MarkdownPreview
+              content={child.intent}
+              className="text-[13.5px] leading-relaxed [&_ol]:pl-5 [&_ul]:pl-5"
+            />
           )}
-          <DetailSection title={t("goals.tabOverview")}>
-            <div className="grid grid-cols-2 gap-x-6 divide-border sm:grid-cols-3">
-              <Meta label={t("goals.fieldPriority")} value={priorityLabel(t, d.priority)} />
-              <Meta
-                label={t("goals.fieldReviewPolicy")}
-                value={policyLabel(t, d.review_policy ?? "none")}
-              />
-              <Meta
-                label={t("goals.fieldKind")}
-                value={t(d.kind === "composite" ? "goals.kindComposite" : "goals.kindLeaf")}
-              />
-              <Meta label={t("goals.fieldCreated")} value={formatTime(d.created_at)} />
-              <Meta label={t("goals.fieldUpdated")} value={formatTime(d.updated_at)} />
-              {d.accepted_at && (
-                <Meta label={t("goals.fieldAccepted")} value={formatTime(d.accepted_at)} />
-              )}
-              <Meta label={t("goals.fieldAttempts")} value={String(d.attempt_count ?? 0)} />
-              <Meta label={t("goals.fieldDepth")} value={String(d.depth)} />
-            </div>
-          </DetailSection>
-          <DetailSection title={t("goals.readiness")}>
-            <ReadinessBlock readiness={readiness ?? null} />
-          </DetailSection>
-          {d.kind === "leaf" && (
-            <DetailSection title={t("goals.tabDeps")}>
-              <DepsTab d={d} agentId={agentId} acting={acting} act={act} />
-            </DetailSection>
-          )}
-          {d.kind === "composite" && (
-            <DetailSection title={t("goals.tabRevisions")}>
-              <PlanTab d={d} agentId={agentId} acting={acting} act={act} />
-            </DetailSection>
-          )}
-          {d.kind === "composite" ? (
-            <CompositeDeliverables d={d} agentId={agentId} />
-          ) : (
-            d.accepted_output && (
-              <DetailSection title={t("goals.outputTitle")}>
-                <AcceptedOutputView output={d.accepted_output} />
-              </DetailSection>
-            )
+          {child.kind === "composite" && (
+            <p className="text-sm text-muted-foreground">
+              {t("goals.requiredOf", { accepted: childRollup.accepted, total: childRollup.total })}
+            </p>
           )}
         </div>
-      </CollapsiblePanel>
-    </Collapsible>
+      </DetailSection>
+
+      {deps.length > 0 && (
+        <DetailSection title={t("goals.tabDeps")}>
+          <div className="flex flex-wrap gap-1.5">
+            {deps.map((dep) => (
+              <Badge key={dep} variant="outline" size="sm">
+                {shortTitle(dep)}
+              </Badge>
+            ))}
+          </div>
+        </DetailSection>
+      )}
+
+      {needsVerdict && itemId && (
+        <DetailSection title={t("goals.verdictTitle")}>
+          <VerdictForm
+            d={child}
+            itemId={itemId}
+            scopeHash={evaluatedOutputHash(child, attempts)}
+            acting={acting}
+            act={act}
+            prompt={
+              (child.acceptance_contract?.items ?? []).find((it) => it.id === itemId)?.prompt ??
+              null
+            }
+          />
+        </DetailSection>
+      )}
+
+      {(child.lifecycle === "blocked" || child.lifecycle === "pending") && (
+        <DetailSection title={t("goals.readiness")}>
+          <ReadinessBlock readiness={readiness ?? null} />
+        </DetailSection>
+      )}
+
+      {child.kind === "leaf" ? (
+        <DetailSection title={t("goals.tabAttempts")}>
+          {sortedAttempts.length === 0 ? (
+            <Empty text={t("goals.noAttempts")} />
+          ) : (
+            <ul className="space-y-2">
+              {sortedAttempts.map((attempt) => (
+                <AttemptItem key={attempt.id} a={attempt} />
+              ))}
+            </ul>
+          )}
+        </DetailSection>
+      ) : (
+        <DetailSection title={t("goals.kindComposite")}>
+          <Button
+            variant="outline"
+            size="sm"
+            render={
+              <Link to="/agents/$agentId/goals/$goalId" params={{ agentId, goalId: child.id }} />
+            }
+          >
+            {t("goals.enterChildCanvas")}
+          </Button>
+        </DetailSection>
+      )}
+
+      <div className="pt-4">
+        <Button
+          variant="link"
+          size="sm"
+          render={
+            <Link to="/agents/$agentId/goals/$goalId" params={{ agentId, goalId: child.id }} />
+          }
+        >
+          {t("goals.openGoalPage")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function shortTitle(title: string): string {
+  return title.length > 28 ? `${title.slice(0, 25)}…` : title;
+}
+
+function GoalMetaGrid({ d }: { d: ComponentsGoal }) {
+  const { t } = useI18n();
+  return (
+    <div className="grid grid-cols-2 gap-x-6 divide-border sm:grid-cols-3">
+      <Meta label={t("goals.fieldPriority")} value={priorityLabel(t, d.priority)} />
+      <Meta
+        label={t("goals.fieldReviewPolicy")}
+        value={policyLabel(t, d.review_policy ?? "none")}
+      />
+      <Meta
+        label={t("goals.fieldKind")}
+        value={t(d.kind === "composite" ? "goals.kindComposite" : "goals.kindLeaf")}
+      />
+      <Meta label={t("goals.fieldCreated")} value={formatTime(d.created_at)} />
+      <Meta label={t("goals.fieldUpdated")} value={formatTime(d.updated_at)} />
+      {d.accepted_at && <Meta label={t("goals.fieldAccepted")} value={formatTime(d.accepted_at)} />}
+      <Meta label={t("goals.fieldAttempts")} value={String(d.attempt_count ?? 0)} />
+      <Meta label={t("goals.fieldDepth")} value={String(d.depth)} />
+    </div>
   );
 }
 
@@ -1184,106 +1233,6 @@ function VerdictForm({
         </Button>
       </div>
     </div>
-  );
-}
-
-// ── Dependencies ─────────────────────────────────────────────────────
-
-function DepsTab({
-  d,
-  agentId,
-  acting,
-  act,
-}: {
-  d: ComponentsGoal;
-  agentId: string;
-  acting: boolean;
-  act: ActRun;
-}) {
-  const { t } = useI18n();
-  const { data: edges = [] } = useQuery({
-    ...goalEdgesOptions(d.id),
-    refetchInterval: poll(d),
-  });
-  if (edges.length === 0) return <Empty text={t("goals.noDeps")} />;
-  return (
-    <ul className="space-y-2">
-      {edges.map((e) => (
-        <EdgeRow key={e.upstream_id} d={d} edge={e} agentId={agentId} acting={acting} act={act} />
-      ))}
-    </ul>
-  );
-}
-
-function EdgeRow({
-  d,
-  edge,
-  agentId,
-  acting,
-  act,
-}: {
-  d: ComponentsGoal;
-  edge: ComponentsEdge;
-  agentId: string;
-  acting: boolean;
-  act: ActRun;
-}) {
-  const { t } = useI18n();
-  const [reason, setReason] = useState("");
-  const waived = !!edge.waived_at;
-  const canWaive = !waived && edge.edge_kind === "hard";
-
-  const onFailureKey: Record<ComponentsEdge["on_failure"], MessageKey> = {
-    block: "goals.onFailureBlock",
-    fail: "goals.onFailureFail",
-    ignore: "goals.onFailureIgnore",
-  };
-
-  return (
-    <li className="rounded-xl border border-border bg-background p-3.5">
-      <div className="flex items-center gap-3">
-        <Link
-          to="/agents/$agentId/goals/$goalId"
-          params={{ agentId, goalId: edge.upstream_id }}
-          className="min-w-0 flex-1 truncate font-mono text-[12.5px] font-medium text-primary hover:underline"
-        >
-          {edge.upstream_id.slice(0, 8)}
-        </Link>
-        <span className="font-mono text-xs text-muted-foreground">
-          {t(edge.edge_kind === "hard" ? "goals.edgeHard" : "goals.edgeSoft")}
-        </span>
-        <span className="font-mono text-xs text-muted-foreground">
-          {t(onFailureKey[edge.on_failure] ?? "goals.onFailureBlock")}
-        </span>
-        {waived && <span className="font-mono text-xs text-chart-3">{t("goals.waived")}</span>}
-      </div>
-      {canWaive && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <Input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder={t("goals.waiveReasonPlaceholder")}
-            className="h-8 max-w-xs text-sm"
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            loading={acting}
-            onClick={() =>
-              act(() =>
-                waiveEdge({
-                  path: { id: d.id, upstreamId: edge.upstream_id },
-                  body: { reason: reason.trim() || undefined },
-                  throwOnError: true,
-                }),
-              )
-            }
-          >
-            {t("goals.waive")}
-          </Button>
-        </div>
-      )}
-    </li>
   );
 }
 

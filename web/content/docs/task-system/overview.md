@@ -81,15 +81,16 @@ A judgment verdict is still recorded as **evidence** — an approval with its ra
 
 Chat history is a bad project tracker. In the Web UI, open an agent and choose the **Goals** tab to see root goals, scheduled work, and their children in one place. Projects open on their goal list first.
 
-Open a goal to inspect:
+Open a composite goal to inspect its **workflow canvas**. The canvas shows the plan, child goals, dependency edges, and final acceptance as one flow. Green edges are satisfied, animated inbound edges point at running work, and warning rings show the node that needs attention.
 
-- **Timeline** — the default view: plan events, attempts, acceptance results, lifecycle changes, and your messages.
-- Its current lifecycle state and readiness.
-- **Children** and their rollup (for a composite).
-- **Attempts** — each execution episode and the gaps that drove the next one.
-- The **Acceptance** ledger — every check result and judgment verdict.
-- **Dependencies** and what's still waiting.
-- The accepted output.
+Click a node to open its drawer:
+
+- **Plan** — root intent, overview fields, and plan revisions.
+- **Child goal** — status, intent, dependencies, attempts, readiness, and any required verdict. Composite children link to their own canvas.
+- **Acceptance** — contract editor, acceptance ledger, and accepted deliverables after completion.
+- **Timeline** — opened from the header button; shows plan events, attempts, acceptance results, lifecycle changes, and your messages.
+
+Drawer state is shareable: `?node=plan`, `?node=accept`, `?node=activity`, or `?node=<child-id>` opens the matching drawer directly. Leaf goals skip the canvas and show their attempts list, with the same acceptance and timeline drawers available from the header.
 
 The **Needs you** list only shows blocks with a human recovery action. Goals waiting on upstream stay in **Active work** and resume automatically when upstream completes.
 
