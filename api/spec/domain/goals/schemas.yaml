@@ -28,6 +28,7 @@ components:
           required,
           lifecycle,
           acceptance_state,
+          needs_attention,
           created_at,
           updated_at,
         ]
@@ -106,6 +107,13 @@ components:
           type: string
           enum: ["", env_unavailable, contract_conflict]
           description: Responsibility-specific blocked cause for environment or contract failures.
+        needs_attention:
+          type: boolean
+          description:
+            Whether the goal is parked on a block only a human action can clear
+            (verdict, plan approval, budget raise, contract edit, environment
+            fix). Computed server-side from the canonical predicate; clients
+            must not re-derive it from lifecycle/block_reason.
         flaky_count:
           type: integer
           description: Flaky infrastructure retries spent outside business budget.

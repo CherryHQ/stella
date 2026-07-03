@@ -27,22 +27,14 @@ export function itemUpdatedAt(item: AutomationItem): string {
 }
 
 const TERMINAL = new Set(["accepted", "rejected_final", "abandoned", "cancelled"]);
-const HUMAN_ACTIONABLE_BLOCKS = new Set([
-  "needs_verdict",
-  "needs_plan_approval",
-  "budget_exhausted",
-  "planning_invalid",
-  "contract_conflict",
-  "env_unavailable",
-]);
 
-/** A root goal needs you only when its block has a human recovery action. */
+/**
+ * A root goal needs you only when its block has a human recovery action.
+ * Server-computed (goal.NeedsAttention is the canonical predicate) — never
+ * re-derive from lifecycle/block_reason here.
+ */
 export function goalNeedsYou(d: ComponentsGoal): boolean {
-  return (
-    d.lifecycle === "blocked" &&
-    (HUMAN_ACTIONABLE_BLOCKS.has(d.block_reason ?? "") ||
-      HUMAN_ACTIONABLE_BLOCKS.has(d.blocked_by ?? ""))
-  );
+  return d.needs_attention;
 }
 
 export type Section = "needs-you" | "active" | "schedules" | "closed";

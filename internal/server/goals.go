@@ -835,6 +835,7 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		Required:           d.Required,
 		Lifecycle:          apitypes.GoalLifecycle(d.Lifecycle),
 		AcceptanceState:    apitypes.GoalAcceptanceState(d.AcceptanceState),
+		NeedsAttention:     goal.NeedsAttention(d.Lifecycle, d.BlockReason, d.BlockedBy),
 		CreatedAt:          d.CreatedAt.UTC(),
 		UpdatedAt:          d.UpdatedAt.UTC(),
 		Intent:             optStr(d.Intent),

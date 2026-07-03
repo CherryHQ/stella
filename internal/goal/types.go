@@ -282,6 +282,33 @@ func LegalLifecycleTransition(kind, from, to string) bool {
 	return legalGoalTransitions[kind][from][to]
 }
 
+// humanActionableBlocks are the block reasons (and responsibility causes) a
+// human action clears: a verdict, a plan approval, a budget raise, a contract
+// edit, an environment fix. 'dep' is deliberately absent — the action lives on
+// the blocked descendant, not on the dep-parked parent.
+var humanActionableBlocks = map[string]bool{
+	BlockNeedsVerdict:      true,
+	BlockNeedsPlanApproval: true,
+	BlockBudgetExhausted:   true,
+	BlockPlanningInvalid:   true,
+	BlockContractConflict:  true,
+	BlockEnvUnavailable:    true,
+}
+
+// NeedsAttention is THE canonical needs-you predicate: whether a goal is
+// parked on a block only a human action can clear. It used to live in three
+// parallel copies (the web UI's goalNeedsYou, the goals list, the inbox SQL)
+// that drifted apart twice; now:
+//   - the API serves it as the Goal.needs_attention field (goalToAPI) and the
+//     web UI reads that field, never re-deriving it;
+//   - ListInboxGoals' WHERE clause is the one remaining SQL copy (the filter
+//     must run in the DB), pinned equivalent by
+//     TestListInboxGoalsMatchesNeedsAttention.
+func NeedsAttention(lifecycle, blockReason, blockedBy string) bool {
+	return lifecycle == LifecycleBlocked &&
+		(humanActionableBlocks[blockReason] || humanActionableBlocks[blockedBy])
+}
+
 // Actor describes who initiated a transition. Ported from the old package; the
 // goal ledger records verdict authority as a first-class column, but the
 // service still carries an Actor for audit/attribution on non-acceptance
