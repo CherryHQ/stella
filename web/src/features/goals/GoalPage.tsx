@@ -24,6 +24,7 @@ import type {
   ComponentsProposedChild,
   ComponentsProposedEdge,
   ComponentsReadiness,
+  ComponentsUpdateGoalRequest,
 } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -107,11 +108,15 @@ export function GoalPage() {
       try {
         await fn();
         invalidate();
+        return null;
+      } catch (e) {
+        showToast(apiErrorMessage(e, t("goals.actionFailed")), "error");
+        return e;
       } finally {
         setActing(false);
       }
     },
-    [invalidate],
+    [invalidate, showToast, t],
   );
 
   const goTab = (next: TabKey) =>
@@ -250,7 +255,9 @@ export function GoalPage() {
 
 // ── Header actions ───────────────────────────────────────────────────
 
-type ActRun = (fn: () => Promise<unknown>) => Promise<void>;
+// Runs a goal action; on failure the error is toasted centrally and returned
+// (null on success) so callers needing inline display don't re-catch.
+type ActRun = (fn: () => Promise<unknown>) => Promise<unknown>;
 
 type BlockActionKind =
   | "budget"
@@ -974,14 +981,23 @@ function ContractEditor({ d, acting, act }: { d: ComponentsGoal; acting: boolean
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  // A contract_conflict may live in the intent or the convergence policy rather
+  // than the contract itself (e.g. an intent demanding more levels than
+  // max_depth allows), so the resolve dialog exposes all three inputs the
+  // planner folds together.
+  const [intent, setIntent] = useState("");
+  const [maxDepth, setMaxDepth] = useState("");
   const [error, setError] = useState<string | null>(null);
   const current = useMemo(
     () => JSON.stringify(d.acceptance_contract ?? {}, null, 2),
     [d.acceptance_contract],
   );
+  const currentDepth = d.convergence_policy?.max_depth ?? 1;
 
   const reset = () => {
     setDraft(current);
+    setIntent(d.intent ?? "");
+    setMaxDepth(String(currentDepth));
     setError(null);
   };
   const setDialogOpen = (next: boolean) => {
@@ -1001,18 +1017,20 @@ function ContractEditor({ d, acting, act }: { d: ComponentsGoal; acting: boolean
       setError(t("goals.contractInvalidJson"));
       return;
     }
-    try {
-      await act(() =>
-        updateGoal({
-          path: { id: d.id },
-          body: { acceptance_contract: contract },
-          throwOnError: true,
-        }),
-      );
-      setOpen(false);
-    } catch (e) {
-      setError(apiErrorMessage(e, t("goals.contractSaveFailed")));
+    const body: ComponentsUpdateGoalRequest = { acceptance_contract: contract };
+    if (intent.trim() !== (d.intent ?? "").trim()) body.intent = intent;
+    const depth = Number(maxDepth);
+    if (Number.isInteger(depth) && depth >= 1 && depth !== currentDepth) {
+      // PATCH replaces the whole policy, so overlay the edited knob onto the
+      // current values instead of sending a partial body.
+      body.convergence_policy = { ...d.convergence_policy, max_depth: depth };
     }
+    const err = await act(() => updateGoal({ path: { id: d.id }, body, throwOnError: true }));
+    if (err) {
+      setError(apiErrorMessage(err, t("goals.contractSaveFailed")));
+      return;
+    }
+    setOpen(false);
   };
 
   return (
@@ -1035,14 +1053,36 @@ function ContractEditor({ d, acting, act }: { d: ComponentsGoal; acting: boolean
                 void save();
               }}
             >
-              <DialogPanel>
+              <DialogPanel className="space-y-4">
+                <Field>
+                  <FieldLabel>{t("goals.intent")}</FieldLabel>
+                  <Textarea
+                    name="intent"
+                    value={intent}
+                    onChange={(e) => setIntent(e.target.value)}
+                    rows={4}
+                  />
+                  <FieldDescription>{t("goals.conflictIntentHelp")}</FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel>{t("goals.conflictMaxDepthLabel")}</FieldLabel>
+                  <Input
+                    name="max_depth"
+                    type="number"
+                    min={1}
+                    value={maxDepth}
+                    onChange={(e) => setMaxDepth(e.target.value)}
+                    className="w-24"
+                  />
+                  <FieldDescription>{t("goals.conflictMaxDepthHelp")}</FieldDescription>
+                </Field>
                 <Field>
                   <FieldLabel>{t("goals.contractJsonLabel")}</FieldLabel>
                   <Textarea
                     name="acceptance_contract"
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
-                    rows={14}
+                    rows={10}
                   />
                   <FieldDescription>{t("goals.contractJsonHelp")}</FieldDescription>
                   {/* Base UI Field.Error only renders on control validity failure;

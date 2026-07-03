@@ -292,7 +292,7 @@ func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent}
+	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent, By: goal.UserActor(userID)}
 	if body.Priority != nil {
 		v := string(*body.Priority)
 		in.Priority = &v

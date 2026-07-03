@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -514,6 +515,9 @@ type UpdateInput struct {
 	ReviewPolicy *string
 	Contract     *AcceptanceContract
 	Convergence  *ConvergencePolicy
+	// By is the editing actor, recorded on the timeline when the edit resolves
+	// a contract conflict.
+	By Actor
 }
 
 // UpdateMetadata applies a partial metadata edit (contract §2 — metadata is
@@ -551,12 +555,43 @@ func (s *GoalService) UpdateMetadata(ctx context.Context, id string, in UpdateIn
 			p.AcceptanceContract = marshalJSON(*in.Contract)
 		}
 		if in.Convergence != nil {
-			p.ConvergencePolicy = marshalJSON(*in.Convergence)
+			// Normalize so a partial policy body cannot zero the untouched knobs.
+			p.ConvergencePolicy = marshalJSON(in.Convergence.Normalized())
 		}
 		if err := q.UpdateGoalIntent(ctx, p); err != nil {
 			return fmt.Errorf("update goal metadata: %w", err)
 		}
-		if in.Contract != nil && d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockContractConflict {
+		// A contract conflict can live in any of the three inputs the agent folds
+		// together — the acceptance contract, the intent, or the convergence policy
+		// (e.g. an intent demanding a two-level plan under max_depth 1) — so editing
+		// any of them counts as a resolution attempt and re-enters the lifecycle.
+		edited := in.Contract != nil || in.Intent != nil || in.Convergence != nil
+		if edited && d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockContractConflict {
+			// Tell the next planning/execution attempt the definition changed:
+			// prior failure reasons in the frozen timeline context describe the OLD
+			// contract/intent/policy, and without this note the planner trusts them
+			// over the current row (observed: a raised max_depth was ignored because
+			// stale attempt reasons kept "confirming" the old depth limit).
+			var edits []string
+			if in.Intent != nil {
+				edits = append(edits, "intent")
+			}
+			if in.Contract != nil {
+				edits = append(edits, "acceptance contract")
+			}
+			if in.Convergence != nil {
+				edits = append(edits, "convergence policy")
+			}
+			note := fmt.Sprintf(
+				"To resolve the contract conflict the user edited this goal's %s. Earlier failure reasons may describe the old definition — re-evaluate against the current goal state, not past attempts.",
+				strings.Join(edits, ", "))
+			if _, err := s.appendGoalEvent(ctx, q, id, "", GoalEventHumanMessage, HumanMessagePayload{
+				Text:          note,
+				ResponderType: in.By.Type,
+				ResponderID:   in.By.ID,
+			}); err != nil {
+				return err
+			}
 			rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
 			if err != nil {
 				return fmt.Errorf("recover contract conflict: %w", err)

@@ -3,6 +3,7 @@ package goal
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -53,6 +54,67 @@ func TestUpdateMetadataContractEditRecoversContractConflictComposite(t *testing.
 		t.Fatalf("after contract edit lifecycle=%q block=%q want active", out.Lifecycle, out.BlockReason)
 	}
 	assertLastLifecycleEvent(t, h, d.ID, LifecycleBlocked, LifecycleActive)
+}
+
+func TestUpdateMetadataIntentEditRecoversContractConflict(t *testing.T) {
+	h := newHarness(t)
+	d := h.createRoot(KindLeaf, humanJudgmentContract())
+	h.forceBlocked(d.ID, BlockContractConflict, false)
+	intent := "relaxed: any structure is fine"
+
+	out, err := h.svc.UpdateMetadata(context.Background(), d.ID, UpdateInput{Intent: &intent})
+	if err != nil {
+		t.Fatalf("UpdateMetadata: %v", err)
+	}
+	if out.Lifecycle != LifecycleReady || out.BlockReason != "" {
+		t.Fatalf("after intent edit lifecycle=%q block=%q want ready", out.Lifecycle, out.BlockReason)
+	}
+	if out.Intent != intent {
+		t.Fatalf("intent=%q want %q", out.Intent, intent)
+	}
+}
+
+func TestUpdateMetadataConvergenceEditRecoversContractConflict(t *testing.T) {
+	h := newHarness(t)
+	d := h.createRoot(KindComposite, AcceptanceContract{})
+	h.forceBlocked(d.ID, BlockContractConflict, false) // unplanned composite → draft
+
+	out, err := h.svc.UpdateMetadata(context.Background(), d.ID, UpdateInput{
+		Convergence: &ConvergencePolicy{MaxDepth: 2, MaxAttempts: 5},
+	})
+	if err != nil {
+		t.Fatalf("UpdateMetadata: %v", err)
+	}
+	if out.Lifecycle != LifecycleDraft || out.BlockReason != "" {
+		t.Fatalf("after convergence edit lifecycle=%q block=%q want draft", out.Lifecycle, out.BlockReason)
+	}
+	var pol ConvergencePolicy
+	if err := unmarshalJSON(out.ConvergencePolicy, &pol); err != nil {
+		t.Fatalf("decode convergence_policy: %v", err)
+	}
+	if pol.MaxDepth != 2 || pol.MaxAttempts != 5 {
+		t.Fatalf("policy=%+v want max_depth=2 max_attempts=5", pol)
+	}
+	// The recovery leaves a timeline note so the next planning attempt trusts
+	// the edited definition over stale prior failure reasons.
+	events := h.timeline(d.ID)
+	var note *HumanMessagePayload
+	for _, e := range events {
+		if e.EventType != GoalEventHumanMessage {
+			continue
+		}
+		var p HumanMessagePayload
+		if err := unmarshalJSON(e.Payload, &p); err != nil {
+			t.Fatalf("decode human message payload: %v", err)
+		}
+		note = &p
+	}
+	if note == nil {
+		t.Fatalf("no human_message note on timeline after conflict recovery")
+	}
+	if !strings.Contains(note.Text, "convergence policy") {
+		t.Fatalf("note text %q does not name the edited field", note.Text)
+	}
 }
 
 func TestUpdateMetadataWithoutContractLeavesContractConflictBlocked(t *testing.T) {
