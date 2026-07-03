@@ -12,22 +12,20 @@ import (
 func TestFactCandidateRunnerGeneratesEvaluatesAndGates(t *testing.T) {
 	stream := sequentialCaptureStream(t,
 		[]ai.ToolCall{
-			rawToolCall("submit_fact_candidate", `{
+			rawToolCall("submit_fact_generation", `{"candidates":[{
 				"subject":"world",
 				"content":"Reflect candidate generation is split from reconciliation.",
 				"evidence":[{"source_type":"user_message","source":"[user] split #532 from #531","reason":"The user explicitly described the boundary."}],
 				"expected_effect":"Future reflect work should preserve the #532/#531 boundary.",
 				"handoff_hints":{"knowledge_search_query_hint":"reflect candidate generation reconciliation"}
-			}`),
-			rawToolCall("finish_fact_generation", `{"candidate_count":1,"reason":"one durable world fact"}`),
+			}]}`),
 		},
 		[]ai.ToolCall{
-			rawToolCall("submit_fact_evaluation", `{
+			rawToolCall("submit_fact_evaluations", `{"evaluations":[{
 				"candidate_ref":"fact-0001",
 				"scores":{"evidence_strength":4,"subject_fit":4,"durability":4,"future_utility":4,"atomicity":4},
 				"rationale":"clear durable project fact"
-			}`),
-			rawToolCall("finish_fact_evaluation", `{"candidate_count":1,"reason":"complete"}`),
+			}]}`),
 		},
 	)
 	runner := candidateLineReviewer{Stream: stream, Model: ai.Model{ID: "test-model"}}
@@ -51,20 +49,18 @@ func TestFactCandidateRunnerGeneratesEvaluatesAndGates(t *testing.T) {
 func TestFactCandidateRunnerAccumulatesStreamedToolArguments(t *testing.T) {
 	stream := sequentialChunkedCaptureStream(t,
 		[]chunkedToolCall{
-			chunkedRawToolCall("submit_fact_candidate", []string{
-				`{"subject":"world","content":"`,
+			chunkedRawToolCall("submit_fact_generation", []string{
+				`{"candidates":[{"subject":"world","content":"`,
 				`Streamed tool arguments must be accumulated.","evidence":[{"source_type":"user_message","source":"[user] split args","reason":"The user provided the signal."}],`,
-				`"expected_effect":"Capture works with real streamed providers.","handoff_hints":{"knowledge_search_query_hint":"streamed tool arguments"}}`,
+				`"expected_effect":"Capture works with real streamed providers.","handoff_hints":{"knowledge_search_query_hint":"streamed tool arguments"}}]}`,
 			}),
-			chunkedRawToolCall("finish_fact_generation", []string{`{"candidate_count":1,"reason":"one candidate"}`}),
 		},
 		[]chunkedToolCall{
-			chunkedRawToolCall("submit_fact_evaluation", []string{
-				`{"candidate_ref":"fact-0001",`,
+			chunkedRawToolCall("submit_fact_evaluations", []string{
+				`{"evaluations":[{"candidate_ref":"fact-0001",`,
 				`"scores":{"evidence_strength":4,"subject_fit":4,"durability":4,"future_utility":4,"atomicity":4},`,
-				`"rationale":"clear durable signal"}`,
+				`"rationale":"clear durable signal"}]}`,
 			}),
-			chunkedRawToolCall("finish_fact_evaluation", []string{`{"candidate_count":1,"reason":"complete"}`}),
 		},
 	)
 	runner := candidateLineReviewer{Stream: stream, Model: ai.Model{ID: "test-model"}}
@@ -85,18 +81,16 @@ func TestFactCandidateRunnerAccumulatesStreamedToolArguments(t *testing.T) {
 func TestFactCandidateRunnerRetriesMalformedToolArguments(t *testing.T) {
 	stream := sequentialCaptureStream(t,
 		[]ai.ToolCall{
-			rawToolCall("submit_fact_candidate", `{"subject":"world"`),
-			rawToolCall("finish_fact_generation", `{"candidate_count":1,"reason":"malformed candidate args"}`),
+			rawToolCall("submit_fact_generation", `{"candidates":[{"subject":"world"`),
 		},
 		[]ai.ToolCall{
-			rawToolCall("submit_fact_candidate", `{
+			rawToolCall("submit_fact_generation", `{"candidates":[{
 				"subject":"world",
 				"content":"Malformed capture args should be retried.",
 				"evidence":[{"source_type":"user_message","source":"[user] retry malformed capture","reason":"The user asked for protocol retry consistency."}],
 				"expected_effect":"Candidate capture treats malformed JSON as a model protocol failure.",
 				"handoff_hints":{"knowledge_search_query_hint":"malformed capture retry"}
-			}`),
-			rawToolCall("finish_fact_generation", `{"candidate_count":1,"reason":"retry recovered"}`),
+			}]}`),
 		},
 	)
 	runner := candidateLineReviewer{Stream: stream, Model: ai.Model{ID: "test-model"}}
@@ -117,25 +111,23 @@ func TestFactCandidateRunnerRetriesMalformedToolArguments(t *testing.T) {
 func TestFactCandidateRunnerRetriesUnknownPayloadField(t *testing.T) {
 	stream := sequentialCaptureStream(t,
 		[]ai.ToolCall{
-			rawToolCall("submit_fact_candidate", `{
+			rawToolCall("submit_fact_generation", `{"candidates":[{
 				"subject":"world",
 				"content":"Strict schema failures should be retried.",
 				"evidence":[{"source_type":"user_message","source":"[user] retry strict schema","reason":"The user asked for protocol retry consistency."}],
 				"expected_effect":"Candidate capture treats schema drift as a model protocol failure.",
 				"handoff_hints":{"knowledge_search_query_hint":"strict schema retry"},
 				"confidence":0.8
-			}`),
-			rawToolCall("finish_fact_generation", `{"candidate_count":1,"reason":"extra field should trigger retry"}`),
+			}]}`),
 		},
 		[]ai.ToolCall{
-			rawToolCall("submit_fact_candidate", `{
+			rawToolCall("submit_fact_generation", `{"candidates":[{
 				"subject":"world",
 				"content":"Strict schema failures should be retried.",
 				"evidence":[{"source_type":"user_message","source":"[user] retry strict schema","reason":"The user asked for protocol retry consistency."}],
 				"expected_effect":"Candidate capture treats schema drift as a model protocol failure.",
 				"handoff_hints":{"knowledge_search_query_hint":"strict schema retry"}
-			}`),
-			rawToolCall("finish_fact_generation", `{"candidate_count":1,"reason":"retry recovered"}`),
+			}]}`),
 		},
 	)
 	runner := candidateLineReviewer{Stream: stream, Model: ai.Model{ID: "test-model"}}
@@ -153,25 +145,69 @@ func TestFactCandidateRunnerRetriesUnknownPayloadField(t *testing.T) {
 	}
 }
 
+func TestCandidateRunnerAllowsEmptyGenerationBatchWithoutReason(t *testing.T) {
+	factStream := sequentialCaptureStream(t,
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_generation", `{"candidates":[]}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_generation", `{"candidates":[]}`),
+		},
+	)
+	factRunner := candidateLineReviewer{Stream: factStream, Model: ai.Model{ID: "test-model"}}
+
+	facts, err := factRunner.generateFactCandidates(context.Background(), ReviewUnit{
+		Text:            "<fresh_conversation>\n[user] casual chat\n</fresh_conversation>\n",
+		FreshCount:      1,
+		PrivateOneToOne: true,
+	})
+	if err != nil {
+		t.Fatalf("empty fact generation batch should not fail: %v", err)
+	}
+	if len(facts) != 0 {
+		t.Fatalf("expected no fact candidates, got %#v", facts)
+	}
+
+	skillStream := sequentialCaptureStream(t,
+		[]ai.ToolCall{
+			rawToolCall("submit_skill_generation", `{"candidates":[]}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_skill_generation", `{"candidates":[]}`),
+		},
+	)
+	skillRunner := candidateLineReviewer{Stream: skillStream, Model: ai.Model{ID: "test-model"}}
+
+	skills, err := skillRunner.generateSkillCandidates(context.Background(), ReviewUnit{
+		Text:            "<fresh_conversation>\n[user] casual chat\n</fresh_conversation>\n",
+		FreshCount:      1,
+		PrivateOneToOne: true,
+	})
+	if err != nil {
+		t.Fatalf("empty skill generation batch should not fail: %v", err)
+	}
+	if len(skills) != 0 {
+		t.Fatalf("expected no skill candidates, got %#v", skills)
+	}
+}
+
 func TestSkillCandidateRunnerGeneratesEvaluatesAndGates(t *testing.T) {
 	stream := sequentialCaptureStream(t,
 		[]ai.ToolCall{
-			rawToolCall("submit_skill_candidate", `{
+			rawToolCall("submit_skill_generation", `{"candidates":[{
 				"learning":{"summary":"Use ReviewUnit windows before reflecting.","reusable_delta":"Bounded windows prevent silently dropping long fresh content."},
 				"evidence":[{"signal_type":"successful_workflow","source":"[assistant] built ReviewUnit first","reason":"The workflow generalized to reflect development."}],
 				"applicability":{"trigger_examples":["Implementing a reflect reviewer"],"non_trigger_examples":["Answering a one-off question"]},
 				"procedure":{"prerequisites":["Need access to session history"],"steps":["Build bounded review context","Run candidate generation","Run evaluation"],"decision_points":["Skip when there is no fresh content"],"pitfalls":["Do not use prior_context as evidence"],"verification":["Run reflect package tests"]},
 				"handoff_hints":{"search_query_hint":"reflect bounded review candidate pipeline"}
-			}`),
-			rawToolCall("finish_skill_generation", `{"candidate_count":1,"reason":"one reusable workflow"}`),
+			}]}`),
 		},
 		[]ai.ToolCall{
-			rawToolCall("submit_skill_evaluation", `{
+			rawToolCall("submit_skill_evaluations", `{"evaluations":[{
 				"candidate_ref":"skill-0001",
 				"scores":{"evidence_strength":4,"reusable_value":4,"baseline_separation":4,"procedure_actionability":4,"applicability_clarity":3,"verification_quality":3},
 				"rationale":"clear reusable workflow"
-			}`),
-			rawToolCall("finish_skill_evaluation", `{"candidate_count":1,"reason":"complete"}`),
+			}]}`),
 		},
 	)
 	runner := candidateLineReviewer{Stream: stream, Model: ai.Model{ID: "test-model"}}

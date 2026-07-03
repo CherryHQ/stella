@@ -11,28 +11,37 @@ import (
 
 const (
 	testSubmitScore = "submit_score"
+	testSubmitBatch = "submit_batch"
 	testFinish      = "finish_capture"
 )
 
-func TestCaptureMissingFinishFailsClosed(t *testing.T) {
+func TestCaptureSingleBatchSubmitPassesWithoutFinish(t *testing.T) {
 	err := validateCaptureProtocol(captureRunResult{
-		ToolCalls: []ai.ToolCall{scoreCall("fact-0001")},
-	}, testCaptureProtocol("fact-0001"))
-	if err == nil {
-		t.Fatal("expected missing finish to fail closed")
+		ToolCalls: []ai.ToolCall{batchSubmitCall("batch-1")},
+	}, testBatchCaptureProtocol())
+	if err != nil {
+		t.Fatalf("expected a single batch submit tool to complete capture, got %v", err)
 	}
 }
 
-func TestCaptureDuplicateFinishFailsClosed(t *testing.T) {
+func TestCaptureMissingBatchSubmitFailsClosed(t *testing.T) {
+	err := validateCaptureProtocol(captureRunResult{
+		ToolCalls: []ai.ToolCall{},
+	}, testBatchCaptureProtocol())
+	if err == nil {
+		t.Fatal("expected missing batch submit to fail closed")
+	}
+}
+
+func TestCaptureDuplicateBatchSubmitFailsClosed(t *testing.T) {
 	err := validateCaptureProtocol(captureRunResult{
 		ToolCalls: []ai.ToolCall{
-			scoreCall("fact-0001"),
-			finishCall("finish-1"),
-			finishCall("finish-2"),
+			batchSubmitCall("batch-1"),
+			batchSubmitCall("batch-2"),
 		},
-	}, testCaptureProtocol("fact-0001"))
+	}, testBatchCaptureProtocol())
 	if err == nil {
-		t.Fatal("expected duplicate finish to fail closed")
+		t.Fatal("expected duplicate batch submit to fail closed")
 	}
 }
 
@@ -40,7 +49,6 @@ func TestCaptureUnknownCandidateRefFailsClosed(t *testing.T) {
 	err := validateCaptureProtocol(captureRunResult{
 		ToolCalls: []ai.ToolCall{
 			scoreCall("fact-9999"),
-			finishCall("finish-1"),
 		},
 	}, testCaptureProtocol("fact-0001"))
 	if err == nil {
@@ -52,7 +60,6 @@ func TestCaptureMissingEvaluationFailsClosed(t *testing.T) {
 	err := validateCaptureProtocol(captureRunResult{
 		ToolCalls: []ai.ToolCall{
 			scoreCall("fact-0001"),
-			finishCall("finish-1"),
 		},
 	}, testCaptureProtocol("fact-0001", "fact-0002"))
 	if err == nil {
@@ -64,9 +71,8 @@ func TestCaptureUnknownToolFailsClosed(t *testing.T) {
 	err := validateCaptureProtocol(captureRunResult{
 		ToolCalls: []ai.ToolCall{
 			{Name: "unexpected_tool", Arguments: map[string]any{}},
-			finishCall("finish-1"),
 		},
-	}, testCaptureProtocol())
+	}, testBatchCaptureProtocol())
 	if err == nil {
 		t.Fatal("expected unknown capture tool to fail closed")
 	}
@@ -78,12 +84,12 @@ func TestCaptureRetriesOnceOnProtocolFailure(t *testing.T) {
 		func(context.Context) (captureRunResult, error) {
 			attempts++
 			if attempts == 1 {
-				return captureRunResult{ToolCalls: []ai.ToolCall{scoreCall("fact-0001")}}, nil
+				return captureRunResult{ToolCalls: []ai.ToolCall{}}, nil
 			}
-			return captureRunResult{ToolCalls: []ai.ToolCall{scoreCall("fact-0001"), finishCall("finish-1")}}, nil
+			return captureRunResult{ToolCalls: []ai.ToolCall{batchSubmitCall("batch-1")}}, nil
 		},
 		func(result captureRunResult) error {
-			return validateCaptureProtocol(result, testCaptureProtocol("fact-0001"))
+			return validateCaptureProtocol(result, testBatchCaptureProtocol())
 		},
 	)
 	if err != nil {
@@ -92,7 +98,7 @@ func TestCaptureRetriesOnceOnProtocolFailure(t *testing.T) {
 	if attempts != 2 {
 		t.Fatalf("expected two attempts, got %d", attempts)
 	}
-	if len(result.ToolCalls) != 2 {
+	if len(result.ToolCalls) != 1 {
 		t.Fatalf("expected second result, got %#v", result)
 	}
 }
@@ -138,7 +144,7 @@ func TestDecodeCaptureArgsParsesRawJSON(t *testing.T) {
 func TestDecodeCapturePayloadRejectsUnknownFields(t *testing.T) {
 	_, err := decodeCapturePayload[factCandidate](ai.ToolCall{
 		ID:   "call-1",
-		Name: toolSubmitFactCandidate,
+		Name: toolSubmitFactGeneration,
 		Arguments: map[string]any{
 			"raw": `{
 				"subject":"world",
@@ -162,11 +168,19 @@ func testCaptureProtocol(refs ...CandidateRef) captureProtocol {
 	return captureProtocol{
 		AllowedTools: map[string]struct{}{
 			testSubmitScore: {},
-			testFinish:      {},
 		},
-		FinishName:     testFinish,
+		SubmitName:     testSubmitScore,
 		EvaluationName: testSubmitScore,
 		ExpectedRefs:   refs,
+	}
+}
+
+func testBatchCaptureProtocol() captureProtocol {
+	return captureProtocol{
+		AllowedTools: map[string]struct{}{
+			testSubmitBatch: {},
+		},
+		SubmitName: testSubmitBatch,
 	}
 }
 
@@ -178,6 +192,6 @@ func scoreCall(ref CandidateRef) ai.ToolCall {
 	}
 }
 
-func finishCall(id string) ai.ToolCall {
-	return ai.ToolCall{ID: id, Name: testFinish, Arguments: map[string]any{}}
+func batchSubmitCall(id string) ai.ToolCall {
+	return ai.ToolCall{ID: id, Name: testSubmitBatch, Arguments: map[string]any{}}
 }

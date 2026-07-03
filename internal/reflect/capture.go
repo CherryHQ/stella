@@ -19,13 +19,12 @@ const (
 var errCaptureProtocol = errors.New("capture protocol")
 
 type captureRunResult struct {
-	ToolCalls  []ai.ToolCall
-	FinishSeen bool
+	ToolCalls []ai.ToolCall
 }
 
 type captureProtocol struct {
 	AllowedTools      map[string]struct{}
-	FinishName        string
+	SubmitName        string
 	EvaluationName    string
 	ExpectedRefs      []CandidateRef
 	PayloadsValidator func([]ai.ToolCall) error
@@ -74,7 +73,7 @@ func validateCaptureProtocol(result captureRunResult, protocol captureProtocol) 
 	if err := rejectUnknownCaptureTools(result.ToolCalls, protocol.AllowedTools); err != nil {
 		return err
 	}
-	if err := validateSingleFinish(result.ToolCalls, protocol.FinishName); err != nil {
+	if err := validateSingleSubmit(result.ToolCalls, protocol.SubmitName); err != nil {
 		return err
 	}
 	if err := validateExpectedCandidateRefs(result.ToolCalls, protocol.EvaluationName, protocol.ExpectedRefs); err != nil {
@@ -86,21 +85,21 @@ func validateCaptureProtocol(result captureRunResult, protocol captureProtocol) 
 	return nil
 }
 
-func validateSingleFinish(calls []ai.ToolCall, finishName string) error {
-	if finishName == "" {
-		return fmt.Errorf("%w: finish tool name missing", errCaptureProtocol)
+func validateSingleSubmit(calls []ai.ToolCall, submitName string) error {
+	if submitName == "" {
+		return fmt.Errorf("%w: submit tool name missing", errCaptureProtocol)
 	}
 	count := 0
 	for _, call := range calls {
-		if call.Name == finishName {
+		if call.Name == submitName {
 			count++
 		}
 	}
 	switch {
 	case count == 0:
-		return fmt.Errorf("%w: missing finish tool %q", errCaptureProtocol, finishName)
+		return fmt.Errorf("%w: missing submit tool %q", errCaptureProtocol, submitName)
 	case count > 1:
-		return fmt.Errorf("%w: duplicate finish tool %q", errCaptureProtocol, finishName)
+		return fmt.Errorf("%w: duplicate submit tool %q", errCaptureProtocol, submitName)
 	default:
 		return nil
 	}

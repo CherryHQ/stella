@@ -199,9 +199,9 @@ func TestCapOrdersSkillsByOverallEvidenceThenRef(t *testing.T) {
 }
 
 func TestSkillGateUsesConfiguredThreshold(t *testing.T) {
-	candidate := validSkillCandidate("skill-0001")
-	evaluation := skillEvaluation{
-		Ref: candidate.Ref,
+	midCandidate := validSkillCandidate("skill-0001")
+	midEvaluation := skillEvaluation{
+		Ref: midCandidate.Ref,
 		Scores: map[string]int{
 			skillScoreEvidenceStrength:       3,
 			skillScoreReusableValue:          3,
@@ -211,16 +211,33 @@ func TestSkillGateUsesConfiguredThreshold(t *testing.T) {
 			skillScoreVerificationQuality:    3,
 		},
 	}
-	defaultResult := gateSkillCandidates([]skillCandidate{candidate}, []skillEvaluation{evaluation})
-	if len(defaultResult.Accepted) != 1 {
-		t.Fatalf("expected default threshold to accept candidate, got %#v", defaultResult)
+	defaultResult := gateSkillCandidates([]skillCandidate{midCandidate}, []skillEvaluation{midEvaluation})
+	if len(defaultResult.Rejected) != 1 || defaultResult.Rejected[0].Reason != rejectOverallBelowThreshold {
+		t.Fatalf("expected default skill threshold to reject mid-score candidate, got %#v", defaultResult)
 	}
 
-	customResult := gateSkillCandidatesWithSettings([]skillCandidate{candidate}, []skillEvaluation{evaluation}, CandidateGateSettings{
-		SkillThreshold: 0.80,
+	strongCandidate := validSkillCandidate("skill-0002")
+	strongEvaluation := skillEvaluation{
+		Ref: strongCandidate.Ref,
+		Scores: map[string]int{
+			skillScoreEvidenceStrength:       4,
+			skillScoreReusableValue:          4,
+			skillScoreBaselineSeparation:     4,
+			skillScoreProcedureActionability: 4,
+			skillScoreApplicabilityClarity:   4,
+			skillScoreVerificationQuality:    4,
+		},
+	}
+	strongResult := gateSkillCandidates([]skillCandidate{strongCandidate}, []skillEvaluation{strongEvaluation})
+	if len(strongResult.Accepted) != 1 {
+		t.Fatalf("expected default skill threshold to accept strong candidate, got %#v", strongResult)
+	}
+
+	customResult := gateSkillCandidatesWithSettings([]skillCandidate{midCandidate}, []skillEvaluation{midEvaluation}, CandidateGateSettings{
+		SkillThreshold: 0.70,
 	})
-	if len(customResult.Rejected) != 1 || customResult.Rejected[0].Reason != rejectOverallBelowThreshold {
-		t.Fatalf("expected configured threshold rejection, got %#v", customResult)
+	if len(customResult.Accepted) != 1 {
+		t.Fatalf("expected configured lower skill threshold to accept mid-score candidate, got %#v", customResult)
 	}
 }
 

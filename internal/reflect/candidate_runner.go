@@ -11,16 +11,32 @@ import (
 )
 
 const (
-	toolSubmitFactCandidate  = "submit_fact_candidate"
-	toolFinishFactGeneration = "finish_fact_generation"
-	toolSubmitFactEvaluation = "submit_fact_evaluation"
-	toolFinishFactEvaluation = "finish_fact_evaluation"
+	toolSubmitFactGeneration  = "submit_fact_generation"
+	toolSubmitFactEvaluations = "submit_fact_evaluations"
 
-	toolSubmitSkillCandidate  = "submit_skill_candidate"
-	toolFinishSkillGeneration = "finish_skill_generation"
-	toolSubmitSkillEvaluation = "submit_skill_evaluation"
-	toolFinishSkillEvaluation = "finish_skill_evaluation"
+	toolSubmitSkillGeneration  = "submit_skill_generation"
+	toolSubmitSkillEvaluations = "submit_skill_evaluations"
 )
+
+// Capture payloads batch each phase into one tool call. The single submit call
+// is also the completion signal, which avoids relying on a second finish tool.
+type factGenerationCapturePayload struct {
+	Candidates        []factCandidate `json:"candidates"`
+	NoCandidateReason string          `json:"no_candidate_reason,omitempty"`
+}
+
+type factEvaluationCapturePayload struct {
+	Evaluations []factEvaluation `json:"evaluations"`
+}
+
+type skillGenerationCapturePayload struct {
+	Candidates        []skillCandidate `json:"candidates"`
+	NoCandidateReason string           `json:"no_candidate_reason,omitempty"`
+}
+
+type skillEvaluationCapturePayload struct {
+	Evaluations []skillEvaluation `json:"evaluations"`
+}
 
 // candidateLineReviewer runs the #532 in-memory candidate capture protocol. The
 // capture tools are not executed; their tool-call arguments are the structured
@@ -67,11 +83,11 @@ func (r candidateLineReviewer) runSkillLine(ctx context.Context, unit ReviewUnit
 func (r candidateLineReviewer) generateFactCandidates(ctx context.Context, unit ReviewUnit) ([]factCandidate, error) {
 	var candidates []factCandidate
 	_, err := r.capture(ctx, factCandidateGenerationPrompt, unit.Text, captureProtocol{
-		AllowedTools: allowedCaptureTools(toolSubmitFactCandidate, toolFinishFactGeneration),
-		FinishName:   toolFinishFactGeneration,
+		AllowedTools: allowedCaptureTools(toolSubmitFactGeneration),
+		SubmitName:   toolSubmitFactGeneration,
 		PayloadsValidator: func(calls []ai.ToolCall) error {
 			var err error
-			candidates, err = decodeFactCandidateCalls(calls)
+			candidates, err = decodeFactGenerationCall(calls)
 			return err
 		},
 	}, factGenerationTools())
@@ -91,14 +107,15 @@ func (r candidateLineReviewer) evaluateFactCandidates(ctx context.Context, unit 
 	}
 	var evaluations []factEvaluation
 	_, err := r.capture(ctx, factCandidateEvaluationPrompt, renderEvaluationInput(unit.Text, candidates), captureProtocol{
-		AllowedTools:   allowedCaptureTools(toolSubmitFactEvaluation, toolFinishFactEvaluation),
-		FinishName:     toolFinishFactEvaluation,
-		EvaluationName: toolSubmitFactEvaluation,
-		ExpectedRefs:   refs,
+		AllowedTools: allowedCaptureTools(toolSubmitFactEvaluations),
+		SubmitName:   toolSubmitFactEvaluations,
 		PayloadsValidator: func(calls []ai.ToolCall) error {
 			var err error
-			evaluations, err = decodeFactEvaluationCalls(calls)
-			return err
+			evaluations, err = decodeFactEvaluationCall(calls)
+			if err != nil {
+				return err
+			}
+			return validateEvaluationRefs(factEvaluationRefs(evaluations), refs)
 		},
 	}, factEvaluationTools())
 	if err != nil {
@@ -110,11 +127,11 @@ func (r candidateLineReviewer) evaluateFactCandidates(ctx context.Context, unit 
 func (r candidateLineReviewer) generateSkillCandidates(ctx context.Context, unit ReviewUnit) ([]skillCandidate, error) {
 	var candidates []skillCandidate
 	_, err := r.capture(ctx, skillCandidateGenerationPrompt, unit.Text, captureProtocol{
-		AllowedTools: allowedCaptureTools(toolSubmitSkillCandidate, toolFinishSkillGeneration),
-		FinishName:   toolFinishSkillGeneration,
+		AllowedTools: allowedCaptureTools(toolSubmitSkillGeneration),
+		SubmitName:   toolSubmitSkillGeneration,
 		PayloadsValidator: func(calls []ai.ToolCall) error {
 			var err error
-			candidates, err = decodeSkillCandidateCalls(calls)
+			candidates, err = decodeSkillGenerationCall(calls)
 			return err
 		},
 	}, skillGenerationTools())
@@ -134,14 +151,15 @@ func (r candidateLineReviewer) evaluateSkillCandidates(ctx context.Context, unit
 	}
 	var evaluations []skillEvaluation
 	_, err := r.capture(ctx, skillCandidateEvaluationPrompt, renderEvaluationInput(unit.Text, candidates), captureProtocol{
-		AllowedTools:   allowedCaptureTools(toolSubmitSkillEvaluation, toolFinishSkillEvaluation),
-		FinishName:     toolFinishSkillEvaluation,
-		EvaluationName: toolSubmitSkillEvaluation,
-		ExpectedRefs:   refs,
+		AllowedTools: allowedCaptureTools(toolSubmitSkillEvaluations),
+		SubmitName:   toolSubmitSkillEvaluations,
 		PayloadsValidator: func(calls []ai.ToolCall) error {
 			var err error
-			evaluations, err = decodeSkillEvaluationCalls(calls)
-			return err
+			evaluations, err = decodeSkillEvaluationCall(calls)
+			if err != nil {
+				return err
+			}
+			return validateEvaluationRefs(skillEvaluationRefs(evaluations), refs)
 		},
 	}, skillEvaluationTools())
 	if err != nil {
@@ -208,64 +226,90 @@ func allowedCaptureTools(names ...string) map[string]struct{} {
 	return allowed
 }
 
-func decodeFactCandidateCalls(calls []ai.ToolCall) ([]factCandidate, error) {
-	var candidates []factCandidate
-	for _, call := range calls {
-		if call.Name != toolSubmitFactCandidate {
-			continue
-		}
-		candidate, err := decodeCapturePayload[factCandidate](call)
-		if err != nil {
-			return nil, err
-		}
-		candidates = append(candidates, candidate)
+func decodeFactGenerationCall(calls []ai.ToolCall) ([]factCandidate, error) {
+	payload, err := decodeSingleCapturePayload[factGenerationCapturePayload](calls, toolSubmitFactGeneration)
+	if err != nil {
+		return nil, err
 	}
-	return candidates, nil
+	return payload.Candidates, nil
 }
 
-func decodeFactEvaluationCalls(calls []ai.ToolCall) ([]factEvaluation, error) {
-	var evaluations []factEvaluation
-	for _, call := range calls {
-		if call.Name != toolSubmitFactEvaluation {
-			continue
-		}
-		evaluation, err := decodeCapturePayload[factEvaluation](call)
-		if err != nil {
-			return nil, err
-		}
-		evaluations = append(evaluations, evaluation)
+func decodeFactEvaluationCall(calls []ai.ToolCall) ([]factEvaluation, error) {
+	payload, err := decodeSingleCapturePayload[factEvaluationCapturePayload](calls, toolSubmitFactEvaluations)
+	if err != nil {
+		return nil, err
 	}
-	return evaluations, nil
+	return payload.Evaluations, nil
 }
 
-func decodeSkillCandidateCalls(calls []ai.ToolCall) ([]skillCandidate, error) {
-	var candidates []skillCandidate
-	for _, call := range calls {
-		if call.Name != toolSubmitSkillCandidate {
-			continue
-		}
-		candidate, err := decodeCapturePayload[skillCandidate](call)
-		if err != nil {
-			return nil, err
-		}
-		candidates = append(candidates, candidate)
+func decodeSkillGenerationCall(calls []ai.ToolCall) ([]skillCandidate, error) {
+	payload, err := decodeSingleCapturePayload[skillGenerationCapturePayload](calls, toolSubmitSkillGeneration)
+	if err != nil {
+		return nil, err
 	}
-	return candidates, nil
+	return payload.Candidates, nil
 }
 
-func decodeSkillEvaluationCalls(calls []ai.ToolCall) ([]skillEvaluation, error) {
-	var evaluations []skillEvaluation
+func decodeSkillEvaluationCall(calls []ai.ToolCall) ([]skillEvaluation, error) {
+	payload, err := decodeSingleCapturePayload[skillEvaluationCapturePayload](calls, toolSubmitSkillEvaluations)
+	if err != nil {
+		return nil, err
+	}
+	return payload.Evaluations, nil
+}
+
+func decodeSingleCapturePayload[T any](calls []ai.ToolCall, name string) (T, error) {
+	var payload T
 	for _, call := range calls {
-		if call.Name != toolSubmitSkillEvaluation {
+		if call.Name != name {
 			continue
 		}
-		evaluation, err := decodeCapturePayload[skillEvaluation](call)
-		if err != nil {
-			return nil, err
-		}
-		evaluations = append(evaluations, evaluation)
+		return decodeCapturePayload[T](call)
 	}
-	return evaluations, nil
+	return payload, fmt.Errorf("%w: missing submit tool %q", errCaptureProtocol, name)
+}
+
+func validateEvaluationRefs(got, expected []CandidateRef) error {
+	expectedSet := make(map[CandidateRef]struct{}, len(expected))
+	for _, ref := range expected {
+		expectedSet[ref] = struct{}{}
+	}
+
+	// Evaluators must score exactly the host-assigned refs; missing, duplicate,
+	// or model-invented refs fail closed before gate scoring.
+	seen := make(map[CandidateRef]struct{}, len(got))
+	for _, ref := range got {
+		if _, ok := expectedSet[ref]; !ok {
+			return fmt.Errorf("%w: unknown candidate_ref %q", errCaptureProtocol, ref)
+		}
+		if _, ok := seen[ref]; ok {
+			return fmt.Errorf("%w: duplicate candidate_ref %q", errCaptureProtocol, ref)
+		}
+		seen[ref] = struct{}{}
+	}
+
+	for _, ref := range expected {
+		if _, ok := seen[ref]; !ok {
+			return fmt.Errorf("%w: missing evaluation for candidate_ref %q", errCaptureProtocol, ref)
+		}
+	}
+	return nil
+}
+
+func factEvaluationRefs(evaluations []factEvaluation) []CandidateRef {
+	refs := make([]CandidateRef, 0, len(evaluations))
+	for _, evaluation := range evaluations {
+		refs = append(refs, evaluation.Ref)
+	}
+	return refs
+}
+
+func skillEvaluationRefs(evaluations []skillEvaluation) []CandidateRef {
+	refs := make([]CandidateRef, 0, len(evaluations))
+	for _, evaluation := range evaluations {
+		refs = append(refs, evaluation.Ref)
+	}
+	return refs
 }
 
 func acceptedFactCandidates(candidates []factCandidate, decisions []CandidateGateDecision) []factCandidate {

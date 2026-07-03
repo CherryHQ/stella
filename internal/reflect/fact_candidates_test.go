@@ -157,8 +157,14 @@ func TestFactPromptsDocumentFreshOnlyAndNoWrites(t *testing.T) {
 		"fresh_conversation",
 		"prior_context is only for disambiguation",
 		"Read the full bounded review context",
-		"submit_fact_candidate",
-		"finish_fact_generation",
+		"submit_fact_generation",
+		"no_candidate_reason",
+		"[tool_result_summary]",
+		"source_type=tool_result",
+		"assistant paraphrase",
+		"long mixed review window",
+		"Do not let earlier no-save statements suppress later explicit durable signals",
+		"debugging workflow",
 		"Do not call profile_update",
 		"Do not call soul_update",
 		"Do not write facts",
@@ -171,10 +177,14 @@ func TestFactPromptsDocumentFreshOnlyAndNoWrites(t *testing.T) {
 
 	evaluationChecks := []string{
 		"candidate_ref",
+		"submit_fact_evaluations",
+		"evaluations",
 		"Do not modify candidate content",
 		"Do not output overall",
 		"Do not output passes_threshold",
 		"Do not write facts",
+		"procedural workflow",
+		"score subject_fit below 2",
 	}
 	for _, want := range evaluationChecks {
 		if !strings.Contains(factCandidateEvaluationPrompt, want) {

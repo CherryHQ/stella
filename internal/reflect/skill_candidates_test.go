@@ -85,9 +85,9 @@ func TestSkillCapOrdersByOverallEvidenceThenRef(t *testing.T) {
 		validSkillCandidate("skill-0003"),
 	}
 	evaluations := []skillEvaluation{
-		{Ref: "skill-0002", Scores: skillScores(4, 2, 4, 3, 4, 4)},
-		{Ref: "skill-0001", Scores: skillScores(4, 2, 4, 3, 4, 4)},
-		{Ref: "skill-0003", Scores: skillScores(2, 3, 4, 4, 4, 4)},
+		{Ref: "skill-0002", Scores: skillScores(4, 3, 4, 3, 4, 4)},
+		{Ref: "skill-0001", Scores: skillScores(4, 3, 4, 3, 4, 4)},
+		{Ref: "skill-0003", Scores: skillScores(4, 3, 3, 3, 4, 4)},
 	}
 
 	result := gateSkillCandidates(candidates, evaluations)
@@ -105,8 +105,22 @@ func TestSkillPromptsDocumentFreshOnlyLoadedSkillBaselineAndNoWriteDecisions(t *
 		"Read the full bounded review context",
 		"fresh conversation",
 		"loaded skill text must never be evidence",
-		"submit_skill_candidate",
-		"finish_skill_generation",
+		"simple project convention",
+		"formatting template",
+		"trial and error",
+		"pitfall or workaround",
+		"long mixed review window",
+		"Do not let earlier no-save statements suppress later explicit task-procedure signals",
+		"If session_skill_usage is absent, omit session_skill_context",
+		"reusable task procedure",
+		"isolated tip",
+		"narrow troubleshooting hint",
+		"current development or eval task",
+		"explicitly marked no-save",
+		"omit only the no-save details",
+		"when this task appears again, follow this process",
+		"submit_skill_generation",
+		"no_candidate_reason",
 		"Do not output scores",
 		"Do not output create",
 		"Do not output patch",
@@ -119,11 +133,20 @@ func TestSkillPromptsDocumentFreshOnlyLoadedSkillBaselineAndNoWriteDecisions(t *
 
 	evaluationChecks := []string{
 		"candidate_ref",
+		"submit_skill_evaluations",
+		"evaluations",
 		"Do not rewrite candidates",
 		"Do not output overall",
 		"Do not output passes_threshold",
 		"Do not decide create",
 		"Do not decide patch",
+		"reusable_value below 2",
+		"baseline_separation below 2",
+		"procedure_actionability below 2",
+		"current test plan",
+		"one-step heuristic",
+		"single workaround",
+		"no-save item",
 	}
 	for _, want := range evaluationChecks {
 		if !strings.Contains(skillCandidateEvaluationPrompt, want) {

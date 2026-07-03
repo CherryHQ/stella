@@ -30,7 +30,7 @@ func defaultCandidateGateSettings() CandidateGateSettings {
 			skillScoreApplicabilityClarity:   0.14,
 			skillScoreVerificationQuality:    0.10,
 		},
-		SkillThreshold:    0.70,
+		SkillThreshold:    0.85,
 		SkillCandidateCap: skillCandidateCap,
 	}
 }
