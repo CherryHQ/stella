@@ -169,9 +169,9 @@ INSERT INTO agent_goal (
     id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
     title, intent, kind, priority, required,
     acceptance_contract, convergence_policy, review_policy,
-    lifecycle, context, dispatch_hint
+    lifecycle, context, dispatch_hint, workflow_id, workflow_version
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 RETURNING id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version
 `
 
@@ -195,6 +195,8 @@ type CreateGoalParams struct {
 	Lifecycle          string          `json:"lifecycle"`
 	Context            json.RawMessage `json:"context"`
 	DispatchHint       json.RawMessage `json:"dispatch_hint"`
+	WorkflowID         pgtype.Text     `json:"workflow_id"`
+	WorkflowVersion    pgtype.Int4     `json:"workflow_version"`
 }
 
 func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGoal, error) {
@@ -218,6 +220,8 @@ func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGo
 		arg.Lifecycle,
 		arg.Context,
 		arg.DispatchHint,
+		arg.WorkflowID,
+		arg.WorkflowVersion,
 	)
 	var i AgentGoal
 	err := row.Scan(
@@ -260,6 +264,21 @@ func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGo
 		&i.WorkflowVersion,
 	)
 	return i, err
+}
+
+const deleteDraftRootGoal = `-- name: DeleteDraftRootGoal :execrows
+DELETE FROM agent_goal
+WHERE id = $1
+  AND lifecycle = 'draft'
+  AND parent_id IS NULL
+`
+
+func (q *Queries) DeleteDraftRootGoal(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteDraftRootGoal, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getGoal = `-- name: GetGoal :one

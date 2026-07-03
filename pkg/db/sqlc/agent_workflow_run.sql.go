@@ -77,6 +77,18 @@ func (q *Queries) ClaimWorkflowRun(ctx context.Context, arg ClaimWorkflowRunPara
 	return i, err
 }
 
+const countWorkflowRuns = `-- name: CountWorkflowRuns :one
+SELECT CAST(COUNT(*) AS BIGINT) FROM agent_workflow_run
+WHERE workflow_id = $1
+`
+
+func (q *Queries) CountWorkflowRuns(ctx context.Context, workflowID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countWorkflowRuns, workflowID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getLatestWorkflowRun = `-- name: GetLatestWorkflowRun :one
 SELECT id, workflow_id, workflow_version, idempotency_key, root_goal_id, status, inputs, plan_hash, created_at, updated_at FROM agent_workflow_run
 WHERE workflow_id = $1
@@ -130,13 +142,58 @@ func (q *Queries) GetWorkflowRunByKey(ctx context.Context, arg GetWorkflowRunByK
 	return i, err
 }
 
-const setWorkflowRunRoot = `-- name: SetWorkflowRunRoot :exec
+const listWorkflowRuns = `-- name: ListWorkflowRuns :many
+SELECT id, workflow_id, workflow_version, idempotency_key, root_goal_id, status, inputs, plan_hash, created_at, updated_at FROM agent_workflow_run
+WHERE workflow_id = $1
+ORDER BY created_at DESC, id DESC
+LIMIT $3 OFFSET $2
+`
+
+type ListWorkflowRunsParams struct {
+	WorkflowID string `json:"workflow_id"`
+	Offset     int32  `json:"offset"`
+	Limit      int32  `json:"limit"`
+}
+
+func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]AgentWorkflowRun, error) {
+	rows, err := q.db.Query(ctx, listWorkflowRuns, arg.WorkflowID, arg.Offset, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentWorkflowRun{}
+	for rows.Next() {
+		var i AgentWorkflowRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkflowID,
+			&i.WorkflowVersion,
+			&i.IdempotencyKey,
+			&i.RootGoalID,
+			&i.Status,
+			&i.Inputs,
+			&i.PlanHash,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setWorkflowRunRoot = `-- name: SetWorkflowRunRoot :execrows
 UPDATE agent_workflow_run
 SET root_goal_id = $1,
     plan_hash = $2,
     status = 'materializing',
     updated_at = now()
 WHERE id = $3
+  AND root_goal_id IS NULL
 `
 
 type SetWorkflowRunRootParams struct {
@@ -145,9 +202,12 @@ type SetWorkflowRunRootParams struct {
 	ID         string      `json:"id"`
 }
 
-func (q *Queries) SetWorkflowRunRoot(ctx context.Context, arg SetWorkflowRunRootParams) error {
-	_, err := q.db.Exec(ctx, setWorkflowRunRoot, arg.RootGoalID, arg.PlanHash, arg.ID)
-	return err
+func (q *Queries) SetWorkflowRunRoot(ctx context.Context, arg SetWorkflowRunRootParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setWorkflowRunRoot, arg.RootGoalID, arg.PlanHash, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setWorkflowRunStatus = `-- name: SetWorkflowRunStatus :exec

@@ -14,13 +14,14 @@ RETURNING agent_workflow_run.*, (xmax = 0) AS claimed;
 SELECT * FROM agent_workflow_run
 WHERE workflow_id = $1 AND idempotency_key = $2;
 
--- name: SetWorkflowRunRoot :exec
+-- name: SetWorkflowRunRoot :execrows
 UPDATE agent_workflow_run
 SET root_goal_id = sqlc.arg(root_goal_id),
     plan_hash = sqlc.arg(plan_hash),
     status = 'materializing',
     updated_at = now()
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id)
+  AND root_goal_id IS NULL;
 
 -- name: SetWorkflowRunStatus :exec
 UPDATE agent_workflow_run
@@ -33,3 +34,13 @@ SELECT * FROM agent_workflow_run
 WHERE workflow_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT 1;
+
+-- name: ListWorkflowRuns :many
+SELECT * FROM agent_workflow_run
+WHERE workflow_id = $1
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: CountWorkflowRuns :one
+SELECT CAST(COUNT(*) AS BIGINT) FROM agent_workflow_run
+WHERE workflow_id = $1;

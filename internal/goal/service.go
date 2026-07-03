@@ -399,6 +399,9 @@ type CreateInput struct {
 
 	Context      json.RawMessage // empty ⇒ "{}"
 	DispatchHint json.RawMessage // empty ⇒ "{}"
+
+	WorkflowID      string
+	WorkflowVersion int32
 }
 
 // CreateGoal inserts a goal in 'draft' (contract §2.1, (none)→draft).
@@ -464,6 +467,8 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 			Lifecycle:         LifecycleDraft,
 			Context:           contextJSON,
 			DispatchHint:      dispatchHint,
+			WorkflowID:        pgnull.Text(in.WorkflowID),
+			WorkflowVersion:   pgtype.Int4{Int32: in.WorkflowVersion, Valid: in.WorkflowVersion > 0},
 		})
 		if err != nil {
 			return fmt.Errorf("create goal: %w", err)
