@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { createGoalTimelineEvent, listGoalTimeline } from "@/lib/api-client";
+import { listGoalTimeline } from "@/lib/api-client";
 import type { GoalTimelineEvent } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -8,6 +8,7 @@ import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
 
 const PAGE_SIZE = 50;
 
@@ -48,23 +49,11 @@ export function GoalTimeline({ goalId }: { goalId: string }) {
     setError(null);
     setNotice(null);
     try {
-      const { data } = await createGoalTimelineEvent({
-        path: { id: goalId },
-        body: { text: trimmed },
-        throwOnError: true,
-      });
-      const reattempt = bool(data?.payload?.reattempt_authorized);
+      const reattempt = await postGoalTimelineMessage(qc, goalId, trimmed);
       setText("");
       setNotice(
         reattempt ? t("goals.timelineReattemptAuthorized") : t("goals.timelineMessageSaved"),
       );
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["goal", goalId] }),
-        qc.invalidateQueries({ queryKey: ["goal-attempts", goalId] }),
-        qc.invalidateQueries({ queryKey: ["goal-timeline", goalId] }),
-        qc.invalidateQueries({ queryKey: ["goals"] }),
-        qc.invalidateQueries({ queryKey: ["goals-page"] }),
-      ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("goals.timelinePostFailed"));
     } finally {

@@ -11,6 +11,7 @@ import {
   rejectPlan,
   submitVerdict,
   unarchiveGoal,
+  updateGoal,
   waiveEdge,
 } from "@/lib/api-client";
 import type {
@@ -37,6 +38,18 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
+import { Form } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
@@ -55,6 +68,8 @@ import {
 } from "@/features/goals/lib";
 import { AgentChip, DetailSection, DetailShell, MetaSep } from "@/features/goals/DetailShell";
 import { GoalTimeline } from "@/features/goals/GoalTimeline";
+import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
+import { ToastContainer, useToast } from "@/hooks/use-toast";
 
 type TabKey = "timeline" | "overview" | "children" | "attempts" | "acceptance" | "deps" | "plan";
 
@@ -67,6 +82,7 @@ export function GoalPage() {
   const { tab } = useSearch({ strict: false }) as { tab?: TabKey };
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { toasts, showToast } = useToast();
   const [acting, setActing] = useState(false);
 
   const { data: d, isError } = useQuery(goalOptions(goalId));
@@ -76,6 +92,7 @@ export function GoalPage() {
     void qc.invalidateQueries({ queryKey: ["goal-children", goalId] });
     void qc.invalidateQueries({ queryKey: ["goal-attempts", goalId] });
     void qc.invalidateQueries({ queryKey: ["goal-events", goalId] });
+    void qc.invalidateQueries({ queryKey: ["goal-timeline", goalId] });
     void qc.invalidateQueries({ queryKey: ["goal-edges", goalId] });
     void qc.invalidateQueries({ queryKey: ["goal-readiness", goalId] });
     void qc.invalidateQueries({ queryKey: ["goals"] });
@@ -114,6 +131,21 @@ export function GoalPage() {
   const isComposite = d.kind === "composite";
   const path = { id: d.id };
   const active = tab ?? "timeline";
+  const retryEnvironment = () =>
+    void act(async () => {
+      try {
+        const reattempt = await postGoalTimelineMessage(
+          qc,
+          d.id,
+          t("goals.environmentRetryMessage"),
+        );
+        showToast(
+          reattempt ? t("goals.timelineReattemptAuthorized") : t("goals.timelineMessageSaved"),
+        );
+      } catch {
+        showToast(t("goals.timelinePostFailed"), "error");
+      }
+    });
 
   return (
     <DetailShell
@@ -131,6 +163,7 @@ export function GoalPage() {
           onWaive={() => goTab("deps")}
           onTimeline={() => goTab("timeline")}
           onContract={() => goTab("acceptance")}
+          onEnvironmentRetry={retryEnvironment}
         />
       }
     >
@@ -181,6 +214,7 @@ export function GoalPage() {
             onPlan={() => goTab("plan")}
             onTimeline={() => goTab("timeline")}
             onContract={() => goTab("acceptance")}
+            onEnvironmentRetry={retryEnvironment}
           />
         </TabsPanel>
         {isComposite && (
@@ -207,6 +241,7 @@ export function GoalPage() {
           </TabsPanel>
         )}
       </Tabs>
+      <ToastContainer messages={toasts} />
     </DetailShell>
   );
 }
@@ -222,6 +257,7 @@ type BlockActionKind =
   | "dependency"
   | "review"
   | "plan"
+  | "planning"
   | "other";
 
 function blockActionKind(d: ComponentsGoal): BlockActionKind {
@@ -235,6 +271,7 @@ function blockActionKind(d: ComponentsGoal): BlockActionKind {
   if (d.block_reason === "dep") return "dependency";
   if (d.block_reason === "needs_verdict") return "review";
   if (d.block_reason === "needs_plan_approval") return "plan";
+  if (d.block_reason === "planning_invalid") return "planning";
   return "other";
 }
 
@@ -247,6 +284,7 @@ function HeaderActions({
   onWaive,
   onTimeline,
   onContract,
+  onEnvironmentRetry,
 }: {
   d: ComponentsGoal;
   acting: boolean;
@@ -256,6 +294,7 @@ function HeaderActions({
   onWaive: () => void;
   onTimeline: () => void;
   onContract: () => void;
+  onEnvironmentRetry: () => void;
 }) {
   const { t } = useI18n();
   const archived = !!d.archived_at;
@@ -328,12 +367,27 @@ function HeaderActions({
       )}
 
       {lc === "blocked" && blockActionKind(d) === "environment" && (
+        <>
+          <Button size="sm" loading={acting} onClick={onEnvironmentRetry}>
+            {t("goals.environmentRetry")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.alert(t("goals.reportAdminHint"))}
+          >
+            {t("goals.reportAdmin")}
+          </Button>
+        </>
+      )}
+
+      {lc === "blocked" && blockActionKind(d) === "planning" && (
         <Button
-          variant="outline"
           size="sm"
-          onClick={() => window.alert(t("goals.reportAdminHint"))}
+          loading={acting}
+          onClick={() => act(() => reattemptGoal({ path, throwOnError: true }))}
         >
-          {t("goals.reportAdmin")}
+          {t("goals.reattempt")}
         </Button>
       )}
 
@@ -389,6 +443,7 @@ function OverviewTab({
   onPlan,
   onTimeline,
   onContract,
+  onEnvironmentRetry,
 }: {
   d: ComponentsGoal;
   agentId: string;
@@ -399,6 +454,7 @@ function OverviewTab({
   onPlan: () => void;
   onTimeline: () => void;
   onContract: () => void;
+  onEnvironmentRetry: () => void;
 }) {
   const { t } = useI18n();
   const { data: readiness } = useQuery(goalReadinessOptions(d.id));
@@ -452,13 +508,27 @@ function OverviewTab({
               </div>
             )}
             {blockActionKind(d) === "environment" && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" loading={acting} onClick={onEnvironmentRetry}>
+                  {t("goals.environmentRetry")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.alert(t("goals.reportAdminHint"))}
+                >
+                  {t("goals.reportAdmin")}
+                </Button>
+              </div>
+            )}
+            {blockActionKind(d) === "planning" && (
               <Button
-                variant="outline"
                 size="sm"
                 className="mt-3"
-                onClick={() => window.alert(t("goals.reportAdminHint"))}
+                loading={acting}
+                onClick={() => act(() => reattemptGoal({ path: { id: d.id }, throwOnError: true }))}
               >
-                {t("goals.reportAdmin")}
+                {t("goals.reattempt")}
               </Button>
             )}
             {blockActionKind(d) === "contract" && (
@@ -810,6 +880,8 @@ function AcceptanceTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean;
         />
       )}
 
+      <ContractEditor d={d} acting={acting} act={act} />
+
       <DetailSection title={t("goals.acceptanceTitle")}>
         {events.length === 0 ? (
           <Empty text={t(d.kind === "composite" ? "goals.noEventsComposite" : "goals.noEvents")} />
@@ -857,6 +929,100 @@ function AcceptanceTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean;
         )}
       </DetailSection>
     </div>
+  );
+}
+
+function ContractEditor({ d, acting, act }: { d: ComponentsGoal; acting: boolean; act: ActRun }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const current = useMemo(
+    () => JSON.stringify(d.acceptance_contract ?? {}, null, 2),
+    [d.acceptance_contract],
+  );
+
+  const reset = () => {
+    setDraft(current);
+    setError(null);
+  };
+  const setDialogOpen = (next: boolean) => {
+    if (next) reset();
+    setOpen(next);
+  };
+  const save = async () => {
+    let contract: ComponentsAcceptanceContract;
+    try {
+      const parsed = JSON.parse(draft) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        setError(t("goals.contractInvalidJson"));
+        return;
+      }
+      contract = parsed as ComponentsAcceptanceContract;
+    } catch {
+      setError(t("goals.contractInvalidJson"));
+      return;
+    }
+    try {
+      await act(() =>
+        updateGoal({
+          path: { id: d.id },
+          body: { acceptance_contract: contract },
+          throwOnError: true,
+        }),
+      );
+      setOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("goals.contractSaveFailed"));
+    }
+  };
+
+  return (
+    <DetailSection title={t("goals.contractTitle")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[12.5px] text-muted-foreground">{t("goals.contractDescription")}</p>
+        <Dialog open={open} onOpenChange={setDialogOpen}>
+          <DialogTrigger render={<Button variant="outline" size="sm" />}>
+            {t("goals.editContract")}
+          </DialogTrigger>
+          <DialogPopup>
+            <DialogHeader>
+              <DialogTitle>{t("goals.contractTitle")}</DialogTitle>
+              <DialogDescription>{t("goals.contractJsonHelp")}</DialogDescription>
+            </DialogHeader>
+            <Form
+              className="contents"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void save();
+              }}
+            >
+              <DialogPanel>
+                <Field>
+                  <FieldLabel>{t("goals.contractJsonLabel")}</FieldLabel>
+                  <Textarea
+                    name="acceptance_contract"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    rows={14}
+                  />
+                  <FieldDescription>{t("goals.contractJsonHelp")}</FieldDescription>
+                  {error && <FieldError>{error}</FieldError>}
+                </Field>
+              </DialogPanel>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                  {t("common.cancel")}
+                </Button>
+                <Button type="submit" loading={acting}>
+                  {t("goals.contractSave")}
+                </Button>
+              </DialogFooter>
+            </Form>
+          </DialogPopup>
+        </Dialog>
+      </div>
+    </DetailSection>
   );
 }
 

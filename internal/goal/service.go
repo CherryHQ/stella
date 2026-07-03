@@ -556,6 +556,15 @@ func (s *GoalService) UpdateMetadata(ctx context.Context, id string, in UpdateIn
 		if err := q.UpdateGoalIntent(ctx, p); err != nil {
 			return fmt.Errorf("update goal metadata: %w", err)
 		}
+		if in.Contract != nil && d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockContractConflict {
+			rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
+			if err != nil {
+				return fmt.Errorf("recover contract conflict: %w", err)
+			}
+			if rows == 0 {
+				return ErrInvalidTransition
+			}
+		}
 		out, err = getGoal(ctx, q, id)
 		return err
 	})
