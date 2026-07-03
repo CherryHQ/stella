@@ -78,7 +78,18 @@ export function WorkflowsPage() {
                 <TableRow key={workflow.id}>
                   <TableCell>
                     <div className="min-w-0">
-                      <div className="truncate font-medium text-foreground">{workflow.name}</div>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        render={
+                          <Link
+                            to="/agents/$agentId/workflows/$workflowId"
+                            params={{ agentId, workflowId: workflow.id }}
+                          />
+                        }
+                      >
+                        {workflow.name}
+                      </Button>
                       <div className="truncate text-xs text-muted-foreground">{workflow.id}</div>
                     </div>
                   </TableCell>
