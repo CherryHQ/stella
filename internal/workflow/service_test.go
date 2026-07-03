@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -203,6 +204,23 @@ func TestSetWorkflowRunRootIsConditional(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("second set rows = %d", rows)
+	}
+}
+
+func TestDeleteRejectsEnabledSchedulerWorkflowJob(t *testing.T) {
+	h := newWorkflowHarness(t)
+	payload, _ := json.Marshal(FrozenPlan{})
+	wf, err := h.q.CreateWorkflow(h.ctx, sqlc.CreateWorkflowParams{ID: uuid.NewString(), OwnerKind: OwnerAgent, UserID: pgnull.Text(h.userID), AgentID: pgnull.Text(h.agentID), Name: "scheduled", Version: 1, Intent: "scheduled", AcceptanceContract: []byte(`{}`), ConvergencePolicy: []byte(`{}`), Inputs: []byte(`[]`), PayloadFormat: PayloadFormatFrozenV0, Payload: payload, FullyFrozen: true})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	jobPayload, _ := json.Marshal(map[string]any{"workflow_id": wf.ID})
+	_, err = h.q.CreateSchedulerJob(h.ctx, sqlc.CreateSchedulerJobParams{ID: "wfdel1", OwnerKind: "user", ExecScope: "user", Name: "run wf", ScheduleEvery: "1h", Payload: jobPayload, DispatchKind: "workflow", SessionMode: "reuse", Enabled: true, AgentID: pgnull.Text(h.agentID), UserID: pgnull.Text(h.userID)})
+	if err != nil {
+		t.Fatalf("create scheduler job: %v", err)
+	}
+	if err := h.svc.Delete(h.ctx, h.userID, h.agentID, wf.ID); !errors.Is(err, ErrWorkflowHasSchedulerJob) {
+		t.Fatalf("delete err = %v, want ErrWorkflowHasSchedulerJob", err)
 	}
 }
 

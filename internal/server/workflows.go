@@ -38,7 +38,7 @@ func workflowError(w http.ResponseWriter, err error) {
 	switch {
 	case isNotFound(err):
 		writeError(w, http.StatusNotFound, "not_found")
-	case errors.Is(err, workflowpkg.ErrWorkflowHasRuns), errors.Is(err, workflowpkg.ErrRunAlreadyFailed):
+	case errors.Is(err, workflowpkg.ErrWorkflowHasRuns), errors.Is(err, workflowpkg.ErrWorkflowHasSchedulerJob), errors.Is(err, workflowpkg.ErrRunAlreadyFailed):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, pgx.ErrNoRows):
 		writeError(w, http.StatusNotFound, "not_found")

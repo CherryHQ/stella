@@ -233,6 +233,18 @@ func (s *Service) UpdateUserJob(ctx context.Context, id string, update JobUpdate
 	if update.Message != nil {
 		job.Message = *update.Message
 	}
+	if update.DispatchKind != nil {
+		job.DispatchKind = *update.DispatchKind
+	}
+	if update.Payload != nil {
+		job.Payload = clonePayload(update.Payload)
+	}
+	if job.DispatchKind == "" {
+		job.DispatchKind = DispatchKindChat
+	}
+	if err := s.validateDispatch(ctx, job.DispatchKind, job.Message, job.OwnerKind, job.UserID, job.AgentID, job.Payload); err != nil {
+		return Job{}, err
+	}
 	if update.Schedule != nil {
 		if err := validateSchedule(*update.Schedule); err != nil {
 			return Job{}, fmt.Errorf("invalid schedule: %w", err)
@@ -302,12 +314,14 @@ func (s *Service) UpdateUserJob(ctx context.Context, id string, update JobUpdate
 // JobUpdate carries optional field overrides for UpdateUserJob. A nil pointer
 // means "leave unchanged".
 type JobUpdate struct {
-	Name        *string
-	Message     *string
-	Schedule    *Schedule
-	SessionMode *string
-	Enabled     *bool
-	AgentID     *string
+	Name         *string
+	Message      *string
+	Schedule     *Schedule
+	SessionMode  *string
+	Enabled      *bool
+	AgentID      *string
+	DispatchKind *string
+	Payload      map[string]any
 }
 
 // reservedByBuiltin reports whether name matches any key in the builtin map.

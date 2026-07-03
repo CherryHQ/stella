@@ -26,8 +26,9 @@ const (
 )
 
 var (
-	ErrRunAlreadyFailed = errors.New("workflow run already failed")
-	ErrWorkflowHasRuns  = errors.New("workflow has runs")
+	ErrRunAlreadyFailed        = errors.New("workflow run already failed")
+	ErrWorkflowHasRuns         = errors.New("workflow has runs")
+	ErrWorkflowHasSchedulerJob = errors.New("workflow has enabled scheduler jobs")
 )
 
 type GoalWriter interface {
@@ -231,7 +232,13 @@ func (s *Service) Delete(ctx context.Context, userID, agentID, id string) error 
 	if count > 0 {
 		return ErrWorkflowHasRuns
 	}
-	// Phase 4 must also reject scheduler jobs whose payload references this row.
+	jobCount, err := s.q.CountEnabledSchedulerWorkflowJobs(ctx, id)
+	if err != nil {
+		return fmt.Errorf("count scheduler workflow jobs: %w", err)
+	}
+	if jobCount > 0 {
+		return ErrWorkflowHasSchedulerJob
+	}
 	return s.q.DeleteWorkflow(ctx, id)
 }
 
