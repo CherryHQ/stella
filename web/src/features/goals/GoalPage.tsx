@@ -830,18 +830,21 @@ function passingItemIds(events: ComponentsAcceptanceEvent[]): Set<string> {
   return ids;
 }
 
-// The pending human judgment is the first required judgment item whose authority
-// is human that has no passing event yet; fall back to the first human-judgment
-// item so the form always has a target while a verdict is pending.
+// The pending judgment is the first judgment item with no passing event yet,
+// preferring authority=human items. A goal parked at needs_verdict makes the
+// human the adjudicator of last resort even for authority=agent items (e.g. a
+// composite's own judgment item, which no review attempt will ever judge) —
+// SubmitVerdict accepts a human verdict for any item and re-folds.
 function pendingVerdictItemId(
   d: ComponentsGoal,
   events: ComponentsAcceptanceEvent[],
 ): string | null {
-  const items = d.acceptance_contract?.items ?? [];
-  const human = items.filter((it) => it.kind === "judgment" && it.authority === "human");
-  if (human.length === 0) return null;
+  const judgments = (d.acceptance_contract?.items ?? []).filter((it) => it.kind === "judgment");
+  if (judgments.length === 0) return null;
   const passed = passingItemIds(events);
-  return (human.find((it) => !passed.has(it.id)) ?? human[0]).id;
+  const human = judgments.filter((it) => it.authority === "human");
+  const firstPending = (pool: typeof judgments) => pool.find((it) => !passed.has(it.id));
+  return (firstPending(human) ?? firstPending(judgments) ?? human[0] ?? judgments[0]).id;
 }
 
 // evaluatedOutputHash mirrors the backend's evaluatedAttempt (converge.go): the
