@@ -49,7 +49,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Form } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1008,7 +1008,9 @@ function ContractEditor({ d, acting, act }: { d: ComponentsGoal; acting: boolean
                     rows={14}
                   />
                   <FieldDescription>{t("goals.contractJsonHelp")}</FieldDescription>
-                  {error && <FieldError>{error}</FieldError>}
+                  {/* Base UI Field.Error only renders on control validity failure;
+                      server/parse errors are manual state, so render a plain element. */}
+                  {error && <p className="text-xs text-destructive">{error}</p>}
                 </Field>
               </DialogPanel>
               <DialogFooter>
