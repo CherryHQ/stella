@@ -47,6 +47,7 @@ import { Route as AppSettingsPluginsPluginIdRouteImport } from './routes/_app/se
 import { Route as AppSettingsCredentialsSectionRouteImport } from './routes/_app/settings/credentials.$section'
 import { Route as AppSettingsChannelsChannelIdRouteImport } from './routes/_app/settings/channels.$channelId'
 import { Route as AppSettingsAgentsAgentIdRouteImport } from './routes/_app/settings/agents.$agentId'
+import { Route as AppAgentsAgentIdWorkflowsRouteImport } from './routes/_app/agents.$agentId/workflows'
 import { Route as AppAgentsAgentIdMemoriesRouteImport } from './routes/_app/agents.$agentId/memories'
 import { Route as AppAgentsAgentIdSkillsIndexRouteImport } from './routes/_app/agents.$agentId/skills/index'
 import { Route as AppAgentsAgentIdGoalsIndexRouteImport } from './routes/_app/agents.$agentId/goals/index'
@@ -309,6 +310,14 @@ const AppSettingsAgentsAgentIdRoute =
   } as any).lazy(() =>
     import('./routes/_app/settings/agents.$agentId.lazy').then((d) => d.Route),
   )
+const AppAgentsAgentIdWorkflowsRoute =
+  AppAgentsAgentIdWorkflowsRouteImport.update({
+    id: '/workflows',
+    path: '/workflows',
+    getParentRoute: () => AppAgentsAgentIdRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/agents.$agentId/workflows.lazy').then((d) => d.Route),
+  )
 const AppAgentsAgentIdMemoriesRoute =
   AppAgentsAgentIdMemoriesRouteImport.update({
     id: '/memories',
@@ -508,6 +517,7 @@ export interface FileRoutesByFullPath {
   '/agents/': typeof AppAgentsIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
+  '/agents/$agentId/workflows': typeof AppAgentsAgentIdWorkflowsRoute
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
   '/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
   '/settings/credentials/$section': typeof AppSettingsCredentialsSectionRoute
@@ -563,6 +573,7 @@ export interface FileRoutesByTo {
   '/agents': typeof AppAgentsIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
+  '/agents/$agentId/workflows': typeof AppAgentsAgentIdWorkflowsRoute
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
   '/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
   '/settings/credentials/$section': typeof AppSettingsCredentialsSectionRoute
@@ -623,6 +634,7 @@ export interface FileRoutesById {
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
+  '/_app/agents/$agentId/workflows': typeof AppAgentsAgentIdWorkflowsRoute
   '/_app/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
   '/_app/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
   '/_app/settings/credentials/$section': typeof AppSettingsCredentialsSectionRoute
@@ -683,6 +695,7 @@ export interface FileRouteTypes {
     | '/agents/'
     | '/settings/'
     | '/agents/$agentId/memories'
+    | '/agents/$agentId/workflows'
     | '/settings/agents/$agentId'
     | '/settings/channels/$channelId'
     | '/settings/credentials/$section'
@@ -738,6 +751,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/settings'
     | '/agents/$agentId/memories'
+    | '/agents/$agentId/workflows'
     | '/settings/agents/$agentId'
     | '/settings/channels/$channelId'
     | '/settings/credentials/$section'
@@ -797,6 +811,7 @@ export interface FileRouteTypes {
     | '/_app/agents/'
     | '/_app/settings/'
     | '/_app/agents/$agentId/memories'
+    | '/_app/agents/$agentId/workflows'
     | '/_app/settings/agents/$agentId'
     | '/_app/settings/channels/$channelId'
     | '/_app/settings/credentials/$section'
@@ -1102,6 +1117,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAgentsAgentIdRouteImport
       parentRoute: typeof AppSettingsAgentsRoute
     }
+    '/_app/agents/$agentId/workflows': {
+      id: '/_app/agents/$agentId/workflows'
+      path: '/workflows'
+      fullPath: '/agents/$agentId/workflows'
+      preLoaderRoute: typeof AppAgentsAgentIdWorkflowsRouteImport
+      parentRoute: typeof AppAgentsAgentIdRoute
+    }
     '/_app/agents/$agentId/memories': {
       id: '/_app/agents/$agentId/memories'
       path: '/memories'
@@ -1256,6 +1278,7 @@ const AppAgentsAgentIdMemoriesRouteWithChildren =
 
 interface AppAgentsAgentIdRouteChildren {
   AppAgentsAgentIdMemoriesRoute: typeof AppAgentsAgentIdMemoriesRouteWithChildren
+  AppAgentsAgentIdWorkflowsRoute: typeof AppAgentsAgentIdWorkflowsRoute
   AppAgentsAgentIdIndexRoute: typeof AppAgentsAgentIdIndexRoute
   AppAgentsAgentIdGoalsGoalIdRoute: typeof AppAgentsAgentIdGoalsGoalIdRoute
   AppAgentsAgentIdGoalsAllRoute: typeof AppAgentsAgentIdGoalsAllRoute
@@ -1276,6 +1299,7 @@ interface AppAgentsAgentIdRouteChildren {
 
 const AppAgentsAgentIdRouteChildren: AppAgentsAgentIdRouteChildren = {
   AppAgentsAgentIdMemoriesRoute: AppAgentsAgentIdMemoriesRouteWithChildren,
+  AppAgentsAgentIdWorkflowsRoute: AppAgentsAgentIdWorkflowsRoute,
   AppAgentsAgentIdIndexRoute: AppAgentsAgentIdIndexRoute,
   AppAgentsAgentIdGoalsGoalIdRoute: AppAgentsAgentIdGoalsGoalIdRoute,
   AppAgentsAgentIdGoalsAllRoute: AppAgentsAgentIdGoalsAllRoute,

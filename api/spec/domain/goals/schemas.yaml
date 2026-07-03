@@ -151,6 +151,14 @@ components:
           format: date-time
           nullable: true
           description: Set when the goal is hidden from default lists.
+        workflow_id:
+          type: string
+          nullable: true
+          description: Workflow version row that instantiated this root goal.
+        workflow_version:
+          type: integer
+          nullable: true
+          description: Workflow version copied onto this run's root goal.
 
     GoalList:
       type: object

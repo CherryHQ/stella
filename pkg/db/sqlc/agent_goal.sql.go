@@ -129,17 +129,19 @@ WHERE parent_id IS NULL
   AND user_id = $1
   AND ($2::text IS NULL OR agent_id = $2::text)
   AND ($3::uuid IS NULL OR project_id = $3::uuid)
-  AND ($4::text IS NULL OR lifecycle = $4::text)
-  AND ($5::boolean IS NULL
-       OR (lifecycle = 'done') = $5::boolean)
-  AND ($6::text IS NULL OR title ILIKE '%' || $6 || '%' OR intent ILIKE '%' || $6 || '%')
-  AND ($7::boolean OR archived_at IS NULL)
+  AND ($4::uuid IS NULL OR workflow_id = $4::uuid)
+  AND ($5::text IS NULL OR lifecycle = $5::text)
+  AND ($6::boolean IS NULL
+       OR (lifecycle = 'done') = $6::boolean)
+  AND ($7::text IS NULL OR title ILIKE '%' || $7 || '%' OR intent ILIKE '%' || $7 || '%')
+  AND ($8::boolean OR archived_at IS NULL)
 `
 
 type CountRootGoalParams struct {
 	UserID          string      `json:"user_id"`
 	AgentID         pgtype.Text `json:"agent_id"`
 	ProjectID       pgtype.Text `json:"project_id"`
+	WorkflowID      pgtype.Text `json:"workflow_id"`
 	Lifecycle       pgtype.Text `json:"lifecycle"`
 	Terminal        pgtype.Bool `json:"terminal"`
 	Q               pgtype.Text `json:"q"`
@@ -154,6 +156,7 @@ func (q *Queries) CountRootGoal(ctx context.Context, arg CountRootGoalParams) (i
 		arg.UserID,
 		arg.AgentID,
 		arg.ProjectID,
+		arg.WorkflowID,
 		arg.Lifecycle,
 		arg.Terminal,
 		arg.Q,
@@ -1045,19 +1048,21 @@ WHERE parent_id IS NULL
   AND user_id = $1
   AND ($2::text IS NULL OR agent_id = $2::text)
   AND ($3::uuid IS NULL OR project_id = $3::uuid)
-  AND ($4::text IS NULL OR lifecycle = $4::text)
-  AND ($5::boolean IS NULL
-       OR (lifecycle = 'done') = $5::boolean)
-  AND ($6::text IS NULL OR title ILIKE '%' || $6 || '%' OR intent ILIKE '%' || $6 || '%')
-  AND ($7::boolean OR archived_at IS NULL)
+  AND ($4::uuid IS NULL OR workflow_id = $4::uuid)
+  AND ($5::text IS NULL OR lifecycle = $5::text)
+  AND ($6::boolean IS NULL
+       OR (lifecycle = 'done') = $6::boolean)
+  AND ($7::text IS NULL OR title ILIKE '%' || $7 || '%' OR intent ILIKE '%' || $7 || '%')
+  AND ($8::boolean OR archived_at IS NULL)
 ORDER BY created_at DESC, id DESC
-LIMIT $9 OFFSET $8
+LIMIT $10 OFFSET $9
 `
 
 type ListRootGoalParams struct {
 	UserID          string      `json:"user_id"`
 	AgentID         pgtype.Text `json:"agent_id"`
 	ProjectID       pgtype.Text `json:"project_id"`
+	WorkflowID      pgtype.Text `json:"workflow_id"`
 	Lifecycle       pgtype.Text `json:"lifecycle"`
 	Terminal        pgtype.Bool `json:"terminal"`
 	Q               pgtype.Text `json:"q"`
@@ -1067,14 +1072,15 @@ type ListRootGoalParams struct {
 }
 
 // Root goals (goals: parent_id IS NULL) for a user, scoped to an agent
-// and narrowed by lifecycle / terminal-ness / project / free-text. Every narg is
-// optional: NULL matches all. terminal: false = active (non-terminal) only, true =
-// history (done) only, NULL = both.
+// and narrowed by lifecycle / terminal-ness / project / workflow / free-text.
+// Every narg is optional: NULL matches all. terminal: false = active
+// (non-terminal) only, true = history (done) only, NULL = both.
 func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]AgentGoal, error) {
 	rows, err := q.db.Query(ctx, listRootGoal,
 		arg.UserID,
 		arg.AgentID,
 		arg.ProjectID,
+		arg.WorkflowID,
 		arg.Lifecycle,
 		arg.Terminal,
 		arg.Q,

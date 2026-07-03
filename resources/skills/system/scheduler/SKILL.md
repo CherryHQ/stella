@@ -1,7 +1,7 @@
 ---
 name: scheduler
 description: |
-  Manage scheduled jobs. Use when the user wants to create, list, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), and one-time (at) jobs.
+  Manage scheduled jobs. Use when the user wants to create, list, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), one-time (at) jobs, and scheduled workflow runs.
 metadata:
   author: CherryHQ/stella
   owner_plugin: system/scheduler
@@ -10,7 +10,7 @@ metadata:
 
 # Scheduler
 
-Use scheduler for time-based triggers. If the scheduled work may be long-running, need human review, or need restart resilience, schedule a short prompt that creates an async `task` instead of doing the whole job inline.
+Use scheduler for time-based triggers. If the user wants to repeat an accepted goal's plan ("save this goal and run it every morning"), save it as a workflow first, then schedule the workflow. If the scheduled work may be long-running, need human review, or need restart resilience, schedule a workflow or a short prompt that creates an async `task` instead of doing the whole job inline.
 
 **Environment**: The CLI talks HTTP to the running stellad server. `STELLA_TOKEN` is
 auto-set; the agent process inherits a reachable `STELLA_SERVER_URL` (default
@@ -45,6 +45,20 @@ stella scheduler add \
 - `--agent-id <id>`: run the job on a specific agent (defaults to the default agent)
 
 Output (JSON): job record with `id`, `name`, `message`, `session_mode`, `enabled`, and schedule fields.
+
+## Schedule a Workflow
+
+For the user-facing loop "save this goal and run it daily":
+
+1. Check the workflow CLI syntax: `stella workflow --help` and `stella workflow save --help`.
+2. Save the accepted composite goal: `stella workflow save <goal-id> --name <name>`.
+3. Read the returned workflow `id`.
+4. Check scheduler syntax: `stella scheduler add --help`.
+5. Create the timed trigger with `stella scheduler add --workflow <workflow-id> --cron <expr>`.
+
+Do not duplicate historical command syntax from memory; run `--help` before invoking. Scheduled workflows are fully frozen by default. If the workflow is partially frozen, only schedule it when the user explicitly wants live replanning and the CLI help shows the required opt-in flag.
+
+Each scheduled fire instantiates a fresh root goal. If the previous run's root goal is still active at the next tick, the scheduler skips that overlapping fire instead of starting a parallel tree.
 
 ## List Jobs
 

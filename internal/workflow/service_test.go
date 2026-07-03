@@ -81,7 +81,7 @@ func newWorkflowHarness(t *testing.T) *workflowHarness {
 
 func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
 	h := newWorkflowHarness(t)
-	root, err := h.goals.CreateRoot(h.ctx, goal.CreateInput{UserID: h.userID, AgentID: h.agentID, Title: "demo", Intent: "demo intent", Kind: goal.KindComposite, Required: true})
+	root, err := h.goals.CreateRoot(h.ctx, goal.CreateInput{UserID: h.userID, AgentID: h.agentID, Title: "demo", Intent: "demo intent for {{inputs.topic}}", Kind: goal.KindComposite, Required: true})
 	if err != nil {
 		t.Fatalf("create root: %v", err)
 	}
@@ -127,6 +127,13 @@ func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
 	}
 	if run1.RootGoalID.String == "" || run1.RootGoalID.String != run2.RootGoalID.String {
 		t.Fatalf("idempotent root mismatch: %q vs %q", run1.RootGoalID.String, run2.RootGoalID.String)
+	}
+	instRoot, err := h.q.GetGoal(h.ctx, run1.RootGoalID.String)
+	if err != nil {
+		t.Fatalf("get instantiated root: %v", err)
+	}
+	if instRoot.Intent != "demo intent for launch" {
+		t.Fatalf("root intent not substituted: %q", instRoot.Intent)
 	}
 	instChildren, err := h.q.ListGoalChildren(h.ctx, pgnull.Text(run1.RootGoalID.String))
 	if err != nil {

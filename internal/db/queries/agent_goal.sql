@@ -18,15 +18,16 @@ WHERE id = sqlc.arg(id)
   AND parent_id IS NULL;
 
 -- Root goals (goals: parent_id IS NULL) for a user, scoped to an agent
--- and narrowed by lifecycle / terminal-ness / project / free-text. Every narg is
--- optional: NULL matches all. terminal: false = active (non-terminal) only, true =
--- history (done) only, NULL = both.
+-- and narrowed by lifecycle / terminal-ness / project / workflow / free-text.
+-- Every narg is optional: NULL matches all. terminal: false = active
+-- (non-terminal) only, true = history (done) only, NULL = both.
 -- name: ListRootGoal :many
 SELECT * FROM agent_goal
 WHERE parent_id IS NULL
   AND user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
   AND (sqlc.narg(project_id)::uuid IS NULL OR project_id = sqlc.narg(project_id)::uuid)
+  AND (sqlc.narg(workflow_id)::uuid IS NULL OR workflow_id = sqlc.narg(workflow_id)::uuid)
   AND (sqlc.narg(lifecycle)::text IS NULL OR lifecycle = sqlc.narg(lifecycle)::text)
   AND (sqlc.narg(terminal)::boolean IS NULL
        OR (lifecycle = 'done') = sqlc.narg(terminal)::boolean)
@@ -44,6 +45,7 @@ WHERE parent_id IS NULL
   AND user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
   AND (sqlc.narg(project_id)::uuid IS NULL OR project_id = sqlc.narg(project_id)::uuid)
+  AND (sqlc.narg(workflow_id)::uuid IS NULL OR workflow_id = sqlc.narg(workflow_id)::uuid)
   AND (sqlc.narg(lifecycle)::text IS NULL OR lifecycle = sqlc.narg(lifecycle)::text)
   AND (sqlc.narg(terminal)::boolean IS NULL
        OR (lifecycle = 'done') = sqlc.narg(terminal)::boolean)

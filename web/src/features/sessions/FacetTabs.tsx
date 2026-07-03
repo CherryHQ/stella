@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Database, ListTodo, MessageSquare, Puzzle } from "lucide-react";
+import { Database, ListTodo, MessageSquare, Puzzle, Workflow } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -91,6 +91,13 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               to: `${base}/goals`,
               icon: ListTodo,
               active: (p) => p.startsWith(`${base}/goals`),
+            },
+            {
+              key: "workflows",
+              label: t("facets.workflows"),
+              to: `${base}/workflows`,
+              icon: Workflow,
+              active: (p) => p.startsWith(`${base}/workflows`),
             },
             {
               key: "memory",

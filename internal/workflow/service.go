@@ -169,7 +169,7 @@ func (s *Service) Instantiate(ctx context.Context, in InstantiateInput) (sqlc.Ag
 		}
 	}
 	if !run.RootGoalID.Valid {
-		root, err := s.createRunRoot(ctx, wf, in.UserID, in.AgentID)
+		root, err := s.createRunRoot(ctx, wf, in.UserID, in.AgentID, resolved)
 		if err != nil {
 			return sqlc.AgentWorkflowRun{}, err
 		}
@@ -281,12 +281,24 @@ func DecodeDecomposition(b []byte) (goal.DecompositionContent, error) {
 	return c, nil
 }
 
-func (s *Service) createRunRoot(ctx context.Context, wf sqlc.AgentWorkflow, userID, agentID string) (sqlc.AgentGoal, error) {
+func (s *Service) createRunRoot(ctx context.Context, wf sqlc.AgentWorkflow, userID, agentID string, inputs map[string]string) (sqlc.AgentGoal, error) {
 	var contract goal.AcceptanceContract
 	_ = json.Unmarshal(wf.AcceptanceContract, &contract)
 	var convergence goal.ConvergencePolicy
 	_ = json.Unmarshal(wf.ConvergencePolicy, &convergence)
-	return s.goal.CreateRoot(ctx, goal.CreateInput{UserID: userID, AgentID: agentID, Title: wf.Name, Intent: wf.Intent, Kind: goal.KindComposite, Required: true, Contract: contract, Convergence: convergence, ReviewPolicy: goal.ReviewNone, WorkflowID: wf.ID, WorkflowVersion: wf.Version})
+	// The root intent came from the source goal, so it may carry the same
+	// {{inputs.*}} placeholders the children do.
+	intent, err := substituteText(wf.Intent, inputs)
+	if err != nil {
+		return sqlc.AgentGoal{}, err
+	}
+	// The run executes under the workflow's own agent; the caller's scope only
+	// gates access. A user-session caller (empty agent scope) must still land
+	// the tree on the agent the workflow was demonstrated on.
+	if wf.AgentID.Valid && wf.AgentID.String != "" {
+		agentID = wf.AgentID.String
+	}
+	return s.goal.CreateRoot(ctx, goal.CreateInput{UserID: userID, AgentID: agentID, Title: wf.Name, Intent: intent, Kind: goal.KindComposite, Required: true, Contract: contract, Convergence: convergence, ReviewPolicy: goal.ReviewNone, WorkflowID: wf.ID, WorkflowVersion: wf.Version})
 }
 
 // walk relies on MaterializeFrozenLayer writing position=i and ListGoalChildren

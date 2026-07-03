@@ -34,6 +34,7 @@ import {
   goalOptions,
   goalReadinessOptions,
 } from "@/lib/queries/goals";
+import { workflowOptions, workflowRunsOptions } from "@/lib/queries/workflows";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { formatTime } from "@/lib/time";
@@ -96,6 +97,9 @@ export function GoalPage() {
       return data ? poll(data) : false;
     },
   });
+  const workflowId = d?.workflow_id ?? undefined;
+  const { data: workflow } = useQuery(workflowOptions(workflowId));
+  const { data: workflowRuns = [] } = useQuery(workflowRunsOptions(workflowId, 100));
 
   const { data: children = [] } = useQuery({
     ...goalChildrenOptions(goalId),
@@ -213,6 +217,35 @@ export function GoalPage() {
               className="font-medium text-primary hover:underline"
             >
               {t("hub.parentGoal")} →
+            </Link>
+          </>
+        )}
+        {workflowId && (
+          <>
+            <MetaSep />
+            <Link
+              to="/agents/$agentId/goals/all"
+              params={{ agentId }}
+              search={{ workflow_id: workflowId }}
+            >
+              <Badge variant="info">
+                {workflow
+                  ? t("workflows.lineage", {
+                      name: workflow.name,
+                      n: Math.max(
+                        1,
+                        workflowRuns.length -
+                          Math.max(
+                            0,
+                            workflowRuns.findIndex((run) => run.root_goal_id === d.root_id),
+                          ),
+                      ),
+                    })
+                  : t("workflows.lineageFallback", {
+                      id: workflowId.slice(0, 8),
+                      version: d.workflow_version ?? 1,
+                    })}
+              </Badge>
             </Link>
           </>
         )}
