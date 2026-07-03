@@ -25,6 +25,7 @@ import type {
   ComponentsProposedEdge,
   ComponentsReadiness,
 } from "@/lib/api-client/types.gen";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   goalAttemptsOptions,
   goalChildrenOptions,
@@ -973,7 +974,7 @@ function ContractEditor({ d, acting, act }: { d: ComponentsGoal; acting: boolean
       );
       setOpen(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("goals.contractSaveFailed"));
+      setError(apiErrorMessage(e, t("goals.contractSaveFailed")));
     }
   };
 
