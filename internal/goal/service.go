@@ -678,15 +678,32 @@ func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 // Reattempt raises the budget on a blocked(budget_exhausted) goal so the next
 // tick mints a fresh attempt. A leaf returns to ready (the dispatcher claims it);
 // a composite, whose budget meters DECOMPOSITION attempts, returns to draft so
-// scanAndDecompose re-plans it (contract §2.1, see recoveryLifecycle).
+// scanAndDecompose re-plans it (contract §2.1, see recoveryLifecycle). For
+// blocked(planning_invalid), Reattempt restarts planning without raising the
+// semantic/transient budget because structural repairs are metered separately.
 func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
 		if err != nil {
 			return err
 		}
-		if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockBudgetExhausted {
+		if d.Lifecycle != LifecycleBlocked || (d.BlockReason != BlockBudgetExhausted && d.BlockReason != BlockPlanningInvalid) {
 			return ErrInvalidTransition
+		}
+		if d.BlockReason == BlockPlanningInvalid {
+			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
+				ToLifecycle:   recoveryLifecycle(d),
+				BlockReason:   "",
+				ID:            id,
+				FromLifecycle: LifecycleBlocked,
+			})
+			if err != nil {
+				return fmt.Errorf("reattempt planning invalid: %w", err)
+			}
+			if rows == 0 {
+				return ErrInvalidTransition
+			}
+			return nil
 		}
 		// Raise the budget by one attempt past what is already spent so the next tick
 		// runs one more. A leaf meters convergence by attempt_count; a composite
@@ -763,9 +780,10 @@ func (s *GoalService) Cancel(ctx context.Context, id, reason string, by Actor) e
 			// Cancel any in-flight attempt for this descendant before flipping it.
 			if d.ActiveAttemptID.Valid && d.ActiveAttemptID.String != "" {
 				if _, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-					ToStatus: AttemptCancelled,
-					Error:    reason,
-					ID:       d.ActiveAttemptID.String,
+					ToStatus:     AttemptCancelled,
+					Error:        reason,
+					FailureClass: "",
+					ID:           d.ActiveAttemptID.String,
 				}); err != nil {
 					return fmt.Errorf("cancel in-flight attempt: %w", err)
 				}

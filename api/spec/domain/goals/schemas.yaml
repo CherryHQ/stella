@@ -90,7 +90,15 @@ components:
             ]
         block_reason:
           type: string
-          enum: ["", budget_exhausted, needs_plan_approval, needs_verdict, dep]
+          enum:
+            [
+              "",
+              budget_exhausted,
+              needs_plan_approval,
+              planning_invalid,
+              needs_verdict,
+              dep,
+            ]
           description: Meaningful only when lifecycle=blocked.
         acceptance_state:
           type: string
@@ -271,6 +279,9 @@ components:
         max_depth:
           type: integer
           description: Recursion ceiling. Default 4.
+        planner_repair_max:
+          type: integer
+          description: Structural planning repair turns in the same session. Default 2.
         max_concurrent:
           type: integer
           description: Per-root breadth-of-fanout cap. Default 8.
@@ -316,6 +327,10 @@ components:
           type: object
           additionalProperties: {}
         error: { type: string }
+        failure_class:
+          type: string
+          enum: ["", structural, semantic, transient]
+          description: Class for failed or interrupted attempts.
         worker_id: { type: string }
         heartbeat_at: { type: string, format: date-time, nullable: true }
         lease_expires_at: { type: string, format: date-time, nullable: true }
@@ -484,6 +499,100 @@ components:
         on_failure:
           type: string
           enum: [block, fail, ignore]
+
+    # ── Agent-facing goal_control tool inputs ────────────────────────────────
+    GoalControlExecuteInput:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [submit, block, fail]
+          description: Which terminal action to take.
+        summary:
+          type: string
+          description: "submit: handoff summary describing what you produced (required for child goals)."
+        artifacts:
+          type: array
+          description: "submit: hash-addressed artifact refs (diffs/files/stdout)."
+        output:
+          type: object
+          description: "submit: structured result the acceptance contract evaluates."
+        notes:
+          type: object
+          description: "submit: free-form evidence notes."
+        kind:
+          type: string
+          description: "block: blocker kind (user_input|external_dependency|tool_error|policy_hold)."
+        question:
+          type: string
+          description: "block: human-readable explanation of what's needed."
+        detail:
+          type: object
+          description: "block: structured detail."
+        reason:
+          type: string
+          description: "fail: error message."
+        retryable:
+          type: boolean
+          description: "fail: true if a retry may succeed."
+      required: [action]
+
+    GoalControlDecomposeInput:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [decompose, fail]
+          description: Which terminal action to take.
+        summary:
+          type: string
+          description: "decompose: one-line description of the plan."
+        decomposition:
+          allOf: [{ $ref: "#/components/schemas/DecompositionContent" }]
+          description: "decompose: the proposed plan as children + sibling edges."
+        reason:
+          type: string
+          description: "fail: error message."
+        retryable:
+          type: boolean
+          description: "fail: true if a retry may succeed."
+      required: [action]
+
+    GoalControlReviewInput:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [verdict, fail]
+          description: Which terminal action to take.
+        summary:
+          type: string
+          description: "verdict: one-line summary of the review."
+        verdicts:
+          type: array
+          description: "verdict: one entry per required item being reviewed."
+          items: { $ref: "#/components/schemas/GoalControlReviewVerdict" }
+        reason:
+          type: string
+          description: "fail: why the output cannot be judged."
+        retryable:
+          type: boolean
+          description: "fail: true if a retry may succeed."
+      required: [action]
+
+    GoalControlReviewVerdict:
+      type: object
+      properties:
+        item_id:
+          type: string
+          description: The acceptance item id this verdict answers.
+        pass:
+          type: boolean
+          description: true if the output satisfies the item.
+        rationale:
+          type: string
+          description: Why it passes or fails; a fail rationale feeds the next attempt.
+      required: [item_id, pass]
 
     DecisionRequest:
       type: object

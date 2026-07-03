@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -76,6 +77,16 @@ type Result struct {
 // TaskChatParams / TaskChatFunc — the persisted-worker-turn callback — are
 // declared in boot.go (BootConfig.Chat is a TaskChatFunc). This file consumes
 // them; it does not re-declare them.
+
+const (
+	terminalTurnDrainGrace  = 10 * time.Second
+	terminalTurnCancelGrace = 10 * time.Second
+)
+
+type executorTurn struct {
+	events <-chan agent.Event
+	cancel context.CancelFunc
+}
 
 // terminalRecorder captures the first terminal action declared during an attempt.
 // Later terminal declarations are rejected so a stray second tool call cannot
@@ -169,16 +180,20 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	}
 	projectID := req.Goal.ProjectID.String
 
-	turn := func(prompt string) <-chan agent.Event {
-		return e.chat(ctx, TaskChatParams{
-			AgentID:    agentID,
-			UserID:     req.Attempt.UserID,
-			SessionID:  req.Attempt.SessionID,
-			ProjectID:  projectID,
-			Prompt:     prompt,
-			Decompose:  decompose,
-			ExtraTools: []tools.Tool{ctTool},
-		})
+	turn := func(prompt string) executorTurn {
+		turnCtx, cancel := context.WithCancel(ctx)
+		return executorTurn{
+			events: e.chat(turnCtx, TaskChatParams{
+				AgentID:    agentID,
+				UserID:     req.Attempt.UserID,
+				SessionID:  req.Attempt.SessionID,
+				ProjectID:  projectID,
+				Prompt:     prompt,
+				Decompose:  decompose,
+				ExtraTools: []tools.Tool{ctTool},
+			}),
+			cancel: cancel,
+		}
 	}
 
 	firstPrompt := buildAttemptPrompt(req, decompose)
@@ -219,13 +234,18 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 // channel closes. It returns the assistant text emitted during the turn, the
 // recorded Result (when done), whether a terminal action fired, and a non-nil
 // fail Result if the stream errored before any terminal action.
-func (e *workerExecutor) runTurn(ctx context.Context, events <-chan agent.Event, rec *terminalRecorder) (text string, res Result, done bool, fail *Result) {
+func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *terminalRecorder) (text string, res Result, done bool, fail *Result) {
+	defer turn.cancel()
+
 	var buf strings.Builder
-	for ev := range events {
+	for ev := range turn.events {
 		if ev.Err != nil {
 			if rec.isDone() {
-				go drainEvents(events)
 				r, _ := rec.snapshot()
+				if err := e.drainTerminalTurn(ctx, turn); err != nil {
+					f := failResult(fmt.Sprintf("runner cleanup error: %v", err), true)
+					return buf.String(), Result{}, false, &f
+				}
 				return buf.String(), r, true, nil
 			}
 			e.log.Warn("goal executor stream error", "err", ev.Err)
@@ -236,8 +256,11 @@ func (e *workerExecutor) runTurn(ctx context.Context, events <-chan agent.Event,
 			buf.WriteString(ev.Text)
 		}
 		if rec.isDone() {
-			go drainEvents(events)
 			r, _ := rec.snapshot()
+			if err := e.drainTerminalTurn(ctx, turn); err != nil {
+				f := failResult(fmt.Sprintf("runner cleanup error: %v", err), true)
+				return buf.String(), Result{}, false, &f
+			}
 			return buf.String(), r, true, nil
 		}
 	}
@@ -246,6 +269,53 @@ func (e *workerExecutor) runTurn(ctx context.Context, events <-chan agent.Event,
 		return buf.String(), r, true, nil
 	}
 	return buf.String(), Result{}, false, nil
+}
+
+// drainTerminalTurn waits for the runtime turn to release the session busy guard
+// before the worker finalizes the attempt and convergence can dispatch a retry.
+// Most turns close immediately after goal_control; the timeout path cancels the
+// turn and gives runtime cleanup a bounded grace period instead of spinning.
+func (e *workerExecutor) drainTerminalTurn(ctx context.Context, turn executorTurn) error {
+	if turn.events == nil {
+		return nil
+	}
+
+	grace := time.NewTimer(terminalTurnDrainGrace)
+	defer grace.Stop()
+
+	for {
+		select {
+		case _, ok := <-turn.events:
+			if !ok {
+				return nil
+			}
+		case <-ctx.Done():
+			turn.cancel()
+			return ctx.Err()
+		case <-grace.C:
+			e.log.Warn("goal executor terminal turn still active after drain grace; cancelling turn")
+			turn.cancel()
+			return e.drainCancelledTurn(ctx, turn.events)
+		}
+	}
+}
+
+func (e *workerExecutor) drainCancelledTurn(ctx context.Context, events <-chan agent.Event) error {
+	cleanup := time.NewTimer(terminalTurnCancelGrace)
+	defer cleanup.Stop()
+
+	for {
+		select {
+		case _, ok := <-events:
+			if !ok {
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-cleanup.C:
+			return fmt.Errorf("terminal turn did not stop within %s after cancellation", terminalTurnCancelGrace)
+		}
+	}
 }
 
 // foldResult maps the rich internal Result onto the frozen ExecutorResult the
@@ -307,13 +377,6 @@ func failResult(reason string, retryable bool) Result {
 	return Result{Action: terminalFail, Failure: &Failure{Reason: reason, Retryable: retryable}}
 }
 
-// drainEvents consumes remaining events so the runner can close cleanly after a
-// terminal action has been recorded.
-func drainEvents(ch <-chan agent.Event) {
-	for range ch { //nolint:revive // intentional drain
-	}
-}
-
 // ── prompt assembly ─────────────────────────────────────────────────────────
 
 // buildAttemptPrompt assembles the worker turn from the frozen AttemptInput. The
@@ -353,7 +416,25 @@ Goal:
 `)
 	}
 
+	if title := strings.TrimSpace(in.Title); title != "" {
+		b.WriteString("Title: " + title + "\n")
+	}
 	b.WriteString(strings.TrimSpace(in.Intent))
+
+	if len(in.Context) > 0 && string(in.Context) != "{}" {
+		b.WriteString("\n\nGoal context:\n")
+		b.WriteString(string(in.Context))
+		b.WriteString("\n")
+	}
+
+	if len(in.PriorErrors) > 0 {
+		b.WriteString("\nYour previous decomposition was structurally invalid. Fix these errors and call goal_control again.\n")
+		b.WriteString("prior_errors JSON:\n")
+		b.WriteString(RenderErrorsJSON(in.PriorErrors))
+		b.WriteString("\n\nprior_errors text:\n")
+		b.WriteString(RenderErrorsText(in.PriorErrors))
+		b.WriteString("\n")
+	}
 
 	if c := in.Contract; len(c.Items) > 0 {
 		b.WriteString("\n\nAcceptance criteria (your work is accepted only when these are met):\n")
@@ -446,7 +527,16 @@ Protocol:
 
 Goal:
 `)
+	if title := strings.TrimSpace(in.Title); title != "" {
+		b.WriteString("Title: " + title + "\n")
+	}
 	b.WriteString(strings.TrimSpace(in.Intent))
+
+	if len(in.Context) > 0 && string(in.Context) != "{}" {
+		b.WriteString("\n\nGoal context:\n")
+		b.WriteString(string(in.Context))
+		b.WriteString("\n")
+	}
 
 	if out := in.ReviewOutput; out != nil {
 		b.WriteString("\n\nOutput under review:\n")
@@ -533,133 +623,13 @@ func (t *recordingControlTool) Definition() tools.Definition {
 		return ai.ToolDefinition{
 			Name:        "goal_control",
 			Description: "Report decomposition outcome. Call exactly one of decompose/fail before exiting.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"action": map[string]any{
-						"type":        "string",
-						"enum":        []string{"decompose", "fail"},
-						"description": "Which terminal action to take.",
-					},
-					"summary": map[string]any{
-						"type":        "string",
-						"description": "decompose: one-line description of the plan.",
-					},
-					"decomposition": map[string]any{
-						"type":        "object",
-						"description": "decompose: the proposed plan as children + sibling edges.",
-						"properties": map[string]any{
-							"children": map[string]any{
-								"type":        "array",
-								"description": "Child goals; at least one must have required=true.",
-								"items": map[string]any{
-									"type": "object",
-									"properties": map[string]any{
-										"key":      map[string]any{"type": "string", "description": "Stable unique id of this child within the plan; edges reference it."},
-										"title":    map[string]any{"type": "string"},
-										"intent":   map[string]any{"type": "string", "description": "What this child must accomplish."},
-										"kind":     map[string]any{"type": "string", "enum": []string{"leaf", "composite"}},
-										"required": map[string]any{"type": "boolean"},
-										"acceptance_contract": map[string]any{
-											"type":        "object",
-											"description": "How this child's output is judged.",
-											"properties": map[string]any{
-												"policy": map[string]any{"type": "string", "enum": []string{"deterministic_then_judgment", "all", "any"}},
-												"items": map[string]any{
-													"type": "array",
-													"items": map[string]any{
-														"type": "object",
-														"properties": map[string]any{
-															"id":        map[string]any{"type": "string"},
-															"kind":      map[string]any{"type": "string", "enum": []string{"deterministic", "judgment"}},
-															"required":  map[string]any{"type": "boolean"},
-															"command":   map[string]any{"type": "string", "description": "deterministic: shell check."},
-															"authority": map[string]any{"type": "string", "enum": []string{"agent", "human"}},
-															"rubric":    map[string]any{"type": "string", "description": "judgment: agent reviewer prompt."},
-															"prompt":    map[string]any{"type": "string", "description": "judgment: human verdict prompt."},
-														},
-													},
-												},
-											},
-										},
-										"convergence_policy": map[string]any{
-											"type": "object",
-											"properties": map[string]any{
-												"max_attempts": map[string]any{"type": "integer"},
-												"escalation":   map[string]any{"type": "string", "enum": []string{"block", "abandon"}},
-												"max_depth":    map[string]any{"type": "integer"},
-											},
-										},
-										"review_policy": map[string]any{"type": "string"},
-									},
-									"required": []string{"key", "title"},
-								},
-							},
-							"edges": map[string]any{
-								"type":        "array",
-								"description": "Sibling dependencies by child key: downstream depends on upstream.",
-								"items": map[string]any{
-									"type": "object",
-									"properties": map[string]any{
-										"downstream_key": map[string]any{"type": "string", "description": "Child key that depends on the upstream."},
-										"upstream_key":   map[string]any{"type": "string", "description": "Child key that must finish first."},
-										"kind":           map[string]any{"type": "string", "enum": []string{"hard", "soft"}},
-										"on_failure":     map[string]any{"type": "string", "enum": []string{"block", "fail", "ignore"}},
-									},
-									"required": []string{"downstream_key", "upstream_key"},
-								},
-							},
-						},
-						"required": []string{"children"},
-					},
-					"reason":    map[string]any{"type": "string", "description": "fail: error message."},
-					"retryable": map[string]any{"type": "boolean", "description": "fail: true if a retry may succeed."},
-				},
-				"required": []string{"action"},
-			},
+			InputSchema: goalControlDecomposeInputSchema(),
 		}
 	}
 	return ai.ToolDefinition{
 		Name:        "goal_control",
 		Description: "Report goal lifecycle. Call exactly one of submit/block/fail before exiting.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"action": map[string]any{
-					"type":        "string",
-					"enum":        []string{"submit", "block", "fail"},
-					"description": "Which terminal action to take.",
-				},
-				"summary": map[string]any{
-					"type":        "string",
-					"description": "submit: handoff summary describing what you produced (required for child goals).",
-				},
-				"artifacts": map[string]any{
-					"type":        "array",
-					"description": "submit: hash-addressed artifact refs (diffs/files/stdout).",
-				},
-				"output": map[string]any{
-					"type":        "object",
-					"description": "submit: structured result the acceptance contract evaluates.",
-				},
-				"notes": map[string]any{
-					"type":        "object",
-					"description": "submit: free-form evidence notes.",
-				},
-				"kind": map[string]any{
-					"type":        "string",
-					"description": "block: blocker kind (user_input|external_dependency|tool_error|policy_hold).",
-				},
-				"question": map[string]any{
-					"type":        "string",
-					"description": "block: human-readable explanation of what's needed.",
-				},
-				"detail":    map[string]any{"type": "object", "description": "block: structured detail."},
-				"reason":    map[string]any{"type": "string", "description": "fail: error message."},
-				"retryable": map[string]any{"type": "boolean", "description": "fail: true if a retry may succeed."},
-			},
-			"required": []string{"action"},
-		},
+		InputSchema: goalControlExecuteInputSchema(),
 	}
 }
 
@@ -669,36 +639,7 @@ func (t *recordingControlTool) reviewDefinition() tools.Definition {
 	return ai.ToolDefinition{
 		Name:        "goal_control",
 		Description: "Report review outcome. Call exactly one of verdict/fail before exiting.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"action": map[string]any{
-					"type":        "string",
-					"enum":        []string{"verdict", "fail"},
-					"description": "Which terminal action to take.",
-				},
-				"summary": map[string]any{
-					"type":        "string",
-					"description": "verdict: one-line summary of the review.",
-				},
-				"verdicts": map[string]any{
-					"type":        "array",
-					"description": "verdict: one entry per required item being reviewed.",
-					"items": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"item_id":   map[string]any{"type": "string", "description": "The acceptance item id this verdict answers."},
-							"pass":      map[string]any{"type": "boolean", "description": "true if the output satisfies the item."},
-							"rationale": map[string]any{"type": "string", "description": "Why it passes or fails; a fail rationale feeds the next attempt."},
-						},
-						"required": []string{"item_id", "pass"},
-					},
-				},
-				"reason":    map[string]any{"type": "string", "description": "fail: why the output cannot be judged."},
-				"retryable": map[string]any{"type": "boolean", "description": "fail: true if a retry may succeed."},
-			},
-			"required": []string{"action"},
-		},
+		InputSchema: goalControlReviewInputSchema(),
 	}
 }
 
@@ -765,10 +706,8 @@ func (t *recordingControlTool) executeDecompose(action string, args map[string]a
 		if maxDepth <= 0 { // unset on an attempt minted before MaxDepth was frozen
 			maxDepth = defaultMaxDepth
 		}
-		if err := ValidateDecomposition(content, t.parentDepth, maxDepth); err != nil {
-			return "", fmt.Errorf("goal_control: decomposition rejected: %w; fix the plan and call goal_control again "+
-				"(need >=1 child with required=true, every edge key must match a child key, no cycles, "+
-				"composites need depth headroom and no deterministic acceptance items)", err)
+		if errs := validateDecompositionDetailed(content, t.parentDepth, maxDepth); len(errs) > 0 {
+			return "", fmt.Errorf("goal_control: decomposition rejected:\n%s\nprior_errors JSON:\n%s", RenderErrorsText(errs), RenderErrorsJSON(errs))
 		}
 		ev := AttemptEvidence{Summary: stringArg(args, "summary")}
 		if err := t.rec.record(Result{Action: terminalDecompose, Evidence: ev, Decomposition: &content}); err != nil {

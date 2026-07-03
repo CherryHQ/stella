@@ -3,12 +3,78 @@ package goal
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// TestExecutorWaitsForTerminalTurnDrain pins the retry race: once goal_control
+// records a terminal action, Execute must still wait for the chat stream to close
+// before returning so the runtime has released the session busy guard.
+func TestExecutorWaitsForTerminalTurnDrain(t *testing.T) {
+	eventConsumed := make(chan struct{})
+	release := make(chan struct{})
+	returned := make(chan error, 1)
+
+	chat := func(ctx context.Context, p TaskChatParams) <-chan agent.Event {
+		ch := make(chan agent.Event)
+		go func() {
+			defer close(ch)
+			if _, err := p.ExtraTools[0].Execute(ctx, map[string]any{"action": "submit", "summary": "done"}); err != nil {
+				ch <- agent.Event{Err: err}
+				return
+			}
+			ch <- agent.Event{Text: "terminal recorded"}
+			close(eventConsumed)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}()
+		return ch
+	}
+
+	ex := newWorkerExecutor(chat, nil)
+	go func() {
+		_, err := ex.Execute(context.Background(), ExecutorRequest{
+			Attempt: sqlc.AgentGoalAttempt{
+				Purpose:         PurposeExecution,
+				UserID:          "u",
+				SessionID:       "s",
+				ExecutorAgentID: pgtype.Text{String: "a", Valid: true},
+			},
+			Input: AttemptInput{Intent: "do the thing"},
+		})
+		returned <- err
+	}()
+
+	select {
+	case <-eventConsumed:
+	case err := <-returned:
+		t.Fatalf("Execute returned before terminal event was consumed: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("terminal event was not consumed")
+	}
+
+	select {
+	case err := <-returned:
+		t.Fatalf("Execute returned before the terminal turn drained: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case err := <-returned:
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Execute did not return after the terminal turn drained")
+	}
+}
 
 // TestExecutorRoutesDecomposeFlag pins the executor->chat contract the
 // session-kind routing depends on: a purpose=decomposition attempt MUST set
