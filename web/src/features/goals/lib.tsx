@@ -121,7 +121,7 @@ export function StatusPill({ status, label }: { status: DisplayStatus; label: st
   return (
     <span
       className={cn(
-        "inline-flex h-[21px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs font-semibold capitalize",
+        "inline-flex h-[21px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 font-mono text-xs font-semibold capitalize",
         statusMeta(status).pill,
       )}
     >

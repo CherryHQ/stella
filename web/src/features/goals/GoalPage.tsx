@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
@@ -88,7 +88,6 @@ export function GoalPage() {
   const qc = useQueryClient();
   const { toasts, showToast } = useToast();
   const [acting, setActing] = useState(false);
-  const [autoOpenedAcceptFor, setAutoOpenedAcceptFor] = useState<string | null>(null);
 
   const { data: d, isError } = useQuery({
     ...goalOptions(goalId),
@@ -143,14 +142,6 @@ export function GoalPage() {
       }),
     [agentId, goalId, navigate],
   );
-
-  useEffect(() => {
-    if (!d || node || autoOpenedAcceptFor === d.id) return;
-    if (d.lifecycle === "done" && d.done_reason === "accepted") {
-      setAutoOpenedAcceptFor(d.id);
-      setNode("accept");
-    }
-  }, [autoOpenedAcceptFor, d, node, setNode]);
 
   if (isError) {
     return (
