@@ -622,13 +622,12 @@ func (s *GoalService) RollupAccept(ctx context.Context, id string) error {
 		if rows == 0 {
 			return ErrInvalidTransition // not active (raced)
 		}
-		return s.bumpParentCounter(ctx, q, cur, counterAccepted)
+		return nil
 	})
 }
 
-// RollupFail moves a composite to rejected_final because a required child
-// reached a terminal-bad state (contract §6, RollupComposite ⇒ fail), bumping
-// this parent's own parent required_failed counter. One tx.
+// RollupFail moves a composite to done(failed) because a required child reached
+// a terminal-bad state (contract §6, RollupComposite => fail). One tx.
 func (s *GoalService) RollupFail(ctx context.Context, id string) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
@@ -648,6 +647,6 @@ func (s *GoalService) RollupFail(ctx context.Context, id string) error {
 		if rows == 0 {
 			return ErrInvalidTransition
 		}
-		return s.bumpParentCounter(ctx, q, d, counterFailed)
+		return nil
 	})
 }

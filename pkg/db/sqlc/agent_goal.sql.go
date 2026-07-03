@@ -123,23 +123,6 @@ func (q *Queries) ClearGoalActiveAttempt(ctx context.Context, id string) error {
 	return err
 }
 
-const consumeDispatchHint = `-- name: ConsumeDispatchHint :exec
-UPDATE agent_goal SET
-    dispatch_hint = $1,
-    updated_at = now()
-WHERE id = $2
-`
-
-type ConsumeDispatchHintParams struct {
-	DispatchHint json.RawMessage `json:"dispatch_hint"`
-	ID           string          `json:"id"`
-}
-
-func (q *Queries) ConsumeDispatchHint(ctx context.Context, arg ConsumeDispatchHintParams) error {
-	_, err := q.db.Exec(ctx, consumeDispatchHint, arg.DispatchHint, arg.ID)
-	return err
-}
-
 const countRootGoal = `-- name: CountRootGoal :one
 SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal
 WHERE parent_id IS NULL
@@ -848,13 +831,6 @@ type ListInboxGoalsRow struct {
 	CreatedAt   time.Time   `json:"created_at"`
 }
 
-// Goals needing user attention, for the inbox. Only human-actionable blocks
-// surface (dep-blocked goals resume on their own when upstream clears), at any
-// tree depth so a block buried in a subtask is still seen -- but not under a
-// terminal root, whose tree is already dead. Open blocks surface at any age
-// (they wait on the user); terminal failures are windowed like failed runs and
-// limited to roots (a child failure is covered by its root's outcome).
-// The handler splits rows into inbox kinds by lifecycle/block_reason.
 func (q *Queries) ListInboxGoals(ctx context.Context, arg ListInboxGoalsParams) ([]ListInboxGoalsRow, error) {
 	rows, err := q.db.Query(ctx, listInboxGoals,
 		arg.UserID,

@@ -41,7 +41,6 @@ const (
 // Failure carries a fail action's payload.
 type Failure struct {
 	Reason       string `json:"reason"`
-	Retryable    bool   `json:"retryable"`
 	BlockedBy    string `json:"blocked_by"`
 	FailureClass string `json:"-"`
 }
@@ -277,7 +276,7 @@ func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *te
 }
 
 // foldResult maps the rich internal Result onto the frozen ExecutorResult the
-// worker applies. Unhandled protocol misses collapse to non-retryable failures.
+// worker applies. Unhandled protocol misses collapse to protocol failures.
 func foldResult(res Result, req ExecutorRequest) ExecutorResult {
 	switch res.Action {
 	case terminalSubmit:
@@ -358,7 +357,7 @@ Protocol:
 - You may use tools normally while planning.
 - Before ending this turn, you MUST call goal_control exactly once with one terminal action:
   - action="decompose" with a "decomposition" object {children, edges} when the plan is ready.
-  - action="fail" with reason/retryable and optional blocked_by="contract_conflict" if the goal cannot be decomposed.
+  - action="fail" with reason and optional blocked_by="contract_conflict" if the goal cannot be decomposed.
 - Each child needs key, title, intent, kind (leaf|composite), required, acceptance_contract, convergence_policy.
 - Edges (by child key) declare hard/soft dependencies; only accepted upstream output flows downstream.
 
@@ -371,7 +370,7 @@ Protocol:
 - You may use tools normally while working.
 - Before ending this turn, you MUST call goal_control exactly once with one terminal action:
   - action="submit" with evidence (summary + optional artifacts) and output when the work is complete.
-  - action="fail" with reason/retryable and optional blocked_by="env_unavailable" or "contract_conflict" when the work cannot be completed.
+  - action="fail" with reason and optional blocked_by="env_unavailable" or "contract_conflict" when the work cannot be completed.
 - Do not just answer in chat. A final text response without goal_control is treated as a protocol failure.
 
 Goal:
@@ -515,10 +514,10 @@ func renderTimelineContext(b *strings.Builder, in AttemptInput) {
 // submits the text automatically.
 func buildRepairPrompt(priorText string, decompose bool) string {
 	action := `  - action="submit" with evidence + output if the work is complete.
-  - action="fail" with reason/retryable and optional blocked_by="env_unavailable" or "contract_conflict" if the work cannot be completed.`
+  - action="fail" with reason and optional blocked_by="env_unavailable" or "contract_conflict" if the work cannot be completed.`
 	if decompose {
 		action = `  - action="decompose" with a "decomposition" object {children, edges} if the plan is ready.
-  - action="fail" with reason/retryable and optional blocked_by="contract_conflict" if the goal cannot be decomposed.`
+  - action="fail" with reason and optional blocked_by="contract_conflict" if the goal cannot be decomposed.`
 	}
 	return `Your previous response did not call goal_control, so this goal is not yet resolved.
 
@@ -548,7 +547,7 @@ Protocol:
 - You may use tools to verify claims.
 - Before ending this turn, you MUST call goal_control exactly once:
   - action="verdict" with a "verdicts" array — one {item_id, pass, rationale} per criterion below.
-  - action="fail" with reason/retryable and optional blocked_by="contract_conflict" only if the output cannot be judged at all.
+  - action="fail" with reason and optional blocked_by="contract_conflict" only if the output cannot be judged at all.
 
 Goal:
 `)
@@ -598,7 +597,7 @@ Your previous message was:
 
 You MUST now call goal_control exactly once:
   - action="verdict" with a "verdicts" array of {item_id, pass, rationale} covering every criterion.
-  - action="fail" with reason/retryable and optional blocked_by="contract_conflict" only if the output cannot be judged.
+  - action="fail" with reason and optional blocked_by="contract_conflict" only if the output cannot be judged.
 
 Do not answer in plain text again.`
 }
@@ -697,7 +696,6 @@ func (t *recordingControlTool) Execute(ctx context.Context, args map[string]any)
 	case "fail":
 		if err := t.rec.record(Result{Action: terminalFail, Failure: &Failure{
 			Reason:    stringArg(args, "reason"),
-			Retryable: boolArg(args, "retryable"),
 			BlockedBy: stringArg(args, "blocked_by"),
 		}}); err != nil {
 			return "", err
@@ -734,7 +732,6 @@ func (t *recordingControlTool) executeDecompose(action string, args map[string]a
 	case "fail":
 		if err := t.rec.record(Result{Action: terminalFail, Failure: &Failure{
 			Reason:    stringArg(args, "reason"),
-			Retryable: boolArg(args, "retryable"),
 			BlockedBy: stringArg(args, "blocked_by"),
 		}}); err != nil {
 			return "", err
@@ -770,7 +767,6 @@ func (t *recordingControlTool) executeReview(action string, args map[string]any)
 	case "fail":
 		if err := t.rec.record(Result{Action: terminalFail, Failure: &Failure{
 			Reason:    stringArg(args, "reason"),
-			Retryable: boolArg(args, "retryable"),
 			BlockedBy: stringArg(args, "blocked_by"),
 		}}); err != nil {
 			return "", err
@@ -786,11 +782,6 @@ func (t *recordingControlTool) executeReview(action string, args map[string]any)
 func stringArg(args map[string]any, key string) string {
 	s, _ := args[key].(string)
 	return s
-}
-
-func boolArg(args map[string]any, key string) bool {
-	b, _ := args[key].(bool)
-	return b
 }
 
 func mapArg(args map[string]any, key string) map[string]any {

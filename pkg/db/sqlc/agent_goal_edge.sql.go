@@ -46,22 +46,6 @@ func (q *Queries) CreateEdge(ctx context.Context, arg CreateEdgeParams) (AgentGo
 	return i, err
 }
 
-const deleteEdge = `-- name: DeleteEdge :exec
-DELETE FROM agent_goal_edge
-WHERE goal_id = $1
-  AND upstream_id = $2
-`
-
-type DeleteEdgeParams struct {
-	GoalID     string `json:"goal_id"`
-	UpstreamID string `json:"upstream_id"`
-}
-
-func (q *Queries) DeleteEdge(ctx context.Context, arg DeleteEdgeParams) error {
-	_, err := q.db.Exec(ctx, deleteEdge, arg.GoalID, arg.UpstreamID)
-	return err
-}
-
 const getEdge = `-- name: GetEdge :one
 SELECT goal_id, upstream_id, edge_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_goal_edge
 WHERE goal_id = $1
@@ -97,41 +81,6 @@ ORDER BY created_at
 
 func (q *Queries) ListEdgeByGoal(ctx context.Context, goalID string) ([]AgentGoalEdge, error) {
 	rows, err := q.db.Query(ctx, listEdgeByGoal, goalID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentGoalEdge{}
-	for rows.Next() {
-		var i AgentGoalEdge
-		if err := rows.Scan(
-			&i.GoalID,
-			&i.UpstreamID,
-			&i.EdgeKind,
-			&i.OnFailure,
-			&i.WaivedAt,
-			&i.WaivedByUser,
-			&i.WaiverReason,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listEdgeByUpstream = `-- name: ListEdgeByUpstream :many
-SELECT goal_id, upstream_id, edge_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_goal_edge
-WHERE upstream_id = $1
-ORDER BY created_at
-`
-
-func (q *Queries) ListEdgeByUpstream(ctx context.Context, upstreamID string) ([]AgentGoalEdge, error) {
-	rows, err := q.db.Query(ctx, listEdgeByUpstream, upstreamID)
 	if err != nil {
 		return nil, err
 	}

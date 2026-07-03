@@ -138,53 +138,6 @@ const (
 	EscalationAbandon = "abandon" // auto-terminal
 )
 
-// ValidLifecycle reports whether s is a known goal lifecycle.
-func ValidLifecycle(s string) bool {
-	switch s {
-	case LifecycleDraft, LifecyclePending, LifecycleActive, LifecycleBlocked, LifecycleDone:
-		return true
-	}
-	return false
-}
-
-// ValidBlockReason reports whether s is a known block reason.
-func ValidBlockReason(s string) bool {
-	switch s {
-	case BlockBudgetExhausted, BlockNeedsPlanApproval, BlockPlanningInvalid, BlockNeedsVerdict,
-		BlockEnvUnavailable, BlockContractConflict:
-		return true
-	}
-	return false
-}
-
-// ValidAcceptanceState reports whether s is a known acceptance projection state.
-func ValidAcceptanceState(s string) bool {
-	switch s {
-	case AcceptancePending, AcceptancePassed, AcceptanceFailed:
-		return true
-	}
-	return false
-}
-
-// ValidAttemptStatus reports whether s is a known attempt status.
-func ValidAttemptStatus(s string) bool {
-	switch s {
-	case AttemptQueued, AttemptRunning, AttemptSubmitted,
-		AttemptInterrupted, AttemptFailed, AttemptCancelled:
-		return true
-	}
-	return false
-}
-
-// ValidPurpose reports whether s is a known attempt purpose.
-func ValidPurpose(s string) bool {
-	switch s {
-	case PurposeExecution, PurposeDecomposition, PurposeReview:
-		return true
-	}
-	return false
-}
-
 // ValidFailureClass reports whether s is a known failure class. Empty is valid
 // for non-failure final states such as cancelled attempts.
 func ValidFailureClass(s string) bool {
@@ -222,11 +175,6 @@ func ValidItemKind(s string) bool { return s == ItemDeterministic || s == ItemJu
 
 // ValidResult reports whether s is a known acceptance outcome.
 func ValidResult(s string) bool { return s == ResultPass || s == ResultFail }
-
-// ValidAuthority reports whether s is a known verdict authority.
-func ValidAuthority(s string) bool {
-	return s == AuthoritySystem || s == AuthorityAgent || s == AuthorityHuman
-}
 
 // ValidEscalation reports whether s is a known convergence escalation.
 func ValidEscalation(s string) bool { return s == EscalationBlock || s == EscalationAbandon }

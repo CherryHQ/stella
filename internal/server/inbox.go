@@ -147,11 +147,7 @@ func inboxFacetForGoal(lifecycle, blockReason string) (apitypes.InboxItemKind, s
 			return apitypes.InboxItemKindBlocked, "blocked", "Blocked"
 		}
 	}
-	if lifecycle == goal.LifecycleDone {
-		return apitypes.InboxItemKindFailed, "failed", "Abandoned after budget exhaustion"
-	}
-	// rejected_final
-	return apitypes.InboxItemKindFailed, "failed", "Rejected with no rework path left"
+	return apitypes.InboxItemKindFailed, "failed", "Failed with no retry path left"
 }
 
 func failedSchedulerRunInboxItem(row sqlc.ListFailedInboxSchedulerRunsRow) apitypes.InboxItem {

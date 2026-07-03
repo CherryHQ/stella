@@ -200,10 +200,9 @@ function EventBody({ type, payload }: { type: GoalTimelineEvent["event_type"]; p
               status: str(payload.status) || "—",
             })}
           </p>
-          {(str(payload.failure_class) || str(payload.blocked_by)) && (
+          {str(payload.failure_class) && (
             <p className="font-mono text-[11px] text-muted-foreground">
-              {str(payload.failure_class) || "—"}
-              {str(payload.blocked_by) ? ` · ${str(payload.blocked_by)}` : ""}
+              {str(payload.failure_class)}
             </p>
           )}
           {(str(payload.reason) || str(payload.evidence_summary)) && (
@@ -234,11 +233,8 @@ function EventBody({ type, payload }: { type: GoalTimelineEvent["event_type"]; p
           <p className="font-mono">
             {str(payload.from) || "—"} → {str(payload.to) || "—"}
           </p>
-          {(str(payload.block_reason) || str(payload.blocked_by)) && (
-            <p className="text-muted-foreground">
-              {str(payload.block_reason) || t("goals.statusBlocked")}
-              {str(payload.blocked_by) ? ` · ${str(payload.blocked_by)}` : ""}
-            </p>
+          {str(payload.block_reason) && (
+            <p className="text-muted-foreground">{str(payload.block_reason)}</p>
           )}
         </div>
       );

@@ -77,7 +77,7 @@ func (s *GoalService) priorGapsFor(ctx context.Context, q *sqlc.Queries, d sqlc.
 
 // ── Mint next attempt (contract §5 step 1) ──────────────────────────────────
 
-// Claim is the dispatcher's leaf ready→active (contract §2.1, §5 step 1). It
+// Claim is the dispatcher's leaf pending->active (contract §2.1, §5 step 1). It
 // resolves the dispatch hint's executor, mints a queued execution attempt and
 // claims the goal in one tx. The per-root/per-user concurrency caps are
 // enforced by the dispatcher BEFORE Claim (§5 step 2); Claim itself only guards
@@ -87,7 +87,7 @@ func (s *GoalService) priorGapsFor(ctx context.Context, q *sqlc.Queries, d sqlc.
 // SAME tx, so the claim and its job commit atomically — a crash can no longer
 // leave a claimed attempt with no job to run it. A nil enqueue skips this (tests
 // minting+claiming without River); its failure rolls the claim back, leaving the
-// goal ready for the next tick.
+// goal pending for the next tick.
 func (s *GoalService) Claim(ctx context.Context, id, workerID string, enqueue AttemptEnqueuer) (sqlc.AgentGoalAttempt, error) {
 	// Execution attempts are one-shot task sessions. Queued attempts are executed
 	// by the current executor version; running attempts owned by an old process are
@@ -208,7 +208,7 @@ func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEv
 // (agent reported fail / produced no action / empty handoff / panic), so the
 // attempt is recorded 'failed' rather than 'interrupted'. One tx.
 //
-//   - execution attempt → branchOnFailure: budget left reopens to ready (rework =
+//   - execution attempt -> branchOnFailure: budget left reopens to pending (rework =
 //     next attempt, the failure reason rides as a gap); budget out blocks/abandons/
 //     rejects per policy. A failed attempt consumes one budget unit (same as a fold
 //     failure), so a persistently failing agent parks at blocked, never loops.
@@ -451,7 +451,7 @@ func (s *GoalService) RejectPlan(ctx context.Context, goalID, reason string, by 
 }
 
 // releaseChildren moves a composite's freshly materialized draft children out of
-// draft so the tree runs: a leaf child -> ready (the dispatcher claims it), a
+// draft so the tree runs: a leaf child -> pending (the dispatcher claims it), a
 // composite child STAYS draft so scanAndDecompose recurses and plans it in turn.
 // The composite itself is left as-is. Shared by Activate and SubmitDecomposition.
 func (s *GoalService) releaseChildren(ctx context.Context, q *sqlc.Queries, parentID string) error {
@@ -535,7 +535,7 @@ func decodeOutput(s json.RawMessage) AttemptOutput {
 //   - passed       → acceptGoal (freeze output, clear attempt, bump parent).
 //   - failed + budget left → write gaps on the attempt; the dispatcher mints the
 //     next attempt (rework = next attempt, not a node).
-//   - failed + budget out  → blocked(budget_exhausted) | abandoned | rejected_final.
+//   - failed + budget out  -> blocked(budget_exhausted) or done(failed).
 //   - NeedsVerdict → blocked(needs_verdict) (a pending human is not an executing
 //     episode, so the active attempt is cleared).
 //
@@ -611,9 +611,8 @@ func (s *GoalService) wakeIfBlocked(ctx context.Context, q *sqlc.Queries, d *sql
 	return nil
 }
 
-// acceptFolded freezes the accepted output, flips the goal → accepted, and
-// bumps the parent's required_accepted in the SAME tx (contract §2.1
-// active→accepted, §6 rollup). It is the fold's accept branch for both a leaf
+// acceptFolded freezes the accepted output and flips the goal to done(accepted)
+// (contract §2.1, §6 rollup). It is the fold's accept branch for both a leaf
 // (output = the accepted attempt's) and an authored-contract composite (output
 // synthesized from the children below). Downstream readiness is re-derived
 // lazily by the dispatcher off the upstream-accepted index, so no push is
@@ -657,7 +656,7 @@ func (s *GoalService) acceptFolded(ctx context.Context, q *sqlc.Queries, d sqlc.
 	if rows == 0 {
 		return ErrInvalidTransition // not active (raced)
 	}
-	return s.bumpParentCounter(ctx, q, d, counterAccepted)
+	return nil
 }
 
 // blockForVerdict parks a goal awaiting a required human verdict:
@@ -667,7 +666,7 @@ func (s *GoalService) blockForVerdict(ctx context.Context, q *sqlc.Queries, d sq
 	// Already parked awaiting this verdict (a multi-item contract where a verdict
 	// resolved one item but another judgment item is still pending): the desired
 	// end-state IS blocked(needs_verdict), so this is an idempotent no-op rather
-	// than a 0-row BlockGoal (which guards from ready/active, not blocked).
+	// than a 0-row BlockGoal (which guards from pending/active, not blocked).
 	if d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockNeedsVerdict {
 		return nil
 	}
@@ -712,12 +711,11 @@ func (s *GoalService) routeFailedAttempt(ctx context.Context, q *sqlc.Queries, d
 // branchOnFailure routes an acceptance failure (contract §5 step 7). With budget
 // left it records the gaps on the rejected attempt and clears the active pointer
 // so the dispatcher mints attempt_no+1 (rework = next attempt). Budget out routes
-// by escalation/contract shape to blocked(budget_exhausted), abandoned, or
-// rejected_final.
+// by escalation/contract shape to blocked(budget_exhausted) or done(failed).
 func (s *GoalService) branchOnFailure(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, attemptID string, gaps Evaluation) error {
 	// A composite cannot rework: it has no execution attempts (its work is its
 	// children, all accepted by the time its own gate folds), so reopening to
-	// ready would strand it — the dispatcher only claims ready LEAVES. A failing
+	// pending would strand it -- the dispatcher only claims pending LEAVES. A failing
 	// verdict on its judgment gate parks it back at needs_verdict for a human to
 	// adjudicate: override the item, edit the contract, or cancel.
 	if d.Kind == KindComposite {
@@ -741,7 +739,7 @@ func (s *GoalService) branchOnFailure(ctx context.Context, q *sqlc.Queries, d sq
 		return err
 	}
 	if left {
-		// Budget left: clear the active attempt so the goal returns to ready
+		// Budget left: clear the active attempt so the goal returns to pending
 		// for the next claim. The dispatcher re-claims and mints attempt_no+1 with
 		// the gaps now in input_context.
 		return s.reopenForRework(ctx, q, d)
@@ -750,16 +748,16 @@ func (s *GoalService) branchOnFailure(ctx context.Context, q *sqlc.Queries, d sq
 	// Budget exhausted: terminal/blocked per policy and contract shape.
 	switch {
 	case judgmentOnlyContract(d):
-		return s.transition(ctx, q, d, LifecycleDone, "", counterFailed)
+		return s.transition(ctx, q, d, LifecycleDone, "")
 	case pol.Escalation == EscalationAbandon:
-		return s.transition(ctx, q, d, LifecycleDone, "", counterFailed)
+		return s.transition(ctx, q, d, LifecycleDone, "")
 	default:
 		return s.blockBudget(ctx, q, d)
 	}
 }
 
-// reopenForRework returns a failed-with-budget goal to ready for the next
-// attempt: clear the active attempt and move active→ready. The current attempt
+// reopenForRework returns a failed-with-budget goal to pending for the next
+// attempt: clear the active attempt and move active->pending. The current attempt
 // stays 'submitted' with its gaps recorded; the new attempt carries them.
 func (s *GoalService) reopenForRework(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
 	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
@@ -799,10 +797,9 @@ func (s *GoalService) blockBudget(ctx context.Context, q *sqlc.Queries, d sqlc.A
 	return nil
 }
 
-// transition applies a terminal active→{to} move and bumps one parent counter in
-// the same tx (contract §6). Used for the budget-out terminal-bad paths
-// (rejected_final/abandoned).
-func (s *GoalService) transition(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, to, blockReason string, counter counterKind) error {
+// transition applies a terminal active->{to} move. Used for budget-out
+// done(failed) paths.
+func (s *GoalService) transition(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, to, blockReason string) error {
 	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 		return fmt.Errorf("clear active attempt: %w", err)
 	}
@@ -813,12 +810,12 @@ func (s *GoalService) transition(ctx context.Context, q *sqlc.Queries, d sqlc.Ag
 	if rows == 0 {
 		return ErrInvalidTransition
 	}
-	return s.bumpParentCounter(ctx, q, d, counter)
+	return nil
 }
 
 // judgmentOnlyContract reports whether a goal's contract has no required
-// deterministic item — a pure-judgment contract has no rework path on a failed
-// verdict, so budget exhaustion is rejected_final rather than recoverable.
+// deterministic item -- a pure-judgment contract has no rework path on a failed
+// verdict, so budget exhaustion becomes done(failed) rather than recoverable.
 func judgmentOnlyContract(d sqlc.AgentGoal) bool {
 	var c AcceptanceContract
 	_ = unmarshalJSON(d.AcceptanceContract, &c)

@@ -726,9 +726,6 @@ components:
         reason:
           type: string
           description: "fail: error message."
-        retryable:
-          type: boolean
-          description: "fail: legacy hint; routing uses blocked_by/failure source, not this boolean."
         blocked_by:
           type: string
           enum: ["", env_unavailable, contract_conflict]
@@ -751,9 +748,6 @@ components:
         reason:
           type: string
           description: "fail: error message."
-        retryable:
-          type: boolean
-          description: "fail: legacy hint; routing uses blocked_by/failure source, not this boolean."
         blocked_by:
           type: string
           enum: ["", env_unavailable, contract_conflict]
@@ -777,9 +771,6 @@ components:
         reason:
           type: string
           description: "fail: why the output cannot be judged."
-        retryable:
-          type: boolean
-          description: "fail: legacy hint; routing uses blocked_by/failure source, not this boolean."
         blocked_by:
           type: string
           enum: ["", env_unavailable, contract_conflict]

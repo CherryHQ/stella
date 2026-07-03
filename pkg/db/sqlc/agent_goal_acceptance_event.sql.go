@@ -120,51 +120,6 @@ func (q *Queries) GetMaxAcceptanceSeq(ctx context.Context, goalID string) (int64
 	return column_1, err
 }
 
-const listAcceptanceEventByAttempt = `-- name: ListAcceptanceEventByAttempt :many
-SELECT id, goal_id, attempt_id, seq, item_id, item_kind, result, command, exit_code, cache_key, authority, reviewer_user_id, reviewer_attempt_id, rationale, scope, scope_hash, detail, created_at FROM agent_goal_acceptance_event
-WHERE attempt_id = $1
-ORDER BY seq ASC
-`
-
-func (q *Queries) ListAcceptanceEventByAttempt(ctx context.Context, attemptID pgtype.Text) ([]AgentGoalAcceptanceEvent, error) {
-	rows, err := q.db.Query(ctx, listAcceptanceEventByAttempt, attemptID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentGoalAcceptanceEvent{}
-	for rows.Next() {
-		var i AgentGoalAcceptanceEvent
-		if err := rows.Scan(
-			&i.ID,
-			&i.GoalID,
-			&i.AttemptID,
-			&i.Seq,
-			&i.ItemID,
-			&i.ItemKind,
-			&i.Result,
-			&i.Command,
-			&i.ExitCode,
-			&i.CacheKey,
-			&i.Authority,
-			&i.ReviewerUserID,
-			&i.ReviewerAttemptID,
-			&i.Rationale,
-			&i.Scope,
-			&i.ScopeHash,
-			&i.Detail,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listAcceptanceEventByGoal = `-- name: ListAcceptanceEventByGoal :many
 SELECT id, goal_id, attempt_id, seq, item_id, item_kind, result, command, exit_code, cache_key, authority, reviewer_user_id, reviewer_attempt_id, rationale, scope, scope_hash, detail, created_at FROM agent_goal_acceptance_event
 WHERE goal_id = $1

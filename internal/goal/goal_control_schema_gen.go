@@ -51,10 +51,6 @@ const goalControlExecuteInputSchemaJSON = `{
       "description": "fail: error message.",
       "type": "string"
     },
-    "retryable": {
-      "description": "fail: legacy hint; routing uses blocked_by/failure source, not this boolean.",
-      "type": "boolean"
-    },
     "summary": {
       "description": "submit: handoff summary describing what you produced (required for child goals).",
       "type": "string"
@@ -267,10 +263,6 @@ const goalControlDecomposeInputSchemaJSON = `{
       "description": "fail: error message.",
       "type": "string"
     },
-    "retryable": {
-      "description": "fail: legacy hint; routing uses blocked_by/failure source, not this boolean.",
-      "type": "boolean"
-    },
     "summary": {
       "description": "decompose: one-line description of the plan.",
       "type": "string"
@@ -308,10 +300,6 @@ const goalControlReviewInputSchemaJSON = `{
     "reason": {
       "description": "fail: why the output cannot be judged.",
       "type": "string"
-    },
-    "retryable": {
-      "description": "fail: legacy hint; routing uses blocked_by/failure source, not this boolean.",
-      "type": "boolean"
     },
     "summary": {
       "description": "verdict: one-line summary of the review.",

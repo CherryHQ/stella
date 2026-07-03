@@ -357,19 +357,18 @@ func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries
 	return row, nil
 }
 
-// applyAcceptance is the single fold→transition mapper (contract §4.3). It runs
-// in ONE tx: load the goal + its full ledger, DeriveAcceptance, and
-// apply exactly one lifecycle move. Nothing else writes acceptance_state /
-// accepted_output / counters.
+// applyAcceptance is the single fold->transition mapper (contract §4.3). It runs
+// in ONE tx: load the goal + its full ledger, DeriveAcceptance, and apply exactly
+// one lifecycle move. Nothing else writes acceptance_state / accepted_output.
 //
-//   - passed  → Accept (freeze output, clear active attempt, bump parent
-//     required_accepted, push downstream readiness).
-//   - failed + budget left → write gaps on the attempt; the dispatcher mints the
+//   - passed -> Accept (freeze output, clear active attempt); composite parent
+//     rollup is derived from children.
+//   - failed + budget left -> write gaps on the attempt; the dispatcher mints the
 //     next attempt (rework = next attempt, not a node).
-//   - failed + budget out → blocked(budget_exhausted) | abandoned |
-//     rejected_final per escalation/contract shape.
-//   - NeedsVerdict → blocked(needs_verdict) (human) or mint an agent-review
-//     attempt (agent) — routed by the pending judgment item's authority.
+//   - failed + budget out -> blocked(budget_exhausted) or done(failed) per
+//     escalation/contract shape.
+//   - NeedsVerdict -> blocked(needs_verdict) (human) or mint an agent-review
+//     attempt (agent) -- routed by the pending judgment item's authority.
 //
 // The stale-projection fence (SetGoalAcceptanceState WHERE
 // acceptance_seq < new) rejects a fold computed against an out-of-date seq.
@@ -496,9 +495,9 @@ type UpdateInput struct {
 	By Actor
 }
 
-// UpdateMetadata applies a partial metadata edit (contract §2 — metadata is
+// UpdateMetadata applies a partial metadata edit (contract §2 -- metadata is
 // mutable; lifecycle is not). It validates the value-sets it touches and returns
-// the refreshed row. Lifecycle, counters, and projection are untouched.
+// the refreshed row. Lifecycle and projection are untouched.
 func (s *GoalService) UpdateMetadata(ctx context.Context, id string, in UpdateInput) (sqlc.AgentGoal, error) {
 	if in.Priority != nil && !ValidPriority(*in.Priority) {
 		return sqlc.AgentGoal{}, ErrInvalidTransition
@@ -591,10 +590,10 @@ func orDefault(v *string, fallback string) string {
 	return fallback
 }
 
-// Activate is the plan gate: draft→ready (contract §2.1). A leaf passes when its
-// contract has items or is explicitly trivial; a composite passes when it is
-// planned (planned_at set) and required_total ≥ 1. A composite flips its draft
-// children → ready. Returns ErrPlanGate when unmet.
+// Activate is the plan gate: draft->pending (contract §2.1). A leaf passes when
+// its contract has items or is explicitly trivial; a composite passes when its
+// plan is materialized. A composite releases its draft children. Returns
+// ErrPlanGate when unmet.
 func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, error) {
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
@@ -608,10 +607,10 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		if !s.planGateSatisfied(d) {
 			return ErrPlanGate
 		}
-		// A leaf goes to ready so the dispatcher can claim it. A composite is never
+		// A leaf goes to pending so the dispatcher can claim it. A composite is never
 		// claimed by a worker — it goes straight to active so the rollup (which only
 		// scans active composites) fires once its children accept; landing it in
-		// ready would strand it there with no ready→active transition (mirrors the
+		// pending would strand it there with no pending->active transition (mirrors the
 		// draft→active that BeginDecomposition applies).
 		parentTarget := LifecyclePending
 		if d.Kind == KindComposite {
@@ -624,7 +623,7 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		if rows == 0 {
 			return ErrInvalidTransition
 		}
-		// A composite releases its draft children: leaf children → ready for the
+		// A composite releases its draft children: leaf children -> pending for the
 		// dispatcher, composite children stay draft for scanAndDecompose to plan.
 		if d.Kind == KindComposite {
 			if err := s.releaseChildren(ctx, q, d.ID); err != nil {
@@ -640,7 +639,7 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 // planGateSatisfied reports whether a draft goal clears its plan gate
 // (contract §2.1). A leaf passes when its contract has items or is explicitly
 // trivial (the empty auto-accept degradation is always allowed). A composite
-// passes only once its plan is materialized (planned_at set) and required_total ≥ 1.
+// passes once its plan is materialized (planned_at set).
 func (s *GoalService) planGateSatisfied(d sqlc.AgentGoal) bool {
 	if d.Kind == KindComposite {
 		return d.PlannedAt.Valid
@@ -651,15 +650,15 @@ func (s *GoalService) planGateSatisfied(d sqlc.AgentGoal) bool {
 	return true
 }
 
-// Claim is the dispatcher's leaf ready→active (contract §2.1). Guards
+// Claim is the dispatcher's leaf pending->active (contract §2.1). Guards
 // active_attempt_id IS NULL, all hard upstream edges accepted-or-waived, an
 // executor resolved, and the concurrency cap. Mints a queued execution attempt,
 // sets active_attempt_id, bumps attempt_count, consumes dispatch_hint — one tx.
 // Returns ErrConcurrencyCap when over budget, ErrInvalidTransition on a race.
 // Implemented in converge.go.
 
-// Block moves ready/active → blocked with a reason (contract §2.1). Used by the
-// dispatcher (dep), the fold (needs_verdict), and convergence (budget_exhausted).
+// Block moves pending/active -> blocked with a reason (contract §2.1). Used by
+// the fold (needs_verdict) and convergence (budget_exhausted/env/contract).
 func (s *GoalService) Block(ctx context.Context, id, reason string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
@@ -671,20 +670,18 @@ func (s *GoalService) Block(ctx context.Context, id, reason string, by Actor) er
 			return fmt.Errorf("block goal: %w", err)
 		}
 		if rows == 0 {
-			return ErrInvalidTransition // not ready/active (raced)
+			return ErrInvalidTransition // not pending/active (raced)
 		}
-		// A required child entering blocked bumps the parent's required_blocked so
-		// the rollup surfaces the stall.
-		return s.bumpParentCounter(ctx, q, d, counterBlockedIncr)
+		return nil
 	})
 }
 
 // recoveryLifecycle is the lifecycle a goal re-enters when a recoverable block
-// clears (a human Unblock/Reattempt or an edge waiver). A leaf returns to ready so
+// clears (a human Unblock/Reattempt or an edge waiver). A leaf returns to pending so
 // the dispatcher claims it. A composite is never claimed by a worker: an
 // un-planned one returns to draft to (re-)decompose, a planned one to active so
-// the rollup drives it. Landing a composite in ready would strand it — there is
-// no ready→active transition for composites (mirrors Activate's draft→active).
+// the rollup drives it. Landing a composite in pending would strand it -- there is
+// no pending->active transition for composites (mirrors Activate's draft→active).
 func recoveryLifecycle(d sqlc.AgentGoal) string {
 	if d.Kind != KindComposite {
 		return LifecyclePending
@@ -695,7 +692,7 @@ func recoveryLifecycle(d sqlc.AgentGoal) string {
 	return LifecycleDraft
 }
 
-// Unblock clears a recoverable block: blocked(dep)→ready (leaf) or →active/draft
+// Unblock clears a recoverable block: blocked->pending (leaf) or ->active/draft
 // (composite, see recoveryLifecycle) when the condition cleared (contract §2.1).
 func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
@@ -713,12 +710,12 @@ func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 		if rows == 0 {
 			return ErrInvalidTransition
 		}
-		return s.bumpParentCounter(ctx, q, d, counterBlockedDecr)
+		return nil
 	})
 }
 
 // Reattempt raises the budget on a blocked(budget_exhausted) goal so the next
-// tick mints a fresh attempt. A leaf returns to ready (the dispatcher claims it);
+// tick mints a fresh attempt. A leaf returns to pending (the dispatcher claims it);
 // a composite, whose budget meters DECOMPOSITION attempts, returns to draft so
 // scanAndDecompose re-plans it (contract §2.1, see recoveryLifecycle). For
 // blocked(planning_invalid), Reattempt restarts planning without raising the
@@ -757,8 +754,8 @@ func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error 
 }
 
 // Cancel cascades cancel over the subtree (contract §6): depth-first set
-// cancelled on each non-terminal descendant, reconcile each touched parent's
-// required_failed, cancel in-flight attempts, stamp cancelled_at. One tx.
+// done(cancelled) on each non-terminal descendant, cancel in-flight attempts,
+// stamp cancelled_at. Parent rollup observes cancelled children by derived tally.
 func (s *GoalService) Cancel(ctx context.Context, id, reason string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		root, err := getGoal(ctx, q, id)
@@ -773,10 +770,8 @@ func (s *GoalService) Cancel(ctx context.Context, id, reason string, by Actor) e
 			return fmt.Errorf("list subtree for cancel: %w", err)
 		}
 		// Depth-first, deepest-first: the subtree is depth-ascending, so reverse it
-		// to cancel children before their parents. Each non-terminal descendant that
-		// was required and not yet counted in its parent bumps the parent's
-		// required_failed in the same tx (children already accepted keep their
-		// required_accepted contribution — their parent is itself being cancelled).
+		// to cancel children before their parents. Derived rollup observes cancelled
+		// children; no stored parent counters are maintained.
 		for i := len(subtree) - 1; i >= 0; i-- {
 			d := subtree[i]
 			if IsTerminalLifecycle(d.Lifecycle) {
@@ -799,31 +794,12 @@ func (s *GoalService) Cancel(ctx context.Context, id, reason string, by Actor) e
 			if err := s.cancelGoal(ctx, q, d); err != nil {
 				return fmt.Errorf("cancel goal: %w", err)
 			}
-			// A descendant that was blocked had bumped its parent's required_blocked;
-			// cancelling it clears that contribution so the incremental counter still
-			// matches the reconcile backstop (which counts lifecycle='blocked'
-			// children). Applies to the root too — its required_failed is bumped below.
-			if d.Lifecycle == LifecycleBlocked {
-				if err := s.bumpParentCounter(ctx, q, d, counterBlockedDecr); err != nil {
-					return err
-				}
-			}
-			// A required, non-terminal descendant moving to cancelled is a newly
-			// failed requirement for its parent (skip the root being cancelled — its
-			// own parent counter is bumped below as the cancel's required_failed).
-			if d.ID != id {
-				if err := s.bumpParentCounter(ctx, q, d, counterFailed); err != nil {
-					return err
-				}
-			}
 		}
-		// The cancelled root itself bumps ITS parent's required_failed (§2.1 cancel).
-		return s.bumpParentCounter(ctx, q, root, counterFailed)
+		return nil
 	})
 }
 
-// Abandon is the human give-up on a blocked(budget_exhausted): blocked→abandoned
-// (terminal), bumping parent required_failed (contract §2.1).
+// Abandon is the human give-up on blocked(budget_exhausted): blocked->done(failed).
 func (s *GoalService) Abandon(ctx context.Context, id, reason string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
@@ -840,7 +816,7 @@ func (s *GoalService) Abandon(ctx context.Context, id, reason string, by Actor) 
 		if rows == 0 {
 			return ErrInvalidTransition
 		}
-		return s.bumpParentCounter(ctx, q, d, counterFailed)
+		return nil
 	})
 }
 
@@ -947,8 +923,7 @@ func (s *GoalService) dependsOn(ctx context.Context, q *sqlc.Queries, from, targ
 	return visit(from)
 }
 
-// WaiveEdge waives a hard edge so a blocked(dep) downstream can proceed
-// (contract §2.1, blocked(dep)→ready).
+// WaiveEdge waives a hard edge so downstream readiness can proceed.
 func (s *GoalService) WaiveEdge(ctx context.Context, downstreamID, upstreamID, reason string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		if _, err := q.GetEdge(ctx, sqlc.GetEdgeParams{
@@ -1020,25 +995,3 @@ func (s *GoalService) SubmitVerdict(ctx context.Context, in VerdictInput) error 
 	// Re-run derivation over the now-complete ledger (own tx).
 	return s.applyAcceptance(ctx, in.GoalID)
 }
-
-// bumpParentCounter applies exactly one ±1 counter bump on a child's parent in
-// the SAME tx that transitions the child (contract §6). Bare SQL +1/-1 (DB does
-// the arithmetic) so there is no read-modify-write and no lost update; lock
-// order is always child-before-parent.
-func (s *GoalService) bumpParentCounter(ctx context.Context, q *sqlc.Queries, child sqlc.AgentGoal, kind counterKind) error {
-	_ = ctx
-	_ = q
-	_ = child
-	_ = kind
-	return nil
-}
-
-// counterKind selects which incremental parent counter a child transition bumps.
-type counterKind int
-
-const (
-	counterAccepted counterKind = iota
-	counterFailed
-	counterBlockedIncr
-	counterBlockedDecr
-)

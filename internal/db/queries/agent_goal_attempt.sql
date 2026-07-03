@@ -96,10 +96,6 @@ UPDATE agent_goal_attempt
 SET gaps = sqlc.arg(gaps), updated_at = now()
 WHERE id = sqlc.arg(id);
 
--- name: SetAttemptExecutor :exec
-UPDATE agent_goal_attempt
-SET executor_agent_id = sqlc.arg(executor_agent_id), updated_at = now()
-WHERE id = sqlc.arg(id);
 
 -- name: SetAttemptRepairRounds :exec
 UPDATE agent_goal_attempt

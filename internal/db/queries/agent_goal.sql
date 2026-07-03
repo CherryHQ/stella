@@ -284,19 +284,7 @@ UPDATE agent_goal SET
     updated_at = now()
 WHERE id = $1;
 
--- name: ConsumeDispatchHint :exec
-UPDATE agent_goal SET
-    dispatch_hint = sqlc.arg(dispatch_hint),
-    updated_at = now()
-WHERE id = sqlc.arg(id);
 
--- Goals needing user attention, for the inbox. Only human-actionable blocks
--- surface (dep-blocked goals resume on their own when upstream clears), at any
--- tree depth so a block buried in a subtask is still seen -- but not under a
--- terminal root, whose tree is already dead. Open blocks surface at any age
--- (they wait on the user); terminal failures are windowed like failed runs and
--- limited to roots (a child failure is covered by its root's outcome).
--- The handler splits rows into inbox kinds by lifecycle/block_reason.
 -- name: ListInboxGoals :many
 SELECT
     d.id,

@@ -63,7 +63,7 @@ func TestGoalFailureResponsibilityMigrationMapsAndRestoresClasses(t *testing.T) 
 	if err != nil {
 		t.Fatalf("create migration provider: %v", err)
 	}
-	if _, err := provider.DownTo(ctx, 20260702110624); err != nil {
+	if _, err := provider.DownTo(ctx, 20260702085628); err != nil {
 		t.Fatalf("goose down responsibility migration: %v", err)
 	}
 
@@ -96,7 +96,7 @@ func TestGoalFailureResponsibilityMigrationMapsAndRestoresClasses(t *testing.T) 
 		}
 	}
 
-	if _, err := provider.UpTo(ctx, 20260702123000); err != nil {
+	if _, err := provider.UpTo(ctx, 20260702110624); err != nil {
 		t.Fatalf("goose up responsibility migration: %v", err)
 	}
 	rows, err := db.Query(ctx, `SELECT previous_failure_class, failure_class FROM agent_goal_attempt ORDER BY attempt_no`)
@@ -118,7 +118,7 @@ func TestGoalFailureResponsibilityMigrationMapsAndRestoresClasses(t *testing.T) 
 		t.Fatalf("mapped rows: %v", err)
 	}
 
-	if _, err := provider.DownTo(ctx, 20260702110624); err != nil {
+	if _, err := provider.DownTo(ctx, 20260702085628); err != nil {
 		t.Fatalf("goose down responsibility migration after map: %v", err)
 	}
 	if columnExists(t, db, "agent_goal_attempt", "previous_failure_class") {

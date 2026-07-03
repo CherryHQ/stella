@@ -515,22 +515,6 @@ func (q *Queries) PromoteAttempt(ctx context.Context, arg PromoteAttemptParams) 
 	return result.RowsAffected(), nil
 }
 
-const setAttemptExecutor = `-- name: SetAttemptExecutor :exec
-UPDATE agent_goal_attempt
-SET executor_agent_id = $1, updated_at = now()
-WHERE id = $2
-`
-
-type SetAttemptExecutorParams struct {
-	ExecutorAgentID pgtype.Text `json:"executor_agent_id"`
-	ID              string      `json:"id"`
-}
-
-func (q *Queries) SetAttemptExecutor(ctx context.Context, arg SetAttemptExecutorParams) error {
-	_, err := q.db.Exec(ctx, setAttemptExecutor, arg.ExecutorAgentID, arg.ID)
-	return err
-}
-
 const setAttemptGaps = `-- name: SetAttemptGaps :exec
 UPDATE agent_goal_attempt
 SET gaps = $1, updated_at = now()
