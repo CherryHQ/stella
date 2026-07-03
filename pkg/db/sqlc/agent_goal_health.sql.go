@@ -15,7 +15,7 @@ import (
 
 const getGoalHealthReport = `-- name: GetGoalHealthReport :one
 WITH scoped_goal AS (
-    SELECT g.id, g.user_id, g.agent_id, g.project_id, g.parent_id, g.root_id, g.depth, g.position, g.title, g.intent, g.kind, g.priority, g.required, g.acceptance_contract, g.convergence_policy, g.review_policy, g.lifecycle, g.block_reason, g.acceptance_state, g.accepted_output, g.acceptance_seq, g.active_attempt_id, g.attempt_count, g.context, g.dispatch_hint, g.created_at, g.updated_at, g.accepted_at, g.cancelled_at, g.archived_at, g.plan, g.planned_at, g.flaky_count, g.budget_bonus, g.done_reason
+    SELECT g.id, g.user_id, g.agent_id, g.project_id, g.parent_id, g.root_id, g.depth, g.position, g.title, g.intent, g.kind, g.priority, g.required, g.acceptance_contract, g.convergence_policy, g.review_policy, g.lifecycle, g.block_reason, g.acceptance_state, g.accepted_output, g.acceptance_seq, g.active_attempt_id, g.attempt_count, g.context, g.dispatch_hint, g.created_at, g.updated_at, g.accepted_at, g.cancelled_at, g.archived_at, g.plan, g.planned_at, g.flaky_count, g.budget_bonus, g.done_reason, g.workflow_id, g.workflow_version
     FROM agent_goal g
     WHERE g.created_at >= $1
       AND ($2::uuid IS NULL OR g.user_id = $2::uuid)

@@ -284,6 +284,12 @@ UPDATE agent_goal SET
     updated_at = now()
 WHERE id = $1;
 
+-- name: ListGoalsByWorkflow :many
+SELECT * FROM agent_goal
+WHERE workflow_id = $1
+  AND parent_id IS NULL
+ORDER BY created_at DESC, id DESC
+LIMIT $2;
 
 -- name: ListInboxGoals :many
 SELECT
