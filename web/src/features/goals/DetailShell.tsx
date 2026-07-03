@@ -12,6 +12,7 @@ interface DetailShellProps {
   title: React.ReactNode;
   pill?: React.ReactNode;
   actions?: React.ReactNode;
+  contentClassName?: string;
   children: React.ReactNode;
 }
 
@@ -22,12 +23,13 @@ export function DetailShell({
   title,
   pill,
   actions,
+  contentClassName = "max-w-[800px]",
   children,
 }: DetailShellProps) {
   const { t } = useI18n();
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background">
-      <div className="mx-auto max-w-[800px] px-6 py-7 pb-20 sm:px-8">
+      <div className={`mx-auto px-6 py-7 pb-20 sm:px-8 ${contentClassName}`}>
         <Link
           to="/agents/$agentId/goals"
           params={{ agentId }}

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import {
   abandonGoal,
   activateGoal,
@@ -54,7 +54,8 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Form } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import {
   ProgressBar,
@@ -73,8 +74,6 @@ import { GoalTimeline } from "@/features/goals/GoalTimeline";
 import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
 import { ToastContainer, useToast } from "@/hooks/use-toast";
 
-type TabKey = "timeline" | "overview" | "children" | "attempts" | "acceptance" | "deps" | "plan";
-
 // A done goal never changes again, so every query on this page polls while the
 // goal is live and stops at done. Polling pauses automatically when the page
 // unmounts or the tab goes to the background.
@@ -87,8 +86,6 @@ export function GoalPage() {
     agentId: string;
     goalId: string;
   };
-  const { tab } = useSearch({ strict: false }) as { tab?: TabKey };
-  const navigate = useNavigate();
   const qc = useQueryClient();
   const { toasts, showToast } = useToast();
   const [acting, setActing] = useState(false);
@@ -130,12 +127,9 @@ export function GoalPage() {
     [invalidate, showToast, t],
   );
 
-  const goTab = (next: TabKey) =>
-    void navigate({
-      to: "/agents/$agentId/goals/$goalId",
-      params: { agentId, goalId },
-      search: { tab: next },
-    });
+  const scrollToSection = useCallback((id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   if (isError) {
     return (
@@ -148,7 +142,6 @@ export function GoalPage() {
 
   const isComposite = d.kind === "composite";
   const path = { id: d.id };
-  const active = tab ?? "timeline";
   const retryEnvironment = () =>
     void act(async () => {
       try {
@@ -171,15 +164,16 @@ export function GoalPage() {
       kindLabel={t(isComposite ? "goals.kindComposite" : "goals.kindLeaf")}
       title={d.title}
       pill={<StatusPill status={displayStatus(d)} label={goalStatusLabel(t, d)} />}
+      contentClassName="max-w-[1200px]"
       actions={
         <HeaderActions
           d={d}
           acting={acting}
           act={act}
           path={path}
-          onVerdict={() => goTab("acceptance")}
-          onTimeline={() => goTab("timeline")}
-          onContract={() => goTab("acceptance")}
+          onVerdict={() => scrollToSection("goal-acceptance")}
+          onTimeline={() => scrollToSection("goal-timeline")}
+          onContract={() => scrollToSection("goal-acceptance")}
           onEnvironmentRetry={retryEnvironment}
         />
       }
@@ -206,59 +200,320 @@ export function GoalPage() {
         )}
       </div>
 
-      <Tabs value={active} onValueChange={(v) => goTab(v as TabKey)} className="mt-6">
-        <TabsList variant="underline">
-          <TabsTab value="timeline">{t("goals.tabTimeline")}</TabsTab>
-          <TabsTab value="overview">{t("goals.tabOverview")}</TabsTab>
-          {isComposite && <TabsTab value="children">{t("goals.tabChildren")}</TabsTab>}
-          {!isComposite && <TabsTab value="attempts">{t("goals.tabAttempts")}</TabsTab>}
-          <TabsTab value="acceptance">{t("goals.tabAcceptance")}</TabsTab>
-          {!isComposite && <TabsTab value="deps">{t("goals.tabDeps")}</TabsTab>}
-          {isComposite && <TabsTab value="plan">{t("goals.tabRevisions")}</TabsTab>}
-        </TabsList>
+      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] xl:items-start">
+        <main className="min-w-0 space-y-7">
+          <section id="goal-run-panorama" className="scroll-mt-20">
+            <DetailSection title={t("goals.runPanoramaTitle")}>
+              <RunPanorama d={d} agentId={agentId} />
+            </DetailSection>
+          </section>
 
-        <TabsPanel value="timeline" className="mt-5">
-          <GoalTimeline goalId={d.id} live={d.lifecycle !== "done"} />
-        </TabsPanel>
-        <TabsPanel value="overview" className="mt-5">
-          <OverviewTab
-            d={d}
-            agentId={agentId}
-            acting={acting}
-            act={act}
-            onVerdict={() => goTab("acceptance")}
-            onPlan={() => goTab("plan")}
-            onTimeline={() => goTab("timeline")}
-            onContract={() => goTab("acceptance")}
-            onEnvironmentRetry={retryEnvironment}
-          />
-        </TabsPanel>
-        {isComposite && (
-          <TabsPanel value="children" className="mt-5">
-            <ChildrenTab d={d} agentId={agentId} />
-          </TabsPanel>
-        )}
-        {!isComposite && (
-          <TabsPanel value="attempts" className="mt-5">
-            <AttemptsTab d={d} />
-          </TabsPanel>
-        )}
-        <TabsPanel value="acceptance" className="mt-5">
-          <AcceptanceTab d={d} acting={acting} act={act} />
-        </TabsPanel>
-        {!isComposite && (
-          <TabsPanel value="deps" className="mt-5">
-            <DepsTab d={d} agentId={agentId} acting={acting} act={act} />
-          </TabsPanel>
-        )}
-        {isComposite && (
-          <TabsPanel value="plan" className="mt-5">
-            <PlanTab d={d} agentId={agentId} acting={acting} act={act} />
-          </TabsPanel>
-        )}
-      </Tabs>
+          <section id="goal-acceptance" className="scroll-mt-20">
+            <AcceptanceTab d={d} acting={acting} act={act} />
+          </section>
+
+          <section id="goal-details" className="scroll-mt-20">
+            <DetailsSection d={d} agentId={agentId} acting={acting} act={act} />
+          </section>
+        </main>
+
+        <aside id="goal-timeline" className="min-w-0 xl:sticky xl:top-6">
+          <DetailSection title={t("goals.tabTimeline")}>
+            <div className="max-h-[calc(100vh-7rem)] overflow-y-auto">
+              <GoalTimeline goalId={d.id} live={d.lifecycle !== "done"} />
+            </div>
+          </DetailSection>
+        </aside>
+      </div>
       <ToastContainer messages={toasts} />
     </DetailShell>
+  );
+}
+
+// ── Single-screen run panorama ───────────────────────────────────────
+
+function RunPanorama({ d, agentId }: { d: ComponentsGoal; agentId: string }) {
+  if (d.kind === "composite") return <CompositeRunPanorama d={d} agentId={agentId} />;
+  return <AttemptsTab d={d} />;
+}
+
+type PanoramaRow =
+  | { kind: "materialized"; goal: ComponentsGoal; deps: ComponentsGoal[]; failureClass?: string }
+  | { kind: "proposal"; child: ComponentsProposedChild; deps: ComponentsProposedChild[] };
+
+function CompositeRunPanorama({ d, agentId }: { d: ComponentsGoal; agentId: string }) {
+  const { t } = useI18n();
+  const plan = (d.plan ?? {}) as ComponentsDecompositionContent;
+  const proposedChildren = plan.children ?? [];
+  const proposedEdges = plan.edges ?? [];
+  const { data: children = [] } = useQuery({
+    ...goalChildrenOptions(d.id),
+    refetchInterval: poll(d),
+  });
+  const childIDs = useMemo(() => new Set(children.map((child) => child.id)), [children]);
+  const edgeQueries = useQueries({
+    queries: children.map((child) => ({
+      ...goalEdgesOptions(child.id),
+      refetchInterval: poll(d),
+    })),
+  });
+  const attemptQueries = useQueries({
+    queries: children.map((child) => ({
+      ...goalAttemptsOptions(child.id),
+      refetchInterval: poll(d),
+      // Attempts only feed the failure_class chip, which renders solely for
+      // done(failed) children — skip the request for everyone else.
+      enabled: child.lifecycle === "done" && child.done_reason === "failed",
+    })),
+  });
+  const edges = edgeQueries
+    .flatMap((query) => query.data ?? [])
+    .filter((edge) => childIDs.has(edge.upstream_id));
+  const attemptsByGoal = new Map(
+    children.map((child, i) => [child.id, attemptQueries[i]?.data ?? []] as const),
+  );
+  const rows = useMemo(
+    () => buildPanoramaRows(children, edges, attemptsByGoal, proposedChildren, proposedEdges),
+    [children, edges, attemptsByGoal, proposedChildren, proposedEdges],
+  );
+  const r = useMemo(() => rollup(children), [children]);
+
+  if (rows.length === 0) return <Empty text={t("goals.noChildren")} />;
+
+  return (
+    <div className="space-y-4">
+      {children.length > 0 && (
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <span className="text-sm font-medium">{t("goals.childrenTitle")}</span>
+            <span className="text-xs text-muted-foreground">
+              {t("goals.requiredOf", { accepted: r.accepted, total: r.total })}
+            </span>
+          </div>
+          <ProgressBar r={r} className="h-2" />
+        </div>
+      )}
+      <ol className="relative space-y-3 before:absolute before:bottom-4 before:left-3 before:top-4 before:border-l before:border-border">
+        {rows.map((row, index) => (
+          <PanoramaItem key={panoramaRowKey(row, index)} row={row} agentId={agentId} />
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function buildPanoramaRows(
+  children: ComponentsGoal[],
+  edges: ComponentsEdge[],
+  attemptsByGoal: Map<string, ComponentsAttempt[]>,
+  proposedChildren: ComponentsProposedChild[],
+  proposedEdges: ComponentsProposedEdge[],
+): PanoramaRow[] {
+  if (children.length > 0) {
+    const byID = new Map(children.map((child) => [child.id, child]));
+    const incoming = new Map<string, ComponentsGoal[]>();
+    for (const edge of edges) {
+      const upstream = byID.get(edge.upstream_id);
+      if (!upstream) continue;
+      const list = incoming.get(edge.goal_id) ?? [];
+      list.push(upstream);
+      incoming.set(edge.goal_id, list);
+    }
+    return [...children]
+      .sort(
+        (a, b) => (a.position ?? 0) - (b.position ?? 0) || a.created_at.localeCompare(b.created_at),
+      )
+      .map((goal) => ({
+        kind: "materialized" as const,
+        goal,
+        deps: incoming.get(goal.id) ?? [],
+        failureClass: latestFailureClass(attemptsByGoal.get(goal.id) ?? []),
+      }));
+  }
+
+  const byKey = new Map(proposedChildren.map((child) => [child.key, child]));
+  const incoming = new Map<string, ComponentsProposedChild[]>();
+  for (const edge of proposedEdges) {
+    const upstream = byKey.get(edge.upstream_key);
+    if (!upstream) continue;
+    const list = incoming.get(edge.downstream_key) ?? [];
+    list.push(upstream);
+    incoming.set(edge.downstream_key, list);
+  }
+  return proposedChildren.map((child) => ({
+    kind: "proposal" as const,
+    child,
+    deps: incoming.get(child.key) ?? [],
+  }));
+}
+
+function latestFailureClass(attempts: ComponentsAttempt[]): string | undefined {
+  return [...attempts]
+    .sort((a, b) => b.attempt_no - a.attempt_no)
+    .find((attempt) => attempt.failure_class)?.failure_class;
+}
+
+function panoramaRowKey(row: PanoramaRow, index: number): string {
+  return row.kind === "materialized" ? row.goal.id : `${row.child.key}:${index}`;
+}
+
+function PanoramaItem({ row, agentId }: { row: PanoramaRow; agentId: string }) {
+  const { t } = useI18n();
+  if (row.kind === "proposal") {
+    return (
+      <li className="relative flex gap-3 pl-1 opacity-80">
+        <StatusDot status="draft" className="relative z-10 mt-3" />
+        <div className="min-w-0 flex-1 rounded-xl border border-border bg-background p-3.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.child.title}</span>
+            <Badge variant="outline" size="sm">
+              {t("goals.proposedChild")}
+            </Badge>
+            <Badge variant="secondary" size="sm">
+              {t(row.child.kind === "composite" ? "goals.kindComposite" : "goals.kindLeaf")}
+            </Badge>
+          </div>
+          {row.child.intent && (
+            <p className="mt-1.5 text-xs text-muted-foreground">{row.child.intent}</p>
+          )}
+          <DependencyChips deps={row.deps.map((dep) => dep.title)} />
+        </div>
+      </li>
+    );
+  }
+
+  const goal = row.goal;
+  const blocked = blockReasonLabel(t, goal);
+  const failed = goal.lifecycle === "done" && goal.done_reason === "failed" && row.failureClass;
+  return (
+    <li className="relative flex gap-3 pl-1">
+      <StatusDot status={displayStatus(goal)} className="relative z-10 mt-3" />
+      <div className="min-w-0 flex-1 rounded-xl border border-border bg-background p-3.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill status={displayStatus(goal)} label={goalStatusLabel(t, goal)} />
+          <Link
+            to="/agents/$agentId/goals/$goalId"
+            params={{ agentId, goalId: goal.id }}
+            className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+          >
+            {goal.title}
+          </Link>
+          {failed && (
+            <Badge variant="destructive" size="sm">
+              {row.failureClass}
+            </Badge>
+          )}
+          {blocked && (
+            <Badge variant="warning" size="sm">
+              {blocked}
+            </Badge>
+          )}
+        </div>
+        {goal.intent && (
+          <p className="mt-1.5 truncate text-xs text-muted-foreground">{goal.intent}</p>
+        )}
+        <DependencyChips deps={row.deps.map((dep) => dep.title)} />
+      </div>
+    </li>
+  );
+}
+
+function DependencyChips({ deps }: { deps: string[] }) {
+  const { t } = useI18n();
+  if (deps.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {deps.map((title) => (
+        <Badge key={title} variant="outline" size="sm">
+          {t("goals.depChip", { title: shortTitle(title) })}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function shortTitle(title: string): string {
+  return title.length > 28 ? `${title.slice(0, 25)}…` : title;
+}
+
+function DetailsSection({
+  d,
+  agentId,
+  acting,
+  act,
+}: {
+  d: ComponentsGoal;
+  agentId: string;
+  acting: boolean;
+  act: ActRun;
+}) {
+  const { t } = useI18n();
+  const { data: readiness } = useQuery({
+    ...goalReadinessOptions(d.id),
+    refetchInterval: poll(d),
+  });
+  const defaultOpen = d.lifecycle === "draft";
+
+  return (
+    <Collapsible defaultOpen={defaultOpen}>
+      <CollapsibleTrigger render={<Button variant="outline" size="sm" />}>
+        {t("goals.detailsToggle")}
+      </CollapsibleTrigger>
+      <CollapsiblePanel>
+        <div className="space-y-1 pt-4">
+          {d.intent && (
+            <DetailSection title={t("goals.intent")}>
+              <MarkdownPreview
+                content={d.intent}
+                className="text-[13.5px] leading-relaxed [&_ol]:pl-5 [&_ul]:pl-5"
+              />
+            </DetailSection>
+          )}
+          <DetailSection title={t("goals.tabOverview")}>
+            <div className="grid grid-cols-2 gap-x-6 divide-border sm:grid-cols-3">
+              <Meta label={t("goals.fieldPriority")} value={priorityLabel(t, d.priority)} />
+              <Meta
+                label={t("goals.fieldReviewPolicy")}
+                value={policyLabel(t, d.review_policy ?? "none")}
+              />
+              <Meta
+                label={t("goals.fieldKind")}
+                value={t(d.kind === "composite" ? "goals.kindComposite" : "goals.kindLeaf")}
+              />
+              <Meta label={t("goals.fieldCreated")} value={formatTime(d.created_at)} />
+              <Meta label={t("goals.fieldUpdated")} value={formatTime(d.updated_at)} />
+              {d.accepted_at && (
+                <Meta label={t("goals.fieldAccepted")} value={formatTime(d.accepted_at)} />
+              )}
+              <Meta label={t("goals.fieldAttempts")} value={String(d.attempt_count ?? 0)} />
+              <Meta label={t("goals.fieldDepth")} value={String(d.depth)} />
+            </div>
+          </DetailSection>
+          <DetailSection title={t("goals.readiness")}>
+            <ReadinessBlock readiness={readiness ?? null} />
+          </DetailSection>
+          {d.kind === "leaf" && (
+            <DetailSection title={t("goals.tabDeps")}>
+              <DepsTab d={d} agentId={agentId} acting={acting} act={act} />
+            </DetailSection>
+          )}
+          {d.kind === "composite" && (
+            <DetailSection title={t("goals.tabRevisions")}>
+              <PlanTab d={d} agentId={agentId} acting={acting} act={act} />
+            </DetailSection>
+          )}
+          {d.kind === "composite" ? (
+            <CompositeDeliverables d={d} agentId={agentId} />
+          ) : (
+            d.accepted_output && (
+              <DetailSection title={t("goals.outputTitle")}>
+                <AcceptedOutputView output={d.accepted_output} />
+              </DetailSection>
+            )
+          )}
+        </div>
+      </CollapsiblePanel>
+    </Collapsible>
   );
 }
 
@@ -439,166 +694,6 @@ function HeaderActions({
   );
 }
 
-// ── Overview ─────────────────────────────────────────────────────────
-
-function OverviewTab({
-  d,
-  agentId,
-  acting,
-  act,
-  onVerdict,
-  onPlan,
-  onTimeline,
-  onContract,
-  onEnvironmentRetry,
-}: {
-  d: ComponentsGoal;
-  agentId: string;
-  acting: boolean;
-  act: ActRun;
-  onVerdict: () => void;
-  onPlan: () => void;
-  onTimeline: () => void;
-  onContract: () => void;
-  onEnvironmentRetry: () => void;
-}) {
-  const { t } = useI18n();
-  const { data: readiness } = useQuery({
-    ...goalReadinessOptions(d.id),
-    refetchInterval: poll(d),
-  });
-  const isComposite = d.kind === "composite";
-  const blocked = d.lifecycle === "blocked";
-  return (
-    <div className="space-y-1">
-      {d.intent && (
-        <DetailSection title={t("goals.intent")}>
-          <MarkdownPreview
-            content={d.intent}
-            className="text-[13.5px] leading-relaxed [&_ol]:pl-5 [&_ul]:pl-5"
-          />
-        </DetailSection>
-      )}
-
-      {blocked && (
-        <DetailSection title={t("goals.blockedTitle")}>
-          <div className="rounded-xl border border-chart-4/30 bg-chart-4/[0.06] px-4 py-3.5">
-            <p className="text-[13px] font-medium text-chart-4">{blockReasonLabel(t, d)}</p>
-            {d.block_reason === "needs_verdict" && (
-              <Button size="sm" className="mt-3" onClick={onVerdict}>
-                {t("goals.verdictSubmit")}
-              </Button>
-            )}
-            {blockActionKind(d) === "budget" && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  loading={acting}
-                  onClick={() =>
-                    act(() => reattemptGoal({ path: { id: d.id }, throwOnError: true }))
-                  }
-                >
-                  {t("goals.reattempt")}
-                </Button>
-                <Button variant="outline" size="sm" onClick={onTimeline}>
-                  {t("goals.timelineComment")}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  loading={acting}
-                  onClick={() =>
-                    act(() => abandonGoal({ path: { id: d.id }, body: {}, throwOnError: true }))
-                  }
-                >
-                  {t("goals.abandon")}
-                </Button>
-              </div>
-            )}
-            {blockActionKind(d) === "environment" && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" loading={acting} onClick={onEnvironmentRetry}>
-                  {t("goals.environmentRetry")}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => window.alert(t("goals.reportAdminHint"))}
-                >
-                  {t("goals.reportAdmin")}
-                </Button>
-              </div>
-            )}
-            {blockActionKind(d) === "planning" && (
-              <Button
-                size="sm"
-                className="mt-3"
-                loading={acting}
-                onClick={() => act(() => reattemptGoal({ path: { id: d.id }, throwOnError: true }))}
-              >
-                {t("goals.reattempt")}
-              </Button>
-            )}
-            {blockActionKind(d) === "contract" && (
-              <Button variant="outline" size="sm" className="mt-3" onClick={onContract}>
-                {t("goals.editContract")}
-              </Button>
-            )}
-            {d.block_reason === "needs_plan_approval" && (
-              <Button size="sm" className="mt-3" onClick={onPlan}>
-                {t("goals.tabRevisions")} →
-              </Button>
-            )}
-          </div>
-        </DetailSection>
-      )}
-
-      <DetailSection title={t("goals.tabOverview")}>
-        <div className="grid grid-cols-2 gap-x-6 divide-border sm:grid-cols-3">
-          <Meta label={t("goals.fieldPriority")} value={priorityLabel(t, d.priority)} />
-          <Meta
-            label={t("goals.fieldReviewPolicy")}
-            value={policyLabel(t, d.review_policy ?? "none")}
-          />
-          <Meta
-            label={t("goals.fieldKind")}
-            value={t(isComposite ? "goals.kindComposite" : "goals.kindLeaf")}
-          />
-          <Meta label={t("goals.fieldCreated")} value={formatTime(d.created_at)} />
-          <Meta label={t("goals.fieldUpdated")} value={formatTime(d.updated_at)} />
-          {d.accepted_at && (
-            <Meta label={t("goals.fieldAccepted")} value={formatTime(d.accepted_at)} />
-          )}
-          <Meta label={t("goals.fieldAttempts")} value={String(d.attempt_count ?? 0)} />
-          <Meta label={t("goals.fieldDepth")} value={String(d.depth)} />
-        </div>
-      </DetailSection>
-
-      <DetailSection title={t("goals.readiness")}>
-        <ReadinessBlock readiness={readiness ?? null} />
-      </DetailSection>
-
-      {isComposite && (
-        <div className="mt-4">
-          <Button variant="link" size="xs" onClick={onPlan}>
-            {t("goals.tabRevisions")} →
-          </Button>
-        </div>
-      )}
-
-      {isComposite ? (
-        <CompositeDeliverables d={d} agentId={agentId} />
-      ) : (
-        d.accepted_output && (
-          <DetailSection title={t("goals.outputTitle")}>
-            <AcceptedOutputView output={d.accepted_output} />
-          </DetailSection>
-        )
-      )}
-    </div>
-  );
-}
-
 // CompositeDeliverables aggregates a composite's deliverables in one place. A
 // composite's own accepted_output is only a title-bearing rollup marker (its
 // acceptance is DERIVED from children, never produced), so the actual work
@@ -674,59 +769,6 @@ function ReadinessBlock({ readiness }: { readiness: ComponentsReadiness | null }
       ) : (
         <p className="mt-2 text-[12.5px] text-muted-foreground">{t("goals.noReasons")}</p>
       )}
-    </div>
-  );
-}
-
-// ── Children ─────────────────────────────────────────────────────────
-
-function ChildrenTab({ d, agentId }: { d: ComponentsGoal; agentId: string }) {
-  const { t } = useI18n();
-  const { data: children = [] } = useQuery({
-    ...goalChildrenOptions(d.id),
-    refetchInterval: poll(d),
-  });
-  const r = useMemo(() => rollup(children), [children]);
-
-  if (children.length === 0) return <Empty text={t("goals.noChildren")} />;
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <div className="mb-2 flex items-center justify-between font-mono text-xs text-muted-foreground">
-          <span className="font-semibold">{t("goals.childrenTitle")}</span>
-          <span>
-            {t("goals.requiredOf", {
-              accepted: r.accepted,
-              total: r.total,
-            })}
-          </span>
-        </div>
-        <ProgressBar r={r} className="h-2" />
-      </div>
-      <div className="overflow-hidden rounded-xl border border-border">
-        {children.map((c) => (
-          <Link
-            key={c.id}
-            to="/agents/$agentId/goals/$goalId"
-            params={{ agentId, goalId: c.id }}
-            className="flex w-full items-start gap-3 border-b border-border px-3.5 py-3 text-left last:border-b-0 hover:bg-muted/50"
-          >
-            <StatusDot status={displayStatus(c)} className="mt-1.5" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-medium">{c.title}</span>
-              {c.intent && (
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                  {c.intent}
-                </span>
-              )}
-            </span>
-            <span className="shrink-0 font-mono text-xs text-muted-foreground">
-              {statusLabel(t, displayStatus(c))}
-            </span>
-          </Link>
-        ))}
-      </div>
     </div>
   );
 }
