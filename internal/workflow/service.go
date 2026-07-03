@@ -25,7 +25,10 @@ const (
 	RunFailed        = "failed"
 )
 
-var ErrRunAlreadyFailed = errors.New("workflow run already failed")
+var (
+	ErrRunAlreadyFailed = errors.New("workflow run already failed")
+	ErrWorkflowHasRuns  = errors.New("workflow has runs")
+)
 
 type GoalWriter interface {
 	CreateRoot(ctx context.Context, in goal.CreateInput) (sqlc.AgentGoal, error)
@@ -201,8 +204,8 @@ func (s *Service) Get(ctx context.Context, userID, agentID, id string) (sqlc.Age
 }
 
 func (s *Service) List(ctx context.Context, userID, agentID string) ([]sqlc.AgentWorkflow, error) {
-	ownerKind, ownerUser, ownerAgent := ownerScope(userID, agentID)
-	return s.q.ListWorkflows(ctx, sqlc.ListWorkflowsParams{OwnerKind: ownerKind, UserID: ownerUser, AgentID: ownerAgent})
+	_, ownerUser, ownerAgent := ownerScope(userID, agentID)
+	return s.q.ListWorkflows(ctx, sqlc.ListWorkflowsParams{UserID: ownerUser, AgentID: ownerAgent})
 }
 
 func (s *Service) ListVersions(ctx context.Context, userID, agentID, name string) ([]sqlc.AgentWorkflow, error) {
@@ -226,7 +229,7 @@ func (s *Service) Delete(ctx context.Context, userID, agentID, id string) error 
 		return fmt.Errorf("count workflow runs: %w", err)
 	}
 	if count > 0 {
-		return fmt.Errorf("workflow delete refused: runs exist")
+		return ErrWorkflowHasRuns
 	}
 	// Phase 4 must also reject scheduler jobs whose payload references this row.
 	return s.q.DeleteWorkflow(ctx, id)
@@ -308,8 +311,16 @@ func (s *Service) getScoped(ctx context.Context, id, userID, agentID string) (sq
 	if err != nil {
 		return sqlc.AgentWorkflow{}, err
 	}
-	ownerKind, ownerUser, ownerAgent := ownerScope(userID, agentID)
-	if wf.OwnerKind != ownerKind || wf.UserID.String != ownerUser.String || wf.AgentID.String != ownerAgent.String {
+	if wf.UserID.String != userID {
+		return sqlc.AgentWorkflow{}, pgx.ErrNoRows
+	}
+	if agentID != "" {
+		if wf.OwnerKind != OwnerAgent || wf.AgentID.String != agentID {
+			return sqlc.AgentWorkflow{}, pgx.ErrNoRows
+		}
+		return wf, nil
+	}
+	if wf.OwnerKind != OwnerUser && wf.OwnerKind != OwnerAgent {
 		return sqlc.AgentWorkflow{}, pgx.ErrNoRows
 	}
 	return wf, nil

@@ -16,9 +16,11 @@ SELECT * FROM agent_workflow WHERE id = $1;
 
 -- name: ListWorkflows :many
 SELECT * FROM agent_workflow
-WHERE owner_kind = sqlc.arg(owner_kind)
-  AND user_id IS NOT DISTINCT FROM sqlc.narg(user_id)::uuid
-  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::text
+WHERE user_id IS NOT DISTINCT FROM sqlc.narg(user_id)::uuid
+  AND (
+    (sqlc.narg(agent_id)::text IS NULL AND owner_kind IN ('user', 'agent'))
+    OR (owner_kind = 'agent' AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::text)
+  )
 ORDER BY name ASC, version DESC, created_at DESC, id DESC;
 
 -- name: ListWorkflowVersions :many

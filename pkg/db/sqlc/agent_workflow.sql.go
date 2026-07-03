@@ -211,20 +211,21 @@ func (q *Queries) ListWorkflowVersions(ctx context.Context, arg ListWorkflowVers
 
 const listWorkflows = `-- name: ListWorkflows :many
 SELECT id, owner_kind, user_id, agent_id, name, version, workflow_key, intent, acceptance_contract, convergence_policy, inputs, payload_format, payload, fully_frozen, source_goal_id, created_at, updated_at FROM agent_workflow
-WHERE owner_kind = $1
-  AND user_id IS NOT DISTINCT FROM $2::uuid
-  AND agent_id IS NOT DISTINCT FROM $3::text
+WHERE user_id IS NOT DISTINCT FROM $1::uuid
+  AND (
+    ($2::text IS NULL AND owner_kind IN ('user', 'agent'))
+    OR (owner_kind = 'agent' AND agent_id IS NOT DISTINCT FROM $2::text)
+  )
 ORDER BY name ASC, version DESC, created_at DESC, id DESC
 `
 
 type ListWorkflowsParams struct {
-	OwnerKind string      `json:"owner_kind"`
-	UserID    pgtype.Text `json:"user_id"`
-	AgentID   pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([]AgentWorkflow, error) {
-	rows, err := q.db.Query(ctx, listWorkflows, arg.OwnerKind, arg.UserID, arg.AgentID)
+	rows, err := q.db.Query(ctx, listWorkflows, arg.UserID, arg.AgentID)
 	if err != nil {
 		return nil, err
 	}

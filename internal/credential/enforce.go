@@ -131,7 +131,7 @@ func scopedSandboxReachable(rest []string) bool {
 		return false
 	}
 	switch rest[0] {
-	case "status", "tasks", "goals", "shares", "recally", "vault", "agents":
+	case "status", "tasks", "goals", "workflows", "shares", "recally", "vault", "agents":
 		return true
 	case "users":
 		return len(rest) >= 3 && rest[1] == "me" && rest[2] == "oauth"
@@ -176,7 +176,7 @@ func RequiredScope(method, path string) (scope string, registered bool) {
 		return agentRouteScope(method, rest[1:])
 	case "users":
 		return usersRouteScope(method, rest[1:])
-	case "tasks", "goals", "shares", "recally", "email", "mcp", "vault", "scheduler", "skills":
+	case "tasks", "goals", "workflows", "shares", "recally", "email", "mcp", "vault", "scheduler", "skills":
 		return scopeForMethod(resource, method), true
 	}
 

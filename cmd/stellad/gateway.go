@@ -31,6 +31,7 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/vault"
+	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -163,6 +164,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 	if s.goalSvc != nil {
 		adminSrv.SetGoalService(s.goalSvc)
+		adminSrv.SetWorkflowService(workflowpkg.New(s.db, sqlc.New(s.db), s.goalSvc.Goal))
 	}
 
 	// Wire the shared credentials service: inject invalidator so token
