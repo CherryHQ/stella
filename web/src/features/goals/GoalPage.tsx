@@ -301,7 +301,7 @@ function GoalNodeDialog({
       }}
     >
       {kind && (
-        <DialogPopup className="max-w-2xl">
+        <DialogPopup className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="flex min-w-0 items-center gap-2.5 pr-8">
               <span className="min-w-0 truncate">{title}</span>
@@ -382,10 +382,11 @@ function AcceptDrawerContent({
 }) {
   return (
     <div className="space-y-1">
-      <AcceptanceTab d={d} acting={acting} act={act} />
+      {/* Outcome first: the deliverables are what the owner opens this for. */}
       {d.kind === "composite" && d.lifecycle === "done" && d.done_reason === "accepted" && (
         <CompositeDeliverables d={d} agentId={agentId} />
       )}
+      <AcceptanceTab d={d} acting={acting} act={act} />
     </div>
   );
 }
@@ -984,54 +985,58 @@ function AcceptanceTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean;
         />
       )}
 
-      <ContractEditor d={d} acting={acting} act={act} />
-
-      <DetailSection title={t("goals.acceptanceTitle")}>
-        {events.length === 0 ? (
-          <Empty text={t(d.kind === "composite" ? "goals.noEventsComposite" : "goals.noEvents")} />
-        ) : (
-          <ul className="space-y-2">
-            {[...events]
-              .sort((a, b) => b.seq - a.seq)
-              .map((ev) => (
-                <li key={ev.id} className="rounded-xl border border-border bg-background p-3.5">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                      {t(
-                        ev.item_kind === "judgment"
-                          ? "goals.itemJudgment"
-                          : "goals.itemDeterministic",
-                      )}
-                      <span
-                        className={cn(
-                          "font-semibold",
-                          ev.result === "pass" ? "text-chart-3" : "text-destructive",
+      {/* A composite's acceptance is derived from children, so an empty ledger
+          is the norm — hide the section instead of explaining the absence. */}
+      {(events.length > 0 || d.kind !== "composite") && (
+        <DetailSection title={t("goals.acceptanceTitle")}>
+          {events.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("goals.noEvents")}</p>
+          ) : (
+            <ul className="space-y-2">
+              {[...events]
+                .sort((a, b) => b.seq - a.seq)
+                .map((ev) => (
+                  <li key={ev.id} className="rounded-xl border border-border bg-background p-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                        {t(
+                          ev.item_kind === "judgment"
+                            ? "goals.itemJudgment"
+                            : "goals.itemDeterministic",
                         )}
-                      >
-                        {t(ev.result === "pass" ? "goals.resultPass" : "goals.resultFail")}
+                        <span
+                          className={cn(
+                            "font-semibold",
+                            ev.result === "pass" ? "text-chart-3" : "text-destructive",
+                          )}
+                        >
+                          {t(ev.result === "pass" ? "goals.resultPass" : "goals.resultFail")}
+                        </span>
                       </span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {t(
+                          ev.authority === "human"
+                            ? "goals.authorityHuman"
+                            : ev.authority === "agent"
+                              ? "goals.authorityAgent"
+                              : "goals.authoritySystem",
+                        )}
+                      </span>
+                    </div>
+                    {ev.rationale && (
+                      <p className="mt-1.5 text-[12.5px] text-foreground">{ev.rationale}</p>
+                    )}
+                    <span className="mt-1.5 block font-mono text-[10.5px] text-muted-foreground">
+                      {formatTime(ev.created_at)}
                     </span>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {t(
-                        ev.authority === "human"
-                          ? "goals.authorityHuman"
-                          : ev.authority === "agent"
-                            ? "goals.authorityAgent"
-                            : "goals.authoritySystem",
-                      )}
-                    </span>
-                  </div>
-                  {ev.rationale && (
-                    <p className="mt-1.5 text-[12.5px] text-foreground">{ev.rationale}</p>
-                  )}
-                  <span className="mt-1.5 block font-mono text-[10.5px] text-muted-foreground">
-                    {formatTime(ev.created_at)}
-                  </span>
-                </li>
-              ))}
-          </ul>
-        )}
-      </DetailSection>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </DetailSection>
+      )}
+
+      <ContractEditor d={d} acting={acting} act={act} />
     </div>
   );
 }
@@ -1615,8 +1620,18 @@ function humanizeKey(key: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-// JsonView renders arbitrary JSON as readable structure: objects as labelled
-// rows, arrays as stacked cards, primitives as plain text — no raw dump.
+// A value a human scans in one glance sits on the same line as its label;
+// anything nested or prose-length gets the label as a heading instead.
+function isGlanceable(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "number" || typeof v === "boolean") return true;
+  return typeof v === "string" && !v.includes("\n") && v.length <= 80;
+}
+
+// JsonView renders arbitrary JSON as readable structure: short values as
+// label/value rows, nested values as labelled indented blocks (side-by-side
+// columns collapse into an unreadable staircase once content nests), primitive
+// arrays as numbered lists, prose as markdown — no raw dump.
 function JsonView({ value }: { value: unknown }) {
   const { t } = useI18n();
   if (value === null || value === undefined) {
@@ -1624,6 +1639,17 @@ function JsonView({ value }: { value: unknown }) {
   }
   if (Array.isArray(value)) {
     if (value.length === 0) return <span className="text-muted-foreground">[]</span>;
+    if (value.every((v) => typeof v !== "object" || v === null)) {
+      return (
+        <ol className="list-decimal space-y-1.5 pl-5">
+          {value.map((v, i) => (
+            <li key={i} className="text-[12.5px] text-foreground">
+              <JsonView value={v} />
+            </li>
+          ))}
+        </ol>
+      );
+    }
     return (
       <ul className="space-y-1.5">
         {value.map((v, i) => (
@@ -1637,20 +1663,31 @@ function JsonView({ value }: { value: unknown }) {
   if (typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>);
     if (entries.length === 0) return <span className="text-muted-foreground">{"{}"}</span>;
+    const label = (k: string) =>
+      FIELD_LABEL_KEY[k.toLowerCase()] ? t(FIELD_LABEL_KEY[k.toLowerCase()]) : humanizeKey(k);
     return (
-      <dl className="space-y-1.5">
-        {entries.map(([k, v]) => (
-          <div key={k} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
-            <dt className="shrink-0 text-[11.5px] font-medium text-muted-foreground sm:w-36">
-              {FIELD_LABEL_KEY[k.toLowerCase()]
-                ? t(FIELD_LABEL_KEY[k.toLowerCase()])
-                : humanizeKey(k)}
-            </dt>
-            <dd className="min-w-0 flex-1 text-[12.5px] text-foreground">
-              <JsonView value={v} />
-            </dd>
-          </div>
-        ))}
+      <dl className="space-y-3">
+        {entries.map(([k, v]) =>
+          isGlanceable(v) ? (
+            <div key={k} className="flex items-baseline gap-3">
+              <dt className="w-36 shrink-0 text-[11.5px] font-medium text-muted-foreground">
+                {label(k)}
+              </dt>
+              <dd className="min-w-0 flex-1 text-[12.5px] text-foreground">
+                <JsonView value={v} />
+              </dd>
+            </div>
+          ) : (
+            <div key={k}>
+              <dt className="mb-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {label(k)}
+              </dt>
+              <dd className="min-w-0 border-l-2 border-border pl-3.5 text-[12.5px] text-foreground">
+                <JsonView value={v} />
+              </dd>
+            </div>
+          ),
+        )}
       </dl>
     );
   }

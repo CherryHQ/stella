@@ -956,8 +956,6 @@ const en = {
   "goals.attemptError": "Error",
   "goals.acceptanceTitle": "Acceptance ledger",
   "goals.noEvents": "No acceptance events yet.",
-  "goals.noEventsComposite":
-    "Acceptance is derived by rolling up child goals — no checks are recorded here.",
   "goals.resultPass": "Pass",
   "goals.resultFail": "Fail",
   "goals.authoritySystem": "System",
@@ -2755,7 +2753,6 @@ const zh: Record<MessageKey, string> = {
   "goals.attemptError": "错误",
   "goals.acceptanceTitle": "验收记录",
   "goals.noEvents": "还没有验收事件。",
-  "goals.noEventsComposite": "验收由子项汇总推导,这里不记录检查。",
   "goals.resultPass": "通过",
   "goals.resultFail": "未通过",
   "goals.authoritySystem": "系统",
