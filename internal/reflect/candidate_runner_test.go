@@ -82,6 +82,38 @@ func TestFactCandidateRunnerAccumulatesStreamedToolArguments(t *testing.T) {
 	}
 }
 
+func TestFactCandidateRunnerRetriesMalformedToolArguments(t *testing.T) {
+	stream := sequentialCaptureStream(t,
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_candidate", `{"subject":"world"`),
+			rawToolCall("finish_fact_generation", `{"candidate_count":1,"reason":"malformed candidate args"}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_candidate", `{
+				"subject":"world",
+				"content":"Malformed capture args should be retried.",
+				"evidence":[{"source_type":"user_message","source":"[user] retry malformed capture","reason":"The user asked for protocol retry consistency."}],
+				"expected_effect":"Candidate capture treats malformed JSON as a model protocol failure.",
+				"handoff_hints":{"knowledge_search_query_hint":"malformed capture retry"}
+			}`),
+			rawToolCall("finish_fact_generation", `{"candidate_count":1,"reason":"retry recovered"}`),
+		},
+	)
+	runner := candidateLineReviewer{Stream: stream, Model: ai.Model{ID: "test-model"}}
+
+	got, err := runner.generateFactCandidates(context.Background(), ReviewUnit{
+		Text:            "<fresh_conversation>\n[user] retry malformed capture\n</fresh_conversation>\n",
+		FreshCount:      1,
+		PrivateOneToOne: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Ref != "fact-0001" {
+		t.Fatalf("expected retry to recover one candidate, got %#v", got)
+	}
+}
+
 func TestSkillCandidateRunnerGeneratesEvaluatesAndGates(t *testing.T) {
 	stream := sequentialCaptureStream(t,
 		[]ai.ToolCall{

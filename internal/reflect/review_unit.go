@@ -52,6 +52,16 @@ const maxToolSummaryChars = 1200
 var (
 	tokenLikePattern        = regexp.MustCompile(`(?i)\b(?:ghp_[a-z0-9_]{16,}|github_pat_[a-z0-9_]{16,}|sk-[a-z0-9_-]{16,})\b`)
 	assignmentSecretPattern = regexp.MustCompile(`(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token)\b\s*[:=]\s*["']?[^\s"']{8,}`)
+	reviewProtocolReplacer  = strings.NewReplacer(
+		"<prior_context>", "&lt;prior_context&gt;",
+		"</prior_context>", "&lt;/prior_context&gt;",
+		"<fresh_conversation>", "&lt;fresh_conversation&gt;",
+		"</fresh_conversation>", "&lt;/fresh_conversation&gt;",
+		"<session_skill_usage>", "&lt;session_skill_usage&gt;",
+		"</session_skill_usage>", "&lt;/session_skill_usage&gt;",
+		"<candidates_json>", "&lt;candidates_json&gt;",
+		"</candidates_json>", "&lt;/candidates_json&gt;",
+	)
 )
 
 func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark reviewWatermark, budget int) (ReviewUnit, error) {
@@ -422,5 +432,7 @@ func summarizeToolResult(text string) string {
 func redactReviewText(text string) string {
 	text = tokenLikePattern.ReplaceAllString(text, "[redacted_secret]")
 	text = assignmentSecretPattern.ReplaceAllString(text, "[redacted_secret]")
-	return text
+	// User-visible text shares a prompt with host protocol markers; neutralize
+	// marker lookalikes before composing the bounded review unit.
+	return reviewProtocolReplacer.Replace(text)
 }

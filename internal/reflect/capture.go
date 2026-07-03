@@ -48,6 +48,12 @@ func runCaptureWithRetry(ctx context.Context, attempt captureAttemptFunc, valida
 	for i := range maxCaptureAttempts {
 		result, err := attempt(ctx)
 		if err != nil {
+			if errors.Is(err, errCaptureProtocol) {
+				lastErr = err
+				if i+1 < maxCaptureAttempts {
+					continue
+				}
+			}
 			return result, err
 		}
 		last = result

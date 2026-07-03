@@ -13,6 +13,7 @@ const (
 	rejectScoreFloorFailed      RejectReason = "score_floor_failed"
 	rejectOverallBelowThreshold RejectReason = "overall_below_threshold"
 	rejectSchemaMissingField    RejectReason = "schema_missing_field"
+	rejectSchemaExtraField      RejectReason = "schema_extra_field"
 	rejectCapDropped            RejectReason = "cap_dropped"
 	rejectScopeNotEligible      RejectReason = "scope_not_eligible"
 )

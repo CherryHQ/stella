@@ -193,8 +193,8 @@ func TestCandidatePipelineOversizedOnlyAdvancesWatermarksWithoutLLM(t *testing.T
 	if !wm.lineMark(sess.ID, reflectLineSkill).Equal(hugeAt) {
 		t.Fatalf("skill watermark should advance to skipped oversized message %v, got %v", hugeAt, wm.lineMark(sess.ID, reflectLineSkill))
 	}
-	if len(result.Skipped) != 2 {
-		t.Fatalf("expected both lines to report oversized skip, got %#v", result.Skipped)
+	if len(result.Skipped) != 1 {
+		t.Fatalf("expected shared oversized skip to be reported once, got %#v", result.Skipped)
 	}
 }
 
@@ -235,8 +235,8 @@ func TestCandidatePipelineOversizedOnlyAdvancesSeqWatermarksWithoutLLM(t *testin
 	if wm.lineSeq(sess.ID, reflectLineSkill) != 42 {
 		t.Fatalf("skill watermark should advance to skipped oversized seq 42, got %d", wm.lineSeq(sess.ID, reflectLineSkill))
 	}
-	if len(result.Skipped) != 2 {
-		t.Fatalf("expected both lines to report oversized skip, got %#v", result.Skipped)
+	if len(result.Skipped) != 1 {
+		t.Fatalf("expected shared oversized skip to be reported once, got %#v", result.Skipped)
 	}
 }
 

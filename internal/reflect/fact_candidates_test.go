@@ -70,7 +70,7 @@ func TestFactSingletonSubjectsRejectKnowledgeSearchHint(t *testing.T) {
 		t.Fatalf("expected two rejected singleton hints, got %#v", result.Rejected)
 	}
 	for _, decision := range result.Rejected {
-		if decision.Reason != rejectSchemaMissingField {
+		if decision.Reason != rejectSchemaExtraField {
 			t.Fatalf("expected schema rejection, got %#v", result.Rejected)
 		}
 	}

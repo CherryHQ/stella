@@ -3,6 +3,7 @@ package reflect
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 type (
@@ -63,6 +64,7 @@ func (s *Service) runCandidatePipeline(ctx context.Context, target reviewTarget,
 	if err := s.runSkillCandidateLine(ctx, target.session.ID, skillUnit, opts.SkillLine, &result); err != nil {
 		result.Errors = append(result.Errors, candidateLineError{Line: reflectLineSkill, Err: err})
 	}
+	result.Skipped = dedupeReviewSkips(result.Skipped)
 	if len(result.Errors) > 0 {
 		return result, fmt.Errorf("candidate pipeline: %d line(s) failed", len(result.Errors))
 	}
@@ -129,4 +131,32 @@ func (s *Service) advanceCandidateLineWatermark(ctx context.Context, sessionID s
 		Seq: unit.LastIncludedSeq,
 		At:  unit.LastIncludedAt,
 	})
+}
+
+func dedupeReviewSkips(skips []ReviewSkip) []ReviewSkip {
+	if len(skips) <= 1 {
+		return skips
+	}
+	type skipKey struct {
+		Reason ReviewSkipReason
+		Role   string
+		At     string
+		Size   int
+	}
+	seen := make(map[skipKey]struct{}, len(skips))
+	out := make([]ReviewSkip, 0, len(skips))
+	for _, skip := range skips {
+		key := skipKey{
+			Reason: skip.Reason,
+			Role:   skip.Role,
+			At:     skip.At.UTC().Format(time.RFC3339Nano),
+			Size:   skip.Size,
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, skip)
+	}
+	return out
 }

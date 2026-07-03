@@ -79,6 +79,9 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 	return nil
 }
 
+// reviewConversationCandidates is staged #532 plumbing. It stays out of the
+// production review loop until #531 can persist/reconcile accepted candidates;
+// otherwise this path would advance line watermarks and then drop the output.
 func (s *Service) reviewConversationCandidates(ctx context.Context, snap *config.Snapshot, target reviewTarget) (candidatePipelineResult, error) {
 	if snap == nil {
 		return candidatePipelineResult{}, fmt.Errorf("candidate review: config snapshot is required")

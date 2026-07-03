@@ -140,7 +140,7 @@ func (c factCandidate) validate(opts factGateOptions) RejectReason {
 			return rejectScopeNotEligible
 		}
 		if strings.TrimSpace(c.HandoffHints.KnowledgeSearchQueryHint) != "" {
-			return rejectSchemaMissingField
+			return rejectSchemaExtraField
 		}
 	case factSubjectWorld:
 		if strings.TrimSpace(c.HandoffHints.KnowledgeSearchQueryHint) == "" {
