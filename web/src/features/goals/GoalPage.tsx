@@ -75,6 +75,12 @@ import { ToastContainer, useToast } from "@/hooks/use-toast";
 
 type TabKey = "timeline" | "overview" | "children" | "attempts" | "acceptance" | "deps" | "plan";
 
+// A done goal never changes again, so every query on this page polls while the
+// goal is live and stops at done. Polling pauses automatically when the page
+// unmounts or the tab goes to the background.
+const POLL_MS = 5_000;
+const poll = (d: ComponentsGoal) => (d.lifecycle === "done" ? false : POLL_MS);
+
 export function GoalPage() {
   const { t } = useI18n();
   const { agentId, goalId } = useParams({ strict: false }) as {
@@ -87,7 +93,13 @@ export function GoalPage() {
   const { toasts, showToast } = useToast();
   const [acting, setActing] = useState(false);
 
-  const { data: d, isError } = useQuery(goalOptions(goalId));
+  const { data: d, isError } = useQuery({
+    ...goalOptions(goalId),
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      return data ? poll(data) : false;
+    },
+  });
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["goal", goalId] });
@@ -206,7 +218,7 @@ export function GoalPage() {
         </TabsList>
 
         <TabsPanel value="timeline" className="mt-5">
-          <GoalTimeline goalId={d.id} />
+          <GoalTimeline goalId={d.id} live={d.lifecycle !== "done"} />
         </TabsPanel>
         <TabsPanel value="overview" className="mt-5">
           <OverviewTab
@@ -228,7 +240,7 @@ export function GoalPage() {
         )}
         {!isComposite && (
           <TabsPanel value="attempts" className="mt-5">
-            <AttemptsTab id={d.id} />
+            <AttemptsTab d={d} />
           </TabsPanel>
         )}
         <TabsPanel value="acceptance" className="mt-5">
@@ -451,7 +463,10 @@ function OverviewTab({
   onEnvironmentRetry: () => void;
 }) {
   const { t } = useI18n();
-  const { data: readiness } = useQuery(goalReadinessOptions(d.id));
+  const { data: readiness } = useQuery({
+    ...goalReadinessOptions(d.id),
+    refetchInterval: poll(d),
+  });
   const isComposite = d.kind === "composite";
   const blocked = d.lifecycle === "blocked";
   return (
@@ -572,7 +587,7 @@ function OverviewTab({
       )}
 
       {isComposite ? (
-        <CompositeDeliverables id={d.id} agentId={agentId} />
+        <CompositeDeliverables d={d} agentId={agentId} />
       ) : (
         d.accepted_output && (
           <DetailSection title={t("goals.outputTitle")}>
@@ -590,9 +605,12 @@ function OverviewTab({
 // lives on the accepted children. This pulls each accepted child's frozen
 // output up to the parent overview so the whole goal's result is readable
 // without drilling into every leaf.
-function CompositeDeliverables({ id, agentId }: { id: string; agentId: string }) {
+function CompositeDeliverables({ d, agentId }: { d: ComponentsGoal; agentId: string }) {
   const { t } = useI18n();
-  const { data: children = [] } = useQuery(goalChildrenOptions(id));
+  const { data: children = [] } = useQuery({
+    ...goalChildrenOptions(d.id),
+    refetchInterval: poll(d),
+  });
   const delivered = children.filter((c) => c.accepted_output);
   if (delivered.length === 0) return null;
   return (
@@ -664,7 +682,10 @@ function ReadinessBlock({ readiness }: { readiness: ComponentsReadiness | null }
 
 function ChildrenTab({ d, agentId }: { d: ComponentsGoal; agentId: string }) {
   const { t } = useI18n();
-  const { data: children = [] } = useQuery(goalChildrenOptions(d.id));
+  const { data: children = [] } = useQuery({
+    ...goalChildrenOptions(d.id),
+    refetchInterval: poll(d),
+  });
   const r = useMemo(() => rollup(children), [children]);
 
   if (children.length === 0) return <Empty text={t("goals.noChildren")} />;
@@ -727,9 +748,12 @@ const ATTEMPT_STATUS_KEY: Record<ComponentsAttempt["status"], MessageKey> = {
   cancelled: "goals.attemptCancelled",
 };
 
-function AttemptsTab({ id }: { id: string }) {
+function AttemptsTab({ d }: { d: ComponentsGoal }) {
   const { t } = useI18n();
-  const { data: attempts = [] } = useQuery(goalAttemptsOptions(id));
+  const { data: attempts = [] } = useQuery({
+    ...goalAttemptsOptions(d.id),
+    refetchInterval: poll(d),
+  });
   if (attempts.length === 0) return <Empty text={t("goals.noAttempts")} />;
   const sorted = [...attempts].sort((a, b) => b.attempt_no - a.attempt_no);
   return (
@@ -851,8 +875,14 @@ function evaluatedOutputHash(d: ComponentsGoal, attempts: ComponentsAttempt[]): 
 
 function AcceptanceTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean; act: ActRun }) {
   const { t } = useI18n();
-  const { data: events = [] } = useQuery(goalEventsOptions(d.id));
-  const { data: attempts = [] } = useQuery(goalAttemptsOptions(d.id));
+  const { data: events = [] } = useQuery({
+    ...goalEventsOptions(d.id),
+    refetchInterval: poll(d),
+  });
+  const { data: attempts = [] } = useQuery({
+    ...goalAttemptsOptions(d.id),
+    refetchInterval: poll(d),
+  });
   const needsVerdict = d.lifecycle === "blocked" && d.block_reason === "needs_verdict";
   const itemId = needsVerdict ? pendingVerdictItemId(d, events) : null;
 
@@ -1129,7 +1159,10 @@ function DepsTab({
   act: ActRun;
 }) {
   const { t } = useI18n();
-  const { data: edges = [] } = useQuery(goalEdgesOptions(d.id));
+  const { data: edges = [] } = useQuery({
+    ...goalEdgesOptions(d.id),
+    refetchInterval: poll(d),
+  });
   if (edges.length === 0) return <Empty text={t("goals.noDeps")} />;
   return (
     <ul className="space-y-2">
@@ -1238,13 +1271,19 @@ function PlanTab({
   const plan = (d.plan ?? {}) as ComponentsDecompositionContent;
   const children = plan.children ?? [];
   const edges = plan.edges ?? [];
-  const { data: materializedChildren = [] } = useQuery(goalChildrenOptions(d.id));
+  const { data: materializedChildren = [] } = useQuery({
+    ...goalChildrenOptions(d.id),
+    refetchInterval: poll(d),
+  });
   const childIDs = useMemo(
     () => new Set(materializedChildren.map((child) => child.id)),
     [materializedChildren],
   );
   const edgeQueries = useQueries({
-    queries: materializedChildren.map((child) => goalEdgesOptions(child.id)),
+    queries: materializedChildren.map((child) => ({
+      ...goalEdgesOptions(child.id),
+      refetchInterval: poll(d),
+    })),
   });
   const materializedEdges = edgeQueries
     .flatMap((query) => query.data ?? [])

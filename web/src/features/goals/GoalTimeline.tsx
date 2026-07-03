@@ -14,7 +14,7 @@ const PAGE_SIZE = 50;
 
 type Payload = Record<string, unknown>;
 
-export function GoalTimeline({ goalId }: { goalId: string }) {
+export function GoalTimeline({ goalId, live = false }: { goalId: string; live?: boolean }) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const [text, setText] = useState("");
@@ -25,6 +25,9 @@ export function GoalTimeline({ goalId }: { goalId: string }) {
   const timeline = useInfiniteQuery({
     queryKey: ["goal-timeline", goalId],
     enabled: !!goalId,
+    // The owner (GoalPage) knows whether the goal can still move; a done
+    // goal's timeline is frozen, so polling stops with it.
+    refetchInterval: live ? 5_000 : false,
     initialPageParam: "",
     queryFn: async ({ pageParam }) => {
       const { data } = await listGoalTimeline({
