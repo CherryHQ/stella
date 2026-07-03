@@ -415,8 +415,6 @@ function FilteredEmpty() {
 // One-line attention hook a goal's lifecycle/block_reason earns it.
 function hookText(t: TFunction, d: ComponentsGoal): string | null {
   if (d.lifecycle === "blocked") {
-    if (d.blocked_by === "env_unavailable") return t("goals.hookEnvironment");
-    if (d.blocked_by === "contract_conflict") return t("goals.hookContract");
     if (d.block_reason === "needs_verdict") return t("goals.hookNeedsVerdict");
     if (d.block_reason === "needs_plan_approval") return t("goals.hookNeedsPlanApproval");
     if (d.block_reason === "budget_exhausted") return t("goals.hookBudget");

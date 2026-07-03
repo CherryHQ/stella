@@ -270,10 +270,10 @@ type BlockActionKind =
   | "other";
 
 function blockActionKind(d: ComponentsGoal): BlockActionKind {
-  if (d.blocked_by === "env_unavailable" || d.block_reason === "env_unavailable") {
+  if (d.block_reason === "env_unavailable") {
     return "environment";
   }
-  if (d.blocked_by === "contract_conflict" || d.block_reason === "contract_conflict") {
+  if (d.block_reason === "contract_conflict") {
     return "contract";
   }
   if (d.block_reason === "budget_exhausted") return "budget";

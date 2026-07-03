@@ -82,7 +82,6 @@ type LifecycleChangedPayload struct {
 	From        string `json:"from"`
 	To          string `json:"to"`
 	BlockReason string `json:"block_reason,omitempty"`
-	BlockedBy   string `json:"blocked_by,omitempty"`
 }
 
 type HumanMessagePayload struct {
@@ -181,20 +180,6 @@ func (s *GoalService) blockGoal(ctx context.Context, q *sqlc.Queries, d sqlc.Age
 		From:        d.Lifecycle,
 		To:          LifecycleBlocked,
 		BlockReason: reason,
-	})
-	return rows, err
-}
-
-func (s *GoalService) blockGoalWithCause(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, reason, blockedBy string) (int64, error) {
-	rows, err := q.BlockGoalWithCause(ctx, sqlc.BlockGoalWithCauseParams{BlockReason: reason, BlockedBy: blockedBy, ID: d.ID})
-	if err != nil || rows == 0 {
-		return rows, err
-	}
-	_, err = s.appendGoalEvent(ctx, q, d.ID, d.ActiveAttemptID.String, GoalEventLifecycleChanged, LifecycleChangedPayload{
-		From:        d.Lifecycle,
-		To:          LifecycleBlocked,
-		BlockReason: reason,
-		BlockedBy:   blockedBy,
 	})
 	return rows, err
 }

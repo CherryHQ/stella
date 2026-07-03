@@ -148,8 +148,6 @@ export function StatusPill({ status, label }: { status: DisplayStatus; label: st
 /** Localized one-line reason a goal is blocked, from its block_reason. */
 export function blockReasonLabel(t: TFunction, d: ComponentsGoal): string | null {
   if (d.lifecycle !== "blocked") return null;
-  if (d.blocked_by === "env_unavailable") return t("goals.blockEnvUnavailable");
-  if (d.blocked_by === "contract_conflict") return t("goals.blockContractConflict");
   switch (d.block_reason) {
     case "needs_verdict":
       return t("goals.blockNeedsVerdict");

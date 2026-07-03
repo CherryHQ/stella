@@ -75,7 +75,7 @@ flaky_dominant_blocked_goal AS (
     FROM scoped_goal g
     JOIN execution_failure_attempt a ON a.goal_id = g.id
     WHERE g.lifecycle = 'blocked'
-      AND g.blocked_by = 'env_unavailable'
+      AND g.block_reason = 'env_unavailable'
     GROUP BY g.id
     HAVING COUNT(*) FILTER (WHERE a.failure_class = 'flaky') > 0
        AND COUNT(*) FILTER (WHERE a.failure_class = 'flaky') * 2 >= COUNT(*)

@@ -65,7 +65,7 @@ func (h *harness) runReview(goalID string) string {
 	if err != nil {
 		h.t.Fatalf("begin review %s: %v", goalID, err)
 	}
-	if err := h.worker.Run(ctx, goalID, att.ID, Actor{Type: ActorReviewer}); err != nil {
+	if err := h.worker.Run(ctx, goalID, att.ID, Actor{Type: ActorAgent}); err != nil {
 		h.t.Fatalf("worker run review %s/%s: %v", goalID, att.ID, err)
 	}
 	return att.ID
@@ -516,7 +516,7 @@ func TestReview_CompositeAgentVerdictAccepts(t *testing.T) {
 	if in.ReviewOutput == nil || in.ReviewOutput.Hash == "" || in.ReviewOutput.Result["children"] == nil {
 		t.Fatalf("composite review froze no children evidence: %+v", in.ReviewOutput)
 	}
-	if err := h.worker.Run(ctx, root.ID, att.ID, Actor{Type: ActorReviewer}); err != nil {
+	if err := h.worker.Run(ctx, root.ID, att.ID, Actor{Type: ActorAgent}); err != nil {
 		t.Fatalf("worker run composite review: %v", err)
 	}
 

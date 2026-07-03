@@ -445,16 +445,15 @@ func TestLcl_WorkerReportedFailureReopensToReady(t *testing.T) {
 // human — rather than stranding it 'active'.
 func TestLcl_ResponsibilityFailureRoutes(t *testing.T) {
 	cases := []struct {
-		name        string
-		class       string
-		blockedBy   string
-		wantLife    string
-		wantReason  string
-		wantBlocked string
+		name       string
+		class      string
+		blockedBy  string
+		wantLife   string
+		wantReason string
 	}{
 		{name: "model", class: FailureClassModel, wantLife: LifecycleReady},
-		{name: "environment", class: FailureClassEnvironment, blockedBy: BlockEnvUnavailable, wantLife: LifecycleBlocked, wantReason: BlockEnvUnavailable, wantBlocked: BlockEnvUnavailable},
-		{name: "contract", class: FailureClassContract, blockedBy: BlockContractConflict, wantLife: LifecycleBlocked, wantReason: BlockContractConflict, wantBlocked: BlockContractConflict},
+		{name: "environment", class: FailureClassEnvironment, blockedBy: BlockEnvUnavailable, wantLife: LifecycleBlocked, wantReason: BlockEnvUnavailable},
+		{name: "contract", class: FailureClassContract, blockedBy: BlockContractConflict, wantLife: LifecycleBlocked, wantReason: BlockContractConflict},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -465,8 +464,8 @@ func TestLcl_ResponsibilityFailureRoutes(t *testing.T) {
 			h.runLeaf(d.ID)
 
 			got := h.get(d.ID)
-			if got.Lifecycle != tc.wantLife || got.BlockReason != tc.wantReason || got.BlockedBy != tc.wantBlocked {
-				t.Fatalf("goal=(%s,%s,%s) want (%s,%s,%s)", got.Lifecycle, got.BlockReason, got.BlockedBy, tc.wantLife, tc.wantReason, tc.wantBlocked)
+			if got.Lifecycle != tc.wantLife || got.BlockReason != tc.wantReason {
+				t.Fatalf("goal=(%s,%s) want (%s,%s)", got.Lifecycle, got.BlockReason, tc.wantLife, tc.wantReason)
 			}
 			remaining := remainingBudget(t, got)
 			if tc.class == FailureClassModel {
@@ -499,8 +498,8 @@ func TestLcl_FlakyFailureRetriesOutsideBusinessBudgetThenBlocksEnvironment(t *te
 
 	h.runLeaf(d.ID)
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable || got.BlockedBy != BlockEnvUnavailable || got.FlakyCount != 6 {
-		t.Fatalf("after flaky limit goal=(%s,%s,%s flaky=%d) want blocked/env_unavailable flaky=6", got.Lifecycle, got.BlockReason, got.BlockedBy, got.FlakyCount)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable || got.FlakyCount != 6 {
+		t.Fatalf("after flaky limit goal=(%s,%s flaky=%d) want blocked/env_unavailable flaky=6", got.Lifecycle, got.BlockReason, got.FlakyCount)
 	}
 	if remaining := remainingBudget(t, got); remaining != defaultMaxAttempts {
 		t.Fatalf("after flaky limit remaining=%d want unchanged %d", remaining, defaultMaxAttempts)
@@ -563,8 +562,8 @@ func TestLcl_MissingCheckRunnerBlocksEnvironment(t *testing.T) {
 	attID := h.runLeaf(d.ID)
 
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable || got.BlockedBy != BlockEnvUnavailable {
-		t.Fatalf("missing-check-runner goal=(%s,%s,%s) want blocked/env_unavailable", got.Lifecycle, got.BlockReason, got.BlockedBy)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable {
+		t.Fatalf("missing-check-runner goal=(%s,%s) want blocked/env_unavailable", got.Lifecycle, got.BlockReason)
 	}
 	if remaining := remainingBudget(t, got); remaining != defaultMaxAttempts {
 		t.Fatalf("missing-check-runner remaining=%d want unchanged %d", remaining, defaultMaxAttempts)

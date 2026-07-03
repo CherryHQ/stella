@@ -18,9 +18,9 @@ func TestHealthReportAggregatesGoalExecutionMetrics(t *testing.T) {
 	blocked := h.createRoot(KindLeaf, AcceptanceContract{})
 	cancelled := h.createRoot(KindLeaf, AcceptanceContract{})
 
-	h.setGoalHealthState(accepted.ID, LifecycleAccepted, "", "", now.Add(-10*time.Hour), now.Add(-8*time.Hour))
-	h.setGoalHealthState(blocked.ID, LifecycleBlocked, BlockEnvUnavailable, BlockEnvUnavailable, now.Add(-9*time.Hour), now.Add(-6*time.Hour))
-	h.setGoalHealthState(cancelled.ID, LifecycleCancelled, "", "", now.Add(-5*time.Hour), now.Add(-4*time.Hour))
+	h.setGoalHealthState(accepted.ID, LifecycleAccepted, "", now.Add(-10*time.Hour), now.Add(-8*time.Hour))
+	h.setGoalHealthState(blocked.ID, LifecycleBlocked, BlockEnvUnavailable, now.Add(-9*time.Hour), now.Add(-6*time.Hour))
+	h.setGoalHealthState(cancelled.ID, LifecycleCancelled, "", now.Add(-5*time.Hour), now.Add(-4*time.Hour))
 
 	acceptedExec2 := h.insertHealthAttempt(accepted.ID, PurposeExecution, 2, AttemptSubmitted, "", 0, now.Add(-8*time.Hour), now.Add(-8*time.Hour+2*time.Minute))
 	h.insertHealthAttempt(accepted.ID, PurposeDecomposition, 1, AttemptSubmitted, "", 2, now.Add(-10*time.Hour), now.Add(-10*time.Hour+time.Minute))
@@ -77,7 +77,7 @@ func TestHealthReportAggregatesGoalExecutionMetrics(t *testing.T) {
 	}
 }
 
-func (h *harness) setGoalHealthState(id, lifecycle, blockReason, blockedBy string, createdAt, endedAt time.Time) {
+func (h *harness) setGoalHealthState(id, lifecycle, blockReason string, createdAt, endedAt time.Time) {
 	h.t.Helper()
 	acceptedOutput := any(nil)
 	acceptedAt := any(nil)
@@ -95,14 +95,13 @@ func (h *harness) setGoalHealthState(id, lifecycle, blockReason, blockedBy strin
 		UPDATE agent_goal
 		SET lifecycle = $2,
 		    block_reason = $3,
-		    blocked_by = $4,
-		    acceptance_state = $5,
-		    accepted_output = $6,
-		    accepted_at = $7,
-		    cancelled_at = $8,
-		    created_at = $9,
-		    updated_at = $10
-		WHERE id = $1`, id, lifecycle, blockReason, blockedBy, acceptanceState, acceptedOutput, acceptedAt, cancelledAt, createdAt, endedAt); err != nil {
+		    acceptance_state = $4,
+		    accepted_output = $5,
+		    accepted_at = $6,
+		    cancelled_at = $7,
+		    created_at = $8,
+		    updated_at = $9
+		WHERE id = $1`, id, lifecycle, blockReason, acceptanceState, acceptedOutput, acceptedAt, cancelledAt, createdAt, endedAt); err != nil {
 		h.t.Fatalf("set goal state: %v", err)
 	}
 }

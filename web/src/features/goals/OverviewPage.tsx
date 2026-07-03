@@ -339,8 +339,6 @@ function SectionHead({
 
 // hook copy names the human action, not the lifecycle state.
 function hookLabel(t: ReturnType<typeof useI18n>["t"], d: ComponentsGoal): string {
-  if (d.blocked_by === "env_unavailable") return t("goals.hookEnvironment");
-  if (d.blocked_by === "contract_conflict") return t("goals.hookContract");
   switch (d.block_reason) {
     case "needs_verdict":
       return t("goals.hookNeedsVerdict");
@@ -381,8 +379,8 @@ function NeedsYouCard({
   const isPlanApproval = d.block_reason === "needs_plan_approval";
   const isBudget = d.block_reason === "budget_exhausted";
   const isPlanning = d.block_reason === "planning_invalid";
-  const isEnvironment = d.blocked_by === "env_unavailable" || d.block_reason === "env_unavailable";
-  const isContract = d.blocked_by === "contract_conflict" || d.block_reason === "contract_conflict";
+  const isEnvironment = d.block_reason === "env_unavailable";
+  const isContract = d.block_reason === "contract_conflict";
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["goals", agentId] });

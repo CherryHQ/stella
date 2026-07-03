@@ -38,7 +38,6 @@ You author goals yourself with the `stella goal` CLI (via bash): `stella goal cr
 When you are **dispatched as a worker**, the goal's intent and acceptance criteria arrive as your prompt and you get a `goal_control` tool. Do the work, then call `goal_control` exactly once with one terminal action:
 
 - `submit` — provide `evidence` (summary + optional artifacts) and `output` when the work meets the acceptance criteria.
-- `block` — pause with `kind`/`question` when you need input or an external dependency.
 - `fail` — report `reason` plus responsibility (`blocked_by` for environment or contract causes when applicable) when the work cannot be completed.
 - `decompose` — when dispatched to plan a goal: return a `decomposition` `{children, edges}` (each child has key, title, intent, kind, required, acceptance_contract; edges declare hard/soft deps). If the prompt includes `prior_errors`, fix those structural errors in the next `decompose` call. Otherwise use `fail`.
 

@@ -194,11 +194,6 @@ func ValidFailureClass(s string) bool {
 	return false
 }
 
-// ValidBlockedBy reports whether s is a known responsibility-specific block cause.
-func ValidBlockedBy(s string) bool {
-	return s == "" || s == BlockEnvUnavailable || s == BlockContractConflict
-}
-
 // ValidKind reports whether s is a known goal kind.
 func ValidKind(s string) bool { return s == KindLeaf || s == KindComposite }
 
@@ -282,8 +277,8 @@ func LegalLifecycleTransition(kind, from, to string) bool {
 	return legalGoalTransitions[kind][from][to]
 }
 
-// humanActionableBlocks are the block reasons (and responsibility causes) a
-// human action clears: a verdict, a plan approval, a budget raise, a contract
+// humanActionableBlocks are the block reasons a human action clears: a
+// verdict, a plan approval, a budget raise, a contract
 // edit, an environment fix. 'dep' is deliberately absent — the action lives on
 // the blocked descendant, not on the dep-parked parent.
 var humanActionableBlocks = map[string]bool{
@@ -304,9 +299,8 @@ var humanActionableBlocks = map[string]bool{
 //   - ListInboxGoals' WHERE clause is the one remaining SQL copy (the filter
 //     must run in the DB), pinned equivalent by
 //     TestListInboxGoalsMatchesNeedsAttention.
-func NeedsAttention(lifecycle, blockReason, blockedBy string) bool {
-	return lifecycle == LifecycleBlocked &&
-		(humanActionableBlocks[blockReason] || humanActionableBlocks[blockedBy])
+func NeedsAttention(lifecycle, blockReason string) bool {
+	return lifecycle == LifecycleBlocked && humanActionableBlocks[blockReason]
 }
 
 // Actor describes who initiated a transition. Ported from the old package; the
@@ -314,18 +308,16 @@ func NeedsAttention(lifecycle, blockReason, blockedBy string) bool {
 // service still carries an Actor for audit/attribution on non-acceptance
 // transitions.
 type Actor struct {
-	Type string // one of ActorSystem | ActorUser | ActorAgent | ActorWorker | ActorReviewer | ActorPlanner
+	Type string // one of ActorSystem | ActorUser | ActorAgent | ActorWorker
 	ID   string // user_id / agent_id / worker_id depending on Type; empty for system
 }
 
 // Actor types.
 const (
-	ActorSystem   = "system"
-	ActorUser     = "user"
-	ActorAgent    = "agent"
-	ActorWorker   = "worker"
-	ActorReviewer = "reviewer"
-	ActorPlanner  = "planner"
+	ActorSystem = "system"
+	ActorUser   = "user"
+	ActorAgent  = "agent"
+	ActorWorker = "worker"
 )
 
 // SystemActor is the dispatcher/system originator convenience.

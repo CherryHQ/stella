@@ -277,7 +277,7 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failur
 	if len(blockedByArg) > 0 {
 		blockedBy = blockedByArg[0]
 	}
-	if !ValidFailureClass(failureClass) || failureClass == "" || !ValidBlockedBy(blockedBy) {
+	if !ValidFailureClass(failureClass) || failureClass == "" || (blockedBy != "" && blockedBy != BlockEnvUnavailable && blockedBy != BlockContractConflict) {
 		return ErrInvalidTransition
 	}
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
@@ -977,7 +977,7 @@ func (s *GoalService) refundAttemptBudgetWithGoal(ctx context.Context, q *sqlc.Q
 }
 
 func (s *GoalService) blockFailureCause(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, cause string) error {
-	rows, err := s.blockGoalWithCause(ctx, q, d, cause, cause)
+	rows, err := s.blockGoal(ctx, q, d, cause)
 	if err != nil {
 		return fmt.Errorf("block %s: %w", cause, err)
 	}

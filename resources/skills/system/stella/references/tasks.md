@@ -57,15 +57,14 @@ Decomposition is automatic: `stella goal create` produces a composite whose plan
 If you see a `goal_control` tool in your toolset, you are a worker. The goal's intent and acceptance criteria arrive as your prompt. Do the work, then call `goal_control` **exactly once** with one terminal action:
 
 - `submit` — provide `evidence` (summary + optional artifacts) and `output` when the work meets the acceptance criteria.
-- `block` — pause with `kind`/`question` when you need input or an external dependency.
-- `fail` — report `reason`/`retryable` when the work cannot be completed.
+- `fail` — report `reason`/`retryable` plus `blocked_by` (`env_unavailable` or `contract_conflict`) when a human must fix the environment or contract.
 - `decompose` — **when dispatched to plan a goal** — return a `decomposition` `{children, edges}`. Each child needs `key`, `title`, `intent`, `kind` (`leaf|composite`), `required`, and `acceptance_contract`; edges declare hard/soft deps by child key. If the prompt includes `prior_errors`, fix those structural errors in the next `decompose` call. If the goal cannot be decomposed, use `fail` instead.
 
 Rules:
 
 - Always end with a terminal action. A final text response without `goal_control` is a protocol failure; you get exactly one repair turn, then the attempt fails.
 - `submit` does **not** mark the goal done — the acceptance contract decides. If your previous attempt fell short, the gaps come back in the next prompt; address them.
-- Block only when you truly need a human or external dependency. Do not fake completion to avoid blocking.
+- Use `fail` with `blocked_by` when you truly need a human or external dependency. Do not fake completion to avoid failing.
 
 ## Timeline and recovery
 

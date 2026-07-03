@@ -80,7 +80,6 @@ WHERE id = $7;
 UPDATE agent_goal SET
     lifecycle = sqlc.arg(to_lifecycle),
     block_reason = sqlc.arg(block_reason),
-    blocked_by = CASE WHEN sqlc.arg(block_reason)::text = '' THEN '' ELSE blocked_by END,
     updated_at = now()
 WHERE id = sqlc.arg(id) AND lifecycle = sqlc.arg(from_lifecycle);
 
@@ -121,16 +120,6 @@ WHERE id = sqlc.arg(id) AND acceptance_seq < sqlc.arg(acceptance_seq);
 UPDATE agent_goal SET
     lifecycle = 'blocked',
     block_reason = sqlc.arg(block_reason),
-    blocked_by = '',
-    active_attempt_id = NULL,
-    updated_at = now()
-WHERE id = sqlc.arg(id) AND lifecycle IN ('ready', 'active');
-
--- name: BlockGoalWithCause :execrows
-UPDATE agent_goal SET
-    lifecycle = 'blocked',
-    block_reason = sqlc.arg(block_reason),
-    blocked_by = sqlc.arg(blocked_by),
     active_attempt_id = NULL,
     updated_at = now()
 WHERE id = sqlc.arg(id) AND lifecycle IN ('ready', 'active');
@@ -341,7 +330,7 @@ WHERE id = sqlc.arg(id);
 -- terminal root, whose tree is already dead. Open blocks surface at any age
 -- (they wait on the user); terminal failures are windowed like failed runs and
 -- limited to roots (a child failure is covered by its root's outcome).
--- The handler splits rows into inbox kinds by lifecycle/block_reason/blocked_by.
+-- The handler splits rows into inbox kinds by lifecycle/block_reason.
 -- name: ListInboxGoals :many
 SELECT
     d.id,
@@ -351,7 +340,6 @@ SELECT
     d.intent,
     d.lifecycle,
     d.block_reason,
-    d.blocked_by,
     d.updated_at,
     d.created_at
 FROM agent_goal d
@@ -364,7 +352,6 @@ WHERE d.user_id = sqlc.arg(user_id)
           d.lifecycle = 'blocked'
           AND (
                 d.block_reason IN ('needs_verdict', 'needs_plan_approval', 'budget_exhausted', 'planning_invalid', 'contract_conflict', 'env_unavailable')
-                OR d.blocked_by IN ('env_unavailable', 'contract_conflict')
               )
           AND r.lifecycle NOT IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')
         )

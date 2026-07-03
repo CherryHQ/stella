@@ -73,8 +73,6 @@ type AgentGoal struct {
 	PlannedAt          pgtype.Timestamptz `json:"planned_at"`
 	// Infrastructure-flaky retry count independent of business attempt budget.
 	FlakyCount int64 `json:"flaky_count"`
-	// Responsibility-specific blocked cause for environment or contract failures.
-	BlockedBy string `json:"blocked_by"`
 }
 
 type AgentGoalAcceptanceEvent struct {

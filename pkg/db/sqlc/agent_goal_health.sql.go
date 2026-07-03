@@ -15,7 +15,7 @@ import (
 
 const getGoalHealthReport = `-- name: GetGoalHealthReport :one
 WITH scoped_goal AS (
-    SELECT g.id, g.user_id, g.agent_id, g.project_id, g.parent_id, g.root_id, g.depth, g.position, g.session_id, g.title, g.intent, g.kind, g.priority, g.required, g.acceptance_contract, g.convergence_policy, g.review_policy, g.lifecycle, g.block_reason, g.acceptance_state, g.accepted_output, g.acceptance_seq, g.active_attempt_id, g.attempt_count, g.required_total, g.required_accepted, g.required_failed, g.required_blocked, g.context, g.dispatch_hint, g.created_at, g.updated_at, g.accepted_at, g.cancelled_at, g.archived_at, g.plan, g.planned_at, g.flaky_count, g.blocked_by
+    SELECT g.id, g.user_id, g.agent_id, g.project_id, g.parent_id, g.root_id, g.depth, g.position, g.session_id, g.title, g.intent, g.kind, g.priority, g.required, g.acceptance_contract, g.convergence_policy, g.review_policy, g.lifecycle, g.block_reason, g.acceptance_state, g.accepted_output, g.acceptance_seq, g.active_attempt_id, g.attempt_count, g.required_total, g.required_accepted, g.required_failed, g.required_blocked, g.context, g.dispatch_hint, g.created_at, g.updated_at, g.accepted_at, g.cancelled_at, g.archived_at, g.plan, g.planned_at, g.flaky_count
     FROM agent_goal g
     WHERE g.created_at >= $1
       AND ($2::uuid IS NULL OR g.user_id = $2::uuid)
@@ -90,7 +90,7 @@ flaky_dominant_blocked_goal AS (
     FROM scoped_goal g
     JOIN execution_failure_attempt a ON a.goal_id = g.id
     WHERE g.lifecycle = 'blocked'
-      AND g.blocked_by = 'env_unavailable'
+      AND g.block_reason = 'env_unavailable'
     GROUP BY g.id
     HAVING COUNT(*) FILTER (WHERE a.failure_class = 'flaky') > 0
        AND COUNT(*) FILTER (WHERE a.failure_class = 'flaky') * 2 >= COUNT(*)

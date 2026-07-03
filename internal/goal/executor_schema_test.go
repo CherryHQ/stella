@@ -48,10 +48,13 @@ func TestGoalControlSchemasMarshalAndPinDriftFields(t *testing.T) {
 	}
 
 	executeAction := schemaAt(t, goalControlExecuteInputSchema(), "properties", "action")
-	for _, action := range []string{"submit", "block", "fail"} {
+	for _, action := range []string{"submit", "fail"} {
 		if !enumHas(executeAction, action) {
 			t.Fatalf("execute action enum missing %q: %#v", action, executeAction["enum"])
 		}
+	}
+	if enumHas(executeAction, "block") {
+		t.Fatalf("execute action enum still exposes block: %#v", executeAction["enum"])
 	}
 
 	review := goalControlReviewInputSchema()

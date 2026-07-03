@@ -211,8 +211,8 @@ func TestDecompositionFlakyFailureRecoversToDraftAndCaps(t *testing.T) {
 		t.Fatalf("FailAttempt cap: %v", err)
 	}
 	got := h.get(root.ID)
-	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable || got.BlockedBy != BlockEnvUnavailable || got.FlakyCount != 6 {
-		t.Fatalf("after flaky cap goal=(%s,%s,%s flaky=%d) want blocked/env_unavailable flaky=6", got.Lifecycle, got.BlockReason, got.BlockedBy, got.FlakyCount)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable || got.FlakyCount != 6 {
+		t.Fatalf("after flaky cap goal=(%s,%s flaky=%d) want blocked/env_unavailable flaky=6", got.Lifecycle, got.BlockReason, got.FlakyCount)
 	}
 	assertDecomposable(t, h, root.ID, false)
 	assertDecompositionBudgetRemaining(t, h, root.ID, defaultMaxAttempts)

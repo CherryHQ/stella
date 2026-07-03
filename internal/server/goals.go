@@ -835,7 +835,7 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		Required:           d.Required,
 		Lifecycle:          apitypes.GoalLifecycle(d.Lifecycle),
 		AcceptanceState:    apitypes.GoalAcceptanceState(d.AcceptanceState),
-		NeedsAttention:     goal.NeedsAttention(d.Lifecycle, d.BlockReason, d.BlockedBy),
+		NeedsAttention:     goal.NeedsAttention(d.Lifecycle, d.BlockReason),
 		CreatedAt:          d.CreatedAt.UTC(),
 		UpdatedAt:          d.UpdatedAt.UTC(),
 		Intent:             optStr(d.Intent),
@@ -866,10 +866,6 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 	if d.BlockReason != "" {
 		br := apitypes.GoalBlockReason(d.BlockReason)
 		out.BlockReason = &br
-	}
-	if d.BlockedBy != "" {
-		bb := apitypes.GoalBlockedBy(d.BlockedBy)
-		out.BlockedBy = &bb
 	}
 	if d.AcceptedOutput.Valid {
 		out.AcceptedOutput = jsonObject(json.RawMessage(d.AcceptedOutput.String))

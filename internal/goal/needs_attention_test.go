@@ -11,19 +11,19 @@ import (
 // forceBlockState writes a raw lifecycle/block cause, bypassing the service —
 // the point is enumerating every representable state, including ones the
 // transition table would never produce.
-func (h *harness) forceBlockState(id, lifecycle, blockReason, blockedBy string) {
+func (h *harness) forceBlockState(id, lifecycle, blockReason string) {
 	h.t.Helper()
 	if _, err := h.db.Exec(context.Background(), `
-		UPDATE agent_goal SET lifecycle = $2, block_reason = $3, blocked_by = $4
-		WHERE id = $1`, id, lifecycle, blockReason, blockedBy); err != nil {
+		UPDATE agent_goal SET lifecycle = $2, block_reason = $3
+		WHERE id = $1`, id, lifecycle, blockReason); err != nil {
 		h.t.Fatalf("force block state: %v", err)
 	}
 }
 
 // TestListInboxGoalsMatchesNeedsAttention pins the one remaining SQL copy of
 // the needs-you predicate (ListInboxGoals' WHERE must run in the DB) to the
-// canonical NeedsAttention: for every reachable lifecycle x block_reason x
-// blocked_by combination on a root goal, inbox membership under the
+// canonical NeedsAttention: for every reachable lifecycle x block_reason
+// combination on a root goal, inbox membership under the
 // needs-attention branch must equal NeedsAttention. If either side changes
 // without the other, this fails.
 //
@@ -36,25 +36,21 @@ func TestListInboxGoalsMatchesNeedsAttention(t *testing.T) {
 	ctx := context.Background()
 
 	type seeded struct {
-		id, lifecycle, blockReason, blockedBy string
+		id, lifecycle, blockReason string
 	}
 	var all []seeded
-	seed := func(lifecycle, blockReason, blockedBy string) {
+	seed := func(lifecycle, blockReason string) {
 		g := h.createRoot(KindLeaf, AcceptanceContract{})
-		h.forceBlockState(g.ID, lifecycle, blockReason, blockedBy)
-		all = append(all, seeded{g.ID, lifecycle, blockReason, blockedBy})
+		h.forceBlockState(g.ID, lifecycle, blockReason)
+		all = append(all, seeded{g.ID, lifecycle, blockReason})
 	}
 
 	blockReasons := []string{
 		BlockDep, BlockNeedsVerdict, BlockNeedsPlanApproval, BlockBudgetExhausted,
 		BlockPlanningInvalid, BlockEnvUnavailable, BlockContractConflict,
 	}
-	// blocked_by is constrained to these by ValidBlockedBy.
-	blockedBys := []string{"", BlockEnvUnavailable, BlockContractConflict}
 	for _, br := range blockReasons {
-		for _, by := range blockedBys {
-			seed(LifecycleBlocked, br, by)
-		}
+		seed(LifecycleBlocked, br)
 	}
 	// accepted is omitted: agent_goal_check4 demands a real accepted_output,
 	// and NeedsAttention only keys on lifecycle != blocked anyway.
@@ -62,10 +58,10 @@ func TestListInboxGoalsMatchesNeedsAttention(t *testing.T) {
 		LifecycleDraft, LifecycleReady, LifecycleActive,
 		LifecycleRejectedFinal, LifecycleCancelled,
 	} {
-		seed(lc, "", "")
+		seed(lc, "")
 	}
 	// Residual block cause on a terminal row must not resurface in the inbox.
-	seed(LifecycleCancelled, BlockNeedsVerdict, "")
+	seed(LifecycleCancelled, BlockNeedsVerdict)
 
 	rows, err := h.q.ListInboxGoals(ctx, sqlc.ListInboxGoalsParams{
 		UserID:     h.userID,
@@ -81,10 +77,10 @@ func TestListInboxGoalsMatchesNeedsAttention(t *testing.T) {
 	}
 
 	for _, s := range all {
-		want := NeedsAttention(s.lifecycle, s.blockReason, s.blockedBy)
+		want := NeedsAttention(s.lifecycle, s.blockReason)
 		if inbox[s.id] != want {
-			t.Errorf("(%s, %q, %q): inbox=%v, NeedsAttention=%v — SQL and Go predicate drifted",
-				s.lifecycle, s.blockReason, s.blockedBy, inbox[s.id], want)
+			t.Errorf("(%s, %q): inbox=%v, NeedsAttention=%v -- SQL and Go predicate drifted",
+				s.lifecycle, s.blockReason, inbox[s.id], want)
 		}
 	}
 }

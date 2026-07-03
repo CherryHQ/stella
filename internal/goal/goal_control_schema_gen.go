@@ -22,7 +22,6 @@ const goalControlExecuteInputSchemaJSON = `{
       "description": "Which terminal action to take.",
       "enum": [
         "submit",
-        "block",
         "fail"
       ],
       "type": "string"
@@ -40,14 +39,6 @@ const goalControlExecuteInputSchemaJSON = `{
       ],
       "type": "string"
     },
-    "detail": {
-      "description": "block: structured detail.",
-      "type": "object"
-    },
-    "kind": {
-      "description": "block: blocker kind (user_input|external_dependency|tool_error|policy_hold).",
-      "type": "string"
-    },
     "notes": {
       "description": "submit: free-form evidence notes.",
       "type": "object"
@@ -55,10 +46,6 @@ const goalControlExecuteInputSchemaJSON = `{
     "output": {
       "description": "submit: structured result the acceptance contract evaluates.",
       "type": "object"
-    },
-    "question": {
-      "description": "block: human-readable explanation of what's needed.",
-      "type": "string"
     },
     "reason": {
       "description": "fail: error message.",

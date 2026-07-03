@@ -186,7 +186,7 @@ func (h *harness) forceBlocked(id, reason string, planned bool) {
 	}
 	if _, err := h.db.Exec(context.Background(), `
 		UPDATE agent_goal
-		SET lifecycle = 'blocked', block_reason = $2, blocked_by = $2, planned_at = `+plannedSQL+`, updated_at = now()
+		SET lifecycle = 'blocked', block_reason = $2, planned_at = `+plannedSQL+`, updated_at = now()
 		WHERE id = $1`, id, reason); err != nil {
 		h.t.Fatalf("force blocked: %v", err)
 	}
