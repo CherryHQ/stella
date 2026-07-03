@@ -2,8 +2,11 @@ package goal
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -22,7 +25,8 @@ import (
 // background producer, not an executing episode, and keeping active_attempt_id
 // cleared lets evaluatedAttempt keep scoping verdicts to the execution output's
 // hash. A passing review wakes the goal to accept; a failing one wakes it to
-// rework with the reviewer rationale fed in as a gap; a review that cannot
+// rework with the reviewer rationale fed in as a gap (a composite, which cannot
+// rework, parks back at needs_verdict for a human instead); a review that cannot
 // produce a verdict (or exhausts the small review budget) leaves the goal
 // blocked(needs_verdict) for a human (the chosen degradation).
 
@@ -140,7 +144,8 @@ func (s *GoalService) BeginReview(ctx context.Context, id string, enqueue Attemp
 }
 
 // pendingReviewWork reports whether a goal needs an agent verdict and, if so, the
-// pending authority=agent items, the execution attempt whose output is judged,
+// pending authority=agent items, the execution attempt whose output is judged
+// ("" for a composite, whose judged evidence is its children's accepted outputs),
 // and that output. ok is false (err nil) when the goal legitimately has no agent
 // review to do — awaiting a human, no pending agent item, no output to judge, or a
 // review already in flight; the caller skips it. A non-nil err is a real DB
@@ -169,21 +174,62 @@ func (s *GoalService) pendingReviewWork(ctx context.Context, q *sqlc.Queries, d 
 		return nil, "", AttemptOutput{}, false, fmt.Errorf("check in-flight review: %w", err)
 	}
 	execID, execOut := s.evaluatedAttempt(ctx, q, d)
+	foldHash := execOut.Hash
 	if execID == "" {
-		// No submitted execution output to judge (e.g. a composite carrying an
-		// agent judgment item). There is nothing for a reviewer to score against, so
-		// leave it for a human verdict.
-		return nil, "", AttemptOutput{}, false, nil
+		// A composite carries no execution output: it reached needs_verdict through
+		// RollupAccept, so its judged evidence is its children's frozen accepted
+		// outputs. The fold scopes composite verdicts to the empty hash
+		// (evaluatedAttempt resolves ""), matching human verdicts on composites —
+		// evid.Hash below only fences the frozen evidence at SubmitReview, it is
+		// never a verdict scope_hash. A leaf with no submitted output has nothing
+		// for a reviewer to score against and stays with a human.
+		evid, ok, err := s.compositeReviewEvidence(ctx, q, d)
+		if err != nil || !ok {
+			return nil, "", AttemptOutput{}, false, err
+		}
+		execOut = evid
+		foldHash = ""
 	}
 	events, err := q.ListAcceptanceEventByGoal(ctx, d.ID)
 	if err != nil {
 		return nil, "", AttemptOutput{}, false, fmt.Errorf("list acceptance events: %w", err)
 	}
-	items := PendingAgentReviewItems(contract, execOut.Hash, events)
+	items := PendingAgentReviewItems(contract, foldHash, events)
 	if len(items) == 0 {
 		return nil, "", AttemptOutput{}, false, nil // every agent item already has a valid verdict
 	}
 	return items, execID, execOut, true, nil
+}
+
+// compositeReviewEvidence synthesizes the output a reviewer judges for a
+// composite: the frozen accepted output of every accepted child (a composite
+// produces no work of its own — its deliverable IS its children's). Hash
+// fingerprints that evidence (child ids + output hashes, plan order) so
+// SubmitReview can drop a verdict whose evidence moved between mint and submit;
+// it is NOT the verdict scope_hash — the composite fold scopes verdicts to ""
+// exactly like human ones (§4.2, TestCompositeRollup_AuthoredContractGate).
+// ok=false for a leaf or a composite with no accepted children (nothing
+// judgeable; leave it for a human).
+func (s *GoalService) compositeReviewEvidence(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) (AttemptOutput, bool, error) {
+	if d.Kind != KindComposite {
+		return AttemptOutput{}, false, nil
+	}
+	kids, err := childAcceptedOutputs(ctx, q, d.ID)
+	if err != nil {
+		return AttemptOutput{}, false, fmt.Errorf("collect child outputs for review: %w", err)
+	}
+	if len(kids) == 0 {
+		return AttemptOutput{}, false, nil
+	}
+	h := sha256.New()
+	for _, k := range kids {
+		writeNUL(h, k.GoalID, k.Hash)
+	}
+	return AttemptOutput{
+		Summary: fmt.Sprintf("This is a composite goal: its work was carried out by %d accepted subtask(s). Judge the criteria against their frozen outputs in the structured result.", len(kids)),
+		Result:  map[string]any{"children": kids},
+		Hash:    hex.EncodeToString(h.Sum(nil)),
+	}, true, nil
 }
 
 // frozenReviewHash returns the hash of the execution output a review attempt was
@@ -225,13 +271,21 @@ func reviewItemsStillCurrent(d sqlc.AgentGoal, frozen []AcceptanceItem) bool {
 // reviewer that keeps failing to produce a verdict against the SAME output is
 // bounded, then degraded to a human (contract §10.13).
 func (s *GoalService) reviewBudgetSpent(ctx context.Context, q *sqlc.Queries, goalID, execID string) (int, error) {
-	exec, err := q.GetAttempt(ctx, execID)
-	if err != nil {
-		return 0, fmt.Errorf("review budget: load reviewed attempt: %w", err)
+	// A composite episode has no reviewed execution attempt (execID ""), and its
+	// evidence — the children's frozen accepted outputs — never moves (accepted is
+	// terminal). The episode is therefore the goal's whole review history: a zero
+	// Since counts every review that ran.
+	var since time.Time
+	if execID != "" {
+		exec, err := q.GetAttempt(ctx, execID)
+		if err != nil {
+			return 0, fmt.Errorf("review budget: load reviewed attempt: %w", err)
+		}
+		since = exec.CreatedAt
 	}
 	n, err := q.CountRanReviewAttemptsForOutput(ctx, sqlc.CountRanReviewAttemptsForOutputParams{
 		GoalID: goalID,
-		Since:  exec.CreatedAt,
+		Since:  since,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("review budget: count attempts: %w", err)
@@ -306,7 +360,20 @@ func (s *GoalService) SubmitReview(ctx context.Context, attemptID string, ev Att
 			return nil
 		}
 		curID, curOut := s.evaluatedAttempt(ctx, q, d)
-		if in.ReviewedAttemptID == "" || curID != in.ReviewedAttemptID || curOut.Hash != frozenReviewHash(in) {
+		if in.ReviewedAttemptID == "" {
+			// A composite review judged the children's frozen outputs, not an
+			// execution attempt. Re-derive that evidence and drop the verdict if it
+			// moved (or the goal is not actually a composite — a malformed freeze).
+			// Composite verdicts fold against the empty hash, same as human ones.
+			evid, ok, err := s.compositeReviewEvidence(ctx, q, d)
+			if err != nil {
+				return err
+			}
+			if !ok || curID != "" || evid.Hash != frozenReviewHash(in) {
+				return nil
+			}
+			curOut = AttemptOutput{}
+		} else if curID != in.ReviewedAttemptID || curOut.Hash != frozenReviewHash(in) {
 			return nil
 		}
 		if !reviewItemsStillCurrent(d, in.ReviewItems) {

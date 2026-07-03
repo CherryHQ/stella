@@ -705,7 +705,7 @@ func (s *GoalService) foldAndTransition(ctx context.Context, q *sqlc.Queries, go
 		if err := s.wakeIfBlocked(ctx, q, &d); err != nil {
 			return err
 		}
-		return s.acceptLeaf(ctx, q, d, attemptID, out)
+		return s.acceptFolded(ctx, q, d, attemptID, out)
 	case proj.NeedsVerdict:
 		return s.blockForVerdict(ctx, q, d)
 	case proj.State == AcceptanceFailed:
@@ -722,7 +722,7 @@ func (s *GoalService) foldAndTransition(ctx context.Context, q *sqlc.Queries, go
 }
 
 // wakeIfBlocked promotes a goal parked in blocked(needs_verdict) back to
-// active so a terminal fold branch (acceptLeaf/branchOnFailure) — which guards
+// active so a terminal fold branch (acceptFolded/branchOnFailure) — which guards
 // from 'active', the same from-state Submit folds against — can fire once a
 // verdict resolves the block. A no-op when not so blocked. It mutates the passed
 // goal's lifecycle so a subsequent in-Go guard reads the woken state.
@@ -742,11 +742,14 @@ func (s *GoalService) wakeIfBlocked(ctx context.Context, q *sqlc.Queries, d *sql
 	return nil
 }
 
-// acceptLeaf freezes the accepted output, flips the goal → accepted, and
+// acceptFolded freezes the accepted output, flips the goal → accepted, and
 // bumps the parent's required_accepted in the SAME tx (contract §2.1
-// active→accepted, §6 rollup). Downstream readiness is re-derived lazily by the
-// dispatcher off the upstream-accepted index, so no push is needed here.
-func (s *GoalService) acceptLeaf(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, attemptID string, out AttemptOutput) error {
+// active→accepted, §6 rollup). It is the fold's accept branch for both a leaf
+// (output = the accepted attempt's) and an authored-contract composite (output
+// synthesized from the children below). Downstream readiness is re-derived
+// lazily by the dispatcher off the upstream-accepted index, so no push is
+// needed here.
+func (s *GoalService) acceptFolded(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, attemptID string, out AttemptOutput) error {
 	// Already at the desired terminal state: a re-fold of an accepted leaf (e.g. a
 	// verdict re-submitted after acceptance, or a double-clicked Approve whose
 	// first request already accepted) derives passed again. That is the steady
@@ -763,6 +766,20 @@ func (s *GoalService) acceptLeaf(ctx context.Context, q *sqlc.Queries, d sqlc.Ag
 		Hash:          out.Hash,
 		AcceptedAt:    s.now(),
 		SourceAttempt: attemptID,
+	}
+	if d.Kind == KindComposite {
+		// An authored-contract composite folds with no execution output (out is
+		// empty), but its deliverable is its children's: carry their frozen outputs
+		// exactly as the trivial-contract rollup does, so downstream readers see the
+		// phase results without walking the tree.
+		kids, err := childAcceptedOutputs(ctx, q, d.ID)
+		if err != nil {
+			return fmt.Errorf("collect child outputs: %w", err)
+		}
+		accepted.Children = kids
+		if accepted.Summary == "" {
+			accepted.Summary = d.Title
+		}
 	}
 	rows, err := s.acceptGoal(ctx, q, d, accepted)
 	if err != nil {
@@ -843,6 +860,14 @@ func (s *GoalService) routeFailedAttempt(ctx context.Context, q *sqlc.Queries, d
 // by escalation/contract shape to blocked(budget_exhausted), abandoned, or
 // rejected_final.
 func (s *GoalService) branchOnFailure(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, attemptID string, gaps Evaluation) error {
+	// A composite cannot rework: it has no execution attempts (its work is its
+	// children, all accepted by the time its own gate folds), so reopening to
+	// ready would strand it — the dispatcher only claims ready LEAVES. A failing
+	// verdict on its judgment gate parks it back at needs_verdict for a human to
+	// adjudicate: override the item, edit the contract, or cancel.
+	if d.Kind == KindComposite {
+		return s.blockForVerdict(ctx, q, d)
+	}
 	var pol ConvergencePolicy
 	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
 	pol = pol.Normalized()
