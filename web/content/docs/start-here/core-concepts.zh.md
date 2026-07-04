@@ -48,11 +48,7 @@ Tools 回答的问题是：这个 Agent 实际能做什么？
 
 ## Goal
 
-Goal 是用户交给 Agent 的目标。好的 goal 描述期望结果，而不是列出所有实现步骤。
-
-## Task
-
-Task 是可追踪的工作单元。Stella 会追踪显式创建的 tasks，包括依赖关系、blocker、事件、运行记录和 review 状态。本版本不包含自动 goal-to-task 规划。
+Goal 是用户交给 Agent 的目标。好的 goal 描述期望结果，而不是列出所有实现步骤。Stella 会把每个 goal 追踪为一棵子目标树，包括依赖关系、blocker、运行记录和 review 状态，并持续推进直到验收通过。
 
 ## Review
 

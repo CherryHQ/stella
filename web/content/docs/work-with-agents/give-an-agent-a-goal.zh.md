@@ -1,5 +1,5 @@
 ---
-title: 给 Agent 一个 goal
+title: 给 Agent 一个目标
 ---
 
 使用 Stella 应该像向一个靠谱同事求助。

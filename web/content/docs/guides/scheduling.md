@@ -13,7 +13,7 @@ Available templates:
 
 ### Subscribe via the Web UI
 
-1. Open any agent and go to the **Tasks** tab.
+1. Open any agent and go to the **Goals** tab.
 2. Click **New Schedule**.
 3. Choose **From template** at the top of the sheet.
 4. Select a template card. Templates you have already subscribed to are shown as disabled.
@@ -92,7 +92,7 @@ You can specify the mode when creating a job:
 
 ### From the Web UI
 
-Open an agent and choose the **Tasks** tab; scheduled jobs appear there alongside one-time tasks and goals. You can:
+Open an agent and choose the **Goals** tab; schedules appear there alongside goals. You can:
 
 - View job status, schedule, and last run time
 - Enable or disable jobs

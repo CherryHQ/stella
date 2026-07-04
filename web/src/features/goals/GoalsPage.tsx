@@ -194,14 +194,9 @@ export function GoalsPage() {
 
   useEffect(() => {
     setHeaderTitle(
-      <div className="min-w-0">
-        <div className="truncate font-mono text-xs font-semibold text-muted-foreground">
-          {t("goals.eyebrow")}
-        </div>
-        <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
-          {workflowId ? t("workflows.runsTitle") : t("goals.title")}
-        </h1>
-      </div>,
+      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+        {workflowId ? t("workflows.runsTitle") : t("goals.title")}
+      </h1>,
     );
     setHeaderActions(
       <div className="flex items-center gap-1">

@@ -6,4 +6,4 @@ Stella 把可追踪的后台工作作为**目标**运行——也就是 Agent �
 
 什么是目标、收敛循环、生命周期状态、依赖、验收以及 Web UI 里的目标界面，请见 **[目标](/docs/task-system/overview)**。
 
-把一个成果交给 Agent，请见 **[给 Agent 一个 goal](/docs/work-with-agents/give-an-agent-a-goal)**。
+把一个成果交给 Agent，请见 **[给 Agent 一个目标](/docs/work-with-agents/give-an-agent-a-goal)**。

@@ -10,9 +10,9 @@ components:
       type: object
       description: >-
         One node in the recursive goal tree. A root (parent_id null) is a
-        goal; a child is a former task. Completion is DERIVED: acceptance_state is
-        a cached projection over the append-only acceptance-event ledger, never an
-        asserted flag.
+        top-level goal; a child is a sub-goal created by decomposition.
+        Completion is DERIVED: acceptance_state is a cached projection over the
+        append-only acceptance-event ledger, never an asserted flag.
       required:
         [
           id,
