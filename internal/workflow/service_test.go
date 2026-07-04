@@ -89,7 +89,7 @@ func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
 		{Key: "leaf", Title: "Leaf {{inputs.topic}}", Intent: "do leaf", Kind: goal.KindLeaf, Required: true},
 		{Key: "comp", Title: "Comp", Intent: "do comp", Kind: goal.KindComposite, Required: true},
 	}}
-	if err := h.goals.MaterializeFrozenLayer(h.ctx, root.ID, rootPlan); err != nil {
+	if err := h.goals.MaterializeFrozenLayer(h.ctx, root.ID, rootPlan, goal.FrozenStamp{}); err != nil {
 		t.Fatalf("materialize root: %v", err)
 	}
 	children, err := h.q.ListGoalChildren(h.ctx, pgnull.Text(root.ID))
@@ -97,7 +97,7 @@ func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
 		t.Fatalf("list children: %v", err)
 	}
 	nestedPlan := goal.DecompositionContent{Children: []goal.ProposedChild{{Key: "nested", Title: "Nested", Intent: "do nested", Kind: goal.KindLeaf, Required: true}}}
-	if err := h.goals.MaterializeFrozenLayer(h.ctx, children[1].ID, nestedPlan); err != nil {
+	if err := h.goals.MaterializeFrozenLayer(h.ctx, children[1].ID, nestedPlan, goal.FrozenStamp{}); err != nil {
 		t.Fatalf("materialize nested: %v", err)
 	}
 	if err := h.goals.ActivateFrozenComposite(h.ctx, children[1].ID); err != nil {
@@ -110,6 +110,12 @@ func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
 		t.Fatalf("force accept root: %v", err)
 	}
 
+	if _, err := h.svc.SaveGoalAsWorkflow(h.ctx, SaveInput{UserID: h.userID, AgentID: h.agentID, GoalID: root.ID, Name: "bad", Inputs: []InputSpec{{Name: "bad name"}}}); !errors.Is(err, ErrInvalidWorkflowInput) {
+		t.Fatalf("save with invalid input name = %v", err)
+	}
+	if _, err := h.svc.SaveGoalAsWorkflow(h.ctx, SaveInput{UserID: h.userID, AgentID: h.agentID, GoalID: root.ID, Name: "undeclared"}); !errors.Is(err, ErrInvalidWorkflowInput) {
+		t.Fatalf("save with undeclared placeholder = %v", err)
+	}
 	wf, err := h.svc.SaveGoalAsWorkflow(h.ctx, SaveInput{UserID: h.userID, AgentID: h.agentID, GoalID: root.ID, Name: "daily", Inputs: []InputSpec{{Name: "topic", Required: true}}})
 	if err != nil {
 		t.Fatalf("save workflow: %v", err)
@@ -155,6 +161,14 @@ func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
 	}
 	if instChildren[0].Title != "Leaf launch" {
 		t.Fatalf("stored resolved inputs not used: %q", instChildren[0].Title)
+	}
+	// The composite child carries a frozen sub-plan, so it must be stamped with
+	// the workflow identity (dispatcher exclusion); the leaf stays unstamped.
+	if instChildren[1].WorkflowID.String != wf.ID || int(instChildren[1].WorkflowVersion.Int32) != int(wf.Version) {
+		t.Fatalf("frozen composite child not stamped: %q v%d", instChildren[1].WorkflowID.String, instChildren[1].WorkflowVersion.Int32)
+	}
+	if instChildren[0].WorkflowID.Valid {
+		t.Fatalf("leaf child unexpectedly stamped: %q", instChildren[0].WorkflowID.String)
 	}
 }
 
@@ -334,5 +348,55 @@ func TestInstantiateLeavesNilPlanCompositeDraft(t *testing.T) {
 	}
 	if len(children) != 1 || children[0].Lifecycle != goal.LifecycleDraft || children[0].PlannedAt.Valid {
 		t.Fatalf("nil-plan composite = len %d lifecycle %q planned %v", len(children), children[0].Lifecycle, children[0].PlannedAt.Valid)
+	}
+	if children[0].WorkflowID.Valid {
+		t.Fatalf("nil-plan composite must stay planner-eligible, got workflow stamp %q", children[0].WorkflowID.String)
+	}
+}
+
+// The dispatcher-hijack window: after a parent layer materializes, a composite
+// child whose sub-plan is frozen sits draft/unplanned until the walk's next tx.
+// The stamp written in the parent's tx must keep it out of the dispatcher scan,
+// while a sibling without a frozen sub-plan stays eligible.
+func TestFrozenCompositeChildExcludedFromDispatcherMidWalk(t *testing.T) {
+	h := newWorkflowHarness(t)
+	payload, _ := json.Marshal(FrozenPlan{})
+	wf, err := h.q.CreateWorkflow(h.ctx, sqlc.CreateWorkflowParams{ID: uuid.NewString(), OwnerKind: OwnerAgent, UserID: pgnull.Text(h.userID), AgentID: pgnull.Text(h.agentID), Name: "midwalk", Version: 1, Intent: "midwalk", AcceptanceContract: []byte(`{}`), ConvergencePolicy: []byte(`{}`), Inputs: []byte(`[]`), PayloadFormat: PayloadFormatFrozenV0, Payload: payload, FullyFrozen: true})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	root, err := h.goals.CreateRoot(h.ctx, goal.CreateInput{UserID: h.userID, AgentID: h.agentID, Title: "midwalk", Intent: "midwalk", Kind: goal.KindComposite, Required: true, WorkflowID: wf.ID, WorkflowVersion: wf.Version})
+	if err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+	content := goal.DecompositionContent{Children: []goal.ProposedChild{
+		{Key: "frozen", Title: "Frozen", Intent: "frozen sub-plan pending", Kind: goal.KindComposite, Required: true},
+		{Key: "dynamic", Title: "Dynamic", Intent: "planner decides", Kind: goal.KindComposite, Required: true},
+	}}
+	if err := h.goals.MaterializeFrozenLayer(h.ctx, root.ID, content, goal.FrozenStamp{WorkflowID: wf.ID, WorkflowVersion: wf.Version, ChildKeys: []string{"frozen"}}); err != nil {
+		t.Fatalf("materialize layer: %v", err)
+	}
+	children, err := h.q.ListGoalChildren(h.ctx, pgnull.Text(root.ID))
+	if err != nil {
+		t.Fatalf("list children: %v", err)
+	}
+	if children[0].WorkflowID.String != wf.ID || children[1].WorkflowID.Valid {
+		t.Fatalf("stamp mismatch: frozen %q dynamic %q", children[0].WorkflowID.String, children[1].WorkflowID.String)
+	}
+	rows, err := h.q.ListDecomposableComposites(h.ctx, 100)
+	if err != nil {
+		t.Fatalf("list decomposable: %v", err)
+	}
+	seenDynamic := false
+	for _, row := range rows {
+		if row.ID == children[0].ID {
+			t.Fatalf("frozen child %s returned as decomposable", row.ID)
+		}
+		if row.ID == children[1].ID {
+			seenDynamic = true
+		}
+	}
+	if !seenDynamic {
+		t.Fatalf("dynamic child %s not returned as decomposable", children[1].ID)
 	}
 }

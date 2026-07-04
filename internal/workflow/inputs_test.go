@@ -44,3 +44,24 @@ func TestResolveInputsAndSubstitution(t *testing.T) {
 		t.Fatalf("unresolved placeholder should fail")
 	}
 }
+
+func TestValidateSpecsAndPlaceholders(t *testing.T) {
+	if err := ValidateSpecs([]InputSpec{{Name: "topic"}, {Name: "a-b_1"}}); err != nil {
+		t.Fatalf("valid specs rejected: %v", err)
+	}
+	for _, bad := range [][]InputSpec{
+		{{Name: "has space"}},
+		{{Name: ""}},
+		{{Name: "topic"}, {Name: "topic"}},
+	} {
+		if err := ValidateSpecs(bad); err == nil {
+			t.Fatalf("specs %+v should be rejected", bad)
+		}
+	}
+	if err := ValidatePlaceholders([]InputSpec{{Name: "topic"}}, `plan {{inputs.topic}}`, "intent {{ inputs.topic }}"); err != nil {
+		t.Fatalf("declared placeholder rejected: %v", err)
+	}
+	if err := ValidatePlaceholders([]InputSpec{{Name: "topic"}}, `plan {{inputs.topci}}`); err == nil {
+		t.Fatalf("undeclared placeholder should be rejected")
+	}
+}

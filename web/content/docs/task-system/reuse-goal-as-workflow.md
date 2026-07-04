@@ -22,6 +22,8 @@ Inputs are named placeholders such as `{{inputs.customer}}` or `{{inputs.date_ra
 
 Stella does not substitute inputs into executable check commands. If a required input is missing, the run fails before creating the new goal tree.
 
+Input names and references are checked at save time: a name must use only letters, digits, `_` or `-`, and every `{{inputs.name}}` referenced by the plan must be a declared input.
+
 ## Run it manually
 
 Use `stella workflow run --help`, then run the workflow with the required inputs. Each run creates a fresh root goal. The original accepted goal stays closed.

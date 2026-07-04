@@ -317,6 +317,10 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		switch {
 		case errors.Is(err, scheduler.ErrSubscriptionMessageReadOnly):
 			writeError(w, http.StatusBadRequest, "subscription job message is read-only; it is controlled by the template")
+		case errors.Is(err, scheduler.ErrWorkflowJobNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, scheduler.ErrWorkflowJobValidation):
+			writeError(w, http.StatusBadRequest, err.Error())
 		default:
 			s.writeInternalError(w, err)
 		}

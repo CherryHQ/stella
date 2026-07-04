@@ -170,6 +170,17 @@ UPDATE agent_goal SET
     updated_at = now()
 WHERE id = sqlc.arg(id) AND planned_at IS NULL;
 
+-- name: StampGoalWorkflow :exec
+-- Mark composite children whose sub-plan is frozen by a workflow. The
+-- decomposition dispatcher filters workflow_id IS NULL, so stamped children are
+-- never picked up for autonomous replanning between walk transactions. Runs in
+-- the same tx as the parent layer materialize so the exclusion is atomic.
+UPDATE agent_goal SET
+    workflow_id = sqlc.arg(workflow_id)::uuid,
+    workflow_version = sqlc.arg(workflow_version)::integer,
+    updated_at = now()
+WHERE id = ANY(sqlc.arg(ids)::text[]);
+
 -- name: ListDispatchableLeaves :many
 SELECT * FROM agent_goal
 WHERE lifecycle = 'pending'

@@ -15,7 +15,45 @@ type InputSpec struct {
 	Default     string `json:"default,omitempty"`
 }
 
-var inputPlaceholderRE = regexp.MustCompile(`\{\{\s*inputs\.([A-Za-z0-9_\-]+)\s*\}\}`)
+var (
+	inputPlaceholderRE = regexp.MustCompile(`\{\{\s*inputs\.([A-Za-z0-9_\-]+)\s*\}\}`)
+	inputNameRE        = regexp.MustCompile(`^[A-Za-z0-9_\-]+$`)
+)
+
+// ValidateSpecs rejects at save time input specs that could never resolve: a
+// name outside the placeholder charset is unreferencable by {{inputs.name}},
+// so the workflow would fail on every instantiation.
+func ValidateSpecs(specs []InputSpec) error {
+	seen := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		if !inputNameRE.MatchString(spec.Name) {
+			return fmt.Errorf("%w: name %q must match [A-Za-z0-9_-]+", ErrInvalidWorkflowInput, spec.Name)
+		}
+		if seen[spec.Name] {
+			return fmt.Errorf("%w: name %q duplicated", ErrInvalidWorkflowInput, spec.Name)
+		}
+		seen[spec.Name] = true
+	}
+	return nil
+}
+
+// ValidatePlaceholders checks every {{inputs.name}} referenced by the given
+// texts against the declared specs, so a typo or an undeclared input fails at
+// save time instead of on every run.
+func ValidatePlaceholders(specs []InputSpec, texts ...string) error {
+	known := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		known[spec.Name] = true
+	}
+	for _, text := range texts {
+		for _, m := range inputPlaceholderRE.FindAllStringSubmatch(text, -1) {
+			if !known[m[1]] {
+				return fmt.Errorf("%w: placeholder %q is not a declared input", ErrInvalidWorkflowInput, m[1])
+			}
+		}
+	}
+	return nil
+}
 
 func ResolveInputs(specs []InputSpec, provided map[string]string) (map[string]string, error) {
 	resolved := make(map[string]string, len(specs))
@@ -23,10 +61,10 @@ func ResolveInputs(specs []InputSpec, provided map[string]string) (map[string]st
 	for _, spec := range specs {
 		name := strings.TrimSpace(spec.Name)
 		if name == "" {
-			return nil, fmt.Errorf("workflow input: empty name")
+			return nil, fmt.Errorf("%w: empty name", ErrInvalidWorkflowInput)
 		}
 		if _, ok := known[name]; ok {
-			return nil, fmt.Errorf("workflow input %q: duplicate", name)
+			return nil, fmt.Errorf("%w: name %q duplicated", ErrInvalidWorkflowInput, name)
 		}
 		known[name] = spec
 		if spec.Default != "" {
@@ -35,14 +73,14 @@ func ResolveInputs(specs []InputSpec, provided map[string]string) (map[string]st
 	}
 	for name, value := range provided {
 		if _, ok := known[name]; !ok {
-			return nil, fmt.Errorf("workflow input %q: unknown", name)
+			return nil, fmt.Errorf("%w: %q unknown", ErrInvalidWorkflowInput, name)
 		}
 		resolved[name] = value
 	}
 	for name, spec := range known {
 		if spec.Required {
 			if _, ok := resolved[name]; !ok {
-				return nil, fmt.Errorf("workflow input %q: required", name)
+				return nil, fmt.Errorf("%w: %q required", ErrInvalidWorkflowInput, name)
 			}
 		}
 	}
@@ -97,7 +135,7 @@ func substituteText(s string, inputs map[string]string) (string, error) {
 		name := parts[1]
 		value, ok := inputs[name]
 		if !ok {
-			err = fmt.Errorf("unknown placeholder %q", name)
+			err = fmt.Errorf("%w: placeholder %q has no value", ErrInvalidWorkflowInput, name)
 			return m
 		}
 		return value
@@ -106,7 +144,7 @@ func substituteText(s string, inputs map[string]string) (string, error) {
 		return "", err
 	}
 	if strings.Contains(out, "{{inputs.") {
-		return "", fmt.Errorf("unresolved input placeholder")
+		return "", fmt.Errorf("%w: unresolved input placeholder", ErrInvalidWorkflowInput)
 	}
 	return out, nil
 }

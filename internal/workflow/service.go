@@ -33,11 +33,14 @@ var (
 	ErrWorkflowHasRuns         = errors.New("workflow has runs")
 	ErrWorkflowHasSchedulerJob = errors.New("workflow has enabled scheduler jobs")
 	ErrWorkflowVersionConflict = errors.New("workflow version conflict; retry")
+	// ErrInvalidWorkflowInput marks input errors the caller can fix (bad spec
+	// name, unknown or missing input, unresolved placeholder) -- mapped to 400.
+	ErrInvalidWorkflowInput = errors.New("invalid workflow input")
 )
 
 type GoalWriter interface {
 	CreateRoot(ctx context.Context, in goal.CreateInput) (sqlc.AgentGoal, error)
-	MaterializeFrozenLayer(ctx context.Context, parentID string, content goal.DecompositionContent) error
+	MaterializeFrozenLayer(ctx context.Context, parentID string, content goal.DecompositionContent, frozen goal.FrozenStamp) error
 	ActivateFrozenComposite(ctx context.Context, id string) error
 }
 
@@ -78,6 +81,9 @@ func (s *Service) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Ag
 	if root.ParentID.Valid || root.Kind != goal.KindComposite || root.Lifecycle != goal.LifecycleDone || root.DoneReason != goal.DoneReasonAccepted {
 		return sqlc.AgentWorkflow{}, goal.ErrInvalidTransition
 	}
+	if err := ValidateSpecs(in.Inputs); err != nil {
+		return sqlc.AgentWorkflow{}, err
+	}
 	plan, err := s.snapshot(ctx, root)
 	if err != nil {
 		return sqlc.AgentWorkflow{}, err
@@ -94,6 +100,9 @@ func (s *Service) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Ag
 	payload, err := json.Marshal(plan)
 	if err != nil {
 		return sqlc.AgentWorkflow{}, fmt.Errorf("marshal frozen plan: %w", err)
+	}
+	if err := ValidatePlaceholders(in.Inputs, string(payload), root.Intent); err != nil {
+		return sqlc.AgentWorkflow{}, err
 	}
 	ownerKind, ownerUser, ownerAgent := ownerScope(in.UserID, in.AgentID)
 	for range 3 {
@@ -309,7 +318,7 @@ func (s *Service) materializeRun(ctx context.Context, wf sqlc.AgentWorkflow, run
 			run.Status = RunMaterializing
 		}
 	}
-	if err := s.walk(ctx, run.RootGoalID.String, plan); err != nil {
+	if err := s.walk(ctx, wf, run.RootGoalID.String, plan); err != nil {
 		_ = s.q.SetWorkflowRunStatus(ctx, sqlc.SetWorkflowRunStatusParams{ID: run.ID, Status: RunFailed})
 		return sqlc.AgentWorkflowRun{}, err
 	}
@@ -346,8 +355,14 @@ func workflowRootID(runID string) string {
 
 // walk relies on MaterializeFrozenLayer writing position=i and ListGoalChildren
 // ordering by position, so children[i] corresponds to plan.Children[i].
-func (s *Service) walk(ctx context.Context, parentID string, plan FrozenPlan) error {
-	if err := s.goal.MaterializeFrozenLayer(ctx, parentID, plan.decomposition()); err != nil {
+func (s *Service) walk(ctx context.Context, wf sqlc.AgentWorkflow, parentID string, plan FrozenPlan) error {
+	frozen := goal.FrozenStamp{WorkflowID: wf.ID, WorkflowVersion: wf.Version}
+	for _, node := range plan.Children {
+		if node.Child.Kind == goal.KindComposite && node.Plan != nil {
+			frozen.ChildKeys = append(frozen.ChildKeys, node.Child.Key)
+		}
+	}
+	if err := s.goal.MaterializeFrozenLayer(ctx, parentID, plan.decomposition(), frozen); err != nil {
 		return err
 	}
 	children, err := s.q.ListGoalChildren(ctx, pgnull.Text(parentID))
@@ -358,7 +373,7 @@ func (s *Service) walk(ctx context.Context, parentID string, plan FrozenPlan) er
 		if node.Child.Kind != goal.KindComposite || node.Plan == nil || i >= len(children) {
 			continue
 		}
-		if err := s.walk(ctx, children[i].ID, *node.Plan); err != nil {
+		if err := s.walk(ctx, wf, children[i].ID, *node.Plan); err != nil {
 			return err
 		}
 		if err := s.goal.ActivateFrozenComposite(ctx, children[i].ID); err != nil {

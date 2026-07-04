@@ -11,6 +11,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/goal"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -38,8 +39,12 @@ func workflowError(w http.ResponseWriter, err error) {
 	switch {
 	case isNotFound(err):
 		writeError(w, http.StatusNotFound, "not_found")
-	case errors.Is(err, workflowpkg.ErrWorkflowHasRuns), errors.Is(err, workflowpkg.ErrWorkflowHasSchedulerJob), errors.Is(err, workflowpkg.ErrRunAlreadyFailed):
+	case errors.Is(err, workflowpkg.ErrInvalidWorkflowInput):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, workflowpkg.ErrWorkflowHasRuns), errors.Is(err, workflowpkg.ErrWorkflowHasSchedulerJob), errors.Is(err, workflowpkg.ErrRunAlreadyFailed), errors.Is(err, workflowpkg.ErrWorkflowVersionConflict):
 		writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, goal.ErrInvalidTransition):
+		writeError(w, http.StatusConflict, "goal is not an accepted root composite")
 	case errors.Is(err, pgx.ErrNoRows):
 		writeError(w, http.StatusNotFound, "not_found")
 	default:

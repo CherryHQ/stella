@@ -1401,6 +1401,29 @@ func (q *Queries) SetGoalPlan(ctx context.Context, arg SetGoalPlanParams) error 
 	return err
 }
 
+const stampGoalWorkflow = `-- name: StampGoalWorkflow :exec
+UPDATE agent_goal SET
+    workflow_id = $1::uuid,
+    workflow_version = $2::integer,
+    updated_at = now()
+WHERE id = ANY($3::text[])
+`
+
+type StampGoalWorkflowParams struct {
+	WorkflowID      string   `json:"workflow_id"`
+	WorkflowVersion int32    `json:"workflow_version"`
+	Ids             []string `json:"ids"`
+}
+
+// Mark composite children whose sub-plan is frozen by a workflow. The
+// decomposition dispatcher filters workflow_id IS NULL, so stamped children are
+// never picked up for autonomous replanning between walk transactions. Runs in
+// the same tx as the parent layer materialize so the exclusion is atomic.
+func (q *Queries) StampGoalWorkflow(ctx context.Context, arg StampGoalWorkflowParams) error {
+	_, err := q.db.Exec(ctx, stampGoalWorkflow, arg.WorkflowID, arg.WorkflowVersion, arg.Ids)
+	return err
+}
+
 const transitionGoalLifecycle = `-- name: TransitionGoalLifecycle :execrows
 UPDATE agent_goal SET
     lifecycle = $1,

@@ -100,7 +100,9 @@ export function GoalPage() {
       return data ? poll(data) : false;
     },
   });
-  const workflowId = d?.workflow_id ?? undefined;
+  // Nested frozen composites carry workflow_id too (dispatcher exclusion);
+  // the lineage badge stays a run-root affordance.
+  const workflowId = d && !d.parent_id ? (d.workflow_id ?? undefined) : undefined;
   const { data: workflow } = useQuery(workflowOptions(workflowId));
   const { data: workflowRuns = { runs: [], total: 0 } } = useQuery(
     workflowRunsOptions(workflowId, 100),

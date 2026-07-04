@@ -326,6 +326,18 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
 			return fmt.Errorf("lock goal for decomposition submit: %w", err)
 		}
+		// Re-read under the lock: a frozen workflow replay may have materialized
+		// this composite since the pre-tx read. planned_at set means a plan is
+		// already installed and children exist, so a late decomposition submit
+		// must fail closed instead of overwriting the plan and creating a second
+		// children set (child ids are content-keyed, not position-keyed).
+		cur, err := getGoal(ctx, q, parent.ID)
+		if err != nil {
+			return err
+		}
+		if cur.PlannedAt.Valid {
+			return ErrInvalidTransition
+		}
 		// Record the proposed plan on the composite.
 		if err := q.SetGoalPlan(ctx, sqlc.SetGoalPlanParams{Plan: marshalJSON(content), ID: parent.ID}); err != nil {
 			return fmt.Errorf("set goal plan: %w", err)
