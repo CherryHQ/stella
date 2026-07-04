@@ -34,6 +34,12 @@ func (v *fakeExecSecretVault) RecordExecSecretUse(_ context.Context, _ string, _
 	return nil
 }
 
+func TestNewExecSecretResolverWithoutVaultLoaderIsTrueNil(t *testing.T) {
+	if r := newExecSecretResolver(agentsandbox.Config{}); r != nil {
+		t.Fatalf("resolver = %#v, want nil interface", r)
+	}
+}
+
 func TestExecSecretResolverAuditsEachDeclaredSecret(t *testing.T) {
 	vault := &fakeExecSecretVault{}
 	resolver := &execSecretResolver{cfg: agentsandbox.Config{UserID: "user-1", AgentID: "agent-1", SessionID: "session-1", VaultEnvLoader: vault}}
