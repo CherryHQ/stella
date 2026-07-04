@@ -29,16 +29,9 @@ func (m *mockVaultStore) Delete(_ context.Context, userID string, name string) e
 	return nil
 }
 
-func (m *mockVaultStore) LoadEnv(_ context.Context, userID string) (map[string]string, error) {
-	out := make(map[string]string)
-	prefix := userID + ":"
-	for k, v := range m.data {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			name := k[len(prefix):]
-			out[name] = v
-		}
-	}
-	return out, nil
+func (m *mockVaultStore) Lookup(_ context.Context, userID string, name string) (string, bool, error) {
+	value, ok := m.data[m.key(userID, name)]
+	return value, ok, nil
 }
 
 func TestSaveLoadOAuthBundle_RoundTrip(t *testing.T) {

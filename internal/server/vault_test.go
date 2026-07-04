@@ -34,10 +34,6 @@ func (d *oidcVaultDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.L
 	return d.q.ListVaultEntriesForRuntime(ctx, arg)
 }
 
-func (d *oidcVaultDB) ListVaultEntriesForRuntimeFull(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeFullParams) ([]sqlc.VaultEntry, error) {
-	return d.q.ListVaultEntriesForRuntimeFull(ctx, arg)
-}
-
 func (d *oidcVaultDB) ListVaultEntriesDeclarableForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesDeclarableForRuntimeParams) ([]sqlc.VaultEntry, error) {
 	return d.q.ListVaultEntriesDeclarableForRuntime(ctx, arg)
 }

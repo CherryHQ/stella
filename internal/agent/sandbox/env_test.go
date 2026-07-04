@@ -35,10 +35,6 @@ func (v staticVaultEnv) LoadEnvForAgentProject(context.Context, string, string, 
 	return out, nil
 }
 
-func (v staticVaultEnv) LoadFullEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
-	return v.LoadEnvForAgentProject(ctx, userID, agentID, "")
-}
-
 type staticScopedToken struct {
 	token string
 }

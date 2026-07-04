@@ -133,11 +133,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	env := make(map[string]string)
 
 	// Group sessions never load human vault secrets (D9 isolation).
-	var vaultEnv map[string]string
 	if cfg.GroupID == "" && cfg.VaultEnvLoader != nil {
-		// vaultEnv is the full decrypted vault snapshot, retained so OAuth bundle
-		// resolution can read from it even though the sandbox-facing copy is
-		// filtered to explicitly injectable entries.
 		ve, err := cfg.VaultEnvLoader.LoadEnvForAgentProject(ctx, cfg.UserID, cfg.AgentID, cfg.ProjectID)
 		if err != nil {
 			slog.Warn("vault env injection skipped",
@@ -148,17 +144,6 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 				"error", err,
 			)
 		} else {
-			vaultEnv = ve
-			if full, err := cfg.VaultEnvLoader.LoadFullEnvForAgent(ctx, cfg.UserID, cfg.AgentID); err == nil {
-				vaultEnv = full
-			} else {
-				slog.Warn("full vault env load skipped",
-					"component", "runner_sandbox",
-					"user_id", cfg.UserID,
-					"agent_id", cfg.AgentID,
-					"error", err,
-				)
-			}
 			maps.Copy(env, ve)
 		}
 	}
@@ -170,7 +155,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	delete(env, oauth.VaultKeyLark)
 	delete(env, oauth.VaultKeyFeishu)
 	if cfg.GroupID == "" {
-		if err := injectSessionEnv(ctx, cfg, env, vaultEnv); err != nil {
+		if err := injectSessionEnv(ctx, cfg, env); err != nil {
 			return nil, err
 		}
 	}
@@ -208,9 +193,8 @@ func shouldInjectScopedToken(cfg Config) bool {
 	return cfg.TokenEnsurer != nil && hasIdentity && cfg.AgentID != ""
 }
 
-// injectSessionEnv resolves plugin SessionEnvSpecs into env. vaultEnv is the
-// decrypted vault snapshot used to read OAuth bundles without re-decrypting.
-func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, vaultEnv map[string]string) error {
+// injectSessionEnv resolves plugin SessionEnvSpecs into env.
+func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string) error {
 	// oauthBundles caches loaded bundles per provider to avoid redundant vault hits.
 	oauthBundles := make(map[string]*oauth.OAuthBundle)
 	for _, spec := range cfg.SessionEnvSpecs {
@@ -241,7 +225,7 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, va
 		bundle, ok := oauthBundles[providerID]
 		if !ok {
 			var err error
-			bundle, err = cfg.TokenManager.GetOAuthTokenFromEnv(ctx, vaultEnv, providerID, cfg.UserID)
+			bundle, err = cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID)
 			if err != nil {
 				slog.Debug("session env injection skipped",
 					"component", "runner_sandbox",

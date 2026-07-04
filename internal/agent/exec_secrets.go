@@ -10,15 +10,14 @@ import (
 )
 
 type execSecretResolver struct {
-	cfg   agentsandbox.Config
-	vault agentsandbox.VaultEnvLoader
+	cfg agentsandbox.Config
 }
 
 func newExecSecretResolver(cfg agentsandbox.Config) *execSecretResolver {
 	if cfg.VaultEnvLoader == nil {
 		return nil
 	}
-	return &execSecretResolver{cfg: cfg, vault: cfg.VaultEnvLoader}
+	return &execSecretResolver{cfg: cfg}
 }
 
 func (r *execSecretResolver) ResolveExecSecrets(ctx context.Context, names []string, command string) (map[string]string, []string, error) {
@@ -28,7 +27,7 @@ func (r *execSecretResolver) ResolveExecSecrets(ctx context.Context, names []str
 	if r.cfg.UserID == "" || r.cfg.AgentID == "" {
 		return nil, nil, fmt.Errorf("secrets require a user and agent session")
 	}
-	env, valid, err := r.vault.ResolveDeclarableEnv(ctx, r.cfg.UserID, r.cfg.AgentID, r.cfg.ProjectID, names)
+	env, valid, err := r.cfg.VaultEnvLoader.ResolveDeclarableEnv(ctx, r.cfg.UserID, r.cfg.AgentID, r.cfg.ProjectID, names)
 	if err != nil {
 		return nil, valid, err
 	}
@@ -38,7 +37,7 @@ func (r *execSecretResolver) ResolveExecSecrets(ctx context.Context, names []str
 			continue
 		}
 		seen[name] = true
-		if err := r.vault.RecordExecSecretUse(ctx, r.cfg.UserID, r.cfg.AgentID, r.cfg.SessionID, name, command); err != nil {
+		if err := r.cfg.VaultEnvLoader.RecordExecSecretUse(ctx, r.cfg.UserID, r.cfg.AgentID, r.cfg.SessionID, name, command); err != nil {
 			return nil, valid, err
 		}
 	}

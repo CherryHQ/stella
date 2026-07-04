@@ -11,29 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const deleteAllVaultEntriesByUser = `-- name: DeleteAllVaultEntriesByUser :exec
-DELETE FROM vault_entry WHERE user_id = $1
-`
-
-func (q *Queries) DeleteAllVaultEntriesByUser(ctx context.Context, userID pgtype.Text) error {
-	_, err := q.db.Exec(ctx, deleteAllVaultEntriesByUser, userID)
-	return err
-}
-
-const deleteVaultEntry = `-- name: DeleteVaultEntry :exec
-DELETE FROM vault_entry WHERE scope = 'user' AND user_id = $1 AND name = $2
-`
-
-type DeleteVaultEntryParams struct {
-	UserID pgtype.Text `json:"user_id"`
-	Name   string      `json:"name"`
-}
-
-func (q *Queries) DeleteVaultEntry(ctx context.Context, arg DeleteVaultEntryParams) error {
-	_, err := q.db.Exec(ctx, deleteVaultEntry, arg.UserID, arg.Name)
-	return err
-}
-
 const deleteVaultEntryByScope = `-- name: DeleteVaultEntryByScope :exec
 DELETE FROM vault_entry
 WHERE scope = $1
@@ -57,35 +34,6 @@ func (q *Queries) DeleteVaultEntryByScope(ctx context.Context, arg DeleteVaultEn
 		arg.Name,
 	)
 	return err
-}
-
-const getVaultEntry = `-- name: GetVaultEntry :one
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
-FROM vault_entry
-WHERE scope = 'user' AND user_id = $1 AND name = $2
-`
-
-type GetVaultEntryParams struct {
-	UserID pgtype.Text `json:"user_id"`
-	Name   string      `json:"name"`
-}
-
-func (q *Queries) GetVaultEntry(ctx context.Context, arg GetVaultEntryParams) (VaultEntry, error) {
-	row := q.db.QueryRow(ctx, getVaultEntry, arg.UserID, arg.Name)
-	var i VaultEntry
-	err := row.Scan(
-		&i.ID,
-		&i.Scope,
-		&i.UserID,
-		&i.AgentID,
-		&i.Name,
-		&i.Ciphertext,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.InjectAlways,
-		&i.Description,
-	)
-	return i, err
 }
 
 const getVaultEntryByScope = `-- name: GetVaultEntryByScope :one
@@ -144,44 +92,6 @@ type ListVaultEntriesByScopeParams struct {
 
 func (q *Queries) ListVaultEntriesByScope(ctx context.Context, arg ListVaultEntriesByScopeParams) ([]VaultEntry, error) {
 	rows, err := q.db.Query(ctx, listVaultEntriesByScope, arg.Scope, arg.UserID, arg.AgentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []VaultEntry{}
-	for rows.Next() {
-		var i VaultEntry
-		if err := rows.Scan(
-			&i.ID,
-			&i.Scope,
-			&i.UserID,
-			&i.AgentID,
-			&i.Name,
-			&i.Ciphertext,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.InjectAlways,
-			&i.Description,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVaultEntriesByUser = `-- name: ListVaultEntriesByUser :many
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
-FROM vault_entry
-WHERE scope = 'user' AND user_id = $1
-ORDER BY name
-`
-
-func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID pgtype.Text) ([]VaultEntry, error) {
-	rows, err := q.db.Query(ctx, listVaultEntriesByUser, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -315,59 +225,6 @@ type ListVaultEntriesForRuntimeParams struct {
 // Keep this precedence in sync with internal/vault envPrecedence.
 func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultEntriesForRuntimeParams) ([]VaultEntry, error) {
 	rows, err := q.db.Query(ctx, listVaultEntriesForRuntime, arg.RuntimeAgentID, arg.UserID, arg.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []VaultEntry{}
-	for rows.Next() {
-		var i VaultEntry
-		if err := rows.Scan(
-			&i.ID,
-			&i.Scope,
-			&i.UserID,
-			&i.AgentID,
-			&i.Name,
-			&i.Ciphertext,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.InjectAlways,
-			&i.Description,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVaultEntriesForRuntimeFull = `-- name: ListVaultEntriesForRuntimeFull :many
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
-FROM vault_entry
-WHERE (scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
-   OR (scope = 'system_agent' AND user_id IS NULL AND vault_entry.agent_id = $1)
-   OR (scope = 'user' AND user_id = $2 AND vault_entry.agent_id IS NULL)
-   OR (scope = 'user_agent' AND user_id = $2 AND vault_entry.agent_id = $1)
-ORDER BY CASE scope
-    WHEN 'system' THEN 1
-    WHEN 'system_agent' THEN 2
-    WHEN 'user' THEN 3
-    WHEN 'user_agent' THEN 4
-    ELSE 0
-END, name
-`
-
-type ListVaultEntriesForRuntimeFullParams struct {
-	RuntimeAgentID pgtype.Text `json:"runtime_agent_id"`
-	UserID         pgtype.Text `json:"user_id"`
-}
-
-// Keep this precedence in sync with internal/vault envPrecedence.
-func (q *Queries) ListVaultEntriesForRuntimeFull(ctx context.Context, arg ListVaultEntriesForRuntimeFullParams) ([]VaultEntry, error) {
-	rows, err := q.db.Query(ctx, listVaultEntriesForRuntimeFull, arg.RuntimeAgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}

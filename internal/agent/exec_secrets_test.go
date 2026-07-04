@@ -17,10 +17,6 @@ func (v *fakeExecSecretVault) LoadEnvForAgentProject(context.Context, string, st
 	return nil, nil
 }
 
-func (v *fakeExecSecretVault) LoadFullEnvForAgent(context.Context, string, string) (map[string]string, error) {
-	return nil, nil
-}
-
 func (v *fakeExecSecretVault) ListDeclarableForAgentProject(context.Context, string, string, string) ([]vault.DeclarableSecret, error) {
 	return nil, nil
 }
@@ -40,7 +36,7 @@ func (v *fakeExecSecretVault) RecordExecSecretUse(_ context.Context, _ string, _
 
 func TestExecSecretResolverAuditsEachDeclaredSecret(t *testing.T) {
 	vault := &fakeExecSecretVault{}
-	resolver := &execSecretResolver{cfg: agentsandbox.Config{UserID: "user-1", AgentID: "agent-1", SessionID: "session-1"}, vault: vault}
+	resolver := &execSecretResolver{cfg: agentsandbox.Config{UserID: "user-1", AgentID: "agent-1", SessionID: "session-1", VaultEnvLoader: vault}}
 
 	env, _, err := resolver.ResolveExecSecrets(context.Background(), []string{"A", "B"}, "echo ok")
 	if err != nil {
@@ -55,7 +51,7 @@ func TestExecSecretResolverAuditsEachDeclaredSecret(t *testing.T) {
 }
 
 func TestExecSecretResolverRejectsGroupSession(t *testing.T) {
-	resolver := &execSecretResolver{cfg: agentsandbox.Config{UserID: "user-1", GroupID: "group-1", AgentID: "agent-1"}, vault: &fakeExecSecretVault{}}
+	resolver := &execSecretResolver{cfg: agentsandbox.Config{UserID: "user-1", GroupID: "group-1", AgentID: "agent-1", VaultEnvLoader: &fakeExecSecretVault{}}}
 
 	_, _, err := resolver.ResolveExecSecrets(context.Background(), []string{"A"}, "echo ok")
 	if err == nil || !strings.Contains(err.Error(), "group sessions") {

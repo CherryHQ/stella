@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"filippo.io/age"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -31,7 +33,6 @@ type DB interface {
 	GetVaultEntryByScope(ctx context.Context, arg sqlc.GetVaultEntryByScopeParams) (sqlc.VaultEntry, error)
 	ListVaultEntriesByScope(ctx context.Context, arg sqlc.ListVaultEntriesByScopeParams) ([]sqlc.VaultEntry, error)
 	ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeParams) ([]sqlc.VaultEntry, error)
-	ListVaultEntriesForRuntimeFull(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeFullParams) ([]sqlc.VaultEntry, error)
 	ListVaultEntryAgentBindings(ctx context.Context, vaultEntryID string) ([]string, error)
 	ListVaultEntryProjectBindings(ctx context.Context, vaultEntryID string) ([]string, error)
 	ReplaceVaultEntryAgentBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryAgentBindingsParams) error
@@ -342,11 +343,25 @@ func (s *Service) listScoped(ctx context.Context, scope string, userID string, a
 	return s.metasFromEntries(ctx, entries), nil
 }
 
-// LoadEnv decrypts all vault entries reachable for userID without binding
-// filtering. Host-side callers (OAuth bundle resolution, token bootstrap) must
-// see unbound entries; sandbox-facing env goes through LoadEnvForAgentProject.
-func (s *Service) LoadEnv(ctx context.Context, userID string) (map[string]string, error) {
-	return s.LoadFullEnvForAgent(ctx, userID, "")
+// Lookup decrypts one user-level vault entry by name.
+func (s *Service) Lookup(ctx context.Context, userID string, name string) (string, bool, error) {
+	entry, err := s.db.GetVaultEntryByScope(ctx, sqlc.GetVaultEntryByScopeParams{
+		Scope:   ScopeUser,
+		UserID:  pgnull.Text(userID),
+		AgentID: pgnull.Text(""),
+		Name:    name,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	plaintext, err := s.decryptEntry(ctx, entry)
+	if err != nil {
+		return "", false, err
+	}
+	return plaintext, true, nil
 }
 
 // LoadEnvForAgentProject resolves runtime env in the SQL precedence order;
@@ -377,17 +392,6 @@ func (s *Service) LoadEnvForAgentProject(ctx context.Context, userID string, age
 		env[e.Name] = plaintext
 	}
 	return env, nil
-}
-
-func (s *Service) LoadFullEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
-	entries, err := s.db.ListVaultEntriesForRuntimeFull(ctx, sqlc.ListVaultEntriesForRuntimeFullParams{
-		UserID:         pgnull.Text(userID),
-		RuntimeAgentID: pgnull.Text(agentID),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("vault: load full env: list entries: %w", err)
-	}
-	return s.decryptEntries(ctx, entries), nil
 }
 
 func (s *Service) ListDeclarableForAgentProject(ctx context.Context, userID string, agentID string, projectID string) ([]DeclarableSecret, error) {
@@ -498,24 +502,6 @@ func (s *Service) declarableEntries(ctx context.Context, userID string, agentID 
 		return nil, fmt.Errorf("vault: list declarable entries: %w", err)
 	}
 	return entries, nil
-}
-
-func (s *Service) decryptEntries(ctx context.Context, entries []sqlc.VaultEntry) map[string]string {
-	env := make(map[string]string, len(entries))
-	for _, e := range entries {
-		plaintext, err := s.decryptEntry(ctx, e)
-		if err != nil {
-			slog.Warn("vault env entry skipped",
-				"component", "vault",
-				"scope", e.Scope,
-				"name", e.Name,
-				"error", err,
-			)
-			continue
-		}
-		env[e.Name] = plaintext
-	}
-	return env
 }
 
 func (s *Service) decryptEntry(ctx context.Context, entry sqlc.VaultEntry) (string, error) {

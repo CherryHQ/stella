@@ -45,10 +45,6 @@ func (d *vaultTestDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.L
 	return d.q.ListVaultEntriesForRuntime(ctx, arg)
 }
 
-func (d *vaultTestDB) ListVaultEntriesForRuntimeFull(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeFullParams) ([]sqlc.VaultEntry, error) {
-	return d.q.ListVaultEntriesForRuntimeFull(ctx, arg)
-}
-
 func (d *vaultTestDB) ListVaultEntriesDeclarableForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesDeclarableForRuntimeParams) ([]sqlc.VaultEntry, error) {
 	return d.q.ListVaultEntriesDeclarableForRuntime(ctx, arg)
 }
@@ -222,13 +218,32 @@ func TestLoadEnvDefaultNotInjected(t *testing.T) {
 	if _, ok := env["API_KEY"]; ok {
 		t.Fatal("new vault entry was injected without a binding")
 	}
-	// LoadEnv is the unfiltered host-side view (OAuth bundle resolution).
-	full, err := svc.LoadEnv(ctx, userID)
+	got, ok, err := svc.Lookup(ctx, userID, "API_KEY")
 	if err != nil {
-		t.Fatalf("LoadEnv: %v", err)
+		t.Fatalf("Lookup: %v", err)
 	}
-	if got := full["API_KEY"]; got != "sk_test_123" {
-		t.Fatalf("full env API_KEY = %q, want sk_test_123", got)
+	if !ok {
+		t.Fatal("Lookup ok = false, want true")
+	}
+	if got != "sk_test_123" {
+		t.Fatalf("Lookup API_KEY = %q, want sk_test_123", got)
+	}
+}
+
+func TestLookupAbsentReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	svc, _, userID := testService(t)
+	ctx := context.Background()
+
+	got, ok, err := svc.Lookup(ctx, userID, "API_KEY")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if ok {
+		t.Fatal("Lookup ok = true, want false")
+	}
+	if got != "" {
+		t.Fatalf("Lookup value = %q, want empty", got)
 	}
 }
 
@@ -241,9 +256,9 @@ func TestLoadEnvInjectAlways(t *testing.T) {
 	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "API_KEY", "sk_test_123", vault.SetOptions{InjectAlways: &injectAlways}); err != nil {
 		t.Fatalf("SetScopedWithOptions: %v", err)
 	}
-	env, err := svc.LoadEnv(ctx, userID)
+	env, err := svc.LoadEnvForAgentProject(ctx, userID, "", "")
 	if err != nil {
-		t.Fatalf("LoadEnv: %v", err)
+		t.Fatalf("LoadEnvForAgentProject: %v", err)
 	}
 	if got := env["API_KEY"]; got != "sk_test_123" {
 		t.Fatalf("API_KEY = %q, want sk_test_123", got)
@@ -307,9 +322,9 @@ func TestLoadEnvMigratedLegacyEntryInjected(t *testing.T) {
 	if _, err := q.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{ID: uuid.NewString(), Scope: vault.ScopeUser, UserID: sqlcNullString(userID), Name: "LEGACY_TOKEN", Ciphertext: ciphertext, InjectAlways: true}); err != nil {
 		t.Fatalf("insert legacy entry: %v", err)
 	}
-	env, err := svc.LoadEnv(ctx, userID)
+	env, err := svc.LoadEnvForAgentProject(ctx, userID, "", "")
 	if err != nil {
-		t.Fatalf("LoadEnv: %v", err)
+		t.Fatalf("LoadEnvForAgentProject: %v", err)
 	}
 	if got := env["LEGACY_TOKEN"]; got != "legacy-value" {
 		t.Fatalf("LEGACY_TOKEN = %q, want legacy-value", got)
@@ -493,9 +508,9 @@ func TestLoadEnvNoAgeKeys(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	env, err := svc.LoadEnv(ctx, user.ID)
+	env, err := svc.LoadEnvForAgentProject(ctx, user.ID, "", "")
 	if err != nil {
-		t.Fatalf("LoadEnv: %v", err)
+		t.Fatalf("LoadEnvForAgentProject: %v", err)
 	}
 	if len(env) != 0 {
 		t.Fatalf("LoadEnv got %d entries, want 0", len(env))

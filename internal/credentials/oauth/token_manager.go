@@ -30,13 +30,3 @@ func (m *TokenManager) GetOAuthToken(ctx context.Context, providerID string, use
 	}
 	return m.registry.GetToken(ctx, m.vs, providerID, userID)
 }
-
-// GetOAuthTokenFromEnv is like GetOAuthToken but reads the bundle from an
-// already-decrypted vault snapshot instead of decrypting the vault again.
-// Used by the sandbox env path, which has already loaded the full vault.
-func (m *TokenManager) GetOAuthTokenFromEnv(ctx context.Context, env map[string]string, providerID string, userID string) (*OAuthBundle, error) {
-	if m.registry == nil {
-		return nil, fmt.Errorf("oauth: provider registry not set")
-	}
-	return m.registry.GetTokenFromEnv(ctx, m.vs, env, providerID, userID)
-}

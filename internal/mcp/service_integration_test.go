@@ -47,10 +47,6 @@ func (d *vaultDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.ListV
 	return d.q.ListVaultEntriesForRuntime(ctx, arg)
 }
 
-func (d *vaultDB) ListVaultEntriesForRuntimeFull(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeFullParams) ([]sqlc.VaultEntry, error) {
-	return d.q.ListVaultEntriesForRuntimeFull(ctx, arg)
-}
-
 func (d *vaultDB) ListVaultEntryAgentBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
 	return d.q.ListVaultEntryAgentBindings(ctx, vaultEntryID)
 }

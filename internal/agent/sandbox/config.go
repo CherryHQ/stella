@@ -10,15 +10,11 @@ import (
 )
 
 // VaultEnvLoader is the vault surface an agent session needs: binding-filtered
-// env for session start, the full snapshot for host-side OAuth resolution, and
-// the declarable exec-time secret flow. Implemented by *vault.Service.
+// env for session start and the declarable exec-time secret flow. Implemented by *vault.Service.
 type VaultEnvLoader interface {
 	// LoadEnvForAgentProject returns the binding-filtered env for a session
 	// (projectID may be empty for agent-only sessions).
 	LoadEnvForAgentProject(ctx context.Context, userID string, agentID string, projectID string) (map[string]string, error)
-	// LoadFullEnvForAgent returns the unfiltered snapshot; host-side only,
-	// never handed to the sandbox.
-	LoadFullEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
 	ListDeclarableForAgentProject(ctx context.Context, userID string, agentID string, projectID string) ([]vault.DeclarableSecret, error)
 	ResolveDeclarableEnv(ctx context.Context, userID string, agentID string, projectID string, names []string) (map[string]string, []string, error)
 	RecordExecSecretUse(ctx context.Context, userID string, agentID string, sessionID string, name string, command string) error

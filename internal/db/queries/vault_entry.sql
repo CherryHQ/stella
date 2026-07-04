@@ -1,9 +1,3 @@
--- name: ListVaultEntriesByUser :many
-SELECT *
-FROM vault_entry
-WHERE scope = 'user' AND user_id = $1
-ORDER BY name;
-
 -- name: ListVaultEntriesByScope :many
 SELECT *
 FROM vault_entry
@@ -41,22 +35,6 @@ ORDER BY CASE scope
     ELSE 0
 END, name;
 
--- name: ListVaultEntriesForRuntimeFull :many
-SELECT *
-FROM vault_entry
-WHERE (scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
-   OR (scope = 'system_agent' AND user_id IS NULL AND vault_entry.agent_id = sqlc.arg(runtime_agent_id))
-   OR (scope = 'user' AND user_id = sqlc.arg(user_id) AND vault_entry.agent_id IS NULL)
-   OR (scope = 'user_agent' AND user_id = sqlc.arg(user_id) AND vault_entry.agent_id = sqlc.arg(runtime_agent_id))
--- Keep this precedence in sync with internal/vault envPrecedence.
-ORDER BY CASE scope
-    WHEN 'system' THEN 1
-    WHEN 'system_agent' THEN 2
-    WHEN 'user' THEN 3
-    WHEN 'user_agent' THEN 4
-    ELSE 0
-END, name;
-
 -- name: ListVaultEntriesDeclarableForRuntime :many
 SELECT *
 FROM vault_entry
@@ -85,11 +63,6 @@ ORDER BY CASE scope
     ELSE 0
 END, name;
 
--- name: GetVaultEntry :one
-SELECT *
-FROM vault_entry
-WHERE scope = 'user' AND user_id = $1 AND name = $2;
-
 -- name: GetVaultEntryByScope :one
 SELECT *
 FROM vault_entry
@@ -108,18 +81,12 @@ ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), nam
     updated_at = now()
 RETURNING *;
 
--- name: DeleteVaultEntry :exec
-DELETE FROM vault_entry WHERE scope = 'user' AND user_id = $1 AND name = $2;
-
 -- name: DeleteVaultEntryByScope :exec
 DELETE FROM vault_entry
 WHERE scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
   AND name = sqlc.arg(name);
-
--- name: DeleteAllVaultEntriesByUser :exec
-DELETE FROM vault_entry WHERE user_id = $1;
 
 -- name: ListVaultEntryAgentBindings :many
 SELECT agent_id
