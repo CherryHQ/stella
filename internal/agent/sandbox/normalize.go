@@ -1,4 +1,4 @@
-package tools
+package sandbox
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/CherryHQ/stella/pkg/sandbox"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -26,7 +26,7 @@ func newToolNormalizer() *toolNormalizer {
 	}
 }
 
-func (n *toolNormalizer) NormalizeExec(result sandbox.ExecResult, elapsed time.Duration) toolNormalizeResult {
+func (n *toolNormalizer) NormalizeExec(result pkgsandbox.ExecResult, elapsed time.Duration) toolNormalizeResult {
 	output := result.Stdout
 	if result.Stderr != "" {
 		if output != "" {

@@ -1,3 +1,5 @@
+// Package sandbox resolves an agent's sandbox config into a live session and
+// provides that session's agent-facing tool projections (bash, read, write, edit).
 package sandbox
 
 import (

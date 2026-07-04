@@ -1,4 +1,4 @@
-package tools
+package sandbox
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/CherryHQ/stella/pkg/sandbox"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -26,12 +26,12 @@ func editDefinition() pkgtools.Definition {
 	}
 }
 
-func newEditTool(host sandbox.Host, projectRoot string) pkgtools.Tool {
+func newEditTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
 	return &hostEditTool{host: host, projectRoot: projectRoot}
 }
 
 type hostEditTool struct {
-	host        sandbox.Host
+	host        pkgsandbox.Host
 	projectRoot string
 }
 

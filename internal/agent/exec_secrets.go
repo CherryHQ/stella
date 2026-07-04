@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/internal/tools"
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
@@ -17,7 +16,7 @@ type execSecretResolver struct {
 // newExecSecretResolver returns the interface type so a session without a
 // vault loader yields a true nil: returning a nil *execSecretResolver would
 // survive the caller's interface nil check and panic on first use.
-func newExecSecretResolver(cfg agentsandbox.Config) tools.ExecSecretResolver {
+func newExecSecretResolver(cfg agentsandbox.Config) agentsandbox.ExecSecretResolver {
 	if cfg.VaultEnvLoader == nil {
 		return nil
 	}

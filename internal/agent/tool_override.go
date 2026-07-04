@@ -1,6 +1,10 @@
 package agent
 
-import "context"
+import (
+	"context"
+
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
+)
 
 const (
 	ToolOverrideScopeSystem      = "system"
@@ -25,13 +29,17 @@ type ToolOverrideDecision struct {
 
 type ToolOverrideFetcher func(ctx context.Context, userID, agentID string) ([]ToolOverride, error)
 
-func IsCoreToolName(name string) bool {
-	switch name {
-	case "bash", "read", "write", "edit":
-		return true
-	default:
-		return false
+var coreToolNames = func() map[string]struct{} {
+	m := make(map[string]struct{}, 4)
+	for _, d := range sandbox.ToolDefinitions() {
+		m[d.Name] = struct{}{}
 	}
+	return m
+}()
+
+func IsCoreToolName(name string) bool {
+	_, ok := coreToolNames[name]
+	return ok
 }
 
 func ResolveToolOverride(defaultEnabled bool, toolName string, rows []ToolOverride) ToolOverrideDecision {

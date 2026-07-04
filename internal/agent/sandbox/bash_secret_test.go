@@ -1,4 +1,4 @@
-package tools
+package sandbox
 
 import (
 	"context"
@@ -6,21 +6,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/pkg/sandbox"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 type secretCaptureSession struct {
-	sandbox.Session
+	pkgsandbox.Session
 	lastEnv map[string]string
-	result  sandbox.ExecResult
+	result  pkgsandbox.ExecResult
 }
 
-func (s *secretCaptureSession) Exec(_ context.Context, _ string, opts sandbox.ExecOptions) (sandbox.ExecResult, error) {
+func (s *secretCaptureSession) Exec(_ context.Context, _ string, opts pkgsandbox.ExecOptions) (pkgsandbox.ExecResult, error) {
 	s.lastEnv = opts.Env
 	if s.result.Stdout != "" || s.result.Stderr != "" || s.result.ExitCode != 0 {
 		return s.result, nil
 	}
-	return sandbox.ExecResult{Stdout: opts.Env["API_KEY"], ExitCode: 0}, nil
+	return pkgsandbox.ExecResult{Stdout: opts.Env["API_KEY"], ExitCode: 0}, nil
 }
 
 type fakeSecretResolver struct {
@@ -43,7 +43,7 @@ func (r *fakeSecretResolver) DeclarableSecretNames(context.Context) ([]string, e
 }
 
 func TestBashDeclaredSecretInjectedOnlyIntoExecEnv(t *testing.T) {
-	session := &secretCaptureSession{Session: sandbox.NopSession()}
+	session := &secretCaptureSession{Session: pkgsandbox.NopSession()}
 	resolver := &fakeSecretResolver{env: map[string]string{"API_KEY": "secret-value"}}
 	tool := newBashTool(session, "", "", resolver)
 
@@ -62,7 +62,7 @@ func TestBashDeclaredSecretInjectedOnlyIntoExecEnv(t *testing.T) {
 }
 
 func TestBashDeclaredSecretValueRedactedFromResult(t *testing.T) {
-	session := &secretCaptureSession{Session: sandbox.NopSession()}
+	session := &secretCaptureSession{Session: pkgsandbox.NopSession()}
 	resolver := &fakeSecretResolver{env: map[string]string{"API_KEY": "secret-value"}}
 	tool := newBashTool(session, "", "", resolver)
 
@@ -76,7 +76,7 @@ func TestBashDeclaredSecretValueRedactedFromResult(t *testing.T) {
 }
 
 func TestBashNonDeclarableSecretFailsWithNamesOnly(t *testing.T) {
-	session := &secretCaptureSession{Session: sandbox.NopSession()}
+	session := &secretCaptureSession{Session: pkgsandbox.NopSession()}
 	resolver := &fakeSecretResolver{valid: []string{"OK_KEY"}, err: errors.New("vault: secret \"BAD_KEY\" is not declarable")}
 	tool := newBashTool(session, "", "", resolver)
 
@@ -97,7 +97,7 @@ func TestBashNonDeclarableSecretFailsWithNamesOnly(t *testing.T) {
 }
 
 func TestBashFailedCommandHintsUndeclaredDeclarableSecret(t *testing.T) {
-	session := &secretCaptureSession{Session: sandbox.NopSession(), result: sandbox.ExecResult{Stderr: "missing token", ExitCode: 1}}
+	session := &secretCaptureSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stderr: "missing token", ExitCode: 1}}
 	resolver := &fakeSecretResolver{declarable: []string{"OTHER", "TEST_TOKEN"}}
 	tool := newBashTool(session, "", "", resolver)
 
@@ -111,7 +111,7 @@ func TestBashFailedCommandHintsUndeclaredDeclarableSecret(t *testing.T) {
 }
 
 func TestBashFailedCommandWithoutSecretReferenceDoesNotHint(t *testing.T) {
-	session := &secretCaptureSession{Session: sandbox.NopSession(), result: sandbox.ExecResult{Stderr: "nope", ExitCode: 1}}
+	session := &secretCaptureSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stderr: "nope", ExitCode: 1}}
 	resolver := &fakeSecretResolver{declarable: []string{"TEST_TOKEN"}}
 	tool := newBashTool(session, "", "", resolver)
 
@@ -125,7 +125,7 @@ func TestBashFailedCommandWithoutSecretReferenceDoesNotHint(t *testing.T) {
 }
 
 func TestBashSuccessfulCommandReferencingSecretDoesNotHint(t *testing.T) {
-	session := &secretCaptureSession{Session: sandbox.NopSession(), result: sandbox.ExecResult{Stdout: "ok", ExitCode: 0}}
+	session := &secretCaptureSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stdout: "ok", ExitCode: 0}}
 	resolver := &fakeSecretResolver{declarable: []string{"TEST_TOKEN"}}
 	tool := newBashTool(session, "", "", resolver)
 
@@ -139,7 +139,7 @@ func TestBashSuccessfulCommandReferencingSecretDoesNotHint(t *testing.T) {
 }
 
 func TestBashFailedCommandWithDeclaredSecretDoesNotHint(t *testing.T) {
-	session := &secretCaptureSession{Session: sandbox.NopSession(), result: sandbox.ExecResult{Stderr: "nope", ExitCode: 1}}
+	session := &secretCaptureSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stderr: "nope", ExitCode: 1}}
 	resolver := &fakeSecretResolver{env: map[string]string{"TEST_TOKEN": "secret-value"}, declarable: []string{"TEST_TOKEN"}}
 	tool := newBashTool(session, "", "", resolver)
 
@@ -153,7 +153,7 @@ func TestBashFailedCommandWithDeclaredSecretDoesNotHint(t *testing.T) {
 }
 
 func TestBashUndeclaredSecretHintChecksVariableBoundary(t *testing.T) {
-	session := &secretCaptureSession{Session: sandbox.NopSession(), result: sandbox.ExecResult{Stderr: "nope", ExitCode: 1}}
+	session := &secretCaptureSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stderr: "nope", ExitCode: 1}}
 	resolver := &fakeSecretResolver{declarable: []string{"TEST_TOKEN"}}
 	tool := newBashTool(session, "", "", resolver)
 

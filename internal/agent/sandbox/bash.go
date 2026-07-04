@@ -1,4 +1,4 @@
-package tools
+package sandbox
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/pkg/sandbox"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -36,12 +36,12 @@ type ExecSecretResolver interface {
 	DeclarableSecretNames(ctx context.Context) ([]string, error)
 }
 
-func newBashTool(host sandbox.Host, toolsBinDir, projectRoot string, secretResolver ExecSecretResolver) pkgtools.Tool {
+func newBashTool(host pkgsandbox.Host, toolsBinDir, projectRoot string, secretResolver ExecSecretResolver) pkgtools.Tool {
 	return &hostBashTool{host: host, normalizer: newToolNormalizer(), toolsBinDir: toolsBinDir, projectRoot: projectRoot, secretResolver: secretResolver}
 }
 
 type hostBashTool struct {
-	host           sandbox.Host
+	host           pkgsandbox.Host
 	normalizer     *toolNormalizer
 	toolsBinDir    string
 	projectRoot    string
@@ -91,7 +91,7 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	// runs `stella task/goal/recally create`, the command announces the new
 	// entity on stderr so the chat can render a rich card instead of a UUID.
 	env["STELLA_RENDERABLE_REFS"] = "1"
-	execOpts := sandbox.ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second, Env: env}
+	execOpts := pkgsandbox.ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second, Env: env}
 	if t.projectRoot != "" {
 		execOpts.Cwd = t.projectRoot
 	}

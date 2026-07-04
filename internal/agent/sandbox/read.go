@@ -1,4 +1,4 @@
-package tools
+package sandbox
 
 import (
 	"bytes"
@@ -20,7 +20,7 @@ import (
 	_ "golang.org/x/image/webp" // register webp decoder for image.Decode
 
 	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/sandbox"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -56,12 +56,12 @@ func readDefinition() pkgtools.Definition {
 	}
 }
 
-func newReadTool(host sandbox.Host, projectRoot string) pkgtools.Tool {
+func newReadTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
 	return &hostReadTool{host: host, projectRoot: projectRoot}
 }
 
 type hostReadTool struct {
-	host        sandbox.Host
+	host        pkgsandbox.Host
 	projectRoot string
 }
 

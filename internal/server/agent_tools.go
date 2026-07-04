@@ -8,7 +8,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
-	coretools "github.com/CherryHQ/stella/internal/tools"
+	coretools "github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -107,7 +107,7 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 	}
 
 	items := make([]types.AgentTool, 0)
-	for _, def := range coretools.Definitions() {
+	for _, def := range coretools.ToolDefinitions() {
 		items = append(items, types.AgentTool{
 			Name: def.Name, Description: def.Description,
 			Source: agentToolSourceCore, Enabled: true, Origin: agent.ToolOverrideOriginDefault,
