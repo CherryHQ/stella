@@ -36,8 +36,8 @@ func (s *Service) Files() *FileManager { return s.files }
 // Recally is deliberately user-owned, not agent-scoped: a user's reading
 // library is shared across all of their agents.
 func userID(ident toolctx.Identity) (string, error) {
-	if ident.UserID == "" {
-		return "", toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return "", err
 	}
 	return ident.UserID, nil
 }

@@ -12,7 +12,6 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/goal"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -59,8 +58,7 @@ func (s *Server) SaveGoalAsWorkflow(w http.ResponseWriter, r *http.Request, id s
 	if !ok {
 		return
 	}
-	agentID, _, scoped := info.scopedBoundary()
-	goalRow, ok := s.loadGoal(r.Context(), w, toolctx.Identity{UserID: info.UserID, AgentID: agentID, AgentScoped: scoped}, id)
+	goalRow, ok := s.loadGoal(r.Context(), w, toolIdentity(info), id)
 	if !ok {
 		return
 	}

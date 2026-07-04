@@ -411,6 +411,27 @@ func (s *Service) StatusesOwned(ctx context.Context, ident toolctx.Identity) ([]
 	return s.GetProviderStatuses(ctx, ident.UserID), nil
 }
 
+func (s *Service) AnyProviderConfigured(ctx context.Context, userID string) (bool, error) {
+	if s.registry == nil {
+		return false, nil
+	}
+	for _, provider := range s.registry.IDs() {
+		providerCfg, ok := s.registry.Get(provider)
+		if !ok {
+			continue
+		}
+		if providerCfg.ClientID != "" {
+			return true, nil
+		}
+		if s.q != nil {
+			if cfg, err := s.q.GetAuthOAuthProvider(ctx, provider); err == nil && cfg.ClientID != "" {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 func (s *Service) getProviderStatus(ctx context.Context, userID string, provider string) ProviderStatus {
 	ps := ProviderStatus{Provider: provider}
 

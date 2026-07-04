@@ -137,8 +137,8 @@ func (s *Service) loadAccount(ctx context.Context, ident toolctx.Identity, name 
 }
 
 func (s *Service) loadConfig(ctx context.Context, ident toolctx.Identity) (*Config, error) {
-	if ident.UserID == "" {
-		return nil, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return nil, err
 	}
 	if s == nil || s.vaultSvc == nil {
 		return nil, fmt.Errorf("vault not configured")

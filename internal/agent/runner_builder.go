@@ -35,15 +35,7 @@ type DomainToolMount struct {
 }
 
 func DomainToolAvailable(params RunnerParams) bool {
-	if params.UserID == "" || params.AgentID == "" {
-		return false
-	}
-	for _, tool := range params.ExtraTools {
-		if tool != nil && tool.Definition().Name == "goal_control" {
-			return false
-		}
-	}
-	return true
+	return params.UserID != "" && params.AgentID != ""
 }
 
 func domainToolMountEnabled(ctx context.Context, mount DomainToolMount, params RunnerParams) bool {
@@ -224,14 +216,24 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		runnerTools := append([]tools.Tool{}, cfg.BuiltinTools...)
 		runnerTools = append(runnerTools, params.ExtraTools...)
-		for _, mount := range cfg.DomainToolMounts {
-			if mount.Tool == nil {
-				return nil, fmt.Errorf("domain tool %q is nil", mount.Name)
+		workerDispatch := false
+		for _, tool := range params.ExtraTools {
+			if tool != nil && tool.Definition().Name == "goal_control" {
+				workerDispatch = true
+				break
 			}
-			if !domainToolMountEnabled(ctx, mount, params) {
-				continue
+		}
+		// Worker dispatch sessions get core tools + goal_control only.
+		if !workerDispatch {
+			for _, mount := range cfg.DomainToolMounts {
+				if mount.Tool == nil {
+					return nil, fmt.Errorf("domain tool %q is nil", mount.Name)
+				}
+				if !domainToolMountEnabled(ctx, mount, params) {
+					continue
+				}
+				runnerTools = append(runnerTools, mount.Tool)
 			}
-			runnerTools = append(runnerTools, mount.Tool)
 		}
 		if cfg.SkillStore != nil {
 			// User skills live under the shared user-data root (mounted as /user); the

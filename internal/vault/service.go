@@ -458,8 +458,8 @@ func metasFromEntries(entries []sqlc.VaultEntry) []EntryMeta {
 }
 
 func ownedScope(ident toolctx.Identity, scope string) (ResolvedScope, error) {
-	if ident.UserID == "" {
-		return ResolvedScope{}, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return ResolvedScope{}, err
 	}
 	if scope == "" {
 		scope = ScopeUser

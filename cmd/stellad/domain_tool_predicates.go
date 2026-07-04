@@ -7,7 +7,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/credentials"
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
@@ -16,7 +15,7 @@ type emailConfigMetaGetter interface {
 }
 
 type oauthProviderStatusGetter interface {
-	GetProviderStatuses(ctx context.Context, userID string) []credentials.ProviderStatus
+	AnyProviderConfigured(ctx context.Context, userID string) (bool, error)
 }
 
 func emailToolAvailable(v emailConfigMetaGetter) func(context.Context, agent.RunnerParams) bool {
@@ -46,11 +45,10 @@ func oauthToolAvailable(s oauthProviderStatusGetter) func(context.Context, agent
 		if s == nil {
 			return true
 		}
-		for _, status := range s.GetProviderStatuses(ctx, params.UserID) {
-			if status.Configured {
-				return true
-			}
+		configured, err := s.AnyProviderConfigured(ctx, params.UserID)
+		if err != nil {
+			return true
 		}
-		return false
+		return configured
 	}
 }

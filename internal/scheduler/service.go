@@ -17,6 +17,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/toolctx"
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -337,6 +338,21 @@ func (s *Service) ScheduleEvery(ctx context.Context, every string, fn TaskFunc) 
 	return nil
 }
 
+type addJobSpec struct {
+	Name           string
+	Message        string
+	Schedule       Schedule
+	SessionMode    string
+	AgentID        string
+	UserID         string
+	OwnerKind      string
+	ExecScope      string
+	DispatchKind   string
+	Payload        map[string]any
+	IdempotencyKey string
+	Enabled        bool
+}
+
 // AddJobForContext creates a user-owned job bound to the current execution context.
 func (s *Service) AddJobForContext(ctx context.Context, name, message string, sched Schedule, sessionMode string) (Job, error) {
 	userID := memory.UserIDFromContext(ctx)
@@ -345,7 +361,7 @@ func (s *Service) AddJobForContext(ctx context.Context, name, message string, sc
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope, DispatchKindChat, nil, "")
+	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
 }
 
 // AddJobWithOwner creates a user-owned job with explicit owner parameters.
@@ -354,7 +370,7 @@ func (s *Service) AddJobWithOwner(name, message string, sched Schedule, sessionM
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope, DispatchKindChat, nil, "")
+	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
 }
 
 func (s *Service) AddJobWithOwnerIdempotency(name, message string, sched Schedule, sessionMode, agentID string, userID string, idempotencyKey string) (Job, error) {
@@ -362,7 +378,7 @@ func (s *Service) AddJobWithOwnerIdempotency(name, message string, sched Schedul
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope, DispatchKindChat, nil, idempotencyKey)
+	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: true})
 }
 
 func (s *Service) AddWorkflowJobWithOwner(ctx context.Context, name string, sched Schedule, sessionMode, agentID string, userID string, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
@@ -374,52 +390,52 @@ func (s *Service) AddWorkflowJobWithOwner(ctx context.Context, name string, sche
 	if allowReplan {
 		payload["allow_replan"] = true
 	}
-	return s.addJobInternal(name, "", sched, sessionMode, agentID, userID, JobOwnerUser, execScope, DispatchKindWorkflow, payload, "")
+	return s.addJobInternal(addJobSpec{Name: name, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindWorkflow, Payload: payload, Enabled: true})
 }
 
-func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMode, agentID string, userID string, ownerKind, execScope string, dispatchKind string, payload map[string]any, idempotencyKey string) (Job, error) {
-	if name == "" {
+func (s *Service) addJobInternal(spec addJobSpec) (Job, error) {
+	if spec.Name == "" {
 		return Job{}, fmt.Errorf("name is required")
 	}
-	if dispatchKind == "" {
-		dispatchKind = DispatchKindChat
+	if spec.DispatchKind == "" {
+		spec.DispatchKind = DispatchKindChat
 	}
-	payload = clonePayload(payload)
-	if err := s.validateDispatch(s.ctx, dispatchKind, message, ownerKind, userID, agentID, payload); err != nil {
+	payload := clonePayload(spec.Payload)
+	if err := s.validateDispatch(s.ctx, spec.DispatchKind, spec.Message, spec.OwnerKind, spec.UserID, spec.AgentID, payload); err != nil {
 		return Job{}, err
 	}
-	if err := validateSchedule(sched); err != nil {
+	if err := validateSchedule(spec.Schedule); err != nil {
 		return Job{}, err
 	}
 	// Reject non-system jobs whose name collides with a registered builtin or
 	// template. Otherwise the user's prompt would be silently dropped at
 	// dispatch time — the handler-mode router keys on Name alone.
-	if ownerKind != JobOwnerSystem && s.nameIsReservedBuiltin(name) {
-		return Job{}, fmt.Errorf("job name %q is reserved for a builtin", name)
+	if spec.OwnerKind != JobOwnerSystem && s.nameIsReservedBuiltin(spec.Name) {
+		return Job{}, fmt.Errorf("job name %q is reserved for a builtin", spec.Name)
 	}
 
-	if sessionMode == "" {
-		sessionMode = SessionReuse
+	if spec.SessionMode == "" {
+		spec.SessionMode = SessionReuse
 	}
-	if sessionMode != SessionReuse && sessionMode != SessionNew {
-		return Job{}, fmt.Errorf("invalid session_mode %q: must be %q or %q", sessionMode, SessionReuse, SessionNew)
+	if spec.SessionMode != SessionReuse && spec.SessionMode != SessionNew {
+		return Job{}, fmt.Errorf("invalid session_mode %q: must be %q or %q", spec.SessionMode, SessionReuse, SessionNew)
 	}
 
 	now := time.Now().UTC()
 	job := Job{
 		ID:             uuid.New().String()[:8],
-		OwnerKind:      ownerKind,
-		ExecScope:      normalizeExecScope(execScope),
-		Name:           name,
-		Schedule:       sched,
-		Message:        message,
+		OwnerKind:      spec.OwnerKind,
+		ExecScope:      normalizeExecScope(spec.ExecScope),
+		Name:           spec.Name,
+		Schedule:       spec.Schedule,
+		Message:        spec.Message,
 		Payload:        payload,
-		DispatchKind:   dispatchKind,
-		SessionMode:    sessionMode,
-		Enabled:        true,
-		AgentID:        agentID,
-		UserID:         userID,
-		IdempotencyKey: idempotencyKey,
+		DispatchKind:   spec.DispatchKind,
+		SessionMode:    spec.SessionMode,
+		Enabled:        spec.Enabled,
+		AgentID:        spec.AgentID,
+		UserID:         spec.UserID,
+		IdempotencyKey: spec.IdempotencyKey,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
@@ -431,7 +447,7 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 		return Job{}, err
 	}
 
-	s.log.Info("job added", "id", job.ID, "name", name, "exec_scope", execScope, "agent_id", agentID, "user_id", userID)
+	s.log.Info("job added", "id", job.ID, "name", spec.Name, "exec_scope", spec.ExecScope, "agent_id", spec.AgentID, "user_id", spec.UserID)
 	return job, nil
 }
 
@@ -627,7 +643,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		return j, nil
 	}
 	s.mu.Unlock()
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, "", JobOwnerSystem, execScope, DispatchKindChat, nil, "")
+	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, OwnerKind: JobOwnerSystem, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
 }
 
 // ListJobs returns all jobs.
@@ -642,51 +658,68 @@ func (s *Service) ListJobs() []Job {
 }
 
 func (s *Service) CreateJobOwned(ctx context.Context, ident toolctx.Identity, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string) (Job, error) {
-	if ident.UserID == "" {
-		return Job{}, toolctx.ErrUnauthenticated
+	return s.createJobOwned(ctx, ident, name, message, sched, sessionMode, agentID, idempotencyKey, true)
+}
+
+func (s *Service) CreateJobOwnedWithEnabled(ctx context.Context, ident toolctx.Identity, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string, enabled bool) (Job, error) {
+	return s.createJobOwned(ctx, ident, name, message, sched, sessionMode, agentID, idempotencyKey, enabled)
+}
+
+func (s *Service) createJobOwned(ctx context.Context, ident toolctx.Identity, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string, enabled bool) (Job, error) {
+	if err := ident.RequireUser(); err != nil {
+		return Job{}, err
 	}
-	if ident.AgentScoped && agentID != ident.AgentID {
-		return Job{}, toolctx.ErrForbidden
+	if err := ident.RequireAgentMatch(agentID); err != nil {
+		return Job{}, err
 	}
 	if idempotencyKey != "" {
-		row, err := s.q.GetSchedulerJobByIdempotencyKey(ctx, sqlc.GetSchedulerJobByIdempotencyKeyParams{UserID: pgtype.Text{String: ident.UserID, Valid: true}, IdempotencyKey: pgtype.Text{String: idempotencyKey, Valid: true}})
+		row, err := s.q.GetSchedulerJobByIdempotencyKey(ctx, sqlc.GetSchedulerJobByIdempotencyKeyParams{UserID: pgnull.Text(ident.UserID), IdempotencyKey: pgnull.Text(idempotencyKey)})
 		if err == nil {
-			return dbRowToJob(row), nil
+			job := dbRowToJob(row)
+			if !enabled {
+				return s.SetJobEnabledOwned(ctx, ident, agentID, job.ID, false)
+			}
+			return job, nil
 		}
 	}
-	return s.AddJobWithOwnerIdempotency(name, message, sched, sessionMode, agentID, ident.UserID, idempotencyKey)
+	execScope := ExecScopeSystem
+	if ident.UserID != "" {
+		execScope = ExecScopeUser
+	}
+	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: ident.UserID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: enabled})
 }
 
 func (s *Service) CreateWorkflowJobOwned(ctx context.Context, ident toolctx.Identity, name string, sched Schedule, sessionMode, agentID string, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
-	if ident.UserID == "" {
-		return Job{}, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return Job{}, err
 	}
-	if ident.AgentScoped && agentID != ident.AgentID {
-		return Job{}, toolctx.ErrForbidden
+	if err := ident.RequireAgentMatch(agentID); err != nil {
+		return Job{}, err
 	}
 	return s.AddWorkflowJobWithOwner(ctx, name, sched, sessionMode, agentID, ident.UserID, workflowID, inputs, allowReplan)
 }
 
 func (s *Service) SubscribeOwned(ctx context.Context, ident toolctx.Identity, agentID, key string, schedOverride Schedule) (Job, error) {
-	if ident.UserID == "" {
-		return Job{}, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return Job{}, err
 	}
-	if ident.AgentScoped && agentID != ident.AgentID {
-		return Job{}, toolctx.ErrForbidden
+	if err := ident.RequireAgentMatch(agentID); err != nil {
+		return Job{}, err
 	}
 	return s.Subscribe(ctx, ident.UserID, agentID, key, schedOverride)
 }
 
 func (s *Service) ListJobsOwned(ctx context.Context, ident toolctx.Identity, agentID string) ([]Job, error) {
-	if ident.UserID == "" {
-		return nil, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return nil, err
 	}
-	if ident.AgentScoped && agentID != ident.AgentID {
-		return nil, toolctx.ErrForbidden
+	resolvedAgentID, err := ident.ResolveAgentScope(agentID)
+	if err != nil {
+		return nil, err
 	}
 	rows, err := s.q.ListSchedulerJobByOwner(ctx, sqlc.ListSchedulerJobByOwnerParams{
-		AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
-		UserID:  pgtype.Text{String: ident.UserID, Valid: true},
+		AgentID: pgnull.Text(resolvedAgentID),
+		UserID:  pgnull.Text(ident.UserID),
 	})
 	if err != nil {
 		return nil, err
@@ -699,8 +732,8 @@ func (s *Service) ListJobsOwned(ctx context.Context, ident toolctx.Identity, age
 }
 
 func (s *Service) GetJobOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string) (Job, error) {
-	if ident.UserID == "" {
-		return Job{}, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return Job{}, err
 	}
 	row, err := s.q.GetSchedulerJob(ctx, jobID)
 	if err != nil {

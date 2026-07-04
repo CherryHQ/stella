@@ -51,7 +51,7 @@ func TestDomainToolAvailable(t *testing.T) {
 		{name: "user and agent", p: RunnerParams{UserID: "u1", AgentID: "a1"}, want: true},
 		{name: "group no user", p: RunnerParams{AgentID: "a1", GroupID: "g1"}, want: false},
 		{name: "no agent", p: RunnerParams{UserID: "u1"}, want: false},
-		{name: "goal worker", p: RunnerParams{UserID: "u1", AgentID: "a1", ExtraTools: []tools.Tool{namedTool("goal_control")}}, want: false},
+		{name: "goal worker still has user and agent", p: RunnerParams{UserID: "u1", AgentID: "a1", ExtraTools: []tools.Tool{namedTool("goal_control")}}, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

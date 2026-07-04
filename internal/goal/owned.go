@@ -25,10 +25,6 @@ type GoalFilter struct {
 	Archived   bool
 }
 
-func (f GoalFilter) includeArchived() bool {
-	return f.Archived
-}
-
 func (f GoalFilter) terminalArg() pgtype.Bool {
 	if f.Terminal == nil {
 		return pgtype.Bool{}
@@ -37,18 +33,14 @@ func (f GoalFilter) terminalArg() pgtype.Bool {
 }
 
 func (s *Service) ListGoalsOwned(ctx context.Context, ident toolctx.Identity, filter GoalFilter, limit, offset int64) ([]sqlc.AgentGoal, error) {
-	if ident.UserID == "" {
-		return nil, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return nil, err
 	}
-	if ident.AgentScoped {
-		if ident.AgentID == "" {
-			return nil, toolctx.ErrForbidden
-		}
-		if filter.AgentID != "" && filter.AgentID != ident.AgentID {
-			return nil, toolctx.ErrForbidden
-		}
-		filter.AgentID = ident.AgentID
+	agentID, err := ident.ResolveAgentScope(filter.AgentID)
+	if err != nil {
+		return nil, err
 	}
+	filter.AgentID = agentID
 	if limit <= 0 {
 		limit = 50
 	}
@@ -60,15 +52,15 @@ func (s *Service) ListGoalsOwned(ctx context.Context, ident toolctx.Identity, fi
 		Lifecycle:       pgnull.Text(filter.Lifecycle),
 		Terminal:        filter.terminalArg(),
 		Q:               pgnull.Text(filter.Q),
-		IncludeArchived: filter.includeArchived(),
+		IncludeArchived: filter.Archived,
 		Limit:           int32(limit),
 		Offset:          int32(offset),
 	})
 }
 
 func (s *Service) GetGoalOwned(ctx context.Context, ident toolctx.Identity, id string) (sqlc.AgentGoal, error) {
-	if ident.UserID == "" {
-		return sqlc.AgentGoal{}, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return sqlc.AgentGoal{}, err
 	}
 	if ident.AgentScoped && ident.AgentID == "" {
 		return sqlc.AgentGoal{}, toolctx.ErrForbidden
@@ -87,13 +79,11 @@ func (s *Service) GetGoalOwned(ctx context.Context, ident toolctx.Identity, id s
 }
 
 func (s *Service) CreateGoalOwned(ctx context.Context, ident toolctx.Identity, in CreateInput) (sqlc.AgentGoal, error) {
-	if ident.UserID == "" {
-		return sqlc.AgentGoal{}, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return sqlc.AgentGoal{}, err
 	}
-	if ident.AgentScoped {
-		if ident.AgentID == "" || in.AgentID != ident.AgentID {
-			return sqlc.AgentGoal{}, toolctx.ErrForbidden
-		}
+	if err := ident.RequireAgentMatch(in.AgentID); err != nil {
+		return sqlc.AgentGoal{}, err
 	}
 	in.UserID = ident.UserID
 	if in.IdempotencyKey != "" {
@@ -115,19 +105,29 @@ func (s *Service) CancelOwned(ctx context.Context, ident toolctx.Identity, id, r
 	return s.Goal.Cancel(ctx, id, reason, UserActor(ident.UserID))
 }
 
+func (s *Service) ListChildrenOwned(ctx context.Context, ident toolctx.Identity, parentID string) ([]sqlc.AgentGoal, error) {
+	if _, err := s.GetGoalOwned(ctx, ident, parentID); err != nil {
+		return nil, err
+	}
+	return s.Queries.ListGoalChildren(ctx, pgnull.Text(parentID))
+}
+
+func (s *Service) ListSubtreeOwned(ctx context.Context, ident toolctx.Identity, rootID string) ([]sqlc.AgentGoal, error) {
+	if _, err := s.GetGoalOwned(ctx, ident, rootID); err != nil {
+		return nil, err
+	}
+	return s.Queries.ListGoalByRoot(ctx, rootID)
+}
+
 func (s *Service) CountGoalsOwned(ctx context.Context, ident toolctx.Identity, filter GoalFilter) (int64, error) {
-	if ident.UserID == "" {
-		return 0, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return 0, err
 	}
-	if ident.AgentScoped {
-		if ident.AgentID == "" {
-			return 0, toolctx.ErrForbidden
-		}
-		if filter.AgentID != "" && filter.AgentID != ident.AgentID {
-			return 0, toolctx.ErrForbidden
-		}
-		filter.AgentID = ident.AgentID
+	agentID, err := ident.ResolveAgentScope(filter.AgentID)
+	if err != nil {
+		return 0, err
 	}
+	filter.AgentID = agentID
 	return s.Queries.CountRootGoal(ctx, sqlc.CountRootGoalParams{
 		UserID:          ident.UserID,
 		AgentID:         pgnull.Text(filter.AgentID),
@@ -136,6 +136,6 @@ func (s *Service) CountGoalsOwned(ctx context.Context, ident toolctx.Identity, f
 		Lifecycle:       pgnull.Text(filter.Lifecycle),
 		Terminal:        filter.terminalArg(),
 		Q:               pgnull.Text(filter.Q),
-		IncludeArchived: filter.includeArchived(),
+		IncludeArchived: filter.Archived,
 	})
 }

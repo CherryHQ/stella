@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/credentials"
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
@@ -18,10 +17,13 @@ func (f fakeEmailMetaGetter) GetScopedMeta(context.Context, string, string, stri
 	return vault.EntryMeta{}, f.err
 }
 
-type fakeOAuthStatuses struct{ statuses []credentials.ProviderStatus }
+type fakeOAuthStatuses struct {
+	configured bool
+	err        error
+}
 
-func (f fakeOAuthStatuses) GetProviderStatuses(context.Context, string) []credentials.ProviderStatus {
-	return f.statuses
+func (f fakeOAuthStatuses) AnyProviderConfigured(context.Context, string) (bool, error) {
+	return f.configured, f.err
 }
 
 func TestEmailToolAvailableRequiresEmailConfigAndFailsOpen(t *testing.T) {
@@ -45,10 +47,10 @@ func TestOauthToolAvailableRequiresConfiguredProvider(t *testing.T) {
 	if oauthToolAvailable(fakeOAuthStatuses{})(context.Background(), params) {
 		t.Fatal("no configured providers should skip oauth tool")
 	}
-	if !oauthToolAvailable(fakeOAuthStatuses{statuses: []credentials.ProviderStatus{{Provider: "github", Configured: true}}})(context.Background(), params) {
+	if !oauthToolAvailable(fakeOAuthStatuses{configured: true})(context.Background(), params) {
 		t.Fatal("configured provider should mount oauth tool")
 	}
-	if oauthToolAvailable(fakeOAuthStatuses{statuses: []credentials.ProviderStatus{{Provider: "github", Configured: true}}})(context.Background(), agent.RunnerParams{UserID: "u1"}) {
+	if oauthToolAvailable(fakeOAuthStatuses{configured: true})(context.Background(), agent.RunnerParams{UserID: "u1"}) {
 		t.Fatal("domain tool base predicate should still reject missing agent")
 	}
 }

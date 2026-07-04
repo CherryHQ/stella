@@ -19,7 +19,6 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/internal/vault"
-	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -28,6 +27,13 @@ const (
 	defaultToolPageSize = 20
 	maxToolPageSize     = 100
 )
+
+func truncateText(s string, max int) (string, bool) {
+	if len(s) <= max {
+		return s, false
+	}
+	return s[:max], true
+}
 
 type GoalTool struct {
 	svc *goal.Service
@@ -128,15 +134,9 @@ func (h goalHandler) List(ctx context.Context, in GoalListInput) (any, error) {
 	var rows []sqlc.AgentGoal
 	switch {
 	case in.Parent != "":
-		if _, err := h.svc.GetGoalOwned(ctx, h.ident, in.Parent); err != nil {
-			return nil, err
-		}
-		rows, err = h.svc.Queries.ListGoalChildren(ctx, pgnull.Text(in.Parent))
+		rows, err = h.svc.ListChildrenOwned(ctx, h.ident, in.Parent)
 	case in.Root != "":
-		if _, err := h.svc.GetGoalOwned(ctx, h.ident, in.Root); err != nil {
-			return nil, err
-		}
-		rows, err = h.svc.Queries.ListGoalByRoot(ctx, in.Root)
+		rows, err = h.svc.ListSubtreeOwned(ctx, h.ident, in.Root)
 	default:
 		rows, err = h.svc.ListGoalsOwned(ctx, h.ident, filter, int64(limit+1), int64(offset))
 	}
@@ -444,11 +444,7 @@ func (h recallyHandler) Get_article(ctx context.Context, in RecallyGet_articleIn
 	if err != nil {
 		return nil, err
 	}
-	truncated := false
-	if len(content) > 50*1024 {
-		content = content[:50*1024]
-		truncated = true
-	}
+	content, truncated := truncateText(content, 50*1024)
 	return recallyArticleDetail{Article: recallyArticleListSummary(*article), Content: content, Truncated: truncated, Note: recallyTruncationNote(truncated)}, nil
 }
 
@@ -703,10 +699,11 @@ func (h schedulerHandler) Create(ctx context.Context, in SchedulerCreateInput) (
 	if in.TemplateKey != "" {
 		job, err = h.svc.SubscribeOwned(ctx, h.ident, h.ident.AgentID, in.TemplateKey, sched)
 	} else {
-		job, err = h.svc.CreateJobOwned(ctx, h.ident, in.Name, in.Message, sched, in.SessionMode, h.ident.AgentID, in.IdempotencyKey)
-		if err == nil && in.Enabled != nil && !*in.Enabled {
-			job, err = h.svc.SetJobEnabledOwned(ctx, h.ident, h.ident.AgentID, job.ID, false)
+		enabled := true
+		if in.Enabled != nil {
+			enabled = *in.Enabled
 		}
+		job, err = h.svc.CreateJobOwnedWithEnabled(ctx, h.ident, in.Name, in.Message, sched, in.SessionMode, h.ident.AgentID, in.IdempotencyKey, enabled)
 	}
 	if err != nil {
 		return nil, err
@@ -924,11 +921,7 @@ func emailMessageSummary(msg *emailpkg.Message) emailMessageResponse {
 	if body == "" {
 		body = msg.HTMLBody
 	}
-	truncated := false
-	if len(body) > 50*1024 {
-		body = body[:50*1024]
-		truncated = true
-	}
+	body, truncated := truncateText(body, 50*1024)
 	out := emailMessageResponse{Envelope: emailEnvelopeSummary(msg.Envelope), Body: body, Truncated: truncated}
 	if truncated {
 		out.Note = "truncated — use the web UI or email client for the full message"

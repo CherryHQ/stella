@@ -76,7 +76,7 @@ func (s *Server) createShareOwned(r *http.Request, info *AuthInfo, body apitypes
 		path := strDeref(body.Path)
 		agentID := strDeref(body.AgentId)
 		if agentID == "" {
-			return sharepkg.Created{}, fmt.Errorf("agent_id is required for artifact shares")
+			return sharepkg.Created{}, fmt.Errorf("agent_id is required for artifact shares: %w", sharepkg.ErrInvalidInput)
 		}
 		if boundAgent, boundSession, ok := info.scopedBoundary(); ok {
 			if agentID != boundAgent || sessionID != boundSession {
@@ -91,7 +91,7 @@ func (s *Server) createShareOwned(r *http.Request, info *AuthInfo, body apitypes
 	case apitypes.CreateShareRequestSourceArticle:
 		return s.shareSvc.ShareArticleOwned(r.Context(), shareIdentity(info, ""), strDeref(body.ArticleId), expiresIn)
 	default:
-		return sharepkg.Created{}, fmt.Errorf("source must be one of: artifact, article")
+		return sharepkg.Created{}, fmt.Errorf("source must be one of: artifact, article: %w", sharepkg.ErrInvalidInput)
 	}
 }
 
@@ -144,11 +144,11 @@ func (s *Server) GetShareContent(w http.ResponseWriter, r *http.Request, token s
 }
 
 func shareIdentity(info *AuthInfo, agentID string) toolctx.Identity {
-	boundAgent, _, scoped := info.scopedBoundary()
-	if scoped {
-		agentID = boundAgent
+	ident := toolIdentity(info)
+	if !ident.AgentScoped {
+		ident.AgentID = agentID
 	}
-	return toolctx.Identity{UserID: info.UserID, AgentID: agentID, AgentScoped: scoped}
+	return ident
 }
 
 func (s *Server) writeShareError(w http.ResponseWriter, err error) {
@@ -167,7 +167,7 @@ func (s *Server) writeShareError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "invalid request")
 	case errors.Is(err, sharepkg.ErrNoContent):
 		writeError(w, http.StatusBadRequest, "article has no content")
-	case strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "source must") || strings.Contains(err.Error(), "expires_in"):
+	case errors.Is(err, sharepkg.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, "invalid request")
 	default:
 		s.writeInternalError(w, err)

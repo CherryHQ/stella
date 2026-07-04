@@ -34,6 +34,7 @@ var (
 	ErrUnsupportedType = errors.New("unsupported artifact type")
 	ErrDirectory       = errors.New("path is a directory")
 	ErrNoContent       = errors.New("article has no content")
+	ErrInvalidInput    = errors.New("invalid input")
 )
 
 type Service struct {
@@ -74,17 +75,17 @@ func (s *Service) PublicURL(token string) string {
 }
 
 func (s *Service) ShareArtifactOwned(ctx context.Context, ident toolctx.Identity, sessionID, path, scope, expiresIn string) (Created, error) {
-	if ident.UserID == "" {
-		return Created{}, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return Created{}, err
 	}
 	if ident.AgentID == "" {
-		return Created{}, fmt.Errorf("agent_id is required for artifact shares")
+		return Created{}, fmt.Errorf("agent_id is required for artifact shares: %w", ErrInvalidInput)
 	}
 	if sessionID == "" {
-		return Created{}, fmt.Errorf("session_id is required for artifact shares")
+		return Created{}, fmt.Errorf("session_id is required for artifact shares: %w", ErrInvalidInput)
 	}
 	if path == "" {
-		return Created{}, fmt.Errorf("path is required for artifact shares")
+		return Created{}, fmt.Errorf("path is required for artifact shares: %w", ErrInvalidInput)
 	}
 
 	rel := path
@@ -123,11 +124,11 @@ func (s *Service) ShareArtifactOwned(ctx context.Context, ident toolctx.Identity
 }
 
 func (s *Service) ShareArticleOwned(ctx context.Context, ident toolctx.Identity, articleID, expiresIn string) (Created, error) {
-	if ident.UserID == "" {
-		return Created{}, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return Created{}, err
 	}
 	if articleID == "" {
-		return Created{}, fmt.Errorf("article_id is required for article shares")
+		return Created{}, fmt.Errorf("article_id is required for article shares: %w", ErrInvalidInput)
 	}
 	article, err := s.store.GetArticle(ctx, ident.UserID, articleID)
 	if err != nil {
@@ -155,8 +156,8 @@ func (s *Service) ShareArticleOwned(ctx context.Context, ident toolctx.Identity,
 }
 
 func (s *Service) ListOwned(ctx context.Context, ident toolctx.Identity, limit, offset int) (ListResult, error) {
-	if ident.UserID == "" {
-		return ListResult{}, toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return ListResult{}, err
 	}
 	rows, err := s.q.ListSharesByUser(ctx, sqlc.ListSharesByUserParams{UserID: ident.UserID, Limit: int32(limit + 1), Offset: int32(offset)})
 	if err != nil {
@@ -167,8 +168,8 @@ func (s *Service) ListOwned(ctx context.Context, ident toolctx.Identity, limit, 
 }
 
 func (s *Service) RevokeOwned(ctx context.Context, ident toolctx.Identity, id string) error {
-	if ident.UserID == "" {
-		return toolctx.ErrUnauthenticated
+	if err := ident.RequireUser(); err != nil {
+		return err
 	}
 	rows, err := s.q.DeleteShareByUser(ctx, sqlc.DeleteShareByUserParams{ID: id, UserID: ident.UserID})
 	if err != nil {
@@ -279,7 +280,7 @@ func Expiry(preset string) (pgtype.Timestamptz, error) {
 	case "never":
 		return pgtype.Timestamptz{}, nil
 	default:
-		return pgtype.Timestamptz{}, fmt.Errorf("expires_in must be one of 1h, 1d, 7d, never")
+		return pgtype.Timestamptz{}, fmt.Errorf("expires_in must be one of 1h, 1d, 7d, never: %w", ErrInvalidInput)
 	}
 	return pgtype.Timestamptz{Time: time.Now().UTC().Add(d), Valid: true}, nil
 }

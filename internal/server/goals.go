@@ -47,8 +47,7 @@ func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (toolctx.Ident
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return toolctx.Identity{}, false
 	}
-	agentID, _, scoped := info.scopedBoundary()
-	return toolctx.Identity{UserID: info.UserID, AgentID: agentID, AgentScoped: scoped}, true
+	return toolIdentity(info), true
 }
 
 // goalError maps the package's sentinel errors to HTTP status codes:
@@ -114,11 +113,12 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	ctx := r.Context()
 
 	if params.Parent != nil {
-		if _, ok := s.loadGoal(ctx, w, ident, *params.Parent); !ok {
-			return
-		}
-		rows, err := s.goalQueries.ListGoalChildren(ctx, pgnull.Text(*params.Parent))
+		rows, err := s.goalSvc.ListChildrenOwned(ctx, ident, *params.Parent)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "not_found")
+				return
+			}
 			goalError(w, err)
 			return
 		}
@@ -126,11 +126,12 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 	if params.Root != nil {
-		if _, ok := s.loadGoal(ctx, w, ident, *params.Root); !ok {
-			return
-		}
-		rows, err := s.goalQueries.ListGoalByRoot(ctx, *params.Root)
+		rows, err := s.goalSvc.ListSubtreeOwned(ctx, ident, *params.Root)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "not_found")
+				return
+			}
 			goalError(w, err)
 			return
 		}
