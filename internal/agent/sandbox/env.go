@@ -141,25 +141,10 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		if cfg.VaultEnvLoader != nil {
 			var ve map[string]string
 			var err error
-			if envEnsurer, ok := cfg.TokenEnsurer.(agentTokenEnvEnsurer); ok {
-				ve, err = envEnsurer.EnsureAutoTokenEnvForAgent(ctx, cfg.UserID, cfg.AgentID)
+			if scopedLoader, ok := cfg.VaultEnvLoader.(scopedVaultEnvLoader); ok {
+				ve, err = scopedLoader.LoadEnvForAgent(ctx, cfg.UserID, cfg.AgentID)
 			} else {
-				if cfg.TokenEnsurer != nil {
-					if err := cfg.TokenEnsurer.EnsureAutoToken(ctx, cfg.UserID); err != nil {
-						slog.Warn("ensure auto token failed",
-							"component", "runner_sandbox",
-							"user_id", cfg.UserID,
-							"error", err,
-						)
-					}
-				}
-				if scopedLoader, ok := cfg.VaultEnvLoader.(scopedVaultEnvLoader); ok {
-					ve, err = scopedLoader.LoadEnvForAgent(ctx, cfg.UserID, cfg.AgentID)
-				} else if envEnsurer, ok := cfg.TokenEnsurer.(tokenEnvEnsurer); ok {
-					ve, err = envEnsurer.EnsureAutoTokenEnv(ctx, cfg.UserID)
-				} else {
-					ve, err = cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
-				}
+				ve, err = cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
 			}
 			if err != nil {
 				slog.Warn("vault env injection skipped",
@@ -197,18 +182,6 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 						)
 					}
 				}
-				maps.Copy(env, ve)
-			}
-		} else if envEnsurer, ok := cfg.TokenEnsurer.(tokenEnvEnsurer); ok {
-			ve, err := envEnsurer.EnsureAutoTokenEnv(ctx, cfg.UserID)
-			if err != nil {
-				slog.Warn("vault env injection skipped",
-					"component", "runner_sandbox",
-					"user_id", cfg.UserID,
-					"error", err,
-				)
-			} else {
-				vaultEnv = ve
 				maps.Copy(env, ve)
 			}
 		}

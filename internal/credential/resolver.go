@@ -43,12 +43,10 @@ type ScopedResult struct {
 	Scopes    []string
 }
 
-// TokenBackend delegates the two existing bearer families -- the vault-injected
-// legacy STELLA_TOKEN and the sandbox scoped token -- to the existing token
-// service. These sub-resolvers stay thin adapters; their verification logic is
-// unchanged and intentionally not duplicated here.
+// TokenBackend delegates sandbox scoped-token verification to the existing token
+// service. This sub-resolver stays a thin adapter; verification logic is not
+// duplicated here.
 type TokenBackend interface {
-	AuthenticateLegacy(ctx context.Context, rawToken string) (Identity, error)
 	AuthenticateScoped(ctx context.Context, rawToken string) (ScopedResult, error)
 }
 
@@ -120,7 +118,7 @@ func (s *Service) Resolve(ctx context.Context, header string) (*Principal, error
 	case strings.HasPrefix(raw, pkgauth.ScopedTokenPrefix):
 		return s.resolveScoped(ctx, raw)
 	default:
-		return s.resolveLegacy(ctx, raw)
+		return nil, fmt.Errorf("credential: unsupported bearer token")
 	}
 }
 

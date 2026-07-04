@@ -38,8 +38,7 @@ var deniedResources = map[string]bool{
 // remains a per-handler responsibility for PAT/OAuth, exactly as for cookie
 // sessions. It runs four explicit layers:
 //
-//  1. kind policy   -- legacy_stella_token bypasses API-scope checks (handler
-//     ownership/admin checks still apply); pat/oauth/scoped must pass scope checks.
+//  1. kind policy   -- pat/oauth/scoped are the only accepted bearer kinds.
 //  2. method+path -> required scope -- RequiredScope classifies every /api route
 //     to a scope; an unregistered route is deny (fail-closed).
 //  3. reachability by kind -- sandbox scoped tokens keep the pre-unification
@@ -53,11 +52,6 @@ var deniedResources = map[string]bool{
 func Enforce(p *Principal, method, path string) error {
 	if p == nil {
 		return fmt.Errorf("%w: no principal", ErrForbidden)
-	}
-
-	// Layer 1: kind policy.
-	if p.Kind == KindLegacyStellaToken {
-		return nil
 	}
 
 	// Scoped bearers are API-only; they may not fetch page routes.

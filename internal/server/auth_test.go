@@ -113,17 +113,35 @@ func (v *adminTokenVault) LoadEnv(_ context.Context, userID string) (map[string]
 
 func TestBearerAuthSuccess(t *testing.T) {
 	env := setupAdmin(t)
-	vault := newAdminTokenVault()
-	tokenSvc := auth.NewTokenService(env.authStore, vault)
+	tokenSvc := auth.NewTokenService(env.authStore, newAdminTokenVault())
 	env.srv.SetTokenService(tokenSvc)
-
-	if err := tokenSvc.EnsureAutoToken(context.Background(), env.adminUser.ID); err != nil {
-		t.Fatalf("EnsureAutoToken: %v", err)
+	token, err := tokenSvc.CreateScopedToken(context.Background(), env.adminUser.ID, "agent-1", "session-1", "")
+	if err != nil {
+		t.Fatalf("CreateScopedToken: %v", err)
 	}
-	token := vault.env[env.adminUser.ID][auth.StellaTokenName]
-	rr := doBearerRequest(t, env.srv, token, "GET", "/api/auth/me", nil)
+
+	rr := doBearerRequest(t, env.srv, token, "GET", "/api/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
+func TestBearerAuthRejectsLegacyToken(t *testing.T) {
+	env := setupAdmin(t)
+	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
+	rawToken := "stella_legacy"
+	if _, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
+		UserID:      env.adminUser.ID,
+		Name:        auth.StellaTokenName,
+		TokenHash:   testTokenHash(rawToken),
+		TokenPrefix: rawToken,
+	}); err != nil {
+		t.Fatalf("CreateUserToken: %v", err)
+	}
+
+	rr := doBearerRequest(t, env.srv, rawToken, "GET", "/api/agents", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
 }
 

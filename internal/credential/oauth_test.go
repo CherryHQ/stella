@@ -35,15 +35,11 @@ func (f *fakeOAuthStore) TouchOAuthAccessLastUsed(_ context.Context, id string) 
 	return 1, nil
 }
 
-// errLegacy rejects everything -- used to prove a JWT bearer is never accepted
+// errScoped rejects scoped tokens -- used to prove a JWT bearer is never accepted
 // via any full-access path (it is treated as an unknown opaque token and denied).
-type errLegacy struct{}
+type errScoped struct{}
 
-func (errLegacy) AuthenticateLegacy(context.Context, string) (Identity, error) {
-	return Identity{}, errors.New("unknown token")
-}
-
-func (errLegacy) AuthenticateScoped(context.Context, string) (ScopedResult, error) {
+func (errScoped) AuthenticateScoped(context.Context, string) (ScopedResult, error) {
 	return ScopedResult{}, errors.New("not scoped")
 }
 
@@ -53,7 +49,7 @@ func newOAuthTestService() (*Service, *fakeOAuthStore) {
 		users:      map[string]Identity{"u1": {UserID: "u1", Email: "u1@x", IsActive: true, Role: "user"}},
 	}
 	oa := &fakeOAuthStore{byPublicID: map[string]OAuthAccessRecord{}}
-	svc := NewService(Config{PATs: pat, OAuth: oa, Users: pat, Tokens: errLegacy{}})
+	svc := NewService(Config{PATs: pat, OAuth: oa, Users: pat, Tokens: errScoped{}})
 	return svc, oa
 }
 

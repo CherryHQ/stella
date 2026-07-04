@@ -78,9 +78,9 @@ Group sessions do not receive a declarable secrets manifest and cannot use per-c
 
 Secrets are loaded fresh for each session. If you add or update a secret, the change takes effect on the next session.
 
-### Auto-Generated Token
+### Session Token
 
-Stella automatically creates a `STELLA_TOKEN` for each user. This token is used to authenticate CLI commands and API requests from within agent sessions. You do not need to create it manually.
+Inside an agent session, Stella injects `STELLA_TOKEN` as a short-lived scoped token for that session. It is not a saved secret and you do not need to create it manually.
 
 ## Secret Name Rules
 
@@ -89,7 +89,7 @@ Secret names must follow these rules:
 - Uppercase letters, digits, and underscores only (for example, `MY_API_KEY`)
 - Must start with a letter
 - Maximum 128 characters
-- Cannot start with reserved prefixes like `STELLA_` (except the auto-generated `STELLA_TOKEN`)
+- Cannot start with reserved prefixes like `STELLA_`
 
 ## Tips
 

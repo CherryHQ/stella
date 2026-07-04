@@ -565,9 +565,8 @@ func TestFullUserLifecycle(t *testing.T) {
 		t.Fatalf("step 4 promote: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	// 5. Since role change invalidates sessions, the old bearer token (not a session)
-	// still works because bearer tokens authenticate directly against user record.
-	// Verify the user record now has admin role.
+	// 5. Role changes invalidate sessions. Verify the user record now has admin
+	// role, then create a fresh session for the promoted user.
 	updated, err := env.oidcStore.GetUser(ctx, user.ID)
 	if err != nil {
 		t.Fatalf("step 5: GetUser: %v", err)
@@ -575,8 +574,16 @@ func TestFullUserLifecycle(t *testing.T) {
 	if updated.Role != auth.RoleAdmin {
 		t.Fatalf("step 5: role = %q, want %q", updated.Role, auth.RoleAdmin)
 	}
+	sessionMgr, err := auth.NewSessionManager(env.oidcStore, "test-vault-key")
+	if err != nil {
+		t.Fatalf("step 5: NewSessionManager: %v", err)
+	}
+	userToken, _, err = sessionMgr.Create(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("step 5: CreateSession: %v", err)
+	}
 
-	// 6. Admin can now access admin endpoints with their bearer token.
+	// 6. Admin can now access admin endpoints with their session.
 	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/users", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("step 6: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
@@ -588,10 +595,10 @@ func TestFullUserLifecycle(t *testing.T) {
 		t.Fatalf("step 7 demote: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	// 8. Can no longer access admin endpoints.
+	// 8. Demotion invalidates the promoted session.
 	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/users", nil)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("step 8: status = %d, want %d", rr.Code, http.StatusForbidden)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("step 8: status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
 
 	// 9. Deactivate user.
@@ -612,7 +619,11 @@ func TestFullUserLifecycle(t *testing.T) {
 		t.Fatalf("step 11 reactivate: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	// 12. Bearer auth works again.
+	// 12. A fresh session works again after reactivation.
+	userToken, _, err = sessionMgr.Create(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("step 12: CreateSession: %v", err)
+	}
 	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/me", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("step 12: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())

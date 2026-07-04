@@ -193,7 +193,11 @@ func postForm(t *testing.T, srv *server.Server, path string, form url.Values, be
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if bearer != "" {
-		req.Header.Set("Authorization", "Bearer "+bearer)
+		if strings.HasPrefix(bearer, "stella_") {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		} else {
+			req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: bearer})
+		}
 	}
 	rr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, req)

@@ -379,6 +379,7 @@ func TestScopedTokenVaultAgentBinding(t *testing.T) {
 
 	// Token bound to sa-agent-a.
 	tokenSvc := auth.NewTokenService(env.authStore, nil)
+	env.srv.SetTokenService(tokenSvc)
 	token, err := tokenSvc.CreateScopedToken(ctx, regular.ID, "sa-agent-a", "sess-1", "")
 	if err != nil {
 		t.Fatalf("CreateScopedToken: %v", err)
@@ -587,6 +588,7 @@ func TestScopedTokenVaultGetIsAudited(t *testing.T) {
 	}
 
 	tokenSvc := auth.NewTokenService(env.authStore, nil)
+	env.srv.SetTokenService(tokenSvc)
 	token, err := tokenSvc.CreateScopedToken(ctx, regular.ID, "audit-agent", "sess-audit", "")
 	if err != nil {
 		t.Fatalf("CreateScopedToken: %v", err)

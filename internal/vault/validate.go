@@ -28,7 +28,7 @@ var reservedWordPrefixes = []string{
 	"TMPDIR",
 }
 
-// StellaTokenName is the per-user service token exposed to sandbox sessions.
+// StellaTokenName is the reserved sandbox session token env var.
 const StellaTokenName = "STELLA_TOKEN"
 
 // ValidateName checks that a vault entry name is a valid env var name
@@ -41,11 +41,10 @@ func ValidateName(name string) error {
 		return fmt.Errorf("vault: name %q is invalid: must match ^[A-Z][A-Z0-9_]{0,127}$", name)
 	}
 
-	// Check reserved prefixes (STELLA_, LC_, XDG_). STELLA_TOKEN is Stella-managed
-	// and is written only via the internal SetReserved path (which skips name
-	// validation); user-facing writes must never set it, so it is rejected here
-	// like any other STELLA_ name. Allowing it through would let a user_agent
-	// entry shadow the managed token and force a rotation on every sandbox start.
+	// Check reserved prefixes (STELLA_, LC_, XDG_). STELLA_TOKEN is Stella-managed;
+	// user-facing writes must never set it, so it is rejected here like any other
+	// STELLA_ name. Allowing it through would let a vault entry shadow the scoped
+	// sandbox session token.
 	for _, prefix := range reservedPrefixes {
 		if strings.HasPrefix(name, prefix) {
 			return fmt.Errorf("vault: name %q is reserved: must not start with %q", name, prefix)

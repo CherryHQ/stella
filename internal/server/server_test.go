@@ -3,8 +3,6 @@ package server_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +15,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -65,6 +64,7 @@ func enableChannelPlugin(t *testing.T, env *testEnv, channelType string) {
 func setupAdmin(t *testing.T) *testEnv {
 	t.Helper()
 	t.Setenv("STELLA_HOME", filepath.Join(t.TempDir(), "stella-home"))
+	t.Setenv("STELLA_SCOPED_TOKEN_SECRET", "test-scoped-secret")
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
 	db := dbtest.New(t)
@@ -148,6 +148,12 @@ func setupAdmin(t *testing.T) *testEnv {
 	srv.SetLoginIdentityStore(oidcStore)
 	srv.SetSessionStore(oidcStore)
 	srv.SetCredentialStore(oidcStore)
+	authSvc := auth.NewAuthService(db, oidcStore, oidcStore, oidcStore)
+	sessionMgr, err := auth.NewSessionManager(oidcStore, "test-vault-key")
+	if err != nil {
+		t.Fatalf("NewSessionManager: %v", err)
+	}
+	srv.SetOIDCAuth(&authoidc.SetupResult{AuthSvc: authSvc, SessionMgr: sessionMgr})
 
 	// Create an admin user for authenticated requests.
 	adminUser, bearerToken := createTestUserWithToken(t, as, oidcStore, "testadmin", auth.RoleAdmin)
@@ -178,7 +184,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 }
 
-// createTestUserWithToken creates a user and bearer token for testing.
+// createTestUserWithToken creates a user and login session token for testing.
 func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb.OIDCStore, name, role string) (auth.User, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -192,22 +198,13 @@ func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb
 	if err != nil {
 		t.Fatalf("CreateUser %q: %v", name, err)
 	}
-	rawToken := "stella_test_" + uuid.NewString()
-	sum := sha256.Sum256([]byte(rawToken))
-	tokenHash := hex.EncodeToString(sum[:])
-	prefix := rawToken
-	if len(prefix) > 15 {
-		prefix = prefix[:15]
-	}
-	_, err = as.CreateUserToken(ctx, auth.UserToken{
-		ID:          uuid.NewString(),
-		UserID:      user.ID,
-		Name:        "test",
-		TokenHash:   tokenHash,
-		TokenPrefix: prefix,
-	})
+	sessionMgr, err := auth.NewSessionManager(oidcStore, "test-vault-key")
 	if err != nil {
-		t.Fatalf("CreateUserToken %q: %v", name, err)
+		t.Fatalf("NewSessionManager %q: %v", name, err)
+	}
+	rawToken, _, err := sessionMgr.Create(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("CreateSession %q: %v", name, err)
 	}
 	return user, rawToken
 }
@@ -227,7 +224,7 @@ func doRequest(t *testing.T, env *testEnv, method, path string, body any) *httpt
 	return doRequestWithSession(t, env.srv, env.bearerToken, method, path, body)
 }
 
-func doRequestWithSession(t *testing.T, srv *server.Server, bearerToken, method, path string, body any) *httptest.ResponseRecorder {
+func doRequestWithSession(t *testing.T, srv *server.Server, sessionToken, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
@@ -239,8 +236,12 @@ func doRequestWithSession(t *testing.T, srv *server.Server, bearerToken, method,
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	if sessionToken != "" {
+		if strings.HasPrefix(sessionToken, "stella_") {
+			req.Header.Set("Authorization", "Bearer "+sessionToken)
+		} else {
+			req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionToken})
+		}
 	}
 	rr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, req)
@@ -270,7 +271,11 @@ func doBearerRequestWithSession(t *testing.T, srv *server.Server, sessionID, tok
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		if strings.HasPrefix(token, "stella_") {
+			req.Header.Set("Authorization", "Bearer "+token)
+		} else {
+			req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+		}
 	}
 	if sessionID != "" {
 		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionID})

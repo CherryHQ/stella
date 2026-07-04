@@ -25,19 +25,9 @@ type fullVaultEnvLoader interface {
 	LoadFullEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
 }
 
-// TokenEnsurer ensures API tokens needed by sandbox sessions. Implementations
-// must be idempotent.
+// TokenEnsurer creates short-lived scoped API tokens for sandbox sessions.
 type TokenEnsurer interface {
-	EnsureAutoToken(ctx context.Context, userID string) error
 	CreateScopedToken(ctx context.Context, userID, agentID, sessionID, projectID string) (string, error)
-}
-
-type tokenEnvEnsurer interface {
-	EnsureAutoTokenEnv(ctx context.Context, userID string) (map[string]string, error)
-}
-
-type agentTokenEnvEnsurer interface {
-	EnsureAutoTokenEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
 }
 
 // Config is passed to sandbox operations.

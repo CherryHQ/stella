@@ -9,7 +9,7 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      description: STELLA_TOKEN bearer token (generated via vault)
+      description: STELLA_TOKEN bearer token (scoped sandbox session token)
   schemas:
     Error:
       type: object

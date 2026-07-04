@@ -63,14 +63,10 @@ func TestEnforcePATWithoutScopeIsDenied(t *testing.T) {
 	}
 }
 
-// legacy_stella_token bypasses API-scope checks (but not handler ownership/admin,
-// which live outside Enforce).
-func TestEnforceLegacyBypassesScopes(t *testing.T) {
-	p := &Principal{Kind: KindLegacyStellaToken, UserID: "u1"}
-	for _, path := range []string{"/api/tasks", "/api/goals", "/api/anything-unmapped"} {
-		if err := Enforce(p, "POST", path); err != nil {
-			t.Fatalf("legacy token must bypass API-scope checks for %s: %v", path, err)
-		}
+func TestEnforceRejectsRetiredLegacyKind(t *testing.T) {
+	p := &Principal{Kind: Kind("legacy_stella_token"), UserID: "u1"}
+	if err := Enforce(p, "GET", "/api/tasks"); err == nil {
+		t.Fatal("retired legacy token kind must not bypass API-scope checks")
 	}
 }
 
