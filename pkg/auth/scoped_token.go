@@ -18,8 +18,8 @@ const (
 
 var DefaultSandboxScopes = []string{
 	"agent:read",
-	"tasks:*",
 	"goals:*",
+	"workflows:*",
 	"scheduler:*",
 	"skills:*",
 	"shares:*",

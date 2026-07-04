@@ -13,7 +13,7 @@ const (
 // axis from skill/vault storage scopes (system / user / agent ownership) -- do
 // not conflate scopes.Resource with a skill's storage scope.
 type Scope struct {
-	// Resource is the left side of resource:action (e.g. "tasks").
+	// Resource is the left side of resource:action (e.g. "goals").
 	Resource string
 	// Description is human-facing copy for the PAT creation UI / OAuth consent.
 	Description string
@@ -27,7 +27,7 @@ type Scope struct {
 }
 
 // catalog is the single authoritative scope registry. Wildcard resource:* is
-// derived from these entries (a granted "tasks:*" covers tasks:read/tasks:write).
+// derived from these entries (a granted "goals:*" covers goals:read/goals:write).
 var catalog = []Scope{
 	// NOTE: the "agent" scope is coarse. Read grants the full agent surface --
 	// config, sessions, conversation messages, and workspace file contents;
@@ -36,7 +36,6 @@ var catalog = []Scope{
 	// consent is not misleading. Splitting sessions/workspace into finer scopes is
 	// a deferred product decision -- keep the copy honest until then.
 	{Resource: "agent", Description: "Full agent access: read config, sessions, messages, and workspace files; write can delete agents, manage members, post messages, and modify files", ExposableToPAT: true, ExposableToOAuth: true},
-	{Resource: "tasks", Description: "Manage tasks", ExposableToPAT: true, ExposableToOAuth: true},
 	{Resource: "goals", Description: "Manage goals", ExposableToPAT: true, ExposableToOAuth: true},
 	{Resource: "workflows", Description: "Manage reusable workflows", ExposableToPAT: true, ExposableToOAuth: true},
 	{Resource: "scheduler", Description: "Manage scheduled jobs", ExposableToPAT: true, ExposableToOAuth: true},

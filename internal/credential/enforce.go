@@ -116,8 +116,8 @@ func apiSegments(path string) []string {
 
 // scopedSandboxReachable reports whether a sandbox scoped token (stella_scoped_)
 // may reach the given /api path (rest is the path after /api). It preserves the
-// pre-unification surface of the old scopedTokenAllowsRequest: status, tasks,
-// goals, shares, recally, vault, the /api/users/me/oauth subtree, and the
+// pre-unification surface of the old scopedTokenAllowsRequest: status, goals,
+// workflows, shares, recally, vault, the /api/users/me/oauth subtree, and the
 // agent-bound /api/agents/{id}/... subtree.
 //
 // Top-level external APIs (email, skills, scheduler) are deliberately NOT
@@ -131,7 +131,7 @@ func scopedSandboxReachable(rest []string) bool {
 		return false
 	}
 	switch rest[0] {
-	case "status", "tasks", "goals", "workflows", "shares", "recally", "vault", "agents":
+	case "status", "goals", "workflows", "shares", "recally", "vault", "agents":
 		return true
 	case "users":
 		return len(rest) >= 3 && rest[1] == "me" && rest[2] == "oauth"
@@ -180,7 +180,7 @@ func RequiredScope(method, path string) (scope string, registered bool) {
 		return agentRouteScope(method, rest[1:])
 	case "users":
 		return usersRouteScope(method, rest[1:])
-	case "tasks", "goals", "workflows", "shares", "recally", "email", "mcp", "vault", "scheduler", "skills":
+	case "goals", "workflows", "shares", "recally", "email", "mcp", "vault", "scheduler", "skills":
 		return scopeForMethod(resource, method), true
 	}
 

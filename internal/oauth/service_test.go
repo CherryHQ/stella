@@ -196,7 +196,7 @@ func registerConfidential(t *testing.T, svc *Service) (Client, string) {
 	client, secret, err := svc.RegisterClient(context.Background(), "u1", ClientRegistration{
 		Name: "Test App", ClientType: ClientTypeConfidential,
 		RedirectURIs: []string{"https://app.example/cb"},
-		Scopes:       []string{"tasks:read", "tasks:write"},
+		Scopes:       []string{"goals:read", "goals:write"},
 	})
 	if err != nil {
 		t.Fatalf("register client: %v", err)
@@ -213,14 +213,14 @@ func TestAuthorizationCodePKCEHappyPath(t *testing.T) {
 	challenge := oidc.NewSHACodeChallenge(verifier)
 	req := AuthorizeRequest{
 		ClientID: client.ClientID, RedirectURI: "https://app.example/cb",
-		ResponseType: "code", Scopes: []string{"tasks:read"}, State: "xyz",
+		ResponseType: "code", Scopes: []string{"goals:read"}, State: "xyz",
 		CodeChallenge: challenge, CodeChallengeMethod: "S256",
 	}
 	authCtx, err := svc.Authorize(ctx, req)
 	if err != nil {
 		t.Fatalf("authorize: %v", err)
 	}
-	if len(authCtx.Scopes) != 1 || authCtx.Scopes[0] != "tasks:read" {
+	if len(authCtx.Scopes) != 1 || authCtx.Scopes[0] != "goals:read" {
 		t.Fatalf("unexpected consent scopes: %v", authCtx.Scopes)
 	}
 
@@ -261,12 +261,12 @@ func TestPKCEWrongVerifierRejected(t *testing.T) {
 	client, secret := registerConfidential(t, svc)
 	req := AuthorizeRequest{
 		ClientID: client.ClientID, RedirectURI: "https://app.example/cb", ResponseType: "code",
-		Scopes: []string{"tasks:read"}, CodeChallenge: oidc.NewSHACodeChallenge("right-verifier"), CodeChallengeMethod: "S256",
+		Scopes: []string{"goals:read"}, CodeChallenge: oidc.NewSHACodeChallenge("right-verifier"), CodeChallengeMethod: "S256",
 	}
 	if _, err := svc.Authorize(ctx, req); err != nil {
 		t.Fatalf("authorize: %v", err)
 	}
-	code, _ := svc.IssueCode(ctx, "u1", req, []string{"tasks:read"})
+	code, _ := svc.IssueCode(ctx, "u1", req, []string{"goals:read"})
 	_, err := svc.Exchange(ctx, TokenRequest{
 		GrantType: "authorization_code", ClientID: client.ClientID, ClientSecret: secret,
 		Code: code, RedirectURI: "https://app.example/cb", CodeVerifier: "wrong-verifier",
@@ -282,12 +282,12 @@ func TestRefreshRotationAndReuseRevokesFamily(t *testing.T) {
 	client, secret := registerConfidential(t, svc)
 	req := AuthorizeRequest{
 		ClientID: client.ClientID, RedirectURI: "https://app.example/cb", ResponseType: "code",
-		Scopes: []string{"tasks:read"},
+		Scopes: []string{"goals:read"},
 	}
 	if _, err := svc.Authorize(ctx, req); err != nil {
 		t.Fatalf("authorize: %v", err)
 	}
-	code, _ := svc.IssueCode(ctx, "u1", req, []string{"tasks:read"})
+	code, _ := svc.IssueCode(ctx, "u1", req, []string{"goals:read"})
 	first, err := svc.Exchange(ctx, TokenRequest{
 		GrantType: "authorization_code", ClientID: client.ClientID, ClientSecret: secret,
 		Code: code, RedirectURI: "https://app.example/cb",
@@ -340,7 +340,7 @@ func TestRefreshRotationAndReuseRevokesFamily(t *testing.T) {
 func TestScopeSubsetEnforced(t *testing.T) {
 	svc, _, _ := newTestFlow()
 	ctx := context.Background()
-	client, _ := registerConfidential(t, svc) // client allowed tasks:read, tasks:write
+	client, _ := registerConfidential(t, svc) // client allowed goals:read, goals:write
 
 	// Requesting a scope the client is not allowed -> invalid_scope redirect error.
 	_, err := svc.Authorize(ctx, AuthorizeRequest{
@@ -367,14 +367,14 @@ func TestPublicClientRequiresPKCE(t *testing.T) {
 	ctx := context.Background()
 	client, _, err := svc.RegisterClient(ctx, "u1", ClientRegistration{
 		Name: "SPA", ClientType: ClientTypePublic,
-		RedirectURIs: []string{"https://spa.example/cb"}, Scopes: []string{"tasks:read"},
+		RedirectURIs: []string{"https://spa.example/cb"}, Scopes: []string{"goals:read"},
 	})
 	if err != nil {
 		t.Fatalf("register public client: %v", err)
 	}
 	_, err = svc.Authorize(ctx, AuthorizeRequest{
 		ClientID: client.ClientID, RedirectURI: "https://spa.example/cb", ResponseType: "code",
-		Scopes: []string{"tasks:read"}, // no code_challenge
+		Scopes: []string{"goals:read"}, // no code_challenge
 	})
 	var redirErr *RedirectError
 	if !errors.As(err, &redirErr) {
@@ -387,7 +387,7 @@ func TestUnknownRedirectURINotRedirected(t *testing.T) {
 	client, _ := registerConfidential(t, svc)
 	_, err := svc.Authorize(context.Background(), AuthorizeRequest{
 		ClientID: client.ClientID, RedirectURI: "https://evil.example/cb", ResponseType: "code",
-		Scopes: []string{"tasks:read"},
+		Scopes: []string{"goals:read"},
 	})
 	var redirErr *RedirectError
 	if err == nil || errors.As(err, &redirErr) {
@@ -407,7 +407,7 @@ func TestRegisterClientValidatesRedirectURIs(t *testing.T) {
 	}
 	for _, redirectURI := range bad {
 		_, _, err := svc.RegisterClient(context.Background(), "u1", ClientRegistration{
-			Name: "bad", RedirectURIs: []string{redirectURI}, Scopes: []string{"tasks:read"},
+			Name: "bad", RedirectURIs: []string{redirectURI}, Scopes: []string{"goals:read"},
 		})
 		if err == nil {
 			t.Fatalf("redirect_uri %q must be rejected", redirectURI)
@@ -415,7 +415,7 @@ func TestRegisterClientValidatesRedirectURIs(t *testing.T) {
 	}
 
 	if _, _, err := svc.RegisterClient(context.Background(), "u1", ClientRegistration{
-		Name: "loopback", RedirectURIs: []string{"http://127.0.0.1:8080/cb"}, Scopes: []string{"tasks:read"},
+		Name: "loopback", RedirectURIs: []string{"http://127.0.0.1:8080/cb"}, Scopes: []string{"goals:read"},
 	}); err != nil {
 		t.Fatalf("loopback http redirect_uri should be allowed: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestRotateSecretClassifiesErrors(t *testing.T) {
 	}
 	client, _, err := svc.RegisterClient(context.Background(), "u1", ClientRegistration{
 		Name: "SPA", ClientType: ClientTypePublic,
-		RedirectURIs: []string{"https://spa.example/cb"}, Scopes: []string{"tasks:read"},
+		RedirectURIs: []string{"https://spa.example/cb"}, Scopes: []string{"goals:read"},
 	})
 	if err != nil {
 		t.Fatalf("register public client: %v", err)
