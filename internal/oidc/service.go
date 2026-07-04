@@ -9,7 +9,7 @@
 // front door. No JWT access token is ever issued, and the protocol details that
 // are error-prone (PKCE verification, token response shape, error codes) lean on
 // github.com/zitadel/oidc/v3/pkg/oidc rather than being hand-derived.
-package oauth
+package oidc
 
 import (
 	"context"

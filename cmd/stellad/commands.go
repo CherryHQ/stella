@@ -20,8 +20,8 @@ import (
 
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/credentials"
-	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/connections"
+	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
@@ -80,7 +80,7 @@ type setupResult struct {
 	schedulerSvc             *scheduler.Service
 	goalSvc                  *goal.Service
 	vaultSvc                 *vault.Service
-	credSvc                  *credentials.Service
+	credSvc                  *connections.Service
 	shareSvc                 *sharepkg.Service
 	recallySvc               *recally.Service
 	workflowSvc              *workflowpkg.Service
@@ -229,7 +229,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		}
 	}
 
-	serviceToolNames := []string{goal.ToolName, scheduler.ToolName, credentials.ToolName, email.ToolName, sharepkg.ToolName, recally.ToolName, vault.ToolName}
+	serviceToolNames := []string{goal.ToolName, scheduler.ToolName, connections.ToolName, email.ToolName, sharepkg.ToolName, recally.ToolName, vault.ToolName}
 
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
@@ -278,7 +278,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
-	credSvc := credentials.NewService(vaultSvc, sqlc.New(db), oauth.NewFlowStore(), "http://localhost:25678")
+	credSvc := connections.NewService(vaultSvc, sqlc.New(db), oauth.NewFlowStore(), "http://localhost:25678")
 	emailSvc := email.NewService(vaultSvc, sqlc.New(db))
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
@@ -291,7 +291,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	serviceTools := []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: scheduler.NewTool(schedulerSvc), Available: agent.BuiltinToolAvailable},
-		{Tool: credentials.NewTool(credSvc), Available: oauthToolAvailable(credSvc)},
+		{Tool: connections.NewTool(credSvc), Available: oauthToolAvailable(credSvc)},
 		{Tool: email.NewTool(emailSvc), Available: emailToolAvailable(vaultSvc)},
 		{Tool: sharepkg.NewTool(shareSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: recally.NewTool(recallySvc), Available: agent.BuiltinToolAvailable},

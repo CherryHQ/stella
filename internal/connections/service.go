@@ -1,4 +1,4 @@
-package credentials
+package connections
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
 )

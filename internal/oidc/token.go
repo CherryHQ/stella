@@ -1,4 +1,4 @@
-package oauth
+package oidc
 
 import (
 	"crypto/rand"

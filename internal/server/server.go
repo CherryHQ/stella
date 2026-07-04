@@ -13,19 +13,19 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/auth/oidc"
+	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/connections"
+	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/credential"
-	"github.com/CherryHQ/stella/internal/credentials"
-	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
-	oauthas "github.com/CherryHQ/stella/internal/oauth"
+	"github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -54,8 +54,8 @@ type Server struct {
 	mcpSvc         *mcp.Service         // optional; if nil, MCP endpoints return 503
 	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
 	credResolver   *credential.Service  // unified bearer credential front door (set with tokenSvc)
-	oauthAS        *oauthas.Service     // OAuth2 authorization server (set with tokenSvc)
-	credSvc        *credentials.Service // shared credentials service
+	oauthAS        *oidc.Service        // OAuth2 authorization server (set with tokenSvc)
+	credSvc        *connections.Service // shared credentials service
 	emailSvc       *email.Service       // shared email service
 	shareSvc       *sharepkg.Service    // shared share service
 	recallySvc     *recally.Service     // shared recally service
@@ -70,7 +70,7 @@ type Server struct {
 	authProviders []auth.AuthProvider
 	authSvc       *auth.AuthService
 	sessionMgr    *auth.SessionManager
-	stateMgr      *oidc.StateManager
+	stateMgr      *authoidc.StateManager
 	localAuth     *local.Service
 	// baseURL is the public URL for this instance (from STELLA_BASE_URL).
 	baseURL string
@@ -109,7 +109,7 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 
 	defaultBaseURL := "http://localhost:25678"
 	flowStore := oauth.NewFlowStore()
-	credSvc := credentials.NewService(nil, sqlc.New(db), flowStore, defaultBaseURL)
+	credSvc := connections.NewService(nil, sqlc.New(db), flowStore, defaultBaseURL)
 	emailSvc := email.NewService(nil, sqlc.New(db))
 	recallyStore := recally.NewStore(db)
 	recallyFiles := recally.NewFileManager(config.StellaHome())
@@ -193,7 +193,7 @@ func (s *Server) SetTokenService(svc *auth.TokenService) {
 	})
 	// The authorization server mints access tokens through the credential front
 	// door (never its own JWT) and owns the client/code/refresh storage.
-	s.oauthAS = oauthas.NewService(oauthas.Config{
+	s.oauthAS = oidc.NewService(oidc.Config{
 		Store:  os,
 		Issuer: s.credResolver,
 		Logger: s.log,
@@ -255,7 +255,7 @@ func (s *Server) SetCredentialStore(store auth.CredentialStore) {
 // SetOIDCAuth wires all OIDC authentication components into the server.
 // Call before serving requests. If not set, OIDC login is disabled and
 // ListAuthProviders returns an empty list.
-func (s *Server) SetOIDCAuth(result *oidc.SetupResult) {
+func (s *Server) SetOIDCAuth(result *authoidc.SetupResult) {
 	s.authProviders = result.Providers
 	s.authSvc = result.AuthSvc
 	s.sessionMgr = result.SessionMgr
@@ -264,7 +264,7 @@ func (s *Server) SetOIDCAuth(result *oidc.SetupResult) {
 }
 
 // SetCredentialsService replaces the shared credentials service. Call before serving.
-func (s *Server) SetCredentialsService(svc *credentials.Service) {
+func (s *Server) SetCredentialsService(svc *connections.Service) {
 	if svc != nil {
 		s.credSvc = svc
 	}
@@ -290,7 +290,7 @@ func (s *Server) SetRecallyService(svc *recally.Service) {
 // CredentialsService returns the shared credentials service.
 // Used by callers that need to wire in the runner invalidator or access
 // the credentials tool from outside the admin package.
-func (s *Server) CredentialsService() *credentials.Service {
+func (s *Server) CredentialsService() *connections.Service {
 	return s.credSvc
 }
 

@@ -106,7 +106,7 @@ var domainPackages = map[string]domainPackage{
 	"goal":      {Dir: "goal", Package: "goal"},
 	"scheduler": {Dir: "scheduler", Package: "scheduler"},
 	"vault":     {Dir: "vault", Package: "vault"},
-	"oauth":     {Dir: "credentials", Package: "credentials"},
+	"oauth":     {Dir: "connections", Package: "connections"},
 	"share":     {Dir: "share", Package: "share"},
 	"recally":   {Dir: "recally", Package: "recally"},
 	"email":     {Dir: "email", Package: "email"},

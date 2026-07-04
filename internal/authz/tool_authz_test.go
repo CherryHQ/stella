@@ -15,8 +15,8 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 
-	"github.com/CherryHQ/stella/internal/credentials"
-	credoauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/connections"
+	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -176,11 +176,11 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 
 	flowStore := credoauth.NewFlowStore()
 	flowStore.Create(credoauth.FlowStatus{Provider: credoauth.ProviderGitHub, FlowID: "owner-flow", UserID: ownerUser, FlowType: "device_code"})
-	oauthSvc := credentials.NewService(nil, nil, flowStore, "http://localhost:8080")
+	oauthSvc := connections.NewService(nil, nil, flowStore, "http://localhost:8080")
 	registry := credoauth.NewProviderRegistry()
 	registry.Register(credoauth.ProviderConfig{ID: "github", VaultKey: credoauth.VaultKeyGitHub})
 	oauthSvc.SetRegistry(registry)
-	oauthTool := credentials.NewTool(oauthSvc)
+	oauthTool := connections.NewTool(oauthSvc)
 	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "owner-flow"}); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
 		t.Fatalf("oauth foreign status out=%q err=%v, want access denied", out, err)
 	}

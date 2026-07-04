@@ -1,4 +1,4 @@
-package credentials_test
+package connections_test
 
 import (
 	"context"
@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/credentials"
-	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/connections"
+	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -17,10 +17,10 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // --- helpers ---
 
-func newService(t *testing.T) *credentials.Service {
+func newService(t *testing.T) *connections.Service {
 	t.Helper()
 	flowStore := oauth.NewFlowStore()
-	return credentials.NewService(nil, nil, flowStore, "http://localhost:8080")
+	return connections.NewService(nil, nil, flowStore, "http://localhost:8080")
 }
 
 func testProviderConfig(id, vaultKey string) oauth.ProviderConfig {
@@ -155,7 +155,7 @@ func TestOAuthAuthorizedMethodsEnforceUserIdentity(t *testing.T) {
 	ctx := context.Background()
 	flowStore := oauth.NewFlowStore()
 	flowStore.Create(oauth.FlowStatus{Provider: oauth.ProviderGitHub, FlowID: "owner-flow", UserID: "owner", FlowType: "device_code"})
-	svc := credentials.NewService(nil, nil, flowStore, "http://localhost:8080")
+	svc := connections.NewService(nil, nil, flowStore, "http://localhost:8080")
 
 	if _, err := svc.As(authz.Identity{}).Statuses(ctx); !errors.Is(err, authz.ErrUnauthenticated) {
 		t.Fatalf("Statuses unauth err=%v, want ErrUnauthenticated", err)
@@ -209,7 +209,7 @@ func TestInvalidateUserCallsInvalidator(t *testing.T) {
 
 func TestSetOAuthProviderConfigNilDB(t *testing.T) {
 	svc := newService(t)
-	err := svc.SetOAuthProviderConfig(context.Background(), credentials.OAuthProviderConfig{
+	err := svc.SetOAuthProviderConfig(context.Background(), connections.OAuthProviderConfig{
 		ProviderID: "lark", ClientID: "cid", ClientSecret: "csecret",
 	})
 	if err == nil {
@@ -220,10 +220,10 @@ func TestSetOAuthProviderConfigNilDB(t *testing.T) {
 func TestSetAndGetOAuthProviderConfig(t *testing.T) {
 	db := dbtest.New(t)
 
-	svc := credentials.NewService(nil, pkgdb.New(db), oauth.NewFlowStore(), "http://localhost:8080")
+	svc := connections.NewService(nil, pkgdb.New(db), oauth.NewFlowStore(), "http://localhost:8080")
 	ctx := context.Background()
 
-	if err := svc.SetOAuthProviderConfig(ctx, credentials.OAuthProviderConfig{ProviderID: "github", ClientID: "my-client"}); err != nil {
+	if err := svc.SetOAuthProviderConfig(ctx, connections.OAuthProviderConfig{ProviderID: "github", ClientID: "my-client"}); err != nil {
 		t.Fatalf("SetOAuthProviderConfig: %v", err)
 	}
 
