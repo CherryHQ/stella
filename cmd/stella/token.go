@@ -95,7 +95,7 @@ func tokenCreateCommand() *ucli.Command {
 			&ucli.StringSliceFlag{
 				Name:     "scope",
 				Aliases:  []string{"s"},
-				Usage:    "Grant a scope (repeatable), e.g. --scope tasks:read --scope goals:*",
+				Usage:    "Grant a scope (repeatable), e.g. --scope goals:read --scope workflows:*",
 				Required: true,
 			},
 			&ucli.DurationFlag{

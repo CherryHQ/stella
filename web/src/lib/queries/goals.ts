@@ -31,6 +31,8 @@ export interface GoalsPageParams {
   terminal?: boolean;
   /** exact lifecycle; undefined = all lifecycles in scope. */
   lifecycle?: string;
+  /** exact workflow version row; undefined = all roots. */
+  workflowId?: string;
   /** case-insensitive substring on title/intent; server-side. */
   q?: string;
   /** 1-based page. */
@@ -54,6 +56,7 @@ export function goalsPageOptions(p: GoalsPageParams) {
       p.archived ?? false,
       p.terminal ?? null,
       p.lifecycle ?? "",
+      p.workflowId ?? "",
       p.q ?? "",
       page,
     ],
@@ -64,6 +67,7 @@ export function goalsPageOptions(p: GoalsPageParams) {
           archived: p.archived || undefined,
           terminal: p.terminal,
           lifecycle: p.lifecycle || undefined,
+          workflow_id: p.workflowId || undefined,
           q: p.q || undefined,
           page_size: GOALS_PAGE_SIZE,
           page_token: offsetPageToken((page - 1) * GOALS_PAGE_SIZE),

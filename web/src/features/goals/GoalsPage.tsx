@@ -88,6 +88,7 @@ export function GoalsPage() {
     modeParam === "history" ? "history" : modeParam === "archived" ? "archived" : "active";
   const status = ((rawSearch.status as string) || "all") as StatusFilter;
   const query = (rawSearch.q as string) || "";
+  const workflowId = (rawSearch.workflow_id as string) || "";
   const page = Math.max(1, Number(rawSearch.page) || 1);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [acting, setActing] = useState(false);
@@ -95,7 +96,13 @@ export function GoalsPage() {
   // Mode maps to the server's archived/terminal filters: active = non-terminal &
   // not archived, history = terminal & not archived, archived = archived rows.
   const archived = mode === "archived";
-  const terminal = mode === "active" ? false : mode === "history" ? true : undefined;
+  const terminal = workflowId
+    ? undefined
+    : mode === "active"
+      ? false
+      : mode === "history"
+        ? true
+        : undefined;
 
   const { data: counts } = useQuery(goalCountsOptions(agentId));
   const c = counts ?? { active: 0, history: 0, archived: 0 };
@@ -105,6 +112,7 @@ export function GoalsPage() {
       archived,
       terminal,
       lifecycle: status === "all" ? undefined : FILTER_TO_LIFECYCLE[status],
+      workflowId: workflowId || undefined,
       q: query || undefined,
       page,
     }),
@@ -186,14 +194,9 @@ export function GoalsPage() {
 
   useEffect(() => {
     setHeaderTitle(
-      <div className="min-w-0">
-        <div className="truncate font-mono text-xs font-semibold text-muted-foreground">
-          {t("goals.eyebrow")}
-        </div>
-        <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
-          {t("goals.title")}
-        </h1>
-      </div>,
+      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+        {workflowId ? t("workflows.runsTitle") : t("goals.title")}
+      </h1>,
     );
     setHeaderActions(
       <div className="flex items-center gap-1">
@@ -258,6 +261,7 @@ export function GoalsPage() {
     setMode,
     setView,
     t,
+    workflowId,
   ]);
 
   return (

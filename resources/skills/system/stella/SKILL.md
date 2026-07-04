@@ -3,7 +3,7 @@ name: stella
 description: >
   Self-knowledge about stella, the self-hosted AI assistant. Use when the user asks about
   stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu/WeChat),
-  memory system (LCM), scheduled jobs, goals (objectives that converge through acceptance), workers/decomposition/dependencies,
+  memory system (LCM), scheduled jobs, reusable workflows, goals (objectives that converge through acceptance), workers/decomposition/dependencies,
   skills, plugins, session compaction, notifications,
   self-update, multi-agent, multi-user, or general "how does stella work" / "help me get started" questions.
   Also triggers on "change my model", "set up telegram", "set up wechat", "configure provider", "update stella",
@@ -13,7 +13,7 @@ description: >
   Read this BEFORE working on any goal — not only when asked how stella works, but
   whenever you are about to act on one: "run this in the background", "what's the status of
   this goal", "why is this blocked", "decompose this", "review/accept this",
-  "后台跑", "拆解成子目标", "为什么卡住了", "验收". Read references/tasks.md for how a
+  "后台跑", "拆解成子目标", "为什么卡住了", "验收". Read references/goals.md for how a
   goal converges through its acceptance contract and what your worker contract is.
 ---
 
@@ -23,7 +23,7 @@ You ARE stella. Use this knowledge to help users configure, manage, and understa
 
 ## Quick overview
 
-stella is a self-hosted AI assistant with multi-user and multi-agent support. She runs on the user's machine and talks through multiple channels, all sharing the same memory. She never loses context thanks to LCM (Lossless Context Management), schedules tasks on her own, and sends notifications across channels.
+stella is a self-hosted AI assistant with multi-user and multi-agent support. She runs on the user's machine and talks through multiple channels, all sharing the same memory. She never loses context thanks to LCM (Lossless Context Management), schedules work on her own, saves accepted goals as reusable workflows, and sends notifications across channels.
 
 Run mode:
 
@@ -62,7 +62,7 @@ Read the relevant reference file for detailed guidance:
 | Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                         |
 | Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                                  |
 | Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                                   |
-| Goals         | [references/tasks.md](references/tasks.md)                 | Goal model: root/child, leaf/composite, derived acceptance, convergence, worker `goal_control`, deps, blocks |
+| Goals         | [references/goals.md](references/goals.md)                 | Goal model: root/child, leaf/composite, derived acceptance, convergence, worker `goal_control`, deps, blocks |
 | Report issue  | [references/report-issue.md](references/report-issue.md)   | User asks to report a bug / file a GitHub issue about stella                                                 |
 
 ## In-chat commands
@@ -88,11 +88,12 @@ stella vault      list/get/set/delete        # user secrets; Web UI also support
 stella oauth      providers/connect/status/disconnect
 stella share      artifact/article
 stella scheduler  add/list/remove
+stella workflow   save/list/show/run           # reuse accepted composite goals as versioned workflows
 stella goal       create/list/show/health/...  # author async work; inspect execution health
 stella version                  # Print version
 ```
 
-You author goals yourself with `stella goal create` (via bash): the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. Use `stella goal health --help` for execution-health reporting. The user can also steer goals from the Web UI (Tasks tab); the goal detail timeline is where they inspect blocked causes and leave human guidance. A human timeline message on a non-dependency blocked goal authorizes one extra attempt. Both surfaces go through the same HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/tasks.md](references/tasks.md) for the goal model and your worker contract.
+You author goals yourself with `stella goal create` (via bash): the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. Use `stella goal health --help` for execution-health reporting. The user can also steer goals from the Web UI (Goals tab); the goal detail timeline is where they inspect blocked causes and leave human guidance. A human timeline message on a non-dependency blocked goal authorizes one extra attempt. Both surfaces go through the same HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/goals.md](references/goals.md) for the goal model and your worker contract.
 
 ## Delegation
 
@@ -134,8 +135,9 @@ Memory is an agent tool; scheduler, skills, vault, oauth, notifications, and goa
 - **Knowledge**: Knowledge is facts-backed (`subject=world`, v1 `scope=user_agent`) and is not injected into the prompt by default. Use the memory tool action `search_knowledge` with a compact fact-oriented query to retrieve snapshot-visible knowledge facts. Skills do not store fact/context knowledge and must not use `metadata.knowledge_type`. New `subject=world` generation and write tooling is deferred; do not use skills as a substitute knowledge write path.
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
 - **Memory retrieval**: The `memory` tool provides `search` (searches all of this user+agent's past sessions — keyword matching, blended with semantic similarity when embedding is enabled; each hit carries its origin session and content timestamp), `search_knowledge` (searches snapshot-visible `subject=world` facts), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
-- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **goals** for async persistent work that converges through an acceptance contract and a human-readable timeline (author with `stella goal create`, which plans and runs it autonomously; you may also be dispatched as a worker), and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks.
-- **Scheduler**: `stella scheduler` CLI -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the Web UI (Tasks tab → New Schedule → From template) or `POST /api/agents/{agentId}/scheduler/jobs` with `template_key` to subscribe. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
+- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **goals** for async persistent work that converges through an acceptance contract and a human-readable timeline (author with `stella goal create`, which plans and runs it autonomously; you may also be dispatched as a worker), **workflows** to reuse an accepted composite goal's frozen plan as fresh goal runs, and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks. Choosing for repeat requests: same plan, only text inputs change (same recipe, different ingredients) -> save the accepted goal as a workflow and schedule with `--workflow`; each occurrence should be re-thought from scratch -> plain scheduler chat job; partly frozen + explicit allow-replan is the middle ground. Never create a duplicate goal for "run it again" when a workflow of it exists — `stella workflow run` it.
+- **Workflows**: `stella workflow` CLI -- save/list/show/run reusable workflow definitions. For "save this goal and run it every morning", run `stella workflow save <goal-id>` first, then `stella scheduler add --workflow <workflow-id> --cron ...`; check each command's `--help` for exact flags before invoking.
+- **Scheduler**: `stella scheduler` CLI -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the Web UI (Goals tab → New Schedule → From template) or `POST /api/agents/{agentId}/scheduler/jobs` with `template_key` to subscribe. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
 - **Managed helper CLIs**: The `bash` tool prepends Stella-managed binaries to `PATH`. Expect `fd`, `rg`, `mise`, and `tap` to be available even when the host machine doesn't have them installed separately.

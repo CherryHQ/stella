@@ -2,13 +2,18 @@ package scheduler
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -60,6 +65,199 @@ func TestStartExternalRiverRequiresClient(t *testing.T) {
 	}
 	if err := svc.Start(context.Background()); err == nil {
 		t.Fatal("Start in external-river mode without SetRiverClient must error, got nil")
+	}
+}
+
+type fakeWorkflowRunner struct {
+	wf               ScheduledWorkflow
+	latest           WorkflowRunState
+	result           WorkflowInstantiateResult
+	instantiateReq   WorkflowInstantiateRequest
+	instantiateCalls int
+}
+
+func (f *fakeWorkflowRunner) ValidateScheduledWorkflow(context.Context, WorkflowValidateRequest) (ScheduledWorkflow, error) {
+	if f.wf.ID == "" {
+		return ScheduledWorkflow{}, fmt.Errorf("not found")
+	}
+	return f.wf, nil
+}
+
+func (f *fakeWorkflowRunner) LatestWorkflowRun(context.Context, WorkflowLatestRunRequest) (WorkflowRunState, error) {
+	return f.latest, nil
+}
+
+func (f *fakeWorkflowRunner) InstantiateWorkflow(_ context.Context, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error) {
+	f.instantiateReq = req
+	f.instantiateCalls++
+	return f.result, nil
+}
+
+func TestAddWorkflowJobValidation(t *testing.T) {
+	svc := testService(t)
+	svc.SetWorkflowRunner(&fakeWorkflowRunner{wf: ScheduledWorkflow{ID: "wf-1", FullyFrozen: false}})
+	if _, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "", nil, false); !errors.Is(err, ErrWorkflowJobValidation) {
+		t.Fatalf("workflow job without workflow_id err=%v want validation", err)
+	}
+	if _, err := svc.addJobInternal("wf", "message", Schedule{Every: "1h"}, "reuse", "", "user-1", JobOwnerUser, ExecScopeUser, DispatchKindWorkflow, map[string]any{"workflow_id": "wf-1"}); !errors.Is(err, ErrWorkflowJobValidation) {
+		t.Fatalf("workflow job with message err=%v want validation", err)
+	}
+	if _, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "wf-1", nil, false); !errors.Is(err, ErrWorkflowJobValidation) {
+		t.Fatalf("partially frozen workflow err=%v want validation", err)
+	}
+	if _, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "wf-1", nil, true); err != nil {
+		t.Fatalf("allow_replan workflow job: %v", err)
+	}
+}
+
+func TestDispatchWorkflowJobInstantiatesAndRecordsRoot(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	userID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, "sched-"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	agentID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, 'scheduler-agent', '/tmp')`, agentID); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	q := sqlc.New(db)
+	goalSvc := goal.New(db, q)
+	root, err := goalSvc.CreateRoot(ctx, goal.CreateInput{UserID: userID, AgentID: agentID, Title: "root", Intent: "root", Kind: goal.KindComposite, Required: true})
+	if err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+	svc := newTestService(t, db)
+	svc.ctx = ctx
+	runner := &fakeWorkflowRunner{wf: ScheduledWorkflow{ID: "wf-1", FullyFrozen: true}, result: WorkflowInstantiateResult{RunID: "wr-1", RootGoalID: root.ID}}
+	svc.SetWorkflowRunner(runner)
+	job, err := svc.AddWorkflowJobWithOwner(ctx, "wf", Schedule{Every: "1h"}, "reuse", agentID, userID, "wf-1", map[string]string{"topic": "launch"}, false)
+	if err != nil {
+		t.Fatalf("add workflow job: %v", err)
+	}
+	runID := "runhappy"
+	if err := svc.tryStartJobRun(ctx, runID, job.ID, job.UserSessionID(userID), userID, time.Now().UTC()); err != nil {
+		t.Fatalf("start run: %v", err)
+	}
+	sink := &RunOutputSink{}
+	if err := svc.dispatchJob(withRunOutputSink(WithRunID(ctx, runID), sink), job); err != nil {
+		t.Fatalf("dispatch workflow: %v", err)
+	}
+	if runner.instantiateReq.IdempotencyKey != runID {
+		t.Fatalf("idempotency key = %q, want %q", runner.instantiateReq.IdempotencyKey, runID)
+	}
+	run, err := q.GetSchedJobRun(ctx, sqlc.GetSchedJobRunParams{ID: runID, JobID: job.ID})
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if !run.RootGoalID.Valid || run.RootGoalID.String != root.ID {
+		t.Fatalf("root_goal_id = %v, want %s", run.RootGoalID, root.ID)
+	}
+	if sink.get() != "workflow run wr-1 -> goal "+root.ID {
+		t.Fatalf("output = %q", sink.get())
+	}
+}
+
+func TestDispatchWorkflowJobContinuesAfterFailedPreviousRun(t *testing.T) {
+	svc := testService(t)
+	runner := &fakeWorkflowRunner{
+		wf:     ScheduledWorkflow{ID: "wf-1", FullyFrozen: true},
+		latest: WorkflowRunState{Found: true, Status: "failed", IdempotencyKey: "old-key", RootGoalID: "root-1", RootGoalTerminal: false},
+		result: WorkflowInstantiateResult{RunID: "wr-new"},
+	}
+	svc.SetWorkflowRunner(runner)
+	job, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "wf-1", nil, false)
+	if err != nil {
+		t.Fatalf("add workflow job: %v", err)
+	}
+	sink := &RunOutputSink{}
+	if err := svc.dispatchJob(withRunOutputSink(WithRunID(context.Background(), "runnew"), sink), job); err != nil {
+		t.Fatalf("dispatch workflow: %v", err)
+	}
+	if runner.instantiateReq.IdempotencyKey != "runnew" {
+		t.Fatalf("idempotency key = %q, want runnew", runner.instantiateReq.IdempotencyKey)
+	}
+	if sink.get() != "workflow run wr-new -> goal " {
+		t.Fatalf("output = %q", sink.get())
+	}
+}
+
+func TestDispatchWorkflowJobResumesStalledPreviousRun(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	svc := newTestService(t, db)
+	svc.ctx = ctx
+	runner := &fakeWorkflowRunner{
+		wf:     ScheduledWorkflow{ID: "wf-1", FullyFrozen: true},
+		latest: WorkflowRunState{Found: true, Status: "materializing", IdempotencyKey: "old-key", RootGoalID: "root-1", RootGoalTerminal: false},
+		result: WorkflowInstantiateResult{RunID: "wr-old", RootGoalID: "root-1"},
+	}
+	svc.SetWorkflowRunner(runner)
+	job, err := svc.AddWorkflowJobWithOwner(ctx, "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "wf-1", nil, false)
+	if err != nil {
+		t.Fatalf("add workflow job: %v", err)
+	}
+	if err := svc.tryStartJobRun(ctx, "runresume", job.ID, job.UserSessionID("user-1"), "user-1", time.Now().UTC()); err != nil {
+		t.Fatalf("start run: %v", err)
+	}
+	sink := &RunOutputSink{}
+	if err := svc.dispatchJob(withRunOutputSink(WithRunID(ctx, "runresume"), sink), job); err != nil {
+		t.Fatalf("dispatch resume: %v", err)
+	}
+	if runner.instantiateCalls != 1 {
+		t.Fatalf("instantiate calls = %d, want 1", runner.instantiateCalls)
+	}
+	if runner.instantiateReq.IdempotencyKey != "old-key" {
+		t.Fatalf("idempotency key = %q, want old-key", runner.instantiateReq.IdempotencyKey)
+	}
+	run, err := svc.q.GetSchedJobRun(ctx, sqlc.GetSchedJobRunParams{ID: "runresume", JobID: job.ID})
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if !run.RootGoalID.Valid || run.RootGoalID.String != "root-1" {
+		t.Fatalf("root_goal_id = %v, want root-1", run.RootGoalID)
+	}
+	if sink.get() != "resumed stalled workflow run wr-old -> goal root-1" {
+		t.Fatalf("output = %q", sink.get())
+	}
+}
+
+func TestDispatchWorkflowJobSkipsActivePreviousRun(t *testing.T) {
+	svc := testService(t)
+	runner := &fakeWorkflowRunner{wf: ScheduledWorkflow{ID: "wf-1", FullyFrozen: true}, latest: WorkflowRunState{Found: true, Status: "done", RootGoalID: "root-1", RootGoalTerminal: false}}
+	svc.SetWorkflowRunner(runner)
+	job, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "wf-1", nil, false)
+	if err != nil {
+		t.Fatalf("add workflow job: %v", err)
+	}
+	sink := &RunOutputSink{}
+	if err := svc.dispatchJob(withRunOutputSink(WithRunID(context.Background(), "runskip"), sink), job); err != nil {
+		t.Fatalf("dispatch skip: %v", err)
+	}
+	if runner.instantiateReq.WorkflowID != "" {
+		t.Fatalf("instantiate called during skip: %+v", runner.instantiateReq)
+	}
+	if sink.get() != "skipped: previous workflow run still active" {
+		t.Fatalf("skip output = %q", sink.get())
+	}
+}
+
+func TestDispatchChatJobStillUsesOnJob(t *testing.T) {
+	svc := testService(t)
+	called := false
+	svc.SetOnJob(func(ctx context.Context, job Job) error {
+		called = true
+		if job.DispatchKind != DispatchKindChat {
+			t.Fatalf("dispatch_kind = %q", job.DispatchKind)
+		}
+		return nil
+	})
+	job := addTestJob(t, svc, "chat", "say hello", Schedule{Every: "1h"}, "")
+	if err := svc.dispatchJob(context.Background(), job); err != nil {
+		t.Fatalf("dispatch chat: %v", err)
+	}
+	if !called {
+		t.Fatal("chat OnJob callback not called")
 	}
 }
 
@@ -276,7 +474,7 @@ func TestOneTimeJobCreation(t *testing.T) {
 	}
 }
 
-func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
+func TestOneTimeJobFiresAndRetires(t *testing.T) {
 	svc := testService(t)
 
 	var mu sync.Mutex
@@ -317,19 +515,38 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 	}
 	mu.Unlock()
 
-	// Job cleanup runs after the callback returns; wait for the observable state
-	// instead of sleeping and racing the cleanup goroutine.
+	// Retirement runs after the callback returns; wait for the observable state
+	// instead of sleeping and racing the retire goroutine. The job must survive
+	// as a disabled row (deleting it would cascade away its run records) with
+	// its River registration gone.
 	deadline = time.After(2 * time.Second)
 	for {
 		jobs := svc.ListJobs()
-		if len(jobs) == 0 {
+		if len(jobs) == 1 && !jobs[0].Enabled {
 			break
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("ListJobs after one-time fire: got %d, want 0", len(jobs))
+			t.Fatalf("jobs after one-time fire: got %+v, want 1 disabled job", jobs)
 		case <-time.After(20 * time.Millisecond):
 		}
+	}
+
+	svc.mu.Lock()
+	_, hasRef := svc.refs[job.ID]
+	svc.mu.Unlock()
+	if hasRef {
+		t.Error("expected fired one-time job to have no live River registration")
+	}
+
+	// The disabled state must be persisted, not just in memory: a run record
+	// referencing the job survives restarts only if the row itself does.
+	row, err := svc.q.GetSchedulerJob(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("GetSchedulerJob after retire: %v", err)
+	}
+	if row.Enabled {
+		t.Error("expected fired one-time job to be persisted as disabled")
 	}
 }
 

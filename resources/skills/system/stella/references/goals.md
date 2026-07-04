@@ -11,7 +11,7 @@ Completion is **derived, never asserted**. A goal converges through a bounded re
 Two surfaces author goals, both over the same goal HTTP API:
 
 - **You, the agent** — via the `stella goal` CLI (alias `stella task`). `stella goal create --title ... --intent ...` creates a goal and runs it autonomously: the server **plans first** (decomposes it into verifiable sub-tasks), then the dispatcher runs each child and converges to acceptance, with no further prompting. You do not choose leaf vs composite or call plan/approve/activate — just write a clear, self-contained intent. This is how you give yourself long-running work that outlives the current conversation; check back with `stella goal list`/`get`, or use `stella goal health --help` for aggregate execution health. For goals that need a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)`; inspect the pending plan with `stella goal get <id>` and then `stella goal approve <id>` (materialize) or `stella goal reject <id>` (re-decompose). See `stella goal --help`. When you report a created goal back to the user, mention its title — chat surfaces (Web, Feishu) render a rich status card for it automatically, so never paste the raw UUID.
-- **The user** — from the Web UI (Tasks tab); the same goal HTTP API the CLI uses.
+- **The user** — from the Web UI (Goals tab); the same goal HTTP API the CLI uses.
 
 Authoring and working are separate roles: once a goal is active you may also be handed it as a **worker** (see the `goal_control` contract below).
 

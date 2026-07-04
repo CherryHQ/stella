@@ -189,7 +189,7 @@ func goalTargetPath(agentID, goalID string) string {
 
 func schedulerRunTargetPath(row sqlc.ListFailedInboxSchedulerRunsRow) string {
 	if row.AgentID.Valid {
-		return "/agents/" + row.AgentID.String + "/tasks"
+		return "/agents/" + row.AgentID.String + "/goals/schedules/" + row.JobID
 	}
 	return "/agents"
 }

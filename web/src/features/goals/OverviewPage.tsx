@@ -12,6 +12,7 @@ import type { SchedulerJob } from "@/lib/types";
 import { goalChildrenOptions, goalsOptions } from "@/lib/queries/goals";
 import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
 import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
+import { workflowsOptions, workflowRunsOptions } from "@/lib/queries/workflows";
 import { useI18n } from "@/lib/i18n";
 import { useAppShell } from "@/layouts/AppShell";
 import { formatTime } from "@/lib/time";
@@ -41,6 +42,10 @@ import {
   statusLabel,
   statusMeta,
 } from "@/features/goals/lib";
+
+type RecentEntry =
+  | { kind: "goal"; goal: ComponentsGoal }
+  | { kind: "workflow"; workflowId: string; latest: ComponentsGoal; count: number };
 
 // First page of a scheduler job's runs — enough for the overview sparkline
 // without paging. Kept local so the new hub doesn't reach into the old tasks
@@ -146,14 +151,31 @@ export function OverviewPage() {
   );
   const previewWork = useMemo(() => activeWork.slice(0, 6), [activeWork]);
 
-  const recentDone = useMemo(
-    () =>
-      goals
-        .filter((d) => TERMINAL.has(d.lifecycle))
-        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-        .slice(0, 5),
-    [goals],
-  );
+  // Workflow run roots collapse to one row per workflow so a busy schedule
+  // does not flood the list and bury manually created goals.
+  const recentDone = useMemo(() => {
+    const terminal = goals
+      .filter((d) => TERMINAL.has(d.lifecycle))
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+    const entries: RecentEntry[] = [];
+    const byWorkflow = new Map<string, Extract<RecentEntry, { kind: "workflow" }>>();
+    for (const d of terminal) {
+      const workflowId = !d.parent_id ? d.workflow_id : undefined;
+      if (workflowId) {
+        const existing = byWorkflow.get(workflowId);
+        if (existing) {
+          existing.count += 1;
+          continue;
+        }
+        const entry = { kind: "workflow" as const, workflowId, latest: d, count: 1 };
+        byWorkflow.set(workflowId, entry);
+        entries.push(entry);
+      } else {
+        entries.push({ kind: "goal", goal: d });
+      }
+    }
+    return entries.slice(0, 5);
+  }, [goals]);
 
   const openGoal = useCallback(
     (id: string) =>
@@ -233,6 +255,10 @@ export function OverviewPage() {
           )}
         </section>
 
+        {/* Repeatable (workflows) — hidden until the first workflow exists, so
+            the concept only appears once the user has saved one. */}
+        <WorkflowsSection agentId={agentId} />
+
         {/* Active work */}
         <section className="mt-8">
           <SectionHead
@@ -264,16 +290,29 @@ export function OverviewPage() {
           <section className="mt-8">
             <SectionHead title={t("hub.secRecentDone")} />
             <div className="overflow-hidden rounded-xl border border-border">
-              {recentDone.map((d) => {
+              {recentDone.map((entry) => {
+                const d = entry.kind === "workflow" ? entry.latest : entry.goal;
                 const s = displayStatus(d);
                 return (
                   <button
-                    key={d.id}
+                    key={entry.kind === "workflow" ? `wf-${entry.workflowId}` : d.id}
                     type="button"
-                    onClick={() => openGoal(d.id)}
+                    onClick={() =>
+                      entry.kind === "workflow"
+                        ? void navigate({
+                            to: "/agents/$agentId/workflows/$workflowId",
+                            params: { agentId, workflowId: entry.workflowId },
+                          })
+                        : openGoal(d.id)
+                    }
                     className="flex w-full items-center gap-3 border-b border-border px-3.5 py-2.5 text-left text-[13px] last:border-b-0 hover:bg-muted/50"
                   >
                     <span className="min-w-0 flex-1 truncate font-medium">{d.title}</span>
+                    {entry.kind === "workflow" && entry.count > 1 && (
+                      <Badge size="sm" variant="secondary">
+                        {t("workflows.runsBadge", { count: entry.count })}
+                      </Badge>
+                    )}
                     <span className="inline-flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
                       <span className={cn("size-1.5 rounded-full", statusMeta(s).dot)} />
                       {statusLabel(t, s)}
@@ -575,6 +614,62 @@ function SchedulesTable({ jobs, agentId }: { jobs: SchedulerJob[]; agentId: stri
         })}
       </TableBody>
     </Table>
+  );
+}
+
+// The saved definitions behind scheduled/re-runnable goals. Renders nothing
+// until the first workflow exists: a user who never saved one never meets the
+// concept.
+function WorkflowsSection({ agentId }: { agentId: string }) {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const { data: workflows = [] } = useQuery(workflowsOptions(agentId));
+  const runQueries = useQueries({
+    queries: workflows.map((w) => workflowRunsOptions(w.id, 1)),
+  });
+
+  if (!workflows.length) return null;
+
+  return (
+    <section className="mt-8">
+      <SectionHead title={t("hub.secRepeatable")} count={workflows.length} />
+      <div className="overflow-hidden rounded-xl border border-border">
+        {workflows.map((w, i) => {
+          const total = runQueries[i]?.data?.total ?? 0;
+          return (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() =>
+                void navigate({
+                  to: "/agents/$agentId/workflows/$workflowId",
+                  params: { agentId, workflowId: w.id },
+                })
+              }
+              className="flex w-full items-center gap-3 border-b border-border px-3.5 py-2.5 text-left text-[13px] last:border-b-0 hover:bg-muted/50"
+            >
+              <span className="min-w-0 flex-1 truncate font-medium">{w.name}</span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {t("workflows.version", { version: w.version })}
+              </span>
+              {!w.fully_frozen && (
+                <Badge size="sm" variant="warning">
+                  {t("workflows.partlyFrozen")}
+                </Badge>
+              )}
+              {total > 0 && (
+                <Badge size="sm" variant="secondary">
+                  {t("workflows.runsBadge", { count: total })}
+                </Badge>
+              )}
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {formatTime(w.created_at)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

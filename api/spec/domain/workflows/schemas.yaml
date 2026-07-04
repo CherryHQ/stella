@@ -1,0 +1,169 @@
+openapi: 3.0.3
+info:
+  title: Workflows Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    WorkflowInputSpec:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Input placeholder name used as {{inputs.name}}.
+        description: { type: string }
+        required:
+          type: boolean
+          default: false
+        default:
+          type: string
+          description: Default value used when the caller omits this input.
+
+    Workflow:
+      type: object
+      description: >-
+        A named, immutable workflow version created by freezing a completed
+        composite goal's decomposition plan. Instantiating a workflow creates a
+        fresh goal tree without invoking the planner for frozen nodes.
+      required:
+        [
+          id,
+          owner_kind,
+          name,
+          version,
+          intent,
+          inputs,
+          payload_format,
+          payload,
+          fully_frozen,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: string }
+        owner_kind:
+          type: string
+          enum: [user, agent, system]
+        user_id:
+          type: string
+          nullable: true
+        agent_id:
+          type: string
+          nullable: true
+        name: { type: string }
+        version: { type: integer }
+        intent: { type: string }
+        acceptance_contract:
+          type: object
+          additionalProperties: {}
+          nullable: true
+        convergence_policy:
+          type: object
+          additionalProperties: {}
+          nullable: true
+        inputs:
+          type: array
+          items: { $ref: "#/components/schemas/WorkflowInputSpec" }
+        payload_format:
+          type: string
+          enum: [frozen/v0]
+        payload:
+          type: object
+          additionalProperties: {}
+          description: Frozen plan payload; read-only internal format for UI inspection.
+        fully_frozen:
+          type: boolean
+          description: True when every composite node has a frozen sub-plan.
+        source_goal_id:
+          type: string
+          nullable: true
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    WorkflowList:
+      type: object
+      required: [workflows]
+      properties:
+        workflows:
+          type: array
+          items: { $ref: "#/components/schemas/Workflow" }
+
+    WorkflowRun:
+      type: object
+      required: [
+        id,
+        workflow_id,
+        workflow_version,
+        idempotency_key,
+        status,
+        inputs,
+        plan_hash,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id: { type: string }
+        workflow_id: { type: string }
+        workflow_version: { type: integer }
+        idempotency_key: { type: string }
+        root_goal_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [claimed, materializing, done, failed]
+          description: >-
+            Instantiation status only. The outcome of the run is the root
+            goal's state (root_lifecycle and friends), not this field.
+        root_lifecycle:
+          type: string
+          nullable: true
+          description: Root goal lifecycle; null until the root goal exists.
+        root_block_reason:
+          type: string
+          nullable: true
+        root_done_reason:
+          type: string
+          nullable: true
+        inputs:
+          type: object
+          additionalProperties: { type: string }
+        plan_hash: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    WorkflowRunList:
+      type: object
+      required: [runs, total]
+      properties:
+        runs:
+          type: array
+          items: { $ref: "#/components/schemas/WorkflowRun" }
+        total:
+          type: integer
+          description: Total workflow runs matching this workflow.
+        next_page_token:
+          type: string
+          nullable: true
+
+    SaveGoalAsWorkflowRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        inputs:
+          type: array
+          items: { $ref: "#/components/schemas/WorkflowInputSpec" }
+
+    InstantiateWorkflowRequest:
+      type: object
+      properties:
+        inputs:
+          type: object
+          additionalProperties: { type: string }
+        idempotency_key:
+          type: string
+          description: >-
+            Optional idempotency key. When omitted, the server generates a UUID,
+            so retries must provide their own key to be idempotent.

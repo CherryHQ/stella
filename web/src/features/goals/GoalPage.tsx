@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
@@ -9,6 +9,7 @@ import {
   deleteGoal,
   reattemptGoal,
   rejectPlan,
+  saveGoalAsWorkflow,
   submitVerdict,
   unarchiveGoal,
   updateGoal,
@@ -24,6 +25,7 @@ import type {
   ComponentsProposedEdge,
   ComponentsReadiness,
   ComponentsUpdateGoalRequest,
+  WorkflowInputSpec,
 } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -34,6 +36,7 @@ import {
   goalOptions,
   goalReadinessOptions,
 } from "@/lib/queries/goals";
+import { workflowOptions, workflowRunsOptions } from "@/lib/queries/workflows";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { formatTime } from "@/lib/time";
@@ -49,7 +52,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Form } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -96,6 +100,13 @@ export function GoalPage() {
       return data ? poll(data) : false;
     },
   });
+  // Nested frozen composites carry workflow_id too (dispatcher exclusion);
+  // the lineage badge stays a run-root affordance.
+  const workflowId = d && !d.parent_id ? (d.workflow_id ?? undefined) : undefined;
+  const { data: workflow } = useQuery(workflowOptions(workflowId));
+  const { data: workflowRuns = { runs: [], total: 0 } } = useQuery(
+    workflowRunsOptions(workflowId, 100),
+  );
 
   const { data: children = [] } = useQuery({
     ...goalChildrenOptions(goalId),
@@ -178,6 +189,15 @@ export function GoalPage() {
       pill={<StatusPill status={displayStatus(d)} label={goalStatusLabel(t, d)} />}
       contentClassName="max-w-[1200px]"
       fill={isComposite}
+      back={
+        workflowId
+          ? {
+              label: workflow?.name ?? t("workflows.backToWorkflow"),
+              to: "/agents/$agentId/workflows/$workflowId",
+              params: { agentId, workflowId },
+            }
+          : undefined
+      }
       actions={
         <>
           <HeaderActions
@@ -189,6 +209,15 @@ export function GoalPage() {
             onTimeline={() => setNode("activity")}
             onContract={() => setNode("accept")}
             onEnvironmentRetry={retryEnvironment}
+            onSavedWorkflow={(workflow) => {
+              void qc.invalidateQueries({ queryKey: ["workflows", agentId] });
+              showToast(t("workflows.saveSuccess"));
+              void navigate({
+                to: "/agents/$agentId/workflows/$workflowId",
+                params: { agentId, workflowId: workflow.id },
+              });
+            }}
+            onWorkflowSaveError={(message) => showToast(message, "error")}
           />
           <Button variant="outline" size="sm" onClick={() => setNode("activity")}>
             {t("goals.tabTimeline")}
@@ -213,6 +242,31 @@ export function GoalPage() {
               className="font-medium text-primary hover:underline"
             >
               {t("hub.parentGoal")} →
+            </Link>
+          </>
+        )}
+        {workflowId && (
+          <>
+            <MetaSep />
+            <Link to="/agents/$agentId/workflows/$workflowId" params={{ agentId, workflowId }}>
+              <Badge variant="info">
+                {workflow
+                  ? (() => {
+                      const runIndex = workflowRuns.runs.findIndex(
+                        (run) => run.root_goal_id === d.root_id,
+                      );
+                      return runIndex >= 0
+                        ? t("workflows.lineage", {
+                            name: workflow.name,
+                            n: workflowRuns.total - runIndex,
+                          })
+                        : t("workflows.lineageNameOnly", { name: workflow.name });
+                    })()
+                  : t("workflows.lineageFallback", {
+                      id: workflowId.slice(0, 8),
+                      version: d.workflow_version ?? 1,
+                    })}
+              </Badge>
             </Link>
           </>
         )}
@@ -588,6 +642,8 @@ function HeaderActions({
   onTimeline,
   onContract,
   onEnvironmentRetry,
+  onSavedWorkflow,
+  onWorkflowSaveError,
 }: {
   d: ComponentsGoal;
   acting: boolean;
@@ -597,6 +653,8 @@ function HeaderActions({
   onTimeline: () => void;
   onContract: () => void;
   onEnvironmentRetry: () => void;
+  onSavedWorkflow: (workflow: { id: string }) => void;
+  onWorkflowSaveError: (message: string) => void;
 }) {
   const { t } = useI18n();
   const archived = !!d.archived_at;
@@ -606,6 +664,8 @@ function HeaderActions({
   const canActivate = lc === "draft" && (!isComposite || !!d.planned_at);
   const needsPlanApproval =
     isComposite && lc === "blocked" && reason === "needs_plan_approval" && !archived;
+  const canSaveAsWorkflow =
+    !d.parent_id && isComposite && lc === "done" && d.done_reason === "accepted";
 
   const cancelBtn = (
     <Button
@@ -699,6 +759,10 @@ function HeaderActions({
         </Button>
       )}
 
+      {canSaveAsWorkflow && (
+        <SaveAsWorkflowDialog goal={d} onSaved={onSavedWorkflow} onError={onWorkflowSaveError} />
+      )}
+
       {!archived && lc === "done" && (
         <Button
           variant="outline"
@@ -724,6 +788,195 @@ function HeaderActions({
       {["draft", "pending", "active"].includes(lc) && cancelBtn}
       {lc === "blocked" && cancelBtn}
     </>
+  );
+}
+
+type WorkflowInputDraft = WorkflowInputSpec & { id: string };
+
+const INPUT_NAME_RE = /^[A-Za-z0-9_-]+$/;
+
+function slugifyWorkflowName(title: string) {
+  const slug = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return slug || "workflow";
+}
+
+function SaveAsWorkflowDialog({
+  goal,
+  onSaved,
+  onError,
+}: {
+  goal: ComponentsGoal;
+  onSaved: (workflow: { id: string }) => void;
+  onError: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(() => slugifyWorkflowName(goal.title));
+  const [inputs, setInputs] = useState<WorkflowInputDraft[]>([]);
+  const [pending, setPending] = useState(false);
+  const nameError = name.trim() ? "" : t("workflows.nameRequired");
+  const inputNameErrors = inputs.map((input) =>
+    !input.name.trim()
+      ? t("workflows.inputNameRequired")
+      : INPUT_NAME_RE.test(input.name)
+        ? ""
+        : t("workflows.inputNameInvalid"),
+  );
+  const hasInputErrors = inputNameErrors.some(Boolean);
+
+  const addInput = () => {
+    setInputs((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), name: "", description: "", required: false, default: "" },
+    ]);
+  };
+  const updateInput = (id: string, patch: Partial<WorkflowInputSpec>) => {
+    setInputs((prev) => prev.map((input) => (input.id === id ? { ...input, ...patch } : input)));
+  };
+  const removeInput = (id: string) => {
+    setInputs((prev) => prev.filter((input) => input.id !== id));
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (nameError || hasInputErrors || pending) return;
+    setPending(true);
+    try {
+      const bodyInputs = inputs.map(
+        ({ id: _id, description, default: defaultValue, ...input }) => ({
+          ...input,
+          description: description?.trim() || undefined,
+          default: defaultValue?.trim() || undefined,
+        }),
+      );
+      const { data } = await saveGoalAsWorkflow({
+        path: { id: goal.id },
+        body: { name: name.trim(), inputs: bodyInputs.length ? bodyInputs : undefined },
+        throwOnError: true,
+      });
+      if (data) {
+        setOpen(false);
+        onSaved(data);
+      }
+    } catch (error) {
+      onError(apiErrorMessage(error, t("workflows.saveFailed")));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button variant="outline" size="sm" />}>
+        {t("workflows.saveAsWorkflow")}
+      </DialogTrigger>
+      <DialogPopup className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t("workflows.saveAsWorkflow")}</DialogTitle>
+          <DialogDescription>{t("workflows.saveHint")}</DialogDescription>
+        </DialogHeader>
+        {/* contents: the popup is the flex column; a boxed form would push the
+            footer outside the rounded card. */}
+        <Form onSubmit={submit} className="contents">
+          <DialogPanel className="flex flex-col gap-4">
+            <Field>
+              <FieldLabel>{t("workflows.nameLabel")}</FieldLabel>
+              <Input value={name} onChange={(event) => setName(event.target.value)} />
+              {nameError && <FieldError>{nameError}</FieldError>}
+            </Field>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-medium">{t("workflows.inputsTitle")}</h3>
+                  <p className="text-xs text-muted-foreground">{t("workflows.inputsHint")}</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addInput}>
+                  {t("workflows.addInput")}
+                </Button>
+              </div>
+              {inputs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("workflows.inputsEmpty")}</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {inputs.map((input, index) => (
+                    <div
+                      key={input.id}
+                      className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2"
+                    >
+                      <Field>
+                        <FieldLabel>{t("workflows.inputName")}</FieldLabel>
+                        <Input
+                          value={input.name}
+                          onChange={(event) => updateInput(input.id, { name: event.target.value })}
+                        />
+                        {inputNameErrors[index] && (
+                          <FieldError>{inputNameErrors[index]}</FieldError>
+                        )}
+                      </Field>
+                      <Field>
+                        <FieldLabel>{t("workflows.inputDefault")}</FieldLabel>
+                        <Input
+                          value={input.default ?? ""}
+                          onChange={(event) =>
+                            updateInput(input.id, { default: event.target.value })
+                          }
+                        />
+                      </Field>
+                      <Field className="sm:col-span-2">
+                        <FieldLabel>{t("workflows.inputDescription")}</FieldLabel>
+                        <Textarea
+                          value={input.description ?? ""}
+                          onChange={(event) =>
+                            updateInput(input.id, { description: event.target.value })
+                          }
+                        />
+                      </Field>
+                      <div className="flex items-center justify-between gap-3 sm:col-span-2">
+                        <label className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={!!input.required}
+                            onCheckedChange={(checked) =>
+                              updateInput(input.id, { required: checked === true })
+                            }
+                          />
+                          {t("workflows.inputRequired")}
+                        </label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeInput(input.id)}
+                        >
+                          {t("common.remove")}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </DialogPanel>
+          <DialogFooter>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              loading={pending}
+              disabled={!!nameError || hasInputErrors}
+            >
+              {t("workflows.save")}
+            </Button>
+          </DialogFooter>
+        </Form>
+      </DialogPopup>
+    </Dialog>
   );
 }
 

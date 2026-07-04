@@ -23,14 +23,14 @@ func TestScopedTokenSignVerify(t *testing.T) {
 	if claims.UserID != "user-1" || claims.AgentID != "agent-1" || claims.SessionID != "session-1" {
 		t.Fatalf("claims = %+v", claims)
 	}
-	if !claims.HasScope("tasks:write") || !claims.HasScope("vault:read") {
+	if !claims.HasScope("goals:write") || !claims.HasScope("vault:read") {
 		t.Fatalf("default scopes missing expected capabilities: %+v", claims.Scopes)
 	}
 }
 
 func TestScopedTokenScopes(t *testing.T) {
-	claims := ScopedTokenClaims{Scopes: []string{"tasks:*", "vault:read"}}
-	if !claims.HasScope("tasks:read") || !claims.HasScope("tasks:write") {
+	claims := ScopedTokenClaims{Scopes: []string{"goals:*", "vault:read"}}
+	if !claims.HasScope("goals:read") || !claims.HasScope("goals:write") {
 		t.Fatal("wildcard scope should allow resource actions")
 	}
 	if !claims.HasScope("vault:read") {

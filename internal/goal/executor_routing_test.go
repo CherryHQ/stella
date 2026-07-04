@@ -77,19 +77,22 @@ func TestExecutorWaitsForOneShotSessionClose(t *testing.T) {
 
 	close(releaseClose)
 	select {
-	case <-callbackCalled:
-	case err := <-returned:
-		t.Fatalf("Execute returned before sandbox callback: %v", err)
-	case <-time.After(time.Second):
-		t.Fatal("sandbox callback was not called")
-	}
-	select {
 	case err := <-returned:
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Execute did not return after one-shot session close")
+	}
+	// The callback runs synchronously on the chat goroutine before the event
+	// channel closes, so it happens-before Execute returns. Checking it after
+	// the return (instead of racing both channels in one select, where a
+	// ready-ready random pick misreports correct ordering as a violation)
+	// keeps the assertion deterministic.
+	select {
+	case <-callbackCalled:
+	default:
+		t.Fatal("Execute returned before sandbox callback")
 	}
 }
 

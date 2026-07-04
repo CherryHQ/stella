@@ -3,24 +3,36 @@ INSERT INTO agent_goal (
     id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
     title, intent, kind, priority, required,
     acceptance_contract, convergence_policy, review_policy,
-    lifecycle, context, dispatch_hint
+    lifecycle, context, dispatch_hint, workflow_id, workflow_version
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+RETURNING *;
+
+-- name: CreateGoalIfAbsent :one
+INSERT INTO agent_goal (
+    id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
+    title, intent, kind, priority, required,
+    acceptance_contract, convergence_policy, review_policy,
+    lifecycle, context, dispatch_hint, workflow_id, workflow_version
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+ON CONFLICT (id) DO UPDATE SET id = agent_goal.id
 RETURNING *;
 
 -- name: GetGoal :one
 SELECT * FROM agent_goal WHERE id = $1;
 
 -- Root goals (goals: parent_id IS NULL) for a user, scoped to an agent
--- and narrowed by lifecycle / terminal-ness / project / free-text. Every narg is
--- optional: NULL matches all. terminal: false = active (non-terminal) only, true =
--- history (done) only, NULL = both.
+-- and narrowed by lifecycle / terminal-ness / project / workflow / free-text.
+-- Every narg is optional: NULL matches all. terminal: false = active
+-- (non-terminal) only, true = history (done) only, NULL = both.
 -- name: ListRootGoal :many
 SELECT * FROM agent_goal
 WHERE parent_id IS NULL
   AND user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
   AND (sqlc.narg(project_id)::uuid IS NULL OR project_id = sqlc.narg(project_id)::uuid)
+  AND (sqlc.narg(workflow_id)::uuid IS NULL OR workflow_id = sqlc.narg(workflow_id)::uuid)
   AND (sqlc.narg(lifecycle)::text IS NULL OR lifecycle = sqlc.narg(lifecycle)::text)
   AND (sqlc.narg(terminal)::boolean IS NULL
        OR (lifecycle = 'done') = sqlc.narg(terminal)::boolean)
@@ -38,6 +50,7 @@ WHERE parent_id IS NULL
   AND user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
   AND (sqlc.narg(project_id)::uuid IS NULL OR project_id = sqlc.narg(project_id)::uuid)
+  AND (sqlc.narg(workflow_id)::uuid IS NULL OR workflow_id = sqlc.narg(workflow_id)::uuid)
   AND (sqlc.narg(lifecycle)::text IS NULL OR lifecycle = sqlc.narg(lifecycle)::text)
   AND (sqlc.narg(terminal)::boolean IS NULL
        OR (lifecycle = 'done') = sqlc.narg(terminal)::boolean)
@@ -157,6 +170,17 @@ UPDATE agent_goal SET
     updated_at = now()
 WHERE id = sqlc.arg(id) AND planned_at IS NULL;
 
+-- name: StampGoalWorkflow :exec
+-- Mark composite children whose sub-plan is frozen by a workflow. The
+-- decomposition dispatcher filters workflow_id IS NULL, so stamped children are
+-- never picked up for autonomous replanning between walk transactions. Runs in
+-- the same tx as the parent layer materialize so the exclusion is atomic.
+UPDATE agent_goal SET
+    workflow_id = sqlc.arg(workflow_id)::uuid,
+    workflow_version = sqlc.arg(workflow_version)::integer,
+    updated_at = now()
+WHERE id = ANY(sqlc.arg(ids)::text[]);
+
 -- name: ListDispatchableLeaves :many
 SELECT * FROM agent_goal
 WHERE lifecycle = 'pending'
@@ -166,16 +190,15 @@ ORDER BY priority DESC, created_at ASC
 LIMIT $1;
 
 -- name: ListDecomposableComposites :many
--- Composites awaiting autonomous decomposition: freshly created (draft) and not
--- planned yet. Both review policies are auto-driven: the planner always produces
--- the plan; review_policy='human' only adds an approval gate after the plan is
--- proposed (the goal parks blocked(needs_plan_approval)), it does not stop the
--- planner from running. The dispatcher mints + enqueues a decomposition attempt
--- for each, moving it draft->active so it is not re-picked.
+-- Composites awaiting autonomous decomposition: freshly created (draft), not
+-- planned yet, and not workflow roots. A workflow root carries workflow_id and
+-- is materialized only by workflow replay; nested workflow composites do not
+-- carry workflow_id and remain planner-eligible when their sub-plan is not frozen.
 SELECT * FROM agent_goal
 WHERE kind = 'composite'
   AND lifecycle = 'draft'
   AND planned_at IS NULL
+  AND workflow_id IS NULL
 ORDER BY priority DESC, created_at ASC
 LIMIT $1;
 
@@ -284,6 +307,12 @@ UPDATE agent_goal SET
     updated_at = now()
 WHERE id = $1;
 
+-- name: ListGoalsByWorkflow :many
+SELECT * FROM agent_goal
+WHERE workflow_id = $1
+  AND parent_id IS NULL
+ORDER BY created_at DESC, id DESC
+LIMIT $2;
 
 -- name: ListInboxGoals :many
 SELECT
