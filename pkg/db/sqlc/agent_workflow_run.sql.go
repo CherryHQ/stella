@@ -143,9 +143,14 @@ func (q *Queries) GetWorkflowRunByKey(ctx context.Context, arg GetWorkflowRunByK
 }
 
 const listWorkflowRuns = `-- name: ListWorkflowRuns :many
-SELECT id, workflow_id, workflow_version, idempotency_key, root_goal_id, status, inputs, plan_hash, created_at, updated_at FROM agent_workflow_run
-WHERE workflow_id = $1
-ORDER BY created_at DESC, id DESC
+SELECT r.id, r.workflow_id, r.workflow_version, r.idempotency_key, r.root_goal_id, r.status, r.inputs, r.plan_hash, r.created_at, r.updated_at,
+    g.lifecycle AS root_lifecycle,
+    g.block_reason AS root_block_reason,
+    g.done_reason AS root_done_reason
+FROM agent_workflow_run r
+LEFT JOIN agent_goal g ON g.id = r.root_goal_id
+WHERE r.workflow_id = $1
+ORDER BY r.created_at DESC, r.id DESC
 LIMIT $3 OFFSET $2
 `
 
@@ -155,15 +160,34 @@ type ListWorkflowRunsParams struct {
 	Limit      int32  `json:"limit"`
 }
 
-func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]AgentWorkflowRun, error) {
+type ListWorkflowRunsRow struct {
+	ID              string          `json:"id"`
+	WorkflowID      string          `json:"workflow_id"`
+	WorkflowVersion int32           `json:"workflow_version"`
+	IdempotencyKey  string          `json:"idempotency_key"`
+	RootGoalID      pgtype.Text     `json:"root_goal_id"`
+	Status          string          `json:"status"`
+	Inputs          json.RawMessage `json:"inputs"`
+	PlanHash        string          `json:"plan_hash"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	RootLifecycle   pgtype.Text     `json:"root_lifecycle"`
+	RootBlockReason pgtype.Text     `json:"root_block_reason"`
+	RootDoneReason  pgtype.Text     `json:"root_done_reason"`
+}
+
+// ListWorkflowRuns joins the root goal so the API can report the run's
+// outcome (goal lifecycle) alongside the instantiation status. LEFT JOIN:
+// a claimed run has no root goal yet.
+func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]ListWorkflowRunsRow, error) {
 	rows, err := q.db.Query(ctx, listWorkflowRuns, arg.WorkflowID, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AgentWorkflowRun{}
+	items := []ListWorkflowRunsRow{}
 	for rows.Next() {
-		var i AgentWorkflowRun
+		var i ListWorkflowRunsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkflowID,
@@ -175,6 +199,9 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsPara
 			&i.PlanHash,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RootLifecycle,
+			&i.RootBlockReason,
+			&i.RootDoneReason,
 		); err != nil {
 			return nil, err
 		}

@@ -136,7 +136,11 @@ func (s *Server) ListWorkflowRuns(w http.ResponseWriter, r *http.Request, id str
 	page, next := nextPageTokenForRows(rows, limit, offset)
 	runs := make([]apitypes.WorkflowRun, 0, len(page))
 	for _, row := range page {
-		runs = append(runs, workflowRunToAPI(row))
+		run := workflowRunToAPI(sqlc.AgentWorkflowRun{ID: row.ID, WorkflowID: row.WorkflowID, WorkflowVersion: row.WorkflowVersion, IdempotencyKey: row.IdempotencyKey, RootGoalID: row.RootGoalID, Status: row.Status, Inputs: row.Inputs, PlanHash: row.PlanHash, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt})
+		run.RootLifecycle = nullToPtr(row.RootLifecycle)
+		run.RootBlockReason = nullToPtr(row.RootBlockReason)
+		run.RootDoneReason = nullToPtr(row.RootDoneReason)
+		runs = append(runs, run)
 	}
 	out := apitypes.WorkflowRunList{Runs: runs, Total: int(total)}
 	if next != "" {

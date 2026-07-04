@@ -226,7 +226,7 @@ func (s *Service) ListVersions(ctx context.Context, userID, agentID, name string
 	return s.q.ListWorkflowVersions(ctx, sqlc.ListWorkflowVersionsParams{OwnerKind: ownerKind, UserID: ownerUser, AgentID: ownerAgent, Name: name})
 }
 
-func (s *Service) ListRuns(ctx context.Context, userID, agentID, id string, limit, offset int32) ([]sqlc.AgentWorkflowRun, int64, error) {
+func (s *Service) ListRuns(ctx context.Context, userID, agentID, id string, limit, offset int32) ([]sqlc.ListWorkflowRunsRow, int64, error) {
 	if _, err := s.getScoped(ctx, id, userID, agentID); err != nil {
 		return nil, 0, err
 	}

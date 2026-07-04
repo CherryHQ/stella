@@ -30,7 +30,7 @@ Stella 不会把输入替换到可执行检查命令里。必填输入缺失时�
 
 ## 每天定时运行
 
-先看 `stella scheduler add --help`，再用 `--workflow <workflow-id>` 和 cron 表达式创建定时任务。比如你可以对 Stella 说：“把这个目标保存成工作流，每天早上运行。”Stella 应先保存目标，再创建工作流定时任务。
+先看 `stella scheduler add --help`，再用 `--workflow <workflow-id>` 和 cron 表达式创建定时任务。比如你可以对 Stella 说：“把这个目标保存成工作流，每天早上运行。”Stella 应先保存目标，再创建工作流定时任务。在 Web UI 中，工作流详情页的 Schedule 按钮可以完成同样的事。
 
 v1 的 cron 使用服务器本地时间。
 

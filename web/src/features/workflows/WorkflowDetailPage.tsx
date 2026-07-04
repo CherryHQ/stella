@@ -24,11 +24,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Switch } from "@/components/ui/switch";
+import { displayStatus, statusLabel, StatusPill } from "@/features/goals/lib";
+import {
+  emptySchedule,
+  isScheduleValid,
+  SchedulePicker,
+  type ScheduleValue,
+} from "@/features/goals/SchedulePicker";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { ToastContainer, useToast } from "@/hooks/use-toast";
 import { useAppShell } from "@/layouts/AppShell";
-import { deleteWorkflow, instantiateWorkflow } from "@/lib/api-client";
+import { createSchedulerJob, deleteWorkflow, instantiateWorkflow } from "@/lib/api-client";
 import type {
+  ComponentsGoal,
   ComponentsProposedChild,
   ComponentsProposedEdge,
   Workflow,
@@ -64,7 +73,10 @@ export function WorkflowDetailPage() {
   const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { toasts, showToast } = useToast();
   const { data: workflow, isLoading } = useQuery(workflowOptions(workflowId));
-  const { data: runList = { runs: [], total: 0 } } = useQuery(workflowRunsOptions(workflowId, 10));
+  const [runLimit, setRunLimit] = useState(10);
+  const { data: runList = { runs: [], total: 0 } } = useQuery(
+    workflowRunsOptions(workflowId, runLimit),
+  );
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -154,6 +166,15 @@ export function WorkflowDetailPage() {
               }}
               onError={(message) => showToast(message, "error")}
             />
+            <ScheduleWorkflowDialog
+              workflow={workflow}
+              agentId={agentId}
+              onSuccess={() => {
+                void qc.invalidateQueries({ queryKey: ["agent-scheduler-jobs"] });
+                showToast(t("workflows.scheduleSuccess"));
+              }}
+              onError={(message) => showToast(message, "error")}
+            />
             <Button
               variant="destructive"
               size="sm"
@@ -178,23 +199,23 @@ export function WorkflowDetailPage() {
         </Section>
 
         <Section title={t("workflows.runsTitle")}>
-          <div className="mb-3">
-            <Button
-              variant="outline"
-              size="sm"
-              render={
-                <Link
-                  to="/agents/$agentId/goals/all"
-                  params={{ agentId }}
-                  search={{ workflow_id: workflow.id }}
-                />
-              }
-            >
-              {t("workflows.viewAllRuns")}
-            </Button>
-          </div>
           {runList.runs.length ? (
-            <RunsTable agentId={agentId} runs={runList.runs} total={runList.total} />
+            <>
+              <RunsTable agentId={agentId} runs={runList.runs} total={runList.total} />
+              {runList.runs.length < runList.total && (
+                <div className="flex items-center gap-3">
+                  <Button variant="outline" size="sm" onClick={() => setRunLimit((n) => n + 20)}>
+                    {t("workflows.showMoreRuns")}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {t("workflows.runsShown", {
+                      shown: runList.runs.length,
+                      total: runList.total,
+                    })}
+                  </span>
+                </div>
+              )}
+            </>
           ) : (
             <Empty text={t("workflows.noRuns")} />
           )}
@@ -240,12 +261,10 @@ function InputsTable({ workflow }: { workflow: Workflow }) {
             <TableCell>{input.name}</TableCell>
             <TableCell>{input.required ? t("common.yes") : t("common.no")}</TableCell>
             <TableCell>
-              {input.default || <span className="text-muted-foreground">{t("common.noData")}</span>}
+              {input.default || <span className="text-muted-foreground">—</span>}
             </TableCell>
             <TableCell>
-              {input.description || (
-                <span className="text-muted-foreground">{t("common.noData")}</span>
-              )}
+              {input.description || <span className="text-muted-foreground">—</span>}
             </TableCell>
           </TableRow>
         ))}
@@ -286,18 +305,59 @@ function FrozenPlanView({ plan, depth = 0 }: { plan: FrozenPlan; depth?: number 
         })}
       </ul>
       {edges.length > 0 && (
-        <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-          {edges.map((edge, index) => (
-            <span key={`${edge.downstream_key}-${edge.upstream_key}-${index}`}>
-              {edge.downstream_key} ← {edge.upstream_key}
-              {edge.kind ? ` · ${edge.kind}` : ""}
-              {edge.on_failure ? ` · ${edge.on_failure}` : ""}
-            </span>
-          ))}
+        <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+          {edges.map((edge, index) => {
+            const title = (key?: string) =>
+              children.find((n) => n.child?.key === key)?.child?.title ?? key ?? "";
+            return (
+              <div
+                key={`${edge.downstream_key}-${edge.upstream_key}-${index}`}
+                className="flex flex-wrap items-center gap-2"
+              >
+                <span>
+                  {t("workflows.edgeAfter", {
+                    down: title(edge.downstream_key),
+                    up: title(edge.upstream_key),
+                  })}
+                </span>
+                {edge.kind && edge.kind !== "hard" && <Badge variant="outline">{edge.kind}</Badge>}
+                {edge.on_failure && (
+                  <Badge variant="outline">
+                    {t("workflows.edgeOnFailure", { action: edge.on_failure })}
+                  </Badge>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
+}
+
+/** The run's user-facing status is its goal tree's outcome; the instantiation
+    machinery (claimed/materializing) only shows before the tree exists. */
+function RunStatusCell({ run }: { run: WorkflowRun }) {
+  const { t } = useI18n();
+  if (run.status === "failed") {
+    return <Badge variant="destructive">{t("workflows.runFailedToStart")}</Badge>;
+  }
+  if (!run.root_lifecycle) {
+    return <Badge variant="info">{t("workflows.runStarting")}</Badge>;
+  }
+  const goalState = {
+    lifecycle: run.root_lifecycle,
+    block_reason: run.root_block_reason ?? "",
+    done_reason: run.root_done_reason ?? "",
+  } as ComponentsGoal;
+  const status = displayStatus(goalState);
+  return <StatusPill status={status} label={statusLabel(t, status)} />;
+}
+
+function inputsSummary(inputs: WorkflowRun["inputs"]): string {
+  return Object.entries(inputs)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(" · ");
 }
 
 function RunsTable({
@@ -314,28 +374,15 @@ function RunsTable({
     <Table variant="card">
       <TableHeader>
         <TableRow>
+          <TableHead>{t("workflows.colRun")}</TableHead>
           <TableHead>{t("workflows.colStatus")}</TableHead>
+          <TableHead>{t("workflows.colInputs")}</TableHead>
           <TableHead>{t("workflows.colCreated")}</TableHead>
-          <TableHead>{t("workflows.colRootGoal")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {runs.map((run, index) => (
           <TableRow key={run.id}>
-            <TableCell>
-              <Badge
-                variant={
-                  run.status === "done"
-                    ? "success"
-                    : run.status === "failed"
-                      ? "destructive"
-                      : "info"
-                }
-              >
-                {t(`workflows.runStatus.${run.status}` as const)}
-              </Badge>
-            </TableCell>
-            <TableCell>{formatTime(run.created_at)}</TableCell>
             <TableCell>
               {run.root_goal_id ? (
                 <Button
@@ -351,9 +398,24 @@ function RunsTable({
                   {t("workflows.runNumber", { n: total - index })}
                 </Button>
               ) : (
-                <span className="text-muted-foreground">{t("common.noData")}</span>
+                <span className="text-muted-foreground">
+                  {t("workflows.runNumber", { n: total - index })}
+                </span>
               )}
             </TableCell>
+            <TableCell>
+              <RunStatusCell run={run} />
+            </TableCell>
+            <TableCell>
+              {Object.keys(run.inputs).length ? (
+                <span className="block max-w-[280px] truncate font-mono text-xs text-muted-foreground">
+                  {inputsSummary(run.inputs)}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </TableCell>
+            <TableCell>{formatTime(run.created_at)}</TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -421,7 +483,9 @@ function RunWorkflowDialog({
           <DialogTitle>{t("workflows.run")}</DialogTitle>
           <DialogDescription>{t("workflows.runDesc", { name: workflow.name })}</DialogDescription>
         </DialogHeader>
-        <Form onSubmit={submit}>
+        {/* contents: the popup is the flex column; a boxed form would push the
+            footer outside the rounded card. */}
+        <Form onSubmit={submit} className="contents">
           <DialogPanel className="flex flex-col gap-4">
             {workflow.inputs.length ? (
               workflow.inputs.map((input) => (
@@ -456,6 +520,135 @@ function RunWorkflowDialog({
             </Button>
             <Button type="submit" size="sm" loading={pending} disabled={hasErrors}>
               {t("workflows.run")}
+            </Button>
+          </DialogFooter>
+        </Form>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function ScheduleWorkflowDialog({
+  workflow,
+  agentId,
+  onSuccess,
+  onError,
+}: {
+  workflow: Workflow;
+  agentId: string;
+  onSuccess: () => void;
+  onError: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [name, setName] = useState(workflow.name);
+  const [schedule, setSchedule] = useState<ScheduleValue>(() => emptySchedule());
+  const [allowReplan, setAllowReplan] = useState(false);
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(workflow.inputs.map((input) => [input.name, input.default ?? ""])),
+  );
+  const requiredErrors = useMemo(
+    () =>
+      Object.fromEntries(
+        workflow.inputs.map((input) => [
+          input.name,
+          input.required && !values[input.name]?.trim() ? t("workflows.inputValueRequired") : "",
+        ]),
+      ),
+    [t, values, workflow.inputs],
+  );
+  const hasErrors =
+    Object.values(requiredErrors).some(Boolean) || !name.trim() || !isScheduleValid(schedule);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (hasErrors || pending) return;
+    setPending(true);
+    try {
+      await createSchedulerJob({
+        path: { agentId },
+        body: {
+          name: name.trim(),
+          cron: schedule.cron,
+          every: schedule.every,
+          at: schedule.at,
+          dispatch_kind: "workflow",
+          workflow_id: workflow.id,
+          inputs: values,
+          allow_replan: workflow.fully_frozen ? undefined : allowReplan,
+          agent_id: agentId,
+        },
+        throwOnError: true,
+      });
+      setOpen(false);
+      onSuccess();
+    } catch (error) {
+      onError(apiErrorMessage(error, t("workflows.scheduleFailed")));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button variant="outline" size="sm" />}>
+        {t("workflows.schedule")}
+      </DialogTrigger>
+      <DialogPopup>
+        <DialogHeader>
+          <DialogTitle>{t("workflows.schedule")}</DialogTitle>
+          <DialogDescription>
+            {t("workflows.scheduleDesc", { name: workflow.name })}
+          </DialogDescription>
+        </DialogHeader>
+        <Form onSubmit={submit} className="contents">
+          <DialogPanel className="flex flex-col gap-4">
+            <Field>
+              <FieldLabel>{t("hub.name")}</FieldLabel>
+              <Input value={name} onChange={(event) => setName(event.target.value)} />
+            </Field>
+            <Field>
+              <FieldLabel>{t("automations.scheduleField")}</FieldLabel>
+              <SchedulePicker value={schedule} onChange={setSchedule} />
+            </Field>
+            {workflow.inputs.map((input) => (
+              <Field key={input.name}>
+                <FieldLabel>
+                  {input.name}
+                  {input.required && (
+                    <Badge variant="secondary">{t("workflows.requiredMarker")}</Badge>
+                  )}
+                </FieldLabel>
+                <Input
+                  value={values[input.name] ?? ""}
+                  placeholder={input.default ?? ""}
+                  onChange={(event) =>
+                    setValues((prev) => ({ ...prev, [input.name]: event.target.value }))
+                  }
+                />
+                {input.description && <FieldDescription>{input.description}</FieldDescription>}
+                {requiredErrors[input.name] && (
+                  <FieldError>{requiredErrors[input.name]}</FieldError>
+                )}
+              </Field>
+            ))}
+            {!workflow.fully_frozen && (
+              <Field>
+                <div className="flex items-center gap-2.5">
+                  <Switch checked={allowReplan} onCheckedChange={setAllowReplan} />
+                  <FieldLabel>{t("workflows.allowReplan")}</FieldLabel>
+                </div>
+                <FieldDescription>{t("workflows.allowReplanDesc")}</FieldDescription>
+              </Field>
+            )}
+          </DialogPanel>
+          <DialogFooter>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" size="sm" loading={pending} disabled={hasErrors}>
+              {t("common.create")}
             </Button>
           </DialogFooter>
         </Form>

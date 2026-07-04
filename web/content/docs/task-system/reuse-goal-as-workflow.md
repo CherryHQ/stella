@@ -30,7 +30,7 @@ Use `stella workflow run --help`, then run the workflow with the required inputs
 
 ## Schedule it daily
 
-Use `stella scheduler add --help`, then add a scheduler job with `--workflow <workflow-id>` and a cron expression. For example, ask Stella: “save this goal as a workflow and run it every morning.” Stella should save the goal first, then create a workflow scheduler job.
+Use `stella scheduler add --help`, then add a scheduler job with `--workflow <workflow-id>` and a cron expression. For example, ask Stella: “save this goal as a workflow and run it every morning.” Stella should save the goal first, then create a workflow scheduler job. In the web UI, the workflow detail page has a Schedule button that does the same thing.
 
 Cron schedules use the server's local time in v1.
 

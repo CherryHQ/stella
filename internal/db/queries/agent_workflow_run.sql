@@ -35,10 +35,18 @@ WHERE workflow_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT 1;
 
+-- ListWorkflowRuns joins the root goal so the API can report the run's
+-- outcome (goal lifecycle) alongside the instantiation status. LEFT JOIN:
+-- a claimed run has no root goal yet.
 -- name: ListWorkflowRuns :many
-SELECT * FROM agent_workflow_run
-WHERE workflow_id = $1
-ORDER BY created_at DESC, id DESC
+SELECT r.*,
+    g.lifecycle AS root_lifecycle,
+    g.block_reason AS root_block_reason,
+    g.done_reason AS root_done_reason
+FROM agent_workflow_run r
+LEFT JOIN agent_goal g ON g.id = r.root_goal_id
+WHERE r.workflow_id = $1
+ORDER BY r.created_at DESC, r.id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: CountWorkflowRuns :one

@@ -16,6 +16,9 @@ interface DetailShellProps {
   /** Fill mode: no page scroll, full width, children stretch to the viewport
       bottom (for canvas-style pages that scroll internally). */
   fill?: boolean;
+  /** Override the back link (defaults to the agent's Goals hub) so pages
+      reached from another surface, e.g. a workflow run, return there. */
+  back?: { label: string; to: string; params: Record<string, string> };
   children: React.ReactNode;
 }
 
@@ -28,6 +31,7 @@ export function DetailShell({
   actions,
   contentClassName = "max-w-[800px]",
   fill = false,
+  back,
   children,
 }: DetailShellProps) {
   const { t } = useI18n();
@@ -47,12 +51,12 @@ export function DetailShell({
         }
       >
         <Link
-          to="/agents/$agentId/goals"
-          params={{ agentId }}
+          to={back?.to ?? "/agents/$agentId/goals"}
+          params={back?.params ?? { agentId }}
           className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" />
-          {t("hub.title")}
+          {back?.label ?? t("hub.title")}
         </Link>
         <div className="mt-4 font-mono text-xs font-medium text-muted-foreground">{kindLabel}</div>
         <div className="mt-1.5 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">

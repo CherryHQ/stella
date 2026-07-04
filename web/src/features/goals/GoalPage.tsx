@@ -189,6 +189,15 @@ export function GoalPage() {
       pill={<StatusPill status={displayStatus(d)} label={goalStatusLabel(t, d)} />}
       contentClassName="max-w-[1200px]"
       fill={isComposite}
+      back={
+        workflowId
+          ? {
+              label: workflow?.name ?? t("workflows.backToWorkflow"),
+              to: "/agents/$agentId/workflows/$workflowId",
+              params: { agentId, workflowId },
+            }
+          : undefined
+      }
       actions={
         <>
           <HeaderActions
@@ -239,11 +248,7 @@ export function GoalPage() {
         {workflowId && (
           <>
             <MetaSep />
-            <Link
-              to="/agents/$agentId/goals/all"
-              params={{ agentId }}
-              search={{ workflow_id: workflowId }}
-            >
+            <Link to="/agents/$agentId/workflows/$workflowId" params={{ agentId, workflowId }}>
               <Badge variant="info">
                 {workflow
                   ? (() => {
@@ -875,7 +880,9 @@ function SaveAsWorkflowDialog({
           <DialogTitle>{t("workflows.saveAsWorkflow")}</DialogTitle>
           <DialogDescription>{t("workflows.saveHint")}</DialogDescription>
         </DialogHeader>
-        <Form onSubmit={submit}>
+        {/* contents: the popup is the flex column; a boxed form would push the
+            footer outside the rounded card. */}
+        <Form onSubmit={submit} className="contents">
           <DialogPanel className="flex flex-col gap-4">
             <Field>
               <FieldLabel>{t("workflows.nameLabel")}</FieldLabel>

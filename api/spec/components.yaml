@@ -4318,6 +4318,18 @@ components:
         status:
           type: string
           enum: [claimed, materializing, done, failed]
+          description: >-
+            Instantiation status only. The outcome of the run is the root goal's state (root_lifecycle and friends), not this field.
+        root_lifecycle:
+          type: string
+          nullable: true
+          description: Root goal lifecycle; null until the root goal exists.
+        root_block_reason:
+          type: string
+          nullable: true
+        root_done_reason:
+          type: string
+          nullable: true
         inputs:
           type: object
           additionalProperties:
