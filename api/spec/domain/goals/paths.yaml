@@ -7,6 +7,7 @@ paths:
         Lists root goals (goals) by default. `?parent={id}` lists a
         composite's direct children; `?root={id}` lists a whole tree.
       operationId: listGoals
+      x-agent-tool: { tool: "goal", action: "list" }
       parameters:
         - name: agent_id
           in: query
@@ -75,6 +76,7 @@ paths:
       tags: [goals]
       summary: Create a goal (root goal)
       operationId: createGoal
+      x-agent-tool: { tool: "goal", action: "create" }
       requestBody:
         required: true
         content:
@@ -143,6 +145,7 @@ paths:
       tags: [goals]
       summary: Get a goal
       operationId: getGoal
+      x-agent-tool: { tool: "goal", action: "get" }
       responses:
         "200":
           description: ok
@@ -223,6 +226,7 @@ paths:
       tags: [goals]
       summary: Cancel a goal (cascades to the non-terminal subtree)
       operationId: cancelGoal
+      x-agent-tool: { tool: "goal", action: "cancel" }
       requestBody:
         required: false
         content:

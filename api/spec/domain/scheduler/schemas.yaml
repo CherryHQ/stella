@@ -100,6 +100,10 @@ components:
           type: string,
           description: "Admin-only: set empty for system jobs",
         }
+        idempotency_key: {
+          type: string,
+          description: "Optional key; repeated creates by the same user with the same key return the existing job.",
+        }
 
     JobRun:
       type: object

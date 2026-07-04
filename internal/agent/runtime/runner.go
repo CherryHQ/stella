@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/renderrefs"

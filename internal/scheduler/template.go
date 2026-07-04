@@ -189,8 +189,10 @@ func (s *Service) Subscribe(ctx context.Context, userID, agentID, key string, sc
 // Subscribe can call it while already holding the lock — avoiding a
 // re-entrant lock acquisition.
 func (s *Service) addJobLocked(job Job) error {
-	if err := s.scheduleJob(job); err != nil {
-		return fmt.Errorf("schedule job: %w", err)
+	if job.Enabled {
+		if err := s.scheduleJob(job); err != nil {
+			return fmt.Errorf("schedule job: %w", err)
+		}
 	}
 
 	if err := s.insertJob(s.ctx, job); err != nil {

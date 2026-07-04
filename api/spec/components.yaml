@@ -147,6 +147,33 @@ components:
       properties:
         user_id:
           type: string
+    AgentTool:
+      type: object
+      required: [name, description, source, enabled, origin]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        source:
+          type: string
+        enabled:
+          type: boolean
+        origin:
+          type: string
+    AgentToolList:
+      type: object
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTool"
+    UpdateAgentToolRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
     Skill:
       type: object
       properties:
@@ -695,6 +722,16 @@ components:
           type: array
           items:
             type: string
+    EmailAccountList:
+      type: object
+      required: [accounts]
+      properties:
+        accounts:
+          type: array
+          items:
+            type: string
+        default:
+          type: string
     EmailEnvelope:
       type: object
       required: [uid, from, subject, date]
@@ -787,6 +824,9 @@ components:
           type: string
         in_reply_to:
           type: string
+        idempotency_key:
+          type: string
+          description: Optional for HTTP clients; required by the native email tool to suppress duplicate sends.
     EmailMarkRequest:
       type: object
       required: [seen]
@@ -1041,6 +1081,9 @@ components:
           type: boolean
           description: >-
             When true the new goal is activated immediately after create (direct run). Only a leaf with a satisfied plan gate can activate; a composite must be planned first, so 'activate' is ignored for it.
+        idempotency_key:
+          type: string
+          description: Optional key; repeated creates by the same user with the same key return the existing goal.
     UpdateGoalRequest:
       type: object
       description: Partial metadata edit; omitted fields are left unchanged.
@@ -3421,6 +3464,9 @@ components:
         user_id:
           type: string
           description: "Admin-only: set empty for system jobs"
+        idempotency_key:
+          type: string
+          description: "Optional key; repeated creates by the same user with the same key return the existing job."
     JobRun:
       type: object
       required: [id, job_id, session_id, status, started_at]
@@ -4026,27 +4072,6 @@ components:
           $ref: "#/components/schemas/StatusDatabase"
         plugins:
           $ref: "#/components/schemas/StatusPlugins"
-    Tool:
-      type: object
-      required: [name, description, category]
-      properties:
-        name:
-          type: string
-        description:
-          type: string
-        input_schema:
-          type: object
-          additionalProperties: true
-        category:
-          type: string
-    ToolList:
-      type: object
-      required: [tools]
-      properties:
-        tools:
-          type: array
-          items:
-            $ref: "#/components/schemas/Tool"
     Identity:
       type: object
       required: [id, user_id, platform, external_id, name, linked_at]

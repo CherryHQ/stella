@@ -8,13 +8,7 @@ nothing, and the next run re-lists and Go drops the duplicates.
 
 ## 1. Identify website feeds
 
-Before listing feeds, read the command help:
-
-```bash
-stella recally feed list --help
-```
-
-List feeds with JSON output. Process each feed whose `kind` is `website`. The `url` is the index page to scan.
+Use `recally` `action=feed_list` to list feeds. Process each feed whose `kind` is `website`. The `url` is the index page to scan.
 
 ## 2. Fetch the index page
 
@@ -51,7 +45,8 @@ Use the same normalized URL for both `--guid` and `--url`.
 
 ## 5. Push entries (Go dedups)
 
-Before adding feed entries, read the command help:
+Entry insertion still runs through the CLI — the native `recally` tool does not
+expose it yet. Before adding feed entries, read the command help:
 
 ```bash
 stella recally feed entry add --help

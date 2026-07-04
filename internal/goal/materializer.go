@@ -111,6 +111,7 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, parent
 			Lifecycle:          LifecycleDraft,
 			Context:            emptyJSON,
 			DispatchHint:       emptyJSON,
+			IdempotencyKey:     pgtype.Text{},
 		}); err != nil {
 			return fmt.Errorf("create child %q: %w", ch.Key, err)
 		}

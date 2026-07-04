@@ -3,16 +3,27 @@ INSERT INTO sched_job (
     id, owner_kind, exec_scope, plugin_id, job_key, runtime_name,
     name, description, schedule_cron, schedule_every, schedule_at,
     message, payload, dispatch_kind, session_mode, enabled, agent_id, user_id,
-    created_at, updated_at, last_run_at, last_error
+    created_at, updated_at, last_run_at, last_error, idempotency_key
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
 RETURNING *;
+
+-- name: GetSchedulerJobByIdempotencyKey :one
+SELECT * FROM sched_job
+WHERE user_id = $1 AND idempotency_key = $2;
 
 -- name: ListSchedulerJobs :many
 SELECT * FROM sched_job ORDER BY created_at;
 
 -- name: ListAllSchedulerJobs :many
 SELECT * FROM sched_job ORDER BY created_at;
+
+-- name: ListSchedulerJobByOwner :many
+SELECT * FROM sched_job
+WHERE owner_kind = 'user'
+  AND agent_id = $1
+  AND user_id = $2
+ORDER BY created_at;
 
 -- name: ListSchedulerJobsByAgent :many
 SELECT * FROM sched_job

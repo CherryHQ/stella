@@ -99,7 +99,7 @@ func TestAddWorkflowJobValidation(t *testing.T) {
 	if _, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "", nil, false); !errors.Is(err, ErrWorkflowJobValidation) {
 		t.Fatalf("workflow job without workflow_id err=%v want validation", err)
 	}
-	if _, err := svc.addJobInternal("wf", "message", Schedule{Every: "1h"}, "reuse", "", "user-1", JobOwnerUser, ExecScopeUser, DispatchKindWorkflow, map[string]any{"workflow_id": "wf-1"}); !errors.Is(err, ErrWorkflowJobValidation) {
+	if _, err := svc.addJobInternal(addJobSpec{Name: "wf", Message: "message", Schedule: Schedule{Every: "1h"}, SessionMode: "reuse", UserID: "user-1", OwnerKind: JobOwnerUser, ExecScope: ExecScopeUser, DispatchKind: DispatchKindWorkflow, Payload: map[string]any{"workflow_id": "wf-1"}, Enabled: true}); !errors.Is(err, ErrWorkflowJobValidation) {
 		t.Fatalf("workflow job with message err=%v want validation", err)
 	}
 	if _, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "wf-1", nil, false); !errors.Is(err, ErrWorkflowJobValidation) {

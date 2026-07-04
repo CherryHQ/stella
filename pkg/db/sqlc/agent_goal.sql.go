@@ -172,10 +172,10 @@ INSERT INTO agent_goal (
     id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
     title, intent, kind, priority, required,
     acceptance_contract, convergence_policy, review_policy,
-    lifecycle, context, dispatch_hint, workflow_id, workflow_version
+    lifecycle, context, dispatch_hint, workflow_id, workflow_version, idempotency_key
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-RETURNING id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+RETURNING id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key
 `
 
 type CreateGoalParams struct {
@@ -200,6 +200,7 @@ type CreateGoalParams struct {
 	DispatchHint       json.RawMessage `json:"dispatch_hint"`
 	WorkflowID         pgtype.Text     `json:"workflow_id"`
 	WorkflowVersion    pgtype.Int4     `json:"workflow_version"`
+	IdempotencyKey     pgtype.Text     `json:"idempotency_key"`
 }
 
 func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGoal, error) {
@@ -225,6 +226,7 @@ func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGo
 		arg.DispatchHint,
 		arg.WorkflowID,
 		arg.WorkflowVersion,
+		arg.IdempotencyKey,
 	)
 	var i AgentGoal
 	err := row.Scan(
@@ -265,6 +267,7 @@ func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGo
 		&i.DoneReason,
 		&i.WorkflowID,
 		&i.WorkflowVersion,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
@@ -274,11 +277,11 @@ INSERT INTO agent_goal (
     id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
     title, intent, kind, priority, required,
     acceptance_contract, convergence_policy, review_policy,
-    lifecycle, context, dispatch_hint, workflow_id, workflow_version
+    lifecycle, context, dispatch_hint, workflow_id, workflow_version, idempotency_key
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 ON CONFLICT (id) DO UPDATE SET id = agent_goal.id
-RETURNING id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version
+RETURNING id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key
 `
 
 type CreateGoalIfAbsentParams struct {
@@ -303,6 +306,7 @@ type CreateGoalIfAbsentParams struct {
 	DispatchHint       json.RawMessage `json:"dispatch_hint"`
 	WorkflowID         pgtype.Text     `json:"workflow_id"`
 	WorkflowVersion    pgtype.Int4     `json:"workflow_version"`
+	IdempotencyKey     pgtype.Text     `json:"idempotency_key"`
 }
 
 func (q *Queries) CreateGoalIfAbsent(ctx context.Context, arg CreateGoalIfAbsentParams) (AgentGoal, error) {
@@ -328,6 +332,7 @@ func (q *Queries) CreateGoalIfAbsent(ctx context.Context, arg CreateGoalIfAbsent
 		arg.DispatchHint,
 		arg.WorkflowID,
 		arg.WorkflowVersion,
+		arg.IdempotencyKey,
 	)
 	var i AgentGoal
 	err := row.Scan(
@@ -368,12 +373,13 @@ func (q *Queries) CreateGoalIfAbsent(ctx context.Context, arg CreateGoalIfAbsent
 		&i.DoneReason,
 		&i.WorkflowID,
 		&i.WorkflowVersion,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
 
 const getGoal = `-- name: GetGoal :one
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version FROM agent_goal WHERE id = $1
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal WHERE id = $1
 `
 
 func (q *Queries) GetGoal(ctx context.Context, id string) (AgentGoal, error) {
@@ -417,6 +423,63 @@ func (q *Queries) GetGoal(ctx context.Context, id string) (AgentGoal, error) {
 		&i.DoneReason,
 		&i.WorkflowID,
 		&i.WorkflowVersion,
+		&i.IdempotencyKey,
+	)
+	return i, err
+}
+
+const getGoalByIdempotencyKey = `-- name: GetGoalByIdempotencyKey :one
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
+WHERE user_id = $1 AND idempotency_key = $2
+`
+
+type GetGoalByIdempotencyKeyParams struct {
+	UserID         string      `json:"user_id"`
+	IdempotencyKey pgtype.Text `json:"idempotency_key"`
+}
+
+func (q *Queries) GetGoalByIdempotencyKey(ctx context.Context, arg GetGoalByIdempotencyKeyParams) (AgentGoal, error) {
+	row := q.db.QueryRow(ctx, getGoalByIdempotencyKey, arg.UserID, arg.IdempotencyKey)
+	var i AgentGoal
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.AgentID,
+		&i.ProjectID,
+		&i.ParentID,
+		&i.RootID,
+		&i.Depth,
+		&i.Position,
+		&i.Title,
+		&i.Intent,
+		&i.Kind,
+		&i.Priority,
+		&i.Required,
+		&i.AcceptanceContract,
+		&i.ConvergencePolicy,
+		&i.ReviewPolicy,
+		&i.Lifecycle,
+		&i.BlockReason,
+		&i.AcceptanceState,
+		&i.AcceptedOutput,
+		&i.AcceptanceSeq,
+		&i.ActiveAttemptID,
+		&i.AttemptCount,
+		&i.Context,
+		&i.DispatchHint,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AcceptedAt,
+		&i.CancelledAt,
+		&i.ArchivedAt,
+		&i.Plan,
+		&i.PlannedAt,
+		&i.FlakyCount,
+		&i.BudgetBonus,
+		&i.DoneReason,
+		&i.WorkflowID,
+		&i.WorkflowVersion,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
@@ -504,7 +567,7 @@ func (q *Queries) IncrementGoalFlakyCount(ctx context.Context, id string) (int64
 }
 
 const listDecomposableComposites = `-- name: ListDecomposableComposites :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
 WHERE kind = 'composite'
   AND lifecycle = 'draft'
   AND planned_at IS NULL
@@ -564,6 +627,7 @@ func (q *Queries) ListDecomposableComposites(ctx context.Context, limit int32) (
 			&i.DoneReason,
 			&i.WorkflowID,
 			&i.WorkflowVersion,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -576,7 +640,7 @@ func (q *Queries) ListDecomposableComposites(ctx context.Context, limit int32) (
 }
 
 const listDispatchableLeaves = `-- name: ListDispatchableLeaves :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
 WHERE lifecycle = 'pending'
   AND active_attempt_id IS NULL
   AND kind = 'leaf'
@@ -631,6 +695,7 @@ func (q *Queries) ListDispatchableLeaves(ctx context.Context, limit int32) ([]Ag
 			&i.DoneReason,
 			&i.WorkflowID,
 			&i.WorkflowVersion,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -643,7 +708,7 @@ func (q *Queries) ListDispatchableLeaves(ctx context.Context, limit int32) ([]Ag
 }
 
 const listGoalByRoot = `-- name: ListGoalByRoot :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
 WHERE root_id = $1
 ORDER BY depth ASC, position ASC, id ASC
 `
@@ -695,6 +760,7 @@ func (q *Queries) ListGoalByRoot(ctx context.Context, rootID string) ([]AgentGoa
 			&i.DoneReason,
 			&i.WorkflowID,
 			&i.WorkflowVersion,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -707,7 +773,7 @@ func (q *Queries) ListGoalByRoot(ctx context.Context, rootID string) ([]AgentGoa
 }
 
 const listGoalChildren = `-- name: ListGoalChildren :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
 WHERE parent_id = $1
 ORDER BY position ASC, id ASC
 `
@@ -759,6 +825,7 @@ func (q *Queries) ListGoalChildren(ctx context.Context, parentID pgtype.Text) ([
 			&i.DoneReason,
 			&i.WorkflowID,
 			&i.WorkflowVersion,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -777,7 +844,7 @@ WITH RECURSIVE subtree(id) AS (
     SELECT d.id FROM agent_goal d
     JOIN subtree s ON d.parent_id = s.id
 )
-SELECT d.id, d.user_id, d.agent_id, d.project_id, d.parent_id, d.root_id, d.depth, d.position, d.title, d.intent, d.kind, d.priority, d.required, d.acceptance_contract, d.convergence_policy, d.review_policy, d.lifecycle, d.block_reason, d.acceptance_state, d.accepted_output, d.acceptance_seq, d.active_attempt_id, d.attempt_count, d.context, d.dispatch_hint, d.created_at, d.updated_at, d.accepted_at, d.cancelled_at, d.archived_at, d.plan, d.planned_at, d.flaky_count, d.budget_bonus, d.done_reason, d.workflow_id, d.workflow_version FROM agent_goal d
+SELECT d.id, d.user_id, d.agent_id, d.project_id, d.parent_id, d.root_id, d.depth, d.position, d.title, d.intent, d.kind, d.priority, d.required, d.acceptance_contract, d.convergence_policy, d.review_policy, d.lifecycle, d.block_reason, d.acceptance_state, d.accepted_output, d.acceptance_seq, d.active_attempt_id, d.attempt_count, d.context, d.dispatch_hint, d.created_at, d.updated_at, d.accepted_at, d.cancelled_at, d.archived_at, d.plan, d.planned_at, d.flaky_count, d.budget_bonus, d.done_reason, d.workflow_id, d.workflow_version, d.idempotency_key FROM agent_goal d
 JOIN subtree s ON d.id = s.id
 ORDER BY d.depth ASC, d.position ASC, d.id ASC
 `
@@ -829,6 +896,7 @@ func (q *Queries) ListGoalSubtree(ctx context.Context, id string) ([]AgentGoal, 
 			&i.DoneReason,
 			&i.WorkflowID,
 			&i.WorkflowVersion,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -841,7 +909,7 @@ func (q *Queries) ListGoalSubtree(ctx context.Context, id string) ([]AgentGoal, 
 }
 
 const listGoalsBlockedNeedsVerdict = `-- name: ListGoalsBlockedNeedsVerdict :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
 WHERE lifecycle = 'blocked'
   AND block_reason = 'needs_verdict'
 ORDER BY priority DESC, created_at ASC
@@ -899,6 +967,7 @@ func (q *Queries) ListGoalsBlockedNeedsVerdict(ctx context.Context, limit int32)
 			&i.DoneReason,
 			&i.WorkflowID,
 			&i.WorkflowVersion,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -911,7 +980,7 @@ func (q *Queries) ListGoalsBlockedNeedsVerdict(ctx context.Context, limit int32)
 }
 
 const listGoalsByWorkflow = `-- name: ListGoalsByWorkflow :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
 WHERE workflow_id = $1
   AND parent_id IS NULL
 ORDER BY created_at DESC, id DESC
@@ -970,6 +1039,7 @@ func (q *Queries) ListGoalsByWorkflow(ctx context.Context, arg ListGoalsByWorkfl
 			&i.DoneReason,
 			&i.WorkflowID,
 			&i.WorkflowVersion,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -1063,7 +1133,7 @@ func (q *Queries) ListInboxGoals(ctx context.Context, arg ListInboxGoalsParams) 
 }
 
 const listRollupCandidates = `-- name: ListRollupCandidates :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
 WHERE kind = 'composite'
   AND lifecycle = 'active'
   AND planned_at IS NOT NULL
@@ -1118,6 +1188,7 @@ func (q *Queries) ListRollupCandidates(ctx context.Context, limit int32) ([]Agen
 			&i.DoneReason,
 			&i.WorkflowID,
 			&i.WorkflowVersion,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -1130,7 +1201,7 @@ func (q *Queries) ListRollupCandidates(ctx context.Context, limit int32) ([]Agen
 }
 
 const listRootGoal = `-- name: ListRootGoal :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
 WHERE parent_id IS NULL
   AND user_id = $1
   AND ($2::text IS NULL OR agent_id = $2::text)
@@ -1220,6 +1291,7 @@ func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]A
 			&i.DoneReason,
 			&i.WorkflowID,
 			&i.WorkflowVersion,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -1232,7 +1304,7 @@ func (q *Queries) ListRootGoal(ctx context.Context, arg ListRootGoalParams) ([]A
 }
 
 const listZombieGoals = `-- name: ListZombieGoals :many
-SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version FROM agent_goal
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
 WHERE lifecycle != 'done'
   AND updated_at < now() - interval '5 minutes'
   AND (
@@ -1312,6 +1384,7 @@ func (q *Queries) ListZombieGoals(ctx context.Context, limit int32) ([]AgentGoal
 			&i.DoneReason,
 			&i.WorkflowID,
 			&i.WorkflowVersion,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}

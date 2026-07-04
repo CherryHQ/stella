@@ -15,6 +15,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/recally"
 )
@@ -26,12 +27,13 @@ import (
 type recallyHandlers struct {
 	store *recally.Store
 	files *recally.FileManager
+	svc   *recally.Service
 	feeds *gofeed.Parser
 	log   *slog.Logger
 }
 
-func newRecallyHandlers(store *recally.Store, files *recally.FileManager, log *slog.Logger) *recallyHandlers {
-	return &recallyHandlers{store: store, files: files, feeds: gofeed.NewParser(), log: log.With("component", "recally-api")}
+func newRecallyHandlersWithService(store *recally.Store, files *recally.FileManager, svc *recally.Service, log *slog.Logger) *recallyHandlers {
+	return &recallyHandlers{store: store, files: files, svc: svc, feeds: gofeed.NewParser(), log: log.With("component", "recally-api")}
 }
 
 func (h *recallyHandlers) writeInternalError(w http.ResponseWriter, err error) {
@@ -53,9 +55,9 @@ func (h *recallyHandlers) requireUser(w http.ResponseWriter, r *http.Request) (s
 	return info.UserID, true
 }
 
-// articleOwned loads an article and returns it only if the caller owns it.
+// loadArticle loads an article and returns it only if the caller owns it.
 // Returns false (with the appropriate error response written) otherwise.
-func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Context, articleID string, userID string) (*recally.Article, bool) {
+func (h *recallyHandlers) loadArticle(w http.ResponseWriter, ctx context.Context, articleID string, userID string) (*recally.Article, bool) {
 	article, err := h.store.GetArticle(ctx, userID, articleID)
 	if err != nil {
 		if isNotFound(err) {
@@ -72,7 +74,7 @@ func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Contex
 	return article, true
 }
 
-func (h *recallyHandlers) feedOwned(w http.ResponseWriter, ctx context.Context, feedID string, userID string) (*recally.Feed, bool) {
+func (h *recallyHandlers) loadFeed(w http.ResponseWriter, ctx context.Context, feedID string, userID string) (*recally.Feed, bool) {
 	feed, err := h.store.GetFeed(ctx, userID, feedID)
 	if err != nil {
 		if isNotFound(err) {
@@ -166,15 +168,6 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 		canonical = recally.NormalizeURL(body.Url)
 	}
 
-	// Look up existing first so we can decide between create and metadata-only update,
-	// and resolve content from the existing file when none was sent.
-	existing, lookupErr := h.store.GetArticleByCanonicalURL(r.Context(), userID, canonical)
-	content := strDeref(body.Content)
-	if content == "" && lookupErr != nil {
-		writeError(w, http.StatusBadRequest, "content is required for new articles")
-		return
-	}
-
 	sourceType := recally.SourceType("web")
 	if body.SourceType != nil {
 		sourceType = recally.SourceType(*body.SourceType)
@@ -187,51 +180,22 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 		Author:       strDeref(body.Author),
 		Summary:      strDeref(body.Summary),
 		Tags:         strSliceDeref(body.Tags),
-		Content:      content,
+		Content:      strDeref(body.Content),
 		Metadata:     mapDeref(body.Metadata),
 		PublishedAt:  body.PublishedAt,
 		AgentID:      body.AgentId,
 	}
 
-	article, isNew, err := h.store.SaveArticle(r.Context(), userID, req)
+	result, err := h.svc.As(authz.Identity{UserID: userID}).Save(r.Context(), req)
 	if err != nil {
-		h.writeInternalError(w, err)
-		return
-	}
-
-	// If new, write the markdown file and persist the relative path. If the
-	// caller is updating an existing article without supplying new content, we
-	// rewrite the existing file with the refreshed frontmatter so it stays in
-	// sync with DB metadata.
-	stellaHome := config.StellaHome()
-	var filePath string
-	switch {
-	case isNew:
-		filePath = h.files.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
-	case existing != nil && existing.FilePath != "":
-		filePath = existing.FilePath
-		if !filepath.IsAbs(filePath) {
-			filePath = filepath.Join(stellaHome, filePath)
+		if strings.Contains(err.Error(), "content is required") {
+			writeError(w, http.StatusBadRequest, "content is required for new articles")
+			return
 		}
-		if content == "" {
-			body2, readErr := h.files.ReadArticle(filePath)
-			if readErr == nil {
-				content = body2
-			}
-		}
-	default:
-		filePath = h.files.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
-	}
-	if err := h.files.WriteArticle(filePath, article, content); err != nil {
 		h.writeInternalError(w, err)
 		return
 	}
-	relPath := h.files.RelativePath(filePath)
-	if err := h.store.UpdateArticleFilePath(r.Context(), userID, article.ID, relPath); err != nil {
-		h.writeInternalError(w, err)
-		return
-	}
-	article.FilePath = relPath
+	article, isNew := result.Article, result.Created
 
 	status := http.StatusOK
 	if isNew {
@@ -246,7 +210,7 @@ func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id 
 	if !ok {
 		return
 	}
-	article, ok := h.articleOwned(w, r.Context(), id, userID)
+	article, ok := h.loadArticle(w, r.Context(), id, userID)
 	if !ok {
 		return
 	}
@@ -267,7 +231,7 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	article, ok := h.articleOwned(w, r.Context(), id, userID)
+	article, ok := h.loadArticle(w, r.Context(), id, userID)
 	if !ok {
 		return
 	}
@@ -331,7 +295,7 @@ func (h *recallyHandlers) DeleteArticle(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	article, ok := h.articleOwned(w, r.Context(), id, userID)
+	article, ok := h.loadArticle(w, r.Context(), id, userID)
 	if !ok {
 		return
 	}
@@ -450,7 +414,7 @@ func (h *recallyHandlers) GetFeed(w http.ResponseWriter, r *http.Request, id str
 	if !ok {
 		return
 	}
-	feed, ok := h.feedOwned(w, r.Context(), id, userID)
+	feed, ok := h.loadFeed(w, r.Context(), id, userID)
 	if !ok {
 		return
 	}
@@ -462,7 +426,7 @@ func (h *recallyHandlers) UpdateFeed(w http.ResponseWriter, r *http.Request, id 
 	if !ok {
 		return
 	}
-	if _, ok := h.feedOwned(w, r.Context(), id, userID); !ok {
+	if _, ok := h.loadFeed(w, r.Context(), id, userID); !ok {
 		return
 	}
 	var body apiserver.UpdateFeedRequest
@@ -496,7 +460,7 @@ func (h *recallyHandlers) DeleteFeed(w http.ResponseWriter, r *http.Request, id 
 	if !ok {
 		return
 	}
-	if _, ok := h.feedOwned(w, r.Context(), id, userID); !ok {
+	if _, ok := h.loadFeed(w, r.Context(), id, userID); !ok {
 		return
 	}
 	if err := h.store.DeleteFeed(r.Context(), userID, id); err != nil {
@@ -511,7 +475,7 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	if !ok {
 		return
 	}
-	feed, ok := h.feedOwned(w, r.Context(), id, userID)
+	feed, ok := h.loadFeed(w, r.Context(), id, userID)
 	if !ok {
 		return
 	}
@@ -577,7 +541,7 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
+	if _, ok := h.loadFeed(w, r.Context(), feedId, userID); !ok {
 		return
 	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
@@ -616,7 +580,7 @@ func (h *recallyHandlers) CreateFeedEntry(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
+	if _, ok := h.loadFeed(w, r.Context(), feedId, userID); !ok {
 		return
 	}
 	var body apitypes.CreateFeedEntryRequest
@@ -646,7 +610,7 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
+	if _, ok := h.loadFeed(w, r.Context(), feedId, userID); !ok {
 		return
 	}
 	entry, err := h.store.GetFeedEntry(r.Context(), feedId, id)

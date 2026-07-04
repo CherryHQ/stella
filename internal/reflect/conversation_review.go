@@ -8,9 +8,10 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
-	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -53,8 +54,8 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 		return fmt.Errorf("create reviewer: %w", err)
 	}
 
-	reviewCtx := memory.WithUserID(ctx, userID)
-	reviewCtx = memory.WithAgentID(reviewCtx, snap.AgentID)
+	reviewCtx := authz.WithUserID(ctx, userID)
+	reviewCtx = authz.WithAgentID(reviewCtx, snap.AgentID)
 	reviewCtx = memory.WithChangeSource(reviewCtx, memory.SourceReflect)
 	result, err := reviewer.review(reviewCtx, text)
 	if err != nil {

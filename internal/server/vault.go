@@ -2,9 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/authz"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/email"
@@ -286,62 +289,30 @@ func (s *Server) invalidateVaultRunners(scope, userID, agentID, name, op string)
 }
 
 func (s *Server) resolveVaultScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope string, agentID string) (string, string, bool) {
-	// A sandbox (scoped) token is bound to exactly one agent. It may only reach
-	// its own user/user_agent secrets — never another agent's, and never the
-	// admin-managed system scopes. Without this, any agent's sandbox token could
-	// pass scope=user_agent&agent_id=<sibling> to read or overwrite a different
-	// agent's credentials under the same user.
-	if boundAgent, _, ok := info.scopedBoundary(); ok {
-		switch scope {
-		case vault.ScopeUser:
-		case vault.ScopeUserAgent:
-			if agentID != boundAgent {
-				writeError(w, http.StatusForbidden, "scoped token cannot access another agent's vault")
-				return "", "", false
-			}
-		default:
-			writeError(w, http.StatusForbidden, "scoped token cannot access system vault scopes")
+	boundAgent, _, scoped := info.scopedBoundary()
+	resolved, err := vault.ResolveScope(vault.ScopeRequest{
+		Scope:        scope,
+		UserID:       info.UserID,
+		AgentID:      agentID,
+		IsAdmin:      info.IsAdmin,
+		AgentScoped:  scoped,
+		BoundAgentID: boundAgent,
+	})
+	if err != nil {
+		if errors.Is(err, authz.ErrForbidden) {
+			writeError(w, http.StatusForbidden, err.Error())
 			return "", "", false
 		}
-	}
-
-	userID := ""
-	switch scope {
-	case vault.ScopeUser:
-		userID = info.UserID
-		agentID = ""
-	case vault.ScopeUserAgent:
-		userID = info.UserID
-		if agentID == "" {
-			writeError(w, http.StatusBadRequest, "agent_id is required for user_agent scope")
-			return "", "", false
-		}
-	case vault.ScopeSystem:
-		if !info.IsAdmin {
-			writeError(w, http.StatusForbidden, "admin access required")
-			return "", "", false
-		}
-		agentID = ""
-	case vault.ScopeSystemAgent:
-		if !info.IsAdmin {
-			writeError(w, http.StatusForbidden, "admin access required")
-			return "", "", false
-		}
-		if agentID == "" {
-			writeError(w, http.StatusBadRequest, "agent_id is required for system_agent scope")
-			return "", "", false
-		}
-	default:
-		writeError(w, http.StatusBadRequest, "invalid scope")
+		writeError(w, http.StatusBadRequest, err.Error())
 		return "", "", false
 	}
-	if agentID != "" {
-		if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+	if resolved.AgentID != "" {
+		if _, code, msg := s.requireAgentAccess(r.Context(), resolved.AgentID); code != 0 {
 			writeError(w, code, msg)
 			return "", "", false
 		}
 	}
-	return userID, agentID, true
+	return resolved.UserID, resolved.AgentID, true
 }
 
 func isSystemVaultScope(scope string) bool {

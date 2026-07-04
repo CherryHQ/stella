@@ -16,6 +16,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -28,43 +29,37 @@ func (s *Server) SetGoalService(svc *goal.Service) {
 		s.goalQueries = nil
 		return
 	}
-	s.goalSvc = svc.Goal
+	s.goalSvc = svc
 	s.goalQueries = svc.Queries
 }
 
 func (s *Server) goalsReady() bool { return s.goalSvc != nil && s.goalQueries != nil }
 
 // goalAuth gates a handler on the goal system being wired and an
-// authenticated caller, returning the caller's user id.
-func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
+// authenticated caller, returning the service-layer identity.
+func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (authz.Identity, bool) {
 	if !s.goalsReady() {
 		writeError(w, http.StatusServiceUnavailable, "goals unavailable")
-		return "", false
+		return authz.Identity{}, false
 	}
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return "", false
+		return authz.Identity{}, false
 	}
-	return info.UserID, true
+	return toolIdentity(info), true
 }
 
 // goalError maps the package's sentinel errors to HTTP status codes:
-// not-found → 404, validation → 400, lifecycle/guard → 409, else 500.
-type goalFilter struct {
-	AgentID    string
-	Lifecycle  string
-	ProjectID  string
-	WorkflowID string
-	Terminal   *bool
-	Q          string
-	Archived   bool
-}
-
+// not-found -> 404, validation -> 400, lifecycle/guard -> 409, else 500.
 func goalError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, goal.ErrNotFound):
+	case errors.Is(err, goal.ErrNotFound), errors.Is(err, authz.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
+	case errors.Is(err, authz.ErrForbidden):
+		writeError(w, http.StatusForbidden, "permission denied")
+	case errors.Is(err, authz.ErrUnauthenticated):
+		writeError(w, http.StatusUnauthorized, "unauthorized")
 	case errors.Is(err, goal.ErrDeterministicChecksUnsupported):
 		writeErrorDetails(w, http.StatusBadRequest, "required deterministic acceptance checks need a sandbox-capable backend; enable a sandbox backend or change those checks to judgment items", map[string]any{
 			"code": "deterministic_checks_unsupported",
@@ -92,26 +87,15 @@ func goalError(w http.ResponseWriter, err error) {
 	}
 }
 
-// loadGoal fetches a goal by id, enforcing ownership. A row owned
-// by another user is reported as 404 to avoid leaking its existence; a scoped
-// token whose agent differs is 403. Returns false (after writing the error) on
-// any miss.
-func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, id string) (sqlc.AgentGoal, bool) {
-	d, err := s.goalQueries.GetGoal(ctx, id)
+// loadGoal fetches a goal by id through the service-owned authorization gate.
+func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, ident authz.Identity, id string) (sqlc.AgentGoal, bool) {
+	d, err := s.goalSvc.As(ident).GetGoal(ctx, id)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, goal.ErrNotFound) {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, goal.ErrNotFound) || errors.Is(err, authz.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found")
 			return sqlc.AgentGoal{}, false
 		}
 		goalError(w, err)
-		return sqlc.AgentGoal{}, false
-	}
-	if d.UserID != userID {
-		writeError(w, http.StatusNotFound, "not_found")
-		return sqlc.AgentGoal{}, false
-	}
-	if agentID, _, ok := UserFromContext(ctx).scopedBoundary(); ok && d.AgentID != agentID {
-		writeError(w, http.StatusForbidden, "permission denied")
 		return sqlc.AgentGoal{}, false
 	}
 	return d, true
@@ -122,18 +106,19 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, id
 // ListGoals lists root goals (goals) by default; `?parent={id}`
 // lists a composite's children and `?root={id}` lists a whole tree.
 func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiserver.ListGoalsParams) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
 
 	if params.Parent != nil {
-		if _, ok := s.loadGoal(ctx, w, userID, *params.Parent); !ok {
-			return
-		}
-		rows, err := s.goalQueries.ListGoalChildren(ctx, pgnull.Text(*params.Parent))
+		rows, err := s.goalSvc.As(ident).ListChildren(ctx, *params.Parent)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "not_found")
+				return
+			}
 			goalError(w, err)
 			return
 		}
@@ -141,11 +126,12 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 	if params.Root != nil {
-		if _, ok := s.loadGoal(ctx, w, userID, *params.Root); !ok {
-			return
-		}
-		rows, err := s.goalQueries.ListGoalByRoot(ctx, *params.Root)
+		rows, err := s.goalSvc.As(ident).ListSubtree(ctx, *params.Root)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "not_found")
+				return
+			}
 			goalError(w, err)
 			return
 		}
@@ -158,7 +144,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	filter := goalFilter{}
+	filter := goal.GoalFilter{}
 	if params.AgentId != nil {
 		filter.AgentID = *params.AgentId
 	}
@@ -180,34 +166,14 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	if params.Archived != nil {
 		filter.Archived = *params.Archived
 	}
-	rows, err := s.goalQueries.ListRootGoal(ctx, sqlc.ListRootGoalParams{
-		UserID:          userID,
-		AgentID:         pgnull.Text(filter.AgentID),
-		ProjectID:       pgnull.Text(filter.ProjectID),
-		WorkflowID:      pgnull.Text(filter.WorkflowID),
-		Lifecycle:       pgnull.Text(filter.Lifecycle),
-		Terminal:        goalTerminalArg(filter.Terminal),
-		Q:               pgnull.Text(filter.Q),
-		IncludeArchived: filter.Archived,
-		Limit:           int32(limit + 1),
-		Offset:          int32(offset),
-	})
+	rows, err := s.goalSvc.As(ident).ListGoals(ctx, filter, int64(limit+1), int64(offset))
 	if err != nil {
 		goalError(w, err)
 		return
 	}
 	page, next := nextPageTokenForRows(rows, limit, offset)
 	var total *int
-	if n, err := s.goalQueries.CountRootGoal(ctx, sqlc.CountRootGoalParams{
-		UserID:          userID,
-		AgentID:         pgnull.Text(filter.AgentID),
-		ProjectID:       pgnull.Text(filter.ProjectID),
-		WorkflowID:      pgnull.Text(filter.WorkflowID),
-		Lifecycle:       pgnull.Text(filter.Lifecycle),
-		Terminal:        goalTerminalArg(filter.Terminal),
-		Q:               pgnull.Text(filter.Q),
-		IncludeArchived: filter.Archived,
-	}); err == nil {
+	if n, err := s.goalSvc.As(ident).CountGoals(ctx, filter); err == nil {
 		v := int(n)
 		total = &v
 	}
@@ -243,7 +209,7 @@ func (s *Server) GetGoalHealth(w http.ResponseWriter, r *http.Request, params ap
 		}
 		agentID = boundAgent
 	}
-	report, err := s.goalSvc.HealthReport(r.Context(), goal.HealthFilter{
+	report, err := s.goalSvc.Goal.HealthReport(r.Context(), goal.HealthFilter{
 		SinceAt: params.Since,
 		UserID:  userID,
 		AgentID: agentID,
@@ -259,7 +225,7 @@ func (s *Server) GetGoalHealth(w http.ResponseWriter, r *http.Request, params ap
 // activated immediately (direct run); the flag is ignored for a composite, which
 // is decomposed and materialized by the dispatcher first.
 func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
@@ -277,7 +243,7 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	// decomposition into verifiable sub-tasks before any work runs. There is no
 	// top-level direct-leaf execution — leaves exist only as planner-produced
 	// children. The request's kind is ignored.
-	in := goal.CreateInput{UserID: userID, AgentID: body.AgentId, Title: body.Title, Kind: goal.KindComposite}
+	in := goal.CreateInput{UserID: ident.UserID, AgentID: body.AgentId, Title: body.Title, Kind: goal.KindComposite}
 	if body.Intent != nil {
 		in.Intent = *body.Intent
 	}
@@ -296,7 +262,10 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	if body.ConvergencePolicy != nil {
 		in.Convergence = toConvergence(*body.ConvergencePolicy)
 	}
-	created, err := s.goalSvc.CreateRoot(ctx, in)
+	if body.IdempotencyKey != nil {
+		in.IdempotencyKey = *body.IdempotencyKey
+	}
+	created, err := s.goalSvc.As(ident).CreateGoal(ctx, in)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -309,11 +278,11 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 
 // GetGoal returns one goal.
 func (s *Server) GetGoal(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
-	d, ok := s.loadGoal(r.Context(), w, userID, id)
+	d, ok := s.loadGoal(r.Context(), w, ident, id)
 	if !ok {
 		return
 	}
@@ -322,12 +291,12 @@ func (s *Server) GetGoal(w http.ResponseWriter, r *http.Request, id string) {
 
 // UpdateGoal applies a partial metadata edit (PATCH).
 func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.UpdateGoalRequest
@@ -335,7 +304,7 @@ func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent, By: goal.UserActor(userID)}
+	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent, By: goal.UserActor(ident.UserID)}
 	if body.Priority != nil {
 		v := string(*body.Priority)
 		in.Priority = &v
@@ -352,7 +321,7 @@ func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
 		c := toConvergence(*body.ConvergencePolicy)
 		in.Convergence = &c
 	}
-	updated, err := s.goalSvc.UpdateMetadata(ctx, id, in)
+	updated, err := s.goalSvc.Goal.UpdateMetadata(ctx, id, in)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -362,15 +331,15 @@ func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
 
 // DeleteGoal archives a goal (audit-safe delete).
 func (s *Server) DeleteGoal(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
-	if err := s.goalSvc.Archive(ctx, id); err != nil {
+	if err := s.goalSvc.Goal.Archive(ctx, id); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -381,15 +350,15 @@ func (s *Server) DeleteGoal(w http.ResponseWriter, r *http.Request, id string) {
 
 // ActivateGoal runs the plan gate (draft → ready).
 func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
-	d, err := s.goalSvc.Activate(ctx, id)
+	d, err := s.goalSvc.Goal.Activate(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -399,19 +368,16 @@ func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, id string)
 
 // CancelGoal cancels a goal, cascading over its non-terminal subtree.
 func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
-		return
-	}
 	var body apitypes.CancelRequest
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	if err := s.goalSvc.Cancel(ctx, id, derefStr(body.Reason), goal.UserActor(userID)); err != nil {
+	if err := s.goalSvc.As(ident).Cancel(ctx, id, derefStr(body.Reason)); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -420,19 +386,19 @@ func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, id string) {
 
 // AbandonGoal is the human give-up on a budget-exhausted block.
 func (s *Server) AbandonGoal(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.AbandonRequest
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	if err := s.goalSvc.Abandon(ctx, id, derefStr(body.Reason), goal.UserActor(userID)); err != nil {
+	if err := s.goalSvc.Goal.Abandon(ctx, id, derefStr(body.Reason), goal.UserActor(ident.UserID)); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -441,15 +407,15 @@ func (s *Server) AbandonGoal(w http.ResponseWriter, r *http.Request, id string) 
 
 // ReattemptGoal raises the budget on a blocked goal and resumes it.
 func (s *Server) ReattemptGoal(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
-	if err := s.goalSvc.Reattempt(ctx, id, goal.UserActor(userID)); err != nil {
+	if err := s.goalSvc.Goal.Reattempt(ctx, id, goal.UserActor(ident.UserID)); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -458,15 +424,15 @@ func (s *Server) ReattemptGoal(w http.ResponseWriter, r *http.Request, id string
 
 // UnarchiveGoal restores an archived goal to default lists.
 func (s *Server) UnarchiveGoal(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
-	if err := s.goalSvc.Unarchive(ctx, id); err != nil {
+	if err := s.goalSvc.Goal.Unarchive(ctx, id); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -475,12 +441,12 @@ func (s *Server) UnarchiveGoal(w http.ResponseWriter, r *http.Request, id string
 
 // GetGoalReadiness returns the computed dispatchability view.
 func (s *Server) GetGoalReadiness(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	rd, err := s.goalReadiness(ctx, id)
@@ -495,12 +461,12 @@ func (s *Server) GetGoalReadiness(w http.ResponseWriter, r *http.Request, id str
 
 // ListGoalChildren lists a composite's direct children.
 func (s *Server) ListGoalChildren(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	rows, err := s.goalQueries.ListGoalChildren(ctx, pgnull.Text(id))
@@ -513,12 +479,12 @@ func (s *Server) ListGoalChildren(w http.ResponseWriter, r *http.Request, id str
 
 // ListAttempts lists a goal's attempts (newest first).
 func (s *Server) ListAttempts(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	rows, err := s.goalQueries.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: id})
@@ -535,12 +501,12 @@ func (s *Server) ListAttempts(w http.ResponseWriter, r *http.Request, id string)
 
 // GetAttempt returns one attempt, scoped to its goal.
 func (s *Server) GetAttempt(w http.ResponseWriter, r *http.Request, id string, attemptId string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	a, err := s.goalQueries.GetAttempt(ctx, attemptId)
@@ -553,12 +519,12 @@ func (s *Server) GetAttempt(w http.ResponseWriter, r *http.Request, id string, a
 
 // ListAcceptanceEvents lists the acceptance ledger (audit trail, in fold order).
 func (s *Server) ListAcceptanceEvents(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	rows, err := s.goalQueries.ListAcceptanceEventByGoal(ctx, id)
@@ -571,12 +537,12 @@ func (s *Server) ListAcceptanceEvents(w http.ResponseWriter, r *http.Request, id
 
 // ListGoalTimeline lists a goal's L3 timeline in chronological order.
 func (s *Server) ListGoalTimeline(w http.ResponseWriter, r *http.Request, id string, params apiserver.ListGoalTimelineParams) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
@@ -595,12 +561,12 @@ func (s *Server) ListGoalTimeline(w http.ResponseWriter, r *http.Request, id str
 
 // CreateGoalTimelineEvent appends a human message and reattempts non-dep blocks.
 func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.GoalTimelineMessageRequest
@@ -612,7 +578,7 @@ func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	event, err := s.goalSvc.AddHumanMessage(ctx, goal.HumanMessageInput{GoalID: id, Text: body.Text, ResponderUserID: userID})
+	event, err := s.goalSvc.Goal.AddHumanMessage(ctx, goal.HumanMessageInput{GoalID: id, Text: body.Text, ResponderUserID: ident.UserID})
 	if err != nil {
 		goalError(w, err)
 		return
@@ -624,12 +590,12 @@ func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request,
 
 // SubmitVerdict appends a human verdict against a contract item and re-folds.
 func (s *Server) SubmitVerdict(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.VerdictRequest
@@ -644,9 +610,9 @@ func (s *Server) SubmitVerdict(w http.ResponseWriter, r *http.Request, id string
 		Rationale:      derefStr(body.Rationale),
 		Scope:          derefStr(body.Scope),
 		ScopeHash:      derefStr(body.ScopeHash),
-		ReviewerUserID: userID,
+		ReviewerUserID: ident.UserID,
 	}
-	if err := s.goalSvc.SubmitVerdict(ctx, in); err != nil {
+	if err := s.goalSvc.Goal.SubmitVerdict(ctx, in); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -661,12 +627,12 @@ func (s *Server) SubmitVerdict(w http.ResponseWriter, r *http.Request, id string
 
 // ListEdges lists a goal's upstream dependency edges.
 func (s *Server) ListEdges(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	rows, err := s.goalQueries.ListEdgeByGoal(ctx, id)
@@ -679,12 +645,12 @@ func (s *Server) ListEdges(w http.ResponseWriter, r *http.Request, id string) {
 
 // AddEdge inserts an upstream dependency edge (cycle-checked).
 func (s *Server) AddEdge(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.AddEdgeRequest
@@ -699,7 +665,7 @@ func (s *Server) AddEdge(w http.ResponseWriter, r *http.Request, id string) {
 	// The upstream is caller-supplied — gate it through the same ownership check
 	// as the downstream, or a caller could wire in another tenant's goal
 	// and pull its frozen accepted_output into their own attempt's input context.
-	if _, ok := s.loadGoal(ctx, w, userID, body.UpstreamId); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, body.UpstreamId); !ok {
 		return
 	}
 	kind := goal.EdgeHard
@@ -710,7 +676,7 @@ func (s *Server) AddEdge(w http.ResponseWriter, r *http.Request, id string) {
 	if body.OnFailure != nil {
 		onFailure = string(*body.OnFailure)
 	}
-	edge, err := s.goalSvc.AddEdge(ctx, id, body.UpstreamId, kind, onFailure)
+	edge, err := s.goalSvc.Goal.AddEdge(ctx, id, body.UpstreamId, kind, onFailure)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -720,19 +686,19 @@ func (s *Server) AddEdge(w http.ResponseWriter, r *http.Request, id string) {
 
 // WaiveEdge waives a hard edge so a blocked(dep) downstream can proceed.
 func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, upstreamId string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.WaiveRequest
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	if err := s.goalSvc.WaiveEdge(ctx, id, upstreamId, derefStr(body.Reason), goal.UserActor(userID)); err != nil {
+	if err := s.goalSvc.Goal.WaiveEdge(ctx, id, upstreamId, derefStr(body.Reason), goal.UserActor(ident.UserID)); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -755,15 +721,15 @@ func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, up
 // ApprovePlan approves a composite's proposed plan (blocked(needs_plan_approval)),
 // materializing its children and resuming the tree.
 func (s *Server) ApprovePlan(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
-	if err := s.goalSvc.ApprovePlan(ctx, id, goal.UserActor(userID)); err != nil {
+	if err := s.goalSvc.Goal.ApprovePlan(ctx, id, goal.UserActor(ident.UserID)); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -778,19 +744,19 @@ func (s *Server) ApprovePlan(w http.ResponseWriter, r *http.Request, id string) 
 // RejectPlan rejects a composite's proposed plan, returning it to draft so the
 // dispatcher re-decomposes it.
 func (s *Server) RejectPlan(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := s.goalAuth(w, r)
+	ident, ok := s.goalAuth(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, userID, id); !ok {
+	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.DecisionRequest
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	if err := s.goalSvc.RejectPlan(ctx, id, derefStr(body.Reason), goal.UserActor(userID)); err != nil {
+	if err := s.goalSvc.Goal.RejectPlan(ctx, id, derefStr(body.Reason), goal.UserActor(ident.UserID)); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -1107,13 +1073,6 @@ func nullInt4ToPtr(value pgtype.Int4) *int {
 	}
 	v := int(value.Int32)
 	return &v
-}
-
-func goalTerminalArg(v *bool) pgtype.Bool {
-	if v == nil {
-		return pgtype.Bool{}
-	}
-	return pgtype.Bool{Bool: *v, Valid: true}
 }
 
 func (s *Server) goalReadiness(ctx context.Context, id string) (goal.Readiness, error) {

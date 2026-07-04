@@ -96,8 +96,8 @@ The digest includes:
 
 You can schedule this as an automatic morning briefing — just ask Stella to "give me a reading digest every morning at 8am."
 
-## CLI Reference
+## Agent and CLI access
 
-All reading assistant commands are available through the `stella recally` subcommand. You typically interact through conversation, but the CLI is available for scripting.
+In chat, Stella uses the native Recally tool to save articles, manage feeds, and generate digests. For automation outside chat, the CLI is still available.
 
-Use the [Recally CLI reference](/docs/recally/cli) to find the right help command first. For example, read `stella recally save --help` before saving from a script.
+Use the [Recally CLI reference](/docs/recally/cli) when writing scripts.

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -19,7 +20,7 @@ import (
 
 func buildMemorySummarizer(store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) func(context.Context, string) (string, error) {
 	return func(ctx context.Context, prompt string) (string, error) {
-		agentID := memory.AgentIDFromContext(ctx)
+		agentID := authz.AgentIDFromContext(ctx)
 		if agentID == "" {
 			if agents, err := store.ListEnabledAgents(ctx); err == nil && len(agents) > 0 {
 				agentID = agents[0].ID

@@ -2,9 +2,11 @@ package credentials_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -146,6 +148,32 @@ func TestDisconnectUnsupportedProvider(t *testing.T) {
 	err := svc.Disconnect(context.Background(), "1", "badprovider")
 	if err == nil {
 		t.Error("expected error for unsupported provider")
+	}
+}
+
+func TestOAuthAuthorizedMethodsEnforceUserIdentity(t *testing.T) {
+	ctx := context.Background()
+	flowStore := oauth.NewFlowStore()
+	flowStore.Create(oauth.FlowStatus{Provider: oauth.ProviderGitHub, FlowID: "owner-flow", UserID: "owner", FlowType: "device_code"})
+	svc := credentials.NewService(nil, nil, flowStore, "http://localhost:8080")
+
+	if _, err := svc.As(authz.Identity{}).Statuses(ctx); !errors.Is(err, authz.ErrUnauthenticated) {
+		t.Fatalf("Statuses unauth err=%v, want ErrUnauthenticated", err)
+	}
+	if _, err := svc.As(authz.Identity{}).StartFlow(ctx, "github"); !errors.Is(err, authz.ErrUnauthenticated) {
+		t.Fatalf("StartFlow unauth err=%v, want ErrUnauthenticated", err)
+	}
+	if _, _, err := svc.As(authz.Identity{}).PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrUnauthenticated) {
+		t.Fatalf("PollFlow unauth err=%v, want ErrUnauthenticated", err)
+	}
+	if err := svc.As(authz.Identity{}).Disconnect(ctx, "github"); !errors.Is(err, authz.ErrUnauthenticated) {
+		t.Fatalf("Disconnect unauth err=%v, want ErrUnauthenticated", err)
+	}
+	if _, _, err := svc.As(authz.Identity{UserID: "foreign"}).PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("PollFlow foreign err=%v, want ErrForbidden", err)
+	}
+	if _, _, err := svc.As(authz.Identity{UserID: "owner"}).PollFlow(ctx, "github", "missing-flow"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("PollFlow missing err=%v, want ErrNotFound", err)
 	}
 }
 

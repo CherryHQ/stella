@@ -10,10 +10,20 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// Authorized is the identity-scoped view of the service; all authorization
+// checks live on its methods.
+type Authorized struct {
+	*Service
+	ident authz.Identity
+}
+
+func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
 // Service is the shared host-side credential manager. It owns vault secret
 // operations and OAuth orchestration. Admin HTTP handlers and the built-in
@@ -403,6 +413,35 @@ func (s *Service) GetProviderStatuses(ctx context.Context, userID string) []Prov
 	return out
 }
 
+func (s Authorized) Statuses(ctx context.Context) ([]ProviderStatus, error) {
+	ident := s.ident
+	if ident.UserID == "" {
+		return nil, authz.ErrUnauthenticated
+	}
+	return s.GetProviderStatuses(ctx, ident.UserID), nil
+}
+
+func (s *Service) AnyProviderConfigured(ctx context.Context, userID string) (bool, error) {
+	if s.registry == nil {
+		return false, nil
+	}
+	for _, provider := range s.registry.IDs() {
+		providerCfg, ok := s.registry.Get(provider)
+		if !ok {
+			continue
+		}
+		if providerCfg.ClientID != "" {
+			return true, nil
+		}
+		if s.q != nil {
+			if cfg, err := s.q.GetAuthOAuthProvider(ctx, provider); err == nil && cfg.ClientID != "" {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 func (s *Service) getProviderStatus(ctx context.Context, userID string, provider string) ProviderStatus {
 	ps := ProviderStatus{Provider: provider}
 
@@ -475,6 +514,17 @@ func (s *Service) preferredFlowType(provider string) string {
 
 // StartFlow starts an OAuth flow for the given provider and user.
 // It prefers device_code flows when available, making it suitable for agent/CLI use.
+func (s Authorized) StartFlow(ctx context.Context, provider string, origin ...string) (FlowStatus, error) {
+	ident := s.ident
+	if ident.UserID == "" {
+		return FlowStatus{}, authz.ErrUnauthenticated
+	}
+	if len(origin) > 0 && origin[0] != "" {
+		return s.StartFlowWithOrigin(ctx, ident.UserID, provider, origin[0])
+	}
+	return s.StartFlow(ctx, ident.UserID, provider)
+}
+
 func (s *Service) StartFlow(ctx context.Context, userID string, provider string) (FlowStatus, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
@@ -514,6 +564,24 @@ func (s *Service) StartFlowWithOrigin(ctx context.Context, userID string, provid
 // PollFlow polls an in-flight OAuth flow. For device-code flows it completes and
 // saves the token when authorized. For auth-code flows it returns completed=true
 // once the callback has finalized the flow.
+func (s Authorized) PollFlow(ctx context.Context, provider, flowID string) (FlowStatus, bool, error) {
+	ident := s.ident
+	if ident.UserID == "" {
+		return FlowStatus{}, false, authz.ErrUnauthenticated
+	}
+	if s.flowStore == nil {
+		return FlowStatus{}, false, authz.ErrNotFound
+	}
+	flow, ok := s.flowStore.Get(flowID)
+	if !ok {
+		return FlowStatus{}, false, authz.ErrNotFound
+	}
+	if flow.UserID != ident.UserID {
+		return FlowStatus{}, false, authz.ErrForbidden
+	}
+	return s.Service.PollFlow(ctx, ident.UserID, provider, flowID)
+}
+
 func (s *Service) PollFlow(ctx context.Context, userID string, provider, flowID string) (FlowStatus, bool, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, false, fmt.Errorf("vault not configured")
@@ -606,6 +674,14 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 }
 
 // Disconnect removes the OAuth bundle for the given provider and user.
+func (s Authorized) Disconnect(ctx context.Context, provider string) error {
+	ident := s.ident
+	if ident.UserID == "" {
+		return authz.ErrUnauthenticated
+	}
+	return s.Service.Disconnect(ctx, ident.UserID, provider)
+}
+
 func (s *Service) Disconnect(ctx context.Context, userID string, provider string) error {
 	if s.vaultSvc == nil {
 		return fmt.Errorf("vault not configured")

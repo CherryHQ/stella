@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -42,13 +43,13 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	}
 
 	if info.GroupID == "" {
-		ctx = memory.WithUserID(ctx, info.UserID)
+		ctx = authz.WithUserID(ctx, info.UserID)
 	} else if co.hasSpeaker {
 		// Group turns: attach the speaker as a personalization target only.
-		// memory.WithUserID stays unset so runtime identity remains the group (D9).
+		// authz.WithUserID stays unset so runtime identity remains the group (D9).
 		ctx = memory.WithCurrentSpeaker(ctx, co.currentSpeaker)
 	}
-	ctx = memory.WithAgentID(ctx, info.AgentID)
+	ctx = authz.WithAgentID(ctx, info.AgentID)
 	if info.ProjectID != "" {
 		ctx = memory.WithProjectID(ctx, info.ProjectID)
 	}
@@ -114,8 +115,8 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		if updated.Title == "" && len(msgText) > 0 {
 			updated.Title = autoTitle(msgText)
 		}
-		saveCtx := memory.WithUserID(ctx, info.UserID)
-		saveCtx = memory.WithAgentID(saveCtx, info.AgentID)
+		saveCtx := authz.WithUserID(ctx, info.UserID)
+		saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
 		if err := sm.SaveInfo(saveCtx, updated); err != nil {
 			rt.log.Warn("failed to save session info", "session_id", info.ID, "error", err)
 		}

@@ -398,8 +398,9 @@ type CreateInput struct {
 	Convergence  ConvergencePolicy
 	ReviewPolicy string // "" ⇒ none
 
-	Context      json.RawMessage // empty ⇒ "{}"
-	DispatchHint json.RawMessage // empty ⇒ "{}"
+	Context        json.RawMessage // empty ⇒ "{}"
+	DispatchHint   json.RawMessage // empty ⇒ "{}"
+	IdempotencyKey string
 
 	WorkflowID      string
 	WorkflowVersion int32
@@ -471,6 +472,7 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 		DispatchHint:      dispatchHint,
 		WorkflowID:        pgnull.Text(in.WorkflowID),
 		WorkflowVersion:   pgtype.Int4{Int32: in.WorkflowVersion, Valid: in.WorkflowVersion > 0},
+		IdempotencyKey:    pgnull.Text(in.IdempotencyKey),
 	}
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {

@@ -1,7 +1,7 @@
 ---
 name: scheduler
 description: |
-  Manage scheduled jobs. Use when the user wants to create, list, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), one-time (at) jobs, and scheduled workflow runs.
+  Manage scheduled jobs. Use when the user wants to create, list, inspect, update, pause, resume, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), one-time (at) jobs, platform job templates, and scheduled workflow runs.
 metadata:
   author: CherryHQ/stella
   owner_plugin: system/scheduler
@@ -10,154 +10,78 @@ metadata:
 
 # Scheduler
 
-Use scheduler for time-based triggers. If the user wants to repeat an accepted goal's plan ("save this goal and run it every morning"), save it as a workflow first, then schedule the workflow. If the scheduled work may be long-running, need human review, or need restart resilience, schedule a workflow or a short prompt that creates an async `task` instead of doing the whole job inline.
+Use scheduler for time-based triggers. If the user wants to repeat an accepted goal's plan ("save this goal and run it every morning"), save it as a workflow first, then schedule the workflow. If the scheduled work may be long-running, need human review, or need restart resilience, schedule a workflow or a short prompt that creates an async goal instead of doing the whole job inline.
 
-**Environment**: The CLI talks HTTP to the running stellad server. `STELLA_TOKEN` is
-auto-set; the agent process inherits a reachable `STELLA_SERVER_URL` (default
-`http://127.0.0.1:25678`). Scheduler is enabled only when the stellad server is
-configured with `scheduler.enabled = true`.
+Agents manage schedules with the native `scheduler` tool. The scheduler CLI remains the human/operator fallback; do not use it from an agent session when the native tool is available.
 
-## Add a Job
+## Actions
 
-```bash
-stella scheduler add \
-    --name "job-name" \
-    --message "Prompt or instruction to execute on schedule" \
-    --every 1h \
-    --session-mode reuse
-```
+- `create`: create a cron, interval, or one-time job. For chat jobs, provide `name`, `message`, exactly one schedule field (`cron`, `every`, or `at`), and optional `session_mode` (`reuse` or `new`).
+- `list`: list this agent's scheduled jobs.
+- `get`: inspect one job by `id`.
+- `update`: change editable fields on a job.
+- `pause` / `resume`: disable or re-enable a job without deleting it.
+- `delete`: remove a job.
 
-**Schedule types** — use exactly one:
+## Schedule types
 
-| Flag      | Format                       | Example                        |
-| --------- | ---------------------------- | ------------------------------ |
-| `--cron`  | Standard cron expression     | `"0 9 * * 1-5"` (weekdays 9am) |
-| `--every` | Go duration                  | `30m`, `2h`, `24h`             |
-| `--at`    | RFC3339 timestamp (one-time) | `"2024-01-15T14:30:00+08:00"`  |
+| Field   | Format                       | Example                        |
+| ------- | ---------------------------- | ------------------------------ |
+| `cron`  | Standard cron expression     | `"0 9 * * 1-5"` (weekdays 9am) |
+| `every` | Go duration                  | `30m`, `2h`, `24h`             |
+| `at`    | RFC3339 timestamp (one-time) | `"2024-01-15T14:30:00+08:00"`  |
 
-**Session mode**:
+Session modes:
 
-- `reuse` (default): conversation history is preserved across executions
-- `new`: starts a fresh session on each execution
+- `reuse` (default): conversation history is preserved across executions.
+- `new`: starts a fresh session on each execution.
 
-**Optional flags**:
+## Check before adding
 
-- `--agent-id <id>`: run the job on a specific agent (defaults to the default agent)
+Always run `action=list` first to avoid duplicates. If a job with the target name already exists, skip creation and report the existing job to the user.
 
-Output (JSON): job record with `id`, `name`, `message`, `session_mode`, `enabled`, and schedule fields.
-
-## Schedule a Workflow
+## Schedule a workflow
 
 For the user-facing loop "save this goal and run it daily":
 
-1. Check the workflow CLI syntax: `stella workflow --help` and `stella workflow save --help`.
-2. Save the accepted composite goal: `stella workflow save <goal-id> --name <name>`.
-3. Read the returned workflow `id`.
-4. Check scheduler syntax: `stella scheduler add --help`.
-5. Create the timed trigger with `stella scheduler add --workflow <workflow-id> --cron <expr>`.
+1. Save the accepted composite goal as a workflow.
+2. Read the returned workflow `id`.
+3. Create a scheduler workflow job for that workflow id with exactly one schedule field.
 
-Do not duplicate historical command syntax from memory; run `--help` before invoking. Scheduled workflows are fully frozen by default. If the workflow is partially frozen, only schedule it when the user explicitly wants live replanning and the CLI help shows the required opt-in flag.
+Use a workflow schedule when the same accepted plan should replay with only inputs changing. Use a plain chat scheduler job when each run should be planned fresh.
 
-Each scheduled fire instantiates a fresh root goal. The scheduler skips only when the previous run completed instantiation and its root goal is still active; failed instantiation does not block the next tick, and a stalled instantiation is resumed instead of duplicated.
+Scheduled workflows instantiate a fresh root goal on each fire. The scheduler skips only when the previous run completed instantiation and its root goal is still active; failed instantiation does not block the next tick, and a stalled instantiation is resumed instead of duplicated. Scheduled workflows are fully frozen by default; if a workflow is partially frozen, only schedule it when the user explicitly wants live replanning and the tool/CLI exposes the required opt-in.
 
-## List Jobs
-
-```bash
-stella scheduler list --json
-```
-
-Human-readable format omits `--json`. Use `--json` when you need to parse IDs.
-
-## Remove a Job
-
-```bash
-stella scheduler remove <job-id>
-```
-
-## Check Before Adding
-
-Always list first to avoid duplicates:
-
-```bash
-stella scheduler list --json
-```
-
-Look for a job with the target name. If found, skip creation and report the existing job to the user.
+If the native scheduler tool does not expose workflow fields, use the CLI fallback after checking `stella workflow --help`, `stella workflow save --help`, and `stella scheduler add --help`; do not rely on stale syntax from memory.
 
 ## Patterns
 
-### Scheduled async task
+### Scheduled async goal
 
-```bash
-stella scheduler add \
-    --name "weekly-audit" \
-    --message "Create an async task to audit the project and request review before making user-visible changes." \
-    --cron "0 9 * * 1" \
-    --session-mode new
-```
+Create a scheduler job whose `message` asks the agent to create a goal, for example: "Create an async goal to audit the project and request review before making user-visible changes." Use `session_mode: "new"` for independent scheduled work.
 
-### Recurring task (cron)
+### Recurring job
 
-```bash
-stella scheduler add \
-    --name "daily-digest" \
-    --message "Run the daily digest and summarize for the user." \
-    --cron "0 8 * * *" \
-    --session-mode reuse
-```
-
-### Recurring task (interval)
-
-```bash
-stella scheduler add \
-    --name "hourly-check" \
-    --message "Check for new items and notify the user if found." \
-    --every 1h \
-    --session-mode reuse
-```
+Use `cron` for calendar schedules and `every` for fixed intervals. Keep the scheduled prompt short and specific.
 
 ### One-time reminder
 
-```bash
-stella scheduler add \
-    --name "meeting-reminder" \
-    --message "Remind the user about their 3pm meeting." \
-    --at "2024-01-15T14:45:00+08:00"
-```
+Use `at` with an RFC3339 timestamp. Past timestamps are rejected.
 
-## Job Template Subscriptions
+## Job template subscriptions
 
 Platform-provided templates are opt-in scheduled jobs with platform-managed prompts. You cannot edit the message of a subscription job; the prompt is resolved from the template registry.
 
-**List available templates** (shows subscription status per template):
+Use `scheduler` tool `action=create` with `template_key` to subscribe, plus optional schedule override fields such as `every`. One subscription per template is allowed. To unsubscribe, delete the subscribed job by id.
 
-```bash
-stella scheduler templates --help
-stella scheduler templates --json
-```
+Common templates include:
 
-**Subscribe to a template**:
-
-```bash
-stella scheduler subscribe --help
-stella scheduler subscribe recally-rss
-stella scheduler subscribe recally-rss --every 12h   # override default schedule
-```
-
-One subscription per template is allowed. If already subscribed, a friendly message is printed and the command exits with an error.
-
-**Unsubscribe from a template**:
-
-```bash
-stella scheduler unsubscribe --help
-stella scheduler unsubscribe recally-rss
-```
-
-If not subscribed, prints a message and exits successfully. Internally looks up the subscribed job ID from the templates list, then deletes it.
+- `recally-rss` — poll RSS feeds.
+- `recally-digest` — generate reading digests.
 
 ## Limitations
 
-- Scheduler must be enabled on the server (`scheduler.enabled = true` in config).
-- One-time jobs (`--at`) with a past timestamp are rejected.
+- Scheduler must be enabled on the server.
+- One-time jobs (`at`) with a past timestamp are rejected.
 - Plugin-owned jobs cannot be modified.
 - Subscription job prompts are read-only; message edits are rejected by the server.

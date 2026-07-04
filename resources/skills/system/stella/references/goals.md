@@ -10,7 +10,7 @@ Completion is **derived, never asserted**. A goal converges through a bounded re
 
 Two surfaces author goals, both over the same goal HTTP API:
 
-- **You, the agent** — via the `stella goal` CLI (alias `stella task`). `stella goal create --title ... --intent ...` creates a goal and runs it autonomously: the server **plans first** (decomposes it into verifiable sub-tasks), then the dispatcher runs each child and converges to acceptance, with no further prompting. You do not choose leaf vs composite or call plan/approve/activate — just write a clear, self-contained intent. This is how you give yourself long-running work that outlives the current conversation; check back with `stella goal list`/`get`, or use `stella goal health --help` for aggregate execution health. For goals that need a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)`; inspect the pending plan with `stella goal get <id>` and then `stella goal approve <id>` (materialize) or `stella goal reject <id>` (re-decompose). See `stella goal --help`. When you report a created goal back to the user, mention its title — chat surfaces (Web, Feishu) render a rich status card for it automatically, so never paste the raw UUID.
+- **You, the agent** — via the `goal` tool when available. `action=create` creates a goal and runs it autonomously: the server **plans first** (decomposes it into verifiable sub-tasks), then the dispatcher runs each child and converges to acceptance, with no further prompting. You do not choose leaf vs composite or call plan/approve/activate — just write a clear, self-contained intent. This is how you give yourself long-running work that outlives the current conversation; check back with `action=list` or `action=get`. If the tool is unavailable, use the `stella goal` CLI after checking `stella goal --help`; use `stella goal health --help` for aggregate execution health. For goals that need a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` for the user to approve from the Web UI or operator surface. When you report a created goal back to the user, mention its title — chat surfaces render a rich status card for it automatically, so never paste only the raw UUID.
 - **The user** — from the Web UI (Goals tab); the same goal HTTP API the CLI uses.
 
 Authoring and working are separate roles: once a goal is active you may also be handed it as a **worker** (see the `goal_control` contract below).
@@ -18,8 +18,9 @@ Authoring and working are separate roles: once a goal is active you may also be 
 Before reaching for a goal at all, check you actually need one:
 
 - `delegate` — synchronous focused subtask in a persistent child session, returns inline. Use this first for short research, review, or drafting.
-- **goal** — async, durable, survives restarts, can block on input, converges through an acceptance contract. This is for work tracked to acceptance: create it yourself with `stella goal create`, or the user authors it from the Web UI.
-- `scheduler` — a time trigger, not the work itself. For long or reviewable scheduled work, schedule a prompt rather than the work inline.
+- **goal** — async, durable, survives restarts, can block on input, converges through an acceptance contract. This is for work tracked to acceptance: create it yourself with the `goal` tool, or the user authors it from the Web UI.
+- **workflow** — a reusable versioned plan saved from an accepted composite goal. Running a workflow creates a fresh goal tree; it never reopens a done goal. Use it when the same accepted plan should replay with only inputs changing.
+- `scheduler` — a time trigger, not the work itself. For long or reviewable scheduled work, schedule a workflow or a prompt that creates a goal rather than doing the work inline.
 
 ## Lifecycle
 
@@ -50,7 +51,13 @@ A composite holds child goals produced by a **decomposition** (the only way chil
 - a required child blocked → parent waits; the block is derived from children, not stored on the parent
 - a hard dependency whose upstream dies is derived from edges and the upstream `done_reason`
 
-Decomposition is automatic: `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. Structural planning errors are repaired in the same planning session with `prior_errors`; if those repairs are exhausted, the goal parks at `blocked(planning_invalid)`. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become pending), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
+Decomposition is automatic: `goal` tool `action=create` or `stella goal create` produces a composite whose planning runs on its own, materializing children and activating them so the dispatcher runs them — no manual steps. Structural planning errors are repaired in the same planning session with `prior_errors`; if those repairs are exhausted, the goal parks at `blocked(planning_invalid)`. When a goal needs a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` with the proposed `{children, edges}` stored on the goal; the user can approve or reject it from the Web UI or operator surface. If using the CLI, `stella goal get <id>` shows the pending plan, `stella goal approve <id>` materializes it (children become pending), and `stella goal reject <id>` returns it to draft for re-decomposition. See each subcommand's `--help` for the JSON shape and flags.
+
+## Workflows and scheduled runs
+
+An accepted composite goal can be saved as a reusable workflow. A workflow is not a reopened goal; each run instantiates a fresh root goal tree from the saved version. Use workflows when the same plan should replay with only inputs changing. Use a plain goal or scheduler chat job when each occurrence should be re-planned from scratch.
+
+For "save this goal and run it daily": save the accepted goal as a workflow, then create a scheduler workflow job. Scheduled workflow fires skip only when the previous run successfully instantiated a root goal that is still active; failed instantiation does not block the next tick, and stalled instantiation is resumed instead of duplicated. Partially frozen workflows require an explicit allow-replan opt-in.
 
 ## Worker: the `goal_control` contract
 

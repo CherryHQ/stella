@@ -10,10 +10,7 @@ metadata:
 
 # Recally - Reading Assistant
 
-**Environment**: The CLI talks HTTP to the running stellad server. `STELLA_TOKEN`
-is auto-set; the agent process inherits a reachable `STELLA_SERVER_URL` (default
-`http://127.0.0.1:25678`). Do not pass user identity flags. Do not try to
-open the database directly.
+Use the native `recally` tool for the user's reading library. Do not pass user identity flags or open the database directly. The library is shared across the user's agents.
 
 ## References
 
@@ -24,80 +21,37 @@ open the database directly.
 | Twitter/X feed discovery                    | [references/twitter-workflow.md](references/twitter-workflow.md) |
 | Website (no-RSS) feed discovery             | [references/website-workflow.md](references/website-workflow.md) |
 
-## CLI syntax
+## Search and retrieve
 
-The `stella recally` CLI is the source of truth for command syntax and examples. Before running a Recally command, read that command's help output.
+- Use `recally` with `action=list_articles` to browse saved articles. Keep page sizes small.
+- Use `action=get_article` to read one saved article by id. Never assume details without reading.
+- Full article bodies are capped by the tool for token safety; tell the user to use the Web UI for the full body when truncated.
 
-## Search and Retrieve
+## Save articles
 
-Read these first:
+`action=save` never fetches the URL itself. Fetch content first (for example with `tap fetch` or browser tools), generate metadata/summary, then call `recally` with `action=save` and an `articles` batch. Each item should include `url`, `title`, `content`, summary/metadata/tags when available, and `source_type`.
 
-```bash
-stella recally search --help
-stella recally list --help
-stella recally read --help
-```
-
-**Workflow**: `search` → `read` for details. Never assume content without reading.
-
-## Manage Articles
-
-Read these first:
-
-```bash
-stella recally save --help
-stella recally update --help
-stella recally delete --help
-```
+The save action is batch-safe: partial failures return per-item errors instead of aborting the whole batch.
 
 ## Feeds
 
-Read these first:
+Use `action=feed_add` to add RSS, Twitter/X, or website feeds. Use `action=feed_list` to inspect feeds and `action=feed_remove` to remove one.
 
-```bash
-stella recally feed add --help
-stella recally feed poll --help
-stella recally feed list --help
-stella recally feed remove --help
-stella recally feed entry add --help
-stella recally feed mark --help
-```
-
-`feed add` sniffs the kind from the URL: `x.com` / `twitter.com` hosts become
-`twitter`, everything else defaults to `rss`. Pass `--kind rss|twitter|website` to
-force it. Use `--kind website` for a page that lists items but has no RSS.
-
-**RSS polling subscription**: RSS feeds are only polled when the user has subscribed
-to the `recally-rss` job template. After adding a feed, check whether the user is
-already subscribed (the CLI prints a hint when they are not). If they are not
-subscribed and confirm they want automatic polling, run:
-
-```bash
-stella scheduler subscribe recally-rss
-```
-
-See `stella scheduler subscribe --help` for schedule overrides. Ask before
-subscribing — do not subscribe automatically.
+**RSS polling subscription**: RSS feeds are only polled when the user has subscribed to the `recally-rss` scheduler template. After adding a feed, ask whether they want automatic polling; if yes, use the native `scheduler` tool with `action=create` and `template_key=recally-rss`. Add schedule override fields such as `every` only when the user asks. Do not subscribe automatically.
 
 - **rss** feeds: poll server-side, then process pending entries — see [references/rss-workflow.md](references/rss-workflow.md).
 - **twitter** feeds: discover entries via the skill — see [references/twitter-workflow.md](references/twitter-workflow.md).
 - **website** feeds: scrape item links from a no-RSS page — see [references/website-workflow.md](references/website-workflow.md).
 
-`feed entry add` is the source-agnostic discovery sink: it dedups on `(feed-id, guid)`
-and prints `new` or `dup`. YouTube channels work today with no new code — subscribe
-to the channel's RSS feed (`https://www.youtube.com/feeds/videos.xml?channel_id=...`).
+YouTube channels work as RSS feeds with `https://www.youtube.com/feeds/videos.xml?channel_id=...`.
 
-## Daily Digest
+## Daily digest
 
-Read this first:
+Use `recally` with `action=digest` to read the current digest. For automatic daily digests, ask the user first, then create a scheduler subscription with `action=create` and `template_key=recally-digest`.
 
-```bash
-stella recally digest --help
-```
+Format digest summaries for the user:
 
-Format for user:
-
-```
+```text
 Reading Digest for [Date]
 📚 Yesterday's saves ([count]): [title] - [summary], ...
 📖 Your library: [total] articles ([unread] unread, [read] read, [starred] ⭐)
@@ -107,5 +61,5 @@ Reading Digest for [Date]
 
 ## Limitations
 
-- **Search**: metadata-only (title, summary, tags, author). Full-body search requires `read`.
+- **Search**: metadata-only (title, summary, tags, author). Full-body search requires `get_article`.
 - **Deduplication**: canonical URL; mobile/desktop variants may duplicate.

@@ -11,6 +11,13 @@ components:
       properties:
         folders: { type: array, items: { type: string } }
 
+    EmailAccountList:
+      type: object
+      required: [accounts]
+      properties:
+        accounts: { type: array, items: { type: string } }
+        default: { type: string }
+
     EmailEnvelope:
       type: object
       required: [uid, from, subject, date]
@@ -66,6 +73,9 @@ components:
         from: { type: string }
         reply_to: { type: string }
         in_reply_to: { type: string }
+        idempotency_key:
+          type: string
+          description: Optional for HTTP clients; required by the native email tool to suppress duplicate sends.
 
     EmailMarkRequest:
       type: object

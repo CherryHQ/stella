@@ -1,5 +1,9 @@
 # RSS Batch Processing Workflow
 
+Feed polling and entry bookkeeping still run through the `stella` CLI — the
+native `recally` tool does not expose poll/mark yet. Saving articles uses the
+native tool per [save-workflow.md](save-workflow.md).
+
 ## 1. Poll Feeds
 
 Before polling, read the command help:

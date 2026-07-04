@@ -9,7 +9,7 @@ info:
     - Auth, Auth-Users, Profile, OAuth
     - Channels, Plugins, Manifest-Plugins
     - Recally (reading assistant), Scheduler (job scheduling)
-    - Users, Vault, Builtin, Tools, Weixin
+    - Users, Vault, Builtin, Weixin
 
     Schema source of truth (human-edited, domain-organized):
       api/spec/components/common.yaml    — security schemes, shared responses
@@ -37,7 +37,6 @@ tags:
   - name: digest
   - name: jobs
   - name: models
-  - name: tools
   - name: builtin
   - name: channels
   - name: groups
@@ -90,6 +89,10 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users"
   /api/agents/{id}/users/{userId}:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users~1{userId}"
+  /api/agents/{id}/tools:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1tools"
+  /api/agents/{id}/tools/{toolName}:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1tools~1{toolName}"
   /api/agents/{id}/skills:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills"
   /api/agents/{id}/skills/install:
@@ -157,9 +160,6 @@ paths:
   # ── Models ─────────────────────────────────────────────────────────────────
   /api/models:
     $ref: "./domain/models/paths.yaml#/paths/~1api~1models"
-  # ── Tools ──────────────────────────────────────────────────────────────────
-  /api/tools:
-    $ref: "./domain/tools/paths.yaml#/paths/~1api~1tools"
   # ── Builtin ────────────────────────────────────────────────────────────────
   /api/builtin/{kind}:
     $ref: "./domain/builtin/paths.yaml#/paths/~1api~1builtin~1{kind}"
@@ -321,6 +321,8 @@ paths:
   /api/admin/oauth-providers/{id}/config:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1admin~1oauth-providers~1{id}~1config"
   # ── Email ───────────────────────────────────────────────────────────────────
+  /api/email/accounts:
+    $ref: "./domain/email/paths.yaml#/paths/~1api~1email~1accounts"
   /api/email/folders:
     $ref: "./domain/email/paths.yaml#/paths/~1api~1email~1folders"
   /api/email/messages:
@@ -472,7 +474,13 @@ components:
     }
     DeleteResult: { $ref: "./components.yaml#/components/schemas/DeleteResult" }
     CachedModel: { $ref: "./components.yaml#/components/schemas/CachedModel" }
-    Tool: { $ref: "./components.yaml#/components/schemas/Tool" }
+    AgentTool: { $ref: "./components.yaml#/components/schemas/AgentTool" }
+    AgentToolList: {
+      $ref: "./components.yaml#/components/schemas/AgentToolList",
+    }
+    UpdateAgentToolRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateAgentToolRequest",
+    }
     BuiltinResource: {
       $ref: "./components.yaml#/components/schemas/BuiltinResource",
     }
@@ -781,6 +789,9 @@ components:
     }
     EmailFolderList: {
       $ref: "./components.yaml#/components/schemas/EmailFolderList",
+    }
+    EmailAccountList: {
+      $ref: "./components.yaml#/components/schemas/EmailAccountList",
     }
     EmailEnvelope: {
       $ref: "./components.yaml#/components/schemas/EmailEnvelope",

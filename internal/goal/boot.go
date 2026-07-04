@@ -123,6 +123,7 @@ type TaskChatParams struct {
 	// purpose=decomposition attempts; the two session kinds resolve differently.
 	Decompose        bool
 	ExtraTools       []tools.Tool
+	ExcludedTools    []string
 	OnSandboxSession func(sandbox.Session) error
 }
 
@@ -142,10 +143,11 @@ type BootConfig struct {
 	// MaxWorkers caps concurrent attempt executions per node on the goal River
 	// queue (0 => defaultGoalMaxWorkers). TickEvery/LeaseTTL override the
 	// dispatcher/service defaults; zero values use them.
-	MaxWorkers int
-	TickEvery  time.Duration
-	LeaseTTL   time.Duration
-	Logger     *slog.Logger
+	MaxWorkers    int
+	TickEvery     time.Duration
+	LeaseTTL      time.Duration
+	Logger        *slog.Logger
+	ExcludedTools []string
 }
 
 // Boot constructs the goal system and returns the bound bundle. The dispatcher is
@@ -168,7 +170,7 @@ func Boot(cfg BootConfig) (*Service, error) {
 	}
 
 	svc := New(cfg.DB, q,
-		WithExecutor(bootExecutor(cfg.Chat, logger)),
+		WithExecutor(bootExecutor(cfg.Chat, logger, cfg.ExcludedTools)),
 		WithCheckRunner(NewCheckRunner(q, 0)),
 		WithCapabilityProbe(cfg.Capabilities),
 		WithSessionMinter(RegistrySessionMinter(cfg.Services)),
@@ -208,12 +210,12 @@ func Boot(cfg BootConfig) (*Service, error) {
 // bootExecutor picks the worker executor. With a Chat callback it runs persisted
 // agent turns (executor.go); without one it is a noop that fails non-retryably so
 // a misconfigured boot is loud, not silent.
-func bootExecutor(chat TaskChatFunc, log *slog.Logger) Executor {
+func bootExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string) Executor {
 	if chat == nil {
 		log.Warn("goal: no Chat wired; worker executor is a noop")
 		return noopExecutor{log: log}
 	}
-	return newWorkerExecutor(chat, log)
+	return newWorkerExecutor(chat, log, excludedTools)
 }
 
 // noopExecutor fails every attempt non-retryably with a clear hint. It is the

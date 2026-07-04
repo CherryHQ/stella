@@ -7,6 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
@@ -38,8 +39,8 @@ func TestService_Chat_ResumeOnlyUnknownSessionID(t *testing.T) {
 func TestService_Delegate_ResumeOnlyUnknownSessionID(t *testing.T) {
 	svc, _ := newTestService(t, nil)
 
-	ctx := memory.WithUserID(context.Background(), "u1")
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx := authz.WithUserID(context.Background(), "u1")
+	ctx = authz.WithAgentID(ctx, "agent1")
 
 	_, err := svc.Delegate(ctx, agent.DelegateRequest{
 		SessionID: "nonexistent-delegate-session",
@@ -61,8 +62,8 @@ func TestService_Delegate_ResumeOnlyUnknownSessionID(t *testing.T) {
 func TestService_Delegate_EmptySessionIDCreatesNew(t *testing.T) {
 	svc, _ := newTestService(t, nil)
 
-	ctx := memory.WithUserID(context.Background(), "u1")
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx := authz.WithUserID(context.Background(), "u1")
+	ctx = authz.WithAgentID(ctx, "agent1")
 
 	res, err := svc.Delegate(ctx, agent.DelegateRequest{
 		UserID:  "u1",
@@ -83,8 +84,8 @@ func TestService_Chat_WrongKindResume(t *testing.T) {
 	svc, mem := newTestService(t, nil)
 
 	// Create a delegate session first.
-	ctx := memory.WithUserID(context.Background(), "u1")
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx := authz.WithUserID(context.Background(), "u1")
+	ctx = authz.WithAgentID(ctx, "agent1")
 	delegateInfo := memory.SessionInfo{
 		ID:      "delegate-sess-1",
 		UserID:  "u1",

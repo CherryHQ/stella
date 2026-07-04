@@ -32,4 +32,3 @@ SET waived_at = now(),
     waiver_reason = sqlc.arg(waiver_reason)
 WHERE goal_id = sqlc.arg(goal_id)
   AND upstream_id = sqlc.arg(upstream_id);
-

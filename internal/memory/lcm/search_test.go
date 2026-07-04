@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -511,7 +512,7 @@ func TestExpand_CrossSessionSummaryReturnsFullMessages(t *testing.T) {
 		t.Fatal("provider does not implement Explorer")
 	}
 	// Caller is in session A; scope comes from context, not the conversation.
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
 
 	res, err := explorer.Expand(ctx, "sum-xsess", 4000)
 	if err != nil {
@@ -526,7 +527,7 @@ func TestExpand_CrossSessionSummaryReturnsFullMessages(t *testing.T) {
 	}
 
 	// Another user must not be able to expand it.
-	strangerCtx := memory.WithAgentID(memory.WithUserID(context.Background(), testOtherUserID), sess.AgentID)
+	strangerCtx := authz.WithAgentID(authz.WithUserID(context.Background(), testOtherUserID), sess.AgentID)
 	if _, err := explorer.Expand(strangerCtx, "sum-xsess", 4000); err == nil {
 		t.Error("expected cross-user expand to fail, got nil error")
 	}
@@ -555,7 +556,7 @@ func TestGetMessage_CrossSessionAndIsolation(t *testing.T) {
 	if !ok {
 		t.Fatal("provider does not implement MessageReader")
 	}
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
 
 	got, err := reader.GetMessage(ctx, ids[0])
 	if err != nil {
@@ -569,13 +570,13 @@ func TestGetMessage_CrossSessionAndIsolation(t *testing.T) {
 	}
 
 	// Another user must not be able to read it.
-	strangerCtx := memory.WithAgentID(memory.WithUserID(context.Background(), testOtherUserID), sess.AgentID)
+	strangerCtx := authz.WithAgentID(authz.WithUserID(context.Background(), testOtherUserID), sess.AgentID)
 	if _, err := reader.GetMessage(strangerCtx, ids[0]); err == nil {
 		t.Error("expected cross-user get_message to fail, got nil error")
 	}
 
 	// Another agent must not be able to read it.
-	otherAgentCtx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), "other")
+	otherAgentCtx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), "other")
 	if _, err := reader.GetMessage(otherAgentCtx, ids[0]); err == nil {
 		t.Error("expected cross-agent get_message to fail, got nil error")
 	}

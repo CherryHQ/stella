@@ -210,6 +210,9 @@ components:
             When true the new goal is activated immediately after create
             (direct run). Only a leaf with a satisfied plan gate can activate; a
             composite must be planned first, so 'activate' is ignored for it.
+        idempotency_key:
+          type: string
+          description: Optional key; repeated creates by the same user with the same key return the existing goal.
 
     UpdateGoalRequest:
       type: object

@@ -83,6 +83,30 @@ components:
       properties:
         user_id: { type: string }
 
+    AgentTool:
+      type: object
+      required: [name, description, source, enabled, origin]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        source: { type: string }
+        enabled: { type: boolean }
+        origin: { type: string }
+
+    AgentToolList:
+      type: object
+      required: [tools]
+      properties:
+        tools: {
+          type: array,
+          items: { $ref: "#/components/schemas/AgentTool" },
+        }
+
+    UpdateAgentToolRequest:
+      type: object
+      properties:
+        enabled: { type: boolean }
+
     Skill:
       type: object
       properties:

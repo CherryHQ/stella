@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -71,8 +72,8 @@ func TestExecute_ConstraintListAddRemove(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
 
-	ctx := memory.WithUserID(context.Background(), "1")
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx := authz.WithUserID(context.Background(), "1")
+	ctx = authz.WithAgentID(ctx, "agent1")
 
 	// Initially empty.
 	result, err := tool.Execute(ctx, map[string]any{"action": "constraint_list"})
@@ -137,8 +138,8 @@ func TestExecute_ConstraintListAddRemove(t *testing.T) {
 func TestExecute_ConstraintAdd_MissingText(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
-	ctx := memory.WithUserID(context.Background(), "1")
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx := authz.WithUserID(context.Background(), "1")
+	ctx = authz.WithAgentID(ctx, "agent1")
 
 	_, err := tool.Execute(ctx, map[string]any{"action": "constraint_add"})
 	if err == nil {
@@ -149,8 +150,8 @@ func TestExecute_ConstraintAdd_MissingText(t *testing.T) {
 func TestExecute_ConstraintRemove_MissingID(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
-	ctx := memory.WithUserID(context.Background(), "1")
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx := authz.WithUserID(context.Background(), "1")
+	ctx = authz.WithAgentID(ctx, "agent1")
 
 	_, err := tool.Execute(ctx, map[string]any{"action": "constraint_remove"})
 	if err == nil {
@@ -203,7 +204,7 @@ func TestBuildTool_MessageReader(t *testing.T) {
 		t.Error("expected message_id property in schema")
 	}
 
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "1"), "agent1")
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
 	out, err := tool.Execute(ctx, map[string]any{"action": "get_message", "message_id": "msg_7"})
 	if err != nil {
 		t.Fatalf("get_message execute: %v", err)
@@ -355,8 +356,8 @@ func TestExecute_Search(t *testing.T) {
 
 	tool := memory.BuildTool(fake)
 	execCtx := memory.WithSessionID(context.Background(), "s1")
-	execCtx = memory.WithAgentID(execCtx, "agent1")
-	execCtx = memory.WithUserID(execCtx, "1")
+	execCtx = authz.WithAgentID(execCtx, "agent1")
+	execCtx = authz.WithUserID(execCtx, "1")
 
 	result, err := tool.Execute(execCtx, map[string]any{
 		"action":  "search",
@@ -424,7 +425,7 @@ func TestExecute_SearchKnowledgeCurrentFacts(t *testing.T) {
 	})
 
 	tool := memory.BuildTool(fake)
-	execCtx := memory.WithAgentID(memory.WithUserID(context.Background(), "1"), "agent1")
+	execCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
 	out, err := tool.Execute(execCtx, map[string]any{
 		"action": "search_knowledge",
 		"query":  "Ubuntu runtime",
@@ -486,8 +487,8 @@ func TestExecute_SearchKnowledgeUsesSessionSnapshot(t *testing.T) {
 	provider := &snapshotKnowledgeProvider{Fake: memorytest.New()}
 	tool := memory.BuildTool(provider)
 	execCtx := memory.WithSessionID(context.Background(), "s1")
-	execCtx = memory.WithUserID(execCtx, "1")
-	execCtx = memory.WithAgentID(execCtx, "agent1")
+	execCtx = authz.WithUserID(execCtx, "1")
+	execCtx = authz.WithAgentID(execCtx, "agent1")
 
 	out, err := tool.Execute(execCtx, map[string]any{
 		"action": "search_knowledge",
@@ -507,7 +508,7 @@ func TestExecute_SearchKnowledgeUsesSessionSnapshot(t *testing.T) {
 func TestExecute_SearchKnowledgeNoUserContextFailsClosed(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
-	ctx := memory.WithAgentID(context.Background(), "agent1")
+	ctx := authz.WithAgentID(context.Background(), "agent1")
 	ctx = memory.WithCurrentSpeaker(ctx, memory.CurrentSpeaker{UserID: "speaker-user"})
 
 	_, err := tool.Execute(ctx, map[string]any{
@@ -585,8 +586,8 @@ func TestExecute_ProfileGetAndUpdate(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
 
-	ctx := memory.WithUserID(context.Background(), "42")
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx := authz.WithUserID(context.Background(), "42")
+	ctx = authz.WithAgentID(ctx, "agent1")
 
 	// profile_get on empty profile.
 	result, err := tool.Execute(ctx, map[string]any{"action": "profile_get"})
@@ -623,8 +624,8 @@ func TestExecute_SoulGetAndUpdate(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
 
-	ctx := memory.WithUserID(context.Background(), "42")
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx := authz.WithUserID(context.Background(), "42")
+	ctx = authz.WithAgentID(ctx, "agent1")
 
 	// soul_get on empty soul.
 	result, err := tool.Execute(ctx, map[string]any{"action": "soul_get"})
@@ -680,8 +681,8 @@ func TestExecute_SearchMissingPattern(t *testing.T) {
 func TestExecute_ProfileUpdateMissingContent(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
-	ctx := memory.WithUserID(context.Background(), "1")
-	ctx = memory.WithAgentID(ctx, "a")
+	ctx := authz.WithUserID(context.Background(), "1")
+	ctx = authz.WithAgentID(ctx, "a")
 	_, err := tool.Execute(ctx, map[string]any{"action": "profile_update"})
 	if err == nil {
 		t.Fatal("expected error for missing content")

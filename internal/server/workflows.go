@@ -58,7 +58,7 @@ func (s *Server) SaveGoalAsWorkflow(w http.ResponseWriter, r *http.Request, id s
 	if !ok {
 		return
 	}
-	goalRow, ok := s.loadGoal(r.Context(), w, info.UserID, id)
+	goalRow, ok := s.loadGoal(r.Context(), w, toolIdentity(info), id)
 	if !ok {
 		return
 	}

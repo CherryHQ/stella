@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
@@ -19,10 +20,10 @@ import (
 // nullAgent builds a pgtype.Text for an agent_id value.
 func requireSessionScope(ctx context.Context, userID, agentID string) (string, string, error) {
 	if userID == "" {
-		userID = memory.UserIDFromContext(ctx)
+		userID = authz.UserIDFromContext(ctx)
 	}
 	if agentID == "" {
-		agentID = memory.AgentIDFromContext(ctx)
+		agentID = authz.AgentIDFromContext(ctx)
 	}
 	if userID == "" {
 		return "", "", fmt.Errorf("missing user context")

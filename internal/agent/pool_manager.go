@@ -16,7 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
-	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -49,7 +49,7 @@ func WithCompactionPM(cfg CompactionConfig) PoolManagerOption {
 	return func(pm *PoolManager) { pm.compaction = cfg }
 }
 
-func WithBuiltinTools(tools []tools.Tool) PoolManagerOption {
+func WithBuiltinTools(tools []BuiltinTool) PoolManagerOption {
 	return func(pm *PoolManager) { pm.builtinTools = tools }
 }
 
@@ -103,6 +103,10 @@ func WithMCPToolProvider(p MCPToolProvider) PoolManagerOption {
 	return func(pm *PoolManager) { pm.mcpToolProvider = p }
 }
 
+func WithToolOverrideFetcher(f ToolOverrideFetcher) PoolManagerOption {
+	return func(pm *PoolManager) { pm.toolOverrideFetcher = f }
+}
+
 func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 	return func(pm *PoolManager) { pm.tokenManager = tm }
 }
@@ -125,7 +129,7 @@ type PoolManager struct {
 	mu                       sync.RWMutex
 	idleTimeout              time.Duration
 	compaction               CompactionConfig
-	builtinTools             []tools.Tool
+	builtinTools             []BuiltinTool
 	pluginToolsBuilder       PluginToolsBuilder
 	hookPlugins              []hooks.HookPlugin
 	coreHooks                []hooks.HookPlugin
@@ -137,6 +141,7 @@ type PoolManager struct {
 	providerStreamBuilder    ProviderStreamBuilder
 	skillStore               pkgplugins.SkillStore
 	mcpToolProvider          MCPToolProvider
+	toolOverrideFetcher      ToolOverrideFetcher
 	vaultEnvLoader           sandbox.VaultEnvLoader
 	tokenEnsurer             sandbox.TokenEnsurer
 	projectResolver          ProjectResolverFunc
@@ -573,7 +578,7 @@ func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*
 // buildRunnerFunc assembles a NewRunnerFunc with builtin tools and external plugin tools.
 func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot) NewRunnerFunc {
 	pm.mu.RLock()
-	builtinTools := append([]tools.Tool{}, pm.builtinTools...)
+	builtinTools := append([]BuiltinTool{}, pm.builtinTools...)
 	pm.mu.RUnlock()
 
 	sandboxBackendFn := func(ctx context.Context) string {
@@ -589,6 +594,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		SkillStore:               pm.skillStore,
 		MCPToolProvider:          pm.mcpToolProvider,
+		ToolOverrideFetcher:      pm.toolOverrideFetcher,
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,
@@ -601,7 +607,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 // AddBuiltinTool appends a tool and rebuilds all service factories.
 func (pm *PoolManager) AddBuiltinTool(ctx context.Context, tool tools.Tool) error {
 	pm.mu.Lock()
-	pm.builtinTools = append(pm.builtinTools, tool)
+	pm.builtinTools = append(pm.builtinTools, BuiltinTool{Tool: tool})
 	agentIDs := make([]string, 0, len(pm.services))
 	for id := range pm.services {
 		agentIDs = append(agentIDs, id)

@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
@@ -219,7 +220,7 @@ func (t *tracedProvider) Describe(ctx context.Context, summaryID string) (*Descr
 		return nil, errCapabilityNotSupported("Explorer")
 	}
 	hctx := &hooks.PostMemoryCallContext{
-		HookMeta:  hooks.HookMeta{UserID: UserIDFromContext(ctx), AgentID: AgentIDFromContext(ctx)},
+		HookMeta:  hooks.HookMeta{UserID: authz.UserIDFromContext(ctx), AgentID: authz.AgentIDFromContext(ctx)},
 		SessionID: SessionIDFromContext(ctx),
 		Op:        hooks.MemoryOpDescribe,
 	}
@@ -241,7 +242,7 @@ func (t *tracedProvider) Expand(ctx context.Context, summaryID string, tokenCap 
 		return nil, errCapabilityNotSupported("Explorer")
 	}
 	hctx := &hooks.PostMemoryCallContext{
-		HookMeta:  hooks.HookMeta{UserID: UserIDFromContext(ctx), AgentID: AgentIDFromContext(ctx)},
+		HookMeta:  hooks.HookMeta{UserID: authz.UserIDFromContext(ctx), AgentID: authz.AgentIDFromContext(ctx)},
 		SessionID: SessionIDFromContext(ctx),
 		Op:        hooks.MemoryOpExpand,
 	}
@@ -287,7 +288,7 @@ func (t *tracedProvider) GetMessage(ctx context.Context, messageID string) (*Mes
 		return nil, errCapabilityNotSupported("MessageReader")
 	}
 	hctx := &hooks.PostMemoryCallContext{
-		HookMeta:  hooks.HookMeta{UserID: UserIDFromContext(ctx), AgentID: AgentIDFromContext(ctx)},
+		HookMeta:  hooks.HookMeta{UserID: authz.UserIDFromContext(ctx), AgentID: authz.AgentIDFromContext(ctx)},
 		SessionID: SessionIDFromContext(ctx),
 		Op:        hooks.MemoryOpGetMessage,
 	}
