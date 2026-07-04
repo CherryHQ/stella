@@ -37,23 +37,24 @@ type providerConfig struct {
 
 // runnerConfig configures the runner implementation.
 type runnerConfig struct {
-	Provider        providerConfig
-	Thinking        ai.ThinkingLevel
-	Sandbox         sandbox.Config
-	System          string // optional system prompt override (bypasses default prompt building)
-	Sections        []pkgplugins.SystemPromptSection
-	BuiltinTools    []BuiltinTool
-	BuiltinParams   RunnerParams
-	PerRunTools     []tools.Tool
-	SkillStore      pkgplugins.SkillStore
-	PluginView      pkgplugins.SessionPluginView
-	MCPToolProvider MCPToolProvider
-	PluginTools     func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
-	HookPlugins     []hooks.HookPlugin // hook plugins for the engine loop
-	ToolLifecycle   *coreagent.ToolLifecycle
-	DelegateRunner  delegatetool.SessionRunner
-	DelegateTimeout time.Duration // default wall-clock timeout per delegate (0 = 15m)
-	ChatTimeout     time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
+	Provider            providerConfig
+	Thinking            ai.ThinkingLevel
+	Sandbox             sandbox.Config
+	System              string // optional system prompt override (bypasses default prompt building)
+	Sections            []pkgplugins.SystemPromptSection
+	BuiltinTools        []BuiltinTool
+	BuiltinParams       RunnerParams
+	PerRunTools         []tools.Tool
+	SkillStore          pkgplugins.SkillStore
+	PluginView          pkgplugins.SessionPluginView
+	MCPToolProvider     MCPToolProvider
+	ToolOverrideFetcher ToolOverrideFetcher
+	PluginTools         func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
+	HookPlugins         []hooks.HookPlugin // hook plugins for the engine loop
+	ToolLifecycle       *coreagent.ToolLifecycle
+	DelegateRunner      delegatetool.SessionRunner
+	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
+	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -219,6 +220,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		toolReg.Register(t)
 	}
 
+	var nonCoreCandidates []tools.Tool
 	registerNonCore := func(t tools.Tool) {
 		name := t.Definition().Name
 		if _, taken := coreNames[name]; taken {
@@ -226,7 +228,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 				"component", "go_runner", "tool", name)
 			return
 		}
-		toolReg.Register(t)
+		nonCoreCandidates = append(nonCoreCandidates, t)
 	}
 
 	for _, entry := range cfg.BuiltinTools {
@@ -287,6 +289,23 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		SessionRunner:  cfg.DelegateRunner,
 		DefaultTimeout: cfg.DelegateTimeout,
 	}))
+
+	var overrides []ToolOverride
+	if cfg.ToolOverrideFetcher != nil {
+		rows, err := cfg.ToolOverrideFetcher(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID)
+		if err != nil {
+			slog.Warn("failed to load tool overrides; using default tool visibility", "error", err)
+		} else {
+			overrides = rows
+		}
+	}
+	for _, t := range nonCoreCandidates {
+		name := t.Definition().Name
+		if !FilterToolEnabled(true, name, overrides) {
+			continue
+		}
+		toolReg.Register(t)
+	}
 
 	return toolReg, hookSet, nil
 }

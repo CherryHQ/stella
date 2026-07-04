@@ -859,6 +859,17 @@ type SkillFile struct {
 	Content string `json:"content"`
 }
 
+type ToolOverride struct {
+	ID        string      `json:"id"`
+	ToolName  string      `json:"tool_name"`
+	Scope     string      `json:"scope"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
+	Enabled   bool        `json:"enabled"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
+}
+
 type VaultEntry struct {
 	ID           string      `json:"id"`
 	Scope        string      `json:"scope"`

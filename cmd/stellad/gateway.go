@@ -156,6 +156,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
 	adminSrv := server.New(gctx, s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
+	adminSrv.SetBuiltinTools(s.builtinTools)
 	if s.credSvc != nil {
 		adminSrv.SetCredentialsService(s.credSvc)
 	}

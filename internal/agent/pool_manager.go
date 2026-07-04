@@ -103,6 +103,10 @@ func WithMCPToolProvider(p MCPToolProvider) PoolManagerOption {
 	return func(pm *PoolManager) { pm.mcpToolProvider = p }
 }
 
+func WithToolOverrideFetcher(f ToolOverrideFetcher) PoolManagerOption {
+	return func(pm *PoolManager) { pm.toolOverrideFetcher = f }
+}
+
 func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 	return func(pm *PoolManager) { pm.tokenManager = tm }
 }
@@ -137,6 +141,7 @@ type PoolManager struct {
 	providerStreamBuilder    ProviderStreamBuilder
 	skillStore               pkgplugins.SkillStore
 	mcpToolProvider          MCPToolProvider
+	toolOverrideFetcher      ToolOverrideFetcher
 	vaultEnvLoader           sandbox.VaultEnvLoader
 	tokenEnsurer             sandbox.TokenEnsurer
 	projectResolver          ProjectResolverFunc
@@ -589,6 +594,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		SkillStore:               pm.skillStore,
 		MCPToolProvider:          pm.mcpToolProvider,
+		ToolOverrideFetcher:      pm.toolOverrideFetcher,
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,

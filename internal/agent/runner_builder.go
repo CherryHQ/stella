@@ -45,6 +45,7 @@ type runnerBuilderConfig struct {
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	SkillStore               pkgplugins.SkillStore
 	MCPToolProvider          MCPToolProvider
+	ToolOverrideFetcher      ToolOverrideFetcher
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SandboxBackendFn         func(ctx context.Context) string
 	VaultEnvLoader           sandbox.VaultEnvLoader
@@ -219,21 +220,22 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				BaseURL: creds.BaseURL,
 				Builder: cfg.ProviderStreamBuilder,
 			},
-			Thinking:        params.Thinking,
-			Sandbox:         sandboxCfg,
-			System:          system,
-			Sections:        sections,
-			BuiltinTools:    builtinTools,
-			BuiltinParams:   params,
-			PerRunTools:     perRunTools,
-			SkillStore:      cfg.SkillStore,
-			PluginView:      pluginView,
-			MCPToolProvider: cfg.MCPToolProvider,
-			PluginTools:     cfg.PluginToolsBuilder,
-			HookPlugins:     hookPlugins,
-			ToolLifecycle:   cfg.ToolLifecycle,
-			DelegateRunner:  params.DelegateRunner,
-			DelegateTimeout: cfg.Snap.Runner.DelegateTimeoutDuration(),
+			Thinking:            params.Thinking,
+			Sandbox:             sandboxCfg,
+			System:              system,
+			Sections:            sections,
+			BuiltinTools:        builtinTools,
+			BuiltinParams:       params,
+			PerRunTools:         perRunTools,
+			SkillStore:          cfg.SkillStore,
+			PluginView:          pluginView,
+			MCPToolProvider:     cfg.MCPToolProvider,
+			ToolOverrideFetcher: cfg.ToolOverrideFetcher,
+			PluginTools:         cfg.PluginToolsBuilder,
+			HookPlugins:         hookPlugins,
+			ToolLifecycle:       cfg.ToolLifecycle,
+			DelegateRunner:      params.DelegateRunner,
+			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
 		})
 	}
 }

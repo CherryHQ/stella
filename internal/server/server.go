@@ -64,6 +64,7 @@ type Server struct {
 	goalSvc        *goal.Service        // optional; if nil, goal endpoints return 503
 	goalQueries    *sqlc.Queries        // optional; read side for goal endpoints
 	workflowSvc    *workflowpkg.Service // optional; if nil, workflow endpoints return 503
+	builtinTools   []agent.BuiltinTool
 	startedAt      time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider
@@ -169,6 +170,10 @@ func (s *Server) SetVaultService(svc *vault.Service) {
 // Call before serving requests. If not set (nil), MCP API endpoints return 503.
 func (s *Server) SetMCPService(svc *mcp.Service) {
 	s.mcpSvc = svc
+}
+
+func (s *Server) SetBuiltinTools(tools []agent.BuiltinTool) {
+	s.builtinTools = append([]agent.BuiltinTool(nil), tools...)
 }
 
 // SetTokenService wires bearer token authentication into the admin server. It

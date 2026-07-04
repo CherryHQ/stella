@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, FileText, Wrench } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { getSessionSystemPrompt, listTools } from "@/lib/api-client";
+import { getSessionSystemPrompt } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import type { Session, Tool, Workspace } from "@/lib/types";
+import { agentToolsOptions } from "@/lib/queries/agents";
 import { sessionContextItemsOptions } from "@/lib/queries/session-context";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -105,7 +106,7 @@ function InspectorTabButton({
 
 // ── Context Monitor ─────────────────────────────────────────────────────────
 
-function ContextMonitor({ session }: { agentID: string; session: Session | null }) {
+function ContextMonitor({ agentID, session }: { agentID: string; session: Session | null }) {
   const { t } = useI18n();
   const [openSections, setOpenSections] = useState<Record<ContextSection, boolean>>({
     session: false,
@@ -114,8 +115,6 @@ function ContextMonitor({ session }: { agentID: string; session: Session | null 
   });
   const [systemPrompt, setSystemPrompt] = useState("");
   const [promptLoading, setPromptLoading] = useState(false);
-  const [tools, setTools] = useState<Tool[]>([]);
-  const [toolsLoading, setToolsLoading] = useState(false);
 
   const contextQuery = useQuery(
     sessionContextItemsOptions(session?.agent_id ?? "", session?.id ?? ""),
@@ -151,24 +150,12 @@ function ContextMonitor({ session }: { agentID: string; session: Session | null 
     };
   }, [session?.agent_id, session?.id]);
 
-  const loadTools = useCallback(async () => {
-    if (tools.length > 0 || toolsLoading) return;
-    setToolsLoading(true);
-    try {
-      const { data } = await listTools({ throwOnError: true });
-      setTools((data?.tools as Tool[]) ?? []);
-    } finally {
-      setToolsLoading(false);
-    }
-  }, [tools.length, toolsLoading]);
+  const toolsQuery = useQuery(agentToolsOptions(openSections.tools ? agentID : ""));
+  const tools = toolsQuery.data ?? [];
 
-  const toggleSection = useCallback(
-    (next: ContextSection) => {
-      if (next === "tools") loadTools().catch(console.error);
-      setOpenSections((prev) => ({ ...prev, [next]: !prev[next] }));
-    },
-    [loadTools],
-  );
+  const toggleSection = useCallback((next: ContextSection) => {
+    setOpenSections((prev) => ({ ...prev, [next]: !prev[next] }));
+  }, []);
 
   const promptTokens = useMemo(() => Math.round(systemPrompt.length / 4), [systemPrompt]);
 
@@ -202,7 +189,7 @@ function ContextMonitor({ session }: { agentID: string; session: Session | null 
           open={openSections.tools}
           onToggle={() => toggleSection("tools")}
         >
-          <ToolsContext tools={tools} loading={toolsLoading} />
+          <ToolsContext tools={tools} loading={toolsQuery.isLoading} />
         </ContextSectionCard>
 
         <ContextSectionCard
@@ -358,11 +345,24 @@ function ToolsContext({ tools, loading }: { tools: Tool[]; loading: boolean }) {
 
   return (
     <div className="grid gap-2">
-      {tools.map((tool) => (
-        <ToolContextRow key={tool.name} tool={tool} />
+      {Object.entries(groupToolsBySource(tools)).map(([source, items]) => (
+        <div key={source} className="grid gap-1">
+          <div className="text-xs font-semibold text-muted-foreground">{source}</div>
+          {items.map((tool) => (
+            <ToolContextRow key={tool.name} tool={tool} />
+          ))}
+        </div>
       ))}
     </div>
   );
+}
+
+function groupToolsBySource(tools: Tool[]) {
+  return tools.reduce<Record<string, Tool[]>>((acc, tool) => {
+    const source = tool.source ?? "builtin";
+    acc[source] = [...(acc[source] ?? []), tool];
+    return acc;
+  }, {});
 }
 
 function ToolContextRow({ tool }: { tool: Tool }) {
@@ -382,7 +382,7 @@ function ToolContextRow({ tool }: { tool: Tool }) {
               {tool.name}
             </span>
             <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
-              {tool.category}
+              {tool.enabled ? tool.origin : `${tool.origin} off`}
             </span>
           </span>
           <span className="mt-1 block text-xs text-muted-foreground leading-normal">
@@ -392,7 +392,11 @@ function ToolContextRow({ tool }: { tool: Tool }) {
       </button>
       {expanded && (
         <pre className="mt-2 overflow-x-auto rounded-lg bg-muted/40 p-2 border border-border/15 font-mono text-xs leading-relaxed text-muted-foreground">
-          {JSON.stringify(tool.input_schema, null, 2)}
+          {JSON.stringify(
+            { source: tool.source, enabled: tool.enabled, origin: tool.origin },
+            null,
+            2,
+          )}
         </pre>
       )}
     </div>

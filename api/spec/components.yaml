@@ -147,6 +147,33 @@ components:
       properties:
         user_id:
           type: string
+    AgentTool:
+      type: object
+      required: [name, description, source, enabled, origin]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        source:
+          type: string
+        enabled:
+          type: boolean
+        origin:
+          type: string
+    AgentToolList:
+      type: object
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTool"
+    UpdateAgentToolRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
     Skill:
       type: object
       properties:
@@ -4045,27 +4072,6 @@ components:
           $ref: "#/components/schemas/StatusDatabase"
         plugins:
           $ref: "#/components/schemas/StatusPlugins"
-    Tool:
-      type: object
-      required: [name, description, category]
-      properties:
-        name:
-          type: string
-        description:
-          type: string
-        input_schema:
-          type: object
-          additionalProperties: true
-        category:
-          type: string
-    ToolList:
-      type: object
-      required: [tools]
-      properties:
-        tools:
-          type: array
-          items:
-            $ref: "#/components/schemas/Tool"
     Identity:
       type: object
       required: [id, user_id, platform, external_id, name, linked_at]

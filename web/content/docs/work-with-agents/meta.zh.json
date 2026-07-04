@@ -5,6 +5,7 @@
     "give-an-agent-a-goal",
     "build-shared-agents",
     "create-professional-agent",
+    "manage-agent-tools",
     "finance-agent",
     "hr-agent",
     "engineering-agent"

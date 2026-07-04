@@ -315,6 +315,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 			return phost.BeforeRun(ctx, build)
 		}),
 		agent.WithToolLifecyclePM(toolLifecycle),
+		agent.WithToolOverrideFetcher(toolOverrideFetcher(sqlc.New(db))),
 		agent.WithSkillStore(skillStoreAdapter),
 		agent.WithProjectResolver(func(ctx context.Context, projectID, userID string) (string, error) {
 			p, err := sqlc.New(db).GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
