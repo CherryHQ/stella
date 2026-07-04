@@ -2,9 +2,6 @@
 ALTER TABLE vault_entry
     ADD COLUMN inject_always BOOLEAN NOT NULL DEFAULT false;
 
-UPDATE vault_entry
-SET inject_always = true;
-
 CREATE TABLE vault_entry_agent_binding (
     vault_entry_id UUID NOT NULL REFERENCES vault_entry(id) ON DELETE CASCADE,
     agent_id       TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,

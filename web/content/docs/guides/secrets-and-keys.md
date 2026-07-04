@@ -4,7 +4,7 @@ title: Secrets and Keys
 
 ## What the Vault Does
 
-Stella's vault stores your API keys, tokens, and other secrets securely. Values are encrypted at rest. New secrets are not injected into agent sessions unless you explicitly bind them to agents or projects, or mark them as always injected.
+Stella's vault stores your API keys, tokens, and other secrets securely. Values are encrypted at rest. Secrets are not injected into agent sessions unless you explicitly bind them to agents or projects, or mark them as always injected.
 
 ## Setup
 
