@@ -474,7 +474,7 @@ func TestOneTimeJobCreation(t *testing.T) {
 	}
 }
 
-func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
+func TestOneTimeJobFiresAndRetires(t *testing.T) {
 	svc := testService(t)
 
 	var mu sync.Mutex
@@ -515,19 +515,38 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 	}
 	mu.Unlock()
 
-	// Job cleanup runs after the callback returns; wait for the observable state
-	// instead of sleeping and racing the cleanup goroutine.
+	// Retirement runs after the callback returns; wait for the observable state
+	// instead of sleeping and racing the retire goroutine. The job must survive
+	// as a disabled row (deleting it would cascade away its run records) with
+	// its River registration gone.
 	deadline = time.After(2 * time.Second)
 	for {
 		jobs := svc.ListJobs()
-		if len(jobs) == 0 {
+		if len(jobs) == 1 && !jobs[0].Enabled {
 			break
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("ListJobs after one-time fire: got %d, want 0", len(jobs))
+			t.Fatalf("jobs after one-time fire: got %+v, want 1 disabled job", jobs)
 		case <-time.After(20 * time.Millisecond):
 		}
+	}
+
+	svc.mu.Lock()
+	_, hasRef := svc.refs[job.ID]
+	svc.mu.Unlock()
+	if hasRef {
+		t.Error("expected fired one-time job to have no live River registration")
+	}
+
+	// The disabled state must be persisted, not just in memory: a run record
+	// referencing the job survives restarts only if the row itself does.
+	row, err := svc.q.GetSchedulerJob(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("GetSchedulerJob after retire: %v", err)
+	}
+	if row.Enabled {
+		t.Error("expected fired one-time job to be persisted as disabled")
 	}
 }
 

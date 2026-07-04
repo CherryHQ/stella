@@ -699,7 +699,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 
 	if isOneTime {
-		go s.removeOneTimeJob(job.ID)
+		go s.retireOneTimeJob(job.ID)
 	}
 }
 
@@ -799,20 +799,33 @@ func (s *Service) ListJobRuns(ctx context.Context, jobID string, limit int) ([]J
 	return runs, nil
 }
 
-// removeOneTimeJob cleans up a one-time job after it fires. The River job has
+// retireOneTimeJob disables a one-time job after it fires. The River job has
 // already completed (we run from inside its own execution), so the registration
 // is just forgotten — no JobCancel.
-func (s *Service) removeOneTimeJob(id string) {
+//
+// The row is disabled, not deleted: sched_job_run cascades on job deletion, so
+// deleting here would wipe the run record (and its root_goal_id attribution)
+// moments after it was written, and "run now" on a fired job would stop
+// working. A disabled past-timestamp job can never fire again — startup only
+// arms enabled jobs, the River worker skips disabled ones, and re-enabling via
+// update is rejected while the timestamp is in the past.
+func (s *Service) retireOneTimeJob(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	delete(s.refs, id)
-	if err := s.deleteJob(s.ctx, id); err != nil {
-		s.log.Warn("failed to remove one-time job after execution", "id", id, "error", err)
-	} else {
-		s.log.Info("one-time job auto-removed after execution", "id", id)
+	job, ok := s.jobs[id]
+	if !ok {
+		return
 	}
-	delete(s.jobs, id)
+	job.Enabled = false
+	job.UpdatedAt = time.Now().UTC()
+	s.jobs[id] = job
+	if err := s.updateJob(s.ctx, job); err != nil {
+		s.log.Warn("failed to disable one-time job after execution", "id", id, "error", err)
+	} else {
+		s.log.Info("one-time job disabled after execution", "id", id)
+	}
 }
 
 // dispatchJob routes a fired job to its handler-mode callback, the default
