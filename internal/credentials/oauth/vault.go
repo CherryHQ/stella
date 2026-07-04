@@ -10,7 +10,7 @@ import (
 type VaultStore interface {
 	Set(ctx context.Context, userID string, name string, plaintext string) error
 	Delete(ctx context.Context, userID string, name string) error
-	LoadEnv(ctx context.Context, userID string) (map[string]string, error)
+	Lookup(ctx context.Context, userID string, name string) (string, bool, error)
 }
 
 func saveBundle[T any](ctx context.Context, vs VaultStore, userID string, key string, bundle T) error {
@@ -25,18 +25,10 @@ func saveBundle[T any](ctx context.Context, vs VaultStore, userID string, key st
 }
 
 func loadBundle[T any](ctx context.Context, vs VaultStore, userID string, key string) (*T, error) {
-	env, err := vs.LoadEnv(ctx, userID)
+	raw, ok, err := vs.Lookup(ctx, userID, key)
 	if err != nil {
 		return nil, fmt.Errorf("oauth: load bundle %q: %w", key, err)
 	}
-	return bundleFromEnv[T](env, key)
-}
-
-// bundleFromEnv deserializes the bundle stored under key from an already-decrypted
-// vault env snapshot, avoiding a redundant vault decrypt. Returns nil, nil when
-// the key is absent.
-func bundleFromEnv[T any](env map[string]string, key string) (*T, error) {
-	raw, ok := env[key]
 	if !ok {
 		return nil, nil
 	}

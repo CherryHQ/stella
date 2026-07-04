@@ -109,7 +109,11 @@ func doMultipartRequestWithSession(t *testing.T, srv http.Handler, bearerToken, 
 	req := httptest.NewRequest(method, path, &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	if bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+bearerToken)
+		if strings.HasPrefix(bearerToken, "stella_") {
+			req.Header.Set("Authorization", "Bearer "+bearerToken)
+		} else {
+			req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: bearerToken})
+		}
 	}
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)

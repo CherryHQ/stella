@@ -16,15 +16,17 @@ import (
 
 // stubVaultLoader is a test-only VaultEnvLoader that returns a fixed map.
 type stubVaultLoader struct {
+	noDeclarableSecrets
 	env map[string]string
 	err error
 }
 
-func (s *stubVaultLoader) LoadEnv(_ context.Context, _ string) (map[string]string, error) {
+func (s *stubVaultLoader) LoadEnvForAgentProject(_ context.Context, _ string, _ string, _ string) (map[string]string, error) {
 	return s.env, s.err
 }
 
 type stubOAuthVaultStore struct {
+	noDeclarableSecrets
 	data map[string]string
 }
 
@@ -46,7 +48,12 @@ func (s *stubOAuthVaultStore) Delete(_ context.Context, userID string, name stri
 	return nil
 }
 
-func (s *stubOAuthVaultStore) LoadEnv(_ context.Context, userID string) (map[string]string, error) {
+func (s *stubOAuthVaultStore) Lookup(_ context.Context, userID string, name string) (string, bool, error) {
+	value, ok := s.data[s.key(userID, name)]
+	return value, ok, nil
+}
+
+func (s *stubOAuthVaultStore) LoadEnvForAgentProject(_ context.Context, userID string, _ string, _ string) (map[string]string, error) {
 	out := make(map[string]string)
 	prefix := userID + ":"
 	for k, v := range s.data {

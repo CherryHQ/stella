@@ -41,7 +41,7 @@ func TestMintOpaqueFormatAndChecksum(t *testing.T) {
 }
 
 func TestMintOpaqueRejectsNonOpaqueKinds(t *testing.T) {
-	for _, k := range []Kind{KindScoped, KindLegacyStellaToken, Kind("bogus")} {
+	for _, k := range []Kind{KindScoped, Kind("legacy_stella_token"), Kind("bogus")} {
 		if _, err := MintOpaque(k); err == nil {
 			t.Fatalf("MintOpaque must not mint kind %q", k)
 		}

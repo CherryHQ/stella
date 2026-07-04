@@ -144,6 +144,14 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
 			sections = append(sections, skillsSection)
 		}
+		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
+			if secrets, err := cfg.VaultEnvLoader.ListDeclarableForAgentProject(ctx, params.UserID, params.AgentID, params.ProjectID); err == nil && len(secrets) > 0 {
+				sections = append(sections, pkgplugins.SystemPromptSection{
+					Title:   "Declarable Secrets",
+					Content: "The following vault secrets can be injected into a single bash command by passing their names in the bash `secrets` parameter. Values are never shown; only declare the names needed for that command.\n\n" + formatDeclarableSecrets(secrets),
+				})
+			}
+		}
 
 		// Build the full system prompt per-session with profile from memory provider.
 		// Group sessions skip private profile injection (D9 isolation); group memory
