@@ -43,12 +43,10 @@ type ScopedResult struct {
 	Scopes    []string
 }
 
-// TokenBackend delegates the two existing bearer families -- the vault-injected
-// legacy STELLA_TOKEN and the sandbox scoped token -- to the existing token
-// service. These sub-resolvers stay thin adapters; their verification logic is
-// unchanged and intentionally not duplicated here.
+// TokenBackend delegates sandbox scoped-token verification to the existing token
+// service. This sub-resolver stays a thin adapter; verification logic is not
+// duplicated here.
 type TokenBackend interface {
-	AuthenticateLegacy(ctx context.Context, rawToken string) (Identity, error)
 	AuthenticateScoped(ctx context.Context, rawToken string) (ScopedResult, error)
 }
 
@@ -65,7 +63,7 @@ type Service struct {
 }
 
 // Config wires the backends a Service needs. PATs/Users may be nil (PAT auth
-// disabled); Tokens may be nil (legacy/scoped bearer auth disabled).
+// disabled); Tokens may be nil (scoped bearer auth disabled).
 type Config struct {
 	PATs   PATStore
 	OAuth  OAuthAccessStore
@@ -93,8 +91,7 @@ func NewService(cfg Config) *Service {
 //     cookie/session auth.
 //   - (nil, err): a Bearer credential is present but invalid, unknown, or
 //     reserved. The caller MUST deny and MUST NOT fall back to any full-access
-//     path. In particular a malformed stella_pat_/stella_oat_ token is dispatched
-//     here and never reaches the legacy STELLA_TOKEN lookup.
+//     path.
 //   - (principal, nil): success.
 func (s *Service) Resolve(ctx context.Context, header string) (*Principal, error) {
 	fields := strings.Fields(header)
@@ -120,7 +117,7 @@ func (s *Service) Resolve(ctx context.Context, header string) (*Principal, error
 	case strings.HasPrefix(raw, pkgauth.ScopedTokenPrefix):
 		return s.resolveScoped(ctx, raw)
 	default:
-		return s.resolveLegacy(ctx, raw)
+		return nil, fmt.Errorf("credential: unsupported bearer token")
 	}
 }
 

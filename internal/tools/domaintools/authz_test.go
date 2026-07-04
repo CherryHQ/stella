@@ -166,7 +166,7 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("vault unauthenticated err=%v, want no user identity", err)
 	}
 
-	if err := vaultSvc.SetReserved(ctx, ownerUser, "EMAIL_CONFIG", `{"default":"work","accounts":{"work":{"imap_host":"8.8.8.8","smtp_host":"1.1.1.1","username":"owner@example.com","password":"secret","from":"owner@example.com"}}}`); err != nil {
+	if err := vaultSvc.SetScoped(ctx, vault.ScopeUser, ownerUser, "", "EMAIL_CONFIG", `{"default":"work","accounts":{"work":{"imap_host":"8.8.8.8","smtp_host":"1.1.1.1","username":"owner@example.com","password":"secret","from":"owner@example.com"}}}`); err != nil {
 		t.Fatalf("set owner email config: %v", err)
 	}
 	emailTool := NewEmailTool(emailpkg.NewService(vaultSvc, q))

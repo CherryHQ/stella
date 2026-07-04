@@ -45,7 +45,7 @@ func TestServiceSendOwnedSuppressesDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
 	}
-	if err := vaultSvc.SetReserved(ctx, userID, "EMAIL_CONFIG", string(b)); err != nil {
+	if err := vaultSvc.SetScoped(ctx, vault.ScopeUser, userID, "", "EMAIL_CONFIG", string(b)); err != nil {
 		t.Fatalf("set EMAIL_CONFIG: %v", err)
 	}
 

@@ -34,7 +34,35 @@ func (d *oidcVaultDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.L
 	return d.q.ListVaultEntriesForRuntime(ctx, arg)
 }
 
-func (d *oidcVaultDB) UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) error {
+func (d *oidcVaultDB) ListVaultEntriesDeclarableForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesDeclarableForRuntimeParams) ([]sqlc.VaultEntry, error) {
+	return d.q.ListVaultEntriesDeclarableForRuntime(ctx, arg)
+}
+
+func (d *oidcVaultDB) CreateVaultExecSecretAudit(ctx context.Context, arg sqlc.CreateVaultExecSecretAuditParams) (sqlc.VaultExecSecretAudit, error) {
+	return d.q.CreateVaultExecSecretAudit(ctx, arg)
+}
+
+func (d *oidcVaultDB) ListVaultExecSecretAuditByUser(ctx context.Context, arg sqlc.ListVaultExecSecretAuditByUserParams) ([]sqlc.VaultExecSecretAudit, error) {
+	return d.q.ListVaultExecSecretAuditByUser(ctx, arg)
+}
+
+func (d *oidcVaultDB) ListVaultEntryAgentBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
+	return d.q.ListVaultEntryAgentBindings(ctx, vaultEntryID)
+}
+
+func (d *oidcVaultDB) ListVaultEntryProjectBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
+	return d.q.ListVaultEntryProjectBindings(ctx, vaultEntryID)
+}
+
+func (d *oidcVaultDB) ReplaceVaultEntryAgentBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryAgentBindingsParams) error {
+	return d.q.ReplaceVaultEntryAgentBindings(ctx, arg)
+}
+
+func (d *oidcVaultDB) ReplaceVaultEntryProjectBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryProjectBindingsParams) error {
+	return d.q.ReplaceVaultEntryProjectBindings(ctx, arg)
+}
+
+func (d *oidcVaultDB) UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) (sqlc.VaultEntry, error) {
 	return d.q.UpsertVaultEntryByScope(ctx, arg)
 }
 
@@ -89,7 +117,7 @@ func TestVaultCRUD(t *testing.T) {
 	}
 	resp := parseResponse(t, rr)
 	var wrapper struct {
-		Entries []map[string]string `json:"entries"`
+		Entries []map[string]any `json:"entries"`
 	}
 	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -267,9 +295,9 @@ func TestScopedVaultPermissionsAndRuntimeResolution(t *testing.T) {
 			t.Fatalf("admin set %s status = %d, want %d (body: %s)", req["scope"], rr.Code, http.StatusOK, rr.Body.String())
 		}
 	}
-	for _, req := range []map[string]string{
-		{"scope": "user", "value": "user"},
-		{"scope": "user_agent", "agent_id": "agent-a", "value": "user-agent"},
+	for _, req := range []map[string]any{
+		{"scope": "user", "value": "user", "inject_always": true},
+		{"scope": "user_agent", "agent_id": "agent-a", "value": "user-agent", "inject_always": true},
 	} {
 		rr = doRequestWithSession(t, env.srv, regularToken, "PUT", "/api/vault/TOKEN", req)
 		if rr.Code != http.StatusOK {
@@ -277,7 +305,7 @@ func TestScopedVaultPermissionsAndRuntimeResolution(t *testing.T) {
 		}
 	}
 
-	envMap, err := svc.LoadEnvForAgent(ctx, regular.ID, "agent-a")
+	envMap, err := svc.LoadEnvForAgentProject(ctx, regular.ID, "agent-a", "")
 	if err != nil {
 		t.Fatalf("LoadEnvForAgent: %v", err)
 	}
@@ -346,7 +374,8 @@ func TestScopedTokenVaultAgentBinding(t *testing.T) {
 	}
 
 	// Token bound to sa-agent-a.
-	tokenSvc := auth.NewTokenService(env.authStore, nil)
+	tokenSvc := auth.NewTokenService(env.authStore)
+	env.srv.SetTokenService(tokenSvc)
 	token, err := tokenSvc.CreateScopedToken(ctx, regular.ID, "sa-agent-a", "sess-1", "")
 	if err != nil {
 		t.Fatalf("CreateScopedToken: %v", err)
@@ -515,7 +544,7 @@ func TestVaultUpdateExisting(t *testing.T) {
 	}
 	resp := parseResponse(t, rr)
 	var wrapper struct {
-		Entries []map[string]string `json:"entries"`
+		Entries []map[string]any `json:"entries"`
 	}
 	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -523,5 +552,57 @@ func TestVaultUpdateExisting(t *testing.T) {
 	entries := wrapper.Entries
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry after update, got %d", len(entries))
+	}
+}
+
+// TestScopedTokenVaultGetIsAudited guards the declare-time escape hatch: a
+// sandbox scoped token reading a secret value through GET /api/vault/{name}
+// must leave a vault_exec_secret_audit row, exactly like the bash `secrets`
+// param path. Cookie sessions stay unaudited.
+func TestScopedTokenVaultGetIsAudited(t *testing.T) {
+	t.Setenv("STELLA_SCOPED_TOKEN_SECRET", "test-scoped-token-secret-fixed")
+	env, svc := setupVaultEnv(t)
+	ctx := context.Background()
+	q := sqlc.New(env.db)
+
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: "audit-agent", Name: "audit-agent", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	regular, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "audited-vault", "user")
+	pubKey, encPrivKey, err := vault.GenerateUserKeys(svc.MasterRecipient())
+	if err != nil {
+		t.Fatalf("GenerateUserKeys: %v", err)
+	}
+	if err := env.oidcStore.UpdateUserAgeKeys(ctx, regular.ID, pubKey, encPrivKey); err != nil {
+		t.Fatalf("UpdateUserAgeKeys: %v", err)
+	}
+	if err := svc.Set(ctx, regular.ID, "AUDITED_KEY", "v"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	tokenSvc := auth.NewTokenService(env.authStore)
+	env.srv.SetTokenService(tokenSvc)
+	token, err := tokenSvc.CreateScopedToken(ctx, regular.ID, "audit-agent", "sess-audit", "")
+	if err != nil {
+		t.Fatalf("CreateScopedToken: %v", err)
+	}
+
+	if rr := doRequestWithSession(t, env.srv, token, "GET", "/api/vault/AUDITED_KEY?scope=user", nil); rr.Code != http.StatusOK {
+		t.Fatalf("scoped get = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rows, err := q.ListVaultExecSecretAuditByUser(ctx, sqlc.ListVaultExecSecretAuditByUserParams{UserID: regular.ID, Limit: 10})
+	if err != nil {
+		t.Fatalf("ListVaultExecSecretAuditByUser: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("audit rows = %d, want 1", len(rows))
+	}
+	r := rows[0]
+	if r.AgentID != "audit-agent" || r.SessionID != "sess-audit" || r.Name != "AUDITED_KEY" || r.CommandText != "api: vault get" {
+		t.Fatalf("audit row = %+v, want agent/session/name/command match", r)
 	}
 }

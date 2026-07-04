@@ -79,20 +79,9 @@ func (f *fakeStore) LookupUser(_ context.Context, userID string) (Identity, erro
 	return id, nil
 }
 
-// legacyTrap fails the test if the legacy full-access path is ever reached with a
-// PAT/OAuth-prefixed token -- the whole point of CRITICAL #3.
-type legacyTrap struct {
-	t          *testing.T
-	legacyCall int
-}
+type scopedTrap struct{}
 
-func (l *legacyTrap) AuthenticateLegacy(_ context.Context, raw string) (Identity, error) {
-	l.legacyCall++
-	l.t.Fatalf("legacy Authenticate must never be reached for %q", raw)
-	return Identity{}, nil
-}
-
-func (l *legacyTrap) AuthenticateScoped(_ context.Context, _ string) (ScopedResult, error) {
+func (l *scopedTrap) AuthenticateScoped(_ context.Context, _ string) (ScopedResult, error) {
 	return ScopedResult{}, errors.New("not scoped")
 }
 
@@ -101,7 +90,7 @@ func newTestService(t *testing.T) (*Service, *fakeStore) {
 		byPublicID: map[string]PATRecord{},
 		users:      map[string]Identity{"u1": {UserID: "u1", Email: "u1@x", IsActive: true, Role: "user"}},
 	}
-	svc := NewService(Config{PATs: store, Users: store, Tokens: &legacyTrap{t: t}})
+	svc := NewService(Config{PATs: store, Users: store, Tokens: &scopedTrap{}})
 	return svc, store
 }
 
@@ -133,8 +122,8 @@ func TestResolvePATRoundTrip(t *testing.T) {
 }
 
 // CRITICAL #3: a malformed/unknown stella_pat_ bearer must NOT fall through to
-// the legacy Authenticate path. legacyTrap.Fatalf enforces that.
-func TestResolveMalformedPATDoesNotFallThroughToLegacy(t *testing.T) {
+// any other credential family.
+func TestResolveMalformedPATDoesNotFallThrough(t *testing.T) {
 	svc, _ := newTestService(t)
 	ctx := context.Background()
 

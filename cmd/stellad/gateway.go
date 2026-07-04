@@ -191,7 +191,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	var mcpVault mcp.Vault // nil when the vault is unavailable; MCP bearer auth then rejected
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
 	if s.vaultSvc != nil {
-		tokenSvc = auth.NewTokenService(as, s.vaultSvc)
+		tokenSvc = auth.NewTokenService(as)
 		mcpVault = s.vaultSvc
 		adminSrv.SetVaultService(s.vaultSvc)
 		adminSrv.SetTokenService(tokenSvc)

@@ -100,17 +100,9 @@ func patRecordFromRow(r sqlc.PersonalAccessToken) credential.PATRecord {
 }
 
 // tokenBackend adapts the existing TokenService to credential.TokenBackend so
-// the legacy STELLA_TOKEN and sandbox scoped-token verification stay untouched.
+// sandbox scoped-token verification stays untouched.
 type tokenBackend struct {
 	svc *auth.TokenService
-}
-
-func (b tokenBackend) AuthenticateLegacy(ctx context.Context, rawToken string) (credential.Identity, error) {
-	u, err := b.svc.Authenticate(ctx, rawToken)
-	if err != nil {
-		return credential.Identity{}, err
-	}
-	return identityFromUser(u, u.Role == auth.RoleAdmin), nil
 }
 
 func (b tokenBackend) AuthenticateScoped(ctx context.Context, rawToken string) (credential.ScopedResult, error) {

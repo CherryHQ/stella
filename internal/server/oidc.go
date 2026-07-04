@@ -409,13 +409,6 @@ func (s *Server) ensureUserVaultKeys(ctx context.Context, result *auth.OIDCLogin
 }
 
 func (s *Server) finalizeLogin(w http.ResponseWriter, r *http.Request, result auth.OIDCLoginResult) {
-	// Ensure every user has an auto-generated API token (idempotent).
-	if s.tokenSvc != nil {
-		if err := s.tokenSvc.EnsureAutoToken(r.Context(), result.User.ID); err != nil {
-			slog.Warn("auth: ensure auto token failed", "user_id", result.User.ID, "error", err)
-		}
-	}
-
 	s.ensureUserVaultKeys(r.Context(), &result)
 
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"

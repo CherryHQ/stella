@@ -16,12 +16,16 @@ import (
 
 // vaultEntryResponse is the JSON shape returned by ListVaultEntries.
 type vaultEntryResponse struct {
-	Name      string    `json:"name"`
-	Scope     string    `json:"scope"`
-	UserID    string    `json:"user_id,omitempty"`
-	AgentID   string    `json:"agent_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Name             string    `json:"name"`
+	Description      *string   `json:"description,omitempty"`
+	Scope            string    `json:"scope"`
+	UserID           string    `json:"user_id,omitempty"`
+	AgentID          string    `json:"agent_id,omitempty"`
+	InjectAlways     bool      `json:"inject_always"`
+	InjectAgentIDs   []string  `json:"inject_agent_ids"`
+	InjectProjectIDs []string  `json:"inject_project_ids"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // ListScopedVaultEntries handles GET /api/vault.
@@ -107,6 +111,16 @@ func (s *Server) GetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	// A sandbox scoped token reading a secret value is the declare-time escape
+	// hatch: it must leave the same audit trail as the bash `secrets` param,
+	// and the read is denied if the audit row cannot be written (fail-closed).
+	if boundAgentID, sessionID, ok := info.scopedBoundary(); ok {
+		if err := s.vaultSvc.RecordExecSecretUse(r.Context(), info.UserID, boundAgentID, sessionID, name, "api: vault get"); err != nil {
+			s.log.Error("audit vault get from sandbox", "user_id", info.UserID, "agent_id", boundAgentID, "name", name, "error", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+	}
 	writeData(w, http.StatusOK, map[string]string{"name": name, "value": value})
 }
 
@@ -127,9 +141,13 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 	}
 
 	var body struct {
-		Value   string `json:"value"`
-		Scope   string `json:"scope"`
-		AgentID string `json:"agent_id"`
+		Value            string   `json:"value"`
+		Description      *string  `json:"description"`
+		Scope            string   `json:"scope"`
+		AgentID          string   `json:"agent_id"`
+		InjectAlways     *bool    `json:"inject_always"`
+		InjectAgentIDs   []string `json:"inject_agent_ids"`
+		InjectProjectIDs []string `json:"inject_project_ids"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -151,11 +169,19 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 		return
 	}
 
+	opts := vault.SetOptions{
+		Description:      body.Description,
+		InjectAlways:     body.InjectAlways,
+		InjectAgentIDs:   body.InjectAgentIDs,
+		InjectProjectIDs: body.InjectProjectIDs,
+		ReplaceAgents:    body.InjectAgentIDs != nil,
+		ReplaceProjects:  body.InjectProjectIDs != nil,
+	}
 	var err error
 	if isSystemVaultScope(body.Scope) {
-		err = s.vaultSvc.SetSystemScoped(r.Context(), body.Scope, agentID, name, body.Value)
+		err = s.vaultSvc.SetSystemScopedWithOptions(r.Context(), body.Scope, agentID, name, body.Value, opts)
 	} else {
-		err = s.vaultSvc.SetScoped(r.Context(), body.Scope, userID, agentID, name, body.Value)
+		err = s.vaultSvc.SetScopedWithOptions(r.Context(), body.Scope, userID, agentID, name, body.Value, opts)
 	}
 	if err != nil {
 		s.log.Error("set scoped vault entry", "user_id", info.UserID, "scope", body.Scope, "agent_id", agentID, "name", name, "error", err)
@@ -170,6 +196,30 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 		return
 	}
 	writeData(w, http.StatusOK, vaultEntryResponseFromMeta(meta))
+}
+
+// ListVaultExecSecretAudit handles GET /api/vault/audit.
+func (s *Server) ListVaultExecSecretAudit(w http.ResponseWriter, r *http.Request, params apiserver.ListVaultExecSecretAuditParams) {
+	if s.vaultSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		return
+	}
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	limit := int32(20)
+	if params.Limit != nil {
+		limit = int32(*params.Limit)
+	}
+	rows, err := s.vaultSvc.ListExecSecretAudit(r.Context(), info.UserID, limit)
+	if err != nil {
+		s.log.Error("list vault exec secret audit", "user_id", info.UserID, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{"entries": rows})
 }
 
 // DeleteScopedVaultEntry handles DELETE /api/vault/{name}.
@@ -219,7 +269,7 @@ func (s *Server) DeleteScopedVaultEntry(w http.ResponseWriter, r *http.Request, 
 // next session reads the new snapshot instead of the value baked into the sandbox
 // env at start. Reach follows the scope: a single user for user/user_agent, one
 // agent across all users for system_agent, and every runner for system (whose
-// secrets merge into every agent's env via LoadEnvForAgent).
+// secrets merge into every agent's env via LoadEnvForAgentProject).
 func (s *Server) invalidateVaultRunners(scope, userID, agentID, name, op string) {
 	var err error
 	switch scope {
@@ -270,13 +320,21 @@ func isSystemVaultScope(scope string) bool {
 }
 
 func vaultEntryResponseFromMeta(e vault.EntryMeta) vaultEntryResponse {
+	var description *string
+	if e.Description != "" {
+		description = &e.Description
+	}
 	return vaultEntryResponse{
-		Name:      e.Name,
-		Scope:     e.Scope,
-		UserID:    e.UserID,
-		AgentID:   e.AgentID,
-		CreatedAt: parseTime(e.CreatedAt),
-		UpdatedAt: parseTime(e.UpdatedAt),
+		Name:             e.Name,
+		Description:      description,
+		Scope:            e.Scope,
+		UserID:           e.UserID,
+		AgentID:          e.AgentID,
+		InjectAlways:     e.InjectAlways,
+		InjectAgentIDs:   e.InjectAgentIDs,
+		InjectProjectIDs: e.InjectProjectIDs,
+		CreatedAt:        parseTime(e.CreatedAt),
+		UpdatedAt:        parseTime(e.UpdatedAt),
 	}
 }
 

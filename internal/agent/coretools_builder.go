@@ -8,9 +8,9 @@ import (
 )
 
 // buildSandboxCoreTools creates core tools using the active sandbox session.
-func buildSandboxCoreTools(session pkgsandbox.Session, bc pkgplugins.ToolBuildContext) []pkgtools.Tool {
+func buildSandboxCoreTools(session pkgsandbox.Session, bc pkgplugins.ToolBuildContext, secretResolver tools.ExecSecretResolver) []pkgtools.Tool {
 	if session == nil {
 		return nil
 	}
-	return tools.New(session, bc.Paths.ToolsBinDir, bc.Paths.ProjectRoot)
+	return tools.NewWithSecretResolver(session, bc.Paths.ToolsBinDir, bc.Paths.ProjectRoot, secretResolver)
 }

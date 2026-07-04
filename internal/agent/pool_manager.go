@@ -194,8 +194,7 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnv
 	}
 }
 
-// SetTokenEnsurer wires the per-user token ensurer so sandbox sessions
-// guarantee a STELLA_TOKEN exists in the vault before loading env.
+// SetTokenEnsurer wires scoped token signing for sandbox sessions.
 func (pm *PoolManager) SetTokenEnsurer(ctx context.Context, te sandbox.TokenEnsurer) {
 	pm.mu.Lock()
 	pm.tokenEnsurer = te

@@ -6,8 +6,10 @@ import {
   disconnectOAuth as disconnectOAuthRequest,
   getOAuthConnected,
   getOAuthProviderConfig,
+  getScopedVaultEntry,
   listAgents,
   listOAuthProviders,
+  listProjects,
   listScopedVaultEntries,
   pollOAuthFlow,
   setOAuthProviderConfig,
@@ -15,10 +17,11 @@ import {
   startOAuthFlow,
 } from "@/lib/api-client/sdk.gen";
 import { formatTime } from "@/lib/time";
-import type { Agent, OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
+import type { Agent, OAuthFlow, OAuthProvider, Project, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectItem,
@@ -100,6 +103,8 @@ const SCOPE_DESC_KEY: Record<VaultScope, MessageKey> = {
   system_agent: "credentials.scope.systemAgent.desc",
 };
 
+type ProjectOption = Project & { agent_name: string };
+
 function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
   const [family, name] = (icon ?? "").split(":");
   const path = family === "simpleicons" ? SIMPLE_ICON_PATHS[name?.toLowerCase()] : undefined;
@@ -120,22 +125,37 @@ export function CredentialsPage() {
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultSaving, setVaultSaving] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [editingEntry, setEditingEntry] = useState<VaultEntry | null>(null);
+  const [existingSecretValue, setExistingSecretValue] = useState("");
   // Add-form scope state, independent of the list (which shows every visible scope).
   const [formOwner, setFormOwner] = useState<ScopeOwner>("me");
   const [formRange, setFormRange] = useState<ScopeRange>("all");
   const [formAgentID, setFormAgentID] = useState("");
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
+  const [injectAlways, setInjectAlways] = useState(false);
+  const [injectAgentIDs, setInjectAgentIDs] = useState<string[]>([]);
+  const [injectProjectIDs, setInjectProjectIDs] = useState<string[]>([]);
   const [addSheetOpen, setAddSheetOpen] = useState(false);
 
-  const openAddSheet = useCallback(() => {
+  const resetVaultForm = useCallback(() => {
     setNewSecretName("");
     setNewSecretValue("");
+    setExistingSecretValue("");
+    setEditingEntry(null);
     setFormOwner("me");
     setFormRange("all");
     setFormAgentID("");
-    setAddSheetOpen(true);
+    setInjectAlways(false);
+    setInjectAgentIDs([]);
+    setInjectProjectIDs([]);
   }, []);
+
+  const openAddSheet = useCallback(() => {
+    resetVaultForm();
+    setAddSheetOpen(true);
+  }, [resetVaultForm]);
 
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [oauthStatus, setOauthStatus] = useState<
@@ -219,6 +239,23 @@ export function CredentialsPage() {
     }
   }, []);
 
+  const loadProjects = useCallback(async (agentList: Agent[]) => {
+    const results = await Promise.all(
+      agentList.map(async (agent) => {
+        try {
+          const { data } = await listProjects({ path: { agentId: agent.id }, throwOnError: true });
+          return ((data?.projects as Project[]) ?? []).map((project) => ({
+            ...project,
+            agent_name: agent.name || agent.id,
+          }));
+        } catch {
+          return [];
+        }
+      }),
+    );
+    setProjects(results.flat());
+  }, []);
+
   const loadOAuthProviders = useCallback(async () => {
     try {
       const { data } = await listOAuthProviders({ throwOnError: true });
@@ -290,7 +327,7 @@ export function CredentialsPage() {
   useEffect(() => {
     const init = async () => {
       const agentList = await loadAgents();
-      await loadVaultEntries(agentList);
+      await Promise.all([loadProjects(agentList), loadVaultEntries(agentList)]);
       const providers = await loadOAuthProviders();
       await Promise.all([
         ...providers.map((p) => checkOAuthConnected(p.provider)),
@@ -306,18 +343,47 @@ export function CredentialsPage() {
   }, [
     loadVaultEntries,
     loadAgents,
+    loadProjects,
     loadOAuthProviders,
     checkOAuthConnected,
     loadProviderConfig,
     isAdmin,
   ]);
 
+  const openEditSheet = useCallback(async (entry: VaultEntry) => {
+    setEditingEntry(entry);
+    setNewSecretName(entry.name);
+    setNewSecretValue("");
+    setExistingSecretValue("");
+    setFormOwner(entry.scope === "system" || entry.scope === "system_agent" ? "global" : "me");
+    setFormRange(isAgentVaultScope(entry.scope) ? "specific" : "all");
+    setFormAgentID(entry.agent_id ?? "");
+    setInjectAlways(entry.inject_always);
+    setInjectAgentIDs(entry.inject_agent_ids ?? []);
+    setInjectProjectIDs(entry.inject_project_ids ?? []);
+    setAddSheetOpen(true);
+    try {
+      const { data } = await getScopedVaultEntry({
+        path: { name: entry.name },
+        query: {
+          scope: entry.scope,
+          agent_id: isAgentVaultScope(entry.scope) ? (entry.agent_id ?? undefined) : undefined,
+        },
+        throwOnError: true,
+      });
+      setExistingSecretValue(data?.value ?? "");
+    } catch {
+      setExistingSecretValue("");
+    }
+  }, []);
+
   const addVaultEntry = useCallback(async () => {
     if (!newSecretName) {
       showToast(t("credentials.secretNameRequired"), "error");
       return;
     }
-    if (!newSecretValue) {
+    const value = newSecretValue || existingSecretValue;
+    if (!value) {
       showToast(t("credentials.secretValueRequired"), "error");
       return;
     }
@@ -332,23 +398,46 @@ export function CredentialsPage() {
       await setScopedVaultEntry({
         path: { name: newSecretName },
         body: {
-          value: newSecretValue,
+          value,
           scope,
           agent_id: agentScoped ? formAgentID : undefined,
+          inject_always: injectAlways,
+          inject_agent_ids: injectAlways ? [] : injectAgentIDs,
+          inject_project_ids: injectAlways ? [] : injectProjectIDs,
         },
         throwOnError: true,
       });
       showToast(t("credentials.secretSaved"));
-      setNewSecretName("");
-      setNewSecretValue("");
       setAddSheetOpen(false);
+      resetVaultForm();
       await reloadScope(scope, agentScoped ? formAgentID : undefined);
+      if (editingEntry && (editingEntry.scope !== scope || editingEntry.agent_id !== formAgentID)) {
+        await reloadScope(
+          editingEntry.scope,
+          isAgentVaultScope(editingEntry.scope) ? (editingEntry.agent_id ?? undefined) : undefined,
+        );
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : t("credentials.secretSaveFailed"), "error");
     } finally {
       setVaultSaving(false);
     }
-  }, [newSecretName, newSecretValue, formOwner, formRange, formAgentID, showToast, reloadScope, t]);
+  }, [
+    newSecretName,
+    newSecretValue,
+    existingSecretValue,
+    formOwner,
+    formRange,
+    formAgentID,
+    injectAlways,
+    injectAgentIDs,
+    injectProjectIDs,
+    editingEntry,
+    showToast,
+    reloadScope,
+    resetVaultForm,
+    t,
+  ]);
 
   const deleteVaultEntry = useCallback(
     async (entry: VaultEntry) => {
@@ -503,15 +592,56 @@ export function CredentialsPage() {
     entries: filteredVaultEntries.filter((e) => e.scope === scope),
   })).filter((g) => g.entries.length > 0);
   const formScope = toVaultScope(formOwner, formRange);
+  const editingVault = !!editingEntry;
+  const boundCount = injectAgentIDs.length + injectProjectIDs.length;
 
   const selectScope = (scope: VaultScope) => {
+    if (editingVault) return;
     setFormOwner(scope === "system" || scope === "system_agent" ? "global" : "me");
     setFormRange(scope === "user_agent" || scope === "system_agent" ? "specific" : "all");
   };
 
+  const injectionBadge = (entry: VaultEntry) => {
+    const entryBoundCount =
+      (entry.inject_agent_ids?.length ?? 0) + (entry.inject_project_ids?.length ?? 0);
+    if (entry.inject_always)
+      return (
+        <Badge variant="success" size="sm">
+          {t("credentials.injection.state.always")}
+        </Badge>
+      );
+    if (entryBoundCount > 0)
+      return (
+        <Badge variant="info" size="sm">
+          {t("credentials.injection.state.bound", { count: entryBoundCount })}
+        </Badge>
+      );
+    return (
+      <Badge variant="warning" size="sm">
+        {t("credentials.injection.state.off")}
+      </Badge>
+    );
+  };
+
+  const agentBindingLabel = (ids: string[]) =>
+    ids.length === 0
+      ? t("credentials.injection.selectAgents")
+      : t("credentials.injection.selectedAgents", { count: ids.length });
+
+  const projectBindingLabel = (ids: string[]) =>
+    ids.length === 0
+      ? t("credentials.injection.selectProjects")
+      : t("credentials.injection.selectedProjects", { count: ids.length });
+
   const vaultAddPanel = (
     <DetailPanel>
-      <DetailPanelHeader title={t("credentials.addTitle")} />
+      <DetailPanelHeader
+        title={
+          editingVault
+            ? t("credentials.editTitle", { name: editingEntry?.name ?? "" })
+            : t("credentials.addTitle")
+        }
+      />
 
       {/* The precedence ladder IS the scope picker: each row is selectable and
           its position shows where the secret lands in the runtime override order.
@@ -529,8 +659,9 @@ export function CredentialsPage() {
               <li key={scope}>
                 <button
                   type="button"
+                  disabled={editingVault}
                   onClick={() => selectScope(scope)}
-                  className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                  className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-64 ${
                     active ? SCOPE_COLOR[scope].soft : "hover:bg-muted/60"
                   }`}
                 >
@@ -558,6 +689,7 @@ export function CredentialsPage() {
         {formRange === "specific" && (
           <Select
             value={formAgentID || null}
+            disabled={editingVault}
             onValueChange={(value) => setFormAgentID((value as string | null) ?? "")}
           >
             <SelectTrigger>
@@ -579,6 +711,73 @@ export function CredentialsPage() {
       </div>
 
       <div className="space-y-3 border-t border-border pt-4">
+        <FormSectionTitle>{t("credentials.injection.title")}</FormSectionTitle>
+        <p className="text-xs text-muted-foreground">{t("credentials.injection.hint")}</p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-foreground">
+              {t("credentials.injection.always")}
+            </p>
+            <p className="text-xs text-muted-foreground">{t("credentials.injection.alwaysDesc")}</p>
+          </div>
+          <Switch checked={injectAlways} onCheckedChange={setInjectAlways} />
+        </div>
+        {!injectAlways && (
+          <div className="grid gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("credentials.injection.agents")}
+              </label>
+              <Select
+                multiple
+                value={injectAgentIDs}
+                onValueChange={(value) => setInjectAgentIDs((value as string[]) ?? [])}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("credentials.injection.selectAgents")}>
+                    {(value) => agentBindingLabel((value as string[]) ?? [])}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  {agents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      {agent.name || agent.id}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("credentials.injection.projects")}
+              </label>
+              <Select
+                multiple
+                value={injectProjectIDs}
+                onValueChange={(value) => setInjectProjectIDs((value as string[]) ?? [])}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("credentials.injection.selectProjects")}>
+                    {(value) => projectBindingLabel((value as string[]) ?? [])}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name} · {project.agent_name}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </div>
+            {boundCount === 0 && (
+              <p className="text-xs text-muted-foreground">{t("credentials.injection.offHint")}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3 border-t border-border pt-4">
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">
             {t("credentials.secretName")}
@@ -589,6 +788,7 @@ export function CredentialsPage() {
             onChange={(e) => setNewSecretName(e.target.value)}
             placeholder={t("credentials.secretNamePlaceholder")}
             autoComplete="off"
+            disabled={editingVault}
             nativeInput
           />
         </div>
@@ -600,17 +800,28 @@ export function CredentialsPage() {
             type="password"
             value={newSecretValue}
             onChange={(e) => setNewSecretValue(e.target.value)}
-            placeholder={t("credentials.secretValuePlaceholder")}
+            placeholder={
+              editingVault
+                ? t("credentials.secretValueKeepExisting")
+                : t("credentials.secretValuePlaceholder")
+            }
             autoComplete="new-password"
             nativeInput
           />
         </div>
         <div className="flex items-center justify-end gap-2 pt-1">
-          <Button size="sm" variant="ghost" onClick={() => setAddSheetOpen(false)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setAddSheetOpen(false);
+              resetVaultForm();
+            }}
+          >
             {t("common.cancel")}
           </Button>
           <Button size="sm" loading={vaultSaving} onClick={addVaultEntry}>
-            {t("credentials.addSecret")}
+            {editingVault ? t("common.save") : t("credentials.addSecret")}
           </Button>
         </div>
       </div>
@@ -924,10 +1135,15 @@ export function CredentialsPage() {
                             updated: formatTime(entry.updated_at),
                             created: formatTime(entry.created_at),
                           })}
+                          status={injectionBadge(entry)}
                           menu={
                             reserved
                               ? []
                               : [
+                                  {
+                                    label: t("common.edit"),
+                                    onClick: () => void openEditSheet(entry),
+                                  },
                                   {
                                     label: t("common.delete"),
                                     destructive: true,
@@ -935,6 +1151,7 @@ export function CredentialsPage() {
                                   },
                                 ]
                           }
+                          onClick={reserved ? undefined : () => void openEditSheet(entry)}
                         />
                       );
                     })}
@@ -956,7 +1173,13 @@ export function CredentialsPage() {
         {providerSheet}
       </SettingsDetailSheet>
 
-      <SettingsDetailSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)}>
+      <SettingsDetailSheet
+        open={addSheetOpen}
+        onClose={() => {
+          setAddSheetOpen(false);
+          resetVaultForm();
+        }}
+      >
         {vaultAddPanel}
       </SettingsDetailSheet>
 
