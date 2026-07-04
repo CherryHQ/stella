@@ -57,6 +57,34 @@ ORDER BY CASE scope
     ELSE 0
 END, name;
 
+-- name: ListVaultEntriesDeclarableForRuntime :many
+SELECT *
+FROM vault_entry
+WHERE ((scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
+    OR (scope = 'system_agent' AND user_id IS NULL AND vault_entry.agent_id = sqlc.arg(runtime_agent_id))
+    OR (scope = 'user' AND user_id = sqlc.arg(user_id) AND vault_entry.agent_id IS NULL)
+    OR (scope = 'user_agent' AND user_id = sqlc.arg(user_id) AND vault_entry.agent_id = sqlc.arg(runtime_agent_id)))
+  AND NOT (inject_always
+    OR EXISTS (
+        SELECT 1
+        FROM vault_entry_agent_binding b
+        WHERE b.vault_entry_id = vault_entry.id
+          AND b.agent_id = sqlc.arg(runtime_agent_id)
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM vault_entry_project_binding b
+        WHERE b.vault_entry_id = vault_entry.id
+          AND b.project_id = sqlc.narg(project_id)::uuid
+    ))
+ORDER BY CASE scope
+    WHEN 'system' THEN 1
+    WHEN 'system_agent' THEN 2
+    WHEN 'user' THEN 3
+    WHEN 'user_agent' THEN 4
+    ELSE 0
+END, name;
+
 -- name: GetVaultEntry :one
 SELECT *
 FROM vault_entry
@@ -80,11 +108,12 @@ ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), nam
 RETURNING *;
 
 -- name: UpsertVaultEntryByScope :one
-INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext, inject_always)
-VALUES ($1, $2, $3, $4, $5, $6, coalesce(sqlc.narg(inject_always), false))
+INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext, inject_always, description)
+VALUES ($1, $2, $3, $4, $5, $6, coalesce(sqlc.narg(inject_always), false), sqlc.narg(description))
 ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
     inject_always = coalesce(sqlc.narg(inject_always), vault_entry.inject_always),
+    description = coalesce(sqlc.narg(description), vault_entry.description),
     updated_at = now()
 RETURNING *;
 

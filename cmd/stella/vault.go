@@ -27,6 +27,7 @@ bound with --inject-always, --inject-agent, or --inject-project.`,
 			vaultListCommand(),
 			vaultGetCommand(),
 			vaultSetCommand(),
+			vaultAuditCommand(),
 			vaultDeleteCommand(),
 		},
 	}
@@ -130,6 +131,7 @@ func vaultSetCommand() *ucli.Command {
 		ArgsUsage: "<name> <value>",
 		Flags: []ucli.Flag{
 			cli.JSONFlag(),
+			&ucli.StringFlag{Name: "description", Usage: "Non-sensitive description shown to agents in the declarable secrets manifest"},
 			&ucli.BoolFlag{Name: "inject-always", Usage: "Inject this entry into every sandbox env in its scope"},
 			&ucli.StringSliceFlag{Name: "inject-agent", Usage: "Inject this entry for an agent ID (repeatable)"},
 			&ucli.StringSliceFlag{Name: "inject-project", Usage: "Inject this entry for a project ID (repeatable)"},
@@ -152,6 +154,10 @@ func vaultSetCommand() *ucli.Command {
 			}
 			scope := apitypes.SetVaultEntryRequestScopeUser
 			req := apiclient.SetScopedVaultEntryJSONRequestBody{Value: value, Scope: &scope}
+			if c.IsSet("description") {
+				description := c.String("description")
+				req.Description = &description
+			}
 			if c.Bool("inject-always") {
 				injectAlways := true
 				req.InjectAlways = &injectAlways
@@ -172,6 +178,39 @@ func vaultSetCommand() *ucli.Command {
 			}
 			o := cli.Stdout(c)
 			o.Printf("Vault entry %q set.\n", name)
+			return o.Err()
+		},
+	}
+}
+
+func vaultAuditCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "audit",
+		Usage: "List recent per-command vault secret uses",
+		Flags: []ucli.Flag{
+			cli.JSONFlag(),
+			&ucli.IntFlag{Name: "limit", Value: 20, Usage: "Maximum rows to list"},
+		},
+		Action: func(c *ucli.Context) error {
+			limit := c.Int("limit")
+			list, err := apiclient.Call[apitypes.VaultExecSecretAuditList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListVaultExecSecretAudit(c.Context, &apiclient.ListVaultExecSecretAuditParams{Limit: &limit})
+			})
+			if err != nil {
+				return err
+			}
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
+			}
+			o := cli.Stdout(c)
+			if len(list.Entries) == 0 {
+				o.Println("No vault secret uses.")
+				return o.Err()
+			}
+			o.Printf("%-20s  %-20s  %-30s  %s\n", "CREATED", "AGENT", "SECRET", "COMMAND")
+			for _, e := range list.Entries {
+				o.Printf("%-20s  %-20s  %-30s  %s\n", e.CreatedAt.Format("2006-01-02 15:04:05"), cli.Truncate(e.AgentId, 20), cli.Truncate(e.Name, 30), cli.Truncate(e.Command, 80))
+			}
 			return o.Err()
 		},
 	}

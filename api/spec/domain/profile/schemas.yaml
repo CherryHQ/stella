@@ -44,6 +44,7 @@ components:
       ]
       properties:
         name: { type: string }
+        description: { type: string, nullable: true }
         scope: { type: string, enum: [user, user_agent, system, system_agent] }
         user_id: { type: string }
         agent_id: { type: string }
@@ -62,6 +63,7 @@ components:
       required: [value]
       properties:
         value: { type: string }
+        description: { type: string, nullable: true }
         scope: {
           type: string,
           enum: [user, user_agent, system, system_agent],
@@ -142,6 +144,25 @@ components:
         entries:
           type: array
           items: { $ref: "#/components/schemas/VaultEntry" }
+
+    VaultExecSecretAuditEntry:
+      type: object
+      required: [user_id, agent_id, session_id, name, command, created_at]
+      properties:
+        user_id: { type: string }
+        agent_id: { type: string }
+        session_id: { type: string }
+        name: { type: string }
+        command: { type: string }
+        created_at: { type: string, format: date-time }
+
+    VaultExecSecretAuditList:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/VaultExecSecretAuditEntry" }
 
     OAuthProviderStatusList:
       type: object

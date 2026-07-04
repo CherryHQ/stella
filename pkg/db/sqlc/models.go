@@ -821,6 +821,7 @@ type VaultEntry struct {
 	CreatedAt    time.Time   `json:"created_at"`
 	UpdatedAt    time.Time   `json:"updated_at"`
 	InjectAlways bool        `json:"inject_always"`
+	Description  pgtype.Text `json:"description"`
 }
 
 type VaultEntryAgentBinding struct {
@@ -835,4 +836,15 @@ type VaultEntryProjectBinding struct {
 	ProjectID    string    `json:"project_id"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type VaultExecSecretAudit struct {
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	AgentID     string    `json:"agent_id"`
+	SessionID   string    `json:"session_id"`
+	Name        string    `json:"name"`
+	CommandText string    `json:"command_text"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

@@ -38,6 +38,18 @@ func (d *oidcVaultDB) ListVaultEntriesForRuntimeFull(ctx context.Context, arg sq
 	return d.q.ListVaultEntriesForRuntimeFull(ctx, arg)
 }
 
+func (d *oidcVaultDB) ListVaultEntriesDeclarableForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesDeclarableForRuntimeParams) ([]sqlc.VaultEntry, error) {
+	return d.q.ListVaultEntriesDeclarableForRuntime(ctx, arg)
+}
+
+func (d *oidcVaultDB) CreateVaultExecSecretAudit(ctx context.Context, arg sqlc.CreateVaultExecSecretAuditParams) (sqlc.VaultExecSecretAudit, error) {
+	return d.q.CreateVaultExecSecretAudit(ctx, arg)
+}
+
+func (d *oidcVaultDB) ListVaultExecSecretAuditByUser(ctx context.Context, arg sqlc.ListVaultExecSecretAuditByUserParams) ([]sqlc.VaultExecSecretAudit, error) {
+	return d.q.ListVaultExecSecretAuditByUser(ctx, arg)
+}
+
 func (d *oidcVaultDB) ListVaultEntryAgentBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
 	return d.q.ListVaultEntryAgentBindings(ctx, vaultEntryID)
 }
@@ -543,5 +555,56 @@ func TestVaultUpdateExisting(t *testing.T) {
 	entries := wrapper.Entries
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry after update, got %d", len(entries))
+	}
+}
+
+// TestScopedTokenVaultGetIsAudited guards the declare-time escape hatch: a
+// sandbox scoped token reading a secret value through GET /api/vault/{name}
+// must leave a vault_exec_secret_audit row, exactly like the bash `secrets`
+// param path. Cookie sessions stay unaudited.
+func TestScopedTokenVaultGetIsAudited(t *testing.T) {
+	t.Setenv("STELLA_SCOPED_TOKEN_SECRET", "test-scoped-token-secret-fixed")
+	env, svc := setupVaultEnv(t)
+	ctx := context.Background()
+	q := sqlc.New(env.db)
+
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: "audit-agent", Name: "audit-agent", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	regular, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "audited-vault", "user")
+	pubKey, encPrivKey, err := vault.GenerateUserKeys(svc.MasterRecipient())
+	if err != nil {
+		t.Fatalf("GenerateUserKeys: %v", err)
+	}
+	if err := env.oidcStore.UpdateUserAgeKeys(ctx, regular.ID, pubKey, encPrivKey); err != nil {
+		t.Fatalf("UpdateUserAgeKeys: %v", err)
+	}
+	if err := svc.Set(ctx, regular.ID, "AUDITED_KEY", "v"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	tokenSvc := auth.NewTokenService(env.authStore, nil)
+	token, err := tokenSvc.CreateScopedToken(ctx, regular.ID, "audit-agent", "sess-audit", "")
+	if err != nil {
+		t.Fatalf("CreateScopedToken: %v", err)
+	}
+
+	if rr := doRequestWithSession(t, env.srv, token, "GET", "/api/vault/AUDITED_KEY?scope=user", nil); rr.Code != http.StatusOK {
+		t.Fatalf("scoped get = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rows, err := q.ListVaultExecSecretAuditByUser(ctx, sqlc.ListVaultExecSecretAuditByUserParams{UserID: regular.ID, Limit: 10})
+	if err != nil {
+		t.Fatalf("ListVaultExecSecretAuditByUser: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("audit rows = %d, want 1", len(rows))
+	}
+	r := rows[0]
+	if r.AgentID != "audit-agent" || r.SessionID != "sess-audit" || r.Name != "AUDITED_KEY" || r.CommandText != "api: vault get" {
+		t.Fatalf("audit row = %+v, want agent/session/name/command match", r)
 	}
 }

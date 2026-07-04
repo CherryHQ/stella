@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"filippo.io/age"
@@ -11,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -39,6 +42,15 @@ type DB interface {
 
 // Service provides vault operations: storing, retrieving, and decrypting
 // secrets using user-level or system-level age encryption.
+type declarableDB interface {
+	ListVaultEntriesDeclarableForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesDeclarableForRuntimeParams) ([]sqlc.VaultEntry, error)
+}
+
+type execSecretAuditDB interface {
+	CreateVaultExecSecretAudit(ctx context.Context, arg sqlc.CreateVaultExecSecretAuditParams) (sqlc.VaultExecSecretAudit, error)
+	ListVaultExecSecretAuditByUser(ctx context.Context, arg sqlc.ListVaultExecSecretAuditByUserParams) ([]sqlc.VaultExecSecretAudit, error)
+}
+
 type Service struct {
 	db              DB
 	masterIdentity  *age.X25519Identity
@@ -71,6 +83,7 @@ type EntryMeta struct {
 	UserID           string
 	AgentID          string
 	Name             string
+	Description      string
 	InjectAlways     bool
 	InjectAgentIDs   []string
 	InjectProjectIDs []string
@@ -79,11 +92,27 @@ type EntryMeta struct {
 }
 
 type SetOptions struct {
+	Description      *string
 	InjectAlways     *bool
 	InjectAgentIDs   []string
 	InjectProjectIDs []string
 	ReplaceAgents    bool
 	ReplaceProjects  bool
+}
+
+// DeclarableSecret is non-sensitive metadata exposed to agents.
+type DeclarableSecret struct {
+	Name        string
+	Description string
+}
+
+type ExecSecretAudit struct {
+	UserID    string
+	AgentID   string
+	SessionID string
+	Name      string
+	Command   string
+	CreatedAt string
 }
 
 // EncryptSystem encrypts plaintext with the master key for system-level storage
@@ -153,6 +182,10 @@ func (s *Service) set(ctx context.Context, scope string, userID string, agentID 
 	if opts.InjectAlways != nil {
 		injectAlways = *opts.InjectAlways
 	}
+	description := pgtype.Text{}
+	if opts.Description != nil {
+		description = pgnull.Text(*opts.Description)
+	}
 	entry, err := s.db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
 		ID:           uuid.Must(uuid.NewV7()).String(),
 		Scope:        scope,
@@ -161,6 +194,7 @@ func (s *Service) set(ctx context.Context, scope string, userID string, agentID 
 		Name:         name,
 		Ciphertext:   ciphertext,
 		InjectAlways: injectAlways,
+		Description:  description,
 	})
 	if err != nil {
 		return fmt.Errorf("vault: set %q: upsert: %w", name, err)
@@ -364,6 +398,116 @@ func (s *Service) LoadFullEnvForAgent(ctx context.Context, userID string, agentI
 	return s.decryptEntries(ctx, entries), nil
 }
 
+func (s *Service) ListDeclarableForAgentProject(ctx context.Context, userID string, agentID string, projectID string) ([]DeclarableSecret, error) {
+	entries, err := s.declarableEntries(ctx, userID, agentID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	byName := make(map[string]DeclarableSecret, len(entries))
+	for _, e := range entries {
+		if !isDeclarableName(e.Name) {
+			continue
+		}
+		byName[e.Name] = DeclarableSecret{Name: e.Name, Description: stringFromNull(e.Description)}
+	}
+	names := make([]string, 0, len(byName))
+	for name := range byName {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	out := make([]DeclarableSecret, 0, len(names))
+	for _, name := range names {
+		out = append(out, byName[name])
+	}
+	return out, nil
+}
+
+func (s *Service) ResolveDeclarableEnv(ctx context.Context, userID string, agentID string, projectID string, names []string) (map[string]string, []string, error) {
+	entries, err := s.declarableEntries(ctx, userID, agentID, projectID)
+	if err != nil {
+		return nil, nil, err
+	}
+	byName := make(map[string]sqlc.VaultEntry, len(entries))
+	for _, e := range entries {
+		if isDeclarableName(e.Name) {
+			byName[e.Name] = e
+		}
+	}
+	valid := make([]string, 0, len(byName))
+	for name := range byName {
+		valid = append(valid, name)
+	}
+	slices.Sort(valid)
+	env := make(map[string]string, len(names))
+	for _, name := range names {
+		entry, ok := byName[name]
+		if !ok {
+			return nil, valid, fmt.Errorf("vault: secret %q is not declarable", name)
+		}
+		plaintext, err := s.decryptEntry(ctx, entry)
+		if err != nil {
+			return nil, valid, fmt.Errorf("vault: decrypt %q: %w", name, err)
+		}
+		env[name] = plaintext
+	}
+	return env, valid, nil
+}
+
+func (s *Service) RecordExecSecretUse(ctx context.Context, userID string, agentID string, sessionID string, name string, command string) error {
+	cmd := truncateCommand(command, 200)
+	db, ok := s.db.(execSecretAuditDB)
+	if !ok {
+		return fmt.Errorf("vault: exec secret audit is not supported")
+	}
+	_, err := db.CreateVaultExecSecretAudit(ctx, sqlc.CreateVaultExecSecretAuditParams{
+		ID:          uuid.Must(uuid.NewV7()).String(),
+		UserID:      userID,
+		AgentID:     agentID,
+		SessionID:   sessionID,
+		Name:        name,
+		CommandText: cmd,
+	})
+	if err != nil {
+		return fmt.Errorf("vault: record exec secret use: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) ListExecSecretAudit(ctx context.Context, userID string, limit int32) ([]ExecSecretAudit, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	db, ok := s.db.(execSecretAuditDB)
+	if !ok {
+		return nil, fmt.Errorf("vault: exec secret audit is not supported")
+	}
+	rows, err := db.ListVaultExecSecretAuditByUser(ctx, sqlc.ListVaultExecSecretAuditByUserParams{UserID: userID, Limit: limit})
+	if err != nil {
+		return nil, fmt.Errorf("vault: list exec secret audit: %w", err)
+	}
+	out := make([]ExecSecretAudit, len(rows))
+	for i, r := range rows {
+		out[i] = ExecSecretAudit{UserID: r.UserID, AgentID: r.AgentID, SessionID: r.SessionID, Name: r.Name, Command: r.CommandText, CreatedAt: r.CreatedAt.UTC().Format(time.RFC3339)}
+	}
+	return out, nil
+}
+
+func (s *Service) declarableEntries(ctx context.Context, userID string, agentID string, projectID string) ([]sqlc.VaultEntry, error) {
+	db, ok := s.db.(declarableDB)
+	if !ok {
+		return nil, fmt.Errorf("vault: declarable secrets are not supported")
+	}
+	entries, err := db.ListVaultEntriesDeclarableForRuntime(ctx, sqlc.ListVaultEntriesDeclarableForRuntimeParams{
+		UserID:         pgnull.Text(userID),
+		RuntimeAgentID: pgnull.Text(agentID),
+		ProjectID:      pgnull.Text(projectID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("vault: list declarable entries: %w", err)
+	}
+	return entries, nil
+}
+
 func (s *Service) decryptEntries(ctx context.Context, entries []sqlc.VaultEntry) map[string]string {
 	env := make(map[string]string, len(entries))
 	for _, e := range entries {
@@ -409,6 +553,7 @@ func (s *Service) metaFromEntry(ctx context.Context, e sqlc.VaultEntry) EntryMet
 		UserID:       stringFromNull(e.UserID),
 		AgentID:      stringFromNull(e.AgentID),
 		Name:         e.Name,
+		Description:  stringFromNull(e.Description),
 		InjectAlways: e.InjectAlways,
 		CreatedAt:    e.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:    e.UpdatedAt.UTC().Format(time.RFC3339),
@@ -462,6 +607,22 @@ func validateScope(scope string, userID string, agentID string) error {
 		return fmt.Errorf("vault: invalid scope %q", scope)
 	}
 	return nil
+}
+
+func isDeclarableName(name string) bool {
+	switch name {
+	case "STELLA_TOKEN", oauth.VaultKeyGitHub, oauth.VaultKeyLark, oauth.VaultKeyFeishu:
+		return false
+	}
+	return !strings.HasPrefix(name, "OAUTH_")
+}
+
+func truncateCommand(command string, max int) string {
+	r := []rune(command)
+	if len(r) <= max {
+		return command
+	}
+	return string(r[:max])
 }
 
 func stringFromNull(value pgtype.Text) string {

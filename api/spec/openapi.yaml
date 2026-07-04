@@ -298,6 +298,8 @@ paths:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1changelog"
   /api/vault:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1vault"
+  /api/vault/audit:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1vault~1audit"
   /api/vault/{name}:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1vault~1{name}"
   /api/users/me/oauth/providers:

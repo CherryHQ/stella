@@ -60,7 +60,7 @@ func (q *Queries) DeleteVaultEntryByScope(ctx context.Context, arg DeleteVaultEn
 }
 
 const getVaultEntry = `-- name: GetVaultEntry :one
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
 FROM vault_entry
 WHERE scope = 'user' AND user_id = $1 AND name = $2
 `
@@ -83,12 +83,13 @@ func (q *Queries) GetVaultEntry(ctx context.Context, arg GetVaultEntryParams) (V
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.InjectAlways,
+		&i.Description,
 	)
 	return i, err
 }
 
 const getVaultEntryByScope = `-- name: GetVaultEntryByScope :one
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
 FROM vault_entry
 WHERE scope = $1
   AND coalesce(user_id::text, '') = coalesce($2::text, '')
@@ -121,12 +122,13 @@ func (q *Queries) GetVaultEntryByScope(ctx context.Context, arg GetVaultEntryByS
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.InjectAlways,
+		&i.Description,
 	)
 	return i, err
 }
 
 const listVaultEntriesByScope = `-- name: ListVaultEntriesByScope :many
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
 FROM vault_entry
 WHERE scope = $1
   AND coalesce(user_id::text, '') = coalesce($2::text, '')
@@ -159,6 +161,7 @@ func (q *Queries) ListVaultEntriesByScope(ctx context.Context, arg ListVaultEntr
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.InjectAlways,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -171,7 +174,7 @@ func (q *Queries) ListVaultEntriesByScope(ctx context.Context, arg ListVaultEntr
 }
 
 const listVaultEntriesByUser = `-- name: ListVaultEntriesByUser :many
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
 FROM vault_entry
 WHERE scope = 'user' AND user_id = $1
 ORDER BY name
@@ -196,6 +199,73 @@ func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID pgtype.Text
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.InjectAlways,
+			&i.Description,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVaultEntriesDeclarableForRuntime = `-- name: ListVaultEntriesDeclarableForRuntime :many
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
+FROM vault_entry
+WHERE ((scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
+    OR (scope = 'system_agent' AND user_id IS NULL AND vault_entry.agent_id = $1)
+    OR (scope = 'user' AND user_id = $2 AND vault_entry.agent_id IS NULL)
+    OR (scope = 'user_agent' AND user_id = $2 AND vault_entry.agent_id = $1))
+  AND NOT (inject_always
+    OR EXISTS (
+        SELECT 1
+        FROM vault_entry_agent_binding b
+        WHERE b.vault_entry_id = vault_entry.id
+          AND b.agent_id = $1
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM vault_entry_project_binding b
+        WHERE b.vault_entry_id = vault_entry.id
+          AND b.project_id = $3::uuid
+    ))
+ORDER BY CASE scope
+    WHEN 'system' THEN 1
+    WHEN 'system_agent' THEN 2
+    WHEN 'user' THEN 3
+    WHEN 'user_agent' THEN 4
+    ELSE 0
+END, name
+`
+
+type ListVaultEntriesDeclarableForRuntimeParams struct {
+	RuntimeAgentID pgtype.Text `json:"runtime_agent_id"`
+	UserID         pgtype.Text `json:"user_id"`
+	ProjectID      pgtype.Text `json:"project_id"`
+}
+
+func (q *Queries) ListVaultEntriesDeclarableForRuntime(ctx context.Context, arg ListVaultEntriesDeclarableForRuntimeParams) ([]VaultEntry, error) {
+	rows, err := q.db.Query(ctx, listVaultEntriesDeclarableForRuntime, arg.RuntimeAgentID, arg.UserID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VaultEntry{}
+	for rows.Next() {
+		var i VaultEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Name,
+			&i.Ciphertext,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.InjectAlways,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -208,7 +278,7 @@ func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID pgtype.Text
 }
 
 const listVaultEntriesForRuntime = `-- name: ListVaultEntriesForRuntime :many
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
 FROM vault_entry
 WHERE ((scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
     OR (scope = 'system_agent' AND user_id IS NULL AND vault_entry.agent_id = $1)
@@ -262,6 +332,7 @@ func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultE
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.InjectAlways,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -274,7 +345,7 @@ func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultE
 }
 
 const listVaultEntriesForRuntimeFull = `-- name: ListVaultEntriesForRuntimeFull :many
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
 FROM vault_entry
 WHERE (scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
    OR (scope = 'system_agent' AND user_id IS NULL AND vault_entry.agent_id = $1)
@@ -314,6 +385,7 @@ func (q *Queries) ListVaultEntriesForRuntimeFull(ctx context.Context, arg ListVa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.InjectAlways,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -424,7 +496,7 @@ ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), nam
     ciphertext = excluded.ciphertext,
     inject_always = coalesce($5, vault_entry.inject_always),
     updated_at = now()
-RETURNING id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always
+RETURNING id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
 `
 
 type UpsertVaultEntryParams struct {
@@ -454,18 +526,20 @@ func (q *Queries) UpsertVaultEntry(ctx context.Context, arg UpsertVaultEntryPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.InjectAlways,
+		&i.Description,
 	)
 	return i, err
 }
 
 const upsertVaultEntryByScope = `-- name: UpsertVaultEntryByScope :one
-INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext, inject_always)
-VALUES ($1, $2, $3, $4, $5, $6, coalesce($7, false))
+INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext, inject_always, description)
+VALUES ($1, $2, $3, $4, $5, $6, coalesce($7, false), $8)
 ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
     inject_always = coalesce($7, vault_entry.inject_always),
+    description = coalesce($8, vault_entry.description),
     updated_at = now()
-RETURNING id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always
+RETURNING id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
 `
 
 type UpsertVaultEntryByScopeParams struct {
@@ -476,6 +550,7 @@ type UpsertVaultEntryByScopeParams struct {
 	Name         string      `json:"name"`
 	Ciphertext   string      `json:"ciphertext"`
 	InjectAlways interface{} `json:"inject_always"`
+	Description  pgtype.Text `json:"description"`
 }
 
 func (q *Queries) UpsertVaultEntryByScope(ctx context.Context, arg UpsertVaultEntryByScopeParams) (VaultEntry, error) {
@@ -487,6 +562,7 @@ func (q *Queries) UpsertVaultEntryByScope(ctx context.Context, arg UpsertVaultEn
 		arg.Name,
 		arg.Ciphertext,
 		arg.InjectAlways,
+		arg.Description,
 	)
 	var i VaultEntry
 	err := row.Scan(
@@ -499,6 +575,7 @@ func (q *Queries) UpsertVaultEntryByScope(ctx context.Context, arg UpsertVaultEn
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.InjectAlways,
+		&i.Description,
 	)
 	return i, err
 }

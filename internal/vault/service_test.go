@@ -3,6 +3,7 @@ package vault_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"filippo.io/age"
@@ -46,6 +47,18 @@ func (d *vaultTestDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.L
 
 func (d *vaultTestDB) ListVaultEntriesForRuntimeFull(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeFullParams) ([]sqlc.VaultEntry, error) {
 	return d.q.ListVaultEntriesForRuntimeFull(ctx, arg)
+}
+
+func (d *vaultTestDB) ListVaultEntriesDeclarableForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesDeclarableForRuntimeParams) ([]sqlc.VaultEntry, error) {
+	return d.q.ListVaultEntriesDeclarableForRuntime(ctx, arg)
+}
+
+func (d *vaultTestDB) CreateVaultExecSecretAudit(ctx context.Context, arg sqlc.CreateVaultExecSecretAuditParams) (sqlc.VaultExecSecretAudit, error) {
+	return d.q.CreateVaultExecSecretAudit(ctx, arg)
+}
+
+func (d *vaultTestDB) ListVaultExecSecretAuditByUser(ctx context.Context, arg sqlc.ListVaultExecSecretAuditByUserParams) ([]sqlc.VaultExecSecretAudit, error) {
+	return d.q.ListVaultExecSecretAuditByUser(ctx, arg)
 }
 
 func (d *vaultTestDB) ListVaultEntryAgentBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
@@ -539,5 +552,61 @@ func TestDeleteEntry(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("List after Delete: got %d entries, want 0", len(entries))
+	}
+}
+
+func TestDeclarableManifestExcludesReservedOAuthAndInjectedEntries(t *testing.T) {
+	svc, _, userID, q := testServiceWithQueries(t)
+	ctx := context.Background()
+	createVaultTestAgent(t, q, "agent-1")
+
+	desc := "deploy token"
+	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "DEPLOY_TOKEN", "deploy-secret", vault.SetOptions{Description: &desc}); err != nil {
+		t.Fatalf("Set DEPLOY_TOKEN: %v", err)
+	}
+	if err := svc.SetReserved(ctx, userID, "STELLA_TOKEN", "reserved"); err != nil {
+		t.Fatalf("SetReserved: %v", err)
+	}
+	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "GH_OAUTH", "oauth", vault.SetOptions{}); err != nil {
+		t.Fatalf("Set GH_OAUTH: %v", err)
+	}
+	injectAlways := true
+	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "BOUND_TOKEN", "bound", vault.SetOptions{InjectAlways: &injectAlways}); err != nil {
+		t.Fatalf("Set BOUND_TOKEN: %v", err)
+	}
+
+	secrets, err := svc.ListDeclarableForAgentProject(ctx, userID, "agent-1", "")
+	if err != nil {
+		t.Fatalf("ListDeclarableForAgentProject: %v", err)
+	}
+	if len(secrets) != 1 || secrets[0].Name != "DEPLOY_TOKEN" || secrets[0].Description != desc {
+		t.Fatalf("declarable = %#v, want only DEPLOY_TOKEN with description", secrets)
+	}
+}
+
+func TestResolveDeclarableEnvAndAuditRows(t *testing.T) {
+	svc, _, userID, q := testServiceWithQueries(t)
+	ctx := context.Background()
+	createVaultTestAgent(t, q, "agent-1")
+	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "DEPLOY_TOKEN", "deploy-secret", vault.SetOptions{}); err != nil {
+		t.Fatalf("Set DEPLOY_TOKEN: %v", err)
+	}
+
+	env, _, err := svc.ResolveDeclarableEnv(ctx, userID, "agent-1", "", []string{"DEPLOY_TOKEN"})
+	if err != nil {
+		t.Fatalf("ResolveDeclarableEnv: %v", err)
+	}
+	if env["DEPLOY_TOKEN"] != "deploy-secret" {
+		t.Fatalf("DEPLOY_TOKEN = %q, want deploy-secret", env["DEPLOY_TOKEN"])
+	}
+	if err := svc.RecordExecSecretUse(ctx, userID, "agent-1", "session-1", "DEPLOY_TOKEN", strings.Repeat("x", 250)); err != nil {
+		t.Fatalf("RecordExecSecretUse: %v", err)
+	}
+	rows, err := svc.ListExecSecretAudit(ctx, userID, 10)
+	if err != nil {
+		t.Fatalf("ListExecSecretAudit: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Name != "DEPLOY_TOKEN" || len([]rune(rows[0].Command)) != 200 {
+		t.Fatalf("audit rows = %#v, want one truncated DEPLOY_TOKEN row", rows)
 	}
 }
