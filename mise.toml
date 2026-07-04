@@ -77,7 +77,7 @@ go run ./internal/goal/cmd/gengoalcontrolschema
 gofmt -w internal/goal/goal_control_schema_gen.go internal/goal/cmd/gengoalcontrolschema/main.go
 pnpm --package=@redocly/cli dlx redocly bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
 go run ./internal/cmd/toolgen
-gofmt -w internal/goal/tool_gen.go internal/scheduler/tool_gen.go internal/vault/tool_gen.go internal/connections/tool_gen.go internal/share/tool_gen.go internal/recally/tool_gen.go internal/email/tool_gen.go internal/cmd/toolgen/main.go
+gofmt -w internal/goal/tool_gen.go internal/scheduler/tool_gen.go internal/workflow/tool_gen.go internal/vault/tool_gen.go internal/connections/tool_gen.go internal/share/tool_gen.go internal/recally/tool_gen.go internal/email/tool_gen.go internal/cmd/toolgen/main.go
 """
 
 [tasks."generate:check"]
@@ -118,7 +118,7 @@ run = """
   ENV_FILE="${STELLA_HOME:-$HOME/.stella-dev}/.env"
   mkdir -p "$(dirname "$ENV_FILE")"
   if ! grep -q '^STELLA_VAULT_KEY=' "$ENV_FILE" 2>/dev/null; then
-    docker run --rm stella:latest stella vault keygen | sed 's/^/STELLA_VAULT_KEY=/' >> "$ENV_FILE"
+    docker run --rm stella:latest stellad vault keygen | sed 's/^/STELLA_VAULT_KEY=/' >> "$ENV_FILE"
   fi
 
   export GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"

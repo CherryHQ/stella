@@ -62,6 +62,7 @@ the server, or use "stellad service" to manage it as a background service.`,
 			versionCommand(),
 			upgradeCommand(),
 			postgresCommand(),
+			vaultCommand(),
 			serviceCommand(),
 			authCommand(),
 		},
@@ -229,7 +230,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		}
 	}
 
-	serviceToolNames := []string{goal.ToolName, scheduler.ToolName, connections.ToolName, email.ToolName, sharepkg.ToolName, recally.ToolName, vault.ToolName}
+	serviceToolNames := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName, connections.ToolName, email.ToolName, sharepkg.ToolName, recally.ToolName, vault.ToolName}
 
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
@@ -278,6 +279,9 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
+	workflowSvc := workflowpkg.New(db, sqlc.New(db), goalSvc.Goal)
+	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc, q: sqlc.New(db)})
+
 	credSvc := connections.NewService(vaultSvc, sqlc.New(db), oauth.NewFlowStore(), "http://localhost:25678")
 	emailSvc := email.NewService(vaultSvc, sqlc.New(db))
 	if ps.oauthRegistry != nil {
@@ -291,6 +295,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	serviceTools := []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: scheduler.NewTool(schedulerSvc), Available: agent.BuiltinToolAvailable},
+		{Tool: workflowpkg.NewTool(workflowSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: connections.NewTool(credSvc), Available: oauthToolAvailable(credSvc)},
 		{Tool: email.NewTool(emailSvc), Available: emailToolAvailable(vaultSvc)},
 		{Tool: sharepkg.NewTool(shareSvc), Available: agent.BuiltinToolAvailable},
@@ -329,9 +334,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	if err := poolMgr.StartAll(parent); err != nil {
 		return nil, fmt.Errorf("start pool manager: %w", err)
 	}
-
-	workflowSvc := workflowpkg.New(db, sqlc.New(db), goalSvc.Goal)
-	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc, q: sqlc.New(db)})
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and

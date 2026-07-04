@@ -105,6 +105,7 @@ type domainPackage struct {
 var domainPackages = map[string]domainPackage{
 	"goal":      {Dir: "goal", Package: "goal"},
 	"scheduler": {Dir: "scheduler", Package: "scheduler"},
+	"workflow":  {Dir: "workflow", Package: "workflow"},
 	"vault":     {Dir: "vault", Package: "vault"},
 	"oauth":     {Dir: "connections", Package: "connections"},
 	"share":     {Dir: "share", Package: "share"},
@@ -113,7 +114,8 @@ var domainPackages = map[string]domainPackage{
 }
 
 var generatedNameFallbacks = map[string]map[string]string{
-	"goal": {"CreateInput": "ToolCreateInput"},
+	"goal":     {"CreateInput": "ToolCreateInput"},
+	"workflow": {"SaveInput": "ToolSaveInput"},
 }
 
 type toolAction struct {

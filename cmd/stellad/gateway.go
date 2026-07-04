@@ -67,7 +67,7 @@ func serverAction(c *ucli.Context) error {
 			"STELLA_VAULT_KEY is not set\n\n" +
 				"stella requires a vault key to encrypt credentials and secrets.\n" +
 				"Generate one and add it to $STELLA_HOME/.env:\n\n" +
-				"  stella vault keygen\n" +
+				"  stellad vault keygen\n" +
 				"  echo 'STELLA_VAULT_KEY=AGE-SECRET-KEY-1...' >> ~/.stella/.env\n\n" +
 				"Back up the key — if it is lost, all stored secrets become unrecoverable.\n" +
 				"See the vault documentation for details",
