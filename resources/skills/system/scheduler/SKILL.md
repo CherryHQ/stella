@@ -1,7 +1,7 @@
 ---
 name: scheduler
 description: |
-  Manage scheduled jobs. Use when the user wants to create, list, update, pause, resume, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), one-time (at) jobs, and platform job templates.
+  Manage scheduled jobs. Use when the user wants to create, list, inspect, update, pause, resume, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), one-time (at) jobs, platform job templates, and scheduled workflow runs.
 metadata:
   author: CherryHQ/stella
   owner_plugin: system/scheduler
@@ -10,13 +10,13 @@ metadata:
 
 # Scheduler
 
-Use scheduler for time-based triggers. If the scheduled work may be long-running, need human review, or need restart resilience, schedule a short prompt that creates an async goal instead of doing the whole job inline.
+Use scheduler for time-based triggers. If the user wants to repeat an accepted goal's plan ("save this goal and run it every morning"), save it as a workflow first, then schedule the workflow. If the scheduled work may be long-running, need human review, or need restart resilience, schedule a workflow or a short prompt that creates an async goal instead of doing the whole job inline.
 
-Agents manage schedules with the native `scheduler` tool. The scheduler CLI remains the human/operator surface; do not use it from an agent session when the native tool is available.
+Agents manage schedules with the native `scheduler` tool. The scheduler CLI remains the human/operator fallback; do not use it from an agent session when the native tool is available.
 
 ## Actions
 
-- `create`: create a cron, interval, or one-time job. Provide `name`, `message`, exactly one schedule field (`cron`, `every`, or `at`), and optional `session_mode` (`reuse` or `new`).
+- `create`: create a cron, interval, or one-time job. For chat jobs, provide `name`, `message`, exactly one schedule field (`cron`, `every`, or `at`), and optional `session_mode` (`reuse` or `new`).
 - `list`: list this agent's scheduled jobs.
 - `get`: inspect one job by `id`.
 - `update`: change editable fields on a job.
@@ -31,9 +31,28 @@ Agents manage schedules with the native `scheduler` tool. The scheduler CLI rema
 | `every` | Go duration                  | `30m`, `2h`, `24h`             |
 | `at`    | RFC3339 timestamp (one-time) | `"2024-01-15T14:30:00+08:00"`  |
 
+Session modes:
+
+- `reuse` (default): conversation history is preserved across executions.
+- `new`: starts a fresh session on each execution.
+
 ## Check before adding
 
 Always run `action=list` first to avoid duplicates. If a job with the target name already exists, skip creation and report the existing job to the user.
+
+## Schedule a workflow
+
+For the user-facing loop "save this goal and run it daily":
+
+1. Save the accepted composite goal as a workflow.
+2. Read the returned workflow `id`.
+3. Create a scheduler workflow job for that workflow id with exactly one schedule field.
+
+Use a workflow schedule when the same accepted plan should replay with only inputs changing. Use a plain chat scheduler job when each run should be planned fresh.
+
+Scheduled workflows instantiate a fresh root goal on each fire. The scheduler skips only when the previous run completed instantiation and its root goal is still active; failed instantiation does not block the next tick, and a stalled instantiation is resumed instead of duplicated. Scheduled workflows are fully frozen by default; if a workflow is partially frozen, only schedule it when the user explicitly wants live replanning and the tool/CLI exposes the required opt-in.
+
+If the native scheduler tool does not expose workflow fields, use the CLI fallback after checking `stella workflow --help`, `stella workflow save --help`, and `stella scheduler add --help`; do not rely on stale syntax from memory.
 
 ## Patterns
 

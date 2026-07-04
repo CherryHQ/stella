@@ -848,7 +848,7 @@ components:
     Goal:
       type: object
       description: >-
-        One node in the recursive goal tree. A root (parent_id null) is a goal; a child is a former task. Completion is DERIVED: acceptance_state is a cached projection over the append-only acceptance-event ledger, never an asserted flag.
+        One node in the recursive goal tree. A root (parent_id null) is a top-level goal; a child is a sub-goal created by decomposition. Completion is DERIVED: acceptance_state is a cached projection over the append-only acceptance-event ledger, never an asserted flag.
       required: [
         id,
         user_id,
@@ -856,13 +856,15 @@ components:
         root_id,
         depth,
         position,
-        session_id,
         title,
         kind,
         priority,
         required,
         lifecycle,
+        done_reason,
         acceptance_state,
+        needs_attention,
+        budget_bonus,
         created_at,
         updated_at,
       ]
@@ -889,8 +891,6 @@ components:
           type: integer
         position:
           type: integer
-        session_id:
-          type: string
         title:
           type: string
         intent:
@@ -918,16 +918,11 @@ components:
           enum: [none, human]
         lifecycle:
           type: string
-          enum: [
-            draft,
-            ready,
-            active,
-            blocked,
-            accepted,
-            rejected_final,
-            abandoned,
-            cancelled,
-          ]
+          enum: [draft, pending, active, blocked, done]
+        done_reason:
+          type: string
+          enum: ["", accepted, failed, cancelled]
+          description: Set only when lifecycle=done.
         block_reason:
           type: string
           enum: [
@@ -936,9 +931,16 @@ components:
             needs_plan_approval,
             planning_invalid,
             needs_verdict,
-            dep,
+            env_unavailable,
+            contract_conflict,
           ]
           description: Meaningful only when lifecycle=blocked.
+        needs_attention:
+          type: boolean
+          description: Whether the goal is parked on a block only a human action can clear (verdict, plan approval, budget raise, contract edit, environment fix). Computed server-side from the canonical predicate; clients must not re-derive it from lifecycle/block_reason.
+        flaky_count:
+          type: integer
+          description: Flaky infrastructure retries spent outside business budget.
         acceptance_state:
           type: string
           enum: [pending, passed, failed]
@@ -947,7 +949,7 @@ components:
           type: object
           additionalProperties: {}
           nullable: true
-          description: Frozen output, set when lifecycle=accepted.
+          description: Frozen output, set when done_reason=accepted.
         acceptance_seq:
           type: integer
         active_attempt_id:
@@ -956,14 +958,9 @@ components:
           description: The in-flight attempt; cleared while a human verdict is pending.
         attempt_count:
           type: integer
-        required_total:
+        budget_bonus:
           type: integer
-        required_accepted:
-          type: integer
-        required_failed:
-          type: integer
-        required_blocked:
-          type: integer
+          description: Human-granted extra convergence attempts beyond max_attempts.
         plan:
           type: object
           additionalProperties: {}
@@ -1000,6 +997,14 @@ components:
           format: date-time
           nullable: true
           description: Set when the goal is hidden from default lists.
+        workflow_id:
+          type: string
+          nullable: true
+          description: Workflow version row that instantiated this root goal.
+        workflow_version:
+          type: integer
+          nullable: true
+          description: Workflow version copied onto this run's root goal.
     GoalList:
       type: object
       required: [goals]
@@ -1193,8 +1198,11 @@ components:
           type: string
         failure_class:
           type: string
-          enum: ["", structural, semantic, transient]
-          description: Class for failed or interrupted attempts.
+          enum: ["", model, environment, contract, flaky]
+          description: Responsibility class for failed or interrupted attempts.
+        repair_rounds:
+          type: integer
+          description: Structural decomposition repair turns spent inside this attempt.
         worker_id:
           type: string
         heartbeat_at:
@@ -1227,6 +1235,208 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Attempt"
+    GoalHealthCountBucket:
+      type: object
+      required: [key, count]
+      properties:
+        key:
+          type: string
+        count:
+          type: integer
+          format: int64
+    GoalHealthRatioBucket:
+      type: object
+      required: [key, count, ratio]
+      properties:
+        key:
+          type: string
+        count:
+          type: integer
+          format: int64
+        ratio:
+          type: number
+          format: double
+    GoalHealthAttemptPurpose:
+      type: object
+      required: [
+        purpose,
+        total,
+        succeeded,
+        success_rate,
+        average_retries,
+        max_retries,
+      ]
+      properties:
+        purpose:
+          type: string
+          enum: [decomposition, execution, review]
+        total:
+          type: integer
+          format: int64
+        succeeded:
+          type: integer
+          format: int64
+        success_rate:
+          type: number
+          format: double
+        average_retries:
+          type: number
+          format: double
+        max_retries:
+          type: integer
+          format: int64
+    GoalHealthAcceptanceEvents:
+      type: object
+      required: [total, passed, failed, pass_rate]
+      properties:
+        total:
+          type: integer
+          format: int64
+        passed:
+          type: integer
+          format: int64
+        failed:
+          type: integer
+          format: int64
+        pass_rate:
+          type: number
+          format: double
+    GoalHealthDecompositionQuality:
+      type: object
+      required: [
+        first_round_total,
+        first_round_succeeded,
+        first_round_success_rate,
+        average_repair_rounds,
+        redecomposition_counts,
+      ]
+      properties:
+        first_round_total:
+          type: integer
+          format: int64
+        first_round_succeeded:
+          type: integer
+          format: int64
+        first_round_success_rate:
+          type: number
+          format: double
+        average_repair_rounds:
+          type: number
+          format: double
+        redecomposition_counts:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoalHealthCountBucket"
+    GoalHealthBudgetAttribution:
+      type: object
+      required: [
+        model_budget_attempts,
+        class_counts,
+        flaky_dominant_blocked_goals,
+      ]
+      properties:
+        model_budget_attempts:
+          type: integer
+          format: int64
+          description: Execution failures charged to business budget (failure_class=model).
+        class_counts:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoalHealthRatioBucket"
+        flaky_dominant_blocked_goals:
+          type: integer
+          format: int64
+          description: Blocked goals where flaky execution failures are at least half of non-model failures.
+    GoalHealthAttemptLatency:
+      type: object
+      required: [purpose]
+      properties:
+        purpose:
+          type: string
+          enum: [decomposition, execution, review]
+        p50_ms:
+          type: number
+          format: double
+          nullable: true
+        p95_ms:
+          type: number
+          format: double
+          nullable: true
+    GoalHealthLatency:
+      type: object
+      required: [attempts, goal_e2e]
+      properties:
+        attempts:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoalHealthAttemptLatency"
+        goal_e2e:
+          type: object
+          required: [p50_ms, p95_ms]
+          properties:
+            p50_ms:
+              type: number
+              format: double
+              nullable: true
+            p95_ms:
+              type: number
+              format: double
+              nullable: true
+    GoalHealthReport:
+      type: object
+      required: [
+        since_at,
+        until_at,
+        total_goals,
+        lifecycle_counts,
+        blocked_reason_counts,
+        attempt_purposes,
+        failure_class_counts,
+        acceptance_events,
+        decomposition_quality,
+        budget_attribution,
+        latency,
+      ]
+      properties:
+        since_at:
+          type: string
+          format: date-time
+        until_at:
+          type: string
+          format: date-time
+        user_id:
+          type: string
+          nullable: true
+        agent_id:
+          type: string
+          nullable: true
+        total_goals:
+          type: integer
+          format: int64
+        lifecycle_counts:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoalHealthCountBucket"
+        blocked_reason_counts:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoalHealthCountBucket"
+        attempt_purposes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoalHealthAttemptPurpose"
+        failure_class_counts:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoalHealthCountBucket"
+        acceptance_events:
+          $ref: "#/components/schemas/GoalHealthAcceptanceEvents"
+        decomposition_quality:
+          $ref: "#/components/schemas/GoalHealthDecompositionQuality"
+        budget_attribution:
+          $ref: "#/components/schemas/GoalHealthBudgetAttribution"
+        latency:
+          $ref: "#/components/schemas/GoalHealthLatency"
     # ── Acceptance events (the append-only ledger) ───────────────────────────
     AcceptanceEvent:
       type: object
@@ -1293,6 +1503,52 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AcceptanceEvent"
+    GoalTimelineEvent:
+      type: object
+      required: [id, goal_id, event_type, payload, created_at]
+      properties:
+        id:
+          type: string
+        goal_id:
+          type: string
+        attempt_id:
+          type: string
+          nullable: true
+        event_type:
+          type: string
+          enum: [
+            plan_submitted,
+            attempt_started,
+            attempt_finished,
+            acceptance_recorded,
+            lifecycle_changed,
+            human_message,
+          ]
+        payload:
+          type: object
+          additionalProperties: {}
+        created_at:
+          type: string
+          format: date-time
+    GoalTimeline:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoalTimelineEvent"
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+    GoalTimelineMessageRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: Human instruction appended to the goal timeline.
     VerdictRequest:
       type: object
       description: A human judgment-as-evidence verdict against a contract item; re-folds acceptance.
@@ -1421,7 +1677,7 @@ components:
       properties:
         action:
           type: string
-          enum: [submit, block, fail]
+          enum: [submit, fail]
           description: Which terminal action to take.
         summary:
           type: string
@@ -1435,21 +1691,13 @@ components:
         notes:
           type: object
           description: "submit: free-form evidence notes."
-        kind:
-          type: string
-          description: "block: blocker kind (user_input|external_dependency|tool_error|policy_hold)."
-        question:
-          type: string
-          description: "block: human-readable explanation of what's needed."
-        detail:
-          type: object
-          description: "block: structured detail."
         reason:
           type: string
           description: "fail: error message."
-        retryable:
-          type: boolean
-          description: "fail: true if a retry may succeed."
+        blocked_by:
+          type: string
+          enum: ["", env_unavailable, contract_conflict]
+          description: "fail: optional structured blocker when the contract is impossible or the environment is unavailable."
       required: [action]
     GoalControlDecomposeInput:
       type: object
@@ -1467,9 +1715,10 @@ components:
         reason:
           type: string
           description: "fail: error message."
-        retryable:
-          type: boolean
-          description: "fail: true if a retry may succeed."
+        blocked_by:
+          type: string
+          enum: ["", env_unavailable, contract_conflict]
+          description: "fail: optional structured blocker when the contract is impossible or the environment is unavailable."
       required: [action]
     GoalControlReviewInput:
       type: object
@@ -1489,9 +1738,10 @@ components:
         reason:
           type: string
           description: "fail: why the output cannot be judged."
-        retryable:
-          type: boolean
-          description: "fail: true if a retry may succeed."
+        blocked_by:
+          type: string
+          enum: ["", env_unavailable, contract_conflict]
+          description: "fail: optional structured blocker when the contract is impossible or the environment is unavailable."
       required: [action]
     GoalControlReviewVerdict:
       type: object
@@ -3048,11 +3298,15 @@ components:
           description: "RFC3339 one-time timestamp (mutually exclusive with cron/every)"
         message:
           type: string
-          description: "Prompt/instruction to run on schedule"
+          description: "Prompt/instruction to run on schedule; empty for workflow jobs"
+        dispatch_kind:
+          type: string
+          enum: [chat, workflow]
+          description: "Dispatch target. Defaults to chat. Workflow jobs instantiate workflow_id from payload."
         payload:
           type: object
           additionalProperties: {}
-          description: "Arbitrary structured data for plugin-owned jobs"
+          description: "Structured dispatch payload. Workflow jobs carry workflow_id, inputs, and allow_replan."
         session_mode:
           type: string
           description: "Session behaviour: 'reuse' or 'new'"
@@ -3101,6 +3355,20 @@ components:
           type: string
         message:
           type: string
+        dispatch_kind:
+          type: string
+          enum: [chat, workflow]
+        workflow_id:
+          type: string
+          description: "Exact workflow version row to instantiate when dispatch_kind is workflow."
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Workflow input values."
+        allow_replan:
+          type: boolean
+          description: "Allow scheduling a partially frozen workflow."
         session_mode:
           type: string
         enabled:
@@ -3138,6 +3406,9 @@ components:
           format: date-time
         error:
           type: string
+        root_goal_id:
+          type: string
+          description: Root goal created by a workflow dispatch.
         output:
           type: string
           description: Final assistant text produced by the run (truncated to 4000 chars).
@@ -3220,6 +3491,8 @@ components:
           type: string
         kind:
           type: string
+          description: >-
+            Session kind. "task" is the goal-worker session kind; the wire value predates the goal rename and is kept for stored sessions.
           enum: [main, chat, delegate, scheduler, task]
         project_id:
           type: string
@@ -3949,6 +4222,182 @@ components:
           type: array
           items:
             type: string
+    WorkflowInputSpec:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Input placeholder name used as {{inputs.name}}.
+        description:
+          type: string
+        required:
+          type: boolean
+          default: false
+        default:
+          type: string
+          description: Default value used when the caller omits this input.
+    Workflow:
+      type: object
+      description: >-
+        A named, immutable workflow version created by freezing a completed composite goal's decomposition plan. Instantiating a workflow creates a fresh goal tree without invoking the planner for frozen nodes.
+      required: [
+        id,
+        owner_kind,
+        name,
+        version,
+        intent,
+        inputs,
+        payload_format,
+        payload,
+        fully_frozen,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        owner_kind:
+          type: string
+          enum: [user, agent, system]
+        user_id:
+          type: string
+          nullable: true
+        agent_id:
+          type: string
+          nullable: true
+        name:
+          type: string
+        version:
+          type: integer
+        intent:
+          type: string
+        acceptance_contract:
+          type: object
+          additionalProperties: {}
+          nullable: true
+        convergence_policy:
+          type: object
+          additionalProperties: {}
+          nullable: true
+        inputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowInputSpec"
+        payload_format:
+          type: string
+          enum: [frozen/v0]
+        payload:
+          type: object
+          additionalProperties: {}
+          description: Frozen plan payload; read-only internal format for UI inspection.
+        fully_frozen:
+          type: boolean
+          description: True when every composite node has a frozen sub-plan.
+        source_goal_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkflowList:
+      type: object
+      required: [workflows]
+      properties:
+        workflows:
+          type: array
+          items:
+            $ref: "#/components/schemas/Workflow"
+    WorkflowRun:
+      type: object
+      required: [
+        id,
+        workflow_id,
+        workflow_version,
+        idempotency_key,
+        status,
+        inputs,
+        plan_hash,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        workflow_id:
+          type: string
+        workflow_version:
+          type: integer
+        idempotency_key:
+          type: string
+        root_goal_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [claimed, materializing, done, failed]
+          description: >-
+            Instantiation status only. The outcome of the run is the root goal's state (root_lifecycle and friends), not this field.
+        root_lifecycle:
+          type: string
+          nullable: true
+          description: Root goal lifecycle; null until the root goal exists.
+        root_block_reason:
+          type: string
+          nullable: true
+        root_done_reason:
+          type: string
+          nullable: true
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+        plan_hash:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkflowRunList:
+      type: object
+      required: [runs, total]
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowRun"
+        total:
+          type: integer
+          description: Total workflow runs matching this workflow.
+        next_page_token:
+          type: string
+          nullable: true
+    SaveGoalAsWorkflowRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        inputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowInputSpec"
+    InstantiateWorkflowRequest:
+      type: object
+      properties:
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+        idempotency_key:
+          type: string
+          description: >-
+            Optional idempotency key. When omitted, the server generates a UUID, so retries must provide their own key to be idempotent.
   responses:
     Unauthorized:
       description: missing or invalid bearer token

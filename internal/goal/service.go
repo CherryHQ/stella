@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // SessionMinter returns a fresh durable session id for a goal's
@@ -50,9 +52,10 @@ type Executor interface {
 // not depend on the agent layer; the worker is the only caller that constructs
 // and consumes them.
 type ExecutorRequest struct {
-	Goal    sqlc.AgentGoal
-	Attempt sqlc.AgentGoalAttempt
-	Input   AttemptInput
+	Goal             sqlc.AgentGoal
+	Attempt          sqlc.AgentGoalAttempt
+	Input            AttemptInput
+	OnSandboxSession func(sandbox.Session) error
 }
 
 // ExecutorResult is the executor's declared outcome for one attempt. Exactly
@@ -66,8 +69,19 @@ type ExecutorResult struct {
 	Verdicts      []ReviewVerdict       // purpose=review only
 	Failed        bool
 	FailReason    string
-	Retryable     bool
+	FailureClass  string
+	BlockedBy     string
 }
+
+// CapabilityProbe reports deployment capabilities that affect contract
+// evaluability at write boundaries.
+type CapabilityProbe interface {
+	CanRunDeterministic() bool
+}
+
+type CapabilityProbeFunc func() bool
+
+func (f CapabilityProbeFunc) CanRunDeterministic() bool { return f() }
 
 // ReviewVerdict is one agent reviewer decision for a required authority=agent
 // judgment item (contract §10.13). The worker folds each into an
@@ -86,7 +100,7 @@ type ReviewVerdict struct {
 // exec must never run inside a DB tx, which would pin a pooled connection). The implementation lands in the
 // integration phase (runner.go).
 type CheckRunner interface {
-	Run(ctx context.Context, item AcceptanceItem, env CheckEnv) (CheckResult, error)
+	Run(ctx context.Context, item AcceptanceItem, env CheckEnv, sess sandbox.Session) (CheckResult, error)
 }
 
 // Config carries the service's tunables. Zero values fall back to package
@@ -118,6 +132,7 @@ type GoalService struct {
 	disposeSession     SessionDisposer // archives a session orphaned by a rolled-back mint
 	checks             CheckRunner
 	exec               Executor
+	capabilities       CapabilityProbe
 	clock              func() time.Time
 	cfg                Config
 }
@@ -202,6 +217,11 @@ func WithCheckRunner(r CheckRunner) Option { return func(s *GoalService) { s.che
 // WithExecutor sets the attempt executor.
 func WithExecutor(e Executor) Option { return func(s *GoalService) { s.exec = e } }
 
+// WithCapabilityProbe sets the deployment capability probe.
+func WithCapabilityProbe(p CapabilityProbe) Option {
+	return func(s *GoalService) { s.capabilities = p }
+}
+
 // WithConfig overrides the service config (defaults filled for zero fields).
 func WithConfig(c Config) Option {
 	return func(s *GoalService) {
@@ -227,6 +247,10 @@ func (s *GoalService) now() string {
 // nowTime returns the current UTC instant for TIMESTAMPTZ params, anchored to
 // the service clock so tests can drive it.
 func (s *GoalService) nowTime() time.Time { return s.clock().UTC() }
+
+func (s *GoalService) canRunDeterministic() bool {
+	return s.capabilities == nil || s.capabilities.CanRunDeterministic()
+}
 
 // nullTime wraps a time as a non-NULL pgtype.Timestamptz for nullable TIMESTAMPTZ params.
 func nullTime(t time.Time) pgtype.Timestamptz {
@@ -324,22 +348,27 @@ func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries
 		// immaterial — both callers discard it.
 		return sqlc.AgentGoalAcceptanceEvent{}, nil
 	}
-	return row, err
+	if err != nil {
+		return sqlc.AgentGoalAcceptanceEvent{}, err
+	}
+	if err := s.appendTimelineAcceptanceRecorded(ctx, q, e); err != nil {
+		return sqlc.AgentGoalAcceptanceEvent{}, err
+	}
+	return row, nil
 }
 
-// applyAcceptance is the single fold→transition mapper (contract §4.3). It runs
-// in ONE tx: load the goal + its full ledger, DeriveAcceptance, and
-// apply exactly one lifecycle move. Nothing else writes acceptance_state /
-// accepted_output / counters.
+// applyAcceptance is the single fold->transition mapper (contract §4.3). It runs
+// in ONE tx: load the goal + its full ledger, DeriveAcceptance, and apply exactly
+// one lifecycle move. Nothing else writes acceptance_state / accepted_output.
 //
-//   - passed  → Accept (freeze output, clear active attempt, bump parent
-//     required_accepted, push downstream readiness).
-//   - failed + budget left → write gaps on the attempt; the dispatcher mints the
+//   - passed -> Accept (freeze output, clear active attempt); composite parent
+//     rollup is derived from children.
+//   - failed + budget left -> write gaps on the attempt; the dispatcher mints the
 //     next attempt (rework = next attempt, not a node).
-//   - failed + budget out → blocked(budget_exhausted) | abandoned |
-//     rejected_final per escalation/contract shape.
-//   - NeedsVerdict → blocked(needs_verdict) (human) or mint an agent-review
-//     attempt (agent) — routed by the pending judgment item's authority.
+//   - failed + budget out -> blocked(budget_exhausted) or done(failed) per
+//     escalation/contract shape.
+//   - NeedsVerdict -> blocked(needs_verdict) (human) or mint an agent-review
+//     attempt (agent) -- routed by the pending judgment item's authority.
 //
 // The stale-projection fence (SetGoalAcceptanceState WHERE
 // acceptance_seq < new) rejects a fold computed against an out-of-date seq.
@@ -349,9 +378,9 @@ func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries
 
 // ── Lifecycle transitions (each one withTx) ─────────────────────────────────
 
-// CreateInput is the request to mint a root or child goal. The caller
-// pre-mints session_id OUTSIDE any tx and passes it here.
+// CreateInput is the request to mint a root or child goal.
 type CreateInput struct {
+	ID        string // optional deterministic id; explicit ids use idempotent insert
 	UserID    string
 	AgentID   string
 	ProjectID string
@@ -359,7 +388,6 @@ type CreateInput struct {
 	RootID    string // = id for a root; parent.root_id for a child
 	Depth     int64
 	Position  int64
-	SessionID string
 	Title     string
 	Intent    string
 	Kind      string // leaf | composite
@@ -373,11 +401,17 @@ type CreateInput struct {
 	Context        json.RawMessage // empty ⇒ "{}"
 	DispatchHint   json.RawMessage // empty ⇒ "{}"
 	IdempotencyKey string
+
+	WorkflowID      string
+	WorkflowVersion int32
 }
 
 // CreateGoal inserts a goal in 'draft' (contract §2.1, (none)→draft).
 func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.AgentGoal, error) {
-	id := newID()
+	id := in.ID
+	if id == "" {
+		id = newID()
+	}
 	rootID := in.RootID
 	if rootID == "" {
 		rootID = id // a root's root_id is its own id
@@ -385,6 +419,9 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 	kind := in.Kind
 	if kind == "" {
 		kind = KindLeaf
+	}
+	if in.Contract.HasRequiredDeterministicItem() && !s.canRunDeterministic() {
+		return sqlc.AgentGoal{}, ErrDeterministicChecksUnsupported
 	}
 	// A composite produces no executed output, so a deterministic acceptance item
 	// would never get a check event and the fold would stall pending forever.
@@ -408,36 +445,44 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 	if len(dispatchHint) == 0 {
 		dispatchHint = emptyJSON
 	}
+	params := sqlc.CreateGoalParams{
+		ID:                 id,
+		UserID:             in.UserID,
+		AgentID:            in.AgentID,
+		ProjectID:          pgnull.Text(in.ProjectID),
+		ParentID:           pgnull.Text(in.ParentID),
+		RootID:             rootID,
+		Depth:              in.Depth,
+		Position:           in.Position,
+		Title:              in.Title,
+		Intent:             in.Intent,
+		Kind:               kind,
+		Priority:           priority,
+		Required:           in.Required,
+		AcceptanceContract: marshalJSON(in.Contract),
+		// Materialize the effective policy at create time so the persisted row
+		// and the create response show real defaults (max_attempts 3, block,
+		// depth 4, concurrent 8) instead of a bare zero policy. Runtime callers
+		// still Normalize defensively; freezing here also means a later default
+		// change never silently alters an existing goal's budget.
+		ConvergencePolicy: marshalJSON(in.Convergence.Normalized()),
+		ReviewPolicy:      reviewPolicy,
+		Lifecycle:         LifecycleDraft,
+		Context:           contextJSON,
+		DispatchHint:      dispatchHint,
+		WorkflowID:        pgnull.Text(in.WorkflowID),
+		WorkflowVersion:   pgtype.Int4{Int32: in.WorkflowVersion, Valid: in.WorkflowVersion > 0},
+		IdempotencyKey:    pgnull.Text(in.IdempotencyKey),
+	}
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
-		d, err := q.CreateGoal(ctx, sqlc.CreateGoalParams{
-			ID:                 id,
-			UserID:             in.UserID,
-			AgentID:            in.AgentID,
-			ProjectID:          pgnull.Text(in.ProjectID),
-			ParentID:           pgnull.Text(in.ParentID),
-			RootID:             rootID,
-			Depth:              in.Depth,
-			Position:           in.Position,
-			SessionID:          in.SessionID,
-			Title:              in.Title,
-			Intent:             in.Intent,
-			Kind:               kind,
-			Priority:           priority,
-			Required:           in.Required,
-			AcceptanceContract: marshalJSON(in.Contract),
-			// Materialize the effective policy at create time so the persisted row
-			// and the create response show real defaults (max_attempts 3, block,
-			// depth 4, concurrent 8) instead of a bare zero policy. Runtime callers
-			// still Normalize defensively; freezing here also means a later default
-			// change never silently alters an existing goal's budget.
-			ConvergencePolicy: marshalJSON(in.Convergence.Normalized()),
-			ReviewPolicy:      reviewPolicy,
-			Lifecycle:         LifecycleDraft,
-			Context:           contextJSON,
-			DispatchHint:      dispatchHint,
-			IdempotencyKey:    pgnull.Text(in.IdempotencyKey),
-		})
+		var d sqlc.AgentGoal
+		var err error
+		if in.ID != "" {
+			d, err = q.CreateGoalIfAbsent(ctx, sqlc.CreateGoalIfAbsentParams(params))
+		} else {
+			d, err = q.CreateGoal(ctx, params)
+		}
 		if err != nil {
 			return fmt.Errorf("create goal: %w", err)
 		}
@@ -447,31 +492,10 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 	return out, err
 }
 
-// CreateRoot mints a worker session for a new root goal (a goal) and
-// creates it in 'draft'. The session is minted OUTSIDE the insert tx to avoid
-// a self-deadlock and to keep slow session-minting off a pooled connection (same discipline as Materialize's
-// pre-minted child sessions). Child goals get their sessions from
-// Materialize instead, so this entry is root-only.
+// CreateRoot creates a new root goal in draft. Attempts mint their own sessions;
+// goals no longer own a session.
 func (s *GoalService) CreateRoot(ctx context.Context, in CreateInput) (sqlc.AgentGoal, error) {
-	var minted string
-	if in.SessionID == "" {
-		if s.newSession == nil {
-			return sqlc.AgentGoal{}, fmt.Errorf("goal: no session minter configured")
-		}
-		sid, err := s.newSession(ctx, in.UserID, in.AgentID, in.ProjectID)
-		if err != nil {
-			return sqlc.AgentGoal{}, fmt.Errorf("goal: mint root session: %w", err)
-		}
-		in.SessionID = sid
-		minted = sid
-	}
-	out, err := s.CreateGoal(ctx, in)
-	if minted != "" {
-		// On a definite rollback, archive only the session we minted here (never a
-		// caller-supplied one) so it is not orphaned.
-		s.disposeOnRollback(ctx, err, in.UserID, in.AgentID, minted)
-	}
-	return out, err
+	return s.CreateGoal(ctx, in)
 }
 
 // UpdateInput is the mutable metadata of a goal (PATCH). A nil pointer
@@ -484,11 +508,14 @@ type UpdateInput struct {
 	ReviewPolicy *string
 	Contract     *AcceptanceContract
 	Convergence  *ConvergencePolicy
+	// By is the editing actor, recorded on the timeline when the edit resolves
+	// a contract conflict.
+	By Actor
 }
 
-// UpdateMetadata applies a partial metadata edit (contract §2 — metadata is
+// UpdateMetadata applies a partial metadata edit (contract §2 -- metadata is
 // mutable; lifecycle is not). It validates the value-sets it touches and returns
-// the refreshed row. Lifecycle, counters, and projection are untouched.
+// the refreshed row. Lifecycle and projection are untouched.
 func (s *GoalService) UpdateMetadata(ctx context.Context, id string, in UpdateInput) (sqlc.AgentGoal, error) {
 	if in.Priority != nil && !ValidPriority(*in.Priority) {
 		return sqlc.AgentGoal{}, ErrInvalidTransition
@@ -498,6 +525,9 @@ func (s *GoalService) UpdateMetadata(ctx context.Context, id string, in UpdateIn
 	}
 	if in.Contract != nil && !in.Contract.Valid() {
 		return sqlc.AgentGoal{}, ErrInvalidContract
+	}
+	if in.Contract != nil && in.Contract.HasRequiredDeterministicItem() && !s.canRunDeterministic() {
+		return sqlc.AgentGoal{}, ErrDeterministicChecksUnsupported
 	}
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
@@ -518,10 +548,50 @@ func (s *GoalService) UpdateMetadata(ctx context.Context, id string, in UpdateIn
 			p.AcceptanceContract = marshalJSON(*in.Contract)
 		}
 		if in.Convergence != nil {
-			p.ConvergencePolicy = marshalJSON(*in.Convergence)
+			// Normalize so a partial policy body cannot zero the untouched knobs.
+			p.ConvergencePolicy = marshalJSON(in.Convergence.Normalized())
 		}
 		if err := q.UpdateGoalIntent(ctx, p); err != nil {
 			return fmt.Errorf("update goal metadata: %w", err)
+		}
+		// A contract conflict can live in any of the three inputs the agent folds
+		// together — the acceptance contract, the intent, or the convergence policy
+		// (e.g. an intent demanding a two-level plan under max_depth 1) — so editing
+		// any of them counts as a resolution attempt and re-enters the lifecycle.
+		edited := in.Contract != nil || in.Intent != nil || in.Convergence != nil
+		if edited && d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockContractConflict {
+			// Tell the next planning/execution attempt the definition changed:
+			// prior failure reasons in the frozen timeline context describe the OLD
+			// contract/intent/policy, and without this note the planner trusts them
+			// over the current row (observed: a raised max_depth was ignored because
+			// stale attempt reasons kept "confirming" the old depth limit).
+			var edits []string
+			if in.Intent != nil {
+				edits = append(edits, "intent")
+			}
+			if in.Contract != nil {
+				edits = append(edits, "acceptance contract")
+			}
+			if in.Convergence != nil {
+				edits = append(edits, "convergence policy")
+			}
+			note := fmt.Sprintf(
+				"To resolve the contract conflict the user edited this goal's %s. Earlier failure reasons may describe the old definition — re-evaluate against the current goal state, not past attempts.",
+				strings.Join(edits, ", "))
+			if _, err := s.appendGoalEvent(ctx, q, id, "", GoalEventHumanMessage, HumanMessagePayload{
+				Text:          note,
+				ResponderType: in.By.Type,
+				ResponderID:   in.By.ID,
+			}); err != nil {
+				return err
+			}
+			rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
+			if err != nil {
+				return fmt.Errorf("recover contract conflict: %w", err)
+			}
+			if rows == 0 {
+				return ErrInvalidTransition
+			}
 		}
 		out, err = getGoal(ctx, q, id)
 		return err
@@ -538,10 +608,10 @@ func orDefault(v *string, fallback string) string {
 	return fallback
 }
 
-// Activate is the plan gate: draft→ready (contract §2.1). A leaf passes when its
-// contract has items or is explicitly trivial; a composite passes when it is
-// planned (planned_at set) and required_total ≥ 1. A composite flips its draft
-// children → ready. Returns ErrPlanGate when unmet.
+// Activate is the plan gate: draft->pending (contract §2.1). A leaf passes when
+// its contract has items or is explicitly trivial; a composite passes when its
+// plan is materialized. A composite releases its draft children. Returns
+// ErrPlanGate when unmet.
 func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, error) {
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
@@ -555,28 +625,23 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		if !s.planGateSatisfied(d) {
 			return ErrPlanGate
 		}
-		// A leaf goes to ready so the dispatcher can claim it. A composite is never
+		// A leaf goes to pending so the dispatcher can claim it. A composite is never
 		// claimed by a worker — it goes straight to active so the rollup (which only
 		// scans active composites) fires once its children accept; landing it in
-		// ready would strand it there with no ready→active transition (mirrors the
+		// pending would strand it there with no pending->active transition (mirrors the
 		// draft→active that BeginDecomposition applies).
-		parentTarget := LifecycleReady
+		parentTarget := LifecyclePending
 		if d.Kind == KindComposite {
 			parentTarget = LifecycleActive
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   parentTarget,
-			BlockReason:   "",
-			ID:            d.ID,
-			FromLifecycle: LifecycleDraft,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, parentTarget, "")
 		if err != nil {
 			return fmt.Errorf("activate: %w", err)
 		}
 		if rows == 0 {
 			return ErrInvalidTransition
 		}
-		// A composite releases its draft children: leaf children → ready for the
+		// A composite releases its draft children: leaf children -> pending for the
 		// dispatcher, composite children stay draft for scanAndDecompose to plan.
 		if d.Kind == KindComposite {
 			if err := s.releaseChildren(ctx, q, d.ID); err != nil {
@@ -592,10 +657,10 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 // planGateSatisfied reports whether a draft goal clears its plan gate
 // (contract §2.1). A leaf passes when its contract has items or is explicitly
 // trivial (the empty auto-accept degradation is always allowed). A composite
-// passes only once its plan is materialized (planned_at set) and required_total ≥ 1.
+// passes once its plan is materialized (planned_at set).
 func (s *GoalService) planGateSatisfied(d sqlc.AgentGoal) bool {
 	if d.Kind == KindComposite {
-		return d.PlannedAt.Valid && d.RequiredTotal >= 1
+		return d.PlannedAt.Valid
 	}
 	// Leaf: an authored contract has items; a trivial ({}) contract auto-accepts.
 	// Both clear the gate — a leaf is never gated on a non-trivial empty contract
@@ -603,46 +668,41 @@ func (s *GoalService) planGateSatisfied(d sqlc.AgentGoal) bool {
 	return true
 }
 
-// Claim is the dispatcher's leaf ready→active (contract §2.1). Guards
+// Claim is the dispatcher's leaf pending->active (contract §2.1). Guards
 // active_attempt_id IS NULL, all hard upstream edges accepted-or-waived, an
 // executor resolved, and the concurrency cap. Mints a queued execution attempt,
 // sets active_attempt_id, bumps attempt_count, consumes dispatch_hint — one tx.
 // Returns ErrConcurrencyCap when over budget, ErrInvalidTransition on a race.
 // Implemented in converge.go.
 
-// Block moves ready/active → blocked with a reason (contract §2.1). Used by the
-// dispatcher (dep), the fold (needs_verdict), and convergence (budget_exhausted).
+// Block moves pending/active -> blocked with a reason (contract §2.1). Used by
+// the fold (needs_verdict) and convergence (budget_exhausted/env/contract).
 func (s *GoalService) Block(ctx context.Context, id, reason string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
 		if err != nil {
 			return err
 		}
-		rows, err := q.BlockGoal(ctx, sqlc.BlockGoalParams{
-			BlockReason: reason,
-			ID:          id,
-		})
+		rows, err := s.blockGoal(ctx, q, d, reason)
 		if err != nil {
 			return fmt.Errorf("block goal: %w", err)
 		}
 		if rows == 0 {
-			return ErrInvalidTransition // not ready/active (raced)
+			return ErrInvalidTransition // not pending/active (raced)
 		}
-		// A required child entering blocked bumps the parent's required_blocked so
-		// the rollup surfaces the stall.
-		return s.bumpParentCounter(ctx, q, d, counterBlockedIncr)
+		return nil
 	})
 }
 
 // recoveryLifecycle is the lifecycle a goal re-enters when a recoverable block
-// clears (a human Unblock/Reattempt or an edge waiver). A leaf returns to ready so
+// clears (a human Unblock/Reattempt or an edge waiver). A leaf returns to pending so
 // the dispatcher claims it. A composite is never claimed by a worker: an
 // un-planned one returns to draft to (re-)decompose, a planned one to active so
-// the rollup drives it. Landing a composite in ready would strand it — there is
-// no ready→active transition for composites (mirrors Activate's draft→active).
+// the rollup drives it. Landing a composite in pending would strand it -- there is
+// no pending->active transition for composites (mirrors Activate's draft→active).
 func recoveryLifecycle(d sqlc.AgentGoal) string {
 	if d.Kind != KindComposite {
-		return LifecycleReady
+		return LifecyclePending
 	}
 	if d.PlannedAt.Valid {
 		return LifecycleActive
@@ -650,7 +710,7 @@ func recoveryLifecycle(d sqlc.AgentGoal) string {
 	return LifecycleDraft
 }
 
-// Unblock clears a recoverable block: blocked(dep)→ready (leaf) or →active/draft
+// Unblock clears a recoverable block: blocked->pending (leaf) or ->active/draft
 // (composite, see recoveryLifecycle) when the condition cleared (contract §2.1).
 func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
@@ -658,31 +718,26 @@ func (s *GoalService) Unblock(ctx context.Context, id string, by Actor) error {
 		if err != nil {
 			return err
 		}
-		if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockDep {
-			return ErrInvalidTransition // only a recoverable dep block clears
+		if d.Lifecycle != LifecycleBlocked {
+			return ErrInvalidTransition
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   recoveryLifecycle(d),
-			BlockReason:   "",
-			ID:            id,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
 		if err != nil {
 			return fmt.Errorf("unblock goal: %w", err)
 		}
 		if rows == 0 {
 			return ErrInvalidTransition
 		}
-		return s.bumpParentCounter(ctx, q, d, counterBlockedDecr)
+		return nil
 	})
 }
 
 // Reattempt raises the budget on a blocked(budget_exhausted) goal so the next
-// tick mints a fresh attempt. A leaf returns to ready (the dispatcher claims it);
+// tick mints a fresh attempt. A leaf returns to pending (the dispatcher claims it);
 // a composite, whose budget meters DECOMPOSITION attempts, returns to draft so
 // scanAndDecompose re-plans it (contract §2.1, see recoveryLifecycle). For
 // blocked(planning_invalid), Reattempt restarts planning without raising the
-// semantic/transient budget because structural repairs are metered separately.
+// model planning budget because in-session repairs are metered separately.
 func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
@@ -693,12 +748,7 @@ func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error 
 			return ErrInvalidTransition
 		}
 		if d.BlockReason == BlockPlanningInvalid {
-			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-				ToLifecycle:   recoveryLifecycle(d),
-				BlockReason:   "",
-				ID:            id,
-				FromLifecycle: LifecycleBlocked,
-			})
+			rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
 			if err != nil {
 				return fmt.Errorf("reattempt planning invalid: %w", err)
 			}
@@ -707,42 +757,10 @@ func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error 
 			}
 			return nil
 		}
-		// Raise the budget by one attempt past what is already spent so the next tick
-		// runs one more. A leaf meters convergence by attempt_count; a composite
-		// meters planning by the max decomposition attempt_no (recoverDecomposition
-		// blocks once that reaches MaxAttempts), so reuse the same ceiling here.
-		spent := int(d.AttemptCount)
-		if d.Kind == KindComposite {
-			maxNo, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{
-				GoalID:  d.ID,
-				Purpose: PurposeDecomposition,
-			})
-			if err != nil {
-				return fmt.Errorf("max decomposition attempt no: %w", err)
-			}
-			spent = int(maxNo)
-		}
-		var pol ConvergencePolicy
-		_ = unmarshalJSON(d.ConvergencePolicy, &pol)
-		pol = pol.Normalized()
-		pol.MaxAttempts = spent + 1
-		if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
-			Title:              d.Title,
-			Intent:             d.Intent,
-			AcceptanceContract: d.AcceptanceContract,
-			ConvergencePolicy:  marshalJSON(pol),
-			ReviewPolicy:       d.ReviewPolicy,
-			Priority:           d.Priority,
-			ID:                 id,
-		}); err != nil {
+		if err := q.IncrementGoalBudgetBonus(ctx, id); err != nil {
 			return fmt.Errorf("raise budget: %w", err)
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   recoveryLifecycle(d),
-			BlockReason:   "",
-			ID:            id,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, recoveryLifecycle(d), "")
 		if err != nil {
 			return fmt.Errorf("reattempt: %w", err)
 		}
@@ -754,8 +772,8 @@ func (s *GoalService) Reattempt(ctx context.Context, id string, by Actor) error 
 }
 
 // Cancel cascades cancel over the subtree (contract §6): depth-first set
-// cancelled on each non-terminal descendant, reconcile each touched parent's
-// required_failed, cancel in-flight attempts, stamp cancelled_at. One tx.
+// done(cancelled) on each non-terminal descendant, cancel in-flight attempts,
+// stamp cancelled_at. Parent rollup observes cancelled children by derived tally.
 func (s *GoalService) Cancel(ctx context.Context, id, reason string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		root, err := getGoal(ctx, q, id)
@@ -770,54 +788,36 @@ func (s *GoalService) Cancel(ctx context.Context, id, reason string, by Actor) e
 			return fmt.Errorf("list subtree for cancel: %w", err)
 		}
 		// Depth-first, deepest-first: the subtree is depth-ascending, so reverse it
-		// to cancel children before their parents. Each non-terminal descendant that
-		// was required and not yet counted in its parent bumps the parent's
-		// required_failed in the same tx (children already accepted keep their
-		// required_accepted contribution — their parent is itself being cancelled).
+		// to cancel children before their parents. Derived rollup observes cancelled
+		// children; no stored parent counters are maintained.
 		for i := len(subtree) - 1; i >= 0; i-- {
 			d := subtree[i]
 			if IsTerminalLifecycle(d.Lifecycle) {
 				continue
 			}
-			// Cancel any in-flight attempt for this descendant before flipping it.
-			if d.ActiveAttemptID.Valid && d.ActiveAttemptID.String != "" {
-				if _, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-					ToStatus:     AttemptCancelled,
-					Error:        reason,
-					FailureClass: "",
-					ID:           d.ActiveAttemptID.String,
-				}); err != nil {
+			// Cancel EVERY in-flight attempt for this descendant before flipping it,
+			// not just the one active_attempt_id points at: decomposition and review
+			// attempts are never pointed there and would otherwise outlive the cancel,
+			// to be reaped later against a terminal goal (the reaper's terminal guard
+			// is the backstop; this is the root fix).
+			atts, err := q.ListInflightAttemptsByGoal(ctx, d.ID)
+			if err != nil {
+				return fmt.Errorf("list in-flight attempts for cancel: %w", err)
+			}
+			for _, att := range atts {
+				if _, err := s.finalizeAttempt(ctx, q, att, AttemptCancelled, reason, ""); err != nil {
 					return fmt.Errorf("cancel in-flight attempt: %w", err)
 				}
 			}
-			if err := q.CancelGoal(ctx, d.ID); err != nil {
+			if err := s.cancelGoal(ctx, q, d); err != nil {
 				return fmt.Errorf("cancel goal: %w", err)
 			}
-			// A descendant that was blocked had bumped its parent's required_blocked;
-			// cancelling it clears that contribution so the incremental counter still
-			// matches the reconcile backstop (which counts lifecycle='blocked'
-			// children). Applies to the root too — its required_failed is bumped below.
-			if d.Lifecycle == LifecycleBlocked {
-				if err := s.bumpParentCounter(ctx, q, d, counterBlockedDecr); err != nil {
-					return err
-				}
-			}
-			// A required, non-terminal descendant moving to cancelled is a newly
-			// failed requirement for its parent (skip the root being cancelled — its
-			// own parent counter is bumped below as the cancel's required_failed).
-			if d.ID != id {
-				if err := s.bumpParentCounter(ctx, q, d, counterFailed); err != nil {
-					return err
-				}
-			}
 		}
-		// The cancelled root itself bumps ITS parent's required_failed (§2.1 cancel).
-		return s.bumpParentCounter(ctx, q, root, counterFailed)
+		return nil
 	})
 }
 
-// Abandon is the human give-up on a blocked(budget_exhausted): blocked→abandoned
-// (terminal), bumping parent required_failed (contract §2.1).
+// Abandon is the human give-up on blocked(budget_exhausted): blocked->done(failed).
 func (s *GoalService) Abandon(ctx context.Context, id, reason string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
@@ -827,19 +827,14 @@ func (s *GoalService) Abandon(ctx context.Context, id, reason string, by Actor) 
 		if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockBudgetExhausted {
 			return ErrInvalidTransition
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleAbandoned,
-			BlockReason:   "",
-			ID:            id,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleDone, "")
 		if err != nil {
 			return fmt.Errorf("abandon: %w", err)
 		}
 		if rows == 0 {
 			return ErrInvalidTransition
 		}
-		return s.bumpParentCounter(ctx, q, d, counterFailed)
+		return nil
 	})
 }
 
@@ -946,8 +941,7 @@ func (s *GoalService) dependsOn(ctx context.Context, q *sqlc.Queries, from, targ
 	return visit(from)
 }
 
-// WaiveEdge waives a hard edge so a blocked(dep) downstream can proceed
-// (contract §2.1, blocked(dep)→ready).
+// WaiveEdge waives a hard edge so downstream readiness can proceed.
 func (s *GoalService) WaiveEdge(ctx context.Context, downstreamID, upstreamID, reason string, by Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		if _, err := q.GetEdge(ctx, sqlc.GetEdgeParams{
@@ -966,27 +960,6 @@ func (s *GoalService) WaiveEdge(ctx context.Context, downstreamID, upstreamID, r
 			UpstreamID:   upstreamID,
 		}); err != nil {
 			return fmt.Errorf("waive edge: %w", err)
-		}
-		// A downstream parked on this dep clears now the edge is waived: a leaf to
-		// ready, a composite to active/draft (see recoveryLifecycle).
-		d, err := getGoal(ctx, q, downstreamID)
-		if err != nil {
-			return err
-		}
-		if d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockDep {
-			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-				ToLifecycle:   recoveryLifecycle(d),
-				BlockReason:   "",
-				ID:            downstreamID,
-				FromLifecycle: LifecycleBlocked,
-			})
-			if err != nil {
-				return fmt.Errorf("unblock waived downstream: %w", err)
-			}
-			if rows == 0 {
-				return ErrInvalidTransition
-			}
-			return s.bumpParentCounter(ctx, q, d, counterBlockedDecr)
 		}
 		return nil
 	})
@@ -1039,102 +1012,4 @@ func (s *GoalService) SubmitVerdict(ctx context.Context, in VerdictInput) error 
 	}
 	// Re-run derivation over the now-complete ledger (own tx).
 	return s.applyAcceptance(ctx, in.GoalID)
-}
-
-// bumpParentCounter applies exactly one ±1 counter bump on a child's parent in
-// the SAME tx that transitions the child (contract §6). Bare SQL +1/-1 (DB does
-// the arithmetic) so there is no read-modify-write and no lost update; lock
-// order is always child-before-parent.
-func (s *GoalService) bumpParentCounter(ctx context.Context, q *sqlc.Queries, child sqlc.AgentGoal, kind counterKind) error {
-	// Only a required child contributes to a parent's rollup counters; a root (no
-	// parent) and an advisory (non-required) child are no-ops.
-	if !child.ParentID.Valid || child.ParentID.String == "" || !child.Required {
-		return nil
-	}
-	parentID := child.ParentID.String
-	switch kind {
-	case counterAccepted:
-		return q.IncrGoalRequiredAccepted(ctx, parentID)
-	case counterFailed:
-		return q.IncrGoalRequiredFailed(ctx, parentID)
-	case counterBlockedIncr:
-		return q.IncrGoalRequiredBlocked(ctx, parentID)
-	case counterBlockedDecr:
-		return q.DecrGoalRequiredBlocked(ctx, parentID)
-	default:
-		return nil
-	}
-}
-
-// counterKind selects which incremental parent counter a child transition bumps.
-type counterKind int
-
-const (
-	counterAccepted counterKind = iota
-	counterFailed
-	counterBlockedIncr
-	counterBlockedDecr
-)
-
-// reconcileCounters recomputes a composite's required_* from a COUNT scan over
-// its direct children (contract §6 backstop). Run ONLY on rollup-stall
-// detection, never per event.
-func (s *GoalService) reconcileCounters(ctx context.Context, parentID string) error {
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		return q.ReconcileGoalCounters(ctx, parentID)
-	})
-}
-
-// RecoverBlockedComposite re-evaluates a composite the rollup parked in
-// blocked(dep) and wakes it back to active once its blocking children have
-// cleared (contract §6). The rollup scans (ListRollupCandidates/
-// ListStalledComposites) only see active composites, so a parent driven to
-// blocked(dep) — e.g. while a required child awaits plan approval or a verdict —
-// never re-enters rollup on its own even after that child recovers. The
-// dispatcher runs this over ListBlockedDepComposites each tick. Idempotent: a
-// no-op while any required child is still blocked.
-func (s *GoalService) RecoverBlockedComposite(ctx context.Context, id string) error {
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		if err := q.LockGoalForWrite(ctx, id); err != nil {
-			return fmt.Errorf("lock goal for recover: %w", err)
-		}
-		d, err := getGoal(ctx, q, id)
-		if err != nil {
-			return err
-		}
-		if d.Kind != KindComposite || d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockDep {
-			return ErrInvalidTransition
-		}
-		// Recompute required_* from the children's current states. The dep block was
-		// surfaced off the incremental counters, and a child's recovery (plan
-		// approval, verdict, edge waiver) does not eagerly decrement the parent —
-		// the reconcile is what observes the cleared block.
-		if err := q.ReconcileGoalCounters(ctx, id); err != nil {
-			return fmt.Errorf("reconcile counters: %w", err)
-		}
-		cur, err := getGoal(ctx, q, id)
-		if err != nil {
-			return err
-		}
-		if cur.RequiredBlocked > 0 {
-			return nil // another required child is still blocked — stay parked
-		}
-		// No required child is blocked anymore: wake to active so the next rollup tick
-		// folds the refreshed counters (accept / fail / wait). Re-activating bumps no
-		// parent counter — this composite's own parent, if itself blocked(dep), is
-		// reconciled by its turn through this same recovery scan.
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleActive,
-			BlockReason:   "",
-			ID:            id,
-			FromLifecycle: LifecycleBlocked,
-		})
-		if err != nil {
-			return fmt.Errorf("recover blocked composite: %w", err)
-		}
-		if rows == 0 {
-			return ErrInvalidTransition
-		}
-		return nil
-	})
 }

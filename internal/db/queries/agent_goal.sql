@@ -1,11 +1,22 @@
 -- name: CreateGoal :one
 INSERT INTO agent_goal (
     id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
-    session_id, title, intent, kind, priority, required,
+    title, intent, kind, priority, required,
     acceptance_contract, convergence_policy, review_policy,
-    lifecycle, context, dispatch_hint, idempotency_key
+    lifecycle, context, dispatch_hint, workflow_id, workflow_version, idempotency_key
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+RETURNING *;
+
+-- name: CreateGoalIfAbsent :one
+INSERT INTO agent_goal (
+    id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
+    title, intent, kind, priority, required,
+    acceptance_contract, convergence_policy, review_policy,
+    lifecycle, context, dispatch_hint, workflow_id, workflow_version, idempotency_key
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+ON CONFLICT (id) DO UPDATE SET id = agent_goal.id
 RETURNING *;
 
 -- name: GetGoal :one
@@ -16,18 +27,19 @@ SELECT * FROM agent_goal
 WHERE user_id = $1 AND idempotency_key = $2;
 
 -- Root goals (goals: parent_id IS NULL) for a user, scoped to an agent
--- and narrowed by lifecycle / terminal-ness / project / free-text. Every narg is
--- optional: NULL matches all. terminal: false = active (non-terminal) only, true =
--- history (terminal) only, NULL = both. The terminal set is the four end states.
+-- and narrowed by lifecycle / terminal-ness / project / workflow / free-text.
+-- Every narg is optional: NULL matches all. terminal: false = active
+-- (non-terminal) only, true = history (done) only, NULL = both.
 -- name: ListRootGoal :many
 SELECT * FROM agent_goal
 WHERE parent_id IS NULL
   AND user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
   AND (sqlc.narg(project_id)::uuid IS NULL OR project_id = sqlc.narg(project_id)::uuid)
+  AND (sqlc.narg(workflow_id)::uuid IS NULL OR workflow_id = sqlc.narg(workflow_id)::uuid)
   AND (sqlc.narg(lifecycle)::text IS NULL OR lifecycle = sqlc.narg(lifecycle)::text)
   AND (sqlc.narg(terminal)::boolean IS NULL
-       OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = sqlc.narg(terminal)::boolean)
+       OR (lifecycle = 'done') = sqlc.narg(terminal)::boolean)
   AND (sqlc.narg(q)::text IS NULL OR title ILIKE '%' || sqlc.narg(q) || '%' OR intent ILIKE '%' || sqlc.narg(q) || '%')
   AND (sqlc.arg(include_archived)::boolean OR archived_at IS NULL)
 ORDER BY created_at DESC, id DESC
@@ -42,9 +54,10 @@ WHERE parent_id IS NULL
   AND user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
   AND (sqlc.narg(project_id)::uuid IS NULL OR project_id = sqlc.narg(project_id)::uuid)
+  AND (sqlc.narg(workflow_id)::uuid IS NULL OR workflow_id = sqlc.narg(workflow_id)::uuid)
   AND (sqlc.narg(lifecycle)::text IS NULL OR lifecycle = sqlc.narg(lifecycle)::text)
   AND (sqlc.narg(terminal)::boolean IS NULL
-       OR (lifecycle IN ('accepted', 'rejected_final', 'abandoned', 'cancelled')) = sqlc.narg(terminal)::boolean)
+       OR (lifecycle = 'done') = sqlc.narg(terminal)::boolean)
   AND (sqlc.narg(q)::text IS NULL OR title ILIKE '%' || sqlc.narg(q) || '%' OR intent ILIKE '%' || sqlc.narg(q) || '%')
   AND (sqlc.arg(include_archived)::boolean OR archived_at IS NULL);
 
@@ -83,6 +96,7 @@ WHERE id = $7;
 -- name: TransitionGoalLifecycle :execrows
 UPDATE agent_goal SET
     lifecycle = sqlc.arg(to_lifecycle),
+    done_reason = sqlc.arg(done_reason),
     block_reason = sqlc.arg(block_reason),
     updated_at = now()
 WHERE id = sqlc.arg(id) AND lifecycle = sqlc.arg(from_lifecycle);
@@ -94,7 +108,7 @@ UPDATE agent_goal SET
     attempt_count = attempt_count + 1,
     updated_at = now()
 WHERE id = sqlc.arg(id)
-  AND lifecycle = 'ready'
+  AND lifecycle = 'pending'
   AND active_attempt_id IS NULL;
 
 -- name: ClearGoalActiveAttempt :exec
@@ -105,7 +119,8 @@ WHERE id = $1;
 
 -- name: AcceptGoal :execrows
 UPDATE agent_goal SET
-    lifecycle = 'accepted',
+    lifecycle = 'done',
+    done_reason = 'accepted',
     acceptance_state = 'passed',
     accepted_output = sqlc.arg(accepted_output),
     accepted_at = now(),
@@ -126,37 +141,20 @@ UPDATE agent_goal SET
     block_reason = sqlc.arg(block_reason),
     active_attempt_id = NULL,
     updated_at = now()
-WHERE id = sqlc.arg(id) AND lifecycle IN ('ready', 'active');
+WHERE id = sqlc.arg(id) AND lifecycle IN ('pending', 'active');
 
--- name: IncrGoalRequiredAccepted :exec
+-- name: IncrementGoalFlakyCount :one
 UPDATE agent_goal SET
-    required_accepted = required_accepted + 1,
+    flaky_count = flaky_count + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING flaky_count;
+
+-- name: IncrementGoalBudgetBonus :exec
+UPDATE agent_goal SET
+    budget_bonus = budget_bonus + 1,
     updated_at = now()
 WHERE id = $1;
-
--- name: IncrGoalRequiredFailed :exec
-UPDATE agent_goal SET
-    required_failed = required_failed + 1,
-    updated_at = now()
-WHERE id = $1;
-
--- name: IncrGoalRequiredBlocked :exec
-UPDATE agent_goal SET
-    required_blocked = required_blocked + 1,
-    updated_at = now()
-WHERE id = $1;
-
--- name: DecrGoalRequiredBlocked :exec
-UPDATE agent_goal SET
-    required_blocked = required_blocked - 1,
-    updated_at = now()
-WHERE id = $1 AND required_blocked > 0;
-
--- name: SetGoalRequiredTotal :exec
-UPDATE agent_goal SET
-    required_total = sqlc.arg(required_total),
-    updated_at = now()
-WHERE id = sqlc.arg(id);
 
 -- name: SetGoalPlan :exec
 -- Write a composite's decomposition plan (children + edges). Set by a
@@ -176,49 +174,35 @@ UPDATE agent_goal SET
     updated_at = now()
 WHERE id = sqlc.arg(id) AND planned_at IS NULL;
 
--- name: ReconcileGoalCounters :exec
+-- name: StampGoalWorkflow :exec
+-- Mark composite children whose sub-plan is frozen by a workflow. The
+-- decomposition dispatcher filters workflow_id IS NULL, so stamped children are
+-- never picked up for autonomous replanning between walk transactions. Runs in
+-- the same tx as the parent layer materialize so the exclusion is atomic.
 UPDATE agent_goal SET
-    required_total = (
-        SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required
-    ),
-    required_accepted = (
-        SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required
-          AND c.lifecycle = 'accepted'
-    ),
-    required_failed = (
-        SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required
-          AND c.lifecycle IN ('rejected_final', 'abandoned', 'cancelled')
-    ),
-    required_blocked = (
-        SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal c
-        WHERE c.parent_id = agent_goal.id AND c.required
-          AND c.lifecycle = 'blocked'
-    ),
+    workflow_id = sqlc.arg(workflow_id)::uuid,
+    workflow_version = sqlc.arg(workflow_version)::integer,
     updated_at = now()
-WHERE agent_goal.id = $1;
+WHERE id = ANY(sqlc.arg(ids)::text[]);
 
 -- name: ListDispatchableLeaves :many
 SELECT * FROM agent_goal
-WHERE lifecycle = 'ready'
+WHERE lifecycle = 'pending'
   AND active_attempt_id IS NULL
   AND kind = 'leaf'
 ORDER BY priority DESC, created_at ASC
 LIMIT $1;
 
 -- name: ListDecomposableComposites :many
--- Composites awaiting autonomous decomposition: freshly created (draft) and not
--- planned yet. Both review policies are auto-driven: the planner always produces
--- the plan; review_policy='human' only adds an approval gate after the plan is
--- proposed (the goal parks blocked(needs_plan_approval)), it does not stop the
--- planner from running. The dispatcher mints + enqueues a decomposition attempt
--- for each, moving it draft->active so it is not re-picked.
+-- Composites awaiting autonomous decomposition: freshly created (draft), not
+-- planned yet, and not workflow roots. A workflow root carries workflow_id and
+-- is materialized only by workflow replay; nested workflow composites do not
+-- carry workflow_id and remain planner-eligible when their sub-plan is not frozen.
 SELECT * FROM agent_goal
 WHERE kind = 'composite'
   AND lifecycle = 'draft'
   AND planned_at IS NULL
+  AND workflow_id IS NULL
 ORDER BY priority DESC, created_at ASC
 LIMIT $1;
 
@@ -226,29 +210,72 @@ LIMIT $1;
 SELECT * FROM agent_goal
 WHERE kind = 'composite'
   AND lifecycle = 'active'
-  AND required_total > 0
-  AND required_accepted >= required_total
+  AND planned_at IS NOT NULL
 ORDER BY updated_at ASC
 LIMIT $1;
 
--- name: ListStalledComposites :many
-SELECT * FROM agent_goal
-WHERE kind = 'composite'
-  AND lifecycle = 'active'
-  AND required_accepted < required_total
-ORDER BY updated_at ASC
-LIMIT $1;
+-- name: GetRequiredChildRollupCounts :one
+SELECT
+    COUNT(*)::bigint AS total,
+    COUNT(*) FILTER (WHERE c.lifecycle = 'done' AND c.done_reason = 'accepted')::bigint AS accepted,
+    COUNT(*) FILTER (WHERE c.lifecycle = 'done' AND c.done_reason IN ('failed', 'cancelled'))::bigint AS failed,
+    COUNT(*) FILTER (
+        WHERE c.lifecycle = 'blocked'
+           OR EXISTS (
+                SELECT 1 FROM agent_goal_edge e
+                JOIN agent_goal u ON u.id = e.upstream_id
+                WHERE e.goal_id = c.id
+                  AND e.edge_kind = 'hard'
+                  AND e.waived_at IS NULL
+                  AND u.lifecycle = 'done'
+                  AND u.done_reason IN ('failed', 'cancelled')
+                  AND e.on_failure = 'block'
+           )
+    )::bigint AS blocked,
+    COUNT(*) FILTER (
+        WHERE EXISTS (
+                SELECT 1 FROM agent_goal_edge e
+                JOIN agent_goal u ON u.id = e.upstream_id
+                WHERE e.goal_id = c.id
+                  AND e.edge_kind = 'hard'
+                  AND e.waived_at IS NULL
+                  AND u.lifecycle = 'done'
+                  AND u.done_reason IN ('failed', 'cancelled')
+                  AND e.on_failure = 'fail'
+        )
+    )::bigint AS dep_failed
+FROM agent_goal c
+WHERE c.parent_id = sqlc.arg(parent_id)::text AND c.required;
 
--- name: ListBlockedDepComposites :many
--- Composites parked blocked(dep) by the rollup because a required child was
--- blocked. The rollup scans (ListRollupCandidates/ListStalledComposites) only see
--- active composites, so a parent driven here never re-enters rollup on its own.
--- The dispatcher re-evaluates each: once its blocking children clear, it is woken
--- back to active so the rollup resumes (see RecoverBlockedComposite).
+-- name: ListZombieGoals :many
+-- Liveness backstop: non-terminal goals parked in a state nothing drives.
+-- Two classes:
+--   1. A pending composite: the dispatcher claims pending LEAVES and decomposes
+--      DRAFT composites, so nothing ever picks a composite out of pending. The
+--      transition table rejects writing this state; the scan catches legacy
+--      rows and out-of-band writes.
+--   2. An active goal with no active attempt pointer and no queued/running
+--      attempt, where activity cannot come from anywhere else: a leaf is only
+--      active while claimed, and an UNPLANNED active composite is only active
+--      while its decomposition attempt runs. A planned active composite is
+--      excluded -- the rollup drives it off its children.
+-- The updated_at grace keeps a row mid-transition in another tx from reading
+-- as a zombie.
 SELECT * FROM agent_goal
-WHERE kind = 'composite'
-  AND lifecycle = 'blocked'
-  AND block_reason = 'dep'
+WHERE lifecycle != 'done'
+  AND updated_at < now() - interval '5 minutes'
+  AND (
+    (kind = 'composite' AND lifecycle = 'pending')
+    OR (
+      lifecycle = 'active'
+      AND active_attempt_id IS NULL
+      AND (kind = 'leaf' OR planned_at IS NULL)
+      AND NOT EXISTS (
+        SELECT 1 FROM agent_goal_attempt a
+        WHERE a.goal_id = agent_goal.id AND a.status IN ('queued', 'running')
+      )
+    )
+  )
 ORDER BY updated_at ASC
 LIMIT $1;
 
@@ -265,7 +292,8 @@ LIMIT $1;
 
 -- name: CancelGoal :exec
 UPDATE agent_goal SET
-    lifecycle = 'cancelled',
+    lifecycle = 'done',
+    done_reason = 'cancelled',
     cancelled_at = now(),
     active_attempt_id = NULL,
     updated_at = now()
@@ -283,15 +311,13 @@ UPDATE agent_goal SET
     updated_at = now()
 WHERE id = $1;
 
--- name: ConsumeDispatchHint :exec
-UPDATE agent_goal SET
-    dispatch_hint = sqlc.arg(dispatch_hint),
-    updated_at = now()
-WHERE id = sqlc.arg(id);
+-- name: ListGoalsByWorkflow :many
+SELECT * FROM agent_goal
+WHERE workflow_id = $1
+  AND parent_id IS NULL
+ORDER BY created_at DESC, id DESC
+LIMIT $2;
 
--- Goals needing user attention, for the inbox. Open blocks surface at any
--- age (they wait on the user); terminal failures are windowed like failed runs.
--- The handler splits rows into inbox kinds by lifecycle/block_reason.
 -- name: ListInboxGoals :many
 SELECT
     d.id,
@@ -304,12 +330,16 @@ SELECT
     d.updated_at,
     d.created_at
 FROM agent_goal d
+JOIN agent_goal r ON r.id = d.root_id
 WHERE d.user_id = sqlc.arg(user_id)
   AND d.archived_at IS NULL
   AND (sqlc.narg(agent_id)::text IS NULL OR d.agent_id = sqlc.narg(agent_id)::text)
   AND (
-        d.lifecycle = 'blocked'
-        OR (d.lifecycle IN ('rejected_final', 'abandoned') AND d.updated_at >= sqlc.arg(since))
+        (
+          d.lifecycle = 'blocked'
+                    AND r.lifecycle != 'done'
+        )
+        OR (d.lifecycle = 'done' AND d.done_reason = 'failed' AND d.updated_at >= sqlc.arg(since) AND d.parent_id IS NULL)
       )
 ORDER BY d.updated_at DESC, d.id DESC
 LIMIT sqlc.arg(limit_count);

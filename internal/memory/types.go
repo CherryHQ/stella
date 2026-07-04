@@ -142,8 +142,9 @@ type ListOptions struct {
 	ProjectID       string // filter by project (empty = all)
 	ProjectIDIsNull bool   // when true, require project_id IS NULL
 	IncludeArchived bool
-	Limit           int // 0 = no limit
-	Offset          int // skip first N matching results
+	ExcludeInternal bool // hide task/delegate worker sessions from user-facing lists
+	Limit           int  // 0 = no limit
+	Offset          int  // skip first N matching results
 }
 
 // EstimateTokens returns a rough token count (~4 chars per token).

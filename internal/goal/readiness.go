@@ -53,9 +53,9 @@ func Compute(d sqlc.AgentGoal, edges []sqlc.ListEdgeWithUpstreamStateRow, now ti
 		return Readiness{State: ReadinessActive}
 	case LifecycleBlocked:
 		return Readiness{State: ReadinessBlocked, Reasons: []Reason{{Type: "blocked", Detail: d.BlockReason}}}
-	case LifecycleAccepted, LifecycleRejectedFinal, LifecycleAbandoned, LifecycleCancelled:
+	case LifecycleDone:
 		return Readiness{State: ReadinessTerminal}
-	case LifecycleReady:
+	case LifecyclePending:
 		// fall through to edge evaluation
 	default:
 		return Readiness{State: ReadinessUnknown, Reasons: []Reason{{Type: "unknown_lifecycle", Detail: d.Lifecycle}}}
@@ -70,13 +70,13 @@ func Compute(d sqlc.AgentGoal, edges []sqlc.ListEdgeWithUpstreamStateRow, now ti
 	depBlocked := false
 	for _, e := range edges {
 		waived := e.WaivedAt.Valid
-		accepted := e.UpstreamLifecycle == LifecycleAccepted
+		accepted := e.UpstreamLifecycle == LifecycleDone && e.UpstreamDoneReason == DoneReasonAccepted
 		switch e.EdgeKind {
 		case EdgeHard:
 			if accepted || waived {
 				continue // satisfied
 			}
-			if isUpstreamFailed(e.UpstreamLifecycle) {
+			if isUpstreamFailed(e.UpstreamLifecycle, e.UpstreamDoneReason) {
 				switch e.OnFailure {
 				case OnFailureIgnore:
 					// satisfied without action
@@ -116,14 +116,10 @@ func Compute(d sqlc.AgentGoal, edges []sqlc.ListEdgeWithUpstreamStateRow, now ti
 	return Readiness{State: ReadinessDispatchable, Dispatchable: true, Reasons: reasons}
 }
 
-// isUpstreamFailed reports whether an upstream lifecycle is terminal-bad, so a
-// hard downstream must apply its on_failure policy.
-func isUpstreamFailed(lc string) bool {
-	switch lc {
-	case LifecycleRejectedFinal, LifecycleAbandoned, LifecycleCancelled:
-		return true
-	}
-	return false
+// isUpstreamFailed reports whether an upstream is done-bad, so a hard downstream
+// must apply its on_failure policy.
+func isUpstreamFailed(lc, doneReason string) bool {
+	return lc == LifecycleDone && (doneReason == DoneReasonFailed || doneReason == DoneReasonCancelled)
 }
 
 // hasHardWait reports whether any reason represents an unsatisfied hard edge

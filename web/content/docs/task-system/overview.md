@@ -24,12 +24,12 @@ If the contract passes, the goal becomes **Accepted** and its output is frozen f
 A leaf goal runs as a bounded rework loop, not a one-shot:
 
 1. Dependencies satisfied → the goal becomes **Active**.
-2. The agent works in its session and submits evidence.
-3. The system evaluates the acceptance contract.
+2. The agent works in a one-shot internal execution session and submits evidence.
+3. The system evaluates the acceptance contract; deterministic checks run in that same sandbox session, so the command sees the files and environment the agent just used.
 4. Pass → **Accepted**. Fail → the gaps become input to the next attempt — that is the rework.
-5. Out of attempts → **Blocked** so you can raise the budget or abandon it.
+5. Out of attempts → **Blocked** so you can retry, add human guidance on the timeline, or abandon it.
 
-Each attempt is preserved, so the trail reads cleanly: attempt 1 produced X, acceptance found gaps Y, attempt 2 produced Z, accepted.
+Each attempt is preserved, but the Web UI treats execution sessions as internal plumbing. The goal **Timeline** is the human-readable trail: attempt 1 produced X, acceptance found gaps Y, you added guidance Z, attempt 2 was accepted.
 
 ## Lifecycle states
 
@@ -38,7 +38,7 @@ A goal moves through:
 - **Draft** — created, not yet activated.
 - **Ready** — eligible to run once dependencies and scheduling allow.
 - **Active** — the agent is working on it.
-- **Blocked** — paused for your verdict, a failed dependency, or an exhausted attempt budget.
+- **Blocked** — paused for your verdict, a failed dependency, exhausted budget, unavailable environment, or a contract conflict.
 - **Needs review** — evidence submitted, waiting on a judgment verdict.
 - **Accepted** — the acceptance contract passed. (Derived, terminal.)
 - **Rejected** — closed with no rework path.
@@ -63,7 +63,7 @@ Use a dependency when:
 - A downstream goal should stop if an upstream one fails.
 - You want the readiness view to explain exactly what is still waiting.
 
-A failed hard dependency blocks the downstream goal until you waive it with a reason.
+A failed hard dependency blocks the downstream goal until you waive it with a reason. A dependency block is not retryable from the downstream goal because the downstream input has not changed.
 
 ## Review and judgment
 
@@ -81,15 +81,26 @@ A judgment verdict is still recorded as **evidence** — an approval with its ra
 
 Chat history is a bad project tracker. In the Web UI, open an agent and choose the **Goals** tab to see root goals, scheduled work, and their children in one place. Projects open on their goal list first.
 
-Open a goal to inspect:
+Open a composite goal to inspect its **workflow canvas**. The canvas shows the plan, child goals, dependency edges, and final acceptance as one flow. Green edges are satisfied, animated inbound edges point at running work, and warning rings show the node that needs attention.
 
-- Its current lifecycle state and readiness.
-- **Children** and their rollup (for a composite).
-- **Attempts** — each execution episode and the gaps that drove the next one.
-- The **Acceptance** ledger — every check result and judgment verdict.
-- **Dependencies** and what's still waiting.
-- The accepted output, and the session behind any attempt.
+Click a node to open its detail dialog:
 
-When a goal is blocked on you, its page shows what it needs — submit your verdict, or waive a failed dependency, right there. The agent picks the work back up with your input.
+- **Plan** — root intent, overview fields, and plan revisions.
+- **Child goal** — status, intent, dependencies, attempts, readiness, and any required verdict. Composite children link to their own canvas.
+- **Acceptance** — contract editor, acceptance ledger, and accepted deliverables after completion.
+- **Timeline** — opened from the header button; shows plan events, attempts, acceptance results, lifecycle changes, and your messages.
+
+Dialog state is shareable: `?node=plan`, `?node=accept`, `?node=activity`, or `?node=<child-id>` opens the matching dialog directly. Leaf goals skip the canvas and show their attempts list, with the same acceptance and timeline dialogs available from the header.
+
+The **Needs you** list only shows blocks with a human recovery action. Goals waiting on upstream stay in **Active work** and resume automatically when upstream completes.
+
+Blocked cards show the one-line cause and only useful actions:
+
+- **Environment unavailable** — mark the environment fixed to retry, or report an administrator.
+- **Contract conflict** — edit the acceptance contract.
+- **Budget exhausted** — retry, or abandon it.
+- **Waiting on upstream** — shown in Active work; retry is intentionally hidden.
+
+When a goal is blocked on you, its page shows what it needs — submit your verdict, review a plan, fix a contract, or add guidance on the timeline. The agent picks the work back up with your input when the block is retryable.
 
 The practical rule: use chat to describe outcomes and decisions; use goals to track execution.

@@ -8,7 +8,7 @@ import { StatusPill, goalStatusLabel, displayStatus, rollup } from "@/features/g
 import { ReferenceCardShell } from "./ReferenceCardShell";
 
 /** Lifecycles a goal can no longer move out of — polling stops here. */
-const TERMINAL = new Set(["accepted", "rejected_final", "abandoned", "cancelled"]);
+const TERMINAL = new Set(["done"]);
 const POLL_MS = 15_000;
 
 /**

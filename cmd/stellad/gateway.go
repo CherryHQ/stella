@@ -172,6 +172,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if s.goalSvc != nil {
 		adminSrv.SetGoalService(s.goalSvc)
 	}
+	if s.workflowSvc != nil {
+		adminSrv.SetWorkflowService(s.workflowSvc)
+	}
 
 	// Wire the shared credentials service: inject invalidator so token
 	// refresh propagates to running pools.

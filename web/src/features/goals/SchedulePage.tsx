@@ -148,7 +148,6 @@ export function SchedulePage() {
 
       <DetailSection title={t("hub.runHistory")}>
         <RunsTimeline
-          agentId={effectiveAgentId}
           runs={runs.slice(0, 20).map((r) => ({
             id: r.id,
             status: r.status,
@@ -156,8 +155,6 @@ export function SchedulePage() {
             duration: r.duration,
             error: r.error,
             output: r.output,
-            sessionId: r.session_id,
-            sessionAgentId: r.session_agent_id,
           }))}
         />
       </DetailSection>

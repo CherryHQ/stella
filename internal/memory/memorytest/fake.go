@@ -474,6 +474,9 @@ func (f *Fake) ListInfo(_ context.Context, opts memory.ListOptions) ([]memory.Se
 		if opts.Kind != "" && si.info.Kind != opts.Kind {
 			continue
 		}
+		if opts.ExcludeInternal && (si.info.Kind == "task" || si.info.Kind == "delegate") {
+			continue
+		}
 		if opts.ProjectIDIsNull && si.info.ProjectID != "" {
 			continue
 		}

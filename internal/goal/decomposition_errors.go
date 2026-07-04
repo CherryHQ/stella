@@ -139,12 +139,36 @@ func validateDecompositionError(c DecompositionContent, parentDepth, maxDepth in
 	return validationErrorClass(errs[0])
 }
 
+func deterministicCapabilityErrors(c DecompositionContent) []ValidationError {
+	var errs []ValidationError
+	for i, ch := range c.Children {
+		kind := ch.Kind
+		if kind == "" {
+			kind = KindLeaf
+		}
+		if kind != KindLeaf || !ch.AcceptanceContract.HasRequiredDeterministicItem() {
+			continue
+		}
+		errs = append(errs, ValidationError{
+			Path:     fmt.Sprintf("/children/%d/acceptance_contract", i),
+			Code:     "deterministic_checks_unsupported",
+			Message:  "required deterministic acceptance checks cannot run on this deployment",
+			Expected: "judgment acceptance or a sandbox-capable backend",
+			Actual:   string(marshalJSON(ch.AcceptanceContract)),
+			Hint:     "remove required deterministic items or enable a sandbox backend before planning",
+		})
+	}
+	return errs
+}
+
 func validationErrorClass(e ValidationError) error {
 	switch e.Code {
 	case "invalid_acceptance_contract", "invalid_convergence_policy":
 		return ErrInvalidContract
 	case "composite_deterministic_contract":
 		return ErrCompositeDeterministicContract
+	case "deterministic_checks_unsupported":
+		return ErrDeterministicChecksUnsupported
 	case "depth_exceeded":
 		return ErrDepthExceeded
 	case "self_dependency", "cycle_detected":
@@ -159,8 +183,8 @@ func structuralValidationErrors(err error) []ValidationError {
 		return nil
 	}
 	if errors.Is(err, ErrInvalidDecomposition) || errors.Is(err, ErrInvalidContract) ||
-		errors.Is(err, ErrCompositeDeterministicContract) || errors.Is(err, ErrDepthExceeded) ||
-		errors.Is(err, ErrCycle) {
+		errors.Is(err, ErrCompositeDeterministicContract) || errors.Is(err, ErrDeterministicChecksUnsupported) ||
+		errors.Is(err, ErrDepthExceeded) || errors.Is(err, ErrCycle) {
 		return []ValidationError{{Path: "/", Code: "structural_error", Message: err.Error(), Hint: "fix the decomposition and call goal_control again"}}
 	}
 	return nil

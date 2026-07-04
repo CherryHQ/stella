@@ -19,7 +19,7 @@ paths:
           required: false
           description: >-
             Split active vs history: false returns non-terminal roots, true
-            returns terminal ones (accepted/rejected_final/abandoned/cancelled).
+            returns terminal ones (lifecycle=done).
             Omit for both.
           schema: { type: boolean }
         - name: q
@@ -44,6 +44,11 @@ paths:
         - name: project_id
           in: query
           required: false
+          schema: { type: string }
+        - name: workflow_id
+          in: query
+          required: false
+          description: Return root goals instantiated from this workflow version.
           schema: { type: string }
         - name: archived
           in: query
@@ -95,6 +100,43 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/goals/health:
+    get:
+      tags: [goals]
+      summary: Get goal execution health metrics
+      operationId: getGoalHealth
+      parameters:
+        - name: since
+          in: query
+          required: true
+          description: Include goals created at or after this RFC3339 timestamp.
+          schema: { type: string, format: date-time }
+        - name: user_id
+          in: query
+          required: false
+          description: Admin-only filter for one user; non-admin callers are scoped to themselves.
+          schema: { type: string }
+        - name: agent_id
+          in: query
+          required: false
+          description: Filter to one managing agent.
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/GoalHealthReport",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403":
+          { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/goals/{id}:
     parameters:
@@ -160,7 +202,7 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
-      summary: Activate a goal (plan gate; draft → ready)
+      summary: Activate a goal (plan gate; draft -> pending)
       operationId: activateGoal
       responses:
         "200":
@@ -379,6 +421,63 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/goals/{id}/timeline:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [goals]
+      summary: List a goal's timeline events
+      operationId: listGoalTimeline
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - { name: page_token, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/GoalTimeline",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [goals]
+      summary: Append a human message to the goal timeline
+      operationId: createGoalTimelineEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/GoalTimelineMessageRequest",
+              }
+      responses:
+        "201":
+          description: recorded
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/GoalTimelineEvent",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
   /api/goals/{id}/verdict:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -461,7 +560,7 @@ paths:
       - { name: upstreamId, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
-      summary: Waive a hard edge so a blocked(dep) downstream can proceed
+      summary: Waive a hard edge so downstream readiness can proceed
       operationId: waiveEdge
       requestBody:
         required: false

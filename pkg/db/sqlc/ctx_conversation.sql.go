@@ -360,17 +360,19 @@ SELECT id, session_id, title, channel, kind, project_id, archived, last_active, 
 WHERE user_id = $1
   AND agent_id IS NOT DISTINCT FROM $2
   AND ($3 != 0 OR archived = false)
-  AND ($4::text IS NULL OR kind = $4)
-  AND ($5 = 0 OR project_id IS NULL)
-  AND ($6::text IS NULL OR project_id = $6)
+  AND ($4::boolean = false OR kind NOT IN ('task', 'delegate'))
+  AND ($5::text IS NULL OR kind = $5)
+  AND ($6 = 0 OR project_id IS NULL)
+  AND ($7::text IS NULL OR project_id = $7)
 ORDER BY last_active DESC
-LIMIT NULLIF($8, -1) OFFSET $7
+LIMIT NULLIF($9, -1) OFFSET $8
 `
 
 type ListConversationsFilteredParams struct {
 	UserID          pgtype.Text `json:"user_id"`
 	AgentID         pgtype.Text `json:"agent_id"`
 	IncludeArchived interface{} `json:"include_archived"`
+	ExcludeInternal bool        `json:"exclude_internal"`
 	Kind            pgtype.Text `json:"kind"`
 	ProjectIDIsNull interface{} `json:"project_id_is_null"`
 	ProjectID       pgtype.Text `json:"project_id"`
@@ -383,6 +385,7 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 		arg.UserID,
 		arg.AgentID,
 		arg.IncludeArchived,
+		arg.ExcludeInternal,
 		arg.Kind,
 		arg.ProjectIDIsNull,
 		arg.ProjectID,

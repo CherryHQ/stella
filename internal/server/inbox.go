@@ -126,21 +126,28 @@ func goalInboxItem(row sqlc.ListInboxGoalsRow) apitypes.InboxItem {
 	}
 }
 
-// inboxFacetForGoal maps a goal's lifecycle/block_reason to its
-// inbox kind, id prefix, and a human-readable detail line.
+// inboxFacetForGoal maps a goal's lifecycle/block_reason to its inbox kind, id
+// prefix, and a human-readable detail line.
 func inboxFacetForGoal(lifecycle, blockReason string) (apitypes.InboxItemKind, string, string) {
-	switch {
-	case lifecycle == goal.LifecycleBlocked && blockReason == goal.BlockNeedsVerdict:
-		return apitypes.InboxItemKindReview, "review", "Awaiting your verdict"
-	case lifecycle == goal.LifecycleBlocked && blockReason == goal.BlockBudgetExhausted:
-		return apitypes.InboxItemKindBlocked, "blocked", "Attempt budget exhausted"
-	case lifecycle == goal.LifecycleBlocked:
-		return apitypes.InboxItemKindBlocked, "blocked", "Blocked on a dependency"
-	case lifecycle == goal.LifecycleAbandoned:
-		return apitypes.InboxItemKindFailed, "failed", "Abandoned after budget exhaustion"
-	default: // rejected_final
-		return apitypes.InboxItemKindFailed, "failed", "Rejected with no rework path left"
+	if lifecycle == goal.LifecycleBlocked {
+		switch blockReason {
+		case goal.BlockNeedsVerdict:
+			return apitypes.InboxItemKindReview, "review", "Awaiting your verdict"
+		case goal.BlockNeedsPlanApproval:
+			return apitypes.InboxItemKindReview, "review", "Plan awaiting your approval"
+		case goal.BlockBudgetExhausted:
+			return apitypes.InboxItemKindBlocked, "blocked", "Attempt budget exhausted"
+		case goal.BlockPlanningInvalid:
+			return apitypes.InboxItemKindBlocked, "blocked", "Planning failed"
+		case goal.BlockContractConflict:
+			return apitypes.InboxItemKindBlocked, "blocked", "Acceptance contract conflict"
+		case goal.BlockEnvUnavailable:
+			return apitypes.InboxItemKindBlocked, "blocked", "Environment unavailable"
+		default:
+			return apitypes.InboxItemKindBlocked, "blocked", "Blocked"
+		}
 	}
+	return apitypes.InboxItemKindFailed, "failed", "Failed with no retry path left"
 }
 
 func failedSchedulerRunInboxItem(row sqlc.ListFailedInboxSchedulerRunsRow) apitypes.InboxItem {
@@ -182,7 +189,7 @@ func goalTargetPath(agentID, goalID string) string {
 
 func schedulerRunTargetPath(row sqlc.ListFailedInboxSchedulerRunsRow) string {
 	if row.AgentID.Valid {
-		return "/agents/" + row.AgentID.String + "/tasks"
+		return "/agents/" + row.AgentID.String + "/goals/schedules/" + row.JobID
 	}
 	return "/agents"
 }

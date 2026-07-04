@@ -59,6 +59,7 @@ tags:
   - name: plugins
   - name: status
   - name: goals
+  - name: workflows
   - name: projects
   - name: inbox
 paths:
@@ -344,10 +345,14 @@ paths:
   # ── Goals ─────────────────────────────────────────────────────────
   /api/goals:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals"
+  /api/goals/health:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1health"
   /api/goals/{id}:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}"
   /api/goals/{id}/activate:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1activate"
+  /api/goals/{id}/save-as-workflow:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1goals~1{id}~1save-as-workflow"
   /api/goals/{id}/cancel:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1cancel"
   /api/goals/{id}/abandon:
@@ -366,6 +371,8 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1attempts~1{attemptId}"
   /api/goals/{id}/acceptance-events:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1acceptance-events"
+  /api/goals/{id}/timeline:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1timeline"
   /api/goals/{id}/verdict:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1verdict"
   /api/goals/{id}/edges:
@@ -376,6 +383,14 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1plan~1approve"
   /api/goals/{id}/plan/reject:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1plan~1reject"
+  /api/workflows:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows"
+  /api/workflows/{id}:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows~1{id}"
+  /api/workflows/{id}/runs:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows~1{id}~1runs"
+  /api/workflows/{id}/instantiate:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows~1{id}~1instantiate"
   # ── Groups ─────────────────────────────────────────────────────────────────
   /api/groups:
     $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups"
@@ -665,6 +680,33 @@ components:
     }
     Attempt: { $ref: "./components.yaml#/components/schemas/Attempt" }
     AttemptList: { $ref: "./components.yaml#/components/schemas/AttemptList" }
+    GoalHealthReport: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthReport",
+    }
+    GoalHealthCountBucket: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthCountBucket",
+    }
+    GoalHealthRatioBucket: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthRatioBucket",
+    }
+    GoalHealthAttemptPurpose: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthAttemptPurpose",
+    }
+    GoalHealthAcceptanceEvents: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthAcceptanceEvents",
+    }
+    GoalHealthDecompositionQuality: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthDecompositionQuality",
+    }
+    GoalHealthBudgetAttribution: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthBudgetAttribution",
+    }
+    GoalHealthAttemptLatency: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthAttemptLatency",
+    }
+    GoalHealthLatency: {
+      $ref: "./components.yaml#/components/schemas/GoalHealthLatency",
+    }
     AcceptanceEvent: {
       $ref: "./components.yaml#/components/schemas/AcceptanceEvent",
     }

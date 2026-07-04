@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // lifecycle_leaf_test.go exercises the leaf goal lifecycle through the
@@ -34,8 +35,12 @@ func lcl_passOutput(hash string) func(ExecutorRequest) (ExecutorResult, error) {
 // lcl_fail scripts a reported executor failure (the worker's finalize-failed
 // branch, §5 step 7).
 func lcl_fail(reason string) func(ExecutorRequest) (ExecutorResult, error) {
+	return lcl_failClass(reason, FailureClassModel, "")
+}
+
+func lcl_failClass(reason, failureClass, blockedBy string) func(ExecutorRequest) (ExecutorResult, error) {
 	return func(_ ExecutorRequest) (ExecutorResult, error) {
-		return ExecutorResult{Failed: true, FailReason: reason, Retryable: false}, nil
+		return ExecutorResult{Failed: true, FailReason: reason, FailureClass: failureClass, BlockedBy: blockedBy}, nil
 	}
 }
 
@@ -53,7 +58,7 @@ func lcl_fail(reason string) func(ExecutorRequest) (ExecutorResult, error) {
 // the scripted executor's fn.
 type lcl_checkRunner struct{ pass bool }
 
-func (r *lcl_checkRunner) Run(_ context.Context, item AcceptanceItem, _ CheckEnv) (CheckResult, error) {
+func (r *lcl_checkRunner) Run(_ context.Context, item AcceptanceItem, _ CheckEnv, _ sandbox.Session) (CheckResult, error) {
 	return CheckResult{ItemID: item.ID, Pass: r.pass}, nil
 }
 
@@ -134,7 +139,7 @@ func TestLcl_ActivateNonDraftIsInvalid(t *testing.T) {
 	if !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("re-activate ready leaf err=%v want ErrInvalidTransition", err)
 	}
-	if got := h.get(d.ID).Lifecycle; got != LifecycleReady {
+	if got := h.get(d.ID).Lifecycle; got != LifecyclePending {
 		t.Fatalf("after failed re-activate lifecycle=%q want ready (unchanged)", got)
 	}
 }
@@ -150,7 +155,7 @@ func TestLcl_TrivialLeafAccepts(t *testing.T) {
 	h.runLeaf(d.ID)
 
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleAccepted {
+	if got.Lifecycle != LifecycleDone {
 		t.Fatalf("lifecycle=%q want accepted", got.Lifecycle)
 	}
 	// accepted_output is frozen on acceptance — a leaf has no decomposition plan
@@ -206,7 +211,7 @@ func TestLcl_HumanVerdictLeaf(t *testing.T) {
 		t.Fatalf("submit matching verdict: %v", err)
 	}
 	accepted := h.get(d.ID)
-	if accepted.Lifecycle != LifecycleAccepted {
+	if accepted.Lifecycle != LifecycleDone {
 		t.Fatalf("after matching verdict lifecycle=%q want accepted", accepted.Lifecycle)
 	}
 	var ao AcceptedOutput
@@ -267,7 +272,7 @@ func TestLcl_VerdictReSubmitIsIdempotent(t *testing.T) {
 	if err := h.svc.SubmitVerdict(context.Background(), verdict); err != nil {
 		t.Fatalf("first verdict: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("after first verdict lifecycle=%q want accepted", got.Lifecycle)
 	}
 
@@ -276,7 +281,7 @@ func TestLcl_VerdictReSubmitIsIdempotent(t *testing.T) {
 		t.Fatalf("duplicate verdict must be idempotent, got err=%v", err)
 	}
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleAccepted {
+	if got.Lifecycle != LifecycleDone {
 		t.Fatalf("after duplicate verdict lifecycle=%q want still accepted", got.Lifecycle)
 	}
 	// The ledger deduped the duplicate — only the single verdict event remains.
@@ -316,7 +321,7 @@ func TestLcl_FailWithBudgetRework(t *testing.T) {
 		t.Fatalf("after fold failure lifecycle=%q is terminal; budget remained, want recoverable", afterFail.Lifecycle)
 	}
 	// Budget left ⇒ reopen-for-rework: active pointer cleared, back to ready.
-	if afterFail.Lifecycle != LifecycleReady {
+	if afterFail.Lifecycle != LifecyclePending {
 		t.Fatalf("after fold failure lifecycle=%q want ready (rework = next attempt)", afterFail.Lifecycle)
 	}
 	if afterFail.ActiveAttemptID.Valid && afterFail.ActiveAttemptID.String != "" {
@@ -346,7 +351,7 @@ func TestLcl_FailWithBudgetRework(t *testing.T) {
 	h.exec.fn = lcl_passOutput("OUT2")
 	rig.runLeaf(t, d.ID)
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleAccepted {
+	if got.Lifecycle != LifecycleDone {
 		t.Fatalf("after retry success lifecycle=%q want accepted", got.Lifecycle)
 	}
 	if got.AttemptCount != 2 {
@@ -378,7 +383,7 @@ func TestLcl_BudgetExhaustedReattemptAbandon(t *testing.T) {
 	if err := h.svc.Reattempt(context.Background(), d.ID, UserActor(h.userID)); err != nil {
 		t.Fatalf("reattempt: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle != LifecycleReady {
+	if got := h.get(d.ID); got.Lifecycle != LifecyclePending {
 		t.Fatalf("after reattempt lifecycle=%q want ready", got.Lifecycle)
 	}
 
@@ -393,7 +398,7 @@ func TestLcl_BudgetExhaustedReattemptAbandon(t *testing.T) {
 		t.Fatalf("abandon: %v", err)
 	}
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleAbandoned {
+	if got.Lifecycle != LifecycleDone {
 		t.Fatalf("after abandon lifecycle=%q want abandoned", got.Lifecycle)
 	}
 	if !IsTerminalLifecycle(got.Lifecycle) {
@@ -412,11 +417,11 @@ func TestLcl_WorkerReportedFailureReopensToReady(t *testing.T) {
 	d := h.createRoot(KindLeaf, AcceptanceContract{}) // default budget 3
 	h.activate(d.ID)
 
-	h.exec.fn = lcl_fail("transient")
+	h.exec.fn = lcl_fail("model failure")
 	attID := h.runLeaf(d.ID)
 
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleReady {
+	if got.Lifecycle != LifecyclePending {
 		t.Fatalf("after worker-reported failure lifecycle=%q want ready (reopened for rework, not stranded active)", got.Lifecycle)
 	}
 	if got.ActiveAttemptID.Valid && got.ActiveAttemptID.String != "" {
@@ -438,6 +443,78 @@ func TestLcl_WorkerReportedFailureReopensToReady(t *testing.T) {
 // same path (issue #543): a worker-reported failure on a MaxAttempts=1 leaf has no
 // rework budget, so convergence parks it blocked(budget_exhausted) — visible to a
 // human — rather than stranding it 'active'.
+func TestLcl_ResponsibilityFailureRoutes(t *testing.T) {
+	cases := []struct {
+		name       string
+		class      string
+		blockedBy  string
+		wantLife   string
+		wantReason string
+	}{
+		{name: "model", class: FailureClassModel, wantLife: LifecyclePending},
+		{name: "environment", class: FailureClassEnvironment, blockedBy: BlockEnvUnavailable, wantLife: LifecycleBlocked, wantReason: BlockEnvUnavailable},
+		{name: "contract", class: FailureClassContract, blockedBy: BlockContractConflict, wantLife: LifecycleBlocked, wantReason: BlockContractConflict},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			d := h.createRoot(KindLeaf, AcceptanceContract{})
+			h.activate(d.ID)
+			h.exec.fn = lcl_failClass(tc.name+" failure", tc.class, tc.blockedBy)
+			h.runLeaf(d.ID)
+
+			got := h.get(d.ID)
+			if got.Lifecycle != tc.wantLife || got.BlockReason != tc.wantReason {
+				t.Fatalf("goal=(%s,%s) want (%s,%s)", got.Lifecycle, got.BlockReason, tc.wantLife, tc.wantReason)
+			}
+			remaining := remainingBudget(t, h, got)
+			if tc.class == FailureClassModel {
+				if remaining != defaultMaxAttempts-1 {
+					t.Fatalf("model remaining=%d want %d", remaining, defaultMaxAttempts-1)
+				}
+			} else if remaining != defaultMaxAttempts {
+				t.Fatalf("%s remaining=%d want unchanged %d", tc.name, remaining, defaultMaxAttempts)
+			}
+		})
+	}
+}
+
+func TestLcl_FlakyFailureRetriesOutsideBusinessBudgetThenBlocksEnvironment(t *testing.T) {
+	h := newHarness(t)
+	d := h.createRoot(KindLeaf, AcceptanceContract{})
+	h.activate(d.ID)
+	h.exec.fn = lcl_failClass("network timeout", FailureClassFlaky, "")
+
+	for i := 1; i <= 5; i++ {
+		h.runLeaf(d.ID)
+		got := h.get(d.ID)
+		if got.Lifecycle != LifecyclePending || got.FlakyCount != int64(i) {
+			t.Fatalf("after flaky %d goal=(%s flaky=%d) want ready flaky=%d", i, got.Lifecycle, got.FlakyCount, i)
+		}
+		if remaining := remainingBudget(t, h, got); remaining != defaultMaxAttempts {
+			t.Fatalf("after flaky %d remaining=%d want unchanged %d", i, remaining, defaultMaxAttempts)
+		}
+	}
+
+	h.runLeaf(d.ID)
+	got := h.get(d.ID)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable || got.FlakyCount != 6 {
+		t.Fatalf("after flaky limit goal=(%s,%s flaky=%d) want blocked/env_unavailable flaky=6", got.Lifecycle, got.BlockReason, got.FlakyCount)
+	}
+	if remaining := remainingBudget(t, h, got); remaining != defaultMaxAttempts {
+		t.Fatalf("after flaky limit remaining=%d want unchanged %d", remaining, defaultMaxAttempts)
+	}
+}
+
+func remainingBudget(t *testing.T, h *harness, d sqlc.AgentGoal) int {
+	t.Helper()
+	spent, err := h.svc.spentAttemptBudget(context.Background(), h.q, d.ID, PurposeExecution)
+	if err != nil {
+		t.Fatalf("count billable attempts: %v", err)
+	}
+	return effectiveAttemptBudget(d) - spent
+}
+
 func TestLcl_WorkerReportedFailureBudgetOutBlocks(t *testing.T) {
 	h := newHarness(t)
 	d, err := h.svc.CreateRoot(context.Background(), CreateInput{
@@ -464,13 +541,12 @@ func TestLcl_WorkerReportedFailureBudgetOutBlocks(t *testing.T) {
 	}
 }
 
-// TestLcl_MissingCheckRunnerFailsAttempt asserts the deterministic-strand guard
-// (issue #543): a leaf with a REQUIRED deterministic item run by a service with NO
-// CheckRunner cannot evaluate the gate, so the worker fails the attempt instead of
-// submitting into a pending strand — the goal reopens to ready (budget
-// left) rather than hanging 'active' on a never-satisfiable item. (The base
-// harness service wires no CheckRunner; lcl_newRig is the one that does.)
-func TestLcl_MissingCheckRunnerFailsAttempt(t *testing.T) {
+// TestLcl_MissingCheckRunnerBlocksEnvironment asserts the deterministic-strand
+// guard (issue #543): a leaf with a REQUIRED deterministic item run by a service
+// with NO CheckRunner cannot evaluate the gate, so the worker classifies the
+// attempt as environment-owned and blocks without charging business budget. (The
+// base harness service wires no CheckRunner; lcl_newRig is the one that does.)
+func TestLcl_MissingCheckRunnerBlocksEnvironment(t *testing.T) {
 	h := newHarness(t)
 	d := h.createRoot(KindLeaf, AcceptanceContract{
 		Policy: PolicyDetThenJudgment,
@@ -485,15 +561,18 @@ func TestLcl_MissingCheckRunnerFailsAttempt(t *testing.T) {
 	attID := h.runLeaf(d.ID)
 
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleReady {
-		t.Fatalf("missing-check-runner lifecycle=%q want ready (attempt failed, reopened), not stranded active", got.Lifecycle)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockEnvUnavailable {
+		t.Fatalf("missing-check-runner goal=(%s,%s) want blocked/env_unavailable", got.Lifecycle, got.BlockReason)
+	}
+	if remaining := remainingBudget(t, h, got); remaining != defaultMaxAttempts {
+		t.Fatalf("missing-check-runner remaining=%d want unchanged %d", remaining, defaultMaxAttempts)
 	}
 	att, err := h.q.GetAttempt(context.Background(), attID)
 	if err != nil {
 		t.Fatalf("get attempt: %v", err)
 	}
-	if att.Status != AttemptFailed {
-		t.Fatalf("attempt status=%q want failed (check could not be evaluated)", att.Status)
+	if att.Status != AttemptFailed || att.FailureClass != FailureClassEnvironment {
+		t.Fatalf("attempt=(%s,%s) want failed/environment", att.Status, att.FailureClass)
 	}
 }
 
@@ -517,7 +596,7 @@ func TestLcl_CancelActiveLeaf(t *testing.T) {
 		t.Fatalf("cancel: %v", err)
 	}
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleCancelled {
+	if got.Lifecycle != LifecycleDone {
 		t.Fatalf("after cancel lifecycle=%q want cancelled", got.Lifecycle)
 	}
 	if !IsTerminalLifecycle(got.Lifecycle) {
@@ -566,7 +645,7 @@ func TestClaimEnqueueAtomic(t *testing.T) {
 		} else if len(atts) != 0 {
 			t.Fatalf("attempts after rolled-back claim = %d, want 0", len(atts))
 		}
-		if got := h.get(d.ID); got.Lifecycle != LifecycleReady || got.ActiveAttemptID.Valid {
+		if got := h.get(d.ID); got.Lifecycle != LifecyclePending || got.ActiveAttemptID.Valid {
 			t.Fatalf("goal after rolled-back claim = (%s, active=%v), want (ready, false)",
 				got.Lifecycle, got.ActiveAttemptID.Valid)
 		}
@@ -619,7 +698,7 @@ func TestLcl_QueuedReapDoesNotChargeBudget(t *testing.T) {
 		if err := h.svc.ReapAttempt(ctx, att.ID); err != nil {
 			t.Fatalf("reap %d: %v", i, err)
 		}
-		if got := h.get(d.ID); got.Lifecycle != LifecycleReady {
+		if got := h.get(d.ID); got.Lifecycle != LifecyclePending {
 			t.Fatalf("after queued reap %d lifecycle=%q reason=%q want ready (never-run attempt must not charge budget)", i, got.Lifecycle, got.BlockReason)
 		}
 	}
@@ -628,7 +707,7 @@ func TestLcl_QueuedReapDoesNotChargeBudget(t *testing.T) {
 	rig.checks.pass = true
 	h.exec.fn = lcl_passOutput("REAP-OK")
 	rig.runLeaf(t, d.ID)
-	if got := h.get(d.ID).Lifecycle; got != LifecycleAccepted {
+	if got := h.get(d.ID).Lifecycle; got != LifecycleDone {
 		t.Fatalf("after real run lifecycle=%q want accepted (queued reaps did not consume budget)", got)
 	}
 }

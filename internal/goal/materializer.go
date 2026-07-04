@@ -44,7 +44,7 @@ func childID(goalID, key string) string {
 //     position=index, contract/policy from the proposal, lifecycle draft).
 //   - for each ProposedEdge: insert agent_goal_edge (resolve keys→ids); PK
 //     collision = no-op.
-//   - set parent required_total (count of required children); CAS planned_at.
+//   - CAS planned_at.
 //
 // Replan reconcile (cancelling/detaching children dropped by a later plan) is
 // intentionally out of scope: a composite is decomposed exactly once (planned_at
@@ -52,11 +52,8 @@ func childID(goalID, key string) string {
 //
 // The caller MUST hold LockGoalForWrite on parent so the planned_at CAS and child
 // inserts cannot race a concurrent materialize.
-//
-// childSessions maps a child Key → a pre-minted session_id. A missing entry is a
-// programming error the caller (converge.go) prevents by minting all sessions
-// before opening the tx.
 func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, parent sqlc.AgentGoal, content DecompositionContent, childSessions map[string]string) error {
+	_ = childSessions
 	// Idempotency fence: a second call short-circuits once planned_at is set.
 	if parent.PlannedAt.Valid {
 		return nil
@@ -76,12 +73,8 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, parent
 	}
 
 	childDepth := parent.Depth + 1
-	requiredTotal := int64(0)
 	for i, ch := range content.Children {
 		cid := childID(parent.ID, ch.Key)
-		if ch.Required {
-			requiredTotal++
-		}
 		// Get-then-skip on the deterministic id makes a retried materialize a
 		// structural no-op rather than a duplicate insert.
 		if _, err := qtx.GetGoal(ctx, cid); err == nil {
@@ -90,10 +83,6 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, parent
 			return fmt.Errorf("probe child %q: %w", ch.Key, err)
 		}
 
-		sid, ok := childSessions[ch.Key]
-		if !ok {
-			return fmt.Errorf("%w: no pre-minted session for child %q", ErrInvalidDecomposition, ch.Key)
-		}
 		kind := ch.Kind
 		if kind == "" {
 			kind = KindLeaf
@@ -111,7 +100,6 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, parent
 			RootID:             parent.RootID,
 			Depth:              childDepth,
 			Position:           int64(i),
-			SessionID:          sid,
 			Title:              ch.Title,
 			Intent:             ch.Intent,
 			Kind:               kind,
@@ -157,17 +145,12 @@ func (s *GoalService) Materialize(ctx context.Context, qtx *sqlc.Queries, parent
 		}
 	}
 
-	// Set required_total, then CAS the planned_at fence. A second concurrent
-	// materialize (despite the row lock the caller holds) gets 0 rows and treats
-	// it as an idempotent no-op rather than re-creating anything.
-	if err := qtx.SetGoalRequiredTotal(ctx, sqlc.SetGoalRequiredTotalParams{
-		RequiredTotal: requiredTotal,
-		ID:            parent.ID,
-	}); err != nil {
-		return fmt.Errorf("set required total: %w", err)
-	}
-	if _, err := qtx.MarkGoalPlanned(ctx, parent.ID); err != nil {
+	rows, err := qtx.MarkGoalPlanned(ctx, parent.ID)
+	if err != nil {
 		return fmt.Errorf("mark goal planned: %w", err)
+	}
+	if rows == 0 {
+		return nil
 	}
 	return nil
 }

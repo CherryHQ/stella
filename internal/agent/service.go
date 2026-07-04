@@ -10,6 +10,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -215,12 +216,13 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 
 // TaskChatRequest describes one worker turn on a durable task session.
 type TaskChatRequest struct {
-	SessionID  string // task session minted at task creation
-	UserID     string
-	AgentID    string
-	ProjectID  string
-	Message    MessageContent
-	ExtraTools []tools.Tool // per-run tools (e.g. task_control)
+	SessionID        string // task session minted at task creation
+	UserID           string
+	AgentID          string
+	ProjectID        string
+	Message          MessageContent
+	ExtraTools       []tools.Tool // per-run tools (e.g. task_control)
+	OnSandboxSession func(sandbox.Session) error
 }
 
 // ChatForTask runs one persisted chat turn on a task session. Exact-ID
@@ -280,7 +282,16 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 		for ev := range src {
 			out <- ev
 		}
-		_ = s.Runtime.CloseSession(context.WithoutCancel(ctx), req.SessionID)
+		closeCtx := context.WithoutCancel(ctx)
+		var err error
+		if req.OnSandboxSession != nil {
+			err = s.Runtime.CloseSessionWithSandbox(closeCtx, req.SessionID, req.OnSandboxSession)
+		} else {
+			err = s.Runtime.CloseSession(closeCtx, req.SessionID)
+		}
+		if err != nil {
+			out <- Event{Err: fmt.Errorf("close worker session: %w", err)}
+		}
 	}()
 	return out
 }

@@ -13,7 +13,7 @@ Available templates:
 
 ### Subscribe via the Web UI
 
-1. Open any agent and go to the **Tasks** tab.
+1. Open any agent and go to the **Goals** tab.
 2. Click **New Schedule**.
 3. Choose **From template** at the top of the sheet.
 4. Select a template card. Templates you have already subscribed to are shown as disabled.
@@ -62,7 +62,7 @@ There are three types of schedules:
 
 - **Recurring (interval)** — runs every N minutes/hours. Example: "Check my email every 30 minutes."
 - **Recurring (cron)** — runs on a cron schedule. Example: "Every weekday at 9am, summarize my calendar."
-- **One-time** — runs once at a specific time, then removes itself. Example: "Remind me at 3pm to call the dentist."
+- **One-time** — runs once at a specific time, then disables itself. Example: "Remind me at 3pm to call the dentist."
 
 ## Natural Language Examples
 
@@ -92,7 +92,7 @@ You can specify the mode when creating a job:
 
 ### From the Web UI
 
-Open an agent and choose the **Tasks** tab; scheduled jobs appear there alongside one-time tasks and goals. You can:
+Open an agent and choose the **Goals** tab; schedules appear there alongside goals. You can:
 
 - View job status, schedule, and last run time
 - Enable or disable jobs
@@ -136,6 +136,6 @@ stella scheduler remove <job-id>
 ## Tips
 
 - **Use cron for precise timing.** Cron expressions give you fine control: `0 9 * * 1-5` means "9am on weekdays." Use interval (`--every`) for simpler "every N minutes" patterns.
-- **One-time jobs clean up after themselves.** After a one-time job runs, it is automatically removed from the schedule.
+- **One-time jobs disable themselves after firing.** The entry stays in the schedule list (disabled) so its run history and "run now" keep working; delete it if you no longer need it.
 - **Use "reuse" mode for monitoring tasks.** If the job is tracking something over time (like a project's progress), reuse mode lets Stella reference what she saw in previous runs.
 - **Combine with other features.** Scheduled jobs can use any of Stella's capabilities — reading assistant, skills, memory. For example, schedule a job to check your RSS feeds and summarize new articles every morning.

@@ -22,6 +22,11 @@ const (
 	ExecScopeUser = "user"
 )
 
+const (
+	DispatchKindChat     = "chat"
+	DispatchKindWorkflow = "workflow"
+)
+
 // Schedule defines when a job runs. Exactly one field must be set.
 type Schedule struct {
 	Cron  string `json:"cron,omitempty"`  // "0 9 * * 1-5"
@@ -48,6 +53,7 @@ type Job struct {
 	Schedule       Schedule       `json:"schedule"`
 	Message        string         `json:"message,omitempty"`
 	Payload        map[string]any `json:"payload,omitempty"`
+	DispatchKind   string         `json:"dispatch_kind,omitempty"`
 	SessionMode    string         `json:"session_mode"` // "reuse" (default) or "new"
 	Enabled        bool           `json:"enabled"`
 	AgentID        string         `json:"agent_id,omitempty"` // agent to route to (empty = default)
@@ -114,6 +120,19 @@ func RunOutputSinkFromContext(ctx context.Context) *RunOutputSink {
 		return v
 	}
 	return nil
+}
+
+type runIDKey struct{}
+
+func WithRunID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, runIDKey{}, id)
+}
+
+func RunIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(runIDKey{}).(string); ok {
+		return v
+	}
+	return ""
 }
 
 type runSessionIDKey struct{}

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -185,16 +187,31 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 
 // close shuts down the runner for a single session.
 func (c *runnerCache) close(sessionID string) error {
+	return c.closeWithSandbox(sessionID, nil)
+}
+
+// closeWithSandbox invokes cb with the live runner-owned sandbox, when present,
+// immediately before closing the runner. Close still runs if cb fails.
+func (c *runnerCache) closeWithSandbox(sessionID string, cb SandboxSessionCallback) error {
 	c.mu.Lock()
 	cs, ok := c.sessions[sessionID]
 	if ok {
 		delete(c.sessions, sessionID)
 	}
 	c.mu.Unlock()
-	if ok && cs.r != nil {
-		return cs.r.Close()
+	if !ok || cs.r == nil {
+		return nil
 	}
-	return nil
+
+	var cbErr error
+	if cb != nil {
+		if sr, ok := cs.r.(interface{ SandboxSession() pkgsandbox.Session }); ok {
+			if sess := sr.SandboxSession(); sess != nil {
+				cbErr = cb(sess)
+			}
+		}
+	}
+	return errors.Join(cbErr, cs.r.Close())
 }
 
 func (c *runnerCache) reset() error {

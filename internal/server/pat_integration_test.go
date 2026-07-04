@@ -139,7 +139,7 @@ func TestPAT_Lifecycle(t *testing.T) {
 	}{
 		{"vault scope", map[string]any{"name": "x", "scopes": []string{"vault:read"}}},
 		{"oauth scope", map[string]any{"name": "x", "scopes": []string{"oauth:*"}}},
-		{"bad action", map[string]any{"name": "x", "scopes": []string{"tasks:delete"}}},
+		{"bad action", map[string]any{"name": "x", "scopes": []string{"goals:delete"}}},
 		{"unknown resource", map[string]any{"name": "x", "scopes": []string{"bogus:read"}}},
 		{"empty scopes", map[string]any{"name": "x", "scopes": []string{}}},
 		{"blank name", map[string]any{"name": "", "scopes": []string{"goals:read"}}},

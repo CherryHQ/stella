@@ -230,6 +230,9 @@ const GoalInputSchemaJSON = `{
         },
         "terminal": {
           "type": "boolean"
+        },
+        "workflow_id": {
+          "type": "string"
         }
       },
       "required": [
@@ -285,15 +288,16 @@ type GoalGetInput struct {
 }
 
 type GoalListInput struct {
-	Archived  *bool  `json:"archived,omitempty"`
-	Lifecycle string `json:"lifecycle,omitempty"`
-	PageSize  int    `json:"page_size,omitempty"`
-	PageToken string `json:"page_token,omitempty"`
-	Parent    string `json:"parent,omitempty"`
-	ProjectId string `json:"project_id,omitempty"`
-	Q         string `json:"q,omitempty"`
-	Root      string `json:"root,omitempty"`
-	Terminal  *bool  `json:"terminal,omitempty"`
+	Archived   *bool  `json:"archived,omitempty"`
+	Lifecycle  string `json:"lifecycle,omitempty"`
+	PageSize   int    `json:"page_size,omitempty"`
+	PageToken  string `json:"page_token,omitempty"`
+	Parent     string `json:"parent,omitempty"`
+	ProjectId  string `json:"project_id,omitempty"`
+	Q          string `json:"q,omitempty"`
+	Root       string `json:"root,omitempty"`
+	Terminal   *bool  `json:"terminal,omitempty"`
+	WorkflowId string `json:"workflow_id,omitempty"`
 }
 
 func DispatchGoal(ctx context.Context, h GoalHandler, action string, args map[string]any) (any, error) {

@@ -554,7 +554,12 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 		return
 	}
 
-	opts := memory.ListOptions{IncludeArchived: true, Limit: limit + 1, Offset: offset}
+	opts := memory.ListOptions{
+		IncludeArchived: true,
+		ExcludeInternal: params.Kind == nil,
+		Limit:           limit + 1,
+		Offset:          offset,
+	}
 	if info != nil {
 		opts.UserID = info.UserID
 	}

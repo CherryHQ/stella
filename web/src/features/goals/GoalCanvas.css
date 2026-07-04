@@ -1,0 +1,164 @@
+.goal-canvas-shell {
+  min-height: 420px;
+}
+
+.goal-canvas-surface {
+  display: flex;
+  background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.goal-canvas-wrap {
+  position: relative;
+  /* Center the graph both ways while it fits; overflow: auto on the surface
+     takes over once it doesn't. */
+  margin: auto;
+}
+
+.goal-canvas-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.goal-canvas-edges path {
+  fill: none;
+  stroke: var(--color-border);
+  stroke-width: 1.6;
+}
+
+.goal-canvas-edges path.is-satisfied {
+  stroke: var(--color-chart-3);
+}
+
+.goal-canvas-edges path.is-flowing {
+  stroke: var(--color-chart-2);
+  stroke-dasharray: 6 6;
+  animation: goal-canvas-dash 0.7s linear infinite;
+}
+
+.goal-canvas-edges .marker-default {
+  fill: var(--color-border);
+}
+
+.goal-canvas-edges .marker-satisfied {
+  fill: var(--color-chart-3);
+}
+
+.goal-canvas-edges .marker-flowing {
+  fill: var(--color-chart-2);
+}
+
+.goal-canvas-flow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 52px;
+}
+
+.goal-canvas-layer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.goal-canvas-node {
+  position: relative;
+  z-index: 1;
+  width: 220px;
+  /* Button's responsive sm:h-8 and whitespace-nowrap can't be beaten by
+     unprefixed utilities through tailwind-merge; this file is unlayered so
+     it wins over the utilities layer. */
+  height: auto;
+  white-space: normal;
+  text-align: left;
+  transition:
+    border-color 150ms ease-out,
+    box-shadow 150ms ease-out,
+    transform 150ms ease-out;
+}
+
+.goal-canvas-node:hover {
+  transform: translateY(-1px);
+}
+
+.goal-canvas-node.is-selected {
+  border-color: var(--color-foreground);
+  box-shadow: 0 0 0 1px var(--color-foreground);
+}
+
+.goal-canvas-node.is-blocked {
+  border-color: var(--color-chart-4);
+  box-shadow: 0 0 0 1px var(--color-chart-4);
+}
+
+.goal-canvas-node.is-running {
+  border-color: var(--color-chart-2);
+  animation: goal-canvas-breathe 2.2s ease-in-out infinite;
+}
+
+.goal-canvas-node.is-pseudo,
+.goal-canvas-node.is-ghost {
+  border-style: dashed;
+}
+
+.goal-canvas-node-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+@keyframes goal-canvas-dash {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+@keyframes goal-canvas-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px var(--color-chart-2);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in oklch, var(--color-chart-2) 18%, transparent);
+  }
+}
+
+@media (max-width: 1279px) {
+  .goal-canvas-shell {
+    flex-direction: column;
+  }
+
+  .goal-canvas-flow {
+    flex-direction: column;
+    align-items: center;
+    gap: 44px;
+  }
+
+  .goal-canvas-layer {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .goal-canvas-node {
+    width: min(220px, 44vw);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .goal-canvas-node,
+  .goal-canvas-node:hover {
+    transition: none;
+    transform: none;
+  }
+
+  .goal-canvas-node.is-running,
+  .goal-canvas-edges path.is-flowing {
+    animation: none;
+  }
+}

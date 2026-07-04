@@ -19,6 +19,10 @@ const SchedulerInputSchemaJSON = `{
           "const": "create",
           "type": "string"
         },
+        "allow_replan": {
+          "description": "Allow scheduling a partially frozen workflow.",
+          "type": "boolean"
+        },
         "at": {
           "type": "string"
         },
@@ -26,6 +30,13 @@ const SchedulerInputSchemaJSON = `{
           "type": "string"
         },
         "description": {
+          "type": "string"
+        },
+        "dispatch_kind": {
+          "enum": [
+            "chat",
+            "workflow"
+          ],
           "type": "string"
         },
         "enabled": {
@@ -38,6 +49,13 @@ const SchedulerInputSchemaJSON = `{
           "description": "Optional key; repeated creates by the same user with the same key return the existing job.",
           "type": "string"
         },
+        "inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Workflow input values.",
+          "type": "object"
+        },
         "message": {
           "type": "string"
         },
@@ -49,6 +67,10 @@ const SchedulerInputSchemaJSON = `{
         },
         "template_key": {
           "description": "Optional. When set, create a subscription instance for this template. name/message are filled from the template; schedule fields may override defaults.",
+          "type": "string"
+        },
+        "workflow_id": {
+          "description": "Exact workflow version row to instantiate when dispatch_kind is workflow.",
           "type": "string"
         }
       },
@@ -139,6 +161,10 @@ const SchedulerInputSchemaJSON = `{
           "const": "update",
           "type": "string"
         },
+        "allow_replan": {
+          "description": "Allow scheduling a partially frozen workflow.",
+          "type": "boolean"
+        },
         "at": {
           "type": "string"
         },
@@ -146,6 +172,13 @@ const SchedulerInputSchemaJSON = `{
           "type": "string"
         },
         "description": {
+          "type": "string"
+        },
+        "dispatch_kind": {
+          "enum": [
+            "chat",
+            "workflow"
+          ],
           "type": "string"
         },
         "enabled": {
@@ -161,6 +194,13 @@ const SchedulerInputSchemaJSON = `{
           "description": "Optional key; repeated creates by the same user with the same key return the existing job.",
           "type": "string"
         },
+        "inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Workflow input values.",
+          "type": "object"
+        },
         "message": {
           "type": "string"
         },
@@ -172,6 +212,10 @@ const SchedulerInputSchemaJSON = `{
         },
         "template_key": {
           "description": "Optional. When set, create a subscription instance for this template. name/message are filled from the template; schedule fields may override defaults.",
+          "type": "string"
+        },
+        "workflow_id": {
+          "description": "Exact workflow version row to instantiate when dispatch_kind is workflow.",
           "type": "string"
         }
       },
@@ -213,16 +257,20 @@ type SchedulerHandler interface {
 }
 
 type SchedulerCreateInput struct {
-	At             string `json:"at,omitempty"`
-	Cron           string `json:"cron,omitempty"`
-	Description    string `json:"description,omitempty"`
-	Enabled        *bool  `json:"enabled,omitempty"`
-	Every          string `json:"every,omitempty"`
-	IdempotencyKey string `json:"idempotency_key,omitempty"`
-	Message        string `json:"message,omitempty"`
-	Name           string `json:"name,omitempty"`
-	SessionMode    string `json:"session_mode,omitempty"`
-	TemplateKey    string `json:"template_key,omitempty"`
+	AllowReplan    *bool          `json:"allow_replan,omitempty"`
+	At             string         `json:"at,omitempty"`
+	Cron           string         `json:"cron,omitempty"`
+	Description    string         `json:"description,omitempty"`
+	DispatchKind   string         `json:"dispatch_kind,omitempty"`
+	Enabled        *bool          `json:"enabled,omitempty"`
+	Every          string         `json:"every,omitempty"`
+	IdempotencyKey string         `json:"idempotency_key,omitempty"`
+	Inputs         map[string]any `json:"inputs,omitempty"`
+	Message        string         `json:"message,omitempty"`
+	Name           string         `json:"name,omitempty"`
+	SessionMode    string         `json:"session_mode,omitempty"`
+	TemplateKey    string         `json:"template_key,omitempty"`
+	WorkflowId     string         `json:"workflow_id,omitempty"`
 }
 
 type SchedulerDeleteInput struct {
@@ -245,17 +293,21 @@ type SchedulerResumeInput struct {
 }
 
 type SchedulerUpdateInput struct {
-	At             string `json:"at,omitempty"`
-	Cron           string `json:"cron,omitempty"`
-	Description    string `json:"description,omitempty"`
-	Enabled        *bool  `json:"enabled,omitempty"`
-	Every          string `json:"every,omitempty"`
-	Id             string `json:"id,omitempty"`
-	IdempotencyKey string `json:"idempotency_key,omitempty"`
-	Message        string `json:"message,omitempty"`
-	Name           string `json:"name,omitempty"`
-	SessionMode    string `json:"session_mode,omitempty"`
-	TemplateKey    string `json:"template_key,omitempty"`
+	AllowReplan    *bool          `json:"allow_replan,omitempty"`
+	At             string         `json:"at,omitempty"`
+	Cron           string         `json:"cron,omitempty"`
+	Description    string         `json:"description,omitempty"`
+	DispatchKind   string         `json:"dispatch_kind,omitempty"`
+	Enabled        *bool          `json:"enabled,omitempty"`
+	Every          string         `json:"every,omitempty"`
+	Id             string         `json:"id,omitempty"`
+	IdempotencyKey string         `json:"idempotency_key,omitempty"`
+	Inputs         map[string]any `json:"inputs,omitempty"`
+	Message        string         `json:"message,omitempty"`
+	Name           string         `json:"name,omitempty"`
+	SessionMode    string         `json:"session_mode,omitempty"`
+	TemplateKey    string         `json:"template_key,omitempty"`
+	WorkflowId     string         `json:"workflow_id,omitempty"`
 }
 
 func DispatchScheduler(ctx context.Context, h SchedulerHandler, action string, args map[string]any) (any, error) {

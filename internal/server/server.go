@@ -31,6 +31,7 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/vault"
+	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -61,6 +62,8 @@ type Server struct {
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
 	goalSvc        *goal.Service        // optional; if nil, goal endpoints return 503
+	goalQueries    *sqlc.Queries        // optional; read side for goal endpoints
+	workflowSvc    *workflowpkg.Service // optional; if nil, workflow endpoints return 503
 	startedAt      time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider

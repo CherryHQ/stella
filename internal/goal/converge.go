@@ -25,7 +25,7 @@ import (
 // ACCEPTED upstream outputs + the prior fold's gaps + the contract + a resolved
 // verdict, stamped with attempt_no. Freezing here is what keeps an in-flight
 // edit to intent/contract from mutating a running attempt's context.
-func buildInputContext(d sqlc.AgentGoal, upstream []AcceptedOutput, priorGaps *Evaluation, resolvedVerdict string, attemptNo int) AttemptInput {
+func buildInputContext(d sqlc.AgentGoal, upstream []AcceptedOutput, priorGaps *Evaluation, timeline []TimelineContextEvent, resolvedVerdict string, attemptNo int) AttemptInput {
 	var c AcceptanceContract
 	_ = unmarshalJSON(d.AcceptanceContract, &c)
 	return AttemptInput{
@@ -34,6 +34,7 @@ func buildInputContext(d sqlc.AgentGoal, upstream []AcceptedOutput, priorGaps *E
 		Context:         d.Context,
 		UpstreamOutputs: upstream,
 		PriorGaps:       priorGaps,
+		TimelineContext: timeline,
 		Contract:        c,
 		ResolvedVerdict: resolvedVerdict,
 		AttemptNo:       attemptNo,
@@ -52,7 +53,7 @@ func upstreamAcceptedOutputs(ctx context.Context, q *sqlc.Queries, goalID string
 	}
 	var outs []AcceptedOutput
 	for _, e := range edges {
-		if e.UpstreamLifecycle != LifecycleAccepted || !e.UpstreamOutput.Valid {
+		if e.UpstreamLifecycle != LifecycleDone || !e.UpstreamOutput.Valid {
 			continue
 		}
 		var ao AcceptedOutput
@@ -64,98 +65,19 @@ func upstreamAcceptedOutputs(ctx context.Context, q *sqlc.Queries, goalID string
 	return outs, nil
 }
 
-// priorGapsFor returns the most recent execution attempt's recorded gaps as the
-// next attempt's input (the "rework = next attempt" loop, §5 step 7). nil on the
-// first attempt or when no gaps were recorded. The prior attempt is 'submitted'
-// (not active), so it is read off the attempt_no-DESC list.
+// priorGapsFor returns recent failed acceptance items from the goal timeline as
+// the next attempt's gap context. The attempt history remains the audit source,
+// but job input now reads the L3 timeline instead of stitching attempt rows.
 func (s *GoalService) priorGapsFor(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) (*Evaluation, error) {
 	if d.AttemptCount == 0 {
 		return nil, nil
 	}
-	prev := PurposeExecution
-	atts, err := q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{
-		GoalID:  d.ID,
-		Purpose: pgnull.Text(prev),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list attempts: %w", err)
-	}
-	if len(atts) == 0 {
-		return nil, nil
-	}
-	// Best-effort parse: a malformed gaps blob is simply "no prior evaluation",
-	// not an error worth propagating — the next attempt starts clean.
-	var ev Evaluation
-	_ = unmarshalJSON(atts[0].Gaps, &ev)
-	if len(ev.Gaps) == 0 {
-		return nil, nil
-	}
-	return &ev, nil
+	return s.priorGapsFromTimeline(ctx, q, d.ID)
 }
 
 // ── Mint next attempt (contract §5 step 1) ──────────────────────────────────
 
-// mintNextAttempt is the convergence "Claim" helper: in ONE tx it transitions a
-// ready leaf → active, inserts a queued attempt at attempt_no = attempt_count+1
-// with its input_context frozen, points active_attempt_id at it and bumps
-// attempt_count. uniq_agent_goal_active_attempt enforces ≤1 active attempt per
-// (goal, purpose); a lost race surfaces as ErrInvalidTransition.
-//
-// resolvedVerdict carries a human answer that unblocked a needs_verdict (it
-// rides in the frozen input). executorAgentID is the claim-time-resolved
-// executor ("" leaves it NULL).
-func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, executorAgentID, resolvedVerdict string) (sqlc.AgentGoalAttempt, error) {
-	upstream, err := upstreamAcceptedOutputs(ctx, q, d.ID)
-	if err != nil {
-		return sqlc.AgentGoalAttempt{}, err
-	}
-	prior, err := s.priorGapsFor(ctx, q, d)
-	if err != nil {
-		return sqlc.AgentGoalAttempt{}, err
-	}
-
-	attemptNo := int(d.AttemptCount) + 1
-	input := buildInputContext(d, upstream, prior, resolvedVerdict, attemptNo)
-
-	att, err := q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
-		ID:              newID(),
-		GoalID:          d.ID,
-		UserID:          d.UserID,
-		AgentID:         pgnull.Text(d.AgentID),
-		ExecutorAgentID: pgnull.Text(executorAgentID),
-		SessionID:       d.SessionID,
-		Purpose:         PurposeExecution,
-		AttemptNo:       int64(attemptNo),
-		Status:          AttemptQueued,
-		InputContext:    marshalJSON(input),
-		// Grace lease on the queued attempt: a River worker on any node must be
-		// able to pick the job up and PromoteAttempt (extending the lease) before
-		// the dispatcher reaper reclaims it. now() would be instantly stale — that
-		// only worked under the old in-process active-map guard. The lease is now
-		// the single, multi-node liveness signal: a claim/enqueue gap or a crash
-		// before pickup recovers via the reaper once this grace window expires.
-		LeaseExpiresAt: nullTime(s.nowTime().Add(claimGraceTTL)),
-	})
-	if err != nil {
-		return sqlc.AgentGoalAttempt{}, fmt.Errorf("create attempt: %w", err)
-	}
-
-	rows, err := q.ClaimGoal(ctx, sqlc.ClaimGoalParams{
-		ActiveAttemptID: pgnull.Text(att.ID),
-		ID:              d.ID,
-	})
-	if err != nil {
-		return sqlc.AgentGoalAttempt{}, fmt.Errorf("claim goal: %w", err)
-	}
-	if rows == 0 {
-		// ready→active guard failed (already claimed / not ready) — the unique
-		// active-attempt index would also reject; roll the tx back.
-		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
-	}
-	return att, nil
-}
-
-// Claim is the dispatcher's leaf ready→active (contract §2.1, §5 step 1). It
+// Claim is the dispatcher's leaf pending->active (contract §2.1, §5 step 1). It
 // resolves the dispatch hint's executor, mints a queued execution attempt and
 // claims the goal in one tx. The per-root/per-user concurrency caps are
 // enforced by the dispatcher BEFORE Claim (§5 step 2); Claim itself only guards
@@ -165,29 +87,67 @@ func (s *GoalService) mintNextAttempt(ctx context.Context, q *sqlc.Queries, d sq
 // SAME tx, so the claim and its job commit atomically — a crash can no longer
 // leave a claimed attempt with no job to run it. A nil enqueue skips this (tests
 // minting+claiming without River); its failure rolls the claim back, leaving the
-// goal ready for the next tick.
+// goal pending for the next tick.
 func (s *GoalService) Claim(ctx context.Context, id, workerID string, enqueue AttemptEnqueuer) (sqlc.AgentGoalAttempt, error) {
-	var out sqlc.AgentGoalAttempt
-	err := s.withTxRaw(ctx, func(q *sqlc.Queries, tx pgx.Tx) error {
-		d, err := getGoal(ctx, q, id)
-		if err != nil {
-			return err
-		}
-		if d.Kind != KindLeaf || d.Lifecycle != LifecycleReady || d.ActiveAttemptID.Valid {
-			return ErrInvalidTransition
-		}
-		att, err := s.mintNextAttempt(ctx, q, d, dispatchExecutor(d), "")
-		if err != nil {
-			return err
-		}
-		if enqueue != nil {
-			if err := enqueue(ctx, tx, d.ID, att.ID); err != nil {
-				return fmt.Errorf("enqueue attempt job: %w", err)
+	// Execution attempts are one-shot task sessions. Queued attempts are executed
+	// by the current executor version; running attempts owned by an old process are
+	// recovered by the existing lease reaper, exactly like a process crash.
+	d, err := getGoal(ctx, s.q, id)
+	if err != nil {
+		return sqlc.AgentGoalAttempt{}, err
+	}
+	if d.Kind != KindLeaf || d.Lifecycle != LifecyclePending || d.ActiveAttemptID.Valid {
+		return sqlc.AgentGoalAttempt{}, ErrInvalidTransition
+	}
+	executorAgentID := dispatchExecutor(d)
+	mintAgentID := executorAgentID
+	if mintAgentID == "" {
+		mintAgentID = d.AgentID
+	}
+	if s.newSession == nil {
+		return sqlc.AgentGoalAttempt{}, fmt.Errorf("goal: no worker session minter configured")
+	}
+	sessionID, err := s.newSession(ctx, d.UserID, mintAgentID, d.ProjectID.String)
+	if err != nil {
+		return sqlc.AgentGoalAttempt{}, fmt.Errorf("mint attempt session: %w", err)
+	}
+
+	out, err := s.beginAttempt(ctx, id, attemptSpec{
+		purpose:       PurposeExecution,
+		sessionID:     sessionID,
+		executorAgent: executorAgentID,
+		lease:         nullTime(s.nowTime().Add(claimGraceTTL)),
+		enqueue:       enqueue,
+		prepare: func(ctx context.Context, q *sqlc.Queries, cur sqlc.AgentGoal, attemptNo int) (AttemptInput, error) {
+			if cur.Kind != KindLeaf || cur.Lifecycle != LifecyclePending || cur.ActiveAttemptID.Valid || dispatchExecutor(cur) != executorAgentID {
+				return AttemptInput{}, ErrInvalidTransition
 			}
-		}
-		out = att
-		return nil
+			upstream, err := upstreamAcceptedOutputs(ctx, q, cur.ID)
+			if err != nil {
+				return AttemptInput{}, err
+			}
+			prior, err := s.priorGapsFor(ctx, q, cur)
+			if err != nil {
+				return AttemptInput{}, err
+			}
+			timeline, err := s.recentTimelineContext(ctx, q, cur.ID)
+			if err != nil {
+				return AttemptInput{}, err
+			}
+			return buildInputContext(cur, upstream, prior, timeline, "", attemptNo), nil
+		},
+		transition: func(ctx context.Context, q *sqlc.Queries, cur sqlc.AgentGoal, att sqlc.AgentGoalAttempt) error {
+			rows, err := q.ClaimGoal(ctx, sqlc.ClaimGoalParams{ActiveAttemptID: pgnull.Text(att.ID), ID: cur.ID})
+			if err != nil {
+				return fmt.Errorf("claim goal: %w", err)
+			}
+			if rows == 0 {
+				return ErrInvalidTransition
+			}
+			return nil
+		},
 	})
+	s.disposeOnRollback(ctx, err, d.UserID, mintAgentID, sessionID)
 	return out, err
 }
 
@@ -231,11 +191,7 @@ func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEv
 		if out.Hash == "" {
 			out.Hash = HashWithArtifacts(out, ev.Artifacts)
 		}
-		rows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
-			Evidence: marshalJSON(ev),
-			Output:   marshalJSON(out),
-			ID:       attemptID,
-		})
+		rows, err := s.submitAttempt(ctx, q, att, ev, marshalJSON(out))
 		if err != nil {
 			return fmt.Errorf("submit attempt: %w", err)
 		}
@@ -252,7 +208,7 @@ func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEv
 // (agent reported fail / produced no action / empty handoff / panic), so the
 // attempt is recorded 'failed' rather than 'interrupted'. One tx.
 //
-//   - execution attempt → branchOnFailure: budget left reopens to ready (rework =
+//   - execution attempt -> branchOnFailure: budget left reopens to pending (rework =
 //     next attempt, the failure reason rides as a gap); budget out blocks/abandons/
 //     rejects per policy. A failed attempt consumes one budget unit (same as a fold
 //     failure), so a persistently failing agent parks at blocked, never loops.
@@ -262,8 +218,12 @@ func (s *GoalService) Submit(ctx context.Context, attemptID string, ev AttemptEv
 // A 0-row FinalizeAttempt means the attempt is no longer queued/running (already
 // reaped/raced); the tx rolls back and the caller treats ErrInvalidTransition as a
 // no-op (the goal already recovered).
-func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failureClass string) error {
-	if !ValidFailureClass(failureClass) || failureClass == "" {
+func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failureClass string, blockedByArg ...string) error {
+	blockedBy := ""
+	if len(blockedByArg) > 0 {
+		blockedBy = blockedByArg[0]
+	}
+	if !ValidFailureClass(failureClass) || failureClass == "" || (blockedBy != "" && blockedBy != BlockEnvUnavailable && blockedBy != BlockContractConflict) {
 		return ErrInvalidTransition
 	}
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
@@ -274,12 +234,7 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failur
 		if err != nil {
 			return err
 		}
-		rows, err := q.FinalizeAttempt(ctx, sqlc.FinalizeAttemptParams{
-			ToStatus:     AttemptFailed,
-			Error:        reason,
-			FailureClass: failureClass,
-			ID:           attemptID,
-		})
+		rows, err := s.finalizeAttempt(ctx, q, att, AttemptFailed, reason, failureClass, blockedBy)
 		if err != nil {
 			return fmt.Errorf("finalize failed attempt: %w", err)
 		}
@@ -290,16 +245,16 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failur
 		if err != nil {
 			return err
 		}
+		// The goal may have reached a terminal state (e.g. cancelled) while this
+		// attempt was in flight. The attempt is finalized above; routing recovery
+		// would resurrect the terminal lifecycle — and the env/contract branches
+		// would 0-row on blockGoal and roll the finalize back, leaving the attempt
+		// to be reaped in a loop. Mirrors ReapAttempt's terminal guard.
+		if IsTerminalLifecycle(d.Lifecycle) {
+			return nil
+		}
 		if att.Purpose == PurposeDecomposition {
-			// Structural planner failures are repaired inside the same planning session.
-			// If the repair loop gives up, park the composite on a distinct block reason
-			// without charging the semantic/transient plan budget.
-			if failureClass == FailureClassStructural {
-				return s.blockPlanningInvalid(ctx, q, d)
-			}
-			// A reported semantic/transient decomposition failure ran the planner, so it
-			// charges one plan-budget unit as before.
-			return s.recoverDecomposition(ctx, q, d, true)
+			return s.routeFailedAttempt(ctx, q, d, attemptID, reason, failureClass, true)
 		}
 		if att.Purpose == PurposeReview {
 			// A failed review attempt (it ran but produced no usable verdict) leaves
@@ -309,63 +264,27 @@ func (s *GoalService) FailAttempt(ctx context.Context, attemptID, reason, failur
 			// (CountRanReviewAttemptsForOutput) and a broken reviewer cannot loop.
 			return nil
 		}
-		return s.branchOnFailure(ctx, q, d, attemptID, Evaluation{Gaps: []Gap{{Reason: reason}}})
+		return s.routeFailedAttempt(ctx, q, d, attemptID, reason, failureClass, false)
 	})
 }
 
 // recoverDecomposition releases a failed or reaped decomposition attempt's
-// composite. It returns the composite to draft so the dispatcher re-decomposes it
-// next tick, until the plan budget is spent (convergence MaxAttempts) — then it
-// parks active->blocked(budget_exhausted) so a persistently failing planner waits
-// for a human instead of looping forever.
-//
-// ran reports whether the planner attempt actually executed. The plan budget is
-// metered by GetMaxAttemptNo (the max decomposition attempt_no), which keeps
-// climbing across re-claims. A queued reap (ran=false) never executed — the
-// River worker never picked it up (queue backpressure under wide fanout) — yet
-// it still consumed an attempt_no, so we refund by raising MaxAttempts one step,
-// mirroring refundAndReopen on the leaf path. Without that refund a string of
-// queued reaps would burn the whole plan budget on attempts that never ran and
-// block the composite without a single real planning failure.
+// composite. It returns the composite to draft while billable decomposition
+// attempts remain; once the effective budget is spent it parks the composite at
+// blocked(budget_exhausted). Queued reaps and flaky/environment/contract failures
+// are excluded by CountBillableAttempts, replacing the old refund-by-policy-mutation path.
 func (s *GoalService) recoverDecomposition(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, ran bool) error {
 	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 		return fmt.Errorf("clear active attempt: %w", err)
 	}
-	var pol ConvergencePolicy
-	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
-	pol = pol.Normalized()
-	if ran {
-		spent, err := q.GetMaxAttemptNo(ctx, sqlc.GetMaxAttemptNoParams{
-			GoalID:  d.ID,
-			Purpose: PurposeDecomposition,
-		})
-		if err != nil {
-			return fmt.Errorf("max decomposition attempt no: %w", err)
-		}
-		if int(spent) >= pol.MaxAttempts {
-			return s.blockBudget(ctx, q, d)
-		}
-	} else {
-		// Refund the attempt_no a queued reap consumed without executing.
-		pol.MaxAttempts++
-		if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
-			Title:              d.Title,
-			Intent:             d.Intent,
-			AcceptanceContract: d.AcceptanceContract,
-			ConvergencePolicy:  marshalJSON(pol),
-			ReviewPolicy:       d.ReviewPolicy,
-			Priority:           d.Priority,
-			ID:                 d.ID,
-		}); err != nil {
-			return fmt.Errorf("refund decomposition budget on queued reap: %w", err)
-		}
+	left, err := s.budgetLeft(ctx, q, d, PurposeDecomposition)
+	if err != nil {
+		return err
 	}
-	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-		ToLifecycle:   LifecycleDraft,
-		BlockReason:   "",
-		ID:            d.ID,
-		FromLifecycle: LifecycleActive,
-	})
+	if !left {
+		return s.blockBudget(ctx, q, d)
+	}
+	rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecycleDraft, "")
 	if err != nil {
 		return fmt.Errorf("recover decomposition: %w", err)
 	}
@@ -381,10 +300,8 @@ func (s *GoalService) recoverDecomposition(ctx context.Context, q *sqlc.Queries,
 // releases them so the tree runs; for review_policy=human it parks the composite
 // blocked(needs_plan_approval) so a human can ApprovePlan/RejectPlan. It is the
 // decomposition analogue of Submit and the single durable transition the worker
-// applies for a purpose=decomposition attempt. For the none path child sessions
-// are pre-minted OUTSIDE the tx (their own minting tx would self-deadlock against
-// the held one); everything else runs in ONE tx so a crash never leaves a
-// half-planned composite.
+// applies for a purpose=decomposition attempt. Everything runs in ONE tx so a
+// crash never leaves a half-planned composite.
 func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string, ev AttemptEvidence, content DecompositionContent) error {
 	att, err := s.q.GetAttempt(ctx, attemptID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -405,41 +322,32 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 	}
 	humanReview := parent.ReviewPolicy == ReviewHuman
 
-	// Pre-mint a session per child OUTSIDE the tx, but only for the none path that
-	// materializes now. The human path defers materialize (and session minting) to
-	// ApprovePlan, so it mints nothing here.
-	childSessions := make(map[string]string, len(content.Children))
-	if !humanReview {
-		if s.newSession == nil {
-			return fmt.Errorf("goal: no worker session minter configured")
-		}
-		for _, ch := range content.Children {
-			sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
-			if err != nil {
-				// A mid-batch mint failure orphans the children minted before it (no tx
-				// has run yet); archive them so the partial batch does not leak.
-				s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
-				return fmt.Errorf("mint child session %q: %w", ch.Key, err)
-			}
-			childSessions[ch.Key] = sid
-		}
-	}
-
 	err = s.withTx(ctx, func(q *sqlc.Queries) error {
 		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
 			return fmt.Errorf("lock goal for decomposition submit: %w", err)
+		}
+		// Re-read under the lock: a frozen workflow replay may have materialized
+		// this composite since the pre-tx read. planned_at set means a plan is
+		// already installed and children exist, so a late decomposition submit
+		// must fail closed instead of overwriting the plan and creating a second
+		// children set (child ids are content-keyed, not position-keyed).
+		cur, err := getGoal(ctx, q, parent.ID)
+		if err != nil {
+			return err
+		}
+		if cur.PlannedAt.Valid {
+			return ErrInvalidTransition
 		}
 		// Record the proposed plan on the composite.
 		if err := q.SetGoalPlan(ctx, sqlc.SetGoalPlanParams{Plan: marshalJSON(content), ID: parent.ID}); err != nil {
 			return fmt.Errorf("set goal plan: %w", err)
 		}
+		if _, err := s.appendGoalEvent(ctx, q, parent.ID, attemptID, GoalEventPlanSubmitted, planPayload(content)); err != nil {
+			return err
+		}
 		// Finalize the decomposition attempt (running->submitted) so the reaper
 		// never recovers it after we move the goal on.
-		subRows, err := q.SubmitAttempt(ctx, sqlc.SubmitAttemptParams{
-			Evidence: marshalJSON(ev),
-			Output:   emptyJSON,
-			ID:       attemptID,
-		})
+		subRows, err := s.submitAttempt(ctx, q, att, ev, emptyJSON)
 		if err != nil {
 			return fmt.Errorf("submit decomposition attempt: %w", err)
 		}
@@ -455,12 +363,7 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 			// in goal.plan until ApprovePlan materializes it or RejectPlan re-plans.
 			// Mirror the budget-block path: do NOT eagerly bump the parent counter;
 			// the reconcile backstop counts lifecycle='blocked' children.
-			rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-				ToLifecycle:   LifecycleBlocked,
-				BlockReason:   BlockNeedsPlanApproval,
-				ID:            parent.ID,
-				FromLifecycle: LifecycleActive,
-			})
+			rows, err := s.transitionGoalLifecycle(ctx, q, parent, LifecycleBlocked, BlockNeedsPlanApproval)
 			if err != nil {
 				return fmt.Errorf("block for plan approval: %w", err)
 			}
@@ -472,22 +375,18 @@ func (s *GoalService) SubmitDecomposition(ctx context.Context, attemptID string,
 
 		// review_policy=none: materialize now and release children. The composite
 		// stays active for rollup.
-		if err := s.Materialize(ctx, q, parent, content, childSessions); err != nil {
+		if err := s.Materialize(ctx, q, parent, content, nil); err != nil {
 			return err
 		}
 		return s.releaseChildren(ctx, q, parent.ID)
 	})
-	// On a definite rollback, archive the child sessions pre-minted above (none on
-	// the human-review path) so they are not orphaned.
-	s.disposeOnRollback(ctx, err, parent.UserID, parent.AgentID, mapValues(childSessions)...)
 	return err
 }
 
 // ApprovePlan applies a human approval of a composite's proposed plan: it
 // materializes the children and releases them, moving the composite out of
-// blocked(needs_plan_approval) back to active for rollup (contract §2.3). Child
-// sessions are pre-minted OUTSIDE the tx (mirrors the none path in
-// SubmitDecomposition). Only a composite blocked on plan approval is accepted.
+// blocked(needs_plan_approval) back to active for rollup (contract §2.3). Only a
+// composite blocked on plan approval is accepted.
 func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) error {
 	parent, err := getGoal(ctx, s.q, goalID)
 	if err != nil {
@@ -504,21 +403,6 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 	if err := s.validateContent(ctx, parent, content); err != nil {
 		return err
 	}
-	if s.newSession == nil {
-		return fmt.Errorf("goal: no worker session minter configured")
-	}
-	childSessions := make(map[string]string, len(content.Children))
-	for _, ch := range content.Children {
-		sid, err := s.newSession(ctx, parent.UserID, parent.AgentID, parent.ProjectID.String)
-		if err != nil {
-			// A mid-batch mint failure orphans the children minted before it (no tx
-			// has run yet); archive them so the partial batch does not leak.
-			s.disposeOrphanSessions(ctx, parent.UserID, parent.AgentID, mapValues(childSessions)...)
-			return fmt.Errorf("mint child session %q: %w", ch.Key, err)
-		}
-		childSessions[ch.Key] = sid
-	}
-
 	err = s.withTx(ctx, func(q *sqlc.Queries) error {
 		if err := q.LockGoalForWrite(ctx, parent.ID); err != nil {
 			return fmt.Errorf("lock goal for plan approval: %w", err)
@@ -531,15 +415,10 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 		if cur.Lifecycle != LifecycleBlocked || cur.BlockReason != BlockNeedsPlanApproval {
 			return ErrInvalidTransition
 		}
-		if err := s.Materialize(ctx, q, cur, content, childSessions); err != nil {
+		if err := s.Materialize(ctx, q, cur, content, nil); err != nil {
 			return err
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleActive,
-			BlockReason:   "",
-			ID:            cur.ID,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, cur, LifecycleActive, "")
 		if err != nil {
 			return fmt.Errorf("activate after plan approval: %w", err)
 		}
@@ -548,20 +427,7 @@ func (s *GoalService) ApprovePlan(ctx context.Context, goalID string, by Actor) 
 		}
 		return s.releaseChildren(ctx, q, cur.ID)
 	})
-	// On a definite rollback (concurrent reject/approve / collision), archive the
-	// child sessions pre-minted above so they are not orphaned.
-	s.disposeOnRollback(ctx, err, parent.UserID, parent.AgentID, mapValues(childSessions)...)
 	return err
-}
-
-// mapValues returns a map's values as a slice in unspecified order. Used to feed
-// a pre-minted child-session map to disposeOrphanSessions on a rollback.
-func mapValues(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for _, v := range m {
-		out = append(out, v)
-	}
-	return out
 }
 
 // RejectPlan applies a human rejection of a composite's proposed plan: it clears
@@ -585,12 +451,7 @@ func (s *GoalService) RejectPlan(ctx context.Context, goalID, reason string, by 
 		if err := q.SetGoalPlan(ctx, sqlc.SetGoalPlanParams{Plan: emptyJSON, ID: cur.ID}); err != nil {
 			return fmt.Errorf("clear goal plan: %w", err)
 		}
-		rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleDraft,
-			BlockReason:   "",
-			ID:            cur.ID,
-			FromLifecycle: LifecycleBlocked,
-		})
+		rows, err := s.transitionGoalLifecycle(ctx, q, cur, LifecycleDraft, "")
 		if err != nil {
 			return fmt.Errorf("return goal to draft after plan reject: %w", err)
 		}
@@ -602,7 +463,7 @@ func (s *GoalService) RejectPlan(ctx context.Context, goalID, reason string, by 
 }
 
 // releaseChildren moves a composite's freshly materialized draft children out of
-// draft so the tree runs: a leaf child -> ready (the dispatcher claims it), a
+// draft so the tree runs: a leaf child -> pending (the dispatcher claims it), a
 // composite child STAYS draft so scanAndDecompose recurses and plans it in turn.
 // The composite itself is left as-is. Shared by Activate and SubmitDecomposition.
 func (s *GoalService) releaseChildren(ctx context.Context, q *sqlc.Queries, parentID string) error {
@@ -614,12 +475,7 @@ func (s *GoalService) releaseChildren(ctx context.Context, q *sqlc.Queries, pare
 		if c.Lifecycle != LifecycleDraft || c.Kind == KindComposite {
 			continue // composite children await their own decomposition (still draft)
 		}
-		if _, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-			ToLifecycle:   LifecycleReady,
-			BlockReason:   "",
-			ID:            c.ID,
-			FromLifecycle: LifecycleDraft,
-		}); err != nil {
+		if _, err := s.transitionGoalLifecycle(ctx, q, c, LifecyclePending, ""); err != nil {
 			return fmt.Errorf("release child: %w", err)
 		}
 	}
@@ -691,7 +547,7 @@ func decodeOutput(s json.RawMessage) AttemptOutput {
 //   - passed       → acceptGoal (freeze output, clear attempt, bump parent).
 //   - failed + budget left → write gaps on the attempt; the dispatcher mints the
 //     next attempt (rework = next attempt, not a node).
-//   - failed + budget out  → blocked(budget_exhausted) | abandoned | rejected_final.
+//   - failed + budget out  -> blocked(budget_exhausted) or done(failed).
 //   - NeedsVerdict → blocked(needs_verdict) (a pending human is not an executing
 //     episode, so the active attempt is cleared).
 //
@@ -730,7 +586,7 @@ func (s *GoalService) foldAndTransition(ctx context.Context, q *sqlc.Queries, go
 		if err := s.wakeIfBlocked(ctx, q, &d); err != nil {
 			return err
 		}
-		return s.acceptLeaf(ctx, q, d, attemptID, out)
+		return s.acceptFolded(ctx, q, d, attemptID, out)
 	case proj.NeedsVerdict:
 		return s.blockForVerdict(ctx, q, d)
 	case proj.State == AcceptanceFailed:
@@ -747,7 +603,7 @@ func (s *GoalService) foldAndTransition(ctx context.Context, q *sqlc.Queries, go
 }
 
 // wakeIfBlocked promotes a goal parked in blocked(needs_verdict) back to
-// active so a terminal fold branch (acceptLeaf/branchOnFailure) — which guards
+// active so a terminal fold branch (acceptFolded/branchOnFailure) — which guards
 // from 'active', the same from-state Submit folds against — can fire once a
 // verdict resolves the block. A no-op when not so blocked. It mutates the passed
 // goal's lifecycle so a subsequent in-Go guard reads the woken state.
@@ -755,12 +611,7 @@ func (s *GoalService) wakeIfBlocked(ctx context.Context, q *sqlc.Queries, d *sql
 	if d.Lifecycle != LifecycleBlocked || d.BlockReason != BlockNeedsVerdict {
 		return nil
 	}
-	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-		ToLifecycle:   LifecycleActive,
-		BlockReason:   "",
-		ID:            d.ID,
-		FromLifecycle: LifecycleBlocked,
-	})
+	rows, err := s.transitionGoalLifecycle(ctx, q, *d, LifecycleActive, "")
 	if err != nil {
 		return fmt.Errorf("wake needs_verdict: %w", err)
 	}
@@ -772,18 +623,20 @@ func (s *GoalService) wakeIfBlocked(ctx context.Context, q *sqlc.Queries, d *sql
 	return nil
 }
 
-// acceptLeaf freezes the accepted output, flips the goal → accepted, and
-// bumps the parent's required_accepted in the SAME tx (contract §2.1
-// active→accepted, §6 rollup). Downstream readiness is re-derived lazily by the
-// dispatcher off the upstream-accepted index, so no push is needed here.
-func (s *GoalService) acceptLeaf(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, attemptID string, out AttemptOutput) error {
+// acceptFolded freezes the accepted output and flips the goal to done(accepted)
+// (contract §2.1, §6 rollup). It is the fold's accept branch for both a leaf
+// (output = the accepted attempt's) and an authored-contract composite (output
+// synthesized from the children below). Downstream readiness is re-derived
+// lazily by the dispatcher off the upstream-accepted index, so no push is
+// needed here.
+func (s *GoalService) acceptFolded(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, attemptID string, out AttemptOutput) error {
 	// Already at the desired terminal state: a re-fold of an accepted leaf (e.g. a
 	// verdict re-submitted after acceptance, or a double-clicked Approve whose
 	// first request already accepted) derives passed again. That is the steady
 	// state, not a conflict — return nil rather than a 0-row AcceptGoal
 	// (which guards from 'active') so the verdict path is idempotent and the
 	// parent counter is bumped exactly once. Mirrors blockForVerdict's guard.
-	if d.Lifecycle == LifecycleAccepted {
+	if d.Lifecycle == LifecycleDone {
 		return nil
 	}
 	accepted := AcceptedOutput{
@@ -794,17 +647,28 @@ func (s *GoalService) acceptLeaf(ctx context.Context, q *sqlc.Queries, d sqlc.Ag
 		AcceptedAt:    s.now(),
 		SourceAttempt: attemptID,
 	}
-	rows, err := q.AcceptGoal(ctx, sqlc.AcceptGoalParams{
-		AcceptedOutput: marshalNullJSON(accepted),
-		ID:             d.ID,
-	})
+	if d.Kind == KindComposite {
+		// An authored-contract composite folds with no execution output (out is
+		// empty), but its deliverable is its children's: carry their frozen outputs
+		// exactly as the trivial-contract rollup does, so downstream readers see the
+		// phase results without walking the tree.
+		kids, err := childAcceptedOutputs(ctx, q, d.ID)
+		if err != nil {
+			return fmt.Errorf("collect child outputs: %w", err)
+		}
+		accepted.Children = kids
+		if accepted.Summary == "" {
+			accepted.Summary = d.Title
+		}
+	}
+	rows, err := s.acceptGoal(ctx, q, d, accepted)
 	if err != nil {
 		return fmt.Errorf("accept goal: %w", err)
 	}
 	if rows == 0 {
 		return ErrInvalidTransition // not active (raced)
 	}
-	return s.bumpParentCounter(ctx, q, d, counterAccepted)
+	return nil
 }
 
 // blockForVerdict parks a goal awaiting a required human verdict:
@@ -814,14 +678,11 @@ func (s *GoalService) blockForVerdict(ctx context.Context, q *sqlc.Queries, d sq
 	// Already parked awaiting this verdict (a multi-item contract where a verdict
 	// resolved one item but another judgment item is still pending): the desired
 	// end-state IS blocked(needs_verdict), so this is an idempotent no-op rather
-	// than a 0-row BlockGoal (which guards from ready/active, not blocked).
+	// than a 0-row BlockGoal (which guards from pending/active, not blocked).
 	if d.Lifecycle == LifecycleBlocked && d.BlockReason == BlockNeedsVerdict {
 		return nil
 	}
-	rows, err := q.BlockGoal(ctx, sqlc.BlockGoalParams{
-		BlockReason: BlockNeedsVerdict,
-		ID:          d.ID,
-	})
+	rows, err := s.blockGoal(ctx, q, d, BlockNeedsVerdict)
 	if err != nil {
 		return fmt.Errorf("block goal: %w", err)
 	}
@@ -831,12 +692,47 @@ func (s *GoalService) blockForVerdict(ctx context.Context, q *sqlc.Queries, d sq
 	return nil
 }
 
+func (s *GoalService) routeFailedAttempt(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, attemptID, reason, failureClass string, decomposition bool) error {
+	switch failureClass {
+	case FailureClassModel:
+		if decomposition {
+			return s.recoverDecomposition(ctx, q, d, true)
+		}
+		return s.branchOnFailure(ctx, q, d, attemptID, Evaluation{Gaps: []Gap{{Reason: reason}}})
+	case FailureClassEnvironment:
+		return s.blockFailureCause(ctx, q, d, BlockEnvUnavailable)
+	case FailureClassContract:
+		return s.blockFailureCause(ctx, q, d, BlockContractConflict)
+	case FailureClassFlaky:
+		count, err := q.IncrementGoalFlakyCount(ctx, d.ID)
+		if err != nil {
+			return fmt.Errorf("increment flaky count: %w", err)
+		}
+		if count > 5 {
+			return s.blockFailureCause(ctx, q, d, BlockEnvUnavailable)
+		}
+		if decomposition {
+			return s.recoverDecomposition(ctx, q, d, true)
+		}
+		return s.reopenForRework(ctx, q, d)
+	default:
+		return ErrInvalidTransition
+	}
+}
+
 // branchOnFailure routes an acceptance failure (contract §5 step 7). With budget
 // left it records the gaps on the rejected attempt and clears the active pointer
 // so the dispatcher mints attempt_no+1 (rework = next attempt). Budget out routes
-// by escalation/contract shape to blocked(budget_exhausted), abandoned, or
-// rejected_final.
+// by escalation/contract shape to blocked(budget_exhausted) or done(failed).
 func (s *GoalService) branchOnFailure(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, attemptID string, gaps Evaluation) error {
+	// A composite cannot rework: it has no execution attempts (its work is its
+	// children, all accepted by the time its own gate folds), so reopening to
+	// pending would strand it -- the dispatcher only claims pending LEAVES. A failing
+	// verdict on its judgment gate parks it back at needs_verdict for a human to
+	// adjudicate: override the item, edit the contract, or cancel.
+	if d.Kind == KindComposite {
+		return s.blockForVerdict(ctx, q, d)
+	}
 	var pol ConvergencePolicy
 	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
 	pol = pol.Normalized()
@@ -850,8 +746,12 @@ func (s *GoalService) branchOnFailure(ctx context.Context, q *sqlc.Queries, d sq
 		}
 	}
 
-	if d.AttemptCount < int64(pol.MaxAttempts) {
-		// Budget left: clear the active attempt so the goal returns to ready
+	left, err := s.budgetLeft(ctx, q, d, PurposeExecution)
+	if err != nil {
+		return err
+	}
+	if left {
+		// Budget left: clear the active attempt so the goal returns to pending
 		// for the next claim. The dispatcher re-claims and mints attempt_no+1 with
 		// the gaps now in input_context.
 		return s.reopenForRework(ctx, q, d)
@@ -860,27 +760,22 @@ func (s *GoalService) branchOnFailure(ctx context.Context, q *sqlc.Queries, d sq
 	// Budget exhausted: terminal/blocked per policy and contract shape.
 	switch {
 	case judgmentOnlyContract(d):
-		return s.transition(ctx, q, d, LifecycleRejectedFinal, "", counterFailed)
+		return s.transition(ctx, q, d, LifecycleDone, "")
 	case pol.Escalation == EscalationAbandon:
-		return s.transition(ctx, q, d, LifecycleAbandoned, "", counterFailed)
+		return s.transition(ctx, q, d, LifecycleDone, "")
 	default:
 		return s.blockBudget(ctx, q, d)
 	}
 }
 
-// reopenForRework returns a failed-with-budget goal to ready for the next
-// attempt: clear the active attempt and move active→ready. The current attempt
+// reopenForRework returns a failed-with-budget goal to pending for the next
+// attempt: clear the active attempt and move active->pending. The current attempt
 // stays 'submitted' with its gaps recorded; the new attempt carries them.
 func (s *GoalService) reopenForRework(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
 	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 		return fmt.Errorf("clear active attempt: %w", err)
 	}
-	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-		ToLifecycle:   LifecycleReady,
-		BlockReason:   "",
-		ID:            d.ID,
-		FromLifecycle: LifecycleActive,
-	})
+	rows, err := s.transitionGoalLifecycle(ctx, q, d, LifecyclePending, "")
 	if err != nil {
 		return fmt.Errorf("reopen for rework: %w", err)
 	}
@@ -890,39 +785,21 @@ func (s *GoalService) reopenForRework(ctx context.Context, q *sqlc.Queries, d sq
 	return nil
 }
 
-// refundAndReopen returns a goal to ready WITHOUT charging convergence budget,
-// for an attempt reaped while still 'queued' (it never executed). ClaimGoal
-// already bumped attempt_count at claim, so we restore the pre-claim budget by
-// raising the MaxAttempts ceiling one step — we cannot decrement attempt_count
-// because uniq_agent_goal_attempt_no requires attempt_no to keep climbing across
-// re-claims. Mirrors Reattempt's budget raise. reopenForRework then clears the
-// active attempt and moves active→ready.
-func (s *GoalService) refundAndReopen(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
-	var pol ConvergencePolicy
-	_ = unmarshalJSON(d.ConvergencePolicy, &pol)
-	pol = pol.Normalized()
-	pol.MaxAttempts++
-	if err := q.UpdateGoalIntent(ctx, sqlc.UpdateGoalIntentParams{
-		Title:              d.Title,
-		Intent:             d.Intent,
-		AcceptanceContract: d.AcceptanceContract,
-		ConvergencePolicy:  marshalJSON(pol),
-		ReviewPolicy:       d.ReviewPolicy,
-		Priority:           d.Priority,
-		ID:                 d.ID,
-	}); err != nil {
-		return fmt.Errorf("refund budget on queued reap: %w", err)
+func (s *GoalService) blockFailureCause(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, cause string) error {
+	rows, err := s.blockGoal(ctx, q, d, cause)
+	if err != nil {
+		return fmt.Errorf("block %s: %w", cause, err)
 	}
-	return s.reopenForRework(ctx, q, d)
+	if rows == 0 {
+		return ErrInvalidTransition
+	}
+	return nil
 }
 
 // blockBudget parks an exhausted goal: active→blocked(budget_exhausted),
 // awaiting a human Reattempt (raise budget) or Abandon (contract §2.1).
 func (s *GoalService) blockBudget(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
-	rows, err := q.BlockGoal(ctx, sqlc.BlockGoalParams{
-		BlockReason: BlockBudgetExhausted,
-		ID:          d.ID,
-	})
+	rows, err := s.blockGoal(ctx, q, d, BlockBudgetExhausted)
 	if err != nil {
 		return fmt.Errorf("block budget: %w", err)
 	}
@@ -932,21 +809,15 @@ func (s *GoalService) blockBudget(ctx context.Context, q *sqlc.Queries, d sqlc.A
 	return nil
 }
 
-// blockPlanningInvalid parks a composite whose planner exhausted structural
-// repairs. This is not convergence-budget exhaustion, so Reattempt does not use
-// the semantic/transient plan budget path.
-func (s *GoalService) blockPlanningInvalid(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {
+// transition applies a terminal active->{to} move. Used for budget-out
+// done(failed) paths.
+func (s *GoalService) transition(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, to, blockReason string) error {
 	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
 		return fmt.Errorf("clear active attempt: %w", err)
 	}
-	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-		ToLifecycle:   LifecycleBlocked,
-		BlockReason:   BlockPlanningInvalid,
-		ID:            d.ID,
-		FromLifecycle: LifecycleActive,
-	})
+	rows, err := s.transitionGoalLifecycle(ctx, q, d, to, blockReason)
 	if err != nil {
-		return fmt.Errorf("block planning invalid: %w", err)
+		return fmt.Errorf("transition to %s: %w", to, err)
 	}
 	if rows == 0 {
 		return ErrInvalidTransition
@@ -954,31 +825,9 @@ func (s *GoalService) blockPlanningInvalid(ctx context.Context, q *sqlc.Queries,
 	return nil
 }
 
-// transition applies a terminal active→{to} move and bumps one parent counter in
-// the same tx (contract §6). Used for the budget-out terminal-bad paths
-// (rejected_final/abandoned).
-func (s *GoalService) transition(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal, to, blockReason string, counter counterKind) error {
-	if err := q.ClearGoalActiveAttempt(ctx, d.ID); err != nil {
-		return fmt.Errorf("clear active attempt: %w", err)
-	}
-	rows, err := q.TransitionGoalLifecycle(ctx, sqlc.TransitionGoalLifecycleParams{
-		ToLifecycle:   to,
-		BlockReason:   blockReason,
-		ID:            d.ID,
-		FromLifecycle: LifecycleActive,
-	})
-	if err != nil {
-		return fmt.Errorf("transition to %s: %w", to, err)
-	}
-	if rows == 0 {
-		return ErrInvalidTransition
-	}
-	return s.bumpParentCounter(ctx, q, d, counter)
-}
-
 // judgmentOnlyContract reports whether a goal's contract has no required
-// deterministic item — a pure-judgment contract has no rework path on a failed
-// verdict, so budget exhaustion is rejected_final rather than recoverable.
+// deterministic item -- a pure-judgment contract has no rework path on a failed
+// verdict, so budget exhaustion becomes done(failed) rather than recoverable.
 func judgmentOnlyContract(d sqlc.AgentGoal) bool {
 	var c AcceptanceContract
 	_ = unmarshalJSON(d.AcceptanceContract, &c)

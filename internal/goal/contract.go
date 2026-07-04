@@ -77,6 +77,17 @@ func (c AcceptanceContract) HasDeterministicItem() bool {
 	return false
 }
 
+// HasRequiredDeterministicItem reports whether acceptance depends on a command
+// check that must run in a sandbox.
+func (c AcceptanceContract) HasRequiredDeterministicItem() bool {
+	for _, it := range c.Items {
+		if it.Kind == ItemDeterministic && it.Required {
+			return true
+		}
+	}
+	return false
+}
+
 // AgentJudgmentItems returns the required judgment items resolved by a reviewer
 // agent (authority=agent) — the items the agent auto-review producer must answer
 // with a verdict (contract §10.13). A non-required or human-authority judgment

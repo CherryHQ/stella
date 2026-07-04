@@ -27,7 +27,7 @@ func (q *Queries) CountRunningSchedJobRuns(ctx context.Context, jobID string) (i
 const createSchedJobRun = `-- name: CreateSchedJobRun :one
 INSERT INTO sched_job_run (id, job_id, session_id, status, started_at, finished_at, error, user_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, job_id, session_id, status, started_at, finished_at, error, output, user_id
+RETURNING id, job_id, session_id, status, started_at, finished_at, error, output, user_id, root_goal_id
 `
 
 type CreateSchedJobRunParams struct {
@@ -63,12 +63,13 @@ func (q *Queries) CreateSchedJobRun(ctx context.Context, arg CreateSchedJobRunPa
 		&i.Error,
 		&i.Output,
 		&i.UserID,
+		&i.RootGoalID,
 	)
 	return i, err
 }
 
 const getSchedJobRun = `-- name: GetSchedJobRun :one
-SELECT id, job_id, session_id, status, started_at, finished_at, error, output, user_id FROM sched_job_run WHERE id = $1 AND job_id = $2
+SELECT id, job_id, session_id, status, started_at, finished_at, error, output, user_id, root_goal_id FROM sched_job_run WHERE id = $1 AND job_id = $2
 `
 
 type GetSchedJobRunParams struct {
@@ -89,6 +90,7 @@ func (q *Queries) GetSchedJobRun(ctx context.Context, arg GetSchedJobRunParams) 
 		&i.Error,
 		&i.Output,
 		&i.UserID,
+		&i.RootGoalID,
 	)
 	return i, err
 }
@@ -163,7 +165,7 @@ func (q *Queries) ListFailedInboxSchedulerRuns(ctx context.Context, arg ListFail
 }
 
 const listSchedJobRuns = `-- name: ListSchedJobRuns :many
-SELECT id, job_id, session_id, status, started_at, finished_at, error, output, user_id FROM sched_job_run
+SELECT id, job_id, session_id, status, started_at, finished_at, error, output, user_id, root_goal_id FROM sched_job_run
 WHERE job_id = $1
   AND ($2::text IS NULL OR user_id = $2)
 ORDER BY started_at DESC, id DESC
@@ -201,6 +203,7 @@ func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsPara
 			&i.Error,
 			&i.Output,
 			&i.UserID,
+			&i.RootGoalID,
 		); err != nil {
 			return nil, err
 		}
@@ -225,6 +228,23 @@ SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
 // occasionally, which is harmless.
 func (q *Queries) LockSchedJobForRun(ctx context.Context, jobID string) error {
 	_, err := q.db.Exec(ctx, lockSchedJobForRun, jobID)
+	return err
+}
+
+const setSchedJobRunRootGoal = `-- name: SetSchedJobRunRootGoal :exec
+UPDATE sched_job_run
+SET root_goal_id = $1
+WHERE id = $2 AND job_id = $3
+`
+
+type SetSchedJobRunRootGoalParams struct {
+	RootGoalID pgtype.Text `json:"root_goal_id"`
+	ID         string      `json:"id"`
+	JobID      string      `json:"job_id"`
+}
+
+func (q *Queries) SetSchedJobRunRootGoal(ctx context.Context, arg SetSchedJobRunRootGoalParams) error {
+	_, err := q.db.Exec(ctx, setSchedJobRunRootGoal, arg.RootGoalID, arg.ID, arg.JobID)
 	return err
 }
 

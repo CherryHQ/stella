@@ -19,6 +19,7 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -130,12 +131,12 @@ func (h goalHandler) List(ctx context.Context, in GoalListInput) (any, error) {
 		if _, err := h.svc.GetGoalOwned(ctx, h.ident, in.Parent); err != nil {
 			return nil, err
 		}
-		rows, err = h.svc.ListChildren(ctx, in.Parent)
+		rows, err = h.svc.Queries.ListGoalChildren(ctx, pgnull.Text(in.Parent))
 	case in.Root != "":
 		if _, err := h.svc.GetGoalOwned(ctx, h.ident, in.Root); err != nil {
 			return nil, err
 		}
-		rows, err = h.svc.ListSubtree(ctx, in.Root)
+		rows, err = h.svc.Queries.ListGoalByRoot(ctx, in.Root)
 	default:
 		rows, err = h.svc.ListGoalsOwned(ctx, h.ident, filter, int64(limit+1), int64(offset))
 	}

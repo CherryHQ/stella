@@ -48,11 +48,7 @@ Tools answer "what can this agent actually do?"
 
 ## Goal
 
-A goal is the outcome the user gives the agent. Good goals describe the desired result, not every implementation step.
-
-## Task
-
-A task is a tracked unit of work. Stella tracks explicitly created tasks with dependencies, blockers, events, runs, and review states. Automatic goal-to-task planning is not part of this release.
+A goal is the outcome the user gives the agent. Good goals describe the desired result, not every implementation step. Stella tracks each goal as a tree of sub-goals with dependencies, blockers, runs, and review states, and works it until the acceptance check passes.
 
 ## Review
 

@@ -39,8 +39,8 @@ func TestEntityURL(t *testing.T) {
 		ref  renderrefs.Reference
 		want string
 	}{
-		{renderrefs.Reference{Type: "task", ID: "t1", AgentID: "a1"}, "https://stella.example.com/agents/a1/tasks/t1"},
-		{renderrefs.Reference{Type: "goal", ID: "g1", AgentID: "a1"}, "https://stella.example.com/agents/a1/tasks/goals/g1"},
+		{renderrefs.Reference{Type: "task", ID: "t1", AgentID: "a1"}, "https://stella.example.com/agents/a1/goals/t1"},
+		{renderrefs.Reference{Type: "goal", ID: "g1", AgentID: "a1"}, "https://stella.example.com/agents/a1/goals/g1"},
 		{renderrefs.Reference{Type: "recally_article", ID: "r1"}, "https://stella.example.com/recally?article=r1"},
 		{renderrefs.Reference{Type: "task", ID: "t1"}, ""},    // task without agent → no link
 		{renderrefs.Reference{Type: "unknown", ID: "x1"}, ""}, // unknown type → no link
@@ -63,7 +63,7 @@ func TestAppendReferenceSectionAddsOpenButton(t *testing.T) {
 	t.Setenv("STELLA_BASE_URL", "https://stella.example.com")
 	refs := []renderrefs.Reference{{V: 1, Type: "task", ID: "t1", AgentID: "a1", Preview: &renderrefs.Preview{Title: "Write docs"}}}
 	got := appendReferenceSection("done", refs, false)
-	if !strings.Contains(got, `{{button label="打开 Web UI" type="primary" url="https://stella.example.com/agents/a1/tasks/t1"}}`) {
+	if !strings.Contains(got, `{{button label="打开 Web UI" type="primary" url="https://stella.example.com/agents/a1/goals/t1"}}`) {
 		t.Fatalf("missing open button: %q", got)
 	}
 }
@@ -126,7 +126,7 @@ func TestReferenceLineDefusesMaliciousTitle(t *testing.T) {
 func TestEntityURLEscapesAndValidatesScheme(t *testing.T) {
 	t.Setenv("STELLA_BASE_URL", "https://stella.example.com")
 	got := entityURL(renderrefs.Reference{Type: "task", ID: "a/b c", AgentID: "x/y"})
-	if got != "https://stella.example.com/agents/x%2Fy/tasks/a%2Fb%20c" {
+	if got != "https://stella.example.com/agents/x%2Fy/goals/a%2Fb%20c" {
 		t.Fatalf("path segments not escaped: %q", got)
 	}
 

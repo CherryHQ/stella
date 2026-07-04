@@ -79,6 +79,7 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		ScheduleAt:     job.Schedule.At,
 		Message:        job.Message,
 		Payload:        encodePayload(job.Payload),
+		DispatchKind:   normalizeDispatchKind(job.DispatchKind),
 		SessionMode:    job.SessionMode,
 		Enabled:        job.Enabled,
 		AgentID:        pgtype.Text{String: job.AgentID, Valid: job.AgentID != ""},
@@ -109,6 +110,7 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 		ScheduleAt:    job.Schedule.At,
 		Message:       job.Message,
 		Payload:       encodePayload(job.Payload),
+		DispatchKind:  normalizeDispatchKind(job.DispatchKind),
 		SessionMode:   job.SessionMode,
 		Enabled:       job.Enabled,
 		AgentID:       pgtype.Text{String: job.AgentID, Valid: job.AgentID != ""},
@@ -137,13 +139,14 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 			Every: r.ScheduleEvery,
 			At:    r.ScheduleAt,
 		},
-		Message:     r.Message,
-		Payload:     decodePayload(r.Payload),
-		SessionMode: r.SessionMode,
-		Enabled:     r.Enabled,
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
-		LastError:   r.LastError,
+		Message:      r.Message,
+		Payload:      decodePayload(r.Payload),
+		DispatchKind: normalizeDispatchKind(r.DispatchKind),
+		SessionMode:  r.SessionMode,
+		Enabled:      r.Enabled,
+		CreatedAt:    createdAt,
+		UpdatedAt:    updatedAt,
+		LastError:    r.LastError,
 	}
 	if r.AgentID.Valid {
 		j.AgentID = r.AgentID.String
@@ -169,6 +172,15 @@ func normalizeOwnerKind(kind string) string {
 		return JobOwnerSystem
 	default:
 		return JobOwnerUser
+	}
+}
+
+func normalizeDispatchKind(kind string) string {
+	switch kind {
+	case DispatchKindWorkflow:
+		return DispatchKindWorkflow
+	default:
+		return DispatchKindChat
 	}
 }
 
@@ -207,6 +219,44 @@ func decodePayload(raw json.RawMessage) map[string]any {
 		return map[string]any{}
 	}
 	return payload
+}
+
+func payloadString(payload map[string]any, key string) (string, bool) {
+	v, ok := payload[key]
+	if !ok {
+		return "", false
+	}
+	s, ok := v.(string)
+	return s, ok
+}
+
+func payloadBool(payload map[string]any, key string) bool {
+	v, ok := payload[key]
+	if !ok {
+		return false
+	}
+	b, ok := v.(bool)
+	return ok && b
+}
+
+func payloadStringMap(payload map[string]any, key string) map[string]string {
+	v, ok := payload[key]
+	if !ok {
+		return map[string]string{}
+	}
+	if m, ok := v.(map[string]string); ok {
+		return m
+	}
+	if m, ok := v.(map[string]any); ok {
+		out := make(map[string]string, len(m))
+		for k, v := range m {
+			if s, ok := v.(string); ok {
+				out[k] = s
+			}
+		}
+		return out
+	}
+	return map[string]string{}
 }
 
 func clonePayload(src map[string]any) map[string]any {

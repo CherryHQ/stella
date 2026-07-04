@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -39,6 +40,7 @@ import (
 	"github.com/CherryHQ/stella/internal/tools/domaintools"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
+	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -83,6 +85,7 @@ type setupResult struct {
 	credSvc                  *credentials.Service
 	shareSvc                 *sharepkg.Service
 	recallySvc               *recally.Service
+	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []pkgtools.Tool
@@ -231,6 +234,13 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:       db,
 		Services: &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
+		Capabilities: goal.CapabilityProbeFunc(func() bool {
+			plugins, err := store.ListPlugins(context.Background())
+			if err != nil {
+				return false
+			}
+			return config.ActiveSandboxBackend(plugins) != config.SandboxBackendNone
+		}),
 		Chat: func(ctx context.Context, p goal.TaskChatParams) <-chan agent.Event {
 			var svc *agent.Service
 			if poolMgr != nil {
@@ -246,12 +256,13 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 				return out
 			}
 			chatReq := agent.TaskChatRequest{
-				SessionID:  p.SessionID,
-				UserID:     p.UserID,
-				AgentID:    p.AgentID,
-				ProjectID:  p.ProjectID,
-				Message:    p.Prompt,
-				ExtraTools: p.ExtraTools,
+				SessionID:        p.SessionID,
+				UserID:           p.UserID,
+				AgentID:          p.AgentID,
+				ProjectID:        p.ProjectID,
+				Message:          p.Prompt,
+				ExtraTools:       p.ExtraTools,
+				OnSandboxSession: p.OnSandboxSession,
 			}
 			// Decomposition runs on the goal's KindDelegate planning session;
 			// execution on the KindTask worker session. They resolve differently.
@@ -316,6 +327,9 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, fmt.Errorf("start pool manager: %w", err)
 	}
 
+	workflowSvc := workflowpkg.New(db, sqlc.New(db), goalSvc.Goal)
+	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc, q: sqlc.New(db)})
+
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
@@ -344,6 +358,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		credSvc:                  credSvc,
 		shareSvc:                 shareSvc,
 		recallySvc:               recallySvc,
+		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
@@ -431,6 +446,51 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 		embeddingSvc.SetRiverClient(client)
 	}
 	return client, nil
+}
+
+type schedulerWorkflowAdapter struct {
+	svc *workflowpkg.Service
+	q   *sqlc.Queries
+}
+
+func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context, req scheduler.WorkflowValidateRequest) (scheduler.ScheduledWorkflow, error) {
+	wf, err := a.svc.Get(ctx, req.UserID, req.AgentID, req.WorkflowID)
+	if err != nil {
+		return scheduler.ScheduledWorkflow{}, err
+	}
+	return scheduler.ScheduledWorkflow{ID: wf.ID, FullyFrozen: wf.FullyFrozen}, nil
+}
+
+func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req scheduler.WorkflowLatestRunRequest) (scheduler.WorkflowRunState, error) {
+	run, err := a.q.GetLatestWorkflowRun(ctx, req.WorkflowID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return scheduler.WorkflowRunState{}, nil
+	}
+	if err != nil {
+		return scheduler.WorkflowRunState{}, err
+	}
+	state := scheduler.WorkflowRunState{Found: true, Status: run.Status, IdempotencyKey: run.IdempotencyKey}
+	if run.RootGoalID.Valid {
+		state.RootGoalID = run.RootGoalID.String
+		root, err := a.q.GetGoal(ctx, run.RootGoalID.String)
+		if err != nil {
+			return scheduler.WorkflowRunState{}, err
+		}
+		state.RootGoalTerminal = goal.IsTerminalLifecycle(root.Lifecycle)
+	}
+	return state, nil
+}
+
+func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
+	run, _, err := a.svc.Instantiate(ctx, workflowpkg.InstantiateInput{UserID: req.UserID, AgentID: req.AgentID, WorkflowID: req.WorkflowID, Inputs: req.Inputs, IdempotencyKey: req.IdempotencyKey})
+	if err != nil {
+		return scheduler.WorkflowInstantiateResult{}, err
+	}
+	rootID := ""
+	if run.RootGoalID.Valid {
+		rootID = run.RootGoalID.String
+	}
+	return scheduler.WorkflowInstantiateResult{RunID: run.ID, RootGoalID: rootID}, nil
 }
 
 func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher) {
