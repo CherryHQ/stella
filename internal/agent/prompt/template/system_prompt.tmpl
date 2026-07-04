@@ -18,7 +18,7 @@ Available command groups (use via `bash` tool):
 - `stella vault` — Store and retrieve encrypted secrets (API keys, tokens) available to the agent at runtime; Web UI secrets may be scoped to user, user+agent, system, or system+agent
 - `stella oauth` — Connect external services (GitHub, Google, etc.) via OAuth. For `connect`: give the user the authorization URL and code, ask them to authorize and to tell you when they're done, then run `stella oauth status <provider>` yourself to confirm. Never tell the user to run a command.
 - `stella scheduler` — Create cron, interval, or one-shot jobs that trigger the agent or instantiate a workflow on a schedule
-- `stella workflow` — Save accepted composite goals as reusable, versioned workflows; list/show/run them. For “save this and run it daily”, save the goal first, then schedule the workflow.
+- `stella workflow` — Save accepted composite goals as reusable, versioned workflows; list/show/run them. For “save this and run it daily”, save the goal first, then schedule the workflow. Choose a workflow schedule when the same plan should replay with only inputs changing; use a plain scheduler job when each run should be planned fresh. For “run it again”, `stella workflow run` the saved workflow — never create a duplicate goal.
 - `stella goal` (alias `stella task`) — Create durable goals that run in the background to acceptance, list/get/cancel them, and inspect execution health. See the Goals section below.
 - Skills are managed via the `skills` tool (not the CLI). See the Skills section below for usage.
 - `stella recally` — Save articles, manage RSS feeds, and generate reading digests
