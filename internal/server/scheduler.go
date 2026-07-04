@@ -321,6 +321,10 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 			writeError(w, http.StatusNotFound, err.Error())
 		case errors.Is(err, scheduler.ErrWorkflowJobValidation):
 			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, scheduler.ErrOneTimeJobPast):
+			// Fired one-time jobs are retired as disabled rows; re-enabling one
+			// is a user mistake, not a server fault. They must set a new time.
+			writeError(w, http.StatusBadRequest, "one-time job timestamp is in the past; set a new time to re-enable it")
 		default:
 			s.writeInternalError(w, err)
 		}

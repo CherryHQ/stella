@@ -19,10 +19,10 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// errOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
+// ErrOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
 // has already elapsed. Start suppresses this for persisted jobs; AddJob treats
 // it as a hard failure.
-var errOneTimeJobPast = errors.New("one-time job timestamp is in the past")
+var ErrOneTimeJobPast = errors.New("one-time job timestamp is in the past")
 
 // OnJobFunc is called when a scheduled job fires.
 type OnJobFunc func(ctx context.Context, job Job) error
@@ -249,7 +249,7 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 			}
 			if j.Enabled {
 				if err := s.scheduleJob(j); err != nil {
-					if errors.Is(err, errOneTimeJobPast) {
+					if errors.Is(err, ErrOneTimeJobPast) {
 						s.log.Info("skipping one-time job with past timestamp", "id", j.ID, "at", j.Schedule.At)
 					} else {
 						s.log.Warn("failed to schedule persisted job", "id", j.ID, "name", j.Name, "error", err)

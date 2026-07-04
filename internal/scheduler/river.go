@@ -170,7 +170,7 @@ func (s *Service) scheduleJob(job Job) error {
 			return fmt.Errorf("parse at timestamp: %w", err)
 		}
 		if !t.After(time.Now()) {
-			return errOneTimeJobPast
+			return ErrOneTimeJobPast
 		}
 		res, err := s.river.Insert(s.lifeCtx(), schedJobArgs{JobID: job.ID, At: job.Schedule.At}, &river.InsertOpts{
 			Queue:       schedulerQueue,
