@@ -185,19 +185,19 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.poolManager.SetOAuthRegistry(s.oauthRegistry)
 	}
 
+	tokenSvc := auth.NewTokenService(as)
+	adminSrv.SetTokenService(tokenSvc)
+	s.poolManager.SetTokenEnsurer(gctx, tokenSvc)
+
 	// Wire vault service if STELLA_VAULT_KEY was valid during setup.
 	var coordOpts []channel.CoordinatorOption
-	var tokenSvc *auth.TokenService
 	var mcpVault mcp.Vault // nil when the vault is unavailable; MCP bearer auth then rejected
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
 	if s.vaultSvc != nil {
-		tokenSvc = auth.NewTokenService(as)
 		mcpVault = s.vaultSvc
 		adminSrv.SetVaultService(s.vaultSvc)
-		adminSrv.SetTokenService(tokenSvc)
 		adminSrv.SetVaultRecipient(s.vaultSvc.MasterRecipient())
 		s.poolManager.SetVaultEnvLoader(gctx, s.vaultSvc)
-		s.poolManager.SetTokenEnsurer(gctx, tokenSvc)
 		coordOpts = append(coordOpts, channel.WithVaultRecipient(s.vaultSvc.MasterRecipient()))
 		coordOpts = append(coordOpts, channel.WithVaultService(s.vaultSvc))
 	}

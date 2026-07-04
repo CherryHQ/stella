@@ -12,25 +12,34 @@ import (
 type secretCaptureSession struct {
 	sandbox.Session
 	lastEnv map[string]string
+	result  sandbox.ExecResult
 }
 
 func (s *secretCaptureSession) Exec(_ context.Context, _ string, opts sandbox.ExecOptions) (sandbox.ExecResult, error) {
 	s.lastEnv = opts.Env
+	if s.result.Stdout != "" || s.result.Stderr != "" || s.result.ExitCode != 0 {
+		return s.result, nil
+	}
 	return sandbox.ExecResult{Stdout: opts.Env["API_KEY"], ExitCode: 0}, nil
 }
 
 type fakeSecretResolver struct {
-	env     map[string]string
-	valid   []string
-	err     error
-	uses    []string
-	command string
+	env        map[string]string
+	valid      []string
+	declarable []string
+	err        error
+	uses       []string
+	command    string
 }
 
 func (r *fakeSecretResolver) ResolveExecSecrets(_ context.Context, names []string, command string) (map[string]string, []string, error) {
 	r.uses = append(r.uses, names...)
 	r.command = command
 	return r.env, r.valid, r.err
+}
+
+func (r *fakeSecretResolver) DeclarableSecretNames(context.Context) ([]string, error) {
+	return r.declarable, nil
 }
 
 func TestBashDeclaredSecretInjectedOnlyIntoExecEnv(t *testing.T) {
@@ -84,5 +93,75 @@ func TestBashNonDeclarableSecretFailsWithNamesOnly(t *testing.T) {
 	}
 	if session.lastEnv != nil {
 		t.Fatal("exec ran after non-declarable secret")
+	}
+}
+
+func TestBashFailedCommandHintsUndeclaredDeclarableSecret(t *testing.T) {
+	session := &secretCaptureSession{Session: sandbox.NopSession(), result: sandbox.ExecResult{Stderr: "missing token", ExitCode: 1}}
+	resolver := &fakeSecretResolver{declarable: []string{"OTHER", "TEST_TOKEN"}}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "curl -H \"Authorization: Bearer $TEST_TOKEN\" example.test"})
+	if err == nil {
+		t.Fatal("Execute succeeded, want error")
+	}
+	if !strings.Contains(content, "hint: the command references undeclared vault secret(s): TEST_TOKEN") {
+		t.Fatalf("content = %q, want undeclared secret hint", content)
+	}
+}
+
+func TestBashFailedCommandWithoutSecretReferenceDoesNotHint(t *testing.T) {
+	session := &secretCaptureSession{Session: sandbox.NopSession(), result: sandbox.ExecResult{Stderr: "nope", ExitCode: 1}}
+	resolver := &fakeSecretResolver{declarable: []string{"TEST_TOKEN"}}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "false"})
+	if err == nil {
+		t.Fatal("Execute succeeded, want error")
+	}
+	if strings.Contains(content, "undeclared vault secret") {
+		t.Fatalf("content = %q, want no hint", content)
+	}
+}
+
+func TestBashSuccessfulCommandReferencingSecretDoesNotHint(t *testing.T) {
+	session := &secretCaptureSession{Session: sandbox.NopSession(), result: sandbox.ExecResult{Stdout: "ok", ExitCode: 0}}
+	resolver := &fakeSecretResolver{declarable: []string{"TEST_TOKEN"}}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $TEST_TOKEN"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if strings.Contains(content, "undeclared vault secret") {
+		t.Fatalf("content = %q, want no hint", content)
+	}
+}
+
+func TestBashFailedCommandWithDeclaredSecretDoesNotHint(t *testing.T) {
+	session := &secretCaptureSession{Session: sandbox.NopSession(), result: sandbox.ExecResult{Stderr: "nope", ExitCode: 1}}
+	resolver := &fakeSecretResolver{env: map[string]string{"TEST_TOKEN": "secret-value"}, declarable: []string{"TEST_TOKEN"}}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $TEST_TOKEN", "secrets": []any{"TEST_TOKEN"}})
+	if err == nil {
+		t.Fatal("Execute succeeded, want error")
+	}
+	if strings.Contains(content, "undeclared vault secret") {
+		t.Fatalf("content = %q, want no hint", content)
+	}
+}
+
+func TestBashUndeclaredSecretHintChecksVariableBoundary(t *testing.T) {
+	session := &secretCaptureSession{Session: sandbox.NopSession(), result: sandbox.ExecResult{Stderr: "nope", ExitCode: 1}}
+	resolver := &fakeSecretResolver{declarable: []string{"TEST_TOKEN"}}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $TEST_TOKEN_EXTRA"})
+	if err == nil {
+		t.Fatal("Execute succeeded, want error")
+	}
+	if strings.Contains(content, "undeclared vault secret") {
+		t.Fatalf("content = %q, want no hint", content)
 	}
 }

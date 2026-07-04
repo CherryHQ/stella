@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/tools"
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
@@ -13,11 +14,29 @@ type execSecretResolver struct {
 	cfg agentsandbox.Config
 }
 
-func newExecSecretResolver(cfg agentsandbox.Config) *execSecretResolver {
+// newExecSecretResolver returns the interface type so a session without a
+// vault loader yields a true nil: returning a nil *execSecretResolver would
+// survive the caller's interface nil check and panic on first use.
+func newExecSecretResolver(cfg agentsandbox.Config) tools.ExecSecretResolver {
 	if cfg.VaultEnvLoader == nil {
 		return nil
 	}
 	return &execSecretResolver{cfg: cfg}
+}
+
+func (r *execSecretResolver) DeclarableSecretNames(ctx context.Context) ([]string, error) {
+	if r.cfg.GroupID != "" {
+		return nil, nil
+	}
+	secrets, err := r.cfg.VaultEnvLoader.ListDeclarableForAgentProject(ctx, r.cfg.UserID, r.cfg.AgentID, r.cfg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(secrets))
+	for _, secret := range secrets {
+		names = append(names, secret.Name)
+	}
+	return names, nil
 }
 
 func (r *execSecretResolver) ResolveExecSecrets(ctx context.Context, names []string, command string) (map[string]string, []string, error) {

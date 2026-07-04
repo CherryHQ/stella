@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,6 +33,7 @@ func bashDefinition() pkgtools.Definition {
 
 type ExecSecretResolver interface {
 	ResolveExecSecrets(ctx context.Context, names []string, command string) (map[string]string, []string, error)
+	DeclarableSecretNames(ctx context.Context) ([]string, error)
 }
 
 func newBashTool(host sandbox.Host, toolsBinDir, projectRoot string, secretResolver ExecSecretResolver) pkgtools.Tool {
@@ -105,9 +107,70 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 
 	norm := t.normalizer.NormalizeExec(result, time.Since(start))
 	if norm.IsError {
-		return redactSecretValues(norm.Content, secretEnv), fmt.Errorf("bash: exit code %d", result.ExitCode)
+		content := norm.Content + t.undeclaredSecretHint(ctx, command, secretNames)
+		return redactSecretValues(content, secretEnv), fmt.Errorf("bash: exit code %d", result.ExitCode)
 	}
 	return redactSecretValues(norm.Content, secretEnv), nil
+}
+
+func (t *hostBashTool) undeclaredSecretHint(ctx context.Context, command string, declared []string) string {
+	if t.secretResolver == nil {
+		return ""
+	}
+	names, err := t.secretResolver.DeclarableSecretNames(ctx)
+	if err != nil {
+		return ""
+	}
+	declaredSet := make(map[string]bool, len(declared))
+	for _, name := range declared {
+		declaredSet[name] = true
+	}
+	var referenced []string
+	for _, name := range names {
+		if declaredSet[name] || !commandReferencesSecret(command, name) {
+			continue
+		}
+		referenced = append(referenced, name)
+	}
+	if len(referenced) == 0 {
+		return ""
+	}
+	sort.Strings(referenced)
+	return fmt.Sprintf("\nhint: the command references undeclared vault secret(s): %s. Retry with the bash \"secrets\" parameter, e.g. secrets: [%s].", strings.Join(referenced, ", "), quoteSecretNames(referenced))
+}
+
+func quoteSecretNames(names []string) string {
+	quoted := make([]string, 0, len(names))
+	for _, name := range names {
+		quoted = append(quoted, fmt.Sprintf("\"%s\"", name))
+	}
+	return strings.Join(quoted, ", ")
+}
+
+func commandReferencesSecret(command, name string) bool {
+	if name == "" {
+		return false
+	}
+	if strings.Contains(command, "${"+name+"}") {
+		return true
+	}
+	needle := "$" + name
+	for i := 0; i < len(command); {
+		idx := strings.Index(command[i:], needle)
+		if idx == -1 {
+			return false
+		}
+		end := i + idx + len(needle)
+		if end == len(command) || !isEnvNameChar(command[end]) {
+			return true
+		}
+		i = end
+	}
+	return false
+}
+
+func isEnvNameChar(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_'
 }
 
 func redactSecretValues(content string, env map[string]string) string {
