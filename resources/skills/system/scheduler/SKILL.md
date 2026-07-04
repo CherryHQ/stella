@@ -58,7 +58,7 @@ For the user-facing loop "save this goal and run it daily":
 
 Do not duplicate historical command syntax from memory; run `--help` before invoking. Scheduled workflows are fully frozen by default. If the workflow is partially frozen, only schedule it when the user explicitly wants live replanning and the CLI help shows the required opt-in flag.
 
-Each scheduled fire instantiates a fresh root goal. If the previous run's root goal is still active at the next tick, the scheduler skips that overlapping fire instead of starting a parallel tree.
+Each scheduled fire instantiates a fresh root goal. The scheduler skips only when the previous run completed instantiation and its root goal is still active; failed instantiation does not block the next tick, and a stalled instantiation is resumed instead of duplicated.
 
 ## List Jobs
 

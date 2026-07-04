@@ -193,7 +193,14 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		job, err = s.schedulerSvc.AddJobWithOwner(*body.Name, derefStr(body.Message), sched, sessionMode, agentID, userID)
 	}
 	if err != nil {
-		s.writeInternalError(w, err)
+		switch {
+		case errors.Is(err, scheduler.ErrWorkflowJobNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, scheduler.ErrWorkflowJobValidation):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			s.writeInternalError(w, err)
+		}
 		return
 	}
 	writeData(w, http.StatusCreated, s.schedulerJobToAPI(job))

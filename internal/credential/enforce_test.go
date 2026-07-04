@@ -135,6 +135,23 @@ func TestEnforcePATReachesExternalButNotSandboxInternal(t *testing.T) {
 // An unknown agent sub-resource must fail closed (registered=false) rather than
 // inherit the broad agent scope -- this is what makes the coverage test catch a
 // newly added /api/agents/{id}/<new> at build time (CR-002).
+func TestSaveAsWorkflowRequiresWorkflowWrite(t *testing.T) {
+	scope, registered := RequiredScope("POST", "/api/goals/goal-1/save-as-workflow")
+	if !registered || scope != "workflows:write" {
+		t.Fatalf("scope=%q registered=%v want workflows:write true", scope, registered)
+	}
+	goalsOnly := &Principal{Kind: KindPAT, UserID: "u1", Scopes: []string{"goals:write"}}
+	if err := Enforce(goalsOnly, "POST", "/api/goals/goal-1/save-as-workflow"); err == nil {
+		t.Fatal("goals:write alone must not allow save-as-workflow")
+	}
+	for _, scopes := range [][]string{{"workflows:write"}, {"workflows:*"}} {
+		p := &Principal{Kind: KindPAT, UserID: "u1", Scopes: scopes}
+		if err := Enforce(p, "POST", "/api/goals/goal-1/save-as-workflow"); err != nil {
+			t.Fatalf("%v should allow save-as-workflow: %v", scopes, err)
+		}
+	}
+}
+
 func TestRequiredScopeUnknownAgentSubResourceFailsClosed(t *testing.T) {
 	if _, registered := RequiredScope("POST", "/api/agents/a1/secrets"); registered {
 		t.Fatal("unknown agent sub-resource must be registered=false (fail-closed)")

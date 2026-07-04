@@ -36,7 +36,10 @@ func DecodeFrozenPlan(b []byte) (FrozenPlan, error) {
 }
 
 func (p FrozenPlan) Validate() error {
-	maxDepth := goal.ConvergencePolicy{}.Normalized().MaxDepth
+	return p.ValidateMaxDepth(goal.ConvergencePolicy{}.Normalized().MaxDepth)
+}
+
+func (p FrozenPlan) ValidateMaxDepth(maxDepth int) error {
 	return p.validateAt(0, maxDepth)
 }
 

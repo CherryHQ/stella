@@ -8,14 +8,19 @@ INSERT INTO agent_goal (
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 RETURNING *;
 
+-- name: CreateGoalIfAbsent :one
+INSERT INTO agent_goal (
+    id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
+    title, intent, kind, priority, required,
+    acceptance_contract, convergence_policy, review_policy,
+    lifecycle, context, dispatch_hint, workflow_id, workflow_version
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+ON CONFLICT (id) DO UPDATE SET id = agent_goal.id
+RETURNING *;
+
 -- name: GetGoal :one
 SELECT * FROM agent_goal WHERE id = $1;
-
--- name: DeleteDraftRootGoal :execrows
-DELETE FROM agent_goal
-WHERE id = sqlc.arg(id)
-  AND lifecycle = 'draft'
-  AND parent_id IS NULL;
 
 -- Root goals (goals: parent_id IS NULL) for a user, scoped to an agent
 -- and narrowed by lifecycle / terminal-ness / project / workflow / free-text.
@@ -174,16 +179,15 @@ ORDER BY priority DESC, created_at ASC
 LIMIT $1;
 
 -- name: ListDecomposableComposites :many
--- Composites awaiting autonomous decomposition: freshly created (draft) and not
--- planned yet. Both review policies are auto-driven: the planner always produces
--- the plan; review_policy='human' only adds an approval gate after the plan is
--- proposed (the goal parks blocked(needs_plan_approval)), it does not stop the
--- planner from running. The dispatcher mints + enqueues a decomposition attempt
--- for each, moving it draft->active so it is not re-picked.
+-- Composites awaiting autonomous decomposition: freshly created (draft), not
+-- planned yet, and not workflow roots. A workflow root carries workflow_id and
+-- is materialized only by workflow replay; nested workflow composites do not
+-- carry workflow_id and remain planner-eligible when their sub-plan is not frozen.
 SELECT * FROM agent_goal
 WHERE kind = 'composite'
   AND lifecycle = 'draft'
   AND planned_at IS NULL
+  AND workflow_id IS NULL
 ORDER BY priority DESC, created_at ASC
 LIMIT $1;
 

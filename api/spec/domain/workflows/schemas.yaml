@@ -122,11 +122,14 @@ components:
 
     WorkflowRunList:
       type: object
-      required: [runs]
+      required: [runs, total]
       properties:
         runs:
           type: array
           items: { $ref: "#/components/schemas/WorkflowRun" }
+        total:
+          type: integer
+          description: Total workflow runs matching this workflow.
         next_page_token:
           type: string
           nullable: true

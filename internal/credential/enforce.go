@@ -169,6 +169,10 @@ func RequiredScope(method, path string) (scope string, registered bool) {
 	}
 	resource := rest[0]
 
+	if resource == "goals" && method == "POST" && len(rest) == 3 && rest[2] == "save-as-workflow" {
+		return scopeForMethod("workflows", method), true
+	}
+
 	switch resource {
 	case "status":
 		return "agent:" + ActionRead, true

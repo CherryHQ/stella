@@ -269,19 +269,107 @@ func (q *Queries) CreateGoal(ctx context.Context, arg CreateGoalParams) (AgentGo
 	return i, err
 }
 
-const deleteDraftRootGoal = `-- name: DeleteDraftRootGoal :execrows
-DELETE FROM agent_goal
-WHERE id = $1
-  AND lifecycle = 'draft'
-  AND parent_id IS NULL
+const createGoalIfAbsent = `-- name: CreateGoalIfAbsent :one
+INSERT INTO agent_goal (
+    id, user_id, agent_id, project_id, parent_id, root_id, depth, position,
+    title, intent, kind, priority, required,
+    acceptance_contract, convergence_policy, review_policy,
+    lifecycle, context, dispatch_hint, workflow_id, workflow_version
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+ON CONFLICT (id) DO UPDATE SET id = agent_goal.id
+RETURNING id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version
 `
 
-func (q *Queries) DeleteDraftRootGoal(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteDraftRootGoal, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+type CreateGoalIfAbsentParams struct {
+	ID                 string          `json:"id"`
+	UserID             string          `json:"user_id"`
+	AgentID            string          `json:"agent_id"`
+	ProjectID          pgtype.Text     `json:"project_id"`
+	ParentID           pgtype.Text     `json:"parent_id"`
+	RootID             string          `json:"root_id"`
+	Depth              int64           `json:"depth"`
+	Position           int64           `json:"position"`
+	Title              string          `json:"title"`
+	Intent             string          `json:"intent"`
+	Kind               string          `json:"kind"`
+	Priority           string          `json:"priority"`
+	Required           bool            `json:"required"`
+	AcceptanceContract json.RawMessage `json:"acceptance_contract"`
+	ConvergencePolicy  json.RawMessage `json:"convergence_policy"`
+	ReviewPolicy       string          `json:"review_policy"`
+	Lifecycle          string          `json:"lifecycle"`
+	Context            json.RawMessage `json:"context"`
+	DispatchHint       json.RawMessage `json:"dispatch_hint"`
+	WorkflowID         pgtype.Text     `json:"workflow_id"`
+	WorkflowVersion    pgtype.Int4     `json:"workflow_version"`
+}
+
+func (q *Queries) CreateGoalIfAbsent(ctx context.Context, arg CreateGoalIfAbsentParams) (AgentGoal, error) {
+	row := q.db.QueryRow(ctx, createGoalIfAbsent,
+		arg.ID,
+		arg.UserID,
+		arg.AgentID,
+		arg.ProjectID,
+		arg.ParentID,
+		arg.RootID,
+		arg.Depth,
+		arg.Position,
+		arg.Title,
+		arg.Intent,
+		arg.Kind,
+		arg.Priority,
+		arg.Required,
+		arg.AcceptanceContract,
+		arg.ConvergencePolicy,
+		arg.ReviewPolicy,
+		arg.Lifecycle,
+		arg.Context,
+		arg.DispatchHint,
+		arg.WorkflowID,
+		arg.WorkflowVersion,
+	)
+	var i AgentGoal
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.AgentID,
+		&i.ProjectID,
+		&i.ParentID,
+		&i.RootID,
+		&i.Depth,
+		&i.Position,
+		&i.Title,
+		&i.Intent,
+		&i.Kind,
+		&i.Priority,
+		&i.Required,
+		&i.AcceptanceContract,
+		&i.ConvergencePolicy,
+		&i.ReviewPolicy,
+		&i.Lifecycle,
+		&i.BlockReason,
+		&i.AcceptanceState,
+		&i.AcceptedOutput,
+		&i.AcceptanceSeq,
+		&i.ActiveAttemptID,
+		&i.AttemptCount,
+		&i.Context,
+		&i.DispatchHint,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AcceptedAt,
+		&i.CancelledAt,
+		&i.ArchivedAt,
+		&i.Plan,
+		&i.PlannedAt,
+		&i.FlakyCount,
+		&i.BudgetBonus,
+		&i.DoneReason,
+		&i.WorkflowID,
+		&i.WorkflowVersion,
+	)
+	return i, err
 }
 
 const getGoal = `-- name: GetGoal :one
@@ -420,16 +508,15 @@ SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, t
 WHERE kind = 'composite'
   AND lifecycle = 'draft'
   AND planned_at IS NULL
+  AND workflow_id IS NULL
 ORDER BY priority DESC, created_at ASC
 LIMIT $1
 `
 
-// Composites awaiting autonomous decomposition: freshly created (draft) and not
-// planned yet. Both review policies are auto-driven: the planner always produces
-// the plan; review_policy='human' only adds an approval gate after the plan is
-// proposed (the goal parks blocked(needs_plan_approval)), it does not stop the
-// planner from running. The dispatcher mints + enqueues a decomposition attempt
-// for each, moving it draft->active so it is not re-picked.
+// Composites awaiting autonomous decomposition: freshly created (draft), not
+// planned yet, and not workflow roots. A workflow root carries workflow_id and
+// is materialized only by workflow replay; nested workflow composites do not
+// carry workflow_id and remain planner-eligible when their sub-plan is not frozen.
 func (q *Queries) ListDecomposableComposites(ctx context.Context, limit int32) ([]AgentGoal, error) {
 	rows, err := q.db.Query(ctx, listDecomposableComposites, limit)
 	if err != nil {

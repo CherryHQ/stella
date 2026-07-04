@@ -73,7 +73,7 @@ export function WorkflowsPage() {
           </TableHeader>
           <TableBody>
             {workflows.map((workflow, index) => {
-              const runs = runQueries[index]?.data ?? [];
+              const runList = runQueries[index]?.data ?? { runs: [], total: 0 };
               return (
                 <TableRow key={workflow.id}>
                   <TableCell>
@@ -136,7 +136,7 @@ export function WorkflowsPage() {
                         <History />
                         {t("workflows.viewRuns")}
                       </Button>
-                      {runs.slice(0, 3).map((run, runIndex) =>
+                      {runList.runs.slice(0, 3).map((run, runIndex) =>
                         run.root_goal_id ? (
                           <Button
                             key={run.id}
@@ -149,7 +149,7 @@ export function WorkflowsPage() {
                               />
                             }
                           >
-                            {t("workflows.runNumber", { n: runs.length - runIndex })}
+                            {t("workflows.runNumber", { n: runList.total - runIndex })}
                           </Button>
                         ) : null,
                       )}

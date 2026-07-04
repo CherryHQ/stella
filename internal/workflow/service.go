@@ -2,12 +2,15 @@ package workflow
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -29,6 +32,7 @@ var (
 	ErrRunAlreadyFailed        = errors.New("workflow run already failed")
 	ErrWorkflowHasRuns         = errors.New("workflow has runs")
 	ErrWorkflowHasSchedulerJob = errors.New("workflow has enabled scheduler jobs")
+	ErrWorkflowVersionConflict = errors.New("workflow version conflict; retry")
 )
 
 type GoalWriter interface {
@@ -78,7 +82,9 @@ func (s *Service) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Ag
 	if err != nil {
 		return sqlc.AgentWorkflow{}, err
 	}
-	if err := plan.Validate(); err != nil {
+	var convergence goal.ConvergencePolicy
+	_ = json.Unmarshal(root.ConvergencePolicy, &convergence)
+	if err := plan.ValidateMaxDepth(convergence.Normalized().MaxDepth); err != nil {
 		return sqlc.AgentWorkflow{}, err
 	}
 	inputsJSON, err := json.Marshal(in.Inputs)
@@ -90,114 +96,111 @@ func (s *Service) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Ag
 		return sqlc.AgentWorkflow{}, fmt.Errorf("marshal frozen plan: %w", err)
 	}
 	ownerKind, ownerUser, ownerAgent := ownerScope(in.UserID, in.AgentID)
-	latest, err := s.q.GetLatestWorkflowVersion(ctx, sqlc.GetLatestWorkflowVersionParams{OwnerKind: ownerKind, UserID: ownerUser, AgentID: ownerAgent, Name: in.Name})
-	if err != nil {
-		return sqlc.AgentWorkflow{}, fmt.Errorf("latest workflow version: %w", err)
+	for range 3 {
+		latest, err := s.q.GetLatestWorkflowVersion(ctx, sqlc.GetLatestWorkflowVersionParams{OwnerKind: ownerKind, UserID: ownerUser, AgentID: ownerAgent, Name: in.Name})
+		if err != nil {
+			return sqlc.AgentWorkflow{}, fmt.Errorf("latest workflow version: %w", err)
+		}
+		wf, err := s.q.CreateWorkflow(ctx, sqlc.CreateWorkflowParams{
+			ID:                 uuid.NewString(),
+			OwnerKind:          ownerKind,
+			UserID:             ownerUser,
+			AgentID:            ownerAgent,
+			Name:               in.Name,
+			Version:            latest + 1,
+			Intent:             root.Intent,
+			AcceptanceContract: root.AcceptanceContract,
+			ConvergencePolicy:  root.ConvergencePolicy,
+			Inputs:             inputsJSON,
+			PayloadFormat:      PayloadFormatFrozenV0,
+			Payload:            payload,
+			FullyFrozen:        plan.FullyFrozen(),
+			SourceGoalID:       pgnull.Text(root.ID),
+		})
+		if err == nil {
+			return wf, nil
+		}
+		if !isUniqueViolation(err) {
+			return sqlc.AgentWorkflow{}, err
+		}
 	}
-	return s.q.CreateWorkflow(ctx, sqlc.CreateWorkflowParams{
-		ID:                 uuid.NewString(),
-		OwnerKind:          ownerKind,
-		UserID:             ownerUser,
-		AgentID:            ownerAgent,
-		Name:               in.Name,
-		Version:            latest + 1,
-		Intent:             root.Intent,
-		AcceptanceContract: root.AcceptanceContract,
-		ConvergencePolicy:  root.ConvergencePolicy,
-		Inputs:             inputsJSON,
-		PayloadFormat:      PayloadFormatFrozenV0,
-		Payload:            payload,
-		FullyFrozen:        plan.FullyFrozen(),
-		SourceGoalID:       pgnull.Text(root.ID),
-	})
+	return sqlc.AgentWorkflow{}, ErrWorkflowVersionConflict
 }
 
-func (s *Service) Instantiate(ctx context.Context, in InstantiateInput) (sqlc.AgentWorkflowRun, error) {
+func (s *Service) Instantiate(ctx context.Context, in InstantiateInput) (sqlc.AgentWorkflowRun, bool, error) {
 	wf, err := s.getScoped(ctx, in.WorkflowID, in.UserID, in.AgentID)
 	if err != nil {
-		return sqlc.AgentWorkflowRun{}, err
+		return sqlc.AgentWorkflowRun{}, false, err
 	}
-	var specs []InputSpec
-	if err := json.Unmarshal(wf.Inputs, &specs); err != nil {
-		return sqlc.AgentWorkflowRun{}, fmt.Errorf("decode workflow inputs: %w", err)
+
+	planForInputs := func(inputs map[string]string) (FrozenPlan, string, error) {
+		plan, err := DecodeFrozenPlan(wf.Payload)
+		if err != nil {
+			return FrozenPlan{}, "", err
+		}
+		plan, err = SubstituteInputs(plan, inputs)
+		if err != nil {
+			return FrozenPlan{}, "", err
+		}
+		var convergence goal.ConvergencePolicy
+		_ = json.Unmarshal(wf.ConvergencePolicy, &convergence)
+		if err := plan.ValidateMaxDepth(convergence.Normalized().MaxDepth); err != nil {
+			return FrozenPlan{}, "", err
+		}
+		return plan, plan.Hash(), nil
 	}
-	resolved, err := ResolveInputs(specs, in.Inputs)
-	if err != nil {
-		return sqlc.AgentWorkflowRun{}, err
-	}
-	resolvedJSON, err := json.Marshal(resolved)
-	if err != nil {
-		return sqlc.AgentWorkflowRun{}, fmt.Errorf("marshal resolved inputs: %w", err)
-	}
-	plan, err := DecodeFrozenPlan(wf.Payload)
-	if err != nil {
-		return sqlc.AgentWorkflowRun{}, err
-	}
-	plan, err = SubstituteInputs(plan, resolved)
-	if err != nil {
-		return sqlc.AgentWorkflowRun{}, err
-	}
-	if err := plan.Validate(); err != nil {
-		return sqlc.AgentWorkflowRun{}, err
-	}
-	hash := plan.Hash()
-	claimed, err := s.q.ClaimWorkflowRun(ctx, sqlc.ClaimWorkflowRunParams{ID: uuid.NewString(), WorkflowID: wf.ID, WorkflowVersion: wf.Version, IdempotencyKey: in.IdempotencyKey, Status: RunClaimed, Inputs: resolvedJSON, PlanHash: hash})
-	if err != nil {
-		return sqlc.AgentWorkflowRun{}, fmt.Errorf("claim workflow run: %w", err)
-	}
-	run := claimRowToRun(claimed)
-	if !claimed.Claimed {
+	resume := func(run sqlc.AgentWorkflowRun) (sqlc.AgentWorkflowRun, error) {
 		switch run.Status {
 		case RunDone:
 			return run, nil
 		case RunFailed:
 			return sqlc.AgentWorkflowRun{}, ErrRunAlreadyFailed
 		}
-		if len(run.Inputs) > 0 {
-			if err := json.Unmarshal(run.Inputs, &resolved); err != nil {
-				return sqlc.AgentWorkflowRun{}, fmt.Errorf("decode run inputs: %w", err)
-			}
-			plan, err = DecodeFrozenPlan(wf.Payload)
-			if err != nil {
-				return sqlc.AgentWorkflowRun{}, err
-			}
-			plan, err = SubstituteInputs(plan, resolved)
-			if err != nil {
-				return sqlc.AgentWorkflowRun{}, err
-			}
-			hash = plan.Hash()
+		var resolved map[string]string
+		if err := json.Unmarshal(run.Inputs, &resolved); err != nil {
+			return sqlc.AgentWorkflowRun{}, fmt.Errorf("decode run inputs: %w", err)
 		}
-	}
-	if !run.RootGoalID.Valid {
-		root, err := s.createRunRoot(ctx, wf, in.UserID, in.AgentID, resolved)
+		plan, hash, err := planForInputs(resolved)
 		if err != nil {
 			return sqlc.AgentWorkflowRun{}, err
 		}
-		rows, err := s.q.SetWorkflowRunRoot(ctx, sqlc.SetWorkflowRunRootParams{ID: run.ID, RootGoalID: pgnull.Text(root.ID), PlanHash: hash})
-		if err != nil {
-			return sqlc.AgentWorkflowRun{}, fmt.Errorf("set workflow run root: %w", err)
-		}
-		if rows == 0 {
-			if _, err := s.q.DeleteDraftRootGoal(ctx, root.ID); err != nil {
-				return sqlc.AgentWorkflowRun{}, fmt.Errorf("delete orphan workflow root: %w", err)
-			}
-			run, err = s.q.GetWorkflowRunByKey(ctx, sqlc.GetWorkflowRunByKeyParams{WorkflowID: wf.ID, IdempotencyKey: in.IdempotencyKey})
-			if err != nil {
-				return sqlc.AgentWorkflowRun{}, fmt.Errorf("reload workflow run: %w", err)
-			}
-		} else {
-			run.RootGoalID = pgnull.Text(root.ID)
-			run.Status = RunMaterializing
-		}
+		return s.materializeRun(ctx, wf, run, in.UserID, in.AgentID, resolved, plan, hash)
 	}
-	if err := s.walk(ctx, run.RootGoalID.String, plan); err != nil {
-		_ = s.q.SetWorkflowRunStatus(ctx, sqlc.SetWorkflowRunStatusParams{ID: run.ID, Status: RunFailed})
-		return sqlc.AgentWorkflowRun{}, err
+
+	if run, err := s.q.GetWorkflowRunByKey(ctx, sqlc.GetWorkflowRunByKeyParams{WorkflowID: wf.ID, IdempotencyKey: in.IdempotencyKey}); err == nil {
+		run, err = resume(run)
+		return run, false, err
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return sqlc.AgentWorkflowRun{}, false, fmt.Errorf("get workflow run: %w", err)
 	}
-	if err := s.q.SetWorkflowRunStatus(ctx, sqlc.SetWorkflowRunStatusParams{ID: run.ID, Status: RunDone}); err != nil {
-		return sqlc.AgentWorkflowRun{}, fmt.Errorf("finish workflow run: %w", err)
+
+	var specs []InputSpec
+	if err := json.Unmarshal(wf.Inputs, &specs); err != nil {
+		return sqlc.AgentWorkflowRun{}, false, fmt.Errorf("decode workflow inputs: %w", err)
 	}
-	return s.q.GetWorkflowRunByKey(ctx, sqlc.GetWorkflowRunByKeyParams{WorkflowID: wf.ID, IdempotencyKey: in.IdempotencyKey})
+	resolved, err := ResolveInputs(specs, in.Inputs)
+	if err != nil {
+		return sqlc.AgentWorkflowRun{}, false, err
+	}
+	resolvedJSON, err := json.Marshal(resolved)
+	if err != nil {
+		return sqlc.AgentWorkflowRun{}, false, fmt.Errorf("marshal resolved inputs: %w", err)
+	}
+	plan, hash, err := planForInputs(resolved)
+	if err != nil {
+		return sqlc.AgentWorkflowRun{}, false, err
+	}
+	claimed, err := s.q.ClaimWorkflowRun(ctx, sqlc.ClaimWorkflowRunParams{ID: uuid.NewString(), WorkflowID: wf.ID, WorkflowVersion: wf.Version, IdempotencyKey: in.IdempotencyKey, Status: RunClaimed, Inputs: resolvedJSON, PlanHash: hash})
+	if err != nil {
+		return sqlc.AgentWorkflowRun{}, false, fmt.Errorf("claim workflow run: %w", err)
+	}
+	run := claimRowToRun(claimed)
+	if !claimed.Claimed {
+		run, err = resume(run)
+		return run, false, err
+	}
+	run, err = s.materializeRun(ctx, wf, run, in.UserID, in.AgentID, resolved, plan, hash)
+	return run, true, err
 }
 
 func (s *Service) Get(ctx context.Context, userID, agentID, id string) (sqlc.AgentWorkflow, error) {
@@ -214,11 +217,16 @@ func (s *Service) ListVersions(ctx context.Context, userID, agentID, name string
 	return s.q.ListWorkflowVersions(ctx, sqlc.ListWorkflowVersionsParams{OwnerKind: ownerKind, UserID: ownerUser, AgentID: ownerAgent, Name: name})
 }
 
-func (s *Service) ListRuns(ctx context.Context, userID, agentID, id string, limit, offset int32) ([]sqlc.AgentWorkflowRun, error) {
+func (s *Service) ListRuns(ctx context.Context, userID, agentID, id string, limit, offset int32) ([]sqlc.AgentWorkflowRun, int64, error) {
 	if _, err := s.getScoped(ctx, id, userID, agentID); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return s.q.ListWorkflowRuns(ctx, sqlc.ListWorkflowRunsParams{WorkflowID: id, Limit: limit, Offset: offset})
+	total, err := s.q.CountWorkflowRuns(ctx, id)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count workflow runs: %w", err)
+	}
+	rows, err := s.q.ListWorkflowRuns(ctx, sqlc.ListWorkflowRunsParams{WorkflowID: id, Limit: limit, Offset: offset})
+	return rows, total, err
 }
 
 func (s *Service) Delete(ctx context.Context, userID, agentID, id string) error {
@@ -281,7 +289,37 @@ func DecodeDecomposition(b []byte) (goal.DecompositionContent, error) {
 	return c, nil
 }
 
-func (s *Service) createRunRoot(ctx context.Context, wf sqlc.AgentWorkflow, userID, agentID string, inputs map[string]string) (sqlc.AgentGoal, error) {
+func (s *Service) materializeRun(ctx context.Context, wf sqlc.AgentWorkflow, run sqlc.AgentWorkflowRun, userID, agentID string, resolved map[string]string, plan FrozenPlan, hash string) (sqlc.AgentWorkflowRun, error) {
+	if !run.RootGoalID.Valid {
+		root, err := s.createRunRoot(ctx, wf, run.ID, userID, agentID, resolved)
+		if err != nil {
+			return sqlc.AgentWorkflowRun{}, err
+		}
+		rows, err := s.q.SetWorkflowRunRoot(ctx, sqlc.SetWorkflowRunRootParams{ID: run.ID, RootGoalID: pgnull.Text(root.ID), PlanHash: hash})
+		if err != nil {
+			return sqlc.AgentWorkflowRun{}, fmt.Errorf("set workflow run root: %w", err)
+		}
+		if rows == 0 {
+			run, err = s.q.GetWorkflowRunByKey(ctx, sqlc.GetWorkflowRunByKeyParams{WorkflowID: wf.ID, IdempotencyKey: run.IdempotencyKey})
+			if err != nil {
+				return sqlc.AgentWorkflowRun{}, fmt.Errorf("reload workflow run: %w", err)
+			}
+		} else {
+			run.RootGoalID = pgnull.Text(root.ID)
+			run.Status = RunMaterializing
+		}
+	}
+	if err := s.walk(ctx, run.RootGoalID.String, plan); err != nil {
+		_ = s.q.SetWorkflowRunStatus(ctx, sqlc.SetWorkflowRunStatusParams{ID: run.ID, Status: RunFailed})
+		return sqlc.AgentWorkflowRun{}, err
+	}
+	if err := s.q.SetWorkflowRunStatus(ctx, sqlc.SetWorkflowRunStatusParams{ID: run.ID, Status: RunDone}); err != nil {
+		return sqlc.AgentWorkflowRun{}, fmt.Errorf("finish workflow run: %w", err)
+	}
+	return s.q.GetWorkflowRunByKey(ctx, sqlc.GetWorkflowRunByKeyParams{WorkflowID: wf.ID, IdempotencyKey: run.IdempotencyKey})
+}
+
+func (s *Service) createRunRoot(ctx context.Context, wf sqlc.AgentWorkflow, runID, userID, agentID string, inputs map[string]string) (sqlc.AgentGoal, error) {
 	var contract goal.AcceptanceContract
 	_ = json.Unmarshal(wf.AcceptanceContract, &contract)
 	var convergence goal.ConvergencePolicy
@@ -298,7 +336,12 @@ func (s *Service) createRunRoot(ctx context.Context, wf sqlc.AgentWorkflow, user
 	if wf.AgentID.Valid && wf.AgentID.String != "" {
 		agentID = wf.AgentID.String
 	}
-	return s.goal.CreateRoot(ctx, goal.CreateInput{UserID: userID, AgentID: agentID, Title: wf.Name, Intent: intent, Kind: goal.KindComposite, Required: true, Contract: contract, Convergence: convergence, ReviewPolicy: goal.ReviewNone, WorkflowID: wf.ID, WorkflowVersion: wf.Version})
+	return s.goal.CreateRoot(ctx, goal.CreateInput{ID: workflowRootID(runID), UserID: userID, AgentID: agentID, Title: wf.Name, Intent: intent, Kind: goal.KindComposite, Required: true, Contract: contract, Convergence: convergence, ReviewPolicy: goal.ReviewNone, WorkflowID: wf.ID, WorkflowVersion: wf.Version})
+}
+
+func workflowRootID(runID string) string {
+	h := sha256.Sum256(append(append([]byte("workflow-root"), 0), []byte(runID)...))
+	return hex.EncodeToString(h[:16])
 }
 
 // walk relies on MaterializeFrozenLayer writing position=i and ListGoalChildren
@@ -351,6 +394,11 @@ func ownerScope(userID, agentID string) (string, pgtype.Text, pgtype.Text) {
 		return OwnerAgent, uid, pgnull.Text(agentID)
 	}
 	return OwnerUser, uid, pgtype.Text{}
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func claimRowToRun(r sqlc.ClaimWorkflowRunRow) sqlc.AgentWorkflowRun {

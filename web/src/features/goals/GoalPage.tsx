@@ -102,7 +102,9 @@ export function GoalPage() {
   });
   const workflowId = d?.workflow_id ?? undefined;
   const { data: workflow } = useQuery(workflowOptions(workflowId));
-  const { data: workflowRuns = [] } = useQuery(workflowRunsOptions(workflowId, 100));
+  const { data: workflowRuns = { runs: [], total: 0 } } = useQuery(
+    workflowRunsOptions(workflowId, 100),
+  );
 
   const { data: children = [] } = useQuery({
     ...goalChildrenOptions(goalId),
@@ -242,17 +244,17 @@ export function GoalPage() {
             >
               <Badge variant="info">
                 {workflow
-                  ? t("workflows.lineage", {
-                      name: workflow.name,
-                      n: Math.max(
-                        1,
-                        workflowRuns.length -
-                          Math.max(
-                            0,
-                            workflowRuns.findIndex((run) => run.root_goal_id === d.root_id),
-                          ),
-                      ),
-                    })
+                  ? (() => {
+                      const runIndex = workflowRuns.runs.findIndex(
+                        (run) => run.root_goal_id === d.root_id,
+                      );
+                      return runIndex >= 0
+                        ? t("workflows.lineage", {
+                            name: workflow.name,
+                            n: workflowRuns.total - runIndex,
+                          })
+                        : t("workflows.lineageNameOnly", { name: workflow.name });
+                    })()
                   : t("workflows.lineageFallback", {
                       id: workflowId.slice(0, 8),
                       version: d.workflow_version ?? 1,

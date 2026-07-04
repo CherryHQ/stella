@@ -64,7 +64,7 @@ export function WorkflowDetailPage() {
   const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { toasts, showToast } = useToast();
   const { data: workflow, isLoading } = useQuery(workflowOptions(workflowId));
-  const { data: runs = [] } = useQuery(workflowRunsOptions(workflowId, 10));
+  const { data: runList = { runs: [], total: 0 } } = useQuery(workflowRunsOptions(workflowId, 10));
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -193,8 +193,8 @@ export function WorkflowDetailPage() {
               {t("workflows.viewAllRuns")}
             </Button>
           </div>
-          {runs.length ? (
-            <RunsTable agentId={agentId} runs={runs} />
+          {runList.runs.length ? (
+            <RunsTable agentId={agentId} runs={runList.runs} total={runList.total} />
           ) : (
             <Empty text={t("workflows.noRuns")} />
           )}
@@ -300,7 +300,15 @@ function FrozenPlanView({ plan, depth = 0 }: { plan: FrozenPlan; depth?: number 
   );
 }
 
-function RunsTable({ agentId, runs }: { agentId: string; runs: WorkflowRun[] }) {
+function RunsTable({
+  agentId,
+  runs,
+  total,
+}: {
+  agentId: string;
+  runs: WorkflowRun[];
+  total: number;
+}) {
   const { t } = useI18n();
   return (
     <Table variant="card">
@@ -340,7 +348,7 @@ function RunsTable({ agentId, runs }: { agentId: string; runs: WorkflowRun[] }) 
                     />
                   }
                 >
-                  {t("workflows.runNumber", { n: runs.length - index })}
+                  {t("workflows.runNumber", { n: total - index })}
                 </Button>
               ) : (
                 <span className="text-muted-foreground">{t("common.noData")}</span>
@@ -396,6 +404,7 @@ function RunWorkflowDialog({
         throwOnError: true,
       });
       setOpen(false);
+      setIdemKey(crypto.randomUUID());
       onSuccess(data?.root_goal_id);
     } catch (error) {
       onError(apiErrorMessage(error, t("workflows.runFailed")));
@@ -405,13 +414,7 @@ function RunWorkflowDialog({
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (next) setIdemKey(crypto.randomUUID());
-        setOpen(next);
-      }}
-    >
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button size="sm" />}>{t("workflows.run")}</DialogTrigger>
       <DialogPopup>
         <DialogHeader>
@@ -432,9 +435,10 @@ function RunWorkflowDialog({
                   <Input
                     value={values[input.name] ?? ""}
                     placeholder={input.default ?? ""}
-                    onChange={(event) =>
-                      setValues((prev) => ({ ...prev, [input.name]: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      setIdemKey(crypto.randomUUID());
+                      setValues((prev) => ({ ...prev, [input.name]: event.target.value }));
+                    }}
                   />
                   {input.description && <FieldDescription>{input.description}</FieldDescription>}
                   {requiredErrors[input.name] && (

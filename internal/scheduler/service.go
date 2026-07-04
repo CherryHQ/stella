@@ -75,6 +75,11 @@ type TaskFunc func(ctx context.Context)
 // errJobAlreadyRunning is returned by RunJobNow when the job has an active run.
 var errJobAlreadyRunning = errors.New("job already has a run in progress")
 
+var (
+	ErrWorkflowJobValidation = errors.New("workflow job validation failed")
+	ErrWorkflowJobNotFound   = errors.New("workflow not found")
+)
+
 // Service manages scheduled jobs backed by River durable queues with database
 // persistence.
 type Service struct {
@@ -474,11 +479,11 @@ func (s *Service) validateDispatch(ctx context.Context, dispatchKind, message, o
 	switch dispatchKind {
 	case DispatchKindWorkflow:
 		if message != "" {
-			return fmt.Errorf("message must be empty for workflow jobs")
+			return fmt.Errorf("%w: message must be empty for workflow jobs", ErrWorkflowJobValidation)
 		}
 		workflowID, ok := payloadString(payload, "workflow_id")
 		if !ok || workflowID == "" {
-			return fmt.Errorf("payload.workflow_id is required for workflow jobs")
+			return fmt.Errorf("%w: payload.workflow_id is required for workflow jobs", ErrWorkflowJobValidation)
 		}
 		runner := s.workflowRunner
 		if runner == nil {
@@ -486,13 +491,16 @@ func (s *Service) validateDispatch(ctx context.Context, dispatchKind, message, o
 		}
 		wf, err := runner.ValidateScheduledWorkflow(ctx, WorkflowValidateRequest{UserID: userID, AgentID: agentID, WorkflowID: workflowID})
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("%w: workflow %q", ErrWorkflowJobNotFound, workflowID)
+			}
 			return fmt.Errorf("validate workflow: %w", err)
 		}
 		if wf.ID == "" || wf.ID != workflowID {
-			return fmt.Errorf("workflow %q not found", workflowID)
+			return fmt.Errorf("%w: workflow %q", ErrWorkflowJobNotFound, workflowID)
 		}
 		if !wf.FullyFrozen && !payloadBool(payload, "allow_replan") {
-			return fmt.Errorf("workflow %q is partially frozen; set allow_replan to schedule it", workflowID)
+			return fmt.Errorf("%w: workflow %q is partially frozen; set allow_replan to schedule it", ErrWorkflowJobValidation, workflowID)
 		}
 	case DispatchKindChat:
 		// Handler-mode system builtins carry no agent message; they invoke a Go

@@ -123,7 +123,7 @@ func (s *Server) ListWorkflowRuns(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	rows, err := s.workflowSvc.ListRuns(r.Context(), info.UserID, workflowAgentScope(info), id, int32(limit+1), int32(offset))
+	rows, total, err := s.workflowSvc.ListRuns(r.Context(), info.UserID, workflowAgentScope(info), id, int32(limit+1), int32(offset))
 	if err != nil {
 		workflowError(w, err)
 		return
@@ -133,7 +133,7 @@ func (s *Server) ListWorkflowRuns(w http.ResponseWriter, r *http.Request, id str
 	for _, row := range page {
 		runs = append(runs, workflowRunToAPI(row))
 	}
-	out := apitypes.WorkflowRunList{Runs: runs}
+	out := apitypes.WorkflowRunList{Runs: runs, Total: int(total)}
 	if next != "" {
 		out.NextPageToken = &next
 	}
@@ -153,31 +153,20 @@ func (s *Server) InstantiateWorkflow(w http.ResponseWriter, r *http.Request, id 
 		}
 	}
 	key := uuid.NewString()
-	existing := false
 	if body.IdempotencyKey != nil && *body.IdempotencyKey != "" {
 		key = *body.IdempotencyKey
-		if _, err := s.workflowSvc.Get(r.Context(), info.UserID, workflowAgentScope(info), id); err != nil {
-			workflowError(w, err)
-			return
-		}
-		if _, err := s.q.GetWorkflowRunByKey(r.Context(), sqlc.GetWorkflowRunByKeyParams{WorkflowID: id, IdempotencyKey: key}); err == nil {
-			existing = true
-		} else if !isNotFound(err) {
-			workflowError(w, err)
-			return
-		}
 	}
 	inputs := map[string]string{}
 	if body.Inputs != nil {
 		inputs = *body.Inputs
 	}
-	run, err := s.workflowSvc.Instantiate(r.Context(), workflowpkg.InstantiateInput{UserID: info.UserID, AgentID: workflowAgentScope(info), WorkflowID: id, Inputs: inputs, IdempotencyKey: key})
+	run, created, err := s.workflowSvc.Instantiate(r.Context(), workflowpkg.InstantiateInput{UserID: info.UserID, AgentID: workflowAgentScope(info), WorkflowID: id, Inputs: inputs, IdempotencyKey: key})
 	if err != nil {
 		workflowError(w, err)
 		return
 	}
 	status := http.StatusCreated
-	if existing {
+	if !created {
 		status = http.StatusOK
 	}
 	writeData(w, status, workflowRunToAPI(run))

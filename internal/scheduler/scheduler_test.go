@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -95,14 +96,14 @@ func (f *fakeWorkflowRunner) InstantiateWorkflow(_ context.Context, req Workflow
 func TestAddWorkflowJobValidation(t *testing.T) {
 	svc := testService(t)
 	svc.SetWorkflowRunner(&fakeWorkflowRunner{wf: ScheduledWorkflow{ID: "wf-1", FullyFrozen: false}})
-	if _, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "", nil, false); err == nil {
-		t.Fatal("workflow job without workflow_id must fail")
+	if _, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "", nil, false); !errors.Is(err, ErrWorkflowJobValidation) {
+		t.Fatalf("workflow job without workflow_id err=%v want validation", err)
 	}
-	if _, err := svc.addJobInternal("wf", "message", Schedule{Every: "1h"}, "reuse", "", "user-1", JobOwnerUser, ExecScopeUser, DispatchKindWorkflow, map[string]any{"workflow_id": "wf-1"}); err == nil {
-		t.Fatal("workflow job with message must fail")
+	if _, err := svc.addJobInternal("wf", "message", Schedule{Every: "1h"}, "reuse", "", "user-1", JobOwnerUser, ExecScopeUser, DispatchKindWorkflow, map[string]any{"workflow_id": "wf-1"}); !errors.Is(err, ErrWorkflowJobValidation) {
+		t.Fatalf("workflow job with message err=%v want validation", err)
 	}
-	if _, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "wf-1", nil, false); err == nil {
-		t.Fatal("partially frozen workflow without allow_replan must fail")
+	if _, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "wf-1", nil, false); !errors.Is(err, ErrWorkflowJobValidation) {
+		t.Fatalf("partially frozen workflow err=%v want validation", err)
 	}
 	if _, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "wf-1", nil, true); err != nil {
 		t.Fatalf("allow_replan workflow job: %v", err)

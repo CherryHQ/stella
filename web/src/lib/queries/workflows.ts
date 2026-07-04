@@ -38,7 +38,7 @@ export function workflowRunsOptions(workflowId: string | undefined, limit = 5) {
         query: { page_size: limit },
         throwOnError: true,
       });
-      return data?.runs ?? [];
+      return data ?? { runs: [], total: 0 };
     },
     enabled: !!workflowId,
   });

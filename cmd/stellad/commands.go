@@ -434,7 +434,7 @@ func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req sch
 }
 
 func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
-	run, err := a.svc.Instantiate(ctx, workflowpkg.InstantiateInput{UserID: req.UserID, AgentID: req.AgentID, WorkflowID: req.WorkflowID, Inputs: req.Inputs, IdempotencyKey: req.IdempotencyKey})
+	run, _, err := a.svc.Instantiate(ctx, workflowpkg.InstantiateInput{UserID: req.UserID, AgentID: req.AgentID, WorkflowID: req.WorkflowID, Inputs: req.Inputs, IdempotencyKey: req.IdempotencyKey})
 	if err != nil {
 		return scheduler.WorkflowInstantiateResult{}, err
 	}

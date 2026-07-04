@@ -40,4 +40,4 @@ Partially frozen workflows can leave some sub-plans open for live replanning. Sc
 
 ## Overlap behavior
 
-The scheduler skips overlapping firings. If the previous workflow run's root goal is still active when the next tick fires, Stella records the scheduled run as skipped instead of starting a parallel tree.
+The scheduler skips only when the previous workflow run completed instantiation and its root goal is still active. Failed instantiation does not block the next tick; a stalled instantiation is resumed instead of duplicated.

@@ -380,6 +380,7 @@ func (s *GoalService) appendAcceptanceEvent(ctx context.Context, q *sqlc.Queries
 
 // CreateInput is the request to mint a root or child goal.
 type CreateInput struct {
+	ID        string // optional deterministic id; explicit ids use idempotent insert
 	UserID    string
 	AgentID   string
 	ProjectID string
@@ -406,7 +407,10 @@ type CreateInput struct {
 
 // CreateGoal inserts a goal in 'draft' (contract §2.1, (none)→draft).
 func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.AgentGoal, error) {
-	id := newID()
+	id := in.ID
+	if id == "" {
+		id = newID()
+	}
 	rootID := in.RootID
 	if rootID == "" {
 		rootID = id // a root's root_id is its own id
@@ -440,36 +444,43 @@ func (s *GoalService) CreateGoal(ctx context.Context, in CreateInput) (sqlc.Agen
 	if len(dispatchHint) == 0 {
 		dispatchHint = emptyJSON
 	}
+	params := sqlc.CreateGoalParams{
+		ID:                 id,
+		UserID:             in.UserID,
+		AgentID:            in.AgentID,
+		ProjectID:          pgnull.Text(in.ProjectID),
+		ParentID:           pgnull.Text(in.ParentID),
+		RootID:             rootID,
+		Depth:              in.Depth,
+		Position:           in.Position,
+		Title:              in.Title,
+		Intent:             in.Intent,
+		Kind:               kind,
+		Priority:           priority,
+		Required:           in.Required,
+		AcceptanceContract: marshalJSON(in.Contract),
+		// Materialize the effective policy at create time so the persisted row
+		// and the create response show real defaults (max_attempts 3, block,
+		// depth 4, concurrent 8) instead of a bare zero policy. Runtime callers
+		// still Normalize defensively; freezing here also means a later default
+		// change never silently alters an existing goal's budget.
+		ConvergencePolicy: marshalJSON(in.Convergence.Normalized()),
+		ReviewPolicy:      reviewPolicy,
+		Lifecycle:         LifecycleDraft,
+		Context:           contextJSON,
+		DispatchHint:      dispatchHint,
+		WorkflowID:        pgnull.Text(in.WorkflowID),
+		WorkflowVersion:   pgtype.Int4{Int32: in.WorkflowVersion, Valid: in.WorkflowVersion > 0},
+	}
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
-		d, err := q.CreateGoal(ctx, sqlc.CreateGoalParams{
-			ID:                 id,
-			UserID:             in.UserID,
-			AgentID:            in.AgentID,
-			ProjectID:          pgnull.Text(in.ProjectID),
-			ParentID:           pgnull.Text(in.ParentID),
-			RootID:             rootID,
-			Depth:              in.Depth,
-			Position:           in.Position,
-			Title:              in.Title,
-			Intent:             in.Intent,
-			Kind:               kind,
-			Priority:           priority,
-			Required:           in.Required,
-			AcceptanceContract: marshalJSON(in.Contract),
-			// Materialize the effective policy at create time so the persisted row
-			// and the create response show real defaults (max_attempts 3, block,
-			// depth 4, concurrent 8) instead of a bare zero policy. Runtime callers
-			// still Normalize defensively; freezing here also means a later default
-			// change never silently alters an existing goal's budget.
-			ConvergencePolicy: marshalJSON(in.Convergence.Normalized()),
-			ReviewPolicy:      reviewPolicy,
-			Lifecycle:         LifecycleDraft,
-			Context:           contextJSON,
-			DispatchHint:      dispatchHint,
-			WorkflowID:        pgnull.Text(in.WorkflowID),
-			WorkflowVersion:   pgtype.Int4{Int32: in.WorkflowVersion, Valid: in.WorkflowVersion > 0},
-		})
+		var d sqlc.AgentGoal
+		var err error
+		if in.ID != "" {
+			d, err = q.CreateGoalIfAbsent(ctx, sqlc.CreateGoalIfAbsentParams(params))
+		} else {
+			d, err = q.CreateGoal(ctx, params)
+		}
 		if err != nil {
 			return fmt.Errorf("create goal: %w", err)
 		}

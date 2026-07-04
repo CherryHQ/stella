@@ -117,16 +117,30 @@ func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
 	if !wf.FullyFrozen || wf.Version != 1 {
 		t.Fatalf("workflow frozen/version = %v/%d", wf.FullyFrozen, wf.Version)
 	}
-	run1, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"topic": "launch"}, IdempotencyKey: "same"})
+	run1, created, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"topic": "launch"}, IdempotencyKey: "same"})
 	if err != nil {
 		t.Fatalf("instantiate: %v", err)
 	}
-	run2, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"topic": "ignored"}, IdempotencyKey: "same"})
+	if !created {
+		t.Fatal("first instantiate created=false")
+	}
+	run2, created, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"topic": "ignored"}, IdempotencyKey: "same"})
 	if err != nil {
 		t.Fatalf("instantiate replay: %v", err)
 	}
+	if created {
+		t.Fatal("replay created=true")
+	}
 	if run1.RootGoalID.String == "" || run1.RootGoalID.String != run2.RootGoalID.String {
 		t.Fatalf("idempotent root mismatch: %q vs %q", run1.RootGoalID.String, run2.RootGoalID.String)
+	}
+	run3, created, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{}, IdempotencyKey: "same"})
+	if err != nil || created || run3.ID != run1.ID {
+		t.Fatalf("done replay with missing input = run %q created %v err %v", run3.ID, created, err)
+	}
+	run4, created, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"unknown": "value"}, IdempotencyKey: "same"})
+	if err != nil || created || run4.ID != run1.ID {
+		t.Fatalf("done replay with unknown input = run %q created %v err %v", run4.ID, created, err)
 	}
 	instRoot, err := h.q.GetGoal(h.ctx, run1.RootGoalID.String)
 	if err != nil {
@@ -144,7 +158,42 @@ func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
 	}
 }
 
-func TestInstantiateDeletesLoserRootWhenRunRootRaceIsLost(t *testing.T) {
+func TestInstantiateCrashResumeBindsPrecreatedRoot(t *testing.T) {
+	h := newWorkflowHarness(t)
+	plan := FrozenPlan{Children: []FrozenNode{{Child: goal.ProposedChild{Key: "leaf", Title: "Leaf", Intent: "do leaf", Kind: goal.KindLeaf, Required: true}}}}
+	payload, _ := json.Marshal(plan)
+	wf, err := h.q.CreateWorkflow(h.ctx, sqlc.CreateWorkflowParams{ID: uuid.NewString(), OwnerKind: OwnerAgent, UserID: pgnull.Text(h.userID), AgentID: pgnull.Text(h.agentID), Name: "resume", Version: 1, Intent: "resume", AcceptanceContract: []byte(`{}`), ConvergencePolicy: []byte(`{}`), Inputs: []byte(`[]`), PayloadFormat: PayloadFormatFrozenV0, Payload: payload, FullyFrozen: true})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	runID := uuid.NewString()
+	if _, err := h.q.ClaimWorkflowRun(h.ctx, sqlc.ClaimWorkflowRunParams{ID: runID, WorkflowID: wf.ID, WorkflowVersion: wf.Version, IdempotencyKey: "same", Status: RunClaimed, Inputs: []byte(`{}`), PlanHash: plan.Hash()}); err != nil {
+		t.Fatalf("claim run: %v", err)
+	}
+	rootID := workflowRootID(runID)
+	if _, err := h.goals.CreateRoot(h.ctx, goal.CreateInput{ID: rootID, UserID: h.userID, AgentID: h.agentID, Title: wf.Name, Intent: wf.Intent, Kind: goal.KindComposite, Required: true, WorkflowID: wf.ID, WorkflowVersion: wf.Version}); err != nil {
+		t.Fatalf("precreate root: %v", err)
+	}
+	run, created, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "same"})
+	if err != nil {
+		t.Fatalf("resume instantiate: %v", err)
+	}
+	if created {
+		t.Fatal("resume created=true")
+	}
+	if run.RootGoalID.String != rootID || run.Status != RunDone {
+		t.Fatalf("run root/status = %q/%q want %q/%q", run.RootGoalID.String, run.Status, rootID, RunDone)
+	}
+	var roots int
+	if err := h.db.QueryRow(h.ctx, `SELECT COUNT(*) FROM agent_goal WHERE workflow_id=$1 AND parent_id IS NULL`, wf.ID).Scan(&roots); err != nil {
+		t.Fatalf("count roots: %v", err)
+	}
+	if roots != 1 {
+		t.Fatalf("workflow root count = %d", roots)
+	}
+}
+
+func TestInstantiateConvergesWhenRunRootRaceIsLost(t *testing.T) {
 	h := newWorkflowHarness(t)
 	plan := FrozenPlan{Children: []FrozenNode{{Child: goal.ProposedChild{Key: "leaf", Title: "Leaf", Intent: "do leaf", Kind: goal.KindLeaf, Required: true}}}}
 	payload, _ := json.Marshal(plan)
@@ -159,15 +208,18 @@ func TestInstantiateDeletesLoserRootWhenRunRootRaceIsLost(t *testing.T) {
 	writer := &racingGoalWriter{GoalService: h.goals, t: t, ctx: h.ctx, q: h.q, runID: runID, planHash: plan.Hash(), armed: true}
 	svc := New(h.db, h.q, writer)
 
-	run, err := svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "same"})
+	run, _, err := svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "same"})
 	if err != nil {
 		t.Fatalf("instantiate loser path: %v", err)
 	}
 	if run.RootGoalID.String != writer.winnerID {
 		t.Fatalf("winner root not returned: got %q want %q", run.RootGoalID.String, writer.winnerID)
 	}
-	if _, err := h.q.GetGoal(h.ctx, writer.loserID); err == nil {
-		t.Fatalf("loser root still exists: %s", writer.loserID)
+	if writer.loserID != writer.winnerID {
+		t.Fatalf("deterministic loser/winner mismatch: %q vs %q", writer.loserID, writer.winnerID)
+	}
+	if _, err := h.q.GetGoal(h.ctx, writer.loserID); err != nil {
+		t.Fatalf("shared root should remain: %v", err)
 	}
 	var roots int
 	if err := h.db.QueryRow(h.ctx, `SELECT COUNT(*) FROM agent_goal WHERE workflow_id=$1 AND parent_id IS NULL`, wf.ID).Scan(&roots); err != nil {
@@ -175,6 +227,39 @@ func TestInstantiateDeletesLoserRootWhenRunRootRaceIsLost(t *testing.T) {
 	}
 	if roots != 1 {
 		t.Fatalf("workflow root count = %d", roots)
+	}
+}
+
+func TestListDecomposableCompositesExcludesWorkflowRoots(t *testing.T) {
+	h := newWorkflowHarness(t)
+	payload, _ := json.Marshal(FrozenPlan{})
+	wf, err := h.q.CreateWorkflow(h.ctx, sqlc.CreateWorkflowParams{ID: uuid.NewString(), OwnerKind: OwnerAgent, UserID: pgnull.Text(h.userID), AgentID: pgnull.Text(h.agentID), Name: "exclude", Version: 1, Intent: "exclude", AcceptanceContract: []byte(`{}`), ConvergencePolicy: []byte(`{}`), Inputs: []byte(`[]`), PayloadFormat: PayloadFormatFrozenV0, Payload: payload, FullyFrozen: true})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	workflowRoot, err := h.goals.CreateRoot(h.ctx, goal.CreateInput{UserID: h.userID, AgentID: h.agentID, Title: "workflow", Intent: "workflow", Kind: goal.KindComposite, Required: true, WorkflowID: wf.ID, WorkflowVersion: 1})
+	if err != nil {
+		t.Fatalf("create workflow root: %v", err)
+	}
+	plain, err := h.goals.CreateRoot(h.ctx, goal.CreateInput{UserID: h.userID, AgentID: h.agentID, Title: "plain", Intent: "plain", Kind: goal.KindComposite, Required: true})
+	if err != nil {
+		t.Fatalf("create plain root: %v", err)
+	}
+	rows, err := h.q.ListDecomposableComposites(h.ctx, 100)
+	if err != nil {
+		t.Fatalf("list decomposable: %v", err)
+	}
+	seenPlain := false
+	for _, row := range rows {
+		if row.ID == workflowRoot.ID {
+			t.Fatalf("workflow root %s returned as decomposable", workflowRoot.ID)
+		}
+		if row.ID == plain.ID {
+			seenPlain = true
+		}
+	}
+	if !seenPlain {
+		t.Fatalf("plain composite %s not returned", plain.ID)
 	}
 }
 
@@ -239,7 +324,7 @@ func TestInstantiateLeavesNilPlanCompositeDraft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create workflow: %v", err)
 	}
-	run, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "once"})
+	run, _, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "once"})
 	if err != nil {
 		t.Fatalf("instantiate partial: %v", err)
 	}
