@@ -18,13 +18,13 @@ import (
 func bashDefinition() pkgtools.Definition {
 	return pkgtools.Definition{
 		Name:        "bash",
-		Description: "Execute a bash command. Use for file operations like ls, rg, find, git, and other shell commands.",
+		Description: "Execute a bash command — git, package managers, system tools, and fd/rg searches. Do not use it to read or write file contents; use the read/write/edit tools for that. Prefer fd/rg over find/grep. When a Declarable Secrets section lists names, pass the ones this command needs in 'secrets'; never print secret values.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"command": map[string]any{"type": "string", "description": "The bash command to execute."},
 				"timeout": map[string]any{"type": "integer", "description": "Timeout in seconds (optional, no default timeout)."},
-				"secrets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional vault secret names to inject into this command only."},
+				"secrets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Names from the Declarable Secrets section to inject into this command only."},
 			},
 			"required": []string{"command"},
 		},
