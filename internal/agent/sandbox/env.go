@@ -136,8 +136,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	var vaultEnv map[string]string
 	if cfg.GroupID == "" {
 		// vaultEnv is the full decrypted vault snapshot, retained so OAuth bundle
-		// resolution can read from it instead of decrypting the vault again. env is
-		// the sandbox-facing copy, which has the host-only bundle keys stripped below.
+		// resolution can read from it even when the sandbox-facing copy is filtered
+		// to explicitly injectable entries.
 		if cfg.VaultEnvLoader != nil {
 			var ve map[string]string
 			var err error
@@ -169,7 +169,34 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 					"error", err,
 				)
 			} else {
+				// The loads above resolve the agent-bound view (ProjectID unset);
+				// a project session narrows/widens to the project-bound view here.
+				if projectLoader, ok := cfg.VaultEnvLoader.(projectVaultEnvLoader); ok && cfg.ProjectID != "" {
+					if projectEnv, err := projectLoader.LoadEnvForAgentProject(ctx, cfg.UserID, cfg.AgentID, cfg.ProjectID); err == nil {
+						ve = projectEnv
+					} else {
+						slog.Warn("project vault env load skipped",
+							"component", "runner_sandbox",
+							"user_id", cfg.UserID,
+							"agent_id", cfg.AgentID,
+							"project_id", cfg.ProjectID,
+							"error", err,
+						)
+					}
+				}
 				vaultEnv = ve
+				if fullLoader, ok := cfg.VaultEnvLoader.(fullVaultEnvLoader); ok {
+					if full, err := fullLoader.LoadFullEnvForAgent(ctx, cfg.UserID, cfg.AgentID); err == nil {
+						vaultEnv = full
+					} else {
+						slog.Warn("full vault env load skipped",
+							"component", "runner_sandbox",
+							"user_id", cfg.UserID,
+							"agent_id", cfg.AgentID,
+							"error", err,
+						)
+					}
+				}
 				maps.Copy(env, ve)
 			}
 		} else if envEnsurer, ok := cfg.TokenEnsurer.(tokenEnvEnsurer); ok {

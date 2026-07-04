@@ -812,12 +812,27 @@ type SkillFile struct {
 }
 
 type VaultEntry struct {
-	ID         string      `json:"id"`
-	Scope      string      `json:"scope"`
-	UserID     pgtype.Text `json:"user_id"`
-	AgentID    pgtype.Text `json:"agent_id"`
-	Name       string      `json:"name"`
-	Ciphertext string      `json:"ciphertext"`
-	CreatedAt  time.Time   `json:"created_at"`
-	UpdatedAt  time.Time   `json:"updated_at"`
+	ID           string      `json:"id"`
+	Scope        string      `json:"scope"`
+	UserID       pgtype.Text `json:"user_id"`
+	AgentID      pgtype.Text `json:"agent_id"`
+	Name         string      `json:"name"`
+	Ciphertext   string      `json:"ciphertext"`
+	CreatedAt    time.Time   `json:"created_at"`
+	UpdatedAt    time.Time   `json:"updated_at"`
+	InjectAlways bool        `json:"inject_always"`
+}
+
+type VaultEntryAgentBinding struct {
+	VaultEntryID string    `json:"vault_entry_id"`
+	AgentID      string    `json:"agent_id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type VaultEntryProjectBinding struct {
+	VaultEntryID string    `json:"vault_entry_id"`
+	ProjectID    string    `json:"project_id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }

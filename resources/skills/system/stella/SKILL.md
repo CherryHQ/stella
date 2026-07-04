@@ -84,7 +84,7 @@ The `stella` CLI is self-documenting. These are the command groups and their sub
 ```
 stellad server                  # Start server (channels + scheduler); web UI at http://localhost:25678
 stellad upgrade                 # Self-update to latest release
-stella vault      list/get/set/delete        # user secrets; Web UI also supports agent/system scopes
+stella vault      list/get/set/delete        # user secrets; bind injection with vault set flags
 stella oauth      providers/connect/status/disconnect
 stella share      artifact/article
 stella scheduler  add/list/remove

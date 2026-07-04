@@ -4,7 +4,7 @@ title: Secrets and Keys
 
 ## What the Vault Does
 
-Stella's vault stores your API keys, tokens, and other secrets securely. Values are encrypted at rest and automatically available as environment variables inside agent sessions. You never need to paste secrets into chat or hardcode them in scripts — store them once, and Stella uses them whenever needed.
+Stella's vault stores your API keys, tokens, and other secrets securely. Values are encrypted at rest. New secrets are not injected into agent sessions unless you explicitly bind them to agents or projects, or mark them as always injected.
 
 ## Setup
 
@@ -70,7 +70,7 @@ You can also ask Stella to manage your secrets:
 
 ## Using Secrets in Sessions
 
-When an agent session starts, matching vault secrets are decrypted and injected as environment variables. A secret named `GITHUB_TOKEN` is available as `$GITHUB_TOKEN` inside the session.
+When an agent session starts, Stella decrypts only secrets whose injection settings match that session: always-injected secrets, secrets bound to the current agent, or secrets bound to the current project. A bound secret named `GITHUB_TOKEN` is available as `$GITHUB_TOKEN` inside the session.
 
 Secrets are loaded fresh for each session. If you add or update a secret, the change takes effect on the next session.
 
@@ -89,7 +89,7 @@ Secret names must follow these rules:
 
 ## Tips
 
-- **One secret per service.** Store `GITHUB_TOKEN`, `OPENAI_API_KEY`, and similar keys as individual vault entries.
+- **One secret per service.** Store `GITHUB_TOKEN`, `OPENAI_API_KEY`, and similar keys as individual vault entries, then bind each one only where it is needed.
 - **Secrets persist across restarts.** You only need to set them once.
 - **Use the Web UI to audit.** The Credentials page shows all secret names, so you can see what is stored without exposing values.
 - **Rotate secrets by overwriting.** To update a secret, save a new value with the same name — it replaces the old one.

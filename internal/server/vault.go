@@ -13,12 +13,15 @@ import (
 
 // vaultEntryResponse is the JSON shape returned by ListVaultEntries.
 type vaultEntryResponse struct {
-	Name      string    `json:"name"`
-	Scope     string    `json:"scope"`
-	UserID    string    `json:"user_id,omitempty"`
-	AgentID   string    `json:"agent_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Name             string    `json:"name"`
+	Scope            string    `json:"scope"`
+	UserID           string    `json:"user_id,omitempty"`
+	AgentID          string    `json:"agent_id,omitempty"`
+	InjectAlways     bool      `json:"inject_always"`
+	InjectAgentIDs   []string  `json:"inject_agent_ids"`
+	InjectProjectIDs []string  `json:"inject_project_ids"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // ListScopedVaultEntries handles GET /api/vault.
@@ -124,9 +127,12 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 	}
 
 	var body struct {
-		Value   string `json:"value"`
-		Scope   string `json:"scope"`
-		AgentID string `json:"agent_id"`
+		Value            string   `json:"value"`
+		Scope            string   `json:"scope"`
+		AgentID          string   `json:"agent_id"`
+		InjectAlways     *bool    `json:"inject_always"`
+		InjectAgentIDs   []string `json:"inject_agent_ids"`
+		InjectProjectIDs []string `json:"inject_project_ids"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -148,11 +154,18 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 		return
 	}
 
+	opts := vault.SetOptions{
+		InjectAlways:     body.InjectAlways,
+		InjectAgentIDs:   body.InjectAgentIDs,
+		InjectProjectIDs: body.InjectProjectIDs,
+		ReplaceAgents:    body.InjectAgentIDs != nil,
+		ReplaceProjects:  body.InjectProjectIDs != nil,
+	}
 	var err error
 	if isSystemVaultScope(body.Scope) {
-		err = s.vaultSvc.SetSystemScoped(r.Context(), body.Scope, agentID, name, body.Value)
+		err = s.vaultSvc.SetSystemScopedWithOptions(r.Context(), body.Scope, agentID, name, body.Value, opts)
 	} else {
-		err = s.vaultSvc.SetScoped(r.Context(), body.Scope, userID, agentID, name, body.Value)
+		err = s.vaultSvc.SetScopedWithOptions(r.Context(), body.Scope, userID, agentID, name, body.Value, opts)
 	}
 	if err != nil {
 		s.log.Error("set scoped vault entry", "user_id", info.UserID, "scope", body.Scope, "agent_id", agentID, "name", name, "error", err)
@@ -300,12 +313,15 @@ func isSystemVaultScope(scope string) bool {
 
 func vaultEntryResponseFromMeta(e vault.EntryMeta) vaultEntryResponse {
 	return vaultEntryResponse{
-		Name:      e.Name,
-		Scope:     e.Scope,
-		UserID:    e.UserID,
-		AgentID:   e.AgentID,
-		CreatedAt: parseTime(e.CreatedAt),
-		UpdatedAt: parseTime(e.UpdatedAt),
+		Name:             e.Name,
+		Scope:            e.Scope,
+		UserID:           e.UserID,
+		AgentID:          e.AgentID,
+		InjectAlways:     e.InjectAlways,
+		InjectAgentIDs:   e.InjectAgentIDs,
+		InjectProjectIDs: e.InjectProjectIDs,
+		CreatedAt:        parseTime(e.CreatedAt),
+		UpdatedAt:        parseTime(e.UpdatedAt),
 	}
 }
 

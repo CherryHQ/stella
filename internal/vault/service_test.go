@@ -44,7 +44,27 @@ func (d *vaultTestDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.L
 	return d.q.ListVaultEntriesForRuntime(ctx, arg)
 }
 
-func (d *vaultTestDB) UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) error {
+func (d *vaultTestDB) ListVaultEntriesForRuntimeFull(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeFullParams) ([]sqlc.VaultEntry, error) {
+	return d.q.ListVaultEntriesForRuntimeFull(ctx, arg)
+}
+
+func (d *vaultTestDB) ListVaultEntryAgentBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
+	return d.q.ListVaultEntryAgentBindings(ctx, vaultEntryID)
+}
+
+func (d *vaultTestDB) ListVaultEntryProjectBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
+	return d.q.ListVaultEntryProjectBindings(ctx, vaultEntryID)
+}
+
+func (d *vaultTestDB) ReplaceVaultEntryAgentBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryAgentBindingsParams) error {
+	return d.q.ReplaceVaultEntryAgentBindings(ctx, arg)
+}
+
+func (d *vaultTestDB) ReplaceVaultEntryProjectBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryProjectBindingsParams) error {
+	return d.q.ReplaceVaultEntryProjectBindings(ctx, arg)
+}
+
+func (d *vaultTestDB) UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) (sqlc.VaultEntry, error) {
 	return d.q.UpsertVaultEntryByScope(ctx, arg)
 }
 
@@ -191,38 +211,112 @@ func TestSetValidation(t *testing.T) {
 	}
 }
 
-func TestLoadEnv(t *testing.T) {
+func TestLoadEnvDefaultNotInjected(t *testing.T) {
 	t.Parallel()
 	svc, _, userID := testService(t)
 	ctx := context.Background()
 
-	secrets := map[string]string{
-		"GITHUB_TOKEN": "ghp_abc",
-		"API_KEY":      "sk_test_123",
-		"MY_SECRET":    "super_secret_value",
+	if err := svc.Set(ctx, userID, "API_KEY", "sk_test_123"); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
-	for name, val := range secrets {
-		if err := svc.Set(ctx, userID, name, val); err != nil {
-			t.Fatalf("Set(%q): %v", name, err)
-		}
+	env, err := svc.LoadEnvForAgentProject(ctx, userID, "", "")
+	if err != nil {
+		t.Fatalf("LoadEnvForAgentProject: %v", err)
 	}
+	if _, ok := env["API_KEY"]; ok {
+		t.Fatal("new vault entry was injected without a binding")
+	}
+	// LoadEnv is the unfiltered host-side view (OAuth bundle resolution).
+	full, err := svc.LoadEnv(ctx, userID)
+	if err != nil {
+		t.Fatalf("LoadEnv: %v", err)
+	}
+	if got := full["API_KEY"]; got != "sk_test_123" {
+		t.Fatalf("full env API_KEY = %q, want sk_test_123", got)
+	}
+}
 
+func TestLoadEnvInjectAlways(t *testing.T) {
+	t.Parallel()
+	svc, _, userID := testService(t)
+	ctx := context.Background()
+
+	injectAlways := true
+	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "API_KEY", "sk_test_123", vault.SetOptions{InjectAlways: &injectAlways}); err != nil {
+		t.Fatalf("SetScopedWithOptions: %v", err)
+	}
 	env, err := svc.LoadEnv(ctx, userID)
 	if err != nil {
 		t.Fatalf("LoadEnv: %v", err)
 	}
-	if len(env) != len(secrets) {
-		t.Fatalf("LoadEnv: got %d entries, want %d", len(env), len(secrets))
+	if got := env["API_KEY"]; got != "sk_test_123" {
+		t.Fatalf("API_KEY = %q, want sk_test_123", got)
 	}
-	for name, want := range secrets {
-		got, ok := env[name]
-		if !ok {
-			t.Errorf("LoadEnv: missing key %q", name)
-			continue
-		}
-		if got != want {
-			t.Errorf("LoadEnv[%q] = %q, want %q", name, got, want)
-		}
+}
+
+func TestLoadEnvBoundEntryMatchesAgentOrProject(t *testing.T) {
+	t.Parallel()
+	svc, _, userID, q := testServiceWithQueries(t)
+	ctx := context.Background()
+
+	createVaultTestAgent(t, q, "agent-bound")
+	createVaultTestAgent(t, q, "agent-other")
+	projectID := uuid.NewString()
+	if _, err := q.CreateProject(ctx, sqlc.CreateProjectParams{ID: projectID, AgentID: "agent-other", UserID: userID, Name: "proj", BaseDir: "/tmp/proj"}); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "AGENT_TOKEN", "agent-value", vault.SetOptions{InjectAgentIDs: []string{"agent-bound"}, ReplaceAgents: true}); err != nil {
+		t.Fatalf("SetScopedWithOptions(agent): %v", err)
+	}
+	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "PROJECT_TOKEN", "project-value", vault.SetOptions{InjectProjectIDs: []string{projectID}, ReplaceProjects: true}); err != nil {
+		t.Fatalf("SetScopedWithOptions(project): %v", err)
+	}
+
+	env, err := svc.LoadEnvForAgentProject(ctx, userID, "agent-bound", "")
+	if err != nil {
+		t.Fatalf("LoadEnvForAgentProject(agent-bound): %v", err)
+	}
+	if got := env["AGENT_TOKEN"]; got != "agent-value" {
+		t.Fatalf("AGENT_TOKEN for bound agent = %q, want agent-value", got)
+	}
+	if _, ok := env["PROJECT_TOKEN"]; ok {
+		t.Fatal("PROJECT_TOKEN injected without matching project")
+	}
+
+	env, err = svc.LoadEnvForAgentProject(ctx, userID, "agent-other", projectID)
+	if err != nil {
+		t.Fatalf("LoadEnvForAgentProject(project): %v", err)
+	}
+	if _, ok := env["AGENT_TOKEN"]; ok {
+		t.Fatal("AGENT_TOKEN injected for unbound agent")
+	}
+	if got := env["PROJECT_TOKEN"]; got != "project-value" {
+		t.Fatalf("PROJECT_TOKEN for bound project = %q, want project-value", got)
+	}
+}
+
+func TestLoadEnvMigratedLegacyEntryInjected(t *testing.T) {
+	t.Parallel()
+	svc, oidc, userID, q := testServiceWithQueries(t)
+	ctx := context.Background()
+
+	user, err := oidc.GetUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetUser: %v", err)
+	}
+	ciphertext, err := vault.Encrypt(user.AgePublicKey, "legacy-value")
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	if _, err := q.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{ID: uuid.NewString(), Scope: vault.ScopeUser, UserID: sqlcNullString(userID), Name: "LEGACY_TOKEN", Ciphertext: ciphertext, InjectAlways: true}); err != nil {
+		t.Fatalf("insert legacy entry: %v", err)
+	}
+	env, err := svc.LoadEnv(ctx, userID)
+	if err != nil {
+		t.Fatalf("LoadEnv: %v", err)
+	}
+	if got := env["LEGACY_TOKEN"]; got != "legacy-value" {
+		t.Fatalf("LEGACY_TOKEN = %q, want legacy-value", got)
 	}
 }
 
@@ -252,12 +346,14 @@ func TestLoadEnvForAgentMergesScopedPrecedence(t *testing.T) {
 		{scope: vault.ScopeUser, value: "user"},
 		{scope: vault.ScopeUserAgent, agentID: "agent-a", value: "user-agent"},
 	}
+	injectAlways := true
 	for _, set := range sets {
 		var err error
+		opts := vault.SetOptions{InjectAlways: &injectAlways}
 		if set.scope == vault.ScopeSystem || set.scope == vault.ScopeSystemAgent {
-			err = svc.SetSystemScoped(ctx, set.scope, set.agentID, "TOKEN", set.value)
+			err = svc.SetSystemScopedWithOptions(ctx, set.scope, set.agentID, "TOKEN", set.value, opts)
 		} else {
-			err = svc.SetScoped(ctx, set.scope, userIDForScope(set.scope, userID), set.agentID, "TOKEN", set.value)
+			err = svc.SetScopedWithOptions(ctx, set.scope, userIDForScope(set.scope, userID), set.agentID, "TOKEN", set.value, opts)
 		}
 		if err != nil {
 			t.Fatalf("set %s: %v", set.scope, err)
@@ -278,6 +374,15 @@ func TestLoadEnvForAgentMergesScopedPrecedence(t *testing.T) {
 	}
 	if got := env["TOKEN"]; got != "user" {
 		t.Fatalf("TOKEN for agent-b = %q, want user", got)
+	}
+}
+
+func createVaultTestAgent(t *testing.T, q *sqlc.Queries, id string) {
+	t.Helper()
+	if _, err := q.CreateAgent(context.Background(), sqlc.CreateAgentParams{
+		ID: id, Name: id, Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateAgent(%s): %v", id, err)
 	}
 }
 
@@ -352,11 +457,12 @@ func TestLoadEnvForAgentKeepsSystemSecretsWhenUserEntryFails(t *testing.T) {
 	svc, _, userID, q := testServiceWithQueries(t)
 	ctx := context.Background()
 
-	if err := svc.SetSystemScoped(ctx, vault.ScopeSystem, "", "GLOBAL_TOKEN", "system-value"); err != nil {
-		t.Fatalf("SetSystemScoped: %v", err)
+	injectAlways := true
+	if err := svc.SetSystemScopedWithOptions(ctx, vault.ScopeSystem, "", "GLOBAL_TOKEN", "system-value", vault.SetOptions{InjectAlways: &injectAlways}); err != nil {
+		t.Fatalf("SetSystemScopedWithOptions: %v", err)
 	}
-	if err := q.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
-		ID: uuid.NewString(), Scope: vault.ScopeUser, UserID: sqlcNullString(userID), Name: "BROKEN_TOKEN", Ciphertext: "not-age",
+	if _, err := q.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
+		ID: uuid.NewString(), Scope: vault.ScopeUser, UserID: sqlcNullString(userID), Name: "BROKEN_TOKEN", Ciphertext: "not-age", InjectAlways: true,
 	}); err != nil {
 		t.Fatalf("insert broken user entry: %v", err)
 	}

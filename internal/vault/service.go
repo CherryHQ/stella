@@ -28,7 +28,12 @@ type DB interface {
 	GetVaultEntryByScope(ctx context.Context, arg sqlc.GetVaultEntryByScopeParams) (sqlc.VaultEntry, error)
 	ListVaultEntriesByScope(ctx context.Context, arg sqlc.ListVaultEntriesByScopeParams) ([]sqlc.VaultEntry, error)
 	ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeParams) ([]sqlc.VaultEntry, error)
-	UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) error
+	ListVaultEntriesForRuntimeFull(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeFullParams) ([]sqlc.VaultEntry, error)
+	ListVaultEntryAgentBindings(ctx context.Context, vaultEntryID string) ([]string, error)
+	ListVaultEntryProjectBindings(ctx context.Context, vaultEntryID string) ([]string, error)
+	ReplaceVaultEntryAgentBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryAgentBindingsParams) error
+	ReplaceVaultEntryProjectBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryProjectBindingsParams) error
+	UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) (sqlc.VaultEntry, error)
 	DeleteVaultEntryByScope(ctx context.Context, arg sqlc.DeleteVaultEntryByScopeParams) error
 }
 
@@ -62,12 +67,23 @@ func (s *Service) MasterRecipient() *age.X25519Recipient {
 
 // EntryMeta holds non-sensitive metadata for a vault entry.
 type EntryMeta struct {
-	Scope     string
-	UserID    string
-	AgentID   string
-	Name      string
-	CreatedAt string
-	UpdatedAt string
+	Scope            string
+	UserID           string
+	AgentID          string
+	Name             string
+	InjectAlways     bool
+	InjectAgentIDs   []string
+	InjectProjectIDs []string
+	CreatedAt        string
+	UpdatedAt        string
+}
+
+type SetOptions struct {
+	InjectAlways     *bool
+	InjectAgentIDs   []string
+	InjectProjectIDs []string
+	ReplaceAgents    bool
+	ReplaceProjects  bool
 }
 
 // EncryptSystem encrypts plaintext with the master key for system-level storage
@@ -84,32 +100,41 @@ func (s *Service) DecryptSystem(ciphertext string) (string, error) {
 // Set validates name, encrypts plaintext with the user's public key, and
 // upserts the user-level vault entry. The user must already have age keys provisioned.
 func (s *Service) Set(ctx context.Context, userID string, name string, plaintext string) error {
-	return s.set(ctx, ScopeUser, userID, "", name, plaintext, true)
+	return s.set(ctx, ScopeUser, userID, "", name, plaintext, true, SetOptions{})
 }
 
 // SetScoped stores a user-owned secret in the requested vault scope.
 func (s *Service) SetScoped(ctx context.Context, scope string, userID string, agentID string, name string, plaintext string) error {
+	return s.SetScopedWithOptions(ctx, scope, userID, agentID, name, plaintext, SetOptions{})
+}
+
+func (s *Service) SetScopedWithOptions(ctx context.Context, scope string, userID string, agentID string, name string, plaintext string, opts SetOptions) error {
 	if isSystemScope(scope) {
 		return fmt.Errorf("vault: system scope requires privileged caller")
 	}
-	return s.set(ctx, scope, userID, agentID, name, plaintext, true)
+	return s.set(ctx, scope, userID, agentID, name, plaintext, true, opts)
 }
 
 // SetSystemScoped stores an admin-managed secret. Call only after an explicit
 // admin authorization check at the API boundary.
 func (s *Service) SetSystemScoped(ctx context.Context, scope string, agentID string, name string, plaintext string) error {
+	return s.SetSystemScopedWithOptions(ctx, scope, agentID, name, plaintext, SetOptions{})
+}
+
+func (s *Service) SetSystemScopedWithOptions(ctx context.Context, scope string, agentID string, name string, plaintext string, opts SetOptions) error {
 	if !isSystemScope(scope) {
 		return fmt.Errorf("vault: scope %q is not system-managed", scope)
 	}
-	return s.set(ctx, scope, "", agentID, name, plaintext, true)
+	return s.set(ctx, scope, "", agentID, name, plaintext, true, opts)
 }
 
 // SetReserved stores an internal reserved env var. Callers must not pass user input.
 func (s *Service) SetReserved(ctx context.Context, userID string, name string, plaintext string) error {
-	return s.set(ctx, ScopeUser, userID, "", name, plaintext, false)
+	injectAlways := true
+	return s.set(ctx, ScopeUser, userID, "", name, plaintext, false, SetOptions{InjectAlways: &injectAlways})
 }
 
-func (s *Service) set(ctx context.Context, scope string, userID string, agentID string, name string, plaintext string, validate bool) error {
+func (s *Service) set(ctx context.Context, scope string, userID string, agentID string, name string, plaintext string, validate bool, opts SetOptions) error {
 	if validate {
 		if err := ValidateName(name); err != nil {
 			return err
@@ -124,15 +149,31 @@ func (s *Service) set(ctx context.Context, scope string, userID string, agentID 
 		return fmt.Errorf("vault: set %q: %w", name, err)
 	}
 
-	if err := s.db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
-		ID:         uuid.Must(uuid.NewV7()).String(),
-		Scope:      scope,
-		UserID:     pgnull.Text(userID),
-		AgentID:    pgnull.Text(agentID),
-		Name:       name,
-		Ciphertext: ciphertext,
-	}); err != nil {
+	injectAlways := any(nil)
+	if opts.InjectAlways != nil {
+		injectAlways = *opts.InjectAlways
+	}
+	entry, err := s.db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
+		ID:           uuid.Must(uuid.NewV7()).String(),
+		Scope:        scope,
+		UserID:       pgnull.Text(userID),
+		AgentID:      pgnull.Text(agentID),
+		Name:         name,
+		Ciphertext:   ciphertext,
+		InjectAlways: injectAlways,
+	})
+	if err != nil {
 		return fmt.Errorf("vault: set %q: upsert: %w", name, err)
+	}
+	if opts.ReplaceAgents {
+		if err := s.db.ReplaceVaultEntryAgentBindings(ctx, sqlc.ReplaceVaultEntryAgentBindingsParams{VaultEntryID: entry.ID, AgentIds: opts.InjectAgentIDs}); err != nil {
+			return fmt.Errorf("vault: set %q: replace agent bindings: %w", name, err)
+		}
+	}
+	if opts.ReplaceProjects {
+		if err := s.db.ReplaceVaultEntryProjectBindings(ctx, sqlc.ReplaceVaultEntryProjectBindingsParams{VaultEntryID: entry.ID, ProjectIds: opts.InjectProjectIDs}); err != nil {
+			return fmt.Errorf("vault: set %q: replace project bindings: %w", name, err)
+		}
 	}
 	return nil
 }
@@ -235,7 +276,7 @@ func (s *Service) GetScopedMeta(ctx context.Context, scope string, userID string
 	if err != nil {
 		return EntryMeta{}, fmt.Errorf("vault: get meta %q: %w", name, err)
 	}
-	return metaFromEntry(entry), nil
+	return s.metaFromEntry(ctx, entry), nil
 }
 
 func (s *Service) List(ctx context.Context, userID string) ([]EntryMeta, error) {
@@ -270,20 +311,26 @@ func (s *Service) listScoped(ctx context.Context, scope string, userID string, a
 	if err != nil {
 		return nil, fmt.Errorf("vault: list: %w", err)
 	}
-	return metasFromEntries(entries), nil
+	return s.metasFromEntries(ctx, entries), nil
 }
 
-// LoadEnv decrypts all user-level vault entries for userID and returns them as a
-// name→plaintext map. Intended for backward-compatible callers.
+// LoadEnv decrypts all vault entries reachable for userID without binding
+// filtering. Host-side callers (OAuth bundle resolution, token bootstrap) must
+// see unbound entries; sandbox-facing env goes through LoadEnvForAgentProject.
 func (s *Service) LoadEnv(ctx context.Context, userID string) (map[string]string, error) {
-	return s.LoadEnvForAgent(ctx, userID, "")
+	return s.LoadFullEnvForAgent(ctx, userID, "")
 }
 
 // LoadEnvForAgent resolves runtime env in the SQL precedence order; later scopes override earlier scopes.
 func (s *Service) LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
+	return s.LoadEnvForAgentProject(ctx, userID, agentID, "")
+}
+
+func (s *Service) LoadEnvForAgentProject(ctx context.Context, userID string, agentID string, projectID string) (map[string]string, error) {
 	entries, err := s.db.ListVaultEntriesForRuntime(ctx, sqlc.ListVaultEntriesForRuntimeParams{
-		UserID:  pgnull.Text(userID),
-		AgentID: pgnull.Text(agentID),
+		UserID:         pgnull.Text(userID),
+		RuntimeAgentID: pgnull.Text(agentID),
+		ProjectID:      pgnull.Text(projectID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("vault: load env: list entries: %w", err)
@@ -304,6 +351,35 @@ func (s *Service) LoadEnvForAgent(ctx context.Context, userID string, agentID st
 		env[e.Name] = plaintext
 	}
 	return env, nil
+}
+
+func (s *Service) LoadFullEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
+	entries, err := s.db.ListVaultEntriesForRuntimeFull(ctx, sqlc.ListVaultEntriesForRuntimeFullParams{
+		UserID:         pgnull.Text(userID),
+		RuntimeAgentID: pgnull.Text(agentID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("vault: load full env: list entries: %w", err)
+	}
+	return s.decryptEntries(ctx, entries), nil
+}
+
+func (s *Service) decryptEntries(ctx context.Context, entries []sqlc.VaultEntry) map[string]string {
+	env := make(map[string]string, len(entries))
+	for _, e := range entries {
+		plaintext, err := s.decryptEntry(ctx, e)
+		if err != nil {
+			slog.Warn("vault env entry skipped",
+				"component", "vault",
+				"scope", e.Scope,
+				"name", e.Name,
+				"error", err,
+			)
+			continue
+		}
+		env[e.Name] = plaintext
+	}
+	return env
 }
 
 func (s *Service) decryptEntry(ctx context.Context, entry sqlc.VaultEntry) (string, error) {
@@ -327,21 +403,31 @@ func (s *Service) decryptEntry(ctx context.Context, entry sqlc.VaultEntry) (stri
 	return plaintext, nil
 }
 
-func metaFromEntry(e sqlc.VaultEntry) EntryMeta {
-	return EntryMeta{
-		Scope:     e.Scope,
-		UserID:    stringFromNull(e.UserID),
-		AgentID:   stringFromNull(e.AgentID),
-		Name:      e.Name,
-		CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt: e.UpdatedAt.UTC().Format(time.RFC3339),
+func (s *Service) metaFromEntry(ctx context.Context, e sqlc.VaultEntry) EntryMeta {
+	meta := EntryMeta{
+		Scope:        e.Scope,
+		UserID:       stringFromNull(e.UserID),
+		AgentID:      stringFromNull(e.AgentID),
+		Name:         e.Name,
+		InjectAlways: e.InjectAlways,
+		CreatedAt:    e.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:    e.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+	agentIDs, err := s.db.ListVaultEntryAgentBindings(ctx, e.ID)
+	if err == nil {
+		meta.InjectAgentIDs = agentIDs
+	}
+	projectIDs, err := s.db.ListVaultEntryProjectBindings(ctx, e.ID)
+	if err == nil {
+		meta.InjectProjectIDs = projectIDs
+	}
+	return meta
 }
 
-func metasFromEntries(entries []sqlc.VaultEntry) []EntryMeta {
+func (s *Service) metasFromEntries(ctx context.Context, entries []sqlc.VaultEntry) []EntryMeta {
 	meta := make([]EntryMeta, len(entries))
 	for i, e := range entries {
-		meta[i] = metaFromEntry(e)
+		meta[i] = s.metaFromEntry(ctx, e)
 	}
 	return meta
 }

@@ -2374,7 +2374,15 @@ components:
           type: string
     VaultEntry:
       type: object
-      required: [name, scope, created_at, updated_at]
+      required: [
+        name,
+        scope,
+        inject_always,
+        inject_agent_ids,
+        inject_project_ids,
+        created_at,
+        updated_at,
+      ]
       properties:
         name:
           type: string
@@ -2385,6 +2393,16 @@ components:
           type: string
         agent_id:
           type: string
+        inject_always:
+          type: boolean
+        inject_agent_ids:
+          type: array
+          items:
+            type: string
+        inject_project_ids:
+          type: array
+          items:
+            type: string
         created_at:
           type: string
           format: date-time
@@ -2403,6 +2421,16 @@ components:
           default: user
         agent_id:
           type: string
+        inject_always:
+          type: boolean
+        inject_agent_ids:
+          type: array
+          items:
+            type: string
+        inject_project_ids:
+          type: array
+          items:
+            type: string
     VaultEntryValue:
       type: object
       required: [name, value]
