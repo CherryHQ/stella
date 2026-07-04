@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -41,7 +42,12 @@ type runnerConfig struct {
 	Sandbox         sandbox.Config
 	System          string // optional system prompt override (bypasses default prompt building)
 	Sections        []pkgplugins.SystemPromptSection
-	ExtraTools      []tools.Tool // additional tools to register
+	BuiltinTools    []BuiltinTool
+	BuiltinParams   RunnerParams
+	PerRunTools     []tools.Tool
+	SkillStore      pkgplugins.SkillStore
+	PluginView      pkgplugins.SessionPluginView
+	MCPToolProvider MCPToolProvider
 	PluginTools     func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
 	HookPlugins     []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle   *coreagent.ToolLifecycle
@@ -101,27 +107,13 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		})
 	}
 
-	toolReg, err := buildToolRegistry(ctx, cfg, session)
+	toolReg, hookSet, err := buildToolRegistry(ctx, cfg, session, stream, model, systemPrompt)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
 		}
 		return nil, err
 	}
-	presets := buildDelegatePresets(cfg)
-	hookSet := buildHookSet(cfg)
-
-	toolReg.Register(delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
-		Stream:         stream,
-		Registry:       toolReg,
-		Model:          model,
-		System:         systemPrompt,
-		Presets:        presets,
-		Hooks:          hookSet,
-		ToolLifecycle:  cfg.ToolLifecycle,
-		SessionRunner:  cfg.DelegateRunner,
-		DefaultTimeout: cfg.DelegateTimeout,
-	}))
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
 	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle)
@@ -191,7 +183,7 @@ func buildStreamFunc(cfg runnerConfig) (providers.StreamFunc, error) {
 }
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
-func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session) (*tools.Registry, error) {
+func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (*tools.Registry, *hooks.HookSet, error) {
 	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 	toolReg := tools.NewRegistry()
 
@@ -215,7 +207,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 
 	coreTools := buildSandboxCoreTools(session, bc, newExecSecretResolver(cfg.Sandbox))
 	if len(coreTools) == 0 {
-		return nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
+		return nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
 
 	// Sandbox core tools (bash/read/write/edit) route through the active
@@ -237,8 +229,45 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		toolReg.Register(t)
 	}
 
-	for _, t := range cfg.ExtraTools {
+	for _, entry := range cfg.BuiltinTools {
+		if entry.Tool == nil {
+			return nil, nil, fmt.Errorf("runner: builtin tool is nil")
+		}
+		if entry.Available != nil && !entry.Available(ctx, cfg.BuiltinParams) {
+			continue
+		}
+		registerNonCore(entry.Tool)
+	}
+	for _, t := range cfg.PerRunTools {
 		registerNonCore(t)
+	}
+	if cfg.SkillStore != nil {
+		stellaHome := paths.StellaHome
+		toolProjectRoot := paths.ProjectRoot
+		layout := skillDiskLayout(SystemDBSkillsDir(paths.StellaHome), paths.AgentRoot, paths.UserDataDir, paths.WorkspaceRoot)
+		sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
+		view := skillstool.SkillDirView{
+			Isolated:           sv.Isolated,
+			SystemSkillsHost:   sv.SystemSkillsHost,
+			SystemSkillsView:   sv.SystemSkillsView,
+			AgentSkillsHost:    sv.AgentSkillsHost,
+			AgentSkillsView:    sv.AgentSkillsView,
+			SystemDBSkillsHost: sv.SystemDBSkillsHost,
+			SystemDBSkillsView: sv.SystemDBSkillsView,
+			UserDataHost:       sv.UserDataHost,
+			UserDataView:       sv.UserDataView,
+			WorkspaceHost:      sv.WorkspaceHost,
+			WorkspaceView:      sv.WorkspaceView,
+		}
+		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
+			WithSkillDiskLayout(layout).
+			WithSkillDirView(view).
+			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs))
+	}
+	if cfg.MCPToolProvider != nil {
+		for _, t := range cfg.MCPToolProvider.ToolsForContext(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID) {
+			registerNonCore(t)
+		}
 	}
 	if cfg.PluginTools != nil {
 		for _, t := range cfg.PluginTools(ctx, bc) {
@@ -246,7 +275,20 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		}
 	}
 
-	return toolReg, nil
+	hookSet := buildHookSet(cfg)
+	registerNonCore(delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
+		Stream:         stream,
+		Registry:       toolReg,
+		Model:          model,
+		System:         systemPrompt,
+		Presets:        buildDelegatePresets(cfg),
+		Hooks:          hookSet,
+		ToolLifecycle:  cfg.ToolLifecycle,
+		SessionRunner:  cfg.DelegateRunner,
+		DefaultTimeout: cfg.DelegateTimeout,
+	}))
+
+	return toolReg, hookSet, nil
 }
 
 func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {

@@ -13,18 +13,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/internal/recally"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-func TestOwnedMethodsEnforceShareOwnership(t *testing.T) {
+func TestAuthorizedMethodsEnforceShareOwnership(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
@@ -42,18 +42,18 @@ func TestOwnedMethodsEnforceShareOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
 	}
-	if got, err := svc.ListOwned(ctx, ident(foreign, "agent"), 10, 0); err != nil || len(got.Shares) != 0 {
-		t.Fatalf("foreign ListOwned got=%+v err=%v, want empty", got, err)
+	if got, err := svc.As(ident(foreign, "agent")).List(ctx, 10, 0); err != nil || len(got.Shares) != 0 {
+		t.Fatalf("foreign List got=%+v err=%v, want empty", got, err)
 	}
-	if err := svc.RevokeOwned(ctx, ident(foreign, "agent"), share.ID); !errors.Is(err, toolctx.ErrNotFound) {
-		t.Fatalf("foreign RevokeOwned err=%v, want ErrNotFound", err)
+	if err := svc.As(ident(foreign, "agent")).Revoke(ctx, share.ID); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("foreign Revoke err=%v, want ErrNotFound", err)
 	}
-	if err := svc.RevokeOwned(ctx, toolctx.Identity{}, share.ID); !errors.Is(err, toolctx.ErrUnauthenticated) {
-		t.Fatalf("unauth RevokeOwned err=%v, want ErrUnauthenticated", err)
+	if err := svc.As(authz.Identity{}).Revoke(ctx, share.ID); !errors.Is(err, authz.ErrUnauthenticated) {
+		t.Fatalf("unauth Revoke err=%v, want ErrUnauthenticated", err)
 	}
 }
 
-func TestShareArtifactOwnedRejectsUnsafeAndInvalidFiles(t *testing.T) {
+func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
@@ -91,40 +91,40 @@ func TestShareArtifactOwnedRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ShareArtifactOwned(ctx, ident(userID, agentID), "owner-session", "../escape.html", "", "7d"); !errors.Is(err, toolctx.ErrNotFound) {
+	if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", "../escape.html", "", "7d"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("../escape err=%v, want ErrNotFound clamp", err)
 	}
-	if _, err := svc.ShareArtifactOwned(ctx, ident(userID, agentID), "owner-session", outside, "", "7d"); !errors.Is(err, toolctx.ErrNotFound) {
+	if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", outside, "", "7d"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("absolute path err=%v, want ErrNotFound clamp", err)
 	}
-	if _, err := svc.ShareArtifactOwned(ctx, ident(userID, agentID), "owner-session", "bad.exe", "", "7d"); !errors.Is(err, toolctx.ErrNotFound) {
+	if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", "bad.exe", "", "7d"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("missing unsupported file err=%v, want ErrNotFound before type", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "bad.exe"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ShareArtifactOwned(ctx, ident(userID, agentID), "owner-session", "bad.exe", "", "7d"); !errors.Is(err, sharepkg.ErrUnsupportedType) {
+	if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", "bad.exe", "", "7d"); !errors.Is(err, sharepkg.ErrUnsupportedType) {
 		t.Fatalf("unsupported err=%v, want ErrUnsupportedType", err)
 	}
 	bigPath := filepath.Join(root, "big.html")
 	if err := os.WriteFile(bigPath, []byte(strings.Repeat("x", sharepkg.MaxShareSize+1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ShareArtifactOwned(ctx, ident(userID, agentID), "owner-session", "big.html", "", "7d"); !errors.Is(err, sharepkg.ErrTooLarge) {
+	if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", "big.html", "", "7d"); !errors.Is(err, sharepkg.ErrTooLarge) {
 		t.Fatalf("too large err=%v, want ErrTooLarge", err)
 	}
-	if _, err := svc.ShareArtifactOwned(ctx, ident(userID, agentID), "foreign-session", "ok.html", "", "7d"); !errors.Is(err, toolctx.ErrForbidden) {
+	if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "foreign-session", "ok.html", "", "7d"); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("foreign session err=%v, want ErrForbidden", err)
 	}
-	created, err := svc.ShareArtifactOwned(ctx, ident(userID, agentID), "owner-session", "ok.html", "", "7d")
+	created, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", "ok.html", "", "7d")
 	if err != nil {
-		t.Fatalf("ShareArtifactOwned ok: %v", err)
+		t.Fatalf("ShareArtifact ok: %v", err)
 	}
 	if created.URL == "" || created.Token == "" {
 		t.Fatalf("created missing URL/token: %+v", created)
 	}
 }
 
-func ident(userID, agentID string) toolctx.Identity {
-	return toolctx.Identity{UserID: userID, AgentID: agentID, AgentScoped: agentID != ""}
+func ident(userID, agentID string) authz.Identity {
+	return authz.Identity{UserID: userID, AgentID: agentID, AgentScoped: agentID != ""}
 }

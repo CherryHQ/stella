@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/toolctx"
+	"github.com/CherryHQ/stella/internal/authz"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/email"
@@ -299,7 +299,7 @@ func (s *Server) resolveVaultScope(w http.ResponseWriter, r *http.Request, info 
 		BoundAgentID: boundAgent,
 	})
 	if err != nil {
-		if errors.Is(err, toolctx.ErrForbidden) {
+		if errors.Is(err, authz.ErrForbidden) {
 			writeError(w, http.StatusForbidden, err.Error())
 			return "", "", false
 		}

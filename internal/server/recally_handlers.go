@@ -15,9 +15,9 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/recally"
-	"github.com/CherryHQ/stella/internal/toolctx"
 )
 
 // recallyHandlers implements the recally portion of apiserver.ServerInterface and is the
@@ -55,9 +55,9 @@ func (h *recallyHandlers) requireUser(w http.ResponseWriter, r *http.Request) (s
 	return info.UserID, true
 }
 
-// articleOwned loads an article and returns it only if the caller owns it.
+// loadArticle loads an article and returns it only if the caller owns it.
 // Returns false (with the appropriate error response written) otherwise.
-func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Context, articleID string, userID string) (*recally.Article, bool) {
+func (h *recallyHandlers) loadArticle(w http.ResponseWriter, ctx context.Context, articleID string, userID string) (*recally.Article, bool) {
 	article, err := h.store.GetArticle(ctx, userID, articleID)
 	if err != nil {
 		if isNotFound(err) {
@@ -74,7 +74,7 @@ func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Contex
 	return article, true
 }
 
-func (h *recallyHandlers) feedOwned(w http.ResponseWriter, ctx context.Context, feedID string, userID string) (*recally.Feed, bool) {
+func (h *recallyHandlers) loadFeed(w http.ResponseWriter, ctx context.Context, feedID string, userID string) (*recally.Feed, bool) {
 	feed, err := h.store.GetFeed(ctx, userID, feedID)
 	if err != nil {
 		if isNotFound(err) {
@@ -186,7 +186,7 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 		AgentID:      body.AgentId,
 	}
 
-	result, err := h.svc.SaveOwned(r.Context(), toolctx.Identity{UserID: userID}, req)
+	result, err := h.svc.As(authz.Identity{UserID: userID}).Save(r.Context(), req)
 	if err != nil {
 		if strings.Contains(err.Error(), "content is required") {
 			writeError(w, http.StatusBadRequest, "content is required for new articles")
@@ -210,7 +210,7 @@ func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id 
 	if !ok {
 		return
 	}
-	article, ok := h.articleOwned(w, r.Context(), id, userID)
+	article, ok := h.loadArticle(w, r.Context(), id, userID)
 	if !ok {
 		return
 	}
@@ -231,7 +231,7 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	article, ok := h.articleOwned(w, r.Context(), id, userID)
+	article, ok := h.loadArticle(w, r.Context(), id, userID)
 	if !ok {
 		return
 	}
@@ -295,7 +295,7 @@ func (h *recallyHandlers) DeleteArticle(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	article, ok := h.articleOwned(w, r.Context(), id, userID)
+	article, ok := h.loadArticle(w, r.Context(), id, userID)
 	if !ok {
 		return
 	}
@@ -414,7 +414,7 @@ func (h *recallyHandlers) GetFeed(w http.ResponseWriter, r *http.Request, id str
 	if !ok {
 		return
 	}
-	feed, ok := h.feedOwned(w, r.Context(), id, userID)
+	feed, ok := h.loadFeed(w, r.Context(), id, userID)
 	if !ok {
 		return
 	}
@@ -426,7 +426,7 @@ func (h *recallyHandlers) UpdateFeed(w http.ResponseWriter, r *http.Request, id 
 	if !ok {
 		return
 	}
-	if _, ok := h.feedOwned(w, r.Context(), id, userID); !ok {
+	if _, ok := h.loadFeed(w, r.Context(), id, userID); !ok {
 		return
 	}
 	var body apiserver.UpdateFeedRequest
@@ -460,7 +460,7 @@ func (h *recallyHandlers) DeleteFeed(w http.ResponseWriter, r *http.Request, id 
 	if !ok {
 		return
 	}
-	if _, ok := h.feedOwned(w, r.Context(), id, userID); !ok {
+	if _, ok := h.loadFeed(w, r.Context(), id, userID); !ok {
 		return
 	}
 	if err := h.store.DeleteFeed(r.Context(), userID, id); err != nil {
@@ -475,7 +475,7 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	if !ok {
 		return
 	}
-	feed, ok := h.feedOwned(w, r.Context(), id, userID)
+	feed, ok := h.loadFeed(w, r.Context(), id, userID)
 	if !ok {
 		return
 	}
@@ -541,7 +541,7 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
+	if _, ok := h.loadFeed(w, r.Context(), feedId, userID); !ok {
 		return
 	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
@@ -580,7 +580,7 @@ func (h *recallyHandlers) CreateFeedEntry(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
+	if _, ok := h.loadFeed(w, r.Context(), feedId, userID); !ok {
 		return
 	}
 	var body apitypes.CreateFeedEntryRequest
@@ -610,7 +610,7 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
+	if _, ok := h.loadFeed(w, r.Context(), feedId, userID); !ok {
 		return
 	}
 	entry, err := h.store.GetFeedEntry(r.Context(), feedId, id)

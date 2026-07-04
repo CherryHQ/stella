@@ -19,12 +19,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
+
+// Authorized is the identity-scoped view of the service; all authorization
+// checks live on its methods.
+type Authorized struct {
+	*Service
+	ident authz.Identity
+}
+
+func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
 const MaxShareSize = 25 * 1024 * 1024
 
@@ -74,7 +83,8 @@ func (s *Service) PublicURL(token string) string {
 	return s.baseURL + "/s/" + url.PathEscape(token)
 }
 
-func (s *Service) ShareArtifactOwned(ctx context.Context, ident toolctx.Identity, sessionID, path, scope, expiresIn string) (Created, error) {
+func (s Authorized) ShareArtifact(ctx context.Context, sessionID, path, scope, expiresIn string) (Created, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return Created{}, err
 	}
@@ -104,7 +114,7 @@ func (s *Service) ShareArtifactOwned(ctx context.Context, ident toolctx.Identity
 	}
 	fi, err := os.Stat(abs)
 	if err != nil {
-		return Created{}, toolctx.ErrNotFound
+		return Created{}, authz.ErrNotFound
 	}
 	if fi.IsDir() {
 		return Created{}, ErrDirectory
@@ -123,7 +133,8 @@ func (s *Service) ShareArtifactOwned(ctx context.Context, ident toolctx.Identity
 	return s.create(ctx, ident.UserID, filepath.Base(path), mt, data, expiresIn)
 }
 
-func (s *Service) ShareArticleOwned(ctx context.Context, ident toolctx.Identity, articleID, expiresIn string) (Created, error) {
+func (s Authorized) ShareArticle(ctx context.Context, articleID, expiresIn string) (Created, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return Created{}, err
 	}
@@ -132,10 +143,10 @@ func (s *Service) ShareArticleOwned(ctx context.Context, ident toolctx.Identity,
 	}
 	article, err := s.store.GetArticle(ctx, ident.UserID, articleID)
 	if err != nil {
-		return Created{}, toolctx.ErrNotFound
+		return Created{}, authz.ErrNotFound
 	}
 	if article.UserID != ident.UserID {
-		return Created{}, toolctx.ErrForbidden
+		return Created{}, authz.ErrForbidden
 	}
 	if article.FilePath == "" {
 		return Created{}, ErrNoContent
@@ -155,7 +166,8 @@ func (s *Service) ShareArticleOwned(ctx context.Context, ident toolctx.Identity,
 	return s.create(ctx, ident.UserID, article.Title, "text/html; charset=utf-8", rendered, expiresIn)
 }
 
-func (s *Service) ListOwned(ctx context.Context, ident toolctx.Identity, limit, offset int) (ListResult, error) {
+func (s Authorized) List(ctx context.Context, limit, offset int) (ListResult, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return ListResult{}, err
 	}
@@ -167,7 +179,8 @@ func (s *Service) ListOwned(ctx context.Context, ident toolctx.Identity, limit, 
 	return ListResult{Shares: page, NextPageToken: next}, nil
 }
 
-func (s *Service) RevokeOwned(ctx context.Context, ident toolctx.Identity, id string) error {
+func (s Authorized) Revoke(ctx context.Context, id string) error {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return err
 	}
@@ -176,7 +189,7 @@ func (s *Service) RevokeOwned(ctx context.Context, ident toolctx.Identity, id st
 		return err
 	}
 	if rows == 0 {
-		return toolctx.ErrNotFound
+		return authz.ErrNotFound
 	}
 	return nil
 }
@@ -197,10 +210,10 @@ func (s *Service) create(ctx context.Context, userID, title, mediaType string, c
 	return Created{Share: row, Token: token, URL: s.PublicURL(token)}, nil
 }
 
-func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident toolctx.Identity, sessionID, scope string) (string, error) {
+func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident authz.Identity, sessionID, scope string) (string, error) {
 	sm, ok := s.mem.(memory.SessionManager)
 	if !ok {
-		return "", toolctx.ErrNotFound
+		return "", authz.ErrNotFound
 	}
 	loadCtx := memory.WithUserID(ctx, ident.UserID)
 	if ident.AgentID != "" {
@@ -208,19 +221,19 @@ func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident toolctx.Identi
 	}
 	si, err := sm.LoadInfo(loadCtx, sessionID)
 	if err != nil {
-		return "", toolctx.ErrNotFound
+		return "", authz.ErrNotFound
 	}
 	if si.UserID != ident.UserID {
-		return "", toolctx.ErrForbidden
+		return "", authz.ErrForbidden
 	}
 	if ident.AgentID != "" && si.AgentID != ident.AgentID {
 		if ident.AgentScoped {
-			return "", toolctx.ErrForbidden
+			return "", authz.ErrForbidden
 		}
-		return "", toolctx.ErrNotFound
+		return "", authz.ErrNotFound
 	}
 	if si.UserID == "" || si.AgentID == "" {
-		return "", toolctx.ErrNotFound
+		return "", authz.ErrNotFound
 	}
 	if _, err := agent.SetupUserWorkspace(s.stellaHome, si.UserID, si.AgentID); err != nil {
 		return "", err

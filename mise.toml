@@ -76,8 +76,8 @@ go tool oapi-codegen --config api/codegen/client.yaml  api/spec/openapi.yaml
 go run ./internal/goal/cmd/gengoalcontrolschema
 gofmt -w internal/goal/goal_control_schema_gen.go internal/goal/cmd/gengoalcontrolschema/main.go
 pnpm --package=@redocly/cli dlx redocly bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
-go run ./internal/cmd/gentoolschema
-gofmt -w internal/tools/domaintools/*.go internal/cmd/gentoolschema/main.go
+go run ./internal/cmd/toolgen
+gofmt -w internal/{goal,scheduler,vault,credentials,share,recally,email}/tool_gen.go internal/cmd/toolgen/main.go
 """
 
 [tasks."generate:check"]

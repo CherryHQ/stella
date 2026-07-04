@@ -1,4 +1,4 @@
-package toolctx
+package authz
 
 import (
 	"context"
@@ -21,8 +21,8 @@ type Identity struct {
 	AgentScoped bool
 }
 
-// FromContext extracts the runtime identity for native tools. Group and
-// unauthenticated sessions have no user id, so domain tools must refuse them.
+// FromContext extracts the runtime identity for built-in tools. Group and
+// unauthenticated sessions have no user id, so identity-scoped tools must refuse them.
 // An agent session is always confined to its own agent's resources — the same
 // boundary the sandbox scoped token enforced on the HTTP path.
 func FromContext(ctx context.Context) (Identity, error) {

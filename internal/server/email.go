@@ -7,8 +7,8 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/email"
-	"github.com/CherryHQ/stella/internal/toolctx"
 )
 
 // maxEmailRequestBytes caps the JSON body of email write endpoints. Attachments
@@ -16,16 +16,16 @@ import (
 // while bounding memory use from an authenticated client.
 const maxEmailRequestBytes = 5 << 20
 
-func emailIdentity(r *http.Request) (toolctx.Identity, bool) {
+func emailIdentity(r *http.Request) (authz.Identity, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {
-		return toolctx.Identity{}, false
+		return authz.Identity{}, false
 	}
-	return toolctx.Identity{UserID: info.UserID}, true
+	return authz.Identity{UserID: info.UserID}, true
 }
 
 func (s *Server) writeEmailError(w http.ResponseWriter, err error) {
-	if errors.Is(err, toolctx.ErrUnauthenticated) {
+	if errors.Is(err, authz.ErrUnauthenticated) {
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
@@ -39,7 +39,7 @@ func (s *Server) ListEmailAccounts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	accounts, err := s.emailSvc.AccountsOwned(r.Context(), ident)
+	accounts, err := s.emailSvc.As(ident).Accounts(r.Context())
 	if err != nil {
 		s.writeEmailError(w, err)
 		return
@@ -58,7 +58,7 @@ func (s *Server) ListEmailFolders(w http.ResponseWriter, r *http.Request, params
 	if params.Account != nil {
 		account = *params.Account
 	}
-	folders, err := s.emailSvc.FoldersOwned(r.Context(), ident, account)
+	folders, err := s.emailSvc.As(ident).Folders(r.Context(), account)
 	if err != nil {
 		s.writeEmailError(w, err)
 		return
@@ -106,7 +106,7 @@ func (s *Server) ListEmailMessages(w http.ResponseWriter, r *http.Request, param
 		t := params.Before.Time
 		opts.Before = &t
 	}
-	msgs, err := s.emailSvc.ListOwned(r.Context(), ident, account, opts)
+	msgs, err := s.emailSvc.As(ident).List(r.Context(), account, opts)
 	if err != nil {
 		s.writeEmailError(w, err)
 		return
@@ -137,7 +137,7 @@ func (s *Server) GetEmailMessage(w http.ResponseWriter, r *http.Request, uid int
 	if params.Folder != nil {
 		folder = *params.Folder
 	}
-	msg, err := s.emailSvc.ReadOwned(r.Context(), ident, account, folder, imapUID)
+	msg, err := s.emailSvc.As(ident).Read(r.Context(), account, folder, imapUID)
 	if err != nil {
 		if errors.Is(err, email.ErrMessageNotFound) {
 			writeError(w, http.StatusNotFound, "message not found")
@@ -201,7 +201,7 @@ func (s *Server) SendEmail(w http.ResponseWriter, r *http.Request, params apiser
 	if body.IdempotencyKey != nil {
 		idem = *body.IdempotencyKey
 	}
-	if _, err := s.emailSvc.SendOwned(r.Context(), ident, account, opts, idem); err != nil {
+	if _, err := s.emailSvc.As(ident).Send(r.Context(), account, opts, idem); err != nil {
 		s.writeEmailError(w, err)
 		return
 	}
@@ -239,7 +239,7 @@ func (s *Server) MarkEmailMessage(w http.ResponseWriter, r *http.Request, uid in
 	if params.Folder != nil {
 		folder = *params.Folder
 	}
-	if err := s.emailSvc.MarkSeenOwned(r.Context(), ident, account, folder, imapUID, *body.Seen); err != nil {
+	if err := s.emailSvc.As(ident).MarkSeen(r.Context(), account, folder, imapUID, *body.Seen); err != nil {
 		if errors.Is(err, email.ErrMessageNotFound) {
 			writeError(w, http.StatusNotFound, "message not found")
 		} else {

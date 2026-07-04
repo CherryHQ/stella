@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestOperationInputSchemaMergesParamsAndBody(t *testing.T) {
 	doc := mustDoc(t, []byte(`
@@ -219,6 +222,25 @@ components:
 	}
 	if got := action.Required; len(got) != 1 || got[0] != "articles" {
 		t.Fatalf("required=%v, want [articles]", got)
+	}
+}
+
+func TestRenderToolUsesPackageTrimmedNamesAndCamelActions(t *testing.T) {
+	out, err := renderTool("goal", "goal", []toolAction{{Action: "create", Schema: objectSchema(nil, nil)}})
+	if err != nil {
+		t.Fatalf("render goal: %v", err)
+	}
+	text := string(out)
+	if !strings.Contains(text, "package goal") || !strings.Contains(text, `const ToolName = "goal"`) || !strings.Contains(text, "type ToolCreateInput struct") {
+		t.Fatalf("goal render did not use package/fallback name:\n%s", text)
+	}
+	out, err = renderTool("recally", "recally", []toolAction{{Action: "list_articles", Schema: objectSchema(nil, nil)}})
+	if err != nil {
+		t.Fatalf("render recally: %v", err)
+	}
+	text = string(out)
+	if !strings.Contains(text, "ListArticles(context.Context, ListArticlesInput)") || strings.Contains(text, "List_articles") {
+		t.Fatalf("recally render did not camel-case action:\n%s", text)
 	}
 }
 

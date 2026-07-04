@@ -11,7 +11,6 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -27,38 +26,25 @@ type MCPToolProvider interface {
 	ToolsForContext(ctx context.Context, userID, agentID string) []tools.Tool
 }
 
-type DomainToolMount struct {
-	Name         string
-	Tool         tools.Tool
-	Predicate    func(RunnerParams) bool
-	PredicateCtx func(context.Context, RunnerParams) bool
+type BuiltinTool struct {
+	Tool      tools.Tool
+	Available func(context.Context, RunnerParams) bool
 }
 
-func DomainToolAvailable(params RunnerParams) bool {
+func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
 	return params.UserID != "" && params.AgentID != ""
-}
-
-func domainToolMountEnabled(ctx context.Context, mount DomainToolMount, params RunnerParams) bool {
-	if mount.PredicateCtx != nil {
-		return mount.PredicateCtx(ctx, params)
-	}
-	if mount.Predicate != nil {
-		return mount.Predicate(params)
-	}
-	return true
 }
 
 // runnerBuilderConfig holds all dependencies needed to assemble a NewRunnerFunc.
 type runnerBuilderConfig struct {
 	Snap                     *config.Snapshot
-	BuiltinTools             []tools.Tool
+	BuiltinTools             []BuiltinTool
 	PluginToolsBuilder       PluginToolsBuilder
 	ProviderStreamBuilder    ProviderStreamBuilder
 	PromptSectionsBuilder    prompt.SectionsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	SkillStore               pkgplugins.SkillStore
 	MCPToolProvider          MCPToolProvider
-	DomainToolMounts         []DomainToolMount
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SandboxBackendFn         func(ctx context.Context) string
 	VaultEnvLoader           sandbox.VaultEnvLoader
@@ -222,77 +208,8 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			TokenManager:    cfg.TokenManager,
 		}
 
-		runnerTools := append([]tools.Tool{}, cfg.BuiltinTools...)
-		runnerTools = append(runnerTools, params.ExtraTools...)
-		workerDispatch := false
-		for _, tool := range params.ExtraTools {
-			if tool != nil && tool.Definition().Name == "goal_control" {
-				workerDispatch = true
-				break
-			}
-		}
-		// Worker dispatch sessions get core tools + goal_control only.
-		if !workerDispatch {
-			for _, mount := range cfg.DomainToolMounts {
-				if mount.Tool == nil {
-					return nil, fmt.Errorf("domain tool %q is nil", mount.Name)
-				}
-				if !domainToolMountEnabled(ctx, mount, params) {
-					continue
-				}
-				runnerTools = append(runnerTools, mount.Tool)
-			}
-		}
-		if cfg.SkillStore != nil {
-			// User skills live under the shared user-data root (mounted as /user); the
-			// skill_dir emitted to the model is remapped to the sandbox-visible path for
-			// the active backend so it resolves in bash and never leaks a host path. Use
-			// ResolvePaths' canonicalized (symlink-evaluated) roots for BOTH the tool's
-			// host paths and the view, so the view's prefix match can't miss on symlinks.
-			// On resolve failure the sandbox session will fail downstream anyway; until
-			// then, omit every skill_dir (Isolated, no roots) rather than risk emitting a
-			// host path the model could leak or fail to resolve.
-			stellaHome := config.StellaHome()
-			toolProjectRoot := projectRoot
-			// Until ResolvePaths succeeds the view has no roots (Isolated drops every
-			// skill_dir), so the layout is inert; keep it empty to match that intent
-			// rather than emit dirs that would never be remapped.
-			layout := skills.SkillDiskLayout{}
-			view := skillstool.SkillDirView{Isolated: true}
-			if resolved, err := sandbox.ResolvePaths(sandboxCfg); err == nil {
-				stellaHome = resolved.StellaHome
-				toolProjectRoot = resolved.ProjectRoot
-				layout = skillDiskLayout(SystemDBSkillsDir(resolved.StellaHome), resolved.AgentRoot, resolved.UserDataDir, resolved.WorkspaceRoot)
-				sv := sandbox.ResolveSkillView(ctx, sandboxCfg, resolved)
-				view = skillstool.SkillDirView{
-					Isolated:           sv.Isolated,
-					SystemSkillsHost:   sv.SystemSkillsHost,
-					SystemSkillsView:   sv.SystemSkillsView,
-					AgentSkillsHost:    sv.AgentSkillsHost,
-					AgentSkillsView:    sv.AgentSkillsView,
-					SystemDBSkillsHost: sv.SystemDBSkillsHost,
-					SystemDBSkillsView: sv.SystemDBSkillsView,
-					UserDataHost:       sv.UserDataHost,
-					UserDataView:       sv.UserDataView,
-					WorkspaceHost:      sv.WorkspaceHost,
-					WorkspaceView:      sv.WorkspaceView,
-				}
-			}
-			runnerTools = append(runnerTools, skillstool.NewTool(
-				cfg.SkillStore,
-				stellaHome,
-				toolProjectRoot,
-			).WithSkillDiskLayout(layout).
-				WithSkillDirView(view).
-				WithPluginVisibility(pluginView.RegisteredPluginIDs, pluginView.EnabledPluginIDs))
-		}
-
-		// External MCP-server tools, resolved for this (user, agent) context and
-		// namespaced (mcp__<server>__<tool>) so they never collide with core,
-		// plugin, or skill tools. A down server is skipped inside the provider.
-		if cfg.MCPToolProvider != nil {
-			runnerTools = append(runnerTools, cfg.MCPToolProvider.ToolsForContext(ctx, params.UserID, params.AgentID)...)
-		}
+		builtinTools := append([]BuiltinTool(nil), cfg.BuiltinTools...)
+		perRunTools := append([]tools.Tool(nil), params.ExtraTools...)
 
 		return newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
@@ -306,7 +223,12 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			Sandbox:         sandboxCfg,
 			System:          system,
 			Sections:        sections,
-			ExtraTools:      runnerTools,
+			BuiltinTools:    builtinTools,
+			BuiltinParams:   params,
+			PerRunTools:     perRunTools,
+			SkillStore:      cfg.SkillStore,
+			PluginView:      pluginView,
+			MCPToolProvider: cfg.MCPToolProvider,
 			PluginTools:     cfg.PluginToolsBuilder,
 			HookPlugins:     hookPlugins,
 			ToolLifecycle:   cfg.ToolLifecycle,

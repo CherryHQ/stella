@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -131,48 +131,48 @@ func testServiceWithQueries(t *testing.T) (*vault.Service, *appdb.OIDCStore, str
 	return svc, oidc, user.ID, q
 }
 
-func TestOwnedMethodsEnforceAgentVaultScope(t *testing.T) {
+func TestAuthorizedMethodsEnforceAgentVaultScope(t *testing.T) {
 	svc, _, userID, q := testServiceWithQueries(t)
 	ctx := context.Background()
-	identA := toolctx.Identity{UserID: userID, AgentID: "agent-a", AgentScoped: true}
-	identB := toolctx.Identity{UserID: userID, AgentID: "agent-b", AgentScoped: true}
+	identA := authz.Identity{UserID: userID, AgentID: "agent-a", AgentScoped: true}
+	identB := authz.Identity{UserID: userID, AgentID: "agent-b", AgentScoped: true}
 	for _, agentID := range []string{identA.AgentID, identB.AgentID} {
 		if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: agentID, Name: agentID, Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true}); err != nil {
 			t.Fatalf("CreateAgent(%s): %v", agentID, err)
 		}
 	}
 
-	if _, err := svc.SetOwned(ctx, toolctx.Identity{}, vault.ScopeUser, "NOPE", "x"); err == nil {
-		t.Fatal("SetOwned unauthenticated must fail")
+	if _, err := svc.As(authz.Identity{}).Set(ctx, vault.ScopeUser, "NOPE", "x"); err == nil {
+		t.Fatal("Set unauthenticated must fail")
 	}
 	for _, scope := range []string{vault.ScopeSystem, vault.ScopeSystemAgent} {
-		if _, err := svc.ListOwned(ctx, identA, scope); err == nil {
-			t.Fatalf("ListOwned(%s) must reject system scope", scope)
+		if _, err := svc.As(identA).List(ctx, scope); err == nil {
+			t.Fatalf("List(%s) must reject system scope", scope)
 		}
-		if _, err := svc.SetOwned(ctx, identA, scope, "SECRET", "x"); err == nil {
-			t.Fatalf("SetOwned(%s) must reject system scope", scope)
+		if _, err := svc.As(identA).Set(ctx, scope, "SECRET", "x"); err == nil {
+			t.Fatalf("Set(%s) must reject system scope", scope)
 		}
-		if err := svc.DeleteOwned(ctx, identA, scope, "SECRET"); err == nil {
-			t.Fatalf("DeleteOwned(%s) must reject system scope", scope)
+		if err := svc.As(identA).Delete(ctx, scope, "SECRET"); err == nil {
+			t.Fatalf("Delete(%s) must reject system scope", scope)
 		}
 	}
 
-	if _, err := svc.SetOwned(ctx, identA, vault.ScopeUserAgent, "AGENT_SECRET", "a"); err != nil {
-		t.Fatalf("SetOwned user_agent: %v", err)
+	if _, err := svc.As(identA).Set(ctx, vault.ScopeUserAgent, "AGENT_SECRET", "a"); err != nil {
+		t.Fatalf("Set user_agent: %v", err)
 	}
-	entries, err := svc.ListOwned(ctx, identB, vault.ScopeUserAgent)
+	entries, err := svc.As(identB).List(ctx, vault.ScopeUserAgent)
 	if err != nil {
-		t.Fatalf("ListOwned other agent: %v", err)
+		t.Fatalf("List other agent: %v", err)
 	}
 	if len(entries) != 0 {
 		t.Fatalf("other agent saw entries: %+v", entries)
 	}
-	if err := svc.DeleteOwned(ctx, identB, vault.ScopeUserAgent, "AGENT_SECRET"); err != nil {
-		t.Fatalf("DeleteOwned other agent should be scoped to itself: %v", err)
+	if err := svc.As(identB).Delete(ctx, vault.ScopeUserAgent, "AGENT_SECRET"); err != nil {
+		t.Fatalf("Delete other agent should be scoped to itself: %v", err)
 	}
-	entries, err = svc.ListOwned(ctx, identA, vault.ScopeUserAgent)
+	entries, err = svc.As(identA).List(ctx, vault.ScopeUserAgent)
 	if err != nil {
-		t.Fatalf("ListOwned owner agent: %v", err)
+		t.Fatalf("List owner agent: %v", err)
 	}
 	if len(entries) != 1 || entries[0].Name != "AGENT_SECRET" {
 		t.Fatalf("owner agent entry missing after foreign delete: %+v", entries)

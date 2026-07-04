@@ -16,8 +16,8 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/goal"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -37,15 +37,15 @@ func (s *Server) goalsReady() bool { return s.goalSvc != nil && s.goalQueries !=
 
 // goalAuth gates a handler on the goal system being wired and an
 // authenticated caller, returning the service-layer identity.
-func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (toolctx.Identity, bool) {
+func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (authz.Identity, bool) {
 	if !s.goalsReady() {
 		writeError(w, http.StatusServiceUnavailable, "goals unavailable")
-		return toolctx.Identity{}, false
+		return authz.Identity{}, false
 	}
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return toolctx.Identity{}, false
+		return authz.Identity{}, false
 	}
 	return toolIdentity(info), true
 }
@@ -54,11 +54,11 @@ func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (toolctx.Ident
 // not-found -> 404, validation -> 400, lifecycle/guard -> 409, else 500.
 func goalError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, goal.ErrNotFound), errors.Is(err, toolctx.ErrNotFound):
+	case errors.Is(err, goal.ErrNotFound), errors.Is(err, authz.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
-	case errors.Is(err, toolctx.ErrForbidden):
+	case errors.Is(err, authz.ErrForbidden):
 		writeError(w, http.StatusForbidden, "permission denied")
-	case errors.Is(err, toolctx.ErrUnauthenticated):
+	case errors.Is(err, authz.ErrUnauthenticated):
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 	case errors.Is(err, goal.ErrDeterministicChecksUnsupported):
 		writeErrorDetails(w, http.StatusBadRequest, "required deterministic acceptance checks need a sandbox-capable backend; enable a sandbox backend or change those checks to judgment items", map[string]any{
@@ -88,10 +88,10 @@ func goalError(w http.ResponseWriter, err error) {
 }
 
 // loadGoal fetches a goal by id through the service-owned authorization gate.
-func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, ident toolctx.Identity, id string) (sqlc.AgentGoal, bool) {
-	d, err := s.goalSvc.GetGoalOwned(ctx, ident, id)
+func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, ident authz.Identity, id string) (sqlc.AgentGoal, bool) {
+	d, err := s.goalSvc.As(ident).GetGoal(ctx, id)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, goal.ErrNotFound) || errors.Is(err, toolctx.ErrNotFound) {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, goal.ErrNotFound) || errors.Is(err, authz.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found")
 			return sqlc.AgentGoal{}, false
 		}
@@ -113,7 +113,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	ctx := r.Context()
 
 	if params.Parent != nil {
-		rows, err := s.goalSvc.ListChildrenOwned(ctx, ident, *params.Parent)
+		rows, err := s.goalSvc.As(ident).ListChildren(ctx, *params.Parent)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				writeError(w, http.StatusNotFound, "not_found")
@@ -126,7 +126,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 	if params.Root != nil {
-		rows, err := s.goalSvc.ListSubtreeOwned(ctx, ident, *params.Root)
+		rows, err := s.goalSvc.As(ident).ListSubtree(ctx, *params.Root)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				writeError(w, http.StatusNotFound, "not_found")
@@ -166,14 +166,14 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	if params.Archived != nil {
 		filter.Archived = *params.Archived
 	}
-	rows, err := s.goalSvc.ListGoalsOwned(ctx, ident, filter, int64(limit+1), int64(offset))
+	rows, err := s.goalSvc.As(ident).ListGoals(ctx, filter, int64(limit+1), int64(offset))
 	if err != nil {
 		goalError(w, err)
 		return
 	}
 	page, next := nextPageTokenForRows(rows, limit, offset)
 	var total *int
-	if n, err := s.goalSvc.CountGoalsOwned(ctx, ident, filter); err == nil {
+	if n, err := s.goalSvc.As(ident).CountGoals(ctx, filter); err == nil {
 		v := int(n)
 		total = &v
 	}
@@ -265,7 +265,7 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	if body.IdempotencyKey != nil {
 		in.IdempotencyKey = *body.IdempotencyKey
 	}
-	created, err := s.goalSvc.CreateGoalOwned(ctx, ident, in)
+	created, err := s.goalSvc.As(ident).CreateGoal(ctx, in)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -377,7 +377,7 @@ func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, id string) {
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	if err := s.goalSvc.CancelOwned(ctx, ident, id, derefStr(body.Reason)); err != nil {
+	if err := s.goalSvc.As(ident).Cancel(ctx, id, derefStr(body.Reason)); err != nil {
 		goalError(w, err)
 		return
 	}

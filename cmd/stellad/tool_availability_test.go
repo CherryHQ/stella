@@ -38,7 +38,7 @@ func TestEmailToolAvailableRequiresEmailConfigAndFailsOpen(t *testing.T) {
 		t.Fatal("predicate errors should fail open")
 	}
 	if emailToolAvailable(fakeEmailMetaGetter{})(context.Background(), agent.RunnerParams{AgentID: "a1"}) {
-		t.Fatal("domain tool base predicate should still reject missing user")
+		t.Fatal("builtin tool base predicate should still reject missing user")
 	}
 }
 
@@ -51,6 +51,6 @@ func TestOauthToolAvailableRequiresConfiguredProvider(t *testing.T) {
 		t.Fatal("configured provider should mount oauth tool")
 	}
 	if oauthToolAvailable(fakeOAuthStatuses{configured: true})(context.Background(), agent.RunnerParams{UserID: "u1"}) {
-		t.Fatal("domain tool base predicate should still reject missing agent")
+		t.Fatal("builtin tool base predicate should still reject missing agent")
 	}
 }

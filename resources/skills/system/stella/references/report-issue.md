@@ -9,7 +9,7 @@ Never create an issue without explicit confirmation, and never run the flow with
 1. **Confirm intent and target repo.** Default repo is `CherryHQ/stella`. If the user means a different repo, ask before proceeding.
 2. **Draft the issue.** Summarize the problem from the conversation and recent errors. Ask clarifying questions only when required context is missing. Use the standard structure below.
 3. **Get explicit confirmation.** Show the user the drafted title and body. Do not create the issue until they approve.
-4. **Check GitHub link status:** use the native `oauth` tool with `action=list`. If GitHub is not connected, run the OAuth flow (next section) before continuing. Do not ask the user to authenticate `gh` manually.
+4. **Check GitHub link status:** use the `oauth` tool with `action=list`. If GitHub is not connected, run the OAuth flow (next section) before continuing. Do not ask the user to authenticate `gh` manually.
 5. **Create the issue** once approved and authenticated. Use a heredoc for the body — a literal `\n` inside a double-quoted `--body` is written verbatim, not as a newline. Add a `bug` label (or `docs`/`enhancement` if it fits better):
    ```bash
    gh issue create --repo CherryHQ/stella --label bug \
@@ -50,7 +50,7 @@ Follow the project's standard four-section format (the What/Why/How/Refs convent
 
 ## Linking GitHub via OAuth
 
-If GitHub is not connected, initiate the device flow yourself with the native `oauth` tool — do not tell the user to run CLI commands:
+If GitHub is not connected, initiate the device flow yourself with the `oauth` tool — do not tell the user to run CLI commands:
 
 1. Call `oauth` with `action=connect` and `provider=github`.
 2. Give the user the returned `verification_uri` and `user_code`.

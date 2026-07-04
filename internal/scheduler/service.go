@@ -14,12 +14,21 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// Authorized is the identity-scoped view of the service; all authorization
+// checks live on its methods.
+type Authorized struct {
+	*Service
+	ident authz.Identity
+}
+
+func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
 // ErrOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
 // has already elapsed. Start suppresses this for persisted jobs; AddJob treats
@@ -657,15 +666,16 @@ func (s *Service) ListJobs() []Job {
 	return result
 }
 
-func (s *Service) CreateJobOwned(ctx context.Context, ident toolctx.Identity, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string) (Job, error) {
-	return s.createJobOwned(ctx, ident, name, message, sched, sessionMode, agentID, idempotencyKey, true)
+func (s Authorized) CreateJob(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string) (Job, error) {
+	return s.createJob(ctx, name, message, sched, sessionMode, agentID, idempotencyKey, true)
 }
 
-func (s *Service) CreateJobOwnedWithEnabled(ctx context.Context, ident toolctx.Identity, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string, enabled bool) (Job, error) {
-	return s.createJobOwned(ctx, ident, name, message, sched, sessionMode, agentID, idempotencyKey, enabled)
+func (s Authorized) CreateJobWithEnabled(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string, enabled bool) (Job, error) {
+	return s.createJob(ctx, name, message, sched, sessionMode, agentID, idempotencyKey, enabled)
 }
 
-func (s *Service) createJobOwned(ctx context.Context, ident toolctx.Identity, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string, enabled bool) (Job, error) {
+func (s Authorized) createJob(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string, enabled bool) (Job, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return Job{}, err
 	}
@@ -677,7 +687,7 @@ func (s *Service) createJobOwned(ctx context.Context, ident toolctx.Identity, na
 		if err == nil {
 			job := dbRowToJob(row)
 			if !enabled {
-				return s.SetJobEnabledOwned(ctx, ident, agentID, job.ID, false)
+				return s.As(ident).SetJobEnabled(ctx, agentID, job.ID, false)
 			}
 			return job, nil
 		}
@@ -689,7 +699,8 @@ func (s *Service) createJobOwned(ctx context.Context, ident toolctx.Identity, na
 	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: ident.UserID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: enabled})
 }
 
-func (s *Service) CreateWorkflowJobOwned(ctx context.Context, ident toolctx.Identity, name string, sched Schedule, sessionMode, agentID string, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
+func (s Authorized) CreateWorkflowJob(ctx context.Context, name string, sched Schedule, sessionMode, agentID string, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return Job{}, err
 	}
@@ -699,17 +710,19 @@ func (s *Service) CreateWorkflowJobOwned(ctx context.Context, ident toolctx.Iden
 	return s.AddWorkflowJobWithOwner(ctx, name, sched, sessionMode, agentID, ident.UserID, workflowID, inputs, allowReplan)
 }
 
-func (s *Service) SubscribeOwned(ctx context.Context, ident toolctx.Identity, agentID, key string, schedOverride Schedule) (Job, error) {
+func (s Authorized) Subscribe(ctx context.Context, agentID, key string, schedOverride Schedule) (Job, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return Job{}, err
 	}
 	if err := ident.RequireAgentMatch(agentID); err != nil {
 		return Job{}, err
 	}
-	return s.Subscribe(ctx, ident.UserID, agentID, key, schedOverride)
+	return s.Service.Subscribe(ctx, ident.UserID, agentID, key, schedOverride)
 }
 
-func (s *Service) ListJobsOwned(ctx context.Context, ident toolctx.Identity, agentID string) ([]Job, error) {
+func (s Authorized) ListJobs(ctx context.Context, agentID string) ([]Job, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return nil, err
 	}
@@ -731,53 +744,58 @@ func (s *Service) ListJobsOwned(ctx context.Context, ident toolctx.Identity, age
 	return jobs, nil
 }
 
-func (s *Service) GetJobOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string) (Job, error) {
+func (s Authorized) GetJob(ctx context.Context, agentID, jobID string) (Job, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return Job{}, err
 	}
 	row, err := s.q.GetSchedulerJob(ctx, jobID)
 	if err != nil {
-		return Job{}, toolctx.ErrNotFound
+		return Job{}, authz.ErrNotFound
 	}
 	job := dbRowToJob(row)
 	if job.OwnerKind == JobOwnerPlugin || job.OwnerKind == JobOwnerSystem {
-		return Job{}, toolctx.ErrNotFound
+		return Job{}, authz.ErrNotFound
 	}
 	if job.AgentID != agentID {
-		return Job{}, toolctx.ErrNotFound
+		return Job{}, authz.ErrNotFound
 	}
 	if job.UserID != ident.UserID {
-		return Job{}, toolctx.ErrForbidden
+		return Job{}, authz.ErrForbidden
 	}
 	if ident.AgentScoped && job.AgentID != ident.AgentID {
-		return Job{}, toolctx.ErrForbidden
+		return Job{}, authz.ErrForbidden
 	}
 	return job, nil
 }
 
-func (s *Service) UpdateJobOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string, update JobUpdate) (Job, error) {
-	if _, err := s.GetJobOwned(ctx, ident, agentID, jobID); err != nil {
+func (s Authorized) UpdateJob(ctx context.Context, agentID, jobID string, update JobUpdate) (Job, error) {
+	ident := s.ident
+	if _, err := s.As(ident).GetJob(ctx, agentID, jobID); err != nil {
 		return Job{}, err
 	}
 	return s.UpdateUserJob(ctx, jobID, update)
 }
 
-func (s *Service) DeleteJobOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string) error {
-	if _, err := s.GetJobOwned(ctx, ident, agentID, jobID); err != nil {
+func (s Authorized) DeleteJob(ctx context.Context, agentID, jobID string) error {
+	ident := s.ident
+	if _, err := s.As(ident).GetJob(ctx, agentID, jobID); err != nil {
 		return err
 	}
 	return s.RemoveJob(jobID)
 }
 
-func (s *Service) SetJobEnabledOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string, enabled bool) (Job, error) {
-	return s.UpdateJobOwned(ctx, ident, agentID, jobID, JobUpdate{Enabled: &enabled})
+func (s Authorized) SetJobEnabled(ctx context.Context, agentID, jobID string, enabled bool) (Job, error) {
+	ident := s.ident
+	return s.As(ident).UpdateJob(ctx, agentID, jobID, JobUpdate{Enabled: &enabled})
 }
 
-func (s *Service) RunJobNowOwned(ctx context.Context, ident toolctx.Identity, agentID, jobID string) (string, error) {
-	if _, err := s.GetJobOwned(ctx, ident, agentID, jobID); err != nil {
+func (s Authorized) RunJobNow(ctx context.Context, agentID, jobID string) (string, error) {
+	ident := s.ident
+	if _, err := s.As(ident).GetJob(ctx, agentID, jobID); err != nil {
 		return "", err
 	}
-	return s.RunJobNow(ctx, jobID)
+	return s.Service.RunJobNow(ctx, jobID)
 }
 
 // executeSingleRun runs one job execution for the given userID (empty = system context).

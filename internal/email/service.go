@@ -9,10 +9,19 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/CherryHQ/stella/internal/toolctx"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// Authorized is the identity-scoped view of the service; all authorization
+// checks live on its methods.
+type Authorized struct {
+	*Service
+	ident authz.Identity
+}
+
+func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
 const noEmailConfigMessage = "no email account configured — ask the user to add one under Settings → Email or via stella email config"
 
@@ -51,7 +60,8 @@ func (s *Service) SetSendFunc(fn func(EmailAccount, SendOptions) error) {
 	s.sendFunc = fn
 }
 
-func (s *Service) AccountsOwned(ctx context.Context, ident toolctx.Identity) (AccountList, error) {
+func (s Authorized) Accounts(ctx context.Context) (AccountList, error) {
+	ident := s.ident
 	cfg, err := s.loadConfig(ctx, ident)
 	if err != nil {
 		return AccountList{}, err
@@ -59,7 +69,8 @@ func (s *Service) AccountsOwned(ctx context.Context, ident toolctx.Identity) (Ac
 	return AccountList{Accounts: cfg.AccountNames(), Default: cfg.Default}, nil
 }
 
-func (s *Service) FoldersOwned(ctx context.Context, ident toolctx.Identity, account string) ([]string, error) {
+func (s Authorized) Folders(ctx context.Context, account string) ([]string, error) {
+	ident := s.ident
 	acct, err := s.loadAccount(ctx, ident, account)
 	if err != nil {
 		return nil, err
@@ -67,7 +78,8 @@ func (s *Service) FoldersOwned(ctx context.Context, ident toolctx.Identity, acco
 	return Folders(acct)
 }
 
-func (s *Service) ListOwned(ctx context.Context, ident toolctx.Identity, account string, opts ListOptions) ([]Envelope, error) {
+func (s Authorized) List(ctx context.Context, account string, opts ListOptions) ([]Envelope, error) {
+	ident := s.ident
 	acct, err := s.loadAccount(ctx, ident, account)
 	if err != nil {
 		return nil, err
@@ -75,7 +87,8 @@ func (s *Service) ListOwned(ctx context.Context, ident toolctx.Identity, account
 	return List(acct, opts)
 }
 
-func (s *Service) ReadOwned(ctx context.Context, ident toolctx.Identity, account, folder string, uid uint32) (*Message, error) {
+func (s Authorized) Read(ctx context.Context, account, folder string, uid uint32) (*Message, error) {
+	ident := s.ident
 	acct, err := s.loadAccount(ctx, ident, account)
 	if err != nil {
 		return nil, err
@@ -83,7 +96,8 @@ func (s *Service) ReadOwned(ctx context.Context, ident toolctx.Identity, account
 	return Read(acct, folder, uid)
 }
 
-func (s *Service) MarkSeenOwned(ctx context.Context, ident toolctx.Identity, account, folder string, uid uint32, seen bool) error {
+func (s Authorized) MarkSeen(ctx context.Context, account, folder string, uid uint32, seen bool) error {
+	ident := s.ident
 	acct, err := s.loadAccount(ctx, ident, account)
 	if err != nil {
 		return err
@@ -91,7 +105,8 @@ func (s *Service) MarkSeenOwned(ctx context.Context, ident toolctx.Identity, acc
 	return MarkSeen(acct, folder, uid, seen)
 }
 
-func (s *Service) SendOwned(ctx context.Context, ident toolctx.Identity, account string, opts SendOptions, idempotencyKey string) (SendResult, error) {
+func (s Authorized) Send(ctx context.Context, account string, opts SendOptions, idempotencyKey string) (SendResult, error) {
+	ident := s.ident
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return SendResult{}, fmt.Errorf("idempotency_key is required — generate a stable unique key for this send and retry")
 	}
@@ -121,7 +136,7 @@ func (s *Service) SendOwned(ctx context.Context, ident toolctx.Identity, account
 // dial, but only ValidateAccountEgress rejects imap_tls/smtp_tls "none", and
 // read paths log in over IMAP too — cleartext credentials must be blocked on
 // every operation, matching the old HTTP behavior.
-func (s *Service) loadAccount(ctx context.Context, ident toolctx.Identity, name string) (EmailAccount, error) {
+func (s *Service) loadAccount(ctx context.Context, ident authz.Identity, name string) (EmailAccount, error) {
 	cfg, err := s.loadConfig(ctx, ident)
 	if err != nil {
 		return EmailAccount{}, err
@@ -136,7 +151,7 @@ func (s *Service) loadAccount(ctx context.Context, ident toolctx.Identity, name 
 	return acct, nil
 }
 
-func (s *Service) loadConfig(ctx context.Context, ident toolctx.Identity) (*Config, error) {
+func (s *Service) loadConfig(ctx context.Context, ident authz.Identity) (*Config, error) {
 	if err := ident.RequireUser(); err != nil {
 		return nil, err
 	}

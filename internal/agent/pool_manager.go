@@ -49,7 +49,7 @@ func WithCompactionPM(cfg CompactionConfig) PoolManagerOption {
 	return func(pm *PoolManager) { pm.compaction = cfg }
 }
 
-func WithBuiltinTools(tools []tools.Tool) PoolManagerOption {
+func WithBuiltinTools(tools []BuiltinTool) PoolManagerOption {
 	return func(pm *PoolManager) { pm.builtinTools = tools }
 }
 
@@ -103,10 +103,6 @@ func WithMCPToolProvider(p MCPToolProvider) PoolManagerOption {
 	return func(pm *PoolManager) { pm.mcpToolProvider = p }
 }
 
-func WithDomainToolMounts(mounts []DomainToolMount) PoolManagerOption {
-	return func(pm *PoolManager) { pm.domainToolMounts = append([]DomainToolMount(nil), mounts...) }
-}
-
 func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 	return func(pm *PoolManager) { pm.tokenManager = tm }
 }
@@ -129,7 +125,7 @@ type PoolManager struct {
 	mu                       sync.RWMutex
 	idleTimeout              time.Duration
 	compaction               CompactionConfig
-	builtinTools             []tools.Tool
+	builtinTools             []BuiltinTool
 	pluginToolsBuilder       PluginToolsBuilder
 	hookPlugins              []hooks.HookPlugin
 	coreHooks                []hooks.HookPlugin
@@ -141,7 +137,6 @@ type PoolManager struct {
 	providerStreamBuilder    ProviderStreamBuilder
 	skillStore               pkgplugins.SkillStore
 	mcpToolProvider          MCPToolProvider
-	domainToolMounts         []DomainToolMount
 	vaultEnvLoader           sandbox.VaultEnvLoader
 	tokenEnsurer             sandbox.TokenEnsurer
 	projectResolver          ProjectResolverFunc
@@ -578,7 +573,7 @@ func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*
 // buildRunnerFunc assembles a NewRunnerFunc with builtin tools and external plugin tools.
 func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot) NewRunnerFunc {
 	pm.mu.RLock()
-	builtinTools := append([]tools.Tool{}, pm.builtinTools...)
+	builtinTools := append([]BuiltinTool{}, pm.builtinTools...)
 	pm.mu.RUnlock()
 
 	sandboxBackendFn := func(ctx context.Context) string {
@@ -594,7 +589,6 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		SkillStore:               pm.skillStore,
 		MCPToolProvider:          pm.mcpToolProvider,
-		DomainToolMounts:         append([]DomainToolMount(nil), pm.domainToolMounts...),
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,
@@ -607,7 +601,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 // AddBuiltinTool appends a tool and rebuilds all service factories.
 func (pm *PoolManager) AddBuiltinTool(ctx context.Context, tool tools.Tool) error {
 	pm.mu.Lock()
-	pm.builtinTools = append(pm.builtinTools, tool)
+	pm.builtinTools = append(pm.builtinTools, BuiltinTool{Tool: tool})
 	agentIDs := make([]string, 0, len(pm.services))
 	for id := range pm.services {
 		agentIDs = append(agentIDs, id)

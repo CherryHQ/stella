@@ -1,0 +1,155 @@
+package goal
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/tools/toolruntime"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/tools"
+)
+
+const (
+	defaultToolPageSize = 20
+	maxToolPageSize     = 100
+)
+
+type Tool struct {
+	svc *Service
+}
+
+func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
+
+func (t *Tool) Definition() tools.Definition {
+	return tools.Definition{
+		Name:        ToolName,
+		Description: "Manage durable background goals for work that must survive turns, decompose into accepted subwork, or be cancelled later. Actions: create a goal, list goals, get status, cancel. Use scheduler for recurring or future timed prompts, not goal.",
+		InputSchema: InputSchema(),
+	}
+}
+
+func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	if t == nil || t.svc == nil {
+		return "", fmt.Errorf("goal service is unavailable — try again later")
+	}
+	ident, err := toolruntime.ToolIdentity(ctx, "goal")
+	if err != nil {
+		return "", err
+	}
+	action, err := toolruntime.ActionArg(args, "goal")
+	if err != nil {
+		return "", err
+	}
+	out, err := Dispatch(ctx, goalHandler{svc: t.svc, ident: ident}, action, args)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return "", fmt.Errorf("goal not found — check the id with action=list")
+		}
+		return "", toolruntime.MapError("goal", err)
+	}
+	return toolruntime.MarshalResult(out)
+}
+
+type goalHandler struct {
+	svc   *Service
+	ident authz.Identity
+}
+
+func (h goalHandler) Create(ctx context.Context, in ToolCreateInput) (any, error) {
+	create := CreateInput{AgentID: h.ident.AgentID, Title: in.Title, Intent: in.Intent, Kind: KindComposite}
+	if in.ProjectId != "" {
+		create.ProjectID = in.ProjectId
+	}
+	if in.Priority != "" {
+		create.Priority = in.Priority
+	}
+	if in.ReviewPolicy != "" {
+		create.ReviewPolicy = in.ReviewPolicy
+	}
+	if len(in.AcceptanceContract) > 0 {
+		if err := toolruntime.DecodeMap(in.AcceptanceContract, &create.Contract); err != nil {
+			return nil, fmt.Errorf("acceptance_contract is invalid — fix the JSON object and retry")
+		}
+	}
+	if len(in.ConvergencePolicy) > 0 {
+		if err := toolruntime.DecodeMap(in.ConvergencePolicy, &create.Convergence); err != nil {
+			return nil, fmt.Errorf("convergence_policy is invalid — fix the JSON object and retry")
+		}
+	}
+	create.IdempotencyKey = in.IdempotencyKey
+	row, err := h.svc.As(h.ident).CreateGoal(ctx, create)
+	if err != nil {
+		return nil, err
+	}
+	return goalSummary(row), nil
+}
+
+func (h goalHandler) Get(ctx context.Context, in GetInput) (any, error) {
+	row, err := h.svc.As(h.ident).GetGoal(ctx, in.Id)
+	if err != nil {
+		return nil, err
+	}
+	return goalSummary(row), nil
+}
+
+func (h goalHandler) List(ctx context.Context, in ListInput) (any, error) {
+	limit, offset, err := toolruntime.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
+	}
+	filter := GoalFilter{Lifecycle: in.Lifecycle, ProjectID: in.ProjectId, Terminal: in.Terminal, Q: in.Q}
+	if in.Archived != nil {
+		filter.Archived = *in.Archived
+	}
+	var rows []sqlc.AgentGoal
+	switch {
+	case in.Parent != "":
+		rows, err = h.svc.As(h.ident).ListChildren(ctx, in.Parent)
+	case in.Root != "":
+		rows, err = h.svc.As(h.ident).ListSubtree(ctx, in.Root)
+	default:
+		rows, err = h.svc.As(h.ident).ListGoals(ctx, filter, int64(limit+1), int64(offset))
+	}
+	if err != nil {
+		return nil, err
+	}
+	page, next := toolruntime.PageRows(rows, limit, offset)
+	items := make([]goalResponse, 0, len(page))
+	for _, row := range page {
+		items = append(items, goalSummary(row))
+	}
+	return listResponse[goalResponse]{Items: items, HasMore: next != "", NextPageToken: next}, nil
+}
+
+func (h goalHandler) Cancel(ctx context.Context, in CancelInput) (any, error) {
+	if err := h.svc.As(h.ident).Cancel(ctx, in.Id, in.Reason); err != nil {
+		return nil, err
+	}
+	row, err := h.svc.As(h.ident).GetGoal(ctx, in.Id)
+	if err != nil {
+		return nil, err
+	}
+	return goalSummary(row), nil
+}
+
+type goalResponse struct {
+	ID              string `json:"id"`
+	Title           string `json:"title"`
+	Lifecycle       string `json:"lifecycle"`
+	AcceptanceState string `json:"acceptance_state"`
+	Kind            string `json:"kind"`
+	Priority        string `json:"priority"`
+	UpdatedAt       string `json:"updated_at"`
+}
+type listResponse[T any] struct {
+	Items         []T    `json:"items"`
+	HasMore       bool   `json:"has_more"`
+	NextPageToken string `json:"next_page_token,omitempty"`
+}
+
+func goalSummary(row sqlc.AgentGoal) goalResponse {
+	return goalResponse{ID: row.ID, Title: row.Title, Lifecycle: row.Lifecycle, AcceptanceState: row.AcceptanceState, Kind: row.Kind, Priority: row.Priority, UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339)}
+}

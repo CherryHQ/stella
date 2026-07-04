@@ -10,10 +10,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -27,13 +27,13 @@ func TestServiceNoConfigFriendlyError(t *testing.T) {
 	vaultSvc := newEmailVaultService(t, db, userID)
 	svc := email.NewService(vaultSvc, sqlc.New(db))
 
-	_, err := svc.AccountsOwned(ctx, toolctx.Identity{UserID: userID})
+	_, err := svc.As(authz.Identity{UserID: userID}).Accounts(ctx)
 	if err == nil || !strings.Contains(err.Error(), "no email account configured") {
-		t.Fatalf("AccountsOwned err=%v, want friendly no-config error", err)
+		t.Fatalf("Accounts err=%v, want friendly no-config error", err)
 	}
 }
 
-func TestServiceSendOwnedSuppressesDuplicate(t *testing.T) {
+func TestServiceSendSuppressesDuplicate(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID := seedEmailUser(t, db, "send")
@@ -55,15 +55,15 @@ func TestServiceSendOwnedSuppressesDuplicate(t *testing.T) {
 		sends++
 		return nil
 	})
-	ident := toolctx.Identity{UserID: userID}
+	ident := authz.Identity{UserID: userID}
 	opts := email.SendOptions{To: []string{"to@example.com"}, Subject: "hello", Body: "world"}
-	first, err := svc.SendOwned(ctx, ident, "", opts, "k1")
+	first, err := svc.As(ident).Send(ctx, "", opts, "k1")
 	if err != nil {
-		t.Fatalf("first SendOwned: %v", err)
+		t.Fatalf("first Send: %v", err)
 	}
-	second, err := svc.SendOwned(ctx, ident, "", opts, "k1")
+	second, err := svc.As(ident).Send(ctx, "", opts, "k1")
 	if err != nil {
-		t.Fatalf("second SendOwned: %v", err)
+		t.Fatalf("second Send: %v", err)
 	}
 	if sends != 1 || first.Duplicate || !second.Duplicate {
 		t.Fatalf("sends=%d first=%+v second=%+v, want one send and duplicate second", sends, first, second)

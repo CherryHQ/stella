@@ -13,18 +13,18 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/scheduler"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func schedulerServiceError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, toolctx.ErrNotFound):
+	case errors.Is(err, authz.ErrNotFound):
 		writeError(w, http.StatusNotFound, "job not found")
-	case errors.Is(err, toolctx.ErrUnauthenticated):
+	case errors.Is(err, authz.ErrUnauthenticated):
 		writeError(w, http.StatusUnauthorized, "authentication required")
-	case errors.Is(err, toolctx.ErrForbidden):
+	case errors.Is(err, authz.ErrForbidden):
 		writeError(w, http.StatusForbidden, "access denied")
 	case errors.Is(err, scheduler.ErrWorkflowJobNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
@@ -97,7 +97,7 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 		return
 	}
 
-	rows, err := s.schedulerSvc.ListJobsOwned(r.Context(), toolIdentity(info), agentID)
+	rows, err := s.schedulerSvc.As(toolIdentity(info)).ListJobs(r.Context(), agentID)
 	if err != nil {
 		schedulerServiceError(w, err)
 		return
@@ -142,14 +142,14 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 			Every: derefStr(body.Every),
 			At:    derefStr(body.At),
 		}
-		job, err := s.schedulerSvc.SubscribeOwned(r.Context(), toolIdentity(info), agentID, *body.TemplateKey, sched)
+		job, err := s.schedulerSvc.As(toolIdentity(info)).Subscribe(r.Context(), agentID, *body.TemplateKey, sched)
 		if err != nil {
 			switch {
 			case errors.Is(err, scheduler.ErrAlreadySubscribed):
 				writeError(w, http.StatusConflict, "already subscribed to this template")
 			case errors.Is(err, scheduler.ErrTemplateNotFound):
 				writeError(w, http.StatusNotFound, "template not found")
-			case errors.Is(err, toolctx.ErrForbidden), errors.Is(err, toolctx.ErrUnauthenticated):
+			case errors.Is(err, authz.ErrForbidden), errors.Is(err, authz.ErrUnauthenticated):
 				schedulerServiceError(w, err)
 			default:
 				s.writeInternalError(w, err)
@@ -202,9 +202,9 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 			writeError(w, http.StatusBadRequest, "workflow_id is required for workflow jobs")
 			return
 		}
-		job, err = s.schedulerSvc.CreateWorkflowJobOwned(r.Context(), toolIdentity(info), *body.Name, sched, sessionMode, agentID, *body.WorkflowId, derefStringMap(body.Inputs), body.AllowReplan != nil && *body.AllowReplan)
+		job, err = s.schedulerSvc.As(toolIdentity(info)).CreateWorkflowJob(r.Context(), *body.Name, sched, sessionMode, agentID, *body.WorkflowId, derefStringMap(body.Inputs), body.AllowReplan != nil && *body.AllowReplan)
 	} else {
-		job, err = s.schedulerSvc.CreateJobOwned(r.Context(), toolIdentity(info), *body.Name, derefStr(body.Message), sched, sessionMode, agentID, derefStr(body.IdempotencyKey))
+		job, err = s.schedulerSvc.As(toolIdentity(info)).CreateJob(r.Context(), *body.Name, derefStr(body.Message), sched, sessionMode, agentID, derefStr(body.IdempotencyKey))
 	}
 	if err != nil {
 		schedulerServiceError(w, err)
@@ -222,7 +222,7 @@ func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID
 		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
 		return
 	}
-	job, err := s.schedulerSvc.GetJobOwned(r.Context(), toolIdentity(UserFromContext(r.Context())), agentID, jobID)
+	job, err := s.schedulerSvc.As(toolIdentity(UserFromContext(r.Context()))).GetJob(r.Context(), agentID, jobID)
 	if err != nil {
 		schedulerServiceError(w, err)
 		return
@@ -240,7 +240,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
 		return
 	}
-	existing, err := s.schedulerSvc.GetJobOwned(r.Context(), toolIdentity(info), agentID, jobID)
+	existing, err := s.schedulerSvc.As(toolIdentity(info)).GetJob(r.Context(), agentID, jobID)
 	if err != nil {
 		schedulerServiceError(w, err)
 		return
@@ -294,7 +294,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		update.Enabled = body.Enabled
 	}
 
-	job, err := s.schedulerSvc.UpdateJobOwned(r.Context(), toolIdentity(info), agentID, jobID, update)
+	job, err := s.schedulerSvc.As(toolIdentity(info)).UpdateJob(r.Context(), agentID, jobID, update)
 	if err != nil {
 		schedulerServiceError(w, err)
 		return
@@ -313,7 +313,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	if err := s.schedulerSvc.DeleteJobOwned(r.Context(), toolIdentity(info), agentID, jobID); err != nil {
+	if err := s.schedulerSvc.As(toolIdentity(info)).DeleteJob(r.Context(), agentID, jobID); err != nil {
 		schedulerServiceError(w, err)
 		return
 	}
@@ -330,9 +330,9 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 
-	runID, err := s.schedulerSvc.RunJobNowOwned(r.Context(), toolIdentity(UserFromContext(r.Context())), agentID, jobID)
+	runID, err := s.schedulerSvc.As(toolIdentity(UserFromContext(r.Context()))).RunJobNow(r.Context(), agentID, jobID)
 	if err != nil {
-		if errors.Is(err, toolctx.ErrNotFound) || errors.Is(err, toolctx.ErrForbidden) || errors.Is(err, toolctx.ErrUnauthenticated) {
+		if errors.Is(err, authz.ErrNotFound) || errors.Is(err, authz.ErrForbidden) || errors.Is(err, authz.ErrUnauthenticated) {
 			schedulerServiceError(w, err)
 			return
 		}
@@ -354,7 +354,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 		return
 	}
 
-	if _, err := s.schedulerSvc.GetJobOwned(r.Context(), toolIdentity(UserFromContext(r.Context())), agentID, jobID); err != nil {
+	if _, err := s.schedulerSvc.As(toolIdentity(UserFromContext(r.Context()))).GetJob(r.Context(), agentID, jobID); err != nil {
 		schedulerServiceError(w, err)
 		return
 	}

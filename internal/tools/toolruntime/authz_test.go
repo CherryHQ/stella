@@ -1,4 +1,4 @@
-package domaintools
+package toolruntime_test
 
 import (
 	"context"
@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/credentials"
 	credoauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	emailpkg "github.com/CherryHQ/stella/internal/email"
@@ -27,14 +28,11 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-func TestMain(m *testing.M) { dbtest.Main(m) }
-
-func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
+func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
@@ -60,7 +58,7 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 		return sessionID, err
 	}))
 	goalBundle := &goal.Service{Queries: q, Goal: goalSvc}
-	ownerGoal, err := goalBundle.CreateGoalOwned(ctx, ownerIdentity(ownerUser, agentID), goal.CreateInput{AgentID: agentID, Title: "owner goal", Kind: goal.KindComposite})
+	ownerGoal, err := goalBundle.As(ownerIdentity(ownerUser, agentID)).CreateGoal(ctx, goal.CreateInput{AgentID: agentID, Title: "owner goal", Kind: goal.KindComposite})
 	if err != nil {
 		t.Fatalf("create owner goal: %v", err)
 	}
@@ -73,21 +71,21 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("scheduler.Start: %v", err)
 	}
 	t.Cleanup(func() { _ = schedulerSvc.Stop() })
-	ownerJob, err := schedulerSvc.CreateJobOwned(ctx, ownerIdentity(ownerUser, agentID), "owner job", "run", scheduler.Schedule{Every: "1h"}, scheduler.SessionReuse, agentID, "")
+	ownerJob, err := schedulerSvc.As(ownerIdentity(ownerUser, agentID)).CreateJob(ctx, "owner job", "run", scheduler.Schedule{Every: "1h"}, scheduler.SessionReuse, agentID, "")
 	if err != nil {
 		t.Fatalf("create owner job: %v", err)
 	}
 
 	vaultSvc := newVaultToolTestService(t, db, ownerUser, foreignUser)
-	if _, err := vaultSvc.SetOwned(ctx, ownerIdentity(ownerUser, agentID), vault.ScopeUser, "OWNER_USER_SECRET", "secret"); err != nil {
+	if _, err := vaultSvc.As(ownerIdentity(ownerUser, agentID)).Set(ctx, vault.ScopeUser, "OWNER_USER_SECRET", "secret"); err != nil {
 		t.Fatalf("set owner user vault: %v", err)
 	}
-	if _, err := vaultSvc.SetOwned(ctx, ownerIdentity(ownerUser, agentID), vault.ScopeUserAgent, "OWNER_AGENT_SECRET", "secret"); err != nil {
+	if _, err := vaultSvc.As(ownerIdentity(ownerUser, agentID)).Set(ctx, vault.ScopeUserAgent, "OWNER_AGENT_SECRET", "secret"); err != nil {
 		t.Fatalf("set owner agent vault: %v", err)
 	}
 
 	foreignCtx := memory.WithAgentID(memory.WithUserID(ctx, foreignUser), agentID)
-	goalTool := NewGoalTool(goalBundle)
+	goalTool := goal.NewTool(goalBundle)
 	for _, tc := range []struct {
 		name string
 		args map[string]any
@@ -112,7 +110,7 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("goal create leaked owner goal: %s", out)
 	}
 
-	schedulerTool := NewSchedulerTool(schedulerSvc)
+	schedulerTool := scheduler.NewTool(schedulerSvc)
 	for _, action := range []string{"get", "update", "delete", "pause", "resume"} {
 		t.Run("scheduler "+action, func(t *testing.T) {
 			args := map[string]any{"action": action, "id": ownerJob.ID}
@@ -133,12 +131,14 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scheduler create foreign own resource err=%v", err)
 	}
-	var created schedulerResponse
+	var created struct {
+		ID string `json:"id"`
+	}
 	if err := json.Unmarshal([]byte(out), &created); err != nil || created.ID == ownerJob.ID {
 		t.Fatalf("scheduler create response=%s err=%v", out, err)
 	}
 
-	vaultTool := NewVaultTool(vaultSvc)
+	vaultTool := vault.NewTool(vaultSvc)
 	for _, scope := range []string{vault.ScopeSystem, vault.ScopeSystemAgent} {
 		for _, action := range []string{"list", "set", "delete"} {
 			t.Run("vault "+scope+" "+action, func(t *testing.T) {
@@ -159,7 +159,7 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	} else if strings.Contains(out, "secret") {
 		t.Fatalf("vault delete leaked value: %s", out)
 	}
-	if entries, err := vaultSvc.ListOwned(ctx, ownerIdentity(ownerUser, agentID), vault.ScopeUserAgent); err != nil || len(entries) != 1 {
+	if entries, err := vaultSvc.As(ownerIdentity(ownerUser, agentID)).List(ctx, vault.ScopeUserAgent); err != nil || len(entries) != 1 {
 		t.Fatalf("owner agent vault entry affected by foreign delete: entries=%+v err=%v", entries, err)
 	}
 	if _, err := vaultTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
@@ -169,7 +169,7 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := vaultSvc.SetScoped(ctx, vault.ScopeUser, ownerUser, "", "EMAIL_CONFIG", `{"default":"work","accounts":{"work":{"imap_host":"8.8.8.8","smtp_host":"1.1.1.1","username":"owner@example.com","password":"secret","from":"owner@example.com"}}}`); err != nil {
 		t.Fatalf("set owner email config: %v", err)
 	}
-	emailTool := NewEmailTool(emailpkg.NewService(vaultSvc, q))
+	emailTool := emailpkg.NewTool(emailpkg.NewService(vaultSvc, q))
 	if out, err := emailTool.Execute(foreignCtx, map[string]any{"action": "accounts"}); err == nil || !strings.Contains(err.Error(), "no email account configured") || strings.Contains(out, "work") || strings.Contains(out, "secret") {
 		t.Fatalf("email foreign accounts out=%q err=%v, want no leak", out, err)
 	}
@@ -180,7 +180,7 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	registry := credoauth.NewProviderRegistry()
 	registry.Register(credoauth.ProviderConfig{ID: "github", VaultKey: credoauth.VaultKeyGitHub})
 	oauthSvc.SetRegistry(registry)
-	oauthTool := NewOauthTool(oauthSvc)
+	oauthTool := credentials.NewTool(oauthSvc)
 	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "owner-flow"}); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
 		t.Fatalf("oauth foreign status out=%q err=%v, want access denied", out, err)
 	}
@@ -218,7 +218,7 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
 	}
-	shareTool := NewShareTool(shareSvc)
+	shareTool := sharepkg.NewTool(shareSvc)
 	if out, err := shareTool.Execute(foreignCtx, map[string]any{"action": "list"}); err != nil {
 		t.Fatalf("share list foreign err=%v", err)
 	} else if strings.Contains(out, ownerShare.ID) || strings.Contains(out, "owner secret") {
@@ -238,7 +238,7 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	}
 
 	recallySvc := recally.NewService(recally.NewStore(db), recally.NewFileManager(home), home)
-	recallyTool := NewRecallyTool(recallySvc)
+	recallyTool := recally.NewTool(recallySvc)
 	ownerRecallyCtx := memory.WithAgentID(memory.WithUserID(ctx, ownerUser), agentID)
 	out, err = recallyTool.Execute(ownerRecallyCtx, map[string]any{"action": "save", "articles": []any{
 		map[string]any{"url": "https://example.com/one", "title": "One", "content": "one body"},
@@ -251,12 +251,12 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	if !strings.Contains(out, "created") || !strings.Contains(out, "updated") || !strings.Contains(out, "error") {
 		t.Fatalf("recally save did not report partial results: %s", out)
 	}
-	if articles, err := recallySvc.ListArticlesOwned(ctx, ownerIdentity(ownerUser, agentID), recally.ArticleFilter{Limit: 10}); err != nil || len(articles) != 1 {
+	if articles, err := recallySvc.As(ownerIdentity(ownerUser, agentID)).ListArticles(ctx, recally.ArticleFilter{Limit: 10}); err != nil || len(articles) != 1 {
 		t.Fatalf("recally dedup articles=%d err=%v, want one", len(articles), err)
 	}
-	ownerFeed, err := recallySvc.CreateFeedOwned(ctx, ownerIdentity(ownerUser, agentID), "https://x.com/cherry", recally.FeedKindTwitter, "Cherry", nil)
+	ownerFeed, err := recallySvc.As(ownerIdentity(ownerUser, agentID)).CreateFeed(ctx, "https://x.com/cherry", recally.FeedKindTwitter, "Cherry", nil)
 	if err != nil {
-		t.Fatalf("CreateFeedOwned: %v", err)
+		t.Fatalf("CreateFeed: %v", err)
 	}
 	if out, err := recallyTool.Execute(foreignCtx, map[string]any{"action": "list_articles"}); err != nil {
 		t.Fatalf("recally foreign list_articles err=%v", err)
@@ -279,8 +279,8 @@ func TestDomainToolsDenyForeignResourceAccess(t *testing.T) {
 	}
 }
 
-func ownerIdentity(userID, agentID string) toolctx.Identity {
-	return toolctx.Identity{UserID: userID, AgentID: agentID, AgentScoped: true}
+func ownerIdentity(userID, agentID string) authz.Identity {
+	return authz.Identity{UserID: userID, AgentID: agentID, AgentScoped: true}
 }
 
 func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) *vault.Service {

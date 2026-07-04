@@ -10,8 +10,17 @@ import (
 
 	"github.com/mmcdole/gofeed"
 
-	"github.com/CherryHQ/stella/internal/toolctx"
+	"github.com/CherryHQ/stella/internal/authz"
 )
+
+// Authorized is the identity-scoped view of the service; all authorization
+// checks live on its methods.
+type Authorized struct {
+	*Service
+	ident authz.Identity
+}
+
+func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
 type Service struct {
 	store      *Store
@@ -35,7 +44,7 @@ func (s *Service) Files() *FileManager { return s.files }
 
 // Recally is deliberately user-owned, not agent-scoped: a user's reading
 // library is shared across all of their agents.
-func userID(ident toolctx.Identity) (string, error) {
+func userID(ident authz.Identity) (string, error) {
 	if err := ident.RequireUser(); err != nil {
 		return "", err
 	}
@@ -47,12 +56,13 @@ func mapMissing(err error) error {
 		return nil
 	}
 	if strings.Contains(strings.ToLower(err.Error()), "not found") {
-		return toolctx.ErrNotFound
+		return authz.ErrNotFound
 	}
 	return err
 }
 
-func (s *Service) SaveOwned(ctx context.Context, ident toolctx.Identity, req SaveRequest) (SaveResult, error) {
+func (s Authorized) Save(ctx context.Context, req SaveRequest) (SaveResult, error) {
+	ident := s.ident
 	uid, err := userID(ident)
 	if err != nil {
 		return SaveResult{}, err
@@ -110,7 +120,8 @@ func (s *Service) saveWithFile(ctx context.Context, userID string, req SaveReque
 	return article, isNew, nil
 }
 
-func (s *Service) GetArticleOwned(ctx context.Context, ident toolctx.Identity, id string) (*Article, error) {
+func (s Authorized) GetArticle(ctx context.Context, id string) (*Article, error) {
+	ident := s.ident
 	uid, err := userID(ident)
 	if err != nil {
 		return nil, err
@@ -133,7 +144,8 @@ func (s *Service) ReadArticleBody(article *Article) (string, error) {
 	return s.files.ReadArticle(path)
 }
 
-func (s *Service) ListArticlesOwned(ctx context.Context, ident toolctx.Identity, filter ArticleFilter) ([]Article, error) {
+func (s Authorized) ListArticles(ctx context.Context, filter ArticleFilter) ([]Article, error) {
+	ident := s.ident
 	uid, err := userID(ident)
 	if err != nil {
 		return nil, err
@@ -141,7 +153,8 @@ func (s *Service) ListArticlesOwned(ctx context.Context, ident toolctx.Identity,
 	return s.store.ListArticles(ctx, uid, filter)
 }
 
-func (s *Service) SearchArticlesOwned(ctx context.Context, ident toolctx.Identity, query string, limit int) ([]Article, error) {
+func (s Authorized) SearchArticles(ctx context.Context, query string, limit int) ([]Article, error) {
+	ident := s.ident
 	uid, err := userID(ident)
 	if err != nil {
 		return nil, err
@@ -149,7 +162,8 @@ func (s *Service) SearchArticlesOwned(ctx context.Context, ident toolctx.Identit
 	return s.store.SearchArticles(ctx, uid, query, limit)
 }
 
-func (s *Service) GetArticleByCanonicalURLOwned(ctx context.Context, ident toolctx.Identity, canonicalURL string) (*Article, error) {
+func (s Authorized) GetArticleByCanonicalURL(ctx context.Context, canonicalURL string) (*Article, error) {
+	ident := s.ident
 	uid, err := userID(ident)
 	if err != nil {
 		return nil, err
@@ -161,7 +175,8 @@ func (s *Service) GetArticleByCanonicalURLOwned(ctx context.Context, ident toolc
 	return article, nil
 }
 
-func (s *Service) ListFeedsOwned(ctx context.Context, ident toolctx.Identity, limit, offset int) ([]Feed, error) {
+func (s Authorized) ListFeeds(ctx context.Context, limit, offset int) ([]Feed, error) {
+	ident := s.ident
 	uid, err := userID(ident)
 	if err != nil {
 		return nil, err
@@ -169,7 +184,8 @@ func (s *Service) ListFeedsOwned(ctx context.Context, ident toolctx.Identity, li
 	return s.store.ListFeeds(ctx, uid, limit, offset)
 }
 
-func (s *Service) GetFeedByURLOwned(ctx context.Context, ident toolctx.Identity, feedURL string) (*Feed, error) {
+func (s Authorized) GetFeedByURL(ctx context.Context, feedURL string) (*Feed, error) {
+	ident := s.ident
 	uid, err := userID(ident)
 	if err != nil {
 		return nil, err
@@ -181,7 +197,8 @@ func (s *Service) GetFeedByURLOwned(ctx context.Context, ident toolctx.Identity,
 	return feed, nil
 }
 
-func (s *Service) CreateFeedOwned(ctx context.Context, ident toolctx.Identity, feedURL string, kind FeedKind, title string, agentID *string) (*Feed, error) {
+func (s Authorized) CreateFeed(ctx context.Context, feedURL string, kind FeedKind, title string, agentID *string) (*Feed, error) {
+	ident := s.ident
 	uid, err := userID(ident)
 	if err != nil {
 		return nil, err
@@ -217,7 +234,8 @@ func (s *Service) CreateFeedOwned(ctx context.Context, ident toolctx.Identity, f
 	return s.store.CreateFeed(ctx, uid, feedURL, kind, nil, title, description, agentID)
 }
 
-func (s *Service) DeleteFeedOwned(ctx context.Context, ident toolctx.Identity, id string) error {
+func (s Authorized) DeleteFeed(ctx context.Context, id string) error {
+	ident := s.ident
 	uid, err := userID(ident)
 	if err != nil {
 		return err
@@ -226,15 +244,16 @@ func (s *Service) DeleteFeedOwned(ctx context.Context, ident toolctx.Identity, i
 		return mapMissing(err)
 	}
 	if err := s.store.DeleteFeed(ctx, uid, id); err != nil {
-		if errors.Is(err, toolctx.ErrNotFound) {
-			return toolctx.ErrNotFound
+		if errors.Is(err, authz.ErrNotFound) {
+			return authz.ErrNotFound
 		}
 		return err
 	}
 	return nil
 }
 
-func (s *Service) GetDigestOwned(ctx context.Context, ident toolctx.Identity) (*Digest, error) {
+func (s Authorized) GetDigest(ctx context.Context) (*Digest, error) {
+	ident := s.ident
 	uid, err := userID(ident)
 	if err != nil {
 		return nil, err

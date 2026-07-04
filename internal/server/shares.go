@@ -12,8 +12,8 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/authz"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -28,7 +28,7 @@ func (s *Server) ListShares(w http.ResponseWriter, r *http.Request, params apise
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	result, err := s.shareSvc.ListOwned(r.Context(), shareIdentity(info, ""), limit, offset)
+	result, err := s.shareSvc.As(shareIdentity(info, "")).List(r.Context(), limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list shares")
 		return
@@ -57,7 +57,7 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := s.createShareOwned(r, info, body)
+	created, err := s.createShare(r, info, body)
 	if err != nil {
 		s.writeShareError(w, err)
 		return
@@ -65,7 +65,7 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, apiCreatedShare(created.Share, shareURL(r, created.Token)))
 }
 
-func (s *Server) createShareOwned(r *http.Request, info *AuthInfo, body apitypes.CreateShareRequest) (sharepkg.Created, error) {
+func (s *Server) createShare(r *http.Request, info *AuthInfo, body apitypes.CreateShareRequest) (sharepkg.Created, error) {
 	expiresIn := ""
 	if body.ExpiresIn != nil {
 		expiresIn = string(*body.ExpiresIn)
@@ -80,16 +80,16 @@ func (s *Server) createShareOwned(r *http.Request, info *AuthInfo, body apitypes
 		}
 		if boundAgent, boundSession, ok := info.scopedBoundary(); ok {
 			if agentID != boundAgent || sessionID != boundSession {
-				return sharepkg.Created{}, toolctx.ErrForbidden
+				return sharepkg.Created{}, authz.ErrForbidden
 			}
 		}
 		scope := ""
 		if body.Scope != nil {
 			scope = string(*body.Scope)
 		}
-		return s.shareSvc.ShareArtifactOwned(r.Context(), shareIdentity(info, agentID), sessionID, path, scope, expiresIn)
+		return s.shareSvc.As(shareIdentity(info, agentID)).ShareArtifact(r.Context(), sessionID, path, scope, expiresIn)
 	case apitypes.CreateShareRequestSourceArticle:
-		return s.shareSvc.ShareArticleOwned(r.Context(), shareIdentity(info, ""), strDeref(body.ArticleId), expiresIn)
+		return s.shareSvc.As(shareIdentity(info, "")).ShareArticle(r.Context(), strDeref(body.ArticleId), expiresIn)
 	default:
 		return sharepkg.Created{}, fmt.Errorf("source must be one of: artifact, article: %w", sharepkg.ErrInvalidInput)
 	}
@@ -101,8 +101,8 @@ func (s *Server) RevokeShare(w http.ResponseWriter, r *http.Request, id string) 
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	if err := s.shareSvc.RevokeOwned(r.Context(), shareIdentity(info, ""), id); err != nil {
-		if toolctx.IsNotFound(err) {
+	if err := s.shareSvc.As(shareIdentity(info, "")).Revoke(r.Context(), id); err != nil {
+		if authz.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "share not found")
 			return
 		}
@@ -143,7 +143,7 @@ func (s *Server) GetShareContent(w http.ResponseWriter, r *http.Request, token s
 	http.ServeContent(w, r, share.Title, time.Time{}, bytes.NewReader(content))
 }
 
-func shareIdentity(info *AuthInfo, agentID string) toolctx.Identity {
+func shareIdentity(info *AuthInfo, agentID string) authz.Identity {
 	ident := toolIdentity(info)
 	if !ident.AgentScoped {
 		ident.AgentID = agentID
@@ -153,9 +153,9 @@ func shareIdentity(info *AuthInfo, agentID string) toolctx.Identity {
 
 func (s *Server) writeShareError(w http.ResponseWriter, err error) {
 	switch {
-	case toolctx.IsForbidden(err):
+	case authz.IsForbidden(err):
 		writeError(w, http.StatusForbidden, "permission denied")
-	case toolctx.IsNotFound(err):
+	case authz.IsNotFound(err):
 		writeError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, sharepkg.ErrDirectory):
 		writeError(w, http.StatusBadRequest, "path is a directory")

@@ -222,6 +222,7 @@ type TaskChatRequest struct {
 	ProjectID        string
 	Message          MessageContent
 	ExtraTools       []tools.Tool // per-run tools (e.g. task_control)
+	ExcludedTools    []string
 	OnSandboxSession func(sandbox.Session) error
 }
 
@@ -275,7 +276,11 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 		return out
 	}
 
-	src := s.Runtime.Chat(ctx, info, req.Message, agentruntime.WithExtraTools(req.ExtraTools...))
+	opts := []agentruntime.Option{agentruntime.WithExtraTools(req.ExtraTools...)}
+	if len(req.ExcludedTools) > 0 {
+		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
+	}
+	src := s.Runtime.Chat(ctx, info, req.Message, opts...)
 	out := make(chan Event)
 	go func() {
 		defer close(out)

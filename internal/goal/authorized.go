@@ -7,10 +7,19 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/CherryHQ/stella/internal/toolctx"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// Authorized is the identity-scoped view of the service; all authorization
+// checks live on its methods.
+type Authorized struct {
+	*Service
+	ident authz.Identity
+}
+
+func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
 // GoalFilter narrows a root-goal list. The zero value lists active
 // (non-archived) roots across all agents; populated fields AND together.
@@ -32,7 +41,8 @@ func (f GoalFilter) terminalArg() pgtype.Bool {
 	return pgtype.Bool{Bool: *f.Terminal, Valid: true}
 }
 
-func (s *Service) ListGoalsOwned(ctx context.Context, ident toolctx.Identity, filter GoalFilter, limit, offset int64) ([]sqlc.AgentGoal, error) {
+func (s Authorized) ListGoals(ctx context.Context, filter GoalFilter, limit, offset int64) ([]sqlc.AgentGoal, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return nil, err
 	}
@@ -58,27 +68,29 @@ func (s *Service) ListGoalsOwned(ctx context.Context, ident toolctx.Identity, fi
 	})
 }
 
-func (s *Service) GetGoalOwned(ctx context.Context, ident toolctx.Identity, id string) (sqlc.AgentGoal, error) {
+func (s Authorized) GetGoal(ctx context.Context, id string) (sqlc.AgentGoal, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return sqlc.AgentGoal{}, err
 	}
 	if ident.AgentScoped && ident.AgentID == "" {
-		return sqlc.AgentGoal{}, toolctx.ErrForbidden
+		return sqlc.AgentGoal{}, authz.ErrForbidden
 	}
 	d, err := getGoal(ctx, s.Queries, id)
 	if err != nil {
 		return sqlc.AgentGoal{}, err
 	}
 	if d.UserID != ident.UserID {
-		return sqlc.AgentGoal{}, toolctx.ErrNotFound
+		return sqlc.AgentGoal{}, authz.ErrNotFound
 	}
 	if ident.AgentScoped && d.AgentID != ident.AgentID {
-		return sqlc.AgentGoal{}, toolctx.ErrForbidden
+		return sqlc.AgentGoal{}, authz.ErrForbidden
 	}
 	return d, nil
 }
 
-func (s *Service) CreateGoalOwned(ctx context.Context, ident toolctx.Identity, in CreateInput) (sqlc.AgentGoal, error) {
+func (s Authorized) CreateGoal(ctx context.Context, in CreateInput) (sqlc.AgentGoal, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return sqlc.AgentGoal{}, err
 	}
@@ -98,28 +110,32 @@ func (s *Service) CreateGoalOwned(ctx context.Context, ident toolctx.Identity, i
 	return s.Goal.CreateRoot(ctx, in)
 }
 
-func (s *Service) CancelOwned(ctx context.Context, ident toolctx.Identity, id, reason string) error {
-	if _, err := s.GetGoalOwned(ctx, ident, id); err != nil {
+func (s Authorized) Cancel(ctx context.Context, id, reason string) error {
+	ident := s.ident
+	if _, err := s.As(ident).GetGoal(ctx, id); err != nil {
 		return err
 	}
 	return s.Goal.Cancel(ctx, id, reason, UserActor(ident.UserID))
 }
 
-func (s *Service) ListChildrenOwned(ctx context.Context, ident toolctx.Identity, parentID string) ([]sqlc.AgentGoal, error) {
-	if _, err := s.GetGoalOwned(ctx, ident, parentID); err != nil {
+func (s Authorized) ListChildren(ctx context.Context, parentID string) ([]sqlc.AgentGoal, error) {
+	ident := s.ident
+	if _, err := s.As(ident).GetGoal(ctx, parentID); err != nil {
 		return nil, err
 	}
 	return s.Queries.ListGoalChildren(ctx, pgnull.Text(parentID))
 }
 
-func (s *Service) ListSubtreeOwned(ctx context.Context, ident toolctx.Identity, rootID string) ([]sqlc.AgentGoal, error) {
-	if _, err := s.GetGoalOwned(ctx, ident, rootID); err != nil {
+func (s Authorized) ListSubtree(ctx context.Context, rootID string) ([]sqlc.AgentGoal, error) {
+	ident := s.ident
+	if _, err := s.As(ident).GetGoal(ctx, rootID); err != nil {
 		return nil, err
 	}
 	return s.Queries.ListGoalByRoot(ctx, rootID)
 }
 
-func (s *Service) CountGoalsOwned(ctx context.Context, ident toolctx.Identity, filter GoalFilter) (int64, error) {
+func (s Authorized) CountGoals(ctx context.Context, filter GoalFilter) (int64, error) {
+	ident := s.ident
 	if err := ident.RequireUser(); err != nil {
 		return 0, err
 	}

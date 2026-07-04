@@ -124,16 +124,21 @@ func terminalSubmitSandboxCallback(rec *terminalRecorder, cb func(sandbox.Sessio
 // through ChatFunc (which persists the transcript to the goal session),
 // and pumps the chat loop until a terminal action fires or the channel closes.
 type workerExecutor struct {
-	chat TaskChatFunc
-	log  *slog.Logger
+	chat          TaskChatFunc
+	log           *slog.Logger
+	excludedTools []string
 }
 
 // newWorkerExecutor builds the default agent-backed executor.
-func newWorkerExecutor(chat TaskChatFunc, log *slog.Logger) *workerExecutor {
+func newWorkerExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools ...[]string) *workerExecutor {
 	if log == nil {
 		log = slog.Default().With("component", "goal/executor")
 	}
-	return &workerExecutor{chat: chat, log: log}
+	var excluded []string
+	if len(excludedTools) > 0 {
+		excluded = excludedTools[0]
+	}
+	return &workerExecutor{chat: chat, log: log, excludedTools: append([]string(nil), excluded...)}
 }
 
 // Execute runs one attempt and returns the frozen ExecutorResult. All outcomes
@@ -186,6 +191,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 				Prompt:           prompt,
 				Decompose:        decompose,
 				ExtraTools:       []tools.Tool{ctTool},
+				ExcludedTools:    append([]string(nil), e.excludedTools...),
 				OnSandboxSession: terminalSubmitSandboxCallback(rec, req.OnSandboxSession),
 			}),
 			cancel: cancel,

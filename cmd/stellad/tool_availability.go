@@ -20,7 +20,7 @@ type oauthProviderStatusGetter interface {
 
 func emailToolAvailable(v emailConfigMetaGetter) func(context.Context, agent.RunnerParams) bool {
 	return func(ctx context.Context, params agent.RunnerParams) bool {
-		if !agent.DomainToolAvailable(params) {
+		if !agent.BuiltinToolAvailable(ctx, params) {
 			return false
 		}
 		if v == nil {
@@ -39,7 +39,7 @@ func emailToolAvailable(v emailConfigMetaGetter) func(context.Context, agent.Run
 
 func oauthToolAvailable(s oauthProviderStatusGetter) func(context.Context, agent.RunnerParams) bool {
 	return func(ctx context.Context, params agent.RunnerParams) bool {
-		if !agent.DomainToolAvailable(params) {
+		if !agent.BuiltinToolAvailable(ctx, params) {
 			return false
 		}
 		if s == nil {

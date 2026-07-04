@@ -15,11 +15,20 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
-	"github.com/CherryHQ/stella/internal/toolctx"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// Authorized is the identity-scoped view of the service; all authorization
+// checks live on its methods.
+type Authorized struct {
+	*Service
+	ident authz.Identity
+}
+
+func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
 const (
 	ScopeUser        = "user"
@@ -143,10 +152,10 @@ func ResolveScope(req ScopeRequest) (ResolvedScope, error) {
 		case ScopeUser:
 		case ScopeUserAgent:
 			if agentID != req.BoundAgentID {
-				return ResolvedScope{}, fmt.Errorf("vault: scoped token cannot access another agent's vault: %w", toolctx.ErrForbidden)
+				return ResolvedScope{}, fmt.Errorf("vault: scoped token cannot access another agent's vault: %w", authz.ErrForbidden)
 			}
 		default:
-			return ResolvedScope{}, fmt.Errorf("vault: system-scoped secrets are managed by operators: %w", toolctx.ErrForbidden)
+			return ResolvedScope{}, fmt.Errorf("vault: system-scoped secrets are managed by operators: %w", authz.ErrForbidden)
 		}
 	}
 	out := ResolvedScope{Scope: scope}
@@ -162,11 +171,11 @@ func ResolveScope(req ScopeRequest) (ResolvedScope, error) {
 		out.AgentID = agentID
 	case ScopeSystem:
 		if !req.IsAdmin {
-			return ResolvedScope{}, fmt.Errorf("vault: admin access required: %w", toolctx.ErrForbidden)
+			return ResolvedScope{}, fmt.Errorf("vault: admin access required: %w", authz.ErrForbidden)
 		}
 	case ScopeSystemAgent:
 		if !req.IsAdmin {
-			return ResolvedScope{}, fmt.Errorf("vault: admin access required: %w", toolctx.ErrForbidden)
+			return ResolvedScope{}, fmt.Errorf("vault: admin access required: %w", authz.ErrForbidden)
 		}
 		if agentID == "" {
 			return ResolvedScope{}, fmt.Errorf("vault: agent_id is required for system_agent scope")
@@ -210,7 +219,8 @@ func (s *Service) SetScopedWithOptions(ctx context.Context, scope string, userID
 	return s.set(ctx, scope, userID, agentID, name, plaintext, true, opts)
 }
 
-func (s *Service) SetOwned(ctx context.Context, ident toolctx.Identity, scope string, name string, plaintext string) (EntryMeta, error) {
+func (s Authorized) Set(ctx context.Context, scope string, name string, plaintext string) (EntryMeta, error) {
+	ident := s.ident
 	resolved, err := ownedScope(ident, scope)
 	if err != nil {
 		return EntryMeta{}, err
@@ -320,7 +330,8 @@ func (s *Service) DeleteScoped(ctx context.Context, scope string, userID string,
 	return s.deleteScoped(ctx, scope, userID, agentID, name)
 }
 
-func (s *Service) DeleteOwned(ctx context.Context, ident toolctx.Identity, scope string, name string) error {
+func (s Authorized) Delete(ctx context.Context, scope string, name string) error {
+	ident := s.ident
 	resolved, err := ownedScope(ident, scope)
 	if err != nil {
 		return err
@@ -404,7 +415,8 @@ func (s *Service) ListScoped(ctx context.Context, scope string, userID string, a
 	return s.listScoped(ctx, scope, userID, agentID)
 }
 
-func (s *Service) ListOwned(ctx context.Context, ident toolctx.Identity, scope string) ([]EntryMeta, error) {
+func (s Authorized) List(ctx context.Context, scope string) ([]EntryMeta, error) {
+	ident := s.ident
 	if scope == "" {
 		userScope, err := ownedScope(ident, ScopeUser)
 		if err != nil {
@@ -666,7 +678,7 @@ func (s *Service) metasFromEntries(ctx context.Context, entries []sqlc.VaultEntr
 	return meta
 }
 
-func ownedScope(ident toolctx.Identity, scope string) (ResolvedScope, error) {
+func ownedScope(ident authz.Identity, scope string) (ResolvedScope, error) {
 	if err := ident.RequireUser(); err != nil {
 		return ResolvedScope{}, err
 	}
@@ -675,7 +687,7 @@ func ownedScope(ident toolctx.Identity, scope string) (ResolvedScope, error) {
 	}
 	if ident.AgentScoped {
 		if scope == ScopeUserAgent && ident.AgentID == "" {
-			return ResolvedScope{}, toolctx.ErrForbidden
+			return ResolvedScope{}, authz.ErrForbidden
 		}
 		return ResolveScope(ScopeRequest{
 			Scope:        scope,
