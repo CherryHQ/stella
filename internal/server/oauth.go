@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/credentials"
+	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 )
 
@@ -20,7 +20,7 @@ type flowStatusJSON struct {
 	State           string    `json:"state"`
 }
 
-func toFlowStatusJSON(fs credentials.FlowStatus) flowStatusJSON {
+func toFlowStatusJSON(fs connections.FlowStatus) flowStatusJSON {
 	return flowStatusJSON{
 		Provider:        fs.Provider,
 		FlowID:          fs.FlowID,

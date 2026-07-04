@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"

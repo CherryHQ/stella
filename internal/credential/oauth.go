@@ -9,7 +9,7 @@ import (
 
 // OAuthAccessStore is the storage backend for the oauth_access_token table. Like
 // PATStore it is the only OAuth storage the credential package touches directly:
-// the client/code/refresh tables live in internal/oauth (the zitadel/oidc-shaped
+// the client/code/refresh tables live in internal/oidc (the zitadel/oidc-shaped
 // authorization-server storage). Keeping access-token resolution here is the
 // anti-scatter guarantee -- every /api credential resolves through one front door.
 type OAuthAccessStore interface {
@@ -76,7 +76,7 @@ func (s *Service) resolveOAuth(ctx context.Context, raw string) (*Principal, err
 
 // IssueOAuthAccess mints an opaque stella_oat_ access token and persists it under
 // a refresh family. It is the ONLY way the authorization-server token endpoint
-// obtains an access token: internal/oauth calls this instead of ever emitting a
+// obtains an access token: internal/oidc calls this instead of ever emitting a
 // JWT, so the opaque-token guardrail holds by construction. The plaintext is
 // returned once; the persisted record is not, since no caller uses it.
 func (s *Service) IssueOAuthAccess(ctx context.Context, userID, clientID string, scopes []string, refreshFamilyID string, ttl time.Duration) (plaintext string, err error) {

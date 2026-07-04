@@ -77,7 +77,7 @@ go run ./internal/goal/cmd/gengoalcontrolschema
 gofmt -w internal/goal/goal_control_schema_gen.go internal/goal/cmd/gengoalcontrolschema/main.go
 pnpm --package=@redocly/cli dlx redocly bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
 go run ./internal/cmd/toolgen
-gofmt -w internal/goal/tool_gen.go internal/scheduler/tool_gen.go internal/vault/tool_gen.go internal/credentials/tool_gen.go internal/share/tool_gen.go internal/recally/tool_gen.go internal/email/tool_gen.go internal/cmd/toolgen/main.go
+gofmt -w internal/goal/tool_gen.go internal/scheduler/tool_gen.go internal/vault/tool_gen.go internal/connections/tool_gen.go internal/share/tool_gen.go internal/recally/tool_gen.go internal/email/tool_gen.go internal/cmd/toolgen/main.go
 """
 
 [tasks."generate:check"]
