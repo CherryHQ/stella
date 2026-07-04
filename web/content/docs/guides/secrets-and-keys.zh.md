@@ -13,10 +13,10 @@ Stella 的保险库安全存储你的 API 密钥、令牌和其他机密信息�
 ### 1. 生成主密钥
 
 ```bash
-stella vault keygen
+stellad vault keygen
 ```
 
-这会打印一个私钥。复制以 `AGE-SECRET-KEY-1` 开头的那一行。
+这会打印一个私钥。复制以 `AGE-SECRET-KEY-1` 开头的那一行。`stella vault keygen` 仍可供 CLI 用户使用，但守护进程引导应使用 `stellad vault keygen`。
 
 ### 2. 使用密钥启动 Stella
 

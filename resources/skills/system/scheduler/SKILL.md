@@ -52,7 +52,7 @@ Use a workflow schedule when the same accepted plan should replay with only inpu
 
 Scheduled workflows instantiate a fresh root goal on each fire. The scheduler skips only when the previous run completed instantiation and its root goal is still active; failed instantiation does not block the next tick, and a stalled instantiation is resumed instead of duplicated. Scheduled workflows are fully frozen by default; if a workflow is partially frozen, only schedule it when the user explicitly wants live replanning and the tool/CLI exposes the required opt-in.
 
-If the native scheduler tool does not expose workflow fields, use the CLI fallback after checking `stella workflow --help`, `stella workflow save --help`, and `stella scheduler add --help`; do not rely on stale syntax from memory.
+If the native scheduler tool does not expose workflow fields, use the `workflow` tool for workflow save/list/get/run and the CLI fallback only after checking `stella scheduler add --help`; do not rely on stale syntax from memory.
 
 ## Patterns
 

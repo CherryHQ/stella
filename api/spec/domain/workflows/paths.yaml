@@ -6,6 +6,7 @@ paths:
       tags: [workflows]
       summary: Save an accepted composite goal as a workflow
       operationId: saveGoalAsWorkflow
+      x-agent-tool: { tool: "workflow", action: "save" }
       requestBody:
         required: true
         content:
@@ -37,6 +38,7 @@ paths:
       summary: List workflows
       description: Lists workflows owned by the authenticated user or, when agent_id is supplied, that agent scope.
       operationId: listWorkflows
+      x-agent-tool: { tool: "workflow", action: "list" }
       parameters:
         - name: agent_id
           in: query
@@ -64,6 +66,7 @@ paths:
       tags: [workflows]
       summary: Get a workflow
       operationId: getWorkflow
+      x-agent-tool: { tool: "workflow", action: "get" }
       responses:
         "200":
           description: ok
@@ -133,6 +136,7 @@ paths:
         idempotency_key is omitted the server generates a UUID; provide a stable
         key when retrying a client-side operation.
       operationId: instantiateWorkflow
+      x-agent-tool: { tool: "workflow", action: "run" }
       requestBody:
         required: false
         content:

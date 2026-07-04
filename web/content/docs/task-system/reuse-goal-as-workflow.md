@@ -8,11 +8,11 @@ Turn an accepted composite goal into a reusable workflow when you want the same 
 
 You need an accepted composite goal. A workflow saved from that goal freezes the accepted decomposition plan, not the previous run's results.
 
-Use `stella workflow --help` for exact CLI syntax.
+Agents use the native `workflow` tool to save, list, inspect, and run workflows. Human operators can still use `stella workflow --help` for exact CLI syntax.
 
 ## Save the accepted goal
 
-Ask Stella to save the goal, or use the workflow CLI to save the accepted goal by ID. Give it a short name that describes the repeatable job.
+Ask Stella to save the goal with the `workflow` tool, or use the workflow CLI to save the accepted goal by ID. Give it a short name that describes the repeatable job.
 
 The saved workflow is versioned. Editing a workflow later creates a new version; existing schedules keep using the exact version they were created with.
 
@@ -26,7 +26,7 @@ Input names and references are checked at save time: a name must use only letter
 
 ## Run it manually
 
-Use `stella workflow run --help`, then run the workflow with the required inputs. Each run creates a fresh root goal. The original accepted goal stays closed.
+Ask Stella to run the workflow with the required inputs, or use `stella workflow run --help` as a human operator. Each run creates a fresh root goal. The original accepted goal stays closed.
 
 ## Schedule it daily
 

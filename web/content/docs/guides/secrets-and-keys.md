@@ -13,10 +13,10 @@ Before using the vault, you need to generate a master encryption key and provide
 ### 1. Generate a Master Key
 
 ```bash
-stella vault keygen
+stellad vault keygen
 ```
 
-This prints a secret key. Copy the line starting with `AGE-SECRET-KEY-1`.
+This prints a secret key. Copy the line starting with `AGE-SECRET-KEY-1`. `stella vault keygen` still works for CLI users, but daemon bootstrap should use `stellad vault keygen`.
 
 ### 2. Start Stella with the Key
 

@@ -12,7 +12,7 @@ Pick the execution mode by how the work needs to run:
 
 - `delegate` — synchronous helper subtasks whose results you wait for; isolated child sessions, parallel-friendly.
 - `goal` — durable async work that survives restarts and is **accepted, not just finished**. Write a clear, self-contained intent that says what "done" means; the system plans, decomposes, and converges until the acceptance contract passes — never plan the tree or mark a goal done by hand. The user can steer running goals from the Web UI Goals timeline.
-- Workflows (`stella workflow` via bash) — replay an accepted composite goal's plan with new inputs; running one creates a fresh goal tree. For "run it again", run the saved workflow — never create a duplicate goal.
+- Workflows (`workflow` tool) — replay an accepted composite goal's plan with new inputs; running one creates a fresh goal tree. For "run it again", run the saved workflow — never create a duplicate goal.
 - `scheduler` — a time trigger (cron, interval, one-shot), not the work itself.
 
 For "save this and run it daily": save the accepted goal as a workflow, then create a scheduler workflow job. Choose a workflow schedule when the same plan should replay with only inputs changing; choose a plain scheduler job when each run should be planned fresh.
