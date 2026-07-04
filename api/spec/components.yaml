@@ -835,7 +835,7 @@ components:
     Goal:
       type: object
       description: >-
-        One node in the recursive goal tree. A root (parent_id null) is a goal; a child is a former task. Completion is DERIVED: acceptance_state is a cached projection over the append-only acceptance-event ledger, never an asserted flag.
+        One node in the recursive goal tree. A root (parent_id null) is a top-level goal; a child is a sub-goal created by decomposition. Completion is DERIVED: acceptance_state is a cached projection over the append-only acceptance-event ledger, never an asserted flag.
       required: [
         id,
         user_id,
@@ -984,6 +984,14 @@ components:
           format: date-time
           nullable: true
           description: Set when the goal is hidden from default lists.
+        workflow_id:
+          type: string
+          nullable: true
+          description: Workflow version row that instantiated this root goal.
+        workflow_version:
+          type: integer
+          nullable: true
+          description: Workflow version copied onto this run's root goal.
     GoalList:
       type: object
       required: [goals]
@@ -3333,11 +3341,15 @@ components:
           description: "RFC3339 one-time timestamp (mutually exclusive with cron/every)"
         message:
           type: string
-          description: "Prompt/instruction to run on schedule"
+          description: "Prompt/instruction to run on schedule; empty for workflow jobs"
+        dispatch_kind:
+          type: string
+          enum: [chat, workflow]
+          description: "Dispatch target. Defaults to chat. Workflow jobs instantiate workflow_id from payload."
         payload:
           type: object
           additionalProperties: {}
-          description: "Arbitrary structured data for plugin-owned jobs"
+          description: "Structured dispatch payload. Workflow jobs carry workflow_id, inputs, and allow_replan."
         session_mode:
           type: string
           description: "Session behaviour: 'reuse' or 'new'"
@@ -3386,6 +3398,20 @@ components:
           type: string
         message:
           type: string
+        dispatch_kind:
+          type: string
+          enum: [chat, workflow]
+        workflow_id:
+          type: string
+          description: "Exact workflow version row to instantiate when dispatch_kind is workflow."
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Workflow input values."
+        allow_replan:
+          type: boolean
+          description: "Allow scheduling a partially frozen workflow."
         session_mode:
           type: string
         enabled:
@@ -3420,6 +3446,9 @@ components:
           format: date-time
         error:
           type: string
+        root_goal_id:
+          type: string
+          description: Root goal created by a workflow dispatch.
         output:
           type: string
           description: Final assistant text produced by the run (truncated to 4000 chars).
@@ -3502,6 +3531,8 @@ components:
           type: string
         kind:
           type: string
+          description: >-
+            Session kind. "task" is the goal-worker session kind; the wire value predates the goal rename and is kept for stored sessions.
           enum: [main, chat, delegate, scheduler, task]
         project_id:
           type: string
@@ -4231,6 +4262,182 @@ components:
           type: array
           items:
             type: string
+    WorkflowInputSpec:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Input placeholder name used as {{inputs.name}}.
+        description:
+          type: string
+        required:
+          type: boolean
+          default: false
+        default:
+          type: string
+          description: Default value used when the caller omits this input.
+    Workflow:
+      type: object
+      description: >-
+        A named, immutable workflow version created by freezing a completed composite goal's decomposition plan. Instantiating a workflow creates a fresh goal tree without invoking the planner for frozen nodes.
+      required: [
+        id,
+        owner_kind,
+        name,
+        version,
+        intent,
+        inputs,
+        payload_format,
+        payload,
+        fully_frozen,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        owner_kind:
+          type: string
+          enum: [user, agent, system]
+        user_id:
+          type: string
+          nullable: true
+        agent_id:
+          type: string
+          nullable: true
+        name:
+          type: string
+        version:
+          type: integer
+        intent:
+          type: string
+        acceptance_contract:
+          type: object
+          additionalProperties: {}
+          nullable: true
+        convergence_policy:
+          type: object
+          additionalProperties: {}
+          nullable: true
+        inputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowInputSpec"
+        payload_format:
+          type: string
+          enum: [frozen/v0]
+        payload:
+          type: object
+          additionalProperties: {}
+          description: Frozen plan payload; read-only internal format for UI inspection.
+        fully_frozen:
+          type: boolean
+          description: True when every composite node has a frozen sub-plan.
+        source_goal_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkflowList:
+      type: object
+      required: [workflows]
+      properties:
+        workflows:
+          type: array
+          items:
+            $ref: "#/components/schemas/Workflow"
+    WorkflowRun:
+      type: object
+      required: [
+        id,
+        workflow_id,
+        workflow_version,
+        idempotency_key,
+        status,
+        inputs,
+        plan_hash,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        workflow_id:
+          type: string
+        workflow_version:
+          type: integer
+        idempotency_key:
+          type: string
+        root_goal_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [claimed, materializing, done, failed]
+          description: >-
+            Instantiation status only. The outcome of the run is the root goal's state (root_lifecycle and friends), not this field.
+        root_lifecycle:
+          type: string
+          nullable: true
+          description: Root goal lifecycle; null until the root goal exists.
+        root_block_reason:
+          type: string
+          nullable: true
+        root_done_reason:
+          type: string
+          nullable: true
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+        plan_hash:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkflowRunList:
+      type: object
+      required: [runs, total]
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowRun"
+        total:
+          type: integer
+          description: Total workflow runs matching this workflow.
+        next_page_token:
+          type: string
+          nullable: true
+    SaveGoalAsWorkflowRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        inputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowInputSpec"
+    InstantiateWorkflowRequest:
+      type: object
+      properties:
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+        idempotency_key:
+          type: string
+          description: >-
+            Optional idempotency key. When omitted, the server generates a UUID, so retries must provide their own key to be idempotent.
   responses:
     Unauthorized:
       description: missing or invalid bearer token

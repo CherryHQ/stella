@@ -67,9 +67,11 @@ type AgentGoal struct {
 	Plan               json.RawMessage    `json:"plan"`
 	PlannedAt          pgtype.Timestamptz `json:"planned_at"`
 	// Infrastructure-flaky retry count independent of business attempt budget.
-	FlakyCount  int64  `json:"flaky_count"`
-	BudgetBonus int32  `json:"budget_bonus"`
-	DoneReason  string `json:"done_reason"`
+	FlakyCount      int64       `json:"flaky_count"`
+	BudgetBonus     int32       `json:"budget_bonus"`
+	DoneReason      string      `json:"done_reason"`
+	WorkflowID      pgtype.Text `json:"workflow_id"`
+	WorkflowVersion pgtype.Int4 `json:"workflow_version"`
 }
 
 type AgentGoalAcceptanceEvent struct {
@@ -139,6 +141,39 @@ type AgentGoalEvent struct {
 	EventType string          `json:"event_type"`
 	Payload   json.RawMessage `json:"payload"`
 	CreatedAt time.Time       `json:"created_at"`
+}
+
+type AgentWorkflow struct {
+	ID                 string          `json:"id"`
+	OwnerKind          string          `json:"owner_kind"`
+	UserID             pgtype.Text     `json:"user_id"`
+	AgentID            pgtype.Text     `json:"agent_id"`
+	Name               string          `json:"name"`
+	Version            int32           `json:"version"`
+	WorkflowKey        pgtype.Text     `json:"workflow_key"`
+	Intent             string          `json:"intent"`
+	AcceptanceContract json.RawMessage `json:"acceptance_contract"`
+	ConvergencePolicy  json.RawMessage `json:"convergence_policy"`
+	Inputs             json.RawMessage `json:"inputs"`
+	PayloadFormat      string          `json:"payload_format"`
+	Payload            json.RawMessage `json:"payload"`
+	FullyFrozen        bool            `json:"fully_frozen"`
+	SourceGoalID       pgtype.Text     `json:"source_goal_id"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+}
+
+type AgentWorkflowRun struct {
+	ID              string          `json:"id"`
+	WorkflowID      string          `json:"workflow_id"`
+	WorkflowVersion int32           `json:"workflow_version"`
+	IdempotencyKey  string          `json:"idempotency_key"`
+	RootGoalID      pgtype.Text     `json:"root_goal_id"`
+	Status          string          `json:"status"`
+	Inputs          json.RawMessage `json:"inputs"`
+	PlanHash        string          `json:"plan_hash"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
 type AppSetting struct {
@@ -765,6 +800,7 @@ type SchedJob struct {
 	UpdatedAt     time.Time          `json:"updated_at"`
 	LastRunAt     pgtype.Timestamptz `json:"last_run_at"`
 	LastError     string             `json:"last_error"`
+	DispatchKind  string             `json:"dispatch_kind"`
 }
 
 type SchedJobRun struct {
@@ -777,6 +813,7 @@ type SchedJobRun struct {
 	Error      string             `json:"error"`
 	Output     string             `json:"output"`
 	UserID     pgtype.Text        `json:"user_id"`
+	RootGoalID pgtype.Text        `json:"root_goal_id"`
 }
 
 type Share struct {

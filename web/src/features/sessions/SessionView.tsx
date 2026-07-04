@@ -230,7 +230,7 @@ export function SessionView() {
           showCloseButton={false}
           className="w-[85%] max-w-sm border-l border-border bg-sidebar"
         >
-          <SheetTitle className="sr-only">{t("sessions.inspector.inspector")}</SheetTitle>
+          <SheetTitle className="sr-only">{t("sessions.workspace.title")}</SheetTitle>
           <SheetDescription className="sr-only">
             {t("sessions.inspector.sessionWorkspace")}
           </SheetDescription>

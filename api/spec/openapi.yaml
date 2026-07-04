@@ -59,6 +59,7 @@ tags:
   - name: plugins
   - name: status
   - name: goals
+  - name: workflows
   - name: projects
   - name: inbox
 paths:
@@ -350,6 +351,8 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}"
   /api/goals/{id}/activate:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1activate"
+  /api/goals/{id}/save-as-workflow:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1goals~1{id}~1save-as-workflow"
   /api/goals/{id}/cancel:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1cancel"
   /api/goals/{id}/abandon:
@@ -380,6 +383,14 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1plan~1approve"
   /api/goals/{id}/plan/reject:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{id}~1plan~1reject"
+  /api/workflows:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows"
+  /api/workflows/{id}:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows~1{id}"
+  /api/workflows/{id}/runs:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows~1{id}~1runs"
+  /api/workflows/{id}/instantiate:
+    $ref: "./domain/workflows/paths.yaml#/paths/~1api~1workflows~1{id}~1instantiate"
   # ── Groups ─────────────────────────────────────────────────────────────────
   /api/groups:
     $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups"

@@ -28,13 +28,13 @@ func TestEnforceScopedAgentBoundary(t *testing.T) {
 }
 
 func TestEnforceRequiresMappedScope(t *testing.T) {
-	p := &Principal{Kind: KindScoped, AgentID: "agent-1", Scopes: []string{"tasks:read"}}
+	p := &Principal{Kind: KindScoped, AgentID: "agent-1", Scopes: []string{"goals:read"}}
 
-	if err := Enforce(p, "GET", "/api/tasks"); err != nil {
-		t.Fatalf("tasks read should be allowed: %v", err)
+	if err := Enforce(p, "GET", "/api/goals"); err != nil {
+		t.Fatalf("goals read should be allowed: %v", err)
 	}
-	if err := Enforce(p, "POST", "/api/tasks"); err == nil {
-		t.Fatal("tasks write must be denied without tasks:write")
+	if err := Enforce(p, "POST", "/api/goals"); err == nil {
+		t.Fatal("goals write must be denied without goals:write")
 	}
 	if err := Enforce(p, "GET", "/api/vault/EMAIL_CONFIG"); err == nil {
 		t.Fatal("scoped vault read must be denied without vault:read")
@@ -47,32 +47,34 @@ func TestEnforceRequiresMappedScope(t *testing.T) {
 // A PAT with no matching scope must be DENIED, not silently full-access. This
 // locks CRITICAL #1 (enforcement gated on kind/scopes, not info.Scoped != nil).
 func TestEnforcePATWithoutScopeIsDenied(t *testing.T) {
-	p := &Principal{Kind: KindPAT, UserID: "u1", Scopes: []string{"tasks:read"}}
+	p := &Principal{Kind: KindPAT, UserID: "u1", Scopes: []string{"goals:read"}}
 
-	if err := Enforce(p, "GET", "/api/tasks"); err != nil {
-		t.Fatalf("PAT with tasks:read should reach tasks read: %v", err)
+	if err := Enforce(p, "GET", "/api/goals"); err != nil {
+		t.Fatalf("PAT with goals:read should reach goals read: %v", err)
 	}
-	if err := Enforce(p, "GET", "/api/goals"); err == nil {
-		t.Fatal("PAT without goals scope must be denied on /api/goals")
+	if err := Enforce(p, "GET", "/api/workflows"); err == nil {
+		t.Fatal("PAT without workflows scope must be denied on /api/workflows")
 	}
 	// A PAT is not agent-bound, so it can read any agent it has the scope for,
 	// but it must still be denied without the scope.
 	empty := &Principal{Kind: KindPAT, UserID: "u1", Scopes: nil}
-	if err := Enforce(empty, "GET", "/api/tasks"); err == nil {
+	if err := Enforce(empty, "GET", "/api/goals"); err == nil {
 		t.Fatal("PAT with no scopes must be denied, not granted full access")
 	}
 }
 
 func TestEnforceRejectsRetiredLegacyKind(t *testing.T) {
 	p := &Principal{Kind: Kind("legacy_stella_token"), UserID: "u1"}
-	if err := Enforce(p, "GET", "/api/tasks"); err == nil {
-		t.Fatal("retired legacy token kind must not bypass API-scope checks")
+	for _, path := range []string{"/api/workflows", "/api/goals", "/api/anything-unmapped"} {
+		if err := Enforce(p, "POST", path); err == nil {
+			t.Fatalf("retired legacy token kind must not bypass API-scope checks for %s", path)
+		}
 	}
 }
 
 // Unregistered routes fail closed for scoped bearers.
 func TestEnforceUnregisteredRouteDenied(t *testing.T) {
-	p := &Principal{Kind: KindPAT, Scopes: []string{"tasks:*", "channels:*"}}
+	p := &Principal{Kind: KindPAT, Scopes: []string{"goals:*", "channels:*"}}
 	if err := Enforce(p, "GET", "/api/channels"); err == nil {
 		t.Fatal("a resource not exposed to scoped bearers must be denied")
 	}
@@ -131,6 +133,23 @@ func TestEnforcePATReachesExternalButNotSandboxInternal(t *testing.T) {
 // An unknown agent sub-resource must fail closed (registered=false) rather than
 // inherit the broad agent scope -- this is what makes the coverage test catch a
 // newly added /api/agents/{id}/<new> at build time (CR-002).
+func TestSaveAsWorkflowRequiresWorkflowWrite(t *testing.T) {
+	scope, registered := RequiredScope("POST", "/api/goals/goal-1/save-as-workflow")
+	if !registered || scope != "workflows:write" {
+		t.Fatalf("scope=%q registered=%v want workflows:write true", scope, registered)
+	}
+	goalsOnly := &Principal{Kind: KindPAT, UserID: "u1", Scopes: []string{"goals:write"}}
+	if err := Enforce(goalsOnly, "POST", "/api/goals/goal-1/save-as-workflow"); err == nil {
+		t.Fatal("goals:write alone must not allow save-as-workflow")
+	}
+	for _, scopes := range [][]string{{"workflows:write"}, {"workflows:*"}} {
+		p := &Principal{Kind: KindPAT, UserID: "u1", Scopes: scopes}
+		if err := Enforce(p, "POST", "/api/goals/goal-1/save-as-workflow"); err != nil {
+			t.Fatalf("%v should allow save-as-workflow: %v", scopes, err)
+		}
+	}
+}
+
 func TestRequiredScopeUnknownAgentSubResourceFailsClosed(t *testing.T) {
 	if _, registered := RequiredScope("POST", "/api/agents/a1/secrets"); registered {
 		t.Fatal("unknown agent sub-resource must be registered=false (fail-closed)")
@@ -154,7 +173,7 @@ func TestValidatePATScopes(t *testing.T) {
 	if _, ok := ValidatePATScopes(nil); ok {
 		t.Fatal("empty scope set must be rejected")
 	}
-	if _, ok := ValidatePATScopes([]string{"tasks:read", "goals:*"}); !ok {
+	if _, ok := ValidatePATScopes([]string{"workflows:read", "goals:*"}); !ok {
 		t.Fatal("valid exposable scopes should pass")
 	}
 	if bad, ok := ValidatePATScopes([]string{"vault:read"}); ok || bad != "vault:read" {
@@ -163,7 +182,7 @@ func TestValidatePATScopes(t *testing.T) {
 	if bad, ok := ValidatePATScopes([]string{"oauth:*"}); ok || bad != "oauth:*" {
 		t.Fatalf("oauth must not be grantable to a PAT; got bad=%q ok=%v", bad, ok)
 	}
-	if _, ok := ValidatePATScopes([]string{"tasks"}); ok {
+	if _, ok := ValidatePATScopes([]string{"goals"}); ok {
 		t.Fatal("malformed scope (no action) must be rejected")
 	}
 	if _, ok := ValidatePATScopes([]string{"nope:read"}); ok {

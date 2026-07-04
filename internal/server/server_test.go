@@ -305,7 +305,7 @@ func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) apiResponse {
 }
 
 // parseListItems extracts the array payload from an AIP list response. The
-// response wraps results in a resource-named field (e.g. {"tasks":[...]})
+// response wraps results in a resource-named field (e.g. {"goals":[...]})
 // alongside optional pagination metadata, so this returns the first
 // array-valued field regardless of its name.
 // parseListItems extracts the array stored under the explicit resource key

@@ -98,7 +98,7 @@ func TestResolvePATRoundTrip(t *testing.T) {
 	svc, store := newTestService(t)
 	ctx := context.Background()
 
-	plaintext, rec, err := svc.CreatePAT(ctx, "u1", "ci", []string{"tasks:read"}, nil)
+	plaintext, rec, err := svc.CreatePAT(ctx, "u1", "ci", []string{"goals:read"}, nil)
 	if err != nil {
 		t.Fatalf("create PAT: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestResolveRevokedAndExpiredPAT(t *testing.T) {
 	ctx := context.Background()
 
 	// Revoked.
-	plaintext, rec, _ := svc.CreatePAT(ctx, "u1", "r", []string{"tasks:read"}, nil)
+	plaintext, rec, _ := svc.CreatePAT(ctx, "u1", "r", []string{"goals:read"}, nil)
 	now := time.Now()
 	r := store.byPublicID[rec.PublicID]
 	r.RevokedAt = &now
@@ -173,7 +173,7 @@ func TestResolveRevokedAndExpiredPAT(t *testing.T) {
 
 	// Expired.
 	past := time.Now().Add(-time.Hour)
-	plaintext2, _, _ := svc.CreatePAT(ctx, "u1", "e", []string{"tasks:read"}, &past)
+	plaintext2, _, _ := svc.CreatePAT(ctx, "u1", "e", []string{"goals:read"}, &past)
 	if _, err := svc.Resolve(ctx, "Bearer "+plaintext2); err == nil {
 		t.Fatal("expired PAT must be denied")
 	}

@@ -52,12 +52,13 @@ func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (string, bool)
 // goalError maps the package's sentinel errors to HTTP status codes:
 // not-found → 404, validation → 400, lifecycle/guard → 409, else 500.
 type goalFilter struct {
-	AgentID   string
-	Lifecycle string
-	ProjectID string
-	Terminal  *bool
-	Q         string
-	Archived  bool
+	AgentID    string
+	Lifecycle  string
+	ProjectID  string
+	WorkflowID string
+	Terminal   *bool
+	Q          string
+	Archived   bool
 }
 
 func goalError(w http.ResponseWriter, err error) {
@@ -167,6 +168,9 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	if params.ProjectId != nil {
 		filter.ProjectID = *params.ProjectId
 	}
+	if params.WorkflowId != nil {
+		filter.WorkflowID = *params.WorkflowId
+	}
 	if params.Terminal != nil {
 		filter.Terminal = params.Terminal
 	}
@@ -180,6 +184,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		UserID:          userID,
 		AgentID:         pgnull.Text(filter.AgentID),
 		ProjectID:       pgnull.Text(filter.ProjectID),
+		WorkflowID:      pgnull.Text(filter.WorkflowID),
 		Lifecycle:       pgnull.Text(filter.Lifecycle),
 		Terminal:        goalTerminalArg(filter.Terminal),
 		Q:               pgnull.Text(filter.Q),
@@ -197,6 +202,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		UserID:          userID,
 		AgentID:         pgnull.Text(filter.AgentID),
 		ProjectID:       pgnull.Text(filter.ProjectID),
+		WorkflowID:      pgnull.Text(filter.WorkflowID),
 		Lifecycle:       pgnull.Text(filter.Lifecycle),
 		Terminal:        goalTerminalArg(filter.Terminal),
 		Q:               pgnull.Text(filter.Q),
@@ -892,6 +898,8 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		AcceptedAt:         parseTimePtr(d.AcceptedAt),
 		CancelledAt:        parseTimePtr(d.CancelledAt),
 		ArchivedAt:         parseTimePtr(d.ArchivedAt),
+		WorkflowId:         nullToPtr(d.WorkflowID),
+		WorkflowVersion:    nullInt4ToPtr(d.WorkflowVersion),
 	}
 	if d.ReviewPolicy != "" {
 		rp := apitypes.GoalReviewPolicy(d.ReviewPolicy)
@@ -1090,6 +1098,14 @@ func nullToPtr(ns pgtype.Text) *string {
 		return nil
 	}
 	v := ns.String
+	return &v
+}
+
+func nullInt4ToPtr(value pgtype.Int4) *int {
+	if !value.Valid {
+		return nil
+	}
+	v := int(value.Int32)
 	return &v
 }
 

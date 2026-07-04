@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"time"
 
@@ -146,8 +147,24 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 	}
 
 	// Regular (non-template) job path.
-	if body.Name == nil || *body.Name == "" || body.Message == nil || *body.Message == "" {
-		writeError(w, http.StatusBadRequest, "name and message are required")
+	dispatchKind := scheduler.DispatchKindChat
+	if body.DispatchKind != nil && *body.DispatchKind != "" {
+		dispatchKind = string(*body.DispatchKind)
+	}
+	if dispatchKind != scheduler.DispatchKindChat && dispatchKind != scheduler.DispatchKindWorkflow {
+		writeError(w, http.StatusBadRequest, "invalid dispatch_kind")
+		return
+	}
+	if body.Name == nil || *body.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if dispatchKind == scheduler.DispatchKindChat && (body.Message == nil || *body.Message == "") {
+		writeError(w, http.StatusBadRequest, "message is required")
+		return
+	}
+	if dispatchKind == scheduler.DispatchKindWorkflow && body.Message != nil && *body.Message != "" {
+		writeError(w, http.StatusBadRequest, "message must be empty for workflow jobs")
 		return
 	}
 	if err := validateScheduleInput(body); err != nil {
@@ -164,9 +181,26 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		Every: derefStr(body.Every),
 		At:    derefStr(body.At),
 	}
-	job, err := s.schedulerSvc.AddJobWithOwner(*body.Name, *body.Message, sched, sessionMode, agentID, userID)
+	var job scheduler.Job
+	var err error
+	if dispatchKind == scheduler.DispatchKindWorkflow {
+		if body.WorkflowId == nil || *body.WorkflowId == "" {
+			writeError(w, http.StatusBadRequest, "workflow_id is required for workflow jobs")
+			return
+		}
+		job, err = s.schedulerSvc.AddWorkflowJobWithOwner(r.Context(), *body.Name, sched, sessionMode, agentID, userID, *body.WorkflowId, derefStringMap(body.Inputs), body.AllowReplan != nil && *body.AllowReplan)
+	} else {
+		job, err = s.schedulerSvc.AddJobWithOwner(*body.Name, derefStr(body.Message), sched, sessionMode, agentID, userID)
+	}
 	if err != nil {
-		s.writeInternalError(w, err)
+		switch {
+		case errors.Is(err, scheduler.ErrWorkflowJobNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, scheduler.ErrWorkflowJobValidation):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			s.writeInternalError(w, err)
+		}
 		return
 	}
 	writeData(w, http.StatusCreated, s.schedulerJobToAPI(job))
@@ -243,8 +277,25 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 	if body.Name != nil && *body.Name != "" {
 		update.Name = body.Name
 	}
-	if body.Message != nil && *body.Message != "" {
+	if body.Message != nil {
 		update.Message = body.Message
+	}
+	if body.DispatchKind != nil && *body.DispatchKind != "" {
+		dispatchKind := string(*body.DispatchKind)
+		update.DispatchKind = &dispatchKind
+	}
+	if body.WorkflowId != nil || body.Inputs != nil || body.AllowReplan != nil {
+		payload := decodeSchedulerPayload(existing.Payload)
+		if body.WorkflowId != nil {
+			payload["workflow_id"] = *body.WorkflowId
+		}
+		if body.Inputs != nil {
+			payload["inputs"] = derefStringMap(body.Inputs)
+		}
+		if body.AllowReplan != nil {
+			payload["allow_replan"] = *body.AllowReplan
+		}
+		update.Payload = payload
 	}
 	if body.Cron != nil || body.Every != nil || body.At != nil {
 		sched := scheduler.Schedule{
@@ -266,6 +317,14 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		switch {
 		case errors.Is(err, scheduler.ErrSubscriptionMessageReadOnly):
 			writeError(w, http.StatusBadRequest, "subscription job message is read-only; it is controlled by the template")
+		case errors.Is(err, scheduler.ErrWorkflowJobNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, scheduler.ErrWorkflowJobValidation):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, scheduler.ErrOneTimeJobPast):
+			// Fired one-time jobs are retired as disabled rows; re-enabling one
+			// is a user mistake, not a server fault. They must set a new time.
+			writeError(w, http.StatusBadRequest, "one-time job timestamp is in the past; set a new time to re-enable it")
 		default:
 			s.writeInternalError(w, err)
 		}
@@ -433,21 +492,22 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 // for subscription instances so the caller sees the actual prompt.
 func (s *Server) dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
 	j := apiserver.Job{
-		Id:          row.ID,
-		OwnerKind:   ptrStr(row.OwnerKind),
-		PluginId:    ptrStr(row.PluginID),
-		JobKey:      ptrStr(row.JobKey),
-		RuntimeName: ptrStr(row.RuntimeName),
-		Name:        row.Name,
-		Description: ptrStr(row.Description),
-		Cron:        ptrStr(row.ScheduleCron),
-		Every:       ptrStr(row.ScheduleEvery),
-		At:          ptrStr(row.ScheduleAt),
-		SessionMode: row.SessionMode,
-		Enabled:     row.Enabled,
-		CreatedAt:   ptrTime(row.CreatedAt.UTC()),
-		UpdatedAt:   ptrTime(row.UpdatedAt.UTC()),
-		LastError:   ptrStr(row.LastError),
+		Id:           row.ID,
+		OwnerKind:    ptrStr(row.OwnerKind),
+		PluginId:     ptrStr(row.PluginID),
+		JobKey:       ptrStr(row.JobKey),
+		RuntimeName:  ptrStr(row.RuntimeName),
+		Name:         row.Name,
+		Description:  ptrStr(row.Description),
+		Cron:         ptrStr(row.ScheduleCron),
+		Every:        ptrStr(row.ScheduleEvery),
+		At:           ptrStr(row.ScheduleAt),
+		DispatchKind: apiJobDispatchKind(row.DispatchKind),
+		SessionMode:  row.SessionMode,
+		Enabled:      row.Enabled,
+		CreatedAt:    ptrTime(row.CreatedAt.UTC()),
+		UpdatedAt:    ptrTime(row.UpdatedAt.UTC()),
+		LastError:    ptrStr(row.LastError),
 	}
 	// For subscription instances: return the template-resolved message and
 	// surface template_key so the UI can display the badge and lock message.
@@ -476,24 +536,25 @@ func (s *Server) dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
 
 func (s *Server) schedulerJobToAPI(job scheduler.Job) apiserver.Job {
 	j := apiserver.Job{
-		Id:          job.ID,
-		OwnerKind:   ptrStr(job.OwnerKind),
-		PluginId:    ptrStr(job.PluginID),
-		JobKey:      ptrStr(job.JobKey),
-		RuntimeName: ptrStr(job.RuntimeName),
-		Name:        job.Name,
-		Description: ptrStr(job.Description),
-		Cron:        ptrStr(job.Schedule.Cron),
-		Every:       ptrStr(job.Schedule.Every),
-		At:          ptrStr(job.Schedule.At),
-		SessionMode: job.SessionMode,
-		Enabled:     job.Enabled,
-		AgentId:     ptrStr(job.AgentID),
-		UserId:      ptrStr(job.UserID),
-		CreatedAt:   ptrTime(job.CreatedAt),
-		UpdatedAt:   ptrTime(job.UpdatedAt),
-		LastRunAt:   job.LastRunAt,
-		LastError:   ptrStr(job.LastError),
+		Id:           job.ID,
+		OwnerKind:    ptrStr(job.OwnerKind),
+		PluginId:     ptrStr(job.PluginID),
+		JobKey:       ptrStr(job.JobKey),
+		RuntimeName:  ptrStr(job.RuntimeName),
+		Name:         job.Name,
+		Description:  ptrStr(job.Description),
+		Cron:         ptrStr(job.Schedule.Cron),
+		Every:        ptrStr(job.Schedule.Every),
+		At:           ptrStr(job.Schedule.At),
+		DispatchKind: apiJobDispatchKind(job.DispatchKind),
+		SessionMode:  job.SessionMode,
+		Enabled:      job.Enabled,
+		AgentId:      ptrStr(job.AgentID),
+		UserId:       ptrStr(job.UserID),
+		CreatedAt:    ptrTime(job.CreatedAt),
+		UpdatedAt:    ptrTime(job.UpdatedAt),
+		LastRunAt:    job.LastRunAt,
+		LastError:    ptrStr(job.LastError),
 	}
 	// Subscription instances: surface template key and resolved message.
 	if job.JobKey != "" {
@@ -529,6 +590,9 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 	if row.UserID.Valid {
 		j.UserId = ptrStr(row.UserID.String)
 	}
+	if row.RootGoalID.Valid {
+		j.RootGoalId = ptrStr(row.RootGoalID.String)
+	}
 	if finished := parseTimePtr(row.FinishedAt); finished != nil {
 		j.FinishedAt = finished
 		if started := row.StartedAt.UTC(); !started.IsZero() {
@@ -548,11 +612,28 @@ func ptrTime(t time.Time) *time.Time {
 	return &t
 }
 
+func apiJobDispatchKind(kind string) *apitypes.JobDispatchKind {
+	if kind == "" {
+		kind = scheduler.DispatchKindChat
+	}
+	v := apitypes.JobDispatchKind(kind)
+	return &v
+}
+
 func derefStr(p *string) string {
 	if p == nil {
 		return ""
 	}
 	return *p
+}
+
+func derefStringMap(p *map[string]string) map[string]string {
+	if p == nil || len(*p) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(*p))
+	maps.Copy(out, *p)
+	return out
 }
 
 func decodeSchedulerPayload(raw json.RawMessage) map[string]any {
