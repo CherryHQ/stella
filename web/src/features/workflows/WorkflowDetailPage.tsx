@@ -103,7 +103,7 @@ export function WorkflowDetailPage() {
       await qc.invalidateQueries({ queryKey: ["workflows", agentId] });
       await qc.invalidateQueries({ queryKey: ["workflow", workflow.id] });
       showToast(t("workflows.deleteSuccess"));
-      void navigate({ to: "/agents/$agentId/workflows", params: { agentId } });
+      void navigate({ to: "/agents/$agentId/goals", params: { agentId } });
     } catch (error) {
       showToast(apiErrorMessage(error, t("workflows.deleteFailed")), "error");
     } finally {

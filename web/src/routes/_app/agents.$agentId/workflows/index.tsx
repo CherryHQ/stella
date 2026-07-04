@@ -1,8 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { workflowsOptions } from "@/lib/queries/workflows";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+// Workflows are a facet of the Goals surface, not a top-level tab; the old
+// list URL lands on the Goals overview where the repeatable section lives.
 export const Route = createFileRoute("/_app/agents/$agentId/workflows/")({
-  loader: async ({ context: { queryClient }, params: { agentId } }) => {
-    await queryClient.ensureQueryData(workflowsOptions(agentId));
+  beforeLoad: ({ params: { agentId } }) => {
+    throw redirect({ to: "/agents/$agentId/goals", params: { agentId } });
   },
 });

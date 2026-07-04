@@ -12,6 +12,7 @@ import type { SchedulerJob } from "@/lib/types";
 import { goalChildrenOptions, goalsOptions } from "@/lib/queries/goals";
 import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
 import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
+import { workflowsOptions, workflowRunsOptions } from "@/lib/queries/workflows";
 import { useI18n } from "@/lib/i18n";
 import { useAppShell } from "@/layouts/AppShell";
 import { formatTime } from "@/lib/time";
@@ -253,6 +254,10 @@ export function OverviewPage() {
             <SchedulesTable jobs={sortedJobs} agentId={agentId} />
           )}
         </section>
+
+        {/* Repeatable (workflows) — hidden until the first workflow exists, so
+            the concept only appears once the user has saved one. */}
+        <WorkflowsSection agentId={agentId} />
 
         {/* Active work */}
         <section className="mt-8">
@@ -609,6 +614,62 @@ function SchedulesTable({ jobs, agentId }: { jobs: SchedulerJob[]; agentId: stri
         })}
       </TableBody>
     </Table>
+  );
+}
+
+// The saved definitions behind scheduled/re-runnable goals. Renders nothing
+// until the first workflow exists: a user who never saved one never meets the
+// concept.
+function WorkflowsSection({ agentId }: { agentId: string }) {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const { data: workflows = [] } = useQuery(workflowsOptions(agentId));
+  const runQueries = useQueries({
+    queries: workflows.map((w) => workflowRunsOptions(w.id, 1)),
+  });
+
+  if (!workflows.length) return null;
+
+  return (
+    <section className="mt-8">
+      <SectionHead title={t("hub.secRepeatable")} count={workflows.length} />
+      <div className="overflow-hidden rounded-xl border border-border">
+        {workflows.map((w, i) => {
+          const total = runQueries[i]?.data?.total ?? 0;
+          return (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() =>
+                void navigate({
+                  to: "/agents/$agentId/workflows/$workflowId",
+                  params: { agentId, workflowId: w.id },
+                })
+              }
+              className="flex w-full items-center gap-3 border-b border-border px-3.5 py-2.5 text-left text-[13px] last:border-b-0 hover:bg-muted/50"
+            >
+              <span className="min-w-0 flex-1 truncate font-medium">{w.name}</span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {t("workflows.version", { version: w.version })}
+              </span>
+              {!w.fully_frozen && (
+                <Badge size="sm" variant="warning">
+                  {t("workflows.partlyFrozen")}
+                </Badge>
+              )}
+              {total > 0 && (
+                <Badge size="sm" variant="secondary">
+                  {t("workflows.runsBadge", { count: total })}
+                </Badge>
+              )}
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {formatTime(w.created_at)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

@@ -322,11 +322,7 @@ const AppAgentsAgentIdWorkflowsIndexRoute =
     id: '/workflows/',
     path: '/workflows/',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/workflows/index.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdSkillsIndexRoute =
   AppAgentsAgentIdSkillsIndexRouteImport.update({
     id: '/skills/',

@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Database, ListTodo, MessageSquare, Puzzle, Workflow } from "lucide-react";
+import { Database, ListTodo, MessageSquare, Puzzle } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -90,14 +90,8 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               label: t("facets.goals"),
               to: `${base}/goals`,
               icon: ListTodo,
-              active: (p) => p.startsWith(`${base}/goals`),
-            },
-            {
-              key: "workflows",
-              label: t("facets.workflows"),
-              to: `${base}/workflows`,
-              icon: Workflow,
-              active: (p) => p.startsWith(`${base}/workflows`),
+              // Workflow pages are part of the Goals surface (no tab of their own).
+              active: (p) => p.startsWith(`${base}/goals`) || p.startsWith(`${base}/workflows`),
             },
             {
               key: "memory",
