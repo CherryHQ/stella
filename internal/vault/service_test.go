@@ -181,23 +181,6 @@ func TestSetScopedRejectsSystemScope(t *testing.T) {
 	}
 }
 
-func TestScopedWriteRejectsManagedToken(t *testing.T) {
-	t.Parallel()
-	svc, _, userID := testService(t)
-	ctx := context.Background()
-
-	// Public scoped writes must never set the managed STELLA_TOKEN: a user_agent
-	// entry would shadow it and force a token rotation on every sandbox start.
-	if err := svc.SetScoped(ctx, vault.ScopeUserAgent, userID, "agent-1", vault.StellaTokenName, "value"); err == nil {
-		t.Fatal("SetScoped should reject STELLA_TOKEN")
-	}
-
-	// The internal reserved path still owns the token.
-	if err := svc.SetReserved(ctx, userID, vault.StellaTokenName, "managed"); err != nil {
-		t.Fatalf("SetReserved(STELLA_TOKEN): %v", err)
-	}
-}
-
 func TestSetValidation(t *testing.T) {
 	t.Parallel()
 	svc, _, userID := testService(t)
@@ -373,7 +356,7 @@ func TestLoadEnvForAgentMergesScopedPrecedence(t *testing.T) {
 		}
 	}
 
-	env, err := svc.LoadEnvForAgent(ctx, userID, "agent-a")
+	env, err := svc.LoadEnvForAgentProject(ctx, userID, "agent-a", "")
 	if err != nil {
 		t.Fatalf("LoadEnvForAgent(agent-a): %v", err)
 	}
@@ -381,7 +364,7 @@ func TestLoadEnvForAgentMergesScopedPrecedence(t *testing.T) {
 		t.Fatalf("TOKEN for agent-a = %q, want user-agent", got)
 	}
 
-	env, err = svc.LoadEnvForAgent(ctx, userID, "agent-b")
+	env, err = svc.LoadEnvForAgentProject(ctx, userID, "agent-b", "")
 	if err != nil {
 		t.Fatalf("LoadEnvForAgent(agent-b): %v", err)
 	}
@@ -451,20 +434,6 @@ func TestSetNoAgeKeys(t *testing.T) {
 	}
 }
 
-func TestLoadEnvDoesNotAutoCreateStellaToken(t *testing.T) {
-	t.Parallel()
-	svc, _, userID := testService(t)
-	ctx := context.Background()
-
-	env, err := svc.LoadEnv(ctx, userID)
-	if err != nil {
-		t.Fatalf("LoadEnv: %v", err)
-	}
-	if _, ok := env[vault.StellaTokenName]; ok {
-		t.Fatalf("LoadEnv included %q; token service should create it", vault.StellaTokenName)
-	}
-}
-
 func TestLoadEnvForAgentKeepsSystemSecretsWhenUserEntryFails(t *testing.T) {
 	t.Parallel()
 	svc, _, userID, q := testServiceWithQueries(t)
@@ -480,7 +449,7 @@ func TestLoadEnvForAgentKeepsSystemSecretsWhenUserEntryFails(t *testing.T) {
 		t.Fatalf("insert broken user entry: %v", err)
 	}
 
-	env, err := svc.LoadEnvForAgent(ctx, userID, "agent-a")
+	env, err := svc.LoadEnvForAgentProject(ctx, userID, "agent-a", "")
 	if err != nil {
 		t.Fatalf("LoadEnvForAgent: %v", err)
 	}
@@ -564,8 +533,12 @@ func TestDeclarableManifestExcludesReservedOAuthAndInjectedEntries(t *testing.T)
 	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "DEPLOY_TOKEN", "deploy-secret", vault.SetOptions{Description: &desc}); err != nil {
 		t.Fatalf("Set DEPLOY_TOKEN: %v", err)
 	}
-	if err := svc.SetReserved(ctx, userID, "STELLA_TOKEN", "reserved"); err != nil {
-		t.Fatalf("SetReserved: %v", err)
+	// A reserved-name entry can no longer be written through any service path;
+	// plant one directly to prove the declarable manifest still filters it.
+	if _, err := q.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
+		ID: uuid.NewString(), Scope: vault.ScopeUser, UserID: sqlcNullString(userID), Name: "STELLA_TOKEN", Ciphertext: "not-age", InjectAlways: true,
+	}); err != nil {
+		t.Fatalf("insert reserved entry: %v", err)
 	}
 	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "GH_OAUTH", "oauth", vault.SetOptions{}); err != nil {
 		t.Fatalf("Set GH_OAUTH: %v", err)

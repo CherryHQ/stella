@@ -134,56 +134,32 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 
 	// Group sessions never load human vault secrets (D9 isolation).
 	var vaultEnv map[string]string
-	if cfg.GroupID == "" {
+	if cfg.GroupID == "" && cfg.VaultEnvLoader != nil {
 		// vaultEnv is the full decrypted vault snapshot, retained so OAuth bundle
-		// resolution can read from it even when the sandbox-facing copy is filtered
-		// to explicitly injectable entries.
-		if cfg.VaultEnvLoader != nil {
-			var ve map[string]string
-			var err error
-			if scopedLoader, ok := cfg.VaultEnvLoader.(scopedVaultEnvLoader); ok {
-				ve, err = scopedLoader.LoadEnvForAgent(ctx, cfg.UserID, cfg.AgentID)
+		// resolution can read from it even though the sandbox-facing copy is
+		// filtered to explicitly injectable entries.
+		ve, err := cfg.VaultEnvLoader.LoadEnvForAgentProject(ctx, cfg.UserID, cfg.AgentID, cfg.ProjectID)
+		if err != nil {
+			slog.Warn("vault env injection skipped",
+				"component", "runner_sandbox",
+				"user_id", cfg.UserID,
+				"agent_id", cfg.AgentID,
+				"project_id", cfg.ProjectID,
+				"error", err,
+			)
+		} else {
+			vaultEnv = ve
+			if full, err := cfg.VaultEnvLoader.LoadFullEnvForAgent(ctx, cfg.UserID, cfg.AgentID); err == nil {
+				vaultEnv = full
 			} else {
-				ve, err = cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
-			}
-			if err != nil {
-				slog.Warn("vault env injection skipped",
+				slog.Warn("full vault env load skipped",
 					"component", "runner_sandbox",
 					"user_id", cfg.UserID,
 					"agent_id", cfg.AgentID,
 					"error", err,
 				)
-			} else {
-				// The loads above resolve the agent-bound view (ProjectID unset);
-				// a project session narrows/widens to the project-bound view here.
-				if projectLoader, ok := cfg.VaultEnvLoader.(projectVaultEnvLoader); ok && cfg.ProjectID != "" {
-					if projectEnv, err := projectLoader.LoadEnvForAgentProject(ctx, cfg.UserID, cfg.AgentID, cfg.ProjectID); err == nil {
-						ve = projectEnv
-					} else {
-						slog.Warn("project vault env load skipped",
-							"component", "runner_sandbox",
-							"user_id", cfg.UserID,
-							"agent_id", cfg.AgentID,
-							"project_id", cfg.ProjectID,
-							"error", err,
-						)
-					}
-				}
-				vaultEnv = ve
-				if fullLoader, ok := cfg.VaultEnvLoader.(fullVaultEnvLoader); ok {
-					if full, err := fullLoader.LoadFullEnvForAgent(ctx, cfg.UserID, cfg.AgentID); err == nil {
-						vaultEnv = full
-					} else {
-						slog.Warn("full vault env load skipped",
-							"component", "runner_sandbox",
-							"user_id", cfg.UserID,
-							"agent_id", cfg.AgentID,
-							"error", err,
-						)
-					}
-				}
-				maps.Copy(env, ve)
 			}
+			maps.Copy(env, ve)
 		}
 	}
 

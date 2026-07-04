@@ -157,12 +157,6 @@ func (s *Service) SetSystemScopedWithOptions(ctx context.Context, scope string, 
 	return s.set(ctx, scope, "", agentID, name, plaintext, true, opts)
 }
 
-// SetReserved stores an internal reserved env var. Callers must not pass user input.
-func (s *Service) SetReserved(ctx context.Context, userID string, name string, plaintext string) error {
-	injectAlways := true
-	return s.set(ctx, ScopeUser, userID, "", name, plaintext, false, SetOptions{InjectAlways: &injectAlways})
-}
-
 func (s *Service) set(ctx context.Context, scope string, userID string, agentID string, name string, plaintext string, validate bool, opts SetOptions) error {
 	if validate {
 		if err := ValidateName(name); err != nil {
@@ -355,11 +349,9 @@ func (s *Service) LoadEnv(ctx context.Context, userID string) (map[string]string
 	return s.LoadFullEnvForAgent(ctx, userID, "")
 }
 
-// LoadEnvForAgent resolves runtime env in the SQL precedence order; later scopes override earlier scopes.
-func (s *Service) LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
-	return s.LoadEnvForAgentProject(ctx, userID, agentID, "")
-}
-
+// LoadEnvForAgentProject resolves runtime env in the SQL precedence order;
+// later scopes override earlier scopes. projectID may be empty for agent-only
+// sessions.
 func (s *Service) LoadEnvForAgentProject(ctx context.Context, userID string, agentID string, projectID string) (map[string]string, error) {
 	entries, err := s.db.ListVaultEntriesForRuntime(ctx, sqlc.ListVaultEntriesForRuntimeParams{
 		UserID:         pgnull.Text(userID),

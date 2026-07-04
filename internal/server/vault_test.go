@@ -309,7 +309,7 @@ func TestScopedVaultPermissionsAndRuntimeResolution(t *testing.T) {
 		}
 	}
 
-	envMap, err := svc.LoadEnvForAgent(ctx, regular.ID, "agent-a")
+	envMap, err := svc.LoadEnvForAgentProject(ctx, regular.ID, "agent-a", "")
 	if err != nil {
 		t.Fatalf("LoadEnvForAgent: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestScopedTokenVaultAgentBinding(t *testing.T) {
 	}
 
 	// Token bound to sa-agent-a.
-	tokenSvc := auth.NewTokenService(env.authStore, nil)
+	tokenSvc := auth.NewTokenService(env.authStore)
 	env.srv.SetTokenService(tokenSvc)
 	token, err := tokenSvc.CreateScopedToken(ctx, regular.ID, "sa-agent-a", "sess-1", "")
 	if err != nil {
@@ -587,7 +587,7 @@ func TestScopedTokenVaultGetIsAudited(t *testing.T) {
 		t.Fatalf("Set: %v", err)
 	}
 
-	tokenSvc := auth.NewTokenService(env.authStore, nil)
+	tokenSvc := auth.NewTokenService(env.authStore)
 	env.srv.SetTokenService(tokenSvc)
 	token, err := tokenSvc.CreateScopedToken(ctx, regular.ID, "audit-agent", "sess-audit", "")
 	if err != nil {

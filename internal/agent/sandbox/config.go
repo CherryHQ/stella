@@ -5,24 +5,23 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// VaultEnvLoader loads decrypted vault entries for a user as a name→value map.
+// VaultEnvLoader is the vault surface an agent session needs: binding-filtered
+// env for session start, the full snapshot for host-side OAuth resolution, and
+// the declarable exec-time secret flow. Implemented by *vault.Service.
 type VaultEnvLoader interface {
-	LoadEnv(ctx context.Context, userID string) (map[string]string, error)
-}
-
-type scopedVaultEnvLoader interface {
-	LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
-}
-
-type projectVaultEnvLoader interface {
+	// LoadEnvForAgentProject returns the binding-filtered env for a session
+	// (projectID may be empty for agent-only sessions).
 	LoadEnvForAgentProject(ctx context.Context, userID string, agentID string, projectID string) (map[string]string, error)
-}
-
-type fullVaultEnvLoader interface {
+	// LoadFullEnvForAgent returns the unfiltered snapshot; host-side only,
+	// never handed to the sandbox.
 	LoadFullEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
+	ListDeclarableForAgentProject(ctx context.Context, userID string, agentID string, projectID string) ([]vault.DeclarableSecret, error)
+	ResolveDeclarableEnv(ctx context.Context, userID string, agentID string, projectID string, names []string) (map[string]string, []string, error)
+	RecordExecSecretUse(ctx context.Context, userID string, agentID string, sessionID string, name string, command string) error
 }
 
 // TokenEnsurer creates short-lived scoped API tokens for sandbox sessions.

@@ -4,14 +4,39 @@ import (
 	"context"
 	"maps"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/vault"
 )
 
-type staticVaultEnv map[string]string
+// noDeclarableSecrets stubs the declarable-secret surface of VaultEnvLoader
+// for tests that only exercise env assembly.
+type noDeclarableSecrets struct{}
 
-func (v staticVaultEnv) LoadEnv(context.Context, string) (map[string]string, error) {
-	out := make(map[string]string, len(v))
-	maps.Copy(out, v)
+func (noDeclarableSecrets) ListDeclarableForAgentProject(context.Context, string, string, string) ([]vault.DeclarableSecret, error) {
+	return nil, nil
+}
+
+func (noDeclarableSecrets) ResolveDeclarableEnv(context.Context, string, string, string, []string) (map[string]string, []string, error) {
+	return nil, nil, nil
+}
+
+func (noDeclarableSecrets) RecordExecSecretUse(context.Context, string, string, string, string, string) error {
+	return nil
+}
+
+type staticVaultEnv struct {
+	noDeclarableSecrets
+	env map[string]string
+}
+
+func (v staticVaultEnv) LoadEnvForAgentProject(context.Context, string, string, string) (map[string]string, error) {
+	out := make(map[string]string, len(v.env))
+	maps.Copy(out, v.env)
 	return out, nil
+}
+
+func (v staticVaultEnv) LoadFullEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
+	return v.LoadEnvForAgentProject(ctx, userID, agentID, "")
 }
 
 type staticScopedToken struct {
@@ -27,7 +52,7 @@ func TestBuildSandboxEnvUsesScopedTokenOverVaultToken(t *testing.T) {
 		UserID:         "user-1",
 		AgentID:        "agent-1",
 		SessionID:      "session-1",
-		VaultEnvLoader: staticVaultEnv{"STELLA_TOKEN": "stella_legacy", "OTHER": "ok"},
+		VaultEnvLoader: staticVaultEnv{env: map[string]string{"STELLA_TOKEN": "stella_legacy", "OTHER": "ok"}},
 		TokenEnsurer:   staticScopedToken{token: "stella_scoped_session"},
 	}, Paths{})
 	if err != nil {
@@ -45,7 +70,7 @@ func TestBuildSandboxEnvDeletesVaultTokenWhenScopedUnavailable(t *testing.T) {
 	env, err := buildSandboxEnv(context.Background(), Config{
 		UserID:         "user-1",
 		AgentID:        "agent-1",
-		VaultEnvLoader: staticVaultEnv{"STELLA_TOKEN": "stella_legacy"},
+		VaultEnvLoader: staticVaultEnv{env: map[string]string{"STELLA_TOKEN": "stella_legacy"}},
 	}, Paths{})
 	if err != nil {
 		t.Fatalf("buildSandboxEnv: %v", err)

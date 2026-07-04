@@ -266,7 +266,7 @@ func (s *Server) DeleteScopedVaultEntry(w http.ResponseWriter, r *http.Request, 
 // next session reads the new snapshot instead of the value baked into the sandbox
 // env at start. Reach follows the scope: a single user for user/user_agent, one
 // agent across all users for system_agent, and every runner for system (whose
-// secrets merge into every agent's env via LoadEnvForAgent).
+// secrets merge into every agent's env via LoadEnvForAgentProject).
 func (s *Server) invalidateVaultRunners(scope, userID, agentID, name, op string) {
 	var err error
 	switch scope {

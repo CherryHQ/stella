@@ -16,15 +16,21 @@ import (
 
 // stubVaultLoader is a test-only VaultEnvLoader that returns a fixed map.
 type stubVaultLoader struct {
+	noDeclarableSecrets
 	env map[string]string
 	err error
 }
 
-func (s *stubVaultLoader) LoadEnv(_ context.Context, _ string) (map[string]string, error) {
+func (s *stubVaultLoader) LoadEnvForAgentProject(_ context.Context, _ string, _ string, _ string) (map[string]string, error) {
+	return s.env, s.err
+}
+
+func (s *stubVaultLoader) LoadFullEnvForAgent(_ context.Context, _ string, _ string) (map[string]string, error) {
 	return s.env, s.err
 }
 
 type stubOAuthVaultStore struct {
+	noDeclarableSecrets
 	data map[string]string
 }
 
@@ -56,6 +62,14 @@ func (s *stubOAuthVaultStore) LoadEnv(_ context.Context, userID string) (map[str
 		out[k[len(prefix):]] = v
 	}
 	return out, nil
+}
+
+func (s *stubOAuthVaultStore) LoadEnvForAgentProject(ctx context.Context, userID string, _ string, _ string) (map[string]string, error) {
+	return s.LoadEnv(ctx, userID)
+}
+
+func (s *stubOAuthVaultStore) LoadFullEnvForAgent(ctx context.Context, userID string, _ string) (map[string]string, error) {
+	return s.LoadEnv(ctx, userID)
 }
 
 // TestResolveSessionRequiresUserRoot tests that ResolveSession fails without a UserRoot.

@@ -187,7 +187,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		if err != nil {
 			slog.Warn("vault service init failed; vault endpoints will return 503", "error", err)
 		} else {
-			tokenSvc = auth.NewTokenService(as, vaultSvc)
+			tokenSvc = auth.NewTokenService(as)
 			mcpVault = vaultSvc
 			adminSrv.SetVaultService(vaultSvc)
 			adminSrv.SetTokenService(tokenSvc)

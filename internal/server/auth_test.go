@@ -91,29 +91,9 @@ func TestExpiredTokenDenied(t *testing.T) {
 	}
 }
 
-type adminTokenVault struct {
-	env map[string]map[string]string
-}
-
-func newAdminTokenVault() *adminTokenVault {
-	return &adminTokenVault{env: make(map[string]map[string]string)}
-}
-
-func (v *adminTokenVault) SetReserved(_ context.Context, userID string, name string, plaintext string) error {
-	if v.env[userID] == nil {
-		v.env[userID] = make(map[string]string)
-	}
-	v.env[userID][name] = plaintext
-	return nil
-}
-
-func (v *adminTokenVault) LoadEnv(_ context.Context, userID string) (map[string]string, error) {
-	return v.env[userID], nil
-}
-
 func TestBearerAuthSuccess(t *testing.T) {
 	env := setupAdmin(t)
-	tokenSvc := auth.NewTokenService(env.authStore, newAdminTokenVault())
+	tokenSvc := auth.NewTokenService(env.authStore)
 	env.srv.SetTokenService(tokenSvc)
 	token, err := tokenSvc.CreateScopedToken(context.Background(), env.adminUser.ID, "agent-1", "session-1", "")
 	if err != nil {
@@ -128,11 +108,11 @@ func TestBearerAuthSuccess(t *testing.T) {
 
 func TestBearerAuthRejectsLegacyToken(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
+	env.srv.SetTokenService(auth.NewTokenService(env.authStore))
 	rawToken := "stella_legacy"
 	if _, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
 		UserID:      env.adminUser.ID,
-		Name:        auth.StellaTokenName,
+		Name:        "STELLA_TOKEN",
 		TokenHash:   testTokenHash(rawToken),
 		TokenPrefix: rawToken,
 	}); err != nil {
@@ -147,12 +127,12 @@ func TestBearerAuthRejectsLegacyToken(t *testing.T) {
 
 func TestBearerAuthRejectsExpiredToken(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
+	env.srv.SetTokenService(auth.NewTokenService(env.authStore))
 	expired := time.Now().Add(-time.Hour)
 	rawToken := "stella_expired"
 	if _, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
 		UserID:      env.adminUser.ID,
-		Name:        auth.StellaTokenName,
+		Name:        "STELLA_TOKEN",
 		TokenHash:   testTokenHash(rawToken),
 		TokenPrefix: rawToken,
 		ExpiresAt:   &expired,
@@ -168,11 +148,11 @@ func TestBearerAuthRejectsExpiredToken(t *testing.T) {
 
 func TestBearerAuthRejectsRevokedToken(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
+	env.srv.SetTokenService(auth.NewTokenService(env.authStore))
 	rawToken := "stella_revoked"
 	token, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
 		UserID:      env.adminUser.ID,
-		Name:        auth.StellaTokenName,
+		Name:        "STELLA_TOKEN",
 		TokenHash:   testTokenHash(rawToken),
 		TokenPrefix: rawToken,
 	})
@@ -191,7 +171,7 @@ func TestBearerAuthRejectsRevokedToken(t *testing.T) {
 
 func TestBearerAuthWrongTokenDenied(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
+	env.srv.SetTokenService(auth.NewTokenService(env.authStore))
 	// A wrong bearer token with no valid fallback should be rejected.
 	rr := doBearerRequest(t, env.srv, "stella_wrong_token", "GET", "/api/auth/me", nil)
 	if rr.Code != http.StatusUnauthorized {

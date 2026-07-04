@@ -9,22 +9,16 @@ import (
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
-type declarableEnvVault interface {
-	ResolveDeclarableEnv(ctx context.Context, userID string, agentID string, projectID string, names []string) (map[string]string, []string, error)
-	RecordExecSecretUse(ctx context.Context, userID string, agentID string, sessionID string, name string, command string) error
-}
-
 type execSecretResolver struct {
 	cfg   agentsandbox.Config
-	vault declarableEnvVault
+	vault agentsandbox.VaultEnvLoader
 }
 
 func newExecSecretResolver(cfg agentsandbox.Config) *execSecretResolver {
-	vault, ok := cfg.VaultEnvLoader.(declarableEnvVault)
-	if !ok {
+	if cfg.VaultEnvLoader == nil {
 		return nil
 	}
-	return &execSecretResolver{cfg: cfg, vault: vault}
+	return &execSecretResolver{cfg: cfg, vault: cfg.VaultEnvLoader}
 }
 
 func (r *execSecretResolver) ResolveExecSecrets(ctx context.Context, names []string, command string) (map[string]string, []string, error) {

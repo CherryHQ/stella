@@ -28,16 +28,10 @@ func (s *fakeTokenStore) GetUser(_ context.Context, id string) (User, error) {
 	return user, nil
 }
 
-type fakeVault struct{}
-
-func (v fakeVault) SetReserved(_ context.Context, userID string, name string, plaintext string) error {
-	return nil
-}
-
 func TestTokenServiceCreateScopedTokenRequiresActiveUser(t *testing.T) {
 	now := time.Now()
 	store := newFakeTokenStore()
-	svc := NewTokenService(store, fakeVault{})
+	svc := NewTokenService(store)
 	svc.now = func() time.Time { return now }
 	if _, err := svc.CreateScopedToken(context.Background(), "1", "agent-1", "session-1", ""); err == nil {
 		t.Fatal("expected inactive user to be rejected")
@@ -59,7 +53,7 @@ func TestTokenServiceCreateScopedTokenRequiresActiveUser(t *testing.T) {
 
 func TestScopedTokenSecretFromEnv(t *testing.T) {
 	t.Setenv(scopedTokenSecretEnv, "stable-secret")
-	if got := string(NewTokenService(newFakeTokenStore(), fakeVault{}).scopedSecret); got != "stable-secret" {
+	if got := string(NewTokenService(newFakeTokenStore()).scopedSecret); got != "stable-secret" {
 		t.Fatalf("scoped secret = %q", got)
 	}
 }

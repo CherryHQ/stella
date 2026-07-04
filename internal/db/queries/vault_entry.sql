@@ -98,15 +98,6 @@ WHERE scope = sqlc.arg(scope)
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
   AND name = sqlc.arg(name);
 
--- name: UpsertVaultEntry :one
-INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext, inject_always)
-VALUES ($1, 'user', $2, NULL, $3, $4, coalesce(sqlc.narg(inject_always), false))
-ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), name) DO UPDATE SET
-    ciphertext = excluded.ciphertext,
-    inject_always = coalesce(sqlc.narg(inject_always), vault_entry.inject_always),
-    updated_at = now()
-RETURNING *;
-
 -- name: UpsertVaultEntryByScope :one
 INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext, inject_always, description)
 VALUES ($1, $2, $3, $4, $5, $6, coalesce(sqlc.narg(inject_always), false), sqlc.narg(description))

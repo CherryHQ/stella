@@ -6,10 +6,23 @@ import (
 	"testing"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/vault"
 )
 
 type fakeExecSecretVault struct {
 	audited []string
+}
+
+func (v *fakeExecSecretVault) LoadEnvForAgentProject(context.Context, string, string, string) (map[string]string, error) {
+	return nil, nil
+}
+
+func (v *fakeExecSecretVault) LoadFullEnvForAgent(context.Context, string, string) (map[string]string, error) {
+	return nil, nil
+}
+
+func (v *fakeExecSecretVault) ListDeclarableForAgentProject(context.Context, string, string, string) ([]vault.DeclarableSecret, error) {
+	return nil, nil
 }
 
 func (v *fakeExecSecretVault) ResolveDeclarableEnv(_ context.Context, _ string, _ string, _ string, names []string) (map[string]string, []string, error) {

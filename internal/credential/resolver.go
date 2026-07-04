@@ -63,7 +63,7 @@ type Service struct {
 }
 
 // Config wires the backends a Service needs. PATs/Users may be nil (PAT auth
-// disabled); Tokens may be nil (legacy/scoped bearer auth disabled).
+// disabled); Tokens may be nil (scoped bearer auth disabled).
 type Config struct {
 	PATs   PATStore
 	OAuth  OAuthAccessStore
@@ -91,8 +91,7 @@ func NewService(cfg Config) *Service {
 //     cookie/session auth.
 //   - (nil, err): a Bearer credential is present but invalid, unknown, or
 //     reserved. The caller MUST deny and MUST NOT fall back to any full-access
-//     path. In particular a malformed stella_pat_/stella_oat_ token is dispatched
-//     here and never reaches the legacy STELLA_TOKEN lookup.
+//     path.
 //   - (principal, nil): success.
 func (s *Service) Resolve(ctx context.Context, header string) (*Principal, error) {
 	fields := strings.Fields(header)

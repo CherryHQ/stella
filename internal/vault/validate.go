@@ -28,9 +28,6 @@ var reservedWordPrefixes = []string{
 	"TMPDIR",
 }
 
-// StellaTokenName is the reserved sandbox session token env var.
-const StellaTokenName = "STELLA_TOKEN"
-
 // ValidateName checks that a vault entry name is a valid env var name
 // and is not reserved.
 func ValidateName(name string) error {

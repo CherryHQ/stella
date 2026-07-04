@@ -8,37 +8,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/vault"
 	pkgauth "github.com/CherryHQ/stella/pkg/auth"
 )
 
-const (
-	// StellaTokenName is re-exported from the vault package for callers that only
-	// import auth.
-	StellaTokenName      = vault.StellaTokenName
-	scopedTokenSecretEnv = "STELLA_SCOPED_TOKEN_SECRET"
-)
+const scopedTokenSecretEnv = "STELLA_SCOPED_TOKEN_SECRET"
 
 type tokenStore interface {
 	GetUser(ctx context.Context, id string) (User, error)
 }
 
-// VaultWriter writes internal plaintext secrets to the per-user vault.
-type VaultWriter interface {
-	SetReserved(ctx context.Context, userID string, name string, plaintext string) error
-}
-
 // TokenService owns API token lifecycle and authentication.
 type TokenService struct {
 	store        tokenStore
-	vault        VaultWriter
 	now          func() time.Time
 	scopedSecret []byte
 }
 
-// NewTokenService creates a token service backed by auth persistence and vault writes.
-func NewTokenService(store tokenStore, vault VaultWriter) *TokenService {
-	return &TokenService{store: store, vault: vault, now: time.Now, scopedSecret: scopedTokenSecret()}
+// NewTokenService creates a token service backed by auth persistence.
+func NewTokenService(store tokenStore) *TokenService {
+	return &TokenService{store: store, now: time.Now, scopedSecret: scopedTokenSecret()}
 }
 
 // CreateScopedToken signs a short-lived sandbox token bound to one user-agent session.

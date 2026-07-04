@@ -13,7 +13,6 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
-	"github.com/CherryHQ/stella/internal/vault"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -146,15 +145,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			sections = append(sections, skillsSection)
 		}
 		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
-			if lister, ok := cfg.VaultEnvLoader.(interface {
-				ListDeclarableForAgentProject(context.Context, string, string, string) ([]vault.DeclarableSecret, error)
-			}); ok {
-				if secrets, err := lister.ListDeclarableForAgentProject(ctx, params.UserID, params.AgentID, params.ProjectID); err == nil && len(secrets) > 0 {
-					sections = append(sections, pkgplugins.SystemPromptSection{
-						Title:   "Declarable Secrets",
-						Content: "The following vault secrets can be injected into a single bash command by passing their names in the bash `secrets` parameter. Values are never shown; only declare the names needed for that command.\n\n" + formatDeclarableSecrets(secrets),
-					})
-				}
+			if secrets, err := cfg.VaultEnvLoader.ListDeclarableForAgentProject(ctx, params.UserID, params.AgentID, params.ProjectID); err == nil && len(secrets) > 0 {
+				sections = append(sections, pkgplugins.SystemPromptSection{
+					Title:   "Declarable Secrets",
+					Content: "The following vault secrets can be injected into a single bash command by passing their names in the bash `secrets` parameter. Values are never shown; only declare the names needed for that command.\n\n" + formatDeclarableSecrets(secrets),
+				})
 			}
 		}
 

@@ -142,7 +142,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	srv := server.New(ctx, store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
 	oidcStore := appdb.NewOIDCStore(db)
-	tokenSvc := auth.NewTokenService(as, nil)
+	tokenSvc := auth.NewTokenService(as)
 	srv.SetTokenService(tokenSvc)
 	srv.SetUserStore(oidcStore)
 	srv.SetLoginIdentityStore(oidcStore)

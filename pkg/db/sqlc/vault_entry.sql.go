@@ -489,48 +489,6 @@ func (q *Queries) ReplaceVaultEntryProjectBindings(ctx context.Context, arg Repl
 	return err
 }
 
-const upsertVaultEntry = `-- name: UpsertVaultEntry :one
-INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext, inject_always)
-VALUES ($1, 'user', $2, NULL, $3, $4, coalesce($5, false))
-ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), name) DO UPDATE SET
-    ciphertext = excluded.ciphertext,
-    inject_always = coalesce($5, vault_entry.inject_always),
-    updated_at = now()
-RETURNING id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
-`
-
-type UpsertVaultEntryParams struct {
-	ID           string      `json:"id"`
-	UserID       pgtype.Text `json:"user_id"`
-	Name         string      `json:"name"`
-	Ciphertext   string      `json:"ciphertext"`
-	InjectAlways interface{} `json:"inject_always"`
-}
-
-func (q *Queries) UpsertVaultEntry(ctx context.Context, arg UpsertVaultEntryParams) (VaultEntry, error) {
-	row := q.db.QueryRow(ctx, upsertVaultEntry,
-		arg.ID,
-		arg.UserID,
-		arg.Name,
-		arg.Ciphertext,
-		arg.InjectAlways,
-	)
-	var i VaultEntry
-	err := row.Scan(
-		&i.ID,
-		&i.Scope,
-		&i.UserID,
-		&i.AgentID,
-		&i.Name,
-		&i.Ciphertext,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.InjectAlways,
-		&i.Description,
-	)
-	return i, err
-}
-
 const upsertVaultEntryByScope = `-- name: UpsertVaultEntryByScope :one
 INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext, inject_always, description)
 VALUES ($1, $2, $3, $4, $5, $6, coalesce($7, false), $8)
