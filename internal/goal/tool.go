@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/tools/toolruntime"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -35,11 +34,11 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("goal service is unavailable — try again later")
 	}
-	ident, err := toolruntime.ToolIdentity(ctx, "goal")
+	ident, err := authz.ToolIdentity(ctx, "goal")
 	if err != nil {
 		return "", err
 	}
-	action, err := toolruntime.ActionArg(args, "goal")
+	action, err := tools.ActionArg(args, "goal")
 	if err != nil {
 		return "", err
 	}
@@ -48,9 +47,9 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		if errors.Is(err, ErrNotFound) {
 			return "", fmt.Errorf("goal not found — check the id with action=list")
 		}
-		return "", toolruntime.MapError("goal", err)
+		return "", authz.MapError("goal", err)
 	}
-	return toolruntime.MarshalResult(out)
+	return tools.MarshalResult(out)
 }
 
 type goalHandler struct {
@@ -70,12 +69,12 @@ func (h goalHandler) Create(ctx context.Context, in ToolCreateInput) (any, error
 		create.ReviewPolicy = in.ReviewPolicy
 	}
 	if len(in.AcceptanceContract) > 0 {
-		if err := toolruntime.DecodeMap(in.AcceptanceContract, &create.Contract); err != nil {
+		if err := tools.DecodeMap(in.AcceptanceContract, &create.Contract); err != nil {
 			return nil, fmt.Errorf("acceptance_contract is invalid — fix the JSON object and retry")
 		}
 	}
 	if len(in.ConvergencePolicy) > 0 {
-		if err := toolruntime.DecodeMap(in.ConvergencePolicy, &create.Convergence); err != nil {
+		if err := tools.DecodeMap(in.ConvergencePolicy, &create.Convergence); err != nil {
 			return nil, fmt.Errorf("convergence_policy is invalid — fix the JSON object and retry")
 		}
 	}
@@ -96,7 +95,7 @@ func (h goalHandler) Get(ctx context.Context, in GetInput) (any, error) {
 }
 
 func (h goalHandler) List(ctx context.Context, in ListInput) (any, error) {
-	limit, offset, err := toolruntime.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
+	limit, offset, err := tools.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
@@ -116,7 +115,7 @@ func (h goalHandler) List(ctx context.Context, in ListInput) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	page, next := toolruntime.PageRows(rows, limit, offset)
+	page, next := tools.PageRows(rows, limit, offset)
 	items := make([]goalResponse, 0, len(page))
 	for _, row := range page {
 		items = append(items, goalSummary(row))

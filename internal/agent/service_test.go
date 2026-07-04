@@ -8,6 +8,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -77,8 +78,8 @@ func TestService_Chat_SessionEnsuredBeforeRuntime(t *testing.T) {
 	}
 
 	// A session must exist in the store.
-	ctx := memory.WithUserID(context.Background(), "u1")
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx := authz.WithUserID(context.Background(), "u1")
+	ctx = authz.WithAgentID(ctx, "agent1")
 	infos, err := mem.ListInfo(ctx, memory.ListOptions{UserID: "u1", AgentID: "agent1"})
 	if err != nil {
 		t.Fatalf("ListInfo: %v", err)

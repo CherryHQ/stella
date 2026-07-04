@@ -16,7 +16,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -364,8 +363,8 @@ type addJobSpec struct {
 
 // AddJobForContext creates a user-owned job bound to the current execution context.
 func (s *Service) AddJobForContext(ctx context.Context, name, message string, sched Schedule, sessionMode string) (Job, error) {
-	userID := memory.UserIDFromContext(ctx)
-	agentID := memory.AgentIDFromContext(ctx)
+	userID := authz.UserIDFromContext(ctx)
+	agentID := authz.AgentIDFromContext(ctx)
 	execScope := ExecScopeSystem
 	if userID != "" {
 		execScope = ExecScopeUser

@@ -215,9 +215,9 @@ func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident authz.Identity
 	if !ok {
 		return "", authz.ErrNotFound
 	}
-	loadCtx := memory.WithUserID(ctx, ident.UserID)
+	loadCtx := authz.WithUserID(ctx, ident.UserID)
 	if ident.AgentID != "" {
-		loadCtx = memory.WithAgentID(loadCtx, ident.AgentID)
+		loadCtx = authz.WithAgentID(loadCtx, ident.AgentID)
 	}
 	si, err := sm.LoadInfo(loadCtx, sessionID)
 	if err != nil {

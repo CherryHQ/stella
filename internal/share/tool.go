@@ -8,7 +8,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/tools/toolruntime"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -29,11 +28,11 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("share service is unavailable — try again later")
 	}
-	ident, err := toolruntime.ToolIdentity(ctx, "share")
+	ident, err := authz.ToolIdentity(ctx, "share")
 	if err != nil {
 		return "", err
 	}
-	action, err := toolruntime.ActionArg(args, "share")
+	action, err := tools.ActionArg(args, "share")
 	if err != nil {
 		return "", err
 	}
@@ -47,9 +46,9 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		case errors.Is(err, ErrUnsupportedType):
 			return "", fmt.Errorf("unsupported artifact type — export as html, markdown, pdf, svg, or an image and retry")
 		}
-		return "", toolruntime.MapError("share", err)
+		return "", authz.MapError("share", err)
 	}
-	return toolruntime.MarshalResult(out)
+	return tools.MarshalResult(out)
 }
 
 type shareHandler struct {
@@ -74,7 +73,7 @@ func (h shareHandler) Article(ctx context.Context, in ArticleInput) (any, error)
 }
 
 func (h shareHandler) List(ctx context.Context, in ListInput) (any, error) {
-	limit, offset, err := toolruntime.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
+	limit, offset, err := tools.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}

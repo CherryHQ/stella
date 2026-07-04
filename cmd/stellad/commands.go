@@ -36,7 +36,6 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
-	"github.com/CherryHQ/stella/internal/tools"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
@@ -180,7 +179,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	builtinTools := []agent.BuiltinTool{
 		{Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites())},
 	}
-	if notifyTool := tools.NewNotifyTool(dispatcher); notifyTool != nil {
+	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, agent.BuiltinTool{Tool: notifyTool})
 	}
 

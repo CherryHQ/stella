@@ -1,4 +1,4 @@
-package toolruntime_test
+package authz_test
 
 import (
 	"context"
@@ -84,7 +84,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("set owner agent vault: %v", err)
 	}
 
-	foreignCtx := memory.WithAgentID(memory.WithUserID(ctx, foreignUser), agentID)
+	foreignCtx := authz.WithAgentID(authz.WithUserID(ctx, foreignUser), agentID)
 	goalTool := goal.NewTool(goalBundle)
 	for _, tc := range []struct {
 		name string
@@ -239,7 +239,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 
 	recallySvc := recally.NewService(recally.NewStore(db), recally.NewFileManager(home), home)
 	recallyTool := recally.NewTool(recallySvc)
-	ownerRecallyCtx := memory.WithAgentID(memory.WithUserID(ctx, ownerUser), agentID)
+	ownerRecallyCtx := authz.WithAgentID(authz.WithUserID(ctx, ownerUser), agentID)
 	out, err = recallyTool.Execute(ownerRecallyCtx, map[string]any{"action": "save", "articles": []any{
 		map[string]any{"url": "https://example.com/one", "title": "One", "content": "one body"},
 		map[string]any{"url": "https://example.com/missing", "title": "Missing"},

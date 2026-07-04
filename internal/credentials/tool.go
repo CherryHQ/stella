@@ -2,11 +2,11 @@ package credentials
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/tools/toolruntime"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -21,19 +21,26 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("oauth service is unavailable — try again later")
 	}
-	ident, err := toolruntime.ToolIdentity(ctx, "oauth")
+	ident, err := authz.ToolIdentity(ctx, "oauth")
 	if err != nil {
 		return "", err
 	}
-	action, err := toolruntime.ActionArg(args, "oauth")
+	action, err := tools.ActionArg(args, "oauth")
 	if err != nil {
 		return "", err
 	}
 	out, err := Dispatch(ctx, oauthHandler{svc: t.svc, ident: ident}, action, args)
 	if err != nil {
-		return "", toolruntime.MapError("oauth", err)
+		return "", mapOAuthToolError(err)
 	}
-	return toolruntime.MarshalResult(out)
+	return tools.MarshalResult(out)
+}
+
+func mapOAuthToolError(err error) error {
+	if errors.Is(err, authz.ErrNotFound) {
+		return fmt.Errorf("flow expired or unknown — start a new connect")
+	}
+	return authz.MapError("oauth", err)
 }
 
 type oauthHandler struct {

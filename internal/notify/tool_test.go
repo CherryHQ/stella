@@ -1,10 +1,10 @@
-package tools
+package notify
 
 import (
 	"context"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/authz"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -31,8 +31,8 @@ func (m *mockNotifier) NotifyUser(_ context.Context, userID string, n pkgchannel
 
 func TestNotifyToolUsesNotifyUserForScopedUser(t *testing.T) {
 	notifier := &mockNotifier{}
-	tool := NewNotifyTool(notifier)
-	ctx := memory.WithUserID(context.Background(), "7")
+	tool := NewTool(notifier)
+	ctx := authz.WithUserID(context.Background(), "7")
 
 	_, err := tool.Execute(ctx, map[string]any{"message": "hello"})
 	if err != nil {
@@ -51,8 +51,8 @@ func TestNotifyToolUsesNotifyUserForScopedUser(t *testing.T) {
 
 func TestNotifyToolUsesNotifyForExplicitTarget(t *testing.T) {
 	notifier := &mockNotifier{}
-	tool := NewNotifyTool(notifier)
-	ctx := memory.WithUserID(context.Background(), "7")
+	tool := NewTool(notifier)
+	ctx := authz.WithUserID(context.Background(), "7")
 
 	_, err := tool.Execute(ctx, map[string]any{"message": "hello", "channel": "telegram"})
 	if err != nil {
@@ -66,8 +66,8 @@ func TestNotifyToolUsesNotifyForExplicitTarget(t *testing.T) {
 	}
 }
 
-func TestNewNotifyToolReturnsNilForNilNotifier(t *testing.T) {
-	if tool := NewNotifyTool(nil); tool != nil {
+func TestNewToolReturnsNilForNilNotifier(t *testing.T) {
+	if tool := NewTool(nil); tool != nil {
 		t.Fatal("expected nil tool for nil notifier")
 	}
 }

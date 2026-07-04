@@ -20,12 +20,12 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/mcp"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -378,10 +378,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 func schedulerJobContext(ctx context.Context, agentID string, job scheduler.Job) context.Context {
 	if job.UserID != "" {
-		ctx = memory.WithUserID(ctx, job.UserID)
+		ctx = authz.WithUserID(ctx, job.UserID)
 	}
 	if agentID != "" {
-		ctx = memory.WithAgentID(ctx, agentID)
+		ctx = authz.WithAgentID(ctx, agentID)
 	}
 	ctx = agent.WithExcludedTools(ctx, "scheduler")
 	return ctx

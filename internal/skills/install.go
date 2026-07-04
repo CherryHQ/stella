@@ -9,7 +9,7 @@ import (
 
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 
-	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/authz"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -156,8 +156,8 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 	}
 
 	vc := pkgplugins.SkillViewContext{
-		UserID:  memory.UserIDFromContext(ctx),
-		AgentID: memory.AgentIDFromContext(ctx),
+		UserID:  authz.UserIDFromContext(ctx),
+		AgentID: authz.AgentIDFromContext(ctx),
 	}
 
 	sk := pkgplugins.Skill{

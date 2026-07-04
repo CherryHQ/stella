@@ -16,7 +16,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/CherryHQ/stella/internal/skills"
-	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 )
 
 const (
@@ -178,7 +177,7 @@ func readUploadedSkillArchive(file multipart.File, header *multipart.FileHeader)
 	if name == "" {
 		name = path.Base(root)
 	}
-	if errs := skillstool.ValidateSkillName(name, path.Base(root)); len(errs) > 0 {
+	if errs := skills.ValidateSkillName(name, path.Base(root)); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid skill name %q: %s", name, strings.Join(errs, "; "))
 	}
 	createdAt := strings.TrimSpace(fm.CreatedAt)
@@ -192,7 +191,7 @@ func readUploadedSkillArchive(file multipart.File, header *multipart.FileHeader)
 	return &uploadedSkill{
 		name:                   name,
 		description:            fm.Description,
-		status:                 skillstool.NormalizeSkillStatus(fm.Status),
+		status:                 skills.NormalizeSkillStatus(fm.Status),
 		disableModelInvocation: fm.DisableModelInvocation,
 		metadata:               meta,
 		files:                  files,

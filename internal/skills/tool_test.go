@@ -17,20 +17,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/memory"
-	coreskills "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func TestMain(m *testing.M) { dbtest.Main(m) }
-
 // testSkillStore is a minimal pkgplugins.SkillStore backed directly by sqlc.
-// It avoids the import cycle internal/skills → internal/tools/skills → internal/skills.
 type testSkillStore struct {
 	db *pgxpool.Pool
 	q  *sqlc.Queries
@@ -246,7 +242,7 @@ func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) err
 func TestCreateIgnoresLegacyKnowledgeType(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	tool := NewTool(store, "", "")
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), userID), agentID)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), userID), agentID)
 
 	if _, err := tool.Execute(ctx, map[string]any{
 		"action":         "create",
@@ -298,8 +294,8 @@ func tsMapRow(r sqlc.Skill) pkgplugins.Skill {
 // ctxWithUser returns a context carrying userID and agentID.
 func ctxWithUser(userID string, agentID string) context.Context {
 	ctx := context.Background()
-	ctx = memory.WithUserID(ctx, userID)
-	ctx = memory.WithAgentID(ctx, agentID)
+	ctx = authz.WithUserID(ctx, userID)
+	ctx = authz.WithAgentID(ctx, agentID)
 	return ctx
 }
 
@@ -566,7 +562,7 @@ func TestTargetScopeRequiresUserContext(t *testing.T) {
 // user-scope writes are refused (no owner), while the agent scope still works.
 func TestTargetScopeGroupContext(t *testing.T) {
 	tool := NewTool(nil, "/tmp/stella", "")
-	groupCtx := memory.WithAgentID(context.Background(), "agent-1")
+	groupCtx := authz.WithAgentID(context.Background(), "agent-1")
 
 	if _, err := tool.targetScope(groupCtx, "user"); err == nil {
 		t.Fatal("expected user scope to be refused in a group (no user) context")
@@ -714,7 +710,7 @@ func TestLoadMaterializesDBSkillDir(t *testing.T) {
 	}
 
 	agentBase := t.TempDir()
-	tool := NewTool(store, "", "").WithSkillDiskLayout(coreskills.SkillDiskLayout{Agent: agentBase})
+	tool := NewTool(store, "", "").WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
 	result, err := tool.load(ctx, map[string]any{"name": "agent-db-skill"})
 	if err != nil {
 		t.Fatalf("load skill: %v", err)
@@ -763,7 +759,7 @@ func TestLoadOmitsSkillDirWhenMaterializeFails(t *testing.T) {
 		t.Fatalf("write blocking file: %v", err)
 	}
 
-	tool := NewTool(store, "", "").WithSkillDiskLayout(coreskills.SkillDiskLayout{Agent: agentBase})
+	tool := NewTool(store, "", "").WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
 	result, err := tool.load(ctx, map[string]any{"name": "unwritable-skill"})
 	if err != nil {
 		t.Fatalf("load should return DB content when materialization fails: %v", err)

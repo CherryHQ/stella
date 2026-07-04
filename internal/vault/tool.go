@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/tools/toolruntime"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -20,19 +19,19 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("vault service is unavailable — ask an operator to configure STELLA_VAULT_KEY")
 	}
-	ident, err := toolruntime.ToolIdentity(ctx, "vault")
+	ident, err := authz.ToolIdentity(ctx, "vault")
 	if err != nil {
 		return "", err
 	}
-	action, err := toolruntime.ActionArg(args, "vault")
+	action, err := tools.ActionArg(args, "vault")
 	if err != nil {
 		return "", err
 	}
 	out, err := Dispatch(ctx, vaultHandler{svc: t.svc, ident: ident}, action, args)
 	if err != nil {
-		return "", toolruntime.MapError("vault", err)
+		return "", authz.MapError("vault", err)
 	}
-	return toolruntime.MarshalResult(out)
+	return tools.MarshalResult(out)
 }
 
 type vaultHandler struct {

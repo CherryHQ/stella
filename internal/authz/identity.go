@@ -3,8 +3,13 @@ package authz
 import (
 	"context"
 	"errors"
+)
 
-	"github.com/CherryHQ/stella/internal/memory"
+type contextKey string
+
+const (
+	userIDKey  contextKey = "memory_user_id"
+	agentIDKey contextKey = "memory_agent_id"
 )
 
 var (
@@ -12,6 +17,28 @@ var (
 	ErrForbidden       = errors.New("permission denied")
 	ErrUnauthenticated = errors.New("authentication required - ask the user to run this from a signed-in one-on-one session")
 )
+
+// WithUserID attaches a user ID to the context.
+func WithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDKey, userID)
+}
+
+// UserIDFromContext extracts the user ID from context.
+func UserIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(userIDKey).(string)
+	return id
+}
+
+// WithAgentID attaches an agent ID to the context.
+func WithAgentID(ctx context.Context, agentID string) context.Context {
+	return context.WithValue(ctx, agentIDKey, agentID)
+}
+
+// AgentIDFromContext extracts the agent ID from context.
+func AgentIDFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(agentIDKey).(string)
+	return s
+}
 
 // Identity is the non-spoofable runtime identity carried by context or an HTTP
 // adapter. AgentScoped means access must stay inside AgentID's resource boundary.
@@ -27,8 +54,8 @@ type Identity struct {
 // boundary the sandbox scoped token enforced on the HTTP path.
 func FromContext(ctx context.Context) (Identity, error) {
 	ident := Identity{
-		UserID:  memory.UserIDFromContext(ctx),
-		AgentID: memory.AgentIDFromContext(ctx),
+		UserID:  UserIDFromContext(ctx),
+		AgentID: AgentIDFromContext(ctx),
 	}
 	if ident.UserID == "" {
 		return Identity{}, ErrUnauthenticated

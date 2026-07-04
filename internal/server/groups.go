@@ -14,9 +14,9 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/eventlog"
-	"github.com/CherryHQ/stella/internal/memory"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -561,7 +561,7 @@ func (s *Server) handleGroupCommand(ctx context.Context, groupID, content string
 			if svc == nil {
 				continue
 			}
-			agentCtx := memory.WithAgentID(ctx, m.AgentID)
+			agentCtx := authz.WithAgentID(ctx, m.AgentID)
 			sessionKey := agent.BuildGroupSessionKey(m.AgentID, groupID)
 			channelStr := "group:" + groupID
 			info, err := svc.ResolveChannelSession(agentCtx, sessionKey, groupID, m.AgentID, session.Channel(channelStr))

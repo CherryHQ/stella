@@ -210,7 +210,7 @@ CREATE TABLE ctx_group_memory (
 
 | 面                      | 代码                                                              | 群 session 行为                                                                  |
 | ----------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| memory / prompt profile | `runtime/chat.go`(`memory.WithUserID`)、`prompt/prompt.go`        | 不注入任何 human;读群抽屉,绝不读成员私有 profile                                 |
+| memory / prompt profile | `runtime/chat.go`(`authz.WithUserID`)、`prompt/prompt.go`         | 不注入任何 human;读群抽屉,绝不读成员私有 profile                                 |
 | workspace               | `runner_builder.go`、`workspace.go`                               | 路径 `users/group-{group_id}/`——群是独立 principal,绝不是成员的 `users/{userID}` |
 | vault                   | `sandbox/env.go`                                                  | 只解 agent/群作用域密钥,绝不解成员私有 vault                                     |
 | scoped token            | `auth/token_service.go`、`auth/scoped_token.go`、`sandbox/env.go` | 主体 = 群 principal `group:{group_id}`,不是 human userID                         |
@@ -235,7 +235,7 @@ D9 让群 session 保持匿名,没有任何真人拥有运行时。但 agent 仍
 
 硬规则:
 
-- **是个性化目标,不是运行时身份。** `CurrentSpeaker.UserID` 绝不可传给 `memory.WithUserID`、sandbox/vault/token 代码、plugin 或 delegate 上下文、notify 路由、hook 用户元数据。`runtime/chat.go` 为群聊回合附上发言人,但仍跳过 `WithUserID`,故 D9 四个面全部保持群作用域。
+- **是个性化目标,不是运行时身份。** `CurrentSpeaker.UserID` 绝不可传给 `authz.WithUserID`、sandbox/vault/token 代码、plugin 或 delegate 上下文、notify 路由、hook 用户元数据。`runtime/chat.go` 为群聊回合附上发言人,但仍跳过 `WithUserID`,故 D9 四个面全部保持群作用域。
 - **逐轮构建,绝不缓存。** prompt 的 `## Current Speaker` 段由 PoolManager 的 before-run prompt 重建逻辑每轮重渲整份系统提示词生成。缓存的群 runner 不持有发言人上下文,故一个发言人的回合元数据不会泄漏到另一个发言人的回合。
 - **prompt 渲染按 `GroupID` 分支,而非按群记忆是否为空。** 群聊回合渲染 `## Group Memory`(+ 可选的 `## Current Speaker`),即使群抽屉为空也绝不回退到按用户的 `## User Profile` 段。
 - **不自动注入私有 profile。** `## Current Speaker` 只暴露显示名与已关联/未关联状态,不包含发言人的 profile 正文、带日期条目、soul 或 constraints:公开群不是披露某成员私有记忆,也不是把某成员硬规则套到整群的地方。

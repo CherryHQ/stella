@@ -21,11 +21,12 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -523,7 +524,7 @@ func toSessionResponse(info memory.SessionInfo) sessionResponse {
 func memoryUserContext(r *http.Request) context.Context {
 	ctx := r.Context()
 	if info := UserFromContext(ctx); info != nil && info.UserID != "" {
-		ctx = memory.WithUserID(ctx, info.UserID)
+		ctx = authz.WithUserID(ctx, info.UserID)
 	}
 	return ctx
 }
@@ -531,7 +532,7 @@ func memoryUserContext(r *http.Request) context.Context {
 func memoryContext(r *http.Request, agentID string) context.Context {
 	ctx := memoryUserContext(r)
 	if agentID != "" {
-		ctx = memory.WithAgentID(ctx, agentID)
+		ctx = authz.WithAgentID(ctx, agentID)
 	}
 	return ctx
 }

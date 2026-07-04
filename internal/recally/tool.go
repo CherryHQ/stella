@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/tools/toolruntime"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -28,19 +27,19 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("recally service is unavailable — try again later")
 	}
-	ident, err := toolruntime.ToolIdentity(ctx, "recally")
+	ident, err := authz.ToolIdentity(ctx, "recally")
 	if err != nil {
 		return "", err
 	}
-	action, err := toolruntime.ActionArg(args, "recally")
+	action, err := tools.ActionArg(args, "recally")
 	if err != nil {
 		return "", err
 	}
 	out, err := Dispatch(ctx, recallyHandler{svc: t.svc, ident: ident}, action, args)
 	if err != nil {
-		return "", toolruntime.MapError("recally", err)
+		return "", authz.MapError("recally", err)
 	}
-	return toolruntime.MarshalResult(out)
+	return tools.MarshalResult(out)
 }
 
 type recallyHandler struct {
@@ -71,7 +70,7 @@ func (h recallyHandler) Save(ctx context.Context, in SaveInput) (any, error) {
 }
 
 func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) (any, error) {
-	limit, offset, err := toolruntime.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
+	limit, offset, err := tools.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
@@ -94,7 +93,7 @@ func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) 
 	if err != nil {
 		return nil, err
 	}
-	page, next := toolruntime.PageRows(articles, limit, offset)
+	page, next := tools.PageRows(articles, limit, offset)
 	items := make([]recallyArticleListItem, 0, len(page))
 	for _, article := range page {
 		items = append(items, recallyArticleListSummary(article))
@@ -124,7 +123,7 @@ func (h recallyHandler) FeedAdd(ctx context.Context, in FeedAddInput) (any, erro
 }
 
 func (h recallyHandler) FeedList(ctx context.Context, in FeedListInput) (any, error) {
-	limit, offset, err := toolruntime.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
+	limit, offset, err := tools.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
@@ -142,7 +141,7 @@ func (h recallyHandler) FeedList(ctx context.Context, in FeedListInput) (any, er
 	if err != nil {
 		return nil, err
 	}
-	page, next := toolruntime.PageRows(feeds, limit, offset)
+	page, next := tools.PageRows(feeds, limit, offset)
 	items := make([]recallyFeedItem, 0, len(page))
 	for _, feed := range page {
 		items = append(items, recallyFeedSummary(feed))

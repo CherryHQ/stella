@@ -13,8 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/memory"
-	coreskills "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/authz"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -80,7 +79,7 @@ type Tool struct {
 	projectRoot string
 	// layout is the single authority for where a DB-backed skill's files live on
 	// disk, by scope; it must agree with the write side that materialized them.
-	layout coreskills.SkillDiskLayout
+	layout SkillDiskLayout
 	view   SkillDirView
 	// Plugin visibility is captured at runner construction so tool search and
 	// prompt search instructions use the same visible system-skill set.
@@ -100,7 +99,7 @@ func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool 
 // WithSkillDiskLayout sets where DB-backed skills live on disk, by scope. The
 // emitted <skill_dir> for a DB skill comes from here, so it must match the dirs
 // the disk-mirroring writer used. The zero value emits no dir for DB skills.
-func (t *Tool) WithSkillDiskLayout(l coreskills.SkillDiskLayout) *Tool {
+func (t *Tool) WithSkillDiskLayout(l SkillDiskLayout) *Tool {
 	t.layout = l
 	return t
 }
@@ -226,7 +225,7 @@ func (t *Tool) targetScope(ctx context.Context, rawScope string) (string, error)
 		// create() then stamped an empty owner — which fails late on the user_id
 		// foreign key under normal enforcement, or (without it) leaves a dead row the
 		// store never resolves and DiskSyncStore never materializes. This fails fast.
-		if memory.UserIDFromContext(ctx) == "" {
+		if authz.UserIDFromContext(ctx) == "" {
 			return "", fmt.Errorf("user skill scope is unavailable without a user context")
 		}
 		return scope, nil
@@ -240,8 +239,8 @@ func (t *Tool) targetScope(ctx context.Context, rawScope string) (string, error)
 // viewContext builds a SkillViewContext from the request context.
 func (t *Tool) viewContext(ctx context.Context) pkgplugins.SkillViewContext {
 	return pkgplugins.SkillViewContext{
-		UserID:  memory.UserIDFromContext(ctx),
-		AgentID: memory.AgentIDFromContext(ctx),
+		UserID:  authz.UserIDFromContext(ctx),
+		AgentID: authz.AgentIDFromContext(ctx),
 	}
 }
 

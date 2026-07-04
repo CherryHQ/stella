@@ -1,18 +1,18 @@
-package tools
+package notify
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/authz"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
-// NewNotifyTool creates a notify tool with the given notifier service.
+// NewTool creates a notify tool with the given notifier service.
 // Returns nil if notifier is nil.
-func NewNotifyTool(notifier pkgplugins.Notifier) pkgtools.Tool {
+func NewTool(notifier pkgplugins.Notifier) pkgtools.Tool {
 	if notifier == nil {
 		return nil
 	}
@@ -74,7 +74,7 @@ func (t *notifyTool) Execute(ctx context.Context, args map[string]any) (string, 
 
 	var err error
 	if ch == "" && chatID == "" {
-		if userID := memory.UserIDFromContext(ctx); userID != "" {
+		if userID := authz.UserIDFromContext(ctx); userID != "" {
 			err = t.service.NotifyUser(ctx, userID, notification)
 		} else {
 			err = t.service.Notify(ctx, notification)

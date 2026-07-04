@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
@@ -70,7 +71,7 @@ func listSessionInfoForReview(ctx context.Context, sm memory.SessionManager, age
 	}); ok {
 		return lister.ListInfoForReview(ctx, opts)
 	}
-	ctx = memory.WithAgentID(ctx, agentID)
+	ctx = authz.WithAgentID(ctx, agentID)
 	return sm.ListInfo(ctx, opts)
 }
 

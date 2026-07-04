@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/tools/toolruntime"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -21,19 +20,19 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("scheduler service is unavailable — try again later")
 	}
-	ident, err := toolruntime.ToolIdentity(ctx, "scheduler")
+	ident, err := authz.ToolIdentity(ctx, "scheduler")
 	if err != nil {
 		return "", err
 	}
-	action, err := toolruntime.ActionArg(args, "scheduler")
+	action, err := tools.ActionArg(args, "scheduler")
 	if err != nil {
 		return "", err
 	}
 	out, err := Dispatch(ctx, schedulerHandler{svc: t.svc, ident: ident}, action, args)
 	if err != nil {
-		return "", toolruntime.MapError("scheduler", err)
+		return "", authz.MapError("scheduler", err)
 	}
-	return toolruntime.MarshalResult(out)
+	return tools.MarshalResult(out)
 }
 
 type schedulerHandler struct {

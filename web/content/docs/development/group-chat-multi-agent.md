@@ -210,7 +210,7 @@ The critical constraint: that `group_id` must **never flow into the runtime iden
 
 | Surface                 | Code                                                              | Group-session behavior                                                                             |
 | ----------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| memory / prompt profile | `runtime/chat.go` (`memory.WithUserID`), `prompt/prompt.go`       | inject no human; read the group drawer, never a member's private profile                           |
+| memory / prompt profile | `runtime/chat.go` (`authz.WithUserID`), `prompt/prompt.go`        | inject no human; read the group drawer, never a member's private profile                           |
 | workspace               | `runner_builder.go`, `workspace.go`                               | path `users/group-{group_id}/` — the group is its own principal, never a member's `users/{userID}` |
 | vault                   | `sandbox/env.go`                                                  | resolve only agent/group-scoped secrets, never a member's private vault                            |
 | scoped token            | `auth/token_service.go`, `auth/scoped_token.go`, `sandbox/env.go` | subject = group principal `group:{group_id}`, not a human userID                                   |
@@ -235,7 +235,7 @@ D9 keeps the group session anonymous so no human owns the runtime. But the agent
 
 The hard rules:
 
-- **Personalization target, not runtime identity.** `CurrentSpeaker.UserID` must never be passed to `memory.WithUserID`, sandbox/vault/token code, plugin or delegate contexts, notify routing, or hook user metadata. `runtime/chat.go` attaches the speaker for group turns but still skips `WithUserID`, so all four D9 surfaces stay group-scoped.
+- **Personalization target, not runtime identity.** `CurrentSpeaker.UserID` must never be passed to `authz.WithUserID`, sandbox/vault/token code, plugin or delegate contexts, notify routing, or hook user metadata. `runtime/chat.go` attaches the speaker for group turns but still skips `WithUserID`, so all four D9 surfaces stay group-scoped.
 - **Per-turn, never cached.** The prompt's `## Current Speaker` section is built fresh each turn by the PoolManager before-run prompt rebuild, which re-renders the full system prompt. The cached group runner never holds speaker context, so one speaker's turn metadata can't leak into another's turn.
 - **Prompt rendering is keyed on `GroupID`, not on group memory being non-empty.** A group turn renders `## Group Memory` (+ optional `## Current Speaker`) and never falls back to the per-user `## User Profile` section, even when the group drawer is empty.
 - **No automatic private profile injection.** `## Current Speaker` exposes the display name and linked/unlinked status only. It does not include the speaker's profile blob, dated entries, soul, or constraints: a public room is not the place to disclose one member's private memory or apply their hard rules to the whole group.

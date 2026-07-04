@@ -1,26 +1,11 @@
-package toolruntime
+package tools
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
-
-	"github.com/CherryHQ/stella/internal/authz"
 )
-
-func ToolIdentity(ctx context.Context, tool string) (authz.Identity, error) {
-	ident, err := authz.FromContext(ctx)
-	if err != nil {
-		return authz.Identity{}, fmt.Errorf("this session has no user identity — %s tools are unavailable here", tool)
-	}
-	if ident.AgentID == "" {
-		return authz.Identity{}, fmt.Errorf("this session has no agent identity — %s tools are unavailable here", tool)
-	}
-	return ident, nil
-}
 
 func ActionArg(args map[string]any, tool string) (string, error) {
 	action, _ := args["action"].(string)
@@ -28,21 +13,6 @@ func ActionArg(args map[string]any, tool string) (string, error) {
 		return "", fmt.Errorf("%s action is required — choose an action from the tool schema", tool)
 	}
 	return action, nil
-}
-
-func MapError(tool string, err error) error {
-	switch {
-	case errors.Is(err, authz.ErrUnauthenticated):
-		return fmt.Errorf("this session has no user identity — %s tools are unavailable here", tool)
-	case tool == "oauth" && errors.Is(err, authz.ErrNotFound):
-		return fmt.Errorf("flow expired or unknown — start a new connect")
-	case errors.Is(err, authz.ErrNotFound):
-		return fmt.Errorf("%s not found — check the id with action=list", tool)
-	case errors.Is(err, authz.ErrForbidden):
-		return fmt.Errorf("%s access denied — use action=list to see resources available to this agent", tool)
-	default:
-		return err
-	}
 }
 
 func MarshalResult(v any) (string, error) {

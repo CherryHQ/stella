@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
-	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
-	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -424,8 +425,8 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 		// Inject session context into hook metadata so hooks can log it.
 		loopRunner.SetHookMeta(hooks.HookMeta{
 			SessionID: memory.SessionIDFromContext(ctx),
-			UserID:    memory.UserIDFromContext(ctx),
-			AgentID:   memory.AgentIDFromContext(ctx),
+			UserID:    authz.UserIDFromContext(ctx),
+			AgentID:   authz.AgentIDFromContext(ctx),
 			Channel: func() string {
 				channel, _ := ChannelFromContext(ctx)
 				return channel

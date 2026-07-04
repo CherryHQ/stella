@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/tools/toolruntime"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -26,19 +25,19 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if t == nil || t.svc == nil {
 		return "", fmt.Errorf("email service is unavailable — try again later")
 	}
-	ident, err := toolruntime.ToolIdentity(ctx, "email")
+	ident, err := authz.ToolIdentity(ctx, "email")
 	if err != nil {
 		return "", err
 	}
-	action, err := toolruntime.ActionArg(args, "email")
+	action, err := tools.ActionArg(args, "email")
 	if err != nil {
 		return "", err
 	}
 	out, err := Dispatch(ctx, emailHandler{svc: t.svc, ident: ident}, action, args)
 	if err != nil {
-		return "", toolruntime.MapError("email", err)
+		return "", authz.MapError("email", err)
 	}
-	return toolruntime.MarshalResult(out)
+	return tools.MarshalResult(out)
 }
 
 type emailHandler struct {

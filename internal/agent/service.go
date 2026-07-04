@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
-	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -395,8 +396,8 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 // be passed directly to delegate tool constructors.
 // UserID is resolved from ctx; AgentID falls back to s.AgentID.
 func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.SessionRunRequest) (delegatetool.SessionRunResult, error) {
-	userID := memory.UserIDFromContext(ctx)
-	agentID := memory.AgentIDFromContext(ctx)
+	userID := authz.UserIDFromContext(ctx)
+	agentID := authz.AgentIDFromContext(ctx)
 	if agentID == "" {
 		agentID = s.AgentID
 	}
@@ -467,8 +468,8 @@ func (s *Service) History(ctx context.Context, info session.Info) []ai.Message {
 	if !ok {
 		return nil
 	}
-	saveCtx := memory.WithUserID(ctx, info.UserID)
-	saveCtx = memory.WithAgentID(saveCtx, info.AgentID)
+	saveCtx := authz.WithUserID(ctx, info.UserID)
+	saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
 	msgs, err := sm.LoadHistory(saveCtx, info.ID)
 	if err != nil {
 		return nil

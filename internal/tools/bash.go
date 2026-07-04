@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -58,8 +58,8 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	if verbPath, ok := stellaCLIVerbPath(command); ok {
 		slog.Info("sandbox_stella_cli_invocation",
 			"event", "sandbox_stella_cli_invocation",
-			"user_id", memory.UserIDFromContext(ctx),
-			"agent_id", memory.AgentIDFromContext(ctx),
+			"user_id", authz.UserIDFromContext(ctx),
+			"agent_id", authz.AgentIDFromContext(ctx),
 			"command", verbPath,
 		)
 	}

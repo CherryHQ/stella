@@ -1,3 +1,7 @@
+// Package tools provides the sandbox toolset — the agent-facing projections
+// of a live sandbox session (bash, read, write, edit). Tools that project
+// other capabilities live with those capabilities (internal/goal, internal/notify,
+// internal/skills, ...); see buildToolRegistry in internal/agent for assembly.
 package tools
 
 import (
