@@ -40,12 +40,12 @@ func TestBuildSandboxEnvDropsVaultStellaToken(t *testing.T) {
 		UserID:         "user-1",
 		AgentID:        "agent-1",
 		SessionID:      "session-1",
-		VaultEnvLoader: staticVaultEnv{env: map[string]string{stellaTokenEnvName(): "stella_legacy", "OTHER": "ok"}},
+		VaultEnvLoader: staticVaultEnv{env: map[string]string{"STELLA_TOKEN": "stella_legacy", "OTHER": "ok"}},
 	}, Paths{})
 	if err != nil {
 		t.Fatalf("buildSandboxEnv: %v", err)
 	}
-	if _, ok := env[stellaTokenEnvName()]; ok {
+	if _, ok := env["STELLA_TOKEN"]; ok {
 		t.Fatal("legacy vault token must not be injected")
 	}
 	if got := env["OTHER"]; got != "ok" {
