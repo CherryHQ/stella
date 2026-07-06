@@ -278,6 +278,7 @@ paths:
       tags: [feeds]
       summary: Poll a feed (server fetches RSS, creates pending entries)
       operationId: pollFeed
+      x-agent-tool: { tool: "recally", action: "feed_poll" }
       parameters:
         - {
             name: limit,
@@ -304,6 +305,7 @@ paths:
       tags: [feed-entries]
       summary: List entries for a feed
       operationId: listFeedEntries
+      x-agent-tool: { tool: "recally", action: "entry_list" }
       parameters:
         - {
             name: status,
@@ -336,6 +338,7 @@ paths:
       summary: Add an entry by guid (source-agnostic; dedups via ON CONFLICT)
       description: "Skill-driven extraction pushes discovered items here. Idempotent on (feed_id, guid): a returned created=false means the item already existed."
       operationId: createFeedEntry
+      x-agent-tool: { tool: "recally", action: "entry_add" }
       requestBody:
         required: true
         content:
@@ -367,6 +370,7 @@ paths:
       tags: [feed-entries]
       summary: Update an entry (status transition)
       operationId: updateFeedEntry
+      x-agent-tool: { tool: "recally", action: "entry_update" }
       requestBody:
         required: true
         content:

@@ -197,6 +197,19 @@ func (s Authorized) GetFeedByURL(ctx context.Context, feedURL string) (*Feed, er
 	return feed, nil
 }
 
+func (s Authorized) GetFeed(ctx context.Context, feedID string) (*Feed, error) {
+	ident := s.ident
+	uid, err := userID(ident)
+	if err != nil {
+		return nil, err
+	}
+	feed, err := s.store.GetFeed(ctx, uid, feedID)
+	if err != nil {
+		return nil, mapMissing(err)
+	}
+	return feed, nil
+}
+
 func (s Authorized) CreateFeed(ctx context.Context, feedURL string, kind FeedKind, title string, agentID *string) (*Feed, error) {
 	ident := s.ident
 	uid, err := userID(ident)
@@ -250,6 +263,105 @@ func (s Authorized) DeleteFeed(ctx context.Context, id string) error {
 		return err
 	}
 	return nil
+}
+
+func (s Authorized) PollFeed(ctx context.Context, id string, limit int) (FeedPollResult, error) {
+	feed, err := s.GetFeed(ctx, id)
+	if err != nil {
+		return FeedPollResult{}, err
+	}
+	result := FeedPollResult{Feed: *feed, NewEntries: []FeedEntry{}}
+	if !feed.Enabled || feed.Kind != FeedKindRSS {
+		return result, nil
+	}
+
+	parseCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	parsed, parseErr := s.feeds.ParseURLWithContext(feed.URL, parseCtx)
+	cancel()
+	if parseErr != nil {
+		result.Errors = []string{"failed to fetch feed"}
+		return result, nil //nolint:nilerr // Upstream fetch failures are data in FeedPollResult, matching the HTTP API.
+	}
+	for _, item := range parsed.Items {
+		entryURL := item.Link
+		if entryURL == "" && item.GUID != "" {
+			entryURL = item.GUID
+		}
+		guid := item.GUID
+		if guid == "" {
+			guid = entryURL
+		}
+		entry, createErr := s.store.CreateFeedEntry(ctx, feed.ID, guid, entryURL, item.Title)
+		if createErr != nil || entry == nil {
+			continue
+		}
+		result.NewEntries = append(result.NewEntries, *entry)
+		if len(result.NewEntries) >= limit {
+			break
+		}
+	}
+
+	ident := s.ident
+	uid, err := userID(ident)
+	if err != nil {
+		return FeedPollResult{}, err
+	}
+	now := time.Now().UTC()
+	if updated, err := s.store.UpdateFeed(ctx, uid, feed.ID, map[string]any{"last_checked_at": &now}); err == nil {
+		result.Feed = *updated
+	}
+	return result, nil
+}
+
+func (s Authorized) ListFeedEntries(ctx context.Context, feedID string, filter FeedEntryFilter) ([]FeedEntry, error) {
+	if _, err := s.GetFeed(ctx, feedID); err != nil {
+		return nil, err
+	}
+	status := filter.Status
+	if status == "" {
+		status = EntryStatusPending
+	}
+	if status != EntryStatusPending {
+		return nil, fmt.Errorf("only status=pending is supported")
+	}
+	return s.store.ListPendingFeedEntries(ctx, feedID, filter.Limit, filter.Offset)
+}
+
+func (s Authorized) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, title string) (*FeedEntry, bool, error) {
+	if _, err := s.GetFeed(ctx, feedID); err != nil {
+		return nil, false, err
+	}
+	if guid == "" {
+		return nil, false, fmt.Errorf("guid is required")
+	}
+	entry, err := s.store.CreateFeedEntry(ctx, feedID, guid, entryURL, title)
+	if err != nil {
+		return nil, false, err
+	}
+	return entry, entry != nil, nil
+}
+
+func (s Authorized) UpdateFeedEntry(ctx context.Context, feedID, id string, status RSSEntryStatus, articleID *string, errorMsg string) (*FeedEntry, error) {
+	if _, err := s.GetFeed(ctx, feedID); err != nil {
+		return nil, err
+	}
+	entry, err := s.store.GetFeedEntry(ctx, feedID, id)
+	if err != nil || entry.FeedID != feedID {
+		return nil, authz.ErrNotFound
+	}
+	switch status {
+	case EntryStatusSaved, EntryStatusSkipped, EntryStatusError, EntryStatusPending:
+	default:
+		return nil, fmt.Errorf("invalid status")
+	}
+	if status == EntryStatusSaved && (articleID == nil || *articleID == "") {
+		return nil, fmt.Errorf("article_id required when status=saved")
+	}
+	updated, err := s.store.MarkFeedEntry(ctx, feedID, id, status, articleID, errorMsg)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (s Authorized) GetDigest(ctx context.Context) (*Digest, error) {

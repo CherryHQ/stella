@@ -20,7 +20,7 @@ type Tool struct{ svc *Service }
 
 func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Save and read the user's Recally library. Actions: save batches fetched article content, list_articles, get_article, feed_add/feed_list/feed_remove, digest. For save, fetch the article content yourself first (for example with web/tap tools) and include markdown content for new articles; content is required for new articles. The library is shared across this user's agents.", InputSchema: InputSchema()}
+	return tools.Definition{Name: ToolName, Description: "Save and read the user's Recally library. Actions: save batches fetched article content, list_articles, get_article, feed_add/feed_list/feed_poll/feed_remove, entry_list/entry_add/entry_update, digest. For save, fetch the article content yourself first (for example with web/tap tools) and include markdown content for new articles; content is required for new articles. The library is shared across this user's agents.", InputSchema: InputSchema()}
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
@@ -149,11 +149,76 @@ func (h recallyHandler) FeedList(ctx context.Context, in FeedListInput) (any, er
 	return listResponse[recallyFeedItem]{Items: items, HasMore: next != "", NextPageToken: next}, nil
 }
 
+func (h recallyHandler) FeedPoll(ctx context.Context, in FeedPollInput) (any, error) {
+	limit := in.Limit
+	if limit == 0 {
+		limit = defaultToolPageSize
+	}
+	if limit < 1 || limit > 500 {
+		return nil, fmt.Errorf("invalid limit — use limit between 1 and 500")
+	}
+	result, err := h.svc.As(h.ident).PollFeed(ctx, in.Id, limit)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]recallyFeedEntryItem, 0, len(result.NewEntries))
+	for _, entry := range result.NewEntries {
+		items = append(items, recallyFeedEntrySummary(entry))
+	}
+	out := recallyFeedPollResult{Feed: recallyFeedSummary(result.Feed), NewEntries: items}
+	if len(result.Errors) > 0 {
+		out.Error = result.Errors[0]
+	}
+	return out, nil
+}
+
 func (h recallyHandler) FeedRemove(ctx context.Context, in FeedRemoveInput) (any, error) {
 	if err := h.svc.As(h.ident).DeleteFeed(ctx, in.Id); err != nil {
 		return nil, err
 	}
 	return map[string]any{"id": in.Id, "status": "removed"}, nil
+}
+
+func (h recallyHandler) EntryList(ctx context.Context, in EntryListInput) (any, error) {
+	limit, offset, err := tools.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
+	}
+	entries, err := h.svc.As(h.ident).ListFeedEntries(ctx, in.FeedId, FeedEntryFilter{Status: RSSEntryStatus(in.Status), Limit: limit + 1, Offset: offset})
+	if err != nil {
+		return nil, err
+	}
+	page, next := tools.PageRows(entries, limit, offset)
+	items := make([]recallyFeedEntryItem, 0, len(page))
+	for _, entry := range page {
+		items = append(items, recallyFeedEntrySummary(entry))
+	}
+	return listResponse[recallyFeedEntryItem]{Items: items, HasMore: next != "", NextPageToken: next}, nil
+}
+
+func (h recallyHandler) EntryAdd(ctx context.Context, in EntryAddInput) (any, error) {
+	entry, created, err := h.svc.As(h.ident).CreateFeedEntry(ctx, in.FeedId, in.Guid, in.Url, in.Title)
+	if err != nil {
+		return nil, err
+	}
+	result := recallyCreateFeedEntryResult{Created: created}
+	if entry != nil {
+		item := recallyFeedEntrySummary(*entry)
+		result.Entry = &item
+	}
+	return result, nil
+}
+
+func (h recallyHandler) EntryUpdate(ctx context.Context, in EntryUpdateInput) (any, error) {
+	var articleID *string
+	if in.ArticleId != "" {
+		articleID = &in.ArticleId
+	}
+	entry, err := h.svc.As(h.ident).UpdateFeedEntry(ctx, in.FeedId, in.Id, RSSEntryStatus(in.Status), articleID, in.ErrorMsg)
+	if err != nil {
+		return nil, err
+	}
+	return recallyFeedEntrySummary(*entry), nil
 }
 
 func (h recallyHandler) Digest(ctx context.Context, _ DigestInput) (any, error) {
@@ -190,6 +255,28 @@ type recallyFeedItem struct {
 	Enabled   bool   `json:"enabled"`
 	UpdatedAt string `json:"updated_at"`
 }
+type recallyFeedEntryItem struct {
+	ID           string  `json:"id"`
+	FeedID       string  `json:"feed_id"`
+	GUID         string  `json:"guid"`
+	URL          string  `json:"url"`
+	Title        string  `json:"title"`
+	Status       string  `json:"status"`
+	ArticleID    *string `json:"article_id,omitempty"`
+	Attempts     int     `json:"attempts"`
+	ErrorMsg     string  `json:"error_msg,omitempty"`
+	DiscoveredAt string  `json:"discovered_at"`
+	ProcessedAt  string  `json:"processed_at,omitempty"`
+}
+type recallyFeedPollResult struct {
+	Feed       recallyFeedItem        `json:"feed"`
+	NewEntries []recallyFeedEntryItem `json:"new_entries"`
+	Error      string                 `json:"error,omitempty"`
+}
+type recallyCreateFeedEntryResult struct {
+	Created bool                  `json:"created"`
+	Entry   *recallyFeedEntryItem `json:"entry,omitempty"`
+}
 type listResponse[T any] struct {
 	Items         []T    `json:"items"`
 	HasMore       bool   `json:"has_more"`
@@ -206,6 +293,14 @@ func recallyArticleListSummary(article Article) recallyArticleListItem {
 
 func recallyFeedSummary(feed Feed) recallyFeedItem {
 	return recallyFeedItem{ID: feed.ID, URL: feed.URL, Kind: string(feed.Kind), Title: feed.Title, Enabled: feed.Enabled, UpdatedAt: feed.UpdatedAt.UTC().Format(time.RFC3339)}
+}
+
+func recallyFeedEntrySummary(entry FeedEntry) recallyFeedEntryItem {
+	item := recallyFeedEntryItem{ID: entry.ID, FeedID: entry.FeedID, GUID: entry.GUID, URL: entry.URL, Title: entry.Title, Status: string(entry.Status), ArticleID: entry.ArticleID, Attempts: entry.Attempts, ErrorMsg: entry.ErrorMsg, DiscoveredAt: entry.DiscoveredAt.UTC().Format(time.RFC3339)}
+	if entry.ProcessedAt != nil {
+		item.ProcessedAt = entry.ProcessedAt.UTC().Format(time.RFC3339)
+	}
+	return item
 }
 
 func recallyTruncationNote(truncated bool) string {

@@ -32,6 +32,104 @@ const InputSchemaJSON = `{
     {
       "properties": {
         "action": {
+          "const": "entry_add",
+          "type": "string"
+        },
+        "feedId": {
+          "type": "string"
+        },
+        "guid": {
+          "description": "Stable per-source item id; the dedup key (unique per feed)",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "feedId",
+        "guid"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "entry_list",
+          "type": "string"
+        },
+        "feedId": {
+          "type": "string"
+        },
+        "page_size": {
+          "default": 20,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "page_token": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "saved",
+            "skipped",
+            "error"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "feedId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "entry_update",
+          "type": "string"
+        },
+        "article_id": {
+          "nullable": true,
+          "type": "string"
+        },
+        "error_msg": {
+          "type": "string"
+        },
+        "feedId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "saved",
+            "skipped",
+            "error"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "feedId",
+        "id",
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
           "const": "feed_add",
           "type": "string"
         },
@@ -81,6 +179,28 @@ const InputSchemaJSON = `{
       },
       "required": [
         "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "feed_poll",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "id"
       ],
       "type": "object"
     },
@@ -244,8 +364,12 @@ const InputSchemaJSON = `{
     "action": {
       "enum": [
         "digest",
+        "entry_add",
+        "entry_list",
+        "entry_update",
         "feed_add",
         "feed_list",
+        "feed_poll",
         "feed_remove",
         "get_article",
         "list_articles",
@@ -262,8 +386,12 @@ const InputSchemaJSON = `{
 
 type Handler interface {
 	Digest(context.Context, DigestInput) (any, error)
+	EntryAdd(context.Context, EntryAddInput) (any, error)
+	EntryList(context.Context, EntryListInput) (any, error)
+	EntryUpdate(context.Context, EntryUpdateInput) (any, error)
 	FeedAdd(context.Context, FeedAddInput) (any, error)
 	FeedList(context.Context, FeedListInput) (any, error)
+	FeedPoll(context.Context, FeedPollInput) (any, error)
 	FeedRemove(context.Context, FeedRemoveInput) (any, error)
 	GetArticle(context.Context, GetArticleInput) (any, error)
 	ListArticles(context.Context, ListArticlesInput) (any, error)
@@ -271,6 +399,28 @@ type Handler interface {
 }
 
 type DigestInput struct {
+}
+
+type EntryAddInput struct {
+	FeedId string `json:"feedId,omitempty"`
+	Guid   string `json:"guid,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Url    string `json:"url,omitempty"`
+}
+
+type EntryListInput struct {
+	FeedId    string `json:"feedId,omitempty"`
+	PageSize  int    `json:"page_size,omitempty"`
+	PageToken string `json:"page_token,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+type EntryUpdateInput struct {
+	ArticleId string `json:"article_id,omitempty"`
+	ErrorMsg  string `json:"error_msg,omitempty"`
+	FeedId    string `json:"feedId,omitempty"`
+	Id        string `json:"id,omitempty"`
+	Status    string `json:"status,omitempty"`
 }
 
 type FeedAddInput struct {
@@ -283,6 +433,11 @@ type FeedListInput struct {
 	PageSize  int    `json:"page_size,omitempty"`
 	PageToken string `json:"page_token,omitempty"`
 	Url       string `json:"url,omitempty"`
+}
+
+type FeedPollInput struct {
+	Id    string `json:"id,omitempty"`
+	Limit int    `json:"limit,omitempty"`
 }
 
 type FeedRemoveInput struct {
@@ -328,6 +483,24 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 			return nil, err
 		}
 		return h.Digest(ctx, in)
+	case "entry_add":
+		var in EntryAddInput
+		if err := tools.DecodeInput(args, &in, []string{"feedId", "guid"}); err != nil {
+			return nil, err
+		}
+		return h.EntryAdd(ctx, in)
+	case "entry_list":
+		var in EntryListInput
+		if err := tools.DecodeInput(args, &in, []string{"feedId"}); err != nil {
+			return nil, err
+		}
+		return h.EntryList(ctx, in)
+	case "entry_update":
+		var in EntryUpdateInput
+		if err := tools.DecodeInput(args, &in, []string{"feedId", "id", "status"}); err != nil {
+			return nil, err
+		}
+		return h.EntryUpdate(ctx, in)
 	case "feed_add":
 		var in FeedAddInput
 		if err := tools.DecodeInput(args, &in, []string{"url"}); err != nil {
@@ -340,6 +513,12 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 			return nil, err
 		}
 		return h.FeedList(ctx, in)
+	case "feed_poll":
+		var in FeedPollInput
+		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+			return nil, err
+		}
+		return h.FeedPoll(ctx, in)
 	case "feed_remove":
 		var in FeedRemoveInput
 		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
