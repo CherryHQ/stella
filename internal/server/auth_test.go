@@ -103,7 +103,7 @@ func TestBearerAuthSuccess(t *testing.T) {
 
 func TestBearerAuthRejectsLegacyToken(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetTokenService(auth.NewTokenService(env.authStore))
+	env.srv.InitCredentialFrontDoor()
 	rawToken := "stella_legacy"
 	if _, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
 		UserID:      env.adminUser.ID,
@@ -122,7 +122,7 @@ func TestBearerAuthRejectsLegacyToken(t *testing.T) {
 
 func TestBearerAuthRejectsExpiredToken(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetTokenService(auth.NewTokenService(env.authStore))
+	env.srv.InitCredentialFrontDoor()
 	expired := time.Now().Add(-time.Hour)
 	rawToken := "stella_expired"
 	if _, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
@@ -143,7 +143,7 @@ func TestBearerAuthRejectsExpiredToken(t *testing.T) {
 
 func TestBearerAuthRejectsRevokedToken(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetTokenService(auth.NewTokenService(env.authStore))
+	env.srv.InitCredentialFrontDoor()
 	rawToken := "stella_revoked"
 	token, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
 		UserID:      env.adminUser.ID,
@@ -166,7 +166,7 @@ func TestBearerAuthRejectsRevokedToken(t *testing.T) {
 
 func TestBearerAuthWrongTokenDenied(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetTokenService(auth.NewTokenService(env.authStore))
+	env.srv.InitCredentialFrontDoor()
 	// A wrong bearer token with no valid fallback should be rejected.
 	rr := doBearerRequest(t, env.srv, "stella_wrong_token", "GET", "/api/auth/me", nil)
 	if rr.Code != http.StatusUnauthorized {

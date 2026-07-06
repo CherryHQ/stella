@@ -186,8 +186,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.poolManager.SetOAuthRegistry(s.oauthRegistry)
 	}
 
-	tokenSvc := auth.NewTokenService(as)
-	adminSrv.SetTokenService(tokenSvc)
+	adminSrv.InitCredentialFrontDoor()
 
 	// Wire vault service if STELLA_VAULT_KEY was valid during setup.
 	var coordOpts []channel.CoordinatorOption

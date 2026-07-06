@@ -175,11 +175,10 @@ func (s *Server) SetBuiltinTools(tools []agent.BuiltinTool) {
 	s.builtinTools = append([]agent.BuiltinTool(nil), tools...)
 }
 
-// SetTokenService wires bearer token authentication into the admin server. It
-// also builds the unified credential front door: PAT storage over the shared
-// query set, and legacy/scoped bearer verification delegated to the token
-// service.
-func (s *Server) SetTokenService(_ *auth.TokenService) {
+// InitCredentialFrontDoor builds the unified credential front door: PAT/OAuth
+// storage over the shared query set, and the authorization server that mints
+// access tokens through it.
+func (s *Server) InitCredentialFrontDoor() {
 	ps := patStore{q: s.q}
 	os := oauthStore{q: s.q}
 	s.credResolver = credential.NewService(credential.Config{
