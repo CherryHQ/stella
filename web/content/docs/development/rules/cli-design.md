@@ -25,8 +25,6 @@ The current `stellad` surface is:
 - `stellad postgres ...` — manage the embedded PostgreSQL runtime.
 - `stellad vault keygen` — generate `STELLA_VAULT_KEY` for bootstrap.
 - `stellad mise reconcile-builtins` — install builtin sandbox tools.
-- `stellad db migrate-sqlite` — copy a legacy SQLite database into PostgreSQL.
-- `stellad auth ...` — administrative identity utilities.
 
 Before designing command behavior for server-backed features, read [CLI and
 native agent tools](../cli-as-client) and [API design rules](./api-design).
@@ -59,16 +57,15 @@ Examples:
 ```text
 stellad vault keygen
 stellad mise reconcile-builtins
-stellad db migrate-sqlite --sqlite-path ./stella.db
 stellad service install --system
 ```
 
 ### Naming
 
 - Top-level commands are daemon domains or lifecycle verbs: `server`, `service`,
-  `upgrade`, `version`, `postgres`, `vault`, `mise`, `db`, `auth`.
+  `upgrade`, `version`, `postgres`, `vault`, `mise`.
 - Subcommands are verbs or resource nouns when another level is needed:
-  `keygen`, `reconcile-builtins`, `migrate-sqlite`, `install`, `status`.
+  `keygen`, `reconcile-builtins`, `install`, `status`.
 - Use lowercase, hyphen-separated names for multi-word commands and flags.
 - Prefer common verbs consistently:
 
@@ -90,14 +87,14 @@ Use positional arguments for the primary object the command acts on:
 
 ```text
 stellad upgrade 0.50.0
-stellad auth user get <user-id>
+stellad postgres logs <instance-id>
 ```
 
 Use flags for modifiers, optional context, filters, and output controls:
 
 ```text
 stellad service install --system
-stellad db migrate-sqlite --sqlite-path ./stella.db --dry-run
+stellad postgres status --json
 ```
 
 Rules:
@@ -220,7 +217,7 @@ it. One bit of failure is enough most of the time.
 When wrapping errors in Go, add the operation context once:
 
 ```go
-return fmt.Errorf("db migrate-sqlite: %w", err)
+return fmt.Errorf("mise reconcile-builtins: %w", err)
 ```
 
 Do not wrap the same noun at every layer until the message reads like a haunted

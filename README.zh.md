@@ -82,7 +82,6 @@ stellad upgrade                         # 自升级到最新版本
 stellad version                         # 打印版本
 stellad vault keygen                    # 生成保险库引导密钥
 stellad mise reconcile-builtins         # 同步内置沙箱工具
-stellad db migrate-sqlite               # 将旧 SQLite 数据库复制到 PostgreSQL
 ```
 
 ## 开发

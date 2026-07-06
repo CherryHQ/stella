@@ -63,7 +63,7 @@ dir = "web"
 run = "pnpm install && pnpm openapi-ts"
 
 [tasks."generate:api"]
-description = "Assemble api/spec/components.yaml from domain files then generate Go types, server, and client"
+description = "Assemble api/spec/components.yaml from domain files then generate Go types and server"
 run = """
 yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "stella API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT"' \
   api/spec/components/common.yaml api/spec/domain/*/schemas.yaml \
@@ -71,7 +71,6 @@ yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "stella API Com
 dprint fmt api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
-go tool oapi-codegen --config api/codegen/client.yaml  api/spec/openapi.yaml
 go run ./internal/goal/cmd/gengoalcontrolschema
 pnpm --package=@redocly/cli dlx redocly bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
 go run ./internal/cmd/toolgen

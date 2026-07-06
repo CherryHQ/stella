@@ -16,8 +16,6 @@ Stella 现在只有一个二进制：`stellad`。它负责启动服务器、后�
 - `stellad postgres ...` — 管理内嵌 PostgreSQL runtime。
 - `stellad vault keygen` — 生成引导用的 `STELLA_VAULT_KEY`。
 - `stellad mise reconcile-builtins` — 安装内置 sandbox 工具。
-- `stellad db migrate-sqlite` — 将旧 SQLite 数据库复制到 PostgreSQL。
-- `stellad auth ...` — 管理员身份工具。
 
 为服务端功能设计命令行为前，先读[CLI 与原生代理工具](../cli-as-client)和 [API 设计规则](./api-design)。
 
@@ -42,14 +40,13 @@ stellad <domain> <verb> [args] [flags]
 ```text
 stellad vault keygen
 stellad mise reconcile-builtins
-stellad db migrate-sqlite --sqlite-path ./stella.db
 stellad service install --system
 ```
 
 ### 命名
 
-- 顶层命令是守护进程领域或生命周期动词：`server`、`service`、`upgrade`、`version`、`postgres`、`vault`、`mise`、`db`、`auth`。
-- 子命令使用动词，或在需要更深层级时使用资源名：`keygen`、`reconcile-builtins`、`migrate-sqlite`、`install`、`status`。
+- 顶层命令是守护进程领域或生命周期动词：`server`、`service`、`upgrade`、`version`、`postgres`、`vault`、`mise`。
+- 子命令使用动词，或在需要更深层级时使用资源名：`keygen`、`reconcile-builtins`、`install`、`status`。
 - 多词命令和 flag 使用小写短横线。
 - 常见动作保持一致：
 
@@ -70,14 +67,14 @@ stellad service install --system
 
 ```text
 stellad upgrade 0.50.0
-stellad auth user get <user-id>
+stellad postgres logs <instance-id>
 ```
 
 修饰项、可选上下文、过滤条件和输出控制用 flags：
 
 ```text
 stellad service install --system
-stellad db migrate-sqlite --sqlite-path ./stella.db --dry-run
+stellad postgres status --json
 ```
 
 规则：
@@ -187,7 +184,7 @@ invalid input
 Go 中包装错误时，只加一次操作上下文：
 
 ```go
-return fmt.Errorf("db migrate-sqlite: %w", err)
+return fmt.Errorf("mise reconcile-builtins: %w", err)
 ```
 
 不要每层都重复同一个名词，把消息包成闹鬼堆栈。

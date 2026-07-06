@@ -83,7 +83,6 @@ stellad upgrade 0.50.0                   # Self-update to a specific release
 stellad version                         # Print version
 stellad vault keygen                    # Generate a vault bootstrap key
 stellad mise reconcile-builtins         # Reconcile builtin sandbox tools
-stellad db migrate-sqlite               # Copy a legacy SQLite database into PostgreSQL
 ```
 
 ## Development
