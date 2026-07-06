@@ -22,7 +22,6 @@ const goalControlExecuteInputSchemaJSON = `{
       "description": "Which terminal action to take.",
       "enum": [
         "submit",
-        "block",
         "fail"
       ],
       "type": "string"
@@ -31,12 +30,13 @@ const goalControlExecuteInputSchemaJSON = `{
       "description": "submit: hash-addressed artifact refs (diffs/files/stdout).",
       "type": "array"
     },
-    "detail": {
-      "description": "block: structured detail.",
-      "type": "object"
-    },
-    "kind": {
-      "description": "block: blocker kind (user_input|external_dependency|tool_error|policy_hold).",
+    "blocked_by": {
+      "description": "fail: optional structured blocker when the contract is impossible or the environment is unavailable.",
+      "enum": [
+        "",
+        "env_unavailable",
+        "contract_conflict"
+      ],
       "type": "string"
     },
     "notes": {
@@ -47,17 +47,9 @@ const goalControlExecuteInputSchemaJSON = `{
       "description": "submit: structured result the acceptance contract evaluates.",
       "type": "object"
     },
-    "question": {
-      "description": "block: human-readable explanation of what's needed.",
-      "type": "string"
-    },
     "reason": {
       "description": "fail: error message.",
       "type": "string"
-    },
-    "retryable": {
-      "description": "fail: true if a retry may succeed.",
-      "type": "boolean"
     },
     "summary": {
       "description": "submit: handoff summary describing what you produced (required for child goals).",
@@ -81,6 +73,15 @@ const goalControlDecomposeInputSchemaJSON = `{
       "enum": [
         "decompose",
         "fail"
+      ],
+      "type": "string"
+    },
+    "blocked_by": {
+      "description": "fail: optional structured blocker when the contract is impossible or the environment is unavailable.",
+      "enum": [
+        "",
+        "env_unavailable",
+        "contract_conflict"
       ],
       "type": "string"
     },
@@ -262,10 +263,6 @@ const goalControlDecomposeInputSchemaJSON = `{
       "description": "fail: error message.",
       "type": "string"
     },
-    "retryable": {
-      "description": "fail: true if a retry may succeed.",
-      "type": "boolean"
-    },
     "summary": {
       "description": "decompose: one-line description of the plan.",
       "type": "string"
@@ -291,13 +288,18 @@ const goalControlReviewInputSchemaJSON = `{
       ],
       "type": "string"
     },
+    "blocked_by": {
+      "description": "fail: optional structured blocker when the contract is impossible or the environment is unavailable.",
+      "enum": [
+        "",
+        "env_unavailable",
+        "contract_conflict"
+      ],
+      "type": "string"
+    },
     "reason": {
       "description": "fail: why the output cannot be judged.",
       "type": "string"
-    },
-    "retryable": {
-      "description": "fail: true if a retry may succeed.",
-      "type": "boolean"
     },
     "summary": {
       "description": "verdict: one-line summary of the review.",

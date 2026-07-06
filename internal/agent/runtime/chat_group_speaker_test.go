@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -28,7 +29,7 @@ func TestRuntimeChatGroupSpeakerContextNoUserPromotion(t *testing.T) {
 				t.Fatal("missing current speaker in group turn context")
 			}
 			gotSpeakers = append(gotSpeakers, cs.UserID)
-			gotCtxUserIDs = append(gotCtxUserIDs, memory.UserIDFromContext(ctx))
+			gotCtxUserIDs = append(gotCtxUserIDs, authz.UserIDFromContext(ctx))
 			return system, nil
 		},
 	})
@@ -55,7 +56,7 @@ func TestRuntimeChatGroupSpeakerContextNoUserPromotion(t *testing.T) {
 	// D9: the memory user id is never set to a human in a group turn.
 	for i, uid := range gotCtxUserIDs {
 		if uid != "" {
-			t.Errorf("turn %d: memory.UserIDFromContext = %q, want empty (group D9)", i, uid)
+			t.Errorf("turn %d: authz.UserIDFromContext = %q, want empty (group D9)", i, uid)
 		}
 	}
 }

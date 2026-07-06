@@ -53,7 +53,7 @@ func TestValidateName(t *testing.T) {
 		input string
 	}{
 		{"STELLA_HOME", "STELLA_HOME"},
-		{"STELLA_TOKEN", vault.StellaTokenName},
+		{"STELLA_TOKEN", "STELLA_TOKEN"},
 		{"PATH", "PATH"},
 		{"HOME", "HOME"},
 		{"LC_ALL", "LC_ALL"},

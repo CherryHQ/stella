@@ -80,8 +80,8 @@ func (w *schedJobWorker) Work(ctx context.Context, rjob *river.Job[schedJobArgs]
 	// timestamp, so Args.At is the schedule's identity. If the schedule was
 	// changed (recurring<->one-time, or the one-time time moved) after this fire
 	// was enqueued, the two disagree: running it would fire at the wrong time
-	// and, because executeSingleRun keys auto-removal on the current schedule,
-	// could delete a freshly rescheduled one-time job.
+	// and, because executeSingleRun keys one-time retirement on the current
+	// schedule, could disable a freshly rescheduled one-time job.
 	if rjob.Args.At != job.Schedule.At {
 		w.svc.log.Info("scheduler: river fired with stale schedule, skipping",
 			"job_id", rjob.Args.JobID, "fire_at", rjob.Args.At, "job_at", job.Schedule.At)
@@ -170,7 +170,7 @@ func (s *Service) scheduleJob(job Job) error {
 			return fmt.Errorf("parse at timestamp: %w", err)
 		}
 		if !t.After(time.Now()) {
-			return errOneTimeJobPast
+			return ErrOneTimeJobPast
 		}
 		res, err := s.river.Insert(s.lifeCtx(), schedJobArgs{JobID: job.ID, At: job.Schedule.At}, &river.InsertOpts{
 			Queue:       schedulerQueue,

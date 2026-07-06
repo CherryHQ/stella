@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/searchrank"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -475,11 +476,11 @@ func (t *memoryTool) requireKnowledgeCtx(ctx context.Context) (string, string, e
 	if t.factStore == nil {
 		return "", "", fmt.Errorf("memory %s: not supported by provider", actionSearchKnowledge)
 	}
-	userID := UserIDFromContext(ctx)
+	userID := authz.UserIDFromContext(ctx)
 	if userID == "" {
 		return "", "", fmt.Errorf("memory %s: no user context", actionSearchKnowledge)
 	}
-	agentID := AgentIDFromContext(ctx)
+	agentID := authz.AgentIDFromContext(ctx)
 	if agentID == "" {
 		return "", "", fmt.Errorf("memory %s: no agent context", actionSearchKnowledge)
 	}
@@ -633,11 +634,11 @@ func (t *memoryTool) requireProfileCtx(ctx context.Context, action string) (stri
 	if t.profileStore == nil {
 		return "", "", fmt.Errorf("memory %s: not supported by provider", action)
 	}
-	userID := UserIDFromContext(ctx)
+	userID := authz.UserIDFromContext(ctx)
 	if userID == "" {
 		return "", "", fmt.Errorf("memory %s: no user context", action)
 	}
-	agentID := AgentIDFromContext(ctx)
+	agentID := authz.AgentIDFromContext(ctx)
 	if agentID == "" {
 		return "", "", fmt.Errorf("memory %s: no agent context", action)
 	}
@@ -654,11 +655,11 @@ func (t *memoryTool) resolveProfileTarget(ctx context.Context, action string) (s
 	if t.profileStore == nil {
 		return "", "", fmt.Errorf("memory %s: not supported by provider", action)
 	}
-	agentID := AgentIDFromContext(ctx)
+	agentID := authz.AgentIDFromContext(ctx)
 	if agentID == "" {
 		return "", "", fmt.Errorf("memory %s: no agent context", action)
 	}
-	if userID := UserIDFromContext(ctx); userID != "" {
+	if userID := authz.UserIDFromContext(ctx); userID != "" {
 		return userID, agentID, nil
 	}
 	if speaker, ok := CurrentSpeakerFromContext(ctx); ok && speaker.UserID != "" {
@@ -831,11 +832,11 @@ func (t *memoryTool) requireConstraintCtx(ctx context.Context, action string) (s
 	if t.constraintStore == nil {
 		return "", "", fmt.Errorf("memory %s: not supported by provider", action)
 	}
-	userID := UserIDFromContext(ctx)
+	userID := authz.UserIDFromContext(ctx)
 	if userID == "" {
 		return "", "", fmt.Errorf("memory %s: no user context", action)
 	}
-	agentID := AgentIDFromContext(ctx)
+	agentID := authz.AgentIDFromContext(ctx)
 	if agentID == "" {
 		return "", "", fmt.Errorf("memory %s: no agent context", action)
 	}
@@ -904,7 +905,7 @@ func (t *memoryTool) advanceSnapshot(ctx context.Context, userID string) {
 	if sessionID == "" {
 		return
 	}
-	agentID := AgentIDFromContext(ctx)
+	agentID := authz.AgentIDFromContext(ctx)
 	if userID == "" || agentID == "" {
 		return
 	}
@@ -920,8 +921,8 @@ func (t *memoryTool) advanceSnapshot(ctx context.Context, userID string) {
 func sessionFromContext(ctx context.Context) Session {
 	return Session{
 		ID:      SessionIDFromContext(ctx),
-		AgentID: AgentIDFromContext(ctx),
-		UserID:  UserIDFromContext(ctx),
+		AgentID: authz.AgentIDFromContext(ctx),
+		UserID:  authz.UserIDFromContext(ctx),
 	}
 }
 

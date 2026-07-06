@@ -1,35 +1,30 @@
+// Package sandbox resolves an agent's sandbox config into a live session and
+// provides that session's agent-facing tool projections (bash, read, write, edit).
 package sandbox
 
 import (
 	"context"
 
 	"github.com/CherryHQ/stella/internal/config"
-	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// VaultEnvLoader loads decrypted vault entries for a user as a name→value map.
+// VaultEnvLoader is the vault surface an agent session needs: binding-filtered
+// env for session start and the declarable exec-time secret flow. Implemented by *vault.Service.
 type VaultEnvLoader interface {
-	LoadEnv(ctx context.Context, userID string) (map[string]string, error)
+	// LoadEnvForAgentProject returns the binding-filtered env for a session
+	// (projectID may be empty for agent-only sessions).
+	LoadEnvForAgentProject(ctx context.Context, userID string, agentID string, projectID string) (map[string]string, error)
+	ListDeclarableForAgentProject(ctx context.Context, userID string, agentID string, projectID string) ([]vault.DeclarableSecret, error)
+	ResolveDeclarableEnv(ctx context.Context, userID string, agentID string, projectID string, names []string) (map[string]string, []string, error)
+	RecordExecSecretUse(ctx context.Context, userID string, agentID string, sessionID string, name string, command string) error
 }
 
-type scopedVaultEnvLoader interface {
-	LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
-}
-
-// TokenEnsurer ensures API tokens needed by sandbox sessions. Implementations
-// must be idempotent.
+// TokenEnsurer creates short-lived scoped API tokens for sandbox sessions.
 type TokenEnsurer interface {
-	EnsureAutoToken(ctx context.Context, userID string) error
 	CreateScopedToken(ctx context.Context, userID, agentID, sessionID, projectID string) (string, error)
-}
-
-type tokenEnvEnsurer interface {
-	EnsureAutoTokenEnv(ctx context.Context, userID string) (map[string]string, error)
-}
-
-type agentTokenEnvEnsurer interface {
-	EnsureAutoTokenEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
 }
 
 // Config is passed to sandbox operations.

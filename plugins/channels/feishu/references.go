@@ -103,16 +103,13 @@ func entityURL(ref renderrefs.Reference) string {
 		return ""
 	}
 	switch ref.Type {
-	case "task":
+	// Tasks and goals are both goals now; the legacy "task" type shares the
+	// goal detail route.
+	case "task", "goal":
 		if ref.AgentID == "" {
 			return ""
 		}
-		return base + "/agents/" + url.PathEscape(ref.AgentID) + "/tasks/" + url.PathEscape(ref.ID)
-	case "goal":
-		if ref.AgentID == "" {
-			return ""
-		}
-		return base + "/agents/" + url.PathEscape(ref.AgentID) + "/tasks/goals/" + url.PathEscape(ref.ID)
+		return base + "/agents/" + url.PathEscape(ref.AgentID) + "/goals/" + url.PathEscape(ref.ID)
 	case "recally_article":
 		return base + "/recally?article=" + url.QueryEscape(ref.ID)
 	default:

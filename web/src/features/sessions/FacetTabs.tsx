@@ -90,7 +90,8 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               label: t("facets.goals"),
               to: `${base}/goals`,
               icon: ListTodo,
-              active: (p) => p.startsWith(`${base}/goals`),
+              // Workflow pages are part of the Goals surface (no tab of their own).
+              active: (p) => p.startsWith(`${base}/goals`) || p.startsWith(`${base}/workflows`),
             },
             {
               key: "memory",

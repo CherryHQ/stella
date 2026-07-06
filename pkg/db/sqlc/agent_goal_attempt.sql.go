@@ -13,6 +13,33 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countBillableAttempts = `-- name: CountBillableAttempts :one
+SELECT COUNT(*)
+FROM agent_goal_attempt
+WHERE goal_id = $1
+  AND purpose = $2
+  AND (
+        status IN ('queued', 'running', 'submitted')
+        OR (status NOT IN ('queued', 'running', 'submitted') AND failure_class NOT IN ('environment', 'contract', 'flaky'))
+      )
+`
+
+type CountBillableAttemptsParams struct {
+	GoalID  string `json:"goal_id"`
+	Purpose string `json:"purpose"`
+}
+
+// Budget spent for execution/decomposition convergence. In-flight attempts count
+// so a concurrent claim cannot overspend. Finished attempts count unless their
+// failure class is one old refund path: environment, contract, or flaky. Queued
+// reaps finalize as interrupted/flaky and are therefore not billable.
+func (q *Queries) CountBillableAttempts(ctx context.Context, arg CountBillableAttemptsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countBillableAttempts, arg.GoalID, arg.Purpose)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countInflightAttemptsByRoot = `-- name: CountInflightAttemptsByRoot :one
 SELECT CAST(COUNT(*) AS BIGINT)
 FROM agent_goal_attempt a
@@ -59,9 +86,9 @@ type CountRanReviewAttemptsForOutputParams struct {
 // Review attempts spent on the CURRENT needs_verdict episode: those created after
 // the reviewed execution attempt (a later execution attempt starts a fresh
 // episode) that actually ran (started_at set). A queued attempt reaped before it
-// was promoted never ran and does not charge the budget, mirroring how a queued
-// decomposition reap is refunded. This is the agent-review budget; attempt_no is
-// still assigned globally per purpose via GetMaxAttemptNo.
+// was promoted never ran and does not charge the budget, mirroring the billable
+// budget predicate below. This is the agent-review budget; attempt_no is still
+// assigned globally per purpose via GetMaxAttemptNo.
 func (q *Queries) CountRanReviewAttemptsForOutput(ctx context.Context, arg CountRanReviewAttemptsForOutputParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countRanReviewAttemptsForOutput, arg.GoalID, arg.Since)
 	var count int64
@@ -75,7 +102,7 @@ INSERT INTO agent_goal_attempt (
     purpose, attempt_no, status, input_context, lease_expires_at
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class
+RETURNING id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class
 `
 
 type CreateAttemptParams struct {
@@ -130,6 +157,8 @@ func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (A
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FailureClass,
+		&i.RepairRounds,
+		&i.PreviousFailureClass,
 	)
 	return i, err
 }
@@ -165,7 +194,7 @@ func (q *Queries) FinalizeAttempt(ctx context.Context, arg FinalizeAttemptParams
 }
 
 const getActiveAttempt = `-- name: GetActiveAttempt :one
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class FROM agent_goal_attempt
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt
 WHERE goal_id = $1
   AND purpose = $2
   AND status IN ('queued', 'running')
@@ -202,12 +231,14 @@ func (q *Queries) GetActiveAttempt(ctx context.Context, arg GetActiveAttemptPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FailureClass,
+		&i.RepairRounds,
+		&i.PreviousFailureClass,
 	)
 	return i, err
 }
 
 const getAttempt = `-- name: GetAttempt :one
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class FROM agent_goal_attempt WHERE id = $1
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt WHERE id = $1
 `
 
 func (q *Queries) GetAttempt(ctx context.Context, id string) (AgentGoalAttempt, error) {
@@ -236,6 +267,8 @@ func (q *Queries) GetAttempt(ctx context.Context, id string) (AgentGoalAttempt, 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FailureClass,
+		&i.RepairRounds,
+		&i.PreviousFailureClass,
 	)
 	return i, err
 }
@@ -283,7 +316,7 @@ func (q *Queries) HeartbeatAttempt(ctx context.Context, arg HeartbeatAttemptPara
 }
 
 const listAttemptByGoal = `-- name: ListAttemptByGoal :many
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class FROM agent_goal_attempt
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt
 WHERE goal_id = $1
   AND ($2::text IS NULL OR purpose = $2::text)
 ORDER BY attempt_no DESC
@@ -326,6 +359,63 @@ func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalPa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.FailureClass,
+			&i.RepairRounds,
+			&i.PreviousFailureClass,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInflightAttemptsByGoal = `-- name: ListInflightAttemptsByGoal :many
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt
+WHERE goal_id = $1
+  AND status IN ('queued', 'running')
+`
+
+// Every queued/running attempt for a goal regardless of purpose. Cancel uses
+// this to finalize ALL in-flight work: only execution attempts are pointed by
+// active_attempt_id, so decomposition/review attempts would otherwise outlive
+// the cancel and later be reaped against a terminal goal.
+func (q *Queries) ListInflightAttemptsByGoal(ctx context.Context, goalID string) ([]AgentGoalAttempt, error) {
+	rows, err := q.db.Query(ctx, listInflightAttemptsByGoal, goalID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentGoalAttempt{}
+	for rows.Next() {
+		var i AgentGoalAttempt
+		if err := rows.Scan(
+			&i.ID,
+			&i.GoalID,
+			&i.UserID,
+			&i.AgentID,
+			&i.ExecutorAgentID,
+			&i.SessionID,
+			&i.Purpose,
+			&i.AttemptNo,
+			&i.Status,
+			&i.InputContext,
+			&i.Evidence,
+			&i.Output,
+			&i.Gaps,
+			&i.Error,
+			&i.HeartbeatAt,
+			&i.LeaseExpiresAt,
+			&i.WorkerID,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FailureClass,
+			&i.RepairRounds,
+			&i.PreviousFailureClass,
 		); err != nil {
 			return nil, err
 		}
@@ -338,7 +428,7 @@ func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalPa
 }
 
 const listStaleAttempts = `-- name: ListStaleAttempts :many
-SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class FROM agent_goal_attempt
+SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt
 WHERE status IN ('queued', 'running')
   AND lease_expires_at IS NOT NULL
   AND lease_expires_at < $1
@@ -389,6 +479,8 @@ func (q *Queries) ListStaleAttempts(ctx context.Context, arg ListStaleAttemptsPa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.FailureClass,
+			&i.RepairRounds,
+			&i.PreviousFailureClass,
 		); err != nil {
 			return nil, err
 		}
@@ -423,22 +515,6 @@ func (q *Queries) PromoteAttempt(ctx context.Context, arg PromoteAttemptParams) 
 	return result.RowsAffected(), nil
 }
 
-const setAttemptExecutor = `-- name: SetAttemptExecutor :exec
-UPDATE agent_goal_attempt
-SET executor_agent_id = $1, updated_at = now()
-WHERE id = $2
-`
-
-type SetAttemptExecutorParams struct {
-	ExecutorAgentID pgtype.Text `json:"executor_agent_id"`
-	ID              string      `json:"id"`
-}
-
-func (q *Queries) SetAttemptExecutor(ctx context.Context, arg SetAttemptExecutorParams) error {
-	_, err := q.db.Exec(ctx, setAttemptExecutor, arg.ExecutorAgentID, arg.ID)
-	return err
-}
-
 const setAttemptGaps = `-- name: SetAttemptGaps :exec
 UPDATE agent_goal_attempt
 SET gaps = $1, updated_at = now()
@@ -452,6 +528,22 @@ type SetAttemptGapsParams struct {
 
 func (q *Queries) SetAttemptGaps(ctx context.Context, arg SetAttemptGapsParams) error {
 	_, err := q.db.Exec(ctx, setAttemptGaps, arg.Gaps, arg.ID)
+	return err
+}
+
+const setAttemptRepairRounds = `-- name: SetAttemptRepairRounds :exec
+UPDATE agent_goal_attempt
+SET repair_rounds = $1, updated_at = now()
+WHERE id = $2
+`
+
+type SetAttemptRepairRoundsParams struct {
+	RepairRounds int32  `json:"repair_rounds"`
+	ID           string `json:"id"`
+}
+
+func (q *Queries) SetAttemptRepairRounds(ctx context.Context, arg SetAttemptRepairRoundsParams) error {
+	_, err := q.db.Exec(ctx, setAttemptRepairRounds, arg.RepairRounds, arg.ID)
 	return err
 }
 

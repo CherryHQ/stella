@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 )
@@ -23,7 +24,7 @@ func (s *snapshotSpy) AdvanceSessionSnapshot(ctx context.Context, sessionID, use
 // groupSpeakerCtx builds a group-turn context: no session user (D9), agent set,
 // and a linked current speaker.
 func groupSpeakerCtx(agentID string, speaker memory.CurrentSpeaker) context.Context {
-	ctx := memory.WithAgentID(context.Background(), agentID)
+	ctx := authz.WithAgentID(context.Background(), agentID)
 	return memory.WithCurrentSpeaker(ctx, speaker)
 }
 
@@ -96,8 +97,8 @@ func TestMemoryToolCurrentSpeaker_DMUnchanged(t *testing.T) {
 	tool := memory.BuildTool(fake)
 
 	// Session user is set; a speaker is also present but must be ignored.
-	ctx := memory.WithUserID(context.Background(), "42")
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx := authz.WithUserID(context.Background(), "42")
+	ctx = authz.WithAgentID(ctx, "agent1")
 	ctx = memory.WithCurrentSpeaker(ctx, memory.CurrentSpeaker{UserID: "speaker1"})
 
 	if _, err := tool.Execute(ctx, map[string]any{"action": "profile_update", "content": "DM note"}); err != nil {
@@ -156,7 +157,7 @@ func TestMemoryToolCurrentSpeaker_SnapshotAdvancesSpeakerRow(t *testing.T) {
 	}
 
 	ctx := memory.WithSessionID(bg, sessionID)
-	ctx = memory.WithAgentID(ctx, "agent1")
+	ctx = authz.WithAgentID(ctx, "agent1")
 	ctx = memory.WithCurrentSpeaker(ctx, memory.CurrentSpeaker{UserID: "speaker1"})
 
 	if _, err := tool.Execute(ctx, map[string]any{"action": "profile_update", "content": "x"}); err != nil {

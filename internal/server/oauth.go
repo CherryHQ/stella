@@ -5,7 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/credentials"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 )
 
@@ -19,7 +20,7 @@ type flowStatusJSON struct {
 	State           string    `json:"state"`
 }
 
-func toFlowStatusJSON(fs credentials.FlowStatus) flowStatusJSON {
+func toFlowStatusJSON(fs connections.FlowStatus) flowStatusJSON {
 	return flowStatusJSON{
 		Provider:        fs.Provider,
 		FlowID:          fs.FlowID,
@@ -38,7 +39,11 @@ func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providers := s.credSvc.GetProviderStatuses(r.Context(), info.UserID)
+	providers, err := s.credSvc.As(authz.Identity{UserID: info.UserID}).Statuses(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
 	requiredBy := s.oauthProviderRequiredBy()
 	for i := range providers {
 		providers[i].RequiredBy = requiredBy[providers[i].Provider]
@@ -105,7 +110,7 @@ func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 	// matches the Web UI host. CLI/curl requests omit Origin; passing "" lets
 	// the credential service fall back to the configured base URL.
 	origin := strings.TrimRight(r.Header.Get("Origin"), "/")
-	status, err := s.credSvc.StartFlowWithOrigin(r.Context(), info.UserID, provider, origin)
+	status, err := s.credSvc.As(authz.Identity{UserID: info.UserID}).StartFlow(r.Context(), provider, origin)
 	if err != nil {
 		s.log.Error("start oauth flow", "provider", provider, "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusBadRequest, "invalid request")
@@ -126,7 +131,7 @@ func (s *Server) PollOAuthFlow(w http.ResponseWriter, r *http.Request, provider 
 		return
 	}
 
-	status, _, err := s.credSvc.PollFlow(r.Context(), info.UserID, provider, flowID)
+	status, _, err := s.credSvc.As(authz.Identity{UserID: info.UserID}).PollFlow(r.Context(), provider, flowID)
 	if err != nil {
 		s.log.Error("poll oauth flow", "provider", provider, "flow_id", flowID, "error", err)
 		writeError(w, http.StatusBadRequest, "invalid request")
@@ -147,7 +152,11 @@ func (s *Server) GetOAuthConnected(w http.ResponseWriter, r *http.Request, provi
 		return
 	}
 
-	statuses := s.credSvc.GetProviderStatuses(r.Context(), info.UserID)
+	statuses, err := s.credSvc.As(authz.Identity{UserID: info.UserID}).Statuses(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
 
 	type connectedResp struct {
 		Connected bool   `json:"connected"`
@@ -175,7 +184,7 @@ func (s *Server) DisconnectOAuth(w http.ResponseWriter, r *http.Request, provide
 		return
 	}
 
-	if err := s.credSvc.Disconnect(r.Context(), info.UserID, provider); err != nil {
+	if err := s.credSvc.As(authz.Identity{UserID: info.UserID}).Disconnect(r.Context(), provider); err != nil {
 		s.log.Error("disconnect oauth", "provider", provider, "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return

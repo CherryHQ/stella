@@ -13,15 +13,16 @@ import (
 // (contract §3.3). Marshaled to the attempt's input_context column. Frozen
 // means an in-flight edit to intent/contract never mutates a running attempt.
 type AttemptInput struct {
-	Title           string             `json:"title,omitempty"`
-	Intent          string             `json:"intent"`
-	Context         json.RawMessage    `json:"context,omitempty"`
-	UpstreamOutputs []AcceptedOutput   `json:"upstream_outputs"`           // ONLY accepted upstream outputs
-	PriorGaps       *Evaluation        `json:"prior_gaps,omitempty"`       // Evaluation[i-1].gaps; nil on attempt 1
-	PriorErrors     []ValidationError  `json:"prior_errors,omitempty"`     // structural planner errors from the previous repair turn
-	Contract        AcceptanceContract `json:"contract"`                   // the bar the attempt must clear
-	ResolvedVerdict string             `json:"resolved_verdict,omitempty"` // a human answer that unblocked needs_verdict
-	AttemptNo       int                `json:"attempt_no"`
+	Title           string                 `json:"title,omitempty"`
+	Intent          string                 `json:"intent"`
+	Context         json.RawMessage        `json:"context,omitempty"`
+	UpstreamOutputs []AcceptedOutput       `json:"upstream_outputs"`           // ONLY accepted upstream outputs
+	PriorGaps       *Evaluation            `json:"prior_gaps,omitempty"`       // Evaluation[i-1].gaps; nil on attempt 1
+	PriorErrors     []ValidationError      `json:"prior_errors,omitempty"`     // structural planner errors from the previous repair turn
+	Contract        AcceptanceContract     `json:"contract"`                   // the bar the attempt must clear
+	ResolvedVerdict string                 `json:"resolved_verdict,omitempty"` // a human answer that unblocked needs_verdict
+	TimelineContext []TimelineContextEvent `json:"timeline_context,omitempty"` // recent timeline facts: failures, gaps, human instructions
+	AttemptNo       int                    `json:"attempt_no"`
 	// MaxDepth is the root's recursion ceiling, frozen here so a decomposition
 	// attempt can validate its proposed plan in-turn (against parentDepth =
 	// goal.Depth) instead of only out-of-turn at SubmitDecomposition. Zero for

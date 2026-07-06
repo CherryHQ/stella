@@ -7,14 +7,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -122,8 +121,10 @@ type TaskChatParams struct {
 	// Decompose routes the turn to the decomposition planning session
 	// (KindDelegate) instead of the worker session (KindTask). Set for
 	// purpose=decomposition attempts; the two session kinds resolve differently.
-	Decompose  bool
-	ExtraTools []tools.Tool
+	Decompose        bool
+	ExtraTools       []tools.Tool
+	ExcludedTools    []string
+	OnSandboxSession func(sandbox.Session) error
 }
 
 // TaskChatFunc runs one worker turn through the agent service layer so the
@@ -135,16 +136,18 @@ type TaskChatFunc func(ctx context.Context, p TaskChatParams) <-chan agent.Event
 // tasks.BootConfig: a DB handle, the agent ServiceManager for session minting,
 // the Chat callback for worker turns, and the dispatcher tunables.
 type BootConfig struct {
-	DB       *pgxpool.Pool
-	Services agent.ServiceManager // registry-backed session minting
-	Chat     TaskChatFunc         // runs persisted worker turns; nil => noop executor
+	DB           *pgxpool.Pool
+	Services     agent.ServiceManager // registry-backed session minting
+	Chat         TaskChatFunc         // runs persisted worker turns; nil => noop executor
+	Capabilities CapabilityProbe      // nil => deterministic checks are allowed
 	// MaxWorkers caps concurrent attempt executions per node on the goal River
 	// queue (0 => defaultGoalMaxWorkers). TickEvery/LeaseTTL override the
 	// dispatcher/service defaults; zero values use them.
-	MaxWorkers int
-	TickEvery  time.Duration
-	LeaseTTL   time.Duration
-	Logger     *slog.Logger
+	MaxWorkers    int
+	TickEvery     time.Duration
+	LeaseTTL      time.Duration
+	Logger        *slog.Logger
+	ExcludedTools []string
 }
 
 // Boot constructs the goal system and returns the bound bundle. The dispatcher is
@@ -167,7 +170,9 @@ func Boot(cfg BootConfig) (*Service, error) {
 	}
 
 	svc := New(cfg.DB, q,
-		WithExecutor(bootExecutor(cfg.Chat, logger)),
+		WithExecutor(bootExecutor(cfg.Chat, logger, cfg.ExcludedTools)),
+		WithCheckRunner(NewCheckRunner(q, 0)),
+		WithCapabilityProbe(cfg.Capabilities),
 		WithSessionMinter(RegistrySessionMinter(cfg.Services)),
 		WithPlanningSessionMinter(RegistryPlanningSessionMinter(cfg.Services)),
 		WithSessionDisposer(RegistrySessionDisposer(cfg.Services)),
@@ -205,12 +210,12 @@ func Boot(cfg BootConfig) (*Service, error) {
 // bootExecutor picks the worker executor. With a Chat callback it runs persisted
 // agent turns (executor.go); without one it is a noop that fails non-retryably so
 // a misconfigured boot is loud, not silent.
-func bootExecutor(chat TaskChatFunc, log *slog.Logger) Executor {
+func bootExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string) Executor {
 	if chat == nil {
 		log.Warn("goal: no Chat wired; worker executor is a noop")
 		return noopExecutor{log: log}
 	}
-	return newWorkerExecutor(chat, log)
+	return newWorkerExecutor(chat, log, excludedTools)
 }
 
 // noopExecutor fails every attempt non-retryably with a clear hint. It is the
@@ -223,9 +228,10 @@ func (n noopExecutor) Execute(_ context.Context, req ExecutorRequest) (ExecutorR
 		"goal_id", req.Goal.ID, "attempt_id", req.Attempt.ID,
 		"hint", "wire BootConfig.Chat to the agent service to execute attempts")
 	return ExecutorResult{
-		Failed:     true,
-		FailReason: "goal executor not wired (noop): wire BootConfig.Chat to the agent service",
-		Retryable:  false,
+		Failed:       true,
+		FailReason:   "goal executor not wired (noop): wire BootConfig.Chat to the agent service",
+		FailureClass: FailureClassEnvironment,
+		BlockedBy:    BlockEnvUnavailable,
 	}, nil
 }
 
@@ -237,186 +243,3 @@ type workerRunner struct{ w *Worker }
 func (r workerRunner) Run(ctx context.Context, goalID, attemptID string) error {
 	return r.w.Run(ctx, goalID, attemptID, Actor{Type: ActorWorker})
 }
-
-// ── Read surface (handlers bind to these; all delegate to the querier) ───────
-
-// GoalFilter narrows a root-goal list. The zero value lists active
-// (non-archived) roots across all agents; populated fields AND together. Terminal
-// is tri-state: nil = both, false = active only, true = history (terminal) only.
-type GoalFilter struct {
-	AgentID   string
-	Lifecycle string
-	ProjectID string
-	Terminal  *bool
-	Q         string
-	Archived  bool
-}
-
-func (f GoalFilter) includeArchived() bool {
-	return f.Archived
-}
-
-func (f GoalFilter) terminalArg() pgtype.Bool {
-	if f.Terminal == nil {
-		return pgtype.Bool{}
-	}
-	return pgtype.Bool{Bool: *f.Terminal, Valid: true}
-}
-
-// ListGoals lists root goals (goals: parent_id IS NULL) for a user,
-// narrowed by filter. Empty filter strings match all rows.
-func (s *Service) ListGoals(ctx context.Context, userID string, filter GoalFilter, limit, offset int64) ([]sqlc.AgentGoal, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	return s.Queries.ListRootGoal(ctx, sqlc.ListRootGoalParams{
-		UserID:          userID,
-		AgentID:         pgnull.Text(filter.AgentID),
-		ProjectID:       pgnull.Text(filter.ProjectID),
-		Lifecycle:       pgnull.Text(filter.Lifecycle),
-		Terminal:        filter.terminalArg(),
-		Q:               pgnull.Text(filter.Q),
-		IncludeArchived: filter.includeArchived(),
-		Limit:           int32(limit),
-		Offset:          int32(offset),
-	})
-}
-
-// GetGoal returns one goal, mapping a missing row to ErrNotFound.
-func (s *Service) GetGoal(ctx context.Context, id string) (sqlc.AgentGoal, error) {
-	return getGoal(ctx, s.Queries, id)
-}
-
-// ListChildren lists the direct children of a composite goal, in position
-// order.
-func (s *Service) ListChildren(ctx context.Context, parentID string) ([]sqlc.AgentGoal, error) {
-	return s.Queries.ListGoalChildren(ctx, pgnull.Text(parentID))
-}
-
-// ListSubtree lists every goal in a tree (the whole root_id family).
-func (s *Service) ListSubtree(ctx context.Context, rootID string) ([]sqlc.AgentGoal, error) {
-	return s.Queries.ListGoalByRoot(ctx, rootID)
-}
-
-// GetReadiness loads a goal + its upstream edges (with upstream lifecycle
-// pre-joined) and returns the computed dispatchability view.
-func (s *Service) GetReadiness(ctx context.Context, id string) (Readiness, error) {
-	d, err := getGoal(ctx, s.Queries, id)
-	if err != nil {
-		return Readiness{}, err
-	}
-	edges, err := s.Queries.ListEdgeWithUpstreamState(ctx, id)
-	if err != nil {
-		return Readiness{}, err
-	}
-	return Compute(d, edges, time.Now().UTC()), nil
-}
-
-// ListAttempts returns the execution attempts for a goal, newest first.
-func (s *Service) ListAttempts(ctx context.Context, id string) ([]sqlc.AgentGoalAttempt, error) {
-	return s.Queries.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: id})
-}
-
-// GetAttempt returns one attempt by id.
-func (s *Service) GetAttempt(ctx context.Context, attemptID string) (sqlc.AgentGoalAttempt, error) {
-	return s.Queries.GetAttempt(ctx, attemptID)
-}
-
-// ListAcceptanceEvents returns the acceptance ledger for a goal, in fold
-// (seq) order — the audit trail.
-func (s *Service) ListAcceptanceEvents(ctx context.Context, id string) ([]sqlc.AgentGoalAcceptanceEvent, error) {
-	return s.Queries.ListAcceptanceEventByGoal(ctx, id)
-}
-
-// ListEdges returns the upstream dependency edges of a goal.
-func (s *Service) ListEdges(ctx context.Context, id string) ([]sqlc.AgentGoalEdge, error) {
-	return s.Queries.ListEdgeByGoal(ctx, id)
-}
-
-// ── Command surface (delegates to GoalService — the single writer) ────
-
-// CreateGoal mints a root goal (a goal) in 'draft', minting its
-// worker session first. Children are created by Materialize, not this entry.
-func (s *Service) CreateGoal(ctx context.Context, in CreateInput) (sqlc.AgentGoal, error) {
-	return s.Goal.CreateRoot(ctx, in)
-}
-
-// CountGoals returns the total root goals matching the same filter
-// as ListGoals — it drives the list's exact `total` and the
-// active/history/archived header badges (three counts varying only terminal/archived).
-func (s *Service) CountGoals(ctx context.Context, userID string, filter GoalFilter) (int64, error) {
-	return s.Queries.CountRootGoal(ctx, sqlc.CountRootGoalParams{
-		UserID:          userID,
-		AgentID:         pgnull.Text(filter.AgentID),
-		ProjectID:       pgnull.Text(filter.ProjectID),
-		Lifecycle:       pgnull.Text(filter.Lifecycle),
-		Terminal:        filter.terminalArg(),
-		Q:               pgnull.Text(filter.Q),
-		IncludeArchived: filter.includeArchived(),
-	})
-}
-
-// Activate runs the plan gate: draft→ready.
-func (s *Service) Activate(ctx context.Context, id string) (sqlc.AgentGoal, error) {
-	return s.Goal.Activate(ctx, id)
-}
-
-// UpdateGoal applies a partial metadata edit (PATCH).
-func (s *Service) UpdateGoal(ctx context.Context, id string, in UpdateInput) (sqlc.AgentGoal, error) {
-	return s.Goal.UpdateMetadata(ctx, id, in)
-}
-
-// Cancel cascades a cancel over the subtree.
-func (s *Service) Cancel(ctx context.Context, id, reason string, by Actor) error {
-	return s.Goal.Cancel(ctx, id, reason, by)
-}
-
-// Abandon is the human give-up on a budget-exhausted block.
-func (s *Service) Abandon(ctx context.Context, id, reason string, by Actor) error {
-	return s.Goal.Abandon(ctx, id, reason, by)
-}
-
-// Reattempt resumes a recoverably blocked goal, raising budget only for budget_exhausted.
-func (s *Service) Reattempt(ctx context.Context, id string, by Actor) error {
-	return s.Goal.Reattempt(ctx, id, by)
-}
-
-// Archive soft-flags a terminal goal out of default lists.
-func (s *Service) Archive(ctx context.Context, id string) error {
-	return s.Goal.Archive(ctx, id)
-}
-
-// Unarchive clears the archived flag.
-func (s *Service) Unarchive(ctx context.Context, id string) error {
-	return s.Goal.Unarchive(ctx, id)
-}
-
-// AddEdge inserts an accepted-output dependency between siblings (cycle-checked).
-func (s *Service) AddEdge(ctx context.Context, downstreamID, upstreamID, kind, onFailure string) (sqlc.AgentGoalEdge, error) {
-	return s.Goal.AddEdge(ctx, downstreamID, upstreamID, kind, onFailure)
-}
-
-// WaiveEdge waives a hard edge so a blocked(dep) downstream can proceed.
-func (s *Service) WaiveEdge(ctx context.Context, downstreamID, upstreamID, reason string, by Actor) error {
-	return s.Goal.WaiveEdge(ctx, downstreamID, upstreamID, reason, by)
-}
-
-// SubmitVerdict appends a human verdict event and re-folds acceptance.
-func (s *Service) SubmitVerdict(ctx context.Context, in VerdictInput) error {
-	return s.Goal.SubmitVerdict(ctx, in)
-}
-
-// ApprovePlan approves a composite's proposed plan (blocked(needs_plan_approval)),
-// materializing its children and resuming the tree.
-func (s *Service) ApprovePlan(ctx context.Context, goalID string, by Actor) error {
-	return s.Goal.ApprovePlan(ctx, goalID, by)
-}
-
-// RejectPlan rejects a composite's proposed plan, returning it to draft for the
-// dispatcher to re-decompose.
-func (s *Service) RejectPlan(ctx context.Context, goalID, reason string, by Actor) error {
-	return s.Goal.RejectPlan(ctx, goalID, reason, by)
-}
-
-// nilIfEmpty returns an invalid pgtype.Text for an empty string so a sqlc
-// narg filter matches all rows; otherwise it returns the value to filter on.

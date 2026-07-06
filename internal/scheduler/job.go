@@ -22,6 +22,11 @@ const (
 	ExecScopeUser = "user"
 )
 
+const (
+	DispatchKindChat     = "chat"
+	DispatchKindWorkflow = "workflow"
+)
+
 // Schedule defines when a job runs. Exactly one field must be set.
 type Schedule struct {
 	Cron  string `json:"cron,omitempty"`  // "0 9 * * 1-5"
@@ -37,25 +42,27 @@ const (
 )
 
 type Job struct {
-	ID          string         `json:"id"`
-	OwnerKind   string         `json:"owner_kind,omitempty"`
-	ExecScope   string         `json:"exec_scope,omitempty"`
-	PluginID    string         `json:"plugin_id,omitempty"`
-	JobKey      string         `json:"job_key,omitempty"`
-	RuntimeName string         `json:"runtime_name,omitempty"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Schedule    Schedule       `json:"schedule"`
-	Message     string         `json:"message,omitempty"`
-	Payload     map[string]any `json:"payload,omitempty"`
-	SessionMode string         `json:"session_mode"` // "reuse" (default) or "new"
-	Enabled     bool           `json:"enabled"`
-	AgentID     string         `json:"agent_id,omitempty"` // agent to route to (empty = default)
-	UserID      string         `json:"user_id,omitempty"`  // user context (empty = none)
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	LastRunAt   *time.Time     `json:"last_run_at,omitempty"`
-	LastError   string         `json:"last_error,omitempty"`
+	ID             string         `json:"id"`
+	OwnerKind      string         `json:"owner_kind,omitempty"`
+	ExecScope      string         `json:"exec_scope,omitempty"`
+	PluginID       string         `json:"plugin_id,omitempty"`
+	JobKey         string         `json:"job_key,omitempty"`
+	RuntimeName    string         `json:"runtime_name,omitempty"`
+	Name           string         `json:"name"`
+	Description    string         `json:"description,omitempty"`
+	Schedule       Schedule       `json:"schedule"`
+	Message        string         `json:"message,omitempty"`
+	Payload        map[string]any `json:"payload,omitempty"`
+	DispatchKind   string         `json:"dispatch_kind,omitempty"`
+	SessionMode    string         `json:"session_mode"` // "reuse" (default) or "new"
+	Enabled        bool           `json:"enabled"`
+	AgentID        string         `json:"agent_id,omitempty"` // agent to route to (empty = default)
+	UserID         string         `json:"user_id,omitempty"`  // user context (empty = none)
+	IdempotencyKey string         `json:"idempotency_key,omitempty"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	LastRunAt      *time.Time     `json:"last_run_at,omitempty"`
+	LastError      string         `json:"last_error,omitempty"`
 }
 
 const (
@@ -113,6 +120,19 @@ func RunOutputSinkFromContext(ctx context.Context) *RunOutputSink {
 		return v
 	}
 	return nil
+}
+
+type runIDKey struct{}
+
+func WithRunID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, runIDKey{}, id)
+}
+
+func RunIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(runIDKey{}).(string); ok {
+		return v
+	}
+	return ""
 }
 
 type runSessionIDKey struct{}

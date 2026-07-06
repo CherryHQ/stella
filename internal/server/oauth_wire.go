@@ -8,21 +8,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/credential"
-	"github.com/CherryHQ/stella/internal/oauth"
+	"github.com/CherryHQ/stella/internal/oidc"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // oauthStore adapts the sqlc queries to both credential.OAuthAccessStore (the
-// opaque access-token front door) and oauth.Store (the authorization-server
+// opaque access-token front door) and oidc.Store (the authorization-server
 // client/code/refresh storage). One adapter, two interfaces: access tokens stay
-// owned by credential, while the flow tables stay in internal/oauth.
+// owned by credential, while the flow tables stay in internal/oidc.
 type oauthStore struct {
 	q *sqlc.Queries
 }
 
 var (
 	_ credential.OAuthAccessStore = oauthStore{}
-	_ oauth.Store                 = oauthStore{}
+	_ oidc.Store                  = oauthStore{}
 )
 
 // ---- credential.OAuthAccessStore ----
@@ -82,9 +82,9 @@ func (o oauthStore) TouchOAuthAccessLastUsed(ctx context.Context, id string) (in
 	return o.q.UpdateOAuthAccessTokenLastUsed(ctx, id)
 }
 
-// ---- oauth.Store: clients ----
+// ---- oidc.Store: clients ----
 
-func (o oauthStore) CreateClient(ctx context.Context, c oauth.ClientCreate) (oauth.Client, error) {
+func (o oauthStore) CreateClient(ctx context.Context, c oidc.ClientCreate) (oidc.Client, error) {
 	row, err := o.q.CreateOAuthClient(ctx, sqlc.CreateOAuthClientParams{
 		ClientID:         c.ClientID,
 		Name:             c.Name,
@@ -96,25 +96,25 @@ func (o oauthStore) CreateClient(ctx context.Context, c oauth.ClientCreate) (oau
 		OwnerUserID:      c.OwnerUserID,
 	})
 	if err != nil {
-		return oauth.Client{}, err
+		return oidc.Client{}, err
 	}
 	return oauthClientFromRow(row), nil
 }
 
-func (o oauthStore) GetClient(ctx context.Context, clientID string) (oauth.Client, error) {
+func (o oauthStore) GetClient(ctx context.Context, clientID string) (oidc.Client, error) {
 	row, err := o.q.GetOAuthClientByClientID(ctx, clientID)
 	if err != nil {
-		return oauth.Client{}, err
+		return oidc.Client{}, err
 	}
 	return oauthClientFromRow(row), nil
 }
 
-func (o oauthStore) ListClientsByOwner(ctx context.Context, ownerUserID string) ([]oauth.Client, error) {
+func (o oauthStore) ListClientsByOwner(ctx context.Context, ownerUserID string) ([]oidc.Client, error) {
 	rows, err := o.q.ListOAuthClientByOwner(ctx, ownerUserID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]oauth.Client, 0, len(rows))
+	out := make([]oidc.Client, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, oauthClientFromRow(r))
 	}
@@ -133,8 +133,8 @@ func (o oauthStore) DisableClient(ctx context.Context, clientID, ownerUserID str
 	return o.q.DisableOAuthClient(ctx, sqlc.DisableOAuthClientParams{ClientID: clientID, OwnerUserID: ownerUserID})
 }
 
-func oauthClientFromRow(r sqlc.OauthClient) oauth.Client {
-	return oauth.Client{
+func oauthClientFromRow(r sqlc.OauthClient) oidc.Client {
+	return oidc.Client{
 		ClientID:         r.ClientID,
 		Name:             r.Name,
 		ClientSecretHash: r.ClientSecretHash,
@@ -148,9 +148,9 @@ func oauthClientFromRow(r sqlc.OauthClient) oauth.Client {
 	}
 }
 
-// ---- oauth.Store: authorization codes ----
+// ---- oidc.Store: authorization codes ----
 
-func (o oauthStore) CreateCode(ctx context.Context, c oauth.AuthCodeCreate) error {
+func (o oauthStore) CreateCode(ctx context.Context, c oidc.AuthCodeCreate) error {
 	_, err := o.q.CreateOAuthAuthorizationCode(ctx, sqlc.CreateOAuthAuthorizationCodeParams{
 		CodeHash:            c.CodeHash,
 		ClientID:            c.ClientID,
@@ -164,15 +164,15 @@ func (o oauthStore) CreateCode(ctx context.Context, c oauth.AuthCodeCreate) erro
 	return err
 }
 
-func (o oauthStore) ConsumeCode(ctx context.Context, codeHash string) (oauth.AuthCode, bool, error) {
+func (o oauthStore) ConsumeCode(ctx context.Context, codeHash string) (oidc.AuthCode, bool, error) {
 	row, err := o.q.ConsumeOAuthAuthorizationCode(ctx, codeHash)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return oauth.AuthCode{}, false, nil
+		return oidc.AuthCode{}, false, nil
 	}
 	if err != nil {
-		return oauth.AuthCode{}, false, err
+		return oidc.AuthCode{}, false, err
 	}
-	return oauth.AuthCode{
+	return oidc.AuthCode{
 		ClientID:            row.ClientID,
 		UserID:              row.UserID,
 		RedirectURI:         row.RedirectUri,
@@ -191,7 +191,7 @@ func (o oauthStore) RevokeCodesForUserClient(ctx context.Context, userID, client
 	return err
 }
 
-// ---- oauth.Store: refresh families (the revocation unit) ----
+// ---- oidc.Store: refresh families (the revocation unit) ----
 
 func (o oauthStore) CreateFamily(ctx context.Context, userID, clientID string) (string, error) {
 	row, err := o.q.CreateOAuthRefreshFamily(ctx, sqlc.CreateOAuthRefreshFamilyParams{
@@ -217,9 +217,9 @@ func (o oauthStore) RevokeFamiliesForUserClient(ctx context.Context, userID, cli
 	return err
 }
 
-// ---- oauth.Store: refresh tokens ----
+// ---- oidc.Store: refresh tokens ----
 
-func (o oauthStore) CreateRefresh(ctx context.Context, r oauth.RefreshCreate) (oauth.RefreshRecord, error) {
+func (o oauthStore) CreateRefresh(ctx context.Context, r oidc.RefreshCreate) (oidc.RefreshRecord, error) {
 	row, err := o.q.CreateOAuthRefreshToken(ctx, sqlc.CreateOAuthRefreshTokenParams{
 		PublicID:  r.PublicID,
 		TokenHash: r.TokenHash,
@@ -230,10 +230,10 @@ func (o oauthStore) CreateRefresh(ctx context.Context, r oauth.RefreshCreate) (o
 		ExpiresAt: r.ExpiresAt.UTC(),
 	})
 	if err != nil {
-		return oauth.RefreshRecord{}, err
+		return oidc.RefreshRecord{}, err
 	}
 	// A freshly created token's family is live; FamilyRevoked stays false.
-	return oauth.RefreshRecord{
+	return oidc.RefreshRecord{
 		ID: row.ID, PublicID: row.PublicID, TokenHash: row.TokenHash,
 		ClientID: row.ClientID, UserID: row.UserID, Scopes: row.Scopes,
 		FamilyID: row.FamilyID, ExpiresAt: row.ExpiresAt.UTC(),
@@ -241,12 +241,12 @@ func (o oauthStore) CreateRefresh(ctx context.Context, r oauth.RefreshCreate) (o
 	}, nil
 }
 
-func (o oauthStore) GetRefreshByPublicID(ctx context.Context, publicID string) (oauth.RefreshRecord, error) {
+func (o oauthStore) GetRefreshByPublicID(ctx context.Context, publicID string) (oidc.RefreshRecord, error) {
 	row, err := o.q.GetOAuthRefreshTokenByPublicID(ctx, publicID)
 	if err != nil {
-		return oauth.RefreshRecord{}, err
+		return oidc.RefreshRecord{}, err
 	}
-	return oauth.RefreshRecord{
+	return oidc.RefreshRecord{
 		ID: row.ID, PublicID: row.PublicID, TokenHash: row.TokenHash,
 		ClientID: row.ClientID, UserID: row.UserID, Scopes: row.Scopes,
 		FamilyID: row.FamilyID, ExpiresAt: row.ExpiresAt.UTC(),
@@ -255,18 +255,18 @@ func (o oauthStore) GetRefreshByPublicID(ctx context.Context, publicID string) (
 	}, nil
 }
 
-func (o oauthStore) ConsumeRefresh(ctx context.Context, publicID, replacedByID string) (oauth.RefreshRecord, bool, error) {
+func (o oauthStore) ConsumeRefresh(ctx context.Context, publicID, replacedByID string) (oidc.RefreshRecord, bool, error) {
 	row, err := o.q.ConsumeOAuthRefreshToken(ctx, sqlc.ConsumeOAuthRefreshTokenParams{
 		PublicID:     publicID,
 		ReplacedByID: textFromString(replacedByID),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return oauth.RefreshRecord{}, false, nil
+		return oidc.RefreshRecord{}, false, nil
 	}
 	if err != nil {
-		return oauth.RefreshRecord{}, false, err
+		return oidc.RefreshRecord{}, false, err
 	}
-	return oauth.RefreshRecord{
+	return oidc.RefreshRecord{
 		ID: row.ID, PublicID: row.PublicID, TokenHash: row.TokenHash,
 		ClientID: row.ClientID, UserID: row.UserID, Scopes: row.Scopes,
 		FamilyID: row.FamilyID, ExpiresAt: row.ExpiresAt.UTC(),
@@ -274,14 +274,14 @@ func (o oauthStore) ConsumeRefresh(ctx context.Context, publicID, replacedByID s
 	}, true, nil
 }
 
-func (o oauthStore) ListAuthorizedApps(ctx context.Context, userID string) ([]oauth.AuthorizedApp, error) {
+func (o oauthStore) ListAuthorizedApps(ctx context.Context, userID string) ([]oidc.AuthorizedApp, error) {
 	rows, err := o.q.ListOAuthAuthorizedApps(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]oauth.AuthorizedApp, 0, len(rows))
+	out := make([]oidc.AuthorizedApp, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, oauth.AuthorizedApp{
+		out = append(out, oidc.AuthorizedApp{
 			ClientID:   r.ClientID,
 			ClientName: r.ClientName,
 			FamilyID:   r.FamilyID,

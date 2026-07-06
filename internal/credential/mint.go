@@ -49,7 +49,7 @@ type Minted struct {
 // the kind-checked entry point for opaque PAT/OAuth-access tokens. It must not
 // absorb scoped-token HMAC signing or client_secret password-hashing -- those are
 // distinct concerns kept out of the generic mint. OAuth refresh tokens share the
-// same wire format but rotate outside the API front door, so internal/oauth mints
+// same wire format but rotate outside the API front door, so internal/oidc mints
 // them via MintOpaqueWithPrefix rather than this kind-checked form.
 func MintOpaque(kind Kind) (Minted, error) {
 	prefix, err := opaquePrefix(kind)
@@ -62,7 +62,7 @@ func MintOpaque(kind Kind) (Minted, error) {
 // MintOpaqueWithPrefix mints an opaque token for an explicit prefix. It is the
 // single definition of the opaque-token wire format -- prefix + public_id + "_" +
 // secret + crc32, with the secret stored as a SHA-256 hash. MintOpaque is the
-// PAT/OAuth-access entry point; internal/oauth uses this lower-level form for
+// PAT/OAuth-access entry point; internal/oidc uses this lower-level form for
 // stella_ort_ refresh tokens so the format lives in exactly one place.
 func MintOpaqueWithPrefix(prefix string) (Minted, error) {
 	pubRaw := make([]byte, publicIDBytes)
@@ -96,7 +96,7 @@ func opaquePrefix(kind Kind) (string, error) {
 	}
 }
 
-// ParseOpaqueToken is the exported opaque-token splitter for internal/oauth's
+// ParseOpaqueToken is the exported opaque-token splitter for internal/oidc's
 // refresh tokens, which share the wire format but are resolved at /oauth/token
 // rather than the API front door. Same contract as the internal resolver path.
 func ParseOpaqueToken(prefix, raw string) (publicID, secret string, err error) {
@@ -104,7 +104,7 @@ func ParseOpaqueToken(prefix, raw string) (publicID, secret string, err error) {
 }
 
 // HashSecret returns the SHA-256 hex of an opaque-token secret. Exported so
-// internal/oauth hashes refresh-token secrets against the same format authority
+// internal/oidc hashes refresh-token secrets against the same format authority
 // instead of re-deriving it.
 func HashSecret(secret string) string { return hashSecret(secret) }
 

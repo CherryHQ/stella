@@ -20,17 +20,16 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/mcp"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
-	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -68,7 +67,7 @@ func serverAction(c *ucli.Context) error {
 			"STELLA_VAULT_KEY is not set\n\n" +
 				"stella requires a vault key to encrypt credentials and secrets.\n" +
 				"Generate one and add it to $STELLA_HOME/.env:\n\n" +
-				"  stella vault keygen\n" +
+				"  stellad vault keygen\n" +
 				"  echo 'STELLA_VAULT_KEY=AGE-SECRET-KEY-1...' >> ~/.stella/.env\n\n" +
 				"Back up the key — if it is lost, all stored secrets become unrecoverable.\n" +
 				"See the vault documentation for details",
@@ -157,12 +156,25 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
 	adminSrv := server.New(gctx, s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
+	adminSrv.SetBuiltinTools(s.builtinTools)
+	if s.credSvc != nil {
+		adminSrv.SetCredentialsService(s.credSvc)
+	}
+	if s.shareSvc != nil {
+		adminSrv.SetShareService(s.shareSvc)
+	}
+	if s.recallySvc != nil {
+		adminSrv.SetRecallyService(s.recallySvc)
+	}
 	adminSrv.SetBaseURL(resolveBaseURL(adminHost, adminPort))
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 	}
 	if s.goalSvc != nil {
 		adminSrv.SetGoalService(s.goalSvc)
+	}
+	if s.workflowSvc != nil {
+		adminSrv.SetWorkflowService(s.workflowSvc)
 	}
 
 	// Wire the shared credentials service: inject invalidator so token
@@ -174,26 +186,21 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.poolManager.SetOAuthRegistry(s.oauthRegistry)
 	}
 
-	// Wire vault service if STELLA_VAULT_KEY is set.
+	tokenSvc := auth.NewTokenService(as)
+	adminSrv.SetTokenService(tokenSvc)
+	s.poolManager.SetTokenEnsurer(gctx, tokenSvc)
+
+	// Wire vault service if STELLA_VAULT_KEY was valid during setup.
 	var coordOpts []channel.CoordinatorOption
-	var tokenSvc *auth.TokenService
 	var mcpVault mcp.Vault // nil when the vault is unavailable; MCP bearer auth then rejected
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
-	if vaultKey := os.Getenv("STELLA_VAULT_KEY"); vaultKey != "" {
-		vaultSvc, err := vault.NewService(sqlc.New(s.db), vaultKey)
-		if err != nil {
-			slog.Warn("vault service init failed; vault endpoints will return 503", "error", err)
-		} else {
-			tokenSvc = auth.NewTokenService(as, vaultSvc)
-			mcpVault = vaultSvc
-			adminSrv.SetVaultService(vaultSvc)
-			adminSrv.SetTokenService(tokenSvc)
-			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
-			s.poolManager.SetVaultEnvLoader(gctx, vaultSvc)
-			s.poolManager.SetTokenEnsurer(gctx, tokenSvc)
-			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
-			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
-		}
+	if s.vaultSvc != nil {
+		mcpVault = s.vaultSvc
+		adminSrv.SetVaultService(s.vaultSvc)
+		adminSrv.SetVaultRecipient(s.vaultSvc.MasterRecipient())
+		s.poolManager.SetVaultEnvLoader(gctx, s.vaultSvc)
+		coordOpts = append(coordOpts, channel.WithVaultRecipient(s.vaultSvc.MasterRecipient()))
+		coordOpts = append(coordOpts, channel.WithVaultService(s.vaultSvc))
 	}
 
 	// Wire the MCP client: one registration service shared by the HTTP API
@@ -371,10 +378,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 func schedulerJobContext(ctx context.Context, agentID string, job scheduler.Job) context.Context {
 	if job.UserID != "" {
-		ctx = memory.WithUserID(ctx, job.UserID)
+		ctx = authz.WithUserID(ctx, job.UserID)
 	}
 	if agentID != "" {
-		ctx = memory.WithAgentID(ctx, agentID)
+		ctx = authz.WithAgentID(ctx, agentID)
 	}
 	ctx = agent.WithExcludedTools(ctx, "scheduler")
 	return ctx

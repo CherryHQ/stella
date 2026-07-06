@@ -1,0 +1,173 @@
+paths:
+  /api/goals/{id}/save-as-workflow:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [workflows]
+      summary: Save an accepted composite goal as a workflow
+      operationId: saveGoalAsWorkflow
+      x-agent-tool: { tool: "workflow", action: "save" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/SaveGoalAsWorkflowRequest",
+              }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Workflow" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/workflows:
+    get:
+      tags: [workflows]
+      summary: List workflows
+      description: Lists workflows owned by the authenticated user or, when agent_id is supplied, that agent scope.
+      operationId: listWorkflows
+      x-agent-tool: { tool: "workflow", action: "list" }
+      parameters:
+        - name: agent_id
+          in: query
+          required: false
+          description: Scope the list to one managing agent, matching goal list scoping.
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/WorkflowList",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/workflows/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [workflows]
+      summary: Get a workflow
+      operationId: getWorkflow
+      x-agent-tool: { tool: "workflow", action: "get" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Workflow" }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [workflows]
+      summary: Delete a workflow
+      description: Deletes a workflow version only when it has no runs.
+      operationId: deleteWorkflow
+      responses:
+        "204": { description: deleted }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/workflows/{id}/runs:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [workflows]
+      summary: List workflow runs
+      operationId: listWorkflowRuns
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - { name: page_token, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/WorkflowRunList",
+                }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/workflows/{id}/instantiate:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [workflows]
+      summary: Instantiate a workflow
+      description: >-
+        Creates or resumes a workflow run and materializes a fresh goal tree. If
+        idempotency_key is omitted the server generates a UUID; provide a stable
+        key when retrying a client-side operation.
+      operationId: instantiateWorkflow
+      x-agent-tool: { tool: "workflow", action: "run" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/InstantiateWorkflowRequest",
+              }
+      responses:
+        "200":
+          description: existing idempotent run returned
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/WorkflowRun",
+                }
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/WorkflowRun",
+                }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }

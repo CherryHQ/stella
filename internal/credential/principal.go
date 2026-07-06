@@ -21,9 +21,6 @@ const (
 	KindOAuth Kind = "oauth"
 	// KindScoped is the existing sandbox scoped token (stella_scoped_).
 	KindScoped Kind = "scoped"
-	// KindLegacyStellaToken is the vault-injected STELLA_TOKEN. Named for
-	// honesty: it bypasses API-scope checks ONLY, not handler ownership/admin.
-	KindLegacyStellaToken Kind = "legacy_stella_token"
 )
 
 // Principal is the single output type of Resolve: the authenticated identity
@@ -38,8 +35,7 @@ type Principal struct {
 	AgentID   string
 	SessionID string
 	ProjectID string
-	// Scopes is the granted API-permission scope set (resource:action /
-	// resource:*). Empty for legacy_stella_token, which bypasses scope checks.
+	// Scopes is the granted API-permission scope set (resource:action / resource:*).
 	Scopes []string
 
 	// Identity snapshot.

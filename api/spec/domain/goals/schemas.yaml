@@ -10,9 +10,9 @@ components:
       type: object
       description: >-
         One node in the recursive goal tree. A root (parent_id null) is a
-        goal; a child is a former task. Completion is DERIVED: acceptance_state is
-        a cached projection over the append-only acceptance-event ledger, never an
-        asserted flag.
+        top-level goal; a child is a sub-goal created by decomposition.
+        Completion is DERIVED: acceptance_state is a cached projection over the
+        append-only acceptance-event ledger, never an asserted flag.
       required:
         [
           id,
@@ -21,13 +21,15 @@ components:
           root_id,
           depth,
           position,
-          session_id,
           title,
           kind,
           priority,
           required,
           lifecycle,
+          done_reason,
           acceptance_state,
+          needs_attention,
+          budget_bonus,
           created_at,
           updated_at,
         ]
@@ -50,7 +52,6 @@ components:
           description: The tree's root id (= id for a root).
         depth: { type: integer }
         position: { type: integer }
-        session_id: { type: string }
         title: { type: string }
         intent:
           type: string
@@ -77,17 +78,11 @@ components:
           enum: [none, human]
         lifecycle:
           type: string
-          enum:
-            [
-              draft,
-              ready,
-              active,
-              blocked,
-              accepted,
-              rejected_final,
-              abandoned,
-              cancelled,
-            ]
+          enum: [draft, pending, active, blocked, done]
+        done_reason:
+          type: string
+          enum: ["", accepted, failed, cancelled]
+          description: Set only when lifecycle=done.
         block_reason:
           type: string
           enum:
@@ -97,9 +92,20 @@ components:
               needs_plan_approval,
               planning_invalid,
               needs_verdict,
-              dep,
+              env_unavailable,
+              contract_conflict,
             ]
           description: Meaningful only when lifecycle=blocked.
+        needs_attention:
+          type: boolean
+          description:
+            Whether the goal is parked on a block only a human action can clear
+            (verdict, plan approval, budget raise, contract edit, environment
+            fix). Computed server-side from the canonical predicate; clients
+            must not re-derive it from lifecycle/block_reason.
+        flaky_count:
+          type: integer
+          description: Flaky infrastructure retries spent outside business budget.
         acceptance_state:
           type: string
           enum: [pending, passed, failed]
@@ -108,17 +114,16 @@ components:
           type: object
           additionalProperties: {}
           nullable: true
-          description: Frozen output, set when lifecycle=accepted.
+          description: Frozen output, set when done_reason=accepted.
         acceptance_seq: { type: integer }
         active_attempt_id:
           type: string
           nullable: true
           description: The in-flight attempt; cleared while a human verdict is pending.
         attempt_count: { type: integer }
-        required_total: { type: integer }
-        required_accepted: { type: integer }
-        required_failed: { type: integer }
-        required_blocked: { type: integer }
+        budget_bonus:
+          type: integer
+          description: Human-granted extra convergence attempts beyond max_attempts.
         plan:
           type: object
           additionalProperties: {}
@@ -146,6 +151,14 @@ components:
           format: date-time
           nullable: true
           description: Set when the goal is hidden from default lists.
+        workflow_id:
+          type: string
+          nullable: true
+          description: Workflow version row that instantiated this root goal.
+        workflow_version:
+          type: integer
+          nullable: true
+          description: Workflow version copied onto this run's root goal.
 
     GoalList:
       type: object
@@ -197,6 +210,9 @@ components:
             When true the new goal is activated immediately after create
             (direct run). Only a leaf with a satisfied plan gate can activate; a
             composite must be planned first, so 'activate' is ignored for it.
+        idempotency_key:
+          type: string
+          description: Optional key; repeated creates by the same user with the same key return the existing goal.
 
     UpdateGoalRequest:
       type: object
@@ -329,8 +345,11 @@ components:
         error: { type: string }
         failure_class:
           type: string
-          enum: ["", structural, semantic, transient]
-          description: Class for failed or interrupted attempts.
+          enum: ["", model, environment, contract, flaky]
+          description: Responsibility class for failed or interrupted attempts.
+        repair_rounds:
+          type: integer
+          description: Structural decomposition repair turns spent inside this attempt.
         worker_id: { type: string }
         heartbeat_at: { type: string, format: date-time, nullable: true }
         lease_expires_at: { type: string, format: date-time, nullable: true }
@@ -346,6 +365,158 @@ components:
         attempts:
           type: array
           items: { $ref: "#/components/schemas/Attempt" }
+
+    GoalHealthCountBucket:
+      type: object
+      required: [key, count]
+      properties:
+        key: { type: string }
+        count: { type: integer, format: int64 }
+
+    GoalHealthRatioBucket:
+      type: object
+      required: [key, count, ratio]
+      properties:
+        key: { type: string }
+        count: { type: integer, format: int64 }
+        ratio: { type: number, format: double }
+
+    GoalHealthAttemptPurpose:
+      type: object
+      required: [
+        purpose,
+        total,
+        succeeded,
+        success_rate,
+        average_retries,
+        max_retries,
+      ]
+      properties:
+        purpose:
+          type: string
+          enum: [decomposition, execution, review]
+        total: { type: integer, format: int64 }
+        succeeded: { type: integer, format: int64 }
+        success_rate: { type: number, format: double }
+        average_retries: { type: number, format: double }
+        max_retries: { type: integer, format: int64 }
+
+    GoalHealthAcceptanceEvents:
+      type: object
+      required: [total, passed, failed, pass_rate]
+      properties:
+        total: { type: integer, format: int64 }
+        passed: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+        pass_rate: { type: number, format: double }
+
+    GoalHealthDecompositionQuality:
+      type: object
+      required:
+        [
+          first_round_total,
+          first_round_succeeded,
+          first_round_success_rate,
+          average_repair_rounds,
+          redecomposition_counts,
+        ]
+      properties:
+        first_round_total: { type: integer, format: int64 }
+        first_round_succeeded: { type: integer, format: int64 }
+        first_round_success_rate: { type: number, format: double }
+        average_repair_rounds: { type: number, format: double }
+        redecomposition_counts:
+          type: array
+          items: { $ref: "#/components/schemas/GoalHealthCountBucket" }
+
+    GoalHealthBudgetAttribution:
+      type: object
+      required: [
+        model_budget_attempts,
+        class_counts,
+        flaky_dominant_blocked_goals,
+      ]
+      properties:
+        model_budget_attempts:
+          type: integer
+          format: int64
+          description: Execution failures charged to business budget (failure_class=model).
+        class_counts:
+          type: array
+          items: { $ref: "#/components/schemas/GoalHealthRatioBucket" }
+        flaky_dominant_blocked_goals:
+          type: integer
+          format: int64
+          description: Blocked goals where flaky execution failures are at least half of non-model failures.
+
+    GoalHealthAttemptLatency:
+      type: object
+      required: [purpose]
+      properties:
+        purpose:
+          type: string
+          enum: [decomposition, execution, review]
+        p50_ms: { type: number, format: double, nullable: true }
+        p95_ms: { type: number, format: double, nullable: true }
+
+    GoalHealthLatency:
+      type: object
+      required: [attempts, goal_e2e]
+      properties:
+        attempts:
+          type: array
+          items: { $ref: "#/components/schemas/GoalHealthAttemptLatency" }
+        goal_e2e:
+          type: object
+          required: [p50_ms, p95_ms]
+          properties:
+            p50_ms: { type: number, format: double, nullable: true }
+            p95_ms: { type: number, format: double, nullable: true }
+
+    GoalHealthReport:
+      type: object
+      required:
+        [
+          since_at,
+          until_at,
+          total_goals,
+          lifecycle_counts,
+          blocked_reason_counts,
+          attempt_purposes,
+          failure_class_counts,
+          acceptance_events,
+          decomposition_quality,
+          budget_attribution,
+          latency,
+        ]
+      properties:
+        since_at: { type: string, format: date-time }
+        until_at: { type: string, format: date-time }
+        user_id: { type: string, nullable: true }
+        agent_id: { type: string, nullable: true }
+        total_goals: { type: integer, format: int64 }
+        lifecycle_counts:
+          type: array
+          items: { $ref: "#/components/schemas/GoalHealthCountBucket" }
+        blocked_reason_counts:
+          type: array
+          items: { $ref: "#/components/schemas/GoalHealthCountBucket" }
+        attempt_purposes:
+          type: array
+          items: { $ref: "#/components/schemas/GoalHealthAttemptPurpose" }
+        failure_class_counts:
+          type: array
+          items: { $ref: "#/components/schemas/GoalHealthCountBucket" }
+        acceptance_events: {
+          $ref: "#/components/schemas/GoalHealthAcceptanceEvents",
+        }
+        decomposition_quality: {
+          $ref: "#/components/schemas/GoalHealthDecompositionQuality",
+        }
+        budget_attribution: {
+          $ref: "#/components/schemas/GoalHealthBudgetAttribution",
+        }
+        latency: { $ref: "#/components/schemas/GoalHealthLatency" }
 
     # ── Acceptance events (the append-only ledger) ───────────────────────────
     AcceptanceEvent:
@@ -394,6 +565,49 @@ components:
         acceptance_events:
           type: array
           items: { $ref: "#/components/schemas/AcceptanceEvent" }
+
+    GoalTimelineEvent:
+      type: object
+      required: [id, goal_id, event_type, payload, created_at]
+      properties:
+        id: { type: string }
+        goal_id: { type: string }
+        attempt_id: { type: string, nullable: true }
+        event_type:
+          type: string
+          enum:
+            [
+              plan_submitted,
+              attempt_started,
+              attempt_finished,
+              acceptance_recorded,
+              lifecycle_changed,
+              human_message,
+            ]
+        payload:
+          type: object
+          additionalProperties: {}
+        created_at: { type: string, format: date-time }
+
+    GoalTimeline:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/GoalTimelineEvent" }
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+
+    GoalTimelineMessageRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: Human instruction appended to the goal timeline.
 
     VerdictRequest:
       type: object
@@ -506,7 +720,7 @@ components:
       properties:
         action:
           type: string
-          enum: [submit, block, fail]
+          enum: [submit, fail]
           description: Which terminal action to take.
         summary:
           type: string
@@ -520,21 +734,13 @@ components:
         notes:
           type: object
           description: "submit: free-form evidence notes."
-        kind:
-          type: string
-          description: "block: blocker kind (user_input|external_dependency|tool_error|policy_hold)."
-        question:
-          type: string
-          description: "block: human-readable explanation of what's needed."
-        detail:
-          type: object
-          description: "block: structured detail."
         reason:
           type: string
           description: "fail: error message."
-        retryable:
-          type: boolean
-          description: "fail: true if a retry may succeed."
+        blocked_by:
+          type: string
+          enum: ["", env_unavailable, contract_conflict]
+          description: "fail: optional structured blocker when the contract is impossible or the environment is unavailable."
       required: [action]
 
     GoalControlDecomposeInput:
@@ -553,9 +759,10 @@ components:
         reason:
           type: string
           description: "fail: error message."
-        retryable:
-          type: boolean
-          description: "fail: true if a retry may succeed."
+        blocked_by:
+          type: string
+          enum: ["", env_unavailable, contract_conflict]
+          description: "fail: optional structured blocker when the contract is impossible or the environment is unavailable."
       required: [action]
 
     GoalControlReviewInput:
@@ -575,9 +782,10 @@ components:
         reason:
           type: string
           description: "fail: why the output cannot be judged."
-        retryable:
-          type: boolean
-          description: "fail: true if a retry may succeed."
+        blocked_by:
+          type: string
+          enum: ["", env_unavailable, contract_conflict]
+          description: "fail: optional structured blocker when the contract is impossible or the environment is unavailable."
       required: [action]
 
     GoalControlReviewVerdict:

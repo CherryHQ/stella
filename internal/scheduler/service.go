@@ -14,24 +14,81 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// errOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
+// Authorized is the identity-scoped view of the service; all authorization
+// checks live on its methods.
+type Authorized struct {
+	*Service
+	ident authz.Identity
+}
+
+func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
+
+// ErrOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
 // has already elapsed. Start suppresses this for persisted jobs; AddJob treats
 // it as a hard failure.
-var errOneTimeJobPast = errors.New("one-time job timestamp is in the past")
-
-// errJobAlreadyRunning is returned by RunJobNow when the job has an active run.
-var errJobAlreadyRunning = errors.New("job already has a run in progress")
+var ErrOneTimeJobPast = errors.New("one-time job timestamp is in the past")
 
 // OnJobFunc is called when a scheduled job fires.
 type OnJobFunc func(ctx context.Context, job Job) error
 
+type WorkflowRunner interface {
+	ValidateScheduledWorkflow(ctx context.Context, req WorkflowValidateRequest) (ScheduledWorkflow, error)
+	LatestWorkflowRun(ctx context.Context, req WorkflowLatestRunRequest) (WorkflowRunState, error)
+	InstantiateWorkflow(ctx context.Context, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error)
+}
+
+type WorkflowValidateRequest struct {
+	UserID     string
+	AgentID    string
+	WorkflowID string
+}
+
+type WorkflowLatestRunRequest struct {
+	WorkflowID string
+}
+
+type WorkflowInstantiateRequest struct {
+	UserID         string
+	AgentID        string
+	WorkflowID     string
+	Inputs         map[string]string
+	IdempotencyKey string
+}
+
+type ScheduledWorkflow struct {
+	ID          string
+	FullyFrozen bool
+}
+
+type WorkflowRunState struct {
+	Found            bool
+	Status           string
+	IdempotencyKey   string
+	RootGoalID       string
+	RootGoalTerminal bool
+}
+
+type WorkflowInstantiateResult struct {
+	RunID      string
+	RootGoalID string
+}
+
 // TaskFunc is a lightweight scheduled callback that is not persisted as a scheduled job.
 type TaskFunc func(ctx context.Context)
+
+// errJobAlreadyRunning is returned by RunJobNow when the job has an active run.
+var errJobAlreadyRunning = errors.New("job already has a run in progress")
+
+var (
+	ErrWorkflowJobValidation = errors.New("workflow job validation failed")
+	ErrWorkflowJobNotFound   = errors.New("workflow not found")
+)
 
 // Service manages scheduled jobs backed by River durable queues with database
 // persistence.
@@ -41,6 +98,7 @@ type Service struct {
 	externalRiver   bool // set by WithExternalRiver: caller injects+owns the shared client
 	onJob           OnJobFunc
 	listeners       []OnJobFunc
+	workflowRunner  WorkflowRunner
 	db              *pgxpool.Pool
 	q               *sqlc.Queries
 	ownsDB          bool            // true when Service opened the DB itself
@@ -145,6 +203,12 @@ func (s *Service) SetOnJob(fn OnJobFunc) {
 	s.onJob = fn
 }
 
+func (s *Service) SetWorkflowRunner(r WorkflowRunner) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.workflowRunner = r
+}
+
 // AddOnJobListener appends an additional callback invoked when a job fires.
 func (s *Service) AddOnJobListener(fn OnJobFunc) {
 	if fn == nil {
@@ -195,7 +259,7 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 			}
 			if j.Enabled {
 				if err := s.scheduleJob(j); err != nil {
-					if errors.Is(err, errOneTimeJobPast) {
+					if errors.Is(err, ErrOneTimeJobPast) {
 						s.log.Info("skipping one-time job with past timestamp", "id", j.ID, "at", j.Schedule.At)
 					} else {
 						s.log.Warn("failed to schedule persisted job", "id", j.ID, "name", j.Name, "error", err)
@@ -282,15 +346,30 @@ func (s *Service) ScheduleEvery(ctx context.Context, every string, fn TaskFunc) 
 	return nil
 }
 
+type addJobSpec struct {
+	Name           string
+	Message        string
+	Schedule       Schedule
+	SessionMode    string
+	AgentID        string
+	UserID         string
+	OwnerKind      string
+	ExecScope      string
+	DispatchKind   string
+	Payload        map[string]any
+	IdempotencyKey string
+	Enabled        bool
+}
+
 // AddJobForContext creates a user-owned job bound to the current execution context.
 func (s *Service) AddJobForContext(ctx context.Context, name, message string, sched Schedule, sessionMode string) (Job, error) {
-	userID := memory.UserIDFromContext(ctx)
-	agentID := memory.AgentIDFromContext(ctx)
+	userID := authz.UserIDFromContext(ctx)
+	agentID := authz.AgentIDFromContext(ctx)
 	execScope := ExecScopeSystem
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope)
+	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
 }
 
 // AddJobWithOwner creates a user-owned job with explicit owner parameters.
@@ -299,50 +378,74 @@ func (s *Service) AddJobWithOwner(name, message string, sched Schedule, sessionM
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope)
+	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
 }
 
-func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMode, agentID string, userID string, ownerKind, execScope string) (Job, error) {
-	if name == "" {
+func (s *Service) AddJobWithOwnerIdempotency(name, message string, sched Schedule, sessionMode, agentID string, userID string, idempotencyKey string) (Job, error) {
+	execScope := ExecScopeSystem
+	if userID != "" {
+		execScope = ExecScopeUser
+	}
+	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: true})
+}
+
+func (s *Service) AddWorkflowJobWithOwner(ctx context.Context, name string, sched Schedule, sessionMode, agentID string, userID string, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
+	execScope := ExecScopeSystem
+	if userID != "" {
+		execScope = ExecScopeUser
+	}
+	payload := map[string]any{"workflow_id": workflowID, "inputs": inputs}
+	if allowReplan {
+		payload["allow_replan"] = true
+	}
+	return s.addJobInternal(addJobSpec{Name: name, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindWorkflow, Payload: payload, Enabled: true})
+}
+
+func (s *Service) addJobInternal(spec addJobSpec) (Job, error) {
+	if spec.Name == "" {
 		return Job{}, fmt.Errorf("name is required")
 	}
-	// Handler-mode system builtins (e.g. reflect-review) carry no agent
-	// message; they invoke a Go callback directly. Only require a message
-	// for jobs that actually dispatch through the agent pool.
-	if message == "" && ownerKind != JobOwnerSystem {
-		return Job{}, fmt.Errorf("message is required")
+	if spec.DispatchKind == "" {
+		spec.DispatchKind = DispatchKindChat
 	}
-	if err := validateSchedule(sched); err != nil {
+	payload := clonePayload(spec.Payload)
+	if err := s.validateDispatch(s.ctx, spec.DispatchKind, spec.Message, spec.OwnerKind, spec.UserID, spec.AgentID, payload); err != nil {
+		return Job{}, err
+	}
+	if err := validateSchedule(spec.Schedule); err != nil {
 		return Job{}, err
 	}
 	// Reject non-system jobs whose name collides with a registered builtin or
 	// template. Otherwise the user's prompt would be silently dropped at
 	// dispatch time — the handler-mode router keys on Name alone.
-	if ownerKind != JobOwnerSystem && s.nameIsReservedBuiltin(name) {
-		return Job{}, fmt.Errorf("job name %q is reserved for a builtin", name)
+	if spec.OwnerKind != JobOwnerSystem && s.nameIsReservedBuiltin(spec.Name) {
+		return Job{}, fmt.Errorf("job name %q is reserved for a builtin", spec.Name)
 	}
 
-	if sessionMode == "" {
-		sessionMode = SessionReuse
+	if spec.SessionMode == "" {
+		spec.SessionMode = SessionReuse
 	}
-	if sessionMode != SessionReuse && sessionMode != SessionNew {
-		return Job{}, fmt.Errorf("invalid session_mode %q: must be %q or %q", sessionMode, SessionReuse, SessionNew)
+	if spec.SessionMode != SessionReuse && spec.SessionMode != SessionNew {
+		return Job{}, fmt.Errorf("invalid session_mode %q: must be %q or %q", spec.SessionMode, SessionReuse, SessionNew)
 	}
 
 	now := time.Now().UTC()
 	job := Job{
-		ID:          uuid.New().String()[:8],
-		OwnerKind:   ownerKind,
-		ExecScope:   normalizeExecScope(execScope),
-		Name:        name,
-		Schedule:    sched,
-		Message:     message,
-		SessionMode: sessionMode,
-		Enabled:     true,
-		AgentID:     agentID,
-		UserID:      userID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:             uuid.New().String()[:8],
+		OwnerKind:      spec.OwnerKind,
+		ExecScope:      normalizeExecScope(spec.ExecScope),
+		Name:           spec.Name,
+		Schedule:       spec.Schedule,
+		Message:        spec.Message,
+		Payload:        payload,
+		DispatchKind:   spec.DispatchKind,
+		SessionMode:    spec.SessionMode,
+		Enabled:        spec.Enabled,
+		AgentID:        spec.AgentID,
+		UserID:         spec.UserID,
+		IdempotencyKey: spec.IdempotencyKey,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	s.mu.Lock()
@@ -352,7 +455,7 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 		return Job{}, err
 	}
 
-	s.log.Info("job added", "id", job.ID, "name", name, "exec_scope", execScope, "agent_id", agentID, "user_id", userID)
+	s.log.Info("job added", "id", job.ID, "name", spec.Name, "exec_scope", spec.ExecScope, "agent_id", spec.AgentID, "user_id", spec.UserID)
 	return job, nil
 }
 
@@ -375,20 +478,21 @@ func (s *Service) AddPluginJob(ctx context.Context, pluginID, key, runtimeName, 
 	}
 	now := time.Now().UTC()
 	job := Job{
-		ID:          uuid.New().String()[:8],
-		OwnerKind:   JobOwnerPlugin,
-		ExecScope:   ExecScopeSystem,
-		PluginID:    pluginID,
-		JobKey:      key,
-		RuntimeName: runtimeName,
-		Name:        name,
-		Description: description,
-		Schedule:    sched,
-		Payload:     clonePayload(payload),
-		SessionMode: SessionReuse,
-		Enabled:     true,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:           uuid.New().String()[:8],
+		OwnerKind:    JobOwnerPlugin,
+		ExecScope:    ExecScopeSystem,
+		PluginID:     pluginID,
+		JobKey:       key,
+		RuntimeName:  runtimeName,
+		Name:         name,
+		Description:  description,
+		Schedule:     sched,
+		Payload:      clonePayload(payload),
+		DispatchKind: DispatchKindChat,
+		SessionMode:  SessionReuse,
+		Enabled:      true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	s.mu.Lock()
@@ -403,6 +507,45 @@ func (s *Service) AddPluginJob(ctx context.Context, pluginID, key, runtimeName, 
 	}
 	s.jobs[job.ID] = job
 	return job, nil
+}
+
+func (s *Service) validateDispatch(ctx context.Context, dispatchKind, message, ownerKind, userID, agentID string, payload map[string]any) error {
+	switch dispatchKind {
+	case DispatchKindWorkflow:
+		if message != "" {
+			return fmt.Errorf("%w: message must be empty for workflow jobs", ErrWorkflowJobValidation)
+		}
+		workflowID, ok := payloadString(payload, "workflow_id")
+		if !ok || workflowID == "" {
+			return fmt.Errorf("%w: payload.workflow_id is required for workflow jobs", ErrWorkflowJobValidation)
+		}
+		runner := s.workflowRunner
+		if runner == nil {
+			return fmt.Errorf("workflow scheduler dispatch is not configured")
+		}
+		wf, err := runner.ValidateScheduledWorkflow(ctx, WorkflowValidateRequest{UserID: userID, AgentID: agentID, WorkflowID: workflowID})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("%w: workflow %q", ErrWorkflowJobNotFound, workflowID)
+			}
+			return fmt.Errorf("validate workflow: %w", err)
+		}
+		if wf.ID == "" || wf.ID != workflowID {
+			return fmt.Errorf("%w: workflow %q", ErrWorkflowJobNotFound, workflowID)
+		}
+		if !wf.FullyFrozen && !payloadBool(payload, "allow_replan") {
+			return fmt.Errorf("%w: workflow %q is partially frozen; set allow_replan to schedule it", ErrWorkflowJobValidation, workflowID)
+		}
+	case DispatchKindChat:
+		// Handler-mode system builtins carry no agent message; they invoke a Go
+		// callback directly. All other chat jobs still require the original prompt.
+		if message == "" && ownerKind != JobOwnerSystem {
+			return fmt.Errorf("message is required")
+		}
+	default:
+		return fmt.Errorf("invalid dispatch_kind %q", dispatchKind)
+	}
+	return nil
 }
 
 func validateSchedule(sched Schedule) error {
@@ -508,7 +651,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		return j, nil
 	}
 	s.mu.Unlock()
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, "", JobOwnerSystem, execScope)
+	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, OwnerKind: JobOwnerSystem, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
 }
 
 // ListJobs returns all jobs.
@@ -520,6 +663,138 @@ func (s *Service) ListJobs() []Job {
 		result = append(result, j)
 	}
 	return result
+}
+
+func (s Authorized) CreateJob(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string) (Job, error) {
+	return s.createJob(ctx, name, message, sched, sessionMode, agentID, idempotencyKey, true)
+}
+
+func (s Authorized) CreateJobWithEnabled(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string, enabled bool) (Job, error) {
+	return s.createJob(ctx, name, message, sched, sessionMode, agentID, idempotencyKey, enabled)
+}
+
+func (s Authorized) createJob(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string, enabled bool) (Job, error) {
+	ident := s.ident
+	if err := ident.RequireUser(); err != nil {
+		return Job{}, err
+	}
+	if err := ident.RequireAgentMatch(agentID); err != nil {
+		return Job{}, err
+	}
+	if idempotencyKey != "" {
+		row, err := s.q.GetSchedulerJobByIdempotencyKey(ctx, sqlc.GetSchedulerJobByIdempotencyKeyParams{UserID: pgnull.Text(ident.UserID), IdempotencyKey: pgnull.Text(idempotencyKey)})
+		if err == nil {
+			job := dbRowToJob(row)
+			if !enabled {
+				return s.As(ident).SetJobEnabled(ctx, agentID, job.ID, false)
+			}
+			return job, nil
+		}
+	}
+	execScope := ExecScopeSystem
+	if ident.UserID != "" {
+		execScope = ExecScopeUser
+	}
+	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: ident.UserID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: enabled})
+}
+
+func (s Authorized) CreateWorkflowJob(ctx context.Context, name string, sched Schedule, sessionMode, agentID string, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
+	ident := s.ident
+	if err := ident.RequireUser(); err != nil {
+		return Job{}, err
+	}
+	if err := ident.RequireAgentMatch(agentID); err != nil {
+		return Job{}, err
+	}
+	return s.AddWorkflowJobWithOwner(ctx, name, sched, sessionMode, agentID, ident.UserID, workflowID, inputs, allowReplan)
+}
+
+func (s Authorized) Subscribe(ctx context.Context, agentID, key string, schedOverride Schedule) (Job, error) {
+	ident := s.ident
+	if err := ident.RequireUser(); err != nil {
+		return Job{}, err
+	}
+	if err := ident.RequireAgentMatch(agentID); err != nil {
+		return Job{}, err
+	}
+	return s.Service.Subscribe(ctx, ident.UserID, agentID, key, schedOverride)
+}
+
+func (s Authorized) ListJobs(ctx context.Context, agentID string) ([]Job, error) {
+	ident := s.ident
+	if err := ident.RequireUser(); err != nil {
+		return nil, err
+	}
+	resolvedAgentID, err := ident.ResolveAgentScope(agentID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListSchedulerJobByOwner(ctx, sqlc.ListSchedulerJobByOwnerParams{
+		AgentID: pgnull.Text(resolvedAgentID),
+		UserID:  pgnull.Text(ident.UserID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	jobs := make([]Job, 0, len(rows))
+	for _, row := range rows {
+		jobs = append(jobs, dbRowToJob(row))
+	}
+	return jobs, nil
+}
+
+func (s Authorized) GetJob(ctx context.Context, agentID, jobID string) (Job, error) {
+	ident := s.ident
+	if err := ident.RequireUser(); err != nil {
+		return Job{}, err
+	}
+	row, err := s.q.GetSchedulerJob(ctx, jobID)
+	if err != nil {
+		return Job{}, authz.ErrNotFound
+	}
+	job := dbRowToJob(row)
+	if job.OwnerKind == JobOwnerPlugin || job.OwnerKind == JobOwnerSystem {
+		return Job{}, authz.ErrNotFound
+	}
+	if job.AgentID != agentID {
+		return Job{}, authz.ErrNotFound
+	}
+	if job.UserID != ident.UserID {
+		return Job{}, authz.ErrForbidden
+	}
+	if ident.AgentScoped && job.AgentID != ident.AgentID {
+		return Job{}, authz.ErrForbidden
+	}
+	return job, nil
+}
+
+func (s Authorized) UpdateJob(ctx context.Context, agentID, jobID string, update JobUpdate) (Job, error) {
+	ident := s.ident
+	if _, err := s.As(ident).GetJob(ctx, agentID, jobID); err != nil {
+		return Job{}, err
+	}
+	return s.UpdateUserJob(ctx, jobID, update)
+}
+
+func (s Authorized) DeleteJob(ctx context.Context, agentID, jobID string) error {
+	ident := s.ident
+	if _, err := s.As(ident).GetJob(ctx, agentID, jobID); err != nil {
+		return err
+	}
+	return s.RemoveJob(jobID)
+}
+
+func (s Authorized) SetJobEnabled(ctx context.Context, agentID, jobID string, enabled bool) (Job, error) {
+	ident := s.ident
+	return s.As(ident).UpdateJob(ctx, agentID, jobID, JobUpdate{Enabled: &enabled})
+}
+
+func (s Authorized) RunJobNow(ctx context.Context, agentID, jobID string) (string, error) {
+	ident := s.ident
+	if _, err := s.As(ident).GetJob(ctx, agentID, jobID); err != nil {
+		return "", err
+	}
+	return s.Service.RunJobNow(ctx, jobID)
 }
 
 // executeSingleRun runs one job execution for the given userID (empty = system context).
@@ -548,7 +823,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 
 	outputSink := &RunOutputSink{}
-	runCtx := withRunOutputSink(WithRunSessionID(ctx, sessionID), outputSink)
+	runCtx := withRunOutputSink(WithRunID(WithRunSessionID(ctx, sessionID), runID), outputSink)
 
 	// Inject user into job copy so the callback can read job.UserID correctly.
 	jobRun := job
@@ -590,7 +865,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 
 	if isOneTime {
-		go s.removeOneTimeJob(job.ID)
+		go s.retireOneTimeJob(job.ID)
 	}
 }
 
@@ -631,7 +906,7 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 
 	go func() {
 		outputSink := &RunOutputSink{}
-		runCtx := withRunOutputSink(WithRunSessionID(svcCtx, sessionID), outputSink)
+		runCtx := withRunOutputSink(WithRunID(WithRunSessionID(svcCtx, sessionID), runID), outputSink)
 		runErr := s.dispatchJob(runCtx, job)
 
 		finishedAt := time.Now().UTC()
@@ -690,20 +965,33 @@ func (s *Service) ListJobRuns(ctx context.Context, jobID string, limit int) ([]J
 	return runs, nil
 }
 
-// removeOneTimeJob cleans up a one-time job after it fires. The River job has
+// retireOneTimeJob disables a one-time job after it fires. The River job has
 // already completed (we run from inside its own execution), so the registration
 // is just forgotten — no JobCancel.
-func (s *Service) removeOneTimeJob(id string) {
+//
+// The row is disabled, not deleted: sched_job_run cascades on job deletion, so
+// deleting here would wipe the run record (and its root_goal_id attribution)
+// moments after it was written, and "run now" on a fired job would stop
+// working. A disabled past-timestamp job can never fire again — startup only
+// arms enabled jobs, the River worker skips disabled ones, and re-enabling via
+// update is rejected while the timestamp is in the past.
+func (s *Service) retireOneTimeJob(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	delete(s.refs, id)
-	if err := s.deleteJob(s.ctx, id); err != nil {
-		s.log.Warn("failed to remove one-time job after execution", "id", id, "error", err)
-	} else {
-		s.log.Info("one-time job auto-removed after execution", "id", id)
+	job, ok := s.jobs[id]
+	if !ok {
+		return
 	}
-	delete(s.jobs, id)
+	job.Enabled = false
+	job.UpdatedAt = time.Now().UTC()
+	s.jobs[id] = job
+	if err := s.updateJob(s.ctx, job); err != nil {
+		s.log.Warn("failed to disable one-time job after execution", "id", id, "error", err)
+	} else {
+		s.log.Info("one-time job disabled after execution", "id", id)
+	}
 }
 
 // dispatchJob routes a fired job to its handler-mode callback, the default
@@ -713,8 +1001,13 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 	s.mu.Lock()
 	handler := s.runtimeBuiltins[job.Name].Handler
 	fn := s.onJob
+	workflowRunner := s.workflowRunner
 	listeners := append([]OnJobFunc(nil), s.listeners...)
 	s.mu.Unlock()
+
+	if normalizeDispatchKind(job.DispatchKind) == DispatchKindWorkflow {
+		return s.dispatchWorkflowJob(ctx, job, workflowRunner, listeners)
+	}
 
 	// Subscription instances carry an empty message; resolve from the template
 	// registry at fire time so prompt improvements propagate automatically.
@@ -747,6 +1040,69 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 	case fn != nil:
 		runErr = fn(ctx, job)
 	}
+	for _, listener := range listeners {
+		if err := listener(ctx, job); err != nil && runErr == nil {
+			runErr = err
+		}
+	}
+	return runErr
+}
+
+func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner WorkflowRunner, listeners []OnJobFunc) error {
+	if runner == nil {
+		return fmt.Errorf("workflow scheduler dispatch is not configured")
+	}
+	workflowID, ok := payloadString(job.Payload, "workflow_id")
+	if !ok || workflowID == "" {
+		return fmt.Errorf("payload.workflow_id is required for workflow jobs")
+	}
+	runID := RunIDFromContext(ctx)
+	if runID == "" {
+		return fmt.Errorf("scheduler run id missing from context")
+	}
+	latest, err := runner.LatestWorkflowRun(ctx, WorkflowLatestRunRequest{WorkflowID: workflowID})
+	if err != nil {
+		return fmt.Errorf("get latest workflow run: %w", err)
+	}
+	idempotencyKey := runID
+	resumed := false
+	if latest.Found {
+		switch latest.Status {
+		case "claimed", "materializing":
+			idempotencyKey = latest.IdempotencyKey
+			resumed = true
+		case "done":
+			if latest.RootGoalID != "" && !latest.RootGoalTerminal {
+				msg := "skipped: previous workflow run still active"
+				if sink := RunOutputSinkFromContext(ctx); sink != nil {
+					sink.Set(msg)
+				}
+				for _, listener := range listeners {
+					if err := listener(ctx, job); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+		}
+	}
+	result, err := runner.InstantiateWorkflow(ctx, WorkflowInstantiateRequest{UserID: job.UserID, AgentID: job.AgentID, WorkflowID: workflowID, Inputs: payloadStringMap(job.Payload, "inputs"), IdempotencyKey: idempotencyKey})
+	if err != nil {
+		return err
+	}
+	if result.RootGoalID != "" {
+		if err := s.q.SetSchedJobRunRootGoal(ctx, sqlc.SetSchedJobRunRootGoalParams{RootGoalID: pgtype.Text{String: result.RootGoalID, Valid: true}, ID: runID, JobID: job.ID}); err != nil {
+			return fmt.Errorf("set scheduler run root goal: %w", err)
+		}
+	}
+	if sink := RunOutputSinkFromContext(ctx); sink != nil {
+		if resumed {
+			sink.Set(fmt.Sprintf("resumed stalled workflow run %s -> goal %s", result.RunID, result.RootGoalID))
+		} else {
+			sink.Set(fmt.Sprintf("workflow run %s -> goal %s", result.RunID, result.RootGoalID))
+		}
+	}
+	var runErr error
 	for _, listener := range listeners {
 		if err := listener(ctx, job); err != nil && runErr == nil {
 			runErr = err

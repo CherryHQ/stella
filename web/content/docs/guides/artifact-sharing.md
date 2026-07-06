@@ -33,21 +33,11 @@ You can revoke the link from the same dialog after it is created.
 
 ## Ask Stella to share a file
 
-When you ask Stella to share a generated file, Stella can use the CLI from inside the agent session:
+When you ask Stella to share a generated file, Stella uses the native share tool from inside the agent session. You can ask for a specific expiration, such as 1 day or never.
 
-```bash
-stella share artifact assets/report.html
-stella share artifact assets/report.html --expires-in 1d
-stella share artifact assets/report.html --expires-in never
-```
+You can also ask Stella to share a Recally article by its ID.
 
-You can also share a Recally article by its ID:
-
-```bash
-stella share article <article-id>
-```
-
-The command prints the public URL. It uses the scoped `STELLA_TOKEN` that Stella injects inside the agent session, so it automatically uses the current agent and session.
+Stella returns the public URL after creating the link. Artifact shares automatically use the current agent and session.
 
 ## Public link safety
 

@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
-	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -36,18 +38,24 @@ type providerConfig struct {
 
 // runnerConfig configures the runner implementation.
 type runnerConfig struct {
-	Provider        providerConfig
-	Thinking        ai.ThinkingLevel
-	Sandbox         sandbox.Config
-	System          string // optional system prompt override (bypasses default prompt building)
-	Sections        []pkgplugins.SystemPromptSection
-	ExtraTools      []tools.Tool // additional tools to register
-	PluginTools     func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
-	HookPlugins     []hooks.HookPlugin // hook plugins for the engine loop
-	ToolLifecycle   *coreagent.ToolLifecycle
-	DelegateRunner  delegatetool.SessionRunner
-	DelegateTimeout time.Duration // default wall-clock timeout per delegate (0 = 15m)
-	ChatTimeout     time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
+	Provider            providerConfig
+	Thinking            ai.ThinkingLevel
+	Sandbox             sandbox.Config
+	System              string // optional system prompt override (bypasses default prompt building)
+	Sections            []pkgplugins.SystemPromptSection
+	BuiltinTools        []BuiltinTool
+	BuiltinParams       RunnerParams
+	PerRunTools         []tools.Tool
+	SkillStore          pkgplugins.SkillStore
+	PluginView          pkgplugins.SessionPluginView
+	MCPToolProvider     MCPToolProvider
+	ToolOverrideFetcher ToolOverrideFetcher
+	PluginTools         func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
+	HookPlugins         []hooks.HookPlugin // hook plugins for the engine loop
+	ToolLifecycle       *coreagent.ToolLifecycle
+	DelegateRunner      delegatetool.SessionRunner
+	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
+	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -101,27 +109,13 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		})
 	}
 
-	toolReg, err := buildToolRegistry(ctx, cfg, session)
+	toolReg, hookSet, err := buildToolRegistry(ctx, cfg, session, stream, model, systemPrompt)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
 		}
 		return nil, err
 	}
-	presets := buildDelegatePresets(cfg)
-	hookSet := buildHookSet(cfg)
-
-	toolReg.Register(delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
-		Stream:         stream,
-		Registry:       toolReg,
-		Model:          model,
-		System:         systemPrompt,
-		Presets:        presets,
-		Hooks:          hookSet,
-		ToolLifecycle:  cfg.ToolLifecycle,
-		SessionRunner:  cfg.DelegateRunner,
-		DefaultTimeout: cfg.DelegateTimeout,
-	}))
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
 	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle)
@@ -191,7 +185,7 @@ func buildStreamFunc(cfg runnerConfig) (providers.StreamFunc, error) {
 }
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
-func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session) (*tools.Registry, error) {
+func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (*tools.Registry, *hooks.HookSet, error) {
 	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 	toolReg := tools.NewRegistry()
 
@@ -213,9 +207,9 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		Runtime: session,
 	}
 
-	coreTools := buildSandboxCoreTools(session, bc)
+	coreTools := buildSandboxCoreTools(session, bc, newExecSecretResolver(cfg.Sandbox))
 	if len(coreTools) == 0 {
-		return nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
+		return nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
 
 	// Sandbox core tools (bash/read/write/edit) route through the active
@@ -227,6 +221,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		toolReg.Register(t)
 	}
 
+	var nonCoreCandidates []tools.Tool
 	registerNonCore := func(t tools.Tool) {
 		name := t.Definition().Name
 		if _, taken := coreNames[name]; taken {
@@ -234,11 +229,48 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 				"component", "go_runner", "tool", name)
 			return
 		}
-		toolReg.Register(t)
+		nonCoreCandidates = append(nonCoreCandidates, t)
 	}
 
-	for _, t := range cfg.ExtraTools {
+	for _, entry := range cfg.BuiltinTools {
+		if entry.Tool == nil {
+			return nil, nil, fmt.Errorf("runner: builtin tool is nil")
+		}
+		if entry.Available != nil && !entry.Available(ctx, cfg.BuiltinParams) {
+			continue
+		}
+		registerNonCore(entry.Tool)
+	}
+	for _, t := range cfg.PerRunTools {
 		registerNonCore(t)
+	}
+	if cfg.SkillStore != nil {
+		stellaHome := paths.StellaHome
+		toolProjectRoot := paths.ProjectRoot
+		layout := skillDiskLayout(SystemDBSkillsDir(paths.StellaHome), paths.AgentRoot, paths.UserDataDir, paths.WorkspaceRoot)
+		sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
+		view := skillstool.SkillDirView{
+			Isolated:           sv.Isolated,
+			SystemSkillsHost:   sv.SystemSkillsHost,
+			SystemSkillsView:   sv.SystemSkillsView,
+			AgentSkillsHost:    sv.AgentSkillsHost,
+			AgentSkillsView:    sv.AgentSkillsView,
+			SystemDBSkillsHost: sv.SystemDBSkillsHost,
+			SystemDBSkillsView: sv.SystemDBSkillsView,
+			UserDataHost:       sv.UserDataHost,
+			UserDataView:       sv.UserDataView,
+			WorkspaceHost:      sv.WorkspaceHost,
+			WorkspaceView:      sv.WorkspaceView,
+		}
+		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
+			WithSkillDiskLayout(layout).
+			WithSkillDirView(view).
+			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs))
+	}
+	if cfg.MCPToolProvider != nil {
+		for _, t := range cfg.MCPToolProvider.ToolsForContext(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID) {
+			registerNonCore(t)
+		}
 	}
 	if cfg.PluginTools != nil {
 		for _, t := range cfg.PluginTools(ctx, bc) {
@@ -246,7 +278,37 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		}
 	}
 
-	return toolReg, nil
+	hookSet := buildHookSet(cfg)
+	registerNonCore(delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
+		Stream:         stream,
+		Registry:       toolReg,
+		Model:          model,
+		System:         systemPrompt,
+		Presets:        buildDelegatePresets(cfg),
+		Hooks:          hookSet,
+		ToolLifecycle:  cfg.ToolLifecycle,
+		SessionRunner:  cfg.DelegateRunner,
+		DefaultTimeout: cfg.DelegateTimeout,
+	}))
+
+	var overrides []ToolOverride
+	if cfg.ToolOverrideFetcher != nil {
+		rows, err := cfg.ToolOverrideFetcher(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID)
+		if err != nil {
+			slog.Warn("failed to load tool overrides; using default tool visibility", "error", err)
+		} else {
+			overrides = rows
+		}
+	}
+	for _, t := range nonCoreCandidates {
+		name := t.Definition().Name
+		if !FilterToolEnabled(true, name, overrides) {
+			continue
+		}
+		toolReg.Register(t)
+	}
+
+	return toolReg, hookSet, nil
 }
 
 func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
@@ -363,8 +425,8 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 		// Inject session context into hook metadata so hooks can log it.
 		loopRunner.SetHookMeta(hooks.HookMeta{
 			SessionID: memory.SessionIDFromContext(ctx),
-			UserID:    memory.UserIDFromContext(ctx),
-			AgentID:   memory.AgentIDFromContext(ctx),
+			UserID:    authz.UserIDFromContext(ctx),
+			AgentID:   authz.AgentIDFromContext(ctx),
 			Channel: func() string {
 				channel, _ := ChannelFromContext(ctx)
 				return channel
@@ -454,6 +516,10 @@ func (r *runner) Busy() bool {
 
 // SystemPrompt returns the runner's base system prompt before per-run overrides.
 func (r *runner) SystemPrompt() string { return r.system }
+
+// SandboxSession returns the live runner-owned sandbox for pre-close callers.
+// Callers must not retain it after the runner is closed.
+func (r *runner) SandboxSession() pkgsandbox.Session { return r.session }
 
 // Close shuts down any subprocess-backed tools and the sandbox session.
 // Guarantees cleanup of session resources regardless of state.

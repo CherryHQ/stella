@@ -115,7 +115,7 @@ func oauthClientCreateCommand() *ucli.Command {
 			&ucli.StringSliceFlag{
 				Name:     "scope",
 				Aliases:  []string{"s"},
-				Usage:    "Grant a scope (repeatable), e.g. --scope tasks:read",
+				Usage:    "Grant a scope (repeatable), e.g. --scope goals:read",
 				Required: true,
 			},
 			&ucli.BoolFlag{

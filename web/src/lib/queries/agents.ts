@@ -3,11 +3,12 @@ import {
   getClawhubSkill,
   listAgents,
   listAgentSkills,
+  listAgentTools,
   listClawhubSkills,
   listProfileMemories,
   listSchedulerJobs,
 } from "@/lib/api-client/sdk.gen";
-import type { Agent, Skill, UserMemory } from "@/lib/types";
+import type { Agent, Skill, Tool, UserMemory } from "@/lib/types";
 
 export function clawhubSkillsOptions(query: string) {
   const q = query.trim();
@@ -49,6 +50,17 @@ export function agentSchedulerJobsOptions(agentId: string) {
     queryFn: async () => {
       const { data } = await listSchedulerJobs({ path: { agentId: agentId }, throwOnError: true });
       return data?.jobs ?? [];
+    },
+    enabled: !!agentId,
+  });
+}
+
+export function agentToolsOptions(agentId: string) {
+  return queryOptions({
+    queryKey: ["agent-tools", agentId],
+    queryFn: async () => {
+      const { data } = await listAgentTools({ path: { id: agentId }, throwOnError: true });
+      return (data?.tools ?? []) as Tool[];
     },
     enabled: !!agentId,
   });

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -32,7 +33,7 @@ func groupSess(agentID, groupID string) memory.Session {
 
 func groupCtx(triggerSeq int64) context.Context {
 	ctx := context.Background()
-	ctx = memory.WithAgentID(ctx, "agent-a")
+	ctx = authz.WithAgentID(ctx, "agent-a")
 	if triggerSeq > 0 {
 		ctx = memory.WithGroupSeq(ctx, triggerSeq)
 	}

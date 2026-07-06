@@ -9,6 +9,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
+	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/cli"
 )
 
@@ -37,7 +38,10 @@ func schedulerAddCommand() *ucli.Command {
 		Usage: "Create a scheduled job",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "name", Usage: "Job name (required)", Required: true},
-			&ucli.StringFlag{Name: "message", Usage: "Prompt/instruction to run on schedule (required)", Required: true},
+			&ucli.StringFlag{Name: "message", Usage: "Prompt/instruction to run on schedule"},
+			&ucli.StringFlag{Name: "workflow", Usage: "Workflow ID to instantiate instead of sending a chat message"},
+			&ucli.StringSliceFlag{Name: "input", Usage: "Workflow input as k=v (repeatable)"},
+			&ucli.BoolFlag{Name: "allow-replan", Usage: "Allow scheduling a partially frozen workflow"},
 			&ucli.StringFlag{Name: "cron", Usage: "Cron expression, e.g. '0 9 * * 1-5' (use one of cron, every, or at)"},
 			&ucli.StringFlag{Name: "every", Usage: "Go duration, e.g. '30m' or '2h' (use one of cron, every, or at)"},
 			&ucli.StringFlag{Name: "at", Usage: "RFC3339 timestamp for a one-time job (use one of cron, every, or at)"},
@@ -67,6 +71,20 @@ func schedulerAddCommand() *ucli.Command {
 
 			name := c.String("name")
 			msg := c.String("message")
+			workflowID := c.String("workflow")
+			if workflowID != "" && msg != "" {
+				return fmt.Errorf("--workflow and --message are mutually exclusive")
+			}
+			if workflowID == "" && msg == "" {
+				return fmt.Errorf("--message is required unless --workflow is set")
+			}
+			inputs, err := parseInputFlags(c.StringSlice("input"))
+			if err != nil {
+				return err
+			}
+			if workflowID == "" && len(inputs) > 0 {
+				return fmt.Errorf("--input requires --workflow")
+			}
 			mode := c.String("session-mode")
 			agentID, err := scopedAgentIDFromEnv()
 			if err != nil {
@@ -75,9 +93,22 @@ func schedulerAddCommand() *ucli.Command {
 			enabled := true
 			body := apiclient.CreateSchedulerJobJSONRequestBody{
 				Name:        &name,
-				Message:     &msg,
 				SessionMode: &mode,
 				Enabled:     &enabled,
+			}
+			if workflowID != "" {
+				kind := apitypes.JobInputDispatchKindWorkflow
+				body.DispatchKind = &kind
+				body.WorkflowId = &workflowID
+				body.Inputs = &inputs
+				allowReplan := c.Bool("allow-replan")
+				if allowReplan {
+					body.AllowReplan = &allowReplan
+				}
+			} else {
+				kind := apitypes.JobInputDispatchKindChat
+				body.DispatchKind = &kind
+				body.Message = &msg
 			}
 			if cron != "" {
 				body.Cron = &cron
@@ -110,6 +141,18 @@ func schedulerAddCommand() *ucli.Command {
 			return o.Err()
 		},
 	}
+}
+
+func parseInputFlags(values []string) (map[string]string, error) {
+	out := make(map[string]string, len(values))
+	for _, value := range values {
+		key, val, ok := strings.Cut(value, "=")
+		if !ok || key == "" {
+			return nil, fmt.Errorf("invalid --input %q: expected k=v", value)
+		}
+		out[key] = val
+	}
+	return out, nil
 }
 
 func schedulerListCommand() *ucli.Command {

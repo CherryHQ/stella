@@ -4,7 +4,7 @@ title: Secrets and Keys
 
 ## What the Vault Does
 
-Stella's vault stores your API keys, tokens, and other secrets securely. Values are encrypted at rest and automatically available as environment variables inside agent sessions. You never need to paste secrets into chat or hardcode them in scripts — store them once, and Stella uses them whenever needed.
+Stella's vault stores your API keys, tokens, and other secrets securely. Values are encrypted at rest. Secrets are not injected into agent sessions unless you explicitly bind them to agents or projects, or mark them as always injected.
 
 ## Setup
 
@@ -13,10 +13,10 @@ Before using the vault, you need to generate a master encryption key and provide
 ### 1. Generate a Master Key
 
 ```bash
-stella vault keygen
+stellad vault keygen
 ```
 
-This prints a secret key. Copy the line starting with `AGE-SECRET-KEY-1`.
+This prints a secret key. Copy the line starting with `AGE-SECRET-KEY-1`. `stella vault keygen` still works for CLI users, but daemon bootstrap should use `stellad vault keygen`.
 
 ### 2. Start Stella with the Key
 
@@ -70,13 +70,17 @@ You can also ask Stella to manage your secrets:
 
 ## Using Secrets in Sessions
 
-When an agent session starts, matching vault secrets are decrypted and injected as environment variables. A secret named `GITHUB_TOKEN` is available as `$GITHUB_TOKEN` inside the session.
+When an agent session starts, Stella decrypts only secrets whose injection settings match that session: always-injected secrets, secrets bound to the current agent, or secrets bound to the current project. A bound secret named `GITHUB_TOKEN` is available as `$GITHUB_TOKEN` inside the session.
+
+Unbound secrets stay out of the session environment. For one command, the agent can declare needed secret names in the Bash tool's `secrets` parameter; Stella injects those values only into that command's child process and records an audit row with the secret name and truncated command, never the value. Add a non-sensitive description with `stella vault set --description` so the agent knows when to declare it. Use `stella vault audit --help` to inspect recent declared uses.
+
+Group sessions do not receive a declarable secrets manifest and cannot use per-command secret injection.
 
 Secrets are loaded fresh for each session. If you add or update a secret, the change takes effect on the next session.
 
-### Auto-Generated Token
+### Session Token
 
-Stella automatically creates a `STELLA_TOKEN` for each user. This token is used to authenticate CLI commands and API requests from within agent sessions. You do not need to create it manually.
+Inside an agent session, Stella injects `STELLA_TOKEN` as a short-lived scoped token for that session. It is not a saved secret and you do not need to create it manually.
 
 ## Secret Name Rules
 
@@ -85,11 +89,11 @@ Secret names must follow these rules:
 - Uppercase letters, digits, and underscores only (for example, `MY_API_KEY`)
 - Must start with a letter
 - Maximum 128 characters
-- Cannot start with reserved prefixes like `STELLA_` (except the auto-generated `STELLA_TOKEN`)
+- Cannot start with reserved prefixes like `STELLA_`
 
 ## Tips
 
-- **One secret per service.** Store `GITHUB_TOKEN`, `OPENAI_API_KEY`, and similar keys as individual vault entries.
+- **One secret per service.** Store `GITHUB_TOKEN`, `OPENAI_API_KEY`, and similar keys as individual vault entries, then bind each one only where it is needed.
 - **Secrets persist across restarts.** You only need to set them once.
 - **Use the Web UI to audit.** The Credentials page shows all secret names, so you can see what is stored without exposing values.
 - **Rotate secrets by overwriting.** To update a secret, save a new value with the same name — it replaces the old one.

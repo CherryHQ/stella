@@ -65,10 +65,11 @@ Four runtime entities — deliberately small; more than this is over-modeling.
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `goal`             | Intent + `acceptance_contract` + `convergence_policy` + nullable `parent_id` + nullable accepted output. A composite also carries its decomposition `plan` (jsonb) and `planned_at` fence inline. |
 | `goal_edge`        | Accepted-output dependency between sibling goals (`hard` blocks; `soft` is advisory context).                                                                                                     |
-| `attempt`          | One execution episode: a persistent agent session, the frozen input context, and the submitted evidence (evidence folds into the attempt — it is not its own table).                              |
+| `attempt`          | One execution episode: a one-shot internal agent session, the frozen input context, and the submitted evidence (evidence folds into the attempt — it is not its own table).                       |
 | `acceptance_event` | Append-only record of a deterministic check result or a judgment verdict. Goal acceptance state is a **cached projection** over these events, not a mutable column.                               |
+| `goal_event`       | Append-only human-readable timeline: planning, attempt, acceptance, lifecycle, and human-message events. This is the UI narrative; execution sessions are plumbing.                               |
 
-`acceptance_event` being append-only (not a mutable evaluation table) is friendlier to audit
+`acceptance_event` and `goal_event` being append-only (not mutable evaluation tables) is friendlier to audit
 and to projection rebuilds — see [Scalability](#simplicity-and-scalability).
 
 ## Completion is derived, never asserted
@@ -135,12 +136,12 @@ A leaf goal's execution _is_ a bounded loop:
 ```text
 deps satisfied → lifecycle: ready → active
 loop:
-  Attempt[i] with input = intent + upstream accepted outputs + Evaluation[i-1].gaps
-  agent works in attempt.session → submits Evidence → attempt ends
-  acceptance:  run deterministic checks; if they pass and policy needs it, request verdicts
+  Attempt[i] with input = intent + upstream accepted outputs + recent timeline guidance + Evaluation[i-1].gaps
+  agent works in a one-shot internal session → submits Evidence → attempt ends
+  acceptance:  run deterministic checks in the same live sandbox; if they pass and policy needs it, request verdicts
     ├ all satisfied        → accepted; freeze accepted_output
     ├ failed, i < max      → rejected(gaps) → next iteration (gaps become input)   ← rework
-    ├ failed, i == max     → blocked(budget_exhausted) → human decides
+    ├ failed, i == max     → blocked(budget_exhausted) → human retries or adds timeline guidance
     └ verdict required      → blocked(needs_verdict) → human submits → resume
 ```
 
@@ -193,8 +194,8 @@ the recursion:
 - **Handoff** — only _accepted_ output flows downstream; an in-flight attempt's evidence never
   leaks into a dependent's input.
 - **The executor boundary** — the agent returns a result; the service owns durable state.
-- **Persistent sessions** and **pending-vs-accepted content isolation** keep an in-flight edit
-  out of a running prompt.
+- **One-shot attempt sessions** and **pending-vs-accepted content isolation** keep an in-flight edit
+  out of a running prompt. Attempt sessions are retained for audit but hidden from user session lists; the goal timeline is the UI surface.
 
 ### Vocabulary
 
@@ -210,8 +211,10 @@ The recursion folds several once-separate concepts into the single Goal abstract
 | worker-executed task     | leaf `goal`                                              |
 | task running             | `attempt` running                                        |
 | task done                | `goal` accepted (**derived**)                            |
-| transient task failure   | `attempt` interrupted → new attempt                      |
-| semantic task failure    | acceptance rejected → next attempt, or blocked at budget |
+| model-owned failure      | acceptance rejected → next attempt, or blocked at budget |
+| environment failure      | `blocked(env_unavailable)`; report an administrator      |
+| contract failure         | `blocked(contract_conflict)`; edit the contract          |
+| flaky infrastructure     | retry outside business budget until the flaky cap        |
 | acceptance criteria      | `acceptance_contract` items (binding, machine-checked)   |
 | verify step              | the goal's acceptance evaluation                         |
 | design / impl role       | goal category / internal phase                           |
@@ -242,9 +245,7 @@ parallelizes naturally. The real ceilings are not the model:
    attempt is another full agent episode; depth × multi-attempt × judgment review multiplies
    token spend and wall-clock. `max_attempts` and `deterministic_then_judgment` are
    load-bearing guards, not optional.
-2. **Session and evidence growth** comes next: an attempt per iteration proliferates sessions,
-   and evidence (stdout, diffs, artifacts, rationale) grows faster than status rows. Truncate
-   by default, externalize artifacts, address them by hash.
+2. **Timeline, session, and evidence growth** comes next: an attempt per iteration appends timeline events and creates one-shot internal sessions, while evidence (stdout, diffs, artifacts, rationale) grows faster than status rows. Keep sessions for audit but hide internal task/delegate kinds from user-facing lists; truncate evidence by default, externalize artifacts, address them by hash.
 3. **The single-writer database** is a real but _designable-away_ constraint. Do not full-scan
    the tree on every event: a child's acceptance updates only the parent's incremental
    counters, parent acceptance is a cached projection, and downstream readiness is pushed by

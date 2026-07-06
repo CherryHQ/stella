@@ -1,4 +1,22 @@
 paths:
+  /api/email/accounts:
+    get:
+      tags: [email]
+      summary: List configured email accounts
+      operationId: listEmailAccounts
+      x-agent-tool: { tool: "email", action: "accounts" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/EmailAccountList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
   /api/email/folders:
     get:
       tags: [email]
@@ -26,6 +44,7 @@ paths:
       tags: [email]
       summary: List email messages
       operationId: listEmailMessages
+      x-agent-tool: { tool: "email", action: "list" }
       parameters:
         - {
             name: account,
@@ -97,6 +116,7 @@ paths:
       tags: [email]
       summary: Read an email message
       operationId: getEmailMessage
+      x-agent-tool: { tool: "email", action: "read" }
       parameters:
         - {
             name: account,
@@ -133,6 +153,11 @@ paths:
       tags: [email]
       summary: Send an email
       operationId: sendEmail
+      x-agent-tool: {
+        tool: "email",
+        action: "send",
+        require: [idempotency_key],
+      }
       parameters:
         - {
             name: account,

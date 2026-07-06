@@ -1,14 +1,13 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/email"
 )
 
@@ -17,86 +16,63 @@ import (
 // while bounding memory use from an authenticated client.
 const maxEmailRequestBytes = 5 << 20
 
-// loadEmailAccount loads the EMAIL_CONFIG vault entry for the authenticated
-// user, parses it, and resolves the requested account name. On failure it
-// writes an error response and returns a zero value + false.
-func (s *Server) loadEmailAccount(w http.ResponseWriter, r *http.Request, accountParam *string) (email.EmailAccount, bool) {
-	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
-		return email.EmailAccount{}, false
-	}
-
+func emailIdentity(r *http.Request) (authz.Identity, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {
+		return authz.Identity{}, false
+	}
+	return authz.Identity{UserID: info.UserID}, true
+}
+
+func (s *Server) writeEmailError(w http.ResponseWriter, err error) {
+	if errors.Is(err, authz.ErrUnauthenticated) {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	writeError(w, http.StatusBadRequest, err.Error())
+}
+
+// ListEmailAccounts handles GET /api/email/accounts.
+func (s *Server) ListEmailAccounts(w http.ResponseWriter, r *http.Request) {
+	ident, ok := emailIdentity(r)
+	if !ok {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return email.EmailAccount{}, false
+		return
 	}
-
-	value, err := s.vaultSvc.Get(r.Context(), info.UserID, "EMAIL_CONFIG")
+	accounts, err := s.emailSvc.As(ident).Accounts(r.Context())
 	if err != nil {
-		if isNotFound(err) {
-			writeError(w, http.StatusBadRequest, "no email accounts configured")
-			return email.EmailAccount{}, false
-		}
-		s.log.Error("load email config from vault", "user_id", info.UserID, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return email.EmailAccount{}, false
+		s.writeEmailError(w, err)
+		return
 	}
-
-	cfg := &email.Config{Accounts: make(map[string]email.EmailAccount)}
-	if value != "" && value != "{}" {
-		if err := json.Unmarshal([]byte(value), cfg); err != nil {
-			writeError(w, http.StatusInternalServerError, "malformed EMAIL_CONFIG in vault")
-			return email.EmailAccount{}, false
-		}
-	}
-	if cfg.Accounts == nil {
-		cfg.Accounts = make(map[string]email.EmailAccount)
-	}
-	if len(cfg.Accounts) == 0 {
-		writeError(w, http.StatusBadRequest, "no email accounts configured")
-		return email.EmailAccount{}, false
-	}
-
-	var name string
-	if accountParam != nil {
-		name = *accountParam
-	}
-	acct, err := cfg.Resolve(name)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("resolve email account: %v", err))
-		return email.EmailAccount{}, false
-	}
-	if err := email.ValidateAccountEgress(acct); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return email.EmailAccount{}, false
-	}
-	return acct, true
+	writeData(w, http.StatusOK, apitypes.EmailAccountList{Accounts: accounts.Accounts, Default: &accounts.Default})
 }
 
 // ListEmailFolders handles GET /api/email/folders.
 func (s *Server) ListEmailFolders(w http.ResponseWriter, r *http.Request, params apiserver.ListEmailFoldersParams) {
-	acct, ok := s.loadEmailAccount(w, r, params.Account)
+	ident, ok := emailIdentity(r)
 	if !ok {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
-	folders, err := email.Folders(acct)
+	account := ""
+	if params.Account != nil {
+		account = *params.Account
+	}
+	folders, err := s.emailSvc.As(ident).Folders(r.Context(), account)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeEmailError(w, err)
 		return
 	}
-
 	writeData(w, http.StatusOK, apitypes.EmailFolderList{Folders: folders})
 }
 
 // ListEmailMessages handles GET /api/email/messages.
 func (s *Server) ListEmailMessages(w http.ResponseWriter, r *http.Request, params apiserver.ListEmailMessagesParams) {
-	acct, ok := s.loadEmailAccount(w, r, params.Account)
+	ident, ok := emailIdentity(r)
 	if !ok {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
 	limit := 20
 	if params.Limit != nil {
 		limit = *params.Limit
@@ -105,7 +81,10 @@ func (s *Server) ListEmailMessages(w http.ResponseWriter, r *http.Request, param
 		writeError(w, http.StatusBadRequest, "limit must be between 1 and 500")
 		return
 	}
-
+	account := ""
+	if params.Account != nil {
+		account = *params.Account
+	}
 	opts := email.ListOptions{Limit: limit}
 	if params.Folder != nil {
 		opts.Folder = *params.Folder
@@ -127,13 +106,11 @@ func (s *Server) ListEmailMessages(w http.ResponseWriter, r *http.Request, param
 		t := params.Before.Time
 		opts.Before = &t
 	}
-
-	msgs, err := email.List(acct, opts)
+	msgs, err := s.emailSvc.As(ident).List(r.Context(), account, opts)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeEmailError(w, err)
 		return
 	}
-
 	envelopes := make([]apitypes.EmailEnvelope, 0, len(msgs))
 	for _, m := range msgs {
 		envelopes = append(envelopes, emailEnvelopeToAPI(m))
@@ -143,41 +120,42 @@ func (s *Server) ListEmailMessages(w http.ResponseWriter, r *http.Request, param
 
 // GetEmailMessage handles GET /api/email/messages/{uid}.
 func (s *Server) GetEmailMessage(w http.ResponseWriter, r *http.Request, uid int, params apiserver.GetEmailMessageParams) {
-	acct, ok := s.loadEmailAccount(w, r, params.Account)
+	ident, ok := emailIdentity(r)
 	if !ok {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
 	imapUID, ok := parseIMAPUID(w, uid)
 	if !ok {
 		return
 	}
-
+	account := ""
+	if params.Account != nil {
+		account = *params.Account
+	}
 	folder := "INBOX"
 	if params.Folder != nil {
 		folder = *params.Folder
 	}
-
-	msg, err := email.Read(acct, folder, imapUID)
+	msg, err := s.emailSvc.As(ident).Read(r.Context(), account, folder, imapUID)
 	if err != nil {
 		if errors.Is(err, email.ErrMessageNotFound) {
 			writeError(w, http.StatusNotFound, "message not found")
 		} else {
-			s.writeInternalError(w, err)
+			s.writeEmailError(w, err)
 		}
 		return
 	}
-
 	writeData(w, http.StatusOK, emailMessageToAPI(msg))
 }
 
 // SendEmail handles POST /api/email/send.
 func (s *Server) SendEmail(w http.ResponseWriter, r *http.Request, params apiserver.SendEmailParams) {
-	acct, ok := s.loadEmailAccount(w, r, params.Account)
+	ident, ok := emailIdentity(r)
 	if !ok {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxEmailRequestBytes)
 	var body apitypes.EmailSendRequest
 	if err := decodeJSON(r, &body); err != nil {
@@ -196,12 +174,11 @@ func (s *Server) SendEmail(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusBadRequest, "body is required")
 		return
 	}
-
-	opts := email.SendOptions{
-		To:      body.To,
-		Subject: body.Subject,
-		Body:    body.Body,
+	account := ""
+	if params.Account != nil {
+		account = *params.Account
 	}
+	opts := email.SendOptions{To: body.To, Subject: body.Subject, Body: body.Body}
 	if body.Cc != nil {
 		opts.Cc = *body.Cc
 	}
@@ -220,27 +197,28 @@ func (s *Server) SendEmail(w http.ResponseWriter, r *http.Request, params apiser
 	if body.InReplyTo != nil {
 		opts.InReplyTo = *body.InReplyTo
 	}
-
-	if err := email.Send(acct, opts); err != nil {
-		s.writeInternalError(w, err)
+	idem := ""
+	if body.IdempotencyKey != nil {
+		idem = *body.IdempotencyKey
+	}
+	if _, err := s.emailSvc.As(ident).Send(r.Context(), account, opts, idem); err != nil {
+		s.writeEmailError(w, err)
 		return
 	}
-
 	writeNoContent(w)
 }
 
 // MarkEmailMessage handles POST /api/email/messages/{uid}/mark.
 func (s *Server) MarkEmailMessage(w http.ResponseWriter, r *http.Request, uid int, params apiserver.MarkEmailMessageParams) {
-	acct, ok := s.loadEmailAccount(w, r, params.Account)
+	ident, ok := emailIdentity(r)
 	if !ok {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
 	imapUID, ok := parseIMAPUID(w, uid)
 	if !ok {
 		return
 	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxEmailRequestBytes)
 	var body struct {
 		Seen *bool `json:"seen"`
@@ -253,21 +231,22 @@ func (s *Server) MarkEmailMessage(w http.ResponseWriter, r *http.Request, uid in
 		writeError(w, http.StatusBadRequest, "seen is required")
 		return
 	}
-
+	account := ""
+	if params.Account != nil {
+		account = *params.Account
+	}
 	folder := "INBOX"
 	if params.Folder != nil {
 		folder = *params.Folder
 	}
-
-	if err := email.MarkSeen(acct, folder, imapUID, *body.Seen); err != nil {
+	if err := s.emailSvc.As(ident).MarkSeen(r.Context(), account, folder, imapUID, *body.Seen); err != nil {
 		if errors.Is(err, email.ErrMessageNotFound) {
 			writeError(w, http.StatusNotFound, "message not found")
 		} else {
-			s.writeInternalError(w, err)
+			s.writeEmailError(w, err)
 		}
 		return
 	}
-
 	writeNoContent(w)
 }
 
@@ -280,15 +259,8 @@ func parseIMAPUID(w http.ResponseWriter, uid int) (uint32, bool) {
 	return uint32(uid), true
 }
 
-// --------------- converters ---------------
-
 func emailEnvelopeToAPI(e email.Envelope) apitypes.EmailEnvelope {
-	env := apitypes.EmailEnvelope{
-		Uid:     int(e.UID),
-		From:    e.From,
-		Subject: e.Subject,
-		Date:    e.Date.UTC(),
-	}
+	env := apitypes.EmailEnvelope{Uid: int(e.UID), From: e.From, Subject: e.Subject, Date: e.Date.UTC()}
 	if e.MessageID != "" {
 		env.MessageId = &e.MessageID
 	}
@@ -315,12 +287,7 @@ func emailEnvelopeToAPI(e email.Envelope) apitypes.EmailEnvelope {
 }
 
 func emailMessageToAPI(m *email.Message) apitypes.EmailMessage {
-	msg := apitypes.EmailMessage{
-		Uid:     int(m.UID),
-		From:    m.From,
-		Subject: m.Subject,
-		Date:    m.Date.UTC(),
-	}
+	msg := apitypes.EmailMessage{Uid: int(m.UID), From: m.From, Subject: m.Subject, Date: m.Date.UTC()}
 	if m.MessageID != "" {
 		msg.MessageId = &m.MessageID
 	}

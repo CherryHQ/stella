@@ -1,6 +1,7 @@
 import type {
   ChannelIdentity as SdkChannelIdentity,
   ComponentsAgent,
+  ComponentsAgentTool,
   ComponentsAuthUser,
   ComponentsBuiltinResourceDetail,
   ComponentsChannel,
@@ -15,7 +16,6 @@ import type {
   ComponentsProviderType,
   ComponentsSkill,
   ComponentsSkillSearchResult,
-  ComponentsTool,
   ComponentsUserMemory,
   ComponentsVaultEntry,
   JobRun,
@@ -40,7 +40,7 @@ export type Skill = ComponentsSkill & {
   status: string;
   disable_model_invocation: boolean;
 };
-export type Tool = ComponentsTool;
+export type Tool = ComponentsAgentTool;
 export type SchedulerJob = ComponentsJob;
 export type SchedulerJobRun = JobRun;
 export type BuiltinItem = ComponentsBuiltinResourceDetail;

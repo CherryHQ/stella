@@ -39,11 +39,6 @@ SELECT * FROM agent_goal_acceptance_event
 WHERE goal_id = sqlc.arg(goal_id)
 ORDER BY seq ASC;
 
--- name: ListAcceptanceEventByAttempt :many
-SELECT * FROM agent_goal_acceptance_event
-WHERE attempt_id = sqlc.arg(attempt_id)
-ORDER BY seq ASC;
-
 -- name: ProbeCheckCache :one
 -- Check-result cache hit: the latest passing deterministic result for a cache_key.
 -- Returns pgx.ErrNoRows on a forced miss (no cached pass).
