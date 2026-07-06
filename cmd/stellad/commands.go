@@ -230,12 +230,12 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		}
 	}
 
-	serviceToolNames := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName, connections.ToolName, email.ToolName, sharepkg.ToolName, recally.ToolName, vault.ToolName}
+	workerExcludedTools := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName}
 
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
-		ExcludedTools: serviceToolNames,
+		ExcludedTools: workerExcludedTools,
 		Capabilities: goal.CapabilityProbeFunc(func() bool {
 			plugins, err := store.ListPlugins(context.Background())
 			if err != nil {
