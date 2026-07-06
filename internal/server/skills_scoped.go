@@ -17,13 +17,12 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skills"
-	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func (s *Server) skillService() *skillstool.Service {
-	return skillstool.NewService(pluginhost.NewSkillStoreAdapter(s.skillStore()), config.StellaHome())
+func (s *Server) skillService() *skills.Service {
+	return skills.NewService(pluginhost.NewSkillStoreAdapter(s.skillStore()), config.StellaHome())
 }
 
 // findSkillByID linear-scans ListAll. The store has no Get(ctx, id) yet —
@@ -151,10 +150,10 @@ func dbSkillsToPluginSkills(rows []skills.Skill) []pkgplugins.Skill {
 	return out
 }
 
-func resolvedSkillToView(rs skillstool.ResolvedSkill) skillView {
+func resolvedSkillToView(rs skills.ResolvedSkill) skillView {
 	var files []string
 	if rs.Dir != "" {
-		files, _ = skillstool.ListDirFiles(rs.Dir)
+		files, _ = skills.ListDirFiles(rs.Dir)
 	}
 	if files == nil {
 		files = []string{}
@@ -257,7 +256,7 @@ func safeSkillFilePath(skillDir, filePath string) (string, error) {
 }
 
 // resolveSkillAny finds a skill by name across all scopes (highest priority wins).
-func (s *Server) resolveSkillAny(ctx context.Context, agentID, skillName string, sessionID *string) (*skillstool.ResolvedSkill, string, int, string) {
+func (s *Server) resolveSkillAny(ctx context.Context, agentID, skillName string, sessionID *string) (*skills.ResolvedSkill, string, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return nil, "", http.StatusUnauthorized, "unauthorized"
@@ -279,7 +278,7 @@ func (s *Server) resolveSkillAny(ctx context.Context, agentID, skillName string,
 }
 
 // resolveSkill finds a skill by name in a specific scope for the given agent.
-func (s *Server) resolveSkill(ctx context.Context, agentID, skillName, scope string, sessionID *string) (*skillstool.ResolvedSkill, string, int, string) {
+func (s *Server) resolveSkill(ctx context.Context, agentID, skillName, scope string, sessionID *string) (*skills.ResolvedSkill, string, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return nil, "", http.StatusUnauthorized, "unauthorized"
@@ -306,7 +305,7 @@ func memoryContext2(ctx context.Context) context.Context {
 }
 
 // loadSkillFile loads a file from an already-resolved skill.
-func (s *Server) loadSkillFile(ctx context.Context, rs *skillstool.ResolvedSkill, path string) (string, error) {
+func (s *Server) loadSkillFile(ctx context.Context, rs *skills.ResolvedSkill, path string) (string, error) {
 	if rs.Dir != "" {
 		fp, err := safeSkillFilePath(rs.Dir, path)
 		if err != nil {
@@ -412,7 +411,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillParams) {
-	var rs *skillstool.ResolvedSkill
+	var rs *skills.ResolvedSkill
 	var code int
 	var msg string
 	if params.Scope != nil {
@@ -488,7 +487,7 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 // and updates it in place when the source has a newer version. It is the
 // check-and-update behind the inspector's "check for updates" button.
 func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.UpgradeAgentSkillParams) {
-	var rs *skillstool.ResolvedSkill
+	var rs *skills.ResolvedSkill
 	var code int
 	var msg string
 	if params.Scope != nil {
@@ -517,15 +516,15 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	}
 
 	ctx := r.Context()
-	if skillstool.GitHubSource(skillSource(rs.Metadata)) {
+	if skills.GitHubSource(skillSource(rs.Metadata)) {
 		if token := s.credSvc.GitHubAccessToken(ctx, actingUserID); token != "" {
-			ctx = skillstool.WithGitHubToken(ctx, token)
+			ctx = skills.WithGitHubToken(ctx, token)
 		}
 	}
 
-	res, err := skillstool.UpgradeInStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), rs.ID, rs.Metadata)
+	res, err := skills.UpgradeInStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), rs.ID, rs.Metadata)
 	if err != nil {
-		if errors.Is(err, skillstool.ErrNoUpgradeSource) {
+		if errors.Is(err, skills.ErrNoUpgradeSource) {
 			writeError(w, http.StatusBadRequest, "skill was not installed from an upgradable source")
 			return
 		}
@@ -572,7 +571,7 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {
-	var rs *skillstool.ResolvedSkill
+	var rs *skills.ResolvedSkill
 	var code int
 	var msg string
 	if params.Scope != nil {
@@ -658,12 +657,12 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		storeUserID = userID
 	}
 	ctx := r.Context()
-	if skillstool.GitHubSource(req.Source) {
+	if skills.GitHubSource(req.Source) {
 		if token := s.credSvc.GitHubAccessToken(ctx, userID); token != "" {
-			ctx = skillstool.WithGitHubToken(ctx, token)
+			ctx = skills.WithGitHubToken(ctx, token)
 		}
 	}
-	name, err := skillstool.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
+	name, err := skills.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")

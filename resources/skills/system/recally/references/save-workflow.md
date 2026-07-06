@@ -88,22 +88,14 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 
 ## 3. Save
 
-`save` never fetches the URL itself — that is why steps 1-2 exist. Content is
-required for a new article (`--content-file` or stdin); saving an already-saved
-URL without content refreshes its metadata only.
+`recally` tool `action=save` never fetches the URL itself — that is why steps 1-2 exist. Content is required for a new article; saving an already-saved URL with refreshed content updates the article.
 
-Before saving, read the command help:
-
-```bash
-stella recally save --help
-```
-
-Then save with the fetched content file, generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata. The CLI help is the source of truth for exact syntax and examples.
+Call `recally` with `action=save` and an `articles` array. Each item should include the fetched markdown content, generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata.
 
 Required values for this workflow:
 
 - URL
-- content file path (`$f`)
+- content from `$f`
 - title
 - author when known
 - structured summary from `$sf`
@@ -111,6 +103,6 @@ Required values for this workflow:
 - source type (`web`, `twitter`, `youtube`, `github`, `rss`, or `pdf`)
 - `worth_reading` metadata value: `Top pick`, `Good read`, or `Skim` — no emoji
 
-**Output** (`--json`): the saved article resource, including `id`, `file_path`, `url`, `title`, `status`, `source_type`, and `saved_at`. The CLI also prints a sideband marker on stderr that the chat renders as a clickable article card — run `stella recally save` plainly and do not discard stderr (no `2>/dev/null`), or the user sees a bare ID instead. The card shows the title and a link, so do not echo the raw ID/title back into your reply text.
+**Output**: the save action returns per-item results with `url`, `id`, and `status` (`created`, `updated`, or `error`). Do not echo raw IDs unless the user asks; summarize what was saved.
 
-To re-fetch and refresh an existing article: recompute `$f` from the URL hash, re-fetch, read `stella recally save --help`, then save again with the refreshed content file.
+To re-fetch and refresh an existing article: recompute `$f` from the URL hash, re-fetch, then call `recally` `action=save` again with the refreshed content.

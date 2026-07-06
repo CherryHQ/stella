@@ -143,17 +143,33 @@ func failsSkillSoftFloor(scores map[string]int) bool {
 }
 
 func (c skillCandidate) validate() RejectReason {
-	if c.Ref == "" ||
-		strings.TrimSpace(c.Learning.Summary) == "" ||
+	if c.Ref == "" {
+		return rejectSchemaMissingField
+	}
+	return c.validateContent()
+}
+
+func (c skillCandidate) validateGenerated() RejectReason {
+	if c.Ref != "" {
+		return rejectSchemaExtraField
+	}
+	return c.validateContent()
+}
+
+func (c skillCandidate) validateContent() RejectReason {
+	if strings.TrimSpace(c.Learning.Summary) == "" ||
 		strings.TrimSpace(c.Learning.ReusableDelta) == "" ||
 		strings.TrimSpace(c.HandoffHints.SearchQueryHint) == "" {
 		return rejectSchemaMissingField
 	}
 	if len(c.Evidence) == 0 ||
-		!hasNonEmpty(c.Applicability.TriggerExamples) ||
-		!hasNonEmpty(c.Applicability.NonTriggerExamples) ||
-		!hasNonEmpty(c.Procedure.Steps) ||
-		!hasNonEmpty(c.Procedure.Verification) {
+		!hasRequiredNonEmpty(c.Applicability.TriggerExamples) ||
+		!hasRequiredNonEmpty(c.Applicability.NonTriggerExamples) ||
+		!hasRequiredNonEmpty(c.Procedure.Steps) ||
+		!hasRequiredNonEmpty(c.Procedure.Verification) ||
+		!hasOptionalNonEmpty(c.Procedure.Prerequisites) ||
+		!hasOptionalNonEmpty(c.Procedure.DecisionPoints) ||
+		!hasOptionalNonEmpty(c.Procedure.Pitfalls) {
 		return rejectSchemaMissingField
 	}
 	for _, evidence := range c.Evidence {
@@ -162,7 +178,7 @@ func (c skillCandidate) validate() RejectReason {
 		}
 	}
 	if c.SessionSkillContext != nil {
-		if !hasNonEmpty(c.SessionSkillContext.UsedSkillRefs) ||
+		if !hasRequiredNonEmpty(c.SessionSkillContext.UsedSkillRefs) ||
 			strings.TrimSpace(c.SessionSkillContext.ChangeAgainstLoadedSkill) == "" {
 			return rejectSchemaMissingField
 		}
@@ -221,11 +237,15 @@ func (c skillCandidate) gateText() string {
 	return b.String()
 }
 
-func hasNonEmpty(values []string) bool {
+func hasRequiredNonEmpty(values []string) bool {
+	return len(values) > 0 && hasOptionalNonEmpty(values)
+}
+
+func hasOptionalNonEmpty(values []string) bool {
 	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return true
+		if strings.TrimSpace(value) == "" {
+			return false
 		}
 	}
-	return false
+	return true
 }

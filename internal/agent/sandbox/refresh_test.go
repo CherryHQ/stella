@@ -40,8 +40,6 @@ type recordingEnsurer struct {
 	lastUserID string
 }
 
-func (e *recordingEnsurer) EnsureAutoToken(context.Context, string) error { return nil }
-
 func (e *recordingEnsurer) CreateScopedToken(_ context.Context, userID, _, _, _ string) (string, error) {
 	e.calls++
 	e.lastUserID = userID

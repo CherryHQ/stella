@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go/format"
 	"os"
 	"sort"
 	"strings"
@@ -86,7 +87,11 @@ func run() error {
 		out.WriteString("`\n\n")
 	}
 
-	if err := os.WriteFile(outputPath, out.Bytes(), 0o644); err != nil {
+	formatted, err := format.Source(out.Bytes())
+	if err != nil {
+		return fmt.Errorf("format %s: %w", outputPath, err)
+	}
+	if err := os.WriteFile(outputPath, formatted, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", outputPath, err)
 	}
 	return nil

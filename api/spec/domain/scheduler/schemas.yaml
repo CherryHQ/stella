@@ -37,12 +37,16 @@ components:
         }
         message: {
           type: string,
-          description: "Prompt/instruction to run on schedule",
+          description: "Prompt/instruction to run on schedule; empty for workflow jobs",
         }
+        dispatch_kind:
+          type: string
+          enum: [chat, workflow]
+          description: "Dispatch target. Defaults to chat. Workflow jobs instantiate workflow_id from payload."
         payload:
           type: object
           additionalProperties: {}
-          description: "Arbitrary structured data for plugin-owned jobs"
+          description: "Structured dispatch payload. Workflow jobs carry workflow_id, inputs, and allow_replan."
         session_mode: {
           type: string,
           description: "Session behaviour: 'reuse' or 'new'",
@@ -75,12 +79,30 @@ components:
         every: { type: string }
         at: { type: string }
         message: { type: string }
+        dispatch_kind:
+          type: string
+          enum: [chat, workflow]
+        workflow_id:
+          type: string
+          description: "Exact workflow version row to instantiate when dispatch_kind is workflow."
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Workflow input values."
+        allow_replan:
+          type: boolean
+          description: "Allow scheduling a partially frozen workflow."
         session_mode: { type: string }
         enabled: { type: boolean }
         agent_id: { type: string }
         user_id: {
           type: string,
           description: "Admin-only: set empty for system jobs",
+        }
+        idempotency_key: {
+          type: string,
+          description: "Optional key; repeated creates by the same user with the same key return the existing job.",
         }
 
     JobRun:
@@ -98,6 +120,9 @@ components:
         started_at: { type: string, format: date-time }
         finished_at: { type: string, format: date-time }
         error: { type: string }
+        root_goal_id:
+          type: string
+          description: Root goal created by a workflow dispatch.
         output:
           type: string
           description: Final assistant text produced by the run (truncated to 4000 chars).

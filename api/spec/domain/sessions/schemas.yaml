@@ -23,6 +23,9 @@ components:
         channel: { type: string }
         kind:
           type: string
+          description: >-
+            Session kind. "task" is the goal-worker session kind; the wire
+            value predates the goal rename and is kept for stored sessions.
           enum: [main, chat, delegate, scheduler, task]
         project_id: { type: string }
         title: { type: string }

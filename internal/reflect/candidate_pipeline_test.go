@@ -238,6 +238,51 @@ func TestCandidatePipelineOversizedOnlyAdvancesSeqWatermarksWithoutLLM(t *testin
 	if len(result.Skipped) != 1 {
 		t.Fatalf("expected shared oversized skip to be reported once, got %#v", result.Skipped)
 	}
+	if result.Skipped[0].FirstSeq != 42 || result.Skipped[0].LastSeq != 42 {
+		t.Fatalf("expected oversized skip to keep seq boundary, got %#v", result.Skipped[0])
+	}
+}
+
+func TestBuildReviewUnitMarksTruncatedWhenBudgetLeavesFreshContent(t *testing.T) {
+	t1 := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	t2 := t1.Add(time.Minute)
+	wm := newFakeWatermarks()
+	svc := &Service{
+		memory: &reviewHistoryProvider{messages: []memory.ReviewMessage{
+			{
+				ID:       "msg-1",
+				FirstSeq: 1,
+				LastSeq:  1,
+				Message:  ai.UserMessage{Content: strings.Repeat("a", 80), Timestamp: t1},
+			},
+			{
+				ID:       "msg-2",
+				FirstSeq: 2,
+				LastSeq:  2,
+				Message:  ai.UserMessage{Content: strings.Repeat("b", 80), Timestamp: t2},
+			},
+		}},
+		wm:  wm,
+		log: testLogger(),
+	}
+
+	unit, err := svc.buildReviewUnit(context.Background(), reviewTarget{
+		session:         memory.Session{ID: "s1", AgentID: "a", UserID: "u1"},
+		privateOneToOne: true,
+	}, reviewWatermark{}, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !unit.Truncated {
+		t.Fatalf("expected truncated review unit, got %#v", unit)
+	}
+	if unit.FreshCount != 1 || unit.LastIncludedSeq != 1 {
+		t.Fatalf("expected only first message included, got fresh=%d lastSeq=%d", unit.FreshCount, unit.LastIncludedSeq)
+	}
+	if !strings.Contains(unit.Text, strings.Repeat("a", 80)) || strings.Contains(unit.Text, strings.Repeat("b", 80)) {
+		t.Fatalf("unexpected review unit text: %q", unit.Text)
+	}
 }
 
 func TestCandidatePipelineReturnsAcceptedCandidatesInMemory(t *testing.T) {

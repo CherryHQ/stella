@@ -15,18 +15,21 @@ import "errors"
 // Goal lifecycle (contract §2). The single state machine every
 // goal — root or child, leaf or composite — runs through.
 const (
-	LifecycleDraft         = "draft"
-	LifecycleReady         = "ready"
-	LifecycleActive        = "active"
-	LifecycleBlocked       = "blocked"
-	LifecycleAccepted      = "accepted"       // terminal-good; accepted_output frozen
-	LifecycleRejectedFinal = "rejected_final" // judgment said no, no rework path left
-	LifecycleAbandoned     = "abandoned"      // budget exhausted + give-up
-	LifecycleCancelled     = "cancelled"
+	LifecycleDraft   = "draft"
+	LifecyclePending = "pending"
+	LifecycleActive  = "active"
+	LifecycleBlocked = "blocked"
+	LifecycleDone    = "done"
+)
+
+const (
+	DoneReasonAccepted  = "accepted"
+	DoneReasonFailed    = "failed"
+	DoneReasonCancelled = "cancelled"
 )
 
 // Block reasons (meaningful only when lifecycle='blocked'). Precedence on
-// concurrent causes: budget_exhausted > needs_plan_approval > needs_verdict > dep.
+// concurrent causes: budget_exhausted > needs_plan_approval > needs_verdict.
 // needs_plan_approval is a composite's human-review gate on its proposed plan,
 // before any child is materialized; it cannot co-occur with dep/needs_verdict
 // (those require materialized children / a submitted attempt).
@@ -35,7 +38,8 @@ const (
 	BlockNeedsPlanApproval = "needs_plan_approval"
 	BlockPlanningInvalid   = "planning_invalid"
 	BlockNeedsVerdict      = "needs_verdict"
-	BlockDep               = "dep"
+	BlockEnvUnavailable    = "env_unavailable"
+	BlockContractConflict  = "contract_conflict"
 )
 
 // Acceptance projection — the evaluation RESULT, distinct from lifecycle.
@@ -65,9 +69,10 @@ const (
 // Failure class records why a failed/interrupted attempt did not produce a
 // usable terminal result.
 const (
-	FailureClassStructural = "structural"
-	FailureClassSemantic   = "semantic"
-	FailureClassTransient  = "transient"
+	FailureClassModel       = "model"
+	FailureClassEnvironment = "environment"
+	FailureClassContract    = "contract"
+	FailureClassFlaky       = "flaky"
 )
 
 // Goal kind.
@@ -133,58 +138,11 @@ const (
 	EscalationAbandon = "abandon" // auto-terminal
 )
 
-// ValidLifecycle reports whether s is a known goal lifecycle.
-func ValidLifecycle(s string) bool {
-	switch s {
-	case LifecycleDraft, LifecycleReady, LifecycleActive, LifecycleBlocked,
-		LifecycleAccepted, LifecycleRejectedFinal, LifecycleAbandoned, LifecycleCancelled:
-		return true
-	}
-	return false
-}
-
-// ValidBlockReason reports whether s is a known block reason.
-func ValidBlockReason(s string) bool {
-	switch s {
-	case BlockBudgetExhausted, BlockNeedsPlanApproval, BlockPlanningInvalid, BlockNeedsVerdict, BlockDep:
-		return true
-	}
-	return false
-}
-
-// ValidAcceptanceState reports whether s is a known acceptance projection state.
-func ValidAcceptanceState(s string) bool {
-	switch s {
-	case AcceptancePending, AcceptancePassed, AcceptanceFailed:
-		return true
-	}
-	return false
-}
-
-// ValidAttemptStatus reports whether s is a known attempt status.
-func ValidAttemptStatus(s string) bool {
-	switch s {
-	case AttemptQueued, AttemptRunning, AttemptSubmitted,
-		AttemptInterrupted, AttemptFailed, AttemptCancelled:
-		return true
-	}
-	return false
-}
-
-// ValidPurpose reports whether s is a known attempt purpose.
-func ValidPurpose(s string) bool {
-	switch s {
-	case PurposeExecution, PurposeDecomposition, PurposeReview:
-		return true
-	}
-	return false
-}
-
 // ValidFailureClass reports whether s is a known failure class. Empty is valid
 // for non-failure final states such as cancelled attempts.
 func ValidFailureClass(s string) bool {
 	switch s {
-	case "", FailureClassStructural, FailureClassSemantic, FailureClassTransient:
+	case "", FailureClassModel, FailureClassEnvironment, FailureClassContract, FailureClassFlaky:
 		return true
 	}
 	return false
@@ -218,22 +176,59 @@ func ValidItemKind(s string) bool { return s == ItemDeterministic || s == ItemJu
 // ValidResult reports whether s is a known acceptance outcome.
 func ValidResult(s string) bool { return s == ResultPass || s == ResultFail }
 
-// ValidAuthority reports whether s is a known verdict authority.
-func ValidAuthority(s string) bool {
-	return s == AuthoritySystem || s == AuthorityAgent || s == AuthorityHuman
-}
-
 // ValidEscalation reports whether s is a known convergence escalation.
 func ValidEscalation(s string) bool { return s == EscalationBlock || s == EscalationAbandon }
 
 // IsTerminalLifecycle reports whether the lifecycle admits no further
 // scheduling. 'blocked' is recoverable and so is NOT terminal.
 func IsTerminalLifecycle(s string) bool {
-	switch s {
-	case LifecycleAccepted, LifecycleRejectedFinal, LifecycleAbandoned, LifecycleCancelled:
-		return true
-	}
-	return false
+	return s == LifecycleDone
+}
+
+// legalGoalTransitions is the per-kind lifecycle state machine (contract §2.1).
+// Shared edges:
+//
+//	draft -> active|done
+//	pending -> active|blocked|done
+//	active -> pending|blocked|done|draft
+//	blocked -> pending|active|draft|done
+//	done -> none
+//
+// Leaf-only guards reject draft-bound moves after creation; composite-only callers
+// use draft for decomposition/replanning.
+var legalGoalTransitions = map[string]map[string]map[string]bool{
+	KindLeaf: {
+		LifecycleDraft:   {LifecyclePending: true, LifecycleDone: true},
+		LifecyclePending: {LifecycleActive: true, LifecycleBlocked: true, LifecycleDone: true},
+		LifecycleActive:  {LifecyclePending: true, LifecycleBlocked: true, LifecycleDone: true},
+		LifecycleBlocked: {LifecyclePending: true, LifecycleActive: true, LifecycleDone: true},
+	},
+	KindComposite: {
+		LifecycleDraft:   {LifecycleActive: true, LifecycleDone: true},
+		LifecycleActive:  {LifecycleDraft: true, LifecycleBlocked: true, LifecycleDone: true},
+		LifecycleBlocked: {LifecycleDraft: true, LifecycleActive: true, LifecycleDone: true},
+	},
+}
+
+// LegalLifecycleTransition reports whether moving a goal of the given kind
+// from → to is a legal edge of the §2.1 state machine. An unknown kind, from,
+// or to is illegal — fail loud, not open.
+func LegalLifecycleTransition(kind, from, to string) bool {
+	return legalGoalTransitions[kind][from][to]
+}
+
+// NeedsAttention is THE canonical needs-you predicate: whether a goal is
+// parked on a block only a human action can clear. It used to live in three
+// parallel copies (the web UI's goalNeedsYou, the goals list, the inbox SQL)
+// that drifted apart twice; now:
+//   - the API serves it as the Goal.needs_attention field (goalToAPI) and the
+//     web UI reads that field, never re-deriving it;
+//   - ListInboxGoals' WHERE clause is the one remaining SQL copy (the filter
+//     must run in the DB), pinned equivalent by
+//     TestListInboxGoalsMatchesNeedsAttention.
+func NeedsAttention(lifecycle, blockReason string) bool {
+	_ = blockReason
+	return lifecycle == LifecycleBlocked
 }
 
 // Actor describes who initiated a transition. Ported from the old package; the
@@ -241,18 +236,16 @@ func IsTerminalLifecycle(s string) bool {
 // service still carries an Actor for audit/attribution on non-acceptance
 // transitions.
 type Actor struct {
-	Type string // one of ActorSystem | ActorUser | ActorAgent | ActorWorker | ActorReviewer | ActorPlanner
+	Type string // one of ActorSystem | ActorUser | ActorAgent | ActorWorker
 	ID   string // user_id / agent_id / worker_id depending on Type; empty for system
 }
 
 // Actor types.
 const (
-	ActorSystem   = "system"
-	ActorUser     = "user"
-	ActorAgent    = "agent"
-	ActorWorker   = "worker"
-	ActorReviewer = "reviewer"
-	ActorPlanner  = "planner"
+	ActorSystem = "system"
+	ActorUser   = "user"
+	ActorAgent  = "agent"
+	ActorWorker = "worker"
 )
 
 // SystemActor is the dispatcher/system originator convenience.
@@ -276,13 +269,20 @@ var (
 	// no longer exists.
 	ErrNotFound = errors.New("goal: not found")
 
+	// ErrIllegalLifecycleMove is returned when a routing path asks for a
+	// transition the §2.1 state machine has no edge for (legalGoalTransitions).
+	// Unlike ErrInvalidTransition (a benign CAS race the dispatcher swallows),
+	// this is a PROGRAMMING BUG in the caller: it must surface loudly, never be
+	// retried into place.
+	ErrIllegalLifecycleMove = errors.New("goal: illegal lifecycle transition")
+
 	// ErrPlanGate is returned by Activate when the plan gate is unmet: a leaf
 	// with an empty non-trivial contract, or a composite that is not yet planned
 	// (planned_at unset) / has no required children.
 	ErrPlanGate = errors.New("goal: plan gate not satisfied")
 
 	// ErrBudgetExhausted is informational: convergence reached MaxAttempts. The
-	// goal moves to blocked(budget_exhausted) or abandoned/rejected_final
+	// goal moves to blocked(budget_exhausted) or done(failed)
 	// rather than retrying.
 	ErrBudgetExhausted = errors.New("goal: convergence budget exhausted")
 
@@ -295,6 +295,10 @@ var (
 	// the deterministic check has no event source and the fold would stall pending
 	// forever. Put deterministic checks on a leaf child, or use judgment items.
 	ErrCompositeDeterministicContract = errors.New("goal: composite contract cannot contain deterministic items")
+
+	// ErrDeterministicChecksUnsupported is returned when the current deployment
+	// cannot execute required deterministic acceptance checks.
+	ErrDeterministicChecksUnsupported = errors.New("goal: deterministic acceptance checks require a sandbox-capable backend")
 
 	// ErrInvalidDecomposition is returned when a composite's DecompositionContent
 	// fails validation (no required child, dangling edge key, etc.).

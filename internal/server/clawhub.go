@@ -6,7 +6,7 @@ import (
 	"time"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
-	clawhubskills "github.com/CherryHQ/stella/internal/tools/skills"
+	clawhubskills "github.com/CherryHQ/stella/internal/skills"
 )
 
 // clawhubSkillView is the JSON representation of a single ClawHub marketplace skill.

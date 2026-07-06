@@ -21,10 +21,12 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
-	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -522,7 +524,7 @@ func toSessionResponse(info memory.SessionInfo) sessionResponse {
 func memoryUserContext(r *http.Request) context.Context {
 	ctx := r.Context()
 	if info := UserFromContext(ctx); info != nil && info.UserID != "" {
-		ctx = memory.WithUserID(ctx, info.UserID)
+		ctx = authz.WithUserID(ctx, info.UserID)
 	}
 	return ctx
 }
@@ -530,7 +532,7 @@ func memoryUserContext(r *http.Request) context.Context {
 func memoryContext(r *http.Request, agentID string) context.Context {
 	ctx := memoryUserContext(r)
 	if agentID != "" {
-		ctx = memory.WithAgentID(ctx, agentID)
+		ctx = authz.WithAgentID(ctx, agentID)
 	}
 	return ctx
 }
@@ -553,7 +555,12 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 		return
 	}
 
-	opts := memory.ListOptions{IncludeArchived: true, Limit: limit + 1, Offset: offset}
+	opts := memory.ListOptions{
+		IncludeArchived: true,
+		ExcludeInternal: params.Kind == nil,
+		Limit:           limit + 1,
+		Offset:          offset,
+	}
 	if info != nil {
 		opts.UserID = info.UserID
 	}
@@ -1178,11 +1185,7 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, ag
 // is guaranteed to stay within root. Returns an error if the result would
 // escape root (directory traversal).
 func safePath(root, rel string) (string, error) {
-	abs := filepath.Join(root, filepath.Clean("/"+rel))
-	if abs != root && !strings.HasPrefix(abs, root+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escapes workspace root")
-	}
-	return abs, nil
+	return sharepkg.SafePath(root, rel)
 }
 
 func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.CreateWorkspaceFileParams) {

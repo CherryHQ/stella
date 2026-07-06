@@ -26,6 +26,7 @@ paths:
       tags: [jobs]
       summary: List scheduler jobs
       operationId: listSchedulerJobs
+      x-agent-tool: { tool: "scheduler", action: "list" }
       responses:
         "200":
           description: ok
@@ -41,6 +42,7 @@ paths:
       tags: [jobs]
       summary: Create a scheduler job
       operationId: createSchedulerJob
+      x-agent-tool: { tool: "scheduler", action: "create" }
       requestBody:
         required: true
         content:
@@ -69,6 +71,7 @@ paths:
       tags: [jobs]
       summary: Get a scheduler job
       operationId: getSchedulerJob
+      x-agent-tool: { tool: "scheduler", action: "get" }
       responses:
         "200":
           description: ok
@@ -84,6 +87,10 @@ paths:
       tags: [jobs]
       summary: Update a scheduler job (partial — missing fields are merged from existing)
       operationId: updateSchedulerJob
+      x-agent-tool:
+        - { tool: "scheduler", action: "update" }
+        - { tool: "scheduler", action: "pause", fixed: { enabled: false } }
+        - { tool: "scheduler", action: "resume", fixed: { enabled: true } }
       requestBody:
         required: true
         content:
@@ -109,6 +116,7 @@ paths:
       tags: [jobs]
       summary: Delete a scheduler job
       operationId: deleteSchedulerJob
+      x-agent-tool: { tool: "scheduler", action: "delete" }
       responses:
         "204":
           description: deleted

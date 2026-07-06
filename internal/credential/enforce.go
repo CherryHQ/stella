@@ -38,8 +38,7 @@ var deniedResources = map[string]bool{
 // remains a per-handler responsibility for PAT/OAuth, exactly as for cookie
 // sessions. It runs four explicit layers:
 //
-//  1. kind policy   -- legacy_stella_token bypasses API-scope checks (handler
-//     ownership/admin checks still apply); pat/oauth/scoped must pass scope checks.
+//  1. kind policy   -- pat/oauth/scoped are the only accepted bearer kinds.
 //  2. method+path -> required scope -- RequiredScope classifies every /api route
 //     to a scope; an unregistered route is deny (fail-closed).
 //  3. reachability by kind -- sandbox scoped tokens keep the pre-unification
@@ -53,11 +52,6 @@ var deniedResources = map[string]bool{
 func Enforce(p *Principal, method, path string) error {
 	if p == nil {
 		return fmt.Errorf("%w: no principal", ErrForbidden)
-	}
-
-	// Layer 1: kind policy.
-	if p.Kind == KindLegacyStellaToken {
-		return nil
 	}
 
 	// Scoped bearers are API-only; they may not fetch page routes.
@@ -116,8 +110,8 @@ func apiSegments(path string) []string {
 
 // scopedSandboxReachable reports whether a sandbox scoped token (stella_scoped_)
 // may reach the given /api path (rest is the path after /api). It preserves the
-// pre-unification surface of the old scopedTokenAllowsRequest: status, tasks,
-// goals, shares, recally, vault, the /api/users/me/oauth subtree, and the
+// pre-unification surface of the old scopedTokenAllowsRequest: status, goals,
+// workflows, shares, recally, vault, the /api/users/me/oauth subtree, and the
 // agent-bound /api/agents/{id}/... subtree.
 //
 // Top-level external APIs (email, skills, scheduler) are deliberately NOT
@@ -131,7 +125,7 @@ func scopedSandboxReachable(rest []string) bool {
 		return false
 	}
 	switch rest[0] {
-	case "status", "tasks", "goals", "shares", "recally", "vault", "agents":
+	case "status", "goals", "workflows", "shares", "recally", "vault", "agents":
 		return true
 	case "users":
 		return len(rest) >= 3 && rest[1] == "me" && rest[2] == "oauth"
@@ -169,6 +163,10 @@ func RequiredScope(method, path string) (scope string, registered bool) {
 	}
 	resource := rest[0]
 
+	if resource == "goals" && method == "POST" && len(rest) == 3 && rest[2] == "save-as-workflow" {
+		return scopeForMethod("workflows", method), true
+	}
+
 	switch resource {
 	case "status":
 		return "agent:" + ActionRead, true
@@ -176,7 +174,7 @@ func RequiredScope(method, path string) (scope string, registered bool) {
 		return agentRouteScope(method, rest[1:])
 	case "users":
 		return usersRouteScope(method, rest[1:])
-	case "tasks", "goals", "shares", "recally", "email", "mcp", "vault", "scheduler", "skills":
+	case "goals", "workflows", "shares", "recally", "email", "mcp", "vault", "scheduler", "skills":
 		return scopeForMethod(resource, method), true
 	}
 
@@ -202,6 +200,8 @@ func agentRouteScope(method string, sub []string) (scope string, registered bool
 		return scopeForMethod("scheduler", method), true
 	case "skills":
 		return scopeForMethod("skills", method), true
+	case "tools":
+		return "", true
 	case "sessions", "projects", "users":
 		// Conversation history, workspace files, projects, and membership are all
 		// gated by the agent scope. NOTE: agent:read here grants read of full

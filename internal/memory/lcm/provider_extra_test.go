@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
@@ -426,7 +427,7 @@ func TestLCMProvider_LoadHistory(t *testing.T) {
 	defer cleanup()
 
 	sess := newLCMTestSession("history")
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
 
 	if err := p.Bootstrap(ctx, sess); err != nil {
 		t.Fatal(err)
@@ -465,7 +466,7 @@ func TestLCMProvider_LoadReviewHistoryPreservesSeqBoundary(t *testing.T) {
 	defer cleanup()
 
 	sess := newLCMTestSession("review-history")
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
 	if err := p.Bootstrap(ctx, sess); err != nil {
 		t.Fatal(err)
 	}
@@ -509,7 +510,7 @@ func TestLCMProvider_ListInfoFiltersInSQL(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), testUserID), "test")
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), testUserID), "test")
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	fixtures := []memory.SessionInfo{
 		{ID: "list-1", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(1 * time.Minute)},
@@ -561,7 +562,7 @@ func TestLCMProvider_SaveInfoSingleUpdateSemantics(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), testUserID), "test")
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), testUserID), "test")
 	initial := memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", ProjectID: "p1", Title: "Original", LastActive: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	if err := p.SaveInfo(ctx, initial); err != nil {
 		t.Fatalf("SaveInfo initial: %v", err)
@@ -653,7 +654,7 @@ func TestLCMProvider_ListInfoForReviewDoesNotRequireUserScope(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	ctx := memory.WithAgentID(context.Background(), "test")
+	ctx := authz.WithAgentID(context.Background(), "test")
 	if err := p.SaveInfo(ctx, memory.SessionInfo{
 		ID:         "review-chat",
 		AgentID:    "test",

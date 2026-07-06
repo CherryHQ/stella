@@ -46,22 +46,6 @@ func (q *Queries) CreateEdge(ctx context.Context, arg CreateEdgeParams) (AgentGo
 	return i, err
 }
 
-const deleteEdge = `-- name: DeleteEdge :exec
-DELETE FROM agent_goal_edge
-WHERE goal_id = $1
-  AND upstream_id = $2
-`
-
-type DeleteEdgeParams struct {
-	GoalID     string `json:"goal_id"`
-	UpstreamID string `json:"upstream_id"`
-}
-
-func (q *Queries) DeleteEdge(ctx context.Context, arg DeleteEdgeParams) error {
-	_, err := q.db.Exec(ctx, deleteEdge, arg.GoalID, arg.UpstreamID)
-	return err
-}
-
 const getEdge = `-- name: GetEdge :one
 SELECT goal_id, upstream_id, edge_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_goal_edge
 WHERE goal_id = $1
@@ -124,45 +108,11 @@ func (q *Queries) ListEdgeByGoal(ctx context.Context, goalID string) ([]AgentGoa
 	return items, nil
 }
 
-const listEdgeByUpstream = `-- name: ListEdgeByUpstream :many
-SELECT goal_id, upstream_id, edge_kind, on_failure, waived_at, waived_by_user, waiver_reason, created_at FROM agent_goal_edge
-WHERE upstream_id = $1
-ORDER BY created_at
-`
-
-func (q *Queries) ListEdgeByUpstream(ctx context.Context, upstreamID string) ([]AgentGoalEdge, error) {
-	rows, err := q.db.Query(ctx, listEdgeByUpstream, upstreamID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentGoalEdge{}
-	for rows.Next() {
-		var i AgentGoalEdge
-		if err := rows.Scan(
-			&i.GoalID,
-			&i.UpstreamID,
-			&i.EdgeKind,
-			&i.OnFailure,
-			&i.WaivedAt,
-			&i.WaivedByUser,
-			&i.WaiverReason,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listEdgeWithUpstreamState = `-- name: ListEdgeWithUpstreamState :many
 SELECT
     e.goal_id, e.upstream_id, e.edge_kind, e.on_failure, e.waived_at, e.waived_by_user, e.waiver_reason, e.created_at,
     u.lifecycle AS upstream_lifecycle,
+    u.done_reason AS upstream_done_reason,
     u.accepted_output AS upstream_output
 FROM agent_goal_edge e
 JOIN agent_goal u ON u.id = e.upstream_id
@@ -171,16 +121,17 @@ ORDER BY e.created_at
 `
 
 type ListEdgeWithUpstreamStateRow struct {
-	GoalID            string             `json:"goal_id"`
-	UpstreamID        string             `json:"upstream_id"`
-	EdgeKind          string             `json:"edge_kind"`
-	OnFailure         string             `json:"on_failure"`
-	WaivedAt          pgtype.Timestamptz `json:"waived_at"`
-	WaivedByUser      pgtype.Text        `json:"waived_by_user"`
-	WaiverReason      string             `json:"waiver_reason"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpstreamLifecycle string             `json:"upstream_lifecycle"`
-	UpstreamOutput    pgtype.Text        `json:"upstream_output"`
+	GoalID             string             `json:"goal_id"`
+	UpstreamID         string             `json:"upstream_id"`
+	EdgeKind           string             `json:"edge_kind"`
+	OnFailure          string             `json:"on_failure"`
+	WaivedAt           pgtype.Timestamptz `json:"waived_at"`
+	WaivedByUser       pgtype.Text        `json:"waived_by_user"`
+	WaiverReason       string             `json:"waiver_reason"`
+	CreatedAt          time.Time          `json:"created_at"`
+	UpstreamLifecycle  string             `json:"upstream_lifecycle"`
+	UpstreamDoneReason string             `json:"upstream_done_reason"`
+	UpstreamOutput     pgtype.Text        `json:"upstream_output"`
 }
 
 func (q *Queries) ListEdgeWithUpstreamState(ctx context.Context, goalID string) ([]ListEdgeWithUpstreamStateRow, error) {
@@ -202,6 +153,7 @@ func (q *Queries) ListEdgeWithUpstreamState(ctx context.Context, goalID string) 
 			&i.WaiverReason,
 			&i.CreatedAt,
 			&i.UpstreamLifecycle,
+			&i.UpstreamDoneReason,
 			&i.UpstreamOutput,
 		); err != nil {
 			return nil, err

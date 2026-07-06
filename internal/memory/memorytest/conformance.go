@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -32,7 +33,7 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 		UserID:  SessionUserID,
 		Channel: "cli",
 	}
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), session.UserID), session.AgentID)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), session.UserID), session.AgentID)
 
 	t.Run("Name", func(t *testing.T) {
 		name := provider.Name()

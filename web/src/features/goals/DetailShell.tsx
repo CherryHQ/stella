@@ -12,6 +12,13 @@ interface DetailShellProps {
   title: React.ReactNode;
   pill?: React.ReactNode;
   actions?: React.ReactNode;
+  contentClassName?: string;
+  /** Fill mode: no page scroll, full width, children stretch to the viewport
+      bottom (for canvas-style pages that scroll internally). */
+  fill?: boolean;
+  /** Override the back link (defaults to the agent's Goals hub) so pages
+      reached from another surface, e.g. a workflow run, return there. */
+  back?: { label: string; to: string; params: Record<string, string> };
   children: React.ReactNode;
 }
 
@@ -22,19 +29,34 @@ export function DetailShell({
   title,
   pill,
   actions,
+  contentClassName = "max-w-[800px]",
+  fill = false,
+  back,
   children,
 }: DetailShellProps) {
   const { t } = useI18n();
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-background">
-      <div className="mx-auto max-w-[800px] px-6 py-7 pb-20 sm:px-8">
+    <div
+      className={
+        fill
+          ? "flex h-full min-h-0 flex-col overflow-hidden bg-background"
+          : "h-full min-h-0 overflow-y-auto bg-background"
+      }
+    >
+      <div
+        className={
+          fill
+            ? "flex min-h-0 w-full flex-1 flex-col px-6 py-7 pb-6 sm:px-8"
+            : `mx-auto px-6 py-7 pb-20 sm:px-8 ${contentClassName}`
+        }
+      >
         <Link
-          to="/agents/$agentId/goals"
-          params={{ agentId }}
+          to={back?.to ?? "/agents/$agentId/goals"}
+          params={back?.params ?? { agentId }}
           className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" />
-          {t("hub.title")}
+          {back?.label ?? t("hub.title")}
         </Link>
         <div className="mt-4 font-mono text-xs font-medium text-muted-foreground">{kindLabel}</div>
         <div className="mt-1.5 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">

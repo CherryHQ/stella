@@ -6,7 +6,7 @@ import (
 
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/credential"
-	"github.com/CherryHQ/stella/internal/oauth"
+	"github.com/CherryHQ/stella/internal/oidc"
 )
 
 // OAuth2 client-management and authorized-apps API (issue #613). These are
@@ -53,11 +53,11 @@ func (s *Server) CreateOAuthClient(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	clientType := oauth.ClientTypeConfidential
+	clientType := oidc.ClientTypeConfidential
 	if body.ClientType != nil {
 		clientType = string(*body.ClientType)
 	}
-	client, secret, err := s.oauthAS.RegisterClient(r.Context(), info.UserID, oauth.ClientRegistration{
+	client, secret, err := s.oauthAS.RegisterClient(r.Context(), info.UserID, oidc.ClientRegistration{
 		Name:         body.Name,
 		ClientType:   clientType,
 		RedirectURIs: body.RedirectUris,
@@ -108,7 +108,7 @@ func (s *Server) RotateOAuthClientSecret(w http.ResponseWriter, r *http.Request,
 	}
 	secret, err := s.oauthAS.RotateSecret(r.Context(), info.UserID, clientId)
 	if err != nil {
-		if errors.Is(err, oauth.ErrClientNotFound) {
+		if errors.Is(err, oidc.ErrClientNotFound) {
 			writeError(w, http.StatusNotFound, "client not found")
 			return
 		}
@@ -182,7 +182,7 @@ func (s *Server) RevokeAuthorizedApp(w http.ResponseWriter, r *http.Request, cli
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func oauthClientToAPI(c oauth.Client) apitypes.OAuthClient {
+func oauthClientToAPI(c oidc.Client) apitypes.OAuthClient {
 	return apitypes.OAuthClient{
 		ClientId:     c.ClientID,
 		Name:         c.Name,

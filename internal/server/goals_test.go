@@ -30,6 +30,11 @@ func (noopExecutor) Execute(context.Context, goal.ExecutorRequest) (goal.Executo
 // package's own harness — and a no-op executor.
 func setupGoalEnv(t *testing.T) *testEnv {
 	t.Helper()
+	return setupGoalEnvWithOptions(t)
+}
+
+func setupGoalEnvWithOptions(t *testing.T, opts ...goal.Option) *testEnv {
+	t.Helper()
 	env := setupAdmin(t)
 
 	mint := func(ctx context.Context, userID, agentID, projectID string) (string, error) {
@@ -45,11 +50,13 @@ func setupGoalEnv(t *testing.T) *testEnv {
 	}
 
 	q := sqlc.New(env.db)
-	svc := goal.New(env.db, q,
+	baseOpts := []goal.Option{
 		goal.WithSessionMinter(mint),
 		goal.WithPlanningSessionMinter(mint),
 		goal.WithExecutor(noopExecutor{}),
-	)
+	}
+	baseOpts = append(baseOpts, opts...)
+	svc := goal.New(env.db, q, baseOpts...)
 	bundle := &goal.Service{Queries: q, Goal: svc}
 	env.srv.SetGoalService(bundle)
 	return env
@@ -74,6 +81,41 @@ func createGoal(t *testing.T, env *testEnv, token, agentID, title string) string
 		t.Fatalf("create goal %q: empty id (body: %s)", title, rr.Body.String())
 	}
 	return d.Id
+}
+
+func TestGoals_CreateDeterministicWithoutSandboxReturnsStructuredError(t *testing.T) {
+	env := setupGoalEnvWithOptions(t, goal.WithCapabilityProbe(goal.CapabilityProbeFunc(func() bool { return false })))
+	agentID := findStellaID(t, env)
+	required := true
+	command := "true"
+	rr := doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/goals", apitypes.CreateGoalRequest{
+		AgentId: agentID,
+		Title:   "deterministic",
+		AcceptanceContract: &apitypes.AcceptanceContract{Items: &[]apitypes.AcceptanceItem{{
+			Id:       "cmd",
+			Kind:     apitypes.AcceptanceItemKindDeterministic,
+			Required: &required,
+			Command:  &command,
+		}}},
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d want %d body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Message string         `json:"message"`
+			Details map[string]any `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if body.Error.Details["code"] != "deterministic_checks_unsupported" {
+		t.Fatalf("details=%v want code deterministic_checks_unsupported", body.Error.Details)
+	}
+	if body.Error.Message == "" || body.Error.Details["fix"] == "" {
+		t.Fatalf("error is not actionable: %+v", body.Error)
+	}
 }
 
 // TestGoals_AddEdge_CrossTenant_404 is the IDOR regression: the AddEdge
@@ -159,6 +201,47 @@ func TestGoals_GetCrossTenant_404(t *testing.T) {
 
 // TestGoals_CreateAndGet covers the happy path: POST creates a composite
 // (every goal is planned first) and GET returns it for the owner.
+
+func TestGoals_TimelinePaginationAndPost(t *testing.T) {
+	env := setupGoalEnv(t)
+	agentID := findStellaID(t, env)
+	id := createGoal(t, env, env.bearerToken, agentID, "timeline")
+
+	for _, text := range []string{"one", "two", "three"} {
+		rr := doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/goals/"+id+"/timeline", apitypes.GoalTimelineMessageRequest{Text: text})
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("POST timeline %q: status=%d body=%s", text, rr.Code, rr.Body.String())
+		}
+	}
+
+	rr := doRequestWithSession(t, env.srv, env.bearerToken, "GET", "/api/goals/"+id+"/timeline?page_size=2", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET timeline page1: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var page1 apitypes.GoalTimeline
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &page1); err != nil {
+		t.Fatalf("unmarshal page1: %v", err)
+	}
+	if len(page1.Events) != 2 || page1.NextPageToken == nil || *page1.NextPageToken == "" {
+		t.Fatalf("page1 len=%d next=%v want 2+next", len(page1.Events), page1.NextPageToken)
+	}
+
+	rr = doRequestWithSession(t, env.srv, env.bearerToken, "GET", "/api/goals/"+id+"/timeline?page_size=2&page_token="+*page1.NextPageToken, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET timeline page2: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var page2 apitypes.GoalTimeline
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &page2); err != nil {
+		t.Fatalf("unmarshal page2: %v", err)
+	}
+	if len(page2.Events) != 1 || page2.NextPageToken != nil {
+		t.Fatalf("page2 len=%d next=%v want 1 no-next", len(page2.Events), page2.NextPageToken)
+	}
+	if page2.Events[0].EventType != apitypes.HumanMessage || page2.Events[0].Payload["text"] != "three" {
+		t.Fatalf("page2 event=%+v want third human message", page2.Events[0])
+	}
+}
+
 func TestGoals_CreateAndGet(t *testing.T) {
 	env := setupGoalEnv(t)
 	agentID := findStellaID(t, env)

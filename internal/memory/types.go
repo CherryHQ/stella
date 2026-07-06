@@ -12,8 +12,6 @@ type contextKey string
 
 const (
 	sessionIDKey      contextKey = "memory_session_id"
-	userIDKey         contextKey = "memory_user_id"
-	agentIDKey        contextKey = "memory_agent_id"
 	projectIDKey      contextKey = "memory_project_id"
 	groupSeqKey       contextKey = "memory_group_seq"
 	currentSpeakerKey contextKey = "memory_current_speaker"
@@ -27,28 +25,6 @@ func WithSessionID(ctx context.Context, sessionID string) context.Context {
 // SessionIDFromContext extracts the session ID from context.
 func SessionIDFromContext(ctx context.Context) string {
 	s, _ := ctx.Value(sessionIDKey).(string)
-	return s
-}
-
-// WithUserID attaches a user ID to the context.
-func WithUserID(ctx context.Context, userID string) context.Context {
-	return context.WithValue(ctx, userIDKey, userID)
-}
-
-// UserIDFromContext extracts the user ID from context.
-func UserIDFromContext(ctx context.Context) string {
-	id, _ := ctx.Value(userIDKey).(string)
-	return id
-}
-
-// WithAgentID attaches an agent ID to the context.
-func WithAgentID(ctx context.Context, agentID string) context.Context {
-	return context.WithValue(ctx, agentIDKey, agentID)
-}
-
-// AgentIDFromContext extracts the agent ID from context.
-func AgentIDFromContext(ctx context.Context) string {
-	s, _ := ctx.Value(agentIDKey).(string)
 	return s
 }
 
@@ -142,8 +118,9 @@ type ListOptions struct {
 	ProjectID       string // filter by project (empty = all)
 	ProjectIDIsNull bool   // when true, require project_id IS NULL
 	IncludeArchived bool
-	Limit           int // 0 = no limit
-	Offset          int // skip first N matching results
+	ExcludeInternal bool // hide task/delegate worker sessions from user-facing lists
+	Limit           int  // 0 = no limit
+	Offset          int  // skip first N matching results
 }
 
 // EstimateTokens returns a rough token count (~4 chars per token).

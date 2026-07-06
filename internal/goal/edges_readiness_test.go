@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -43,7 +44,7 @@ func edg_twoSiblings(h *harness, withEdge bool) (up, down sqlc.AgentGoal, compos
 
 	cmp_decompose(h.t, h, composite.ID, content)
 
-	children, err := h.bundle.ListChildren(ctx, composite.ID)
+	children, err := h.q.ListGoalChildren(ctx, pgnull.Text(composite.ID))
 	if err != nil {
 		h.t.Fatalf("edg: ListChildren: %v", err)
 	}
@@ -66,12 +67,13 @@ func edg_twoSiblings(h *harness, withEdge bool) (up, down sqlc.AgentGoal, compos
 // edg_edgeRow constructs one upstream-state-joined edge row for a Compute() unit
 // test. upstreamLifecycle is the pre-joined upstream lifecycle; waived stamps a
 // non-empty waived_at.
-func edg_edgeRow(upstreamID, kind, onFailure, upstreamLifecycle string, waived bool) sqlc.ListEdgeWithUpstreamStateRow {
+func edg_edgeRow(upstreamID, kind, onFailure, upstreamLifecycle, doneReason string, waived bool) sqlc.ListEdgeWithUpstreamStateRow {
 	r := sqlc.ListEdgeWithUpstreamStateRow{
-		UpstreamID:        upstreamID,
-		EdgeKind:          kind,
-		OnFailure:         onFailure,
-		UpstreamLifecycle: upstreamLifecycle,
+		UpstreamID:         upstreamID,
+		EdgeKind:           kind,
+		OnFailure:          onFailure,
+		UpstreamLifecycle:  upstreamLifecycle,
+		UpstreamDoneReason: doneReason,
 	}
 	if waived {
 		r.WaivedAt = pgtype.Timestamptz{Time: time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC), Valid: true}
@@ -82,7 +84,7 @@ func edg_edgeRow(upstreamID, kind, onFailure, upstreamLifecycle string, waived b
 // edg_readyLeaf is a ready leaf row to feed Compute (the row only needs the
 // fields Compute reads: Lifecycle, Kind).
 func edg_readyLeaf() sqlc.AgentGoal {
-	return sqlc.AgentGoal{Lifecycle: LifecycleReady, Kind: KindLeaf}
+	return sqlc.AgentGoal{Lifecycle: LifecyclePending, Kind: KindLeaf}
 }
 
 func edg_hasReason(rs []Reason, typ string) bool {
@@ -99,12 +101,24 @@ func edg_hasReason(rs []Reason, typ string) bool {
 // downstream in waiting_deps (NOT dispatchable) with an upstream_not_accepted
 // reason; once the upstream is accepted (or the edge waived) the downstream
 // becomes dispatchable.
+func testReadiness(ctx context.Context, h *harness, id string) (Readiness, error) {
+	d, err := h.q.GetGoal(ctx, id)
+	if err != nil {
+		return Readiness{}, err
+	}
+	edges, err := h.q.ListEdgeWithUpstreamState(ctx, id)
+	if err != nil {
+		return Readiness{}, err
+	}
+	return Compute(d, edges, h.svc.nowTime()), nil
+}
+
 func TestEdgReadinessHardUpstreamGate(t *testing.T) {
 	now := time.Now().UTC()
 
 	// Upstream still in progress (active) ⇒ hard wait, not dispatchable.
 	r := Compute(edg_readyLeaf(), []sqlc.ListEdgeWithUpstreamStateRow{
-		edg_edgeRow("up", EdgeHard, OnFailureBlock, LifecycleActive, false),
+		edg_edgeRow("up", EdgeHard, OnFailureBlock, LifecycleActive, "", false),
 	}, now)
 	if r.Dispatchable || r.State != ReadinessWaitingDeps {
 		t.Fatalf("unaccepted hard upstream: state=%q dispatchable=%v want waiting_deps/false", r.State, r.Dispatchable)
@@ -115,7 +129,7 @@ func TestEdgReadinessHardUpstreamGate(t *testing.T) {
 
 	// Upstream accepted ⇒ satisfied ⇒ dispatchable.
 	r = Compute(edg_readyLeaf(), []sqlc.ListEdgeWithUpstreamStateRow{
-		edg_edgeRow("up", EdgeHard, OnFailureBlock, LifecycleAccepted, false),
+		edg_edgeRow("up", EdgeHard, OnFailureBlock, LifecycleDone, DoneReasonAccepted, false),
 	}, now)
 	if !r.Dispatchable || r.State != ReadinessDispatchable {
 		t.Fatalf("accepted hard upstream: state=%q dispatchable=%v want dispatchable/true", r.State, r.Dispatchable)
@@ -123,7 +137,7 @@ func TestEdgReadinessHardUpstreamGate(t *testing.T) {
 
 	// Waived (but unaccepted) ⇒ satisfied ⇒ dispatchable.
 	r = Compute(edg_readyLeaf(), []sqlc.ListEdgeWithUpstreamStateRow{
-		edg_edgeRow("up", EdgeHard, OnFailureBlock, LifecycleActive, true),
+		edg_edgeRow("up", EdgeHard, OnFailureBlock, LifecycleActive, "", true),
 	}, now)
 	if !r.Dispatchable || r.State != ReadinessDispatchable {
 		t.Fatalf("waived hard upstream: state=%q dispatchable=%v want dispatchable/true", r.State, r.Dispatchable)
@@ -138,7 +152,7 @@ func TestEdgReadinessOnFailureSemantics(t *testing.T) {
 
 	// on_failure=block + failed upstream ⇒ blocked(dep) with upstream_failed_block.
 	r := Compute(edg_readyLeaf(), []sqlc.ListEdgeWithUpstreamStateRow{
-		edg_edgeRow("up", EdgeHard, OnFailureBlock, LifecycleAbandoned, false),
+		edg_edgeRow("up", EdgeHard, OnFailureBlock, LifecycleDone, DoneReasonFailed, false),
 	}, now)
 	if r.Dispatchable || r.State != ReadinessBlocked {
 		t.Fatalf("block+failed: state=%q dispatchable=%v want blocked/false", r.State, r.Dispatchable)
@@ -149,7 +163,7 @@ func TestEdgReadinessOnFailureSemantics(t *testing.T) {
 
 	// on_failure=fail + failed upstream ⇒ blocked with upstream_failed_propagate.
 	r = Compute(edg_readyLeaf(), []sqlc.ListEdgeWithUpstreamStateRow{
-		edg_edgeRow("up", EdgeHard, OnFailureFail, LifecycleRejectedFinal, false),
+		edg_edgeRow("up", EdgeHard, OnFailureFail, LifecycleDone, DoneReasonFailed, false),
 	}, now)
 	if r.Dispatchable || r.State != ReadinessBlocked {
 		t.Fatalf("fail+failed: state=%q dispatchable=%v want blocked/false", r.State, r.Dispatchable)
@@ -160,7 +174,7 @@ func TestEdgReadinessOnFailureSemantics(t *testing.T) {
 
 	// on_failure=ignore + failed upstream ⇒ satisfied ⇒ dispatchable.
 	r = Compute(edg_readyLeaf(), []sqlc.ListEdgeWithUpstreamStateRow{
-		edg_edgeRow("up", EdgeHard, OnFailureIgnore, LifecycleCancelled, false),
+		edg_edgeRow("up", EdgeHard, OnFailureIgnore, LifecycleDone, DoneReasonFailed, false),
 	}, now)
 	if !r.Dispatchable || r.State != ReadinessDispatchable {
 		t.Fatalf("ignore+failed: state=%q dispatchable=%v want dispatchable/true", r.State, r.Dispatchable)
@@ -174,7 +188,7 @@ func TestEdgReadinessSoftEdgeNeverGates(t *testing.T) {
 	now := time.Now().UTC()
 
 	r := Compute(edg_readyLeaf(), []sqlc.ListEdgeWithUpstreamStateRow{
-		edg_edgeRow("up", EdgeSoft, OnFailureBlock, LifecycleActive, false),
+		edg_edgeRow("up", EdgeSoft, OnFailureBlock, LifecycleActive, "", false),
 	}, now)
 	if !r.Dispatchable || r.State != ReadinessDispatchable {
 		t.Fatalf("soft pending upstream: state=%q dispatchable=%v want dispatchable/true", r.State, r.Dispatchable)
@@ -185,7 +199,7 @@ func TestEdgReadinessSoftEdgeNeverGates(t *testing.T) {
 
 	// A soft edge whose upstream FAILED also never blocks dispatch.
 	r = Compute(edg_readyLeaf(), []sqlc.ListEdgeWithUpstreamStateRow{
-		edg_edgeRow("up", EdgeSoft, OnFailureBlock, LifecycleAbandoned, false),
+		edg_edgeRow("up", EdgeSoft, OnFailureBlock, LifecycleDone, DoneReasonFailed, false),
 	}, now)
 	if !r.Dispatchable || r.State != ReadinessDispatchable {
 		t.Fatalf("soft failed upstream: state=%q dispatchable=%v want dispatchable/true", r.State, r.Dispatchable)
@@ -205,9 +219,9 @@ func TestEdgReadinessNonReadyLifecycles(t *testing.T) {
 	}{
 		{LifecycleDraft, KindLeaf, ReadinessDraft},
 		{LifecycleActive, KindLeaf, ReadinessActive},
-		{LifecycleAccepted, KindLeaf, ReadinessTerminal},
-		{LifecycleAbandoned, KindLeaf, ReadinessTerminal},
-		{LifecycleReady, KindComposite, ReadinessComposite}, // ready composite ⇒ rollup-gated
+		{LifecycleDone, KindLeaf, ReadinessTerminal},
+		{LifecycleDone, KindLeaf, ReadinessTerminal},
+		{LifecyclePending, KindComposite, ReadinessComposite}, // ready composite ⇒ rollup-gated
 	}
 	for _, c := range cases {
 		r := Compute(sqlc.AgentGoal{Lifecycle: c.lifecycle, Kind: c.kind}, nil, now)
@@ -303,15 +317,15 @@ func TestEdgReadinessEndToEndAcceptUnblocks(t *testing.T) {
 	up, down, _ := edg_twoSiblings(h, true)
 
 	// SubmitDecomposition (review_policy=none) already released both leaves to ready.
-	if got := h.get(up.ID).Lifecycle; got != LifecycleReady {
+	if got := h.get(up.ID).Lifecycle; got != LifecyclePending {
 		t.Fatalf("upstream after decomposition=%q want ready", got)
 	}
-	if got := h.get(down.ID).Lifecycle; got != LifecycleReady {
+	if got := h.get(down.ID).Lifecycle; got != LifecyclePending {
 		t.Fatalf("downstream after decomposition=%q want ready", got)
 	}
 
 	// Downstream is ready-lifecycle but NOT dispatchable: hard upstream unaccepted.
-	r, err := h.bundle.GetReadiness(ctx, down.ID)
+	r, err := testReadiness(ctx, h, down.ID)
 	if err != nil {
 		t.Fatalf("GetReadiness(pre): %v", err)
 	}
@@ -321,12 +335,12 @@ func TestEdgReadinessEndToEndAcceptUnblocks(t *testing.T) {
 
 	// Run the upstream leaf to accepted (trivial contract auto-accepts).
 	h.runLeaf(up.ID)
-	if got := h.get(up.ID).Lifecycle; got != LifecycleAccepted {
+	if got := h.get(up.ID).Lifecycle; got != LifecycleDone {
 		t.Fatalf("upstream after run=%q want accepted", got)
 	}
 
 	// Now the hard edge is satisfied ⇒ downstream is dispatchable.
-	r, err = h.bundle.GetReadiness(ctx, down.ID)
+	r, err = testReadiness(ctx, h, down.ID)
 	if err != nil {
 		t.Fatalf("GetReadiness(post): %v", err)
 	}
@@ -335,25 +349,15 @@ func TestEdgReadinessEndToEndAcceptUnblocks(t *testing.T) {
 	}
 }
 
-// TestEdgWaiveEdgeClearsDepBlock asserts WaiveEdge stamps the edge waived AND
-// clears a blocked(dep) downstream back to ready (service.go §, blocked(dep)→
-// ready). It first parks the downstream in blocked(dep) via Block, then waives.
-func TestEdgWaiveEdgeClearsDepBlock(t *testing.T) {
+// TestEdgWaiveEdgeStampsEdge asserts WaiveEdge stamps the edge waived; readiness
+// then treats the hard edge as satisfied without writing dependency block state.
+func TestEdgWaiveEdgeStampsEdge(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	up, down, _ := edg_twoSiblings(h, true)
 
-	// Park the downstream in blocked(dep) the way the dispatcher would when its
-	// hard upstream is unsatisfied.
-	if err := h.svc.Block(ctx, down.ID, BlockDep, SystemActor()); err != nil {
-		t.Fatalf("Block(dep): %v", err)
-	}
-	if got := h.get(down.ID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockDep {
-		t.Fatalf("downstream after Block=%q/%q want blocked/dep", got.Lifecycle, got.BlockReason)
-	}
-
-	// Waive the hard edge: the edge is stamped waived and the parked downstream
-	// clears to ready in the same tx.
+	// Waive the hard edge: the edge is stamped waived; downstream lifecycle is not
+	// mutated because dependency blocking is derived, not stored.
 	if err := h.svc.WaiveEdge(ctx, down.ID, up.ID, "manual override", UserActor(h.userID)); err != nil {
 		t.Fatalf("WaiveEdge: %v", err)
 	}
@@ -369,14 +373,13 @@ func TestEdgWaiveEdgeClearsDepBlock(t *testing.T) {
 		t.Fatalf("edge waiver_reason=%q want %q", edge.WaiverReason, "manual override")
 	}
 
-	// The previously blocked(dep) downstream is back to ready.
-	if got := h.get(down.ID).Lifecycle; got != LifecycleReady {
-		t.Fatalf("downstream after waive=%q want ready", got)
+	if got := h.get(down.ID).Lifecycle; got != LifecyclePending {
+		t.Fatalf("downstream after waive lifecycle=%q want unchanged pending", got)
 	}
 
-	// And readiness now reports it dispatchable (the waived hard edge is satisfied
+	// Readiness now reports it dispatchable (the waived hard edge is satisfied
 	// even though the upstream never accepted).
-	r, err := h.bundle.GetReadiness(ctx, down.ID)
+	r, err := testReadiness(ctx, h, down.ID)
 	if err != nil {
 		t.Fatalf("GetReadiness after waive: %v", err)
 	}

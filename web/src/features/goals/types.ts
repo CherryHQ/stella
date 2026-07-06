@@ -26,11 +26,15 @@ export function itemUpdatedAt(item: AutomationItem): string {
   return item.data.updated_at;
 }
 
-const TERMINAL = new Set(["accepted", "rejected_final", "abandoned", "cancelled"]);
+const TERMINAL = new Set(["done"]);
 
-/** A root goal needs you while blocked (verdict/dep/budget). */
+/**
+ * A root goal needs you only when its block has a human recovery action.
+ * Server-computed (goal.NeedsAttention is the canonical predicate) — never
+ * re-derive from lifecycle/block_reason here.
+ */
 export function goalNeedsYou(d: ComponentsGoal): boolean {
-  return d.lifecycle === "blocked";
+  return d.needs_attention;
 }
 
 export type Section = "needs-you" | "active" | "schedules" | "closed";

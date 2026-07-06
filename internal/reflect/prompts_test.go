@@ -50,3 +50,125 @@ func TestCombinedReviewPrompt_DefersWorldFactWrites(t *testing.T) {
 		t.Error("reflect prompt should not claim this review can create subject=world facts")
 	}
 }
+
+func TestFactCandidatePrompts_DefineUserFactDurabilityBoundaries(t *testing.T) {
+	for _, phrase := range []string{
+		"Do not require the user to ask to remember it",
+		"stable user preferences",
+		"professional or domain context",
+		"tools, software, equipment, or ecosystems the user uses",
+		"ongoing learning goals",
+		"recurring habits or activities",
+		"time-bound upcoming plans",
+		"current project progress",
+		"active financial, housing, medical, legal, or other sensitive transactions",
+	} {
+		if !strings.Contains(factCandidateGenerationPrompt, phrase) {
+			t.Errorf("expected fact generation prompt to contain %q", phrase)
+		}
+	}
+
+	for _, phrase := range []string{
+		"Score durability 0 or 1",
+		"time-bound upcoming plan",
+		"current project progress",
+		"active financial, housing, medical, legal, or other sensitive transaction",
+		"Stable user preferences",
+		"professional or domain context",
+		"ongoing learning goals",
+	} {
+		if !strings.Contains(factCandidateEvaluationPrompt, phrase) {
+			t.Errorf("expected fact evaluation prompt to contain %q", phrase)
+		}
+	}
+}
+
+func TestFactCandidateGenerationPrompt_RequiresAtomicFactCandidates(t *testing.T) {
+	assertPromptContainsAll(t, factCandidateGenerationPrompt, []string{
+		"Each fact candidate must be atomic",
+		"Atomicity applies to subject=user, subject=agent, and subject=world",
+		"split them into separate candidates",
+		"Do not bundle ownership/count, use cases, mileage or progress, goals, preferences, and routines into one candidate",
+		"Do not bundle independent project knowledge facts, such as source-of-truth rules, generated-file rules, and generated-route handling rules",
+		"Prefer fewer, precise candidates over one broad mixed candidate",
+	})
+}
+
+func TestFactCandidateEvaluationPrompt_UsesDetailedScoreRubric(t *testing.T) {
+	assertPromptContainsAll(t, factCandidateEvaluationPrompt, []string{
+		"Do not collapse 2 and 3",
+		"evidence_strength=0: no evidence, or evidence comes from system prompts",
+		"evidence_strength=1: evidence is vague or mostly inferred",
+		"evidence_strength=2: fresh evidence supports part of the content",
+		"evidence_strength=3: fresh evidence directly supports the main content",
+		"evidence_strength=4: multiple clear fresh evidence items support both content and route",
+		"subject_fit=0: subject is invalid or the route is clearly wrong",
+		"subject_fit=1: route is likely wrong",
+		"subject_fit=2: route is acceptable but ambiguous",
+		"subject_fit=3: route is correct",
+		"subject_fit=4: route is correct and evidence clearly explains why",
+		"subject=user score 3",
+		"subject=agent score 4",
+		"subject=world score 4",
+		"durability=0: one-off task state",
+		"durability=1: mostly transient content",
+		"durability=2: possibly useful later but durability is borderline",
+		"durability=3: cross-session durable",
+		"durability=4: durable and core enough",
+		"future_utility=0: no future impact",
+		"future_utility=1: future impact is vague or speculative",
+		"future_utility=2: some future use",
+		"future_utility=3: clear effect on future behavior",
+		"future_utility=4: high value and likely repeated future use",
+		"atomicity=0: empty, vague, mixed facts, constraint-like, or procedure-like",
+		"atomicity=1: too broad or unclear",
+		"atomicity=2: mostly atomic but still needs cleanup",
+		"atomicity=3: one clear fact",
+		"atomicity=4: one precise fact with clear boundaries",
+	})
+}
+
+func TestSkillCandidateEvaluationPrompt_UsesDetailedScoreRubric(t *testing.T) {
+	assertPromptContainsAll(t, skillCandidateEvaluationPrompt, []string{
+		"Do not collapse 2 and 3",
+		"evidence_strength=0: no evidence, or evidence only comes from loaded skill text",
+		"evidence_strength=1: only a vague summary",
+		"evidence_strength=2: a fresh source supports only part of the candidate",
+		"evidence_strength=3: clear fresh evidence supports the main learning point",
+		"evidence_strength=4: multiple clear evidence items cover learning point, workflow, and applicability",
+		"reusable_value=0: only a task summary, chat summary, one-off operation, current development task, eval task, or one-off verification",
+		"reusable_value=1: some experience exists but it is too specific to reuse",
+		"reusable_value=2: useful for a narrow class of similar tasks",
+		"reusable_value=3: clearly reusable for future similar tasks",
+		"reusable_value=4: non-obvious, high-value, and likely to recur across sessions",
+		"baseline_separation=0: repeats loaded skill text or this session's execution log",
+		"baseline_separation=1: mostly repetition with only a weak delta",
+		"baseline_separation=2: some separation exists but the boundary is unclear",
+		"baseline_separation=3: clearly different from baseline",
+		"baseline_separation=4: the difference from baseline is very clear and explains why this is not duplicate learning",
+		"procedure_actionability=0: no executable steps",
+		"procedure_actionability=1: steps are too abstract to execute",
+		"procedure_actionability=2: basic steps exist but order, branches, or pitfalls are incomplete",
+		"procedure_actionability=3: steps are clear enough to guide execution",
+		"procedure_actionability=4: steps, branches, and pitfalls are organized enough to become a skill workflow",
+		"applicability_clarity=0: no trigger or non-trigger examples",
+		"applicability_clarity=1: trigger is too broad",
+		"applicability_clarity=2: trigger and non-trigger examples exist but boundaries are still fuzzy",
+		"applicability_clarity=3: applicable and non-applicable scenarios are clear enough for future retrieval",
+		"applicability_clarity=4: covers typical trigger wording and similar cases that should not trigger",
+		"verification_quality=0: no verification",
+		"verification_quality=1: generic verification such as confirm it works",
+		"verification_quality=2: verification exists but is not specific or executable",
+		"verification_quality=3: verification is clear enough to judge success",
+		"verification_quality=4: verification is concrete, executable, and covers main failure modes",
+	})
+}
+
+func assertPromptContainsAll(t *testing.T, prompt string, phrases []string) {
+	t.Helper()
+	for _, phrase := range phrases {
+		if !strings.Contains(prompt, phrase) {
+			t.Fatalf("prompt missing %q", phrase)
+		}
+	}
+}

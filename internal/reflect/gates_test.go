@@ -216,7 +216,24 @@ func TestSkillGateUsesConfiguredThreshold(t *testing.T) {
 		t.Fatalf("expected default skill threshold to reject mid-score candidate, got %#v", defaultResult)
 	}
 
-	strongCandidate := validSkillCandidate("skill-0002")
+	borderlineCandidate := validSkillCandidate("skill-0003")
+	borderlineEvaluation := skillEvaluation{
+		Ref: borderlineCandidate.Ref,
+		Scores: map[string]int{
+			skillScoreEvidenceStrength:       4,
+			skillScoreReusableValue:          3,
+			skillScoreBaselineSeparation:     3,
+			skillScoreProcedureActionability: 3,
+			skillScoreApplicabilityClarity:   3,
+			skillScoreVerificationQuality:    3,
+		},
+	}
+	borderlineResult := gateSkillCandidates([]skillCandidate{borderlineCandidate}, []skillEvaluation{borderlineEvaluation})
+	if len(borderlineResult.Accepted) != 1 {
+		t.Fatalf("expected default skill threshold to accept 0.80 candidate, got %#v", borderlineResult)
+	}
+
+	strongCandidate := validSkillCandidate("skill-0004")
 	strongEvaluation := skillEvaluation{
 		Ref: strongCandidate.Ref,
 		Scores: map[string]int{

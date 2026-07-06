@@ -7,6 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { ConfigTab } from "./tabs/ConfigTab";
 import { PromptTab } from "./tabs/PromptTab";
 import { SkillsTab } from "./tabs/SkillsTab";
+import { ToolsTab } from "./tabs/ToolsTab";
 import { AdvancedTab } from "./tabs/AdvancedTab";
 import { UsersTab } from "./tabs/UsersTab";
 interface Props {
@@ -84,6 +85,7 @@ export function AgentForm({
           <TabsTrigger value="config">{t("agents.tabs.config")}</TabsTrigger>
           <TabsTrigger value="prompt">{t("agents.tabs.prompt")}</TabsTrigger>
           <TabsTrigger value="skills">{t("agents.tabs.skills")}</TabsTrigger>
+          <TabsTrigger value="tools">{t("agents.tabs.tools")}</TabsTrigger>
           <TabsTrigger value="advanced">{t("agents.tabs.advanced")}</TabsTrigger>
           {isAdmin && <TabsTrigger value="users">{t("agents.tabs.users")}</TabsTrigger>}
         </TabsList>
@@ -106,6 +108,9 @@ export function AgentForm({
               onDeleteSkillFile={onDeleteSkillFile}
               onOpenSkillInstallModal={onOpenSkillInstallModal}
             />
+          </TabsContent>
+          <TabsContent value="tools">
+            <ToolsTab state={state} />
           </TabsContent>
           <TabsContent value="advanced">
             <AdvancedTab state={state} onSetState={onSetState} />

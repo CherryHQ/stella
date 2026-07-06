@@ -65,7 +65,7 @@ func (h *harness) runReview(goalID string) string {
 	if err != nil {
 		h.t.Fatalf("begin review %s: %v", goalID, err)
 	}
-	if err := h.worker.Run(ctx, goalID, att.ID, Actor{Type: ActorReviewer}); err != nil {
+	if err := h.worker.Run(ctx, goalID, att.ID, Actor{Type: ActorAgent}); err != nil {
 		h.t.Fatalf("worker run review %s/%s: %v", goalID, att.ID, err)
 	}
 	return att.ID
@@ -90,7 +90,7 @@ func TestReview_AgentVerdictAccepts(t *testing.T) {
 	h.runReview(d.ID)
 
 	accepted := h.get(d.ID)
-	if accepted.Lifecycle != LifecycleAccepted {
+	if accepted.Lifecycle != LifecycleDone {
 		t.Fatalf("after agent verdict lifecycle=%q want accepted", accepted.Lifecycle)
 	}
 	var ao AcceptedOutput
@@ -117,7 +117,7 @@ func TestReview_AgentVerdictFailReworks(t *testing.T) {
 	h.runReview(d.ID)
 
 	got := h.get(d.ID)
-	if got.Lifecycle != LifecycleReady {
+	if got.Lifecycle != LifecyclePending {
 		t.Fatalf("after fail verdict lifecycle=%q want ready (rework)", got.Lifecycle)
 	}
 	// The reviewer rationale rides as a gap on the rejected execution attempt.
@@ -141,7 +141,7 @@ func TestReview_AgentVerdictFailReworks(t *testing.T) {
 func TestReview_BudgetDegradesToHuman(t *testing.T) {
 	h := newHarness(t)
 	reviewerCrashes := func(_ ExecutorRequest) (ExecutorResult, error) {
-		return ExecutorResult{Failed: true, FailReason: "reviewer crashed", Retryable: true}, nil
+		return ExecutorResult{Failed: true, FailReason: "reviewer crashed", FailureClass: FailureClassFlaky}, nil
 	}
 	h.exec.fn = reviewExec("H1", reviewerCrashes)
 	d := h.createRoot(KindLeaf, agentJudgmentContract())
@@ -171,7 +171,7 @@ func TestReview_BudgetDegradesToHuman(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("human verdict after budget: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("after human verdict lifecycle=%q want accepted", got.Lifecycle)
 	}
 }
@@ -227,13 +227,17 @@ func (h *harness) submitSyntheticExec(goalID, hash string) {
 	if err != nil {
 		h.t.Fatalf("max exec no: %v", err)
 	}
+	sid, err := h.sessionMinter()(ctx, d.UserID, d.AgentID, d.ProjectID.String)
+	if err != nil {
+		h.t.Fatalf("mint synthetic exec session: %v", err)
+	}
 	att, err := h.q.CreateAttempt(ctx, sqlc.CreateAttemptParams{
 		ID:              newID(),
 		GoalID:          goalID,
 		UserID:          d.UserID,
 		AgentID:         pgnull.Text(d.AgentID),
 		ExecutorAgentID: pgnull.Text(d.AgentID),
-		SessionID:       d.SessionID,
+		SessionID:       sid,
 		Purpose:         PurposeExecution,
 		AttemptNo:       maxNo + 1,
 		Status:          AttemptQueued,
@@ -283,7 +287,7 @@ func TestReview_StaleVerdictDoesNotAccept(t *testing.T) {
 		[]ReviewVerdict{{ItemID: "review", Pass: true, Rationale: "lgtm"}}); err != nil {
 		t.Fatalf("submit stale review: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle == LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle == LifecycleDone {
 		t.Fatalf("stale verdict accepted the goal against a superseded output; want still blocked")
 	}
 }
@@ -317,7 +321,7 @@ func TestReview_BudgetResetsPerEpisode(t *testing.T) {
 	for ep := 1; ep <= 2; ep++ {
 		h.runLeaf(d.ID) // new output Hep
 		h.runReview(d.ID)
-		if got := h.get(d.ID); got.Lifecycle != LifecycleReady {
+		if got := h.get(d.ID); got.Lifecycle != LifecyclePending {
 			t.Fatalf("episode %d lifecycle=%q want ready (fail verdict reworks)", ep, got.Lifecycle)
 		}
 	}
@@ -325,7 +329,7 @@ func TestReview_BudgetResetsPerEpisode(t *testing.T) {
 	// BeginReview inside runReview would fail; a per-episode budget reviews freely.
 	h.runLeaf(d.ID) // H3
 	h.runReview(d.ID)
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("episode 3 lifecycle=%q want accepted (budget must reset per episode)", got.Lifecycle)
 	}
 }
@@ -354,7 +358,7 @@ func TestReview_QueuedReapDoesNotChargeBudget(t *testing.T) {
 	}
 	// Budget intact: a real review still mints, runs, and accepts.
 	h.runReview(d.ID)
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("after %d queued reaps lifecycle=%q want accepted (queued reap must not charge)", defaultMaxReviewAttempts, got.Lifecycle)
 	}
 }
@@ -425,7 +429,7 @@ func TestReview_ContractRetypeDropsVerdict(t *testing.T) {
 		[]ReviewVerdict{{ItemID: "review", Pass: true, Rationale: "lgtm"}}); err != nil {
 		t.Fatalf("submit review after retype: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle == LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle == LifecycleDone {
 		t.Fatalf("stale agent verdict satisfied a retyped human gate; want still blocked")
 	}
 }
@@ -456,7 +460,7 @@ func TestReview_DropsVerdictWhenAlreadyResolved(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("human verdict: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("precondition: human verdict should have accepted, got %q", got.Lifecycle)
 	}
 	// The late reviewer submit (a fail) must be dropped, not fold into a rework.
@@ -464,8 +468,160 @@ func TestReview_DropsVerdictWhenAlreadyResolved(t *testing.T) {
 		[]ReviewVerdict{{ItemID: "review", Pass: false, Rationale: "reject"}}); err != nil {
 		t.Fatalf("submit review after resolved: %v", err)
 	}
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("late verdict moved a resolved goal lifecycle=%q want accepted", got.Lifecycle)
+	}
+}
+
+// setupCompositeNeedsAgentVerdict builds a composite with an agent-judgment
+// contract, decomposes it into one required leaf, runs that leaf to accepted, and
+// applies the rollup so the composite parks at blocked(needs_verdict) — the state
+// the dispatcher's composite auto-review picks up.
+func setupCompositeNeedsAgentVerdict(t *testing.T, h *harness) sqlc.AgentGoal {
+	t.Helper()
+	root := h.createRoot(KindComposite, agentJudgmentContract())
+	cmp_decompose(t, h, root.ID, DecompositionContent{
+		Children: []ProposedChild{cmp_child("a", true)},
+	})
+	cmp_acceptChild(t, h, childID(root.ID, "a"))
+	if err := h.svc.RollupAccept(context.Background(), root.ID); err != nil {
+		t.Fatalf("RollupAccept: %v", err)
+	}
+	got := h.get(root.ID)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockNeedsVerdict {
+		t.Fatalf("composite after rollup lifecycle=%q reason=%q want blocked/needs_verdict", got.Lifecycle, got.BlockReason)
+	}
+	return got
+}
+
+// TestReview_CompositeAgentVerdictAccepts proves the composite auto-review path:
+// a composite whose agent-judgment gate parked it at needs_verdict is reviewed
+// against its children's frozen accepted outputs (no execution attempt exists),
+// and a passing verdict accepts it with those outputs carried on its own
+// accepted_output — no human in the loop.
+func TestReview_CompositeAgentVerdictAccepts(t *testing.T) {
+	h := newHarness(t)
+	h.exec.fn = reviewExec("H1", reviewVerdict(true, "phase complete"))
+	root := setupCompositeNeedsAgentVerdict(t, h)
+
+	ctx := context.Background()
+	att, err := h.svc.BeginReview(ctx, root.ID, nil)
+	if err != nil {
+		t.Fatalf("begin composite review: %v", err)
+	}
+	// The frozen review input judges the children evidence, not an execution attempt.
+	var in AttemptInput
+	if err := unmarshalJSON(att.InputContext, &in); err != nil {
+		t.Fatalf("decode review input: %v", err)
+	}
+	if in.ReviewedAttemptID != "" {
+		t.Fatalf("composite review frozen reviewed_attempt_id=%q want empty", in.ReviewedAttemptID)
+	}
+	if in.ReviewOutput == nil || in.ReviewOutput.Hash == "" || in.ReviewOutput.Result["children"] == nil {
+		t.Fatalf("composite review froze no children evidence: %+v", in.ReviewOutput)
+	}
+	if err := h.worker.Run(ctx, root.ID, att.ID, Actor{Type: ActorAgent}); err != nil {
+		t.Fatalf("worker run composite review: %v", err)
+	}
+
+	accepted := h.get(root.ID)
+	if accepted.Lifecycle != LifecycleDone {
+		t.Fatalf("after composite agent verdict lifecycle=%q want accepted", accepted.Lifecycle)
+	}
+	var ao AcceptedOutput
+	if err := unmarshalNullJSON(accepted.AcceptedOutput, &ao); err != nil {
+		t.Fatalf("decode accepted_output: %v", err)
+	}
+	if len(ao.Children) != 1 || ao.Children[0].Hash != "H1" {
+		t.Fatalf("composite accepted_output children=%+v want the child's frozen H1 output", ao.Children)
+	}
+}
+
+// TestReview_CompositeFailVerdictParksForHuman proves a failing agent verdict on
+// a composite does NOT reopen it to ready (a composite is not claimable — that
+// would zombie it): it parks back at blocked(needs_verdict) for a human, whose
+// pass-verdict override then accepts it.
+func TestReview_CompositeFailVerdictParksForHuman(t *testing.T) {
+	h := newHarness(t)
+	h.exec.fn = reviewExec("H1", reviewVerdict(false, "phase output inadequate"))
+	root := setupCompositeNeedsAgentVerdict(t, h)
+	h.runReview(root.ID)
+
+	got := h.get(root.ID)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockNeedsVerdict {
+		t.Fatalf("after composite fail verdict lifecycle=%q reason=%q want blocked/needs_verdict (never ready)", got.Lifecycle, got.BlockReason)
+	}
+	// The failing item is resolved (valid fail), so no further agent review mints.
+	if _, err := h.svc.BeginReview(context.Background(), root.ID, nil); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("BeginReview after fail verdict err=%v want ErrInvalidTransition (human adjudicates)", err)
+	}
+	// The human overrides the agent's fail: a later pass verdict wins the fold.
+	if err := h.svc.SubmitVerdict(context.Background(), VerdictInput{
+		GoalID: root.ID, ItemID: "review", Result: ResultPass, ScopeHash: "", ReviewerUserID: h.userID,
+	}); err != nil {
+		t.Fatalf("human override verdict: %v", err)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleDone {
+		t.Fatalf("after human override lifecycle=%q want accepted", got)
+	}
+}
+
+// TestReview_CompositeHumanFailDoesNotZombie pins the same no-zombie guarantee on
+// the human path: failing a composite's judgment item used to route through
+// reopenForRework into 'ready', where nothing claims a composite. It must park at
+// blocked(needs_verdict) instead.
+func TestReview_CompositeHumanFailDoesNotZombie(t *testing.T) {
+	h := newHarness(t)
+	h.exec.fn = lcl_passOutput("H1")
+	root := h.createRoot(KindComposite, humanJudgmentContract())
+	cmp_decompose(t, h, root.ID, DecompositionContent{
+		Children: []ProposedChild{cmp_child("a", true)},
+	})
+	cmp_acceptChild(t, h, childID(root.ID, "a"))
+	if err := h.svc.RollupAccept(context.Background(), root.ID); err != nil {
+		t.Fatalf("RollupAccept: %v", err)
+	}
+
+	if err := h.svc.SubmitVerdict(context.Background(), VerdictInput{
+		GoalID: root.ID, ItemID: "review", Result: ResultFail, Rationale: "not good enough",
+		ScopeHash: "", ReviewerUserID: h.userID,
+	}); err != nil {
+		t.Fatalf("human fail verdict: %v", err)
+	}
+	got := h.get(root.ID)
+	if got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockNeedsVerdict {
+		t.Fatalf("after human fail lifecycle=%q reason=%q want blocked/needs_verdict (not a ready zombie)", got.Lifecycle, got.BlockReason)
+	}
+}
+
+// TestReview_CompositeBudgetDegradesToHuman proves the composite review budget
+// (whole-history episode: the children evidence never moves) bounds a reviewer
+// that cannot produce a verdict, then degrades to a human.
+func TestReview_CompositeBudgetDegradesToHuman(t *testing.T) {
+	h := newHarness(t)
+	reviewerCrashes := func(_ ExecutorRequest) (ExecutorResult, error) {
+		return ExecutorResult{Failed: true, FailReason: "reviewer crashed", FailureClass: FailureClassFlaky}, nil
+	}
+	h.exec.fn = reviewExec("H1", reviewerCrashes)
+	root := setupCompositeNeedsAgentVerdict(t, h)
+
+	for i := range defaultMaxReviewAttempts {
+		h.runReview(root.ID)
+		if got := h.get(root.ID); got.Lifecycle != LifecycleBlocked || got.BlockReason != BlockNeedsVerdict {
+			t.Fatalf("after failed composite review %d lifecycle=%q reason=%q want still blocked/needs_verdict", i, got.Lifecycle, got.BlockReason)
+		}
+	}
+	if _, err := h.svc.BeginReview(context.Background(), root.ID, nil); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("BeginReview after composite budget spent err=%v want ErrInvalidTransition", err)
+	}
+	// The human remains the final adjudicator.
+	if err := h.svc.SubmitVerdict(context.Background(), VerdictInput{
+		GoalID: root.ID, ItemID: "review", Result: ResultPass, ScopeHash: "", ReviewerUserID: h.userID,
+	}); err != nil {
+		t.Fatalf("human verdict after budget: %v", err)
+	}
+	if got := h.get(root.ID).Lifecycle; got != LifecycleDone {
+		t.Fatalf("after human verdict lifecycle=%q want accepted", got)
 	}
 }
 
@@ -595,7 +751,7 @@ func TestReview_SuccessfulReviewKeepsSession(t *testing.T) {
 	h.activate(d.ID)
 	h.runLeaf(d.ID)
 	h.runReview(d.ID)
-	if got := h.get(d.ID); got.Lifecycle != LifecycleAccepted {
+	if got := h.get(d.ID); got.Lifecycle != LifecycleDone {
 		t.Fatalf("want accepted, got %q", got.Lifecycle)
 	}
 	if len(disposed) != 0 {

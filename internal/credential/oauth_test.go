@@ -35,15 +35,11 @@ func (f *fakeOAuthStore) TouchOAuthAccessLastUsed(_ context.Context, id string) 
 	return 1, nil
 }
 
-// errLegacy rejects everything -- used to prove a JWT bearer is never accepted
+// errScoped rejects scoped tokens -- used to prove a JWT bearer is never accepted
 // via any full-access path (it is treated as an unknown opaque token and denied).
-type errLegacy struct{}
+type errScoped struct{}
 
-func (errLegacy) AuthenticateLegacy(context.Context, string) (Identity, error) {
-	return Identity{}, errors.New("unknown token")
-}
-
-func (errLegacy) AuthenticateScoped(context.Context, string) (ScopedResult, error) {
+func (errScoped) AuthenticateScoped(context.Context, string) (ScopedResult, error) {
 	return ScopedResult{}, errors.New("not scoped")
 }
 
@@ -53,7 +49,7 @@ func newOAuthTestService() (*Service, *fakeOAuthStore) {
 		users:      map[string]Identity{"u1": {UserID: "u1", Email: "u1@x", IsActive: true, Role: "user"}},
 	}
 	oa := &fakeOAuthStore{byPublicID: map[string]OAuthAccessRecord{}}
-	svc := NewService(Config{PATs: pat, OAuth: oa, Users: pat, Tokens: errLegacy{}})
+	svc := NewService(Config{PATs: pat, OAuth: oa, Users: pat, Tokens: errScoped{}})
 	return svc, oa
 }
 
@@ -61,7 +57,7 @@ func TestResolveOAuthAccessRoundTrip(t *testing.T) {
 	svc, store := newOAuthTestService()
 	ctx := context.Background()
 
-	plaintext, err := svc.IssueOAuthAccess(ctx, "u1", "client-1", []string{"tasks:read"}, "fam-1", time.Hour)
+	plaintext, err := svc.IssueOAuthAccess(ctx, "u1", "client-1", []string{"goals:read"}, "fam-1", time.Hour)
 	if err != nil {
 		t.Fatalf("issue oauth access: %v", err)
 	}
@@ -83,7 +79,7 @@ func TestResolveOAuthAccessRoundTrip(t *testing.T) {
 	if p.IsAdmin {
 		t.Fatal("oauth tokens must never carry admin")
 	}
-	if got := MatchScope(p.Scopes, "tasks:read"); !got {
+	if got := MatchScope(p.Scopes, "goals:read"); !got {
 		t.Fatal("resolved principal missing granted scope")
 	}
 }
@@ -93,7 +89,7 @@ func TestResolveOAuthRevokedAndExpired(t *testing.T) {
 	ctx := context.Background()
 
 	// Family revoked -> the access token is dead at read time.
-	plaintext, err := svc.IssueOAuthAccess(ctx, "u1", "c", []string{"tasks:read"}, "f", time.Hour)
+	plaintext, err := svc.IssueOAuthAccess(ctx, "u1", "c", []string{"goals:read"}, "f", time.Hour)
 	if err != nil {
 		t.Fatalf("issue oauth access: %v", err)
 	}
@@ -107,7 +103,7 @@ func TestResolveOAuthRevokedAndExpired(t *testing.T) {
 	}
 
 	// Expired.
-	plaintext2, err := svc.IssueOAuthAccess(ctx, "u1", "c", []string{"tasks:read"}, "f", time.Hour)
+	plaintext2, err := svc.IssueOAuthAccess(ctx, "u1", "c", []string{"goals:read"}, "f", time.Hour)
 	if err != nil {
 		t.Fatalf("issue oauth access: %v", err)
 	}

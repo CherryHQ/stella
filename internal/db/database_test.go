@@ -21,6 +21,128 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	}
 }
 
+func TestGoalAttemptRepairRoundsMigrationDownUp(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, 20260702085628); err != nil {
+		t.Fatalf("goose down repair_rounds migration: %v", err)
+	}
+	if columnExists(t, db, "agent_goal_attempt", "repair_rounds") {
+		t.Fatal("repair_rounds should not exist after down")
+	}
+	if _, err := provider.UpTo(ctx, 20260702110624); err != nil {
+		t.Fatalf("goose up repair_rounds migration: %v", err)
+	}
+	if !columnExists(t, db, "agent_goal_attempt", "repair_rounds") {
+		t.Fatal("repair_rounds should exist after up")
+	}
+}
+
+func TestGoalFailureResponsibilityMigrationMapsAndRestoresClasses(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, 20260702085628); err != nil {
+		t.Fatalf("goose down responsibility migration: %v", err)
+	}
+
+	userID := uuid.NewString()
+	agentID := "agent-" + uuid.NewString()
+	sessionID := "session-" + uuid.NewString()
+	goalID := "goal-" + uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, 'failure-map@test.local')`, userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, 'Failure Map Agent', '/tmp')`, agentID); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active, created_at, updated_at)
+		VALUES ($1, $2, 'migration', 'task', 'task', $3, $4, now(), now(), now())`, uuid.NewString(), sessionID, agentID, userID); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent_goal (id, user_id, agent_id, root_id, session_id, title)
+		VALUES ($1, $2, $3, $1, $4, 'migration goal')`, goalID, userID, agentID, sessionID); err != nil {
+		t.Fatalf("seed goal: %v", err)
+	}
+	oldClasses := []string{"structural", "semantic", "transient"}
+	for i, class := range oldClasses {
+		if _, err := db.Exec(ctx, `
+			INSERT INTO agent_goal_attempt (id, goal_id, user_id, agent_id, session_id, attempt_no, status, failure_class)
+			VALUES ($1, $2, $3, $4, $5, $6, 'failed', $7)`, uuid.NewString(), goalID, userID, agentID, sessionID, i+1, class); err != nil {
+			t.Fatalf("seed attempt %s: %v", class, err)
+		}
+	}
+
+	if _, err := provider.UpTo(ctx, 20260702110624); err != nil {
+		t.Fatalf("goose up responsibility migration: %v", err)
+	}
+	rows, err := db.Query(ctx, `SELECT previous_failure_class, failure_class FROM agent_goal_attempt ORDER BY attempt_no`)
+	if err != nil {
+		t.Fatalf("query mapped attempts: %v", err)
+	}
+	defer rows.Close()
+	wantMapped := [][2]string{{"structural", "model"}, {"semantic", "model"}, {"transient", "flaky"}}
+	for i := 0; rows.Next(); i++ {
+		var prev, class string
+		if err := rows.Scan(&prev, &class); err != nil {
+			t.Fatalf("scan mapped attempt: %v", err)
+		}
+		if i >= len(wantMapped) || prev != wantMapped[i][0] || class != wantMapped[i][1] {
+			t.Fatalf("mapped row %d=(%q,%q), want %v", i, prev, class, wantMapped)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("mapped rows: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 20260702085628); err != nil {
+		t.Fatalf("goose down responsibility migration after map: %v", err)
+	}
+	if columnExists(t, db, "agent_goal_attempt", "previous_failure_class") {
+		t.Fatal("previous_failure_class should not exist after down")
+	}
+	rows, err = db.Query(ctx, `SELECT failure_class FROM agent_goal_attempt ORDER BY attempt_no`)
+	if err != nil {
+		t.Fatalf("query restored attempts: %v", err)
+	}
+	defer rows.Close()
+	for i := 0; rows.Next(); i++ {
+		var class string
+		if err := rows.Scan(&class); err != nil {
+			t.Fatalf("scan restored attempt: %v", err)
+		}
+		if i >= len(oldClasses) || class != oldClasses[i] {
+			t.Fatalf("restored row %d=%q, want %v", i, class, oldClasses)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("restored rows: %v", err)
+	}
+}
+
 func TestFactsMigrationDownFlushesActiveIdentityFacts(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
@@ -81,6 +203,21 @@ func tableExists(t *testing.T, db *pgxpool.Pool, name string) bool {
 	var exists bool
 	if err := db.QueryRow(context.Background(), "SELECT to_regclass($1) IS NOT NULL", name).Scan(&exists); err != nil {
 		t.Fatalf("check table %s exists: %v", name, err)
+	}
+	return exists
+}
+
+func columnExists(t *testing.T, db *pgxpool.Pool, table, column string) bool {
+	t.Helper()
+
+	var exists bool
+	if err := db.QueryRow(context.Background(), `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2
+		)`, table, column).Scan(&exists); err != nil {
+		t.Fatalf("check column %s.%s exists: %v", table, column, err)
 	}
 	return exists
 }

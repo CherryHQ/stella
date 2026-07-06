@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,8 +20,10 @@ import (
 
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
-	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/connections"
+	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -27,11 +31,14 @@ import (
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/observability/tracehook"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
-	"github.com/CherryHQ/stella/internal/tools"
+	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
+	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -55,6 +62,7 @@ the server, or use "stellad service" to manage it as a background service.`,
 			versionCommand(),
 			upgradeCommand(),
 			postgresCommand(),
+			vaultCommand(),
 			serviceCommand(),
 			authCommand(),
 		},
@@ -72,9 +80,14 @@ type setupResult struct {
 	poolManager              *agent.PoolManager
 	schedulerSvc             *scheduler.Service
 	goalSvc                  *goal.Service
+	vaultSvc                 *vault.Service
+	credSvc                  *connections.Service
+	shareSvc                 *sharepkg.Service
+	recallySvc               *recally.Service
+	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
 	riverClient              *river.Client[pgx.Tx]
-	builtinTools             []pkgtools.Tool
+	builtinTools             []agent.BuiltinTool
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
 	promptSectionsBuilder    prompt.SectionsBuilder
@@ -164,11 +177,11 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	var poolMgr *agent.PoolManager
 	memProvider = wrapMemoryWithTracing(memProvider, &poolMgr)
 
-	builtinTools := []pkgtools.Tool{
-		memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites()),
+	builtinTools := []agent.BuiltinTool{
+		{Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites())},
 	}
-	if notifyTool := tools.NewNotifyTool(dispatcher); notifyTool != nil {
-		builtinTools = append(builtinTools, notifyTool)
+	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
+		builtinTools = append(builtinTools, agent.BuiltinTool{Tool: notifyTool})
 	}
 
 	pluginToolsBuilder := func(ctx context.Context, build pkgplugins.ToolBuildContext) []pkgtools.Tool {
@@ -207,9 +220,29 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
+	var vaultSvc *vault.Service
+	if vaultKey := os.Getenv("STELLA_VAULT_KEY"); vaultKey != "" {
+		var err error
+		vaultSvc, err = vault.NewService(sqlc.New(db), vaultKey)
+		if err != nil {
+			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
+			vaultSvc = nil
+		}
+	}
+
+	serviceToolNames := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName, connections.ToolName, email.ToolName, sharepkg.ToolName, recally.ToolName, vault.ToolName}
+
 	goalSvc, err := goal.Boot(goal.BootConfig{
-		DB:       db,
-		Services: &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
+		DB:            db,
+		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
+		ExcludedTools: serviceToolNames,
+		Capabilities: goal.CapabilityProbeFunc(func() bool {
+			plugins, err := store.ListPlugins(context.Background())
+			if err != nil {
+				return false
+			}
+			return config.ActiveSandboxBackend(plugins) != config.SandboxBackendNone
+		}),
 		Chat: func(ctx context.Context, p goal.TaskChatParams) <-chan agent.Event {
 			var svc *agent.Service
 			if poolMgr != nil {
@@ -225,12 +258,14 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 				return out
 			}
 			chatReq := agent.TaskChatRequest{
-				SessionID:  p.SessionID,
-				UserID:     p.UserID,
-				AgentID:    p.AgentID,
-				ProjectID:  p.ProjectID,
-				Message:    p.Prompt,
-				ExtraTools: p.ExtraTools,
+				SessionID:        p.SessionID,
+				UserID:           p.UserID,
+				AgentID:          p.AgentID,
+				ProjectID:        p.ProjectID,
+				Message:          p.Prompt,
+				ExtraTools:       p.ExtraTools,
+				ExcludedTools:    p.ExcludedTools,
+				OnSandboxSession: p.OnSandboxSession,
 			}
 			// Decomposition runs on the goal's KindDelegate planning session;
 			// execution on the KindTask worker session. They resolve differently.
@@ -243,6 +278,33 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
+
+	workflowSvc := workflowpkg.New(db, sqlc.New(db), goalSvc.Goal)
+	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc, q: sqlc.New(db)})
+
+	credSvc := connections.NewService(vaultSvc, sqlc.New(db), oauth.NewFlowStore(), "http://localhost:25678")
+	emailSvc := email.NewService(vaultSvc, sqlc.New(db))
+	if ps.oauthRegistry != nil {
+		credSvc.SetRegistry(ps.oauthRegistry)
+	}
+	recallyStore := recally.NewStore(db)
+	recallyFiles := recally.NewFileManager(config.StellaHome())
+	recallySvc := recally.NewService(recallyStore, recallyFiles, config.StellaHome())
+	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recallyStore, recallyFiles, config.StellaHome(), "http://localhost:25678")
+
+	serviceTools := []agent.BuiltinTool{
+		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
+		{Tool: scheduler.NewTool(schedulerSvc), Available: agent.BuiltinToolAvailable},
+		{Tool: workflowpkg.NewTool(workflowSvc), Available: agent.BuiltinToolAvailable},
+		{Tool: connections.NewTool(credSvc), Available: oauthToolAvailable(credSvc)},
+		{Tool: email.NewTool(emailSvc), Available: emailToolAvailable(vaultSvc)},
+		{Tool: sharepkg.NewTool(shareSvc), Available: agent.BuiltinToolAvailable},
+		{Tool: recally.NewTool(recallySvc), Available: agent.BuiltinToolAvailable},
+	}
+	if vaultSvc != nil {
+		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: vault.NewTool(vaultSvc), Available: agent.BuiltinToolAvailable})
+	}
+	builtinTools = append(builtinTools, serviceTools...)
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
@@ -257,6 +319,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 			return phost.BeforeRun(ctx, build)
 		}),
 		agent.WithToolLifecyclePM(toolLifecycle),
+		agent.WithToolOverrideFetcher(toolOverrideFetcher(sqlc.New(db))),
 		agent.WithSkillStore(skillStoreAdapter),
 		agent.WithProjectResolver(func(ctx context.Context, projectID, userID string) (string, error) {
 			p, err := sqlc.New(db).GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
@@ -296,6 +359,11 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		poolManager:              poolMgr,
 		schedulerSvc:             schedulerSvc,
 		goalSvc:                  goalSvc,
+		vaultSvc:                 vaultSvc,
+		credSvc:                  credSvc,
+		shareSvc:                 shareSvc,
+		recallySvc:               recallySvc,
+		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
@@ -383,6 +451,51 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 		embeddingSvc.SetRiverClient(client)
 	}
 	return client, nil
+}
+
+type schedulerWorkflowAdapter struct {
+	svc *workflowpkg.Service
+	q   *sqlc.Queries
+}
+
+func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context, req scheduler.WorkflowValidateRequest) (scheduler.ScheduledWorkflow, error) {
+	wf, err := a.svc.Get(ctx, req.UserID, req.AgentID, req.WorkflowID)
+	if err != nil {
+		return scheduler.ScheduledWorkflow{}, err
+	}
+	return scheduler.ScheduledWorkflow{ID: wf.ID, FullyFrozen: wf.FullyFrozen}, nil
+}
+
+func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req scheduler.WorkflowLatestRunRequest) (scheduler.WorkflowRunState, error) {
+	run, err := a.q.GetLatestWorkflowRun(ctx, req.WorkflowID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return scheduler.WorkflowRunState{}, nil
+	}
+	if err != nil {
+		return scheduler.WorkflowRunState{}, err
+	}
+	state := scheduler.WorkflowRunState{Found: true, Status: run.Status, IdempotencyKey: run.IdempotencyKey}
+	if run.RootGoalID.Valid {
+		state.RootGoalID = run.RootGoalID.String
+		root, err := a.q.GetGoal(ctx, run.RootGoalID.String)
+		if err != nil {
+			return scheduler.WorkflowRunState{}, err
+		}
+		state.RootGoalTerminal = goal.IsTerminalLifecycle(root.Lifecycle)
+	}
+	return state, nil
+}
+
+func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
+	run, _, err := a.svc.Instantiate(ctx, workflowpkg.InstantiateInput{UserID: req.UserID, AgentID: req.AgentID, WorkflowID: req.WorkflowID, Inputs: req.Inputs, IdempotencyKey: req.IdempotencyKey})
+	if err != nil {
+		return scheduler.WorkflowInstantiateResult{}, err
+	}
+	rootID := ""
+	if run.RootGoalID.Valid {
+		rootID = run.RootGoalID.String
+	}
+	return scheduler.WorkflowInstantiateResult{RunID: run.ID, RootGoalID: rootID}, nil
 }
 
 func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher) {

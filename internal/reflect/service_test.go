@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -116,7 +117,7 @@ func (p *reviewHistoryProvider) LoadReviewHistory(context.Context, string) ([]me
 }
 
 func (f *reviewListOnlyFake) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
-	if memory.UserIDFromContext(ctx) == "" && opts.UserID == "" {
+	if authz.UserIDFromContext(ctx) == "" && opts.UserID == "" {
 		return nil, fmt.Errorf("missing user context")
 	}
 	return f.Fake.ListInfo(ctx, opts)

@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
-	"github.com/CherryHQ/stella/internal/credentials"
+	"github.com/CherryHQ/stella/internal/connections"
 )
 
 // GetOAuthProviderConfig handles GET /api/admin/oauth-providers/{id}/config.
@@ -46,7 +46,7 @@ func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, "client_id is required")
 		return
 	}
-	err := s.credSvc.SetOAuthProviderConfig(r.Context(), credentials.OAuthProviderConfig{
+	err := s.credSvc.SetOAuthProviderConfig(r.Context(), connections.OAuthProviderConfig{
 		ProviderID:   id,
 		ClientID:     body.ClientId,
 		ClientSecret: body.ClientSecret,
@@ -64,7 +64,7 @@ func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 	writeData(w, http.StatusOK, toAPIProviderConfig(cfg))
 }
 
-func toAPIProviderConfig(cfg credentials.OAuthProviderConfig) apiserver.OAuthProviderConfig {
+func toAPIProviderConfig(cfg connections.OAuthProviderConfig) apiserver.OAuthProviderConfig {
 	out := apiserver.OAuthProviderConfig{
 		ProviderId:   cfg.ProviderID,
 		ClientId:     cfg.ClientID,

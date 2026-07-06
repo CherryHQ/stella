@@ -303,6 +303,11 @@ paths:
       tags: [profile]
       summary: List scoped vault entries
       operationId: listScopedVaultEntries
+      x-agent-tool: {
+        tool: "vault",
+        action: "list",
+        restrict: { scope: [user, user_agent] },
+      }
       parameters:
         - {
             name: scope,
@@ -333,6 +338,31 @@ paths:
         }
         "403": {
           $ref: "../../components.yaml#/components/responses/Forbidden",
+        }
+
+  /api/vault/audit:
+    get:
+      tags: [profile]
+      summary: List recent vault exec secret audit rows
+      operationId: listVaultExecSecretAudit
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/VaultExecSecretAuditList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
         }
 
   /api/vault/{name}:
@@ -378,6 +408,19 @@ paths:
       tags: [profile]
       summary: Create or update a scoped vault entry
       operationId: setScopedVaultEntry
+      x-agent-tool: {
+        tool: "vault",
+        action: "set",
+        restrict: { scope: [user, user_agent] },
+        # Injection binding stays human-owned (Web UI / CLI): an agent must not
+        # bind secrets into its own sandbox env (#652 default-off invariant).
+        fixed: {
+          description: "",
+          inject_always: false,
+          inject_agent_ids: [],
+          inject_project_ids: [],
+        },
+      }
       requestBody:
         required: true
         content:
@@ -406,6 +449,11 @@ paths:
       tags: [profile]
       summary: Delete a scoped vault entry
       operationId: deleteScopedVaultEntry
+      x-agent-tool: {
+        tool: "vault",
+        action: "delete",
+        restrict: { scope: [user, user_agent] },
+      }
       parameters:
         - {
             name: scope,
@@ -439,6 +487,7 @@ paths:
       tags: [profile]
       summary: List OAuth provider statuses for the current user
       operationId: listOAuthProviders
+      x-agent-tool: { tool: "oauth", action: "list" }
       responses:
         "200":
           description: ok
@@ -458,6 +507,7 @@ paths:
       tags: [profile]
       summary: Start an OAuth device flow for a provider
       operationId: startOAuthFlow
+      x-agent-tool: { tool: "oauth", action: "connect" }
       responses:
         "200":
           description: ok
@@ -481,6 +531,7 @@ paths:
       tags: [profile]
       summary: Poll the status of an OAuth flow
       operationId: pollOAuthFlow
+      x-agent-tool: { tool: "oauth", action: "status" }
       responses:
         "200":
           description: ok
@@ -525,6 +576,7 @@ paths:
       tags: [profile]
       summary: Disconnect an OAuth provider
       operationId: disconnectOAuth
+      x-agent-tool: { tool: "oauth", action: "disconnect" }
       responses:
         "204":
           description: no content

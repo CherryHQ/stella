@@ -6,7 +6,6 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skills"
-	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 )
 
 // writeConflictOrInternal maps a duplicate-name store error to 409 and any other
@@ -275,14 +274,14 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	if skillstool.GitHubSource(req.Source) {
+	if skills.GitHubSource(req.Source) {
 		// Use the acting user's bound token, not the store owner — system-scope
 		// installs resolve userID to "" yet are still performed by a real admin.
 		if token := s.credSvc.GitHubAccessToken(ctx, info.UserID); token != "" {
-			ctx = skillstool.WithGitHubToken(ctx, token)
+			ctx = skills.WithGitHubToken(ctx, token)
 		}
 	}
-	name, err := skillstool.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, req.Scope, userID, agentID)
+	name, err := skills.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, req.Scope, userID, agentID)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return

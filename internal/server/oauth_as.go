@@ -8,10 +8,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/zitadel/oidc/v3/pkg/oidc"
+	zitoidc "github.com/zitadel/oidc/v3/pkg/oidc"
 
 	"github.com/CherryHQ/stella/internal/credential"
-	"github.com/CherryHQ/stella/internal/oauth"
+	"github.com/CherryHQ/stella/internal/oidc"
 )
 
 // OAuth2 authorization-server HTTP surface (issue #613). These are NON-/api,
@@ -25,8 +25,8 @@ import (
 // POST (params echoed as hidden form fields) -- ParseForm merges query and body,
 // so the request no longer depends on the browser preserving the query string on
 // submit.
-func parseAuthorizeRequest(r *http.Request) oauth.AuthorizeRequest {
-	return oauth.AuthorizeRequest{
+func parseAuthorizeRequest(r *http.Request) oidc.AuthorizeRequest {
+	return oidc.AuthorizeRequest{
 		ClientID:            r.FormValue("client_id"),
 		RedirectURI:         r.FormValue("redirect_uri"),
 		ResponseType:        r.FormValue("response_type"),
@@ -63,7 +63,7 @@ func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	req := parseAuthorizeRequest(r)
 	authCtx, err := s.oauthAS.Authorize(r.Context(), req)
 	if err != nil {
-		var redirErr *oauth.RedirectError
+		var redirErr *oidc.RedirectError
 		if errors.As(err, &redirErr) {
 			redirectAuthError(w, r, redirErr)
 			return
@@ -75,7 +75,7 @@ func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodPost {
 		if r.FormValue("consent") != "approve" {
-			redirectAuthError(w, r, &oauth.RedirectError{
+			redirectAuthError(w, r, &oidc.RedirectError{
 				RedirectURI: req.RedirectURI, State: req.State,
 				Code: "access_denied", Description: "user denied the request",
 			})
@@ -101,7 +101,7 @@ func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 // It authenticates the client, not the user, so it is auth-exempt.
 func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	if s.oauthAS == nil {
-		writeTokenError(w, oidc.ErrServerError().WithDescription("oauth authorization server is not enabled"))
+		writeTokenError(w, zitoidc.ErrServerError().WithDescription("oauth authorization server is not enabled"))
 		return
 	}
 	// Throttle by IP: the token endpoint is auth-exempt and lets a caller guess
@@ -109,15 +109,15 @@ func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	// the same brute-force ceiling as the login endpoints.
 	ip := clientIP(r)
 	if err := s.rateLimiter.CheckIP(ip); err != nil {
-		writeTokenError(w, oidc.ErrSlowDown().WithDescription("%s", err.Error()))
+		writeTokenError(w, zitoidc.ErrSlowDown().WithDescription("%s", err.Error()))
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		writeTokenError(w, oidc.ErrInvalidRequest().WithDescription("malformed request body"))
+		writeTokenError(w, zitoidc.ErrInvalidRequest().WithDescription("malformed request body"))
 		return
 	}
 	clientID, clientSecret := clientCredentials(r)
-	res, err := s.oauthAS.Exchange(r.Context(), oauth.TokenRequest{
+	res, err := s.oauthAS.Exchange(r.Context(), oidc.TokenRequest{
 		GrantType:    r.PostForm.Get("grant_type"),
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
@@ -128,22 +128,22 @@ func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		Scope:        splitScopes(r.PostForm.Get("scope")),
 	})
 	if err != nil {
-		var oerr *oidc.Error
+		var oerr *zitoidc.Error
 		if errors.As(err, &oerr) {
 			// Count only credential-guessing failures toward the IP ceiling;
 			// server_error is our fault, not an attacker probing.
-			if oerr.ErrorType == oidc.InvalidClient || oerr.ErrorType == oidc.InvalidGrant {
+			if oerr.ErrorType == zitoidc.InvalidClient || oerr.ErrorType == zitoidc.InvalidGrant {
 				s.rateLimiter.RecordIPAttempt(ip)
 			}
 			writeTokenError(w, oerr)
 			return
 		}
-		writeTokenError(w, oidc.ErrServerError().WithParent(err))
+		writeTokenError(w, zitoidc.ErrServerError().WithParent(err))
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
-	writeJSON(w, http.StatusOK, &oidc.AccessTokenResponse{
+	writeJSON(w, http.StatusOK, &zitoidc.AccessTokenResponse{
 		AccessToken:  res.AccessToken,
 		TokenType:    res.TokenType,
 		RefreshToken: res.RefreshToken,
@@ -168,7 +168,7 @@ func clientCredentials(r *http.Request) (id, secret string) {
 	return r.PostForm.Get("client_id"), r.PostForm.Get("client_secret")
 }
 
-func writeTokenError(w http.ResponseWriter, e *oidc.Error) {
+func writeTokenError(w http.ResponseWriter, e *zitoidc.Error) {
 	status := http.StatusBadRequest
 	switch e.ErrorType {
 	case "invalid_client":
@@ -186,7 +186,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func redirectAuthError(w http.ResponseWriter, r *http.Request, e *oauth.RedirectError) {
+func redirectAuthError(w http.ResponseWriter, r *http.Request, e *oidc.RedirectError) {
 	http.Redirect(w, r, buildRedirect(e.RedirectURI, url.Values{
 		"error":             {e.Code},
 		"error_description": {e.Description},
@@ -228,7 +228,7 @@ type consentData struct {
 	Params     map[string]string
 }
 
-func (s *Server) renderConsent(w http.ResponseWriter, info *AuthInfo, ctx *oauth.AuthorizeContext, req oauth.AuthorizeRequest) {
+func (s *Server) renderConsent(w http.ResponseWriter, info *AuthInfo, ctx *oidc.AuthorizeContext, req oidc.AuthorizeRequest) {
 	data := consentData{
 		ClientName: ctx.Client.Name,
 		UserEmail:  info.Email,
