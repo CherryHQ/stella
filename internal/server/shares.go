@@ -78,11 +78,6 @@ func (s *Server) createShare(r *http.Request, info *AuthInfo, body apitypes.Crea
 		if agentID == "" {
 			return sharepkg.Created{}, fmt.Errorf("agent_id is required for artifact shares: %w", sharepkg.ErrInvalidInput)
 		}
-		if boundAgent, boundSession, ok := info.scopedBoundary(); ok {
-			if agentID != boundAgent || sessionID != boundSession {
-				return sharepkg.Created{}, authz.ErrForbidden
-			}
-		}
 		scope := ""
 		if body.Scope != nil {
 			scope = string(*body.Scope)

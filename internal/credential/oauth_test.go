@@ -35,21 +35,13 @@ func (f *fakeOAuthStore) TouchOAuthAccessLastUsed(_ context.Context, id string) 
 	return 1, nil
 }
 
-// errScoped rejects scoped tokens -- used to prove a JWT bearer is never accepted
-// via any full-access path (it is treated as an unknown opaque token and denied).
-type errScoped struct{}
-
-func (errScoped) AuthenticateScoped(context.Context, string) (ScopedResult, error) {
-	return ScopedResult{}, errors.New("not scoped")
-}
-
 func newOAuthTestService() (*Service, *fakeOAuthStore) {
 	pat := &fakeStore{
 		byPublicID: map[string]PATRecord{},
 		users:      map[string]Identity{"u1": {UserID: "u1", Email: "u1@x", IsActive: true, Role: "user"}},
 	}
 	oa := &fakeOAuthStore{byPublicID: map[string]OAuthAccessRecord{}}
-	svc := NewService(Config{PATs: pat, OAuth: oa, Users: pat, Tokens: errScoped{}})
+	svc := NewService(Config{PATs: pat, OAuth: oa, Users: pat})
 	return svc, oa
 }
 

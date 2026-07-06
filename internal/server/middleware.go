@@ -31,18 +31,6 @@ type AuthInfo struct {
 	principal *credential.Principal
 }
 
-// scopedBoundary reports the agent/session a sandbox scoped token is locked to.
-// ok is true only when this request is authenticated by a scoped token; handlers
-// use it for object-level checks (a scoped token may touch only its own agent /
-// session). PAT/OAuth and cookie principals are not agent-bound, so ok is false
-// and the handler's ordinary user-ownership checks apply instead.
-func (a *AuthInfo) scopedBoundary() (agentID, sessionID string, ok bool) {
-	if a == nil || a.principal == nil || a.principal.Kind != credential.KindScoped {
-		return "", "", false
-	}
-	return a.principal.AgentID, a.principal.SessionID, true
-}
-
 // UserFromContext extracts the AuthInfo from a request context.
 // Returns nil if the user is not authenticated.
 func UserFromContext(ctx context.Context) *AuthInfo {
@@ -91,8 +79,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Scoped bearers (PAT / OAuth / sandbox scoped tokens) carry a credential
-		// kind and go through the unified enforcement gate. Cookie/OIDC sessions
+		// Scoped bearers (PAT / OAuth) carry a credential kind and go through the
+		// unified enforcement gate. Cookie/OIDC sessions
 		// have no kind and skip API-scope enforcement (handler ownership/admin
 		// checks still apply to them). /api/status is a public health endpoint
 		// (reachable anonymously above), so a valid but narrowly-scoped bearer

@@ -79,18 +79,12 @@ func (f *fakeStore) LookupUser(_ context.Context, userID string) (Identity, erro
 	return id, nil
 }
 
-type scopedTrap struct{}
-
-func (l *scopedTrap) AuthenticateScoped(_ context.Context, _ string) (ScopedResult, error) {
-	return ScopedResult{}, errors.New("not scoped")
-}
-
 func newTestService(t *testing.T) (*Service, *fakeStore) {
 	store := &fakeStore{
 		byPublicID: map[string]PATRecord{},
 		users:      map[string]Identity{"u1": {UserID: "u1", Email: "u1@x", IsActive: true, Role: "user"}},
 	}
-	svc := NewService(Config{PATs: store, Users: store, Tokens: &scopedTrap{}})
+	svc := NewService(Config{PATs: store, Users: store})
 	return svc, store
 }
 

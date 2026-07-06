@@ -276,23 +276,6 @@ func (s *localSession) Policy() sandboxpkg.Policy {
 	return s.policy
 }
 
-// RefreshEnv replaces injected env entries with the given updates. It swaps the
-// policy's env map under the write lock (copy-on-write) so readers that snapshot
-// the policy under the read lock never observe a half-written map.
-func (s *localSession) RefreshEnv(updates map[string]string) {
-	if len(updates) == 0 {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	env := maps.Clone(s.policy.Env)
-	if env == nil {
-		env = make(map[string]string, len(updates))
-	}
-	maps.Copy(env, updates)
-	s.policy.Env = env
-}
-
 func (s *localSession) WorkspaceRoot() string {
 	return s.sandboxRoot
 }

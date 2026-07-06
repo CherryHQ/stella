@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-
-	pkgauth "github.com/CherryHQ/stella/pkg/auth"
 )
 
 // ErrPATScopeInvalid marks a caller-fixable PAT-creation error (empty or
@@ -18,8 +16,8 @@ import (
 var ErrPATScopeInvalid = errors.New("credential: invalid pat scope")
 
 // PATStore is the storage backend for the personal_access_token table. It is the
-// only storage the credential package touches directly; every other kind
-// delegates verification to TokenBackend.
+// only storage the credential package touches directly; OAuth access tokens use
+// OAuthAccessStore.
 type PATStore interface {
 	CreatePAT(ctx context.Context, rec PATRecord) (PATRecord, error)
 	GetPATByPublicID(ctx context.Context, publicID string) (PATRecord, error)
@@ -34,32 +32,15 @@ type UserLookup interface {
 	LookupUser(ctx context.Context, userID string) (Identity, error)
 }
 
-// ScopedResult is what TokenBackend returns for a verified sandbox scoped token.
-type ScopedResult struct {
-	Identity  Identity
-	AgentID   string
-	SessionID string
-	ProjectID string
-	Scopes    []string
-}
-
-// TokenBackend delegates sandbox scoped-token verification to the existing token
-// service. This sub-resolver stays a thin adapter; verification logic is not
-// duplicated here.
-type TokenBackend interface {
-	AuthenticateScoped(ctx context.Context, rawToken string) (ScopedResult, error)
-}
-
 // Service is the single front door: Resolve (identity) + Enforce (authz, a free
 // function) + PAT lifecycle. Construct one with NewService and wire it into the
 // HTTP middleware.
 type Service struct {
-	pats   PATStore
-	oauth  OAuthAccessStore
-	users  UserLookup
-	tokens TokenBackend
-	now    func() time.Time
-	log    *slog.Logger
+	pats  PATStore
+	oauth OAuthAccessStore
+	users UserLookup
+	now   func() time.Time
+	log   *slog.Logger
 }
 
 // Config wires the backends a Service needs. PATs/Users may be nil (PAT auth
@@ -68,7 +49,6 @@ type Config struct {
 	PATs   PATStore
 	OAuth  OAuthAccessStore
 	Users  UserLookup
-	Tokens TokenBackend
 	Now    func() time.Time
 	Logger *slog.Logger
 }
@@ -81,7 +61,7 @@ func NewService(cfg Config) *Service {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	return &Service{pats: cfg.PATs, oauth: cfg.OAuth, users: cfg.Users, tokens: cfg.Tokens, now: cfg.Now, log: cfg.Logger}
+	return &Service{pats: cfg.PATs, oauth: cfg.OAuth, users: cfg.Users, now: cfg.Now, log: cfg.Logger}
 }
 
 // Resolve turns a raw Authorization header value into a Principal, dispatched by
@@ -114,8 +94,6 @@ func (s *Service) Resolve(ctx context.Context, header string) (*Principal, error
 	case strings.HasPrefix(raw, OAuthRefreshPrefix):
 		// Refresh tokens are valid only at the token endpoint, never the API.
 		return nil, fmt.Errorf("refresh tokens are not valid at the API boundary")
-	case strings.HasPrefix(raw, pkgauth.ScopedTokenPrefix):
-		return s.resolveScoped(ctx, raw)
 	default:
 		return nil, fmt.Errorf("credential: unsupported bearer token")
 	}

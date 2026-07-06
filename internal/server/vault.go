@@ -111,16 +111,6 @@ func (s *Server) GetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	// A sandbox scoped token reading a secret value is the declare-time escape
-	// hatch: it must leave the same audit trail as the bash `secrets` param,
-	// and the read is denied if the audit row cannot be written (fail-closed).
-	if boundAgentID, sessionID, ok := info.scopedBoundary(); ok {
-		if err := s.vaultSvc.RecordExecSecretUse(r.Context(), info.UserID, boundAgentID, sessionID, name, "api: vault get"); err != nil {
-			s.log.Error("audit vault get from sandbox", "user_id", info.UserID, "agent_id", boundAgentID, "name", name, "error", err)
-			writeError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-	}
 	writeData(w, http.StatusOK, map[string]string{"name": name, "value": value})
 }
 
@@ -289,14 +279,11 @@ func (s *Server) invalidateVaultRunners(scope, userID, agentID, name, op string)
 }
 
 func (s *Server) resolveVaultScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope string, agentID string) (string, string, bool) {
-	boundAgent, _, scoped := info.scopedBoundary()
 	resolved, err := vault.ResolveScope(vault.ScopeRequest{
-		Scope:        scope,
-		UserID:       info.UserID,
-		AgentID:      agentID,
-		IsAdmin:      info.IsAdmin,
-		AgentScoped:  scoped,
-		BoundAgentID: boundAgent,
+		Scope:   scope,
+		UserID:  info.UserID,
+		AgentID: agentID,
+		IsAdmin: info.IsAdmin,
 	})
 	if err != nil {
 		if errors.Is(err, authz.ErrForbidden) {

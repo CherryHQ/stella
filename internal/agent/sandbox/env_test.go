@@ -35,43 +35,20 @@ func (v staticVaultEnv) LoadEnvForAgentProject(context.Context, string, string, 
 	return out, nil
 }
 
-type staticScopedToken struct {
-	token string
-}
-
-func (s staticScopedToken) CreateScopedToken(context.Context, string, string, string, string) (string, error) {
-	return s.token, nil
-}
-
-func TestBuildSandboxEnvUsesScopedTokenOverVaultToken(t *testing.T) {
+func TestBuildSandboxEnvDropsVaultStellaToken(t *testing.T) {
 	env, err := buildSandboxEnv(context.Background(), Config{
 		UserID:         "user-1",
 		AgentID:        "agent-1",
 		SessionID:      "session-1",
-		VaultEnvLoader: staticVaultEnv{env: map[string]string{"STELLA_TOKEN": "stella_legacy", "OTHER": "ok"}},
-		TokenEnsurer:   staticScopedToken{token: "stella_scoped_session"},
+		VaultEnvLoader: staticVaultEnv{env: map[string]string{stellaTokenEnvName(): "stella_legacy", "OTHER": "ok"}},
 	}, Paths{})
 	if err != nil {
 		t.Fatalf("buildSandboxEnv: %v", err)
 	}
-	if got := env["STELLA_TOKEN"]; got != "stella_scoped_session" {
-		t.Fatalf("STELLA_TOKEN = %q, want scoped token", got)
+	if _, ok := env[stellaTokenEnvName()]; ok {
+		t.Fatal("legacy vault token must not be injected")
 	}
 	if got := env["OTHER"]; got != "ok" {
 		t.Fatalf("OTHER = %q, want vault value", got)
-	}
-}
-
-func TestBuildSandboxEnvDeletesVaultTokenWhenScopedUnavailable(t *testing.T) {
-	env, err := buildSandboxEnv(context.Background(), Config{
-		UserID:         "user-1",
-		AgentID:        "agent-1",
-		VaultEnvLoader: staticVaultEnv{env: map[string]string{"STELLA_TOKEN": "stella_legacy"}},
-	}, Paths{})
-	if err != nil {
-		t.Fatalf("buildSandboxEnv: %v", err)
-	}
-	if _, ok := env["STELLA_TOKEN"]; ok {
-		t.Fatal("legacy vault STELLA_TOKEN must not be injected without a scoped token")
 	}
 }

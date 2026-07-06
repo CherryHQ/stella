@@ -93,12 +93,7 @@ func TestExpiredTokenDenied(t *testing.T) {
 
 func TestBearerAuthSuccess(t *testing.T) {
 	env := setupAdmin(t)
-	tokenSvc := auth.NewTokenService(env.authStore)
-	env.srv.SetTokenService(tokenSvc)
-	token, err := tokenSvc.CreateScopedToken(context.Background(), env.adminUser.ID, "agent-1", "session-1", "")
-	if err != nil {
-		t.Fatalf("CreateScopedToken: %v", err)
-	}
+	token, _ := mintPAT(t, env, env.bearerToken, "status", []string{"agent:read"})
 
 	rr := doBearerRequest(t, env.srv, token, "GET", "/api/status", nil)
 	if rr.Code != http.StatusOK {

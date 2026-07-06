@@ -4,9 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -135,29 +133,6 @@ func newTestSession(t *testing.T) (*localSession, string) {
 		done:        make(chan struct{}),
 	}
 	return s, root
-}
-
-// TestRefreshEnv_concurrentWithExec stresses RefreshEnv against concurrent Exec
-// calls so the race detector can confirm the copy-on-write swap and the
-// snapshot-under-lock reads are free of data races on the policy env map.
-func TestRefreshEnv_concurrentWithExec(t *testing.T) {
-	skipIfBwrapNotFunctional(t)
-	s, _ := newTestSession(t)
-	defer s.Close() //nolint:errcheck
-	s.policy.Env = map[string]string{"STELLA_TOKEN": "v0"}
-
-	var wg sync.WaitGroup
-	for range 8 {
-		wg.Go(func() {
-			for range 20 {
-				_, _ = s.Exec(context.Background(), "true", sandboxpkg.ExecOptions{})
-			}
-		})
-	}
-	for i := range 50 {
-		s.RefreshEnv(map[string]string{"STELLA_TOKEN": "v" + strconv.Itoa(i)})
-	}
-	wg.Wait()
 }
 
 // TestResolvePath_rejectsOutsideRoot verifies that ResolvePath returns an error

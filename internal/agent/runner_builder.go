@@ -49,7 +49,6 @@ type runnerBuilderConfig struct {
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SandboxBackendFn         func(ctx context.Context) string
 	VaultEnvLoader           sandbox.VaultEnvLoader
-	TokenEnsurer             sandbox.TokenEnsurer
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
 }
@@ -205,7 +204,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			ProjectID:       params.ProjectID,
 			SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
 			VaultEnvLoader:  cfg.VaultEnvLoader,
-			TokenEnsurer:    cfg.TokenEnsurer,
 			TokenManager:    cfg.TokenManager,
 		}
 

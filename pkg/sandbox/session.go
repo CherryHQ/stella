@@ -33,15 +33,6 @@ type Session interface {
 // New code should use Session directly.
 type Host = Session
 
-// EnvRefresher is implemented by sessions whose injected environment can be
-// updated after creation, so a caller can rotate a credential (e.g. an expiring
-// STELLA_TOKEN) without tearing down and recreating the session. Updates are
-// applied atomically and are visible to every subsequent Exec/StartProcess.
-// Sessions that don't run real processes (e.g. the no-op session) may omit it.
-type EnvRefresher interface {
-	RefreshEnv(updates map[string]string)
-}
-
 type ExecOptions struct {
 	Cwd     string
 	Env     map[string]string

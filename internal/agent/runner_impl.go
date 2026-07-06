@@ -70,7 +70,6 @@ type runner struct {
 	toolLifecycle *coreagent.ToolLifecycle
 	chatTimeout   time.Duration
 	session       pkgsandbox.Session // runner-owned sandbox session lifecycle
-	sandboxCfg    sandbox.Config     // retained to re-sign the sandbox STELLA_TOKEN on long-lived runners
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -137,7 +136,6 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		toolLifecycle: cfg.ToolLifecycle,
 		chatTimeout:   cfg.ChatTimeout,
 		session:       session,
-		sandboxCfg:    cfg.Sandbox,
 		lastActivity:  time.Now(),
 		log:           slog.With("component", "go_runner"),
 	}, nil
@@ -451,13 +449,6 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			}
 			return &msg
 		})
-
-		// Re-sign the sandbox STELLA_TOKEN if it is near expiry, so a long-lived
-		// cached runner (kept warm by frequent scheduler fires) never hands tools an
-		// expired token. No-op on a fresh token (#490).
-		if r.session != nil {
-			sandbox.RefreshScopedToken(ctx, r.session, r.sandboxCfg)
-		}
 
 		messages := make([]ai.Message, len(history))
 		copy(messages, history)

@@ -991,10 +991,6 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, agen
 		writeError(w, http.StatusNotFound, "session not found")
 		return fmt.Errorf("session not found")
 	}
-	if _, boundSession, ok := info.scopedBoundary(); ok && boundSession != "" && sessionID != boundSession {
-		writeError(w, http.StatusForbidden, "permission denied")
-		return fmt.Errorf("permission denied")
-	}
 	return nil
 }
 

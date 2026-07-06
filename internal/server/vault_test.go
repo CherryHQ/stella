@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"filippo.io/age"
 
-	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -346,73 +344,6 @@ func TestScopedVaultGet(t *testing.T) {
 	}
 }
 
-// TestScopedTokenVaultAgentBinding is a regression guard for the secret-isolation
-// boundary: a sandbox (scoped) token bound to one agent must not reach another
-// agent's user_agent secrets nor the admin-managed system scopes, even when the
-// underlying user could otherwise access those agents (#452 / CR-001).
-func TestScopedTokenVaultAgentBinding(t *testing.T) {
-	t.Setenv("STELLA_SCOPED_TOKEN_SECRET", "test-scoped-token-secret-fixed")
-	env, svc := setupVaultEnv(t)
-	ctx := context.Background()
-	q := sqlc.New(env.db)
-
-	for _, id := range []string{"sa-agent-a", "sa-agent-b"} {
-		if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-			ID: id, Name: id, Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
-		}); err != nil {
-			t.Fatalf("CreateAgent %s: %v", id, err)
-		}
-	}
-
-	regular, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "scoped-vault", "user")
-	pubKey, encPrivKey, err := vault.GenerateUserKeys(svc.MasterRecipient())
-	if err != nil {
-		t.Fatalf("GenerateUserKeys: %v", err)
-	}
-	if err := env.oidcStore.UpdateUserAgeKeys(ctx, regular.ID, pubKey, encPrivKey); err != nil {
-		t.Fatalf("UpdateUserAgeKeys: %v", err)
-	}
-
-	// Token bound to sa-agent-a.
-	tokenSvc := auth.NewTokenService(env.authStore)
-	env.srv.SetTokenService(tokenSvc)
-	token, err := tokenSvc.CreateScopedToken(ctx, regular.ID, "sa-agent-a", "sess-1", "")
-	if err != nil {
-		t.Fatalf("CreateScopedToken: %v", err)
-	}
-
-	scoped := func(method, path string, body any) *httptest.ResponseRecorder {
-		return doRequestWithSession(t, env.srv, token, method, path, body)
-	}
-
-	// Cross-agent access is rejected on every verb.
-	if rr := scoped("GET", "/api/vault/X?scope=user_agent&agent_id=sa-agent-b", nil); rr.Code != http.StatusForbidden {
-		t.Fatalf("cross-agent GET = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if rr := scoped("PUT", "/api/vault/X?scope=user_agent&agent_id=sa-agent-b", map[string]string{"scope": "user_agent", "agent_id": "sa-agent-b", "value": "v"}); rr.Code != http.StatusForbidden {
-		t.Fatalf("cross-agent PUT = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if rr := scoped("DELETE", "/api/vault/X?scope=user_agent&agent_id=sa-agent-b", nil); rr.Code != http.StatusForbidden {
-		t.Fatalf("cross-agent DELETE = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	// System scopes are off-limits to sandbox tokens regardless of agent_id.
-	if rr := scoped("GET", "/api/vault/X?scope=system", nil); rr.Code != http.StatusForbidden {
-		t.Fatalf("system GET = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if rr := scoped("PUT", "/api/vault/X", map[string]string{"scope": "system", "value": "v"}); rr.Code != http.StatusForbidden {
-		t.Fatalf("system PUT = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	// The token's own agent and its own-user scope remain reachable.
-	if rr := scoped("PUT", "/api/vault/OWN", map[string]string{"scope": "user_agent", "agent_id": "sa-agent-a", "value": "v"}); rr.Code != http.StatusOK {
-		t.Fatalf("own-agent PUT = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if rr := scoped("GET", "/api/vault/MISSING?scope=user", nil); rr.Code != http.StatusNotFound {
-		t.Fatalf("own-user GET = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
-	}
-}
-
 // fakeRunnerInvalidator records invalidation calls so tests can assert that
 // vault mutations propagate to the runner cache at the right scope.
 type fakeRunnerInvalidator struct {
@@ -552,57 +483,5 @@ func TestVaultUpdateExisting(t *testing.T) {
 	entries := wrapper.Entries
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry after update, got %d", len(entries))
-	}
-}
-
-// TestScopedTokenVaultGetIsAudited guards the declare-time escape hatch: a
-// sandbox scoped token reading a secret value through GET /api/vault/{name}
-// must leave a vault_exec_secret_audit row, exactly like the bash `secrets`
-// param path. Cookie sessions stay unaudited.
-func TestScopedTokenVaultGetIsAudited(t *testing.T) {
-	t.Setenv("STELLA_SCOPED_TOKEN_SECRET", "test-scoped-token-secret-fixed")
-	env, svc := setupVaultEnv(t)
-	ctx := context.Background()
-	q := sqlc.New(env.db)
-
-	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID: "audit-agent", Name: "audit-agent", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
-	}); err != nil {
-		t.Fatalf("CreateAgent: %v", err)
-	}
-
-	regular, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "audited-vault", "user")
-	pubKey, encPrivKey, err := vault.GenerateUserKeys(svc.MasterRecipient())
-	if err != nil {
-		t.Fatalf("GenerateUserKeys: %v", err)
-	}
-	if err := env.oidcStore.UpdateUserAgeKeys(ctx, regular.ID, pubKey, encPrivKey); err != nil {
-		t.Fatalf("UpdateUserAgeKeys: %v", err)
-	}
-	if err := svc.Set(ctx, regular.ID, "AUDITED_KEY", "v"); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-
-	tokenSvc := auth.NewTokenService(env.authStore)
-	env.srv.SetTokenService(tokenSvc)
-	token, err := tokenSvc.CreateScopedToken(ctx, regular.ID, "audit-agent", "sess-audit", "")
-	if err != nil {
-		t.Fatalf("CreateScopedToken: %v", err)
-	}
-
-	if rr := doRequestWithSession(t, env.srv, token, "GET", "/api/vault/AUDITED_KEY?scope=user", nil); rr.Code != http.StatusOK {
-		t.Fatalf("scoped get = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	rows, err := q.ListVaultExecSecretAuditByUser(ctx, sqlc.ListVaultExecSecretAuditByUserParams{UserID: regular.ID, Limit: 10})
-	if err != nil {
-		t.Fatalf("ListVaultExecSecretAuditByUser: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("audit rows = %d, want 1", len(rows))
-	}
-	r := rows[0]
-	if r.AgentID != "audit-agent" || r.SessionID != "sess-audit" || r.Name != "AUDITED_KEY" || r.CommandText != "api: vault get" {
-		t.Fatalf("audit row = %+v, want agent/session/name/command match", r)
 	}
 }

@@ -19,8 +19,6 @@ const (
 	KindPAT Kind = "pat"
 	// KindOAuth is an OAuth2 access token (stella_oat_). Reserved for #613.
 	KindOAuth Kind = "oauth"
-	// KindScoped is the existing sandbox scoped token (stella_scoped_).
-	KindScoped Kind = "scoped"
 )
 
 // Principal is the single output type of Resolve: the authenticated identity
@@ -30,11 +28,6 @@ const (
 type Principal struct {
 	Kind   Kind
 	UserID string
-	// AgentID/SessionID/ProjectID are set only for scoped tokens, which are
-	// locked to one agent-session; the enforce subject/object boundary uses them.
-	AgentID   string
-	SessionID string
-	ProjectID string
 	// Scopes is the granted API-permission scope set (resource:action / resource:*).
 	Scopes []string
 

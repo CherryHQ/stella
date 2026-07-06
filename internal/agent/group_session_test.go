@@ -5,9 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/CherryHQ/stella/pkg/auth"
 )
 
 func TestBuildGroupSessionKey(t *testing.T) {
@@ -71,27 +68,5 @@ func TestGroupWorkspaceDisjointFromUserOfSameID(t *testing.T) {
 	}
 	if groupDir == userDir {
 		t.Fatalf("group and user home for the same raw ID must differ, both %q", groupDir)
-	}
-}
-
-func TestGroupScopedToken(t *testing.T) {
-	secret := []byte("test-secret-32-bytes-long-enough")
-	groupID := "group-abc-123"
-	tok, err := auth.SignScopedToken(secret, auth.ScopedTokenClaims{
-		UserID:  "group:" + groupID,
-		AgentID: "agent1",
-	}, time.Now())
-	if err != nil {
-		t.Fatalf("SignScopedToken with group principal: %v", err)
-	}
-	claims, err := auth.VerifyScopedToken(secret, tok, time.Now())
-	if err != nil {
-		t.Fatalf("VerifyScopedToken: %v", err)
-	}
-	if claims.UserID != "group:"+groupID {
-		t.Fatalf("claims.UserID = %q, want %q", claims.UserID, "group:"+groupID)
-	}
-	if claims.Subject != "group:"+groupID {
-		t.Fatalf("claims.Subject = %q, want %q", claims.Subject, "group:"+groupID)
 	}
 }

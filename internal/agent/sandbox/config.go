@@ -22,11 +22,6 @@ type VaultEnvLoader interface {
 	RecordExecSecretUse(ctx context.Context, userID string, agentID string, sessionID string, name string, command string) error
 }
 
-// TokenEnsurer creates short-lived scoped API tokens for sandbox sessions.
-type TokenEnsurer interface {
-	CreateScopedToken(ctx context.Context, userID, agentID, sessionID, projectID string) (string, error)
-}
-
 // Config is passed to sandbox operations.
 // It is constructed from the runner config in the parent agent package.
 type Config struct {
@@ -40,6 +35,5 @@ type Config struct {
 	ProjectID        string
 	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
 	VaultEnvLoader   VaultEnvLoader
-	TokenEnsurer     TokenEnsurer
 	TokenManager     *oauth.TokenManager
 }

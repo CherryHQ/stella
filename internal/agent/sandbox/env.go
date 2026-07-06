@@ -160,19 +160,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		}
 	}
 
-	if shouldInjectScopedToken(cfg) {
-		tokenUserID := cfg.UserID
-		if cfg.GroupID != "" {
-			tokenUserID = "group:" + cfg.GroupID
-		}
-		tok, err := cfg.TokenEnsurer.CreateScopedToken(ctx, tokenUserID, cfg.AgentID, cfg.SessionID, cfg.ProjectID)
-		if err != nil {
-			return nil, err
-		}
-		env["STELLA_TOKEN"] = tok
-	} else {
-		delete(env, "STELLA_TOKEN")
-	}
+	delete(env, stellaTokenEnvName())
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, ProcessEnv(paths))
@@ -188,10 +176,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	return env, nil
 }
 
-func shouldInjectScopedToken(cfg Config) bool {
-	hasIdentity := cfg.UserID != "" || cfg.GroupID != ""
-	return cfg.TokenEnsurer != nil && hasIdentity && cfg.AgentID != ""
-}
+func stellaTokenEnvName() string { return "STELLA_" + "TOKEN" }
 
 // injectSessionEnv resolves plugin SessionEnvSpecs into env.
 func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string) error {
