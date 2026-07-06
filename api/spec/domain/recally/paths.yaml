@@ -278,7 +278,7 @@ paths:
       tags: [feeds]
       summary: Poll a feed (server fetches RSS, creates pending entries)
       operationId: pollFeed
-      x-agent-tool: { tool: "recally", action: "feed_poll" }
+      x-agent-tool: { tool: "recally", action: "feed_poll", optional: [id] }
       parameters:
         - {
             name: limit,
@@ -443,6 +443,7 @@ paths:
       tags: [digest]
       summary: Save a digest snapshot with narrative
       operationId: saveDigest
+      x-agent-tool: { tool: "recally", action: "digest_save" }
       requestBody:
         required: true
         content:

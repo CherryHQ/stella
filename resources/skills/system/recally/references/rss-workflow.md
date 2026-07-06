@@ -5,9 +5,11 @@ articles uses the native tool per [save-workflow.md](save-workflow.md).
 
 ## 1. Poll Feeds
 
-Use `recally` with `action=feed_poll`, `id` set to the feed ID, and optional
-`limit` for the maximum number of new entries to fetch. The response contains feed
-results; each result has a `new_entries` array of pending entries.
+Use `recally` with `action=feed_poll` and optional `limit` for the maximum
+number of new entries to fetch per feed. Omit `id` to poll all enabled RSS feeds;
+non-RSS feeds are skipped server-side. Pass `id` only when you need to poll one
+feed. The response contains feed results; each result has a `new_entries` array
+of pending entries.
 
 If you need to resume or inspect pending work, use `recally` with
 `action=entry_list`, `feedId`, `status=pending`, and optional `page_size` /

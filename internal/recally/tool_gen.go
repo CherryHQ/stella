@@ -32,6 +32,26 @@ const InputSchemaJSON = `{
     {
       "properties": {
         "action": {
+          "const": "digest_save",
+          "type": "string"
+        },
+        "date": {
+          "description": "YYYY-MM-DD; defaults to today if omitted",
+          "type": "string"
+        },
+        "narrative": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "narrative"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
           "const": "entry_add",
           "type": "string"
         },
@@ -199,8 +219,7 @@ const InputSchemaJSON = `{
         }
       },
       "required": [
-        "action",
-        "id"
+        "action"
       ],
       "type": "object"
     },
@@ -364,6 +383,7 @@ const InputSchemaJSON = `{
     "action": {
       "enum": [
         "digest",
+        "digest_save",
         "entry_add",
         "entry_list",
         "entry_update",
@@ -386,6 +406,7 @@ const InputSchemaJSON = `{
 
 type Handler interface {
 	Digest(context.Context, DigestInput) (any, error)
+	DigestSave(context.Context, DigestSaveInput) (any, error)
 	EntryAdd(context.Context, EntryAddInput) (any, error)
 	EntryList(context.Context, EntryListInput) (any, error)
 	EntryUpdate(context.Context, EntryUpdateInput) (any, error)
@@ -399,6 +420,11 @@ type Handler interface {
 }
 
 type DigestInput struct {
+}
+
+type DigestSaveInput struct {
+	Date      string `json:"date,omitempty"`
+	Narrative string `json:"narrative,omitempty"`
 }
 
 type EntryAddInput struct {
@@ -483,6 +509,12 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 			return nil, err
 		}
 		return h.Digest(ctx, in)
+	case "digest_save":
+		var in DigestSaveInput
+		if err := tools.DecodeInput(args, &in, []string{"narrative"}); err != nil {
+			return nil, err
+		}
+		return h.DigestSave(ctx, in)
 	case "entry_add":
 		var in EntryAddInput
 		if err := tools.DecodeInput(args, &in, []string{"feedId", "guid"}); err != nil {
@@ -515,7 +547,7 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 		return h.FeedList(ctx, in)
 	case "feed_poll":
 		var in FeedPollInput
-		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {
+		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
 			return nil, err
 		}
 		return h.FeedPoll(ctx, in)

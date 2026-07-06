@@ -40,6 +40,7 @@ var identityFields = map[string]bool{
 // restrict narrows a generated tool schema property without changing the HTTP API,
 // for example: restrict: { scope: [user, user_agent] }.
 // require marks optional HTTP fields as required in the tool schema only.
+// optional marks required HTTP fields as optional in the tool schema only.
 func main() {
 	if err := run(inputPath, outputRoot); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -94,6 +95,7 @@ type actionSpec struct {
 	Fixed    map[string]any   `yaml:"fixed"`
 	Restrict map[string][]any `yaml:"restrict"`
 	Require  []string         `yaml:"require"`
+	Optional []string         `yaml:"optional"`
 	Batch    string           `yaml:"batch"`
 }
 
@@ -196,6 +198,7 @@ func collectTools(doc *openAPIDoc) (map[string][]toolAction, error) {
 				}
 				applyRestrictions(schema, spec.Restrict)
 				applyRequired(schema, spec.Require)
+				applyOptional(schema, spec.Optional)
 				req := stringSlice(schema["required"])
 				out[spec.Tool] = append(out[spec.Tool], toolAction{Action: spec.Action, Schema: schema, Required: req, Batch: spec.Batch, ItemSchema: itemSchema})
 			}
@@ -608,9 +611,30 @@ func applyRequired(schema map[string]any, fields []string) {
 	}
 }
 
+func applyOptional(schema map[string]any, fields []string) {
+	for _, field := range fields {
+		removeRequired(schema, field)
+	}
+}
+
 func deleteProperty(schema map[string]any, name string) {
 	props, _ := schema["properties"].(map[string]any)
 	delete(props, name)
+	req := stringSlice(schema["required"])
+	filtered := make([]any, 0, len(req))
+	for _, item := range req {
+		if item != name {
+			filtered = append(filtered, item)
+		}
+	}
+	if len(filtered) == 0 {
+		delete(schema, "required")
+	} else {
+		schema["required"] = filtered
+	}
+}
+
+func removeRequired(schema map[string]any, name string) {
 	req := stringSlice(schema["required"])
 	filtered := make([]any, 0, len(req))
 	for _, item := range req {

@@ -266,13 +266,48 @@ func (s Authorized) DeleteFeed(ctx context.Context, id string) error {
 }
 
 func (s Authorized) PollFeed(ctx context.Context, id string, limit int) (FeedPollResult, error) {
-	feed, err := s.GetFeed(ctx, id)
+	ident := s.ident
+	uid, err := userID(ident)
 	if err != nil {
 		return FeedPollResult{}, err
 	}
-	result := FeedPollResult{Feed: *feed, NewEntries: []FeedEntry{}}
+	feed, err := s.store.GetFeed(ctx, uid, id)
+	if err != nil {
+		return FeedPollResult{}, mapMissing(err)
+	}
+	return s.pollFeed(ctx, uid, *feed, limit), nil
+}
+
+func (s Authorized) PollFeeds(ctx context.Context, limit int) ([]FeedPollResult, error) {
+	ident := s.ident
+	uid, err := userID(ident)
+	if err != nil {
+		return nil, err
+	}
+	const pageSize = 500
+	results := []FeedPollResult{}
+	for offset := 0; ; offset += pageSize {
+		feeds, err := s.store.ListFeeds(ctx, uid, pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		for _, feed := range feeds {
+			if !feed.Enabled || feed.Kind != FeedKindRSS {
+				continue
+			}
+			results = append(results, s.pollFeed(ctx, uid, feed, limit))
+		}
+		if len(feeds) < pageSize {
+			break
+		}
+	}
+	return results, nil
+}
+
+func (s Authorized) pollFeed(ctx context.Context, uid string, feed Feed, limit int) FeedPollResult {
+	result := FeedPollResult{Feed: feed, NewEntries: []FeedEntry{}}
 	if !feed.Enabled || feed.Kind != FeedKindRSS {
-		return result, nil
+		return result
 	}
 
 	parseCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -280,7 +315,7 @@ func (s Authorized) PollFeed(ctx context.Context, id string, limit int) (FeedPol
 	cancel()
 	if parseErr != nil {
 		result.Errors = []string{"failed to fetch feed"}
-		return result, nil //nolint:nilerr // Upstream fetch failures are data in FeedPollResult, matching the HTTP API.
+		return result
 	}
 	for _, item := range parsed.Items {
 		entryURL := item.Link
@@ -301,16 +336,11 @@ func (s Authorized) PollFeed(ctx context.Context, id string, limit int) (FeedPol
 		}
 	}
 
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return FeedPollResult{}, err
-	}
 	now := time.Now().UTC()
 	if updated, err := s.store.UpdateFeed(ctx, uid, feed.ID, map[string]any{"last_checked_at": &now}); err == nil {
 		result.Feed = *updated
 	}
-	return result, nil
+	return result
 }
 
 func (s Authorized) ListFeedEntries(ctx context.Context, feedID string, filter FeedEntryFilter) ([]FeedEntry, error) {
@@ -371,4 +401,19 @@ func (s Authorized) GetDigest(ctx context.Context) (*Digest, error) {
 		return nil, err
 	}
 	return s.store.GetDigest(ctx, uid)
+}
+
+func (s Authorized) SaveDigest(ctx context.Context, narrative, date string) (*StoredDigest, error) {
+	ident := s.ident
+	uid, err := userID(ident)
+	if err != nil {
+		return nil, err
+	}
+	if narrative == "" {
+		return nil, fmt.Errorf("narrative is required")
+	}
+	if date == "" {
+		date = time.Now().UTC().Format("2006-01-02")
+	}
+	return s.store.SaveDigest(ctx, uid, narrative, date)
 }

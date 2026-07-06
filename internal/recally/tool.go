@@ -13,14 +13,14 @@ import (
 
 const (
 	defaultToolPageSize = 20
-	maxToolPageSize     = 100
+	maxToolPageSize     = 500
 )
 
 type Tool struct{ svc *Service }
 
 func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Save and read the user's Recally library. Actions: save batches fetched article content, list_articles, get_article, feed_add/feed_list/feed_poll/feed_remove, entry_list/entry_add/entry_update, digest. For save, fetch the article content yourself first (for example with web/tap tools) and include markdown content for new articles; content is required for new articles. The library is shared across this user's agents.", InputSchema: InputSchema()}
+	return tools.Definition{Name: ToolName, Description: "Save and read the user's Recally library. Actions: save batches fetched article content, list_articles, get_article, feed_add/feed_list/feed_poll/feed_remove, entry_list/entry_add/entry_update, digest/digest_save. For save, fetch the article content yourself first (for example with web/tap tools) and include markdown content for new articles; content is required for new articles. The library is shared across this user's agents.", InputSchema: InputSchema()}
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
@@ -157,19 +157,31 @@ func (h recallyHandler) FeedPoll(ctx context.Context, in FeedPollInput) (any, er
 	if limit < 1 || limit > 500 {
 		return nil, fmt.Errorf("invalid limit — use limit between 1 and 500")
 	}
-	result, err := h.svc.As(h.ident).PollFeed(ctx, in.Id, limit)
+	var results []FeedPollResult
+	var err error
+	if in.Id == "" {
+		results, err = h.svc.As(h.ident).PollFeeds(ctx, limit)
+	} else {
+		var result FeedPollResult
+		result, err = h.svc.As(h.ident).PollFeed(ctx, in.Id, limit)
+		results = []FeedPollResult{result}
+	}
 	if err != nil {
 		return nil, err
 	}
-	items := make([]recallyFeedEntryItem, 0, len(result.NewEntries))
-	for _, entry := range result.NewEntries {
-		items = append(items, recallyFeedEntrySummary(entry))
+	items := make([]recallyFeedPollResult, 0, len(results))
+	for _, result := range results {
+		entries := make([]recallyFeedEntryItem, 0, len(result.NewEntries))
+		for _, entry := range result.NewEntries {
+			entries = append(entries, recallyFeedEntrySummary(entry))
+		}
+		out := recallyFeedPollResult{Feed: recallyFeedSummary(result.Feed), NewEntries: entries}
+		if len(result.Errors) > 0 {
+			out.Error = result.Errors[0]
+		}
+		items = append(items, out)
 	}
-	out := recallyFeedPollResult{Feed: recallyFeedSummary(result.Feed), NewEntries: items}
-	if len(result.Errors) > 0 {
-		out.Error = result.Errors[0]
-	}
-	return out, nil
+	return map[string]any{"results": items}, nil
 }
 
 func (h recallyHandler) FeedRemove(ctx context.Context, in FeedRemoveInput) (any, error) {
@@ -229,6 +241,14 @@ func (h recallyHandler) Digest(ctx context.Context, _ DigestInput) (any, error) 
 	return map[string]any{"date": digest.Date.UTC().Format(time.RFC3339), "text": recallyDigestText(digest)}, nil
 }
 
+func (h recallyHandler) DigestSave(ctx context.Context, in DigestSaveInput) (any, error) {
+	stored, err := h.svc.As(h.ident).SaveDigest(ctx, in.Narrative, in.Date)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"date": stored.Date, "saved": true}, nil
+}
+
 type recallySaveResult struct {
 	URL    string `json:"url"`
 	ID     string `json:"id,omitempty"`
@@ -248,12 +268,13 @@ type recallyArticleDetail struct {
 	Note      string                 `json:"note,omitempty"`
 }
 type recallyFeedItem struct {
-	ID        string `json:"id"`
-	URL       string `json:"url"`
-	Kind      string `json:"kind"`
-	Title     string `json:"title"`
-	Enabled   bool   `json:"enabled"`
-	UpdatedAt string `json:"updated_at"`
+	ID        string            `json:"id"`
+	URL       string            `json:"url"`
+	Kind      string            `json:"kind"`
+	Title     string            `json:"title"`
+	Enabled   bool              `json:"enabled"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	UpdatedAt string            `json:"updated_at"`
 }
 type recallyFeedEntryItem struct {
 	ID           string  `json:"id"`
@@ -292,7 +313,7 @@ func recallyArticleListSummary(article Article) recallyArticleListItem {
 }
 
 func recallyFeedSummary(feed Feed) recallyFeedItem {
-	return recallyFeedItem{ID: feed.ID, URL: feed.URL, Kind: string(feed.Kind), Title: feed.Title, Enabled: feed.Enabled, UpdatedAt: feed.UpdatedAt.UTC().Format(time.RFC3339)}
+	return recallyFeedItem{ID: feed.ID, URL: feed.URL, Kind: string(feed.Kind), Title: feed.Title, Enabled: feed.Enabled, Metadata: feed.Metadata, UpdatedAt: feed.UpdatedAt.UTC().Format(time.RFC3339)}
 }
 
 func recallyFeedEntrySummary(entry FeedEntry) recallyFeedEntryItem {

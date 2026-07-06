@@ -135,6 +135,28 @@ components:
 	}
 }
 
+func TestOptionalAnnotationMarksRequiredFieldOptional(t *testing.T) {
+	doc := mustDoc(t, []byte(`
+paths:
+  /api/feeds/{id}/poll:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      x-agent-tool: { tool: recally, action: feed_poll, optional: [id] }
+components:
+  schemas: {}
+`))
+	tools, err := collectTools(doc)
+	if err != nil {
+		t.Fatalf("collectTools: %v", err)
+	}
+	got := tools["recally"][0].Required
+	want := []string{}
+	if len(got) != len(want) {
+		t.Fatalf("required=%v, want %v", got, want)
+	}
+}
+
 func TestMultiActionAnnotationOmitFixedFields(t *testing.T) {
 	doc := mustDoc(t, []byte(`
 paths:
