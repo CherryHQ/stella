@@ -1,21 +1,18 @@
-// Package renderrefs defines the sideband protocol that lets agent CLI commands
-// announce a freshly created (or referenced) Stella entity — a task, goal, or
-// recally article — so the chat UI can render a rich card instead of a raw UUID.
+// Package renderrefs defines the sideband protocol for lifting references from
+// tool output so the chat UI can render a rich card instead of a raw UUID.
 //
-// The producer (a CLI command, gated by [Enabled]) writes one sentinel line per
-// reference to its stderr via [Emit]. The consumer (the tool-result ingest path)
-// runs [Extract] over the combined tool output to lift the references out and
-// strip the sentinel lines, so the text shown to the model and the user stays
-// clean. References are derived data: nothing is stored that a GET on the entity
-// could not re-derive, so there is no migration and stale previews never lie —
-// the frontend always hydrates by id.
+// A producer writes one sentinel line per reference via [Emit]. The consumer (the
+// tool-result ingest path) runs [Extract] over the combined tool output to lift
+// the references out and strip the sentinel lines, so the text shown to the model
+// and the user stays clean. References are derived data: nothing is stored that a
+// GET on the entity could not re-derive, so there is no migration and stale
+// previews never lie — the frontend always hydrates by id.
 package renderrefs
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 )
 
@@ -23,10 +20,6 @@ import (
 // the payload) so a future incompatible format can be introduced without the
 // old extractor mis-parsing it.
 const marker = "::stella-ref/v1::"
-
-// envVar gates emission. The bash tool sets it so the CLI only emits sentinels
-// when run by an agent, never when a human runs the same command in a terminal.
-const envVar = "STELLA_RENDERABLE_REFS"
 
 // Preview is a best-effort snapshot used only as a loading placeholder. It is
 // never trusted: the frontend hydrates the live entity by id, so a forged or
@@ -47,18 +40,10 @@ type Reference struct {
 	Preview *Preview `json:"preview,omitempty"`
 }
 
-// Enabled reports whether the current process should emit sentinels.
-func Enabled() bool { return os.Getenv(envVar) == "1" }
-
-// Emit writes one sentinel line for ref to w (typically a command's stderr).
-// It is a no-op (returning nil) unless emission is [Enabled], so a human running
-// the same CLI in a terminal never sees the marker — only agent runs, where the
-// bash tool sets the env, do. It is also a no-op when ref carries no id/type, so
-// callers can emit unconditionally without guarding on partial data.
+// Emit writes one sentinel line for ref to w (typically a tool's stderr). It is
+// a no-op when ref carries no id/type, so callers can emit unconditionally
+// without guarding on partial data.
 func Emit(w io.Writer, ref Reference) error {
-	if !Enabled() {
-		return nil
-	}
 	if ref.ID == "" || ref.Type == "" {
 		return nil
 	}

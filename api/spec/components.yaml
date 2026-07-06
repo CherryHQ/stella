@@ -9,7 +9,7 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      description: STELLA_TOKEN bearer token (scoped sandbox session token)
+      description: Personal access token or OAuth access token created in the Web UI
   schemas:
     Error:
       type: object

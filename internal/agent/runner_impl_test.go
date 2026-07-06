@@ -306,7 +306,6 @@ func TestConvertLoopEventStripsMalformedSentinelFromStore(t *testing.T) {
 }
 
 func TestConvertLoopEventStripsRenderableReferences(t *testing.T) {
-	t.Setenv("STELLA_RENDERABLE_REFS", "1")
 	ref := renderrefs.Reference{
 		V:    1,
 		Type: "task",

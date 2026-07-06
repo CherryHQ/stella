@@ -52,7 +52,7 @@ func Enforce(p *Principal, method, path string) error {
 
 	// Bearer credentials are API-only; they may not fetch page routes.
 	if !strings.HasPrefix(path, "/api/") {
-		return fmt.Errorf("%w: scoped credential may only call /api routes", ErrForbidden)
+		return fmt.Errorf("%w: bearer credential may only call /api routes", ErrForbidden)
 	}
 
 	// Layer 2: route -> required scope.
