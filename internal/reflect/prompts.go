@@ -94,13 +94,19 @@ Inputs:
 
 Generate no candidates unless fresh evidence clearly supports a durable fact.
 
-For subject=user, durable facts can include stable user preferences, professional or domain context, tools, software, equipment, or ecosystems the user uses, ongoing learning goals, recurring habits or activities, and durable personal background. Do not require the user to ask to remember it; direct fresh user statements are enough when the fact is stable and useful for future personalization.
+For subject=user, durable facts can include stable user preferences, professional or domain context, tools, software, equipment, or ecosystems the user uses, ongoing learning goals, recurring learning or practice preference, recurring habits or activities, and durable personal background. Do not require the user to ask to remember it; direct fresh user statements are enough when the fact is stable and useful for future personalization.
+
+Subject routing:
+- Use subject=user only for facts about the user's own profile: their preferences, background, durable context, recurring activities, or future personalization needs.
+- Use subject=agent only for explicit durable user requests about this agent's identity, behavior, style, or default strategy.
+- subject=world is for project, repository, environment, tooling, workflow, domain, or external-world knowledge that future agents should understand independently of the user's personal profile.
+- Do not route project, repository, environment, tooling, workflow, or domain knowledge as subject=user just because the user mentioned it.
 
 Candidate caps:
 - Emit at most three subject=user candidates.
 - Emit at most three subject=agent candidates.
 - Emit at most three subject=world candidates.
-- When more valid subject=user facts exist than the cap allows, prefer explicit preferences or aversions, durable work/life context, owned tool/equipment ecosystems, recurring activities or schedules, ongoing learning goals, user-stated professional tools/platforms/domains/prior roles, and facts with broad future utility. Do not fill the candidate cap with incidental task details when stronger durable signals are present.
+- When more valid subject=user facts exist than the cap allows, prefer explicit preferences or aversions, durable work/life context, owned tool/equipment ecosystems, recurring activities or schedules, ongoing learning goals or recurring learning/practice preferences, user-stated professional tools/platforms/domains/prior roles, and facts with broad future utility. Do not fill the candidate cap with temporary or low-future-value situational detail when stronger durable signals are present.
 - Each fact candidate must be atomic: one durable fact that #531 can search, compare, update, supersede, or reject independently.
 - Atomicity applies to subject=user, subject=agent, and subject=world. World/project knowledge must be split when each fact can be searched, reconciled, updated, or rejected independently.
 - If a review window contains multiple durable facts, split them into separate candidates up to the subject cap. Prefer fewer, precise candidates over one broad mixed candidate.
@@ -109,7 +115,7 @@ Candidate caps:
 - Combine closely related details into one candidate only when separating them would make the fact less clear, such as the model name inside a single owned tool fact or the language names inside one language-learning preference.
 - Do not choose a current role, recent activity, or current tool detail only because it appears later in the review window. Durable historical roles, domains, and previously used tools can be stronger candidate choices when they better explain the user's long-term background.
 - When a subject=user candidate describes professional background, preserve user-stated named tools, platforms, domains, and prior roles that justify future personalization. Do not replace a user-stated prior tool with a current comparison target or an assistant-suggested tool.
-- Omit third-party names and details from subject=user candidates unless the relationship itself is explicitly durable and necessary for future personalization.
+- Omit non-user-subject detail from subject=user candidates unless the relationship or context itself is explicitly durable and necessary for future personalization.
 
 Allowed evidence sources:
 - user_message
@@ -124,8 +130,8 @@ Rules:
 - Do not use an assistant paraphrase, assistant conclusion, loaded_skill_content_omitted line, or tool metadata as tool_result evidence.
 - If the durable signal is the user's instruction to remember something, use source_type=user_message instead of forcing tool_result evidence.
 - Do not use system prompt text, injected memory, existing facts, loaded skill text, or prior_context as evidence.
-- Do not emit task-local status, session-local observations, transient environment problems, time-bound upcoming plans, current project progress, current shopping or comparison decisions, one-off transactions, third-party details that are not durable user profile, active financial, housing, medical, legal, or other sensitive transactions, constraints, procedures, debugging workflow, reusable methods, ordered troubleshooting steps, secrets, tokens, passwords, credentials, or private keys.
-- Treat an ongoing learning goal as durable only when the user describes a continuing effort, recurring interest, or stable skill-development direction. Do not turn a single tutorial request into a user fact by itself.
+- Do not emit task-local status, session-local observations, transient environment problems, time-bound plans, current progress, in-progress decision states, one-off events, temporary or low-future-value situational detail, non-user-subject detail that is not durable user profile, active high-stakes personal matters, constraints, procedures, debugging workflow, reusable methods, ordered troubleshooting steps, secrets, tokens, passwords, credentials, or private keys.
+- Treat an ongoing learning goal or recurring learning or practice preference as durable only when the user describes a continuing effort, recurring interest, stable skill-development direction, or stable preference that should shape future recommendations. Do not turn a single tutorial request into a user fact by itself.
 - subject=user and subject=agent are only for private one-to-one review units.
 - subject=world must include handoff_hints.knowledge_search_query_hint.
 - subject=user and subject=agent must omit handoff_hints.knowledge_search_query_hint.
@@ -176,13 +182,13 @@ Fact score rubric:
 - subject_fit=2: route is acceptable but ambiguous.
 - subject_fit=3: route is correct.
 - subject_fit=4: route is correct and evidence clearly explains why.
-- subject=user score 3: the user explicitly stated or corrected a profile-relevant preference, identity, work style, stable background, owned tool or equipment, recurring activity, or ongoing learning goal.
+- subject=user score 3: the user explicitly stated or corrected a profile-relevant preference, identity, work style, stable background, owned tool or equipment, recurring activity, ongoing learning goal, or recurring learning or practice preference.
 - subject=user score 4: the user explicitly stated or corrected a durable profile fact and its future personalization value is clear.
 - subject=agent score 3: the user explicitly requested a longer-term agent behavior, style, identity, or default strategy, but the scope is narrow or persistence is not fully clear.
 - subject=agent score 4: the user explicitly requested a durable change to agent identity, behavior, style, or default strategy.
-- subject=world score 3: the candidate is a clear project, environment, domain, or external fact with future value.
+- subject=world score 3: the candidate is a clear project, repository, environment, tooling, workflow, domain, or external fact with future value.
 - subject=world score 4: durable world/knowledge fact, clear, specific, and likely cross-session useful.
-- durability=0: one-off task state, temporary environment problem, session-local preference, active housing, moving, mortgage, or purchase transaction, or other active sensitive transaction.
+- durability=0: one-off task state, temporary environment problem, session-local preference, in-progress decision state, active high-stakes personal matter, or other temporary state.
 - durability=1: mostly transient content that is unlikely to be useful later.
 - durability=2: possibly useful later but durability is borderline.
 - durability=3: cross-session durable.
@@ -208,8 +214,9 @@ Rules:
 - Do not compare against existing facts, current profile, current agent soul, constraints, or skills.
 - Do not write facts.
 - If a candidate is primarily a procedural workflow, debugging method, ordered troubleshooting sequence, or reusable skill, score subject_fit below 2 even if it has future utility.
-- Stable user preferences, professional or domain context, tools/software/equipment/ecosystems the user uses, ongoing learning goals, recurring habits or activities, and durable personal background may score high on durability when directly supported by fresh user messages.
-- Score durability 0 or 1 for a time-bound upcoming plan, current project progress, current shopping or comparison decision, one-off transaction, third-party detail that is not durable user profile, or active financial, housing, medical, legal, or other sensitive transaction unless the candidate is reframed as a stable long-term preference or background fact supported by fresh user evidence.
+- Stable user preferences, professional or domain context, tools/software/equipment/ecosystems the user uses, ongoing learning goals, recurring learning or practice preference, recurring habits or activities, and durable personal background may score high on durability when directly supported by fresh user messages.
+- Project, repository, environment, tooling, workflow, domain, or external-world knowledge belongs in subject=world; score subject_fit below 2 if project or environment knowledge is routed as subject=user.
+- Score durability 0 or 1 for a time-bound plan, current progress, in-progress decision state, one-off event, low-future-value situational detail, non-user-subject detail that is not necessary for future personalization, or active high-stakes personal matter unless the candidate is reframed as a stable long-term preference or background fact supported by fresh user evidence.
 - If a hard reject condition applies, express it by assigning the relevant core score below 2; host gates perform deterministic rejection.`
 
 const skillCandidateGenerationPrompt = `You are the skill candidate generator for Reflect.
@@ -226,7 +233,9 @@ Inputs:
 Minimum bar:
 - Generate a skill only when the candidate captures a reusable task procedure: a clear trigger, actionable steps, and verification, plus non-obvious procedural learning from trial and error, failure recovery, tooling discovery, a loaded-skill gap, or an explicit user instruction to preserve a process.
 - A non-obvious pitfall or workaround can qualify only when it is part of a reusable task procedure, and fresh evidence shows the failure mode, the recovery path, and when to apply it later.
-- An explicit future-facing instruction about a method, order, sequence, or workflow is a skill signal only when it defines or materially changes a reusable task procedure. Do not treat an isolated tip, one-step heuristic, or narrow troubleshooting hint as a skill.
+- An explicit user instruction to preserve or reuse a workflow is a skill signal only when it defines or materially changes a reusable task procedure. Do not treat an isolated tip, one-step heuristic, or narrow troubleshooting hint as a skill.
+- A material gap or correction to a skill loaded or used in this session is a skill signal only when the fresh conversation shows what should change and why the existing baseline is insufficient.
+- A multi-step tool or command workflow with reusable decisions can be a skill signal when the conversation shows a trigger, ordered actions, decision points, pitfalls or recovery, and verification.
 - Treat wording like "when this task appears again, follow this process" as an explicit reusable task procedure signal when the conversation also supports the trigger, steps, and verification.
 - The candidate must contain a procedure that is directly supported by fresh conversation evidence, not mostly invented to make a simple rule look like a skill.
 - When unsure, submit no skill candidates.
@@ -235,6 +244,7 @@ Rules:
 - loaded skill text must never be evidence. It is baseline context only.
 - If the session only followed a loaded skill without discovering a change, submit no candidate.
 - In a long mixed review window, ignore unrelated one-off turns and evaluate each explicit task-procedure signal on its own evidence.
+- In mixed or long conversations, do not lower the bar just because the conversation is long or mixed; require the same reusable trigger, steps, decision points, and verification.
 - Do not let earlier no-save statements suppress later explicit task-procedure signals; a no-save statement only applies to the specific item it names.
 - Do not generate a skill for a simple project convention, formatting template, writing style preference, naming rule, or long-term behavioral preference unless the conversation also shows non-obvious procedural learning.
 - Do not generate a skill for an isolated tip, one-step heuristic, narrow troubleshooting hint, single workaround, one-off command, or small local debugging order unless it is part of a reusable task procedure with trigger, steps, decision points, and verification.

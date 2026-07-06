@@ -59,9 +59,13 @@ func TestFactCandidatePrompts_DefineUserFactDurabilityBoundaries(t *testing.T) {
 		"tools, software, equipment, or ecosystems the user uses",
 		"ongoing learning goals",
 		"recurring habits or activities",
-		"time-bound upcoming plans",
-		"current project progress",
-		"active financial, housing, medical, legal, or other sensitive transactions",
+		"time-bound plans",
+		"current progress",
+		"in-progress decision states",
+		"active high-stakes personal matters",
+		"temporary or low-future-value situational detail",
+		"non-user-subject detail",
+		"recurring learning or practice preference",
 	} {
 		if !strings.Contains(factCandidateGenerationPrompt, phrase) {
 			t.Errorf("expected fact generation prompt to contain %q", phrase)
@@ -70,17 +74,34 @@ func TestFactCandidatePrompts_DefineUserFactDurabilityBoundaries(t *testing.T) {
 
 	for _, phrase := range []string{
 		"Score durability 0 or 1",
-		"time-bound upcoming plan",
-		"current project progress",
-		"active financial, housing, medical, legal, or other sensitive transaction",
+		"time-bound plan",
+		"current progress",
+		"in-progress decision state",
+		"active high-stakes personal matter",
 		"Stable user preferences",
 		"professional or domain context",
 		"ongoing learning goals",
+		"low-future-value situational detail",
+		"non-user-subject detail",
+		"recurring learning or practice preference",
 	} {
 		if !strings.Contains(factCandidateEvaluationPrompt, phrase) {
 			t.Errorf("expected fact evaluation prompt to contain %q", phrase)
 		}
 	}
+}
+
+func TestFactCandidatePrompts_RouteProjectKnowledgeToWorld(t *testing.T) {
+	assertPromptContainsAll(t, factCandidateGenerationPrompt, []string{
+		"subject=world is for project, repository, environment, tooling, workflow, domain, or external-world knowledge",
+		"Do not route project, repository, environment, tooling, workflow, or domain knowledge as subject=user",
+		"Use subject=user only for facts about the user's own profile",
+	})
+
+	assertPromptContainsAll(t, factCandidateEvaluationPrompt, []string{
+		"Project, repository, environment, tooling, workflow, domain, or external-world knowledge belongs in subject=world",
+		"score subject_fit below 2 if project or environment knowledge is routed as subject=user",
+	})
 }
 
 func TestFactCandidateGenerationPrompt_RequiresAtomicFactCandidates(t *testing.T) {
@@ -125,6 +146,15 @@ func TestFactCandidateEvaluationPrompt_UsesDetailedScoreRubric(t *testing.T) {
 		"atomicity=2: mostly atomic but still needs cleanup",
 		"atomicity=3: one clear fact",
 		"atomicity=4: one precise fact with clear boundaries",
+	})
+}
+
+func TestSkillCandidateGenerationPrompt_RecognizesReusableProcedureSignals(t *testing.T) {
+	assertPromptContainsAll(t, skillCandidateGenerationPrompt, []string{
+		"explicit user instruction to preserve or reuse a workflow",
+		"material gap or correction to a skill loaded or used in this session",
+		"multi-step tool or command workflow with reusable decisions",
+		"do not lower the bar just because the conversation is long or mixed",
 	})
 }
 
