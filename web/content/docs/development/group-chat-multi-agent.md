@@ -15,10 +15,10 @@ A group has **three identity dimensions that must never borrow each other's name
 | Dimension                      | Value                                                              | Used for                                                                 | Never used for                                              |
 | ------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
 | **Session scope**              | `group_id` (surrogate id from the `ctx_group_state` registry)      | LCM lookup key, conversation history, group-memory drawer key            | Runtime identity (vault/token/workspace)                    |
-| **Runtime execution identity** | the agent's own group principal `group:{group_id}` (not any human) | tool execution, vault, scoped token, workspace path                      | impersonating any member; reading any human's private vault |
+| **Runtime execution identity** | the agent's own group principal `group:{group_id}` (not any human) | tool execution, vault, workspace path                                    | impersonating any member; reading any human's private vault |
 | **Per-turn actor**             | the real human speaker's `auth_user`                               | @-addressing, writing the speaker's _own_ private memory, access control | session lookup key, runtime execution identity              |
 
-If you only remember one thing: **a group session never touches any member's private resources.** The speaker's `user_id` is carried per-turn for addressing and access control, then discarded — it never reaches the workspace path, the vault, or the scoped-token subject.
+If you only remember one thing: **a group session never touches any member's private resources.** The speaker's `user_id` is carried per-turn for addressing and access control, then discarded — it never reaches the workspace path, the vault, or any agent tool execution identity.
 
 ## Canonical group identity (D0)
 
@@ -206,16 +206,16 @@ No agent-initiated DMs to group members (platforms forbid bots from DMing strang
 
 So the group session stores `group_id` in `ctx_conversation.user_id` as a **lookup key only** (the column has no `auth_user` FK). The group branch of `requireSessionScope` / `GetConversationBySessionID` matches `(session_id, group_id, agent_id)` and does not require an actor match.
 
-The critical constraint: that `group_id` must **never flow into the runtime identity surfaces.** The runtime detects "this is a group session" in one place and reroutes all four surfaces:
+The critical constraint: that `group_id` must **never flow into member-owned runtime identity surfaces.** The runtime detects "this is a group session" in one place and reroutes these surfaces:
 
-| Surface                 | Code                                                              | Group-session behavior                                                                             |
-| ----------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| memory / prompt profile | `runtime/chat.go` (`authz.WithUserID`), `prompt/prompt.go`        | inject no human; read the group drawer, never a member's private profile                           |
-| workspace               | `runner_builder.go`, `workspace.go`                               | path `users/group-{group_id}/` — the group is its own principal, never a member's `users/{userID}` |
-| vault                   | `sandbox/env.go`                                                  | resolve only agent/group-scoped secrets, never a member's private vault                            |
-| scoped token            | `auth/token_service.go`, `auth/scoped_token.go`, `sandbox/env.go` | subject = group principal `group:{group_id}`, not a human userID                                   |
+| Surface                 | Code                                                       | Group-session behavior                                                                             |
+| ----------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| memory / prompt profile | `runtime/chat.go` (`authz.WithUserID`), `prompt/prompt.go` | inject no human; read the group drawer, never a member's private profile                           |
+| workspace               | `runner_builder.go`, `workspace.go`                        | path `users/group-{group_id}/` — the group is its own principal, never a member's `users/{userID}` |
+| vault                   | `sandbox/env.go`                                           | resolve only agent/group-scoped secrets, never a member's private vault                            |
+| agent tools             | `authz.Identity` facades and tool handlers                 | act as the group principal, not a human userID                                                     |
 
-`SignScopedToken` currently hard-requires `claims.UserID != ""`. That must be relaxed to accept a group principal, or gain a `Scope=group` dimension — **never stuff a real human userID in.** No synthetic `auth_user` is created: the group principal is a token subject / execution scope, not a row in `auth_user`.
+No synthetic `auth_user` is created: the group principal is an execution scope, not a row in `auth_user`.
 
 The membership table closes the loop:
 

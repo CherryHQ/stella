@@ -72,15 +72,13 @@ You can also ask Stella to manage your secrets:
 
 When an agent session starts, Stella decrypts only secrets whose injection settings match that session: always-injected secrets, secrets bound to the current agent, or secrets bound to the current project. A bound secret named `GITHUB_TOKEN` is available as `$GITHUB_TOKEN` inside the session.
 
-Unbound secrets stay out of the session environment. For one command, the agent can declare needed secret names in the Bash tool's `secrets` parameter; Stella injects those values only into that command's child process and records an audit row with the secret name and truncated command, never the value. Add a non-sensitive description with `stella vault set --description` so the agent knows when to declare it. Use `stella vault audit --help` to inspect recent declared uses.
+Unbound secrets stay out of the session environment. For one command, the agent can declare needed secret names in the Bash tool's `secrets` parameter; Stella injects those values only into that command's child process and records an audit row with the secret name and truncated command, never the value. Add a non-sensitive description in the Web UI so the agent knows when to declare it. Use the Web UI to inspect recent declared uses.
 
 Group sessions do not receive a declarable secrets manifest and cannot use per-command secret injection.
 
 Secrets are loaded fresh for each session. If you add or update a secret, the change takes effect on the next session.
 
-### Session Token
-
-Inside an agent session, Stella injects `STELLA_TOKEN` as a short-lived scoped token for that session. It is not a saved secret and you do not need to create it manually.
+Agent sessions do not receive a Stella API bearer token. Agents use built-in tools for Stella capabilities instead of calling the HTTP API from the sandbox.
 
 ## Secret Name Rules
 

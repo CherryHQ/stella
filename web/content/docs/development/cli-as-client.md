@@ -1,99 +1,66 @@
 ---
-title: CLI as a REST client
+title: CLI and native agent tools
 ---
 
 > This section is for developers contributing to Stella.
 
 ## Overview
 
-Stella's CLI is intentionally a thin REST client. The running `stellad server`
-process is the **only** thing that opens the PostgreSQL database, writes to the
-markdown library, fetches RSS feeds, or makes any other state change.
+`stellad server` is the only process that opens PostgreSQL, writes server-owned
+files, fetches feeds, or mutates Stella state. Human surfaces call the server over
+HTTP; agent surfaces call native built-in tools that run server-side with an
+`authz.Identity` facade.
 
-This is the project's **API-first** principle: every feature is reachable via
-HTTP first, and the CLI is just one of several clients (CLI, Web UI, future
-SDKs and integrations all consume the same contract).
+The old sandbox pattern is gone: the sandbox image does not ship the `stella` CLI,
+and Stella no longer injects scoped bearer tokens into agent sessions. Agents cannot
+authenticate to the HTTP API from inside the sandbox. Give agent capabilities as
+native tools instead.
 
 ```
 ┌──────────┐         HTTP          ┌──────────────────────┐
-│   CLI    │ ────────────────────▶ │   stellad server       │
-│ (stella …) │  Bearer STELLA_TOKEN    │  • PostgreSQL        │
-└──────────┘                       │  • markdown library  │
-                                   │  • RSS fetchers      │
-┌──────────┐                       │  • scheduler         │
-│   Web    │ ────────────────────▶ │  • plugin host       │
+│   Web UI │ ────────────────────▶ │   stellad server     │
+└──────────┘                       │  • PostgreSQL        │
+┌──────────┐         HTTP          │  • scheduler         │
+│ Human CLI│ ────────────────────▶ │  • plugin host       │
+└──────────┘                       │  • tool handlers     │
+┌──────────┐   native tool call    │  • authz.Identity    │
+│  Agent   │ ────────────────────▶ │    As-facades        │
 └──────────┘                       └──────────────────────┘
-┌──────────┐
-│   SDK    │ ────────────────────▶
-└──────────┘
 ```
 
 ## Why
 
 - **One source of truth.** Business rules live in the server, not duplicated
-  across CLI/Web/SDK. Two DB writers race on schema changes; one writer
-  cannot.
-- **Remote use works.** `STELLA_SERVER_URL=https://stella.example.com stella recally
-list` is the same code path as the local case.
-- **Auditability.** Every mutation flows through HTTP, so logging, metrics,
-  rate limiting, and authorization happen in one place.
-- **Type safety.** The OpenAPI spec is the contract. Drift between server
-  interface and client is caught at codegen / build time, not at runtime.
+  across CLI, Web UI, and agent code.
+- **Least authority.** Agents receive only the tools registered for their role;
+  they do not get a general bearer token or a CLI escape hatch.
+- **Auditability.** Mutations still pass through server handlers, where logging,
+  metrics, rate limiting, and authorization are centralized.
+- **Typed agent APIs.** Tool schemas describe exactly what agents may call and
+  what arguments are valid.
 
 ## Pattern
 
-Each domain (recally is the first; scheduler, skills, tools follow) ships:
+For a new agent capability:
 
-1. An OpenAPI 3.0 spec at `api/<domain>.openapi.yaml`. **This is the source of
-   truth.** Code is regenerated from the spec, never the other way around.
-2. A generated server interface in `internal/server/<domain>_gen.go` and
-   handlers in `internal/server/<domain>_handlers.go` that implement it.
-3. A generated client in `pkg/<domain>/client/client_gen.go`, plus a small
-   `auth.go` wrapper that reads `STELLA_TOKEN` / `STELLA_SERVER_URL` from the
-   environment.
-4. CLI subcommands under `cmd/stella/<domain>*.go` that build a typed request
-   from flags, call the generated client, decode JSON, and render output.
+1. Implement the server-side domain handler and authorization checks.
+2. Expose the agent surface as a native tool action, usually with `x-agent-tool`
+   metadata in the OpenAPI spec and generated glue from toolgen.
+3. Build the tool with an `authz.Identity` facade such as `identity.AsUser()` or
+   the domain-specific equivalent, rather than accepting caller-supplied subject
+   overrides.
+4. Update the relevant system skill so agents use the tool name and action fields,
+   not a shell command.
 
-Regeneration is wired through mise:
+The human CLI remains a client for operators and local automation, but it is not
+an agent integration surface.
 
-```bash
-mise run generate:api
-```
+## What commands must NOT do
 
-## Adding a new domain
-
-To add a new domain (say `notes`):
-
-1. Write `api/notes.openapi.yaml`. Pick canonical REST URLs (`/api/notes`,
-   `/api/notes/{id}`); reuse the existing `Error` response shape.
-2. Add the codegen invocation to `mise run generate:api` (in `mise.toml`).
-3. Run `mise run generate:api` to produce
-   `internal/server/notes_gen.go` and `pkg/notes/client/client_gen.go`.
-4. Implement the generated `ServerInterface` in
-   `internal/server/notes_handlers.go`.
-5. Wire it from `internal/server/routes.go`:
-   `s.registerNotesRoutes()` → `HandlerFromMux(s.notes, s.mux)`.
-6. Inject any new domain stores in `internal/server/server.go`.
-7. Replace direct DB calls in `cmd/stella/notes*.go` with calls to
-   `notesclient.NewFromEnv()`.
-
-## Bearer token authentication
-
-The CLI reads `STELLA_TOKEN` and sends it as `Authorization: Bearer …`. The
-server's existing `authMiddleware` (`internal/server/middleware.go`) already
-handles bearer tokens via `authInfoFromBearer`, so new domain routes get auth
-for free as soon as they are registered on `s.mux`.
-
-Bearer token auth requires `STELLA_VAULT_KEY` to be set on the server (token
-material is stored encrypted via the vault).
-
-## What CLI commands must NOT do
-
-- Open PostgreSQL via `internal/db.OpenDB`
-- Construct domain stores like `recally.NewStore(db)`
-- Read or write files under `STELLA_HOME/library/...`
-- Fetch external resources (RSS feeds, web pages) on behalf of the user — the
-  server handles that and exposes a verb (`POST /api/recally/feeds/{id}/poll`)
+- Open PostgreSQL via `internal/db.OpenDB`.
+- Construct domain stores like `recally.NewStore(db)`.
+- Read or write server-owned files under `STELLA_HOME` directly.
+- Add sandbox-only authentication paths or depend on agent-scoped bearer tokens.
 
 A grep over `cmd/stella/` for `OpenDB`, `sqlc.`, or `NewFileManager` should turn
-up only the server bootstrap (`gateway.go`).
+up only server bootstrap or intentionally local code.

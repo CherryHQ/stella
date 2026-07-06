@@ -9,8 +9,7 @@ description: Command-line interface conventions for Stella's cmd/stella commands
 > make commands predictable, scriptable, composable, and kind to humans using a
 > terminal at 2 a.m.
 
-Stella's CLI is a first-party client for `stellad server`, not a second backend.
-For state-changing features, read [CLI as a REST client](../cli-as-client) and
+Stella's CLI is a first-party human/operator client for `stellad server`, not a second backend and not an agent integration surface. For state-changing features, read [CLI and native agent tools](../cli-as-client) and
 [API design rules](./api-design) before designing the command surface.
 
 ## Core Principles
@@ -86,7 +85,7 @@ Rules:
 - Boolean flags should be positive (`--follow`, `--json`, `--force`). Avoid
   negative flags like `--no-cache` unless disabling a default is the feature.
 - Reuse flag names across commands: `--server-url`, `--json`, `--force`, `--limit`.
-- Do not expose security scope overrides such as `--agent-id` on sandbox-facing commands; derive scope from the scoped `STELLA_TOKEN`.
+- Do not design sandbox-facing CLI commands. Agent capabilities must ship as native tools with server-side identity, not CLI flags or scoped bearer tokens.
 
 ## Help Text
 
@@ -115,9 +114,8 @@ Usage: "Does stuff with the thing",
 ```
 
 Help text is user-facing documentation. If command names, usage strings, or
-important flags change, update user docs and keep
-`internal/agent/prompt/template/system_prompt.tmpl` in sync with actual command
-`Usage` strings.
+important flags change, update user docs. Agent-facing prompts and skills should
+point to native tools, not CLI command syntax.
 
 ## Output
 
@@ -174,7 +172,7 @@ abc123    open      Fix scheduler retry
 Errors should be brief, specific, and actionable:
 
 ```text
-agent ID is required in STELLA_TOKEN
+missing bearer token: set STELLA_TOKEN or sign in through the Web UI
 ```
 
 Bad errors leak implementation or force guesswork:
@@ -248,11 +246,11 @@ flag > environment variable > persisted config > default
 Document environment variables in help text when they affect behavior. Common
 variables include:
 
-| Variable            | Purpose                                                           |
-| ------------------- | ----------------------------------------------------------------- |
-| `STELLA_SERVER_URL` | Server base URL for CLI-as-client commands                        |
-| `STELLA_TOKEN`      | Bearer token; scoped sandbox tokens also carry CLI context claims |
-| `LOG_LEVEL`         | CLI logging verbosity                                             |
+| Variable            | Purpose                                                               |
+| ------------------- | --------------------------------------------------------------------- |
+| `STELLA_SERVER_URL` | Server base URL for CLI-as-client commands                            |
+| `STELLA_TOKEN`      | Bearer token for human/operator CLI requests when explicitly provided |
+| `LOG_LEVEL`         | CLI logging verbosity                                                 |
 
 Never print secrets. If a command must show that a secret exists, show metadata
 or a redacted value.

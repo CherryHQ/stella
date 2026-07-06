@@ -12,7 +12,7 @@ metadata:
 
 Use scheduler for time-based triggers. If the user wants to repeat an accepted goal's plan ("save this goal and run it every morning"), save it as a workflow first, then schedule the workflow. If the scheduled work may be long-running, need human review, or need restart resilience, schedule a workflow or a short prompt that creates an async goal instead of doing the whole job inline.
 
-Agents manage schedules with the native `scheduler` tool. The scheduler CLI remains the human/operator fallback; do not use it from an agent session when the native tool is available.
+Agents manage schedules with the native `scheduler` tool. Do not use the Stella CLI from an agent session.
 
 ## Actions
 
@@ -50,9 +50,9 @@ For the user-facing loop "save this goal and run it daily":
 
 Use a workflow schedule when the same accepted plan should replay with only inputs changing. Use a plain chat scheduler job when each run should be planned fresh.
 
-Scheduled workflows instantiate a fresh root goal on each fire. The scheduler skips only when the previous run completed instantiation and its root goal is still active; failed instantiation does not block the next tick, and a stalled instantiation is resumed instead of duplicated. Scheduled workflows are fully frozen by default; if a workflow is partially frozen, only schedule it when the user explicitly wants live replanning and the tool/CLI exposes the required opt-in.
+Scheduled workflows instantiate a fresh root goal on each fire. The scheduler skips only when the previous run completed instantiation and its root goal is still active; failed instantiation does not block the next tick, and a stalled instantiation is resumed instead of duplicated. Scheduled workflows are fully frozen by default; if a workflow is partially frozen, only schedule it when the user explicitly wants live replanning and the native tools expose the required opt-in.
 
-If the native scheduler tool does not expose workflow fields, use the `workflow` tool for workflow save/list/get/run and the CLI fallback only after checking `stella scheduler add --help`; do not rely on stale syntax from memory.
+If the native scheduler tool does not expose workflow fields, use the `workflow` tool for workflow save/list/get/run; do not rely on stale syntax from memory.
 
 ## Patterns
 

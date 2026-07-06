@@ -5,7 +5,7 @@ description: Stella cmd/stella 命令行界面约定。
 
 > 这是给贡献者看的**规则文件**。新增或修改 `cmd/stella/` 下的命令前，先读这页并遵守它。Stella 遵循 [Command Line Interface Guidelines](https://github.com/cli-guidelines/cli-guidelines) 的精神：命令要可预测、可脚本化、可组合，并且善待凌晨两点还在终端里的用户。
 
-Stella CLI 是 `stellad server` 的一等客户端，不是第二套后端。设计会修改服务端状态的功能前，先读 [CLI as a REST client](../cli-as-client) 和 [API design rules](./api-design)。
+Stella CLI 是 `stellad server` 的一等人类/operator 客户端，不是第二套后端，也不是 agent 集成界面。设计会修改服务端状态的功能前，先读 [CLI 与原生 agent 工具](../cli-as-client) 和 [API design rules](./api-design)。
 
 ## 核心原则
 
@@ -71,7 +71,7 @@ stella task list --status open --json
 - 只有没有自然的位置参数形式时，才使用必填 flag。
 - 布尔 flag 应使用正向语义：`--follow`、`--json`、`--force`。除非功能就是关闭默认行为，否则避免 `--no-cache` 这类反向 flag。
 - 跨命令复用 flag 名：`--server-url`、`--json`、`--force`、`--limit`。
-- 不要在面向 sandbox 的命令上暴露 `--agent-id` 这类安全作用域覆盖；作用域应从 scoped `STELLA_TOKEN` 派生。
+- 不要设计面向 sandbox 的 CLI 命令。agent 能力必须作为带服务端身份的原生工具交付，而不是 CLI flag 或 scoped bearer token。
 
 ## 帮助文本
 
@@ -98,7 +98,7 @@ ArgsUsage: "<path>",
 Usage: "Does stuff with the thing",
 ```
 
-帮助文本是用户文档。命令名、usage 字符串或重要 flag 改变时，更新用户文档，并让 `internal/agent/prompt/template/system_prompt.tmpl` 和真实命令 `Usage` 字符串保持同步。
+帮助文本是用户文档。命令名、usage 字符串或重要 flag 改变时，更新用户文档。面向 agent 的 prompt 和 skill 应指向原生工具，而不是 CLI 命令语法。
 
 ## 输出
 
@@ -149,7 +149,7 @@ abc123    open      Fix scheduler retry
 错误要简短、具体、可行动：
 
 ```text
-agent ID is required in STELLA_TOKEN
+missing bearer token: set STELLA_TOKEN or sign in through the Web UI
 ```
 
 差的错误会泄漏实现细节或让用户猜：
@@ -212,11 +212,11 @@ flag > environment variable > persisted config > default
 
 环境变量影响行为时，要在帮助文本里说明。常见变量：
 
-| 变量                | 用途                                                        |
-| ------------------- | ----------------------------------------------------------- |
-| `STELLA_SERVER_URL` | CLI-as-client 命令的服务端 base URL                         |
-| `STELLA_TOKEN`      | Bearer token；scoped sandbox token 也携带 CLI 上下文 claims |
-| `LOG_LEVEL`         | CLI 日志级别                                                |
+| 变量                | 用途                                                  |
+| ------------------- | ----------------------------------------------------- |
+| `STELLA_SERVER_URL` | CLI-as-client 命令的服务端 base URL                   |
+| `STELLA_TOKEN`      | 显式提供时供人类/operator CLI 请求使用的 bearer token |
+| `LOG_LEVEL`         | CLI 日志级别                                          |
 
 永远不要打印 secret。命令必须展示 secret 存在时，只展示元数据或脱敏值。
 
