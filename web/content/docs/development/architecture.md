@@ -38,7 +38,7 @@ Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, en
 ## Package Layout
 
 ```
-cmd/stella/              Entry point, CLI commands, service wiring
+cmd/stellad/             Entry point, server commands, service wiring
 internal/
   config/              Store interface, DBStore (PostgreSQL), Snapshot, types
   ai/                  Message/Content types, Model, Provider interface, streaming events

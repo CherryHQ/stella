@@ -10,7 +10,7 @@ title: CLI 与原生 agent 工具
 Stella 状态的进程。人类使用的界面通过 HTTP 调 server；agent 使用原生内置工具，
 这些工具在 server 侧以 `authz.Identity` facade 执行。
 
-旧的 sandbox 模式已经移除：sandbox 镜像不再携带 `stella` CLI，Stella 也不再向
+旧的 sandbox 模式已经移除：sandbox 镜像不再携带 Stella CLI，Stella 也不再向
 agent 会话注入 scoped bearer token。agent 不能在 sandbox 内认证到 HTTP API。需要给
 agent 能力时，提供原生工具。
 
@@ -19,7 +19,7 @@ agent 能力时，提供原生工具。
 │  Web UI  │ ────────────────────▶ │   stellad server     │
 └──────────┘                       │  • PostgreSQL        │
 ┌──────────┐         HTTP          │  • scheduler         │
-│ Human CLI│ ────────────────────▶ │  • plugin host       │
+│HTTP client│ ────────────────────▶ │  • plugin host       │
 └──────────┘                       │  • tool handlers     │
 ┌──────────┐   native tool call    │  • authz.Identity    │
 │  Agent   │ ────────────────────▶ │    As-facades        │
@@ -46,7 +46,7 @@ agent 能力时，提供原生工具。
    专用等价物；不要接受调用方传入的 subject override。
 4. 更新对应 system skill，让 agent 使用工具名和 action 字段，而不是 shell 命令。
 
-人类 CLI 仍是给 operator 和本地自动化使用的 client，但它不是 agent 集成界面。
+`stellad` 子命令仍供 operator 和本地维护使用，但它不是 agent 集成界面。
 
 ## 命令禁止做的事
 
@@ -55,5 +55,4 @@ agent 能力时，提供原生工具。
 - 直接读写 `STELLA_HOME` 下 server 自有文件。
 - 增加 sandbox 专用鉴权路径，或依赖 agent-scoped bearer token。
 
-在 `cmd/stella/` 下 grep `OpenDB`、`sqlc.` 或 `NewFileManager`，结果应当只剩
-server 启动相关代码或刻意的本地代码。
+在非 server 命令包中 grep `OpenDB`、`sqlc.` 或 `NewFileManager`，结果应当为空。server 启动和刻意的本地维护路径应位于 `cmd/stellad/` 或内部服务包。

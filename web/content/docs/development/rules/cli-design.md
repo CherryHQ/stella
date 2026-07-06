@@ -1,28 +1,48 @@
 ---
 title: CLI design rules
-description: Command-line interface conventions for Stella's cmd/stella commands.
+description: Command-line interface conventions for Stella's stellad operator commands.
 ---
 
-> This is a **rule file** for contributors. When you add or change a command
-> under `cmd/stella/`, read this page first and follow it. Stella follows the
-> spirit of the [Command Line Interface Guidelines](https://github.com/cli-guidelines/cli-guidelines):
+> This is a **rule file** for contributors. When you add or change a `stellad`
+> command, read this page first and follow it. Stella follows the spirit of the
+> [Command Line Interface Guidelines](https://github.com/cli-guidelines/cli-guidelines):
 > make commands predictable, scriptable, composable, and kind to humans using a
 > terminal at 2 a.m.
 
-Stella's CLI is a first-party human/operator client for `stellad server`, not a second backend and not an agent integration surface. For state-changing features, read [CLI and native agent tools](../cli-as-client) and
-[API design rules](./api-design) before designing the command surface.
+Stella has one binary: `stellad`. It owns server startup, background service
+management, upgrades, bootstrap utilities, and database maintenance. It is not a
+human chat client and not an agent integration surface. Agent capabilities ship
+as native tools via x-agent-tool/toolgen with server-side identity; do not add
+sandbox-facing CLI commands, scoped bearer-token shortcuts, or a second client
+binary.
+
+The current `stellad` surface is:
+
+- `stellad server` / `stellad serve` — start the server and Web UI.
+- `stellad service ...` — install, start, stop, inspect, and uninstall the background service.
+- `stellad upgrade` — upgrade the installed daemon binary.
+- `stellad version` — print the version.
+- `stellad postgres ...` — manage the embedded PostgreSQL runtime.
+- `stellad vault keygen` — generate `STELLA_VAULT_KEY` for bootstrap.
+- `stellad mise reconcile-builtins` — install builtin sandbox tools.
+- `stellad db migrate-sqlite` — copy a legacy SQLite database into PostgreSQL.
+- `stellad auth ...` — administrative identity utilities.
+
+Before designing command behavior for server-backed features, read [CLI and
+native agent tools](../cli-as-client) and [API design rules](./api-design).
 
 ## Core Principles
 
-1. **Human-friendly by default, machine-friendly on request.** Default output
+1. **Operator-only scope.** Add `stellad` commands only for bootstrap,
+   maintenance, migration, service management, and diagnostics. Product
+   features belong in the Web UI, HTTP API, and native agent tools.
+2. **Human-friendly by default, machine-friendly on request.** Default output
    should be readable in a terminal. Structured output belongs behind `--json`.
-2. **Boring beats clever.** Commands should do exactly what their names imply.
+3. **Boring beats clever.** Commands should do exactly what their names imply.
    Avoid hidden behavior, implicit network writes, and surprising defaults.
-3. **Composability matters.** Commands should work in scripts: stable exit
+4. **Composability matters.** Commands should work in scripts: stable exit
    codes, stderr for diagnostics, stdout for data, no unsolicited prompts in
    non-interactive contexts.
-4. **One command, one job.** A subcommand should have a clear purpose. If it
-   needs paragraphs to explain what it does, split it or rename it.
 5. **Preserve user data.** Destructive commands need explicit intent and clear
    error messages. Never silently delete, overwrite, or revoke.
 
@@ -31,23 +51,24 @@ Stella's CLI is a first-party human/operator client for `stellad server`, not a 
 Use the project pattern:
 
 ```text
-stella <noun> <verb> [args] [flags]
+stellad <domain> <verb> [args] [flags]
 ```
 
 Examples:
 
 ```text
-stella recally save <url>
-stella recally feed add <url>
-stella task cancel <task-id>
-stella share artifact <path>
+stellad vault keygen
+stellad mise reconcile-builtins
+stellad db migrate-sqlite --sqlite-path ./stella.db
+stellad service install --system
 ```
 
 ### Naming
 
-- Top-level commands are domain nouns: `recally`, `task`, `skill`, `vault`.
+- Top-level commands are daemon domains or lifecycle verbs: `server`, `service`,
+  `upgrade`, `version`, `postgres`, `vault`, `mise`, `db`, `auth`.
 - Subcommands are verbs or resource nouns when another level is needed:
-  `list`, `get`, `create`, `cancel`, `feed add`.
+  `keygen`, `reconcile-builtins`, `migrate-sqlite`, `install`, `status`.
 - Use lowercase, hyphen-separated names for multi-word commands and flags.
 - Prefer common verbs consistently:
 
@@ -68,14 +89,15 @@ as an alias for at least one release unless the old behavior is actively unsafe.
 Use positional arguments for the primary object the command acts on:
 
 ```text
-stella task get <task-id>
-stella share artifact <path>
+stellad upgrade 0.50.0
+stellad auth user get <user-id>
 ```
 
 Use flags for modifiers, optional context, filters, and output controls:
 
 ```text
-stella task list --status open --json
+stellad service install --system
+stellad db migrate-sqlite --sqlite-path ./stella.db --dry-run
 ```
 
 Rules:
@@ -84,27 +106,29 @@ Rules:
 - Required flags are allowed only when there is no natural positional form.
 - Boolean flags should be positive (`--follow`, `--json`, `--force`). Avoid
   negative flags like `--no-cache` unless disabling a default is the feature.
-- Reuse flag names across commands: `--server-url`, `--json`, `--force`, `--limit`.
-- Do not design sandbox-facing CLI commands. Agent capabilities must ship as native tools with server-side identity, not CLI flags or scoped bearer tokens.
+- Reuse flag names across commands: `--json`, `--force`, `--install-dir`, `--system`.
+- Do not design sandbox-facing CLI commands. Agent capabilities must ship as
+  native tools with server-side identity, not CLI flags or scoped bearer tokens.
 
 ## Help Text
 
-Every command should be understandable from `stella help <command>`.
+Every command should be understandable from `stellad help <command>` or
+`stellad <command> --help`.
 
 In `urfave/cli` terms:
 
 - `Name`: short, lowercase command token.
 - `Usage`: one sentence, imperative or noun-phrase, no trailing period.
 - `Description`: only when the command needs context, examples, or warnings.
-- `ArgsUsage`: include every positional argument, e.g. `<task-id>`.
-- `Category`: set on top-level commands (`Feature`, `System`, `Admin`) when it
-  helps the main help screen.
+- `ArgsUsage`: include every positional argument, e.g. `<version>`.
+- `Category`: set on top-level commands (`System`, `Admin`) when it helps the
+  main help screen.
 
 Good:
 
 ```go
-Usage:    "Create public share links",
-ArgsUsage: "<path>",
+Usage:    "Copy a legacy SQLite database into PostgreSQL",
+ArgsUsage: "",
 ```
 
 Bad:
@@ -124,7 +148,7 @@ point to native tools, not CLI command syntax.
 Anything a user may pipe to another program goes to stdout:
 
 ```bash
-stella task list --json | jq '.tasks[].id'
+stellad version
 ```
 
 Human-readable tables and successful result summaries may also go to stdout.
@@ -137,8 +161,8 @@ Progress, warnings, prompts, and errors go to stderr. This keeps stdout clean
 for pipes and command substitution.
 
 ```text
-Downloading attachments...        # stderr
-{"id":"...","status":"done"}    # stdout
+Downloading release archive...       # stderr
+0.50.0                               # stdout
 ```
 
 ### JSON output
@@ -149,7 +173,7 @@ only output is already a raw scalar or file content.
 Rules:
 
 - Emit valid JSON to stdout and nothing else on stdout.
-- Use the same `snake_case` field names as the API.
+- Use the same `snake_case` field names as the API when mirroring API data.
 - Prefer the API response shape directly; do not invent a second CLI schema.
 - Pretty-printing is fine for human use, but avoid changing the structure.
 - Errors still go to stderr and use non-zero exit codes; do not print successful
@@ -172,7 +196,7 @@ abc123    open      Fix scheduler retry
 Errors should be brief, specific, and actionable:
 
 ```text
-missing bearer token: set STELLA_TOKEN or sign in through the Web UI
+connect to Stella server: connection refused (start it with `stellad server`)
 ```
 
 Bad errors leak implementation or force guesswork:
@@ -196,7 +220,7 @@ it. One bit of failure is enough most of the time.
 When wrapping errors in Go, add the operation context once:
 
 ```go
-return fmt.Errorf("task cancel: %w", err)
+return fmt.Errorf("db migrate-sqlite: %w", err)
 ```
 
 Do not wrap the same noun at every layer until the message reads like a haunted
@@ -213,8 +237,8 @@ Rules:
 - Provide flags for scripted use instead of requiring prompts.
 - Confirmation prompts for destructive actions should show what will be changed.
 - `--force` may skip confirmation, but it must not widen the operation.
-- Never prompt for secrets if the value can be read from the vault or a standard
-  environment variable.
+- Never prompt for secrets if the value can be read from a standard environment
+  variable or generated as bootstrap output.
 
 ## Destructive Commands
 
@@ -231,7 +255,7 @@ Requirements:
    an explicit `--force`.
 4. Dry-run support is preferred for broad operations.
 
-Do not make `stella <thing> sync` delete remote data unless the help text and
+Do not make `stellad <thing> sync` delete remote data unless the help text and
 confirmation say that plainly. Surprise deletion is how tools get uninstalled
 with prejudice.
 
@@ -246,32 +270,34 @@ flag > environment variable > persisted config > default
 Document environment variables in help text when they affect behavior. Common
 variables include:
 
-| Variable            | Purpose                                                               |
-| ------------------- | --------------------------------------------------------------------- |
-| `STELLA_SERVER_URL` | Server base URL for CLI-as-client commands                            |
-| `STELLA_TOKEN`      | Bearer token for human/operator CLI requests when explicitly provided |
-| `LOG_LEVEL`         | CLI logging verbosity                                                 |
+| Variable              | Purpose                                    |
+| --------------------- | ------------------------------------------ |
+| `STELLA_HOME`         | Stella home directory                      |
+| `STELLA_DATABASE_URL` | External PostgreSQL connection URL         |
+| `STELLA_VAULT_KEY`    | age secret key for daemon vault encryption |
+| `LOG_LEVEL`           | CLI logging verbosity                      |
 
-Never print secrets. If a command must show that a secret exists, show metadata
-or a redacted value.
+Never print secrets except for explicit generation commands such as
+`stellad vault keygen`, where the secret value is the requested output.
 
-## Networking and Server Access
+## Server Access
 
-For features backed by server state, the CLI should call the generated API
-client instead of opening the database, reading server-owned files, or
-duplicating business logic.
+A `stellad` command that needs server state should prefer calling the same
+internal service layer used by `stellad server`, or the generated API client when
+it is intentionally operating against a running server. It must not duplicate
+business logic in a second command path.
 
 Pattern:
 
 1. Build a typed request from args and flags.
-2. Call `apiclient.Call` / the generated client.
+2. Call the service layer or generated client.
 3. Render the response.
 4. Return errors with command context.
 
-If the server is unavailable, say how to fix it:
+If the server is required but unavailable, say how to fix it:
 
 ```text
-connect to Stella server: connection refused (start it with `stellad server` or set STELLA_SERVER_URL)
+connect to Stella server: connection refused (start it with `stellad server`)
 ```
 
 ## Logging and Verbosity
@@ -296,30 +322,23 @@ exit behavior as compatibility surfaces.
 **Pre-launch exception.** Stella has not shipped a stable release yet, so there
 are no external scripts to protect. Until the first release, prefer full
 conformance over compatibility shims: rename commands to the correct shape and
-drop legacy aliases (including `rm`-style destructive aliases) outright instead
-of keeping them around. After launch, the compatibility rules above apply in
-full.
-
-**`vault get <name>` secret exception.** `vault get <name>` deliberately prints
-the raw secret value to stdout — it is the explicit single-resource retrieval
-used for scripting, and is the one sanctioned exception to "never print
-secrets." Every other surface (e.g. `vault list`, `email config get/list`) must
-keep secrets masked in both human and JSON output.
+drop legacy aliases outright instead of keeping them around. After launch, the
+compatibility rules above apply in full.
 
 ## Implementation Checklist
 
-When adding or changing a command under `cmd/stella/`:
+When adding or changing a `stellad` command:
 
-1. Does the command follow `stella <noun> <verb>` and existing domain naming?
-2. Are primary targets positional and modifiers flags?
-3. Are `Usage`, `Description`, and `ArgsUsage` clear in `stella help`?
-4. Does stdout contain only command data, with diagnostics on stderr?
-5. Does scriptable output support `--json` where appropriate?
-6. Are errors actionable and wrapped with useful command context?
-7. Are destructive actions explicit and protected from accidental broad impact?
-8. Does config precedence follow `flag > env > config > default`?
-9. For server-backed state, does the command use the generated API client rather
-   than direct database or file writes?
+1. Is this truly an operator/bootstrap/maintenance command rather than a product
+   feature that belongs in the Web UI, API, or native agent tool?
+2. Does the command follow `stellad <domain> <verb>` and existing domain naming?
+3. Are primary targets positional and modifiers flags?
+4. Are `Usage`, `Description`, and `ArgsUsage` clear in `stellad help`?
+5. Does stdout contain only command data, with diagnostics on stderr?
+6. Does scriptable output support `--json` where appropriate?
+7. Are errors actionable and wrapped with useful command context?
+8. Are destructive actions explicit and protected from accidental broad impact?
+9. Does config precedence follow `flag > env > config > default`?
 10. Are docs and `internal/agent/prompt/template/system_prompt.tmpl` updated if
     command usage changed?
 11. Are command tests updated for args, flags, output, and error behavior?

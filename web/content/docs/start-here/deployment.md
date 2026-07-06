@@ -34,18 +34,17 @@ Download a pre-built binary from [GitHub Releases](https://github.com/CherryHQ/s
 # Example: Linux amd64
 curl -LO https://github.com/CherryHQ/stella/releases/latest/download/stella_linux_amd64.tar.gz
 tar xzf stella_linux_amd64.tar.gz
-chmod +x stella stellad
-sudo mv stella stellad /usr/local/bin/
+chmod +x stellad
+sudo mv stellad /usr/local/bin/
 ```
 
 ### Go
 
 ```bash
-go install github.com/CherryHQ/stella/cmd/stella@latest
 go install github.com/CherryHQ/stella/cmd/stellad@latest
 # or
 git clone https://github.com/CherryHQ/stella.git
-cd stella && go build -o stella ./cmd/stella/ && go build -o stellad ./cmd/stellad/
+cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 ```
 
 ## Run
@@ -66,7 +65,7 @@ stellad server --host 0.0.0.0 --port 8080  # bind to all interfaces
 ### Version and Self-Upgrade
 
 ```bash
-stella version
+stellad version
 stellad upgrade
 stellad upgrade 0.50.0                             # install a specific release
 stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
@@ -143,7 +142,7 @@ Images are published to `ghcr.io/cherryhq/stella` for `linux/amd64` and `linux/a
 
 Docker images require an external PostgreSQL 18 server with `pg_search` and `pgvector` installed. Set `STELLA_DATABASE_URL`; the embedded runtime download path is for non-Docker installs.
 
-First, run stella with `--port 8080` to configure it via the Web UI:
+First, run `stellad server` with `--port 8080` to configure it via the Web UI:
 
 ```bash
 docker run -it --rm \
@@ -252,7 +251,7 @@ The daemon logs to stdout. Verify it is running:
 
 ```bash
 # Binary
-stella  # Logs appear in terminal
+stellad server  # Logs appear in terminal
 
 # Docker
 docker logs stella

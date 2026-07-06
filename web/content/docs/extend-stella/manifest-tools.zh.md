@@ -27,7 +27,7 @@ Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集�
 
 对于 Docker：
 
-- 必须开箱即用的内置 CLI 插件会预装到带版本的沙箱镜像中。沙箱镜像标签与 Stella release 绑定，因此一个 release 镜像可以包含该 Stella 版本对应的内置工具集合。镜像构建时运行 `stella mise reconcile-builtins`（与守护进程相同的 reconcile 流程），按 `resources/tools.yaml` 声明的标识符与版本安装，无需再单独维护一份 Docker 工具列表。
+- 必须开箱即用的内置 CLI 插件会预装到带版本的沙箱镜像中。沙箱镜像标签与 Stella release 绑定，因此一个 release 镜像可以包含该 Stella 版本对应的内置工具集合。镜像构建时运行 `stellad mise reconcile-builtins`（与守护进程相同的 reconcile 流程），按 `resources/tools.yaml` 声明的标识符与版本安装，无需再单独维护一份 Docker 工具列表。
 - `$STELLA_HOME/plugins.yaml` 仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。
 - 用户配置的 CLI 二进制需要一条容器原生的加载路径。它们应在 Docker 环境内按 Linux 目标安装，而不是从宿主机 `$STELLA_HOME/bin` 复制。
 

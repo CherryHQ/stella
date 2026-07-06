@@ -16,7 +16,7 @@ Before using the vault, you need to generate a master encryption key and provide
 stellad vault keygen
 ```
 
-This prints a secret key. Copy the line starting with `AGE-SECRET-KEY-1`. `stella vault keygen` still works for CLI users, but daemon bootstrap should use `stellad vault keygen`.
+This prints a secret key. Copy the line starting with `AGE-SECRET-KEY-1`. `stellad vault keygen --help` is the source of truth for bootstrap flags.
 
 ### 2. Start Stella with the Key
 

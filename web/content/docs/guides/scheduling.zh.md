@@ -22,23 +22,13 @@ title: 定时任务
 
 订阅后会出现在定时任务列表，并带有模板标识（例如 `订阅 · recally-rss`）。提示词由平台维护且只读——如需自定义提示词，请创建普通定时任务。
 
-### 通过 CLI 订阅
+### 通过对话订阅
 
-```bash
-# 列出可用模板并查看订阅状态
-stella scheduler templates
+直接让 Stella 创建或移除模板订阅。代理使用原生 scheduler 工具，所以你可以这样说：
 
-# 订阅（使用模板默认频率）
-stella scheduler subscribe recally-rss
-
-# 订阅并自定义频率
-stella scheduler subscribe recally-rss --every 12h
-
-# 取消订阅
-stella scheduler unsubscribe recally-rss
-```
-
-运行 `stella scheduler subscribe --help` 或 `stella scheduler unsubscribe --help` 查看完整参数说明。
+- “订阅 Recally RSS 模板。”
+- “每 12 小时运行一次 Recally RSS 模板。”
+- “取消订阅 Recally RSS 模板。”
 
 ### 通过 API 订阅
 
@@ -98,40 +88,6 @@ Stella 会将这些翻译成合适的调度类型并为你创建任务。
 - 启用或禁用任务
 - 编辑任务设置
 - 删除任务
-
-### 从 CLI
-
-```bash
-# 列出所有定时任务
-stella scheduler list
-
-# 以 JSON 格式列出任务（适合脚本使用）
-stella scheduler list --json
-
-# 添加循环任务（间隔）
-stella scheduler add --name "email-check" \
-  --message "Check my email and summarize new messages" \
-  --every 30m
-
-# 添加循环任务（cron）
-stella scheduler add --name "morning-briefing" \
-  --message "Give me a morning briefing" \
-  --cron "0 9 * * 1-5"
-
-# 添加一次性提醒
-stella scheduler add --name "dentist-reminder" \
-  --message "Remind me to call the dentist" \
-  --at "2024-12-15T15:00:00+08:00"
-
-# 添加指定会话模式的任务
-stella scheduler add --name "weather" \
-  --message "Check today's weather in Beijing" \
-  --every 24h \
-  --session-mode new
-
-# 移除任务
-stella scheduler remove <job-id>
-```
 
 ## 小贴士
 

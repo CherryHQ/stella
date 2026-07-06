@@ -12,7 +12,7 @@ A plugin:
 - has one canonical plugin ID such as `tool/webfetch`, `channel/telegram`, or `reflect`
 - owns its own metadata, config schema, validation, and status behavior
 - can register one or more capabilities against the plugin host
-- is compiled into the `stella` binary at build time
+- is compiled into the `stellad` binary at build time
 
 Stella does not load third-party binaries or subprocess plugins. Built-in plugins register themselves during process startup through Go `init()` functions.
 

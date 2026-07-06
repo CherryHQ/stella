@@ -115,7 +115,7 @@ host.AddAdmin(pkgplugins.AdminSpec{
 
 Built-in plugins are registered through blank imports. Add your package to the existing startup imports so the `init()` function runs.
 
-Look at `cmd/stella/plugins_imports.go` and follow the established pattern.
+Look at `cmd/stellad/plugins_imports.go` and follow the established pattern.
 
 Without that import, the plugin package compiles but never registers itself.
 

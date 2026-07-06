@@ -96,8 +96,6 @@ Stella 可以给你一份每日阅读总结：
 
 你可以把它安排为每天早上的自动简报——直接让 Stella "每天早上8点给我一份阅读摘要"。
 
-## Agent 和 CLI 访问
+## Agent 和 Web UI 访问
 
-在聊天中，Stella 使用原生 Recally 工具保存文章、管理 feeds、生成摘要。聊天外自动化脚本仍然可以使用 CLI。
-
-编写脚本时再参考 [Recally CLI 参考](/docs/recally/cli)。
+在聊天中，Stella 使用原生 Recally 工具保存文章、管理 feeds、生成摘要。聊天外可以在 Web UI 管理阅读列表；自动化场景使用 HTTP API。

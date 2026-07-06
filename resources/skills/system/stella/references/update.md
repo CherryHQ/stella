@@ -3,7 +3,7 @@
 ## Check current version
 
 ```bash
-stella version
+stellad version
 ```
 
 ## Self-update (recommended)
@@ -21,7 +21,6 @@ Downloads a stable release from GitHub for your platform (the latest by default,
 ### Go install
 
 ```bash
-go install github.com/CherryHQ/stella/cmd/stella@latest
 go install github.com/CherryHQ/stella/cmd/stellad@latest
 ```
 

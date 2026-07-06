@@ -42,7 +42,7 @@ stellad server
 # 4. 打开 Chat，开始对话
 ```
 
-你也可以使用 `go install github.com/CherryHQ/stella/cmd/stella@latest && go install github.com/CherryHQ/stella/cmd/stellad@latest` 安装，或从 [Releases](https://github.com/CherryHQ/stella/releases) 下载二进制文件。
+你也可以使用 `go install github.com/CherryHQ/stella/cmd/stellad@latest` 安装，或从 [Releases](https://github.com/CherryHQ/stella/releases) 下载二进制文件。
 
 详见[完整快速开始指南](web/content/docs/getting-started/quickstart.zh.md)。
 
@@ -79,9 +79,10 @@ stellad server
 stellad server                          # 启动服务器；Web UI 位于 http://localhost:25678
 stellad server --port 8080              # 自定义端口
 stellad upgrade                         # 自升级到最新版本
-stella scheduler list                   # 列出定时任务
-stella vault list                       # 列出已保存的密钥
-stella version                          # 打印版本
+stellad version                         # 打印版本
+stellad vault keygen                    # 生成保险库引导密钥
+stellad mise reconcile-builtins         # 同步内置沙箱工具
+stellad db migrate-sqlite               # 将旧 SQLite 数据库复制到 PostgreSQL
 ```
 
 ## 开发

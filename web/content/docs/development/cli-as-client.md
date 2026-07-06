@@ -11,7 +11,7 @@ files, fetches feeds, or mutates Stella state. Human surfaces call the server ov
 HTTP; agent surfaces call native built-in tools that run server-side with an
 `authz.Identity` facade.
 
-The old sandbox pattern is gone: the sandbox image does not ship the `stella` CLI,
+The old sandbox pattern is gone: the sandbox image does not ship a Stella CLI,
 and Stella no longer injects scoped bearer tokens into agent sessions. Agents cannot
 authenticate to the HTTP API from inside the sandbox. Give agent capabilities as
 native tools instead.
@@ -21,7 +21,7 @@ native tools instead.
 │   Web UI │ ────────────────────▶ │   stellad server     │
 └──────────┘                       │  • PostgreSQL        │
 ┌──────────┐         HTTP          │  • scheduler         │
-│ Human CLI│ ────────────────────▶ │  • plugin host       │
+│HTTP client│ ────────────────────▶ │  • plugin host       │
 └──────────┘                       │  • tool handlers     │
 ┌──────────┐   native tool call    │  • authz.Identity    │
 │  Agent   │ ────────────────────▶ │    As-facades        │
@@ -52,8 +52,8 @@ For a new agent capability:
 4. Update the relevant system skill so agents use the tool name and action fields,
    not a shell command.
 
-The human CLI remains a client for operators and local automation, but it is not
-an agent integration surface.
+`stellad` subcommands remain for operators and local maintenance, but they are
+not an agent integration surface.
 
 ## What commands must NOT do
 
@@ -62,5 +62,6 @@ an agent integration surface.
 - Read or write server-owned files under `STELLA_HOME` directly.
 - Add sandbox-only authentication paths or depend on agent-scoped bearer tokens.
 
-A grep over `cmd/stella/` for `OpenDB`, `sqlc.`, or `NewFileManager` should turn
-up only server bootstrap or intentionally local code.
+A grep over non-server command packages for `OpenDB`, `sqlc.`, or
+`NewFileManager` should turn up empty. Server bootstrap and intentionally local
+maintenance paths belong under `cmd/stellad/` or internal service packages.
