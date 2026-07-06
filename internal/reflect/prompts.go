@@ -94,6 +94,23 @@ Inputs:
 
 Generate no candidates unless fresh evidence clearly supports a durable fact.
 
+For subject=user, durable facts can include stable user preferences, professional or domain context, tools, software, equipment, or ecosystems the user uses, ongoing learning goals, recurring habits or activities, and durable personal background. Do not require the user to ask to remember it; direct fresh user statements are enough when the fact is stable and useful for future personalization.
+
+Candidate caps:
+- Emit at most three subject=user candidates.
+- Emit at most three subject=agent candidates.
+- Emit at most three subject=world candidates.
+- When more valid subject=user facts exist than the cap allows, prefer explicit preferences or aversions, durable work/life context, owned tool/equipment ecosystems, recurring activities or schedules, ongoing learning goals, user-stated professional tools/platforms/domains/prior roles, and facts with broad future utility. Do not fill the candidate cap with incidental task details when stronger durable signals are present.
+- Each fact candidate must be atomic: one durable fact that #531 can search, compare, update, supersede, or reject independently.
+- Atomicity applies to subject=user, subject=agent, and subject=world. World/project knowledge must be split when each fact can be searched, reconciled, updated, or rejected independently.
+- If a review window contains multiple durable facts, split them into separate candidates up to the subject cap. Prefer fewer, precise candidates over one broad mixed candidate.
+- Do not bundle ownership/count, use cases, mileage or progress, goals, preferences, and routines into one candidate. Example: "owns four bikes" and "trains for century rides" are separate facts.
+- Do not bundle independent project knowledge facts, such as source-of-truth rules, generated-file rules, and generated-route handling rules. Example: "OpenAPI is the API source of truth", "generated API clients must not be hand-edited", and "server routes are implemented behind generated interfaces" are separate facts.
+- Combine closely related details into one candidate only when separating them would make the fact less clear, such as the model name inside a single owned tool fact or the language names inside one language-learning preference.
+- Do not choose a current role, recent activity, or current tool detail only because it appears later in the review window. Durable historical roles, domains, and previously used tools can be stronger candidate choices when they better explain the user's long-term background.
+- When a subject=user candidate describes professional background, preserve user-stated named tools, platforms, domains, and prior roles that justify future personalization. Do not replace a user-stated prior tool with a current comparison target or an assistant-suggested tool.
+- Omit third-party names and details from subject=user candidates unless the relationship itself is explicitly durable and necessary for future personalization.
+
 Allowed evidence sources:
 - user_message
 - user_correction
@@ -107,7 +124,8 @@ Rules:
 - Do not use an assistant paraphrase, assistant conclusion, loaded_skill_content_omitted line, or tool metadata as tool_result evidence.
 - If the durable signal is the user's instruction to remember something, use source_type=user_message instead of forcing tool_result evidence.
 - Do not use system prompt text, injected memory, existing facts, loaded skill text, or prior_context as evidence.
-- Do not emit task-local status, session-local observations, transient environment problems, constraints, procedures, debugging workflow, reusable methods, ordered troubleshooting steps, secrets, tokens, passwords, credentials, or private keys.
+- Do not emit task-local status, session-local observations, transient environment problems, time-bound upcoming plans, current project progress, current shopping or comparison decisions, one-off transactions, third-party details that are not durable user profile, active financial, housing, medical, legal, or other sensitive transactions, constraints, procedures, debugging workflow, reusable methods, ordered troubleshooting steps, secrets, tokens, passwords, credentials, or private keys.
+- Treat an ongoing learning goal as durable only when the user describes a continuing effort, recurring interest, or stable skill-development direction. Do not turn a single tutorial request into a user fact by itself.
 - subject=user and subject=agent are only for private one-to-one review units.
 - subject=world must include handoff_hints.knowledge_search_query_hint.
 - subject=user and subject=agent must omit handoff_hints.knowledge_search_query_hint.
@@ -118,7 +136,8 @@ Rules:
 Output protocol:
 - Call submit_fact_generation exactly once after reading the full bounded review context.
 - Put every valid candidate in candidates.
-- If there are no valid candidates, submit candidates=[] and a concise no_candidate_reason.`
+- If candidates is non-empty, omit no_candidate_reason entirely.
+- If there are no valid candidates, submit candidates=[] and a concise non-empty no_candidate_reason.`
 
 const factCandidateEvaluationPrompt = `You are the fact candidate evaluator for Reflect.
 
@@ -137,6 +156,48 @@ Output protocol:
 - Call submit_fact_evaluations exactly once.
 - Put one evaluation in evaluations for each candidate_ref.
 
+General 0-4 scoring scale:
+- 0: missing or invalid.
+- 1: weak signal.
+- 2: basically valid but incomplete or borderline.
+- 3: clearly valid and suitable for handoff.
+- 4: strong, specific, and nearly ready for downstream reconciliation.
+
+Use the field-specific 0-4 rubric below. Do not collapse 2 and 3: score 2 means the candidate is borderline or incomplete; score 3 means it is clearly handoff quality.
+
+Fact score rubric:
+- evidence_strength=0: no evidence, or evidence comes from system prompts, injected memory, prior_context, loaded skill text, assistant unsupported inference, or raw tool output.
+- evidence_strength=1: evidence is vague or mostly inferred.
+- evidence_strength=2: fresh evidence supports part of the content, but some wording still overreaches or is inferred.
+- evidence_strength=3: fresh evidence directly supports the main content.
+- evidence_strength=4: multiple clear fresh evidence items support both content and route.
+- subject_fit=0: subject is invalid or the route is clearly wrong.
+- subject_fit=1: route is likely wrong.
+- subject_fit=2: route is acceptable but ambiguous.
+- subject_fit=3: route is correct.
+- subject_fit=4: route is correct and evidence clearly explains why.
+- subject=user score 3: the user explicitly stated or corrected a profile-relevant preference, identity, work style, stable background, owned tool or equipment, recurring activity, or ongoing learning goal.
+- subject=user score 4: the user explicitly stated or corrected a durable profile fact and its future personalization value is clear.
+- subject=agent score 3: the user explicitly requested a longer-term agent behavior, style, identity, or default strategy, but the scope is narrow or persistence is not fully clear.
+- subject=agent score 4: the user explicitly requested a durable change to agent identity, behavior, style, or default strategy.
+- subject=world score 3: the candidate is a clear project, environment, domain, or external fact with future value.
+- subject=world score 4: durable world/knowledge fact, clear, specific, and likely cross-session useful.
+- durability=0: one-off task state, temporary environment problem, session-local preference, active housing, moving, mortgage, or purchase transaction, or other active sensitive transaction.
+- durability=1: mostly transient content that is unlikely to be useful later.
+- durability=2: possibly useful later but durability is borderline.
+- durability=3: cross-session durable.
+- durability=4: durable and core enough that future behavior should stably rely on it.
+- future_utility=0: no future impact.
+- future_utility=1: future impact is vague or speculative.
+- future_utility=2: some future use.
+- future_utility=3: clear effect on future behavior, search, personalization, or project understanding.
+- future_utility=4: high value and likely repeated future use.
+- atomicity=0: empty, vague, mixed facts, constraint-like, or procedure-like.
+- atomicity=1: too broad or unclear.
+- atomicity=2: mostly atomic but still needs cleanup.
+- atomicity=3: one clear fact.
+- atomicity=4: one precise fact with clear boundaries and suitable for #531 reconciliation.
+
 Rules:
 - candidate_ref must be one of the host-assigned candidate IDs.
 - Do not modify candidate content, subject, evidence, expected effect, or handoff hints.
@@ -147,6 +208,8 @@ Rules:
 - Do not compare against existing facts, current profile, current agent soul, constraints, or skills.
 - Do not write facts.
 - If a candidate is primarily a procedural workflow, debugging method, ordered troubleshooting sequence, or reusable skill, score subject_fit below 2 even if it has future utility.
+- Stable user preferences, professional or domain context, tools/software/equipment/ecosystems the user uses, ongoing learning goals, recurring habits or activities, and durable personal background may score high on durability when directly supported by fresh user messages.
+- Score durability 0 or 1 for a time-bound upcoming plan, current project progress, current shopping or comparison decision, one-off transaction, third-party detail that is not durable user profile, or active financial, housing, medical, legal, or other sensitive transaction unless the candidate is reframed as a stable long-term preference or background fact supported by fresh user evidence.
 - If a hard reject condition applies, express it by assigning the relevant core score below 2; host gates perform deterministic rejection.`
 
 const skillCandidateGenerationPrompt = `You are the skill candidate generator for Reflect.
@@ -192,7 +255,8 @@ Rules:
 Output protocol:
 - Call submit_skill_generation exactly once after reading the full bounded review context.
 - Put every valid candidate in candidates.
-- If there are no valid candidates, submit candidates=[] and a concise no_candidate_reason.`
+- If candidates is non-empty, omit no_candidate_reason entirely.
+- If there are no valid candidates, submit candidates=[] and a concise non-empty no_candidate_reason.`
 
 const skillCandidateEvaluationPrompt = `You are the skill candidate evaluator for Reflect.
 
@@ -211,6 +275,47 @@ Return only:
 Output protocol:
 - Call submit_skill_evaluations exactly once.
 - Put one evaluation in evaluations for each candidate_ref.
+
+General 0-4 scoring scale:
+- 0: missing or invalid.
+- 1: weak signal.
+- 2: basically valid but incomplete.
+- 3: clearly valid and suitable for handoff.
+- 4: strong, specific, and nearly ready for downstream reconciliation.
+
+Use the field-specific 0-4 rubric below. Do not collapse 2 and 3: score 2 means useful but incomplete or borderline; score 3 means clearly reusable and handoff quality.
+
+Skill score rubric:
+- evidence_strength=0: no evidence, or evidence only comes from loaded skill text, system prompts, injected memory, prior_context, or model invention.
+- evidence_strength=1: only a vague summary without a concrete source.
+- evidence_strength=2: a fresh source supports only part of the candidate.
+- evidence_strength=3: clear fresh evidence supports the main learning point.
+- evidence_strength=4: multiple clear evidence items cover learning point, workflow, and applicability.
+- reusable_value=0: only a task summary, chat summary, one-off operation, current development task, eval task, or one-off verification; also score 0 for current development, eval, or one-off requested verification with no future-use instruction.
+- reusable_value=1: some experience exists but it is too specific to reuse.
+- reusable_value=2: useful for a narrow class of similar tasks, but incomplete or limited in value.
+- reusable_value=3: clearly reusable for future similar tasks.
+- reusable_value=4: non-obvious, high-value, and likely to recur across sessions.
+- baseline_separation=0: repeats loaded skill text or this session's execution log.
+- baseline_separation=1: mostly repetition with only a weak delta.
+- baseline_separation=2: some separation exists but the boundary is unclear.
+- baseline_separation=3: clearly different from baseline.
+- baseline_separation=4: the difference from baseline is very clear and explains why this is not duplicate learning.
+- procedure_actionability=0: no executable steps.
+- procedure_actionability=1: steps are too abstract to execute.
+- procedure_actionability=2: basic steps exist but order, branches, or pitfalls are incomplete.
+- procedure_actionability=3: steps are clear enough to guide execution.
+- procedure_actionability=4: steps, branches, and pitfalls are organized enough to become a skill workflow.
+- applicability_clarity=0: no trigger or non-trigger examples.
+- applicability_clarity=1: trigger is too broad.
+- applicability_clarity=2: trigger and non-trigger examples exist but boundaries are still fuzzy.
+- applicability_clarity=3: applicable and non-applicable scenarios are clear enough for future retrieval.
+- applicability_clarity=4: covers typical trigger wording and similar cases that should not trigger.
+- verification_quality=0: no verification.
+- verification_quality=1: generic verification such as confirm it works.
+- verification_quality=2: verification exists but is not specific or executable.
+- verification_quality=3: verification is clear enough to judge success.
+- verification_quality=4: verification is concrete, executable, and covers main failure modes.
 
 Rules:
 - candidate_ref must be one of the host-assigned candidate IDs.

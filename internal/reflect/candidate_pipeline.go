@@ -138,19 +138,23 @@ func dedupeReviewSkips(skips []ReviewSkip) []ReviewSkip {
 		return skips
 	}
 	type skipKey struct {
-		Reason ReviewSkipReason
-		Role   string
-		At     string
-		Size   int
+		Reason   ReviewSkipReason
+		Role     string
+		At       string
+		FirstSeq int64
+		LastSeq  int64
+		Size     int
 	}
 	seen := make(map[skipKey]struct{}, len(skips))
 	out := make([]ReviewSkip, 0, len(skips))
 	for _, skip := range skips {
 		key := skipKey{
-			Reason: skip.Reason,
-			Role:   skip.Role,
-			At:     skip.At.UTC().Format(time.RFC3339Nano),
-			Size:   skip.Size,
+			Reason:   skip.Reason,
+			Role:     skip.Role,
+			At:       skip.At.UTC().Format(time.RFC3339Nano),
+			FirstSeq: skip.FirstSeq,
+			LastSeq:  skip.LastSeq,
+			Size:     skip.Size,
 		}
 		if _, ok := seen[key]; ok {
 			continue

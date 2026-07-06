@@ -145,13 +145,13 @@ func TestFactCandidateRunnerRetriesUnknownPayloadField(t *testing.T) {
 	}
 }
 
-func TestCandidateRunnerAllowsEmptyGenerationBatchWithoutReason(t *testing.T) {
+func TestCandidateRunnerRetriesEmptyGenerationBatchWithoutReason(t *testing.T) {
 	factStream := sequentialCaptureStream(t,
 		[]ai.ToolCall{
 			rawToolCall("submit_fact_generation", `{"candidates":[]}`),
 		},
 		[]ai.ToolCall{
-			rawToolCall("submit_fact_generation", `{"candidates":[]}`),
+			rawToolCall("submit_fact_generation", `{"candidates":[],"no_candidate_reason":"no durable fact signal"}`),
 		},
 	)
 	factRunner := candidateLineReviewer{Stream: factStream, Model: ai.Model{ID: "test-model"}}
@@ -162,7 +162,7 @@ func TestCandidateRunnerAllowsEmptyGenerationBatchWithoutReason(t *testing.T) {
 		PrivateOneToOne: true,
 	})
 	if err != nil {
-		t.Fatalf("empty fact generation batch should not fail: %v", err)
+		t.Fatalf("empty fact generation batch with retry reason should not fail: %v", err)
 	}
 	if len(facts) != 0 {
 		t.Fatalf("expected no fact candidates, got %#v", facts)
@@ -173,7 +173,7 @@ func TestCandidateRunnerAllowsEmptyGenerationBatchWithoutReason(t *testing.T) {
 			rawToolCall("submit_skill_generation", `{"candidates":[]}`),
 		},
 		[]ai.ToolCall{
-			rawToolCall("submit_skill_generation", `{"candidates":[]}`),
+			rawToolCall("submit_skill_generation", `{"candidates":[],"no_candidate_reason":"no reusable task procedure"}`),
 		},
 	)
 	skillRunner := candidateLineReviewer{Stream: skillStream, Model: ai.Model{ID: "test-model"}}
@@ -184,10 +184,182 @@ func TestCandidateRunnerAllowsEmptyGenerationBatchWithoutReason(t *testing.T) {
 		PrivateOneToOne: true,
 	})
 	if err != nil {
-		t.Fatalf("empty skill generation batch should not fail: %v", err)
+		t.Fatalf("empty skill generation batch with retry reason should not fail: %v", err)
 	}
 	if len(skills) != 0 {
 		t.Fatalf("expected no skill candidates, got %#v", skills)
+	}
+}
+
+func TestCandidateRunnerRetriesGenerationBatchWithCandidatesAndReason(t *testing.T) {
+	factStream := sequentialCaptureStream(t,
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_generation", `{"candidates":[{
+				"subject":"world",
+				"content":"Generation batches with candidates should omit no_candidate_reason.",
+				"evidence":[{"source_type":"user_message","source":"[user] keep the protocol unambiguous","reason":"The user asked for clear capture output."}],
+				"expected_effect":"Reflect reports can distinguish candidate and no-candidate outputs.",
+				"handoff_hints":{"knowledge_search_query_hint":"reflect generation batch protocol"}
+			}],"no_candidate_reason":"also found a candidate"}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_generation", `{"candidates":[{
+				"subject":"world",
+				"content":"Generation batches with candidates should omit no_candidate_reason.",
+				"evidence":[{"source_type":"user_message","source":"[user] keep the protocol unambiguous","reason":"The user asked for clear capture output."}],
+				"expected_effect":"Reflect reports can distinguish candidate and no-candidate outputs.",
+				"handoff_hints":{"knowledge_search_query_hint":"reflect generation batch protocol"}
+			}]}`),
+		},
+	)
+	factRunner := candidateLineReviewer{Stream: factStream, Model: ai.Model{ID: "test-model"}}
+
+	facts, err := factRunner.generateFactCandidates(context.Background(), ReviewUnit{
+		Text:            "<fresh_conversation>\n[user] keep the protocol unambiguous\n</fresh_conversation>\n",
+		FreshCount:      1,
+		PrivateOneToOne: true,
+	})
+	if err != nil {
+		t.Fatalf("fact generation should retry after ambiguous no_candidate_reason: %v", err)
+	}
+	if len(facts) != 1 || facts[0].Ref != "fact-0001" {
+		t.Fatalf("expected retry to recover one fact candidate, got %#v", facts)
+	}
+
+	skillStream := sequentialCaptureStream(t,
+		[]ai.ToolCall{
+			rawToolCall("submit_skill_generation", `{"candidates":[{
+				"learning":{"summary":"Keep generation batch protocol unambiguous.","reusable_delta":"A submit call with candidates should not also claim there were no candidates."},
+				"evidence":[{"signal_type":"explicit_instruction","source":"[user] keep reports readable","reason":"The user requested clearer eval reports."}],
+				"applicability":{"trigger_examples":["Adding a capture protocol"],"non_trigger_examples":["Casual chat"]},
+				"procedure":{"steps":["Submit candidates"],"verification":["Confirm reports contain either candidates or a no-candidate reason"]},
+				"handoff_hints":{"search_query_hint":"reflect generation batch protocol"}
+			}],"no_candidate_reason":"also found a candidate"}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_skill_generation", `{"candidates":[{
+				"learning":{"summary":"Keep generation batch protocol unambiguous.","reusable_delta":"A submit call with candidates should not also claim there were no candidates."},
+				"evidence":[{"signal_type":"explicit_instruction","source":"[user] keep reports readable","reason":"The user requested clearer eval reports."}],
+				"applicability":{"trigger_examples":["Adding a capture protocol"],"non_trigger_examples":["Casual chat"]},
+				"procedure":{"steps":["Submit candidates"],"verification":["Confirm reports contain either candidates or a no-candidate reason"]},
+				"handoff_hints":{"search_query_hint":"reflect generation batch protocol"}
+			}]}`),
+		},
+	)
+	skillRunner := candidateLineReviewer{Stream: skillStream, Model: ai.Model{ID: "test-model"}}
+
+	skills, err := skillRunner.generateSkillCandidates(context.Background(), ReviewUnit{
+		Text:            "<fresh_conversation>\n[user] keep reports readable\n</fresh_conversation>\n",
+		FreshCount:      1,
+		PrivateOneToOne: true,
+	})
+	if err != nil {
+		t.Fatalf("skill generation should retry after ambiguous no_candidate_reason: %v", err)
+	}
+	if len(skills) != 1 || skills[0].Ref != "skill-0001" {
+		t.Fatalf("expected retry to recover one skill candidate, got %#v", skills)
+	}
+}
+
+func TestCandidateRunnerRetriesGenerationWithInvalidCandidateShape(t *testing.T) {
+	factStream := sequentialCaptureStream(t,
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_generation", `{"candidates":[{
+				"subject":"world",
+				"content":"Invalid fact candidates should be retried.",
+				"evidence":[],
+				"expected_effect":"Invalid payloads must not enter evaluation.",
+				"handoff_hints":{"knowledge_search_query_hint":"invalid fact candidate retry"}
+			}]}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_generation", `{"candidates":[{
+				"subject":"world",
+				"content":"Valid fact candidates continue after retry.",
+				"evidence":[{"source_type":"user_message","source":"[user] retry invalid candidate","reason":"The user asked for strict capture validation."}],
+				"expected_effect":"Invalid payloads are corrected before evaluation.",
+				"handoff_hints":{"knowledge_search_query_hint":"strict fact candidate validation"}
+			}]}`),
+		},
+	)
+	factRunner := candidateLineReviewer{Stream: factStream, Model: ai.Model{ID: "test-model"}}
+
+	facts, err := factRunner.generateFactCandidates(context.Background(), ReviewUnit{
+		Text:            "<fresh_conversation>\n[user] retry invalid candidate\n</fresh_conversation>\n",
+		FreshCount:      1,
+		PrivateOneToOne: true,
+	})
+	if err != nil {
+		t.Fatalf("fact generation should retry invalid candidate shape: %v", err)
+	}
+	if len(facts) != 1 || facts[0].Content != "Valid fact candidates continue after retry." {
+		t.Fatalf("expected retry to recover valid fact candidate, got %#v", facts)
+	}
+
+	skillStream := sequentialCaptureStream(t,
+		[]ai.ToolCall{
+			rawToolCall("submit_skill_generation", `{"candidates":[{
+				"learning":{"summary":"Invalid skill candidates should be retried.","reusable_delta":"Blank steps are not usable."},
+				"evidence":[{"signal_type":"explicit_instruction","source":"[user] retry invalid skill candidate","reason":"The user asked for strict capture validation."}],
+				"applicability":{"trigger_examples":["Reflecting learnings"],"non_trigger_examples":["Casual chat"]},
+				"procedure":{"steps":[""],"verification":["Run reflect tests"]},
+				"handoff_hints":{"search_query_hint":"invalid skill candidate retry"}
+			}]}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_skill_generation", `{"candidates":[{
+				"learning":{"summary":"Valid skill candidates continue after retry.","reusable_delta":"Blank array entries are rejected before evaluation."},
+				"evidence":[{"signal_type":"explicit_instruction","source":"[user] retry invalid skill candidate","reason":"The user asked for strict capture validation."}],
+				"applicability":{"trigger_examples":["Reflecting learnings"],"non_trigger_examples":["Casual chat"]},
+				"procedure":{"steps":["Validate generated candidates"],"verification":["Run reflect tests"]},
+				"handoff_hints":{"search_query_hint":"strict skill candidate validation"}
+			}]}`),
+		},
+	)
+	skillRunner := candidateLineReviewer{Stream: skillStream, Model: ai.Model{ID: "test-model"}}
+
+	skills, err := skillRunner.generateSkillCandidates(context.Background(), ReviewUnit{
+		Text:            "<fresh_conversation>\n[user] retry invalid skill candidate\n</fresh_conversation>\n",
+		FreshCount:      1,
+		PrivateOneToOne: true,
+	})
+	if err != nil {
+		t.Fatalf("skill generation should retry invalid candidate shape: %v", err)
+	}
+	if len(skills) != 1 || skills[0].Learning.Summary != "Valid skill candidates continue after retry." {
+		t.Fatalf("expected retry to recover valid skill candidate, got %#v", skills)
+	}
+}
+
+func TestCandidateRunnerRetriesEvaluationWithInvalidScoreRange(t *testing.T) {
+	stream := sequentialCaptureStream(t,
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_evaluations", `{"evaluations":[{
+				"candidate_ref":"fact-0001",
+				"scores":{"evidence_strength":99,"subject_fit":4,"durability":4,"future_utility":4,"atomicity":4},
+				"rationale":"invalid score range"
+			}]}`),
+		},
+		[]ai.ToolCall{
+			rawToolCall("submit_fact_evaluations", `{"evaluations":[{
+				"candidate_ref":"fact-0001",
+				"scores":{"evidence_strength":4,"subject_fit":4,"durability":4,"future_utility":4,"atomicity":4},
+				"rationale":"valid score range"
+			}]}`),
+		},
+	)
+	runner := candidateLineReviewer{Stream: stream, Model: ai.Model{ID: "test-model"}}
+
+	evaluations, err := runner.evaluateFactCandidates(context.Background(), ReviewUnit{
+		Text:            "<fresh_conversation>\n[user] validate scores\n</fresh_conversation>\n",
+		FreshCount:      1,
+		PrivateOneToOne: true,
+	}, []factCandidate{validFactCandidate("fact-0001", factSubjectWorld)})
+	if err != nil {
+		t.Fatalf("fact evaluation should retry invalid score range: %v", err)
+	}
+	if len(evaluations) != 1 || evaluations[0].Scores[factScoreEvidenceStrength] != 4 {
+		t.Fatalf("expected retry to recover valid evaluation, got %#v", evaluations)
 	}
 }
 

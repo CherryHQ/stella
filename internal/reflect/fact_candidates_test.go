@@ -118,8 +118,12 @@ func TestFactCapsArePerSubject(t *testing.T) {
 
 	result := gateFactCandidates(candidates, evaluations, factGateOptions{PrivateOneToOne: true})
 
-	if len(result.Accepted) != 9 {
-		t.Fatalf("expected 9 accepted facts, got %d: %#v", len(result.Accepted), result.Accepted)
+	if !equalRefs(gotRefs(result.Accepted), []CandidateRef{
+		"fact-0001", "fact-0002", "fact-0003",
+		"fact-0005", "fact-0006", "fact-0007",
+		"fact-0009", "fact-0010", "fact-0011",
+	}) {
+		t.Fatalf("expected per-subject cap of three facts, got accepted=%#v rejected=%#v", result.Accepted, result.Rejected)
 	}
 	if len(result.Rejected) != 3 {
 		t.Fatalf("expected 3 cap drops, got %#v", result.Rejected)
@@ -159,6 +163,15 @@ func TestFactPromptsDocumentFreshOnlyAndNoWrites(t *testing.T) {
 		"Read the full bounded review context",
 		"submit_fact_generation",
 		"no_candidate_reason",
+		"If candidates is non-empty, omit no_candidate_reason entirely",
+		"concise non-empty no_candidate_reason",
+		"Emit at most three subject=user candidates",
+		"Emit at most three subject=agent candidates",
+		"Emit at most three subject=world candidates",
+		"Do not fill the candidate cap with incidental task details",
+		"Durable historical roles, domains, and previously used tools",
+		"preserve user-stated named tools, platforms, domains, and prior roles",
+		"Omit third-party names and details",
 		"[tool_result_summary]",
 		"source_type=tool_result",
 		"assistant paraphrase",
@@ -183,6 +196,13 @@ func TestFactPromptsDocumentFreshOnlyAndNoWrites(t *testing.T) {
 		"Do not output overall",
 		"Do not output passes_threshold",
 		"Do not write facts",
+		"General 0-4 scoring scale",
+		"evidence_strength",
+		"subject_fit",
+		"durability",
+		"future_utility",
+		"atomicity",
+		"active housing, moving, mortgage, or purchase transaction",
 		"procedural workflow",
 		"score subject_fit below 2",
 	}

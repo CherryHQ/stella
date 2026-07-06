@@ -231,12 +231,21 @@ func decodeFactGenerationCall(calls []ai.ToolCall) ([]factCandidate, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateGenerationBatch(len(payload.Candidates), payload.NoCandidateReason); err != nil {
+		return nil, err
+	}
+	if err := validateGeneratedFactCandidates(payload.Candidates); err != nil {
+		return nil, err
+	}
 	return payload.Candidates, nil
 }
 
 func decodeFactEvaluationCall(calls []ai.ToolCall) ([]factEvaluation, error) {
 	payload, err := decodeSingleCapturePayload[factEvaluationCapturePayload](calls, toolSubmitFactEvaluations)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateFactEvaluations(payload.Evaluations); err != nil {
 		return nil, err
 	}
 	return payload.Evaluations, nil
@@ -247,6 +256,12 @@ func decodeSkillGenerationCall(calls []ai.ToolCall) ([]skillCandidate, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateGenerationBatch(len(payload.Candidates), payload.NoCandidateReason); err != nil {
+		return nil, err
+	}
+	if err := validateGeneratedSkillCandidates(payload.Candidates); err != nil {
+		return nil, err
+	}
 	return payload.Candidates, nil
 }
 
@@ -255,7 +270,85 @@ func decodeSkillEvaluationCall(calls []ai.ToolCall) ([]skillEvaluation, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateSkillEvaluations(payload.Evaluations); err != nil {
+		return nil, err
+	}
 	return payload.Evaluations, nil
+}
+
+func validateGeneratedFactCandidates(candidates []factCandidate) error {
+	for i, candidate := range candidates {
+		if reason := candidate.validateGenerated(); reason != "" {
+			return fmt.Errorf("%w: invalid fact candidate %d: %s", errCaptureProtocol, i, reason)
+		}
+	}
+	return nil
+}
+
+func validateGeneratedSkillCandidates(candidates []skillCandidate) error {
+	for i, candidate := range candidates {
+		if reason := candidate.validateGenerated(); reason != "" {
+			return fmt.Errorf("%w: invalid skill candidate %d: %s", errCaptureProtocol, i, reason)
+		}
+	}
+	return nil
+}
+
+func validateFactEvaluations(evaluations []factEvaluation) error {
+	required := []string{
+		factScoreEvidenceStrength,
+		factScoreSubjectFit,
+		factScoreDurability,
+		factScoreFutureUtility,
+		factScoreAtomicity,
+	}
+	for i, evaluation := range evaluations {
+		if strings.TrimSpace(evaluation.Rationale) == "" {
+			return fmt.Errorf("%w: fact evaluation %d missing rationale", errCaptureProtocol, i)
+		}
+		if err := validateCaptureScores(evaluation.Scores, required); err != nil {
+			return fmt.Errorf("%w: fact evaluation %d: %w", errCaptureProtocol, i, err)
+		}
+	}
+	return nil
+}
+
+func validateSkillEvaluations(evaluations []skillEvaluation) error {
+	required := []string{
+		skillScoreEvidenceStrength,
+		skillScoreReusableValue,
+		skillScoreBaselineSeparation,
+		skillScoreProcedureActionability,
+		skillScoreApplicabilityClarity,
+		skillScoreVerificationQuality,
+	}
+	for i, evaluation := range evaluations {
+		if strings.TrimSpace(evaluation.Rationale) == "" {
+			return fmt.Errorf("%w: skill evaluation %d missing rationale", errCaptureProtocol, i)
+		}
+		if err := validateCaptureScores(evaluation.Scores, required); err != nil {
+			return fmt.Errorf("%w: skill evaluation %d: %w", errCaptureProtocol, i, err)
+		}
+	}
+	return nil
+}
+
+// validateCaptureScores is the Go-side source of truth for evaluator score
+// shape. Provider tool schemas are only the first guardrail.
+func validateCaptureScores(scores map[string]int, required []string) error {
+	if len(scores) != len(required) {
+		return fmt.Errorf("score schema mismatch")
+	}
+	for _, field := range required {
+		score, ok := scores[field]
+		if !ok {
+			return fmt.Errorf("missing score %q", field)
+		}
+		if score < 0 || score > maxScoreValue {
+			return fmt.Errorf("score %q out of range", field)
+		}
+	}
+	return nil
 }
 
 func decodeSingleCapturePayload[T any](calls []ai.ToolCall, name string) (T, error) {
@@ -267,6 +360,20 @@ func decodeSingleCapturePayload[T any](calls []ai.ToolCall, name string) (T, err
 		return decodeCapturePayload[T](call)
 	}
 	return payload, fmt.Errorf("%w: missing submit tool %q", errCaptureProtocol, name)
+}
+
+func validateGenerationBatch(candidateCount int, noCandidateReason string) error {
+	reason := strings.TrimSpace(noCandidateReason)
+	if candidateCount == 0 {
+		if reason == "" {
+			return fmt.Errorf("%w: empty generation batch missing no_candidate_reason", errCaptureProtocol)
+		}
+		return nil
+	}
+	if reason != "" {
+		return fmt.Errorf("%w: generation batch with candidates must omit no_candidate_reason", errCaptureProtocol)
+	}
+	return nil
 }
 
 func validateEvaluationRefs(got, expected []CandidateRef) error {

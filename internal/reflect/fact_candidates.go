@@ -134,6 +134,20 @@ func factSubjectFitFloor(subject factSubject) int {
 }
 
 func (c factCandidate) validate(opts factGateOptions) RejectReason {
+	if c.Ref == "" {
+		return rejectSchemaMissingField
+	}
+	return c.validateContent(opts)
+}
+
+func (c factCandidate) validateGenerated() RejectReason {
+	if c.Ref != "" {
+		return rejectSchemaExtraField
+	}
+	return c.validateContent(factGateOptions{PrivateOneToOne: true})
+}
+
+func (c factCandidate) validateContent(opts factGateOptions) RejectReason {
 	switch c.Subject {
 	case factSubjectUser, factSubjectAgent:
 		if !opts.PrivateOneToOne {
@@ -150,7 +164,7 @@ func (c factCandidate) validate(opts factGateOptions) RejectReason {
 		return rejectSchemaMissingField
 	}
 
-	if c.Ref == "" || strings.TrimSpace(c.Content) == "" || strings.TrimSpace(c.ExpectedEffect) == "" {
+	if strings.TrimSpace(c.Content) == "" || strings.TrimSpace(c.ExpectedEffect) == "" {
 		return rejectSchemaMissingField
 	}
 	if len(c.Evidence) == 0 {

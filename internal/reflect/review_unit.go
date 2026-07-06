@@ -24,7 +24,11 @@ type ReviewSkip struct {
 	Reason ReviewSkipReason
 	Role   string
 	At     time.Time
-	Size   int
+	// Seq fields identify the skipped review boundary when the history source
+	// can provide stable ordering. They stay zero for timestamp-only fallback.
+	FirstSeq int64
+	LastSeq  int64
+	Size     int
 }
 
 // ReviewUnit is the bounded, fresh conversation window consumed by candidate
@@ -34,6 +38,9 @@ type ReviewUnit struct {
 	Text            string
 	LastIncludedAt  time.Time
 	LastIncludedSeq int64
+	// Truncated means more fresh content exists after LastIncluded*, but it did
+	// not fit in this bounded window and must be picked up by a later cycle.
+	Truncated       bool
 	Skipped         []ReviewSkip
 	FreshCount      int
 	PrivateOneToOne bool
@@ -105,6 +112,7 @@ func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark
 
 		included, skipped, groupCost := reviewBoundaryGroupPlan(group, budget)
 		if groupCost > remaining {
+			unit.Truncated = true
 			break
 		}
 
@@ -292,11 +300,17 @@ func reviewBoundaryGroupPlan(group []reviewLine, budget int) ([]reviewLineWithCo
 	for _, line := range group {
 		cost := memory.EstimateTokens(line.text)
 		if cost > budget {
+			lastSeq := line.lastSeq
+			if lastSeq == 0 {
+				lastSeq = line.firstSeq
+			}
 			skipped = append(skipped, ReviewSkip{
-				Reason: reviewSkipOversizedSingleMessage,
-				Role:   line.role,
-				At:     line.at,
-				Size:   len(line.text),
+				Reason:   reviewSkipOversizedSingleMessage,
+				Role:     line.role,
+				At:       line.at,
+				FirstSeq: line.firstSeq,
+				LastSeq:  lastSeq,
+				Size:     len(line.text),
 			})
 			continue
 		}
