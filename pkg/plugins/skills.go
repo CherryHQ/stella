@@ -21,6 +21,7 @@ type Skill struct {
 	Metadata               json.RawMessage
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	Version                int64
 }
 
 // SkillViewContext describes who is asking and from where.

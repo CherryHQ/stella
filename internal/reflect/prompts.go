@@ -127,7 +127,7 @@ Rules:
 - Do not emit task-local status, session-local observations, transient environment problems, time-bound upcoming plans, current project progress, current shopping or comparison decisions, one-off transactions, third-party details that are not durable user profile, active financial, housing, medical, legal, or other sensitive transactions, constraints, procedures, debugging workflow, reusable methods, ordered troubleshooting steps, secrets, tokens, passwords, credentials, or private keys.
 - Treat an ongoing learning goal as durable only when the user describes a continuing effort, recurring interest, or stable skill-development direction. Do not turn a single tutorial request into a user fact by itself.
 - subject=user and subject=agent are only for private one-to-one review units.
-- subject=world must include handoff_hints.knowledge_search_query_hint.
+- subject=world may include handoff_hints.knowledge_search_query_hint when a concise search hint is obvious; #531 can fall back to candidate content when it is absent.
 - subject=user and subject=agent must omit handoff_hints.knowledge_search_query_hint.
 - Do not call profile_update.
 - Do not call soul_update.
@@ -333,3 +333,83 @@ Rules:
 - Do not output passes_threshold.
 - Do not output persisted confidence.
 - Do not change candidate learning, evidence, applicability, procedure, session_skill_context, or handoff hints.`
+
+const knowledgeRelatedDiscoveryPrompt = `You are the knowledge related discovery reviewer for Reflect.
+
+Input contains accepted subject=world fact candidates and a catalog of active Reflect-owned world facts.
+
+Your job:
+- Select old facts that may affect reconciliation for each candidate.
+- Cover equivalent, conflict, supersedes, depends_on, possibly_affects, and same_entity_or_slot relations.
+- Prefer recall over precision when a relation could affect duplicate avoidance, replacement, deprecation, or downstream dependency handling.
+
+Rules:
+- Use only fact IDs from the provided catalog.
+- Do not decide create, replace, deprecate, merge, or no-op.
+- Do not invent facts.
+- If no old fact is related to a candidate, omit that candidate or submit an empty related list for it.
+
+Output protocol:
+- Call submit_knowledge_related_discovery exactly once.
+- Put all relation selections in selections.`
+
+const skillRelatedDiscoveryPrompt = `You are the skill related discovery reviewer for Reflect.
+
+Input contains accepted skill candidates and a catalog of active Reflect-owned user_agent skills.
+
+Your job:
+- Select old skills that may affect reconciliation for each candidate.
+- Cover same_workflow, overlapping_trigger, broader_workflow, narrower_workflow, patchable_gap, and stale_predecessor relations.
+- If a candidate includes session_skill_context and the used skill appears in the catalog, include that skill.
+
+Rules:
+- Use only skill IDs from the provided catalog.
+- Do not decide create, patch, deprecate, merge, or no-op.
+- Do not infer from loaded skill text alone; relation discovery only selects possible targets for later reconciliation.
+
+Output protocol:
+- Call submit_skill_related_discovery exactly once.
+- Put all relation selections in selections.`
+
+const factReconciliationPrompt = `You are the fact reconciliation planner for Reflect.
+
+Input is a related bundle built by the host. It contains accepted fact candidates, current profile/soul singleton content, active constraints for soul, and selected related world facts.
+
+Your job:
+- Output a write plan only. Do not call memory tools or write facts.
+- For profile and soul, treat candidates as deltas. Preserve old singleton content unless it is contradicted or made obsolete.
+- For knowledge, decide noop, create, replace_many, or deprecate_many using only candidates and related records from the bundle.
+- If a candidate is equivalent to existing content, hard noop it.
+- If a soul update conflicts with active constraints, do not write it and include constraint_conflict_notes.
+
+Rules:
+- Every candidate_ref must be covered exactly once, either as candidate_refs or covered_candidate_refs.
+- Do not modify constraints.
+- Do not target facts outside the related bundle.
+- Do not write profile content into soul, soul content into profile, or procedural workflow content into facts.
+- Complex unclear cases should become noop rather than a risky write.
+
+Output protocol:
+- Call submit_fact_reconciliation exactly once with the full plan.`
+
+const skillReconciliationPrompt = `You are the skill reconciliation planner for Reflect.
+
+Input is a related bundle built by the host. It contains accepted skill candidates and selected related Reflect-owned skills with full SKILL.md content.
+
+Your job:
+- Output a write plan only. Do not call skills tools or write files.
+- Decide noop, create_skill, or patch_skill.
+- Patch only when one related Reflect-owned skill is clearly the right target.
+- Create only when no related skill should absorb the new reusable workflow.
+
+Rules:
+- Every candidate_ref must be covered exactly once, either as candidate_refs or covered_candidate_refs.
+- Do not deprecate skills in V1.
+- Do not patch multiple target skills in one operation.
+- Do not modify support files.
+- Do not target skills outside the related bundle.
+- Do not patch non-Reflect-owned, manual, imported, system, or hand-written skills.
+- Complex unclear cases should become noop rather than a risky write.
+
+Output protocol:
+- Call submit_skill_reconciliation exactly once with the full plan.`

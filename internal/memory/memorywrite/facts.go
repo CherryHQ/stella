@@ -190,6 +190,139 @@ type factWritePlan struct {
 	write     memory.FactWrite
 }
 
+type FactBatchAction string
+
+const (
+	FactBatchSetSingleton  FactBatchAction = "set_singleton"
+	FactBatchCreate        FactBatchAction = "create"
+	FactBatchReplaceMany   FactBatchAction = "replace_many"
+	FactBatchDeprecateMany FactBatchAction = "deprecate_many"
+)
+
+// FactBatchOperation describes one transaction-scoped fact mutation. Reflect
+// uses this helper so profile/soul/knowledge writes can fail closed as one fact
+// line instead of committing partial writes.
+type FactBatchOperation struct {
+	Action        FactBatchAction
+	Subject       memory.FactSubject
+	Content       string
+	Metadata      json.RawMessage
+	TargetFactIDs []string
+}
+
+// ApplyFactBatch applies a batch of fact writes under one memory advisory lock
+// and one database transaction. If any operation fails, all prior writes in the
+// batch are rolled back.
+func ApplyFactBatch(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, ops []FactBatchOperation) ([]memory.Fact, error) {
+	if len(ops) == 0 {
+		return nil, nil
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin fact batch: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockMemory(ctx, tx, userID, agentID); err != nil {
+		return nil, err
+	}
+
+	qtx := q.WithTx(tx)
+	written := make([]memory.Fact, 0, len(ops))
+	for _, op := range ops {
+		facts, err := applyFactBatchOperationLocked(ctx, qtx, userID, agentID, op)
+		if err != nil {
+			return nil, err
+		}
+		written = append(written, facts...)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit fact batch: %w", err)
+	}
+	return written, nil
+}
+
+func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userID string, agentID string, op FactBatchOperation) ([]memory.Fact, error) {
+	write := memory.FactWrite{
+		UserID:   userID,
+		AgentID:  agentID,
+		Subject:  op.Subject,
+		Content:  op.Content,
+		Metadata: op.Metadata,
+		Source:   memory.SourceReflect,
+	}
+	switch op.Action {
+	case FactBatchSetSingleton:
+		if op.Subject == memory.FactSubjectWorld {
+			return nil, fmt.Errorf("fact batch: world facts are not singleton facts")
+		}
+		if op.Content == "" {
+			return nil, fmt.Errorf("fact batch: singleton content is required")
+		}
+		active, err := qtx.ListActiveFactsBySubject(ctx, sqlc.ListActiveFactsBySubjectParams{
+			UserID:  userID,
+			AgentID: agentID,
+			Subject: string(op.Subject),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("fact batch: list singleton fact: %w", err)
+		}
+		if len(active) == 0 {
+			fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{action: "create", write: write})
+			return singleFactResult(fact, err)
+		}
+		if active[0].Content == op.Content {
+			return []memory.Fact{factFromRow(active[0])}, nil
+		}
+		fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{action: "replace", oldFactID: active[0].ID, write: write})
+		return singleFactResult(fact, err)
+	case FactBatchCreate:
+		if op.Content == "" {
+			return nil, fmt.Errorf("fact batch: create content is required")
+		}
+		fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{action: "create", write: write})
+		return singleFactResult(fact, err)
+	case FactBatchReplaceMany:
+		if len(op.TargetFactIDs) == 0 || op.Content == "" {
+			return nil, fmt.Errorf("fact batch: replace_many requires targets and content")
+		}
+		for _, id := range op.TargetFactIDs {
+			if _, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id); err != nil {
+				return nil, err
+			}
+		}
+		// facts.supersedes is scalar today, so record the first predecessor there
+		// and keep the complete target set in metadata for later audit/reconcile.
+		write.Supersedes = op.TargetFactIDs[0]
+		write.Metadata = metadataWithReplacedFactIDs(op.Metadata, op.TargetFactIDs)
+		fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{action: "replace", write: write})
+		return singleFactResult(fact, err)
+	case FactBatchDeprecateMany:
+		if len(op.TargetFactIDs) == 0 || op.Content != "" {
+			return nil, fmt.Errorf("fact batch: deprecate_many requires targets only")
+		}
+		deprecated := make([]memory.Fact, 0, len(op.TargetFactIDs))
+		for _, id := range op.TargetFactIDs {
+			fact, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id)
+			if err != nil {
+				return nil, err
+			}
+			deprecated = append(deprecated, fact)
+		}
+		return deprecated, nil
+	default:
+		return nil, fmt.Errorf("fact batch: unknown action %q", op.Action)
+	}
+}
+
+func singleFactResult(fact memory.Fact, err error) ([]memory.Fact, error) {
+	if err != nil {
+		return nil, err
+	}
+	return []memory.Fact{fact}, nil
+}
+
 func writeFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, plan factWritePlan) (memory.Fact, error) {
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -205,6 +338,17 @@ func writeFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, plan fact
 }
 
 func writeFactLocked(ctx context.Context, tx pgx.Tx, qtx *sqlc.Queries, plan factWritePlan) (memory.Fact, error) {
+	fact, err := applyFactWriteLocked(ctx, qtx, plan)
+	if err != nil {
+		return memory.Fact{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return memory.Fact{}, fmt.Errorf("commit fact write: %w", err)
+	}
+	return fact, nil
+}
+
+func applyFactWriteLocked(ctx context.Context, qtx *sqlc.Queries, plan factWritePlan) (memory.Fact, error) {
 	source := plan.write.Source
 	if source == "" {
 		source = factSourceFromContext(ctx)
@@ -282,10 +426,63 @@ func writeFactLocked(ctx context.Context, tx pgx.Tx, qtx *sqlc.Queries, plan fac
 		return memory.Fact{}, err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return memory.Fact{}, fmt.Errorf("commit fact write: %w", err)
-	}
 	return fact, nil
+}
+
+func applyDeprecateFactLocked(ctx context.Context, qtx *sqlc.Queries, userID string, agentID string, subject memory.FactSubject, factID string) (memory.Fact, error) {
+	source := factSourceFromContext(ctx)
+	beforeVersion, err := currentMemoryVersion(ctx, qtx, userID, agentID)
+	if err != nil {
+		return memory.Fact{}, err
+	}
+	oldRow, err := qtx.GetFact(ctx, sqlc.GetFactParams{
+		ID:      factID,
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		return memory.Fact{}, fmt.Errorf("read fact to deprecate: %w", err)
+	}
+	oldBefore := factFromRow(oldRow)
+	if oldBefore.Subject != subject {
+		return memory.Fact{}, fmt.Errorf("fact %q subject %q does not match %q", factID, oldBefore.Subject, subject)
+	}
+	if oldBefore.Status != memory.FactStatusActive {
+		return memory.Fact{}, fmt.Errorf("fact %q is not active", factID)
+	}
+	row, err := qtx.DeprecateFact(ctx, sqlc.DeprecateFactParams{
+		ID:      factID,
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		return memory.Fact{}, fmt.Errorf("deprecate fact: %w", err)
+	}
+	memoryRow, err := qtx.BumpAgentMemoryVersion(ctx, sqlc.BumpAgentMemoryVersionParams{
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if err != nil {
+		return memory.Fact{}, fmt.Errorf("bump memory version: %w", err)
+	}
+	deprecated := factFromRow(row)
+	if _, err := writeFactChangelog(ctx, qtx, userID, agentID, "deprecate", source, beforeVersion, memoryRow.Version, oldBefore, deprecated); err != nil {
+		return memory.Fact{}, err
+	}
+	return deprecated, nil
+}
+
+func metadataWithReplacedFactIDs(metadata json.RawMessage, targetIDs []string) json.RawMessage {
+	payload := map[string]any{}
+	if len(metadata) > 0 {
+		_ = json.Unmarshal(metadata, &payload)
+	}
+	payload["replaced_fact_ids"] = targetIDs
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return b
 }
 
 func currentMemoryVersion(ctx context.Context, q *sqlc.Queries, userID string, agentID string) (int64, error) {

@@ -104,6 +104,36 @@ func (s *Service) reviewConversationCandidates(ctx context.Context, snap *config
 	})
 }
 
+// ReviewConversationReconciledCandidates is the staged #531 entrypoint. It runs
+// #532 candidate generation/evaluation and only advances line watermarks after
+// #531 reconciliation and writes complete for that line.
+func (s *Service) ReviewConversationReconciledCandidates(ctx context.Context, snap *config.Snapshot, target reviewTarget) (candidatePipelineResult, error) {
+	if snap == nil {
+		return candidatePipelineResult{}, fmt.Errorf("candidate reconciliation: config snapshot is required")
+	}
+	model := snap.ResolveModelTier(config.ModelTierFast)
+	creds := snap.ResolveProviderCreds(model.API)
+	stream, err := s.buildStreamFunc(model.API, creds.APIKey, creds.BaseURL)
+	if err != nil {
+		return candidatePipelineResult{}, fmt.Errorf("build provider: %w", err)
+	}
+	reviewer := candidateLineReviewer{
+		Stream: stream,
+		Model:  model,
+		Gates:  s.candidateGates,
+	}
+	return s.runReconciliationPipeline(ctx, target, reconciliationPipelineOptions{
+		FactLine:  reviewer.runFactLine,
+		SkillLine: reviewer.runSkillLine,
+		FactReconciler: func(ctx context.Context, target reviewTarget, unit ReviewUnit, candidates []factCandidate) error {
+			return s.reconcileFactCandidates(ctx, target, unit, candidates, reviewer)
+		},
+		SkillReconciler: func(ctx context.Context, target reviewTarget, unit ReviewUnit, candidates []skillCandidate) error {
+			return s.reconcileSkillCandidates(ctx, target, unit, candidates, reviewer)
+		},
+	})
+}
+
 func (s *Service) buildStreamFunc(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 	if s.providers == nil {
 		return nil, fmt.Errorf("provider builder is required")

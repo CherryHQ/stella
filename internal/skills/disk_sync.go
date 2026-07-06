@@ -44,6 +44,17 @@ func (d *DiskSyncStore) Create(ctx context.Context, sk Skill, files map[string]s
 	return d.Store.Create(ctx, sk, files)
 }
 
+func (d *DiskSyncStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (Skill, error) {
+	files := map[string]string{MainFile: in.MainFileContent}
+	base := d.resolver("user_agent", in.AgentID, in.UserID)
+	if base != "" {
+		if err := d.writeFilesToDisk(base, in.Name, files); err != nil {
+			return Skill{}, fmt.Errorf("disk_sync reflect create %q: %w", in.Name, err)
+		}
+	}
+	return d.Store.CreateReflectOwnedUserAgentSkill(ctx, in)
+}
+
 func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
 	sk, err := d.findByID(ctx, skillID)
 	if err != nil {
@@ -62,6 +73,34 @@ func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content s
 		}
 	}
 	return d.Store.UpsertFile(ctx, skillID, path, content)
+}
+
+func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillPatch) (Skill, error) {
+	sk, err := d.findByID(ctx, in.ID)
+	if err != nil {
+		return Skill{}, err
+	}
+	if sk != nil {
+		if sk.Scope != "user_agent" || sk.UserID != in.UserID || sk.AgentID != in.AgentID || !IsReflectOwned(*sk) {
+			return Skill{}, ErrSkillNotReflectOwned
+		}
+		if sk.Version != in.ExpectedVersion {
+			return Skill{}, ErrSkillVersionConflict
+		}
+		if in.MainFileContent != nil {
+			base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
+			if base != "" {
+				diskPath, err := safeDiskPath(base, sk.Name, filepath.FromSlash(MainFile))
+				if err != nil {
+					return Skill{}, fmt.Errorf("disk_sync reflect patch %q: %w", sk.Name, err)
+				}
+				if err := writeFile(diskPath, *in.MainFileContent); err != nil {
+					return Skill{}, fmt.Errorf("disk_sync reflect patch %q: %w", sk.Name, err)
+				}
+			}
+		}
+	}
+	return d.Store.PatchReflectOwnedUserAgentSkill(ctx, in)
 }
 
 func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) error {

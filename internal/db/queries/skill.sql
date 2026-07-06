@@ -15,6 +15,9 @@ WHERE id = sqlc.arg(id)
 -- name: GetSkillByID :one
 SELECT * FROM skill WHERE id = $1;
 
+-- name: GetSkillForUpdate :one
+SELECT * FROM skill WHERE id = $1 FOR UPDATE;
+
 -- ListSkillsVisible returns the effective skill set for a (user, agent) context,
 -- ordered most-specific-first so a name-dedup keeps the highest-precedence skill:
 -- user_agent > user > system_agent > system.
@@ -137,6 +140,51 @@ INSERT INTO skill_file (skill_id, path, content)
 VALUES ($1, $2, $3)
 ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content;
 
+-- name: UpdateReflectOwnedUserAgentSkill :one
+UPDATE skill
+SET description              = sqlc.arg(description),
+    status                   = sqlc.arg(status),
+    disable_model_invocation = sqlc.arg(disable_model_invocation),
+    metadata                 = sqlc.arg(metadata),
+    version                  = version + 1,
+    updated_at               = now()
+WHERE id = sqlc.arg(id)
+  AND scope = 'user_agent'
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND metadata->>'created_by' = 'reflect'
+  AND version = sqlc.arg(expected_version)
+RETURNING *;
+
+-- name: InsertSkillChangelog :one
+INSERT INTO skill_changelog (
+  skill_id,
+  user_id,
+  agent_id,
+  scope,
+  action,
+  version_before,
+  version_after,
+  metadata
+)
+VALUES (
+  sqlc.arg(skill_id),
+  sqlc.narg(user_id),
+  sqlc.narg(agent_id),
+  sqlc.arg(scope),
+  sqlc.arg(action),
+  sqlc.narg(version_before),
+  sqlc.arg(version_after),
+  sqlc.arg(metadata)
+)
+RETURNING *;
+
+-- name: ListSkillChangelogBySkill :many
+SELECT * FROM skill_changelog
+WHERE skill_id = sqlc.arg(skill_id)
+ORDER BY version_after DESC, created_at DESC, id DESC
+LIMIT sqlc.arg(limit_count);
+
 -- name: DeleteSkillFile :exec
 DELETE FROM skill_file WHERE skill_id = $1 AND path = $2;
 
@@ -164,3 +212,12 @@ WHERE status = 'draft'
 
 -- name: ListAllSkills :many
 SELECT * FROM skill ORDER BY scope, created_at;
+
+-- name: ListActiveReflectOwnedUserAgentSkills :many
+SELECT * FROM skill
+WHERE scope = 'user_agent'
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND status = 'active'
+  AND metadata->>'created_by' = 'reflect'
+ORDER BY updated_at DESC, created_at DESC, id ASC;

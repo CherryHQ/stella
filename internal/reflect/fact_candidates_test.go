@@ -40,7 +40,7 @@ func TestFactWorldAcceptsSubjectFitTwo(t *testing.T) {
 	}
 }
 
-func TestFactWorldRequiresKnowledgeSearchHint(t *testing.T) {
+func TestFactWorldAllowsMissingKnowledgeSearchHintFor531Fallback(t *testing.T) {
 	candidate := validFactCandidate("fact-0001", factSubjectWorld)
 	candidate.HandoffHints.KnowledgeSearchQueryHint = ""
 
@@ -49,7 +49,9 @@ func TestFactWorldRequiresKnowledgeSearchHint(t *testing.T) {
 		Scores: factScores(4, 4, 4, 4, 4),
 	}}, factGateOptions{PrivateOneToOne: true})
 
-	assertSingleReject(t, result, "fact-0001", rejectSchemaMissingField)
+	if !equalRefs(gotRefs(result.Accepted), []CandidateRef{"fact-0001"}) {
+		t.Fatalf("expected world fact accepted without hint for #531 fallback, got accepted=%#v rejected=%#v", result.Accepted, result.Rejected)
+	}
 }
 
 func TestFactSingletonSubjectsRejectKnowledgeSearchHint(t *testing.T) {

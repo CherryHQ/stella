@@ -56,6 +56,26 @@ func (a skillStoreAdapter) ListByScope(ctx context.Context, scope, userID, agent
 	return out, nil
 }
 
+func (a skillStoreAdapter) ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]pkgplugins.Skill, error) {
+	rows, err := a.s.ListActiveReflectOwnedUserAgentSkills(ctx, userID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pkgplugins.Skill, len(rows))
+	for i, r := range rows {
+		out[i] = skillToPlugin(r)
+	}
+	return out, nil
+}
+
+func (a skillStoreAdapter) CreateReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillCreate) (skills.Skill, error) {
+	return a.s.CreateReflectOwnedUserAgentSkill(ctx, in)
+}
+
+func (a skillStoreAdapter) PatchReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillPatch) (skills.Skill, error) {
+	return a.s.PatchReflectOwnedUserAgentSkill(ctx, in)
+}
+
 func (a skillStoreAdapter) LoadFile(ctx context.Context, skillID, path string) (string, error) {
 	return a.s.LoadFile(ctx, skillID, path)
 }
@@ -144,6 +164,7 @@ func skillToPlugin(r skills.Skill) pkgplugins.Skill {
 		Metadata:               r.Metadata,
 		CreatedAt:              r.CreatedAt,
 		UpdatedAt:              r.UpdatedAt,
+		Version:                r.Version,
 	}
 }
 
@@ -160,6 +181,7 @@ func skillFromPlugin(s pkgplugins.Skill) skills.Skill {
 		Metadata:               s.Metadata,
 		CreatedAt:              s.CreatedAt,
 		UpdatedAt:              s.UpdatedAt,
+		Version:                s.Version,
 	}
 }
 
