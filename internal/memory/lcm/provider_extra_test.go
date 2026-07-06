@@ -466,7 +466,7 @@ func TestLCMProvider_LoadReviewHistoryPreservesSeqBoundary(t *testing.T) {
 	defer cleanup()
 
 	sess := newLCMTestSession("review-history")
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
 	if err := p.Bootstrap(ctx, sess); err != nil {
 		t.Fatal(err)
 	}
