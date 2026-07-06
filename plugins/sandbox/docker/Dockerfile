@@ -4,7 +4,7 @@
 # Build locally (dev):
 # mise run sandbox:docker:build
 #
-# The image tag is version-locked to the stella binary:
+# The image tag is version-locked to the stella version used at build time:
 # - dev builds      → stella-sandbox:dev            (built locally)
 # - tagged releases → ghcr.io/vaayne/stella-sandbox:<version>
 
@@ -28,7 +28,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM debian:13-slim
 
-COPY --from=stella-builder /out/stella /usr/local/bin/stella
 # mise lives at /opt/stella/bin/mise — the same path the bwrap sandbox exposes —
 # so per-user and system shims (which relink to ../../bin/mise) resolve to it.
 # bun, uv (+uvx), fd, rg, and lightpanda are NOT vendored here: `stella mise
@@ -73,10 +72,12 @@ ENV PATH=/opt/stella/.mise-tools/shims:/opt/stella/bin:/usr/local/sbin:/usr/loca
 
 # Install the builtin tools through the SAME reconcile path the daemon runs, so
 # the image's tool identifiers and versions are byte-for-byte what the host
-# produces from resources/tools.yaml (single source of truth, no drift). This
-# writes /opt/stella/.mise-tools/configs/_builtin.toml, installs every enabled
-# plugin binary, and relinks shims to relative targets.
-RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
+# produces from resources/tools.yaml (single source of truth, no drift). The
+# stella CLI is bind-mounted only for this build step; it is not shipped in the
+# runtime image. This writes /opt/stella/.mise-tools/configs/_builtin.toml,
+# installs every enabled plugin binary, and relinks shims to relative targets.
+RUN --mount=type=bind,from=stella-builder,source=/out/stella,target=/usr/local/bin/stella \
+    --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
     STELLA_HOME=/opt/stella stella mise reconcile-builtins && \
     rm -rf /opt/stella/.mise-tools/cache
 
