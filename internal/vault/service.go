@@ -152,7 +152,7 @@ func ResolveScope(req ScopeRequest) (ResolvedScope, error) {
 		case ScopeUser:
 		case ScopeUserAgent:
 			if agentID != req.BoundAgentID {
-				return ResolvedScope{}, fmt.Errorf("vault: scoped token cannot access another agent's vault: %w", authz.ErrForbidden)
+				return ResolvedScope{}, fmt.Errorf("vault: agent-scoped identity cannot access another agent's vault: %w", authz.ErrForbidden)
 			}
 		default:
 			return ResolvedScope{}, fmt.Errorf("vault: system-scoped secrets are managed by operators: %w", authz.ErrForbidden)

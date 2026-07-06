@@ -7,21 +7,6 @@ before:
     - sh -c "cd web && pnpm install --frozen-lockfile && pnpm build"
 
 builds:
-  - id: stella
-    main: ./cmd/stella
-    binary: stella
-    ldflags:
-      - -s -w -X github.com/CherryHQ/stella/internal/version.Version={{ .Version }} -X github.com/CherryHQ/stella/internal/version.Commit={{ .ShortCommit }} -X github.com/CherryHQ/stella/internal/version.BuildDate={{ .Date }}
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-      - windows
-    goarch:
-      - amd64
-      - arm64
-
   - id: stellad
     main: ./cmd/stellad
     binary: stellad
@@ -47,13 +32,12 @@ builds:
 archives:
   - id: stella
     ids:
-      - stella
       - stellad
 
 brews:
   - name: stella
     ids:
-      - stella
+      - stellad
     repository:
       owner: CherryHQ
       name: homebrew-tap
@@ -64,7 +48,6 @@ brews:
     description: "Self-hosted AI assistant"
     license: "AGPL-3.0-or-later"
     install: |
-      bin.install "stella"
       bin.install "stellad"
     service: |
       run [opt_bin/"stellad", "server"]
@@ -75,14 +58,12 @@ brews:
       - name: bubblewrap
         os: linux
     test: |
-      system "#{bin}/stella", "version"
       system "#{bin}/stellad", "version"
 
 nfpms:
   - id: stella
     package_name: stella
     ids:
-      - stella
       - stellad
     vendor: CherryHQ
     homepage: https://stella.cherryin.com

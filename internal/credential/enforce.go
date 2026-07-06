@@ -9,8 +9,8 @@ import (
 // ErrForbidden is returned by Enforce when a principal may not perform a request.
 var ErrForbidden = errors.New("permission denied")
 
-// deniedResources are top-level /api resources that scoped bearers (PAT / OAuth)
-// may never reach. They are session- or admin-only. They
+// deniedResources are top-level /api resources that bearer credentials (PAT /
+// OAuth) may never reach. They are session- or admin-only. They
 // are listed EXPLICITLY -- an unlisted, unmapped resource is treated as a
 // registration gap (see RequiredScope's registered=false), which a test flags,
 // so a new route can never silently default into being reachable or unreachable.
@@ -50,7 +50,7 @@ func Enforce(p *Principal, method, path string) error {
 		return fmt.Errorf("%w: no principal", ErrForbidden)
 	}
 
-	// Scoped bearers are API-only; they may not fetch page routes.
+	// Bearer credentials are API-only; they may not fetch page routes.
 	if !strings.HasPrefix(path, "/api/") {
 		return fmt.Errorf("%w: scoped credential may only call /api routes", ErrForbidden)
 	}
@@ -146,7 +146,7 @@ func RequiredScope(method, path string) (scope string, registered bool) {
 // sub-resource is enumerated explicitly: an unknown one returns registered=false
 // (fail-closed) instead of defaulting into the broad agent scope, so a newly
 // added sub-route cannot silently become reachable. The agent ownership boundary
-// ({id} == principal.AgentID for scoped tokens) is handled in enforceAgentBoundary.
+// is handled in enforceAgentBoundary.
 func agentRouteScope(method string, sub []string) (scope string, registered bool) {
 	// sub is the path after /api/agents. sub[0] is the agent id; the collection
 	// (/api/agents) and single agent (/api/agents/{id}) both use the agent scope.

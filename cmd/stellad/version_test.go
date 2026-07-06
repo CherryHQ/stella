@@ -73,25 +73,25 @@ func TestResolveUpgradeDirReportsExecutablePathError(t *testing.T) {
 
 func TestBinariesToUpgrade(t *testing.T) {
 	got := binariesToUpgrade("linux")
-	if len(got) != 2 || got[0] != "stella" || got[1] != "stellad" {
-		t.Fatalf("linux: got %v, want [stella stellad]", got)
+	if len(got) != 1 || got[0] != "stellad" {
+		t.Fatalf("linux: got %v, want [stellad]", got)
 	}
 	got = binariesToUpgrade("windows")
-	if len(got) != 2 || got[0] != "stella.exe" || got[1] != "stellad.exe" {
-		t.Fatalf("windows: got %v, want [stella.exe stellad.exe]", got)
+	if len(got) != 1 || got[0] != "stellad.exe" {
+		t.Fatalf("windows: got %v, want [stellad.exe]", got)
 	}
 }
 
 func TestUpgradeInstallErrorAddsPermissionHint(t *testing.T) {
-	err := upgradeInstallError(errors.New("rename stella.tmp stella: permission denied"), "/usr/local/bin/stella", "linux")
+	err := upgradeInstallError(errors.New("rename stellad.tmp stellad: permission denied"), "/usr/local/bin/stellad", "linux")
 
-	if !strings.Contains(err.Error(), "permission denied replacing /usr/local/bin/stella") {
+	if !strings.Contains(err.Error(), "permission denied replacing /usr/local/bin/stellad") {
 		t.Fatalf("error = %q, want permission hint", err.Error())
 	}
 }
 
 func TestUpgradeInstallErrorAddsWindowsBusyHint(t *testing.T) {
-	err := upgradeInstallError(errors.New("The process cannot access the file because it is being used by another process."), `C:\\bin\\stella.exe`, "windows")
+	err := upgradeInstallError(errors.New("The process cannot access the file because it is being used by another process."), `C:\\bin\\stellad.exe`, "windows")
 
 	if !strings.Contains(err.Error(), "locked by a running process") {
 		t.Fatalf("error = %q, want busy hint", err.Error())
@@ -103,9 +103,9 @@ func TestCleanStaleUpgradeArtifacts(t *testing.T) {
 
 	// Create stale files that should be removed.
 	staleFiles := []string{
-		"stella.tmp", "stellad.tmp",
-		"stella.old", "stellad.old",
-		"stella.exe.tmp",
+		"stellad.tmp",
+		"stellad.old",
+		"stellad.exe.tmp",
 	}
 	for _, name := range staleFiles {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
@@ -117,9 +117,9 @@ func TestCleanStaleUpgradeArtifacts(t *testing.T) {
 	// their targets exist: a backup surviving next to its target means a
 	// rollback could not restore it, so it is preserved for manual recovery.
 	keepFiles := []string{
-		"stella", "stellad", "stellad.exe",
+		"stellad", "stellad.exe",
 		"unrelated.tmp", "other.bak",
-		"stella.bak", "stellad.bak", "stellad.exe.bak",
+		"stellad.bak", "stellad.exe.bak",
 	}
 	for _, name := range keepFiles {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
@@ -143,14 +143,14 @@ func TestCleanStaleUpgradeArtifacts(t *testing.T) {
 
 func TestCleanStaleUpgradeArtifactsRestoresBackupWhenTargetMissing(t *testing.T) {
 	dir := t.TempDir()
-	backup := filepath.Join(dir, "stella.bak")
+	backup := filepath.Join(dir, "stellad.bak")
 	if err := os.WriteFile(backup, []byte("original"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	cleanStaleUpgradeArtifacts(dir)
 
-	restored := filepath.Join(dir, "stella")
+	restored := filepath.Join(dir, "stellad")
 	data, err := os.ReadFile(restored)
 	if err != nil {
 		t.Fatalf("expected backup to be restored: %v", err)
@@ -173,11 +173,11 @@ func TestIsStaleUpgradeArtifact(t *testing.T) {
 		name string
 		want bool
 	}{
-		{"stella.tmp", true},
+		{"stella.tmp", false},
 		{"stellad.bak", true},
-		{"stella.old", true},
+		{"stella.old", false},
 		{"stellad.exe.tmp", true},
-		{"stella.exe.bak", true},
+		{"stella.exe.bak", false},
 		{"stellad.exe.old", true},
 		{"stella", false},
 		{"stellad", false},
@@ -196,7 +196,7 @@ func TestIsStaleUpgradeArtifact(t *testing.T) {
 func TestRollbackUpgradeRemoveFailureFallsBack(t *testing.T) {
 	dir := t.TempDir()
 
-	committed := filepath.Join(dir, "stella")
+	committed := filepath.Join(dir, "stellad")
 	if err := os.WriteFile(committed, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestRollbackUpgradeRemoveFailureFallsBack(t *testing.T) {
 func TestRollbackUpgradeWindowsRenamesToOld(t *testing.T) {
 	dir := t.TempDir()
 
-	committed := filepath.Join(dir, "stella.exe")
+	committed := filepath.Join(dir, "stellad.exe")
 	if err := os.WriteFile(committed, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +574,7 @@ func TestWarnStaleUpgradeArtifacts(t *testing.T) {
 	warnStaleUpgradeArtifacts(dir)
 
 	// Add a stale file.
-	if err := os.WriteFile(filepath.Join(dir, "stella.bak"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "stellad.bak"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

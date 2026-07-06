@@ -44,7 +44,7 @@ type Service struct {
 }
 
 // Config wires the backends a Service needs. PATs/Users may be nil (PAT auth
-// disabled); Tokens may be nil (scoped bearer auth disabled).
+// disabled); OAuth may be nil until OAuth bearer support is enabled.
 type Config struct {
 	PATs   PATStore
 	OAuth  OAuthAccessStore

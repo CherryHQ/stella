@@ -31,7 +31,7 @@ const (
 
 	// maxArchiveBytes caps the total decompressed size of a release archive
 	// to defend against decompression bombs or CDN compromise. Release archives
-	// include both stella and stellad; stellad can exceed 100 MB by itself.
+	// include stellad, which can exceed 100 MB by itself.
 	maxArchiveBytes = 200 << 20 // 200 MB
 )
 
@@ -137,12 +137,12 @@ func resolveUpgradeDir(installDir string) (string, error) {
 }
 
 // binariesToUpgrade returns the binary names that must be present in a release
-// archive for a full upgrade (both CLI and daemon).
+// archive for a full upgrade.
 func binariesToUpgrade(goos string) []string {
 	if goos == "windows" {
-		return []string{"stella.exe", "stellad.exe"}
+		return []string{"stellad.exe"}
 	}
-	return []string{"stella", "stellad"}
+	return []string{"stellad"}
 }
 
 // fetchRelease fetches a release from GitHub. An empty targetVersion fetches the
@@ -857,15 +857,15 @@ func warnStaleUpgradeArtifacts(dir string) {
 }
 
 // isStaleUpgradeArtifact returns true if the filename looks like a leftover
-// stella/stellad binary from a failed upgrade.
+// stellad binary from a failed upgrade.
 func isStaleUpgradeArtifact(name string) bool {
 	for _, ext := range staleUpgradeExtensions {
 		if !strings.HasSuffix(name, ext) {
 			continue
 		}
 		base := strings.TrimSuffix(name, ext)
-		// Match stella, stellad, stella.exe, stellad.exe
-		if base == "stella" || base == "stellad" || base == "stella.exe" || base == "stellad.exe" {
+		// Match stellad and stellad.exe.
+		if base == "stellad" || base == "stellad.exe" {
 			return true
 		}
 	}

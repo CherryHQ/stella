@@ -18,7 +18,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 
-	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -391,9 +390,6 @@ func ensureEmbeddedAssets() error {
 	}
 	if err := binaries.VerifyTools(config.StellaHome()); err != nil {
 		return err
-	}
-	if err := cli.EnsureStellaCLIInPath(config.StellaHome()); err != nil {
-		return fmt.Errorf("copy stella cli into sandbox path: %w", err)
 	}
 	if err := resources.EnsureBuiltinSkills(filepath.Join(config.StellaHome(), ".agents", "skills")); err != nil {
 		return fmt.Errorf("extract builtin skills: %w", err)

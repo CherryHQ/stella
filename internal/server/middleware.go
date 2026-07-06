@@ -26,8 +26,8 @@ type AuthInfo struct {
 	Name      string `json:"name,omitempty"`
 	AvatarURL string `json:"avatar_url,omitempty"`
 	// principal is the resolved bearer credential and the single carrier of its
-	// authz data (kind, scopes, and the scoped-token agent/session binding). nil
-	// for cookie/OIDC sessions (which skip API-scope enforcement).
+	// authz data (kind and scopes). nil for cookie/OIDC sessions (which skip
+	// API-scope enforcement).
 	principal *credential.Principal
 }
 
@@ -79,12 +79,12 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Scoped bearers (PAT / OAuth) carry a credential kind and go through the
-		// unified enforcement gate. Cookie/OIDC sessions
-		// have no kind and skip API-scope enforcement (handler ownership/admin
-		// checks still apply to them). /api/status is a public health endpoint
-		// (reachable anonymously above), so a valid but narrowly-scoped bearer
-		// must not get a 403 there where an anonymous caller gets 200.
+		// Bearer credentials (PAT / OAuth) carry a credential kind and go through
+		// the unified enforcement gate. Cookie/OIDC sessions have no kind and skip
+		// API-scope enforcement (handler ownership/admin checks still apply to
+		// them). /api/status is a public health endpoint (reachable anonymously
+		// above), so a valid but narrowly scoped bearer must not get a 403 there
+		// where an anonymous caller gets 200.
 		if info.principal != nil && path != "/api/status" {
 			if err := credential.Enforce(info.principal, r.Method, path); err != nil {
 				writeError(w, http.StatusForbidden, "permission denied")
