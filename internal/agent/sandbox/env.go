@@ -160,7 +160,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		}
 	}
 
-	delete(env, stellaTokenEnvName())
+	// The scoped sandbox token is retired; nothing may smuggle a value in
+	// under its old name (e.g. a pre-validation vault row).
+	delete(env, "STELLA_TOKEN")
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, ProcessEnv(paths))
@@ -175,8 +177,6 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 
 	return env, nil
 }
-
-func stellaTokenEnvName() string { return "STELLA_" + "TOKEN" }
 
 // injectSessionEnv resolves plugin SessionEnvSpecs into env.
 func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string) error {
