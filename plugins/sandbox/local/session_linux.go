@@ -200,18 +200,6 @@ func appendLinuxRuntimeMounts(args []string) []string {
 // On Linux (bwrap), it is remapped to /opt/stella.
 func adjustStellaHome(_ string) string { return sandboxStellaHome }
 
-func appendStellaHomeMounts(args []string, stellaHome string) []string {
-	if stellaHome == "" {
-		return args
-	}
-	for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
-		hostPath := filepath.Join(stellaHome, name)
-		sandboxPath := filepath.Join(sandboxStellaHome, name)
-		args = appendRoBindIfExists(args, hostPath, sandboxPath)
-	}
-	return args
-}
-
 func appendResolvedFileMount(args []string, path string) []string {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil || resolved == path {
@@ -243,13 +231,6 @@ func appendWritableBind(args []string, hostPath, sandboxPath string) []string {
 	args = appendDirParents(args, sandboxPath)
 	args = append(args, "--dir", filepath.Clean(sandboxPath))
 	return append(args, "--bind", hostPath, sandboxPath)
-}
-
-// remapToSandboxStellaHome rewrites a host path under STELLA_HOME to its
-// sandbox-view location (STELLA_HOME is remapped to /opt/stella).
-// Paths outside STELLA_HOME are returned unchanged.
-func remapToSandboxStellaHome(hostPath, stellaHomeHost string) string {
-	return remapStellaHomePath(hostPath, stellaHomeHost, sandboxStellaHome)
 }
 
 func appendDirParents(args []string, path string) []string {
