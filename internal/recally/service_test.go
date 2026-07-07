@@ -10,7 +10,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 )
 
-func TestServiceSaveWritesFilesAndDedups(t *testing.T) {
+func TestServiceSaveStoresBodyInDBAndDedups(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	home := t.TempDir()
@@ -21,8 +21,9 @@ func TestServiceSaveWritesFilesAndDedups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Save first: %v", err)
 	}
-	if !first.Created || first.Article.FilePath == "" {
-		t.Fatalf("first=%+v, want created with file", first)
+	// Bodies live in PostgreSQL now; new articles carry no on-disk mirror pointer.
+	if !first.Created || first.Article.FilePath != "" {
+		t.Fatalf("first=%+v, want created with empty file_path", first)
 	}
 	body, err := svc.ReadArticleBody(t.Context(), first.Article)
 	if err != nil || body != "first" {
@@ -41,7 +42,7 @@ func TestServiceSaveWritesFilesAndDedups(t *testing.T) {
 	}
 }
 
-func TestServiceReadArticleBodyUsesDatabaseWhenMirrorIsMissing(t *testing.T) {
+func TestServiceReadArticleBodyReadsFromDatabase(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	home := t.TempDir()
@@ -52,9 +53,7 @@ func TestServiceReadArticleBodyUsesDatabaseWhenMirrorIsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if err := os.Remove(articleAbsPath(home, saved.Article)); err != nil {
-		t.Fatalf("remove mirror: %v", err)
-	}
+	// No on-disk mirror is written; the body must round-trip through PostgreSQL.
 	body, err := svc.ReadArticleBody(t.Context(), saved.Article)
 	if err != nil || body != "from database" {
 		t.Fatalf("ReadArticleBody body=%q err=%v, want database body", body, err)
@@ -115,18 +114,15 @@ func TestServiceReadArticleBodyBackfillsLegacyFile(t *testing.T) {
 	defer cleanup()
 	home := t.TempDir()
 	store := NewStore(db)
-	files := NewFileManager(home)
-	svc := NewService(store, files, home)
+	svc := NewService(store, NewFileManager(home), home)
 
 	article, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/legacy", Title: "Legacy", Content: "ignored"})
 	if err != nil {
 		t.Fatalf("SaveArticle: %v", err)
 	}
-	path := files.ArticlePath(testUserID, article.ID, article.Title, article.SavedAt)
-	if err := files.WriteArticle(path, article, "legacy body"); err != nil {
-		t.Fatalf("WriteArticle: %v", err)
-	}
-	relPath := files.RelativePath(path)
+	// Simulate a legacy article whose body lives only in an on-disk markdown
+	// mirror (frontmatter + body), with the row still pointing at it via file_path.
+	relPath, absPath := writeLegacyMirror(t, home, article.ID, "legacy body")
 	if err := store.UpdateArticleFilePath(t.Context(), testUserID, article.ID, relPath); err != nil {
 		t.Fatalf("UpdateArticleFilePath: %v", err)
 	}
@@ -136,13 +132,31 @@ func TestServiceReadArticleBodyBackfillsLegacyFile(t *testing.T) {
 	if err != nil || body != "legacy body" {
 		t.Fatalf("ReadArticleBody legacy body=%q err=%v", body, err)
 	}
-	if err := os.Remove(path); err != nil {
+	// The first read backfills the DB, so a later read still works once the file is gone.
+	if err := os.Remove(absPath); err != nil {
 		t.Fatalf("remove mirror: %v", err)
 	}
 	body, err = svc.ReadArticleBody(t.Context(), article)
 	if err != nil || body != "legacy body" {
 		t.Fatalf("ReadArticleBody backfilled body=%q err=%v", body, err)
 	}
+}
+
+// writeLegacyMirror writes a legacy on-disk article mirror (YAML frontmatter
+// followed by the body) under home and returns its STELLA_HOME-relative and
+// absolute paths. It stands in for the retired FileManager.WriteArticle so the
+// backfill/read-fallback tests can still stage pre-migration data.
+func writeLegacyMirror(t *testing.T, home, articleID, body string) (relPath, absPath string) {
+	t.Helper()
+	relPath = filepath.Join("library", articleID+".md")
+	absPath = filepath.Join(home, relPath)
+	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+		t.Fatalf("mkdir legacy mirror: %v", err)
+	}
+	if err := os.WriteFile(absPath, []byte("---\ntitle: Legacy\n---\n"+body+"\n"), 0o644); err != nil {
+		t.Fatalf("write legacy mirror: %v", err)
+	}
+	return relPath, absPath
 }
 
 func TestServiceDeleteArticleCascadesContent(t *testing.T) {
@@ -172,19 +186,15 @@ func TestServiceBackfillMissingContent(t *testing.T) {
 	defer cleanup()
 	home := t.TempDir()
 	store := NewStore(db)
-	files := NewFileManager(home)
-	svc := NewService(store, files, home)
+	svc := NewService(store, NewFileManager(home), home)
 
 	// Legacy article: body lives only in a disk file, no content row yet.
 	legacy, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/legacy", Title: "Legacy", Content: "ignored"})
 	if err != nil {
 		t.Fatalf("SaveArticle legacy: %v", err)
 	}
-	legacyPath := files.ArticlePath(testUserID, legacy.ID, legacy.Title, legacy.SavedAt)
-	if err := files.WriteArticle(legacyPath, legacy, "legacy body"); err != nil {
-		t.Fatalf("WriteArticle: %v", err)
-	}
-	if err := store.UpdateArticleFilePath(t.Context(), testUserID, legacy.ID, files.RelativePath(legacyPath)); err != nil {
+	legacyRel, _ := writeLegacyMirror(t, home, legacy.ID, "legacy body")
+	if err := store.UpdateArticleFilePath(t.Context(), testUserID, legacy.ID, legacyRel); err != nil {
 		t.Fatalf("UpdateArticleFilePath legacy: %v", err)
 	}
 
@@ -227,13 +237,6 @@ func TestServiceBackfillMissingContent(t *testing.T) {
 	if _, ok, err := store.GetArticleContent(t.Context(), gone.ID); err != nil || ok {
 		t.Fatalf("gone content ok=%v err=%v, want no row", ok, err)
 	}
-}
-
-func articleAbsPath(home string, article *Article) string {
-	if filepath.IsAbs(article.FilePath) {
-		return article.FilePath
-	}
-	return filepath.Join(home, article.FilePath)
 }
 
 func TestServiceAuthorizedIdentityAndMissingMapping(t *testing.T) {

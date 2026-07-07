@@ -52,7 +52,6 @@ type Service struct {
 	q          *sqlc.Queries
 	mem        memory.Provider
 	store      *recally.Store
-	files      *recally.FileManager
 	recallySvc *recally.Service
 	stellaHome string
 	baseURL    string
@@ -70,7 +69,7 @@ type ListResult struct {
 }
 
 func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, files *recally.FileManager, stellaHome, baseURL string) *Service {
-	return &Service{q: q, mem: mem, store: store, files: files, recallySvc: recally.NewService(store, files, stellaHome), stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
+	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, files, stellaHome), stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
 func (s *Service) SetBaseURL(baseURL string) {

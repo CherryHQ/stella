@@ -135,7 +135,7 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		emailSvc:    emailSvc,
 		shareSvc:    shareSvc,
 		recallySvc:  recallySvc,
-		recally:     newRecallyHandlersWithService(recallyStore, recallyFiles, recallySvc, log),
+		recally:     newRecallyHandlersWithService(recallyStore, recallySvc, log),
 		startedAt:   time.Now(),
 		runtimeCtx:  ctx,
 	}
@@ -283,7 +283,6 @@ func (s *Server) SetRecallyService(svc *recally.Service) {
 		s.recallySvc = svc
 		s.recally.svc = svc
 		s.recally.store = svc.Store()
-		s.recally.files = svc.Files()
 	}
 }
 

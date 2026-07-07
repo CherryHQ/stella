@@ -42,8 +42,6 @@ func NewService(store *Store, files *FileManager, stellaHome string) *Service {
 
 func (s *Service) Store() *Store { return s.store }
 
-func (s *Service) Files() *FileManager { return s.files }
-
 // Recally is deliberately user-owned, not agent-scoped: a user's reading
 // library is shared across all of their agents.
 func userID(ident authz.Identity) (string, error) {
@@ -69,14 +67,20 @@ func (s Authorized) Save(ctx context.Context, req SaveRequest) (SaveResult, erro
 	if err != nil {
 		return SaveResult{}, err
 	}
-	article, created, err := s.saveWithFile(ctx, uid, req)
+	article, created, err := s.save(ctx, uid, req)
 	if err != nil {
 		return SaveResult{}, err
 	}
 	return SaveResult{Article: article, Created: created}, nil
 }
 
-func (s *Service) saveWithFile(ctx context.Context, userID string, req SaveRequest) (*Article, bool, error) {
+// save persists an article and its body to PostgreSQL, which is the sole source
+// of truth. New articles are written in one SaveArticleWithContent transaction;
+// updates upsert the body. Bodies are no longer mirrored to a markdown file on
+// disk (that mirror had no readers), and new rows leave file_path empty; the
+// column stays as the legacy pointer the startup backfill and the ReadArticleBody
+// fallback still consult for rows written before this change.
+func (s *Service) save(ctx context.Context, userID string, req SaveRequest) (*Article, bool, error) {
 	if req.URL == "" {
 		return nil, false, fmt.Errorf("url is required")
 	}
@@ -90,23 +94,21 @@ func (s *Service) saveWithFile(ctx context.Context, userID string, req SaveReque
 	if content == "" && lookupErr != nil {
 		return nil, false, fmt.Errorf("content is required for new articles")
 	}
-	var filePath string
-	if existing != nil {
-		if existing.FilePath != "" {
-			filePath = existing.FilePath
-			if !filepath.IsAbs(filePath) {
-				filePath = filepath.Join(s.stellaHome, filePath)
-			}
+	if existing != nil && content == "" {
+		// Metadata-only update: keep the stored body rather than blank it. Prefer
+		// the DB copy; fall back to a legacy on-disk mirror for rows the backfill
+		// has not yet captured.
+		if body, ok, err := s.store.GetArticleContent(ctx, existing.ID); err != nil {
+			return nil, false, err
+		} else if ok {
+			content = body
 		}
-		if content == "" {
-			if body, ok, err := s.store.GetArticleContent(ctx, existing.ID); err != nil {
-				return nil, false, err
-			} else if ok {
-				content = body
+		if content == "" && existing.FilePath != "" {
+			path := existing.FilePath
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(s.stellaHome, path)
 			}
-		}
-		if content == "" && filePath != "" {
-			if body, readErr := s.files.ReadArticle(filePath); readErr == nil {
+			if body, readErr := s.files.ReadArticle(path); readErr == nil {
 				content = body
 			}
 		}
@@ -115,27 +117,11 @@ func (s *Service) saveWithFile(ctx context.Context, userID string, req SaveReque
 	if err != nil {
 		return nil, false, err
 	}
-	if filePath == "" {
-		filePath = s.files.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
-	}
 	if !isNew && content != "" {
 		if err := s.store.UpsertArticleContent(ctx, article.ID, content); err != nil {
 			return nil, false, err
 		}
 	}
-	if content == "" {
-		return article, isNew, nil
-	}
-	if err := s.files.WriteArticle(filePath, article, content); err != nil {
-		slog.Warn("failed to mirror recally article body to disk", "article_id", article.ID, "path", filePath, "error", err)
-		return article, isNew, nil
-	}
-	relPath := s.files.RelativePath(filePath)
-	if err := s.store.UpdateArticleFilePath(ctx, userID, article.ID, relPath); err != nil {
-		slog.Warn("failed to update recally article mirror path", "article_id", article.ID, "path", relPath, "error", err)
-		return article, isNew, nil
-	}
-	article.FilePath = relPath
 	return article, isNew, nil
 }
 
