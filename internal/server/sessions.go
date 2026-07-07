@@ -1306,6 +1306,32 @@ func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agent
 		s.writeInternalError(w, err)
 		return
 	}
+	if store := blob.Default(); store != nil {
+		if isAssetRelPath(body.Path) {
+			if key, err := blob.KeyForPath(config.StellaHome(), src); err != nil {
+				s.log.Warn("asset blob move source key failed", "path", src, "error", err)
+			} else if blob.IsUserAssetKey(key) {
+				if err := store.Delete(r.Context(), key); err != nil {
+					s.log.Warn("asset blob move delete failed", "key", key, "error", err)
+				}
+			}
+		}
+		if isAssetRelPath(body.NewPath) {
+			if key, err := blob.KeyForPath(config.StellaHome(), dst); err != nil {
+				s.log.Warn("asset blob move destination key failed", "path", dst, "error", err)
+			} else if blob.IsUserAssetKey(key) {
+				file, err := os.Open(dst)
+				if err != nil {
+					s.log.Warn("asset blob move open failed", "path", dst, "error", err)
+				} else {
+					if err := store.Put(r.Context(), key, file); err != nil {
+						s.log.Warn("asset blob move mirror failed", "key", key, "error", err)
+					}
+					_ = file.Close()
+				}
+			}
+		}
+	}
 	diskInfo, err := collectWorkspaceDiskInfo(root, false, "", 0)
 	if err != nil {
 		s.writeInternalError(w, err)
@@ -1396,9 +1422,19 @@ func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Reque
 		s.writeInternalError(w, err)
 		return
 	}
-	if err := os.WriteFile(abs, []byte(body.Content), 0o644); err != nil {
+	data := []byte(body.Content)
+	if err := os.WriteFile(abs, data, 0o644); err != nil {
 		s.writeInternalError(w, err)
 		return
+	}
+	if store := blob.Default(); store != nil && isAssetRelPath(body.Path) {
+		if key, err := blob.KeyForPath(config.StellaHome(), abs); err != nil {
+			s.log.Warn("asset blob update key failed", "path", abs, "error", err)
+		} else if blob.IsUserAssetKey(key) {
+			if err := store.Put(r.Context(), key, bytes.NewReader(data)); err != nil {
+				s.log.Warn("asset blob update mirror failed", "key", key, "error", err)
+			}
+		}
 	}
 	lang := detectLanguage(body.Path)
 	writeData(w, http.StatusOK, map[string]any{
@@ -1477,19 +1513,40 @@ func (s *Server) restoreAssetFromBlob(ctx context.Context, rel, abs string) erro
 		return err
 	}
 	defer func() { _ = rc.Close() }()
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return err
-	}
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		return err
 	}
 	// Restore only through the previously safe-pathed location; S3 is a mirror, not
 	// an authority that can choose local filesystem paths.
-	if err := os.WriteFile(abs, data, 0o644); err != nil {
+	return writeRestoredAssetFile(abs, data)
+}
+
+func writeRestoredAssetFile(abs string, data []byte) error {
+	dir := filepath.Dir(abs)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return nil
+	tmp, err := os.CreateTemp(dir, ".stella-restore-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	// Normalize restored assets to 0644. Channel SaveAsset uses 0600, but files
+	// under a per-user home are not relying on mode bits as a security boundary.
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, abs)
 }
 
 func isAssetRelPath(rel string) bool {

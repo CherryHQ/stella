@@ -22,17 +22,28 @@ func NewStoreFromEnv() (Store, error) {
 		envS3AccessKey: os.Getenv(envS3AccessKey),
 		envS3SecretKey: os.Getenv(envS3SecretKey),
 	}
-	set := 0
-	for _, v := range vals {
+	allVals := map[string]string{
+		envS3Endpoint:  vals[envS3Endpoint],
+		envS3Bucket:    vals[envS3Bucket],
+		envS3AccessKey: vals[envS3AccessKey],
+		envS3SecretKey: vals[envS3SecretKey],
+		envS3Region:    os.Getenv(envS3Region),
+		envS3UseSSL:    os.Getenv(envS3UseSSL),
+	}
+	anySet := false
+	for _, v := range allVals {
 		if v != "" {
-			set++
+			anySet = true
+			break
 		}
 	}
-	if set == 0 {
+	if !anySet {
 		return nil, nil
 	}
-	if set != len(vals) {
-		return nil, fmt.Errorf("blob s3 config is partial; set %s, %s, %s, and %s together", envS3Endpoint, envS3Bucket, envS3AccessKey, envS3SecretKey)
+	for _, v := range vals {
+		if v == "" {
+			return nil, fmt.Errorf("blob s3 config is partial; set %s, %s, %s, and %s together", envS3Endpoint, envS3Bucket, envS3AccessKey, envS3SecretKey)
+		}
 	}
 	useSSL := true
 	if raw := os.Getenv(envS3UseSSL); raw != "" {

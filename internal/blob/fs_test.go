@@ -81,6 +81,8 @@ func TestNewStoreFromEnv(t *testing.T) {
 	t.Setenv("STELLA_BLOB_S3_BUCKET", "")
 	t.Setenv("STELLA_BLOB_S3_ACCESS_KEY", "")
 	t.Setenv("STELLA_BLOB_S3_SECRET_KEY", "")
+	t.Setenv("STELLA_BLOB_S3_REGION", "")
+	t.Setenv("STELLA_BLOB_S3_USE_SSL", "")
 	store, err := NewStoreFromEnv()
 	if err != nil || store != nil {
 		t.Fatalf("all unset store=%T err=%v, want nil nil", store, err)
@@ -88,5 +90,15 @@ func TestNewStoreFromEnv(t *testing.T) {
 	t.Setenv("STELLA_BLOB_S3_ENDPOINT", "localhost:9000")
 	if store, err := NewStoreFromEnv(); err == nil || store != nil {
 		t.Fatalf("partial store=%T err=%v, want error", store, err)
+	}
+	t.Setenv("STELLA_BLOB_S3_ENDPOINT", "")
+	t.Setenv("STELLA_BLOB_S3_REGION", "us-east-1")
+	if store, err := NewStoreFromEnv(); err == nil || store != nil {
+		t.Fatalf("region-only store=%T err=%v, want error", store, err)
+	}
+	t.Setenv("STELLA_BLOB_S3_REGION", "")
+	t.Setenv("STELLA_BLOB_S3_USE_SSL", "false")
+	if store, err := NewStoreFromEnv(); err == nil || store != nil {
+		t.Fatalf("use-ssl-only store=%T err=%v, want error", store, err)
 	}
 }

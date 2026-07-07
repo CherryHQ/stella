@@ -212,14 +212,38 @@ func (s *Service) restoreAssetFromBlob(ctx context.Context, rel, abs string) err
 		return err
 	}
 	defer func() { _ = rc.Close() }()
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return err
-	}
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(abs, data, 0o644)
+	return writeRestoredAssetFile(abs, data)
+}
+
+func writeRestoredAssetFile(abs string, data []byte) error {
+	dir := filepath.Dir(abs)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".stella-restore-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	// Normalize restored assets to 0644. Channel SaveAsset uses 0600, but files
+	// under a per-user home are not relying on mode bits as a security boundary.
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, abs)
 }
 
 func isAssetRelPath(rel string) bool {

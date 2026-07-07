@@ -3,6 +3,7 @@ package share_test
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,6 +133,35 @@ func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
 	}
 }
 
+func TestShareArtifactRestoreMissLeavesNoAssetDir(t *testing.T) {
+	defer blob.ResetDefaultForTest()
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	mem := memorytest.New()
+	home := t.TempDir()
+	if err := blob.SetDefault(lazyMissingStore{}); err != nil {
+		t.Fatal(err)
+	}
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), recally.NewFileManager(home), home, "http://stella.test")
+	userID := uuid.NewString()
+	agentID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: "session", UserID: userID, AgentID: agentID}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "session", "assets/202607/missing.html", "user", "7d")
+	if !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("ShareArtifact err=%v, want ErrNotFound", err)
+	}
+	dir := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, userID)), "assets", "202607")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("restore miss dir err=%v, want not exist", err)
+	}
+}
+
 func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
@@ -203,6 +233,18 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 		t.Fatalf("created missing URL/token: %+v", created)
 	}
 }
+
+type lazyMissingStore struct{}
+
+func (lazyMissingStore) Put(context.Context, string, io.Reader) error { return nil }
+func (lazyMissingStore) Delete(context.Context, string) error         { return nil }
+func (lazyMissingStore) Open(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(lazyMissingReader{}), nil
+}
+
+type lazyMissingReader struct{}
+
+func (lazyMissingReader) Read([]byte) (int, error) { return 0, os.ErrNotExist }
 
 func ident(userID, agentID string) authz.Identity {
 	return authz.Identity{UserID: userID, AgentID: agentID, AgentScoped: agentID != ""}
