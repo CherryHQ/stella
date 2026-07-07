@@ -84,3 +84,111 @@ func TestWatermarkStore_Upsert(t *testing.T) {
 		t.Errorf("expected upserted value %v, got %v", t2, got)
 	}
 }
+
+func TestWatermarkStore_LineGetSeedsFromLegacy(t *testing.T) {
+	ws, ctx := newTestWatermarkStore(t)
+
+	legacy := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	if err := ws.set(ctx, "s1", legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ws.getLine(ctx, "s1", reflectLineFact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.At.Equal(legacy) {
+		t.Fatalf("expected legacy seed %v, got %v", legacy, got)
+	}
+}
+
+func TestWatermarkStore_LineSetWritesRFC3339(t *testing.T) {
+	ws, ctx := newTestWatermarkStore(t)
+
+	at := time.Date(2026, 7, 2, 10, 5, 0, 0, time.UTC)
+	if err := ws.setLine(ctx, "s1", reflectLineSkill, reviewWatermark{At: at}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ws.getLine(ctx, "s1", reflectLineSkill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.At.Equal(at) {
+		t.Fatalf("expected %v, got %v", at, got)
+	}
+
+	raw, ok, err := ws.store.Get(ctx, pkgplugins.StateScope{
+		Kind: pkgplugins.StateScopeSession,
+		ID:   "s1",
+	}, lineWatermarkKey(reflectLineSkill))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected line watermark key to be written")
+	}
+	if raw["reviewed_at"] != at.Format(time.RFC3339) {
+		t.Fatalf("expected RFC3339 value %q, got %#v", at.Format(time.RFC3339), raw["reviewed_at"])
+	}
+}
+
+func TestWatermarkStore_LinePrefersLineValueOverLegacy(t *testing.T) {
+	ws, ctx := newTestWatermarkStore(t)
+
+	legacy := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	line := time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC)
+	if err := ws.set(ctx, "s1", legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.setLine(ctx, "s1", reflectLineFact, reviewWatermark{At: line}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ws.getLine(ctx, "s1", reflectLineFact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.At.Equal(line) {
+		t.Fatalf("expected line value %v, got %v", line, got)
+	}
+}
+
+func TestWatermarkStore_LineSetWritesSeq(t *testing.T) {
+	ws, ctx := newTestWatermarkStore(t)
+
+	at := time.Date(2026, 7, 2, 10, 5, 0, 0, time.UTC)
+	if err := ws.setLine(ctx, "s1", reflectLineFact, reviewWatermark{Seq: 42, At: at}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ws.getLine(ctx, "s1", reflectLineFact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Seq != 42 || !got.At.Equal(at) {
+		t.Fatalf("expected seq 42 and at %v, got %#v", at, got)
+	}
+}
+
+func TestWatermarkStore_LineParsesLegacyLayout(t *testing.T) {
+	ws, ctx := newTestWatermarkStore(t)
+
+	at := time.Date(2026, 7, 2, 10, 5, 0, 0, time.UTC)
+	if err := ws.store.Set(ctx, pkgplugins.StateScope{
+		Kind: pkgplugins.StateScopeSession,
+		ID:   "s1",
+	}, lineWatermarkKey(reflectLineFact), map[string]any{
+		"reviewed_at": at.Format("2006-01-02 15:04:05"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ws.getLine(ctx, "s1", reflectLineFact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.At.Equal(at) {
+		t.Fatalf("expected fallback parse %v, got %v", at, got)
+	}
+}

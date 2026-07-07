@@ -191,6 +191,32 @@ func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Mess
 	return rowsToMessages(msgs), nil
 }
 
+// LoadReviewHistory implements memory.ReviewHistoryReader.
+func (p *Provider) LoadReviewHistory(ctx context.Context, sessionID string) ([]memory.ReviewMessage, error) {
+	userID, agentID, err := requireSessionScope(ctx, "", "")
+	if err != nil {
+		return nil, err
+	}
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{
+		SessionID: sessionID,
+		UserID:    pgtype.Text{String: userID, Valid: true},
+		AgentID:   pgnull.Text(agentID),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get conversation: %w", err)
+	}
+
+	msgs, err := p.q.GetMessagesByConversation(ctx, conv.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get messages: %w", err)
+	}
+
+	return rowsToReviewMessages(msgs), nil
+}
+
 func convsToSessionInfo(convs []sqlc.CtxConversation) []memory.SessionInfo {
 	result := make([]memory.SessionInfo, 0, len(convs))
 	for _, conv := range convs {

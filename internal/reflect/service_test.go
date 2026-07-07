@@ -20,11 +20,17 @@ func testLogger() *slog.Logger {
 
 // fakeWatermarks is a test double for watermarker.
 type fakeWatermarks struct {
-	marks map[string]time.Time
+	marks     map[string]time.Time
+	lineMarks map[string]time.Time
+	lineSeqs  map[string]int64
 }
 
 func newFakeWatermarks() *fakeWatermarks {
-	return &fakeWatermarks{marks: make(map[string]time.Time)}
+	return &fakeWatermarks{
+		marks:     make(map[string]time.Time),
+		lineMarks: make(map[string]time.Time),
+		lineSeqs:  make(map[string]int64),
+	}
 }
 
 func (f *fakeWatermarks) get(_ context.Context, sessionID string) (time.Time, error) {
@@ -36,9 +42,78 @@ func (f *fakeWatermarks) set(_ context.Context, sessionID string, at time.Time) 
 	return nil
 }
 
+func (f *fakeWatermarks) getLine(_ context.Context, sessionID string, line reflectLine) (reviewWatermark, error) {
+	key := fakeLineWatermarkKey(sessionID, line)
+	mark := reviewWatermark{Seq: f.lineSeqs[key]}
+	if at, ok := f.lineMarks[key]; ok {
+		mark.At = at
+		return mark, nil
+	}
+	mark.At = f.marks[sessionID]
+	return mark, nil
+}
+
+func (f *fakeWatermarks) setLine(_ context.Context, sessionID string, line reflectLine, mark reviewWatermark) error {
+	f.setLineMark(sessionID, line, mark.At)
+	if mark.Seq > 0 {
+		f.lineSeqs[fakeLineWatermarkKey(sessionID, line)] = mark.Seq
+	}
+	return nil
+}
+
+func (f *fakeWatermarks) setLineMark(sessionID string, line reflectLine, at time.Time) {
+	f.lineMarks[fakeLineWatermarkKey(sessionID, line)] = at
+}
+
+func (f *fakeWatermarks) lineMark(sessionID string, line reflectLine) time.Time {
+	return f.lineMarks[fakeLineWatermarkKey(sessionID, line)]
+}
+
+func (f *fakeWatermarks) lineSeq(sessionID string, line reflectLine) int64 {
+	return f.lineSeqs[fakeLineWatermarkKey(sessionID, line)]
+}
+
+func fakeLineWatermarkKey(sessionID string, line reflectLine) string {
+	return sessionID + ":" + string(line)
+}
+
 type reviewListOnlyFake struct {
 	*memorytest.Fake
 	reviewCalled bool
+}
+
+type reviewHistoryProvider struct {
+	messages []memory.ReviewMessage
+}
+
+func (p *reviewHistoryProvider) Name() string {
+	return "review-history-test"
+}
+
+func (p *reviewHistoryProvider) Bootstrap(context.Context, memory.Session) error {
+	return nil
+}
+
+func (p *reviewHistoryProvider) Append(context.Context, memory.Session, ...ai.Message) error {
+	return nil
+}
+
+func (p *reviewHistoryProvider) Assemble(context.Context, memory.Session, int, int) ([]ai.Message, error) {
+	return nil, nil
+}
+
+func (p *reviewHistoryProvider) Stats(context.Context, memory.Session) (memory.SessionStats, error) {
+	return memory.SessionStats{}, nil
+}
+
+func (p *reviewHistoryProvider) Close() error {
+	return nil
+}
+
+func (p *reviewHistoryProvider) LoadReviewHistory(context.Context, string) ([]memory.ReviewMessage, error) {
+	out := make([]memory.ReviewMessage, len(p.messages))
+	copy(out, p.messages)
+	return out, nil
 }
 
 func (f *reviewListOnlyFake) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
@@ -81,16 +156,37 @@ func TestListUnreviewed_SkipsAnonymous(t *testing.T) {
 	seedFakeSession(t, fake, "s1", "a", "", now)  // anonymous
 	seedFakeSession(t, fake, "s2", "a", "1", now) // has user
 
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 review target, got %d", len(targets))
 	}
-	if candidates[0].session.ID != "s2" {
-		t.Errorf("expected session s2, got %s", candidates[0].session.ID)
+	if targets[0].session.ID != "s2" {
+		t.Errorf("expected session s2, got %s", targets[0].session.ID)
 	}
+}
+
+func TestListUnreviewed_ReturnsReviewTargets(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
+
+	now := time.Now().UTC()
+	seedFakeSession(t, fake, "s1", "a", "1", now)
+
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertReviewTargets(t, targets)
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 review target, got %d", len(targets))
+	}
+}
+
+func assertReviewTargets(t *testing.T, _ []reviewTarget) {
+	t.Helper()
 }
 
 func TestListUnreviewed_UsesReviewListerWithoutUserScope(t *testing.T) {
@@ -98,15 +194,15 @@ func TestListUnreviewed_UsesReviewListerWithoutUserScope(t *testing.T) {
 	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
 
 	seedFakeSession(t, fake.Fake, "s1", "a", "1", time.Now().UTC())
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !fake.reviewCalled {
 		t.Fatal("expected ListInfoForReview to be used")
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 review target, got %d", len(targets))
 	}
 }
 
@@ -122,15 +218,15 @@ func TestListUnreviewed_SkipsAlreadyReviewed(t *testing.T) {
 	// Mark s1 as reviewed at or after its LastActive.
 	wm.marks["s1"] = now
 
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 review target, got %d", len(targets))
 	}
-	if candidates[0].session.ID != "s2" {
-		t.Errorf("expected session s2, got %s", candidates[0].session.ID)
+	if targets[0].session.ID != "s2" {
+		t.Errorf("expected session s2, got %s", targets[0].session.ID)
 	}
 }
 
@@ -146,16 +242,16 @@ func TestListUnreviewed_OldestFirst(t *testing.T) {
 	// Give "new" a recent watermark so it still qualifies but is "more recently reviewed".
 	wm.marks["new"] = now.Add(-10 * time.Minute)
 
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 2 {
-		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 review targets, got %d", len(targets))
 	}
 	// "old" has zero watermark, so should sort first.
-	if candidates[0].session.ID != "old" {
-		t.Errorf("expected oldest-first ordering, got %s first", candidates[0].session.ID)
+	if targets[0].session.ID != "old" {
+		t.Errorf("expected oldest-first ordering, got %s first", targets[0].session.ID)
 	}
 }
 
@@ -169,15 +265,15 @@ func TestListUnreviewed_ZeroWatermarkTiebreaker(t *testing.T) {
 	seedFakeSession(t, fake, "newer", "a", "1", now)
 	seedFakeSession(t, fake, "older", "a", "2", now.Add(-3*time.Hour))
 
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 2 {
-		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 review targets, got %d", len(targets))
 	}
-	if candidates[0].session.ID != "older" {
-		t.Errorf("expected older session first when both have zero watermark, got %s", candidates[0].session.ID)
+	if targets[0].session.ID != "older" {
+		t.Errorf("expected older session first when both have zero watermark, got %s", targets[0].session.ID)
 	}
 }
 
@@ -190,11 +286,11 @@ func TestListUnreviewed_BatchLimit(t *testing.T) {
 		seedFakeSession(t, fake, fmt.Sprintf("s%d", i), "a", fmt.Sprintf("%d", i+1), now.Add(time.Duration(i)*time.Minute))
 	}
 
-	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 2 {
-		t.Fatalf("expected 2 candidates (batch limit), got %d", len(candidates))
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 review targets (batch limit), got %d", len(targets))
 	}
 }

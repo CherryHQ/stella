@@ -343,6 +343,52 @@ func rowsToMessages(msgs []sqlc.CtxMessage) []ai.Message {
 	return result
 }
 
+func rowsToReviewMessages(msgs []sqlc.CtxMessage) []memory.ReviewMessage {
+	result := make([]memory.ReviewMessage, 0, len(msgs))
+	i := 0
+	for i < len(msgs) {
+		msg := msgs[i]
+		switch msg.Role {
+		case roleUser:
+			result = append(result, memory.ReviewMessage{
+				ID:       msg.ID,
+				FirstSeq: msg.Seq,
+				LastSeq:  msg.Seq,
+				Message:  rowToUserMessage(msg),
+			})
+			i++
+		case roleAssistant:
+			am, consumed := mergeAssistantRows(msgs, i)
+			if am.Timestamp.IsZero() {
+				am.Timestamp = msg.CreatedAt.UTC()
+			}
+			last := msgs[i+consumed-1]
+			result = append(result, memory.ReviewMessage{
+				ID:       msg.ID,
+				FirstSeq: msg.Seq,
+				LastSeq:  last.Seq,
+				Message:  am,
+			})
+			i += consumed
+		case roleTool:
+			tm := rowToToolResult(msg)
+			if tm.Timestamp.IsZero() {
+				tm.Timestamp = msg.CreatedAt.UTC()
+			}
+			result = append(result, memory.ReviewMessage{
+				ID:       msg.ID,
+				FirstSeq: msg.Seq,
+				LastSeq:  msg.Seq,
+				Message:  tm,
+			})
+			i++
+		default:
+			i++
+		}
+	}
+	return result
+}
+
 func rowToUserMessage(msg sqlc.CtxMessage) ai.UserMessage {
 	ts := msg.CreatedAt.UTC()
 	if msg.EventType == eventTypeMultimodal {
