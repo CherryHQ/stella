@@ -80,6 +80,16 @@ func TestBashDeclaredSecretValueRedactedFromResult(t *testing.T) {
 	}
 }
 
+func TestRedactSecretValuesReplacesLongestSecretsFirst(t *testing.T) {
+	content := "token abc123 also abc"
+	for range 100 {
+		redacted := redactSecretValues(content, map[string]string{"SHORT": "abc", "LONG": "abc123"})
+		if strings.Contains(redacted, "123") || strings.Contains(redacted, "abc") {
+			t.Fatalf("redacted = %q, want no partial secret suffix", redacted)
+		}
+	}
+}
+
 func TestBashSessionVaultSecretValueRedactedFromResult(t *testing.T) {
 	session := &secretCaptureSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stdout: "vault-secret-value\n", ExitCode: 0}}
 	resolver := &fakeSecretResolver{sessionValues: []string{"vault-secret-value"}}

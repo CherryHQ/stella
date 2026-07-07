@@ -2,8 +2,8 @@ package sandbox
 
 import "sync"
 
-// SessionSecretValues carries vault-sourced env values injected at session start
-// to tool output redaction without marking benign runner env (PATH, HOME, etc.) sensitive.
+// SessionSecretValues carries secret env values injected at session start to tool
+// output redaction without marking benign runner env (PATH, HOME, etc.) sensitive.
 type SessionSecretValues struct {
 	mu     sync.RWMutex
 	values []string

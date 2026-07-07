@@ -200,10 +200,15 @@ func buildRedactionEnv(secretEnv map[string]string, sessionSecretValues []string
 }
 
 func redactSecretValues(content string, env map[string]string) string {
+	values := make([]string, 0, len(env))
 	for _, value := range env {
 		if value == "" {
 			continue
 		}
+		values = append(values, value)
+	}
+	sort.SliceStable(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
+	for _, value := range values {
 		content = strings.ReplaceAll(content, value, "[REDACTED_SECRET]")
 	}
 	return content
