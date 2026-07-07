@@ -35,8 +35,8 @@ type SaveResult struct {
 	Created bool
 }
 
-func NewService(store *Store, files *FileManager, stellaHome string) *Service {
-	return &Service{store: store, files: files, feeds: gofeed.NewParser(), stellaHome: stellaHome}
+func NewService(store *Store, stellaHome string) *Service {
+	return &Service{store: store, files: newFileManager(stellaHome), feeds: gofeed.NewParser(), stellaHome: stellaHome}
 }
 
 func (s *Service) Store() *Store { return s.store }

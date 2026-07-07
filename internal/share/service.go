@@ -68,8 +68,8 @@ type ListResult struct {
 	NextPageToken string
 }
 
-func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, files *recally.FileManager, stellaHome, baseURL string) *Service {
-	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, files, stellaHome), stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
+func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, stellaHome, baseURL string) *Service {
+	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
 func (s *Service) SetBaseURL(baseURL string) {

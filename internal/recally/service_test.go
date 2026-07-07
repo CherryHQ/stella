@@ -14,7 +14,7 @@ func TestServiceSaveStoresBodyInDBAndDedups(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	home := t.TempDir()
-	svc := NewService(NewStore(db), NewFileManager(home), home)
+	svc := NewService(NewStore(db), home)
 	ident := authz.Identity{UserID: testUserID, AgentID: "agent-a", AgentScoped: true}
 
 	first, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/a", Title: "A", Content: "first"})
@@ -46,7 +46,7 @@ func TestServiceReadArticleBodyReadsFromDatabase(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	home := t.TempDir()
-	svc := NewService(NewStore(db), NewFileManager(home), home)
+	svc := NewService(NewStore(db), home)
 	ident := authz.Identity{UserID: testUserID}
 
 	saved, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/db-body", Title: "DB Body", Content: "from database"})
@@ -93,7 +93,7 @@ func TestServiceReadArticleBodyMissingMirrorReturnsNoContent(t *testing.T) {
 	defer cleanup()
 	home := t.TempDir()
 	store := NewStore(db)
-	svc := NewService(store, NewFileManager(home), home)
+	svc := NewService(store, home)
 
 	article, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/missing-mirror", Title: "Missing Mirror", Content: "ignored"})
 	if err != nil {
@@ -114,7 +114,7 @@ func TestServiceReadArticleBodyIgnoresLegacyFile(t *testing.T) {
 	defer cleanup()
 	home := t.TempDir()
 	store := NewStore(db)
-	svc := NewService(store, NewFileManager(home), home)
+	svc := NewService(store, home)
 
 	article, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/legacy", Title: "Legacy", Content: "ignored"})
 	if err != nil {
@@ -149,7 +149,7 @@ func TestServiceSaveMetadataOnlyDoesNotStrandLegacyBody(t *testing.T) {
 	defer cleanup()
 	home := t.TempDir()
 	store := NewStore(db)
-	svc := NewService(store, NewFileManager(home), home)
+	svc := NewService(store, home)
 	ident := authz.Identity{UserID: testUserID}
 
 	// store.SaveArticle inserts no content row, so this stands in for a legacy
@@ -196,7 +196,7 @@ func TestServiceDeleteArticleCascadesContent(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	store := NewStore(db)
-	svc := NewService(store, NewFileManager(t.TempDir()), t.TempDir())
+	svc := NewService(store, t.TempDir())
 	ident := authz.Identity{UserID: testUserID}
 
 	saved, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/delete", Title: "Delete", Content: "delete me"})
@@ -219,7 +219,7 @@ func TestServiceBackfillMissingContent(t *testing.T) {
 	defer cleanup()
 	home := t.TempDir()
 	store := NewStore(db)
-	svc := NewService(store, NewFileManager(home), home)
+	svc := NewService(store, home)
 
 	// Legacy article: body lives only in a disk file, no content row yet.
 	legacy, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/legacy", Title: "Legacy", Content: "ignored"})
@@ -275,7 +275,7 @@ func TestServiceBackfillMissingContent(t *testing.T) {
 func TestServiceAuthorizedIdentityAndMissingMapping(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
-	svc := NewService(NewStore(db), NewFileManager(t.TempDir()), t.TempDir())
+	svc := NewService(NewStore(db), t.TempDir())
 	if _, err := svc.As(authz.Identity{}).ListArticles(t.Context(), ArticleFilter{}); !errors.Is(err, authz.ErrUnauthenticated) {
 		t.Fatalf("ListArticles unauth err=%v, want ErrUnauthenticated", err)
 	}

@@ -299,9 +299,8 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		credSvc.SetRegistry(ps.oauthRegistry)
 	}
 	recallyStore := recally.NewStore(db)
-	recallyFiles := recally.NewFileManager(config.StellaHome())
-	recallySvc := recally.NewService(recallyStore, recallyFiles, config.StellaHome())
-	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recallyStore, recallyFiles, config.StellaHome(), "http://localhost:25678")
+	recallySvc := recally.NewService(recallyStore, config.StellaHome())
+	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recallyStore, config.StellaHome(), "http://localhost:25678")
 
 	serviceTools := []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
