@@ -33,7 +33,11 @@ func ToolDefinitions() []pkgtools.Definition {
 
 func resolveToolPath(host pkgsandbox.Host, projectRoot, path string) (string, error) {
 	if projectRoot != "" {
-		return pkgtools.ResolveProjectPath(projectRoot, path)
+		resolved, err := pkgtools.ResolveProjectPath(projectRoot, path)
+		if err != nil {
+			return "", err
+		}
+		return host.ResolvePath(resolved)
 	}
 	return host.ResolvePath(path)
 }
