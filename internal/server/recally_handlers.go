@@ -2,11 +2,9 @@ package server
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"maps"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -219,7 +217,7 @@ func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id 
 		include = *params.Include
 	}
 	if includesContent(include) {
-		body, _ := h.readArticleBody(article)
+		body, _ := h.readArticleBody(r.Context(), article)
 		writeData(w, http.StatusOK, toAPIArticle(article, body))
 		return
 	}
@@ -281,7 +279,7 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 	}
 
 	if body.Content != nil || len(updates) > 0 {
-		if err := h.rewriteArticleFile(updated, strDeref(body.Content)); err != nil {
+		if err := h.rewriteArticleFile(r.Context(), updated, body.Content); err != nil {
 			h.writeInternalError(w, err)
 			return
 		}
@@ -744,18 +742,27 @@ func includesContent(include string) bool {
 	return false
 }
 
-func (h *recallyHandlers) readArticleBody(article *recally.Article) (string, error) {
-	if article.FilePath == "" {
-		return "", errors.New("article has no file")
-	}
-	path := article.FilePath
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(config.StellaHome(), path)
-	}
-	return h.files.ReadArticle(path)
+func (h *recallyHandlers) readArticleBody(ctx context.Context, article *recally.Article) (string, error) {
+	return h.svc.ReadArticleBody(ctx, article)
 }
 
-func (h *recallyHandlers) rewriteArticleFile(article *recally.Article, newContent string) error {
+func (h *recallyHandlers) rewriteArticleFile(ctx context.Context, article *recally.Article, newContent *string) error {
+	body := ""
+	if newContent != nil {
+		body = *newContent
+	} else {
+		existing, err := h.svc.ReadArticleBody(ctx, article)
+		if err != nil {
+			// Legacy rows can point at a mirror file this replica never had; a
+			// metadata-only update must not fail on the missing body.
+			h.log.Warn("skipping recally article body rewrite; body unavailable", "article_id", article.ID, "error", err)
+			return nil
+		}
+		body = existing
+	}
+	if err := h.store.UpsertArticleContent(ctx, article.ID, body); err != nil {
+		return err
+	}
 	if article.FilePath == "" {
 		return nil
 	}
@@ -763,18 +770,10 @@ func (h *recallyHandlers) rewriteArticleFile(article *recally.Article, newConten
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(config.StellaHome(), path)
 	}
-	body := newContent
-	if body == "" {
-		existing, err := h.files.ReadArticle(path)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		body = existing
+	if err := h.files.WriteArticle(path, article, body); err != nil {
+		h.log.Warn("failed to mirror recally article body to disk", "article_id", article.ID, "path", path, "error", err)
 	}
-	return h.files.WriteArticle(path, article, body)
+	return nil
 }
 
 func strDeref(p *string) string {

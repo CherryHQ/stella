@@ -723,6 +723,12 @@ type RecallyArticle struct {
 	UpdatedAt    time.Time          `json:"updated_at"`
 }
 
+type RecallyArticleContent struct {
+	ArticleID string    `json:"article_id"`
+	Content   string    `json:"content"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type RecallyArticleEmbedding struct {
 	ArticleID   string             `json:"article_id"`
 	Model       string             `json:"model"`

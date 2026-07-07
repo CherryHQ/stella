@@ -540,6 +540,24 @@ func (s *Store) UpdateArticleFilePath(ctx context.Context, userID, articleID, fi
 	return nil
 }
 
+func (s *Store) UpsertArticleContent(ctx context.Context, articleID, content string) error {
+	if err := s.q.UpsertArticleContent(ctx, sqlc.UpsertArticleContentParams{ArticleID: articleID, Content: content}); err != nil {
+		return fmt.Errorf("upsert article content: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetArticleContent(ctx context.Context, articleID string) (string, bool, error) {
+	content, err := s.q.GetArticleContent(ctx, articleID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("get article content: %w", err)
+	}
+	return content, true, nil
+}
+
 // GetDigest generates a daily reading digest for a user.
 func (s *Store) GetDigest(ctx context.Context, userID string) (*Digest, error) {
 	digest := &Digest{

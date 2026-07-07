@@ -51,6 +51,7 @@ type Service struct {
 	mem        memory.Provider
 	store      *recally.Store
 	files      *recally.FileManager
+	recallySvc *recally.Service
 	stellaHome string
 	baseURL    string
 }
@@ -67,7 +68,7 @@ type ListResult struct {
 }
 
 func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, files *recally.FileManager, stellaHome, baseURL string) *Service {
-	return &Service{q: q, mem: mem, store: store, files: files, stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
+	return &Service{q: q, mem: mem, store: store, files: files, recallySvc: recally.NewService(store, files, stellaHome), stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
 func (s *Service) SetBaseURL(baseURL string) {
@@ -148,16 +149,12 @@ func (s Authorized) ShareArticle(ctx context.Context, articleID, expiresIn strin
 	if article.UserID != ident.UserID {
 		return Created{}, authz.ErrForbidden
 	}
-	if article.FilePath == "" {
-		return Created{}, ErrNoContent
-	}
-	filePath := article.FilePath
-	if !filepath.IsAbs(filePath) {
-		filePath = filepath.Join(s.stellaHome, filePath)
-	}
-	md, err := s.files.ReadArticle(filePath)
+	md, err := s.recallySvc.ReadArticleBody(ctx, article)
 	if err != nil {
 		return Created{}, err
+	}
+	if md == "" {
+		return Created{}, ErrNoContent
 	}
 	rendered, err := RenderMarkdownPage(RenderMarkdownOpts{Title: article.Title, Author: article.Author, SourceURL: article.URL, Summary: article.Summary, Tags: article.Tags}, []byte(md))
 	if err != nil {

@@ -13,6 +13,16 @@ SELECT * FROM recally_article WHERE id = $1 AND user_id = $2;
 -- name: GetArticleByCanonicalURL :one
 SELECT * FROM recally_article WHERE user_id = $1 AND canonical_url = $2;
 
+-- name: GetArticleContent :one
+SELECT content FROM recally_article_content WHERE article_id = $1;
+
+-- name: UpsertArticleContent :exec
+INSERT INTO recally_article_content (article_id, content)
+VALUES (sqlc.arg('article_id'), sqlc.arg('content'))
+ON CONFLICT (article_id) DO UPDATE
+SET content = EXCLUDED.content,
+    updated_at = now();
+
 -- name: ListArticles :many
 SELECT * FROM recally_article
 WHERE user_id = sqlc.arg('user_id')

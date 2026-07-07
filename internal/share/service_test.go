@@ -53,6 +53,41 @@ func TestAuthorizedMethodsEnforceShareOwnership(t *testing.T) {
 	}
 }
 
+func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	mem := memorytest.New()
+	home := t.TempDir()
+	store := recally.NewStore(db)
+	files := recally.NewFileManager(home)
+	svc := sharepkg.NewService(q, mem, store, files, home, "http://stella.test")
+	userID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	recallySvc := recally.NewService(store, files, home)
+	saved, err := recallySvc.As(authz.Identity{UserID: userID}).Save(ctx, recally.SaveRequest{URL: "https://example.com/share", Title: "Share", Content: "share body"})
+	if err != nil {
+		t.Fatalf("Save article: %v", err)
+	}
+	path := saved.Article.FilePath
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(home, path)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove mirror: %v", err)
+	}
+
+	created, err := svc.As(ident(userID, "agent")).ShareArticle(ctx, saved.Article.ID, "7d")
+	if err != nil {
+		t.Fatalf("ShareArticle: %v", err)
+	}
+	if !strings.Contains(string(created.Share.Content), "share body") {
+		t.Fatalf("shared content %q, want article body", string(created.Share.Content))
+	}
+}
+
 func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
