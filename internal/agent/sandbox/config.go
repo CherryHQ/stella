@@ -30,16 +30,17 @@ type TokenEnsurer interface {
 // Config is passed to sandbox operations.
 // It is constructed from the runner config in the parent agent package.
 type Config struct {
-	SandboxConfig    config.SandboxConfig
-	SandboxBackendFn func(ctx context.Context) string
-	Paths            Paths
-	UserID           string
-	GroupID          string // non-empty for group sessions; vault/token use group principal
-	AgentID          string
-	SessionID        string
-	ProjectID        string
-	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
-	VaultEnvLoader   VaultEnvLoader
-	TokenEnsurer     TokenEnsurer
-	TokenManager     *oauth.TokenManager
+	SandboxConfig       config.SandboxConfig
+	SandboxBackendFn    func(ctx context.Context) string
+	Paths               Paths
+	UserID              string
+	GroupID             string // non-empty for group sessions; vault/token use group principal
+	AgentID             string
+	SessionID           string
+	ProjectID           string
+	SessionEnvSpecs     []pkgplugins.SessionEnvSpec
+	VaultEnvLoader      VaultEnvLoader
+	SessionSecretValues *SessionSecretValues
+	TokenEnsurer        TokenEnsurer
+	TokenManager        *oauth.TokenManager
 }

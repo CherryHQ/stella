@@ -131,6 +131,8 @@ func userTempDir(principalDir, id string) string {
 // (e.g. STELLA_HOME) always take precedence over user-defined secrets.
 func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]string, error) {
 	env := make(map[string]string)
+	var vaultEnv map[string]string
+	cfg.SessionSecretValues.Set(nil)
 
 	// Group sessions never load human vault secrets (D9 isolation).
 	if cfg.GroupID == "" && cfg.VaultEnvLoader != nil {
@@ -144,6 +146,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 				"error", err,
 			)
 		} else {
+			vaultEnv = ve
 			maps.Copy(env, ve)
 		}
 	}
@@ -184,8 +187,28 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// (translateEnvPaths), while local/none use them via the host PATH or bwrap
 	// remap — so an agent sees identical mise paths whichever backend runs it.
 	maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, miseUserDirHost(paths, cfg), paths.WorkspaceRoot))
+	recordSessionSecretValues(cfg.SessionSecretValues, env, vaultEnv)
 
 	return env, nil
+}
+
+func recordSessionSecretValues(target *SessionSecretValues, env map[string]string, vaultEnv map[string]string) {
+	if target == nil {
+		return
+	}
+	values := make([]string, 0, len(vaultEnv))
+	seen := make(map[string]struct{}, len(vaultEnv))
+	for key, value := range vaultEnv {
+		if value == "" || env[key] != value {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	target.Set(values)
 }
 
 func shouldInjectScopedToken(cfg Config) bool {

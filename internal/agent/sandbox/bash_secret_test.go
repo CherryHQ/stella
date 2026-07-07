@@ -24,12 +24,13 @@ func (s *secretCaptureSession) Exec(_ context.Context, _ string, opts pkgsandbox
 }
 
 type fakeSecretResolver struct {
-	env        map[string]string
-	valid      []string
-	declarable []string
-	err        error
-	uses       []string
-	command    string
+	env           map[string]string
+	valid         []string
+	declarable    []string
+	sessionValues []string
+	err           error
+	uses          []string
+	command       string
 }
 
 func (r *fakeSecretResolver) ResolveExecSecrets(_ context.Context, names []string, command string) (map[string]string, []string, error) {
@@ -40,6 +41,10 @@ func (r *fakeSecretResolver) ResolveExecSecrets(_ context.Context, names []strin
 
 func (r *fakeSecretResolver) DeclarableSecretNames(context.Context) ([]string, error) {
 	return r.declarable, nil
+}
+
+func (r *fakeSecretResolver) SessionSecretValues(context.Context) ([]string, error) {
+	return r.sessionValues, nil
 }
 
 func TestBashDeclaredSecretInjectedOnlyIntoExecEnv(t *testing.T) {
@@ -72,6 +77,20 @@ func TestBashDeclaredSecretValueRedactedFromResult(t *testing.T) {
 	}
 	if strings.Contains(content, "secret-value") || !strings.Contains(content, "[REDACTED_SECRET]") {
 		t.Fatalf("content = %q, want redacted secret", content)
+	}
+}
+
+func TestBashSessionVaultSecretValueRedactedFromResult(t *testing.T) {
+	session := &secretCaptureSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stdout: "vault-secret-value\n", ExitCode: 0}}
+	resolver := &fakeSecretResolver{sessionValues: []string{"vault-secret-value"}}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $MY_SECRET"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if strings.Contains(content, "vault-secret-value") || !strings.Contains(content, "[REDACTED_SECRET]") {
+		t.Fatalf("content = %q, want redacted session vault secret", content)
 	}
 }
 

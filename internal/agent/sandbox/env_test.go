@@ -62,6 +62,28 @@ func TestBuildSandboxEnvUsesScopedTokenOverVaultToken(t *testing.T) {
 	}
 }
 
+func TestBuildSandboxEnvRecordsOnlyInjectedVaultSecretValues(t *testing.T) {
+	secretValues := NewSessionSecretValues()
+	env, err := buildSandboxEnv(context.Background(), Config{
+		UserID:              "user-1",
+		AgentID:             "agent-1",
+		SessionID:           "session-1",
+		VaultEnvLoader:      staticVaultEnv{env: map[string]string{"MY_SECRET": "vault-secret", "STELLA_HOME": "vault-home", "STELLA_TOKEN": "stella_legacy"}},
+		SessionSecretValues: secretValues,
+		TokenEnsurer:        staticScopedToken{token: "stella_scoped_session"},
+	}, Paths{StellaHome: "/runtime/stella"})
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
+	if got := env["MY_SECRET"]; got != "vault-secret" {
+		t.Fatalf("MY_SECRET = %q, want vault-secret", got)
+	}
+	values := secretValues.Values()
+	if len(values) != 1 || values[0] != "vault-secret" {
+		t.Fatalf("session secret values = %#v, want only injected vault secret", values)
+	}
+}
+
 func TestBuildSandboxEnvDeletesVaultTokenWhenScopedUnavailable(t *testing.T) {
 	env, err := buildSandboxEnv(context.Background(), Config{
 		UserID:         "user-1",

@@ -23,6 +23,13 @@ func newExecSecretResolver(cfg agentsandbox.Config) agentsandbox.ExecSecretResol
 	return &execSecretResolver{cfg: cfg}
 }
 
+func (r *execSecretResolver) SessionSecretValues(context.Context) ([]string, error) {
+	if r.cfg.GroupID != "" || r.cfg.SessionSecretValues == nil {
+		return nil, nil
+	}
+	return r.cfg.SessionSecretValues.Values(), nil
+}
+
 func (r *execSecretResolver) DeclarableSecretNames(ctx context.Context) ([]string, error) {
 	if r.cfg.GroupID != "" {
 		return nil, nil
