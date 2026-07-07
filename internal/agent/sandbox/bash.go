@@ -76,10 +76,6 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 		return "", err
 	}
 	secretEnv := map[string]string{}
-	sessionSecretValues, err := t.sessionSecretValues(ctx)
-	if err != nil {
-		return "", err
-	}
 	var valid []string
 	if len(secretNames) > 0 {
 		if t.secretResolver == nil {
@@ -91,7 +87,6 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 		}
 		maps.Copy(env, secretEnv)
 	}
-	redactionEnv := buildRedactionEnv(secretEnv, sessionSecretValues)
 
 	// Opt the CLI into emitting renderable-reference sentinels: when the agent
 	// runs `stella task/goal/recally create`, the command announces the new
@@ -102,6 +97,10 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 		execOpts.Cwd = t.projectRoot
 	}
 	result, err := t.host.Exec(ctx, command, execOpts)
+	redactionEnv, redactionErr := t.redactionEnv(ctx, secretEnv)
+	if redactionErr != nil {
+		return "", redactionErr
+	}
 	if err != nil {
 		norm := t.normalizer.NormalizeError(err, "bash")
 		return redactSecretValues(norm.Content, redactionEnv), fmt.Errorf("bash: %w", err)
@@ -117,6 +116,14 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 		return redactSecretValues(content, redactionEnv), fmt.Errorf("bash: exit code %d", result.ExitCode)
 	}
 	return redactSecretValues(norm.Content, redactionEnv), nil
+}
+
+func (t *hostBashTool) redactionEnv(ctx context.Context, secretEnv map[string]string) (map[string]string, error) {
+	sessionSecretValues, err := t.sessionSecretValues(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return buildRedactionEnv(secretEnv, sessionSecretValues), nil
 }
 
 func (t *hostBashTool) sessionSecretValues(ctx context.Context) ([]string, error) {

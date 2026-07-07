@@ -156,8 +156,13 @@ func bwrapFunctional() bool {
 		if err != nil {
 			return
 		}
-		// Probe with a minimal sandbox that just runs true(1).
-		if exec.Command(p, "--dev-bind", "/", "/", "--", "true").Run() == nil {
+		// Probe with a minimal sandbox that just runs true(1), including the
+		// namespace isolation flags used by real execs.
+		args := []string{
+			"--unshare-pid", "--unshare-ipc", "--unshare-uts",
+			"--dev-bind", "/", "/", "--", "true",
+		}
+		if exec.Command(p, args...).Run() == nil {
 			bwrapPath = p
 			bwrapAvailable = true
 		}

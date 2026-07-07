@@ -1,6 +1,9 @@
 package sandbox
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
 
 // SessionSecretValues carries secret env values injected at session start to tool
 // output redaction without marking benign runner env (PATH, HOME, etc.) sensitive.
@@ -20,6 +23,18 @@ func (s *SessionSecretValues) Set(values []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.values = append([]string(nil), values...)
+}
+
+func (s *SessionSecretValues) Add(value string) {
+	if s == nil || value == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if slices.Contains(s.values, value) {
+		return
+	}
+	s.values = append(s.values, value)
 }
 
 func (s *SessionSecretValues) Values() []string {

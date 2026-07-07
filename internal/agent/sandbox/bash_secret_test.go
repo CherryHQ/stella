@@ -13,10 +13,18 @@ type secretCaptureSession struct {
 	pkgsandbox.Session
 	lastEnv map[string]string
 	result  pkgsandbox.ExecResult
+	execErr error
+	onExec  func()
 }
 
 func (s *secretCaptureSession) Exec(_ context.Context, _ string, opts pkgsandbox.ExecOptions) (pkgsandbox.ExecResult, error) {
 	s.lastEnv = opts.Env
+	if s.onExec != nil {
+		s.onExec()
+	}
+	if s.execErr != nil {
+		return s.result, s.execErr
+	}
 	if s.result.Stdout != "" || s.result.Stderr != "" || s.result.ExitCode != 0 {
 		return s.result, nil
 	}
@@ -101,6 +109,46 @@ func TestBashSessionVaultSecretValueRedactedFromResult(t *testing.T) {
 	}
 	if strings.Contains(content, "vault-secret-value") || !strings.Contains(content, "[REDACTED_SECRET]") {
 		t.Fatalf("content = %q, want redacted session vault secret", content)
+	}
+}
+
+func TestBashSessionSecretValueRecordedDuringExecIsRedactedFromResult(t *testing.T) {
+	resolver := &fakeSecretResolver{sessionValues: []string{"old-token"}}
+	session := &secretCaptureSession{
+		Session: pkgsandbox.NopSession(),
+		result:  pkgsandbox.ExecResult{Stdout: "new-token\n", ExitCode: 0},
+		onExec: func() {
+			resolver.sessionValues = []string{"old-token", "new-token"}
+		},
+	}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $STELLA_TOKEN"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if strings.Contains(content, "new-token") || !strings.Contains(content, "[REDACTED_SECRET]") {
+		t.Fatalf("content = %q, want redacted recreated-session token", content)
+	}
+}
+
+func TestBashSessionSecretValueRecordedDuringExecIsRedactedFromExecError(t *testing.T) {
+	resolver := &fakeSecretResolver{sessionValues: []string{"old-token"}}
+	session := &secretCaptureSession{
+		Session: pkgsandbox.NopSession(),
+		execErr: errors.New("runner failed after minting new-token"),
+		onExec: func() {
+			resolver.sessionValues = []string{"old-token", "new-token"}
+		},
+	}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $STELLA_TOKEN"})
+	if err == nil {
+		t.Fatal("Execute succeeded, want error")
+	}
+	if strings.Contains(content, "new-token") || !strings.Contains(content, "[REDACTED_SECRET]") {
+		t.Fatalf("content = %q, want redacted recreated-session token", content)
 	}
 }
 

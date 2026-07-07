@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -72,14 +73,22 @@ func TestRefreshScopedTokenReSignsNearExpiry(t *testing.T) {
 	fresh := signTokenExpiring(t, 30*time.Minute) // below the 1h threshold
 	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"STELLA_TOKEN": fresh}}
 	ensurer := &recordingEnsurer{token: "stella_scoped_new"}
+	secretValues := NewSessionSecretValues()
+	secretValues.Set([]string{fresh})
+	cfg := refreshConfig(ensurer)
+	cfg.SessionSecretValues = secretValues
 
-	RefreshScopedToken(context.Background(), sess, refreshConfig(ensurer))
+	RefreshScopedToken(context.Background(), sess, cfg)
 
 	if ensurer.calls != 1 {
 		t.Fatalf("expected 1 re-sign, got %d", ensurer.calls)
 	}
 	if got := sess.env["STELLA_TOKEN"]; got != "stella_scoped_new" {
 		t.Fatalf("token not refreshed: %q", got)
+	}
+	values := secretValues.Values()
+	if !slices.Contains(values, fresh) || !slices.Contains(values, "stella_scoped_new") {
+		t.Fatalf("session secret values = %#v, want old and refreshed tokens", values)
 	}
 }
 

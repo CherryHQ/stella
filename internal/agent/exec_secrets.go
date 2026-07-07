@@ -13,25 +13,26 @@ type execSecretResolver struct {
 	cfg agentsandbox.Config
 }
 
-// newExecSecretResolver returns the interface type so a session without a
-// vault loader yields a true nil: returning a nil *execSecretResolver would
-// survive the caller's interface nil check and panic on first use.
+// newExecSecretResolver returns the interface type so a session without vault
+// secrets or session-scoped redaction values yields a true nil: returning a nil
+// *execSecretResolver would survive the caller's interface nil check and panic
+// on first use.
 func newExecSecretResolver(cfg agentsandbox.Config) agentsandbox.ExecSecretResolver {
-	if cfg.VaultEnvLoader == nil {
+	if cfg.VaultEnvLoader == nil && cfg.SessionSecretValues == nil {
 		return nil
 	}
 	return &execSecretResolver{cfg: cfg}
 }
 
 func (r *execSecretResolver) SessionSecretValues(context.Context) ([]string, error) {
-	if r.cfg.GroupID != "" || r.cfg.SessionSecretValues == nil {
+	if r.cfg.SessionSecretValues == nil {
 		return nil, nil
 	}
 	return r.cfg.SessionSecretValues.Values(), nil
 }
 
 func (r *execSecretResolver) DeclarableSecretNames(ctx context.Context) ([]string, error) {
-	if r.cfg.GroupID != "" {
+	if r.cfg.GroupID != "" || r.cfg.VaultEnvLoader == nil {
 		return nil, nil
 	}
 	secrets, err := r.cfg.VaultEnvLoader.ListDeclarableForAgentProject(ctx, r.cfg.UserID, r.cfg.AgentID, r.cfg.ProjectID)
@@ -48,6 +49,9 @@ func (r *execSecretResolver) DeclarableSecretNames(ctx context.Context) ([]strin
 func (r *execSecretResolver) ResolveExecSecrets(ctx context.Context, names []string, command string) (map[string]string, []string, error) {
 	if r.cfg.GroupID != "" {
 		return nil, nil, fmt.Errorf("secrets are disabled for group sessions")
+	}
+	if r.cfg.VaultEnvLoader == nil {
+		return nil, nil, fmt.Errorf("secrets are not available in this session")
 	}
 	if r.cfg.UserID == "" || r.cfg.AgentID == "" {
 		return nil, nil, fmt.Errorf("secrets require a user and agent session")
