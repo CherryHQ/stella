@@ -310,7 +310,10 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		rs, _ := t.svc.Resolve(ctx, name, vc, projectRoot)
 		if rs != nil {
 			skillDir = t.layout.Dir(rs.Scope, rs.Name)
-			if skillDir != "" && !dbSkillDirReady(skillDir) {
+			if skillDir != "" {
+				// Cross-replica writes leave no local signal, so load refreshes the mirror
+				// from the DB; content comparison keeps the common no-op path cheap. If
+				// these roundtrips ever get hot, add a revision marker before caching.
 				if err := t.materializeDBSkill(ctx, rs.ID, skillDir); err != nil {
 					slog.WarnContext(ctx, "skills load: failed to materialize DB skill", "skill", rs.Name, "dir", skillDir, "err", err)
 					skillDir = ""
@@ -389,15 +392,6 @@ func (t *Tool) materializeDBSkill(ctx context.Context, skillID, skillDir string)
 		return fmt.Errorf("materialize skill files: prune stale files: %w", err)
 	}
 	return nil
-}
-
-func dbSkillDirReady(skillDir string) bool {
-	f, err := os.Open(filepath.Join(skillDir, pkgplugins.SkillMainFile))
-	if err != nil {
-		return false
-	}
-	_ = f.Close()
-	return true
 }
 
 func readDiskFile(path string) ([]byte, error) {
