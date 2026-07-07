@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -88,33 +90,50 @@ func (s *Service) saveWithFile(ctx context.Context, userID string, req SaveReque
 	if content == "" && lookupErr != nil {
 		return nil, false, fmt.Errorf("content is required for new articles")
 	}
-	article, isNew, err := s.store.SaveArticle(ctx, userID, req)
-	if err != nil {
-		return nil, false, err
-	}
 	var filePath string
-	switch {
-	case isNew:
-		filePath = s.files.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
-	case existing != nil && existing.FilePath != "":
-		filePath = existing.FilePath
-		if !filepath.IsAbs(filePath) {
-			filePath = filepath.Join(s.stellaHome, filePath)
+	if existing != nil {
+		if existing.FilePath != "" {
+			filePath = existing.FilePath
+			if !filepath.IsAbs(filePath) {
+				filePath = filepath.Join(s.stellaHome, filePath)
+			}
 		}
 		if content == "" {
+			if body, ok, err := s.store.GetArticleContent(ctx, existing.ID); err != nil {
+				return nil, false, err
+			} else if ok {
+				content = body
+			}
+		}
+		if content == "" && filePath != "" {
 			if body, readErr := s.files.ReadArticle(filePath); readErr == nil {
 				content = body
 			}
 		}
-	default:
+	}
+	article, isNew, err := s.store.SaveArticleWithContent(ctx, userID, req, content)
+	if err != nil {
+		return nil, false, err
+	}
+	if filePath == "" {
 		filePath = s.files.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
 	}
+	if !isNew && content != "" {
+		if err := s.store.UpsertArticleContent(ctx, article.ID, content); err != nil {
+			return nil, false, err
+		}
+	}
+	if content == "" {
+		return article, isNew, nil
+	}
 	if err := s.files.WriteArticle(filePath, article, content); err != nil {
-		return nil, false, err
+		slog.Warn("failed to mirror recally article body to disk", "article_id", article.ID, "path", filePath, "error", err)
+		return article, isNew, nil
 	}
 	relPath := s.files.RelativePath(filePath)
 	if err := s.store.UpdateArticleFilePath(ctx, userID, article.ID, relPath); err != nil {
-		return nil, false, err
+		slog.Warn("failed to update recally article mirror path", "article_id", article.ID, "path", relPath, "error", err)
+		return article, isNew, nil
 	}
 	article.FilePath = relPath
 	return article, isNew, nil
@@ -133,15 +152,35 @@ func (s Authorized) GetArticle(ctx context.Context, id string) (*Article, error)
 	return article, nil
 }
 
-func (s *Service) ReadArticleBody(article *Article) (string, error) {
-	if article == nil || article.FilePath == "" {
+func (s *Service) ReadArticleBody(ctx context.Context, article *Article) (string, error) {
+	if article == nil {
+		return "", nil
+	}
+	if body, ok, err := s.store.GetArticleContent(ctx, article.ID); err != nil {
+		return "", err
+	} else if ok && body != "" {
+		return body, nil
+	}
+	if article.FilePath == "" {
 		return "", nil
 	}
 	path := article.FilePath
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(s.stellaHome, path)
 	}
-	return s.files.ReadArticle(path)
+	body, err := s.files.ReadArticle(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	if body != "" {
+		if err := s.store.InsertArticleContentIfAbsent(ctx, article.ID, body); err != nil {
+			slog.Warn("failed to backfill recally article content from disk", "article_id", article.ID, "error", err)
+		}
+	}
+	return body, nil
 }
 
 func (s Authorized) ListArticles(ctx context.Context, filter ArticleFilter) ([]Article, error) {

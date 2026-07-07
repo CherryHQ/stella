@@ -2,6 +2,8 @@ package recally
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,7 +24,7 @@ func TestServiceSaveWritesFilesAndDedups(t *testing.T) {
 	if !first.Created || first.Article.FilePath == "" {
 		t.Fatalf("first=%+v, want created with file", first)
 	}
-	body, err := svc.ReadArticleBody(first.Article)
+	body, err := svc.ReadArticleBody(t.Context(), first.Article)
 	if err != nil || body != "first" {
 		t.Fatalf("ReadArticleBody body=%q err=%v", body, err)
 	}
@@ -37,6 +39,139 @@ func TestServiceSaveWritesFilesAndDedups(t *testing.T) {
 	if err != nil || len(articles) != 1 {
 		t.Fatalf("ListArticles len=%d err=%v", len(articles), err)
 	}
+}
+
+func TestServiceReadArticleBodyUsesDatabaseWhenMirrorIsMissing(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	home := t.TempDir()
+	svc := NewService(NewStore(db), NewFileManager(home), home)
+	ident := authz.Identity{UserID: testUserID}
+
+	saved, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/db-body", Title: "DB Body", Content: "from database"})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := os.Remove(articleAbsPath(home, saved.Article)); err != nil {
+		t.Fatalf("remove mirror: %v", err)
+	}
+	body, err := svc.ReadArticleBody(t.Context(), saved.Article)
+	if err != nil || body != "from database" {
+		t.Fatalf("ReadArticleBody body=%q err=%v, want database body", body, err)
+	}
+}
+
+func TestStoreArticleContentInsertIfAbsentDoesNotOverwrite(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	store := NewStore(db)
+
+	article, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/content-race", Title: "Content Race", Content: "ignored"})
+	if err != nil {
+		t.Fatalf("SaveArticle: %v", err)
+	}
+	if err := store.UpsertArticleContent(t.Context(), article.ID, "current body"); err != nil {
+		t.Fatalf("UpsertArticleContent seed: %v", err)
+	}
+	if err := store.InsertArticleContentIfAbsent(t.Context(), article.ID, "legacy body"); err != nil {
+		t.Fatalf("InsertArticleContentIfAbsent: %v", err)
+	}
+	body, ok, err := store.GetArticleContent(t.Context(), article.ID)
+	if err != nil || !ok || body != "current body" {
+		t.Fatalf("GetArticleContent after insert-if-absent body=%q ok=%v err=%v, want current body", body, ok, err)
+	}
+	if err := store.UpsertArticleContent(t.Context(), article.ID, "new body"); err != nil {
+		t.Fatalf("UpsertArticleContent overwrite: %v", err)
+	}
+	body, ok, err = store.GetArticleContent(t.Context(), article.ID)
+	if err != nil || !ok || body != "new body" {
+		t.Fatalf("GetArticleContent after upsert body=%q ok=%v err=%v, want new body", body, ok, err)
+	}
+}
+
+func TestServiceReadArticleBodyMissingMirrorReturnsNoContent(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	home := t.TempDir()
+	store := NewStore(db)
+	svc := NewService(store, NewFileManager(home), home)
+
+	article, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/missing-mirror", Title: "Missing Mirror", Content: "ignored"})
+	if err != nil {
+		t.Fatalf("SaveArticle: %v", err)
+	}
+	article.FilePath = "library/missing.md"
+	if err := store.UpdateArticleFilePath(t.Context(), testUserID, article.ID, article.FilePath); err != nil {
+		t.Fatalf("UpdateArticleFilePath: %v", err)
+	}
+	body, err := svc.ReadArticleBody(t.Context(), article)
+	if err != nil || body != "" {
+		t.Fatalf("ReadArticleBody missing mirror body=%q err=%v, want no content and no error", body, err)
+	}
+}
+
+func TestServiceReadArticleBodyBackfillsLegacyFile(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	home := t.TempDir()
+	store := NewStore(db)
+	files := NewFileManager(home)
+	svc := NewService(store, files, home)
+
+	article, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/legacy", Title: "Legacy", Content: "ignored"})
+	if err != nil {
+		t.Fatalf("SaveArticle: %v", err)
+	}
+	path := files.ArticlePath(testUserID, article.ID, article.Title, article.SavedAt)
+	if err := files.WriteArticle(path, article, "legacy body"); err != nil {
+		t.Fatalf("WriteArticle: %v", err)
+	}
+	relPath := files.RelativePath(path)
+	if err := store.UpdateArticleFilePath(t.Context(), testUserID, article.ID, relPath); err != nil {
+		t.Fatalf("UpdateArticleFilePath: %v", err)
+	}
+	article.FilePath = relPath
+
+	body, err := svc.ReadArticleBody(t.Context(), article)
+	if err != nil || body != "legacy body" {
+		t.Fatalf("ReadArticleBody legacy body=%q err=%v", body, err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove mirror: %v", err)
+	}
+	body, err = svc.ReadArticleBody(t.Context(), article)
+	if err != nil || body != "legacy body" {
+		t.Fatalf("ReadArticleBody backfilled body=%q err=%v", body, err)
+	}
+}
+
+func TestServiceDeleteArticleCascadesContent(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	store := NewStore(db)
+	svc := NewService(store, NewFileManager(t.TempDir()), t.TempDir())
+	ident := authz.Identity{UserID: testUserID}
+
+	saved, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/delete", Title: "Delete", Content: "delete me"})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, ok, err := store.GetArticleContent(t.Context(), saved.Article.ID); err != nil || !ok {
+		t.Fatalf("GetArticleContent before delete ok=%v err=%v", ok, err)
+	}
+	if err := store.DeleteArticle(t.Context(), testUserID, saved.Article.ID); err != nil {
+		t.Fatalf("DeleteArticle: %v", err)
+	}
+	if _, ok, err := store.GetArticleContent(t.Context(), saved.Article.ID); err != nil || ok {
+		t.Fatalf("GetArticleContent after delete ok=%v err=%v, want missing", ok, err)
+	}
+}
+
+func articleAbsPath(home string, article *Article) string {
+	if filepath.IsAbs(article.FilePath) {
+		return article.FilePath
+	}
+	return filepath.Join(home, article.FilePath)
 }
 
 func TestServiceAuthorizedIdentityAndMissingMapping(t *testing.T) {

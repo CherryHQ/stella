@@ -106,7 +106,7 @@ func (h recallyHandler) GetArticle(ctx context.Context, in GetArticleInput) (any
 	if err != nil {
 		return nil, err
 	}
-	content, err := h.svc.ReadArticleBody(article)
+	content, err := h.svc.ReadArticleBody(ctx, article)
 	if err != nil {
 		return nil, err
 	}
