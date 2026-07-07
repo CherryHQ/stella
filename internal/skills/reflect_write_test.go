@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -241,4 +242,78 @@ func TestDiskSyncReflectOwnedSkillWritesMainFile(t *testing.T) {
 	if string(content) != afterContent {
 		t.Fatalf("disk SKILL.md after patch = %q, want %q", content, afterContent)
 	}
+}
+
+func TestDiskSyncReflectPatchDoesNotWriteDiskOnVersionConflict(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	metadata, err := MarkReflectOwnedMetadata(nil)
+	if err != nil {
+		t.Fatalf("MarkReflectOwnedMetadata: %v", err)
+	}
+	skill := Skill{
+		ID:       "reflect-conflict",
+		Scope:    "user_agent",
+		UserID:   "user-1",
+		AgentID:  "agent-1",
+		Name:     "reflect-conflict",
+		Status:   "active",
+		Version:  1,
+		Metadata: metadata,
+	}
+	inner := &conflictingReflectPatchStore{
+		skill:    skill,
+		patchErr: ErrSkillVersionConflict,
+	}
+	store := NewDiskSyncStore(inner, func(scope, agentID string, userID string) string {
+		if scope == "user_agent" {
+			return baseDir
+		}
+		return ""
+	})
+	diskPath := filepath.Join(baseDir, skill.Name, MainFile)
+	if err := writeFile(diskPath, "# Before\n"); err != nil {
+		t.Fatalf("seed disk SKILL.md: %v", err)
+	}
+
+	staleContent := "# Stale Patch\n"
+	_, err = store.PatchReflectOwnedUserAgentSkill(ctx, ReflectSkillPatch{
+		ID:              skill.ID,
+		UserID:          skill.UserID,
+		AgentID:         skill.AgentID,
+		ExpectedVersion: skill.Version,
+		MainFileContent: &staleContent,
+	})
+	if !errors.Is(err, ErrSkillVersionConflict) {
+		t.Fatalf("PatchReflectOwnedUserAgentSkill error = %v, want ErrSkillVersionConflict", err)
+	}
+	if !inner.patchCalled {
+		t.Fatal("expected inner store patch to be attempted")
+	}
+	content, err := os.ReadFile(diskPath)
+	if err != nil {
+		t.Fatalf("read disk SKILL.md after conflict: %v", err)
+	}
+	if got := string(content); got != "# Before\n" {
+		t.Fatalf("disk SKILL.md was modified on version conflict: %q", got)
+	}
+}
+
+type conflictingReflectPatchStore struct {
+	Store
+	skill       Skill
+	patchErr    error
+	patchCalled bool
+}
+
+func (s *conflictingReflectPatchStore) ListAll(context.Context) ([]Skill, error) {
+	return []Skill{s.skill}, nil
+}
+
+func (s *conflictingReflectPatchStore) PatchReflectOwnedUserAgentSkill(context.Context, ReflectSkillPatch) (Skill, error) {
+	s.patchCalled = true
+	if s.patchErr != nil {
+		return Skill{}, s.patchErr
+	}
+	return s.skill, nil
 }

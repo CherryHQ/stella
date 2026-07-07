@@ -20,6 +20,10 @@ func executeSkillReconciliationPlan(ctx context.Context, writer reflectSkillWrit
 		return nil, err
 	}
 	written := make([]skills.Skill, 0, len(plan.Operations))
+	// V1 executes skill writes one operation at a time. Each store call owns its
+	// transaction, and a later failure leaves earlier writes committed while the
+	// skill-line watermark stays unadvanced for retry/reconciliation on the next
+	// review cycle.
 	for _, op := range plan.Operations {
 		switch op.Operation {
 		case skillOperationNoop:

@@ -1,6 +1,7 @@
 package reflect
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/memory"
@@ -63,6 +64,29 @@ func TestValidateFactReconciliationPlanRejectsDuplicateCandidateCoverage(t *test
 
 	if err := validateFactReconciliationPlan(bundle, plan); err == nil {
 		t.Fatal("expected duplicate candidate coverage to be rejected")
+	}
+}
+
+func TestValidateFactReconciliationPlanRejectsCandidateInDirectAndCoveredRefs(t *testing.T) {
+	bundle := factRelatedBundle{
+		Knowledge: knowledgeRelatedBundle{Candidates: []factCandidate{validFactCandidate("fact-0001", factSubjectWorld)}},
+	}
+	plan := factReconciliationPlan{
+		Profile: noopSingletonPlan(),
+		Soul:    noopSoulPlan(),
+		Knowledge: knowledgeWritePlan{Operations: []knowledgeWriteOperation{{
+			Operation:            knowledgeOperationNoop,
+			CandidateRefs:        []CandidateRef{"fact-0001"},
+			CoveredCandidateRefs: []CandidateRef{"fact-0001"},
+		}}},
+	}
+
+	err := validateFactReconciliationPlan(bundle, plan)
+	if err == nil {
+		t.Fatal("expected direct/covered duplicate to be rejected")
+	}
+	if !strings.Contains(err.Error(), `candidate "fact-0001" appears in both candidate_refs and covered_candidate_refs for knowledge`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

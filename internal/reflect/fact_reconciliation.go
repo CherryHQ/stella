@@ -234,6 +234,17 @@ func (c *candidateCoverage) markAll(part string, allowed []CandidateRef, direct 
 	for _, ref := range allowed {
 		allowedSet[ref] = struct{}{}
 	}
+
+	directSet := make(map[CandidateRef]struct{}, len(direct))
+	for _, ref := range direct {
+		directSet[ref] = struct{}{}
+	}
+	for _, ref := range covered {
+		if _, ok := directSet[ref]; ok {
+			return fmt.Errorf("%s reconciliation: candidate %q appears in both candidate_refs and covered_candidate_refs for %s", c.label, ref, part)
+		}
+	}
+
 	for _, ref := range append(append([]CandidateRef{}, direct...), covered...) {
 		if _, ok := allowedSet[ref]; !ok {
 			return fmt.Errorf("%s reconciliation: candidate %q is not allowed in %s plan", c.label, ref, part)
