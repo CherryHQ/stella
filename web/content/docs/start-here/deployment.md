@@ -233,6 +233,12 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | ---------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `STELLA_HOME`                | No                        | Stella home directory (default `~/.stella`)                                                            |
 | `STELLA_DATABASE_URL`        | Docker: yes; otherwise no | External PostgreSQL connection URL; unset uses the embedded cluster under `STELLA_HOME` outside Docker |
+| `STELLA_BLOB_S3_ENDPOINT`    | No§                       | S3-compatible endpoint for the durable user-asset mirror                                               |
+| `STELLA_BLOB_S3_BUCKET`      | No§                       | Bucket for mirrored user-uploaded assets                                                               |
+| `STELLA_BLOB_S3_ACCESS_KEY`  | No§                       | Access key for the asset mirror                                                                        |
+| `STELLA_BLOB_S3_SECRET_KEY`  | No§                       | Secret key for the asset mirror                                                                        |
+| `STELLA_BLOB_S3_REGION`      | No                        | Optional S3 region                                                                                     |
+| `STELLA_BLOB_S3_USE_SSL`     | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                |
 | `ANTHROPIC_API_KEY`          | Yes\*                     | Anthropic provider key                                                                                 |
 | `OPENAI_API_KEY`             | Yes\*                     | OpenAI provider key                                                                                    |
 | `STELLA_VAULT_KEY`           | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                          |
@@ -245,6 +251,8 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 
 ‡ Required only when agents use the `docker` sandbox backend. Use `host` when stellad runs on the host, `bind` when stellad runs in Docker with a host bind mount, and `volume` when stellad runs in Docker with a named volume.
+
+§ Set all four required S3 mirror variables together, or leave all unset. Partial blob-store configuration fails startup.
 
 ## Health Check
 
