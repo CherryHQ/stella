@@ -15,7 +15,8 @@ import (
 // blob store. A cold pod restores each principal at most once: the local assets
 // tree is authoritative once seeded, so re-listing the mirror on every session
 // setup would be wasted work. Markers last the process lifetime, except that a
-// failed List releases its marker so the next session setup can retry.
+// failed List or a partially failed restore pass releases its marker so the
+// next session setup can retry what this one could not restore.
 var hydratedHomes sync.Map // userHome -> struct{}
 
 // HydrateUserAssets restores a principal's assets subtree from the durable blob
@@ -56,23 +57,40 @@ func HydrateUserAssets(ctx context.Context, stellaHome, userHome string) error {
 		return err
 	}
 
-	restored := 0
-	for _, key := range keys {
+	restored, failed := 0, 0
+	for _, rawKey := range keys {
+		// Re-validate listed keys before writing to disk. The FS backend derives
+		// keys from a confined walk, but an S3 listing echoes whatever object
+		// names the bucket holds — defense in depth against a traversal key
+		// planted out of band, matching the server restore path's posture.
+		key, err := blob.ValidateKey(rawKey)
+		if err != nil {
+			slog.Warn("asset hydration skipping invalid key", "key", rawKey, "error", err)
+			continue
+		}
 		abs := filepath.Join(stellaHome, filepath.FromSlash(key))
 		if _, err := os.Stat(abs); err == nil {
 			continue // local file wins; never overwrite
 		} else if !os.IsNotExist(err) {
 			slog.Warn("asset hydration stat failed", "key", key, "error", err)
+			failed++
 			continue
 		}
 		if err := restoreAssetKey(ctx, store, key, abs); err != nil {
 			slog.Warn("asset hydration restore failed", "key", key, "error", err)
+			failed++
 			continue
 		}
 		restored++
 	}
-	if restored > 0 {
-		slog.Info("hydrated user assets from blob store", "home", userHome, "restored", restored, "total", len(keys))
+	if failed > 0 {
+		// Sandbox agents read these files straight off the mount — there is no
+		// restore-on-miss backstop for them. Release the marker so the next
+		// session setup retries the files this pass could not restore.
+		hydratedHomes.Delete(userHome)
+	}
+	if restored > 0 || failed > 0 {
+		slog.Info("hydrated user assets from blob store", "home", userHome, "restored", restored, "failed", failed, "total", len(keys))
 	}
 	return nil
 }
