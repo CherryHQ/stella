@@ -4,29 +4,20 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
-
-	"golang.org/x/sync/singleflight"
 )
 
-var (
-	imageReadyMu    sync.Mutex
-	imageReady      = map[string]struct{}{}
-	imageReadyGroup singleflight.Group
-)
-
-// EnsureImageReady makes sure image exists locally, pulling it once per process
+// EnsureImageReady makes sure image exists locally, pulling it once per Client
 // when needed. Concurrent callers for the same image share the same inspect/pull.
 func (c *Client) EnsureImageReady(ctx context.Context, image, containerName string) error {
 	if image == "" {
 		return fmt.Errorf("dockerclient: image is required")
 	}
-	if isImageReady(image) {
+	if c.isImageReady(image) {
 		return nil
 	}
 
-	_, err, _ := imageReadyGroup.Do(image, func() (any, error) {
-		if isImageReady(image) {
+	_, err, _ := c.imageReadyGroup.Do(image, func() (any, error) {
+		if c.isImageReady(image) {
 			return nil, nil
 		}
 		slog.Info("dockerclient: checking sandbox image", "image", image, "container_name", containerName)
@@ -42,28 +33,21 @@ func (c *Client) EnsureImageReady(ctx context.Context, image, containerName stri
 				return nil, err
 			}
 		}
-		markImageReady(image)
+		c.markImageReady(image)
 		return nil, nil
 	})
 	return err
 }
 
-func isImageReady(image string) bool {
-	imageReadyMu.Lock()
-	defer imageReadyMu.Unlock()
-	_, ok := imageReady[image]
+func (c *Client) isImageReady(image string) bool {
+	c.imageReadyMu.Lock()
+	defer c.imageReadyMu.Unlock()
+	_, ok := c.imageReady[image]
 	return ok
 }
 
-func markImageReady(image string) {
-	imageReadyMu.Lock()
-	defer imageReadyMu.Unlock()
-	imageReady[image] = struct{}{}
-}
-
-func resetImageReadyForTest() {
-	imageReadyMu.Lock()
-	defer imageReadyMu.Unlock()
-	imageReady = map[string]struct{}{}
-	imageReadyGroup = singleflight.Group{}
+func (c *Client) markImageReady(image string) {
+	c.imageReadyMu.Lock()
+	defer c.imageReadyMu.Unlock()
+	c.imageReady[image] = struct{}{}
 }

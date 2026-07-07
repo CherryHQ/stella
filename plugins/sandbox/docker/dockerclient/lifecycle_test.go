@@ -47,7 +47,6 @@ func (f *lifecycleAPI) ContainerRemove(ctx context.Context, id string, opts moby
 }
 
 func TestCreateAndStartRemovesContainerWhenStartFails(t *testing.T) {
-	resetImageReadyForTest()
 	startErr := errors.New("boom")
 	var removedID string
 	var removedForce bool
@@ -76,7 +75,6 @@ func TestCreateAndStartRemovesContainerWhenStartFails(t *testing.T) {
 }
 
 func TestCreateAndStartRemovesContainerWithFreshContextWhenStartCancelsCaller(t *testing.T) {
-	resetImageReadyForTest()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var cleanupCalled bool
@@ -116,7 +114,6 @@ func TestCreateAndStartRemovesContainerWithFreshContextWhenStartCancelsCaller(t 
 }
 
 func TestEnsureImageReadySingleflightsConcurrentInspect(t *testing.T) {
-	resetImageReadyForTest()
 	var inspectCalls atomic.Int32
 	unblock := make(chan struct{})
 	api := &lifecycleAPI{

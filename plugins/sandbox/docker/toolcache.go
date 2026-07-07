@@ -390,6 +390,10 @@ func cleanupToolCacheVolumes(ctx context.Context, client *dockerclient.Client, n
 		return
 	}
 	for _, name := range selectStaleToolCacheVolumes(now, volumes.Items, containers.Items) {
+		// Cross-process race: another stellad may have just VolumeCreate'd this
+		// >7d same-hash cache and not yet ContainerCreate'd it. Removing it is
+		// functionally safe because ContainerCreate recreates the named volume,
+		// but that replacement is empty and unlabeled, so Docker will not GC it.
 		if err := client.VolumeRemove(ctx, name, mobyclient.VolumeRemoveOptions{}); err != nil {
 			if errdefs.IsNotFound(err) {
 				continue

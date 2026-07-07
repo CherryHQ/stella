@@ -1004,7 +1004,9 @@ func (s *dockerSession) watchContainer() {
 			s.closeDone()
 			return
 		}
-		alive, err := s.client.ContainerAlive(context.Background(), s.containerID)
+		checkCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		alive, err := s.client.ContainerAlive(checkCtx, s.containerID)
+		cancel()
 		if err != nil || !alive {
 			reason := "container_exited"
 			if err != nil {

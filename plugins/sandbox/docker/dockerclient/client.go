@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/containerd/errdefs"
 	mobyclient "github.com/moby/moby/client"
+	"golang.org/x/sync/singleflight"
 )
 
 // API is the subset of moby/moby/client.APIClient this package uses.
@@ -42,6 +44,10 @@ type API interface {
 // docs for the full list.
 type Client struct {
 	api API
+
+	imageReadyMu    sync.Mutex
+	imageReady      map[string]struct{}
+	imageReadyGroup singleflight.Group
 }
 
 // VersionInfo holds the minimal version data we care about. The shape is kept
@@ -62,7 +68,7 @@ func New() (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dockerclient: new moby client: %w", err)
 	}
-	return &Client{api: api}, nil
+	return newClient(api), nil
 }
 
 // NewWithAPI constructs a Client with an injected API implementation. The
@@ -70,7 +76,14 @@ func New() (*Client, error) {
 // instead. Exported for tests and advanced callers that want to override the
 // SDK client (e.g. to inject a TLS-wrapped instance).
 func NewWithAPI(api API) *Client {
-	return &Client{api: api}
+	return newClient(api)
+}
+
+func newClient(api API) *Client {
+	return &Client{
+		api:        api,
+		imageReady: map[string]struct{}{},
+	}
 }
 
 // Close releases any resources held by the client (HTTP connections, etc.).
