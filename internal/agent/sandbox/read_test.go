@@ -15,7 +15,9 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
+	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
 )
 
 func writePNG(t *testing.T, path string, w, h int) {
@@ -34,7 +36,7 @@ func writePNG(t *testing.T, path string, w, h int) {
 }
 
 func newTestReadTool(projectRoot string) *hostReadTool {
-	return &hostReadTool{projectRoot: projectRoot}
+	return &hostReadTool{host: pkgsandbox.NopSession(), projectRoot: projectRoot}
 }
 
 func TestReadImageVisionReturnsImageBlock(t *testing.T) {
@@ -156,6 +158,49 @@ func TestReadTextFileReturnsTextBlock(t *testing.T) {
 	}
 	if got := ai.FlattenText(blocks); !strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
 		t.Errorf("unexpected text output: %q", got)
+	}
+}
+
+func TestReadToolProjectRootAbsolutePathUsesHostBoundary(t *testing.T) {
+	rawWorkspace := t.TempDir()
+	workspace, err := filepath.EvalSymlinks(rawWorkspace)
+	if err != nil {
+		t.Fatalf("EvalSymlinks workspace: %v", err)
+	}
+	inside := filepath.Join(workspace, "inside.txt")
+	if err := os.WriteFile(inside, []byte("inside workspace\n"), 0o644); err != nil {
+		t.Fatalf("write inside: %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("outside workspace\n"), 0o644); err != nil {
+		t.Fatalf("write outside: %v", err)
+	}
+
+	policy := pkgsandbox.Policy{
+		Filesystem: pkgsandbox.FilesystemPolicy{
+			WorkspaceRoot: workspace,
+			WorkingDir:    workspace,
+		},
+		Network: pkgsandbox.NetworkPolicy{Mode: pkgsandbox.NetworkAllowAll},
+	}
+	session, err := localplugin.NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Skipf("local sandbox unavailable: %v", err)
+	}
+	defer session.Close() //nolint:errcheck
+
+	tool := newReadTool(session, workspace)
+	out, err := tool.Execute(context.Background(), map[string]any{"path": inside})
+	if err != nil {
+		t.Fatalf("read inside workspace: %v", err)
+	}
+	if !strings.Contains(out, "inside workspace") {
+		t.Fatalf("read inside output = %q", out)
+	}
+
+	out, err = tool.Execute(context.Background(), map[string]any{"path": outside})
+	if err == nil {
+		t.Fatalf("expected outside absolute path to be rejected, got output %q", out)
 	}
 }
 

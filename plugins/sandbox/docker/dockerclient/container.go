@@ -21,6 +21,14 @@ const (
 	NetworkAllowAll NetworkMode = "allow_all"
 )
 
+// Deliberate resource ceilings for untrusted agent workloads; raise if a
+// legitimate toolchain needs more.
+const (
+	sandboxMemoryLimitBytes int64 = 2 << 30       // 2 GiB
+	sandboxNanoCPUs         int64 = 2_000_000_000 // 2 CPUs
+	sandboxPidsLimit        int64 = 512
+)
+
 // MountType identifies how Docker should mount Source into the container.
 type MountType string
 
@@ -233,8 +241,17 @@ func buildContainerConfig(opts CreateOptions) *container.Config {
 }
 
 func buildHostConfig(opts CreateOptions) *container.HostConfig {
+	pidsLimit := sandboxPidsLimit
 	hc := &container.HostConfig{
 		NetworkMode: mapNetworkMode(opts),
+		Resources: container.Resources{
+			Memory:    sandboxMemoryLimitBytes,
+			NanoCPUs:  sandboxNanoCPUs,
+			PidsLimit: &pidsLimit,
+		},
+		// Drop all capabilities by default; relax narrowly if a toolchain genuinely needs one.
+		CapDrop:     []string{"ALL"},
+		SecurityOpt: []string{"no-new-privileges"},
 		Mounts:      buildMounts(opts),
 	}
 	return hc

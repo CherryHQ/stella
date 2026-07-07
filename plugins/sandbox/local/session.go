@@ -5,7 +5,6 @@
 package local
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -715,9 +714,10 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	cmd.Env = buildEnv(policy, opts.Env)
 	setSysProcAttr(cmd)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := sandboxpkg.NewExecOutputBuffer()
+	stderr := sandboxpkg.NewExecOutputBuffer()
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	if startErr := cmd.Start(); startErr != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: start: %w", startErr)

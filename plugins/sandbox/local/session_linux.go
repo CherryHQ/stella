@@ -283,6 +283,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	networkMode := policy.NetworkModeOrDefault()
 
 	bwrapArgs := []string{
+		"--die-with-parent",
 		"--tmpfs", "/",
 		"--dev", "/dev",
 		"--tmpfs", "/dev/shm",
