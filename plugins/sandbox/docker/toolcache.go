@@ -10,11 +10,16 @@ import (
 	"maps"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/volume"
 	mobyclient "github.com/moby/moby/client"
 	"github.com/pelletier/go-toml/v2"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
@@ -23,11 +28,20 @@ import (
 const (
 	toolCacheHelperWaitTimeout  = 5 * time.Minute
 	toolCacheHelperPollInterval = 2 * time.Second
+	toolCacheGCAgeThreshold     = 7 * 24 * time.Hour
 )
 
 const (
-	containerUserToolsRoot = "/home/stella/.stella-tools"
-	containerUserToolsBin  = containerUserToolsRoot + "/bin"
+	containerUserToolsRoot        = "/home/stella/.stella-tools"
+	containerUserToolsBin         = containerUserToolsRoot + "/bin"
+	containerUserToolsReadyMarker = containerUserToolsRoot + "/.stella-tools-ready"
+)
+
+const (
+	toolCacheLabel          = "stella.tool_cache"
+	toolCacheImageLabel     = "stella.image"
+	toolCacheHashLabel      = "stella.hash"
+	toolCacheCreatedAtLabel = "stella.tool_cache.created_at"
 )
 
 // ToolBinary describes a user-configured CLI that must be installed in a Linux
@@ -49,6 +63,13 @@ type userToolCache struct {
 	BinPath    string
 }
 
+var (
+	toolCacheMu        sync.Mutex
+	toolCacheReady     = map[string]*userToolCache{}
+	toolCacheGroup     singleflight.Group
+	installToolCacheFn = installUserToolCache
+)
+
 func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg Config) (*userToolCache, error) {
 	if len(cfg.UserToolBinaries) == 0 {
 		return nil, nil
@@ -59,15 +80,38 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 	installerName := "stella-tool-cache-" + hash[:16]
 	cache := &userToolCache{VolumeName: volumeName, BinPath: containerUserToolsBin}
 
+	if ready := cachedToolCache(hash); ready != nil {
+		return ready, nil
+	}
+
+	value, err, _ := toolCacheGroup.Do(hash, func() (any, error) {
+		if ready := cachedToolCache(hash); ready != nil {
+			return ready, nil
+		}
+		ready, err := installToolCacheFn(ctx, client, cfg, hash, installerName, cache)
+		if err != nil {
+			return nil, err
+		}
+		markToolCacheReady(hash, ready)
+		return ready, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return value.(*userToolCache), nil
+}
+
+func installUserToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, hash, installerName string, cache *userToolCache) (*userToolCache, error) {
 	if _, err := client.VolumeCreate(ctx, mobyclient.VolumeCreateOptions{
-		Name: volumeName,
+		Name: cache.VolumeName,
 		Labels: map[string]string{
-			"stella.tool_cache": "true",
-			"stella.image":      cfg.Image,
-			"stella.hash":       hash,
+			toolCacheLabel:          "true",
+			toolCacheImageLabel:     cfg.Image,
+			toolCacheHashLabel:      hash,
+			toolCacheCreatedAtLabel: time.Now().UTC().Format(time.RFC3339),
 		},
 	}); err != nil {
-		return nil, fmt.Errorf("docker user tool cache: create volume %s: %w", volumeName, err)
+		return nil, fmt.Errorf("docker user tool cache: create volume %s: %w", cache.VolumeName, err)
 	}
 
 	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
@@ -79,7 +123,7 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 		},
 		ExtraMounts: []dockerclient.Mount{
 			{
-				HostPath:      volumeName,
+				HostPath:      cache.VolumeName,
 				ContainerPath: containerUserToolsRoot,
 				ReadOnly:      false,
 				Type:          dockerclient.MountTypeVolume,
@@ -87,7 +131,7 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 		},
 		Labels: map[string]string{
 			"stella.tool_cache_helper": "true",
-			"stella.tool_cache":        volumeName,
+			toolCacheLabel:             cache.VolumeName,
 		},
 		Name: installerName,
 	})
@@ -95,7 +139,9 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 		if errdefs.IsConflict(err) {
 			// Another app instance is already running the installer for this
 			// tool set. Wait for it to finish instead of racing.
-			return waitForToolCache(ctx, client, installerName, cache)
+			return waitForToolCache(ctx, client, installerName, cache, func(ctx context.Context) error {
+				return verifyUserToolCache(ctx, client, cfg, hash, cache)
+			})
 		}
 		return nil, fmt.Errorf("docker user tool cache: start helper: %w", err)
 	}
@@ -124,7 +170,7 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 // waitForToolCache waits for a concurrently running installer container to
 // finish and returns the cache if it succeeded. Used when another app instance
 // already holds the installer container name (the distributed mutex).
-func waitForToolCache(ctx context.Context, client *dockerclient.Client, installerName string, cache *userToolCache) (*userToolCache, error) {
+func waitForToolCache(ctx context.Context, client *dockerclient.Client, installerName string, cache *userToolCache, verify func(context.Context) error) (*userToolCache, error) {
 	deadline := time.Now().Add(toolCacheHelperWaitTimeout)
 	for {
 		if time.Now().After(deadline) {
@@ -136,7 +182,11 @@ func waitForToolCache(ctx context.Context, client *dockerclient.Client, installe
 			return nil, fmt.Errorf("docker user tool cache: inspect installer: %w", err)
 		}
 		if state == nil {
-			// Installer finished and was already cleaned up — volume is ready.
+			// The helper disappearing is ambiguous: Docker removes it after both
+			// success and failure, so fail closed unless the volume proves ready.
+			if err := verify(ctx); err != nil {
+				return nil, fmt.Errorf("docker user tool cache: installer %s finished but cache is not ready: %w", installerName, err)
+			}
 			return cache, nil
 		}
 		if !state.Running {
@@ -145,6 +195,9 @@ func waitForToolCache(ctx context.Context, client *dockerclient.Client, installe
 			}
 			if state.ExitCode != 0 {
 				return nil, fmt.Errorf("docker user tool cache: installer %s exited with %d", installerName, state.ExitCode)
+			}
+			if err := verify(ctx); err != nil {
+				return nil, fmt.Errorf("docker user tool cache: installer %s exited successfully but cache is not ready: %w", installerName, err)
 			}
 			return cache, nil
 		}
@@ -155,6 +208,68 @@ func waitForToolCache(ctx context.Context, client *dockerclient.Client, installe
 		case <-time.After(toolCacheHelperPollInterval):
 		}
 	}
+}
+
+func cachedToolCache(hash string) *userToolCache {
+	toolCacheMu.Lock()
+	defer toolCacheMu.Unlock()
+	return toolCacheReady[hash]
+}
+
+func markToolCacheReady(hash string, cache *userToolCache) {
+	toolCacheMu.Lock()
+	defer toolCacheMu.Unlock()
+	toolCacheReady[hash] = cache
+}
+
+func resetToolCacheMemoForTest() {
+	toolCacheMu.Lock()
+	defer toolCacheMu.Unlock()
+	toolCacheReady = map[string]*userToolCache{}
+	toolCacheGroup = singleflight.Group{}
+	installToolCacheFn = installUserToolCache
+}
+
+func verifyUserToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, hash string, cache *userToolCache) error {
+	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
+		Image:       cfg.Image,
+		NetworkMode: dockerclient.NetworkDisabled,
+		User:        "root",
+		ExtraMounts: []dockerclient.Mount{
+			{
+				HostPath:      cache.VolumeName,
+				ContainerPath: containerUserToolsRoot,
+				ReadOnly:      true,
+				Type:          dockerclient.MountTypeVolume,
+			},
+		},
+		Labels: map[string]string{
+			"stella.tool_cache_verifier": "true",
+			toolCacheLabel:               cache.VolumeName,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("start verifier: %w", err)
+	}
+	defer func() {
+		if stopErr := client.Stop(context.Background(), containerID); stopErr != nil {
+			slog.Warn("docker user tool cache verifier cleanup failed", "container_id", containerID, "error", stopErr)
+		}
+	}()
+
+	result, err := client.Exec(ctx, dockerclient.ExecOptions{
+		ContainerID: containerID,
+		Command:     []string{"/bin/sh", "-s"},
+		Cwd:         containerUserToolsRoot,
+		Stdin:       strings.NewReader(userToolVerifyScript(hash, cfg.UserToolBinaries)),
+	})
+	if err != nil {
+		return fmt.Errorf("run verifier: %w", err)
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("verifier failed with exit %d\nstdout: %s\nstderr: %s", result.ExitCode, result.Stdout, result.Stderr)
+	}
+	return nil
 }
 
 func userToolCacheHash(image string, binaries []ToolBinary) string {
@@ -246,6 +361,88 @@ func userToolInstallScript(hash string, binaries []ToolBinary) string {
 	}
 	script.WriteString("printf '%s' \"$HASH\" > \"$ROOT/.stella-tools-ready\"\n")
 	return script.String()
+}
+
+func userToolVerifyScript(hash string, binaries []ToolBinary) string {
+	var script strings.Builder
+	script.WriteString("set -eu\n")
+	script.WriteString("ROOT=" + shellQuote(containerUserToolsRoot) + "\n")
+	script.WriteString("HASH=" + shellQuote(hash) + "\n")
+	script.WriteString("test -f " + shellQuote(containerUserToolsReadyMarker) + "\n")
+	script.WriteString("test \"$(cat " + shellQuote(containerUserToolsReadyMarker) + ")\" = \"$HASH\"\n")
+	script.WriteString("test -d \"$ROOT/bin\"\n")
+	for _, b := range binaries {
+		script.WriteString("test -x \"$ROOT/bin/" + shellQuoteForDoubleQuotedPath(b.Name) + "\"\n")
+	}
+	return script.String()
+}
+
+func cleanupToolCacheVolumes(ctx context.Context, client *dockerclient.Client, now time.Time) {
+	filters := mobyclient.Filters{}.Add("label", toolCacheLabel+"=true")
+	volumes, err := client.VolumeList(ctx, mobyclient.VolumeListOptions{Filters: filters})
+	if err != nil {
+		slog.Warn("docker user tool cache gc: list volumes", "error", err)
+		return
+	}
+	containers, err := client.ContainerList(ctx, mobyclient.ContainerListOptions{All: true})
+	if err != nil {
+		slog.Warn("docker user tool cache gc: list containers", "error", err)
+		return
+	}
+	for _, name := range selectStaleToolCacheVolumes(now, volumes.Items, containers.Items) {
+		if err := client.VolumeRemove(ctx, name, mobyclient.VolumeRemoveOptions{}); err != nil {
+			if errdefs.IsNotFound(err) {
+				continue
+			}
+			slog.Warn("docker user tool cache gc: remove volume", "volume", name, "error", err)
+			continue
+		}
+		slog.Info("docker user tool cache gc: removed volume", "volume", name)
+	}
+}
+
+func selectStaleToolCacheVolumes(now time.Time, volumes []volume.Volume, containers []container.Summary) []string {
+	used := referencedVolumeNames(containers)
+	var selected []string
+	for _, v := range volumes {
+		if v.Labels[toolCacheLabel] != "true" {
+			continue
+		}
+		if _, ok := used[v.Name]; ok {
+			continue
+		}
+		if v.UsageData != nil && v.UsageData.RefCount > 0 {
+			continue
+		}
+		createdAt := v.Labels[toolCacheCreatedAtLabel]
+		if createdAt == "" {
+			continue
+		}
+		created, err := time.Parse(time.RFC3339, createdAt)
+		if err != nil {
+			continue
+		}
+		if now.Sub(created) <= toolCacheGCAgeThreshold {
+			continue
+		}
+		selected = append(selected, v.Name)
+	}
+	return selected
+}
+
+func referencedVolumeNames(containers []container.Summary) map[string]struct{} {
+	used := map[string]struct{}{}
+	for _, c := range containers {
+		for _, m := range c.Mounts {
+			if m.Type != mount.TypeVolume {
+				continue
+			}
+			if m.Name != "" {
+				used[m.Name] = struct{}{}
+			}
+		}
+	}
+	return used
 }
 
 func stringOption(options map[string]any, key string) (string, bool) {

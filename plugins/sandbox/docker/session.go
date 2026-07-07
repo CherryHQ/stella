@@ -49,6 +49,7 @@ func logSessionClosed(sessionID, backend, reason string) {
 type dockerFactory struct {
 	cfg                Config
 	cleanupOrphansOnce sync.Once
+	toolCacheGCOnce    sync.Once
 }
 
 // NewFactory returns a Factory backed by a Docker container-per-session strategy.
@@ -129,6 +130,13 @@ func (f *dockerFactory) EnsureReady(ctx context.Context) error {
 			return
 		}
 		dockerclient.CleanupOrphanedContainers(ctx, client, scope)
+	})
+	f.toolCacheGCOnce.Do(func() {
+		client, err := getSharedClient()
+		if err != nil {
+			return
+		}
+		cleanupToolCacheVolumes(ctx, client, time.Now().UTC())
 	})
 	return nil
 }
@@ -959,6 +967,16 @@ func (s *dockerSession) closeDone() {
 	s.doneOnce.Do(func() { close(s.done) })
 }
 
+func (s *dockerSession) markClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	s.closed = true
+	return true
+}
+
 func (s *dockerSession) endTrace(reason string, err error) {
 	s.traceOnce.Do(func() {
 		if s.traceSpan == nil {
@@ -973,7 +991,8 @@ func (s *dockerSession) endTrace(reason string, err error) {
 }
 
 // watchContainer polls ContainerAlive every 5s. If the container dies unexpectedly,
-// it marks the session closed and closes the done channel.
+// it marks the session closed, closes the done channel, and best-effort reaps the
+// stopped container so long-running stellad processes do not accumulate corpses.
 func (s *dockerSession) watchContainer() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -991,16 +1010,25 @@ func (s *dockerSession) watchContainer() {
 			if err != nil {
 				reason = "container_liveness_error"
 			}
-			s.mu.Lock()
-			if !s.closed {
-				s.closed = true
-			}
-			s.mu.Unlock()
-			s.endTrace(reason, err)
-			logSessionClosed(s.id, "docker", reason)
-			s.closeDone()
+			s.closeFromWatcher(reason, err)
 			return
 		}
+	}
+}
+
+func (s *dockerSession) closeFromWatcher(reason string, err error) {
+	if !s.markClosed() {
+		s.closeDone()
+		return
+	}
+	s.endTrace(reason, err)
+	logSessionClosed(s.id, "docker", reason)
+	s.closeDone()
+
+	reapCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if stopErr := s.client.Stop(reapCtx, s.containerID); stopErr != nil {
+		slog.Warn("docker session: failed to reap exited container", "session_id", s.id, "container_id", s.containerID, "error", stopErr)
 	}
 }
 
@@ -1009,22 +1037,23 @@ func (s *dockerSession) watchContainer() {
 // caller's context does not leave the container running.
 func (s *dockerSession) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.closed {
-		return s.closeErr
+		closeErr := s.closeErr
+		s.mu.Unlock()
+		return closeErr
 	}
-
 	s.closed = true
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	s.closeErr = s.client.Stop(stopCtx, s.containerID)
+	closeErr := s.client.Stop(stopCtx, s.containerID)
+	s.closeErr = closeErr
+	s.mu.Unlock()
 
 	s.closeDone()
-	s.endTrace("explicit_close", s.closeErr)
+	s.endTrace("explicit_close", closeErr)
 	logSessionClosed(s.id, "docker", "explicit_close")
-	return s.closeErr
+	return closeErr
 }
 
 // toContainerPath maps a host absolute path to its equivalent in-container path
