@@ -236,8 +236,9 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 
 type lazyMissingStore struct{}
 
-func (lazyMissingStore) Put(context.Context, string, io.Reader) error { return nil }
-func (lazyMissingStore) Delete(context.Context, string) error         { return nil }
+func (lazyMissingStore) Put(context.Context, string, io.Reader) error   { return nil }
+func (lazyMissingStore) Delete(context.Context, string) error           { return nil }
+func (lazyMissingStore) List(context.Context, string) ([]string, error) { return nil, nil }
 func (lazyMissingStore) Open(context.Context, string) (io.ReadCloser, error) {
 	return io.NopCloser(lazyMissingReader{}), nil
 }

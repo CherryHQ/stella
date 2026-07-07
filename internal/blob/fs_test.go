@@ -76,6 +76,76 @@ func TestFSStorePutLeavesNoTempFiles(t *testing.T) {
 	}
 }
 
+func TestFSStoreList(t *testing.T) {
+	store, err := NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	// Nested keys under the prefix, plus one sibling outside it that must not leak.
+	seed := map[string]string{
+		"users/u/data/assets/202607/a.txt": "a",
+		"users/u/data/assets/202608/b.txt": "b",
+		"users/u/data/assets/c.txt":        "c",
+		"users/u/data/other/d.txt":         "d",
+	}
+	for k, v := range seed {
+		if err := store.Put(ctx, k, strings.NewReader(v)); err != nil {
+			t.Fatalf("Put(%q): %v", k, err)
+		}
+	}
+	keys, err := store.List(ctx, "users/u/data/assets")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	got := map[string]bool{}
+	for _, k := range keys {
+		got[k] = true
+	}
+	want := []string{
+		"users/u/data/assets/202607/a.txt",
+		"users/u/data/assets/202608/b.txt",
+		"users/u/data/assets/c.txt",
+	}
+	if len(keys) != len(want) {
+		t.Fatalf("List returned %d keys (%v), want %d", len(keys), keys, len(want))
+	}
+	for _, k := range want {
+		if !got[k] {
+			t.Fatalf("List missing key %q; got %v", k, keys)
+		}
+	}
+	if got["users/u/data/other/d.txt"] {
+		t.Fatalf("List leaked sibling key outside prefix; got %v", keys)
+	}
+}
+
+func TestFSStoreListMissingDir(t *testing.T) {
+	store, err := NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := store.List(context.Background(), "users/nobody/data/assets")
+	if err != nil {
+		t.Fatalf("List missing dir err=%v, want nil", err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("List missing dir = %v, want empty", keys)
+	}
+}
+
+func TestFSStoreListRejectsTraversal(t *testing.T) {
+	store, err := NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prefix := range []string{"../x", "users/../../x", "/abs", ""} {
+		if _, err := store.List(context.Background(), prefix); err == nil {
+			t.Fatalf("List(%q) succeeded, want error", prefix)
+		}
+	}
+}
+
 func TestNewStoreFromEnv(t *testing.T) {
 	t.Setenv("STELLA_BLOB_S3_ENDPOINT", "")
 	t.Setenv("STELLA_BLOB_S3_BUCKET", "")

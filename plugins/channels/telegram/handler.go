@@ -319,7 +319,7 @@ func (b *Bot) handleDocument(c tele.Context) error {
 	if resolver, ok := b.handler.(channel.UserRootResolver); ok {
 		probeMsg := b.incomingMsg(c, nil)
 		if userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg); err == nil {
-			assetsDir = userRoot + "/assets"
+			assetsDir = agent.UserAssetsDir(userRoot)
 		} else {
 			logger().Warn("resolve user root failed for document", "error", err)
 		}

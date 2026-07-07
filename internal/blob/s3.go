@@ -62,3 +62,23 @@ func (s *S3Store) Delete(ctx context.Context, key string) error {
 	}
 	return s.client.RemoveObject(ctx, s.bucket, clean, minio.RemoveObjectOptions{})
 }
+
+func (s *S3Store) List(ctx context.Context, prefix string) ([]string, error) {
+	clean, err := ValidateKey(prefix)
+	if err != nil {
+		return nil, err
+	}
+	// Trailing slash scopes the listing to the directory: without it, prefix
+	// "users/u/data/assets" would also match a sibling "assets-old" key.
+	var keys []string
+	for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+		Prefix:    clean + "/",
+		Recursive: true,
+	}) {
+		if obj.Err != nil {
+			return nil, obj.Err
+		}
+		keys = append(keys, obj.Key)
+	}
+	return keys, nil
+}
