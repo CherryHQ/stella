@@ -183,6 +183,44 @@ func (s *Service) ReadArticleBody(ctx context.Context, article *Article) (string
 	return body, nil
 }
 
+// BackfillMissingContent copies legacy article bodies that live only in a disk
+// mirror into recally_article_content. Lazy backfill on read (ReadArticleBody) is
+// not enough on k8s, where the pod-local disk that holds the mirror disappears on
+// reschedule; this runs at startup to durably capture whatever the current pod can
+// still read. A missing or unreadable file is skipped (it may belong to another
+// pod's disk), never fatal. Returns scanned/backfilled/missing counts.
+func (s *Service) BackfillMissingContent(ctx context.Context) (scanned, backfilled, missing int, err error) {
+	rows, err := s.store.ListArticlesMissingContent(ctx)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return scanned, backfilled, missing, err
+		}
+		scanned++
+		if row.FilePath == "" {
+			missing++
+			continue
+		}
+		path := row.FilePath
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(s.stellaHome, path)
+		}
+		body, readErr := s.files.ReadArticle(path)
+		if readErr != nil || body == "" {
+			missing++
+			continue
+		}
+		if err := s.store.InsertArticleContentIfAbsent(ctx, row.ID, body); err != nil {
+			slog.Warn("failed to backfill recally article content from disk", "article_id", row.ID, "error", err)
+			continue
+		}
+		backfilled++
+	}
+	return scanned, backfilled, missing, nil
+}
+
 func (s Authorized) ListArticles(ctx context.Context, filter ArticleFilter) ([]Article, error) {
 	ident := s.ident
 	uid, err := userID(ident)

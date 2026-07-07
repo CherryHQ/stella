@@ -167,6 +167,68 @@ func TestServiceDeleteArticleCascadesContent(t *testing.T) {
 	}
 }
 
+func TestServiceBackfillMissingContent(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	home := t.TempDir()
+	store := NewStore(db)
+	files := NewFileManager(home)
+	svc := NewService(store, files, home)
+
+	// Legacy article: body lives only in a disk file, no content row yet.
+	legacy, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/legacy", Title: "Legacy", Content: "ignored"})
+	if err != nil {
+		t.Fatalf("SaveArticle legacy: %v", err)
+	}
+	legacyPath := files.ArticlePath(testUserID, legacy.ID, legacy.Title, legacy.SavedAt)
+	if err := files.WriteArticle(legacyPath, legacy, "legacy body"); err != nil {
+		t.Fatalf("WriteArticle: %v", err)
+	}
+	if err := store.UpdateArticleFilePath(t.Context(), testUserID, legacy.ID, files.RelativePath(legacyPath)); err != nil {
+		t.Fatalf("UpdateArticleFilePath legacy: %v", err)
+	}
+
+	// Already-backfilled article: has a stored body; backfill must not touch it.
+	kept, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/kept", Title: "Kept", Content: "ignored"})
+	if err != nil {
+		t.Fatalf("SaveArticle kept: %v", err)
+	}
+	if err := store.UpsertArticleContent(t.Context(), kept.ID, "kept body"); err != nil {
+		t.Fatalf("UpsertArticleContent kept: %v", err)
+	}
+	if err := store.UpdateArticleFilePath(t.Context(), testUserID, kept.ID, "library/kept.md"); err != nil {
+		t.Fatalf("UpdateArticleFilePath kept: %v", err)
+	}
+
+	// Legacy article whose mirror is gone (e.g. lives on another pod's disk).
+	gone, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/gone", Title: "Gone", Content: "ignored"})
+	if err != nil {
+		t.Fatalf("SaveArticle gone: %v", err)
+	}
+	if err := store.UpdateArticleFilePath(t.Context(), testUserID, gone.ID, "library/gone-missing.md"); err != nil {
+		t.Fatalf("UpdateArticleFilePath gone: %v", err)
+	}
+
+	scanned, backfilled, missing, err := svc.BackfillMissingContent(t.Context())
+	if err != nil {
+		t.Fatalf("BackfillMissingContent: %v", err)
+	}
+	// Only legacy and gone are candidates; kept already has a content row.
+	if scanned != 2 || backfilled != 1 || missing != 1 {
+		t.Fatalf("scanned=%d backfilled=%d missing=%d, want 2/1/1", scanned, backfilled, missing)
+	}
+
+	if body, ok, err := store.GetArticleContent(t.Context(), legacy.ID); err != nil || !ok || body != "legacy body" {
+		t.Fatalf("legacy content body=%q ok=%v err=%v, want backfilled", body, ok, err)
+	}
+	if body, ok, err := store.GetArticleContent(t.Context(), kept.ID); err != nil || !ok || body != "kept body" {
+		t.Fatalf("kept content body=%q ok=%v err=%v, want unchanged", body, ok, err)
+	}
+	if _, ok, err := store.GetArticleContent(t.Context(), gone.ID); err != nil || ok {
+		t.Fatalf("gone content ok=%v err=%v, want no row", ok, err)
+	}
+}
+
 func articleAbsPath(home string, article *Article) string {
 	if filepath.IsAbs(article.FilePath) {
 		return article.FilePath

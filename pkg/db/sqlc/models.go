@@ -701,6 +701,13 @@ type Provider struct {
 	UpdatedAt time.Time       `json:"updated_at"`
 }
 
+type ProviderModelsCache struct {
+	ProviderID string          `json:"provider_id"`
+	Models     json.RawMessage `json:"models"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+}
+
 type RecallyArticle struct {
 	ID           string             `json:"id"`
 	UserID       string             `json:"user_id"`

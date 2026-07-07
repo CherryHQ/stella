@@ -12,8 +12,8 @@ import (
 func collectModelsFromStore(ctx context.Context, store config.Store) []pkgchannel.ModelOption {
 	collector := newModelOptionCollector()
 
-	if cache, err := config.LoadModelsCache(); err == nil {
-		for _, model := range cache.Models {
+	if cached, err := store.ListCachedModels(ctx); err == nil && len(cached) > 0 {
+		for _, model := range cached {
 			collector.Add(model.Provider, model.Model)
 		}
 		return collector.Models()

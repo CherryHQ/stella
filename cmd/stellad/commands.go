@@ -358,6 +358,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	if ps.manifestToReconcile != nil {
 		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
 	}
+	backfillRecallyContentInBackground(parent, backgroundTasks, recallySvc)
 
 	result := &setupResult{
 		ctx:                      parent,
@@ -564,6 +565,31 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 		}
 		scheduler.RunOutputSinkFromContext(ctx).Set(strings.TrimSpace(output.String()))
 		return runErr
+	})
+}
+
+// backfillRecallyContentInBackground eager-copies legacy recally article bodies
+// from their disk mirrors into PostgreSQL at startup, so bodies survive on hosts
+// where the pod-local disk that held the mirror is gone. It runs off the daemon
+// lifecycle context in a background goroutine so it never delays startup.
+func backfillRecallyContentInBackground(ctx context.Context, wg *sync.WaitGroup, svc *recally.Service) {
+	if svc == nil {
+		return
+	}
+	wg.Go(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("recally content backfill panic", "panic", r)
+			}
+		}()
+		scanned, backfilled, missing, err := svc.BackfillMissingContent(ctx)
+		if err != nil {
+			slog.Warn("recally content backfill failed", "scanned", scanned, "backfilled", backfilled, "missing", missing, "error", err)
+			return
+		}
+		if scanned > 0 {
+			slog.Info("recally content backfill complete", "scanned", scanned, "backfilled", backfilled, "missing", missing)
+		}
 	})
 }
 
