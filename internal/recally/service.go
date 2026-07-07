@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -78,8 +77,8 @@ func (s Authorized) Save(ctx context.Context, req SaveRequest) (SaveResult, erro
 // of truth. New articles are written in one SaveArticleWithContent transaction;
 // updates upsert the body. Bodies are no longer mirrored to a markdown file on
 // disk (that mirror had no readers), and new rows leave file_path empty; the
-// column stays as the legacy pointer the startup backfill and the ReadArticleBody
-// fallback still consult for rows written before this change.
+// column stays as the legacy pointer the startup backfill consults for rows
+// written before this change (reads no longer fall back to disk).
 func (s *Service) save(ctx context.Context, userID string, req SaveRequest) (*Article, bool, error) {
 	if req.URL == "" {
 		return nil, false, fmt.Errorf("url is required")
@@ -95,22 +94,17 @@ func (s *Service) save(ctx context.Context, userID string, req SaveRequest) (*Ar
 		return nil, false, fmt.Errorf("content is required for new articles")
 	}
 	if existing != nil && content == "" {
-		// Metadata-only update: keep the stored body rather than blank it. Prefer
-		// the DB copy; fall back to a legacy on-disk mirror for rows the backfill
-		// has not yet captured.
+		// Metadata-only update: recover the stored body from PostgreSQL only, so the
+		// upsert below re-writes it rather than blanking it. A legacy file-only row
+		// the backfill has not yet captured has no content row; we leave content
+		// empty so the `!isNew && content != ""` guard skips the upsert and no empty
+		// row is written. Writing an empty row here would make the row invisible to
+		// BackfillMissingContent (its filter is file_path set + no content row) and
+		// strand the legacy body forever.
 		if body, ok, err := s.store.GetArticleContent(ctx, existing.ID); err != nil {
 			return nil, false, err
 		} else if ok {
 			content = body
-		}
-		if content == "" && existing.FilePath != "" {
-			path := existing.FilePath
-			if !filepath.IsAbs(path) {
-				path = filepath.Join(s.stellaHome, path)
-			}
-			if body, readErr := s.files.ReadArticle(path); readErr == nil {
-				content = body
-			}
 		}
 	}
 	article, isNew, err := s.store.SaveArticleWithContent(ctx, userID, req, content)
@@ -142,29 +136,18 @@ func (s *Service) ReadArticleBody(ctx context.Context, article *Article) (string
 	if article == nil {
 		return "", nil
 	}
-	if body, ok, err := s.store.GetArticleContent(ctx, article.ID); err != nil {
-		return "", err
-	} else if ok && body != "" {
-		return body, nil
-	}
-	if article.FilePath == "" {
-		return "", nil
-	}
-	path := article.FilePath
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(s.stellaHome, path)
-	}
-	body, err := s.files.ReadArticle(path)
+	// PostgreSQL is the sole source of truth for article bodies; this read never
+	// touches the legacy disk mirror. An absent content row returns an empty body
+	// (no-content, not an error). Accepted window: after upgrading, a legacy
+	// file-only row reads empty until the startup backfill reaches it; it
+	// self-heals within one backfill pass, and BackfillMissingContent -- not this
+	// read path -- is the component that guarantees no legacy body is lost.
+	body, ok, err := s.store.GetArticleContent(ctx, article.ID)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
 		return "", err
 	}
-	if body != "" {
-		if err := s.store.InsertArticleContentIfAbsent(ctx, article.ID, body); err != nil {
-			slog.Warn("failed to backfill recally article content from disk", "article_id", article.ID, "error", err)
-		}
+	if !ok {
+		return "", nil
 	}
 	return body, nil
 }

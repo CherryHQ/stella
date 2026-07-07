@@ -46,7 +46,7 @@ Configuring the mirror is what lets asset-serving replicas be stateless. Set all
 
 ## Legacy article mirror (draining)
 
-`library/` is a leftover from when Recally article bodies were stored as files on disk. Bodies now live in PostgreSQL, a startup job backfills any file-only bodies into the database, and nothing writes new files here. Keep the directory on a volume until a backfill run logs zero missing bodies; after that the files are inert legacy data and are safe to archive or delete.
+`library/` is a leftover from when Recally article bodies were stored as files on disk. Bodies now live in PostgreSQL, and the only thing that still reads these files is a startup job that backfills any file-only bodies into the database — article reads serve exclusively from PostgreSQL and never fall back to disk. Nothing writes new files here. Keep the directory on a volume until a backfill run logs zero missing bodies; after that the files are inert legacy data and are safe to archive or delete.
 
 ## Derived cache (safe to lose)
 

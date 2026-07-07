@@ -10,8 +10,9 @@ import (
 )
 
 // FileManager reads legacy article files from disk. Bodies now live in
-// PostgreSQL; the disk mirror is no longer written, so this only serves the
-// startup backfill and the read fallback for rows saved before the migration.
+// PostgreSQL; the disk mirror is no longer written and the read path no longer
+// consults it, so the only remaining reader is the startup backfill
+// (BackfillMissingContent), which drains legacy file-only bodies into the DB.
 type FileManager struct {
 	stellaHome string
 }

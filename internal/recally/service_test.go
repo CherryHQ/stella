@@ -109,7 +109,7 @@ func TestServiceReadArticleBodyMissingMirrorReturnsNoContent(t *testing.T) {
 	}
 }
 
-func TestServiceReadArticleBodyBackfillsLegacyFile(t *testing.T) {
+func TestServiceReadArticleBodyIgnoresLegacyFile(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	home := t.TempDir()
@@ -120,32 +120,65 @@ func TestServiceReadArticleBodyBackfillsLegacyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveArticle: %v", err)
 	}
-	// Simulate a legacy article whose body lives only in an on-disk markdown
-	// mirror (frontmatter + body), with the row still pointing at it via file_path.
-	relPath, absPath := writeLegacyMirror(t, home, article.ID, "legacy body")
+	// A legacy article whose body still lives in a readable on-disk mirror, with
+	// the row pointing at it via file_path but no content row yet.
+	relPath, _ := writeLegacyMirror(t, home, article.ID, "legacy body")
 	if err := store.UpdateArticleFilePath(t.Context(), testUserID, article.ID, relPath); err != nil {
 		t.Fatalf("UpdateArticleFilePath: %v", err)
 	}
 	article.FilePath = relPath
 
+	// Reads are DB-only: even though the file is present and readable, an absent
+	// content row yields an empty body and the read must not lazily backfill it.
 	body, err := svc.ReadArticleBody(t.Context(), article)
-	if err != nil || body != "legacy body" {
-		t.Fatalf("ReadArticleBody legacy body=%q err=%v", body, err)
+	if err != nil || body != "" {
+		t.Fatalf("ReadArticleBody body=%q err=%v, want empty (no file fallback)", body, err)
 	}
-	// The first read backfills the DB, so a later read still works once the file is gone.
-	if err := os.Remove(absPath); err != nil {
-		t.Fatalf("remove mirror: %v", err)
+	if _, ok, err := store.GetArticleContent(t.Context(), article.ID); err != nil || ok {
+		t.Fatalf("GetArticleContent after read ok=%v err=%v, want no row (read must not backfill)", ok, err)
 	}
-	body, err = svc.ReadArticleBody(t.Context(), article)
-	if err != nil || body != "legacy body" {
-		t.Fatalf("ReadArticleBody backfilled body=%q err=%v", body, err)
+}
+
+// TestServiceSaveMetadataOnlyDoesNotStrandLegacyBody guards the backfill-safety
+// invariant from the DB-only read migration: a metadata-only update on a legacy
+// row that has no content row must NOT insert an empty content row, or the
+// startup backfill (file_path set + no content row) would skip it and lose the
+// on-disk body forever.
+func TestServiceSaveMetadataOnlyDoesNotStrandLegacyBody(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	home := t.TempDir()
+	store := NewStore(db)
+	svc := NewService(store, NewFileManager(home), home)
+	ident := authz.Identity{UserID: testUserID}
+
+	// store.SaveArticle inserts no content row, so this stands in for a legacy
+	// file-only article the backfill has not yet reached.
+	article, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/meta-only", Title: "Meta", Content: "ignored"})
+	if err != nil {
+		t.Fatalf("SaveArticle: %v", err)
+	}
+	if err := store.UpdateArticleFilePath(t.Context(), testUserID, article.ID, "library/meta-only.md"); err != nil {
+		t.Fatalf("UpdateArticleFilePath: %v", err)
+	}
+
+	// Metadata-only update (no Content) on the same canonical URL.
+	res, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/meta-only", CanonicalURL: article.CanonicalURL, Title: "Meta Updated"})
+	if err != nil {
+		t.Fatalf("Save metadata-only: %v", err)
+	}
+	if res.Created || res.Article.ID != article.ID {
+		t.Fatalf("Save metadata-only res=%+v, want update of %s", res, article.ID)
+	}
+	if _, ok, err := store.GetArticleContent(t.Context(), article.ID); err != nil || ok {
+		t.Fatalf("GetArticleContent after metadata-only save ok=%v err=%v, want no row (invariant: no empty row)", ok, err)
 	}
 }
 
 // writeLegacyMirror writes a legacy on-disk article mirror (YAML frontmatter
 // followed by the body) under home and returns its STELLA_HOME-relative and
 // absolute paths. It stands in for the retired FileManager.WriteArticle so the
-// backfill/read-fallback tests can still stage pre-migration data.
+// startup-backfill and DB-only read tests can still stage pre-migration data.
 func writeLegacyMirror(t *testing.T, home, articleID, body string) (relPath, absPath string) {
 	t.Helper()
 	relPath = filepath.Join("library", articleID+".md")

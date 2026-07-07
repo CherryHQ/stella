@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// The mirror writer is gone; the read path only has to strip YAML frontmatter
-// from legacy on-disk files (for the startup backfill and the read fallback).
+// The mirror writer is gone; the startup backfill only has to strip YAML
+// frontmatter from legacy on-disk files as it drains them into PostgreSQL.
 func TestFileManager_ReadArticleStripsFrontmatter(t *testing.T) {
 	tempDir := t.TempDir()
 	fm := NewFileManager(tempDir)
