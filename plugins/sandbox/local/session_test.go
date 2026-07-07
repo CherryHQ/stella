@@ -326,9 +326,9 @@ func TestResolvePath_extraMountAllowed(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:       root,
-			WorkingDir:          root,
-			ExtraReadOnlyMounts: []string{mountDir},
+			WorkspaceRoot: root,
+			WorkingDir:    root,
+			Mounts:        []sandboxpkg.Mount{{HostPath: mountDir, SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
 		},
 	}
 	s := &localSession{
@@ -365,9 +365,9 @@ func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:       root,
-			WorkingDir:          root,
-			ExtraReadOnlyMounts: []string{mountDir},
+			WorkspaceRoot: root,
+			WorkingDir:    root,
+			Mounts:        []sandboxpkg.Mount{{HostPath: mountDir, SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
 		},
 	}
 	s := &localSession{
@@ -463,10 +463,9 @@ func TestAgentSkills_readableButNotWritable(t *testing.T) {
 
 	s := &localSession{
 		id:                "test",
-		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, AgentSkillsDir: agentSkills}},
+		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: agentSkills, SandboxPath: sandboxpkg.MountAgentSkills, Access: sandboxpkg.MountReadOnly}}}},
 		realRoot:          root,
 		sandboxRoot:       root,
-		agentSkillsReal:   agentSkills,
 		stellaHomeHost:    hostSH,
 		stellaHomeSandbox: "/opt/stella",
 		done:              make(chan struct{}),
@@ -507,14 +506,13 @@ func TestSystemDBSkills_readableButNotWritable(t *testing.T) {
 	}
 
 	s := &localSession{
-		id:                 "test",
-		policy:             sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, SystemDBSkillsDir: dbSkills}},
-		realRoot:           root,
-		sandboxRoot:        root,
-		systemDBSkillsReal: dbSkills,
-		stellaHomeHost:     hostSH,
-		stellaHomeSandbox:  "/opt/stella",
-		done:               make(chan struct{}),
+		id:                "test",
+		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: dbSkills, SandboxPath: sandboxpkg.MountSystemDBSkills, Access: sandboxpkg.MountReadOnly}}}},
+		realRoot:          root,
+		sandboxRoot:       root,
+		stellaHomeHost:    hostSH,
+		stellaHomeSandbox: "/opt/stella",
+		done:              make(chan struct{}),
 	}
 
 	sandboxPath := sandboxpkg.MountSystemDBSkills + "/demo/SKILL.md"
@@ -560,9 +558,9 @@ func TestResolvePath_rejectsAdjacentToExtraMount(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:       root,
-			WorkingDir:          root,
-			ExtraReadOnlyMounts: []string{mountDir},
+			WorkspaceRoot: root,
+			WorkingDir:    root,
+			Mounts:        []sandboxpkg.Mount{{HostPath: mountDir, SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
 		},
 	}
 	s := &localSession{
@@ -704,7 +702,7 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 	userData := userHome + "/data"
 	miseHome := userHome + "/.mise-tools" // sibling of data, under STELLA_HOME
 	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: agentDir, UserDataDir: userData},
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: agentDir, Mounts: []sandboxpkg.Mount{{HostPath: agentDir, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: "/user", Access: sandboxpkg.MountReadWrite}}},
 		Env: map[string]string{
 			"MISE_DATA_DIR":             miseHome,
 			"MISE_CACHE_DIR":            miseHome + "/cache",
@@ -750,7 +748,7 @@ func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 		Filesystem: sandboxpkg.FilesystemPolicy{
 			WorkspaceRoot: root,
 			WorkingDir:    filepath.Join(root, "projects", "p"),
-			UserDataDir:   userData,
+			Mounts:        []sandboxpkg.Mount{{HostPath: root, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: sandboxpkg.MountUserData, Access: sandboxpkg.MountReadWrite}},
 		},
 	}
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}

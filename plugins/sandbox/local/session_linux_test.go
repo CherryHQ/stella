@@ -263,9 +263,9 @@ func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:       "/tmp/test-workspace",
-			WorkingDir:          "/workspace",
-			ExtraWritableMounts: []string{userDir},
+			WorkspaceRoot: "/tmp/test-workspace",
+			WorkingDir:    "/workspace",
+			Mounts:        []sandboxpkg.Mount{{HostPath: "/tmp/test-workspace", SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userDir, SandboxPath: sandboxUserDir, Access: sandboxpkg.MountReadWrite}},
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
@@ -313,9 +313,9 @@ func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:       userHome,
-			WorkingDir:          "/workspace",
-			ExtraWritableMounts: []string{miseDir},
+			WorkspaceRoot: userHome,
+			WorkingDir:    "/workspace",
+			Mounts:        []sandboxpkg.Mount{{HostPath: userHome, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: miseDir, SandboxPath: sandboxMiseDir, Access: sandboxpkg.MountReadWrite}},
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
@@ -356,10 +356,9 @@ func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:       agentDir,
-			WorkingDir:          "/workspace",
-			UserDataDir:         userData,
-			ExtraWritableMounts: []string{writableDir},
+			WorkspaceRoot: agentDir,
+			WorkingDir:    "/workspace",
+			Mounts:        []sandboxpkg.Mount{{HostPath: agentDir, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: "/user", Access: sandboxpkg.MountReadWrite}, {HostPath: writableDir, SandboxPath: filepath.Join(sandboxStellaHome, "users", "u1", "data", "scratch"), Access: sandboxpkg.MountReadWrite}},
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
@@ -397,7 +396,7 @@ func TestWrapCommand_linux_twoRoots(t *testing.T) {
 		Filesystem: sandboxpkg.FilesystemPolicy{
 			WorkspaceRoot: agentDir,
 			WorkingDir:    agentDir + "/projects/p",
-			UserDataDir:   userData,
+			Mounts:        []sandboxpkg.Mount{{HostPath: agentDir, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: "/user", Access: sandboxpkg.MountReadWrite}},
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}

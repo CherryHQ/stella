@@ -59,76 +59,43 @@ type Policy struct {
 	Timeout time.Duration
 }
 
+// MountAccess is the access mode a sandbox mount grants inside the sandbox.
+type MountAccess uint8
+
+const (
+	// MountReadOnly allows reads but rejects writes through host-side tools and
+	// asks isolating backends for a read-only bind when the platform supports it.
+	MountReadOnly MountAccess = iota
+	// MountReadWrite allows reads and writes.
+	MountReadWrite
+)
+
+// Mount maps a host path into the sandbox view.
+type Mount struct {
+	HostPath    string
+	SandboxPath string
+	Access      MountAccess
+}
+
 // FilesystemPolicy defines filesystem constraints for a sandbox session.
 type FilesystemPolicy struct {
-	// WorkspaceRoot is the host path mounted as the sandbox root. When empty,
-	// WorkingDir is used for backwards compatibility.
+	// WorkspaceRoot is the host workspace root. When empty, WorkingDir is used for
+	// backwards compatibility and for relative-path anchoring in non-isolating code.
 	WorkspaceRoot string
 
-	// WorkingDir is the logical working directory inside the sandbox root.
+	// WorkingDir is the requested working directory. Producers may provide either
+	// a host path under WorkspaceRoot or the corresponding sandbox path; backends
+	// normalize it through Mounts before execution.
 	WorkingDir string
 
-	// UserDataDir is the host path of the shared user-data root, mounted as a
-	// second top-level root (/user) in the two-root layout. Holds toolchains,
-	// caches, user-level skills/delegates, and uploads shared across the user's
-	// agents. Empty during the migration / for backends that don't yet implement
-	// the second root; not consumed until a later phase wires the mount and the
-	// host-side path resolver.
-	UserDataDir string
-
-	// ExtraReadOnlyMounts is a list of host paths to mount read-only inside the
-	// sandbox at their exact host path (same-path strategy). Used for skill dirs
-	// that live outside the workspace root but must be accessible for script execution.
-	ExtraReadOnlyMounts []string
+	// Mounts is the complete host→sandbox mount plan for isolating backends.
+	Mounts []Mount
 
 	// TempDirHost is the host directory mounted as /tmp inside the sandbox.
 	// Empty means the backend chooses a session-local temp directory. Non-empty
 	// directories are guaranteed to exist with 0700 permissions before the
 	// backend sees the policy; they may be shared across sessions.
 	TempDirHost string
-
-	// ExtraWritableMounts is a list of host paths to mount writable inside the
-	// sandbox at their STELLA_HOME-remapped path. Each path must live under the
-	// host STELLA_HOME: the isolating backends mount it at its remapped location
-	// (bwrap remaps STELLA_HOME -> /opt/stella; Seatbelt uses the host
-	// path unchanged), so a path outside STELLA_HOME would bind at an unintended
-	// target. This differs from ExtraReadOnlyMounts, which mounts at the exact
-	// host path (same-path strategy).
-	//
-	// The isolating backends bind each writable (bwrap --bind, Seatbelt allow
-	// file-write*); the none backend needs no mount since it shares the host
-	// filesystem. The docker backend is the exception: it ships its own in-image
-	// mise and never reads this field, so the caller skips populating it for
-	// docker (see the backend guard in buildBasePolicy). Reaching docker with a
-	// non-empty list would silently no-op — backend parity is tracked in #442.
-	//
-	// Used for per-user subtrees an agent must write through — today the writable
-	// per-user mise home (see pkgsandbox.MiseUserToolsDir), with more to follow.
-	// Each path is guaranteed to exist (the mise tree also seeded with system
-	// installs) before the backend sees the policy. The policy stays mise-agnostic:
-	// it only learns "these host dirs are writable", not why.
-	ExtraWritableMounts []string
-
-	// AgentSkillsDir is the host path of the admin-managed, agent-bound
-	// (system_agent scope) skills dir — AgentRoot/.agents/skills. Isolating
-	// backends mount it read-only at MountAgentSkills (/opt/stella/agent-skills)
-	// so an agent can still load and run those skills without the host path
-	// leaking. Empty for a session with no agent definition root, and ignored by
-	// the none backend (host paths are valid in-sandbox there).
-	AgentSkillsDir string
-
-	// SystemDBSkillsDir is the host path of the DB-installed system-scope skills
-	// dir (STELLA_HOME/.agents/db-skills). Isolating backends mount it read-only
-	// at MountSystemDBSkills (/opt/stella/db-skills) so a system skill installed
-	// via Settings can still load and run its files without the host path leaking.
-	// Ignored by the none backend (host paths are valid in-sandbox there).
-	SystemDBSkillsDir string
-
-	// AgentPrivateDir is a legacy sibling-hiding hint, left empty in the two-root
-	// layout: the agent workspace IS the per-agent dir (WorkspaceRoot), so siblings
-	// are never mounted and there is nothing to hide. Still read by the macOS
-	// Seatbelt profile (a deny/allow carve-out), where it stays inert while empty.
-	AgentPrivateDir string
 }
 
 // NetworkPolicy defines network constraints for a sandbox session.
