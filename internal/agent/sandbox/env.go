@@ -18,14 +18,48 @@ import (
 
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
 	principalDir, id := misePrincipal(cfg)
-	return pkgsandbox.FilesystemPolicy{
-		WorkspaceRoot:     paths.WorkspaceRoot,
-		WorkingDir:        paths.WorkDir,
-		UserDataDir:       userDataDirHost(paths, cfg),
-		AgentSkillsDir:    agentSkillsDirHost(paths),
-		SystemDBSkillsDir: systemDBSkillsDirHost(paths),
-		TempDirHost:       userTempDir(principalDir, id),
+	mounts := []pkgsandbox.Mount{
+		{HostPath: paths.WorkspaceRoot, SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite},
 	}
+	if userData := userDataDirHost(paths, cfg); userData != "" {
+		mounts = append(mounts, pkgsandbox.Mount{HostPath: userData, SandboxPath: pkgsandbox.MountUserData, Access: pkgsandbox.MountReadWrite})
+	}
+	for _, name := range pkgsandbox.StellaHomeSandboxDirs() {
+		mounts = append(mounts, pkgsandbox.Mount{
+			HostPath:    filepath.Join(paths.StellaHome, name),
+			SandboxPath: filepath.Join(pkgsandbox.MountStellaHome, name),
+			Access:      pkgsandbox.MountReadOnly,
+		})
+	}
+	if agentSkills := agentSkillsDirHost(paths); agentSkills != "" {
+		mounts = append(mounts, pkgsandbox.Mount{HostPath: agentSkills, SandboxPath: pkgsandbox.MountAgentSkills, Access: pkgsandbox.MountReadOnly})
+	}
+	if systemSkills := systemDBSkillsDirHost(paths); systemSkills != "" {
+		mounts = append(mounts, pkgsandbox.Mount{HostPath: systemSkills, SandboxPath: pkgsandbox.MountSystemDBSkills, Access: pkgsandbox.MountReadOnly})
+	}
+	if miseDir := miseUserDirHost(paths, cfg); miseDir != "" {
+		mounts = append(mounts, pkgsandbox.Mount{
+			HostPath:    miseDir,
+			SandboxPath: remapStellaHomePolicyPath(miseDir, paths.StellaHome),
+			Access:      pkgsandbox.MountReadWrite,
+		})
+	}
+	return pkgsandbox.FilesystemPolicy{
+		WorkspaceRoot: paths.WorkspaceRoot,
+		WorkingDir:    paths.WorkDir,
+		Mounts:        mounts,
+		TempDirHost:   userTempDir(principalDir, id),
+	}
+}
+
+func remapStellaHomePolicyPath(hostPath, stellaHome string) string {
+	if hostPath == stellaHome {
+		return pkgsandbox.MountStellaHome
+	}
+	if strings.HasPrefix(hostPath, stellaHome+string(filepath.Separator)) {
+		return pkgsandbox.MountStellaHome + hostPath[len(stellaHome):]
+	}
+	return hostPath
 }
 
 // systemDBSkillsDirHost returns the host path of the DB-installed system-scope
@@ -68,11 +102,11 @@ func userDataDirHost(paths Paths, cfg Config) string {
 // bridge per-user tree -> system tree resolve identically on host and in the
 // sandbox. Putting it under the /user-mounted user-data root instead would split
 // the two trees across separate sandbox roots (/user vs /opt/stella) and dangle
-// those symlinks (#505). The cost is one dedicated writable bind, wired via
-// ExtraWritableMounts. Returns "" when there is no per-user tree: no principal, or
-// an ID that fails the safe-path-component check (the session then falls back to
-// the shared read-only system tree). A downgrade from an unsafe ID is logged so a
-// malformed ID is diagnosable.
+// those symlinks (#505). The policy builder emits it as one dedicated writable
+// Mount. Returns "" when there is no per-user tree: no principal, or an ID that
+// fails the safe-path-component check (the session then falls back to the shared
+// read-only system tree). A downgrade from an unsafe ID is logged so a malformed
+// ID is diagnosable.
 func miseUserDirHost(paths Paths, cfg Config) string {
 	principalDir, id := misePrincipal(cfg)
 	dir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)

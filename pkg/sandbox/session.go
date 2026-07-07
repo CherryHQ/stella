@@ -24,7 +24,7 @@ type Session interface {
 	// ResolvePath validates read access; use ResolveWritePath for write operations.
 	ResolvePath(path string) (string, error)
 	// ResolveWritePath is like ResolvePath but additionally rejects paths in
-	// read-only mounts (e.g. ExtraReadOnlyMounts / skill directories).
+	// read-only mounts.
 	ResolveWritePath(path string) (string, error)
 	WorkingDir() string
 }
