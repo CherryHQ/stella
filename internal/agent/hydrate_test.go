@@ -103,6 +103,47 @@ func TestHydrateUserAssetsRestoresAndSkips(t *testing.T) {
 	}
 }
 
+// A file written between the caller's missing-file check and the install (the
+// stat-then-restore window) must win over the restored blob content.
+func TestRestoreAssetKeyDoesNotReplaceConcurrentWrite(t *testing.T) {
+	stellaHome := t.TempDir()
+	store, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "users/u1/data/assets/raced.txt"
+	putBlob(t, store, key, "stale-remote")
+
+	abs := filepath.Join(stellaHome, filepath.FromSlash(key))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte("fresh-local"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := restoreAssetKey(context.Background(), store, key, abs); err != nil {
+		t.Fatalf("restoreAssetKey: %v", err)
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "fresh-local" {
+		t.Fatalf("content = %q, want the concurrent local write to win", data)
+	}
+	// The temp file must not linger next to the target.
+	entries, err := os.ReadDir(filepath.Dir(abs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".stella-hydrate-") {
+			t.Fatalf("leftover temp file %q", e.Name())
+		}
+	}
+}
+
 func TestHydrateUserAssetsNilStore(t *testing.T) {
 	blob.ResetDefaultForTest()
 	resetHydrationForTest()

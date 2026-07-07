@@ -1546,7 +1546,18 @@ func writeRestoredAssetFile(abs string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, abs)
+	// Install with no-replace semantics: rename would silently clobber a file
+	// written between the caller's missing-file check and this install, replacing
+	// fresh local content with older blob content. link(2) fails with EEXIST
+	// instead (on Windows too), so the concurrent local write wins — the caller
+	// re-reads the local file after a nil return, serving the newer content.
+	if err := os.Link(tmpName, abs); err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func isAssetRelPath(rel string) bool {

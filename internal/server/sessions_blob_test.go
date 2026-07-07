@@ -209,6 +209,35 @@ func TestGetWorkspaceFileContentRestoreMissLeavesNoAssetDir(t *testing.T) {
 	}
 }
 
+// A file written between the caller's missing-file check and the install (the
+// stat-then-restore window) must win over the restored blob content.
+func TestWriteRestoredAssetFileDoesNotReplaceConcurrentWrite(t *testing.T) {
+	dir := t.TempDir()
+	abs := filepath.Join(dir, "raced.txt")
+	if err := os.WriteFile(abs, []byte("fresh-local"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRestoredAssetFile(abs, []byte("stale-remote")); err != nil {
+		t.Fatalf("writeRestoredAssetFile: %v", err)
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "fresh-local" {
+		t.Fatalf("content = %q, want the concurrent local write to win", data)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".stella-restore-") {
+			t.Fatalf("leftover temp file %q", e.Name())
+		}
+	}
+}
+
 func TestUploadWorkspaceFileMirrorsToBlob(t *testing.T) {
 	defer blob.ResetDefaultForTest()
 	home := t.TempDir()

@@ -105,8 +105,9 @@ func resetHydrationForTest() {
 }
 
 // restoreAssetKey copies one blob key to abs via a temp file in the target dir,
-// chmod 0644, then atomic rename — the same write-back pattern as the server's
-// restore-on-miss handler, so both restore paths land identical file modes.
+// chmod 0644, then an atomic no-replace install — the same write-back pattern
+// as the server's restore-on-miss handler, so both restore paths land identical
+// file modes and both let a concurrently written local file win.
 func restoreAssetKey(ctx context.Context, store blob.Store, key, abs string) error {
 	rc, err := store.Open(ctx, key)
 	if err != nil {
@@ -136,5 +137,15 @@ func restoreAssetKey(ctx context.Context, store blob.Store, key, abs string) err
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, abs)
+	// Install with no-replace semantics: rename would silently clobber a file
+	// written between the caller's missing-file check and this install, replacing
+	// fresh local content with older blob content. link(2) fails with EEXIST
+	// instead (on Windows too), so the concurrent local write wins.
+	if err := os.Link(tmpName, abs); err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
