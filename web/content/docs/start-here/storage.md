@@ -1,0 +1,65 @@
+---
+title: Storage & Durability
+---
+
+Everything Stella writes to disk lives under `$STELLA_HOME` (default `~/.stella`, override with `STELLA_HOME`). On a single host with a persistent disk you never have to think about this page. On Kubernetes, on a multi-replica deployment, or anywhere the pod's disk is ephemeral, you do: each directory is either **durable data** you must keep, **derived cache** that rebuilds itself, or **scratch** that is safe to lose.
+
+This page classifies every directory and tells you the volume and backup treatment each one needs. For the environment variables referenced below (`STELLA_DATABASE_URL`, `STELLA_BLOB_S3_*`), see the [environment-variable table on the Deployment page](/docs/start-here/deployment#environment-variables).
+
+## Classification at a glance
+
+| Path under `$STELLA_HOME`                                                 | Holds                                                 | Classification | Kubernetes / ephemeral-disk treatment                                             |
+| ------------------------------------------------------------------------- | ----------------------------------------------------- | -------------- | --------------------------------------------------------------------------------- |
+| `postgres/`                                                               | Embedded PostgreSQL cluster — the source of truth     | Durable        | Persistent volume **and** back it up. Absent when you set `STELLA_DATABASE_URL`.  |
+| `users/{id}/data/assets/`                                                 | User-uploaded files (per user)                        | Durable\*      | Persistent volume — **unless** the S3 mirror is configured (see below).           |
+| `users/group-{id}/data/assets/`                                           | User-uploaded files (per group)                       | Durable\*      | Same as per-user assets.                                                          |
+| `users/{id}/agents/{id}/`                                                 | Agent working trees and project files                 | Durable        | Persistent volume **and** pin to a single replica. Not mirrored anywhere.         |
+| `library/`                                                                | Legacy article mirror (being drained into PostgreSQL) | Legacy         | Keep on a volume until the backfill reports zero missing, then archive or delete. |
+| `.agents/skills/`, `.agents/db-skills/`, `users/{id}/.../.agents/skills/` | Skill files on disk for sandbox execution             | Derived cache  | Ephemeral disk is fine. Rebuilt from PostgreSQL.                                  |
+| `bin/`                                                                    | Embedded tools and the `stella` CLI                   | Derived cache  | Ephemeral disk is fine. Re-extracted at startup.                                  |
+| `.mise-tools/`, `users/{id}/.mise-tools/`                                 | Toolchains for the sandbox                            | Derived cache  | Ephemeral disk is fine. Re-installed on demand.                                   |
+| `pg-runtime/`                                                             | Downloaded and extracted embedded-PostgreSQL runtime  | Derived cache  | Ephemeral disk is fine. Re-download with `stellad postgres download-runtime`.     |
+| `users/{id}/data/.cache/`                                                 | Per-user tool cache                                   | Derived cache  | Ephemeral disk is fine.                                                           |
+| `dumps/`                                                                  | Diagnostic dumps written on signal                    | Scratch        | Ephemeral disk is fine. Diagnostic only.                                          |
+
+\* Durable on local disk by default; becomes recoverable cache once the S3 mirror is configured — see [User assets](#user-assets-durable-or-mirrored).
+
+## PostgreSQL is the source of truth (durable)
+
+PostgreSQL holds nearly all state: configuration, secrets metadata, message history and summaries, skills, Recally articles and their bodies, the fetched-models cache, goals, schedules, and the scheduler queue. It is the one thing you cannot rebuild.
+
+- **Embedded cluster (default):** the data lives in `$STELLA_HOME/postgres/`. This directory must sit on a persistent volume and be backed up (stop the server first, or use a filesystem snapshot). The downloaded runtime under `pg-runtime/` is just code and can be re-fetched.
+- **External server (`STELLA_DATABASE_URL`):** the database moves out of `$STELLA_HOME` entirely. Back it up with `pg_dump` against your database. This is the recommended setup for Kubernetes — it takes the single hardest-to-manage stateful directory off the pod.
+
+## User assets (durable, or mirrored)
+
+Files users upload are written to `users/{id}/data/assets/` (and `users/group-{id}/data/assets/` for groups). How you treat this tree depends on whether the S3 mirror is configured:
+
+- **Without S3** (`STELLA_BLOB_S3_*` unset): the local copy is the only copy. This tree is durable data and needs a persistent volume; losing the disk loses the files.
+- **With S3** (all four `STELLA_BLOB_S3_*` variables set): every write is mirrored to the bucket, a read that misses locally restores the file from the bucket, and a cold pod re-hydrates its assets from the bucket at session setup. The local tree becomes a recoverable cache, so pods can run on ephemeral disk and the bucket is what you back up.
+
+Configuring the mirror is what lets asset-serving replicas be stateless. Set all four required S3 variables together — partial configuration fails startup.
+
+## Agent working trees (durable, single-replica)
+
+`users/{id}/agents/{id}/` (and the group equivalent) holds each agent's mutable working tree and project files. Nothing mirrors this to PostgreSQL or S3, so it is durable data: it needs a persistent volume, and because there is no distributed coordination over these trees today, pin the workload to a single replica. Multi-replica execution with checkpointing is future work — do not assume it yet.
+
+## Legacy article mirror (draining)
+
+`library/` is a leftover from when Recally article bodies were stored as files on disk. Bodies now live in PostgreSQL, a startup job backfills any file-only bodies into the database, and nothing writes new files here. Keep the directory on a volume until a backfill run logs zero missing bodies; after that the files are inert legacy data and are safe to archive or delete.
+
+## Derived cache (safe to lose)
+
+These directories are rebuilt automatically and can live on ephemeral disk:
+
+- **Skill mirrors** (`.agents/skills/`, `.agents/db-skills/`, and the per-user and per-agent `.agents/skills/` trees): PostgreSQL is the source of truth. The disk copies are rebuilt at startup and refreshed on every skill load, so a stale or missing mirror self-heals.
+- **`bin/`**: embedded tools and the `stella` CLI, re-extracted at startup.
+- **Toolchains** (`.mise-tools/`, per-user `.mise-tools/`): re-installed on demand.
+- **`pg-runtime/`**: the downloaded embedded-PostgreSQL runtime; re-download with `stellad postgres download-runtime`.
+- **`users/{id}/data/.cache/`**: per-user tool cache.
+
+## Scratch
+
+`dumps/` holds diagnostic dumps written when the process receives a debug signal. It is never read back by Stella and is safe to lose.
+
+A top-level `cache/` directory may appear from older versions; it is unused on current builds (the fetched-models cache moved into PostgreSQL) and is safe to delete. A legacy `stella.db` file, if present, is only read by the one-time SQLite-to-PostgreSQL migration tool and is untouched by the running server.

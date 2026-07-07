@@ -225,6 +225,8 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、消息历史、摘要和调度器任务。使用内嵌集群时，停止服务后备份 `~/.stella/postgres/` 目录；`~/.stella/pg-runtime/` 是下载的程序文件，可重新生成。使用外部服务器时，对 `STELLA_DATABASE_URL` 所指数据库执行 `pg_dump`。
 
+关于哪些目录属于持久数据、派生缓存或临时数据——以及各自在 Kubernetes 或临时磁盘上所需的卷与备份处理方式——完整说明参见[存储与持久化](/docs/start-here/storage)。
+
 ## 环境变量
 
 配置通过Web UI管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
