@@ -23,6 +23,11 @@ ON CONFLICT (article_id) DO UPDATE
 SET content = EXCLUDED.content,
     updated_at = now();
 
+-- name: InsertArticleContentIfAbsent :exec
+INSERT INTO recally_article_content (article_id, content)
+VALUES (sqlc.arg('article_id'), sqlc.arg('content'))
+ON CONFLICT (article_id) DO NOTHING;
+
 -- name: ListArticles :many
 SELECT * FROM recally_article
 WHERE user_id = sqlc.arg('user_id')

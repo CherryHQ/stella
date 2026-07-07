@@ -217,7 +217,11 @@ func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id 
 		include = *params.Include
 	}
 	if includesContent(include) {
-		body, _ := h.readArticleBody(r.Context(), article)
+		body, err := h.readArticleBody(r.Context(), article)
+		if err != nil {
+			h.writeInternalError(w, err)
+			return
+		}
 		writeData(w, http.StatusOK, toAPIArticle(article, body))
 		return
 	}
@@ -759,6 +763,9 @@ func (h *recallyHandlers) rewriteArticleFile(ctx context.Context, article *recal
 			return nil
 		}
 		body = existing
+	}
+	if newContent == nil && body == "" {
+		return nil
 	}
 	if err := h.store.UpsertArticleContent(ctx, article.ID, body); err != nil {
 		return err

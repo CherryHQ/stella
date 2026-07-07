@@ -36,6 +36,17 @@ func generateID() string {
 
 // SaveArticle saves or updates an article by canonical URL.
 func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest) (*Article, bool, error) {
+	return s.saveArticle(ctx, userID, req, "", false)
+}
+
+// SaveArticleWithContent saves or updates an article by canonical URL. New
+// articles and their body content are inserted in one transaction so a crash
+// cannot leave an article row without its source body.
+func (s *Store) SaveArticleWithContent(ctx context.Context, userID string, req SaveRequest, content string) (*Article, bool, error) {
+	return s.saveArticle(ctx, userID, req, content, true)
+}
+
+func (s *Store) saveArticle(ctx context.Context, userID string, req SaveRequest, content string, insertContent bool) (*Article, bool, error) {
 	if req.SourceType == "" {
 		req.SourceType = SourceTypeWeb
 	}
@@ -75,7 +86,7 @@ func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest)
 		return nil, false, fmt.Errorf("lookup article by canonical url: %w", err)
 	}
 
-	created, err := s.q.CreateArticle(ctx, sqlc.CreateArticleParams{
+	params := sqlc.CreateArticleParams{
 		ID:           generateID(),
 		UserID:       userID,
 		AgentID:      toNullString(req.AgentID),
@@ -93,9 +104,32 @@ func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest)
 		PublishedAt:  toNullTime(req.PublishedAt),
 		SavedAt:      time.Now().UTC(),
 		ReadAt:       pgtype.Timestamptz{},
-	})
-	if err != nil {
-		return nil, false, fmt.Errorf("create article: %w", err)
+	}
+
+	var created sqlc.RecallyArticle
+	if insertContent {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return nil, false, fmt.Errorf("begin article transaction: %w", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		qtx := s.q.WithTx(tx)
+		created, err = qtx.CreateArticle(ctx, params)
+		if err != nil {
+			return nil, false, fmt.Errorf("create article: %w", err)
+		}
+		if err := qtx.UpsertArticleContent(ctx, sqlc.UpsertArticleContentParams{ArticleID: created.ID, Content: content}); err != nil {
+			return nil, false, fmt.Errorf("upsert article content: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, false, fmt.Errorf("commit article transaction: %w", err)
+		}
+	} else {
+		created, err = s.q.CreateArticle(ctx, params)
+		if err != nil {
+			return nil, false, fmt.Errorf("create article: %w", err)
+		}
 	}
 
 	var article Article
@@ -543,6 +577,13 @@ func (s *Store) UpdateArticleFilePath(ctx context.Context, userID, articleID, fi
 func (s *Store) UpsertArticleContent(ctx context.Context, articleID, content string) error {
 	if err := s.q.UpsertArticleContent(ctx, sqlc.UpsertArticleContentParams{ArticleID: articleID, Content: content}); err != nil {
 		return fmt.Errorf("upsert article content: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) InsertArticleContentIfAbsent(ctx context.Context, articleID, content string) error {
+	if err := s.q.InsertArticleContentIfAbsent(ctx, sqlc.InsertArticleContentIfAbsentParams{ArticleID: articleID, Content: content}); err != nil {
+		return fmt.Errorf("insert article content if absent: %w", err)
 	}
 	return nil
 }

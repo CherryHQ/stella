@@ -260,6 +260,22 @@ func (q *Queries) GetArticlesSavedThisWeek(ctx context.Context, userID string) (
 	return items, nil
 }
 
+const insertArticleContentIfAbsent = `-- name: InsertArticleContentIfAbsent :exec
+INSERT INTO recally_article_content (article_id, content)
+VALUES ($1, $2)
+ON CONFLICT (article_id) DO NOTHING
+`
+
+type InsertArticleContentIfAbsentParams struct {
+	ArticleID string `json:"article_id"`
+	Content   string `json:"content"`
+}
+
+func (q *Queries) InsertArticleContentIfAbsent(ctx context.Context, arg InsertArticleContentIfAbsentParams) error {
+	_, err := q.db.Exec(ctx, insertArticleContentIfAbsent, arg.ArticleID, arg.Content)
+	return err
+}
+
 const listArticles = `-- name: ListArticles :many
 SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article
 WHERE user_id = $1

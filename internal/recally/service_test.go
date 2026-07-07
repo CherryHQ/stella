@@ -61,6 +61,55 @@ func TestServiceReadArticleBodyUsesDatabaseWhenMirrorIsMissing(t *testing.T) {
 	}
 }
 
+func TestStoreArticleContentInsertIfAbsentDoesNotOverwrite(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	store := NewStore(db)
+
+	article, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/content-race", Title: "Content Race", Content: "ignored"})
+	if err != nil {
+		t.Fatalf("SaveArticle: %v", err)
+	}
+	if err := store.UpsertArticleContent(t.Context(), article.ID, "current body"); err != nil {
+		t.Fatalf("UpsertArticleContent seed: %v", err)
+	}
+	if err := store.InsertArticleContentIfAbsent(t.Context(), article.ID, "legacy body"); err != nil {
+		t.Fatalf("InsertArticleContentIfAbsent: %v", err)
+	}
+	body, ok, err := store.GetArticleContent(t.Context(), article.ID)
+	if err != nil || !ok || body != "current body" {
+		t.Fatalf("GetArticleContent after insert-if-absent body=%q ok=%v err=%v, want current body", body, ok, err)
+	}
+	if err := store.UpsertArticleContent(t.Context(), article.ID, "new body"); err != nil {
+		t.Fatalf("UpsertArticleContent overwrite: %v", err)
+	}
+	body, ok, err = store.GetArticleContent(t.Context(), article.ID)
+	if err != nil || !ok || body != "new body" {
+		t.Fatalf("GetArticleContent after upsert body=%q ok=%v err=%v, want new body", body, ok, err)
+	}
+}
+
+func TestServiceReadArticleBodyMissingMirrorReturnsNoContent(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	home := t.TempDir()
+	store := NewStore(db)
+	svc := NewService(store, NewFileManager(home), home)
+
+	article, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/missing-mirror", Title: "Missing Mirror", Content: "ignored"})
+	if err != nil {
+		t.Fatalf("SaveArticle: %v", err)
+	}
+	article.FilePath = "library/missing.md"
+	if err := store.UpdateArticleFilePath(t.Context(), testUserID, article.ID, article.FilePath); err != nil {
+		t.Fatalf("UpdateArticleFilePath: %v", err)
+	}
+	body, err := svc.ReadArticleBody(t.Context(), article)
+	if err != nil || body != "" {
+		t.Fatalf("ReadArticleBody missing mirror body=%q err=%v, want no content and no error", body, err)
+	}
+}
+
 func TestServiceReadArticleBodyBackfillsLegacyFile(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
