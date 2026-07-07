@@ -13,10 +13,18 @@ type secretCaptureSession struct {
 	pkgsandbox.Session
 	lastEnv map[string]string
 	result  pkgsandbox.ExecResult
+	execErr error
+	onExec  func()
 }
 
 func (s *secretCaptureSession) Exec(_ context.Context, _ string, opts pkgsandbox.ExecOptions) (pkgsandbox.ExecResult, error) {
 	s.lastEnv = opts.Env
+	if s.onExec != nil {
+		s.onExec()
+	}
+	if s.execErr != nil {
+		return s.result, s.execErr
+	}
 	if s.result.Stdout != "" || s.result.Stderr != "" || s.result.ExitCode != 0 {
 		return s.result, nil
 	}
@@ -24,12 +32,13 @@ func (s *secretCaptureSession) Exec(_ context.Context, _ string, opts pkgsandbox
 }
 
 type fakeSecretResolver struct {
-	env        map[string]string
-	valid      []string
-	declarable []string
-	err        error
-	uses       []string
-	command    string
+	env           map[string]string
+	valid         []string
+	declarable    []string
+	sessionValues []string
+	err           error
+	uses          []string
+	command       string
 }
 
 func (r *fakeSecretResolver) ResolveExecSecrets(_ context.Context, names []string, command string) (map[string]string, []string, error) {
@@ -40,6 +49,10 @@ func (r *fakeSecretResolver) ResolveExecSecrets(_ context.Context, names []strin
 
 func (r *fakeSecretResolver) DeclarableSecretNames(context.Context) ([]string, error) {
 	return r.declarable, nil
+}
+
+func (r *fakeSecretResolver) SessionSecretValues(context.Context) ([]string, error) {
+	return r.sessionValues, nil
 }
 
 func TestBashDeclaredSecretInjectedOnlyIntoExecEnv(t *testing.T) {
@@ -72,6 +85,70 @@ func TestBashDeclaredSecretValueRedactedFromResult(t *testing.T) {
 	}
 	if strings.Contains(content, "secret-value") || !strings.Contains(content, "[REDACTED_SECRET]") {
 		t.Fatalf("content = %q, want redacted secret", content)
+	}
+}
+
+func TestRedactSecretValuesReplacesLongestSecretsFirst(t *testing.T) {
+	content := "token abc123 also abc"
+	for range 100 {
+		redacted := redactSecretValues(content, map[string]string{"SHORT": "abc", "LONG": "abc123"})
+		if strings.Contains(redacted, "123") || strings.Contains(redacted, "abc") {
+			t.Fatalf("redacted = %q, want no partial secret suffix", redacted)
+		}
+	}
+}
+
+func TestBashSessionVaultSecretValueRedactedFromResult(t *testing.T) {
+	session := &secretCaptureSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stdout: "vault-secret-value\n", ExitCode: 0}}
+	resolver := &fakeSecretResolver{sessionValues: []string{"vault-secret-value"}}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $MY_SECRET"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if strings.Contains(content, "vault-secret-value") || !strings.Contains(content, "[REDACTED_SECRET]") {
+		t.Fatalf("content = %q, want redacted session vault secret", content)
+	}
+}
+
+func TestBashSessionSecretValueRecordedDuringExecIsRedactedFromResult(t *testing.T) {
+	resolver := &fakeSecretResolver{sessionValues: []string{"old-token"}}
+	session := &secretCaptureSession{
+		Session: pkgsandbox.NopSession(),
+		result:  pkgsandbox.ExecResult{Stdout: "new-token\n", ExitCode: 0},
+		onExec: func() {
+			resolver.sessionValues = []string{"old-token", "new-token"}
+		},
+	}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $STELLA_TOKEN"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if strings.Contains(content, "new-token") || !strings.Contains(content, "[REDACTED_SECRET]") {
+		t.Fatalf("content = %q, want redacted recreated-session token", content)
+	}
+}
+
+func TestBashSessionSecretValueRecordedDuringExecIsRedactedFromExecError(t *testing.T) {
+	resolver := &fakeSecretResolver{sessionValues: []string{"old-token"}}
+	session := &secretCaptureSession{
+		Session: pkgsandbox.NopSession(),
+		execErr: errors.New("runner failed after minting new-token"),
+		onExec: func() {
+			resolver.sessionValues = []string{"old-token", "new-token"}
+		},
+	}
+	tool := newBashTool(session, "", "", resolver)
+
+	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $STELLA_TOKEN"})
+	if err == nil {
+		t.Fatal("Execute succeeded, want error")
+	}
+	if strings.Contains(content, "new-token") || !strings.Contains(content, "[REDACTED_SECRET]") {
+		t.Fatalf("content = %q, want redacted recreated-session token", content)
 	}
 }
 

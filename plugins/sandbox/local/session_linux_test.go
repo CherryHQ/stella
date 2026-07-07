@@ -204,8 +204,10 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 		return flagIndex(flag) >= 0
 	}
 
-	if !hasSingle("--die-with-parent") {
-		t.Error("expected --die-with-parent in bwrap args")
+	for _, flag := range []string{"--die-with-parent", "--unshare-pid", "--unshare-ipc", "--unshare-uts"} {
+		if !hasSingle(flag) {
+			t.Errorf("expected %s in bwrap args", flag)
+		}
 	}
 	if !hasSingle("--dir") {
 		t.Error("expected --dir in bwrap args")

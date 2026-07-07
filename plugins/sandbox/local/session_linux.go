@@ -156,8 +156,13 @@ func bwrapFunctional() bool {
 		if err != nil {
 			return
 		}
-		// Probe with a minimal sandbox that just runs true(1).
-		if exec.Command(p, "--dev-bind", "/", "/", "--", "true").Run() == nil {
+		// Probe with a minimal sandbox that just runs true(1), including the
+		// namespace isolation flags used by real execs.
+		args := []string{
+			"--unshare-pid", "--unshare-ipc", "--unshare-uts",
+			"--dev-bind", "/", "/", "--", "true",
+		}
+		if exec.Command(p, args...).Run() == nil {
 			bwrapPath = p
 			bwrapAvailable = true
 		}
@@ -284,6 +289,9 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 
 	bwrapArgs := []string{
 		"--die-with-parent",
+		"--unshare-pid",
+		"--unshare-ipc",
+		"--unshare-uts",
 		"--tmpfs", "/",
 		"--dev", "/dev",
 		"--tmpfs", "/dev/shm",
@@ -292,6 +300,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 		"--proc", "/proc",
 		"--dir", "/run",
 	}
+	// User namespace remapping and seccomp are deferred until they have real Linux coverage.
 	// Mount temp directories: bind each per-session host dir so file tools on
 	// the host share the same view as bash running inside bwrap.
 	// See createSessionTmpMounts for how to add a new temp path.

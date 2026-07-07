@@ -43,6 +43,27 @@ func (s staticScopedToken) CreateScopedToken(context.Context, string, string, st
 	return s.token, nil
 }
 
+func requireSessionSecretValues(t *testing.T, values []string, present []string, absent []string) {
+	t.Helper()
+	got := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		got[value] = struct{}{}
+	}
+	for _, value := range present {
+		if _, ok := got[value]; !ok {
+			t.Fatalf("session secret values = %#v, missing %q", values, value)
+		}
+	}
+	for _, value := range absent {
+		if _, ok := got[value]; ok {
+			t.Fatalf("session secret values = %#v, unexpectedly contains %q", values, value)
+		}
+	}
+	if len(values) != len(present) {
+		t.Fatalf("session secret values = %#v, want exactly %#v", values, present)
+	}
+}
+
 func TestBuildSandboxEnvUsesScopedTokenOverVaultToken(t *testing.T) {
 	env, err := buildSandboxEnv(context.Background(), Config{
 		UserID:         "user-1",
@@ -60,6 +81,29 @@ func TestBuildSandboxEnvUsesScopedTokenOverVaultToken(t *testing.T) {
 	if got := env["OTHER"]; got != "ok" {
 		t.Fatalf("OTHER = %q, want vault value", got)
 	}
+}
+
+func TestBuildSandboxEnvRecordsOnlyInjectedVaultSecretValues(t *testing.T) {
+	secretValues := NewSessionSecretValues()
+	env, err := buildSandboxEnv(context.Background(), Config{
+		UserID:              "user-1",
+		AgentID:             "agent-1",
+		SessionID:           "session-1",
+		VaultEnvLoader:      staticVaultEnv{env: map[string]string{"MY_SECRET": "vault-secret", "STELLA_HOME": "vault-home", "STELLA_TOKEN": "stella_legacy"}},
+		SessionSecretValues: secretValues,
+		TokenEnsurer:        staticScopedToken{token: "stella_scoped_session"},
+	}, Paths{StellaHome: "/runtime/stella"})
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
+	if got := env["MY_SECRET"]; got != "vault-secret" {
+		t.Fatalf("MY_SECRET = %q, want vault-secret", got)
+	}
+	values := secretValues.Values()
+	requireSessionSecretValues(t, values,
+		[]string{"vault-secret", "stella_scoped_session"},
+		[]string{"vault-home", "stella_legacy", "/runtime/stella"},
+	)
 }
 
 func TestBuildSandboxEnvDeletesVaultTokenWhenScopedUnavailable(t *testing.T) {

@@ -55,4 +55,5 @@ func RefreshScopedToken(ctx context.Context, session pkgsandbox.Session, cfg Con
 		return
 	}
 	refresher.RefreshEnv(map[string]string{"STELLA_TOKEN": tok})
+	cfg.SessionSecretValues.Add(tok)
 }

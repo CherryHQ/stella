@@ -131,6 +131,9 @@ func userTempDir(principalDir, id string) string {
 // (e.g. STELLA_HOME) always take precedence over user-defined secrets.
 func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]string, error) {
 	env := make(map[string]string)
+	var vaultEnv map[string]string
+	sessionSecretEnv := make(map[string]string)
+	cfg.SessionSecretValues.Set(nil)
 
 	// Group sessions never load human vault secrets (D9 isolation).
 	if cfg.GroupID == "" && cfg.VaultEnvLoader != nil {
@@ -144,6 +147,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 				"error", err,
 			)
 		} else {
+			vaultEnv = ve
 			maps.Copy(env, ve)
 		}
 	}
@@ -155,7 +159,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	delete(env, oauth.VaultKeyLark)
 	delete(env, oauth.VaultKeyFeishu)
 	if cfg.GroupID == "" {
-		if err := injectSessionEnv(ctx, cfg, env); err != nil {
+		if err := injectSessionEnv(ctx, cfg, env, sessionSecretEnv); err != nil {
 			return nil, err
 		}
 	}
@@ -170,6 +174,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 			return nil, err
 		}
 		env["STELLA_TOKEN"] = tok
+		sessionSecretEnv["STELLA_TOKEN"] = tok
 	} else {
 		delete(env, "STELLA_TOKEN")
 	}
@@ -184,8 +189,40 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// (translateEnvPaths), while local/none use them via the host PATH or bwrap
 	// remap — so an agent sees identical mise paths whichever backend runs it.
 	maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, miseUserDirHost(paths, cfg), paths.WorkspaceRoot))
+	recordSessionSecretValues(cfg.SessionSecretValues, env, vaultEnv, sessionSecretEnv)
 
 	return env, nil
+}
+
+func recordSessionSecretValues(target *SessionSecretValues, env map[string]string, vaultEnv map[string]string, sessionSecretEnv map[string]string) {
+	if target == nil {
+		return
+	}
+	values := make([]string, 0, len(vaultEnv)+len(sessionSecretEnv))
+	seen := make(map[string]struct{}, len(vaultEnv)+len(sessionSecretEnv))
+	addValue := func(value string) {
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	for key, value := range vaultEnv {
+		if env[key] != value {
+			continue
+		}
+		addValue(value)
+	}
+	for key, value := range sessionSecretEnv {
+		if env[key] != value {
+			continue
+		}
+		addValue(value)
+	}
+	target.Set(values)
 }
 
 func shouldInjectScopedToken(cfg Config) bool {
@@ -194,7 +231,7 @@ func shouldInjectScopedToken(cfg Config) bool {
 }
 
 // injectSessionEnv resolves plugin SessionEnvSpecs into env.
-func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string) error {
+func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, secretEnv map[string]string) error {
 	// oauthBundles caches loaded bundles per provider to avoid redundant vault hits.
 	oauthBundles := make(map[string]*oauth.OAuthBundle)
 	for _, spec := range cfg.SessionEnvSpecs {
@@ -272,9 +309,21 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string) er
 		}
 		if value != "" {
 			env[spec.EnvVar] = value
+			if oauthSessionEnvFieldSecret(field) {
+				secretEnv[spec.EnvVar] = value
+			}
 		} else if spec.Required {
 			return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 		}
 	}
 	return nil
+}
+
+func oauthSessionEnvFieldSecret(field string) bool {
+	switch field {
+	case "access_token", "refresh_token", "client_id":
+		return true
+	default:
+		return false
+	}
 }
