@@ -312,11 +312,17 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 			skillDir = t.layout.Dir(rs.Scope, rs.Name)
 			if skillDir != "" {
 				// Cross-replica writes leave no local signal, so load refreshes the mirror
-				// from the DB; content comparison keeps the common no-op path cheap. If
-				// these roundtrips ever get hot, add a revision marker before caching.
+				// from the DB; content comparison spares the disk writes but not the DB
+				// reads. Ceiling: a revision marker would make the no-op path cheap, but
+				// needs file mutations to bump skill.updated_at first (today
+				// UpsertSkillFile/DeleteSkillFile touch only skill_file rows).
 				if err := t.materializeDBSkill(ctx, rs.ID, skillDir); err != nil {
 					slog.WarnContext(ctx, "skills load: failed to materialize DB skill", "skill", rs.Name, "dir", skillDir, "err", err)
-					skillDir = ""
+					// Degrade to staleness, not to lost execution: keep serving an
+					// existing mirror through a transient store error.
+					if _, statErr := os.Stat(filepath.Join(skillDir, pkgplugins.SkillMainFile)); statErr != nil {
+						skillDir = ""
+					}
 				}
 			}
 		}
@@ -350,6 +356,11 @@ func (t *Tool) materializeDBSkill(ctx context.Context, skillID, skillDir string)
 	paths, err := t.store.ListFiles(ctx, skillID)
 	if err != nil {
 		return fmt.Errorf("materialize skill files: %w", err)
+	}
+	// A loadable skill always has SKILL.md in the store; an empty listing is an
+	// inconsistency, and pruning against it would wipe the whole mirror.
+	if len(paths) == 0 {
+		return fmt.Errorf("materialize skill files: store listed no files for skill %s", skillID)
 	}
 	seen := make(map[string]struct{}, len(paths))
 	for _, p := range paths {
