@@ -14,6 +14,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
@@ -85,6 +86,49 @@ func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 	}
 	if !strings.Contains(string(created.Share.Content), "share body") {
 		t.Fatalf("shared content %q, want article body", string(created.Share.Content))
+	}
+}
+
+func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
+	defer blob.ResetDefaultForTest()
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	mem := memorytest.New()
+	home := t.TempDir()
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := blob.SetDefault(remote); err != nil {
+		t.Fatal(err)
+	}
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), recally.NewFileManager(home), home, "http://stella.test")
+	userID := uuid.NewString()
+	agentID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: "session", UserID: userID, AgentID: agentID}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, userID)), "assets", "202607", "restored.html")
+	key, err := blob.KeyForPath(home, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Put(ctx, key, strings.NewReader("restored")); err != nil {
+		t.Fatalf("remote Put: %v", err)
+	}
+	created, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "session", "assets/202607/restored.html", "user", "7d")
+	if err != nil {
+		t.Fatalf("ShareArtifact: %v", err)
+	}
+	if string(created.Share.Content) != "restored" {
+		t.Fatalf("content = %q, want restored", created.Share.Content)
+	}
+	if data, err := os.ReadFile(local); err != nil || string(data) != "restored" {
+		t.Fatalf("local restored data=%q err=%v", data, err)
 	}
 }
 

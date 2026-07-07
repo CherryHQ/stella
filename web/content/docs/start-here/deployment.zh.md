@@ -233,6 +233,12 @@ PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、
 | ---------------------------- | ------------------------- | ---------------------------------------------------------------------------------------- |
 | `STELLA_HOME`                | 否                        | Stella 主目录（默认 `~/.stella`）                                                        |
 | `STELLA_DATABASE_URL`        | Docker 中必需；其他环境否 | 外部 PostgreSQL 连接 URL；Docker 之外不设置时使用 `STELLA_HOME` 下的内嵌集群             |
+| `STELLA_BLOB_S3_ENDPOINT`    | 否§                       | 持久化用户资产镜像使用的 S3 兼容 endpoint                                                |
+| `STELLA_BLOB_S3_BUCKET`      | 否§                       | 镜像用户上传资产的 bucket                                                                |
+| `STELLA_BLOB_S3_ACCESS_KEY`  | 否§                       | 资产镜像使用的 access key                                                                |
+| `STELLA_BLOB_S3_SECRET_KEY`  | 否§                       | 资产镜像使用的 secret key                                                                |
+| `STELLA_BLOB_S3_REGION`      | 否                        | 可选 S3 region                                                                           |
+| `STELLA_BLOB_S3_USE_SSL`     | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
 | `ANTHROPIC_API_KEY`          | 是\*                      | Anthropic 提供商密钥                                                                     |
 | `OPENAI_API_KEY`             | 是\*                      | OpenAI 提供商密钥                                                                        |
 | `STELLA_VAULT_KEY`           | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                          |
@@ -245,6 +251,8 @@ PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 
 ‡ 仅当 agent 使用 `docker` 沙箱后端时需要。stellad 在宿主机上运行用 `host`；stellad 在 Docker 内且使用 host bind mount 用 `bind`；stellad 在 Docker 内且使用 named volume 用 `volume`。
+
+§ 四个必需的 S3 镜像变量必须同时设置，或全部不设置。部分设置会导致启动失败。
 
 ## 健康检查
 

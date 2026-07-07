@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 
+	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
@@ -188,6 +189,16 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
+	blobStore, err := blob.NewStoreFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	if blobStore != nil {
+		if err := blob.SetDefault(blobStore); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
 		Memory:     memProvider,
 		Store:      store,

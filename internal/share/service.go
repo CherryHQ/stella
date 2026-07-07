@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/url"
 	"os"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -115,7 +117,12 @@ func (s Authorized) ShareArtifact(ctx context.Context, sessionID, path, scope, e
 	}
 	fi, err := os.Stat(abs)
 	if err != nil {
-		return Created{}, authz.ErrNotFound
+		if os.IsNotExist(err) && s.restoreAssetFromBlob(ctx, rel, abs) == nil {
+			fi, err = os.Stat(abs)
+		}
+		if err != nil {
+			return Created{}, authz.ErrNotFound
+		}
 	}
 	if fi.IsDir() {
 		return Created{}, ErrDirectory
@@ -189,6 +196,35 @@ func (s Authorized) Revoke(ctx context.Context, id string) error {
 		return authz.ErrNotFound
 	}
 	return nil
+}
+
+func (s *Service) restoreAssetFromBlob(ctx context.Context, rel, abs string) error {
+	store := blob.Default()
+	if store == nil || !isAssetRelPath(rel) {
+		return os.ErrNotExist
+	}
+	key, err := blob.KeyForPath(s.stellaHome, abs)
+	if err != nil || !blob.IsUserAssetKey(key) {
+		return os.ErrNotExist
+	}
+	rc, err := store.Open(ctx, key)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rc.Close() }()
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return err
+	}
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(abs, data, 0o644)
+}
+
+func isAssetRelPath(rel string) bool {
+	clean := filepath.ToSlash(filepath.Clean("/" + rel))
+	return strings.HasPrefix(strings.TrimPrefix(clean, "/"), "assets/")
 }
 
 func (s *Service) create(ctx context.Context, userID, title, mediaType string, content []byte, expiresIn string) (Created, error) {
