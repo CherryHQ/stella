@@ -991,8 +991,8 @@ func (s *dockerSession) endTrace(reason string, err error) {
 }
 
 // watchContainer polls ContainerAlive every 5s. If the container dies unexpectedly,
-// it marks the session closed, closes the done channel, and best-effort reaps the
-// stopped container so long-running stellad processes do not accumulate corpses.
+// it asks the watcher close path to mark the session closed and best-effort reap
+// the stopped container so long-running stellad processes do not accumulate corpses.
 func (s *dockerSession) watchContainer() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -1001,7 +1001,6 @@ func (s *dockerSession) watchContainer() {
 		closed := s.closed
 		s.mu.RUnlock()
 		if closed {
-			s.closeDone()
 			return
 		}
 		checkCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -1020,9 +1019,13 @@ func (s *dockerSession) watchContainer() {
 
 func (s *dockerSession) closeFromWatcher(reason string, err error) {
 	if !s.markClosed() {
-		s.closeDone()
 		return
 	}
+
+	s.mu.Lock()
+	s.closeErr = nil
+	s.mu.Unlock()
+
 	s.endTrace(reason, err)
 	logSessionClosed(s.id, "docker", reason)
 	s.closeDone()

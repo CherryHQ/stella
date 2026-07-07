@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,6 +32,7 @@ type blockingStopAPI struct {
 	noopAPI
 	stopStarted chan struct{}
 	releaseStop chan struct{}
+	stopErr     error
 	stops       atomic.Int32
 	removes     atomic.Int32
 }
@@ -40,7 +42,7 @@ func (f *blockingStopAPI) ContainerStop(ctx context.Context, _ string, _ mobycli
 	close(f.stopStarted)
 	select {
 	case <-f.releaseStop:
-		return mobyclient.ContainerStopResult{}, nil
+		return mobyclient.ContainerStopResult{}, f.stopErr
 	case <-ctx.Done():
 		return mobyclient.ContainerStopResult{}, ctx.Err()
 	}
@@ -90,6 +92,49 @@ func TestCloseDoesNotHoldSessionLockDuringStop(t *testing.T) {
 	}
 	if api.stops.Load() != 1 || api.removes.Load() != 1 {
 		t.Fatalf("cleanup calls = stop %d remove %d, want 1/1", api.stops.Load(), api.removes.Load())
+	}
+}
+
+func TestCloseWinnerControlsDoneAndCloseErr(t *testing.T) {
+	stopErr := errors.New("stop failed")
+	api := &blockingStopAPI{stopStarted: make(chan struct{}), releaseStop: make(chan struct{}), stopErr: stopErr}
+	s := &dockerSession{
+		id:          "session-1",
+		client:      dockerclient.NewWithAPI(api),
+		containerID: "container-1",
+		done:        make(chan struct{}),
+	}
+
+	firstCloseErr := make(chan error, 1)
+	go func() { firstCloseErr <- s.Close() }()
+
+	select {
+	case <-api.stopStarted:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not start container stop")
+	}
+
+	s.closeFromWatcher("container_exited", nil)
+	select {
+	case <-s.Done():
+		t.Fatal("watcher loser closed done before Close assigned closeErr")
+	default:
+	}
+
+	secondCloseErr := make(chan error, 1)
+	go func() { secondCloseErr <- s.Close() }()
+	select {
+	case err := <-secondCloseErr:
+		t.Fatalf("second Close returned before Stop completed: %v", err)
+	default:
+	}
+
+	close(api.releaseStop)
+	if err := <-firstCloseErr; !errors.Is(err, stopErr) {
+		t.Fatalf("first Close error = %v, want %v", err, stopErr)
+	}
+	if err := <-secondCloseErr; !errors.Is(err, stopErr) {
+		t.Fatalf("second Close error = %v, want %v", err, stopErr)
 	}
 }
 

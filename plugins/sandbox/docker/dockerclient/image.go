@@ -51,3 +51,9 @@ func (c *Client) markImageReady(image string) {
 	defer c.imageReadyMu.Unlock()
 	c.imageReady[image] = struct{}{}
 }
+
+func (c *Client) invalidateImageReady(image string) {
+	c.imageReadyMu.Lock()
+	defer c.imageReadyMu.Unlock()
+	delete(c.imageReady, image)
+}

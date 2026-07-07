@@ -78,6 +78,13 @@ func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string
 
 	slog.Info("dockerclient: creating sandbox container", "image", opts.Image, "container_name", opts.Name, "network_mode", opts.NetworkMode, "mounts", len(createOpts.HostConfig.Mounts))
 	created, err := c.api.ContainerCreate(ctx, createOpts)
+	if err != nil && errdefs.IsNotFound(err) {
+		c.invalidateImageReady(opts.Image)
+		if readyErr := c.EnsureImageReady(ctx, opts.Image, opts.Name); readyErr != nil {
+			return "", readyErr
+		}
+		created, err = c.api.ContainerCreate(ctx, createOpts)
+	}
 	if err != nil {
 		slog.Warn("dockerclient: container create failed", "image", opts.Image, "container_name", opts.Name, "error", err)
 		return "", fmt.Errorf("dockerclient: container create: %w", err)
