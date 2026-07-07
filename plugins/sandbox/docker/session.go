@@ -1036,17 +1036,19 @@ func (s *dockerSession) closeFromWatcher(reason string, err error) {
 // Uses a fresh background context with a 30s timeout so that cancellation of the
 // caller's context does not leave the container running.
 func (s *dockerSession) Close() error {
-	s.mu.Lock()
-	if s.closed {
+	if !s.markClosed() {
+		<-s.Done()
+		s.mu.RLock()
 		closeErr := s.closeErr
-		s.mu.Unlock()
+		s.mu.RUnlock()
 		return closeErr
 	}
-	s.closed = true
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	closeErr := s.client.Stop(stopCtx, s.containerID)
+
+	s.mu.Lock()
 	s.closeErr = closeErr
 	s.mu.Unlock()
 

@@ -75,6 +75,46 @@ func TestCreateAndStartRemovesContainerWhenStartFails(t *testing.T) {
 	}
 }
 
+func TestCreateAndStartRemovesContainerWithFreshContextWhenStartCancelsCaller(t *testing.T) {
+	resetImageReadyForTest()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var cleanupCalled bool
+	var cleanupErr error
+	api := &lifecycleAPI{
+		startFn: func(context.Context, string) (mobyclient.ContainerStartResult, error) {
+			cancel()
+			return mobyclient.ContainerStartResult{}, context.Canceled
+		},
+		removeFn: func(ctx context.Context, id string, opts mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error) {
+			cleanupCalled = true
+			cleanupErr = ctx.Err()
+			if id != "created-id" || !opts.Force {
+				t.Fatalf("remove = (%q, force=%v), want created-id force=true", id, opts.Force)
+			}
+			if _, ok := ctx.Deadline(); !ok {
+				t.Fatal("cleanup context should have a deadline")
+			}
+			return mobyclient.ContainerRemoveResult{}, nil
+		},
+	}
+	client := NewWithAPI(api)
+
+	id, err := client.CreateAndStart(ctx, CreateOptions{Image: "start-cancels:latest", Name: "test"})
+	if err == nil {
+		t.Fatal("expected start error")
+	}
+	if id != "" {
+		t.Fatalf("id = %q, want empty on start failure", id)
+	}
+	if !cleanupCalled {
+		t.Fatal("expected cleanup remove to run")
+	}
+	if cleanupErr != nil {
+		t.Fatalf("cleanup context err = %v, want nil", cleanupErr)
+	}
+}
+
 func TestEnsureImageReadySingleflightsConcurrentInspect(t *testing.T) {
 	resetImageReadyForTest()
 	var inspectCalls atomic.Int32

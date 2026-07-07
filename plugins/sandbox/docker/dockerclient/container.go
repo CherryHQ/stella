@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
@@ -85,7 +86,9 @@ func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string
 	slog.Info("dockerclient: starting sandbox container", "container_id", created.ID, "container_name", opts.Name)
 	if _, err := c.api.ContainerStart(ctx, created.ID, mobyclient.ContainerStartOptions{}); err != nil {
 		slog.Warn("dockerclient: container start failed", "container_id", created.ID, "container_name", opts.Name, "error", err)
-		if _, removeErr := c.api.ContainerRemove(ctx, created.ID, mobyclient.ContainerRemoveOptions{Force: true}); removeErr != nil && !errdefs.IsNotFound(removeErr) {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, removeErr := c.api.ContainerRemove(cleanupCtx, created.ID, mobyclient.ContainerRemoveOptions{Force: true}); removeErr != nil && !errdefs.IsNotFound(removeErr) {
 			slog.Warn("dockerclient: cleanup failed after container start failure", "container_id", created.ID, "container_name", opts.Name, "error", removeErr)
 		}
 		return "", fmt.Errorf("dockerclient: container start %s: %w", created.ID, err)
