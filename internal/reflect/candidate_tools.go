@@ -40,6 +40,42 @@ func skillEvaluationTools() []ai.ToolDefinition {
 	}
 }
 
+func knowledgeRelatedDiscoveryTools() []ai.ToolDefinition {
+	return []ai.ToolDefinition{
+		captureTool(toolSubmitKnowledgeRelatedDiscovery, "Submit related Reflect-owned knowledge facts for accepted world fact candidates.", objectSchema(
+			requiredProps("selections"),
+			prop("selections", arraySchema(knowledgeRelatedSelectionSchema())),
+		)),
+	}
+}
+
+func skillRelatedDiscoveryTools() []ai.ToolDefinition {
+	return []ai.ToolDefinition{
+		captureTool(toolSubmitSkillRelatedDiscovery, "Submit related Reflect-owned skills for accepted skill candidates.", objectSchema(
+			requiredProps("selections"),
+			prop("selections", arraySchema(skillRelatedSelectionSchema())),
+		)),
+	}
+}
+
+func factReconciliationTools() []ai.ToolDefinition {
+	return []ai.ToolDefinition{
+		captureTool(toolSubmitFactReconciliation, "Submit the fact reconciliation write plan.", objectSchema(
+			requiredProps("plan"),
+			prop("plan", factReconciliationPlanSchema()),
+		)),
+	}
+}
+
+func skillReconciliationTools() []ai.ToolDefinition {
+	return []ai.ToolDefinition{
+		captureTool(toolSubmitSkillReconciliation, "Submit the skill reconciliation write plan.", objectSchema(
+			requiredProps("plan"),
+			prop("plan", skillReconciliationPlanSchema()),
+		)),
+	}
+}
+
 func captureTool(name, description string, schema map[string]any) ai.ToolDefinition {
 	return ai.ToolDefinition{Name: name, Description: description, InputSchema: schema}
 }
@@ -147,6 +183,96 @@ func skillEvaluationSchema() map[string]any {
 	)
 }
 
+func knowledgeRelatedSelectionSchema() map[string]any {
+	return objectSchema(
+		requiredProps("candidate_ref", "related"),
+		prop("candidate_ref", stringSchema()),
+		prop("related", arraySchema(objectSchema(
+			requiredProps("fact_id", "relation"),
+			prop("fact_id", stringSchema()),
+			prop("relation", enumSchema("equivalent", "conflict", "supersedes", "depends_on", "possibly_affects", "same_entity_or_slot")),
+		))),
+		prop("reason", stringSchema()),
+	)
+}
+
+func skillRelatedSelectionSchema() map[string]any {
+	return objectSchema(
+		requiredProps("candidate_ref", "related"),
+		prop("candidate_ref", stringSchema()),
+		prop("related", arraySchema(objectSchema(
+			requiredProps("skill_id", "relation"),
+			prop("skill_id", stringSchema()),
+			prop("relation", enumSchema("same_workflow", "overlapping_trigger", "broader_workflow", "narrower_workflow", "patchable_gap", "stale_predecessor")),
+		))),
+		prop("reason", stringSchema()),
+	)
+}
+
+func factReconciliationPlanSchema() map[string]any {
+	return objectSchema(
+		requiredProps("profile", "soul", "knowledge"),
+		prop("profile", factSingletonWritePlanSchema()),
+		prop("soul", soulSingletonWritePlanSchema()),
+		prop("knowledge", objectSchema(
+			requiredProps("operations"),
+			prop("operations", arraySchema(knowledgeWriteOperationSchema())),
+		)),
+	)
+}
+
+func factSingletonWritePlanSchema() map[string]any {
+	return objectSchema(
+		requiredProps("operation"),
+		prop("operation", enumSchema("noop", "create_singleton", "replace_singleton")),
+		prop("candidate_refs", arraySchema(stringSchema())),
+		prop("covered_candidate_refs", arraySchema(stringSchema())),
+		prop("proposed_content", stringSchema()),
+		prop("rationale", stringSchema()),
+	)
+}
+
+func soulSingletonWritePlanSchema() map[string]any {
+	schema := factSingletonWritePlanSchema()
+	props, _ := schema["properties"].(map[string]any)
+	props["constraint_conflict_notes"] = arraySchema(stringSchema())
+	return schema
+}
+
+func knowledgeWriteOperationSchema() map[string]any {
+	return objectSchema(
+		requiredProps("operation"),
+		prop("operation", enumSchema("noop", "create", "replace_many", "deprecate_many")),
+		prop("candidate_refs", arraySchema(stringSchema())),
+		prop("covered_candidate_refs", arraySchema(stringSchema())),
+		prop("target_fact_ids", arraySchema(stringSchema())),
+		prop("new_content", stringSchema()),
+		prop("rationale", stringSchema()),
+	)
+}
+
+func skillReconciliationPlanSchema() map[string]any {
+	return objectSchema(
+		requiredProps("operations"),
+		prop("operations", arraySchema(skillWriteOperationSchema())),
+	)
+}
+
+func skillWriteOperationSchema() map[string]any {
+	return objectSchema(
+		requiredProps("operation"),
+		prop("operation", enumSchema("noop", "create_skill", "patch_skill")),
+		prop("candidate_refs", arraySchema(stringSchema())),
+		prop("covered_candidate_refs", arraySchema(stringSchema())),
+		prop("target_skill_id", stringSchema()),
+		prop("expected_skill_version", integerSchema()),
+		prop("name", stringSchema()),
+		prop("description", stringSchema()),
+		prop("main_file_content", stringSchema()),
+		prop("rationale", stringSchema()),
+	)
+}
+
 type schemaOption func(map[string]any)
 
 func objectSchema(opts ...schemaOption) map[string]any {
@@ -180,6 +306,10 @@ func stringSchema() map[string]any {
 
 func scoreSchema() map[string]any {
 	return map[string]any{"type": "integer", "minimum": 0, "maximum": maxScoreValue}
+}
+
+func integerSchema() map[string]any {
+	return map[string]any{"type": "integer"}
 }
 
 func enumSchema(values ...string) map[string]any {

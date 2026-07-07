@@ -157,9 +157,8 @@ func (c factCandidate) validateContent(opts factGateOptions) RejectReason {
 			return rejectSchemaExtraField
 		}
 	case factSubjectWorld:
-		if strings.TrimSpace(c.HandoffHints.KnowledgeSearchQueryHint) == "" {
-			return rejectSchemaMissingField
-		}
+		// The search hint is an optimization for #531 related discovery. Host
+		// reconciliation can fall back to candidate content when it is absent.
 	default:
 		return rejectSchemaMissingField
 	}

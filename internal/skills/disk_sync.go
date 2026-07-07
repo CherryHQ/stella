@@ -18,9 +18,13 @@ type PathResolver func(scope, agentID string, userID string) string
 // DiskSyncStore wraps a Store and mirrors every write to disk so that skill
 // scripts can be executed from the filesystem inside a sandbox.
 //
-// Write ordering is disk-first: if the disk write fails the DB write is skipped
+// Create ordering is disk-first: if the disk write fails the DB write is skipped
 // and the error is propagated. On crash after disk write but before DB write,
 // MigrateFilesystem at next startup re-imports the orphaned disk files.
+//
+// Reflect patch ordering is DB-first because the expected-version check is only
+// authoritative inside the inner store's row lock. Disk is mirrored only after
+// the DB accepts the patch.
 //
 // For Delete, DB is removed first (disk after) to avoid orphaned skill
 // directories re-importing on next startup as if they were new skills.
@@ -44,6 +48,17 @@ func (d *DiskSyncStore) Create(ctx context.Context, sk Skill, files map[string]s
 	return d.Store.Create(ctx, sk, files)
 }
 
+func (d *DiskSyncStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (Skill, error) {
+	files := map[string]string{MainFile: in.MainFileContent}
+	base := d.resolver("user_agent", in.AgentID, in.UserID)
+	if base != "" {
+		if err := d.writeFilesToDisk(base, in.Name, files); err != nil {
+			return Skill{}, fmt.Errorf("disk_sync reflect create %q: %w", in.Name, err)
+		}
+	}
+	return d.Store.CreateReflectOwnedUserAgentSkill(ctx, in)
+}
+
 func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
 	sk, err := d.findByID(ctx, skillID)
 	if err != nil {
@@ -62,6 +77,26 @@ func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content s
 		}
 	}
 	return d.Store.UpsertFile(ctx, skillID, path, content)
+}
+
+func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillPatch) (Skill, error) {
+	patched, err := d.Store.PatchReflectOwnedUserAgentSkill(ctx, in)
+	if err != nil {
+		return Skill{}, err
+	}
+	if in.MainFileContent != nil {
+		base := d.resolver(patched.Scope, patched.AgentID, patched.UserID)
+		if base != "" {
+			diskPath, err := safeDiskPath(base, patched.Name, filepath.FromSlash(MainFile))
+			if err != nil {
+				return Skill{}, fmt.Errorf("disk_sync reflect patch %q: %w", patched.Name, err)
+			}
+			if err := writeFile(diskPath, *in.MainFileContent); err != nil {
+				return Skill{}, fmt.Errorf("disk_sync reflect patch %q: %w", patched.Name, err)
+			}
+		}
+	}
+	return patched, nil
 }
 
 func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) error {
