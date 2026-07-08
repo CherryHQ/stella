@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
@@ -22,6 +23,7 @@ func (r candidateLineReviewer) discoverKnowledgeRelations(ctx context.Context, b
 			if err != nil {
 				return err
 			}
+			selections = normalizeKnowledgeRelatedSelections(selections)
 			return validateKnowledgeRelatedDiscovery(bundle.Candidates, bundle.Catalog, selections, bundle.Limits.MaxRelatedPerCandidate)
 		},
 	}, knowledgeRelatedDiscoveryTools())
@@ -54,6 +56,7 @@ func (r candidateLineReviewer) discoverSkillRelations(ctx context.Context, candi
 			if err != nil {
 				return err
 			}
+			selections = normalizeSkillRelatedSelections(selections)
 			return validateSkillRelatedDiscovery(candidates, catalog, selections, defaultMaxRelatedPerCandidate)
 		},
 	}, skillRelatedDiscoveryTools())
@@ -74,6 +77,7 @@ func (r candidateLineReviewer) reconcileFacts(ctx context.Context, bundle factRe
 			if err != nil {
 				return err
 			}
+			plan = normalizeFactReconciliationPlan(bundle, plan)
 			return validateFactReconciliationPlan(bundle, plan)
 		},
 	}, factReconciliationTools())
@@ -94,6 +98,7 @@ func (r candidateLineReviewer) reconcileSkills(ctx context.Context, bundle skill
 			if err != nil {
 				return err
 			}
+			plan = normalizeSkillReconciliationPlan(plan)
 			return validateSkillReconciliationPlan(bundle, plan)
 		},
 	}, skillReconciliationTools())
@@ -101,6 +106,72 @@ func (r candidateLineReviewer) reconcileSkills(ctx context.Context, bundle skill
 		return skillReconciliationPlan{}, fmt.Errorf("reconcile skills: %w", err)
 	}
 	return plan, nil
+}
+
+func normalizeFactReconciliationPlan(bundle factRelatedBundle, plan factReconciliationPlan) factReconciliationPlan {
+	plan.Profile.CandidateRefs, plan.Profile.CoveredCandidateRefs = normalizeCandidateRefLists(plan.Profile.CandidateRefs, plan.Profile.CoveredCandidateRefs)
+	plan.Soul.CandidateRefs, plan.Soul.CoveredCandidateRefs = normalizeCandidateRefLists(plan.Soul.CandidateRefs, plan.Soul.CoveredCandidateRefs)
+	plan.Profile.ProposedContent = normalizeEquivalentSingletonNoopContent(plan.Profile.Operation, plan.Profile.ProposedContent, bundle.Profile.Current)
+	plan.Soul.ProposedContent = normalizeEquivalentSingletonNoopContent(plan.Soul.Operation, plan.Soul.ProposedContent, bundle.Soul.Current)
+	for i := range plan.Knowledge.Operations {
+		op := &plan.Knowledge.Operations[i]
+		op.CandidateRefs, op.CoveredCandidateRefs = normalizeCandidateRefLists(op.CandidateRefs, op.CoveredCandidateRefs)
+	}
+	return plan
+}
+
+func normalizeEquivalentSingletonNoopContent(operation singletonFactOperation, proposed string, current *memory.Fact) string {
+	if operation != singletonOperationNoop || current == nil {
+		return proposed
+	}
+	if sameFactContent(proposed, current.Content) {
+		return ""
+	}
+	return proposed
+}
+
+func normalizeSkillReconciliationPlan(plan skillReconciliationPlan) skillReconciliationPlan {
+	for i := range plan.Operations {
+		op := &plan.Operations[i]
+		op.CandidateRefs, op.CoveredCandidateRefs = normalizeCandidateRefLists(op.CandidateRefs, op.CoveredCandidateRefs)
+	}
+	return plan
+}
+
+// normalizeCandidateRefLists removes same-operation duplicates without hiding
+// cross-operation coverage conflicts, which validation still rejects.
+func normalizeCandidateRefLists(direct []CandidateRef, covered []CandidateRef) ([]CandidateRef, []CandidateRef) {
+	direct = uniqueCandidateRefs(direct)
+	directSet := make(map[CandidateRef]struct{}, len(direct))
+	for _, ref := range direct {
+		directSet[ref] = struct{}{}
+	}
+	outCovered := make([]CandidateRef, 0, len(covered))
+	seenCovered := map[CandidateRef]struct{}{}
+	for _, ref := range covered {
+		if _, ok := directSet[ref]; ok {
+			continue
+		}
+		if _, ok := seenCovered[ref]; ok {
+			continue
+		}
+		seenCovered[ref] = struct{}{}
+		outCovered = append(outCovered, ref)
+	}
+	return direct, outCovered
+}
+
+func uniqueCandidateRefs(refs []CandidateRef) []CandidateRef {
+	out := make([]CandidateRef, 0, len(refs))
+	seen := map[CandidateRef]struct{}{}
+	for _, ref := range refs {
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		out = append(out, ref)
+	}
+	return out
 }
 
 func renderCaptureInput(v any) string {

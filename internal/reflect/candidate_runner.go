@@ -3,6 +3,7 @@ package reflect
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -169,14 +170,25 @@ func (r candidateLineReviewer) evaluateSkillCandidates(ctx context.Context, unit
 }
 
 func (r candidateLineReviewer) capture(ctx context.Context, system, input string, protocol captureProtocol, tools []ai.ToolDefinition) (captureRunResult, error) {
-	return runCaptureWithRetry(ctx,
+	maxAttempts := 1
+	if captureRepairRetryEnabled(protocol.SubmitName) {
+		maxAttempts = maxCaptureAttempts
+	}
+	// Repair prompts are only added after host-side protocol failures; the final
+	// invalid attempt still fails closed instead of being normalized by the host.
+	var repairErr error
+	return runCaptureWithRetryLimit(ctx, maxAttempts,
 		func(ctx context.Context) (captureRunResult, error) {
+			messages := []ai.Message{
+				ai.UserMessage{Content: input},
+			}
+			if repairErr != nil {
+				messages = append(messages, ai.UserMessage{Content: renderCaptureRepairPrompt(protocol.SubmitName, repairErr)})
+			}
 			msg, err := providers.Complete(ctx, r.Model, ai.Context{
-				System: system,
-				Messages: []ai.Message{
-					ai.UserMessage{Content: input},
-				},
-				Tools: tools,
+				System:   system,
+				Messages: messages,
+				Tools:    tools,
 			}, defaultCandidateCompleteOptions(r.Options), r.Stream)
 			if err != nil {
 				return captureRunResult{}, err
@@ -187,14 +199,72 @@ func (r candidateLineReviewer) capture(ctx context.Context, system, input string
 			calls := extractAssistantToolCalls(msg)
 			calls, err = normalizeCaptureToolCalls(calls)
 			if err != nil {
+				if errors.Is(err, errCaptureProtocol) {
+					repairErr = err
+				}
 				return captureRunResult{}, err
 			}
 			return captureRunResult{ToolCalls: calls}, nil
 		},
 		func(result captureRunResult) error {
-			return validateCaptureProtocol(result, protocol)
+			err := validateCaptureProtocol(result, protocol)
+			if err != nil {
+				repairErr = err
+			}
+			return err
 		},
 	)
+}
+
+func captureRepairRetryEnabled(submitName string) bool {
+	switch submitName {
+	case toolSubmitFactGeneration,
+		toolSubmitFactEvaluations,
+		toolSubmitSkillGeneration,
+		toolSubmitSkillEvaluations,
+		toolSubmitFactReconciliation,
+		toolSubmitSkillReconciliation:
+		return true
+	default:
+		return false
+	}
+}
+
+func renderCaptureRepairPrompt(submitName string, err error) string {
+	var b strings.Builder
+	b.WriteString("Previous capture attempt failed host-side validation.\n")
+	b.WriteString("Error: ")
+	b.WriteString(err.Error())
+	b.WriteString("\n\nRepair instructions:\n")
+	b.WriteString("- This is host protocol repair context, not fresh conversation evidence.\n")
+	b.WriteString("- Call ")
+	b.WriteString(submitName)
+	b.WriteString(" exactly once.\n")
+	b.WriteString("- Return arguments that match the tool schema; do not submit empty {}.\n")
+	if submitName == toolSubmitFactGeneration || submitName == toolSubmitSkillGeneration {
+		b.WriteString("- Top-level generation arguments may only contain candidates and no_candidate_reason.\n")
+		b.WriteString("- handoff_hints belongs inside each candidate object, never beside candidates.\n")
+		b.WriteString("- If there are no valid candidates, submit {\"candidates\":[],\"no_candidate_reason\":\"...\"}.\n")
+		b.WriteString("- If candidates is non-empty, omit no_candidate_reason entirely.\n")
+	}
+	if submitName == toolSubmitFactReconciliation || submitName == toolSubmitSkillReconciliation {
+		b.WriteString("- Treat the validation error as a write-plan protocol issue, not as new evidence.\n")
+		b.WriteString("- Every candidate_ref must be covered exactly once across the whole plan.\n")
+		b.WriteString("- If a candidate_ref is missing from the plan, cover it with a valid write operation or an explicit noop operation.\n")
+		b.WriteString("- If one candidate appears in multiple operations, remove the duplicate coverage or merge those operations into one valid write.\n")
+		b.WriteString("- Do not omit similar, ambiguous, or already-satisfied candidates; use noop for intentional no-op coverage.\n")
+		b.WriteString("- Keep only target ids that are available in the related bundle and valid for the operation.\n")
+	}
+	if submitName == toolSubmitFactReconciliation {
+		b.WriteString("- For profile/soul singleton plans, use create_singleton when the current singleton is absent.\n")
+		b.WriteString("- For profile/soul singleton plans, use replace_singleton only when the current singleton exists.\n")
+	}
+	if submitName == toolSubmitSkillReconciliation {
+		b.WriteString("- A plan with operations=[] is valid only when there are zero accepted candidates.\n")
+		b.WriteString("- For any accepted candidate you choose not to create or patch, add a noop operation with candidate_refs.\n")
+	}
+	b.WriteString("- Do not explain in prose; only call the submit tool.")
+	return b.String()
 }
 
 func defaultCandidateCompleteOptions(opts ai.CompleteOptions) ai.CompleteOptions {

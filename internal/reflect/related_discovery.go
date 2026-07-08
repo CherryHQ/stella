@@ -48,6 +48,94 @@ type skillRelatedHint struct {
 	Relation skillRelationKind `json:"relation"`
 }
 
+func normalizeKnowledgeRelatedSelections(selections []knowledgeRelatedSelection) []knowledgeRelatedSelection {
+	out := make([]knowledgeRelatedSelection, len(selections))
+	for i, selection := range selections {
+		out[i] = selection
+		out[i].Related = dedupeKnowledgeRelatedHints(selection.Related)
+	}
+	return out
+}
+
+func normalizeSkillRelatedSelections(selections []skillRelatedSelection) []skillRelatedSelection {
+	out := make([]skillRelatedSelection, len(selections))
+	for i, selection := range selections {
+		out[i] = selection
+		out[i].Related = dedupeSkillRelatedHints(selection.Related)
+	}
+	return out
+}
+
+// Dedupe keeps the schema single-relation while making LLM relation discovery
+// tolerant of repeated targets in one candidate selection.
+func dedupeKnowledgeRelatedHints(hints []knowledgeRelatedHint) []knowledgeRelatedHint {
+	out := make([]knowledgeRelatedHint, 0, len(hints))
+	positions := map[string]int{}
+	for _, hint := range hints {
+		if idx, ok := positions[hint.FactID]; ok {
+			if knowledgeRelationPriority(hint.Relation) > knowledgeRelationPriority(out[idx].Relation) {
+				out[idx].Relation = hint.Relation
+			}
+			continue
+		}
+		positions[hint.FactID] = len(out)
+		out = append(out, hint)
+	}
+	return out
+}
+
+func dedupeSkillRelatedHints(hints []skillRelatedHint) []skillRelatedHint {
+	out := make([]skillRelatedHint, 0, len(hints))
+	positions := map[string]int{}
+	for _, hint := range hints {
+		if idx, ok := positions[hint.SkillID]; ok {
+			if skillRelationPriority(hint.Relation) > skillRelationPriority(out[idx].Relation) {
+				out[idx].Relation = hint.Relation
+			}
+			continue
+		}
+		positions[hint.SkillID] = len(out)
+		out = append(out, hint)
+	}
+	return out
+}
+
+func knowledgeRelationPriority(relation knowledgeRelationKind) int {
+	switch relation {
+	case knowledgeRelationConflict:
+		return 6
+	case knowledgeRelationEquivalent:
+		return 5
+	case knowledgeRelationSupersedes:
+		return 4
+	case knowledgeRelationSameEntitySlot:
+		return 3
+	case knowledgeRelationDependsOn:
+		return 2
+	case knowledgeRelationPossiblyAffects:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func skillRelationPriority(relation skillRelationKind) int {
+	switch relation {
+	case skillRelationPatchableGap:
+		return 6
+	case skillRelationStalePredecessor:
+		return 5
+	case skillRelationSameWorkflow:
+		return 4
+	case skillRelationOverlappingTrigger:
+		return 3
+	case skillRelationBroaderWorkflow, skillRelationNarrowerWorkflow:
+		return 2
+	default:
+		return 0
+	}
+}
+
 func validateKnowledgeRelatedDiscovery(candidates []factCandidate, catalog []factCatalogItem, selections []knowledgeRelatedSelection, limit int) error {
 	candidateRefs := make(map[CandidateRef]struct{}, len(candidates))
 	for _, candidate := range candidates {

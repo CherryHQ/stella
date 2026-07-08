@@ -13,7 +13,7 @@ import (
 
 const (
 	candidateRefArgument = "candidate_ref"
-	maxCaptureAttempts   = 2
+	maxCaptureAttempts   = 3
 )
 
 var errCaptureProtocol = errors.New("capture protocol")
@@ -36,8 +36,15 @@ type (
 )
 
 func runCaptureWithRetry(ctx context.Context, attempt captureAttemptFunc, validate captureValidator) (captureRunResult, error) {
+	return runCaptureWithRetryLimit(ctx, maxCaptureAttempts, attempt, validate)
+}
+
+func runCaptureWithRetryLimit(ctx context.Context, maxAttempts int, attempt captureAttemptFunc, validate captureValidator) (captureRunResult, error) {
 	if attempt == nil {
 		return captureRunResult{}, fmt.Errorf("%w: attempt function missing", errCaptureProtocol)
+	}
+	if maxAttempts < 1 {
+		return captureRunResult{}, fmt.Errorf("%w: max attempts must be positive", errCaptureProtocol)
 	}
 	if validate == nil {
 		validate = func(captureRunResult) error { return nil }
@@ -45,12 +52,12 @@ func runCaptureWithRetry(ctx context.Context, attempt captureAttemptFunc, valida
 
 	var last captureRunResult
 	var lastErr error
-	for i := range maxCaptureAttempts {
+	for i := range maxAttempts {
 		result, err := attempt(ctx)
 		if err != nil {
 			if errors.Is(err, errCaptureProtocol) {
 				lastErr = err
-				if i+1 < maxCaptureAttempts {
+				if i+1 < maxAttempts {
 					continue
 				}
 			}
@@ -59,7 +66,7 @@ func runCaptureWithRetry(ctx context.Context, attempt captureAttemptFunc, valida
 		last = result
 		if err := validate(result); err != nil {
 			lastErr = err
-			if i+1 < maxCaptureAttempts {
+			if i+1 < maxAttempts {
 				continue
 			}
 			return last, lastErr
