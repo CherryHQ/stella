@@ -242,6 +242,63 @@ const InputSchemaJSON = `{
         "update"
       ],
       "type": "string"
+    },
+    "allow_replan": {
+      "description": "Allow scheduling a partially frozen workflow.",
+      "type": "boolean"
+    },
+    "at": {
+      "type": "string"
+    },
+    "cron": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "dispatch_kind": {
+      "enum": [
+        "chat",
+        "workflow"
+      ],
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "every": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional key; repeated creates by the same user with the same key return the existing job.",
+      "type": "string"
+    },
+    "inputs": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Workflow input values.",
+      "type": "object"
+    },
+    "message": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "session_mode": {
+      "type": "string"
+    },
+    "template_key": {
+      "description": "Optional. When set, create a subscription instance for this template. name/message are filled from the template; schedule fields may override defaults.",
+      "type": "string"
+    },
+    "workflow_id": {
+      "description": "Exact workflow version row to instantiate when dispatch_kind is workflow.",
+      "type": "string"
     }
   },
   "required": [

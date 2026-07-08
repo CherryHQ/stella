@@ -246,6 +246,70 @@ const InputSchemaJSON = `{
     }
   ],
   "properties": {
+    "acceptance_contract": {
+      "description": "Optional acceptance gate; omit for trivial auto-accept.",
+      "properties": {
+        "items": {
+          "items": {
+            "properties": {
+              "authority": {
+                "description": "Who renders a judgment verdict.",
+                "enum": [
+                  "agent",
+                  "human"
+                ],
+                "type": "string"
+              },
+              "command": {
+                "description": "Deterministic check command (run in the sandbox).",
+                "type": "string"
+              },
+              "expect_exit": {
+                "description": "Expected exit code for a deterministic check (default 0).",
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "deterministic",
+                  "judgment"
+                ],
+                "type": "string"
+              },
+              "prompt": {
+                "description": "Human verdict prompt.",
+                "type": "string"
+              },
+              "required": {
+                "description": "A non-required item is advisory and does not gate acceptance.",
+                "type": "boolean"
+              },
+              "rubric": {
+                "description": "Agent reviewer prompt.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "policy": {
+          "enum": [
+            "deterministic_then_judgment",
+            "all",
+            "any"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "action": {
       "enum": [
         "cancel",
@@ -253,6 +317,112 @@ const InputSchemaJSON = `{
         "get",
         "list"
       ],
+      "type": "string"
+    },
+    "activate": {
+      "description": "When true the new goal is activated immediately after create (direct run). Only a leaf with a satisfied plan gate can activate; a composite must be planned first, so 'activate' is ignored for it.",
+      "type": "boolean"
+    },
+    "archived": {
+      "type": "boolean"
+    },
+    "convergence_policy": {
+      "description": "Bounds the rework loop and recursion depth.",
+      "properties": {
+        "escalation": {
+          "enum": [
+            "block",
+            "abandon"
+          ],
+          "type": "string"
+        },
+        "max_attempts": {
+          "description": "Rework budget; exhaustion ⇒ blocked(budget_exhausted). Default 3.",
+          "type": "integer"
+        },
+        "max_concurrent": {
+          "description": "Per-root breadth-of-fanout cap. Default 8.",
+          "type": "integer"
+        },
+        "max_depth": {
+          "description": "Recursion ceiling. Default 4.",
+          "type": "integer"
+        },
+        "planner_repair_max": {
+          "description": "Structural planning repair turns in the same session. Default 2.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "id": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional key; repeated creates by the same user with the same key return the existing goal.",
+      "type": "string"
+    },
+    "intent": {
+      "description": "What \"done\" means for this goal.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "'leaf' (default) is a directly-executed goal; 'composite' is decomposed into children (the plan is materialized) before it can activate.",
+      "enum": [
+        "leaf",
+        "composite"
+      ],
+      "type": "string"
+    },
+    "lifecycle": {
+      "type": "string"
+    },
+    "page_size": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_token": {
+      "type": "string"
+    },
+    "parent": {
+      "type": "string"
+    },
+    "priority": {
+      "enum": [
+        "routine",
+        "urgent"
+      ],
+      "type": "string"
+    },
+    "project_id": {
+      "description": "Optional project/workspace context. Must belong to the caller and agent.",
+      "type": "string"
+    },
+    "q": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "review_policy": {
+      "enum": [
+        "none",
+        "human"
+      ],
+      "type": "string"
+    },
+    "root": {
+      "type": "string"
+    },
+    "terminal": {
+      "type": "boolean"
+    },
+    "title": {
+      "type": "string"
+    },
+    "workflow_id": {
       "type": "string"
     }
   },
