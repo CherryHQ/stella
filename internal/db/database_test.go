@@ -197,6 +197,139 @@ func TestFactsMigrationDownFlushesActiveIdentityFacts(t *testing.T) {
 	}
 }
 
+func TestReflectProvenanceBackfillMarksOnlyLegacyReflectFacts(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, 20260707092307); err != nil {
+		t.Fatalf("goose down to before reflect provenance backfill: %v", err)
+	}
+
+	userID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, 'reflect-backfill@test.local')`, userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	agentReflect := "reflect-backfill-agent"
+	agentManualLatest := "manual-latest-agent"
+	agentAmbiguous := "ambiguous-agent"
+	for _, agentID := range []string{agentReflect, agentManualLatest, agentAmbiguous} {
+		if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, $1, '/tmp')`, agentID); err != nil {
+			t.Fatalf("seed agent %s: %v", agentID, err)
+		}
+		if _, err := db.Exec(ctx, `INSERT INTO ctx_agent_memory (user_id, agent_id, version) VALUES ($1, $2, 3)`, userID, agentID); err != nil {
+			t.Fatalf("seed memory row %s: %v", agentID, err)
+		}
+	}
+
+	reflectProfileFactID := uuid.NewString()
+	reflectSoulFactID := uuid.NewString()
+	manualLatestFactID := uuid.NewString()
+	ambiguousFactID := uuid.NewString()
+	seedMigratedFact := func(id, agentID, subject, content string) {
+		t.Helper()
+		if _, err := db.Exec(ctx, `
+			INSERT INTO facts (id, subject, scope, user_id, agent_id, content, status, metadata, version, source, created_at, updated_at)
+			VALUES ($1, $2, 'user_agent', $3, $4, $5, 'active', '{"migration":"20260625090000_add_facts_memory"}', 1, 'manual', now(), now())`,
+			id, subject, userID, agentID, content); err != nil {
+			t.Fatalf("seed fact %s: %v", id, err)
+		}
+		if _, err := db.Exec(ctx, `
+			INSERT INTO ctx_agent_memory_changelog (id, user_id, agent_id, entity_id, scope, action, source, memory_version_after, after_text, metadata)
+			VALUES ($1, $2, $3, $4, 'fact', 'create', 'manual', 3, jsonb_build_object(
+				'id', $4::text,
+				'subject', $5::text,
+				'scope', 'user_agent',
+				'user_id', $2::uuid::text,
+				'agent_id', $3::text,
+				'content', $6::text,
+				'status', 'active',
+				'metadata', jsonb_build_object('migration', '20260625090000_add_facts_memory'),
+				'version', 1,
+				'source', 'manual',
+				'created_at', now(),
+				'updated_at', now()
+			)::text, '{"migration":"20260625090000_add_facts_memory"}')`,
+			uuid.NewString(), userID, agentID, id, subject, content); err != nil {
+			t.Fatalf("seed fact changelog %s: %v", id, err)
+		}
+	}
+	seedMigratedFact(reflectProfileFactID, agentReflect, "user", "reflect generated profile")
+	seedMigratedFact(reflectSoulFactID, agentReflect, "agent", "reflect generated soul")
+	seedMigratedFact(manualLatestFactID, agentManualLatest, "user", "manual latest profile")
+	seedMigratedFact(ambiguousFactID, agentAmbiguous, "user", "ambiguous profile")
+
+	seedLegacyIdentityChangelog := func(agentID, scope, source string, version int, after string) {
+		t.Helper()
+		if _, err := db.Exec(ctx, `
+			INSERT INTO ctx_agent_memory_changelog (id, user_id, agent_id, scope, action, source, memory_version_after, after_text)
+			VALUES ($1, $2, $3, $4, 'update', $5, $6, $7)`,
+			uuid.NewString(), userID, agentID, scope, source, version, after); err != nil {
+			t.Fatalf("seed legacy %s changelog for %s: %v", scope, agentID, err)
+		}
+	}
+	seedLegacyIdentityChangelog(agentReflect, "profile", "manual", 1, "old manual profile")
+	seedLegacyIdentityChangelog(agentReflect, "profile", "reflect", 2, "reflect generated profile")
+	seedLegacyIdentityChangelog(agentReflect, "soul", "reflect", 2, "reflect generated soul")
+	seedLegacyIdentityChangelog(agentManualLatest, "profile", "reflect", 1, "manual latest profile")
+	seedLegacyIdentityChangelog(agentManualLatest, "profile", "manual", 2, "manual latest profile")
+
+	if _, err := db.Exec(ctx, `
+		INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, metadata)
+		VALUES ('ambiguous-skill', 'user_agent', $1, $2, 'ambiguous-skill', 'not proven reflect', 'active', '{"created-at":"2026-07-01T00:00:00Z"}')`,
+		userID, agentReflect); err != nil {
+		t.Fatalf("seed ambiguous skill: %v", err)
+	}
+
+	if _, err := provider.UpTo(ctx, 20260708090000); err != nil {
+		t.Fatalf("goose up reflect provenance backfill: %v", err)
+	}
+
+	assertFactSource := func(id, want string) {
+		t.Helper()
+		var got string
+		if err := db.QueryRow(ctx, `SELECT source FROM facts WHERE id = $1`, id).Scan(&got); err != nil {
+			t.Fatalf("read fact source %s: %v", id, err)
+		}
+		if got != want {
+			t.Fatalf("fact %s source = %q, want %q", id, got, want)
+		}
+	}
+	assertFactSource(reflectProfileFactID, "reflect")
+	assertFactSource(reflectSoulFactID, "reflect")
+	assertFactSource(manualLatestFactID, "manual")
+	assertFactSource(ambiguousFactID, "manual")
+
+	var changelogSource, payloadSource string
+	if err := db.QueryRow(ctx, `
+		SELECT source, after_text::jsonb->>'source'
+		FROM ctx_agent_memory_changelog
+		WHERE scope = 'fact' AND entity_id = $1`,
+		reflectProfileFactID).Scan(&changelogSource, &payloadSource); err != nil {
+		t.Fatalf("read migrated fact changelog source: %v", err)
+	}
+	if changelogSource != "reflect" || payloadSource != "reflect" {
+		t.Fatalf("migrated fact changelog source = %q payload=%q, want reflect/reflect", changelogSource, payloadSource)
+	}
+
+	var skillCreatedBy *string
+	if err := db.QueryRow(ctx, `SELECT metadata->>'created_by' FROM skill WHERE id = 'ambiguous-skill'`).Scan(&skillCreatedBy); err != nil {
+		t.Fatalf("read ambiguous skill metadata: %v", err)
+	}
+	if skillCreatedBy != nil {
+		t.Fatalf("ambiguous skill created_by = %q, want null", *skillCreatedBy)
+	}
+}
+
 func tableExists(t *testing.T, db *pgxpool.Pool, name string) bool {
 	t.Helper()
 
