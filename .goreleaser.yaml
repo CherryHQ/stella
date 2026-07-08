@@ -37,7 +37,7 @@ archives:
 brews:
   - name: stella
     ids:
-      - stellad
+      - stella
     repository:
       owner: CherryHQ
       name: homebrew-tap
