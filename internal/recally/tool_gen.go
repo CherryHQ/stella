@@ -55,7 +55,7 @@ const InputSchemaJSON = `{
           "const": "entry_add",
           "type": "string"
         },
-        "feedId": {
+        "feed_id": {
           "type": "string"
         },
         "guid": {
@@ -71,7 +71,7 @@ const InputSchemaJSON = `{
       },
       "required": [
         "action",
-        "feedId",
+        "feed_id",
         "guid"
       ],
       "type": "object"
@@ -82,7 +82,7 @@ const InputSchemaJSON = `{
           "const": "entry_list",
           "type": "string"
         },
-        "feedId": {
+        "feed_id": {
           "type": "string"
         },
         "page_size": {
@@ -95,18 +95,16 @@ const InputSchemaJSON = `{
           "type": "string"
         },
         "status": {
+          "default": "pending",
           "enum": [
-            "pending",
-            "saved",
-            "skipped",
-            "error"
+            "pending"
           ],
           "type": "string"
         }
       },
       "required": [
         "action",
-        "feedId"
+        "feed_id"
       ],
       "type": "object"
     },
@@ -123,7 +121,7 @@ const InputSchemaJSON = `{
         "error_msg": {
           "type": "string"
         },
-        "feedId": {
+        "feed_id": {
           "type": "string"
         },
         "id": {
@@ -141,7 +139,7 @@ const InputSchemaJSON = `{
       },
       "required": [
         "action",
-        "feedId",
+        "feed_id",
         "id",
         "status"
       ],
@@ -428,14 +426,14 @@ type DigestSaveInput struct {
 }
 
 type EntryAddInput struct {
-	FeedId string `json:"feedId,omitempty"`
+	FeedId string `json:"feed_id,omitempty"`
 	Guid   string `json:"guid,omitempty"`
 	Title  string `json:"title,omitempty"`
 	Url    string `json:"url,omitempty"`
 }
 
 type EntryListInput struct {
-	FeedId    string `json:"feedId,omitempty"`
+	FeedId    string `json:"feed_id,omitempty"`
 	PageSize  int    `json:"page_size,omitempty"`
 	PageToken string `json:"page_token,omitempty"`
 	Status    string `json:"status,omitempty"`
@@ -444,7 +442,7 @@ type EntryListInput struct {
 type EntryUpdateInput struct {
 	ArticleId string `json:"article_id,omitempty"`
 	ErrorMsg  string `json:"error_msg,omitempty"`
-	FeedId    string `json:"feedId,omitempty"`
+	FeedId    string `json:"feed_id,omitempty"`
 	Id        string `json:"id,omitempty"`
 	Status    string `json:"status,omitempty"`
 }
@@ -517,19 +515,19 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 		return h.DigestSave(ctx, in)
 	case "entry_add":
 		var in EntryAddInput
-		if err := tools.DecodeInput(args, &in, []string{"feedId", "guid"}); err != nil {
+		if err := tools.DecodeInput(args, &in, []string{"feed_id", "guid"}); err != nil {
 			return nil, err
 		}
 		return h.EntryAdd(ctx, in)
 	case "entry_list":
 		var in EntryListInput
-		if err := tools.DecodeInput(args, &in, []string{"feedId"}); err != nil {
+		if err := tools.DecodeInput(args, &in, []string{"feed_id"}); err != nil {
 			return nil, err
 		}
 		return h.EntryList(ctx, in)
 	case "entry_update":
 		var in EntryUpdateInput
-		if err := tools.DecodeInput(args, &in, []string{"feedId", "id", "status"}); err != nil {
+		if err := tools.DecodeInput(args, &in, []string{"feed_id", "id", "status"}); err != nil {
 			return nil, err
 		}
 		return h.EntryUpdate(ctx, in)

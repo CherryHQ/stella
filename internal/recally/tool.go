@@ -70,6 +70,9 @@ func (h recallyHandler) Save(ctx context.Context, in SaveInput) (any, error) {
 }
 
 func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) (any, error) {
+	if in.Q != "" && in.PageToken != "" {
+		return nil, fmt.Errorf("page_token is not supported with q")
+	}
 	limit, offset, err := tools.ParsePage(in.PageSize, in.PageToken, defaultToolPageSize, maxToolPageSize)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
@@ -205,7 +208,7 @@ func (h recallyHandler) EntryList(ctx context.Context, in EntryListInput) (any, 
 	for _, entry := range page {
 		items = append(items, recallyFeedEntrySummary(entry))
 	}
-	return listResponse[recallyFeedEntryItem]{Items: items, HasMore: next != "", NextPageToken: next}, nil
+	return listResponse[recallyFeedEntryItem]{Items: items, HasMore: next != ""}, nil
 }
 
 func (h recallyHandler) EntryAdd(ctx context.Context, in EntryAddInput) (any, error) {

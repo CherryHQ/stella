@@ -50,7 +50,7 @@ func failingServer(t *testing.T) *httptest.Server {
 func newPollService(t *testing.T, db *pgxpool.Pool) *Service {
 	t.Helper()
 	home := t.TempDir()
-	return NewService(NewStore(db), NewFileManager(home), home)
+	return NewService(NewStore(db), home)
 }
 
 func TestServicePollFeedsFiltersDisabledAndNonRSS(t *testing.T) {

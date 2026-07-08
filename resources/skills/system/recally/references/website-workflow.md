@@ -45,7 +45,7 @@ Use the same normalized URL for both `--guid` and `--url`.
 
 ## 5. Push entries (Go dedups)
 
-Use `recally` with `action=entry_add`, `feedId`, normalized item URL as both
+Use `recally` with `action=entry_add`, `feed_id`, normalized item URL as both
 `guid` and `url`, and the link text or heading as `title`.
 
 Add one feed entry per item. The result reports whether the entry was inserted or already existed. Pushing extras is harmless;

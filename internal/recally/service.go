@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/mmcdole/gofeed"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -36,7 +38,12 @@ type SaveResult struct {
 }
 
 func NewService(store *Store, stellaHome string) *Service {
-	return &Service{store: store, files: newFileManager(stellaHome), feeds: gofeed.NewParser(), stellaHome: stellaHome}
+	p := gofeed.NewParser()
+	p.Client = &http.Client{Timeout: 30 * time.Second}
+	p.RSSTranslator = &gofeed.DefaultRSSTranslator{}
+	p.AtomTranslator = &gofeed.DefaultAtomTranslator{}
+	p.JSONTranslator = &gofeed.DefaultJSONTranslator{}
+	return &Service{store: store, files: newFileManager(stellaHome), feeds: p, stellaHome: stellaHome}
 }
 
 func (s *Service) Store() *Store { return s.store }
@@ -360,7 +367,8 @@ func (s Authorized) pollFeed(ctx context.Context, uid string, feed Feed, limit i
 	parsed, parseErr := s.feeds.ParseURLWithContext(feed.URL, parseCtx)
 	cancel()
 	if parseErr != nil {
-		result.Errors = []string{"failed to fetch feed"}
+		slog.Warn("feed poll upstream error", "feed_id", feed.ID, "url", feed.URL, "error", parseErr)
+		result.Errors = []string{"failed to fetch feed: " + parseErr.Error()}
 		return result
 	}
 	for _, item := range parsed.Items {
@@ -385,6 +393,8 @@ func (s Authorized) pollFeed(ctx context.Context, uid string, feed Feed, limit i
 	now := time.Now().UTC()
 	if updated, err := s.store.UpdateFeed(ctx, uid, feed.ID, map[string]any{"last_checked_at": &now}); err == nil {
 		result.Feed = *updated
+	} else {
+		slog.Warn("failed to update feed last_checked_at", "feed_id", feed.ID, "error", err)
 	}
 	return result
 }
@@ -421,9 +431,11 @@ func (s Authorized) UpdateFeedEntry(ctx context.Context, feedID, id string, stat
 	if _, err := s.GetFeed(ctx, feedID); err != nil {
 		return nil, err
 	}
-	entry, err := s.store.GetFeedEntry(ctx, feedID, id)
-	if err != nil || entry.FeedID != feedID {
-		return nil, authz.ErrNotFound
+	if _, err := s.store.GetFeedEntry(ctx, feedID, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(mapMissing(err), authz.ErrNotFound) {
+			return nil, authz.ErrNotFound
+		}
+		return nil, err
 	}
 	switch status {
 	case EntryStatusSaved, EntryStatusSkipped, EntryStatusError, EntryStatusPending:

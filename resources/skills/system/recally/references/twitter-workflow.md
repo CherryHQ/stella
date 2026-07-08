@@ -29,7 +29,7 @@ For each returned status:
 
 ## 3. Push entries (Go dedups)
 
-Use `recally` with `action=entry_add`, `feedId`, tweet ID as `guid`, tweet URL as
+Use `recally` with `action=entry_add`, `feed_id`, tweet ID as `guid`, tweet URL as
 `url`, and tweet text as `title`.
 
 Add one feed entry per tweet. The result reports whether the entry was inserted or already existed. Pinned and edited tweets

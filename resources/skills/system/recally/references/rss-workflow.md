@@ -12,8 +12,9 @@ feed. The response contains feed results; each result has a `new_entries` array
 of pending entries.
 
 If you need to resume or inspect pending work, use `recally` with
-`action=entry_list`, `feedId`, `status=pending`, and optional `page_size` /
+`action=entry_list`, `feed_id`, `status=pending`, and optional `page_size` /
 `page_token`.
+After marking entries via `entry_update`, re-list from the start instead of paging — the pending set shifts as entries are processed.
 
 ## 2. Process Entries in Parallel
 
@@ -21,7 +22,7 @@ Use the `delegate` tool to spawn one delegate per pending entry. Each delegate
 independently runs the full save workflow from [save-workflow.md](save-workflow.md)
 with `source_type=rss`, then updates the entry.
 
-Use `recally` with `action=entry_update`, `feedId`, the entry `id`, and `status`:
+Use `recally` with `action=entry_update`, `feed_id`, the entry `id`, and `status`:
 `saved` with `article_id`, `error` with `error_msg`, or `skipped` for duplicates,
 off-topic items, or paywalled content.
 

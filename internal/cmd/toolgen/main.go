@@ -581,6 +581,8 @@ func toolFieldName(name string) string {
 		return "id"
 	case "flowId":
 		return "flow_id"
+	case "feedId":
+		return "feed_id"
 	default:
 		return name
 	}

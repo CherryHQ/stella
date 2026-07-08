@@ -305,12 +305,16 @@ paths:
       tags: [feed-entries]
       summary: List entries for a feed
       operationId: listFeedEntries
-      x-agent-tool: { tool: "recally", action: "entry_list" }
+      x-agent-tool: {
+        tool: "recally",
+        action: "entry_list",
+        restrict: { status: [pending] },
+      }
       parameters:
         - {
             name: status,
             in: query,
-            description: "Filter by entry status. Currently only 'pending' is supported; other values return 400.",
+            description: "Filter by entry status. Currently only 'pending' is supported; other values return 400. Pending results include retryable error entries (attempts < 3).",
             schema: {
               $ref: "../../components.yaml#/components/schemas/FeedEntryStatus",
             },
