@@ -67,6 +67,8 @@ Apply to both changelog files:
 
 ## Validate and Test
 
+The standard pre-commit gate (`mise run format && mise run build && mise run test`) must already be green before cutting a release.
+
 ```bash
 VERSION=X.Y.Z
 test "$(jq -r '.version' web/package.json)" = "$VERSION"

@@ -159,7 +159,7 @@ When standard methods don't fit, append the action as a **trailing path
 segment**:
 
 ```
-POST /api/agents/stella/tasks/{id}/cancel
+POST /api/goals/{id}/cancel
 POST /api/goals/{id}/activate
 POST /api/manifest-plugins/sync
 ```
@@ -405,10 +405,8 @@ fields only after confirming no client uses them.
    Delete.
 4. **Add custom methods only when needed** — cancel, activate, sync.
 5. **Design the schemas** — fields, types, required vs optional.
-6. **Write the spec first** — the OpenAPI spec is the source of truth. Follow
-   the workflow in `api/CLAUDE.md`.
-7. **Generate code** — `mise run generate:api` keeps spec and implementation in
-   sync.
+6. **Write the spec first** — the OpenAPI spec is the source of truth. For codegen
+   mechanics, follow `api/CLAUDE.md`.
 
 ## Review Checklist
 

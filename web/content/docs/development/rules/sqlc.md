@@ -8,12 +8,13 @@ sqlc generates type-safe Go code from SQL queries. You write SQL, sqlc generates
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: "path/to/queries/*.sql"
-    schema: "path/to/schema/*.sql"
+    queries: "internal/db/queries/*.sql"
+    schema: "internal/db/migrations"
     gen:
       go:
         package: "sqlc"
-        out: "path/to/output"
+        out: "pkg/db/sqlc"
+        sql_package: "pgx/v5"
         emit_json_tags: true
         emit_empty_slices: true
 ```
@@ -278,9 +279,10 @@ Keep queries in the same file as the table they primarily operate on. Cross-tabl
 ## Workflow
 
 1. Write or edit `.sql` query files.
-2. Run sqlc generate (e.g., `mise run generate` or `sqlc generate`).
-3. Use the generated `*Queries` methods in application code.
-4. Never edit generated files — they are overwritten on each generate.
+2. Run sqlc generate (e.g., `mise run generate`).
+3. Check generated-code drift with `mise run generate:check`.
+4. Use the generated `*Queries` methods in application code.
+5. Never edit generated files — they are overwritten on each generate.
 
 ## Review Checklist
 

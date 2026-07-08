@@ -54,4 +54,4 @@ and skills point to the specific help command (for example,
 
 Developer docs (`development/`, `plugins/`) can include internals, Go types, database schemas, and architecture diagrams. Keep them accurate and current, but don't duplicate user-facing guidance — link to the user guide instead.
 
-Codegen configs live in `api/codegen/{types,server,client}.yaml`.
+Go codegen configs live in `api/codegen/{types,server}.yaml`; the TypeScript client is generated from `web/openapi-ts.config.ts` via `mise run generate:ts-sdk`.

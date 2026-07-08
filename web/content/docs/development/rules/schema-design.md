@@ -273,6 +273,6 @@ Before approving any schema change:
    money integer cents?
 8. Are common queries supported by indexes?
 9. Is deletion behavior intentional per table?
-10. Did the change ship as a new goose migration (`db:migrate:new` → write
-    Up/Down → `generate`), with no edits to already-committed migrations?
+10. Did the change follow [`goose.md`](./goose.md) for the migration workflow,
+    with no edits to already-committed migrations?
 11. Is sensitive data protected?

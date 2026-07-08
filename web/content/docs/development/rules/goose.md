@@ -23,7 +23,7 @@ The schema lives **only** in `internal/db/migrations/`. There is no
 internal/db/
   migrations/
     20260620131914_postgres_baseline.sql   # full baseline schema
-    20260621120000_add_search_embedding.sql
+    20260707092307_add_provider_models_cache.sql
   queries/                                  # sqlc query files (separate concern)
 ```
 

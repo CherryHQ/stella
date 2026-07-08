@@ -53,9 +53,9 @@ Map semantic status to the `chart-*` tokens — never invent one-off color alias
 
 | Status         | Token         | oklch (light)          |
 | -------------- | ------------- | ---------------------- |
-| Info / running | `chart-2`     | `oklch(0.62 0.13 230)` |
-| Success        | `chart-3`     | `oklch(0.7 0.16 150)`  |
-| Warning        | `chart-4`     | `oklch(0.76 0.15 78)`  |
+| Info / running | `chart-2`     | `oklch(0.6 0.13 230)`  |
+| Success        | `chart-3`     | `oklch(0.68 0.15 150)` |
+| Warning        | `chart-4`     | `oklch(0.74 0.15 78)`  |
 | Error          | `destructive` | `oklch(0.58 0.2 25)`   |
 
 ### Accent usage rules

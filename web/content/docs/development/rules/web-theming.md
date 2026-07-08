@@ -21,7 +21,11 @@ The schema is shadcn's, end to end. External sources (designer design-system pac
 
 2. **Rewrite [`web-design.md`](./web-design.md)** from the source's design doc, keeping the section skeleton (visual direction, color tables with Tailwind classes, typography, spacing & density, radius, elevation, motion, voice, theme anti-patterns). Translate values into semantic Tailwind classes so the doc matches what code actually uses.
 
-3. **Verify:** `vp build`, then screenshot light + dark across chat, settings, and the landing page. Check against the new `web-design.md`: accent frequency, surface depth levels, contrast. Run a token scan for raw colors or palette utilities before review.
+3. **Verify:** `mise run build`, then screenshot light + dark across chat, settings, and the landing page. Check against the new `web-design.md`: accent frequency, surface depth levels, contrast. Run this token scan before review:
+
+   ```bash
+   rg -n --glob '!**/tokens.css' '#[0-9A-Fa-f]{3,8}\b|oklch\(|\b(?:bg|text|border|from|to|via)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-[0-9]{2,3}\b' web/src
+   ```
 
 ## Designer package → shadcn token mapping
 
