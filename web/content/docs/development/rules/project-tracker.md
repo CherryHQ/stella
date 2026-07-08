@@ -1,4 +1,7 @@
-# Project Tracker (GitHub Projects + Issues)
+---
+title: Project tracker
+description: GitHub Projects and Issues workflow for Stella requirements and status.
+---
 
 Manage requirements and development status entirely in GitHub. **GitHub Projects**
 owns the product layer (status, priority, roadmap views). **GitHub Issues** are

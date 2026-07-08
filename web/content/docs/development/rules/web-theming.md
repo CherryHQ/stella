@@ -1,4 +1,7 @@
-# Web Theming
+---
+title: Web theming
+description: How Stella's web visual style is structured and swapped.
+---
 
 How Stella's web visual style is structured and how to swap it for a new one.
 

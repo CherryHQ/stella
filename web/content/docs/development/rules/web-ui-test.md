@@ -1,4 +1,7 @@
-# Web UI Test
+---
+title: Web UI testing
+description: Browser automation workflow for verifying Stella's Web UI.
+---
 
 Automate Stella web UI verification using `tap` browser commands.
 

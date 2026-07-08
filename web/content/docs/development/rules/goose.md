@@ -1,4 +1,7 @@
-# goose Migrations
+---
+title: goose migrations
+description: PostgreSQL migration rules for Stella's hand-written goose migrations.
+---
 
 Stella manages its PostgreSQL schema with [goose](https://github.com/pressly/goose).
 Migrations are **hand-written** and are the **single source of truth** for the

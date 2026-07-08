@@ -1,4 +1,7 @@
-# Documentation Style
+---
+title: Documentation style
+description: Documentation structure and writing conventions for Stella docs.
+---
 
 ## Diátaxis framework
 
@@ -26,6 +29,8 @@ The sidebar groups directories into these four quadrants via `sections` in
 matching section. When adding a new page, add it to the relevant folder's
 `meta.json` and, if it creates a new top-level docs area, the matching
 `sections` entry in `web/content/docs/meta.json`.
+
+Docs pages carry their title in YAML frontmatter and must not repeat it as a `# H1`.
 
 If a doc serves both users and contributors, write a user-facing how-to in the Guides section and a technical deep-dive in Development.
 

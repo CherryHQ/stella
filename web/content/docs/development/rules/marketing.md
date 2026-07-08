@@ -1,4 +1,7 @@
-# Marketing & Positioning
+---
+title: Marketing & positioning
+description: Positioning and copy rules for Stella marketing surfaces.
+---
 
 **Read this before writing any landing page, hero section, README opener, docs index, feature pitch, screenshot caption, social post, or release announcement.** Anything a prospective user reads _before_ they decide to try Stella is governed by this file. Reference docs, API specs, and in-app UI copy are not — those follow [`doc-style.md`](./doc-style.md) and [`web-design.md`](./web-design.md).
 

@@ -1,4 +1,7 @@
-# Release
+---
+title: Release
+description: Release tagging and packaging workflow for Stella.
+---
 
 ## Tag Format
 

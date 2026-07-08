@@ -1,4 +1,7 @@
-# Stella Web Theme — Teal
+---
+title: Web theme — Teal
+description: Current teal visual direction and theme intent for Stella's Web UI.
+---
 
 **This file is the swappable half of the design system.** It describes the current visual direction only; replace it together with `web/src/tokens.css` when adopting a new style (procedure: [`web-theming.md`](./web-theming.md)). Engineering rules that survive any theme — CossUI contract, layout patterns, token discipline — live in [`web-ui.md`](./web-ui.md) and never change with the theme.
 

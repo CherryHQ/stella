@@ -1,4 +1,7 @@
-# sqlc Best Practices
+---
+title: sqlc queries
+description: SQL query and code generation conventions for Stella's sqlc setup.
+---
 
 sqlc generates type-safe Go code from SQL queries. You write SQL, sqlc generates the Go.
 
