@@ -27,7 +27,7 @@ Use the native `email` tool for standard IMAP/SMTP accounts (Gmail, Outlook, sel
 
 ## Account setup
 
-Config is stored as a single encrypted `EMAIL_CONFIG` vault entry. Agents do not hand-edit this JSON and do not ask for passwords in chat. Ask the user to add or update accounts in **Settings → Email**. If they need CLI setup, point them to the human-facing email config help outside the agent workflow.
+Config is stored as a single encrypted `EMAIL_CONFIG` vault entry. Agents do not hand-edit this JSON and do not ask for passwords in chat. Ask the user to add or update accounts in **Settings → Email**.
 
 Account names must match `^[a-z][a-z0-9_]{0,31}$` — lowercase letters, digits, and underscores only. No hyphens.
 

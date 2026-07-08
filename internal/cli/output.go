@@ -19,8 +19,6 @@ type LineWriter struct {
 
 func Stdout(c *ucli.Context) *LineWriter { return &LineWriter{w: c.App.Writer} }
 
-func Stderr(c *ucli.Context) *LineWriter { return &LineWriter{w: c.App.ErrWriter} }
-
 func (l *LineWriter) Printf(format string, a ...any) {
 	if l.err != nil {
 		return
@@ -52,13 +50,4 @@ func PrintJSON(c *ucli.Context, v any) error {
 		return fmt.Errorf("write json: %w", err)
 	}
 	return nil
-}
-
-type deletedResult struct {
-	ID      string `json:"id"`
-	Deleted bool   `json:"deleted"`
-}
-
-func PrintDeleted(c *ucli.Context, id string) error {
-	return PrintJSON(c, deletedResult{ID: id, Deleted: true})
 }

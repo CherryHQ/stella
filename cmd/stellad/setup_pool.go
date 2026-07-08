@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -95,9 +96,17 @@ func buildProjectEnsurer(db *pgxpool.Pool, store config.Store) agent.ProjectEnsu
 		if ag, err := store.GetAgent(ctx, agentID); err == nil && ag.Name != "" {
 			agentName = ag.Name
 		}
-		if _, err := agent.SetupUserWorkspace(config.StellaHome(), userID, agentID); err != nil {
+		userHome, err := agent.SetupUserWorkspace(config.StellaHome(), userID, agentID)
+		if err != nil {
 			return "", err
 		}
+		// Restore the user's assets subtree from the blob mirror in the background,
+		// so a cold pod fills its empty assets tree without blocking project setup.
+		go func() {
+			if err := agent.HydrateUserAssets(context.Background(), config.StellaHome(), userHome); err != nil {
+				slog.Warn("hydrate user assets failed", "home", userHome, "error", err)
+			}
+		}()
 		// The default project's working tree is the agent's private area under the
 		// user home (a project is owned by the agent, #442).
 		baseDir := agent.UserAgentDir(config.StellaHome(), userID, agentID)

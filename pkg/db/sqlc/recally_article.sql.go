@@ -342,6 +342,43 @@ func (q *Queries) ListArticles(ctx context.Context, arg ListArticlesParams) ([]R
 	return items, nil
 }
 
+const listArticlesMissingContent = `-- name: ListArticlesMissingContent :many
+SELECT a.id, a.user_id, a.file_path
+FROM recally_article a
+LEFT JOIN recally_article_content c ON c.article_id = a.id
+WHERE a.file_path <> '' AND c.article_id IS NULL
+ORDER BY a.saved_at DESC
+`
+
+type ListArticlesMissingContentRow struct {
+	ID       string `json:"id"`
+	UserID   string `json:"user_id"`
+	FilePath string `json:"file_path"`
+}
+
+// Legacy articles whose body still lives only in a disk file (file_path set) and
+// was never copied into recally_article_content. Startup eager-backfills these so
+// bodies survive on hosts where the pod-local disk is gone. Keep ASCII.
+func (q *Queries) ListArticlesMissingContent(ctx context.Context) ([]ListArticlesMissingContentRow, error) {
+	rows, err := q.db.Query(ctx, listArticlesMissingContent)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListArticlesMissingContentRow{}
+	for rows.Next() {
+		var i ListArticlesMissingContentRow
+		if err := rows.Scan(&i.ID, &i.UserID, &i.FilePath); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listArticlesNeedingEmbedding = `-- name: ListArticlesNeedingEmbedding :many
 SELECT a.id, (a.title || ' ' || COALESCE(a.summary, ''))::text AS content, e.model AS embedded_model, e.content_hash AS embedded_hash
 FROM recally_article a

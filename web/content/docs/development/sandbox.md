@@ -96,7 +96,7 @@ The in-container Go server serves its baked-in embedded SPA at `localhost:25688`
 
 Stop everything with `docker compose down`.
 
-The sandbox image bakes its mise toolchain at `/opt/stella` via `stella mise reconcile-builtins` (the same `resources/tools.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths.
+The sandbox image bakes its mise toolchain at `/opt/stella` via `stellad mise reconcile-builtins` (the same `resources/tools.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths.
 
 ## Adding a New Backend
 

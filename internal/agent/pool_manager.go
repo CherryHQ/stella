@@ -143,7 +143,6 @@ type PoolManager struct {
 	mcpToolProvider          MCPToolProvider
 	toolOverrideFetcher      ToolOverrideFetcher
 	vaultEnvLoader           sandbox.VaultEnvLoader
-	tokenEnsurer             sandbox.TokenEnsurer
 	projectResolver          ProjectResolverFunc
 	projectEnsurer           ProjectEnsurerFunc
 	tokenManager             *oauth.TokenManager
@@ -190,21 +189,6 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnv
 	for agentID := range services {
 		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after vault loader set", "agent_id", agentID, "error", err)
-		}
-	}
-}
-
-// SetTokenEnsurer wires scoped token signing for sandbox sessions.
-func (pm *PoolManager) SetTokenEnsurer(ctx context.Context, te sandbox.TokenEnsurer) {
-	pm.mu.Lock()
-	pm.tokenEnsurer = te
-	services := make(map[string]*Service, len(pm.services))
-	maps.Copy(services, pm.services)
-	pm.mu.Unlock()
-
-	for agentID := range services {
-		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
-			pm.log.Error("failed to rebuild factory after token ensurer set", "agent_id", agentID, "error", err)
 		}
 	}
 }
@@ -334,15 +318,30 @@ func (pm *PoolManager) promptScope(agentID string, info session.Info) (userRoot,
 	if info.GroupID != "" {
 		if dir, err := SetupGroupWorkspace(config.StellaHome(), info.GroupID, agentID); err == nil {
 			userRoot = dir
+			pm.hydrateAssets(dir)
 		}
 		return userRoot, "", info.GroupID
 	}
 	if info.UserID != "" {
 		if dir, err := SetupUserWorkspace(config.StellaHome(), info.UserID, agentID); err == nil {
 			userRoot = dir
+			pm.hydrateAssets(dir)
 		}
 	}
 	return userRoot, info.UserID, ""
+}
+
+// hydrateAssets restores the principal's assets subtree from the blob mirror in
+// the background, so a cold pod's empty assets tree fills in shortly after the
+// session starts without adding to startup latency. Single-flight per home lives
+// in HydrateUserAssets. context.Background() (not a request ctx) keeps the copy
+// from being cancelled when the caller returns.
+func (pm *PoolManager) hydrateAssets(home string) {
+	go func() {
+		if err := HydrateUserAssets(context.Background(), config.StellaHome(), home); err != nil {
+			pm.log.Warn("hydrate user assets failed", "home", home, "error", err)
+		}
+	}()
 }
 
 func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot, info session.Info, userRoot string) []pkgplugins.SystemPromptSection {
@@ -598,7 +597,6 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,
-		TokenEnsurer:             pm.tokenEnsurer,
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
 	})

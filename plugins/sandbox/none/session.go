@@ -83,11 +83,21 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	// Host execution shares the real filesystem, so the shared user-data root is
 	// exposed at its real path (no /user remap). Keeps STELLA_USER_DIR meaningful
 	// for skills/prompt that address it regardless of backend.
-	if ud := policy.Filesystem.UserDataDir; ud != "" {
+	if ud := hostPathForSandboxMount(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ud != "" {
 		env["STELLA_USER_DIR"] = ud
 	}
 	policy.Env = env
 	return policy
+}
+
+func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) string {
+	clean := filepath.Clean(sandboxPath)
+	for _, m := range mounts {
+		if filepath.Clean(m.SandboxPath) == clean {
+			return m.HostPath
+		}
+	}
+	return ""
 }
 
 // noneSession implements sandboxpkg.Session with zero isolation.
@@ -105,23 +115,6 @@ func (s *noneSession) Policy() sandboxpkg.Policy {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.policy
-}
-
-// RefreshEnv replaces injected env entries with the given updates, swapping the
-// policy's env map under the write lock (copy-on-write) so readers that snapshot
-// the policy under the read lock never observe a half-written map.
-func (s *noneSession) RefreshEnv(updates map[string]string) {
-	if len(updates) == 0 {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	env := maps.Clone(s.policy.Env)
-	if env == nil {
-		env = make(map[string]string, len(updates))
-	}
-	maps.Copy(env, updates)
-	s.policy.Env = env
 }
 
 func (s *noneSession) WorkingDir() string {

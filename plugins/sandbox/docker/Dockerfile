@@ -4,7 +4,7 @@
 # Build locally (dev):
 # mise run sandbox:docker:build
 #
-# The image tag is version-locked to the stella binary:
+# The image tag is version-locked to the stella version used at build time:
 # - dev builds      → stella-sandbox:dev            (built locally)
 # - tagged releases → ghcr.io/vaayne/stella-sandbox:<version>
 
@@ -24,14 +24,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-X github.com/CherryHQ/stella/internal/version.Version=${VERSION}" \
-    -o /out/stella ./cmd/stella
+    -o /out/stellad ./cmd/stellad
 
 FROM debian:13-slim
 
-COPY --from=stella-builder /out/stella /usr/local/bin/stella
 # mise lives at /opt/stella/bin/mise — the same path the bwrap sandbox exposes —
 # so per-user and system shims (which relink to ../../bin/mise) resolve to it.
-# bun, uv (+uvx), fd, rg, and lightpanda are NOT vendored here: `stella mise
+# bun, uv (+uvx), fd, rg, and lightpanda are NOT vendored here: `stellad mise
 # reconcile-builtins` below installs them from resources/tools.yaml, exposing
 # them via mise shims exactly as the host does. Only non-mise base runtime deps
 # are installed via apt.
@@ -73,11 +72,13 @@ ENV PATH=/opt/stella/.mise-tools/shims:/opt/stella/bin:/usr/local/sbin:/usr/loca
 
 # Install the builtin tools through the SAME reconcile path the daemon runs, so
 # the image's tool identifiers and versions are byte-for-byte what the host
-# produces from resources/tools.yaml (single source of truth, no drift). This
-# writes /opt/stella/.mise-tools/configs/_builtin.toml, installs every enabled
-# plugin binary, and relinks shims to relative targets.
-RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
-    STELLA_HOME=/opt/stella stella mise reconcile-builtins && \
+# produces from resources/tools.yaml (single source of truth, no drift). The
+# stellad is bind-mounted only for this build step; it is not shipped in the
+# runtime image. This writes /opt/stella/.mise-tools/configs/_builtin.toml,
+# installs every enabled plugin binary, and relinks shims to relative targets.
+RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/bin/stellad \
+    --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
+    STELLA_HOME=/opt/stella stellad mise reconcile-builtins && \
     rm -rf /opt/stella/.mise-tools/cache
 
 ENV HOME=/workspace

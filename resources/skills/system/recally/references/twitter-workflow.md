@@ -29,16 +29,12 @@ For each returned status:
 
 ## 3. Push entries (Go dedups)
 
-Entry insertion still runs through the CLI — the native `recally` tool does not
-expose it yet. Before adding feed entries, read the command help:
+Use `recally` with `action=entry_add`, `feed_id`, tweet ID as `guid`, tweet URL as
+`url`, and tweet text as `title`.
 
-```bash
-stella recally feed entry add --help
-```
-
-Add one feed entry per tweet using the feed ID, tweet ID as `guid`, tweet URL, and tweet text as title. Prints `new` (inserted) or `dup` (guid already existed). Pinned and edited tweets
+Add one feed entry per tweet. The result reports whether the entry was inserted or already existed. Pinned and edited tweets
 are handled automatically by guid dedup — just push them all. Stop pushing a feed
-once you hit a run of `dup` results if you want to save calls, but pushing extras
+once you hit a run of duplicate results if you want to save calls, but pushing extras
 is harmless.
 
 ## 4. Process pending entries

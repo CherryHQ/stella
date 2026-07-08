@@ -32,6 +32,122 @@ const InputSchemaJSON = `{
     {
       "properties": {
         "action": {
+          "const": "digest_save",
+          "type": "string"
+        },
+        "date": {
+          "description": "YYYY-MM-DD; defaults to today if omitted",
+          "type": "string"
+        },
+        "narrative": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "narrative"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "entry_add",
+          "type": "string"
+        },
+        "feed_id": {
+          "type": "string"
+        },
+        "guid": {
+          "description": "Stable per-source item id; the dedup key (unique per feed)",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "feed_id",
+        "guid"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "entry_list",
+          "type": "string"
+        },
+        "feed_id": {
+          "type": "string"
+        },
+        "page_size": {
+          "default": 20,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "page_token": {
+          "type": "string"
+        },
+        "status": {
+          "default": "pending",
+          "enum": [
+            "pending"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "feed_id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "entry_update",
+          "type": "string"
+        },
+        "article_id": {
+          "nullable": true,
+          "type": "string"
+        },
+        "error_msg": {
+          "type": "string"
+        },
+        "feed_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "saved",
+            "skipped",
+            "error"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "feed_id",
+        "id",
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
           "const": "feed_add",
           "type": "string"
         },
@@ -77,6 +193,27 @@ const InputSchemaJSON = `{
         "url": {
           "format": "uri",
           "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "feed_poll",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
         }
       },
       "required": [
@@ -244,13 +381,157 @@ const InputSchemaJSON = `{
     "action": {
       "enum": [
         "digest",
+        "digest_save",
+        "entry_add",
+        "entry_list",
+        "entry_update",
         "feed_add",
         "feed_list",
+        "feed_poll",
         "feed_remove",
         "get_article",
         "list_articles",
         "save"
       ],
+      "type": "string"
+    },
+    "article_id": {
+      "nullable": true,
+      "type": "string"
+    },
+    "articles": {
+      "items": {
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "canonical_url": {
+            "type": "string"
+          },
+          "content": {
+            "description": "Markdown body. If empty and the article exists, only metadata is updated; if empty and the article is new, the request fails 400.",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "published_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "source_type": {
+            "enum": [
+              "web",
+              "twitter",
+              "youtube",
+              "github",
+              "rss",
+              "pdf"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "type": "array"
+    },
+    "canonical_url": {
+      "type": "string"
+    },
+    "date": {
+      "description": "YYYY-MM-DD; defaults to today if omitted",
+      "type": "string"
+    },
+    "error_msg": {
+      "type": "string"
+    },
+    "feed_id": {
+      "type": "string"
+    },
+    "guid": {
+      "description": "Stable per-source item id; the dedup key (unique per feed)",
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "description": "Escape hatch to force the feed kind. Omit to let the server sniff it from the URL (x.com/twitter.com → twitter, otherwise rss).",
+      "enum": [
+        "rss",
+        "twitter",
+        "website"
+      ],
+      "type": "string"
+    },
+    "limit": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "narrative": {
+      "type": "string"
+    },
+    "page_size": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_token": {
+      "type": "string"
+    },
+    "q": {
+      "type": "string"
+    },
+    "source_type": {
+      "enum": [
+        "web",
+        "twitter",
+        "youtube",
+        "github",
+        "rss",
+        "pdf"
+      ],
+      "type": "string"
+    },
+    "starred": {
+      "type": "boolean"
+    },
+    "status": {
+      "type": "string"
+    },
+    "title": {
+      "description": "Optional override; server fetches feed metadata if omitted (rss only)",
+      "type": "string"
+    },
+    "url": {
       "type": "string"
     }
   },
@@ -262,8 +543,13 @@ const InputSchemaJSON = `{
 
 type Handler interface {
 	Digest(context.Context, DigestInput) (any, error)
+	DigestSave(context.Context, DigestSaveInput) (any, error)
+	EntryAdd(context.Context, EntryAddInput) (any, error)
+	EntryList(context.Context, EntryListInput) (any, error)
+	EntryUpdate(context.Context, EntryUpdateInput) (any, error)
 	FeedAdd(context.Context, FeedAddInput) (any, error)
 	FeedList(context.Context, FeedListInput) (any, error)
+	FeedPoll(context.Context, FeedPollInput) (any, error)
 	FeedRemove(context.Context, FeedRemoveInput) (any, error)
 	GetArticle(context.Context, GetArticleInput) (any, error)
 	ListArticles(context.Context, ListArticlesInput) (any, error)
@@ -271,6 +557,33 @@ type Handler interface {
 }
 
 type DigestInput struct {
+}
+
+type DigestSaveInput struct {
+	Date      string `json:"date,omitempty"`
+	Narrative string `json:"narrative,omitempty"`
+}
+
+type EntryAddInput struct {
+	FeedId string `json:"feed_id,omitempty"`
+	Guid   string `json:"guid,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Url    string `json:"url,omitempty"`
+}
+
+type EntryListInput struct {
+	FeedId    string `json:"feed_id,omitempty"`
+	PageSize  int    `json:"page_size,omitempty"`
+	PageToken string `json:"page_token,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+type EntryUpdateInput struct {
+	ArticleId string `json:"article_id,omitempty"`
+	ErrorMsg  string `json:"error_msg,omitempty"`
+	FeedId    string `json:"feed_id,omitempty"`
+	Id        string `json:"id,omitempty"`
+	Status    string `json:"status,omitempty"`
 }
 
 type FeedAddInput struct {
@@ -283,6 +596,11 @@ type FeedListInput struct {
 	PageSize  int    `json:"page_size,omitempty"`
 	PageToken string `json:"page_token,omitempty"`
 	Url       string `json:"url,omitempty"`
+}
+
+type FeedPollInput struct {
+	Id    string `json:"id,omitempty"`
+	Limit int    `json:"limit,omitempty"`
 }
 
 type FeedRemoveInput struct {
@@ -328,6 +646,30 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 			return nil, err
 		}
 		return h.Digest(ctx, in)
+	case "digest_save":
+		var in DigestSaveInput
+		if err := tools.DecodeInput(args, &in, []string{"narrative"}); err != nil {
+			return nil, err
+		}
+		return h.DigestSave(ctx, in)
+	case "entry_add":
+		var in EntryAddInput
+		if err := tools.DecodeInput(args, &in, []string{"feed_id", "guid"}); err != nil {
+			return nil, err
+		}
+		return h.EntryAdd(ctx, in)
+	case "entry_list":
+		var in EntryListInput
+		if err := tools.DecodeInput(args, &in, []string{"feed_id"}); err != nil {
+			return nil, err
+		}
+		return h.EntryList(ctx, in)
+	case "entry_update":
+		var in EntryUpdateInput
+		if err := tools.DecodeInput(args, &in, []string{"feed_id", "id", "status"}); err != nil {
+			return nil, err
+		}
+		return h.EntryUpdate(ctx, in)
 	case "feed_add":
 		var in FeedAddInput
 		if err := tools.DecodeInput(args, &in, []string{"url"}); err != nil {
@@ -340,6 +682,12 @@ func Dispatch(ctx context.Context, h Handler, action string, args map[string]any
 			return nil, err
 		}
 		return h.FeedList(ctx, in)
+	case "feed_poll":
+		var in FeedPollInput
+		if err := tools.DecodeInput(args, &in, []string(nil)); err != nil {
+			return nil, err
+		}
+		return h.FeedPoll(ctx, in)
 	case "feed_remove":
 		var in FeedRemoveInput
 		if err := tools.DecodeInput(args, &in, []string{"id"}); err != nil {

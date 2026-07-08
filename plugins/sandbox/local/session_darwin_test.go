@@ -109,7 +109,7 @@ func TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree(t *testing.T) {
 	t.Run("unrelated writable mount still emits cache holes", func(t *testing.T) {
 		policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
 		policy.Env = map[string]string{"MISE_CACHE_DIR": cacheDir}
-		policy.Filesystem.ExtraWritableMounts = []string{"/tmp/unrelated"}
+		policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: "/tmp/unrelated", SandboxPath: "/tmp/unrelated", Access: sandboxpkg.MountReadWrite})
 		profile := buildSeatbeltProfile(policy, stellaHome)
 
 		if !strings.Contains(profile, `(allow file-write* (subpath "`+cacheDir+`"))`) {
@@ -124,7 +124,7 @@ func TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree(t *testing.T) {
 			"MISE_DATA_DIR":  userDir,
 			"MISE_CACHE_DIR": "/tmp/mise-cache",
 		}
-		policy.Filesystem.ExtraWritableMounts = []string{userDir}
+		policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: userDir, SandboxPath: userDir, Access: sandboxpkg.MountReadWrite})
 		profile := buildSeatbeltProfile(policy, stellaHome)
 
 		if strings.Contains(profile, `(allow file-write* (subpath "/tmp/mise-cache"))`) {
@@ -133,36 +133,12 @@ func TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree(t *testing.T) {
 	})
 }
 
-// TestBuildSeatbeltProfile_hidesSiblingAgents verifies the per-agent isolation
-// rules (#442): the agents/ subtree is denied read+write and only this agent's
-// own dir is re-allowed, and the ordering wins under last-match-wins (the rules
-// must follow the workspace allow, and the own re-allow must follow the deny).
-func TestBuildSeatbeltProfile_hidesSiblingAgents(t *testing.T) {
-	root := "/private/tmp/ws"
-	policy := makePolicy(root, sandboxpkg.NetworkDisabled)
-	policy.Filesystem.AgentPrivateDir = root + "/agents/a1"
-	profile := buildSeatbeltProfile(policy, "")
-
-	wsAllow := `(allow file-write* (subpath "` + root + `"))`
-	siblingDeny := `(deny file-read* file-write* (subpath "` + root + `/agents"))`
-	ownAllow := `(allow file-read* file-write* (subpath "` + root + `/agents/a1"))`
-	for _, want := range []string{wsAllow, siblingDeny, ownAllow} {
-		if !strings.Contains(profile, want) {
-			t.Errorf("profile missing %s:\n%s", want, profile)
-		}
-	}
-	wsAt, denyAt, ownAt := strings.Index(profile, wsAllow), strings.Index(profile, siblingDeny), strings.Index(profile, ownAllow)
-	if wsAt >= denyAt || denyAt >= ownAt {
-		t.Errorf("rule order must be workspace-allow < sibling-deny < own-allow:\n%s", profile)
-	}
-}
-
-// TestBuildSeatbeltProfile_noSiblingRulesWithoutAgentPrivateDir verifies a
-// user-less session (no agent-private dir) emits no per-agent deny/allow rules.
-func TestBuildSeatbeltProfile_noSiblingRulesWithoutAgentPrivateDir(t *testing.T) {
+// TestBuildSeatbeltProfile_noSiblingRules verifies generic mount policy emits no
+// legacy per-agent deny/allow rules.
+func TestBuildSeatbeltProfile_noSiblingRules(t *testing.T) {
 	profile := buildSeatbeltProfile(makePolicy("/private/tmp/ws", sandboxpkg.NetworkDisabled), "")
 	if strings.Contains(profile, "(deny file-read* file-write*") {
-		t.Errorf("no sibling-hiding rules expected without AgentPrivateDir:\n%s", profile)
+		t.Errorf("no sibling-hiding rules expected without generic mounts:\n%s", profile)
 	}
 }
 

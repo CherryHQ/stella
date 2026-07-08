@@ -25,7 +25,7 @@ Where this sits in the test pyramid:
 | --------------------- | ------------------------------------ | --------------------------------------------------------------------- |
 | `STELLA_HOME`         | Server data dir                      | `~/.stella-dev`                                                       |
 | `STELLA_DATABASE_URL` | External Postgres (server + asserts) | `postgres://postgres:postgres@localhost:15433/stella?sslmode=disable` |
-| `STELLA_TOKEN`        | Bearer token for the HTTP client     | `stella_<base64url>`                                                  |
+| `TOKEN`               | Bearer token for the HTTP client     | `stella_<base64url>`                                                  |
 
 Base URL: `http://localhost:25678`. `psql` (Postgres.app): `/Applications/Postgres.app/Contents/Versions/18/bin/psql`.
 
@@ -49,11 +49,10 @@ lsof -iTCP:25678 -sTCP:LISTEN -n -P
 
 ## 2. Get a bearer token
 
-The CLI rejects plain tokens (`must be a scoped sandbox token`), but the **server
-HTTP API accepts a plain user token** via `Authorization: Bearer`. Mint one
+The server HTTP API accepts a personal access token or OAuth access token via
+`Authorization: Bearer`. For local-only test setup, you can mint a PAT row
 directly — token = `"stella_" + base64url(32 random bytes)`, hash =
-`hex(sha256(token))`, prefix = first 15 chars (`tokenPrefixLength` in
-`internal/auth/token_service.go`):
+`hex(sha256(token))`, prefix = first 15 chars:
 
 ```go
 // go run mint.go
@@ -85,7 +84,7 @@ Hit the same routes the CLI/UI use. Capture IDs from responses for the next call
 ```bash
 URL=http://localhost:25678
 curl -s -X POST "$URL/api/<resource>" \
-  -H "Authorization: Bearer $STELLA_TOKEN" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{ ... }'
 ```
 
@@ -110,7 +109,7 @@ Cancel/delete the entities you created and drop the test token; stop the server 
 it was not your usual `mise run dev`.
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $STELLA_TOKEN" "$URL/api/<resource>/<id>/cancel"
+curl -s -X POST -H "Authorization: Bearer $TOKEN" "$URL/api/<resource>/<id>/cancel"
 psql "$STELLA_DATABASE_URL" -c "delete from auth_user_token where name = 'e2e'"
 ```
 
@@ -135,7 +134,7 @@ judgment item -> acceptance, and checks the session-leak fix does not over-fire.
 # Put the agent-judgment contract on a leaf (or let a composite push it to its
 # child) — never on a composite itself, which has no output to review.
 curl -s -X POST "$URL/api/goals" \
-  -H "Authorization: Bearer $STELLA_TOKEN" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{
     "agent_id": "<model-configured-agent>",
     "title": "E2E review smoke",
@@ -147,7 +146,7 @@ curl -s -X POST "$URL/api/goals" \
 # Capture id, session_id, user_id.
 
 # Poll children until the leaf reaches acceptance_state=passed (~30s).
-curl -s -H "Authorization: Bearer $STELLA_TOKEN" "$URL/api/goals/<goal-id>/children"
+curl -s -H "Authorization: Bearer $TOKEN" "$URL/api/goals/<goal-id>/children"
 ```
 
 Assertions:

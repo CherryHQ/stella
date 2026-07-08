@@ -54,8 +54,10 @@ func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string)
 // resolveUserDataRoot returns the shared user-data root. macOS does no path
 // remapping, so the sandbox-space and host paths are identical (no /user alias).
 func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	real := policy.Filesystem.UserDataDir
-	return real, real
+	if m, ok := mountBySandboxPath(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ok {
+		return m.HostPath, m.HostPath
+	}
+	return "", ""
 }
 
 // createSessionTmpMounts returns tmpMount pairs for macOS temp paths.
@@ -133,40 +135,24 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy, stellaHomeHost string) strin
 	// Dev nodes: required for stdout/stderr, pseudo-terminals, /dev/null, etc.
 	sb.WriteString("(allow file-write* (subpath \"/dev\"))\n")
 
-	// Extra writable mounts (e.g. the per-user mise home): carve out each subtree
-	// so the agent can write through it — for mise that's installs/cache/state,
-	// all under the tree.
-	for _, dir := range policy.Filesystem.ExtraWritableMounts {
-		fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", filepath.Clean(dir))
+	// Writable mounts (e.g. the per-user mise home): carve out each subtree so the
+	// agent can write through it — for mise that's installs/cache/state.
+	for _, m := range policy.Filesystem.Mounts {
+		if m.Access == sandboxpkg.MountReadWrite {
+			fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", filepath.Clean(m.HostPath))
+		}
 	}
 	// With no writable per-user mise tree, the shared system installs stay
 	// read-only; mise still needs its cache/state metadata holes open. Key off the
-	// per-user mise data dir recovered from the env — not len(ExtraWritableMounts)
-	// — so an unrelated writable mount cannot suppress these holes. This mirrors
-	// how the none/linux backends recover the per-user mise home from the env.
+	// per-user mise data dir recovered from the env — not the mount count — so an
+	// unrelated writable mount cannot suppress these holes. This mirrors how the
+	// none/linux backends recover the per-user mise home from the env.
 	if sandboxpkg.PerUserMiseDataDir(policy.Env, stellaHomeHost) == "" {
 		appendSeatbeltWritableEnvDirs(&sb, policy.Env)
 	}
 
 	// Workspace root: the agent's fully writable working tree.
 	fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", workspace)
-
-	// Shared user-data root (/user equivalent): writable, shared across the user's
-	// agents. macOS does no remap, so this is the host UserDataDir path.
-	if ud := filepath.Clean(policy.Filesystem.UserDataDir); filepath.IsAbs(ud) {
-		fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", ud)
-	}
-
-	// Hide sibling agents: deny read+write across the agents/ subtree, then
-	// re-allow this agent's own dir, so it can neither read nor write another
-	// agent's credentials/state (#442). Placed after the workspace allow above so
-	// it wins (last-match-wins) for the agents subtree, while the rest of the home
-	// — caches, toolchains — stays shared. Reads outside the home remain governed
-	// by (allow default): seatbelt's read-permissive base is unchanged here.
-	if ap := filepath.Clean(policy.Filesystem.AgentPrivateDir); filepath.IsAbs(ap) && ap != workspace {
-		fmt.Fprintf(&sb, "(deny file-read* file-write* (subpath %q))\n", filepath.Dir(ap))
-		fmt.Fprintf(&sb, "(allow file-read* file-write* (subpath %q))\n", ap)
-	}
 
 	// Network: deny unless the policy explicitly requests unrestricted access.
 	if networkMode != sandboxpkg.NetworkAllowAll {

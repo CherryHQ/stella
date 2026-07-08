@@ -4,9 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -135,29 +133,6 @@ func newTestSession(t *testing.T) (*localSession, string) {
 		done:        make(chan struct{}),
 	}
 	return s, root
-}
-
-// TestRefreshEnv_concurrentWithExec stresses RefreshEnv against concurrent Exec
-// calls so the race detector can confirm the copy-on-write swap and the
-// snapshot-under-lock reads are free of data races on the policy env map.
-func TestRefreshEnv_concurrentWithExec(t *testing.T) {
-	skipIfBwrapNotFunctional(t)
-	s, _ := newTestSession(t)
-	defer s.Close() //nolint:errcheck
-	s.policy.Env = map[string]string{"STELLA_TOKEN": "v0"}
-
-	var wg sync.WaitGroup
-	for range 8 {
-		wg.Go(func() {
-			for range 20 {
-				_, _ = s.Exec(context.Background(), "true", sandboxpkg.ExecOptions{})
-			}
-		})
-	}
-	for i := range 50 {
-		s.RefreshEnv(map[string]string{"STELLA_TOKEN": "v" + strconv.Itoa(i)})
-	}
-	wg.Wait()
 }
 
 // TestResolvePath_rejectsOutsideRoot verifies that ResolvePath returns an error
@@ -326,9 +301,9 @@ func TestResolvePath_extraMountAllowed(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:       root,
-			WorkingDir:          root,
-			ExtraReadOnlyMounts: []string{mountDir},
+			WorkspaceRoot: root,
+			WorkingDir:    root,
+			Mounts:        []sandboxpkg.Mount{{HostPath: mountDir, SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
 		},
 	}
 	s := &localSession{
@@ -365,9 +340,9 @@ func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:       root,
-			WorkingDir:          root,
-			ExtraReadOnlyMounts: []string{mountDir},
+			WorkspaceRoot: root,
+			WorkingDir:    root,
+			Mounts:        []sandboxpkg.Mount{{HostPath: mountDir, SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
 		},
 	}
 	s := &localSession{
@@ -463,10 +438,9 @@ func TestAgentSkills_readableButNotWritable(t *testing.T) {
 
 	s := &localSession{
 		id:                "test",
-		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, AgentSkillsDir: agentSkills}},
+		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: agentSkills, SandboxPath: sandboxpkg.MountAgentSkills, Access: sandboxpkg.MountReadOnly}}}},
 		realRoot:          root,
 		sandboxRoot:       root,
-		agentSkillsReal:   agentSkills,
 		stellaHomeHost:    hostSH,
 		stellaHomeSandbox: "/opt/stella",
 		done:              make(chan struct{}),
@@ -507,14 +481,13 @@ func TestSystemDBSkills_readableButNotWritable(t *testing.T) {
 	}
 
 	s := &localSession{
-		id:                 "test",
-		policy:             sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, SystemDBSkillsDir: dbSkills}},
-		realRoot:           root,
-		sandboxRoot:        root,
-		systemDBSkillsReal: dbSkills,
-		stellaHomeHost:     hostSH,
-		stellaHomeSandbox:  "/opt/stella",
-		done:               make(chan struct{}),
+		id:                "test",
+		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: dbSkills, SandboxPath: sandboxpkg.MountSystemDBSkills, Access: sandboxpkg.MountReadOnly}}}},
+		realRoot:          root,
+		sandboxRoot:       root,
+		stellaHomeHost:    hostSH,
+		stellaHomeSandbox: "/opt/stella",
+		done:              make(chan struct{}),
 	}
 
 	sandboxPath := sandboxpkg.MountSystemDBSkills + "/demo/SKILL.md"
@@ -560,9 +533,9 @@ func TestResolvePath_rejectsAdjacentToExtraMount(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:       root,
-			WorkingDir:          root,
-			ExtraReadOnlyMounts: []string{mountDir},
+			WorkspaceRoot: root,
+			WorkingDir:    root,
+			Mounts:        []sandboxpkg.Mount{{HostPath: mountDir, SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
 		},
 	}
 	s := &localSession{
@@ -704,7 +677,7 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 	userData := userHome + "/data"
 	miseHome := userHome + "/.mise-tools" // sibling of data, under STELLA_HOME
 	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: agentDir, UserDataDir: userData},
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: agentDir, Mounts: []sandboxpkg.Mount{{HostPath: agentDir, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: "/user", Access: sandboxpkg.MountReadWrite}}},
 		Env: map[string]string{
 			"MISE_DATA_DIR":             miseHome,
 			"MISE_CACHE_DIR":            miseHome + "/cache",
@@ -750,7 +723,7 @@ func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 		Filesystem: sandboxpkg.FilesystemPolicy{
 			WorkspaceRoot: root,
 			WorkingDir:    filepath.Join(root, "projects", "p"),
-			UserDataDir:   userData,
+			Mounts:        []sandboxpkg.Mount{{HostPath: root, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: sandboxpkg.MountUserData, Access: sandboxpkg.MountReadWrite}},
 		},
 	}
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}

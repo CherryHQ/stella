@@ -66,7 +66,7 @@ func DatabaseURL() string {
 
 // ServerURL returns the URL CLI commands should use to talk to the local
 // stella server. Priority: STELLA_SERVER_URL env -> http://127.0.0.1:25678
-// (the default admin port from cmd/stella/gateway.go).
+// (the default admin port from cmd/stellad/gateway.go).
 func ServerURL() string {
 	if v := os.Getenv("STELLA_SERVER_URL"); v != "" {
 		return v

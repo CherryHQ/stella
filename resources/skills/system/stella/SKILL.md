@@ -10,11 +10,10 @@ description: >
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
   Also triggers when the user wants to report a bug or file a GitHub issue about stella:
   "report this bug", "create an issue for this", "报告这个 issue", "帮我建个 issue".
-  Read this BEFORE working on any goal — not only when asked how stella works, but
-  whenever you are about to act on one: "run this in the background", "what's the status of
-  this goal", "why is this blocked", "decompose this", "review/accept this",
-  "后台跑", "拆解成子目标", "为什么卡住了", "验收". Read references/goals.md for how a
-  goal converges through its acceptance contract and what your worker contract is.
+  Also triggers on goal-model work — goal status, "why is this blocked", "decompose this",
+  "review/accept this", "为什么卡住了", "拆解成子目标", "验收", or being dispatched as a goal
+  worker: read references/goals.md. Merely creating a goal does not — write a clear intent
+  and call the goal tool.
 ---
 
 # Stella Self-Knowledge
@@ -77,29 +76,24 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 | `/agent`   | List or switch agents        |
 | `/whoami`  | Show your user/chat ID       |
 
-## CLI commands
+## Stella tools
 
-The `stella` CLI is self-documenting. These are the command groups and their subcommands — **always run `stella <command> [<subcommand>] --help` (via bash) for exact flags and usage before invoking one.** Use the canonical command names shown here; do not guess historical aliases. Prefer `--json` for scriptable output when a command supports it.
+Agents use native tools for Stella capabilities; do not shell out to the `stella` CLI from an agent session.
 
 ```
-stellad server                  # Start server (channels + scheduler); web UI at http://localhost:25678
-stellad upgrade                 # Self-update to latest release
 vault tool                      # agent secret storage metadata/set/delete; no read-back
 oauth tool                      # agent OAuth provider list/connect/status/disconnect
+email tool                      # agent email send after explicit user confirmation
 share tool                      # agent artifact/article public links
-scheduler tool                  # agent schedule management; CLI is human/operator fallback
-goal tool                       # agent async goal management; CLI is human/operator fallback
-workflow tool                   # agent workflow save/list/get/run; CLI is human/operator fallback
-stella vault      list/get/set/audit/delete  # user secrets; bind injection with vault set flags or describe for per-command declaration
-stella oauth      providers/connect/status/disconnect
-stella share      artifact/article
-stella scheduler  add/list/remove            # schedule chat or workflow jobs
-stella workflow   save/list/show/run         # reuse accepted composite goals as versioned workflows
-stella goal       create/list/show/health/...  # author async work; inspect execution health
-stella version                  # Print version
+recally tool                    # agent reading, feed, and entry actions
+scheduler tool                  # agent schedule management
+goal tool                       # agent async goal management
+workflow tool                   # agent workflow save/list/get/run
 ```
 
-Agents author goals with the `goal` tool when available: the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. The CLI remains available for humans/operators; use `stella goal health --help` for execution-health reporting. The user can also steer goals from the Web UI (Goals tab); the goal detail timeline is where they inspect blocked causes and leave human guidance. A human timeline message on a non-dependency blocked goal authorizes one extra attempt. All surfaces go through the same HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/goals.md](references/goals.md) for the goal model and your worker contract.
+Humans start and update Stella with `stellad server` and `stellad upgrade`, then manage runtime state in the Web UI.
+
+Agents author goals with the `goal` tool when available: the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. The user can steer goals from the Web UI (Goals tab); the goal detail timeline is where they inspect blocked causes and leave human guidance. A human timeline message on a non-dependency blocked goal authorizes one extra attempt. All surfaces go through the same HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/goals.md](references/goals.md) for the goal model and your worker contract.
 
 ## Delegation
 
@@ -131,7 +125,7 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 ## Memory, scheduler, notifications
 
-Memory, scheduler, goals, vault, OAuth connections, Recally, email, and sharing are built-in agent tools when available; skills use the `skills` tool; notifications and operator surfaces remain available through the CLI and Web UI. Briefly:
+Memory, scheduler, goals, vault, OAuth connections, Recally, email, and sharing are built-in agent tools when available; skills use the `skills` tool; notifications and operator surfaces remain available through the Web UI. Briefly:
 
 - **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
 - **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (`subject=world` facts). Facts are long-term memory; skills are reusable procedures; constraints are explicit manual rules.
@@ -142,13 +136,13 @@ Memory, scheduler, goals, vault, OAuth connections, Recally, email, and sharing 
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
 - **Memory retrieval**: The `memory` tool provides `search` (searches all of this user+agent's past sessions — keyword matching, blended with semantic similarity when embedding is enabled; each hit carries its origin session and content timestamp), `search_knowledge` (searches snapshot-visible `subject=world` facts), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
 - **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **goals** for async persistent work that converges through an acceptance contract and a human-readable timeline (author with the `goal` tool when available; you may also be dispatched as a worker), **workflows** to reuse an accepted composite goal's frozen plan as fresh goal runs, and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks. Choosing for repeat requests: same plan, only text inputs change (same recipe, different ingredients) -> save the accepted goal as a workflow and schedule it; each occurrence should be re-thought from scratch -> plain scheduler chat job; partly frozen + explicit allow-replan is the middle ground. Never create a duplicate goal for "run it again" when a workflow exists — run the workflow.
-- **Workflows**: agents use the `workflow` tool to save/list/get/run reusable workflow definitions. For "save this goal and run it every morning", save the accepted goal first, then schedule the workflow; the `stella workflow` CLI remains the human/operator fallback.
+- **Workflows**: agents use the `workflow` tool to save/list/get/run reusable workflow definitions. For "save this goal and run it every morning", save the accepted goal first, then schedule the workflow; users can inspect workflow-backed runs in the Web UI.
 - **Scheduler**: agents use the `scheduler` tool to add/list/update/delete/pause/resume scheduled or one-time jobs, including workflow jobs when exposed. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the `scheduler` tool with `action=create` and `template_key`, the Web UI (Goals tab/Tasks tab schedule surfaces), or the HTTP API. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Vault/OAuth/Recally/Email/Share**: agents use built-in tools. OAuth connect returns a verification URI and user code; give those to the user, wait for authorization, then poll status with the returned flow id. Recally save requires the agent to fetch article content first. Email send requires explicit user confirmation and an idempotency key. Share creates public links only when the user asks.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
 - **Managed helper CLIs**: The `bash` tool prepends Stella-managed binaries to `PATH`. Expect `fd`, `rg`, `mise`, and `tap` to be available even when the host machine doesn't have them installed separately.
-- **Vault secrets**: Unbound vault secrets are not in the session env. When the system prompt shows a "Declarable Secrets" section, pass the needed secret names in the Bash tool `secrets` parameter for that one command. Never print secret values; use `stella vault audit --help` to inspect declared uses.
+- **Vault secrets**: Unbound vault secrets are not in the session env. When the system prompt shows a "Declarable Secrets" section, pass the needed secret names in the Bash tool `secrets` parameter for that one command. Never print secret values; use the `vault` tool or Web UI to inspect secret metadata and audit information.
 - **CLI OAuth (`gh` and `lark-cli`)**: When the user has connected their GitHub or Feishu/Lark account via Credentials → OAuth CLI Credentials, `gh` and `lark-cli` work directly in `bash` tool calls without any manual auth step. Stella injects a fresh runtime token at session start. The Lark CLI plugin's `brand` config selects Feishu or international Lark automatically; users do not need to duplicate that choice in the manifest. Note: Feishu/Lark user access tokens expire after ~2 hours; start a new session to refresh. If the user has not connected, `gh` and `lark-cli` are still on `PATH` but will require manual authentication.
 - **Plugins**: Stella now uses a unified plugin host. A plugin owns its config, runtime lifecycle, status, and capability registrations. Built-in capabilities currently cover tools (`webfetch`), channels (telegram, qq, feishu, weixin), hooks (rtk), providers (anthropic, openai, openai-response), memory (`lcm`, `simple`), and the standalone reflect runtime. Core tools (read/bash/edit/write/agent/memory) are always enabled and are not plugins. Skills and notify are optional plugins. The `reflect` plugin also reconciles its background review loop through the host while keeping the existing `reflect` settings row. The `telegram`, `qq`, `feishu`, and `weixin` channels all use the same host-backed config/runtime/status path while keeping their existing `channel/...` rows and `/channels` Web UI. Manage plugins through the Web UI.
 - **Observability**: Tracing is server-level infrastructure, not a plugin. The server logs all LLM calls, tool executions, and memory operations via slog, and traces inbound HTTP requests. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to also export OpenTelemetry traces using standard OTel env vars. Both OTLP/gRPC and OTLP/HTTP are supported, including auth headers via `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_EXPORTER_OTLP_TRACES_HEADERS`. Always include a scheme in the endpoint (for example `http://localhost:4317` or `https://collector.example.com/api/default`). No code changes needed -- just set the env vars and restart.

@@ -57,12 +57,16 @@ func (commandTestStore) ListProviders(context.Context) ([]config.Provider, error
 func (commandTestStore) GetProvider(context.Context, string) (config.Provider, error) {
 	return config.Provider{}, errors.New("not found")
 }
-func (commandTestStore) CreateProvider(context.Context, config.Provider) error     { return nil }
-func (commandTestStore) UpdateProvider(context.Context, config.Provider) error     { return nil }
-func (commandTestStore) DeleteProvider(context.Context, string) error              { return nil }
-func (commandTestStore) Seed(context.Context) error                                { return nil }
-func (commandTestStore) ListAgents(context.Context) ([]config.Agent, error)        { return nil, nil }
-func (commandTestStore) ListEnabledAgents(context.Context) ([]config.Agent, error) { return nil, nil }
+func (commandTestStore) CreateProvider(context.Context, config.Provider) error { return nil }
+func (commandTestStore) UpdateProvider(context.Context, config.Provider) error { return nil }
+func (commandTestStore) DeleteProvider(context.Context, string) error          { return nil }
+func (commandTestStore) ListCachedModels(context.Context) ([]config.CachedModel, error) {
+	return nil, nil
+}
+func (commandTestStore) ReplaceCachedModels(context.Context, string, []string) error { return nil }
+func (commandTestStore) Seed(context.Context) error                                  { return nil }
+func (commandTestStore) ListAgents(context.Context) ([]config.Agent, error)          { return nil, nil }
+func (commandTestStore) ListEnabledAgents(context.Context) ([]config.Agent, error)   { return nil, nil }
 func (commandTestStore) GetAgent(context.Context, string) (config.Agent, error) {
 	return config.Agent{}, nil
 }

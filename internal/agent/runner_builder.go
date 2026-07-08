@@ -49,7 +49,6 @@ type runnerBuilderConfig struct {
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SandboxBackendFn         func(ctx context.Context) string
 	VaultEnvLoader           sandbox.VaultEnvLoader
-	TokenEnsurer             sandbox.TokenEnsurer
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
 }
@@ -189,6 +188,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			hookPlugins = params.HooksFn()
 		}
 
+		sessionSecretValues := sandbox.NewSessionSecretValues()
 		sandboxCfg := sandbox.Config{
 			SandboxConfig:    cfg.Snap.Sandbox,
 			SandboxBackendFn: cfg.SandboxBackendFn,
@@ -198,15 +198,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				UserRoot:    userRoot,
 				ProjectRoot: projectRoot,
 			},
-			UserID:          params.UserID,
-			GroupID:         params.GroupID,
-			AgentID:         params.AgentID,
-			SessionID:       params.SessionID,
-			ProjectID:       params.ProjectID,
-			SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
-			VaultEnvLoader:  cfg.VaultEnvLoader,
-			TokenEnsurer:    cfg.TokenEnsurer,
-			TokenManager:    cfg.TokenManager,
+			UserID:              params.UserID,
+			GroupID:             params.GroupID,
+			AgentID:             params.AgentID,
+			SessionID:           params.SessionID,
+			ProjectID:           params.ProjectID,
+			SessionEnvSpecs:     append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
+			VaultEnvLoader:      cfg.VaultEnvLoader,
+			SessionSecretValues: sessionSecretValues,
+			TokenManager:        cfg.TokenManager,
 		}
 
 		builtinTools := append([]BuiltinTool(nil), cfg.BuiltinTools...)

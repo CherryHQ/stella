@@ -17,12 +17,16 @@ func (s *stubStore) ListProviders(context.Context) ([]config.Provider, error) { 
 func (s *stubStore) GetProvider(context.Context, string) (config.Provider, error) {
 	return config.Provider{}, nil
 }
-func (s *stubStore) CreateProvider(context.Context, config.Provider) error     { return nil }
-func (s *stubStore) UpdateProvider(context.Context, config.Provider) error     { return nil }
-func (s *stubStore) DeleteProvider(context.Context, string) error              { return nil }
-func (s *stubStore) Seed(context.Context) error                                { return nil }
-func (s *stubStore) ListAgents(context.Context) ([]config.Agent, error)        { return nil, nil }
-func (s *stubStore) ListEnabledAgents(context.Context) ([]config.Agent, error) { return nil, nil }
+func (s *stubStore) CreateProvider(context.Context, config.Provider) error { return nil }
+func (s *stubStore) UpdateProvider(context.Context, config.Provider) error { return nil }
+func (s *stubStore) DeleteProvider(context.Context, string) error          { return nil }
+func (s *stubStore) ListCachedModels(context.Context) ([]config.CachedModel, error) {
+	return nil, nil
+}
+func (s *stubStore) ReplaceCachedModels(context.Context, string, []string) error { return nil }
+func (s *stubStore) Seed(context.Context) error                                  { return nil }
+func (s *stubStore) ListAgents(context.Context) ([]config.Agent, error)          { return nil, nil }
+func (s *stubStore) ListEnabledAgents(context.Context) ([]config.Agent, error)   { return nil, nil }
 func (s *stubStore) ListAccessibleAgents(context.Context, string) ([]config.Agent, error) {
 	return nil, nil
 }

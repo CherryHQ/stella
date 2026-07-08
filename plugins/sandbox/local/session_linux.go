@@ -99,11 +99,10 @@ func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string)
 // user-data root. On Linux it is bind-mounted at the fixed path /user; "" host
 // path (a user-less job) yields no second root.
 func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	realRoot = policy.Filesystem.UserDataDir
-	if realRoot == "" {
-		return "", ""
+	if m, ok := mountBySandboxPath(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ok {
+		return sandboxpkg.MountUserData, m.HostPath
 	}
-	return sandboxpkg.MountUserData, realRoot
+	return "", ""
 }
 
 // createSessionTmpMounts returns host directories for each sandbox temp path.
@@ -156,8 +155,13 @@ func bwrapFunctional() bool {
 		if err != nil {
 			return
 		}
-		// Probe with a minimal sandbox that just runs true(1).
-		if exec.Command(p, "--dev-bind", "/", "/", "--", "true").Run() == nil {
+		// Probe with a minimal sandbox that just runs true(1), including the
+		// namespace isolation flags used by real execs.
+		args := []string{
+			"--unshare-pid", "--unshare-ipc", "--unshare-uts",
+			"--dev-bind", "/", "/", "--", "true",
+		}
+		if exec.Command(p, args...).Run() == nil {
 			bwrapPath = p
 			bwrapAvailable = true
 		}
@@ -196,18 +200,6 @@ func appendLinuxRuntimeMounts(args []string) []string {
 // On Linux (bwrap), it is remapped to /opt/stella.
 func adjustStellaHome(_ string) string { return sandboxStellaHome }
 
-func appendStellaHomeMounts(args []string, stellaHome string) []string {
-	if stellaHome == "" {
-		return args
-	}
-	for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
-		hostPath := filepath.Join(stellaHome, name)
-		sandboxPath := filepath.Join(sandboxStellaHome, name)
-		args = appendRoBindIfExists(args, hostPath, sandboxPath)
-	}
-	return args
-}
-
 func appendResolvedFileMount(args []string, path string) []string {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil || resolved == path {
@@ -241,13 +233,6 @@ func appendWritableBind(args []string, hostPath, sandboxPath string) []string {
 	return append(args, "--bind", hostPath, sandboxPath)
 }
 
-// remapToSandboxStellaHome rewrites a host path under STELLA_HOME to its
-// sandbox-view location (STELLA_HOME is remapped to /opt/stella).
-// Paths outside STELLA_HOME are returned unchanged.
-func remapToSandboxStellaHome(hostPath, stellaHomeHost string) string {
-	return remapStellaHomePath(hostPath, stellaHomeHost, sandboxStellaHome)
-}
-
 func appendDirParents(args []string, path string) []string {
 	parent := filepath.Clean(filepath.Dir(path))
 	if parent == "." || parent == string(filepath.Separator) {
@@ -262,6 +247,41 @@ func appendDirParents(args []string, path string) []string {
 		args = append(args, "--dir", dirs[i])
 	}
 	return args
+}
+
+func linuxPolicyMounts(policy sandboxpkg.Policy, stellaHomeHost string) []sandboxpkg.Mount {
+	mounts := append([]sandboxpkg.Mount(nil), policy.Filesystem.Mounts...)
+	if len(mounts) != 0 {
+		return mounts
+	}
+	mounts = append(mounts, sandboxpkg.Mount{
+		HostPath:    policy.WorkspaceRootOrDefault(),
+		SandboxPath: sandboxpkg.MountWorkspace,
+		Access:      sandboxpkg.MountReadWrite,
+	})
+	if stellaHomeHost != "" {
+		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
+			mounts = append(mounts, sandboxpkg.Mount{
+				HostPath:    filepath.Join(stellaHomeHost, name),
+				SandboxPath: filepath.Join(sandboxStellaHome, name),
+				Access:      sandboxpkg.MountReadOnly,
+			})
+		}
+	}
+	return mounts
+}
+
+func isCoveredByWritableMount(hostPath string, mounts []sandboxpkg.Mount) bool {
+	for _, m := range mounts {
+		if m.Access != sandboxpkg.MountReadWrite || filepath.Clean(m.HostPath) == filepath.Clean(hostPath) {
+			continue
+		}
+		rel, err := filepath.Rel(m.HostPath, hostPath)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // wrapCommand wraps name+args with bwrap for filesystem and optional network
@@ -279,11 +299,14 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	}
 
 	realRoot := policy.WorkspaceRootOrDefault()
-	_, userDataReal := resolveUserDataRoot(policy)
 	networkMode := policy.NetworkModeOrDefault()
+	mounts := linuxPolicyMounts(policy, stellaHomeHost)
 
 	bwrapArgs := []string{
 		"--die-with-parent",
+		"--unshare-pid",
+		"--unshare-ipc",
+		"--unshare-uts",
 		"--tmpfs", "/",
 		"--dev", "/dev",
 		"--tmpfs", "/dev/shm",
@@ -292,6 +315,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 		"--proc", "/proc",
 		"--dir", "/run",
 	}
+	// User namespace remapping and seccomp are deferred until they have real Linux coverage.
 	// Mount temp directories: bind each per-session host dir so file tools on
 	// the host share the same view as bash running inside bwrap.
 	// See createSessionTmpMounts for how to add a new temp path.
@@ -299,59 +323,42 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 		bwrapArgs = append(bwrapArgs, "--dir", m.sandboxPath, "--bind", m.realPath, m.sandboxPath)
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
-	bwrapArgs = appendStellaHomeMounts(bwrapArgs, stellaHomeHost)
-	// Agent-bound (system_agent) skills: read-only at a fixed path, so admin-managed
-	// skills bound to this agent stay loadable without leaking the host path.
-	if as := policy.Filesystem.AgentSkillsDir; as != "" {
-		bwrapArgs = appendRoBindIfExists(bwrapArgs, as, sandboxpkg.MountAgentSkills)
-	}
-	// DB-installed system skills: read-only at a fixed path, kept separate from the
-	// shipped built-ins so a system skill installed via Settings stays loadable.
-	if sd := policy.Filesystem.SystemDBSkillsDir; sd != "" {
-		bwrapArgs = appendRoBindIfExists(bwrapArgs, sd, sandboxpkg.MountSystemDBSkills)
-	}
-	// Extra writable mounts (e.g. an out-of-workspace per-principal cache), layered
-	// above the read-only system installs mounted by appendStellaHomeMounts: bind
-	// each at its STELLA_HOME-remapped sandbox path so writes land in the host tree.
-	// A mount inside the workspace is skipped — it is already writable through the
-	// realRoot -> /workspace bind below, and binding it again under the STELLA_HOME
-	// tree would only re-expose the host path to the agent (#442).
-	for _, writable := range policy.Filesystem.ExtraWritableMounts {
-		// Already writable through a top-level bind — skip the separate
-		// STELLA_HOME-style bind, which would re-expose the host path to the agent.
-		if remapToSandboxRoot(writable, realRoot, "/workspace") != writable {
-			continue // under /workspace
+	for _, m := range mounts {
+		if m.SandboxPath == sandboxpkg.MountWorkspace || m.SandboxPath == sandboxpkg.MountUserData {
+			continue
 		}
-		if userDataReal != "" && remapToSandboxRoot(writable, userDataReal, "/user") != writable {
-			continue // under /user (an extra writable mount inside the user-data root)
+		if m.Access == sandboxpkg.MountReadWrite && isCoveredByWritableMount(m.HostPath, mounts) {
+			continue
 		}
-		bwrapArgs = appendWritableBind(bwrapArgs, writable, remapToSandboxStellaHome(writable, stellaHomeHost))
+		if m.Access == sandboxpkg.MountReadOnly {
+			bwrapArgs = appendRoBindIfExists(bwrapArgs, m.HostPath, m.SandboxPath)
+			continue
+		}
+		bwrapArgs = appendWritableBind(bwrapArgs, m.HostPath, m.SandboxPath)
 	}
-	for _, extraPath := range policy.Filesystem.ExtraReadOnlyMounts {
-		bwrapArgs = appendRoBindIfExists(bwrapArgs, extraPath, extraPath)
+	workspaceMount, _ := mountBySandboxPath(mounts, sandboxpkg.MountWorkspace)
+	if workspaceMount.HostPath == "" {
+		workspaceMount = sandboxpkg.Mount{HostPath: realRoot, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}
 	}
 	bwrapArgs = append(bwrapArgs,
-		"--dir", "/workspace",
-		"--bind", realRoot, "/workspace",
+		"--dir", workspaceMount.SandboxPath,
+		"--bind", workspaceMount.HostPath, workspaceMount.SandboxPath,
 		"--chdir", sandboxCwd,
 	)
-	// Shared user-data root: bind the host UserDataDir writable at /user. Isolation
-	// is by non-mounting — realRoot is the per-agent dir, so sibling agents are
-	// never exposed and no tmpfs cover-up is needed (the #442 sibling-hiding hack
-	// is gone). /user is a deliberate shared writable root for all of the user's
-	// agents (caches, toolchain, uploads), not an isolation boundary.
-	if userDataReal != "" {
-		bwrapArgs = appendWritableBind(bwrapArgs, userDataReal, "/user")
+	if userMount, ok := mountBySandboxPath(mounts, sandboxpkg.MountUserData); ok {
+		bwrapArgs = appendWritableBind(bwrapArgs, userMount.HostPath, userMount.SandboxPath)
 	}
-	// Re-mount workspace-contained extra paths read-only at their /workspace/...
-	// equivalent. This overrides the writable workspace bind for those subdirectories
-	// so bash cannot write to them via /workspace.
-	for _, extraPath := range policy.Filesystem.ExtraReadOnlyMounts {
-		rel, relErr := filepath.Rel(realRoot, filepath.Clean(extraPath))
+	// Re-mount workspace-contained read-only paths at their /workspace/... equivalent.
+	// This overrides the writable workspace bind for those subdirectories.
+	for _, m := range mounts {
+		if m.Access != sandboxpkg.MountReadOnly {
+			continue
+		}
+		rel, relErr := filepath.Rel(workspaceMount.HostPath, filepath.Clean(m.HostPath))
 		if relErr != nil || strings.HasPrefix(rel, "..") || rel == "." {
 			continue
 		}
-		bwrapArgs = appendRoBindIfExists(bwrapArgs, extraPath, filepath.Join("/workspace", rel))
+		bwrapArgs = appendRoBindIfExists(bwrapArgs, m.HostPath, filepath.Join(workspaceMount.SandboxPath, rel))
 	}
 	if networkMode != sandboxpkg.NetworkAllowAll {
 		bwrapArgs = append(bwrapArgs, "--unshare-net")

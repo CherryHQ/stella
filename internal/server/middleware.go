@@ -26,21 +26,9 @@ type AuthInfo struct {
 	Name      string `json:"name,omitempty"`
 	AvatarURL string `json:"avatar_url,omitempty"`
 	// principal is the resolved bearer credential and the single carrier of its
-	// authz data (kind, scopes, and the scoped-token agent/session binding). nil
-	// for cookie/OIDC sessions (which skip API-scope enforcement).
+	// authz data (kind and scopes). nil for cookie/OIDC sessions (which skip
+	// API-scope enforcement).
 	principal *credential.Principal
-}
-
-// scopedBoundary reports the agent/session a sandbox scoped token is locked to.
-// ok is true only when this request is authenticated by a scoped token; handlers
-// use it for object-level checks (a scoped token may touch only its own agent /
-// session). PAT/OAuth and cookie principals are not agent-bound, so ok is false
-// and the handler's ordinary user-ownership checks apply instead.
-func (a *AuthInfo) scopedBoundary() (agentID, sessionID string, ok bool) {
-	if a == nil || a.principal == nil || a.principal.Kind != credential.KindScoped {
-		return "", "", false
-	}
-	return a.principal.AgentID, a.principal.SessionID, true
 }
 
 // UserFromContext extracts the AuthInfo from a request context.
@@ -91,12 +79,12 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Scoped bearers (PAT / OAuth / sandbox scoped tokens) carry a credential
-		// kind and go through the unified enforcement gate. Cookie/OIDC sessions
-		// have no kind and skip API-scope enforcement (handler ownership/admin
-		// checks still apply to them). /api/status is a public health endpoint
-		// (reachable anonymously above), so a valid but narrowly-scoped bearer
-		// must not get a 403 there where an anonymous caller gets 200.
+		// Bearer credentials (PAT / OAuth) carry a credential kind and go through
+		// the unified enforcement gate. Cookie/OIDC sessions have no kind and skip
+		// API-scope enforcement (handler ownership/admin checks still apply to
+		// them). /api/status is a public health endpoint (reachable anonymously
+		// above), so a valid but narrowly scoped bearer must not get a 403 there
+		// where an anonymous caller gets 200.
 		if info.principal != nil && path != "/api/status" {
 			if err := credential.Enforce(info.principal, r.Method, path); err != nil {
 				writeError(w, http.StatusForbidden, "permission denied")

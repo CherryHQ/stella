@@ -38,7 +38,7 @@ Channel response stream                                      LLM Provider
 ## 包布局
 
 ```
-cmd/stella/              入口点，CLI 命令，服务组装
+cmd/stellad/             入口点，服务器命令，服务组装
 internal/
   config/              Store 接口、DBStore（PostgreSQL）、Snapshot、类型
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件

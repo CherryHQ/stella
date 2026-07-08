@@ -7,7 +7,7 @@
 #   volume subpath mounts (requires Docker Engine 25+).
 #
 # Quick start:
-#   1. Set STELLA_VAULT_KEY (run `stella vault keygen`) and your API key in the
+#   1. Set STELLA_VAULT_KEY (run `stellad vault keygen`) and your API key in the
 #      environment or a .env file.
 #   2. Create the named volumes — they are external on purpose (see the volumes
 #      section), so create them once before the first `up`:
@@ -65,7 +65,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     env_file: ${STELLA_HOME:-${HOME}/.stella-dev}/.env
     environment:
-      # - STELLA_VAULT_KEY=${STELLA_VAULT_KEY:?set STELLA_VAULT_KEY first (run stella vault keygen)}
+      # - STELLA_VAULT_KEY=${STELLA_VAULT_KEY:?set STELLA_VAULT_KEY first (run stellad vault keygen)}
       # Authenticates the boot-time mise reconcile of builtin tools (avoids GitHub rate limits)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       # External PostgreSQL DSN -> use the postgres service instead of the managed embedded server

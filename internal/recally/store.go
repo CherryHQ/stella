@@ -588,6 +588,27 @@ func (s *Store) InsertArticleContentIfAbsent(ctx context.Context, articleID, con
 	return nil
 }
 
+// ArticleMissingContent identifies a legacy article whose body still lives only
+// in its disk mirror and has no recally_article_content row yet.
+type ArticleMissingContent struct {
+	ID       string
+	FilePath string
+}
+
+// ListArticlesMissingContent returns legacy articles that carry a file_path but
+// have no stored content row, so a startup job can copy their bodies into the DB.
+func (s *Store) ListArticlesMissingContent(ctx context.Context) ([]ArticleMissingContent, error) {
+	rows, err := s.q.ListArticlesMissingContent(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list articles missing content: %w", err)
+	}
+	out := make([]ArticleMissingContent, len(rows))
+	for i, r := range rows {
+		out[i] = ArticleMissingContent{ID: r.ID, FilePath: r.FilePath}
+	}
+	return out, nil
+}
+
 func (s *Store) GetArticleContent(ctx context.Context, articleID string) (string, bool, error) {
 	content, err := s.q.GetArticleContent(ctx, articleID)
 	if err != nil {

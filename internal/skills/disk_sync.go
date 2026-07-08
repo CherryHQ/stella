@@ -20,14 +20,16 @@ type PathResolver func(scope, agentID string, userID string) string
 //
 // Create ordering is disk-first: if the disk write fails the DB write is skipped
 // and the error is propagated. On crash after disk write but before DB write,
-// MigrateFilesystem at next startup re-imports the orphaned disk files.
+// the create is lost and the directory lingers as an inert orphan — nothing
+// re-imports disk files into the DB, and SyncAllToDisk only visits DB skills.
 //
 // Reflect patch ordering is DB-first because the expected-version check is only
 // authoritative inside the inner store's row lock. Disk is mirrored only after
 // the DB accepts the patch.
 //
-// For Delete, DB is removed first (disk after) to avoid orphaned skill
-// directories re-importing on next startup as if they were new skills.
+// For Delete, DB is removed first (disk after): a crash then leaves an inert
+// orphan directory, whereas disk-first would leave a live DB row that load
+// re-materializes — deleting the skill would silently fail.
 type DiskSyncStore struct {
 	Store
 	resolver PathResolver
@@ -119,8 +121,8 @@ func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) er
 	return d.Store.DeleteFile(ctx, skillID, path)
 }
 
-// Delete removes the DB row first, then removes the disk directory.
-// DB-first ordering prevents MigrateFilesystem from re-importing orphaned dirs.
+// Delete removes the DB row first, then removes the disk directory; a crash
+// in between leaves an inert orphan dir rather than a live, undeletable skill.
 func (d *DiskSyncStore) Delete(ctx context.Context, id string, vc ViewContext) error {
 	sk, err := d.findByID(ctx, id)
 	if err != nil {

@@ -215,19 +215,13 @@ When you log in through OIDC or OAuth, Stella links the account by the provider 
 - **Provider subject already linked** — Stella signs you in to that account. Your existing data (agents, conversations, vault secrets) is preserved.
 - **Provider subject not linked** — Stella creates a new account for you. The first user to register is automatically assigned the admin role; subsequent users get the regular user role.
 
-Admins can manage users, roles, and explicit login identity links from **Settings > Users** in the web UI or with `stellad auth link-user`.
+Admins can manage users, roles, and explicit login identity links from **Settings > Users** in the web UI.
 
 ## Upgrading an existing installation
 
 Stella automatically copies your existing users and channel identities into the new auth tables on first startup. No manual migration is needed.
 
-To attach an external login to an existing account, link the provider subject explicitly:
-
-```bash
-stellad auth link-user --user-id <id> --provider <provider> --provider-subject <subject> --email <your@email.com>
-```
-
-This creates an explicit login identity link for that user. A matching email alone is not enough to link accounts automatically.
+To attach an external login to an existing account, create an explicit login identity link from **Settings > Users**. A matching email alone is not enough to link accounts automatically.
 
 ## Security notes
 

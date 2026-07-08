@@ -126,18 +126,6 @@ func (r *ResilientSession) StartProcess(ctx context.Context, req ProcessRequest)
 	return s.StartProcess(ctx, req)
 }
 
-// RefreshEnv forwards an env update to the current inner session when it
-// supports refreshing. A recreated session is rebuilt with fresh env by its
-// creator, so only the live inner session needs the update.
-func (r *ResilientSession) RefreshEnv(updates map[string]string) {
-	r.mu.Lock()
-	s := r.inner
-	r.mu.Unlock()
-	if refresher, ok := s.(EnvRefresher); ok {
-		refresher.RefreshEnv(updates)
-	}
-}
-
 func (r *ResilientSession) ResolvePath(path string) (string, error) {
 	r.mu.Lock()
 	s := r.inner

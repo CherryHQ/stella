@@ -45,15 +45,11 @@ Use the same normalized URL for both `--guid` and `--url`.
 
 ## 5. Push entries (Go dedups)
 
-Entry insertion still runs through the CLI — the native `recally` tool does not
-expose it yet. Before adding feed entries, read the command help:
+Use `recally` with `action=entry_add`, `feed_id`, normalized item URL as both
+`guid` and `url`, and the link text or heading as `title`.
 
-```bash
-stella recally feed entry add --help
-```
-
-Add one feed entry per item using the feed ID, normalized item URL as both `guid` and URL, and the link text or heading as title. Prints `new` (inserted) or `dup` (guid already existed). Pushing extras is harmless;
-stop once you hit a run of `dup` if you want to save calls. `title` = the link text
+Add one feed entry per item. The result reports whether the entry was inserted or already existed. Pushing extras is harmless;
+stop once you hit a run of duplicate results if you want to save calls. `title` = the link text
 or the item's heading.
 
 ## 6. Process pending entries

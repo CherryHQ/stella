@@ -21,7 +21,6 @@ info:
     Go code is generated via configs in api/codegen/:
       - api/types/gen.go  — from api/spec/components.yaml
       - api/server/gen.go       — from this file
-      - api/client/gen.go       — from this file
     See the `generate:api` task in mise.toml.
   version: "1"
 servers:

@@ -22,23 +22,13 @@ Available templates:
 
 The subscription appears in your scheduled jobs list with a template badge (for example, `Subscription · recally-rss`). The prompt is platform-managed and read-only — if you want a fully custom prompt, create a regular scheduled job instead.
 
-### Subscribe via the CLI
+### Subscribe in conversation
 
-```bash
-# List available templates and check subscription status
-stella scheduler templates
+Ask Stella to create or remove the template subscription. Agents use the native scheduler tool, so you can say things like:
 
-# Subscribe (uses the template's default schedule)
-stella scheduler subscribe recally-rss
-
-# Subscribe with a custom schedule
-stella scheduler subscribe recally-rss --every 12h
-
-# Unsubscribe
-stella scheduler unsubscribe recally-rss
-```
-
-Run `stella scheduler subscribe --help` or `stella scheduler unsubscribe --help` for full flag details.
+- "Subscribe me to the Recally RSS template."
+- "Run the Recally RSS template every 12 hours."
+- "Unsubscribe me from the Recally RSS template."
 
 ### Subscribe via the API
 
@@ -98,40 +88,6 @@ Open an agent and choose the **Goals** tab; schedules appear there alongside goa
 - Enable or disable jobs
 - Edit job settings
 - Delete jobs
-
-### From the CLI
-
-```bash
-# List all scheduled jobs
-stella scheduler list
-
-# List jobs as JSON (useful for scripting)
-stella scheduler list --json
-
-# Add a recurring job (interval)
-stella scheduler add --name "email-check" \
-  --message "Check my email and summarize new messages" \
-  --every 30m
-
-# Add a recurring job (cron)
-stella scheduler add --name "morning-briefing" \
-  --message "Give me a morning briefing" \
-  --cron "0 9 * * 1-5"
-
-# Add a one-time reminder
-stella scheduler add --name "dentist-reminder" \
-  --message "Remind me to call the dentist" \
-  --at "2024-12-15T15:00:00+08:00"
-
-# Add a job with a specific session mode
-stella scheduler add --name "weather" \
-  --message "Check today's weather in Beijing" \
-  --every 24h \
-  --session-mode new
-
-# Remove a job
-stella scheduler remove <job-id>
-```
 
 ## Tips
 

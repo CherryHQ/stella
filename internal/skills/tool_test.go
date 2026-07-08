@@ -738,6 +738,61 @@ func TestLoadMaterializesDBSkillDir(t *testing.T) {
 	}
 }
 
+func TestLoadRefreshesStaleDBSkillDir(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	skillID, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "system_agent",
+		AgentID:     agentID,
+		Name:        "refresh-db-skill",
+		Description: "DB-backed agent skill",
+		Status:      "active",
+	}, map[string]string{
+		pkgplugins.SkillMainFile: "# Refresh DB Skill",
+		"scripts/run.sh":         "#!/bin/sh\necho old\n",
+		"notes/stale.md":         "remove me\n",
+	})
+	if err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	agentBase := t.TempDir()
+	tool := NewTool(store, "", "").WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
+	result, err := tool.load(ctx, map[string]any{"name": "refresh-db-skill"})
+	if err != nil {
+		t.Fatalf("first load skill: %v", err)
+	}
+	wantDir := filepath.Join(agentBase, "refresh-db-skill")
+	if !strings.Contains(result, "<skill_dir>"+wantDir+"</skill_dir>") {
+		t.Fatalf("skill_dir not emitted for materialized dir: %q", result)
+	}
+	if got, err := os.ReadFile(filepath.Join(wantDir, "scripts", "run.sh")); err != nil || string(got) != "#!/bin/sh\necho old\n" {
+		t.Fatalf("initial script = %q, %v", got, err)
+	}
+
+	if err := store.UpsertFile(ctx, skillID, "scripts/run.sh", "#!/bin/sh\necho fresh\n"); err != nil {
+		t.Fatalf("update script: %v", err)
+	}
+	if err := store.DeleteFile(ctx, skillID, "notes/stale.md"); err != nil {
+		t.Fatalf("delete stale file: %v", err)
+	}
+
+	result, err = tool.load(ctx, map[string]any{"name": "refresh-db-skill"})
+	if err != nil {
+		t.Fatalf("second load skill: %v", err)
+	}
+	if !strings.Contains(result, "<skill_dir>"+wantDir+"</skill_dir>") {
+		t.Fatalf("skill_dir not emitted after refresh: %q", result)
+	}
+	if got, err := os.ReadFile(filepath.Join(wantDir, "scripts", "run.sh")); err != nil || string(got) != "#!/bin/sh\necho fresh\n" {
+		t.Fatalf("refreshed script = %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(wantDir, "notes", "stale.md")); !os.IsNotExist(err) {
+		t.Fatalf("deleted DB file exists after refresh: %v", err)
+	}
+}
+
 func TestLoadOmitsSkillDirWhenMaterializeFails(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)

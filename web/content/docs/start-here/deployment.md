@@ -34,18 +34,17 @@ Download a pre-built binary from [GitHub Releases](https://github.com/CherryHQ/s
 # Example: Linux amd64
 curl -LO https://github.com/CherryHQ/stella/releases/latest/download/stella_linux_amd64.tar.gz
 tar xzf stella_linux_amd64.tar.gz
-chmod +x stella stellad
-sudo mv stella stellad /usr/local/bin/
+chmod +x stellad
+sudo mv stellad /usr/local/bin/
 ```
 
 ### Go
 
 ```bash
-go install github.com/CherryHQ/stella/cmd/stella@latest
 go install github.com/CherryHQ/stella/cmd/stellad@latest
 # or
 git clone https://github.com/CherryHQ/stella.git
-cd stella && go build -o stella ./cmd/stella/ && go build -o stellad ./cmd/stellad/
+cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 ```
 
 ## Run
@@ -66,7 +65,7 @@ stellad server --host 0.0.0.0 --port 8080  # bind to all interfaces
 ### Version and Self-Upgrade
 
 ```bash
-stella version
+stellad version
 stellad upgrade
 stellad upgrade 0.50.0                             # install a specific release
 stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
@@ -143,7 +142,7 @@ Images are published to `ghcr.io/cherryhq/stella` for `linux/amd64` and `linux/a
 
 Docker images require an external PostgreSQL 18 server with `pg_search` and `pgvector` installed. Set `STELLA_DATABASE_URL`; the embedded runtime download path is for non-Docker installs.
 
-First, run stella with `--port 8080` to configure it via the Web UI:
+First, run `stellad server` with `--port 8080` to configure it via the Web UI:
 
 ```bash
 docker run -it --rm \
@@ -225,6 +224,8 @@ All data lives under the stella home directory (`~/.stella` by default, configur
 
 The PostgreSQL data is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs. With the embedded cluster, back up the `~/.stella/postgres/` directory (with the server stopped); `~/.stella/pg-runtime/` is downloaded code and can be recreated. With an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database.
 
+For a full breakdown of which directories are durable data, derived cache, or scratch — and the volume and backup treatment each needs on Kubernetes or ephemeral disks — see [Storage & Durability](/docs/start-here/storage).
+
 ## Environment Variables
 
 Configuration is managed through the Web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
@@ -233,6 +234,12 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | ---------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `STELLA_HOME`                | No                        | Stella home directory (default `~/.stella`)                                                            |
 | `STELLA_DATABASE_URL`        | Docker: yes; otherwise no | External PostgreSQL connection URL; unset uses the embedded cluster under `STELLA_HOME` outside Docker |
+| `STELLA_BLOB_S3_ENDPOINT`    | No§                       | S3-compatible endpoint for the durable user-asset mirror                                               |
+| `STELLA_BLOB_S3_BUCKET`      | No§                       | Bucket for mirrored user-uploaded assets                                                               |
+| `STELLA_BLOB_S3_ACCESS_KEY`  | No§                       | Access key for the asset mirror                                                                        |
+| `STELLA_BLOB_S3_SECRET_KEY`  | No§                       | Secret key for the asset mirror                                                                        |
+| `STELLA_BLOB_S3_REGION`      | No                        | Optional S3 region                                                                                     |
+| `STELLA_BLOB_S3_USE_SSL`     | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                |
 | `ANTHROPIC_API_KEY`          | Yes\*                     | Anthropic provider key                                                                                 |
 | `OPENAI_API_KEY`             | Yes\*                     | OpenAI provider key                                                                                    |
 | `STELLA_VAULT_KEY`           | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                          |
@@ -246,13 +253,15 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 
 ‡ Required only when agents use the `docker` sandbox backend. Use `host` when stellad runs on the host, `bind` when stellad runs in Docker with a host bind mount, and `volume` when stellad runs in Docker with a named volume.
 
+§ Set all four required S3 mirror variables together, or leave all unset. Partial blob-store configuration fails startup.
+
 ## Health Check
 
 The daemon logs to stdout. Verify it is running:
 
 ```bash
 # Binary
-stella  # Logs appear in terminal
+stellad server  # Logs appear in terminal
 
 # Docker
 docker logs stella

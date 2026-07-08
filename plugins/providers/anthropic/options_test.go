@@ -1,6 +1,8 @@
 package anthropic
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -146,6 +148,51 @@ func TestConvertToolsWithRequired(t *testing.T) {
 	}
 	if len(out[0].OfTool.InputSchema.Required) != 1 {
 		t.Errorf("expected 1 required field, got %d", len(out[0].OfTool.InputSchema.Required))
+	}
+}
+
+// Multi-action tools describe per-action parameters inside a oneOf. The SDK's
+// typed schema only models properties/required/type, so oneOf must survive via
+// ExtraFields or Claude sees a tool with no usable parameters.
+func TestConvertToolsPreservesOneOf(t *testing.T) {
+	// Mirror a toolgen schema decoded via json.Unmarshal: arrays are []any.
+	tools := []ai.ToolDefinition{
+		{
+			Name: "goal",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"action": map[string]any{"enum": []any{"create", "list"}}},
+				"required":   []any{"action"},
+				"oneOf": []any{
+					map[string]any{
+						"properties": map[string]any{
+							"action": map[string]any{"const": "create"},
+							"title":  map[string]any{"type": "string"},
+						},
+						"required": []any{"action", "title"},
+					},
+				},
+			},
+		},
+	}
+	out := convertTools(tools)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(out))
+	}
+	// Top-level required must survive the []any coercion.
+	if got := out[0].OfTool.InputSchema.Required; len(got) != 1 || got[0] != "action" {
+		t.Errorf("required = %v, want [action]", got)
+	}
+	// oneOf (with the create branch's title) must reach the wire.
+	data, err := json.Marshal(out[0].OfTool.InputSchema)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"oneOf"`) {
+		t.Errorf("serialized schema dropped oneOf: %s", data)
+	}
+	if !strings.Contains(string(data), `"title"`) {
+		t.Errorf("serialized schema dropped per-action title: %s", data)
 	}
 }
 

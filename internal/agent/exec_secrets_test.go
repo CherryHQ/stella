@@ -34,9 +34,48 @@ func (v *fakeExecSecretVault) RecordExecSecretUse(_ context.Context, _ string, _
 	return nil
 }
 
-func TestNewExecSecretResolverWithoutVaultLoaderIsTrueNil(t *testing.T) {
+func TestNewExecSecretResolverWithoutVaultLoaderOrSessionSecretsIsTrueNil(t *testing.T) {
 	if r := newExecSecretResolver(agentsandbox.Config{}); r != nil {
 		t.Fatalf("resolver = %#v, want nil interface", r)
+	}
+}
+
+func TestNewExecSecretResolverWithSessionSecretsOnlyRedacts(t *testing.T) {
+	secretValues := agentsandbox.NewSessionSecretValues()
+	secretValues.Set([]string{"scoped-token"})
+	resolver := newExecSecretResolver(agentsandbox.Config{SessionSecretValues: secretValues})
+	if resolver == nil {
+		t.Fatal("resolver is nil, want redaction-only resolver")
+	}
+
+	values, err := resolver.SessionSecretValues(context.Background())
+	if err != nil {
+		t.Fatalf("SessionSecretValues: %v", err)
+	}
+	if len(values) != 1 || values[0] != "scoped-token" {
+		t.Fatalf("session secret values = %#v, want scoped token", values)
+	}
+	_, _, err = resolver.ResolveExecSecrets(context.Background(), []string{"A"}, "echo ok")
+	if err == nil || !strings.Contains(err.Error(), "not available") {
+		t.Fatalf("err = %v, want graceful unavailable error", err)
+	}
+}
+
+func TestExecSecretResolverGroupSessionStillReturnsRedactionValues(t *testing.T) {
+	secretValues := agentsandbox.NewSessionSecretValues()
+	secretValues.Set([]string{"group-scoped-token"})
+	resolver := newExecSecretResolver(agentsandbox.Config{UserID: "user-1", GroupID: "group-1", AgentID: "agent-1", VaultEnvLoader: &fakeExecSecretVault{}, SessionSecretValues: secretValues})
+
+	values, err := resolver.SessionSecretValues(context.Background())
+	if err != nil {
+		t.Fatalf("SessionSecretValues: %v", err)
+	}
+	if len(values) != 1 || values[0] != "group-scoped-token" {
+		t.Fatalf("session secret values = %#v, want group scoped token", values)
+	}
+	_, _, err = resolver.ResolveExecSecrets(context.Background(), []string{"A"}, "echo ok")
+	if err == nil || !strings.Contains(err.Error(), "group sessions") {
+		t.Fatalf("err = %v, want group session rejection", err)
 	}
 }
 

@@ -18,14 +18,48 @@ import (
 
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
 	principalDir, id := misePrincipal(cfg)
-	return pkgsandbox.FilesystemPolicy{
-		WorkspaceRoot:     paths.WorkspaceRoot,
-		WorkingDir:        paths.WorkDir,
-		UserDataDir:       userDataDirHost(paths, cfg),
-		AgentSkillsDir:    agentSkillsDirHost(paths),
-		SystemDBSkillsDir: systemDBSkillsDirHost(paths),
-		TempDirHost:       userTempDir(principalDir, id),
+	mounts := []pkgsandbox.Mount{
+		{HostPath: paths.WorkspaceRoot, SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite},
 	}
+	if userData := userDataDirHost(paths, cfg); userData != "" {
+		mounts = append(mounts, pkgsandbox.Mount{HostPath: userData, SandboxPath: pkgsandbox.MountUserData, Access: pkgsandbox.MountReadWrite})
+	}
+	for _, name := range pkgsandbox.StellaHomeSandboxDirs() {
+		mounts = append(mounts, pkgsandbox.Mount{
+			HostPath:    filepath.Join(paths.StellaHome, name),
+			SandboxPath: filepath.Join(pkgsandbox.MountStellaHome, name),
+			Access:      pkgsandbox.MountReadOnly,
+		})
+	}
+	if agentSkills := agentSkillsDirHost(paths); agentSkills != "" {
+		mounts = append(mounts, pkgsandbox.Mount{HostPath: agentSkills, SandboxPath: pkgsandbox.MountAgentSkills, Access: pkgsandbox.MountReadOnly})
+	}
+	if systemSkills := systemDBSkillsDirHost(paths); systemSkills != "" {
+		mounts = append(mounts, pkgsandbox.Mount{HostPath: systemSkills, SandboxPath: pkgsandbox.MountSystemDBSkills, Access: pkgsandbox.MountReadOnly})
+	}
+	if miseDir := miseUserDirHost(paths, cfg); miseDir != "" {
+		mounts = append(mounts, pkgsandbox.Mount{
+			HostPath:    miseDir,
+			SandboxPath: remapStellaHomePolicyPath(miseDir, paths.StellaHome),
+			Access:      pkgsandbox.MountReadWrite,
+		})
+	}
+	return pkgsandbox.FilesystemPolicy{
+		WorkspaceRoot: paths.WorkspaceRoot,
+		WorkingDir:    paths.WorkDir,
+		Mounts:        mounts,
+		TempDirHost:   userTempDir(principalDir, id),
+	}
+}
+
+func remapStellaHomePolicyPath(hostPath, stellaHome string) string {
+	if hostPath == stellaHome {
+		return pkgsandbox.MountStellaHome
+	}
+	if strings.HasPrefix(hostPath, stellaHome+string(filepath.Separator)) {
+		return pkgsandbox.MountStellaHome + hostPath[len(stellaHome):]
+	}
+	return hostPath
 }
 
 // systemDBSkillsDirHost returns the host path of the DB-installed system-scope
@@ -68,11 +102,11 @@ func userDataDirHost(paths Paths, cfg Config) string {
 // bridge per-user tree -> system tree resolve identically on host and in the
 // sandbox. Putting it under the /user-mounted user-data root instead would split
 // the two trees across separate sandbox roots (/user vs /opt/stella) and dangle
-// those symlinks (#505). The cost is one dedicated writable bind, wired via
-// ExtraWritableMounts. Returns "" when there is no per-user tree: no principal, or
-// an ID that fails the safe-path-component check (the session then falls back to
-// the shared read-only system tree). A downgrade from an unsafe ID is logged so a
-// malformed ID is diagnosable.
+// those symlinks (#505). The policy builder emits it as one dedicated writable
+// Mount. Returns "" when there is no per-user tree: no principal, or an ID that
+// fails the safe-path-component check (the session then falls back to the shared
+// read-only system tree). A downgrade from an unsafe ID is logged so a malformed
+// ID is diagnosable.
 func miseUserDirHost(paths Paths, cfg Config) string {
 	principalDir, id := misePrincipal(cfg)
 	dir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)
@@ -131,6 +165,9 @@ func userTempDir(principalDir, id string) string {
 // (e.g. STELLA_HOME) always take precedence over user-defined secrets.
 func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]string, error) {
 	env := make(map[string]string)
+	var vaultEnv map[string]string
+	sessionSecretEnv := make(map[string]string)
+	cfg.SessionSecretValues.Set(nil)
 
 	// Group sessions never load human vault secrets (D9 isolation).
 	if cfg.GroupID == "" && cfg.VaultEnvLoader != nil {
@@ -144,6 +181,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 				"error", err,
 			)
 		} else {
+			vaultEnv = ve
 			maps.Copy(env, ve)
 		}
 	}
@@ -155,24 +193,14 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	delete(env, oauth.VaultKeyLark)
 	delete(env, oauth.VaultKeyFeishu)
 	if cfg.GroupID == "" {
-		if err := injectSessionEnv(ctx, cfg, env); err != nil {
+		if err := injectSessionEnv(ctx, cfg, env, sessionSecretEnv); err != nil {
 			return nil, err
 		}
 	}
 
-	if shouldInjectScopedToken(cfg) {
-		tokenUserID := cfg.UserID
-		if cfg.GroupID != "" {
-			tokenUserID = "group:" + cfg.GroupID
-		}
-		tok, err := cfg.TokenEnsurer.CreateScopedToken(ctx, tokenUserID, cfg.AgentID, cfg.SessionID, cfg.ProjectID)
-		if err != nil {
-			return nil, err
-		}
-		env["STELLA_TOKEN"] = tok
-	} else {
-		delete(env, "STELLA_TOKEN")
-	}
+	// The scoped sandbox token is retired; nothing may smuggle a value in
+	// under its old name (e.g. a pre-validation vault row).
+	delete(env, "STELLA_TOKEN")
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, ProcessEnv(paths))
@@ -184,17 +212,44 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// (translateEnvPaths), while local/none use them via the host PATH or bwrap
 	// remap — so an agent sees identical mise paths whichever backend runs it.
 	maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, miseUserDirHost(paths, cfg), paths.WorkspaceRoot))
+	recordSessionSecretValues(cfg.SessionSecretValues, env, vaultEnv, sessionSecretEnv)
 
 	return env, nil
 }
 
-func shouldInjectScopedToken(cfg Config) bool {
-	hasIdentity := cfg.UserID != "" || cfg.GroupID != ""
-	return cfg.TokenEnsurer != nil && hasIdentity && cfg.AgentID != ""
+func recordSessionSecretValues(target *SessionSecretValues, env map[string]string, vaultEnv map[string]string, sessionSecretEnv map[string]string) {
+	if target == nil {
+		return
+	}
+	values := make([]string, 0, len(vaultEnv)+len(sessionSecretEnv))
+	seen := make(map[string]struct{}, len(vaultEnv)+len(sessionSecretEnv))
+	addValue := func(value string) {
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	for key, value := range vaultEnv {
+		if env[key] != value {
+			continue
+		}
+		addValue(value)
+	}
+	for key, value := range sessionSecretEnv {
+		if env[key] != value {
+			continue
+		}
+		addValue(value)
+	}
+	target.Set(values)
 }
 
 // injectSessionEnv resolves plugin SessionEnvSpecs into env.
-func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string) error {
+func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, secretEnv map[string]string) error {
 	// oauthBundles caches loaded bundles per provider to avoid redundant vault hits.
 	oauthBundles := make(map[string]*oauth.OAuthBundle)
 	for _, spec := range cfg.SessionEnvSpecs {
@@ -272,9 +327,21 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string) er
 		}
 		if value != "" {
 			env[spec.EnvVar] = value
+			if oauthSessionEnvFieldSecret(field) {
+				secretEnv[spec.EnvVar] = value
+			}
 		} else if spec.Required {
 			return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 		}
 	}
 	return nil
+}
+
+func oauthSessionEnvFieldSecret(field string) bool {
+	switch field {
+	case "access_token", "refresh_token", "client_id":
+		return true
+	default:
+		return false
+	}
 }

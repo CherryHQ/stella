@@ -15,7 +15,6 @@ brew install CherryHQ/tap/stella
 **Go install:**
 
 ```bash
-go install github.com/CherryHQ/stella/cmd/stella@latest
 go install github.com/CherryHQ/stella/cmd/stellad@latest
 ```
 

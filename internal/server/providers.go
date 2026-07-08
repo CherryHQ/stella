@@ -138,7 +138,7 @@ func (s *Server) ListProviderModels(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]any{"models": s.mergedProviderModels(provider)})
+	writeData(w, http.StatusOK, map[string]any{"models": s.mergedProviderModels(r.Context(), provider)})
 }
 
 func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id string) {
@@ -214,7 +214,9 @@ func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id 
 
 	// Update models cache: replace fetched entries for this provider, but keep
 	// user-added provider config models separate so fetches never overwrite them.
-	s.updateModelsCache(id, modelIDs)
+	if err := s.store.ReplaceCachedModels(r.Context(), id, modelIDs); err != nil {
+		s.log.Warn("failed to update models cache", "provider", id, "error", err)
+	}
 
 	providerCfg, err = s.store.GetProvider(r.Context(), id)
 	if err != nil {
@@ -222,10 +224,10 @@ func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]any{"models": s.mergedProviderModels(providerCfg)})
+	writeData(w, http.StatusOK, map[string]any{"models": s.mergedProviderModels(r.Context(), providerCfg)})
 }
 
-func (s *Server) mergedProviderModels(provider config.Provider) []providerModelItem {
+func (s *Server) mergedProviderModels(ctx context.Context, provider config.Provider) []providerModelItem {
 	items := make(map[string]providerModelItem)
 	for id, cfg := range provider.Models {
 		name := cfg.Name
@@ -241,21 +243,22 @@ func (s *Server) mergedProviderModels(provider config.Provider) []providerModelI
 		}
 	}
 
-	cache, err := config.LoadModelsCache()
-	if err == nil {
-		for _, model := range cache.Models {
-			if model.Provider != provider.ID {
-				continue
-			}
-			if _, exists := items[model.Model]; exists {
-				continue
-			}
-			items[model.Model] = providerModelItem{
-				ID:      model.Model,
-				Name:    model.Model,
-				Source:  "fetched",
-				Enabled: true,
-			}
+	cached, err := s.store.ListCachedModels(ctx)
+	if err != nil {
+		s.log.Warn("failed to load cached models", "provider", provider.ID, "error", err)
+	}
+	for _, model := range cached {
+		if model.Provider != provider.ID {
+			continue
+		}
+		if _, exists := items[model.Model]; exists {
+			continue
+		}
+		items[model.Model] = providerModelItem{
+			ID:      model.Model,
+			Name:    model.Model,
+			Source:  "fetched",
+			Enabled: true,
 		}
 	}
 
@@ -270,32 +273,6 @@ func (s *Server) mergedProviderModels(provider config.Provider) []providerModelI
 		return out[i].ID < out[j].ID
 	})
 	return out
-}
-
-// updateModelsCache merges fetched models for a provider into the cache file.
-func (s *Server) updateModelsCache(providerID string, modelIDs []string) {
-	cache, err := config.LoadModelsCache()
-	if err != nil {
-		cache = &config.ModelsCache{}
-	}
-
-	// Remove old entries for this provider, then add new ones.
-	filtered := cache.Models[:0]
-	for _, m := range cache.Models {
-		if m.Provider != providerID {
-			filtered = append(filtered, m)
-		}
-	}
-	for _, id := range modelIDs {
-		filtered = append(filtered, config.CachedModel{Provider: providerID, Model: id})
-	}
-
-	cache.Models = filtered
-	cache.UpdatedAt = time.Now().UTC()
-
-	if err := config.SaveModelsCache(cache); err != nil {
-		s.log.Warn("failed to update models cache", "error", err)
-	}
 }
 
 func (s *Server) ListProviderTypes(w http.ResponseWriter, r *http.Request) {

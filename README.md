@@ -42,7 +42,7 @@ stellad server
 # 4. Open Chat and start talking
 ```
 
-You can also install with `go install github.com/CherryHQ/stella/cmd/stella@latest && go install github.com/CherryHQ/stella/cmd/stellad@latest` or download binaries from [Releases](https://github.com/CherryHQ/stella/releases).
+You can also install with `go install github.com/CherryHQ/stella/cmd/stellad@latest` or download binaries from [Releases](https://github.com/CherryHQ/stella/releases).
 
 See the [full quickstart guide](web/content/docs/getting-started/quickstart.md) for detailed steps.
 
@@ -80,9 +80,9 @@ stellad server                          # Start server; Web UI at http://localho
 stellad server --port 8080              # Custom port
 stellad upgrade                         # Self-update to latest release
 stellad upgrade 0.50.0                   # Self-update to a specific release
-stella scheduler list                   # List scheduled jobs
-stella vault list                       # List stored secrets and injection bindings
-stella version                          # Print version
+stellad version                         # Print version
+stellad vault keygen                    # Generate a vault bootstrap key
+stellad mise reconcile-builtins         # Reconcile builtin sandbox tools
 ```
 
 ## Development

@@ -55,7 +55,7 @@ func (s *Service) resolvePAT(ctx context.Context, raw string) (*Principal, error
 		Role:      ident.Role,
 		// Phase 1: PATs never carry admin. Least privilege -- handler admin gates
 		// (requireAdmin) fail closed for PATs, and admin routes are not exposed to
-		// scoped bearers anyway.
+		// bearer credentials anyway.
 		IsAdmin: false,
 	}, nil
 }

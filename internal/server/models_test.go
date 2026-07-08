@@ -25,10 +25,6 @@ func setupAdminStore(t *testing.T) testEnv {
 }
 
 func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) {
-	config.ResetStellaHome()
-	t.Setenv("STELLA_HOME", t.TempDir())
-	t.Cleanup(config.ResetStellaHome)
-
 	env := setupAdminStore(t)
 	ctx := context.Background()
 
@@ -57,13 +53,11 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("CreateProvider(anthropic): %v", err)
 	}
-	if err := config.SaveModelsCache(&config.ModelsCache{Models: []config.CachedModel{
-		{Provider: "openai", Model: "gpt-4.1"},
-		{Provider: "openai", Model: "qwen3.6-plus"},
-		{Provider: "openai", Model: "disabled-fetched"},
-		{Provider: "anthropic", Model: "claude-sonnet-4-6"},
-	}}); err != nil {
-		t.Fatalf("SaveModelsCache: %v", err)
+	if err := env.store.ReplaceCachedModels(ctx, "openai", []string{"gpt-4.1", "qwen3.6-plus", "disabled-fetched"}); err != nil {
+		t.Fatalf("ReplaceCachedModels(openai): %v", err)
+	}
+	if err := env.store.ReplaceCachedModels(ctx, "anthropic", []string{"claude-sonnet-4-6"}); err != nil {
+		t.Fatalf("ReplaceCachedModels(anthropic): %v", err)
 	}
 
 	server := &Server{store: env.store}
@@ -117,5 +111,51 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 
 	if len(got) != len(wantPresent) {
 		t.Fatalf("model count = %d, want %d (%v)", len(got), len(wantPresent), models)
+	}
+}
+
+// TestReplaceCachedModelsIsPerProvider proves the durable cache keeps the disk
+// cache's merge semantics: a second "fetch" replaces only its provider's model
+// set (stale IDs drop out), and never touches another provider's cached models.
+func TestReplaceCachedModelsIsPerProvider(t *testing.T) {
+	env := setupAdminStore(t)
+	ctx := context.Background()
+
+	if err := env.store.ReplaceCachedModels(ctx, "anthropic", []string{"claude-sonnet-4-6"}); err != nil {
+		t.Fatalf("ReplaceCachedModels(anthropic): %v", err)
+	}
+	// First fetch for openai.
+	if err := env.store.ReplaceCachedModels(ctx, "openai", []string{"gpt-4.1", "stale"}); err != nil {
+		t.Fatalf("ReplaceCachedModels(openai) first: %v", err)
+	}
+	// Second fetch replaces the openai set: "stale" is gone, "gpt-4.2" is new.
+	if err := env.store.ReplaceCachedModels(ctx, "openai", []string{"gpt-4.1", "gpt-4.2"}); err != nil {
+		t.Fatalf("ReplaceCachedModels(openai) second: %v", err)
+	}
+
+	cached, err := env.store.ListCachedModels(ctx)
+	if err != nil {
+		t.Fatalf("ListCachedModels: %v", err)
+	}
+	got := make(map[string]bool, len(cached))
+	for _, m := range cached {
+		got[m.Provider+"/"+m.Model] = true
+	}
+
+	want := map[string]bool{
+		"anthropic/claude-sonnet-4-6": true,
+		"openai/gpt-4.1":              true,
+		"openai/gpt-4.2":              true,
+	}
+	for key := range want {
+		if !got[key] {
+			t.Errorf("expected %q in cache", key)
+		}
+	}
+	if got["openai/stale"] {
+		t.Errorf("stale openai model should have been replaced")
+	}
+	if len(got) != len(want) {
+		t.Fatalf("cached count = %d, want %d (%v)", len(got), len(want), cached)
 	}
 }

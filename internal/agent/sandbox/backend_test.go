@@ -378,19 +378,22 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 		t.Fatalf("Set OTHER_SECRET: %v", err)
 	}
 
+	secretValues := NewSessionSecretValues()
 	cfg := Config{
 		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
 		},
-		UserID:         userID,
-		AgentID:        "a1",
-		VaultEnvLoader: store,
-		TokenManager:   tm,
+		UserID:              userID,
+		AgentID:             "a1",
+		VaultEnvLoader:      store,
+		SessionSecretValues: secretValues,
+		TokenManager:        tm,
 		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
 			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
 			{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "lark"},
+			{EnvVar: "LARKSUITE_CLI_REFRESH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.refresh_token"), OAuthProviderID: "lark"},
 			{EnvVar: "LARKSUITE_CLI_APP_ID", Source: pkgplugins.SessionEnvSource("oauth.client_id"), OAuthProviderID: "lark"},
 			{EnvVar: "LARKSUITE_CLI_BRAND", Source: pkgplugins.SessionEnvSource("oauth.brand"), OAuthProviderID: "lark"},
 		},
@@ -417,6 +420,9 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	if got := env["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; got != "lark_access_token" {
 		t.Fatalf("LARKSUITE_CLI_USER_ACCESS_TOKEN = %q, want %q", got, "lark_access_token")
 	}
+	if got := env["LARKSUITE_CLI_REFRESH_TOKEN"]; got != "lark_refresh_token" {
+		t.Fatalf("LARKSUITE_CLI_REFRESH_TOKEN = %q, want %q", got, "lark_refresh_token")
+	}
 	if got := env["LARKSUITE_CLI_APP_ID"]; got != "lark_app_id" {
 		t.Fatalf("LARKSUITE_CLI_APP_ID = %q, want %q", got, "lark_app_id")
 	}
@@ -426,6 +432,10 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	if got := env["OTHER_SECRET"]; got != "still-present" {
 		t.Fatalf("OTHER_SECRET = %q, want %q", got, "still-present")
 	}
+	requireSessionSecretValues(t, secretValues.Values(),
+		[]string{"still-present", "ghp_runtime_token", "lark_access_token", "lark_refresh_token", "lark_app_id"},
+		[]string{"feishu", "/stella"},
+	)
 }
 
 func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {

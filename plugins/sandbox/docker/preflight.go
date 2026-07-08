@@ -56,17 +56,8 @@ func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *docke
 		return fmt.Errorf("docker preflight: daemon not reachable: %w", err)
 	}
 
-	exists, err := client.ImageExists(ctx, cfg.Docker.Image)
-	if err != nil {
-		return fmt.Errorf("docker preflight: check image %q: %w", cfg.Docker.Image, err)
-	}
-
-	if exists {
-		return nil
-	}
-
-	if err := client.PullImage(ctx, cfg.Docker.Image); err != nil {
-		return fmt.Errorf("docker preflight: pull image %q: %w", cfg.Docker.Image, err)
+	if err := client.EnsureImageReady(ctx, cfg.Docker.Image, "preflight"); err != nil {
+		return fmt.Errorf("docker preflight: %w", err)
 	}
 
 	return nil

@@ -6,7 +6,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/credential"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -96,39 +95,6 @@ func patRecordFromRow(r sqlc.PersonalAccessToken) credential.PATRecord {
 		LastUsedAt: ptrFromTimestamptz(r.LastUsedAt),
 		RevokedAt:  ptrFromTimestamptz(r.RevokedAt),
 		CreatedAt:  r.CreatedAt.UTC(),
-	}
-}
-
-// tokenBackend adapts the existing TokenService to credential.TokenBackend so
-// sandbox scoped-token verification stays untouched.
-type tokenBackend struct {
-	svc *auth.TokenService
-}
-
-func (b tokenBackend) AuthenticateScoped(ctx context.Context, rawToken string) (credential.ScopedResult, error) {
-	u, claims, err := b.svc.AuthenticateScoped(ctx, rawToken)
-	if err != nil {
-		return credential.ScopedResult{}, err
-	}
-	return credential.ScopedResult{
-		Identity:  identityFromUser(u, false),
-		AgentID:   claims.AgentID,
-		SessionID: claims.SessionID,
-		ProjectID: claims.ProjectID,
-		Scopes:    claims.Scopes,
-	}, nil
-}
-
-func identityFromUser(u auth.User, isAdmin bool) credential.Identity {
-	return credential.Identity{
-		UserID:    u.ID,
-		Username:  u.Email,
-		Email:     u.Email,
-		Name:      u.Name,
-		AvatarURL: u.AvatarURL,
-		Role:      u.Role,
-		IsAdmin:   isAdmin,
-		IsActive:  u.IsActive,
 	}
 }
 

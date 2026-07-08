@@ -64,83 +64,30 @@ func TestWithServerURL(t *testing.T) {
 }
 
 func TestBuildMountTable(t *testing.T) {
-	stellaHome := t.TempDir()
-	for _, name := range []string{"bin", ".mise-tools", filepath.Join(".agents", "skills")} {
-		if err := os.MkdirAll(filepath.Join(stellaHome, name), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	table := buildMountTable(mountTableOptions{
-		WorkspaceHost:       "/host/ws",
-		WorkspaceMount:      "/container/ws",
-		StellaHomeHost:      stellaHome,
-		StellaHomeContainer: "/home/stella/.stella",
-	})
-	// bin and .mise-tools are image-provided (linux), never host-mounted, so the
-	// process view carries only the workspace and the host-supplied skills.
-	if len(table) != 2 {
-		t.Fatalf("expected 2 entries, got %d: %+v", len(table), table)
-	}
-	if table[0].HostPath != "/host/ws" || table[0].ContainerPath != "/container/ws" {
-		t.Fatalf("unexpected workspace mount: %+v", table[0])
-	}
-	if table[0].ReadOnly {
-		t.Fatal("workspace should be read-write")
-	}
-	if table[1].HostPath != filepath.Join(stellaHome, ".agents/skills") || table[1].ContainerPath != "/home/stella/.stella/.agents/skills" || !table[1].ReadOnly {
-		t.Fatalf("unexpected stella skills mount: %+v", table[1])
-	}
-	for _, m := range table {
-		if strings.HasSuffix(m.ContainerPath, "/bin") || strings.HasSuffix(m.ContainerPath, "/.mise-tools") {
-			t.Fatalf("image-provided dir must not be host-mounted: %+v", m)
-		}
-	}
-	// Verify that missing subdirs are skipped — a home with only bin (image-provided)
-	// yields just the workspace.
-	partialHome := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(partialHome, "bin"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	tablePartial := buildMountTable(mountTableOptions{
-		WorkspaceHost:       "/host/ws",
-		WorkspaceMount:      "/container/ws",
-		StellaHomeHost:      partialHome,
-		StellaHomeContainer: "/home/stella/.stella",
-	})
-	// workspace only (bin is image-provided, no .agents/skills)
-	if len(tablePartial) != 1 {
-		t.Fatalf("expected 1 entry for partial stella home, got %d", len(tablePartial))
-	}
-
-	// With a user-data root, /user appears RW right after the workspace.
-	tableUser := buildMountTable(mountTableOptions{
 		WorkspaceHost:  "/host/ws",
 		WorkspaceMount: "/container/ws",
-		UserDataHost:   "/host/data",
-		UserDataMount:  "/user",
+		Mounts: []sandboxpkg.Mount{
+			{HostPath: "/host/ws", SandboxPath: "/container/ws", Access: sandboxpkg.MountReadWrite},
+			{HostPath: "/host/data", SandboxPath: "/user", Access: sandboxpkg.MountReadWrite},
+			{HostPath: "/extra/path", SandboxPath: "/extra/path", Access: sandboxpkg.MountReadOnly},
+		},
+		TempDirHost: "/tmp/user-1",
 	})
-	if len(tableUser) != 2 {
-		t.Fatalf("expected workspace + user entries, got %d", len(tableUser))
+	if len(table) != 4 {
+		t.Fatalf("expected 4 entries, got %d: %+v", len(table), table)
 	}
-	if tableUser[1].HostPath != "/host/data" || tableUser[1].ContainerPath != "/user" || tableUser[1].ReadOnly {
-		t.Fatalf("unexpected user-data mount: %+v", tableUser[1])
+	if table[0].HostPath != "/host/ws" || table[0].ContainerPath != "/container/ws" || table[0].ReadOnly {
+		t.Fatalf("unexpected workspace mount: %+v", table[0])
 	}
-
-	tableExtra := buildMountTable(mountTableOptions{
-		WorkspaceHost:       "/host/ws",
-		WorkspaceMount:      "/container/ws",
-		ExtraReadOnlyMounts: []string{"/extra/path"},
-		TempDirHost:         "/tmp/user-1",
-	})
-	if len(tableExtra) != 3 {
-		t.Fatalf("expected 3 entries with extra and tmp, got %d", len(tableExtra))
+	if table[1].HostPath != "/host/data" || table[1].ContainerPath != "/user" || table[1].ReadOnly {
+		t.Fatalf("unexpected user-data mount: %+v", table[1])
 	}
-	if tableExtra[1].HostPath != "/extra/path" || tableExtra[1].ContainerPath != "/extra/path" || !tableExtra[1].ReadOnly {
-		t.Fatalf("unexpected extra mount: %+v", tableExtra[1])
+	if table[2].HostPath != "/extra/path" || table[2].ContainerPath != "/extra/path" || !table[2].ReadOnly {
+		t.Fatalf("unexpected extra mount: %+v", table[2])
 	}
-	if tableExtra[2].HostPath != "/tmp/user-1" || tableExtra[2].ContainerPath != "/tmp" || tableExtra[2].ReadOnly {
-		t.Fatalf("unexpected tmp mount: %+v", tableExtra[2])
+	if table[3].HostPath != "/tmp/user-1" || table[3].ContainerPath != "/tmp" || table[3].ReadOnly {
+		t.Fatalf("unexpected tmp mount: %+v", table[3])
 	}
 }
 
@@ -241,7 +188,7 @@ func TestConfigureSessionMounts_HostMode(t *testing.T) {
 	if mountedTmp != tmp {
 		t.Fatalf("mounted tmp = %q, want %q", mountedTmp, tmp)
 	}
-	if len(mountedExtra) != 1 || mountedExtra[0] != extra {
+	if len(mountedExtra) < 2 || mountedExtra[1].HostPath != extra {
 		t.Fatalf("mounted extra = %v, want [%q]", mountedExtra, extra)
 	}
 	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
@@ -269,7 +216,7 @@ func TestConfigureSessionMounts_BindModeTranslatesSources(t *testing.T) {
 	if mountedTmp != "" {
 		t.Fatalf("tmp outside STELLA_HOME should be skipped in bind mode, got %q", mountedTmp)
 	}
-	if len(mountedExtra) != 1 || mountedExtra[0] != extra {
+	if len(mountedExtra) < 2 || mountedExtra[1].HostPath != extra {
 		t.Fatalf("mounted extra = %v, want [%q]", mountedExtra, extra)
 	}
 	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
@@ -283,7 +230,7 @@ func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
 	opts := dockerModeCreateOptions(workspace)
 	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
-	policy.Filesystem.ExtraReadOnlyMounts = append(policy.Filesystem.ExtraReadOnlyMounts, outsideExtra)
+	policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: outsideExtra, SandboxPath: outsideExtra, Access: sandboxpkg.MountReadOnly})
 	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, policy, workspace, "")
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
@@ -294,7 +241,7 @@ func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
 	if mountedTmp != "" {
 		t.Fatalf("volume mode should not mount process-view tmp, got %q", mountedTmp)
 	}
-	if len(mountedExtra) != 1 || mountedExtra[0] != extra {
+	if len(mountedExtra) < 2 || mountedExtra[1].HostPath != extra {
 		t.Fatalf("mounted extra = %v, want only [%q]", mountedExtra, extra)
 	}
 	assertMount(t, opts.ExtraMounts, "stella-data", workspaceMount, false, dockerclient.MountTypeVolume, "users/user")
@@ -377,7 +324,7 @@ func TestMountPerUserToolTrees(t *testing.T) {
 	stellaHome := t.TempDir()
 	miseDir := filepath.Join(stellaHome, "users", "u1", ".mise-tools")
 	want := filepath.Join(stellaHomeMount, "users", "u1", ".mise-tools")
-	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{ExtraWritableMounts: []string{miseDir}}}
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{Mounts: []sandboxpkg.Mount{{HostPath: miseDir, SandboxPath: filepath.Join(stellaHomeMount, "users", "u1", ".mise-tools"), Access: sandboxpkg.MountReadWrite}}}}
 
 	t.Run("host", func(t *testing.T) {
 		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
@@ -402,7 +349,7 @@ func TestMountPerUserToolTrees(t *testing.T) {
 	t.Run("outside STELLA_HOME skipped", func(t *testing.T) {
 		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
 		opts := &dockerclient.CreateOptions{}
-		outside := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{ExtraWritableMounts: []string{t.TempDir()}}}
+		outside := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{Mounts: []sandboxpkg.Mount{{HostPath: t.TempDir(), SandboxPath: "/outside", Access: sandboxpkg.MountReadWrite}}}}
 		if mounted := f.mountPerUserToolTrees(opts, outside); len(mounted) != 0 {
 			t.Fatalf("expected outside-STELLA_HOME mount to be skipped, got %+v", mounted)
 		}
@@ -458,10 +405,10 @@ func dockerModePolicy(stellaHome, workspace, extra, tmp string) sandboxpkg.Polic
 	return sandboxpkg.Policy{
 		Env: map[string]string{"STELLA_HOME": stellaHome},
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot:       workspace,
-			WorkingDir:          workspace,
-			ExtraReadOnlyMounts: []string{extra},
-			TempDirHost:         tmp,
+			WorkspaceRoot: workspace,
+			WorkingDir:    workspace,
+			Mounts:        []sandboxpkg.Mount{{HostPath: workspace, SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite}, {HostPath: extra, SandboxPath: extra, Access: sandboxpkg.MountReadOnly}, {HostPath: filepath.Join(stellaHome, ".agents", "skills"), SandboxPath: filepath.Join(stellaHomeMount, ".agents", "skills"), Access: sandboxpkg.MountReadOnly}},
+			TempDirHost:   tmp,
 		},
 	}
 }

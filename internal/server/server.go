@@ -52,9 +52,8 @@ type Server struct {
 	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
 	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
 	mcpSvc         *mcp.Service         // optional; if nil, MCP endpoints return 503
-	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
-	credResolver   *credential.Service  // unified bearer credential front door (set with tokenSvc)
-	oauthAS        *oidc.Service        // OAuth2 authorization server (set with tokenSvc)
+	credResolver   *credential.Service  // unified bearer credential front door
+	oauthAS        *oidc.Service        // OAuth2 authorization server
 	credSvc        *connections.Service // shared credentials service
 	emailSvc       *email.Service       // shared email service
 	shareSvc       *sharepkg.Service    // shared share service
@@ -112,9 +111,8 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 	credSvc := connections.NewService(nil, sqlc.New(db), flowStore, defaultBaseURL)
 	emailSvc := email.NewService(nil, sqlc.New(db))
 	recallyStore := recally.NewStore(db)
-	recallyFiles := recally.NewFileManager(config.StellaHome())
-	recallySvc := recally.NewService(recallyStore, recallyFiles, config.StellaHome())
-	shareSvc := sharepkg.NewService(sqlc.New(db), mem, recallyStore, recallyFiles, config.StellaHome(), defaultBaseURL)
+	recallySvc := recally.NewService(recallyStore, config.StellaHome())
+	shareSvc := sharepkg.NewService(sqlc.New(db), mem, recallyStore, config.StellaHome(), defaultBaseURL)
 
 	log := slog.With("component", "admin")
 	s := &Server{
@@ -135,7 +133,7 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		emailSvc:    emailSvc,
 		shareSvc:    shareSvc,
 		recallySvc:  recallySvc,
-		recally:     newRecallyHandlersWithService(recallyStore, recallyFiles, recallySvc, log),
+		recally:     newRecallyHandlersWithService(recallyStore, recallySvc, log),
 		startedAt:   time.Now(),
 		runtimeCtx:  ctx,
 	}
@@ -176,19 +174,16 @@ func (s *Server) SetBuiltinTools(tools []agent.BuiltinTool) {
 	s.builtinTools = append([]agent.BuiltinTool(nil), tools...)
 }
 
-// SetTokenService wires bearer token authentication into the admin server. It
-// also builds the unified credential front door: PAT storage over the shared
-// query set, and legacy/scoped bearer verification delegated to the token
-// service.
-func (s *Server) SetTokenService(svc *auth.TokenService) {
-	s.tokenSvc = svc
+// InitCredentialFrontDoor builds the unified credential front door: PAT/OAuth
+// storage over the shared query set, and the authorization server that mints
+// access tokens through it.
+func (s *Server) InitCredentialFrontDoor() {
 	ps := patStore{q: s.q}
 	os := oauthStore{q: s.q}
 	s.credResolver = credential.NewService(credential.Config{
 		PATs:   ps,
 		OAuth:  os,
 		Users:  ps,
-		Tokens: tokenBackend{svc: svc},
 		Logger: s.log,
 	})
 	// The authorization server mints access tokens through the credential front
@@ -283,7 +278,6 @@ func (s *Server) SetRecallyService(svc *recally.Service) {
 		s.recallySvc = svc
 		s.recally.svc = svc
 		s.recally.store = svc.Store()
-		s.recally.files = svc.Files()
 	}
 }
 

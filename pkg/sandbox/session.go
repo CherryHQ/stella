@@ -24,7 +24,7 @@ type Session interface {
 	// ResolvePath validates read access; use ResolveWritePath for write operations.
 	ResolvePath(path string) (string, error)
 	// ResolveWritePath is like ResolvePath but additionally rejects paths in
-	// read-only mounts (e.g. ExtraReadOnlyMounts / skill directories).
+	// read-only mounts.
 	ResolveWritePath(path string) (string, error)
 	WorkingDir() string
 }
@@ -32,15 +32,6 @@ type Session interface {
 // Host is an alias for Session kept for internal use by the runner and core tools.
 // New code should use Session directly.
 type Host = Session
-
-// EnvRefresher is implemented by sessions whose injected environment can be
-// updated after creation, so a caller can rotate a credential (e.g. an expiring
-// STELLA_TOKEN) without tearing down and recreating the session. Updates are
-// applied atomically and are visible to every subsequent Exec/StartProcess.
-// Sessions that don't run real processes (e.g. the no-op session) may omit it.
-type EnvRefresher interface {
-	RefreshEnv(updates map[string]string)
-}
 
 type ExecOptions struct {
 	Cwd     string

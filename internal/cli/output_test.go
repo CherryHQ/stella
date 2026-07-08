@@ -13,14 +13,14 @@ func runWithAction(args []string, flags []ucli.Flag, action ucli.ActionFunc) (st
 	stdout = &bytes.Buffer{}
 	stderr = &bytes.Buffer{}
 	app := &ucli.App{
-		Name:      "stella",
+		Name:      "stellad",
 		Writer:    stdout,
 		ErrWriter: stderr,
 		Commands: []*ucli.Command{
 			{Name: "probe", Flags: flags, Action: action},
 		},
 	}
-	err = app.Run(append([]string{"stella", "probe"}, args...))
+	err = app.Run(append([]string{"stellad", "probe"}, args...))
 	return stdout, stderr, err
 }
 
@@ -40,22 +40,6 @@ func TestPrintJSONWritesValidJSONToStdout(t *testing.T) {
 	}
 	if got["id"] != "abc" {
 		t.Fatalf("id = %v, want abc", got["id"])
-	}
-}
-
-func TestPrintDeletedShape(t *testing.T) {
-	stdout, _, err := runWithAction(nil, nil, func(c *ucli.Context) error {
-		return PrintDeleted(c, "task-123")
-	})
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	var got deletedResult
-	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if got.ID != "task-123" || !got.Deleted {
-		t.Fatalf("got %+v, want {task-123 true}", got)
 	}
 }
 

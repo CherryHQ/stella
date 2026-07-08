@@ -49,9 +49,8 @@ type Identity struct {
 }
 
 // FromContext extracts the runtime identity for built-in tools. Group and
-// unauthenticated sessions have no user id, so identity-scoped tools must refuse them.
-// An agent session is always confined to its own agent's resources — the same
-// boundary the sandbox scoped token enforced on the HTTP path.
+// unauthenticated sessions have no user id, so identity-scoped tools must refuse
+// them. An agent session is always confined to its own agent's resources.
 func FromContext(ctx context.Context) (Identity, error) {
 	ident := Identity{
 		UserID:  UserIDFromContext(ctx),
