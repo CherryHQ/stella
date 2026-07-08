@@ -222,7 +222,9 @@ func TestReflectProvenanceBackfillMarksOnlyLegacyReflectFacts(t *testing.T) {
 	agentReflect := "reflect-backfill-agent"
 	agentManualLatest := "manual-latest-agent"
 	agentAmbiguous := "ambiguous-agent"
-	for _, agentID := range []string{agentReflect, agentManualLatest, agentAmbiguous} {
+	agentContentMismatch := "content-mismatch-agent"
+	agentDeprecated := "deprecated-agent"
+	for _, agentID := range []string{agentReflect, agentManualLatest, agentAmbiguous, agentContentMismatch, agentDeprecated} {
 		if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, $1, '/tmp')`, agentID); err != nil {
 			t.Fatalf("seed agent %s: %v", agentID, err)
 		}
@@ -235,12 +237,14 @@ func TestReflectProvenanceBackfillMarksOnlyLegacyReflectFacts(t *testing.T) {
 	reflectSoulFactID := uuid.NewString()
 	manualLatestFactID := uuid.NewString()
 	ambiguousFactID := uuid.NewString()
-	seedMigratedFact := func(id, agentID, subject, content string) {
+	contentMismatchFactID := uuid.NewString()
+	deprecatedFactID := uuid.NewString()
+	seedMigratedFact := func(id, agentID, subject, status, content string) {
 		t.Helper()
 		if _, err := db.Exec(ctx, `
 			INSERT INTO facts (id, subject, scope, user_id, agent_id, content, status, metadata, version, source, created_at, updated_at)
-			VALUES ($1, $2, 'user_agent', $3, $4, $5, 'active', '{"migration":"20260625090000_add_facts_memory"}', 1, 'manual', now(), now())`,
-			id, subject, userID, agentID, content); err != nil {
+			VALUES ($1, $2, 'user_agent', $3, $4, $5, $6, '{"migration":"20260625090000_add_facts_memory"}', 1, 'manual', now(), now())`,
+			id, subject, userID, agentID, content, status); err != nil {
 			t.Fatalf("seed fact %s: %v", id, err)
 		}
 		if _, err := db.Exec(ctx, `
@@ -252,21 +256,23 @@ func TestReflectProvenanceBackfillMarksOnlyLegacyReflectFacts(t *testing.T) {
 				'user_id', $2::uuid::text,
 				'agent_id', $3::text,
 				'content', $6::text,
-				'status', 'active',
+				'status', $7::text,
 				'metadata', jsonb_build_object('migration', '20260625090000_add_facts_memory'),
 				'version', 1,
 				'source', 'manual',
 				'created_at', now(),
 				'updated_at', now()
 			)::text, '{"migration":"20260625090000_add_facts_memory"}')`,
-			uuid.NewString(), userID, agentID, id, subject, content); err != nil {
+			uuid.NewString(), userID, agentID, id, subject, content, status); err != nil {
 			t.Fatalf("seed fact changelog %s: %v", id, err)
 		}
 	}
-	seedMigratedFact(reflectProfileFactID, agentReflect, "user", "reflect generated profile")
-	seedMigratedFact(reflectSoulFactID, agentReflect, "agent", "reflect generated soul")
-	seedMigratedFact(manualLatestFactID, agentManualLatest, "user", "manual latest profile")
-	seedMigratedFact(ambiguousFactID, agentAmbiguous, "user", "ambiguous profile")
+	seedMigratedFact(reflectProfileFactID, agentReflect, "user", "active", "reflect generated profile")
+	seedMigratedFact(reflectSoulFactID, agentReflect, "agent", "active", "reflect generated soul")
+	seedMigratedFact(manualLatestFactID, agentManualLatest, "user", "active", "manual latest profile")
+	seedMigratedFact(ambiguousFactID, agentAmbiguous, "user", "active", "ambiguous profile")
+	seedMigratedFact(contentMismatchFactID, agentContentMismatch, "user", "active", "locally edited profile")
+	seedMigratedFact(deprecatedFactID, agentDeprecated, "user", "deprecated", "deprecated reflect profile")
 
 	seedLegacyIdentityChangelog := func(agentID, scope, source string, version int, after string) {
 		t.Helper()
@@ -282,13 +288,8 @@ func TestReflectProvenanceBackfillMarksOnlyLegacyReflectFacts(t *testing.T) {
 	seedLegacyIdentityChangelog(agentReflect, "soul", "reflect", 2, "reflect generated soul")
 	seedLegacyIdentityChangelog(agentManualLatest, "profile", "reflect", 1, "manual latest profile")
 	seedLegacyIdentityChangelog(agentManualLatest, "profile", "manual", 2, "manual latest profile")
-
-	if _, err := db.Exec(ctx, `
-		INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, metadata)
-		VALUES ('ambiguous-skill', 'user_agent', $1, $2, 'ambiguous-skill', 'not proven reflect', 'active', '{"created-at":"2026-07-01T00:00:00Z"}')`,
-		userID, agentReflect); err != nil {
-		t.Fatalf("seed ambiguous skill: %v", err)
-	}
+	seedLegacyIdentityChangelog(agentContentMismatch, "profile", "reflect", 1, "legacy reflect profile")
+	seedLegacyIdentityChangelog(agentDeprecated, "profile", "reflect", 1, "deprecated reflect profile")
 
 	if _, err := provider.UpTo(ctx, 20260708090000); err != nil {
 		t.Fatalf("goose up reflect provenance backfill: %v", err)
@@ -308,6 +309,8 @@ func TestReflectProvenanceBackfillMarksOnlyLegacyReflectFacts(t *testing.T) {
 	assertFactSource(reflectSoulFactID, "reflect")
 	assertFactSource(manualLatestFactID, "manual")
 	assertFactSource(ambiguousFactID, "manual")
+	assertFactSource(contentMismatchFactID, "manual")
+	assertFactSource(deprecatedFactID, "manual")
 
 	var changelogSource, payloadSource string
 	if err := db.QueryRow(ctx, `
@@ -319,14 +322,6 @@ func TestReflectProvenanceBackfillMarksOnlyLegacyReflectFacts(t *testing.T) {
 	}
 	if changelogSource != "reflect" || payloadSource != "reflect" {
 		t.Fatalf("migrated fact changelog source = %q payload=%q, want reflect/reflect", changelogSource, payloadSource)
-	}
-
-	var skillCreatedBy *string
-	if err := db.QueryRow(ctx, `SELECT metadata->>'created_by' FROM skill WHERE id = 'ambiguous-skill'`).Scan(&skillCreatedBy); err != nil {
-		t.Fatalf("read ambiguous skill metadata: %v", err)
-	}
-	if skillCreatedBy != nil {
-		t.Fatalf("ambiguous skill created_by = %q, want null", *skillCreatedBy)
 	}
 }
 

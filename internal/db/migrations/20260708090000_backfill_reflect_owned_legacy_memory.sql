@@ -31,6 +31,7 @@ eligible_facts AS (
      OR (f."subject" = 'agent' AND l."scope" = 'soul')
    )
   WHERE f."source" = 'manual'
+    AND f."status" = 'active'
     AND l."source" = 'reflect'
     AND l."after_text" = f."content"
     AND EXISTS (
@@ -68,18 +69,23 @@ WHERE c."scope" = 'fact'
   AND (c."metadata"::jsonb)->>'migration' = '20260625090000_add_facts_memory';
 
 -- +goose Down
-WITH marked_facts AS (
+-- Roll back only rows that are still active. If Reflect or a manual migration
+-- later superseded/deprecated a backfilled row, keep that later audit history
+-- intact instead of rewriting provenance on an obsolete fact.
+WITH marked_active_facts AS (
   SELECT c."entity_id"
   FROM "ctx_agent_memory_changelog" c
+  JOIN "facts" f ON f."id"::text = c."entity_id"
   WHERE c."scope" = 'fact'
     AND c."metadata" IS NOT NULL
     AND (c."metadata"::jsonb)->>'reflect_provenance_backfill' = '20260708090000_backfill_reflect_owned_legacy_memory'
+    AND f."status" = 'active'
 ),
 reverted_facts AS (
   UPDATE "facts" f
   SET "source" = 'manual',
       "updated_at" = now()
-  FROM marked_facts m
+  FROM marked_active_facts m
   WHERE f."id"::text = m."entity_id"
     AND f."source" = 'reflect'
   RETURNING f."id"
