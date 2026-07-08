@@ -164,7 +164,12 @@ Decide per table — don't default to one approach everywhere:
 | RESTRICT                   | Prevent silently orphaning important references |
 | Archive                    | Move cold data to separate storage              |
 
-CASCADE is convenient but dangerous — it can remove more than you expect.
+CASCADE is convenient but dangerous — it can remove more than you expect. Never
+combine CASCADE-on-history with self-deleting parents. A one-shot scheduler job
+that deletes itself after firing will also delete run/audit rows that were just
+written if those rows cascade from the parent. Retire fired or completed parents
+as disabled rows instead; reserve deletion plus CASCADE for explicit user
+deletion where dropping history is intended.
 
 ## JSON Columns
 

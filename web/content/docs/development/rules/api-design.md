@@ -326,6 +326,9 @@ safe to expose to clients.
 - Help a technical user understand and resolve the issue.
 - Be brief and actionable.
 - Never expose internal implementation details or stack traces.
+- When a behavior change turns an error path into a routine user action, export
+  the sentinel error and map it to a 4xx. Unexported sentinels fall through as
+  HTTP 500.
 
 ## Response Design
 

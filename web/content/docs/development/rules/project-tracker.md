@@ -157,12 +157,14 @@ gh issue close <number> --repo CherryHQ/stella
 
 ## Issue conventions
 
-Follow the repo's issue/PR template (from CLAUDE.md):
+Follow the repo's issue/PR template:
 
 - **What** — the change in one or two sentences.
 - **Why** — the motivation or problem it solves.
 - **How** — the approach, plan, and design details.
 - **Refs** — related issues, PRs, docs, or discussions.
+
+Keep issue and PR descriptions current as the plan evolves.
 
 ### Labels
 

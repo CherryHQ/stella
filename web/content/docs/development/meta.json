@@ -4,6 +4,7 @@
     "rules/api-design",
     "rules/schema-design",
     "rules/cli-design",
+    "rules/go-patterns",
     "architecture",
     "agent-architecture",
     "cli-as-client",
