@@ -111,6 +111,7 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		items = append(items, types.AgentTool{
 			Name: def.Name, Description: def.Description,
 			Source: agentToolSourceCore, Enabled: true, Origin: agent.ToolOverrideOriginDefault,
+			InputSchema: toolInputSchema(def.InputSchema),
 		})
 	}
 
@@ -125,6 +126,7 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		items = append(items, types.AgentTool{
 			Name: def.Name, Description: def.Description,
 			Source: agentToolSourceBuiltin, Enabled: decision.Enabled, Origin: decision.Origin,
+			InputSchema: toolInputSchema(def.InputSchema),
 		})
 	}
 
@@ -163,6 +165,16 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		return items[i].Name < items[j].Name
 	})
 	return items, nil
+}
+
+// toolInputSchema adapts a tool definition's JSON input schema to the pointer
+// shape the API type uses, returning nil for an empty schema so the field is
+// omitted rather than serialized as an empty object.
+func toolInputSchema(schema map[string]any) *map[string]any {
+	if len(schema) == 0 {
+		return nil
+	}
+	return &schema
 }
 
 func toolSourceOrder(source string) int {

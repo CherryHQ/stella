@@ -92,6 +92,13 @@ components:
         source: { type: string }
         enabled: { type: boolean }
         origin: { type: string }
+        input_schema:
+          type: object
+          additionalProperties: true
+          description: >-
+            JSON Schema for the tool's arguments. Present for core and builtin
+            tools; omitted for plugin and MCP tools whose schema is not resolved
+            by this endpoint.
 
     AgentToolList:
       type: object

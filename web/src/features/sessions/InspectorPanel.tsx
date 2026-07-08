@@ -366,6 +366,7 @@ function groupToolsBySource(tools: Tool[]) {
 }
 
 function ToolContextRow({ tool }: { tool: Tool }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -390,15 +391,16 @@ function ToolContextRow({ tool }: { tool: Tool }) {
           </span>
         </span>
       </button>
-      {expanded && (
-        <pre className="mt-2 overflow-x-auto rounded-lg bg-muted/40 p-2 border border-border/15 font-mono text-xs leading-relaxed text-muted-foreground">
-          {JSON.stringify(
-            { source: tool.source, enabled: tool.enabled, origin: tool.origin },
-            null,
-            2,
-          )}
-        </pre>
-      )}
+      {expanded &&
+        (tool.input_schema ? (
+          <pre className="mt-2 overflow-x-auto rounded-lg bg-muted/40 p-2 border border-border/15 font-mono text-xs leading-relaxed text-muted-foreground">
+            {JSON.stringify(tool.input_schema, null, 2)}
+          </pre>
+        ) : (
+          <p className="mt-2 px-1.5 text-xs text-muted-foreground">
+            {t("sessions.inspector.noToolSchema")}
+          </p>
+        ))}
     </div>
   );
 }
