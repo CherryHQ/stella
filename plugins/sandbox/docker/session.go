@@ -1084,7 +1084,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: cwd not in any mount: %w", err)
 	}
 
-	// Snapshot env under the lock so a concurrent RefreshEnv can't race the read.
+	// Per-exec env reads take a snapshot under the lock.
 	h.session.mu.RLock()
 	policyEnv := h.session.policy.Env
 	h.session.mu.RUnlock()
@@ -1133,7 +1133,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		return nil, fmt.Errorf("docker host start_process: cwd not in any mount: %w", err)
 	}
 
-	// Snapshot env under the lock so a concurrent RefreshEnv can't race the read.
+	// Per-exec env reads take a snapshot under the lock.
 	h.session.mu.RLock()
 	policyEnv := h.session.policy.Env
 	h.session.mu.RUnlock()

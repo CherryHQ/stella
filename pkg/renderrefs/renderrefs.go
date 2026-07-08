@@ -1,11 +1,11 @@
 // Package renderrefs defines the sideband protocol for lifting references from
 // tool output so the chat UI can render a rich card instead of a raw UUID.
 //
-// A producer writes one sentinel line per reference via [Emit]. The consumer (the
-// tool-result ingest path) runs [Extract] over the combined tool output to lift
-// the references out and strip the sentinel lines, so the text shown to the model
-// and the user stays clean. References are derived data: nothing is stored that a
-// GET on the entity could not re-derive, so there is no migration and stale
+// The protocol is currently dormant: the former producers (the deleted stella CLI
+// commands) are gone, and no production code calls [Emit] today. The consumer
+// pipeline still runs [Extract] in the agent runner / LCM / Feishu paths so native
+// tools can adopt [Emit] later without a storage migration. References are derived
+// data: nothing is stored that a GET on the entity could not re-derive, so stale
 // previews never lie — the frontend always hydrates by id.
 package renderrefs
 

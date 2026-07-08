@@ -145,8 +145,8 @@ func RequiredScope(method, path string) (scope string, registered bool) {
 // agentRouteScope maps /api/agents/{id}/... sub-paths to their scope. Every
 // sub-resource is enumerated explicitly: an unknown one returns registered=false
 // (fail-closed) instead of defaulting into the broad agent scope, so a newly
-// added sub-route cannot silently become reachable. The agent ownership boundary
-// is handled in enforceAgentBoundary.
+// added sub-route cannot silently become reachable. Object-level agent ownership
+// for PAT/OAuth requests is enforced by each handler that loads the object.
 func agentRouteScope(method string, sub []string) (scope string, registered bool) {
 	// sub is the path after /api/agents. sub[0] is the agent id; the collection
 	// (/api/agents) and single agent (/api/agents/{id}) both use the agent scope.

@@ -469,8 +469,8 @@ func (s *localSession) toSandboxPath(realPath string) string {
 
 // Exec runs a shell command via sh -c on the host.
 func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
-	// Finding 5: check closed before starting. Snapshot the policy under the same
-	// lock so a concurrent RefreshEnv can't race the per-exec env read.
+	// Finding 5: check closed before starting. Per-exec env reads take a policy
+	// snapshot under the same lock.
 	s.mu.RLock()
 	closed := s.closed
 	policy := s.policy
@@ -556,7 +556,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 
 // StartProcess starts a long-running process on the host and returns a handle.
 func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
-	// Snapshot the policy so a concurrent RefreshEnv can't race the env read.
+	// Per-exec env reads take a policy snapshot under the lock.
 	s.mu.RLock()
 	policy := s.policy
 	s.mu.RUnlock()
