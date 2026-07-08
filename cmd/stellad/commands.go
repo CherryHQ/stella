@@ -19,7 +19,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 
 	"github.com/CherryHQ/stella/internal/blob"
-	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -64,8 +63,8 @@ the server, or use "stellad service" to manage it as a background service.`,
 			upgradeCommand(),
 			postgresCommand(),
 			vaultCommand(),
+			miseCommand(),
 			serviceCommand(),
-			authCommand(),
 		},
 	}
 }
@@ -241,12 +240,12 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		}
 	}
 
-	serviceToolNames := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName, connections.ToolName, email.ToolName, sharepkg.ToolName, recally.ToolName, vault.ToolName}
+	workerExcludedTools := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName}
 
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
-		ExcludedTools: serviceToolNames,
+		ExcludedTools: workerExcludedTools,
 		Capabilities: goal.CapabilityProbeFunc(func() bool {
 			plugins, err := store.ListPlugins(context.Background())
 			if err != nil {
@@ -395,14 +394,14 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 }
 
 func ensureEmbeddedAssets() error {
+	// Remove the CLI binary older releases copied here so stale copies don't linger on sandbox PATH.
+	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella"))
+	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella.exe"))
 	if err := binaries.EnsureTools(config.StellaHome()); err != nil {
 		return fmt.Errorf("extract embedded tools: %w", err)
 	}
 	if err := binaries.VerifyTools(config.StellaHome()); err != nil {
 		return err
-	}
-	if err := cli.EnsureStellaCLIInPath(config.StellaHome()); err != nil {
-		return fmt.Errorf("copy stella cli into sandbox path: %w", err)
 	}
 	if err := resources.EnsureBuiltinSkills(filepath.Join(config.StellaHome(), ".agents", "skills")); err != nil {
 		return fmt.Errorf("extract builtin skills: %w", err)

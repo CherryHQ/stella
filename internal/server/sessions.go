@@ -103,9 +103,8 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	// Authorize through the single chokepoint: ownership, agent/path match, and
-	// the scoped-token session pin. A scoped (e.g. sandbox) token must not reach
-	// a session other than the one it is pinned to.
+	// Authorize through the single chokepoint: ownership and agent/path match. A
+	// caller must not reach a session outside the authorized agent path.
 	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
 		return
 	}
@@ -381,9 +380,9 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 
-	// Same authorization chokepoint as message-send: ownership, agent/path
-	// match, and scoped-token session pin. The live event stream is at least as
-	// sensitive as the transcript, so it must not be reachable cross-session.
+	// Same authorization chokepoint as message-send: ownership and agent/path
+	// match. The live event stream is at least as sensitive as the transcript, so
+	// it must not be reachable cross-session.
 	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
 		return
 	}
@@ -992,10 +991,6 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, agen
 	if agentID != "" && si.AgentID != agentID {
 		writeError(w, http.StatusNotFound, "session not found")
 		return fmt.Errorf("session not found")
-	}
-	if _, boundSession, ok := info.scopedBoundary(); ok && boundSession != "" && sessionID != boundSession {
-		writeError(w, http.StatusForbidden, "permission denied")
-		return fmt.Errorf("permission denied")
 	}
 	return nil
 }

@@ -34,24 +34,6 @@ Stella 仅作为基于 HTTP 传输的 MCP **客户端**：
 
 ## 管理服务器
 
-使用 CLI。命令帮助是确切参数的权威来源：
-
-```bash
-stella mcp --help
-stella mcp add --help
-```
-
-典型流程：
-
-```bash
-# 为当前用户注册一个服务器
-stella mcp add github --url https://mcp.example.com/mcp --auth bearer --token "$TOKEN"
-
-# 列出某个作用域下的注册
-stella mcp list --scope user
-
-# 按 id 删除
-stella mcp remove <id> --scope user
-```
+在 Web UI 中管理 MCP 服务器。打开智能体或工作区设置，添加服务器 URL，选择作用域；如果服务器需要认证，再提供 bearer 令牌。
 
 同样的操作也可通过 HTTP API 的 `/api/mcp/servers` 使用。

@@ -55,7 +55,7 @@ plugins:
     display_name: Lark CLI
     description: "Lark CLI integration with OAuth-backed auth, bundled skills, session env, and prompt guidance."
     enabled: true
-    prompt: "Always use lark-cli for Feishu/Lark operations (messages, docs, sheets, calendar, tasks, wiki, etc.). For authorization issues, run `stella oauth connect feishu` to (re)authorize — NEVER use `lark-cli auth`."
+    prompt: "Always use lark-cli for Feishu/Lark operations (messages, docs, sheets, calendar, tasks, wiki, etc.). For authorization issues, use the `oauth` tool (oauth status, then oauth connect with provider=lark) to reconnect — NEVER use `lark-cli auth`."
     binaries:
       - name: lark-cli
         tool: github:larksuite/cli

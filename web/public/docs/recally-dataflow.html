@@ -666,7 +666,7 @@
         <div class="entry-column">
           <div class="entry-card">
             <div class="entry-card-label web">kind = rss（公开 / 免登录）</div>
-            <dd>stella recally feed poll</dd>
+            <dd>recally tool：action=feed_poll</dd>
             <dd style="color: var(--muted); font-size: 11px; margin-top: 4px">
               server 端 gofeed 解析，便宜稳定，零 LLM
             </dd>
@@ -689,7 +689,7 @@
         <div class="merge-target">
           <div class="merge-target-label">源无关 dedup sink</div>
           <p>
-            <code>stella recally feed entry add --feed-id --guid --url --title</code>
+            <code>recally tool：action=entry_add, feed_id, guid, url, title</code>
             → <code>POST /feeds/{id}/entries</code> → <code>CreateRSSFeedEntry</code> （<code
               >ON CONFLICT(feed_id, guid) DO NOTHING RETURNING *</code
             >）：有行 = <span style="color: var(--accent-green)">new</span>，空 =
@@ -839,7 +839,7 @@ feed, _ := h.store.<span class="fn">CreateFeed</span>(ctx, userID, body.Url, kin
               <div class="decision-branch">
                 <span class="decision-condition">kind == "rss"</span>
                 <span class="decision-result">
-                  <code>stella recally feed poll --json</code> 一次跑完所有 enabled feed。 server 端
+                  <code>recally tool action=feed_poll</code> 一次跑完所有 enabled feed。 server 端
                   gofeed 解析 + <code>CreateFeedEntry</code> 去重，<strong
                     >非 rss feed 在 server 被短路成 no-op</strong
                   >。
@@ -1060,25 +1060,30 @@ feed entry add --guid tw_1001  → <span class="cm">dup</span>   <span class="cm
             <span class="stage-file">recally save · feed mark</span>
           </div>
           <div class="stage-desc">
-            <code>stella recally save</code> 是纯持久化命令：给它
-            <code>--summary</code> 字符串，它原样存进
+            <code>recally tool action=save</code> 是纯持久化动作：给它
+            <code>summary</code> 字符串，它原样存进
             <code>recally_article</code>，<strong>不关心这字符串怎么来的</strong>。保存后把 entry
             标记为 saved。
           </div>
           <div class="stage-body">
             <div class="data-card">
               <div class="data-card-header">
-                <span class="data-card-label">save → mark</span>
-                <span class="data-card-tag tag-cli">CLI</span>
+                <span class="data-card-label">save → update entry</span>
+                <span class="data-card-tag tag-cli">Tool</span>
               </div>
-              <pre>art=$(stella recally save "https://x.com/karpathy/status/1002" --json \
-    --content-file "$f" --summary "$(cat $sf)" \
-    --title "…" --author "Andrej Karpathy" --tags "ai" --tags "ml" \
-    --source-type <span class="str">twitter</span> \
-    --metadata '{"worth_reading":"Top pick"}')
+              <pre>recally action=save items=[{
+  url: "https://x.com/karpathy/status/1002",
+  content: "&lt;fetched markdown&gt;",
+  summary: "&lt;curated summary&gt;",
+  title: "…",
+  author: "Andrej Karpathy",
+  tags: ["ai", "ml"],
+  source_type: <span class="str">twitter</span>,
+  metadata: {"worth_reading":"Top pick"}
+}]
 
-stella recally feed mark feed_7c en_b2 --status <span class="ok">saved</span> --article-id $(echo $art | jq -r .id)
-<span class="cm"># 失败：--status error --error "&lt;reason&gt;"  ／ 跳过：--status skipped</span></pre>
+recally action=entry_update feed_id=feed_7c id=en_b2 status=<span class="ok">saved</span> article_id=&lt;saved article id&gt;
+<span class="cm"># 失败：status=error error_msg="&lt;reason&gt;"  ／ 跳过：status=skipped</span></pre>
             </div>
             <div class="data-card">
               <div class="data-card-header">

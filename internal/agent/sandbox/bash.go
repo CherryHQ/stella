@@ -3,14 +3,12 @@ package sandbox
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"maps"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -56,15 +54,6 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	if !ok || command == "" {
 		return "", fmt.Errorf("bash: command is required")
 	}
-	if verbPath, ok := stellaCLIVerbPath(command); ok {
-		slog.Info("sandbox_stella_cli_invocation",
-			"event", "sandbox_stella_cli_invocation",
-			"user_id", authz.UserIDFromContext(ctx),
-			"agent_id", authz.AgentIDFromContext(ctx),
-			"command", verbPath,
-		)
-	}
-
 	start := time.Now()
 	timeoutSeconds := toolIntArg(args, "timeout", 0)
 	env := map[string]string{}
@@ -88,10 +77,6 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 		maps.Copy(env, secretEnv)
 	}
 
-	// Opt the CLI into emitting renderable-reference sentinels: when the agent
-	// runs `stella task/goal/recally create`, the command announces the new
-	// entity on stderr so the chat can render a rich card instead of a UUID.
-	env["STELLA_RENDERABLE_REFS"] = "1"
 	execOpts := pkgsandbox.ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second, Env: env}
 	if t.projectRoot != "" {
 		execOpts.Cwd = t.projectRoot
@@ -219,16 +204,4 @@ func redactSecretValues(content string, env map[string]string) string {
 		content = strings.ReplaceAll(content, value, "[REDACTED_SECRET]")
 	}
 	return content
-}
-
-func stellaCLIVerbPath(command string) (string, bool) {
-	fields := strings.Fields(strings.TrimSpace(command))
-	if len(fields) < 2 || fields[0] != "stella" {
-		return "", false
-	}
-	parts := []string{fields[1]}
-	if len(fields) > 2 {
-		parts = append(parts, fields[2])
-	}
-	return strings.Join(parts, " "), true
 }

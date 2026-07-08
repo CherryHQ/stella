@@ -198,20 +198,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		}
 	}
 
-	if shouldInjectScopedToken(cfg) {
-		tokenUserID := cfg.UserID
-		if cfg.GroupID != "" {
-			tokenUserID = "group:" + cfg.GroupID
-		}
-		tok, err := cfg.TokenEnsurer.CreateScopedToken(ctx, tokenUserID, cfg.AgentID, cfg.SessionID, cfg.ProjectID)
-		if err != nil {
-			return nil, err
-		}
-		env["STELLA_TOKEN"] = tok
-		sessionSecretEnv["STELLA_TOKEN"] = tok
-	} else {
-		delete(env, "STELLA_TOKEN")
-	}
+	// The scoped sandbox token is retired; nothing may smuggle a value in
+	// under its old name (e.g. a pre-validation vault row).
+	delete(env, "STELLA_TOKEN")
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, ProcessEnv(paths))
@@ -257,11 +246,6 @@ func recordSessionSecretValues(target *SessionSecretValues, env map[string]strin
 		addValue(value)
 	}
 	target.Set(values)
-}
-
-func shouldInjectScopedToken(cfg Config) bool {
-	hasIdentity := cfg.UserID != "" || cfg.GroupID != ""
-	return cfg.TokenEnsurer != nil && hasIdentity && cfg.AgentID != ""
 }
 
 // injectSessionEnv resolves plugin SessionEnvSpecs into env.

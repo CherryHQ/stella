@@ -6,7 +6,7 @@ title: Plugin System
 
 ## Overview
 
-Stella uses a compiled-in plugin system. Plugins are built into the `stella` binary and registered at startup through Go package initialization.
+Stella uses a compiled-in plugin system. Plugins are built into the `stellad` binary and registered at startup through Go package initialization.
 
 The final public design is intentionally small:
 

@@ -17,7 +17,6 @@ pnpm = "10.33.0"
 node = "24.14.1"
 
 [env]
-BINARY = "./dist/bin/stella"
 BINARY_D = "./dist/bin/stellad"
 LOG_LEVEL = "trace"
 DEV_ADMIN_USER = "admin"
@@ -30,15 +29,15 @@ DEV_PASS = "i-am-user"
 # ============================================================================
 
 [tasks.build]
-description = "Build stella and stellad binaries"
+description = "Build stellad binary"
 depends = ["generate"]
 run = [
+  "rm -rf ./dist/bin",
   "mkdir -p ./dist/bin",
   "export VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}",
   "export COMMIT=${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo '')}",
   "export BUILD_DATE=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}",
   "export LDFLAGS=\"-X github.com/CherryHQ/stella/internal/version.Version=$VERSION -X github.com/CherryHQ/stella/internal/version.Commit=$COMMIT -X github.com/CherryHQ/stella/internal/version.BuildDate=$BUILD_DATE\"",
-  "go build -ldflags=\"$LDFLAGS\" -o $BINARY ./cmd/stella",
   "go build -ldflags=\"$LDFLAGS\" -o $BINARY_D ./cmd/stellad",
 ]
 
@@ -64,7 +63,7 @@ dir = "web"
 run = "pnpm install && pnpm openapi-ts"
 
 [tasks."generate:api"]
-description = "Assemble api/spec/components.yaml from domain files then generate Go types, server, and client"
+description = "Assemble api/spec/components.yaml from domain files then generate Go types and server"
 run = """
 yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "stella API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT"' \
   api/spec/components/common.yaml api/spec/domain/*/schemas.yaml \
@@ -72,7 +71,6 @@ yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "stella API Com
 dprint fmt api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
-go tool oapi-codegen --config api/codegen/client.yaml  api/spec/openapi.yaml
 go run ./internal/goal/cmd/gengoalcontrolschema
 pnpm --package=@redocly/cli dlx redocly bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
 go run ./internal/cmd/toolgen
@@ -231,19 +229,18 @@ description = "Validate GoReleaser configuration"
 run = "goreleaser check"
 
 [tasks."release:snapshot"]
-description = "Create host-only snapshot build and verify dual-binary archive"
+description = "Create host-only snapshot build and verify single-binary archive"
 run = """
 goreleaser release --snapshot --clean --skip=publish
-echo "Verifying archive contains both stella and stellad..."
+echo "Verifying archive contains stellad..."
 archive=$(ls dist/stella_*_$(go env GOOS)_$(go env GOARCH).tar.gz 2>/dev/null || ls dist/stella_*_$(go env GOOS)_$(go env GOARCH).zip 2>/dev/null)
 if [ -z "$archive" ]; then echo "ERROR: no archive found for host platform" >&2; exit 1; fi
 suffix=""; [ "$(go env GOOS)" = "windows" ] && suffix=".exe"
-for bin in "stella${suffix}" "stellad${suffix}"; do
-  if ! tar tzf "$archive" 2>/dev/null | grep -Eq "(^|/)${bin}$" && ! unzip -l "$archive" 2>/dev/null | grep -Eq " ${bin}$"; then
-    echo "ERROR: $bin missing from $archive" >&2; exit 1
-  fi
-done
-echo "OK: archive $archive contains both stella and stellad"
+bin="stellad${suffix}"
+if ! tar tzf "$archive" 2>/dev/null | grep -Eq "(^|/)${bin}$" && ! unzip -l "$archive" 2>/dev/null | grep -Eq " ${bin}$"; then
+  echo "ERROR: $bin missing from $archive" >&2; exit 1
+fi
+echo "OK: archive $archive contains stellad"
 """
 
 # ============================================================================

@@ -34,18 +34,17 @@ sudo dnf install ./stella_*_linux_amd64.rpm
 # 示例：Linux amd64
 curl -LO https://github.com/CherryHQ/stella/releases/latest/download/stella_linux_amd64.tar.gz
 tar xzf stella_linux_amd64.tar.gz
-chmod +x stella stellad
-sudo mv stella stellad /usr/local/bin/
+chmod +x stellad
+sudo mv stellad /usr/local/bin/
 ```
 
 ### Go
 
 ```bash
-go install github.com/CherryHQ/stella/cmd/stella@latest
 go install github.com/CherryHQ/stella/cmd/stellad@latest
 # 或
 git clone https://github.com/CherryHQ/stella.git
-cd stella && go build -o stella ./cmd/stella/ && go build -o stellad ./cmd/stellad/
+cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 ```
 
 ## 运行
@@ -66,7 +65,7 @@ stellad server --host 0.0.0.0 --port 8080   # 绑定所有网络接口
 ### 版本和自动升级
 
 ```bash
-stella version
+stellad version
 stellad upgrade
 stellad upgrade 0.50.0                             # 安装指定版本
 stellad upgrade --install-dir "$HOME/.local/bin"  # 自定义安装路径
@@ -143,7 +142,7 @@ Unit 文件安装至 `/etc/systemd/system/stella.service`。
 
 Docker 镜像要求使用外部 PostgreSQL 18，并且该数据库已安装 `pg_search` 和 `pgvector`。必须设置 `STELLA_DATABASE_URL`；内嵌 runtime 下载路径只用于非 Docker 安装。
 
-首先，使用 `--port 8080` 运行 stella 通过Web UI进行配置：
+首先，使用 `--port 8080` 运行 `stellad server`，通过Web UI进行配置：
 
 ```bash
 docker run -it --rm \
@@ -262,7 +261,7 @@ PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、
 
 ```bash
 # 二进制文件
-stella  # 日志显示在终端中
+stellad server  # 日志显示在终端中
 
 # Docker
 docker logs stella

@@ -12,13 +12,13 @@ Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是�
 
 一个群有**三个互不相等、谁也不许借谁名义的身份维度**:
 
-| 维度                           | 取值                                                      | 用途                                          | 绝不用于                               |
-| ------------------------------ | --------------------------------------------------------- | --------------------------------------------- | -------------------------------------- |
-| **session scope**              | `group_id`(`ctx_group_state` 注册表的代理 id)             | LCM 查找键、conversation 历史、群记忆抽屉键   | 运行时身份(vault/token/workspace)      |
-| **runtime execution identity** | agent 自己的群 principal `group:{group_id}`(非任何 human) | 工具执行、vault、scoped token、workspace 路径 | 冒充任何成员;读任何 human 的私有 vault |
-| **per-turn actor**             | 真实发言 human 的 `auth_user`                             | @寻址、写发言人**自己**的私有记忆、访问控制   | session 查找键、运行时执行身份         |
+| 维度                           | 取值                                                      | 用途                                        | 绝不用于                               |
+| ------------------------------ | --------------------------------------------------------- | ------------------------------------------- | -------------------------------------- |
+| **session scope**              | `group_id`(`ctx_group_state` 注册表的代理 id)             | LCM 查找键、conversation 历史、群记忆抽屉键 | 运行时身份(vault/token/workspace)      |
+| **runtime execution identity** | agent 自己的群 principal `group:{group_id}`(非任何 human) | 工具执行、vault、workspace 路径             | 冒充任何成员;读任何 human 的私有 vault |
+| **per-turn actor**             | 真实发言 human 的 `auth_user`                             | @寻址、写发言人**自己**的私有记忆、访问控制 | session 查找键、运行时执行身份         |
 
-只需记住一件事:**群 session 绝不碰任何成员的私有资源。** 发言人的 `user_id` 按轮携带,用于寻址和访问控制,判完即弃——它绝不进入 workspace 路径、vault 或 scoped token 主体。
+只需记住一件事:**群 session 绝不碰任何成员的私有资源。** 发言人的 `user_id` 按轮携带,用于寻址和访问控制,判完即弃——它绝不进入 workspace 路径、vault 或任何 agent 工具执行身份。
 
 ## Canonical 群身份(D0)
 
@@ -206,16 +206,16 @@ CREATE TABLE ctx_group_memory (
 
 所以群 session 在 `ctx_conversation.user_id` 存 `group_id`,**仅作查找键**(该列无 `auth_user` FK)。`requireSessionScope` / `GetConversationBySessionID` 的群分支按 `(session_id, group_id, agent_id)` 匹配,不要求 actor 匹配。
 
-关键约束:这个 `group_id` **绝不能流进运行时身份面**。runtime 在一处识别「这是群 session」,把四个面统一改道:
+关键约束:这个 `group_id` **绝不能流进成员私有的运行时身份面**。runtime 在一处识别「这是群 session」,把这些面统一改道:
 
-| 面                      | 代码                                                              | 群 session 行为                                                                  |
-| ----------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| memory / prompt profile | `runtime/chat.go`(`authz.WithUserID`)、`prompt/prompt.go`         | 不注入任何 human;读群抽屉,绝不读成员私有 profile                                 |
-| workspace               | `runner_builder.go`、`workspace.go`                               | 路径 `users/group-{group_id}/`——群是独立 principal,绝不是成员的 `users/{userID}` |
-| vault                   | `sandbox/env.go`                                                  | 只解 agent/群作用域密钥,绝不解成员私有 vault                                     |
-| scoped token            | `auth/token_service.go`、`auth/scoped_token.go`、`sandbox/env.go` | 主体 = 群 principal `group:{group_id}`,不是 human userID                         |
+| 面                      | 代码                                                      | 群 session 行为                                                                  |
+| ----------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| memory / prompt profile | `runtime/chat.go`(`authz.WithUserID`)、`prompt/prompt.go` | 不注入任何 human;读群抽屉,绝不读成员私有 profile                                 |
+| workspace               | `runner_builder.go`、`workspace.go`                       | 路径 `users/group-{group_id}/`——群是独立 principal,绝不是成员的 `users/{userID}` |
+| vault                   | `sandbox/env.go`                                          | 只解 agent/群作用域密钥,绝不解成员私有 vault                                     |
+| agent tools             | `authz.Identity` facade 与 tool handler                   | 以群 principal 执行,不是 human userID                                            |
 
-`SignScopedToken` 现硬要求 `claims.UserID != ""`。需放宽成接受群 principal,或加 `Scope=group` 维度——**绝不塞真 human userID**。不造 synthetic `auth_user`:群 principal 是 token 主体 / 执行作用域,不是 `auth_user` 表里的行。
+不造 synthetic `auth_user`:群 principal 是执行作用域,不是 `auth_user` 表里的行。
 
 membership 表闭环:
 

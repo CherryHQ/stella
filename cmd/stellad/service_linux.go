@@ -294,7 +294,7 @@ func checkSystemServiceRuntime(bin string) error {
 		return err
 	}
 	if err := runAsSystemUser("test", "-x", bin); err != nil {
-		return fmt.Errorf("%s cannot execute %s; install stella somewhere world-executable, such as /usr/local/bin/stella: %w", systemUser, bin, err)
+		return fmt.Errorf("%s cannot execute %s; install stellad somewhere world-executable, such as /usr/local/bin/stellad: %w", systemUser, bin, err)
 	}
 	return checkBwrapAsSystemUser()
 }

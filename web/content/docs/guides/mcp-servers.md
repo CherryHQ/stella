@@ -34,24 +34,6 @@ A server may need a bearer token. Pass it with `--auth bearer --token <token>`; 
 
 ## Managing Servers
 
-Use the CLI. Command help is the source of truth for the exact flags:
-
-```bash
-stella mcp --help
-stella mcp add --help
-```
-
-Typical flow:
-
-```bash
-# Register a server for the current user
-stella mcp add github --url https://mcp.example.com/mcp --auth bearer --token "$TOKEN"
-
-# List registrations in a scope
-stella mcp list --scope user
-
-# Remove one by id
-stella mcp remove <id> --scope user
-```
+Manage MCP servers from the Web UI. Open the agent or workspace settings, add the server URL, choose its scope, and provide a bearer token when the server requires one.
 
 The same operations are available over the HTTP API under `/api/mcp/servers`.

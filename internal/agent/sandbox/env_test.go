@@ -35,14 +35,6 @@ func (v staticVaultEnv) LoadEnvForAgentProject(context.Context, string, string, 
 	return out, nil
 }
 
-type staticScopedToken struct {
-	token string
-}
-
-func (s staticScopedToken) CreateScopedToken(context.Context, string, string, string, string) (string, error) {
-	return s.token, nil
-}
-
 func requireSessionSecretValues(t *testing.T, values []string, present []string, absent []string) {
 	t.Helper()
 	got := make(map[string]struct{}, len(values))
@@ -64,19 +56,18 @@ func requireSessionSecretValues(t *testing.T, values []string, present []string,
 	}
 }
 
-func TestBuildSandboxEnvUsesScopedTokenOverVaultToken(t *testing.T) {
+func TestBuildSandboxEnvDropsVaultStellaToken(t *testing.T) {
 	env, err := buildSandboxEnv(context.Background(), Config{
 		UserID:         "user-1",
 		AgentID:        "agent-1",
 		SessionID:      "session-1",
 		VaultEnvLoader: staticVaultEnv{env: map[string]string{"STELLA_TOKEN": "stella_legacy", "OTHER": "ok"}},
-		TokenEnsurer:   staticScopedToken{token: "stella_scoped_session"},
 	}, Paths{})
 	if err != nil {
 		t.Fatalf("buildSandboxEnv: %v", err)
 	}
-	if got := env["STELLA_TOKEN"]; got != "stella_scoped_session" {
-		t.Fatalf("STELLA_TOKEN = %q, want scoped token", got)
+	if _, ok := env["STELLA_TOKEN"]; ok {
+		t.Fatal("legacy vault token must not be injected")
 	}
 	if got := env["OTHER"]; got != "ok" {
 		t.Fatalf("OTHER = %q, want vault value", got)
@@ -91,7 +82,6 @@ func TestBuildSandboxEnvRecordsOnlyInjectedVaultSecretValues(t *testing.T) {
 		SessionID:           "session-1",
 		VaultEnvLoader:      staticVaultEnv{env: map[string]string{"MY_SECRET": "vault-secret", "STELLA_HOME": "vault-home", "STELLA_TOKEN": "stella_legacy"}},
 		SessionSecretValues: secretValues,
-		TokenEnsurer:        staticScopedToken{token: "stella_scoped_session"},
 	}, Paths{StellaHome: "/runtime/stella"})
 	if err != nil {
 		t.Fatalf("buildSandboxEnv: %v", err)
@@ -101,7 +91,7 @@ func TestBuildSandboxEnvRecordsOnlyInjectedVaultSecretValues(t *testing.T) {
 	}
 	values := secretValues.Values()
 	requireSessionSecretValues(t, values,
-		[]string{"vault-secret", "stella_scoped_session"},
+		[]string{"vault-secret"},
 		[]string{"vault-home", "stella_legacy", "/runtime/stella"},
 	)
 }
@@ -116,6 +106,6 @@ func TestBuildSandboxEnvDeletesVaultTokenWhenScopedUnavailable(t *testing.T) {
 		t.Fatalf("buildSandboxEnv: %v", err)
 	}
 	if _, ok := env["STELLA_TOKEN"]; ok {
-		t.Fatal("legacy vault STELLA_TOKEN must not be injected without a scoped token")
+		t.Fatal("legacy vault token must not be injected")
 	}
 }

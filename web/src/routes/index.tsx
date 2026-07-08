@@ -882,7 +882,7 @@ const INSTALL_TABS: InstallTab[] = [
   {
     id: "go",
     name: "Go install",
-    code: "go install github.com/CherryHQ/stella/cmd/stella@latest\ngo install github.com/CherryHQ/stella/cmd/stellad@latest\nstellad server",
+    code: "go install github.com/CherryHQ/stella/cmd/stellad@latest\nstellad server",
   },
 ];
 

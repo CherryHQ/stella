@@ -96,8 +96,6 @@ The digest includes:
 
 You can schedule this as an automatic morning briefing — just ask Stella to "give me a reading digest every morning at 8am."
 
-## Agent and CLI access
+## Agent and Web UI access
 
-In chat, Stella uses the native Recally tool to save articles, manage feeds, and generate digests. For automation outside chat, the CLI is still available.
-
-Use the [Recally CLI reference](/docs/recally/cli) when writing scripts.
+In chat, Stella uses the native Recally tool to save articles, manage feeds, and generate digests. Outside chat, manage your reading list from the Web UI or use the HTTP API for automation.

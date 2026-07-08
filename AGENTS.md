@@ -8,9 +8,9 @@ Stella is a multi-tenant, multi-user, multi-agent AI assistant platform written 
 - On a fresh clone, run `mise run setup` once. Use `mise tasks` to discover workflows.
 - Run project workflows through `mise run <task>` instead of invoking underlying tools directly.
 - Before committing, **ALWAYS** run: `mise run format && mise run build && mise run test`.
-- When touching platform-specific behavior, run a targeted cross-platform build before committing (e.g., `GOOS=windows GOARCH=amd64 go build -o dist/bin/stella-windows-amd64.exe ./cmd/stella`).
+- When touching platform-specific behavior, run a targeted cross-platform build before committing (e.g., `GOOS=windows GOARCH=amd64 go build -o dist/bin/stellad-windows-amd64.exe ./cmd/stellad`).
 - Do not run Go tests with `-race` locally by default.
-- **Never build the `stella` binary into the repo root.** Always use `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stella` explicitly.
+- **Never build the `stellad` binary into the repo root.** Always use `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stellad` explicitly.
 - `mise run dev` writes combined UI/API output to `dist/logs/dev.log` and truncates that file on each startup; use it for agent-friendly debugging.
 
 ## Development rules
@@ -52,7 +52,7 @@ When behavior, APIs, config, commands, or architecture change:
 - Add new doc pages to the relevant folder's `meta.json` and the matching `sections` entry in `web/content/docs/meta.json`.
 - Keep `resources/skills/system/stella/` and `internal/agent/prompt/template/system_prompt.tmpl` in sync with user-facing changes.
 - Maintain both English (`*.md`, `*.mdx`) and Chinese (`*.zh.md`, `*.zh.mdx`) versions.
-- For CLI usage, command help is the source of truth: put syntax and examples in the relevant `--help` output, and have user docs/skills point to the specific help command (for example, `stella recally save --help`) instead of duplicating full command examples.
+- For CLI usage, command help is the source of truth: put syntax and examples in the relevant `--help` output, and have user docs/skills point to the specific help command (for example, `stellad vault keygen --help`) instead of duplicating full command examples.
 
 ## Issue & PR tracking
 

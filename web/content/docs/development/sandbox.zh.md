@@ -96,7 +96,7 @@ Stella 优先选择显式拒绝而非静默降级：
 
 用 `docker compose down` 停掉整套栈。
 
-sandbox 镜像通过 `stella mise reconcile-builtins`（与宿主相同的 `resources/tools.yaml` reconcile）把 mise 工具链烤在 `/opt/stella`，因此 docker 与 Linux `local` 后端呈现完全一致的 mise 路径。
+sandbox 镜像通过 `stellad mise reconcile-builtins`（与宿主相同的 `resources/tools.yaml` reconcile）把 mise 工具链烤在 `/opt/stella`，因此 docker 与 Linux `local` 后端呈现完全一致的 mise 路径。
 
 ## 添加新后端
 

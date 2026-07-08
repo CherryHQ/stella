@@ -202,13 +202,6 @@ func (s *Server) GetGoalHealth(w http.ResponseWriter, r *http.Request, params ap
 		userID = *params.UserId
 	}
 	agentID := derefStr(params.AgentId)
-	if boundAgent, _, ok := info.scopedBoundary(); ok {
-		if agentID != "" && agentID != boundAgent {
-			writeError(w, http.StatusForbidden, "permission denied")
-			return
-		}
-		agentID = boundAgent
-	}
 	report, err := s.goalSvc.Goal.HealthReport(r.Context(), goal.HealthFilter{
 		SinceAt: params.Since,
 		UserID:  userID,

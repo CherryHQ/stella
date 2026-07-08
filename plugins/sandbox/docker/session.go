@@ -813,24 +813,6 @@ func (s *dockerSession) Policy() sandboxpkg.Policy {
 	return s.policy
 }
 
-// RefreshEnv replaces injected env entries with the given updates, swapping the
-// policy's env map under the write lock (copy-on-write) so per-exec env reads on
-// the host surface never observe a half-written map. Already-running exec
-// processes keep the env they were started with.
-func (s *dockerSession) RefreshEnv(updates map[string]string) {
-	if len(updates) == 0 {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	env := maps.Clone(s.policy.Env)
-	if env == nil {
-		env = make(map[string]string, len(updates))
-	}
-	maps.Copy(env, updates)
-	s.policy.Env = env
-}
-
 func (s *dockerSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	return s.host.Exec(ctx, command, opts)
 }
@@ -1102,7 +1084,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: cwd not in any mount: %w", err)
 	}
 
-	// Snapshot env under the lock so a concurrent RefreshEnv can't race the read.
+	// Per-exec env reads take a snapshot under the lock.
 	h.session.mu.RLock()
 	policyEnv := h.session.policy.Env
 	h.session.mu.RUnlock()
@@ -1151,7 +1133,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		return nil, fmt.Errorf("docker host start_process: cwd not in any mount: %w", err)
 	}
 
-	// Snapshot env under the lock so a concurrent RefreshEnv can't race the read.
+	// Per-exec env reads take a snapshot under the lock.
 	h.session.mu.RLock()
 	policyEnv := h.session.policy.Env
 	h.session.mu.RUnlock()

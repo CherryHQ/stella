@@ -31,10 +31,8 @@ api/
   codegen/                      ← oapi-codegen configs
     types.yaml                    → api/types/gen.go
     server.yaml                   → api/server/gen.go  (import-mapping → api/types)
-    client.yaml                   → api/client/gen.go  (import-mapping → api/types)
   types/gen.go                  ← generated: all API types (package types)
   server/gen.go                 ← generated: ServerInterface + routing (package server)
-  client/gen.go                 ← generated: HTTP client (package client)
 ```
 
 ## How it works
@@ -45,11 +43,11 @@ api/
 spec/components/common.yaml + spec/domain/*/schemas.yaml
     → (yq merge, glob — new domains picked up automatically)
     → spec/components.yaml   [DO NOT EDIT]
-    → oapi-codegen           → types/gen.go / server/gen.go / client/gen.go
+    → oapi-codegen           → types/gen.go / server/gen.go
 ```
 
 Domain paths files reference assembled schemas via `../../components.yaml#/…`.
-The server/client codegen maps both `./components.yaml` and `../../components.yaml`
+The server codegen maps both `./components.yaml` and `../../components.yaml`
 to `api/types` via import-mapping, so generated code imports types from `api/types`
 instead of redeclaring them.
 
@@ -64,7 +62,6 @@ Every new or changed HTTP API must follow this workflow:
    - `api/spec/components.yaml` — assembled schema components; do not edit directly.
    - `api/types/gen.go` — shared API types (`package types`).
    - `api/server/gen.go` — server interface, routing helpers, and aliases to `types`.
-   - `api/client/gen.go` — HTTP client and aliases to `types`.
 5. Implement the generated server methods on `*Server` in `internal/server/`.
 6. Verify `*Server` satisfies `apiserver.ServerInterface`.
 
@@ -87,4 +84,4 @@ Every new or changed HTTP API must follow this workflow:
 - Edit domain files in `api/spec/domain/<domain>/`; never edit `api/spec/components.yaml` directly.
 - Domain path files reference schemas through `../../components.yaml`.
 - Never hand-write server routing for any domain. All `/api/*` routing comes from `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`.
-- Enum constants live in `api/types`, not `api/server` or `api/client`. Import `api/types` directly when constants are needed.
+- Enum constants live in `api/types`, not `api/server`. Import `api/types` directly when constants are needed.

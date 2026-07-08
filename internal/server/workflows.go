@@ -85,13 +85,6 @@ func (s *Server) ListWorkflows(w http.ResponseWriter, r *http.Request, params ap
 		return
 	}
 	agentID := derefStr(params.AgentId)
-	if bound, _, scoped := info.scopedBoundary(); scoped {
-		if agentID != "" && agentID != bound {
-			writeError(w, http.StatusForbidden, "permission denied")
-			return
-		}
-		agentID = bound
-	}
 	rows, err := s.workflowSvc.List(r.Context(), info.UserID, agentID)
 	if err != nil {
 		workflowError(w, err)
@@ -193,10 +186,7 @@ func (s *Server) DeleteWorkflow(w http.ResponseWriter, r *http.Request, id strin
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func workflowAgentScope(info *AuthInfo) string {
-	if agentID, _, ok := info.scopedBoundary(); ok {
-		return agentID
-	}
+func workflowAgentScope(_ *AuthInfo) string {
 	return ""
 }
 

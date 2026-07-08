@@ -5,19 +5,7 @@ import (
 	"testing"
 )
 
-func TestEmitDisabledByDefault(t *testing.T) {
-	// Without the env gate (a human in a terminal), Emit writes nothing.
-	var b strings.Builder
-	if err := Emit(&b, Reference{Type: "task", ID: "abc"}); err != nil {
-		t.Fatalf("emit: %v", err)
-	}
-	if b.Len() != 0 {
-		t.Fatalf("expected no output when disabled, got %q", b.String())
-	}
-}
-
 func TestEmitExtractRoundTrip(t *testing.T) {
-	t.Setenv(envVar, "1")
 	var b strings.Builder
 	ref := Reference{Type: "task", ID: "abc", Intent: "created", Preview: &Preview{Title: "Fix login", Status: "draft"}}
 	if err := Emit(&b, ref); err != nil {
@@ -46,7 +34,6 @@ func TestEmitExtractRoundTrip(t *testing.T) {
 }
 
 func TestEmitSkipsIncomplete(t *testing.T) {
-	t.Setenv(envVar, "1")
 	var b strings.Builder
 	if err := Emit(&b, Reference{Type: "task"}); err != nil {
 		t.Fatalf("emit: %v", err)
@@ -102,7 +89,6 @@ func TestExtractDropsMalformedSentinel(t *testing.T) {
 }
 
 func TestExtractMultiple(t *testing.T) {
-	t.Setenv(envVar, "1")
 	var b strings.Builder
 	_ = Emit(&b, Reference{Type: "task", ID: "t1"})
 	_ = Emit(&b, Reference{Type: "goal", ID: "g1"})

@@ -23,7 +23,7 @@ type Authorized struct {
 
 func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
-const noEmailConfigMessage = "no email account configured — ask the user to add one under Settings → Email or via stella email config"
+const noEmailConfigMessage = "no email account configured — ask the user to add one under Settings → Email"
 
 type Queries interface {
 	DeleteExpiredEmailSendDedup(context.Context) error

@@ -47,10 +47,10 @@ type Minted struct {
 
 // MintOpaque mints a high-entropy opaque bearer token for a given kind. It is
 // the kind-checked entry point for opaque PAT/OAuth-access tokens. It must not
-// absorb scoped-token HMAC signing or client_secret password-hashing -- those are
-// distinct concerns kept out of the generic mint. OAuth refresh tokens share the
-// same wire format but rotate outside the API front door, so internal/oidc mints
-// them via MintOpaqueWithPrefix rather than this kind-checked form.
+// absorb client_secret password-hashing -- that is a distinct concern kept out
+// of the generic mint. OAuth refresh tokens share the same wire format but
+// rotate outside the API front door, so internal/oidc mints them via
+// MintOpaqueWithPrefix rather than this kind-checked form.
 func MintOpaque(kind Kind) (Minted, error) {
 	prefix, err := opaquePrefix(kind)
 	if err != nil {
