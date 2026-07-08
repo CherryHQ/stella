@@ -52,7 +52,7 @@ When behavior, APIs, config, commands, or architecture change:
 - Add new doc pages to the relevant folder's `meta.json` and the matching `sections` entry in `web/content/docs/meta.json`.
 - Keep `resources/skills/system/stella/` and `internal/agent/prompt/template/system_prompt.tmpl` in sync with user-facing changes.
 - Maintain both English (`*.md`, `*.mdx`) and Chinese (`*.zh.md`, `*.zh.mdx`) versions.
-- For CLI usage, command help is the source of truth: put syntax and examples in the relevant `--help` output, and have user docs/skills point to the specific help command (for example, `stella recally save --help`) instead of duplicating full command examples.
+- For CLI usage, command help is the source of truth: put syntax and examples in the relevant `--help` output, and have user docs/skills point to the specific help command (for example, `stellad vault keygen --help`) instead of duplicating full command examples.
 
 ## Issue & PR tracking
 
