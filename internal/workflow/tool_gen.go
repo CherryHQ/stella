@@ -127,6 +127,17 @@ const InputSchemaJSON = `{
         "save"
       ],
       "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional idempotency key. When omitted, the server generates a UUID, so retries must provide their own key to be idempotent.",
+      "type": "string"
+    },
+    "inputs": {},
+    "name": {
+      "type": "string"
     }
   },
   "required": [

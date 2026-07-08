@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -72,6 +73,61 @@ func TestToolSchemaUsesActionEnumAndOneOf(t *testing.T) {
 	if branchProps["action"].(map[string]any)["const"] == "" {
 		t.Fatal("oneOf branch missing action const")
 	}
+}
+
+func TestToolSchemaHoistsBranchPropertiesToTopLevel(t *testing.T) {
+	schema := toolSchema([]toolAction{
+		{Action: "create", Schema: objectSchema(map[string]any{"title": map[string]any{"type": "string"}}, []string{"title"})},
+		{Action: "list", Schema: objectSchema(map[string]any{"q": map[string]any{"type": "string"}}, nil)},
+	})
+	props := schema["properties"].(map[string]any)
+	// Every branch field is visible at the top level, but only `action` is required.
+	for _, want := range []string{"action", "title", "q"} {
+		if _, ok := props[want]; !ok {
+			t.Errorf("top-level properties missing %q: %#v", want, props)
+		}
+	}
+	if req := schema["required"].([]any); len(req) != 1 || req[0] != "action" {
+		t.Fatalf("top-level required=%#v, want [action]", req)
+	}
+	// The per-action requiredness stays in the matching oneOf branch.
+	for _, raw := range schema["oneOf"].([]any) {
+		branch := raw.(map[string]any)
+		if branch["properties"].(map[string]any)["action"].(map[string]any)["const"] == "create" {
+			if req := stringSlice(branch["required"]); !contains(req, "title") {
+				t.Errorf("create branch required=%#v, want title", req)
+			}
+		}
+	}
+}
+
+func TestToolSchemaLoosensConflictingBranchTypes(t *testing.T) {
+	// `inputs` is an object for one action and an array for another; the hoisted
+	// top-level copy must not commit to either type, or it would contradict a branch.
+	schema := toolSchema([]toolAction{
+		{Action: "run", Schema: objectSchema(map[string]any{"inputs": map[string]any{"type": "object"}}, nil)},
+		{Action: "save", Schema: objectSchema(map[string]any{"inputs": map[string]any{"type": "array"}}, nil)},
+	})
+	inputs := schema["properties"].(map[string]any)["inputs"].(map[string]any)
+	if _, ok := inputs["type"]; ok {
+		t.Fatalf("top-level inputs kept a conflicting type: %#v", inputs)
+	}
+	// A field all branches agree on keeps its type.
+	schema2 := toolSchema([]toolAction{
+		{Action: "a", Schema: objectSchema(map[string]any{"name": map[string]any{"type": "string"}}, nil)},
+		{Action: "b", Schema: objectSchema(map[string]any{"name": map[string]any{"type": "string", "minLength": 1}}, nil)},
+	})
+	name := schema2["properties"].(map[string]any)["name"].(map[string]any)
+	if name["type"] != "string" {
+		t.Errorf("agreed type dropped: %#v", name)
+	}
+	if _, ok := name["minLength"]; ok {
+		t.Errorf("per-branch constraint leaked to top level: %#v", name)
+	}
+}
+
+func contains(s []string, v string) bool {
+	return slices.Contains(s, v)
 }
 
 func TestRestrictAnnotationNarrowsPropertyEnum(t *testing.T) {

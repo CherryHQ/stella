@@ -120,6 +120,40 @@ const InputSchemaJSON = `{
         "revoke"
       ],
       "type": "string"
+    },
+    "article_id": {
+      "type": "string"
+    },
+    "expires_in": {
+      "default": "7d",
+      "enum": [
+        "1h",
+        "1d",
+        "7d",
+        "never"
+      ],
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "page_size": {
+      "type": "integer"
+    },
+    "page_token": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "scope": {
+      "default": "agent",
+      "description": "Which root to operate on: agent — the per-agent home (sandbox /workspace), private to this agent; user — the shared user-data root (sandbox /user), shared across all of the user's agents.",
+      "enum": [
+        "agent",
+        "user"
+      ],
+      "type": "string"
     }
   },
   "required": [

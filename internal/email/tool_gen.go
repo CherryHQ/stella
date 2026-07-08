@@ -163,6 +163,9 @@ const InputSchemaJSON = `{
     }
   ],
   "properties": {
+    "account": {
+      "type": "string"
+    },
     "action": {
       "enum": [
         "accounts",
@@ -171,6 +174,77 @@ const InputSchemaJSON = `{
         "send"
       ],
       "type": "string"
+    },
+    "bcc": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "before": {
+      "format": "date",
+      "type": "string"
+    },
+    "body": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "cc": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "folder": {
+      "default": "INBOX",
+      "type": "string"
+    },
+    "from": {
+      "type": "string"
+    },
+    "html": {
+      "type": "boolean"
+    },
+    "idempotency_key": {
+      "description": "Optional for HTTP clients; required by the native email tool to suppress duplicate sends.",
+      "type": "string"
+    },
+    "in_reply_to": {
+      "type": "string"
+    },
+    "limit": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "reply_to": {
+      "type": "string"
+    },
+    "since": {
+      "format": "date",
+      "type": "string"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "to": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "uid": {
+      "maximum": 4294967295,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "unread": {
+      "type": "boolean"
     }
   },
   "required": [

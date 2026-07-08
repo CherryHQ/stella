@@ -502,22 +502,107 @@ func renderTool(tool, packageName string, actions []toolAction) ([]byte, error) 
 func toolSchema(actions []toolAction) map[string]any {
 	enum := make([]any, 0, len(actions))
 	oneOf := make([]any, 0, len(actions))
+	branches := make([]map[string]any, 0, len(actions))
 	for _, action := range actions {
 		enum = append(enum, action.Action)
 		branch := cloneMap(action.Schema)
 		props := branch["properties"].(map[string]any)
 		props["action"] = map[string]any{"type": "string", "const": action.Action}
 		addRequired(branch, "action")
+		branches = append(branches, branch)
 		oneOf = append(oneOf, branch)
 	}
+	// Hoist the union of every branch's fields into the top-level `properties` so
+	// a model sees all possible parameters up front instead of having to reason
+	// through oneOf. The oneOf branches still carry the exact per-action
+	// requiredness and constraints; top-level `required` stays [action] only.
+	properties := hoistProperties(branches)
+	properties["action"] = map[string]any{"type": "string", "enum": enum}
 	return map[string]any{
-		"type":     "object",
-		"required": []any{"action"},
-		"properties": map[string]any{
-			"action": map[string]any{"type": "string", "enum": enum},
-		},
-		"oneOf": oneOf,
+		"type":       "object",
+		"required":   []any{"action"},
+		"properties": properties,
+		"oneOf":      oneOf,
 	}
+}
+
+// hoistProperties merges the field schemas across every action branch (excluding
+// `action`, handled separately). When branches agree on a field's schema it is
+// copied verbatim; when they disagree the hoisted copy is loosened to type +
+// description only, so the top-level descriptor can never contradict the branch a
+// given action must satisfy.
+func hoistProperties(branches []map[string]any) map[string]any {
+	variants := map[string][]map[string]any{}
+	var order []string
+	for _, branch := range branches {
+		props, _ := branch["properties"].(map[string]any)
+		for name, raw := range props {
+			if name == "action" {
+				continue
+			}
+			ps, _ := raw.(map[string]any)
+			if _, seen := variants[name]; !seen {
+				order = append(order, name)
+			}
+			variants[name] = append(variants[name], ps)
+		}
+	}
+	sort.Strings(order)
+	out := map[string]any{}
+	for _, name := range order {
+		vs := variants[name]
+		identical := true
+		for _, v := range vs[1:] {
+			if !schemaEqual(vs[0], v) {
+				identical = false
+				break
+			}
+		}
+		if identical {
+			out[name] = cloneMap(vs[0])
+		} else {
+			out[name] = loosenProperty(vs)
+		}
+	}
+	return out
+}
+
+// loosenProperty reduces a set of divergent field schemas to a conflict-free
+// descriptor. `type` is kept only when every variant agrees on it — otherwise it
+// is dropped so the hoisted copy can never contradict a branch (e.g. `inputs` is
+// an object for one action and an array for another). Enum/const/format and other
+// per-action constraints are dropped here but preserved in the matching oneOf
+// branch, which is what actually gates a call.
+func loosenProperty(vs []map[string]any) map[string]any {
+	out := map[string]any{}
+	if sharedType, ok := vs[0]["type"]; ok {
+		unanimous := true
+		for _, v := range vs[1:] {
+			if t, has := v["type"]; !has || t != sharedType {
+				unanimous = false
+				break
+			}
+		}
+		if unanimous {
+			out["type"] = sharedType
+		}
+	}
+	for _, v := range vs {
+		if d, ok := v["description"]; ok {
+			out["description"] = d
+			break
+		}
+	}
+	return out
+}
+
+func schemaEqual(a, b map[string]any) bool {
+	ab, err1 := json.Marshal(a)
+	bb, err2 := json.Marshal(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return bytes.Equal(ab, bb)
 }
 
 func goType(schema any, required bool) string {
