@@ -58,6 +58,7 @@ func (s *Service) runCycle(ctx context.Context) error {
 
 	span.SetAttributes(attribute.Int("stella.reflect.sessions_reviewed", totalReviewed))
 	expireDrafts(s.skillStore, defaultDraftMaxAge, s.log)
+	s.maybeRunUsageCurator(ctx)
 	return nil
 }
 
@@ -89,12 +90,16 @@ func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, 
 	span.SetAttributes(attribute.Int("stella.reflect.review_target_count", len(targets)))
 
 	reviewed := 0
-	for _, target := range targets {
-		if err := s.reviewConversation(ctx, snap, target); err != nil {
-			s.log.Error("reflect: review conversation", "session", target.session.ID, "error", err)
-			continue
+	batchSize := s.reviewBatchSize()
+	for start := 0; start < len(targets); start += batchSize {
+		end := min(start+batchSize, len(targets))
+		for _, target := range targets[start:end] {
+			if err := s.reviewConversation(ctx, snap, target); err != nil {
+				s.log.Error("reflect: review conversation", "session", target.session.ID, "error", err)
+				continue
+			}
+			reviewed++
 		}
-		reviewed++
 	}
 
 	span.SetAttributes(attribute.Int("stella.reflect.sessions_reviewed", reviewed))

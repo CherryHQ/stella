@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -153,6 +154,74 @@ func TestReplaceFact_DeprecatesOldFactAndSupersedesIt(t *testing.T) {
 	}
 	if oldAfter.Version != 2 {
 		t.Fatalf("old version = %d, want 2", oldAfter.Version)
+	}
+}
+
+func TestApplyFactBatch_ReflectWorldFactsMaintainUsageRows(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	written, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
+		Action:  FactBatchCreate,
+		Subject: memory.FactSubjectWorld,
+		Content: "The repo uses OpenAPI as the API source of truth.",
+	}})
+	if err != nil {
+		t.Fatalf("ApplyFactBatch create: %v", err)
+	}
+	if len(written) != 1 {
+		t.Fatalf("written facts = %d, want 1", len(written))
+	}
+
+	var createdLastUsed time.Time
+	if err := db.QueryRow(ctx, `
+		SELECT last_used_at
+		FROM knowledge_usage
+		WHERE fact_id = $1 AND user_id = $2 AND agent_id = $3
+	`, written[0].ID, userID, agentID).Scan(&createdLastUsed); err != nil {
+		t.Fatalf("read created knowledge usage: %v", err)
+	}
+	if createdLastUsed.IsZero() {
+		t.Fatal("created knowledge usage last_used_at is zero")
+	}
+
+	replacement, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
+		Action:        FactBatchReplaceMany,
+		Subject:       memory.FactSubjectWorld,
+		TargetFactIDs: []string{written[0].ID},
+		Content:       "The repo uses OpenAPI specs and generated server/client code for API changes.",
+	}})
+	if err != nil {
+		t.Fatalf("ApplyFactBatch replace: %v", err)
+	}
+	if len(replacement) != 1 {
+		t.Fatalf("replacement facts = %d, want 1", len(replacement))
+	}
+
+	var oldUsageCount int
+	if err := db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM knowledge_usage
+		WHERE fact_id = $1
+	`, written[0].ID).Scan(&oldUsageCount); err != nil {
+		t.Fatalf("count old knowledge usage: %v", err)
+	}
+	if oldUsageCount != 0 {
+		t.Fatalf("old knowledge usage rows = %d, want 0", oldUsageCount)
+	}
+
+	var newUsageCount int
+	if err := db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM knowledge_usage
+		WHERE fact_id = $1 AND user_id = $2 AND agent_id = $3
+	`, replacement[0].ID, userID, agentID).Scan(&newUsageCount); err != nil {
+		t.Fatalf("count replacement knowledge usage: %v", err)
+	}
+	if newUsageCount != 1 {
+		t.Fatalf("replacement knowledge usage rows = %d, want 1", newUsageCount)
 	}
 }
 
@@ -385,6 +454,14 @@ func TestResetUserAgentMemory_KeepsVersionMonotonicAndDoesNotResurrect(t *testin
 	}); err != nil {
 		t.Fatalf("set old profile: %v", err)
 	}
+	worldFacts, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
+		Action:  FactBatchCreate,
+		Subject: memory.FactSubjectWorld,
+		Content: "Old world knowledge.",
+	}})
+	if err != nil {
+		t.Fatalf("create old world fact: %v", err)
+	}
 	if _, err := AddConstraint(ctx, db, q, userID, agentID, "Old constraint."); err != nil {
 		t.Fatalf("add old constraint: %v", err)
 	}
@@ -408,6 +485,17 @@ func TestResetUserAgentMemory_KeepsVersionMonotonicAndDoesNotResurrect(t *testin
 	}
 	if string(afterReset.Constraints) != "[]" || string(afterReset.ProfileEntries) != "[]" {
 		t.Fatalf("reset did not clear constraints/profile_entries: %+v", afterReset)
+	}
+	var oldWorldUsageCount int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM knowledge_usage
+		WHERE fact_id = $1
+	`, worldFacts[0].ID).Scan(&oldWorldUsageCount); err != nil {
+		t.Fatalf("count reset knowledge_usage: %v", err)
+	}
+	if oldWorldUsageCount != 0 {
+		t.Fatalf("reset left %d knowledge_usage rows for deprecated world fact", oldWorldUsageCount)
 	}
 
 	newFact, err := SetSingletonFact(ctx, db, q, memory.FactWrite{

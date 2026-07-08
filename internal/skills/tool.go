@@ -87,6 +87,10 @@ type Tool struct {
 	enabledPluginIDs    []string
 }
 
+type reflectSkillRuntimeUsageTracker interface {
+	TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error
+}
+
 func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool {
 	return &Tool{
 		svc:         NewService(store, stellaHome),
@@ -330,6 +334,7 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 			}
 		}
 	}
+	t.touchReflectSkillRuntimeUse(ctx, name, vc, projectRoot)
 
 	// Remap the host directory to the path the agent sees inside the sandbox; an
 	// unmappable dir on an isolating backend is dropped rather than leaked.
@@ -342,6 +347,27 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	fmt.Fprintf(&out, "<skill_content name=%q path=%q>\n%s\n</skill_content>", name, path, data)
 
 	return out.String(), nil
+}
+
+func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, name string, vc pkgplugins.SkillViewContext, projectRoot string) {
+	tracker, ok := t.store.(reflectSkillRuntimeUsageTracker)
+	if !ok || vc.UserID == "" || vc.AgentID == "" {
+		return
+	}
+	rs, err := t.svc.Resolve(ctx, name, vc, projectRoot)
+	if err != nil {
+		slog.WarnContext(ctx, "skills load: failed to resolve skill for usage touch", "skill", name, "err", err)
+		return
+	}
+	if rs == nil || rs.Scope != skillScopeAgent || rs.UserID != vc.UserID || rs.AgentID != vc.AgentID {
+		return
+	}
+	if !IsReflectOwned(Skill{Metadata: rs.Metadata}) {
+		return
+	}
+	if err := tracker.TouchReflectSkillRuntimeUse(ctx, rs.ID, vc.UserID, vc.AgentID); err != nil {
+		slog.WarnContext(ctx, "skills load: failed to touch skill usage", "skill", name, "err", err)
+	}
 }
 
 type installedSkill struct {

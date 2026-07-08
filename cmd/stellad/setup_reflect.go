@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	defaultReflectInterval = time.Hour
+	defaultReflectInterval = 6 * time.Hour
 	// minReflectInterval guards against runaway-cost misconfiguration. The
 	// override is a dev knob; setting it below this is almost certainly a
 	// mistake (e.g. STELLA_REFLECT_INTERVAL=1ns) and would fire reflect per

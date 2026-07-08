@@ -17,21 +17,25 @@ const (
 	defaultDraftMaxAge = 30 * 24 * time.Hour
 
 	// defaultReviewBatch caps how many review targets a single cycle processes
-	// per agent.
-	defaultReviewBatch = 5
+	// per in-memory batch.
+	defaultReviewBatch = 10
+
+	defaultMaxReviewTargetsPerAgent = 30
 )
 
 // Config holds dependencies for the reflect service.
 type Config struct {
-	StateStore     pkgplugins.StateStore
-	Memory         memory.Provider
-	Store          Store
-	SkillStore     pkgplugins.SkillStore
-	Notifier       pkgplugins.Notifier
-	Workspace      string
-	Log            *slog.Logger
-	Providers      func(api, apiKey, baseURL string) (providers.StreamFunc, error)
-	CandidateGates CandidateGateSettings
+	StateStore           pkgplugins.StateStore
+	Memory               memory.Provider
+	Store                Store
+	SkillStore           pkgplugins.SkillStore
+	UsageCuratorStore    UsageCuratorStore
+	Notifier             pkgplugins.Notifier
+	Workspace            string
+	Log                  *slog.Logger
+	Providers            func(api, apiKey, baseURL string) (providers.StreamFunc, error)
+	CandidateGates       CandidateGateSettings
+	UsageCuratorSettings usageCuratorSettings
 	// Services provides per-agent session registries for review target listing.
 	// When set, reflect uses Registry.ListForReview and Registry.MemoryScope
 	// instead of calling memory.SessionManager directly.
@@ -48,17 +52,21 @@ type watermarker interface {
 
 // Service runs background conversation review.
 type Service struct {
-	memory         memory.Provider
-	store          Store
-	skillStore     pkgplugins.SkillStore
-	notifier       pkgplugins.Notifier
-	wm             watermarker
-	workspace      string
-	batch          int
-	log            *slog.Logger
-	providers      func(api, apiKey, baseURL string) (providers.StreamFunc, error)
-	candidateGates CandidateGateSettings
-	services       agent.ServiceManager
+	memory                   memory.Provider
+	store                    Store
+	skillStore               pkgplugins.SkillStore
+	stateStore               pkgplugins.StateStore
+	usageCuratorStore        UsageCuratorStore
+	notifier                 pkgplugins.Notifier
+	wm                       watermarker
+	workspace                string
+	batch                    int
+	maxReviewTargetsPerAgent int
+	log                      *slog.Logger
+	providers                func(api, apiKey, baseURL string) (providers.StreamFunc, error)
+	candidateGates           CandidateGateSettings
+	usageCuratorSettings     usageCuratorSettings
+	services                 agent.ServiceManager
 }
 
 // New creates a new reflect service.
@@ -67,16 +75,20 @@ func New(cfg Config) *Service {
 		cfg.Log = slog.Default()
 	}
 	return &Service{
-		memory:         cfg.Memory,
-		store:          cfg.Store,
-		skillStore:     cfg.SkillStore,
-		notifier:       cfg.Notifier,
-		wm:             newWatermarkStore(cfg.StateStore),
-		workspace:      cfg.Workspace,
-		batch:          defaultReviewBatch,
-		log:            cfg.Log,
-		providers:      cfg.Providers,
-		candidateGates: cfg.CandidateGates.withDefaults(),
-		services:       cfg.Services,
+		memory:                   cfg.Memory,
+		store:                    cfg.Store,
+		skillStore:               cfg.SkillStore,
+		stateStore:               cfg.StateStore,
+		usageCuratorStore:        cfg.UsageCuratorStore,
+		notifier:                 cfg.Notifier,
+		wm:                       newWatermarkStore(cfg.StateStore),
+		workspace:                cfg.Workspace,
+		batch:                    defaultReviewBatch,
+		maxReviewTargetsPerAgent: defaultMaxReviewTargetsPerAgent,
+		log:                      cfg.Log,
+		providers:                cfg.Providers,
+		candidateGates:           cfg.CandidateGates.withDefaults(),
+		usageCuratorSettings:     cfg.UsageCuratorSettings.withDefaults(),
+		services:                 cfg.Services,
 	}
 }

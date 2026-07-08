@@ -115,6 +115,53 @@ func (q *Queries) DeprecateExpiredDrafts(ctx context.Context, cutoff string) err
 	return err
 }
 
+const deprecateReflectOwnedUserAgentSkill = `-- name: DeprecateReflectOwnedUserAgentSkill :one
+UPDATE skill
+SET status     = 'deprecated',
+    version    = version + 1,
+    updated_at = now()
+WHERE id = $1
+  AND scope = 'user_agent'
+  AND user_id = $2::uuid
+  AND agent_id = $3::text
+  AND metadata->>'created_by' = 'reflect'
+  AND status = 'active'
+  AND version = $4
+RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version
+`
+
+type DeprecateReflectOwnedUserAgentSkillParams struct {
+	ID              string `json:"id"`
+	UserID          string `json:"user_id"`
+	AgentID         string `json:"agent_id"`
+	ExpectedVersion int64  `json:"expected_version"`
+}
+
+func (q *Queries) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, arg DeprecateReflectOwnedUserAgentSkillParams) (Skill, error) {
+	row := q.db.QueryRow(ctx, deprecateReflectOwnedUserAgentSkill,
+		arg.ID,
+		arg.UserID,
+		arg.AgentID,
+		arg.ExpectedVersion,
+	)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
 const getSkill = `-- name: GetSkill :one
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill
 WHERE id = $1
@@ -825,8 +872,8 @@ SET description              = $1,
     updated_at               = now()
 WHERE id = $5
   AND scope = 'user_agent'
-  AND user_id = $6
-  AND agent_id = $7
+  AND user_id = $6::uuid
+  AND agent_id = $7::text
   AND metadata->>'created_by' = 'reflect'
   AND version = $8
 RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version
@@ -838,8 +885,8 @@ type UpdateReflectOwnedUserAgentSkillParams struct {
 	DisableModelInvocation bool            `json:"disable_model_invocation"`
 	Metadata               json.RawMessage `json:"metadata"`
 	ID                     string          `json:"id"`
-	UserID                 pgtype.Text     `json:"user_id"`
-	AgentID                pgtype.Text     `json:"agent_id"`
+	UserID                 string          `json:"user_id"`
+	AgentID                string          `json:"agent_id"`
 	ExpectedVersion        int64           `json:"expected_version"`
 }
 

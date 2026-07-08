@@ -138,8 +138,12 @@ func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries
 			if err != nil {
 				return fmt.Errorf("deprecate reset fact: %w", err)
 			}
+			before := factFromRow(row)
+			if err := deleteKnowledgeUsageIfReflectWorld(ctx, qtx, before); err != nil {
+				return err
+			}
 			deprecated = append(deprecated, deprecatedFact{
-				before: factFromRow(row),
+				before: before,
 				after:  factFromRow(deprecatedRow),
 			})
 		}
@@ -385,6 +389,9 @@ func applyFactWriteLocked(ctx context.Context, qtx *sqlc.Queries, plan factWrite
 		}
 		f := factFromRow(row)
 		deprecatedOld = &f
+		if err := deleteKnowledgeUsageIfReflectWorld(ctx, qtx, oldBefore); err != nil {
+			return memory.Fact{}, err
+		}
 	}
 
 	metadata := plan.write.Metadata
@@ -415,6 +422,9 @@ func applyFactWriteLocked(ctx context.Context, qtx *sqlc.Queries, plan factWrite
 	}
 
 	fact := factFromRow(row)
+	if err := upsertKnowledgeUsageIfReflectWorld(ctx, qtx, fact); err != nil {
+		return memory.Fact{}, err
+	}
 	changelogAction := plan.action
 	if deprecatedOld != nil {
 		changelogAction = "replace"
@@ -466,10 +476,37 @@ func applyDeprecateFactLocked(ctx context.Context, qtx *sqlc.Queries, userID str
 		return memory.Fact{}, fmt.Errorf("bump memory version: %w", err)
 	}
 	deprecated := factFromRow(row)
+	if err := deleteKnowledgeUsageIfReflectWorld(ctx, qtx, oldBefore); err != nil {
+		return memory.Fact{}, err
+	}
 	if _, err := writeFactChangelog(ctx, qtx, userID, agentID, "deprecate", source, beforeVersion, memoryRow.Version, oldBefore, deprecated); err != nil {
 		return memory.Fact{}, err
 	}
 	return deprecated, nil
+}
+
+func upsertKnowledgeUsageIfReflectWorld(ctx context.Context, qtx *sqlc.Queries, fact memory.Fact) error {
+	if fact.Subject != memory.FactSubjectWorld || fact.Source != memory.SourceReflect {
+		return nil
+	}
+	if err := qtx.UpsertKnowledgeUsage(ctx, sqlc.UpsertKnowledgeUsageParams{
+		FactID:  fact.ID,
+		UserID:  fact.UserID,
+		AgentID: fact.AgentID,
+	}); err != nil {
+		return fmt.Errorf("upsert knowledge usage: %w", err)
+	}
+	return nil
+}
+
+func deleteKnowledgeUsageIfReflectWorld(ctx context.Context, qtx *sqlc.Queries, fact memory.Fact) error {
+	if fact.Subject != memory.FactSubjectWorld || fact.Source != memory.SourceReflect {
+		return nil
+	}
+	if err := qtx.DeleteKnowledgeUsage(ctx, fact.ID); err != nil {
+		return fmt.Errorf("delete knowledge usage: %w", err)
+	}
+	return nil
 }
 
 func metadataWithReplacedFactIDs(metadata json.RawMessage, targetIDs []string) json.RawMessage {

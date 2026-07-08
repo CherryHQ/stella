@@ -150,9 +150,23 @@ SET description              = sqlc.arg(description),
     updated_at               = now()
 WHERE id = sqlc.arg(id)
   AND scope = 'user_agent'
-  AND user_id = sqlc.arg(user_id)
-  AND agent_id = sqlc.arg(agent_id)
+  AND user_id = sqlc.arg(user_id)::uuid
+  AND agent_id = sqlc.arg(agent_id)::text
   AND metadata->>'created_by' = 'reflect'
+  AND version = sqlc.arg(expected_version)
+RETURNING *;
+
+-- name: DeprecateReflectOwnedUserAgentSkill :one
+UPDATE skill
+SET status     = 'deprecated',
+    version    = version + 1,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND scope = 'user_agent'
+  AND user_id = sqlc.arg(user_id)::uuid
+  AND agent_id = sqlc.arg(agent_id)::text
+  AND metadata->>'created_by' = 'reflect'
+  AND status = 'active'
   AND version = sqlc.arg(expected_version)
 RETURNING *;
 

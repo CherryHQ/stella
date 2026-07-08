@@ -452,6 +452,53 @@ func TestExecute_SearchKnowledgeCurrentFacts(t *testing.T) {
 	}
 }
 
+type usageTrackingKnowledgeProvider struct {
+	*memorytest.Fake
+	touchedFactIDs []string
+}
+
+func (p *usageTrackingKnowledgeProvider) TouchKnowledgeUsage(_ context.Context, _ string, _ string, factIDs []string) error {
+	p.touchedFactIDs = append(p.touchedFactIDs, factIDs...)
+	return nil
+}
+
+func TestExecute_SearchKnowledgeTouchesReturnedReflectFacts(t *testing.T) {
+	provider := &usageTrackingKnowledgeProvider{Fake: memorytest.New()}
+	now := time.Now().UTC()
+	provider.AddFact("1", "agent1", memory.Fact{
+		ID:        "reflect-world-1",
+		Subject:   memory.FactSubjectWorld,
+		Content:   "The deployment cluster uses canary rollouts.",
+		Status:    memory.FactStatusActive,
+		Source:    memory.SourceReflect,
+		UpdatedAt: now,
+	})
+	provider.AddFact("1", "agent1", memory.Fact{
+		ID:        "manual-world-1",
+		Subject:   memory.FactSubjectWorld,
+		Content:   "The deployment cluster stores audit logs.",
+		Status:    memory.FactStatusActive,
+		Source:    memory.SourceManual,
+		UpdatedAt: now,
+	})
+
+	tool := memory.BuildTool(provider)
+	execCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
+	out, err := tool.Execute(execCtx, map[string]any{
+		"action": "search_knowledge",
+		"query":  "canary rollouts",
+	})
+	if err != nil {
+		t.Fatalf("search_knowledge: %v", err)
+	}
+	if !strings.Contains(out, "reflect-world-1") {
+		t.Fatalf("expected reflect fact result: %s", out)
+	}
+	if !slices.Equal(provider.touchedFactIDs, []string{"reflect-world-1"}) {
+		t.Fatalf("touchedFactIDs = %#v, want only returned reflect fact", provider.touchedFactIDs)
+	}
+}
+
 type snapshotKnowledgeProvider struct {
 	*memorytest.Fake
 	atVersion int64

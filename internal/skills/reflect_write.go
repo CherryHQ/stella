@@ -43,6 +43,14 @@ type ReflectSkillPatch struct {
 	Metadata               json.RawMessage
 }
 
+type ReflectSkillDeprecate struct {
+	ID              string
+	UserID          string
+	AgentID         string
+	ExpectedVersion int64
+	Metadata        json.RawMessage
+}
+
 // CreateReflectOwnedUserAgentSkill creates an active Reflect-owned user_agent
 // skill and records the initial version in skill_changelog.
 func (s *PGStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (Skill, error) {
@@ -90,6 +98,13 @@ func (s *PGStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in Refle
 	}
 
 	skill := mapRow(row)
+	if err := qtx.UpsertSkillUsageOnReflectCreate(ctx, sqlc.UpsertSkillUsageOnReflectCreateParams{
+		SkillID: skill.ID,
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+	}); err != nil {
+		return Skill{}, fmt.Errorf("skills: initialize reflect skill usage: %w", err)
+	}
 	if _, err := qtx.InsertSkillChangelog(ctx, sqlc.InsertSkillChangelogParams{
 		SkillID:      skill.ID,
 		UserID:       pgtype.Text{String: in.UserID, Valid: true},
@@ -173,8 +188,8 @@ func (s *PGStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in Reflec
 
 	afterRow, err := qtx.UpdateReflectOwnedUserAgentSkill(ctx, sqlc.UpdateReflectOwnedUserAgentSkillParams{
 		ID:                     in.ID,
-		UserID:                 pgtype.Text{String: in.UserID, Valid: true},
-		AgentID:                pgtype.Text{String: in.AgentID, Valid: true},
+		UserID:                 in.UserID,
+		AgentID:                in.AgentID,
 		ExpectedVersion:        in.ExpectedVersion,
 		Description:            description,
 		Status:                 status,
@@ -188,6 +203,13 @@ func (s *PGStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in Reflec
 		return Skill{}, fmt.Errorf("skills: patch reflect-owned metadata: %w", err)
 	}
 	after := mapRow(afterRow)
+	if err := qtx.RefreshSkillUsageOnReflectPatch(ctx, sqlc.RefreshSkillUsageOnReflectPatchParams{
+		SkillID: after.ID,
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+	}); err != nil {
+		return Skill{}, fmt.Errorf("skills: refresh reflect skill usage: %w", err)
+	}
 
 	if _, err := qtx.InsertSkillChangelog(ctx, sqlc.InsertSkillChangelogParams{
 		SkillID:       after.ID,
@@ -204,6 +226,78 @@ func (s *PGStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in Reflec
 
 	if err := tx.Commit(ctx); err != nil {
 		return Skill{}, fmt.Errorf("skills: commit reflect patch: %w", err)
+	}
+	return after, nil
+}
+
+// DeprecateReflectOwnedUserAgentSkill marks a Reflect-owned user_agent skill as
+// deprecated under optimistic version control and removes its usage row.
+func (s *PGStore) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillDeprecate) (Skill, error) {
+	if in.ID == "" || in.UserID == "" || in.AgentID == "" {
+		return Skill{}, fmt.Errorf("skills: id, user_id, and agent_id are required")
+	}
+	if in.ExpectedVersion <= 0 {
+		return Skill{}, fmt.Errorf("skills: expected_version is required")
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Skill{}, fmt.Errorf("skills: begin reflect deprecate: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
+
+	beforeRow, err := qtx.GetSkillForUpdate(ctx, in.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Skill{}, fmt.Errorf("skills: skill %q not found: %w", in.ID, pgx.ErrNoRows)
+	}
+	if err != nil {
+		return Skill{}, fmt.Errorf("skills: lock reflect-owned skill: %w", err)
+	}
+	before := mapRow(beforeRow)
+	if before.Scope != "user_agent" || before.UserID != in.UserID || before.AgentID != in.AgentID || !IsReflectOwned(before) {
+		return Skill{}, ErrSkillNotReflectOwned
+	}
+	if before.Version != in.ExpectedVersion || before.Status != SkillStatusActive {
+		return Skill{}, ErrSkillVersionConflict
+	}
+
+	afterRow, err := qtx.DeprecateReflectOwnedUserAgentSkill(ctx, sqlc.DeprecateReflectOwnedUserAgentSkillParams{
+		ID:              in.ID,
+		UserID:          in.UserID,
+		AgentID:         in.AgentID,
+		ExpectedVersion: in.ExpectedVersion,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Skill{}, ErrSkillVersionConflict
+	}
+	if err != nil {
+		return Skill{}, fmt.Errorf("skills: deprecate reflect-owned skill: %w", err)
+	}
+	after := mapRow(afterRow)
+	if err := qtx.DeleteSkillUsage(ctx, after.ID); err != nil {
+		return Skill{}, fmt.Errorf("skills: delete deprecated skill usage: %w", err)
+	}
+
+	metadata := in.Metadata
+	if len(metadata) == 0 {
+		metadata = json.RawMessage(`{}`)
+	}
+	if _, err := qtx.InsertSkillChangelog(ctx, sqlc.InsertSkillChangelogParams{
+		SkillID:       after.ID,
+		UserID:        pgtype.Text{String: in.UserID, Valid: true},
+		AgentID:       pgtype.Text{String: in.AgentID, Valid: true},
+		Scope:         after.Scope,
+		Action:        "deprecate",
+		VersionBefore: pgtype.Int8{Int64: before.Version, Valid: true},
+		VersionAfter:  after.Version,
+		Metadata:      metadata,
+	}); err != nil {
+		return Skill{}, fmt.Errorf("skills: record reflect deprecate changelog: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Skill{}, fmt.Errorf("skills: commit reflect deprecate: %w", err)
 	}
 	return after, nil
 }

@@ -101,6 +101,16 @@ func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in 
 	return patched, nil
 }
 
+func (d *DiskSyncStore) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillDeprecate) (Skill, error) {
+	writer, ok := d.Store.(interface {
+		DeprecateReflectOwnedUserAgentSkill(context.Context, ReflectSkillDeprecate) (Skill, error)
+	})
+	if !ok {
+		return Skill{}, fmt.Errorf("disk_sync reflect deprecate: inner store does not support lifecycle deprecate")
+	}
+	return writer.DeprecateReflectOwnedUserAgentSkill(ctx, in)
+}
+
 func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) error {
 	sk, err := d.findByID(ctx, skillID)
 	if err != nil {

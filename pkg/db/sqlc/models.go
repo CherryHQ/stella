@@ -544,6 +544,14 @@ type Fact struct {
 	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
+type KnowledgeUsage struct {
+	FactID     string    `json:"fact_id"`
+	UserID     string    `json:"user_id"`
+	AgentID    string    `json:"agent_id"`
+	LastUsedAt time.Time `json:"last_used_at"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type McpServer struct {
 	ID            string          `json:"id"`
 	Scope         string          `json:"scope"`
@@ -885,6 +893,15 @@ type SkillFile struct {
 	SkillID string `json:"skill_id"`
 	Path    string `json:"path"`
 	Content string `json:"content"`
+}
+
+type SkillUsage struct {
+	SkillID    string    `json:"skill_id"`
+	UserID     string    `json:"user_id"`
+	AgentID    string    `json:"agent_id"`
+	UseCount   int64     `json:"use_count"`
+	LastUsedAt time.Time `json:"last_used_at"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type ToolOverride struct {
