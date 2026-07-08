@@ -93,6 +93,8 @@ type Server struct {
 	// runtimeCtx is canceled by the process/service lifecycle; request handlers
 	// derive long-running work from it instead of client connections.
 	runtimeCtx context.Context
+	// webhookLimiter throttles accepted webhook ingress calls per instance.
+	webhookLimiter *webhookLimiter
 }
 
 // New creates an admin server with all API routes mounted.
