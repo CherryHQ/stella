@@ -1,53 +1,11 @@
 package config
 
-import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-	"time"
-)
-
-// CachedModel is the on-disk representation of a model in models.json.
+// CachedModel is one fetched provider/model pair. The set of fetched models per
+// provider is persisted in PostgreSQL (see Store.ListCachedModels) so it is
+// shared across replicas and survives restarts; ProviderName is filled by readers
+// from the live provider config, not stored with the cache.
 type CachedModel struct {
 	Provider     string `json:"provider"`
 	ProviderName string `json:"provider_name,omitempty"`
 	Model        string `json:"model"`
-}
-
-// ModelsCache is the top-level structure for models.json in the cache directory.
-type ModelsCache struct {
-	UpdatedAt time.Time     `json:"updated_at"`
-	Models    []CachedModel `json:"models"`
-}
-
-// ModelsCachePath returns the path to the models.json cache file.
-func ModelsCachePath() string {
-	return filepath.Join(CachePath(), "models.json")
-}
-
-// LoadModelsCache reads the cached models from the workspace models.json.
-func LoadModelsCache() (*ModelsCache, error) {
-	data, err := os.ReadFile(ModelsCachePath())
-	if err != nil {
-		return nil, err
-	}
-	var cache ModelsCache
-	if err := json.Unmarshal(data, &cache); err != nil {
-		return nil, fmt.Errorf("parse models cache: %w", err)
-	}
-	return &cache, nil
-}
-
-// SaveModelsCache writes the models cache to the cache directory.
-func SaveModelsCache(cache *ModelsCache) error {
-	path := ModelsCachePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create cache dir: %w", err)
-	}
-	data, err := json.MarshalIndent(cache, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal models cache: %w", err)
-	}
-	return os.WriteFile(path, data, 0o644)
 }

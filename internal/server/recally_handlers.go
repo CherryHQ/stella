@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,24 +13,21 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/recally"
 )
 
 // recallyHandlers implements the recally portion of apiserver.ServerInterface and is the
-// single entry point through which CLI/web/SDK clients reach the recally store
-// and on-disk markdown library. All bodies live on the server; clients are
-// purely HTTP.
+// single entry point through which CLI/web/SDK clients reach the recally store.
+// Article bodies live in PostgreSQL; clients are purely HTTP.
 type recallyHandlers struct {
 	store *recally.Store
-	files *recally.FileManager
 	svc   *recally.Service
 	feeds *gofeed.Parser
 	log   *slog.Logger
 }
 
-func newRecallyHandlersWithService(store *recally.Store, files *recally.FileManager, svc *recally.Service, log *slog.Logger) *recallyHandlers {
-	return &recallyHandlers{store: store, files: files, svc: svc, feeds: gofeed.NewParser(), log: log.With("component", "recally-api")}
+func newRecallyHandlersWithService(store *recally.Store, svc *recally.Service, log *slog.Logger) *recallyHandlers {
+	return &recallyHandlers{store: store, svc: svc, feeds: gofeed.NewParser(), log: log.With("component", "recally-api")}
 }
 
 func (h *recallyHandlers) writeInternalError(w http.ResponseWriter, err error) {
@@ -282,8 +278,10 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 		updated = next
 	}
 
-	if body.Content != nil || len(updates) > 0 {
-		if err := h.rewriteArticleFile(r.Context(), updated, body.Content); err != nil {
+	// Body lives in PostgreSQL; only rewrite it when the client sent new content.
+	// Metadata-only updates leave the stored body untouched.
+	if body.Content != nil {
+		if err := h.store.UpsertArticleContent(r.Context(), id, *body.Content); err != nil {
 			h.writeInternalError(w, err)
 			return
 		}
@@ -297,20 +295,14 @@ func (h *recallyHandlers) DeleteArticle(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	article, ok := h.loadArticle(w, r.Context(), id, userID)
-	if !ok {
+	if _, ok := h.loadArticle(w, r.Context(), id, userID); !ok {
 		return
 	}
+	// The article row and its content row cascade-delete in the DB; there is no
+	// on-disk mirror to clean up (legacy files, if any, are left inert).
 	if err := h.store.DeleteArticle(r.Context(), userID, id); err != nil {
 		h.writeInternalError(w, err)
 		return
-	}
-	if article.FilePath != "" {
-		path := article.FilePath
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(config.StellaHome(), path)
-		}
-		_ = h.files.DeleteArticle(path)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -748,39 +740,6 @@ func includesContent(include string) bool {
 
 func (h *recallyHandlers) readArticleBody(ctx context.Context, article *recally.Article) (string, error) {
 	return h.svc.ReadArticleBody(ctx, article)
-}
-
-func (h *recallyHandlers) rewriteArticleFile(ctx context.Context, article *recally.Article, newContent *string) error {
-	body := ""
-	if newContent != nil {
-		body = *newContent
-	} else {
-		existing, err := h.svc.ReadArticleBody(ctx, article)
-		if err != nil {
-			// Legacy rows can point at a mirror file this replica never had; a
-			// metadata-only update must not fail on the missing body.
-			h.log.Warn("skipping recally article body rewrite; body unavailable", "article_id", article.ID, "error", err)
-			return nil
-		}
-		body = existing
-	}
-	if newContent == nil && body == "" {
-		return nil
-	}
-	if err := h.store.UpsertArticleContent(ctx, article.ID, body); err != nil {
-		return err
-	}
-	if article.FilePath == "" {
-		return nil
-	}
-	path := article.FilePath
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(config.StellaHome(), path)
-	}
-	if err := h.files.WriteArticle(path, article, body); err != nil {
-		h.log.Warn("failed to mirror recally article body to disk", "article_id", article.ID, "path", path, "error", err)
-	}
-	return nil
 }
 
 func strDeref(p *string) string {

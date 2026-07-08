@@ -28,6 +28,16 @@ INSERT INTO recally_article_content (article_id, content)
 VALUES (sqlc.arg('article_id'), sqlc.arg('content'))
 ON CONFLICT (article_id) DO NOTHING;
 
+-- name: ListArticlesMissingContent :many
+-- Legacy articles whose body still lives only in a disk file (file_path set) and
+-- was never copied into recally_article_content. Startup eager-backfills these so
+-- bodies survive on hosts where the pod-local disk is gone. Keep ASCII.
+SELECT a.id, a.user_id, a.file_path
+FROM recally_article a
+LEFT JOIN recally_article_content c ON c.article_id = a.id
+WHERE a.file_path <> '' AND c.article_id IS NULL
+ORDER BY a.saved_at DESC;
+
 -- name: ListArticles :many
 SELECT * FROM recally_article
 WHERE user_id = sqlc.arg('user_id')

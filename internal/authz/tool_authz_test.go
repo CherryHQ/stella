@@ -213,7 +213,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), recally.NewFileManager(home), home, "http://stella.test")
+	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
@@ -237,7 +237,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("share unauthenticated err=%v, want no user identity", err)
 	}
 
-	recallySvc := recally.NewService(recally.NewStore(db), recally.NewFileManager(home), home)
+	recallySvc := recally.NewService(recally.NewStore(db), home)
 	recallyTool := recally.NewTool(recallySvc)
 	ownerRecallyCtx := authz.WithAgentID(authz.WithUserID(ctx, ownerUser), agentID)
 	out, err = recallyTool.Execute(ownerRecallyCtx, map[string]any{"action": "save", "articles": []any{

@@ -94,6 +94,43 @@ func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
 	return s.q.DeleteProvider(ctx, id)
 }
 
+// --- Fetched-model cache (backed by provider_models_cache) ---
+
+func (s *DBStore) ListCachedModels(ctx context.Context) ([]config.CachedModel, error) {
+	rows, err := s.q.ListProviderModelsCache(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list cached models: %w", err)
+	}
+	var out []config.CachedModel
+	for _, r := range rows {
+		var modelIDs []string
+		if err := json.Unmarshal(r.Models, &modelIDs); err != nil {
+			return nil, fmt.Errorf("list cached models: decode %q: %w", r.ProviderID, err)
+		}
+		for _, id := range modelIDs {
+			out = append(out, config.CachedModel{Provider: r.ProviderID, Model: id})
+		}
+	}
+	return out, nil
+}
+
+func (s *DBStore) ReplaceCachedModels(ctx context.Context, providerID string, modelIDs []string) error {
+	if modelIDs == nil {
+		modelIDs = []string{}
+	}
+	data, err := json.Marshal(modelIDs)
+	if err != nil {
+		return fmt.Errorf("replace cached models %q: marshal: %w", providerID, err)
+	}
+	if err := s.q.UpsertProviderModelsCache(ctx, sqlc.UpsertProviderModelsCacheParams{
+		ProviderID: providerID,
+		Models:     data,
+	}); err != nil {
+		return fmt.Errorf("replace cached models %q: %w", providerID, err)
+	}
+	return nil
+}
+
 // --- Agents ---
 
 func (s *DBStore) ListAgents(ctx context.Context) ([]config.Agent, error) {

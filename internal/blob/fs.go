@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -83,6 +84,48 @@ func (s *FSStore) Delete(ctx context.Context, key string) error {
 		return err
 	}
 	return nil
+}
+
+func (s *FSStore) List(ctx context.Context, prefix string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Validate the prefix through the same root-confinement path a key takes, so
+	// a traversal/absolute prefix is rejected before it can widen the walk.
+	dir, err := s.path(prefix)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(dir); err != nil {
+		// A prefix that points at nothing is empty, not an error: a cold pod with
+		// no assets yet, or a user who never uploaded, is the normal case.
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var keys []string
+	walkErr := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(s.root, p)
+		if err != nil {
+			return err
+		}
+		keys = append(keys, filepath.ToSlash(rel))
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	return keys, nil
 }
 
 func (s *FSStore) path(key string) (string, error) {

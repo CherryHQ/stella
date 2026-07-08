@@ -225,6 +225,8 @@ All data lives under the stella home directory (`~/.stella` by default, configur
 
 The PostgreSQL data is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs. With the embedded cluster, back up the `~/.stella/postgres/` directory (with the server stopped); `~/.stella/pg-runtime/` is downloaded code and can be recreated. With an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database.
 
+For a full breakdown of which directories are durable data, derived cache, or scratch — and the volume and backup treatment each needs on Kubernetes or ephemeral disks — see [Storage & Durability](/docs/start-here/storage).
+
 ## Environment Variables
 
 Configuration is managed through the Web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:

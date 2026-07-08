@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -36,13 +35,11 @@ type SaveResult struct {
 	Created bool
 }
 
-func NewService(store *Store, files *FileManager, stellaHome string) *Service {
-	return &Service{store: store, files: files, feeds: gofeed.NewParser(), stellaHome: stellaHome}
+func NewService(store *Store, stellaHome string) *Service {
+	return &Service{store: store, files: newFileManager(stellaHome), feeds: gofeed.NewParser(), stellaHome: stellaHome}
 }
 
 func (s *Service) Store() *Store { return s.store }
-
-func (s *Service) Files() *FileManager { return s.files }
 
 // Recally is deliberately user-owned, not agent-scoped: a user's reading
 // library is shared across all of their agents.
@@ -69,14 +66,20 @@ func (s Authorized) Save(ctx context.Context, req SaveRequest) (SaveResult, erro
 	if err != nil {
 		return SaveResult{}, err
 	}
-	article, created, err := s.saveWithFile(ctx, uid, req)
+	article, created, err := s.save(ctx, uid, req)
 	if err != nil {
 		return SaveResult{}, err
 	}
 	return SaveResult{Article: article, Created: created}, nil
 }
 
-func (s *Service) saveWithFile(ctx context.Context, userID string, req SaveRequest) (*Article, bool, error) {
+// save persists an article and its body to PostgreSQL, which is the sole source
+// of truth. New articles are written in one SaveArticleWithContent transaction;
+// updates upsert the body. Bodies are no longer mirrored to a markdown file on
+// disk (that mirror had no readers), and new rows leave file_path empty; the
+// column stays as the legacy pointer the startup backfill consults for rows
+// written before this change (reads no longer fall back to disk).
+func (s *Service) save(ctx context.Context, userID string, req SaveRequest) (*Article, bool, error) {
 	if req.URL == "" {
 		return nil, false, fmt.Errorf("url is required")
 	}
@@ -90,52 +93,29 @@ func (s *Service) saveWithFile(ctx context.Context, userID string, req SaveReque
 	if content == "" && lookupErr != nil {
 		return nil, false, fmt.Errorf("content is required for new articles")
 	}
-	var filePath string
-	if existing != nil {
-		if existing.FilePath != "" {
-			filePath = existing.FilePath
-			if !filepath.IsAbs(filePath) {
-				filePath = filepath.Join(s.stellaHome, filePath)
-			}
-		}
-		if content == "" {
-			if body, ok, err := s.store.GetArticleContent(ctx, existing.ID); err != nil {
-				return nil, false, err
-			} else if ok {
-				content = body
-			}
-		}
-		if content == "" && filePath != "" {
-			if body, readErr := s.files.ReadArticle(filePath); readErr == nil {
-				content = body
-			}
+	if existing != nil && content == "" {
+		// Metadata-only update: recover the stored body from PostgreSQL only, so the
+		// upsert below re-writes it rather than blanking it. A legacy file-only row
+		// the backfill has not yet captured has no content row; we leave content
+		// empty so the `!isNew && content != ""` guard skips the upsert and no empty
+		// row is written. Writing an empty row here would make the row invisible to
+		// BackfillMissingContent (its filter is file_path set + no content row) and
+		// strand the legacy body forever.
+		if body, ok, err := s.store.GetArticleContent(ctx, existing.ID); err != nil {
+			return nil, false, err
+		} else if ok {
+			content = body
 		}
 	}
 	article, isNew, err := s.store.SaveArticleWithContent(ctx, userID, req, content)
 	if err != nil {
 		return nil, false, err
 	}
-	if filePath == "" {
-		filePath = s.files.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
-	}
 	if !isNew && content != "" {
 		if err := s.store.UpsertArticleContent(ctx, article.ID, content); err != nil {
 			return nil, false, err
 		}
 	}
-	if content == "" {
-		return article, isNew, nil
-	}
-	if err := s.files.WriteArticle(filePath, article, content); err != nil {
-		slog.Warn("failed to mirror recally article body to disk", "article_id", article.ID, "path", filePath, "error", err)
-		return article, isNew, nil
-	}
-	relPath := s.files.RelativePath(filePath)
-	if err := s.store.UpdateArticleFilePath(ctx, userID, article.ID, relPath); err != nil {
-		slog.Warn("failed to update recally article mirror path", "article_id", article.ID, "path", relPath, "error", err)
-		return article, isNew, nil
-	}
-	article.FilePath = relPath
 	return article, isNew, nil
 }
 
@@ -156,31 +136,58 @@ func (s *Service) ReadArticleBody(ctx context.Context, article *Article) (string
 	if article == nil {
 		return "", nil
 	}
-	if body, ok, err := s.store.GetArticleContent(ctx, article.ID); err != nil {
+	// PostgreSQL is the sole source of truth for article bodies; this read never
+	// touches the legacy disk mirror. An absent content row returns an empty body
+	// (no-content, not an error). Accepted window: after upgrading, a legacy
+	// file-only row reads empty until the startup backfill reaches it; it
+	// self-heals within one backfill pass, and BackfillMissingContent -- not this
+	// read path -- is the component that guarantees no legacy body is lost.
+	body, ok, err := s.store.GetArticleContent(ctx, article.ID)
+	if err != nil {
 		return "", err
-	} else if ok && body != "" {
-		return body, nil
 	}
-	if article.FilePath == "" {
+	if !ok {
 		return "", nil
 	}
-	path := article.FilePath
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(s.stellaHome, path)
-	}
-	body, err := s.files.ReadArticle(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
-		return "", err
-	}
-	if body != "" {
-		if err := s.store.InsertArticleContentIfAbsent(ctx, article.ID, body); err != nil {
-			slog.Warn("failed to backfill recally article content from disk", "article_id", article.ID, "error", err)
-		}
-	}
 	return body, nil
+}
+
+// BackfillMissingContent copies legacy article bodies that live only in a disk
+// mirror into recally_article_content. Lazy backfill on read (ReadArticleBody) is
+// not enough on k8s, where the pod-local disk that holds the mirror disappears on
+// reschedule; this runs at startup to durably capture whatever the current pod can
+// still read. A missing or unreadable file is skipped (it may belong to another
+// pod's disk), never fatal. Returns scanned/backfilled/missing counts.
+func (s *Service) BackfillMissingContent(ctx context.Context) (scanned, backfilled, missing int, err error) {
+	rows, err := s.store.ListArticlesMissingContent(ctx)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return scanned, backfilled, missing, err
+		}
+		scanned++
+		if row.FilePath == "" {
+			missing++
+			continue
+		}
+		path := row.FilePath
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(s.stellaHome, path)
+		}
+		body, readErr := s.files.ReadArticle(path)
+		if readErr != nil || body == "" {
+			missing++
+			continue
+		}
+		if err := s.store.InsertArticleContentIfAbsent(ctx, row.ID, body); err != nil {
+			slog.Warn("failed to backfill recally article content from disk", "article_id", row.ID, "error", err)
+			continue
+		}
+		backfilled++
+	}
+	return scanned, backfilled, missing, nil
 }
 
 func (s Authorized) ListArticles(ctx context.Context, filter ArticleFilter) ([]Article, error) {

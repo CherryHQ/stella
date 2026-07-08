@@ -32,7 +32,7 @@ func TestAuthorizedMethodsEnforceShareOwnership(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), recally.NewFileManager(home), home, "http://stella.test")
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
 	owner := uuid.NewString()
 	foreign := uuid.NewString()
 	for _, userID := range []string{owner, foreign} {
@@ -62,13 +62,12 @@ func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 	mem := memorytest.New()
 	home := t.TempDir()
 	store := recally.NewStore(db)
-	files := recally.NewFileManager(home)
-	svc := sharepkg.NewService(q, mem, store, files, home, "http://stella.test")
+	svc := sharepkg.NewService(q, mem, store, home, "http://stella.test")
 	userID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	recallySvc := recally.NewService(store, files, home)
+	recallySvc := recally.NewService(store, home)
 	saved, err := recallySvc.As(authz.Identity{UserID: userID}).Save(ctx, recally.SaveRequest{URL: "https://example.com/share", Title: "Share", Content: "share body"})
 	if err != nil {
 		t.Fatalf("Save article: %v", err)
@@ -104,7 +103,7 @@ func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
 	if err := blob.SetDefault(remote); err != nil {
 		t.Fatal(err)
 	}
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), recally.NewFileManager(home), home, "http://stella.test")
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
 	userID := uuid.NewString()
 	agentID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
@@ -143,7 +142,7 @@ func TestShareArtifactRestoreMissLeavesNoAssetDir(t *testing.T) {
 	if err := blob.SetDefault(lazyMissingStore{}); err != nil {
 		t.Fatal(err)
 	}
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), recally.NewFileManager(home), home, "http://stella.test")
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
 	userID := uuid.NewString()
 	agentID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
@@ -168,7 +167,7 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), recally.NewFileManager(home), home, "http://stella.test")
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
 	userID := uuid.NewString()
 	foreignUser := uuid.NewString()
 	agentID := uuid.NewString()
@@ -236,8 +235,9 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 
 type lazyMissingStore struct{}
 
-func (lazyMissingStore) Put(context.Context, string, io.Reader) error { return nil }
-func (lazyMissingStore) Delete(context.Context, string) error         { return nil }
+func (lazyMissingStore) Put(context.Context, string, io.Reader) error   { return nil }
+func (lazyMissingStore) Delete(context.Context, string) error           { return nil }
+func (lazyMissingStore) List(context.Context, string) ([]string, error) { return nil, nil }
 func (lazyMissingStore) Open(context.Context, string) (io.ReadCloser, error) {
 	return io.NopCloser(lazyMissingReader{}), nil
 }

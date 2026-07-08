@@ -112,9 +112,8 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 	credSvc := connections.NewService(nil, sqlc.New(db), flowStore, defaultBaseURL)
 	emailSvc := email.NewService(nil, sqlc.New(db))
 	recallyStore := recally.NewStore(db)
-	recallyFiles := recally.NewFileManager(config.StellaHome())
-	recallySvc := recally.NewService(recallyStore, recallyFiles, config.StellaHome())
-	shareSvc := sharepkg.NewService(sqlc.New(db), mem, recallyStore, recallyFiles, config.StellaHome(), defaultBaseURL)
+	recallySvc := recally.NewService(recallyStore, config.StellaHome())
+	shareSvc := sharepkg.NewService(sqlc.New(db), mem, recallyStore, config.StellaHome(), defaultBaseURL)
 
 	log := slog.With("component", "admin")
 	s := &Server{
@@ -135,7 +134,7 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		emailSvc:    emailSvc,
 		shareSvc:    shareSvc,
 		recallySvc:  recallySvc,
-		recally:     newRecallyHandlersWithService(recallyStore, recallyFiles, recallySvc, log),
+		recally:     newRecallyHandlersWithService(recallyStore, recallySvc, log),
 		startedAt:   time.Now(),
 		runtimeCtx:  ctx,
 	}
@@ -283,7 +282,6 @@ func (s *Server) SetRecallyService(svc *recally.Service) {
 		s.recallySvc = svc
 		s.recally.svc = svc
 		s.recally.store = svc.Store()
-		s.recally.files = svc.Files()
 	}
 }
 

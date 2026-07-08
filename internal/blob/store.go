@@ -16,6 +16,11 @@ type Store interface {
 	Put(ctx context.Context, key string, r io.Reader) error
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, key string) error
+	// List returns every key under prefix, as slash-separated keys relative to
+	// the store root. prefix is validated with the same rules as a key
+	// (traversal/absolute rejected). A prefix pointing at nothing yields an
+	// empty slice, not an error.
+	List(ctx context.Context, prefix string) ([]string, error)
 }
 
 var (
