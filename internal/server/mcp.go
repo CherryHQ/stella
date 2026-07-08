@@ -53,7 +53,7 @@ func (s *Server) ListScopedMCPServers(w http.ResponseWriter, r *http.Request, pa
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, ok := s.resolveVaultScope(w, r, info, scope, agentID)
+	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
 	if !ok {
 		return
 	}
@@ -96,7 +96,7 @@ func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 	if body.AgentId != nil {
 		agentID = *body.AgentId
 	}
-	userID, agentID, ok := s.resolveVaultScope(w, r, info, scope, agentID)
+	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
 	if !ok {
 		return
 	}
@@ -165,7 +165,7 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, ok := s.resolveVaultScope(w, r, info, scope, agentID)
+	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
 	if !ok {
 		return
 	}
@@ -178,7 +178,7 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 	if body.AgentId != nil {
 		newAgentID = *body.AgentId
 	}
-	newUserID, newAgentID, ok := s.resolveVaultScope(w, r, info, newScope, newAgentID)
+	newUserID, newAgentID, ok := s.resolveScope(w, r, info, newScope, newAgentID)
 	if !ok {
 		return
 	}
@@ -245,7 +245,7 @@ func (s *Server) DeleteScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, ok := s.resolveVaultScope(w, r, info, scope, agentID)
+	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
 	if !ok {
 		return
 	}

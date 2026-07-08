@@ -1,14 +1,24 @@
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentsPageState } from "../AgentsPage";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { updateAgentTool } from "@/lib/api-client";
 import { agentToolsOptions } from "@/lib/queries/agents";
+import { meQueryOptions } from "@/lib/queries/me";
 import type { Tool } from "@/lib/types";
 import { ToastContainer, useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
+import type { MessageKey } from "@/lib/i18n/messages";
 
 interface Props {
   state: AgentsPageState;
@@ -26,17 +36,30 @@ const LOCKED_LABEL_KEY = {
   mcp: "agents.tools.locked.mcp",
 } as const;
 
+type ToolOverrideScope = "user" | "user_agent" | "system" | "system_agent";
+
+const TOOL_SCOPE_ORDER: ToolOverrideScope[] = ["user", "user_agent", "system", "system_agent"];
+const TOOL_SCOPE_LABEL_KEY: Record<ToolOverrideScope, MessageKey> = {
+  user: "agents.tools.scope.user",
+  user_agent: "agents.tools.scope.userAgent",
+  system: "agents.tools.scope.system",
+  system_agent: "agents.tools.scope.systemAgent",
+};
+
 export function ToolsTab({ state }: Props) {
   const { t } = useI18n();
   const { toasts, showToast } = useToast();
   const queryClient = useQueryClient();
   const agentId = state.editingId ?? "";
+  const [selectedScope, setSelectedScope] = useState<ToolOverrideScope>("user_agent");
+  const { data: me } = useQuery(meQueryOptions);
+  const isAdmin = me?.is_admin ?? false;
   const query = useQuery(agentToolsOptions(agentId));
   const mutation = useMutation({
     mutationFn: ({ tool, enabled }: { tool: Tool; enabled: boolean }) =>
       updateAgentTool({
         path: { id: agentId, toolName: tool.name },
-        body: { enabled },
+        body: { enabled, scope: selectedScope },
         throwOnError: true,
       }),
     onSuccess: async () => {
@@ -52,6 +75,9 @@ export function ToolsTab({ state }: Props) {
     return <p className="text-sm text-muted-foreground">{t("agents.tools.loading")}</p>;
   }
 
+  const scopeOptions = TOOL_SCOPE_ORDER.filter(
+    (scope) => isAdmin || (scope !== "system" && scope !== "system_agent"),
+  );
   const tools = [...(query.data ?? [])].sort((a, b) => {
     const diff = (SOURCE_ORDER[a.source ?? ""] ?? 9) - (SOURCE_ORDER[b.source ?? ""] ?? 9);
     return diff !== 0 ? diff : a.name.localeCompare(b.name);
@@ -65,11 +91,36 @@ export function ToolsTab({ state }: Props) {
   return (
     <div className="space-y-6">
       <ToastContainer messages={toasts} />
-      <div>
-        <p className="text-xs font-semibold text-muted-foreground mb-1.5">
-          {t("agents.tools.title")}
-        </p>
-        <p className="text-xs text-muted-foreground">{t("agents.tools.description")}</p>
+      <div className="grid gap-3">
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground mb-1.5">
+            {t("agents.tools.title")}
+          </p>
+          <p className="text-xs text-muted-foreground">{t("agents.tools.description")}</p>
+        </div>
+        <div className="max-w-xs space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">
+            {t("agents.tools.scope.label")}
+          </label>
+          <Select
+            value={selectedScope}
+            onValueChange={(value) => setSelectedScope(value as ToolOverrideScope)}
+          >
+            <SelectTrigger>
+              <SelectValue>
+                {(value) => t(TOOL_SCOPE_LABEL_KEY[(value as ToolOverrideScope) || selectedScope])}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {scopeOptions.map((scope) => (
+                <SelectItem key={scope} value={scope}>
+                  {t(TOOL_SCOPE_LABEL_KEY[scope])}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <p className="text-xs text-muted-foreground">{t("agents.tools.scope.description")}</p>
+        </div>
       </div>
       <div className="grid gap-4">
         {Object.entries(groups).map(([source, items]) => (

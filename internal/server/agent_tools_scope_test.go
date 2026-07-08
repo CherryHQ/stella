@@ -1,0 +1,139 @@
+package server_test
+
+import (
+	"context"
+	"database/sql"
+	"net/http"
+	"testing"
+
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/pkg/tools"
+)
+
+func TestUpdateAgentToolWritesEachScope(t *testing.T) {
+	env := setupAdmin(t)
+	env.srv.SetBuiltinTools([]agent.BuiltinTool{{Tool: fakeManagedTool{name: "vault"}}})
+	user, userSession := newNonAdmin(t, env, "tool-scope-user")
+	agentID := createAgentAsUser(t, env, userSession, "tool-scope-agent")
+
+	cases := []struct {
+		name        string
+		scope       string
+		session     string
+		wantUserID  string
+		wantAgentID string
+	}{
+		{name: "user", scope: "user", session: userSession, wantUserID: user.ID},
+		{name: "user_agent", scope: "user_agent", session: userSession, wantUserID: user.ID, wantAgentID: agentID},
+		{name: "system", scope: "system", session: env.bearerToken},
+		{name: "system_agent", scope: "system_agent", session: env.bearerToken, wantAgentID: agentID},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setToolOverride(t, env, tc.session, agentID, tc.scope, http.StatusOK)
+			assertToolOverride(t, env, "vault", tc.scope, tc.wantUserID, tc.wantAgentID, false)
+
+			deleteToolOverride(t, env, tc.session, agentID, tc.scope, http.StatusOK)
+			assertNoToolOverride(t, env, "vault", tc.scope, tc.wantUserID, tc.wantAgentID)
+		})
+	}
+}
+
+func TestUpdateAgentToolRejectsSystemScopesForNonAdmin(t *testing.T) {
+	env := setupAdmin(t)
+	env.srv.SetBuiltinTools([]agent.BuiltinTool{{Tool: fakeManagedTool{name: "vault"}}})
+	_, userSession := newNonAdmin(t, env, "tool-scope-denied")
+	agentID := createAgentAsUser(t, env, userSession, "tool-scope-denied-agent")
+
+	for _, scope := range []string{"system", "system_agent"} {
+		t.Run(scope, func(t *testing.T) {
+			setToolOverride(t, env, userSession, agentID, scope, http.StatusForbidden)
+		})
+	}
+}
+
+func setToolOverride(t *testing.T, env *testEnv, sessionID string, agentID string, scope string, wantStatus int) {
+	t.Helper()
+	rr := doRequestWithSession(t, env.srv, sessionID, http.MethodPatch, "/api/agents/"+agentID+"/tools/vault", map[string]any{
+		"enabled": false,
+		"scope":   scope,
+	})
+	if rr.Code != wantStatus {
+		t.Fatalf("set tool override status = %d, want %d (body: %s)", rr.Code, wantStatus, rr.Body.String())
+	}
+}
+
+func deleteToolOverride(t *testing.T, env *testEnv, sessionID string, agentID string, scope string, wantStatus int) {
+	t.Helper()
+	rr := doRequestWithSession(t, env.srv, sessionID, http.MethodPatch, "/api/agents/"+agentID+"/tools/vault", map[string]any{
+		"scope": scope,
+	})
+	if rr.Code != wantStatus {
+		t.Fatalf("delete tool override status = %d, want %d (body: %s)", rr.Code, wantStatus, rr.Body.String())
+	}
+}
+
+func assertToolOverride(t *testing.T, env *testEnv, toolName, scope, wantUserID, wantAgentID string, wantEnabled bool) {
+	t.Helper()
+	var userID sql.NullString
+	var agentID sql.NullString
+	var enabled bool
+	err := env.db.QueryRow(context.Background(), `
+		SELECT user_id::text, agent_id, enabled
+		FROM tool_override
+		WHERE tool_name = $1
+		  AND scope = $2
+		  AND coalesce(user_id::text, '') = $3
+		  AND coalesce(agent_id, '') = $4
+	`, toolName, scope, wantUserID, wantAgentID).Scan(&userID, &agentID, &enabled)
+	if err != nil {
+		t.Fatalf("query tool_override %s: %v", scope, err)
+	}
+	if enabled != wantEnabled {
+		t.Fatalf("enabled = %v, want %v", enabled, wantEnabled)
+	}
+	if got := nullStringValue(userID); got != wantUserID {
+		t.Fatalf("user_id = %q, want %q", got, wantUserID)
+	}
+	if got := nullStringValue(agentID); got != wantAgentID {
+		t.Fatalf("agent_id = %q, want %q", got, wantAgentID)
+	}
+}
+
+func assertNoToolOverride(t *testing.T, env *testEnv, toolName, scope, userID, agentID string) {
+	t.Helper()
+	var count int
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT count(*)
+		FROM tool_override
+		WHERE tool_name = $1
+		  AND scope = $2
+		  AND coalesce(user_id::text, '') = $3
+		  AND coalesce(agent_id, '') = $4
+	`, toolName, scope, userID, agentID).Scan(&count); err != nil {
+		t.Fatalf("count tool_override %s: %v", scope, err)
+	}
+	if count != 0 {
+		t.Fatalf("tool_override rows = %d, want 0", count)
+	}
+}
+
+func nullStringValue(s sql.NullString) string {
+	if !s.Valid {
+		return ""
+	}
+	return s.String
+}
+
+type fakeManagedTool struct {
+	name string
+}
+
+func (t fakeManagedTool) Definition() tools.Definition {
+	return tools.Definition{Name: t.name, Description: "test tool"}
+}
+
+func (t fakeManagedTool) Execute(context.Context, map[string]any) (string, error) {
+	return "", nil
+}

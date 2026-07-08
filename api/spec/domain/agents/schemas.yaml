@@ -113,6 +113,10 @@ components:
       type: object
       properties:
         enabled: { type: boolean }
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+          default: user_agent
 
     Skill:
       type: object
