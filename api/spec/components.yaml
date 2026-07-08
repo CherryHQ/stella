@@ -467,6 +467,9 @@ components:
           type: string
         agent_id:
           type: string
+        user_id:
+          type: string
+          description: "User the channel is bound to (webhook channel only)"
         enabled:
           type: boolean
         config:
@@ -517,6 +520,10 @@ components:
         agent_id:
           type: string
           nullable: true
+        user_id:
+          type: string
+          nullable: true
+          description: "User the channel is bound to (webhook channel only)"
         enabled:
           type: boolean
           nullable: true

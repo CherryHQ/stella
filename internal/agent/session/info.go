@@ -36,6 +36,7 @@ const (
 	ChannelDelegate  Channel = "delegate"
 	ChannelTask      Channel = "task"
 	ChannelScheduler Channel = "scheduler"
+	ChannelWebhook   Channel = "webhook"
 )
 
 // Info holds metadata about an agent session.

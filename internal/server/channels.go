@@ -17,6 +17,7 @@ type channelView struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
 	AgentID string `json:"agent_id,omitempty"`
+	UserID  string `json:"user_id,omitempty"`
 	Enabled bool   `json:"enabled"`
 	Config  string `json:"config"`
 }
@@ -35,6 +36,7 @@ type channelWriteRequest struct {
 	Name    string  `json:"name"`
 	Type    *string `json:"type"`
 	AgentID *string `json:"agent_id"`
+	UserID  *string `json:"user_id"`
 	Enabled *bool   `json:"enabled"`
 	Config  string  `json:"config"`
 }
@@ -59,6 +61,7 @@ func channelToView(ch config.Channel) channelView {
 		Name:    ch.Name,
 		Type:    ch.Type,
 		AgentID: ch.AgentID,
+		UserID:  ch.UserID,
 		Enabled: ch.Enabled,
 		Config:  ch.Config,
 	}
@@ -271,6 +274,7 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		Name:    req.Name,
 		Type:    channelType,
 		AgentID: requestAgentID(req),
+		UserID:  requestUserID(req),
 	}
 	s.saveChannel(w, r, ch, cfgMap, http.StatusCreated)
 }
@@ -289,6 +293,13 @@ func requestAgentID(req channelWriteRequest) string {
 	return ""
 }
 
+func requestUserID(req channelWriteRequest) string {
+	if req.UserID != nil {
+		return *req.UserID
+	}
+	return ""
+}
+
 func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteRequest, existing config.Channel, hasExisting bool) config.Channel {
 	channelType := req.ID
 	if value := requestChannelType(req); value != "" {
@@ -300,6 +311,11 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 	agentID := requestAgentID(req)
 	if req.AgentID == nil && hasExisting {
 		agentID = existing.AgentID
+	}
+
+	userID := requestUserID(req)
+	if req.UserID == nil && hasExisting {
+		userID = existing.UserID
 	}
 
 	name := req.Name
@@ -319,11 +335,27 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 		Name:    name,
 		Type:    channelType,
 		AgentID: agentID,
+		UserID:  userID,
 		Enabled: enabled,
 	}
 }
 
 func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.Channel, cfgMap map[string]any, status int) bool {
+	// user_id binds an inbound webhook to a specific user (the caller's PAT must
+	// match). It is required for the webhook type and meaningless for the
+	// bidirectional bot channels, which resolve the user from the platform sender.
+	if ch.Type == pkgchannel.PlatformWebhook {
+		if ch.UserID == "" {
+			writeError(w, http.StatusBadRequest, "webhook channel requires user_id")
+			return false
+		}
+		if _, err := s.users.GetUser(r.Context(), ch.UserID); err != nil {
+			writeError(w, http.StatusBadRequest, "user_id does not reference an existing user")
+			return false
+		}
+	} else {
+		ch.UserID = ""
+	}
 	if conflict, err := s.channelAgentPlatformBindingConflict(r.Context(), ch); err != nil {
 		s.writeInternalError(w, err)
 		return false
@@ -364,6 +396,11 @@ func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.C
 
 func (s *Server) channelAgentPlatformBindingConflict(ctx context.Context, ch config.Channel) (string, error) {
 	if ch.AgentID == "" || ch.Type == "" {
+		return "", nil
+	}
+	// Webhooks are inbound triggers, not a single bidirectional binding: an agent
+	// may back many webhook endpoints, so the one-per-agent rule does not apply.
+	if ch.Type == pkgchannel.PlatformWebhook {
 		return "", nil
 	}
 	channels, err := s.store.ListChannels(ctx)

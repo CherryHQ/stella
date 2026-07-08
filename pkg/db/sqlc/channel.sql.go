@@ -37,7 +37,7 @@ func (q *Queries) DeleteChannel(ctx context.Context, id string) error {
 }
 
 const getChannel = `-- name: GetChannel :one
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel WHERE id = $1
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, user_id FROM channel WHERE id = $1
 `
 
 func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
@@ -52,12 +52,13 @@ func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
 		&i.Config,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const listChannels = `-- name: ListChannels :many
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel ORDER BY type, id
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, user_id FROM channel ORDER BY type, id
 `
 
 func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
@@ -78,6 +79,7 @@ func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
 			&i.Config,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -90,7 +92,7 @@ func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
 }
 
 const listChannelsByType = `-- name: ListChannelsByType :many
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel WHERE type = $1 ORDER BY id
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, user_id FROM channel WHERE type = $1 ORDER BY id
 `
 
 func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Channel, error) {
@@ -111,6 +113,7 @@ func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Chann
 			&i.Config,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -123,12 +126,13 @@ func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Chann
 }
 
 const upsertChannel = `-- name: UpsertChannel :exec
-INSERT INTO channel (id, name, type, agent_id, enabled, config, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, now())
+INSERT INTO channel (id, name, type, agent_id, user_id, enabled, config, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now())
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     type = excluded.type,
     agent_id = excluded.agent_id,
+    user_id = excluded.user_id,
     enabled = excluded.enabled,
     config = excluded.config,
     updated_at = now()
@@ -139,6 +143,7 @@ type UpsertChannelParams struct {
 	Name    string      `json:"name"`
 	Type    string      `json:"type"`
 	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
 	Enabled bool        `json:"enabled"`
 	Config  string      `json:"config"`
 }
@@ -149,6 +154,7 @@ func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) er
 		arg.Name,
 		arg.Type,
 		arg.AgentID,
+		arg.UserID,
 		arg.Enabled,
 		arg.Config,
 	)
