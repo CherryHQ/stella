@@ -1,4 +1,7 @@
-# Web UI Engineering Rules
+---
+title: Web UI engineering
+description: Theme-independent engineering rules for building UI in Stella's web app.
+---
 
 Theme-independent rules for building UI in `web/`. They survive any visual restyle. The current theme lives in [`web-design.md`](./web-design.md); the restyle procedure in [`web-theming.md`](./web-theming.md).
 

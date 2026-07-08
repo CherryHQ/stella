@@ -159,7 +159,7 @@ When standard methods don't fit, append the action as a **trailing path
 segment**:
 
 ```
-POST /api/agents/stella/tasks/{id}/cancel
+POST /api/goals/{id}/cancel
 POST /api/goals/{id}/activate
 POST /api/manifest-plugins/sync
 ```
@@ -326,6 +326,9 @@ safe to expose to clients.
 - Help a technical user understand and resolve the issue.
 - Be brief and actionable.
 - Never expose internal implementation details or stack traces.
+- When a behavior change turns an error path into a routine user action, export
+  the sentinel error and map it to a 4xx. Unexported sentinels fall through as
+  HTTP 500.
 
 ## Response Design
 
@@ -402,10 +405,8 @@ fields only after confirming no client uses them.
    Delete.
 4. **Add custom methods only when needed** — cancel, activate, sync.
 5. **Design the schemas** — fields, types, required vs optional.
-6. **Write the spec first** — the OpenAPI spec is the source of truth. Follow
-   the workflow in `api/CLAUDE.md`.
-7. **Generate code** — `mise run generate:api` keeps spec and implementation in
-   sync.
+6. **Write the spec first** — the OpenAPI spec is the source of truth. For codegen
+   mechanics, follow `api/CLAUDE.md`.
 
 ## Review Checklist
 
