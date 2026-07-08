@@ -318,7 +318,6 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 		Name:    ch.Name,
 		Type:    channelType,
 		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
-		UserID:  pgtype.Text{String: ch.UserID, Valid: ch.UserID != ""},
 		Enabled: ch.Enabled,
 		Config:  ch.Config,
 	})
@@ -1024,10 +1023,6 @@ func channelFromDB(r sqlc.Channel) config.Channel {
 	if r.AgentID.Valid {
 		agentID = r.AgentID.String
 	}
-	userID := ""
-	if r.UserID.Valid {
-		userID = r.UserID.String
-	}
 	channelType := r.Type
 	if channelType == "" {
 		channelType = r.ID
@@ -1037,7 +1032,6 @@ func channelFromDB(r sqlc.Channel) config.Channel {
 		Name:    r.Name,
 		Type:    channelType,
 		AgentID: agentID,
-		UserID:  userID,
 		Enabled: r.Enabled,
 		Config:  r.Config,
 	}

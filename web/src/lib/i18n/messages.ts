@@ -1777,12 +1777,6 @@ const en = {
   "channels.scanExpired": "QR code expired. Try again.",
   "channels.waiting": "Waiting",
   // Webhook channel
-  "channels.boundUser": "Bound user",
-  "channels.boundUserDesc":
-    "Triggers run as this user. The caller's PAT must belong to them and carry the agent:write scope.",
-  "channels.selectUser": "Select user...",
-  "channels.noAvailableUsers": "No users available.",
-  "channels.webhookNeedsUser": "Select a user to bind this webhook to.",
   "channels.webhookDefaultWait": "Wait for reply by default",
   "channels.webhookDefaultWaitDesc":
     "When on, callers get the agent reply synchronously unless they pass ?wait=false. Off means fire-and-forget (202).",
@@ -3627,12 +3621,6 @@ const zh: Record<MessageKey, string> = {
   "channels.scanExpired": "二维码已过期，请重试。",
   "channels.waiting": "等待中",
   // Webhook channel
-  "channels.boundUser": "绑定用户",
-  "channels.boundUserDesc":
-    "触发时以该用户身份运行；调用方的 PAT 必须属于该用户，并具备 agent:write 权限。",
-  "channels.selectUser": "选择用户...",
-  "channels.noAvailableUsers": "没有可用的用户。",
-  "channels.webhookNeedsUser": "请选择要绑定的用户。",
   "channels.webhookDefaultWait": "默认等待回复",
   "channels.webhookDefaultWaitDesc":
     "开启后，除非调用方传入 ?wait=false，否则同步返回 Agent 回复；关闭则为异步触发（202）。",

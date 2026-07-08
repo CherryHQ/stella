@@ -10,7 +10,6 @@ import {
   deleteChannel,
   generateLinkCode,
   listAgents,
-  listAuthUsers,
   listChannels,
   listProfileIdentities,
   listPublicChannels,
@@ -21,7 +20,7 @@ import {
   unlinkProfileIdentity,
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
-import type { ComponentsAuthUser, ComponentsPublicChannel } from "@/lib/api-client/types.gen";
+import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
 import type { Agent, Channel, Identity } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -534,7 +533,6 @@ interface NewChannelFormProps {
   fallbackChannelType: string;
   agents: Agent[];
   channels: NormalizedChannel[];
-  users: ComponentsAuthUser[];
   onAdd: (channel: Record<string, unknown>) => Promise<void>;
   onRegistered: (channel: NormalizedChannel) => Promise<void>;
   onCancel: () => void;
@@ -545,7 +543,6 @@ function NewChannelForm({
   fallbackChannelType,
   agents,
   channels,
-  users,
   onAdd,
   onRegistered,
   onCancel,
@@ -765,7 +762,7 @@ function NewChannelForm({
     ((draft.agent_id as string) || "").trim(),
   );
 
-  const canSubmit = !creating && !!draft.id && !!draft.type && (!isWebhook || !!draft.user_id);
+  const canSubmit = !creating && !!draft.id && !!draft.type;
 
   return (
     <DetailPanel
@@ -849,28 +846,6 @@ function NewChannelForm({
             <p className="text-xs text-muted-foreground">{t("channels.boundAgentDesc")}</p>
             {availableAgents.length === 0 && (
               <p className="text-xs text-muted-foreground">{t("channels.noAvailableAgents")}</p>
-            )}
-          </div>
-        )}
-
-        {isWebhook && (
-          <div className="w-full space-y-1.5">
-            <label className="text-sm font-medium">{t("channels.boundUser")}</label>
-            <select
-              value={(draft.user_id as string) || ""}
-              onChange={(e) => updateField("user_id", e.target.value)}
-              className={selectClassName}
-            >
-              <option value="">{t("channels.selectUser")}</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name || u.email || u.id}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">{t("channels.boundUserDesc")}</p>
-            {users.length === 0 && (
-              <p className="text-xs text-muted-foreground">{t("channels.noAvailableUsers")}</p>
             )}
           </div>
         )}
@@ -1110,7 +1085,6 @@ export function ChannelsPage() {
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [users, setUsers] = useState<ComponentsAuthUser[]>([]);
   const [loadingInstances, setLoadingInstances] = useState(false);
 
   const [linkCode, setLinkCode] = useState("");
@@ -1186,16 +1160,6 @@ export function ChannelsPage() {
     }
   }, [showToast]);
 
-  // Users back the webhook channel's owner picker (admin-only endpoint).
-  const loadUsers = useCallback(async () => {
-    try {
-      const { data } = await listAuthUsers({ throwOnError: true });
-      setUsers(data?.users ?? []);
-    } catch (e) {
-      showToast((e as Error).message, "error");
-    }
-  }, [showToast]);
-
   const loadInstances = useCallback(async () => {
     setLoadingInstances(true);
     try {
@@ -1220,20 +1184,14 @@ export function ChannelsPage() {
 
   useEffect(() => {
     if (isAdmin) {
-      void Promise.all([
-        loadPublicChannels(),
-        loadIdentities(),
-        loadInstances(),
-        loadAgents(),
-        loadUsers(),
-      ]);
+      void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances(), loadAgents()]);
     } else {
       void Promise.all([loadPublicChannels(), loadIdentities()]);
     }
     return () => {
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
     };
-  }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances, loadAgents, loadUsers]);
+  }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances, loadAgents]);
 
   // ── link code ──
 
@@ -1353,9 +1311,6 @@ export function ChannelsPage() {
           name: ch.name || "",
           type: ch.type,
           agent_id: ch.agent_id || "",
-          // Webhook requires user_id; re-send it so a config edit doesn't drop
-          // the binding the backend validates on every write.
-          user_id: ch.type === "webhook" ? (ch.user_id as string) : undefined,
           enabled: ch.enabled,
           config: channelConfig(ch),
         },
@@ -1404,13 +1359,11 @@ export function ChannelsPage() {
       showToast("Dedicated instance ID must not match the platform ID", "error");
       return;
     }
-    const isWebhook = draft.type === "webhook";
-    if ((draft.type === "feishu" || draft.type === "weixin" || isWebhook) && !draft.agent_id) {
+    if (
+      (draft.type === "feishu" || draft.type === "weixin" || draft.type === "webhook") &&
+      !draft.agent_id
+    ) {
       showToast(t("channels.scanNeedsAgent"), "error");
-      return;
-    }
-    if (isWebhook && !draft.user_id) {
-      showToast(t("channels.webhookNeedsUser"), "error");
       return;
     }
     setCreatingInstance(true);
@@ -1421,7 +1374,6 @@ export function ChannelsPage() {
           name: (draft.name as string) || "",
           type: draft.type as string,
           agent_id: (draft.agent_id as string) || "",
-          user_id: isWebhook ? (draft.user_id as string) : undefined,
           config: channelConfig(draft),
         },
         throwOnError: true,
@@ -1464,7 +1416,6 @@ export function ChannelsPage() {
           fallbackChannelType={defaultChannelType}
           agents={agents}
           channels={instances}
-          users={users}
           onAdd={createNewChannel}
           onRegistered={finishRegisteredChannel}
           onCancel={() => void navigate({ to: "/settings/channels" })}

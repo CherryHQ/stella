@@ -87,11 +87,10 @@ func TestWebhookIngressGates(t *testing.T) {
 	})
 	writeScoped := mintPAT(t, credSvc, "owner", []string{"agent:write"})
 	readScoped := mintPAT(t, credSvc, "owner", []string{"goals:read"})
-	intruder := mintPAT(t, credSvc, "intruder", []string{"agent:write"})
 
 	webhookCh := config.Channel{
 		ID: "wh1", Type: pkgchannel.PlatformWebhook, Enabled: true,
-		UserID: "owner", AgentID: "agentA",
+		AgentID: "agentA",
 	}
 
 	cases := []struct {
@@ -104,8 +103,7 @@ func TestWebhookIngressGates(t *testing.T) {
 		{"wrong scope", readScoped, webhookFakeStore{channel: webhookCh}, 403},
 		{"channel not found", writeScoped, webhookFakeStore{channelErr: io.EOF}, 404},
 		{"not a webhook type", writeScoped, webhookFakeStore{channel: config.Channel{ID: "wh1", Type: "telegram", Enabled: true}}, 404},
-		{"disabled webhook", writeScoped, webhookFakeStore{channel: config.Channel{ID: "wh1", Type: pkgchannel.PlatformWebhook, Enabled: false, UserID: "owner", AgentID: "agentA"}}, 409},
-		{"wrong user", intruder, webhookFakeStore{channel: webhookCh}, 403},
+		{"disabled webhook", writeScoped, webhookFakeStore{channel: config.Channel{ID: "wh1", Type: pkgchannel.PlatformWebhook, Enabled: false, AgentID: "agentA"}}, 409},
 	}
 
 	for _, tc := range cases {

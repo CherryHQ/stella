@@ -273,7 +273,6 @@ type Channel struct {
 	Config    string      `json:"config"`
 	CreatedAt time.Time   `json:"created_at"`
 	UpdatedAt time.Time   `json:"updated_at"`
-	UserID    pgtype.Text `json:"user_id"`
 }
 
 type ChannelAgent struct {

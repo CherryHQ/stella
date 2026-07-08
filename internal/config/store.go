@@ -68,10 +68,6 @@ type Channel struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
 	AgentID string `json:"agent_id,omitempty"`
-	// UserID binds the channel to a specific Stella user. Only the inbound
-	// webhook channel type sets it (the caller's PAT must match); other types
-	// leave it empty and resolve the user from the platform sender.
-	UserID  string `json:"user_id,omitempty"`
 	Enabled bool   `json:"enabled"`
 	Config  string `json:"config"`
 }

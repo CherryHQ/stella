@@ -14,10 +14,10 @@ Before you start, make sure you have:
 
 ## How it works
 
-1. You create a webhook channel in the Web UI and bind it to **a user** and **an agent**.
+1. An admin creates a webhook channel in the Web UI and binds it to **an agent**. It is enabled the moment it's created.
 2. Stella gives you an ingress URL: `https://your-host/webhooks/<channel-id>`.
-3. A caller sends `POST` to that URL with a personal access token that belongs to the bound user.
-4. The request body becomes the agent's message. The agent runs as the bound user, with that user's tools, memory, and permissions.
+3. A caller sends `POST` to that URL with a personal access token (PAT). The token's user must be allowed to run the bound agent.
+4. The request body becomes the agent's message. The agent runs **as the calling user** — with that user's tools, memory, and permissions. Different callers hitting the same URL each run as themselves.
 5. Depending on the reply mode, the caller gets an immediate `202 Accepted` or waits for the agent's reply.
 
 ## Setup
@@ -30,18 +30,19 @@ The caller authenticates with a personal access token (PAT), the same token type
 2. Go to **Settings → Personal Access Tokens**.
 3. Create a token, select the **`agent:write`** scope, and copy it. You only see the token once.
 
-The token must belong to the same user you bind the webhook to. Treat it like a password.
+The token's user must be allowed to run the agent the webhook is bound to. Treat the token like a password.
 
 ### 2. Create the webhook channel
+
+Creating channels is an admin action.
 
 1. Go to the **Channels** page and add a new channel.
 2. Choose **Webhook** as the platform and give it a channel ID (for example `deploy-notify`).
 3. Pick the **bound agent** -- the agent that runs on every trigger.
-4. Pick the **bound user** -- the identity the agent runs as. The caller's token must belong to this user.
-5. Choose a **session mode** and whether to **wait for the reply by default** (see below), then save.
-6. Open the channel again to copy its **ingress URL**.
+4. Choose a **session mode** and whether to **wait for the reply by default** (see below), then save.
+5. Open the channel again to copy its **ingress URL**.
 
-Unlike chat bots, the webhook channel needs no server restart -- it is live as soon as you save it.
+Unlike chat bots, the webhook channel needs no server restart and no separate enable step -- it is live as soon as you save it. Anyone with a valid PAT whose user can run the bound agent may call the URL; each caller runs as themselves.
 
 ### 3. Trigger it
 
@@ -82,19 +83,19 @@ In synchronous mode the caller waits up to a fixed timeout (60 seconds) for the 
 
 ## Response codes
 
-| Code                    | Meaning                                                                         |
-| ----------------------- | ------------------------------------------------------------------------------- |
-| `200 OK`                | Synchronous run finished; body carries `output`                                 |
-| `202 Accepted`          | Asynchronous run started; body carries `session_id`                             |
-| `400 Bad Request`       | Empty body                                                                      |
-| `401 Unauthorized`      | Missing, invalid, or non-PAT token                                              |
-| `403 Forbidden`         | Token lacks `agent:write`, doesn't match the bound user, or can't run the agent |
-| `404 Not Found`         | No webhook with that ID                                                         |
-| `409 Conflict`          | Webhook or bound agent is disabled, or no agent is bound                        |
-| `413 Payload Too Large` | Body exceeds 256 KiB                                                            |
-| `429 Too Many Requests` | Rate limit exceeded for this webhook                                            |
-| `502 Bad Gateway`       | The agent run failed                                                            |
-| `504 Gateway Timeout`   | Synchronous wait timed out; the run continues in the background                 |
+| Code                    | Meaning                                                                     |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `200 OK`                | Synchronous run finished; body carries `output`                             |
+| `202 Accepted`          | Asynchronous run started; body carries `session_id`                         |
+| `400 Bad Request`       | Empty body                                                                  |
+| `401 Unauthorized`      | Missing, invalid, or non-PAT token                                          |
+| `403 Forbidden`         | Token lacks `agent:write`, or its user isn't allowed to run the bound agent |
+| `404 Not Found`         | No webhook with that ID                                                     |
+| `409 Conflict`          | Webhook or bound agent is disabled, or no agent is bound                    |
+| `413 Payload Too Large` | Body exceeds 256 KiB                                                        |
+| `429 Too Many Requests` | Rate limit exceeded for this webhook                                        |
+| `502 Bad Gateway`       | The agent run failed                                                        |
+| `504 Gateway Timeout`   | Synchronous wait timed out; the run continues in the background             |
 
 ## Limits
 
@@ -110,7 +111,7 @@ In synchronous mode the caller waits up to a fixed timeout (60 seconds) for the 
 **Getting `403 Forbidden`?**
 
 - The token must carry the `agent:write` scope. Recreate it in **Settings → Personal Access Tokens** if you forgot to select the scope.
-- The token must belong to the user bound to the webhook. Confirm the binding on the Channels page.
+- The token's user must be allowed to run the bound agent. Grant that user access to the agent, or use a token belonging to a user who already has it.
 
 **Getting `404 Not Found`?**
 

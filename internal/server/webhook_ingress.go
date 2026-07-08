@@ -60,13 +60,10 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "webhook is disabled")
 		return
 	}
-	// User binding: the caller's PAT must belong to the bound user.
-	if ch.UserID == "" || ch.UserID != principal.UserID {
-		writeError(w, http.StatusForbidden, "personal access token does not match the webhook's bound user")
-		return
-	}
 
 	// --- Resolve + authorize the bound agent. ---
+	// There is no static user binding: the run executes as the caller (the PAT's
+	// user), gated by whether that user may execute the bound agent below.
 	if ch.AgentID == "" {
 		writeError(w, http.StatusConflict, "webhook has no bound agent")
 		return

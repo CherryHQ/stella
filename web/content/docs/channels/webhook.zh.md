@@ -14,10 +14,10 @@ Webhook 渠道把一个 Agent 变成一个 HTTP 端点，你可以从任何脚�
 
 ## 工作原理
 
-1. 你在 Web UI 中创建一个 webhook 渠道，并把它绑定到**一个用户**和**一个 Agent**。
+1. 管理员在 Web UI 中创建一个 webhook 渠道，并把它绑定到**一个 Agent**。它在创建的那一刻就是启用的。
 2. Stella 给你一个接入 URL：`https://your-host/webhooks/<渠道-id>`。
-3. 调用方用一个属于绑定用户的个人访问令牌，向该 URL 发送 `POST`。
-4. 请求正文成为 Agent 的消息。Agent 以绑定用户的身份运行，使用该用户的工具、记忆和权限。
+3. 调用方用一个个人访问令牌（PAT）向该 URL 发送 `POST`。令牌所属的用户必须有权运行绑定的 Agent。
+4. 请求正文成为 Agent 的消息。Agent **以调用者的身份**运行——使用该用户的工具、记忆和权限。不同调用者请求同一个 URL，各自以自己的身份运行。
 5. 根据回复模式，调用方会立即收到 `202 Accepted`，或者等待 Agent 的回复。
 
 ## 配置步骤
@@ -30,18 +30,19 @@ Webhook 渠道把一个 Agent 变成一个 HTTP 端点，你可以从任何脚�
 2. 进入 **设置 → 个人访问令牌**。
 3. 创建一个令牌，勾选 **`agent:write`** 权限范围，并复制它。令牌只显示一次。
 
-令牌必须属于你为 webhook 绑定的那个用户。请像对待密码一样对待它。
+令牌所属的用户必须有权运行 webhook 绑定的 Agent。请像对待密码一样对待令牌。
 
 ### 2. 创建 webhook 渠道
+
+创建渠道是管理员操作。
 
 1. 进入 **渠道** 页面，添加一个新渠道。
 2. 平台选择 **Webhook**，并给它一个渠道 ID（例如 `deploy-notify`）。
 3. 选择 **绑定 Agent**——每次触发时运行的 Agent。
-4. 选择 **绑定用户**——Agent 运行时使用的身份。调用方的令牌必须属于这个用户。
-5. 选择 **会话模式**，以及是否 **默认等待回复**（见下文），然后保存。
-6. 再次打开该渠道即可复制它的 **接入 URL**。
+4. 选择 **会话模式**，以及是否 **默认等待回复**（见下文），然后保存。
+5. 再次打开该渠道即可复制它的 **接入 URL**。
 
-与聊天机器人不同，webhook 渠道无需重启服务——保存后立即生效。
+与聊天机器人不同，webhook 渠道无需重启服务、也无需单独启用——保存后立即生效。任何持有合法 PAT、且其用户有权运行绑定 Agent 的人都可以调用该 URL，各自以自己的身份运行。
 
 ### 3. 触发它
 
@@ -82,19 +83,19 @@ curl -X POST 'https://your-host/webhooks/deploy-notify?wait=true' \
 
 ## 响应码
 
-| 状态码                  | 含义                                                         |
-| ----------------------- | ------------------------------------------------------------ |
-| `200 OK`                | 同步运行完成；正文携带 `output`                              |
-| `202 Accepted`          | 异步运行已启动；正文携带 `session_id`                        |
-| `400 Bad Request`       | 正文为空                                                     |
-| `401 Unauthorized`      | 令牌缺失、无效或不是 PAT                                     |
-| `403 Forbidden`         | 令牌缺少 `agent:write`、与绑定用户不匹配，或无权运行该 Agent |
-| `404 Not Found`         | 没有该 ID 的 webhook                                         |
-| `409 Conflict`          | webhook 或绑定 Agent 被禁用，或未绑定 Agent                  |
-| `413 Payload Too Large` | 正文超过 256 KiB                                             |
-| `429 Too Many Requests` | 该 webhook 触发超出速率限制                                  |
-| `502 Bad Gateway`       | Agent 运行失败                                               |
-| `504 Gateway Timeout`   | 同步等待超时；运行在后台继续                                 |
+| 状态码                  | 含义                                                 |
+| ----------------------- | ---------------------------------------------------- |
+| `200 OK`                | 同步运行完成；正文携带 `output`                      |
+| `202 Accepted`          | 异步运行已启动；正文携带 `session_id`                |
+| `400 Bad Request`       | 正文为空                                             |
+| `401 Unauthorized`      | 令牌缺失、无效或不是 PAT                             |
+| `403 Forbidden`         | 令牌缺少 `agent:write`，或其用户无权运行绑定的 Agent |
+| `404 Not Found`         | 没有该 ID 的 webhook                                 |
+| `409 Conflict`          | webhook 或绑定 Agent 被禁用，或未绑定 Agent          |
+| `413 Payload Too Large` | 正文超过 256 KiB                                     |
+| `429 Too Many Requests` | 该 webhook 触发超出速率限制                          |
+| `502 Bad Gateway`       | Agent 运行失败                                       |
+| `504 Gateway Timeout`   | 同步等待超时；运行在后台继续                         |
 
 ## 限制
 
@@ -110,7 +111,7 @@ curl -X POST 'https://your-host/webhooks/deploy-notify?wait=true' \
 **收到 `403 Forbidden`？**
 
 - 令牌必须携带 `agent:write` 权限范围。如果忘了勾选，请在 **设置 → 个人访问令牌** 中重新创建。
-- 令牌必须属于绑定到该 webhook 的用户。请在渠道页面确认绑定关系。
+- 令牌所属的用户必须有权运行绑定的 Agent。请给该用户授予该 Agent 的访问权，或改用一个已有权限的用户的令牌。
 
 **收到 `404 Not Found`？**
 
