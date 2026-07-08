@@ -318,15 +318,30 @@ func (pm *PoolManager) promptScope(agentID string, info session.Info) (userRoot,
 	if info.GroupID != "" {
 		if dir, err := SetupGroupWorkspace(config.StellaHome(), info.GroupID, agentID); err == nil {
 			userRoot = dir
+			pm.hydrateAssets(dir)
 		}
 		return userRoot, "", info.GroupID
 	}
 	if info.UserID != "" {
 		if dir, err := SetupUserWorkspace(config.StellaHome(), info.UserID, agentID); err == nil {
 			userRoot = dir
+			pm.hydrateAssets(dir)
 		}
 	}
 	return userRoot, info.UserID, ""
+}
+
+// hydrateAssets restores the principal's assets subtree from the blob mirror in
+// the background, so a cold pod's empty assets tree fills in shortly after the
+// session starts without adding to startup latency. Single-flight per home lives
+// in HydrateUserAssets. context.Background() (not a request ctx) keeps the copy
+// from being cancelled when the caller returns.
+func (pm *PoolManager) hydrateAssets(home string) {
+	go func() {
+		if err := HydrateUserAssets(context.Background(), config.StellaHome(), home); err != nil {
+			pm.log.Warn("hydrate user assets failed", "home", home, "error", err)
+		}
+	}()
 }
 
 func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot, info session.Info, userRoot string) []pkgplugins.SystemPromptSection {

@@ -60,6 +60,42 @@ func (s *PGStore) ListAll(ctx context.Context) ([]Skill, error) {
 	return out, nil
 }
 
+// ListActiveReflectOwnedUserAgentSkills returns the active user_agent skills
+// that Reflect owns and may consider for related discovery/reconciliation.
+func (s *PGStore) ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]Skill, error) {
+	rows, err := s.q.ListActiveReflectOwnedUserAgentSkills(ctx, sqlc.ListActiveReflectOwnedUserAgentSkillsParams{
+		UserID:  pgtype.Text{String: userID, Valid: userID != ""},
+		AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("skills: list reflect-owned user_agent: %w", err)
+	}
+	out := make([]Skill, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, mapRow(r))
+	}
+	return out, nil
+}
+
+// ListSkillChangelogBySkill returns recent version changes for one skill.
+func (s *PGStore) ListSkillChangelogBySkill(ctx context.Context, skillID string, limit int) ([]SkillChangelog, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.q.ListSkillChangelogBySkill(ctx, sqlc.ListSkillChangelogBySkillParams{
+		SkillID:    skillID,
+		LimitCount: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("skills: list changelog for %s: %w", skillID, err)
+	}
+	out := make([]SkillChangelog, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, mapChangelogRow(r))
+	}
+	return out, nil
+}
+
 // ListForAgentContext returns system, agent, and current-user skills for one agent.
 func (s *PGStore) ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsForAgentContext(ctx, sqlc.ListSkillsForAgentContextParams{
@@ -391,5 +427,21 @@ func mapRow(r sqlc.Skill) Skill {
 		Metadata:               meta,
 		CreatedAt:              r.CreatedAt.UTC(),
 		UpdatedAt:              r.UpdatedAt.UTC(),
+		Version:                r.Version,
+	}
+}
+
+func mapChangelogRow(r sqlc.SkillChangelog) SkillChangelog {
+	return SkillChangelog{
+		ID:            r.ID,
+		SkillID:       r.SkillID,
+		UserID:        r.UserID.String,
+		AgentID:       r.AgentID.String,
+		Scope:         r.Scope,
+		Action:        r.Action,
+		VersionBefore: r.VersionBefore.Int64,
+		VersionAfter:  r.VersionAfter,
+		Metadata:      r.Metadata,
+		CreatedAt:     r.CreatedAt.UTC(),
 	}
 }

@@ -16,8 +16,10 @@ func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string)
 // resolveUserDataRoot returns the shared user-data root. There is no path
 // remapping on this platform, so the sandbox-space and host paths are identical.
 func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	real := policy.Filesystem.UserDataDir
-	return real, real
+	if m, ok := mountBySandboxPath(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ok {
+		return m.HostPath, m.HostPath
+	}
+	return "", ""
 }
 
 // createSessionTmpMounts returns no temp mounts on platforms other than Linux and macOS.

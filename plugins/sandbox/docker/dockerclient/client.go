@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/containerd/errdefs"
 	mobyclient "github.com/moby/moby/client"
+	"golang.org/x/sync/singleflight"
 )
 
 // API is the subset of moby/moby/client.APIClient this package uses.
@@ -27,6 +29,8 @@ type API interface {
 	ContainerList(ctx context.Context, opts mobyclient.ContainerListOptions) (mobyclient.ContainerListResult, error)
 
 	VolumeCreate(ctx context.Context, opts mobyclient.VolumeCreateOptions) (mobyclient.VolumeCreateResult, error)
+	VolumeList(ctx context.Context, opts mobyclient.VolumeListOptions) (mobyclient.VolumeListResult, error)
+	VolumeRemove(ctx context.Context, volumeID string, opts mobyclient.VolumeRemoveOptions) (mobyclient.VolumeRemoveResult, error)
 
 	ExecCreate(ctx context.Context, container string, opts mobyclient.ExecCreateOptions) (mobyclient.ExecCreateResult, error)
 	ExecAttach(ctx context.Context, execID string, opts mobyclient.ExecAttachOptions) (mobyclient.ExecAttachResult, error)
@@ -40,6 +44,10 @@ type API interface {
 // docs for the full list.
 type Client struct {
 	api API
+
+	imageReadyMu    sync.Mutex
+	imageReady      map[string]struct{}
+	imageReadyGroup singleflight.Group
 }
 
 // VersionInfo holds the minimal version data we care about. The shape is kept
@@ -60,7 +68,7 @@ func New() (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dockerclient: new moby client: %w", err)
 	}
-	return &Client{api: api}, nil
+	return newClient(api), nil
 }
 
 // NewWithAPI constructs a Client with an injected API implementation. The
@@ -68,7 +76,14 @@ func New() (*Client, error) {
 // instead. Exported for tests and advanced callers that want to override the
 // SDK client (e.g. to inject a TLS-wrapped instance).
 func NewWithAPI(api API) *Client {
-	return &Client{api: api}
+	return newClient(api)
+}
+
+func newClient(api API) *Client {
+	return &Client{
+		api:        api,
+		imageReady: map[string]struct{}{},
+	}
 }
 
 // Close releases any resources held by the client (HTTP connections, etc.).
@@ -106,7 +121,6 @@ func (c *Client) ImageExists(ctx context.Context, image string) (bool, error) {
 	return false, fmt.Errorf("dockerclient: image inspect %s: %w", image, err)
 }
 
-// PullImage pulls an image, draining the JSON progress stream into slog.Info.
 func (c *Client) VolumeCreate(ctx context.Context, opts mobyclient.VolumeCreateOptions) (mobyclient.VolumeCreateResult, error) {
 	res, err := c.api.VolumeCreate(ctx, opts)
 	if err != nil {
@@ -115,6 +129,30 @@ func (c *Client) VolumeCreate(ctx context.Context, opts mobyclient.VolumeCreateO
 	return res, nil
 }
 
+func (c *Client) VolumeList(ctx context.Context, opts mobyclient.VolumeListOptions) (mobyclient.VolumeListResult, error) {
+	res, err := c.api.VolumeList(ctx, opts)
+	if err != nil {
+		return mobyclient.VolumeListResult{}, fmt.Errorf("dockerclient: volume list: %w", err)
+	}
+	return res, nil
+}
+
+func (c *Client) VolumeRemove(ctx context.Context, name string, opts mobyclient.VolumeRemoveOptions) error {
+	if _, err := c.api.VolumeRemove(ctx, name, opts); err != nil {
+		return fmt.Errorf("dockerclient: volume remove %s: %w", name, err)
+	}
+	return nil
+}
+
+func (c *Client) ContainerList(ctx context.Context, opts mobyclient.ContainerListOptions) (mobyclient.ContainerListResult, error) {
+	res, err := c.api.ContainerList(ctx, opts)
+	if err != nil {
+		return mobyclient.ContainerListResult{}, fmt.Errorf("dockerclient: container list: %w", err)
+	}
+	return res, nil
+}
+
+// PullImage pulls an image, draining the JSON progress stream into slog.Info.
 func (c *Client) PullImage(ctx context.Context, image string) error {
 	resp, err := c.api.ImagePull(ctx, image, mobyclient.ImagePullOptions{})
 	if err != nil {

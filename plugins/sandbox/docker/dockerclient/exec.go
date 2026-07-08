@@ -1,7 +1,6 @@
 package dockerclient
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +9,8 @@ import (
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	mobyclient "github.com/moby/moby/client"
+
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // ExecOptions configures a docker exec call.
@@ -64,8 +65,9 @@ func (c *Client) Exec(ctx context.Context, opts ExecOptions) (*ExecResult, error
 		}()
 	}
 
-	var stdoutBuf, stderrBuf bytes.Buffer
-	copyErr := demuxStreams(&stdoutBuf, &stderrBuf, attach, opts.Tty)
+	stdoutBuf := sandboxpkg.NewExecOutputBuffer()
+	stderrBuf := sandboxpkg.NewExecOutputBuffer()
+	copyErr := demuxStreams(stdoutBuf, stderrBuf, attach, opts.Tty)
 
 	if ctx.Err() != nil {
 		return &ExecResult{

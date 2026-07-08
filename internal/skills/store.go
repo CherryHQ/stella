@@ -21,6 +21,20 @@ type Skill struct {
 	Metadata               json.RawMessage
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	Version                int64
+}
+
+type SkillChangelog struct {
+	ID            string
+	SkillID       string
+	UserID        string
+	AgentID       string
+	Scope         string
+	Action        string
+	VersionBefore int64
+	VersionAfter  int64
+	Metadata      json.RawMessage
+	CreatedAt     time.Time
 }
 
 // ViewContext describes who is asking and from where.
@@ -45,6 +59,21 @@ type Store interface {
 
 	// ListAll returns every skill regardless of status or visibility (internal admin use only).
 	ListAll(ctx context.Context) ([]Skill, error)
+
+	// ListActiveReflectOwnedUserAgentSkills returns the Reflect-managed active
+	// skills that #531 is allowed to consider for one user-agent context.
+	ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]Skill, error)
+
+	// CreateReflectOwnedUserAgentSkill creates an active user_agent skill whose
+	// lifecycle is owned by Reflect, including version and changelog records.
+	CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (Skill, error)
+
+	// PatchReflectOwnedUserAgentSkill updates a Reflect-owned user_agent skill
+	// under optimistic version control and records a changelog entry.
+	PatchReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillPatch) (Skill, error)
+
+	// ListSkillChangelogBySkill returns recent version changes for one skill.
+	ListSkillChangelogBySkill(ctx context.Context, skillID string, limit int) ([]SkillChangelog, error)
 
 	// ListForAgentContext returns system, agent, and current-user skills for one agent.
 	ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error)

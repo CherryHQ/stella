@@ -55,6 +55,28 @@ func TestMapNetworkMode(t *testing.T) {
 	}
 }
 
+func TestBuildHostConfigHardening(t *testing.T) {
+	hc := buildHostConfig(CreateOptions{NetworkMode: NetworkDisabled})
+	if hc.NetworkMode != container.NetworkMode("none") {
+		t.Fatalf("NetworkMode = %q, want none", hc.NetworkMode)
+	}
+	if hc.Memory != sandboxMemoryLimitBytes {
+		t.Fatalf("Memory = %d, want %d", hc.Memory, sandboxMemoryLimitBytes)
+	}
+	if hc.NanoCPUs != sandboxNanoCPUs {
+		t.Fatalf("NanoCPUs = %d, want %d", hc.NanoCPUs, sandboxNanoCPUs)
+	}
+	if hc.PidsLimit == nil || *hc.PidsLimit != sandboxPidsLimit {
+		t.Fatalf("PidsLimit = %v, want %d", hc.PidsLimit, sandboxPidsLimit)
+	}
+	if len(hc.CapDrop) != 1 || hc.CapDrop[0] != "ALL" {
+		t.Fatalf("CapDrop = %v, want [ALL]", hc.CapDrop)
+	}
+	if len(hc.SecurityOpt) != 1 || hc.SecurityOpt[0] != "no-new-privileges" {
+		t.Fatalf("SecurityOpt = %v, want [no-new-privileges]", hc.SecurityOpt)
+	}
+}
+
 func TestBuildMounts(t *testing.T) {
 	t.Run("no workspace no extras", func(t *testing.T) {
 		mounts := buildMounts(CreateOptions{})

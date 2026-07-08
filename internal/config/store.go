@@ -81,6 +81,12 @@ type Store interface {
 	UpdateProvider(ctx context.Context, p Provider) error
 	DeleteProvider(ctx context.Context, id string) error
 
+	// Fetched-model cache — the model IDs an admin pulled from each provider's
+	// API. ListCachedModels returns a flat list across providers; ReplaceCachedModels
+	// replaces the fetched set for one provider only, leaving others untouched.
+	ListCachedModels(ctx context.Context) ([]CachedModel, error)
+	ReplaceCachedModels(ctx context.Context, providerID string, modelIDs []string) error
+
 	// Agents
 	ListAgents(ctx context.Context) ([]Agent, error)
 	ListEnabledAgents(ctx context.Context) ([]Agent, error)

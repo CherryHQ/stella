@@ -9,7 +9,7 @@ import (
 
 // ListModels returns enabled models from provider config + fetched cache,
 // filtered to only include models whose provider instance is enabled.
-// No provider API calls — reads only from the DB and ~/.stella/cache/models.json.
+// No provider API calls — reads only from the DB.
 func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	info := requireAuth(w, r)
 	if info == nil {
@@ -53,10 +53,12 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 		modelEnabled[provider.ID] = enabled
 	}
 
-	if cache, err := config.LoadModelsCache(); err == nil {
-		for _, model := range cache.Models {
+	if cached, err := s.store.ListCachedModels(r.Context()); err == nil {
+		for _, model := range cached {
 			add(model.Provider, model.Model, modelEnabled[model.Provider])
 		}
+	} else {
+		s.log.Warn("failed to load cached models", "error", err)
 	}
 
 	sort.Slice(filtered, func(i, j int) bool {

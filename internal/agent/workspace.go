@@ -1,11 +1,16 @@
 package agent
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/skills"
 )
 
@@ -191,6 +196,14 @@ func SaveAsset(assetsDir, fileName string, data []byte) (string, error) {
 	dst := filepath.Join(assetsDir, name)
 	if err := os.WriteFile(dst, data, 0o600); err != nil {
 		return "", fmt.Errorf("write asset %s: %w", name, err)
+	}
+	if store := blob.Default(); store != nil {
+		key, err := blob.KeyForPath(config.StellaHome(), dst)
+		if err != nil {
+			slog.Warn("asset blob key failed", "path", dst, "error", err)
+		} else if err := store.Put(context.Background(), key, bytes.NewReader(data)); err != nil {
+			slog.Warn("asset blob mirror failed", "key", key, "error", err)
+		}
 	}
 	return dst, nil
 }

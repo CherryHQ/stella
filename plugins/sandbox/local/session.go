@@ -5,7 +5,6 @@
 package local
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -87,18 +86,16 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
 	}
 	s := &localSession{
-		id:                 sessionID,
-		policy:             policy,
-		realRoot:           realRoot,
-		sandboxRoot:        sandboxRoot,
-		userDataReal:       userDataReal,
-		userDataSandbox:    userDataSandbox,
-		agentSkillsReal:    policy.Filesystem.AgentSkillsDir,
-		systemDBSkillsReal: policy.Filesystem.SystemDBSkillsDir,
-		stellaHomeHost:     hostStellaHome,
-		stellaHomeSandbox:  adjustStellaHome(hostStellaHome),
-		tmpMounts:          tmpMounts,
-		done:               make(chan struct{}),
+		id:                sessionID,
+		policy:            policy,
+		realRoot:          realRoot,
+		sandboxRoot:       sandboxRoot,
+		userDataReal:      userDataReal,
+		userDataSandbox:   userDataSandbox,
+		stellaHomeHost:    hostStellaHome,
+		stellaHomeSandbox: adjustStellaHome(hostStellaHome),
+		tmpMounts:         tmpMounts,
+		done:              make(chan struct{}),
 	}
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
 	return s, nil
@@ -247,27 +244,35 @@ func remapStellaHomePath(p, hostSH, sandboxSH string) string {
 	}
 }
 
+func mountBySandboxPath(mounts []sandboxpkg.Mount, sandboxPath string) (sandboxpkg.Mount, bool) {
+	clean := filepath.Clean(sandboxPath)
+	for _, m := range mounts {
+		if filepath.Clean(m.SandboxPath) == clean {
+			return m, true
+		}
+	}
+	return sandboxpkg.Mount{}, false
+}
+
 // ─────────────────────────── localSession ─────────────────────────────
 
 // localSession implements sandboxpkg.Session by running commands directly on
 // the host OS with no container isolation.
 type localSession struct {
-	id                 string
-	policy             sandboxpkg.Policy
-	realRoot           string     // actual host path (e.g. /home/stella/.stella-dev/...)
-	sandboxRoot        string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
-	userDataReal       string     // host path of the shared user-data root, "" when none
-	userDataSandbox    string     // path the agent sees for it (/user on Linux+bwrap, else = userDataReal)
-	agentSkillsReal    string     // host path of the agent-bound (system_agent) skills dir, "" when none
-	systemDBSkillsReal string     // host path of the DB-installed system skills dir, "" when none
-	stellaHomeHost     string     // host-side STELLA_HOME for bwrap mounts
-	stellaHomeSandbox  string     // agent's view of STELLA_HOME (/opt/stella on Linux+bwrap, else = host)
-	tmpMounts          []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
-	done               chan struct{}
-	doneOnce           sync.Once
-	mu                 sync.RWMutex
-	closed             bool
-	procs              []*localProcess
+	id                string
+	policy            sandboxpkg.Policy
+	realRoot          string     // actual host path (e.g. /home/stella/.stella-dev/...)
+	sandboxRoot       string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
+	userDataReal      string     // host path of the shared user-data root, "" when none
+	userDataSandbox   string     // path the agent sees for it (/user on Linux+bwrap, else = userDataReal)
+	stellaHomeHost    string     // host-side STELLA_HOME for bwrap mounts
+	stellaHomeSandbox string     // agent's view of STELLA_HOME (/opt/stella on Linux+bwrap, else = host)
+	tmpMounts         []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
+	done              chan struct{}
+	doneOnce          sync.Once
+	mu                sync.RWMutex
+	closed            bool
+	procs             []*localProcess
 }
 
 func (s *localSession) Policy() sandboxpkg.Policy {
@@ -353,24 +358,14 @@ func (s *localSession) ResolvePath(agentPath string) (string, error) {
 	return resolved, err
 }
 
-// ResolveWritePath is like ResolvePath but additionally rejects paths that
-// fall within ExtraReadOnlyMounts.
+// ResolveWritePath is like ResolvePath but additionally rejects paths that fall
+// within read-only mounts.
 func (s *localSession) ResolveWritePath(agentPath string) (string, error) {
-	resolved, _, err := s.resolvePath(agentPath)
+	resolved, err := s.pathResolver().ResolveWritePath(agentPath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("local: %w", err)
 	}
-	if matchingExtraMount(s.policy.Filesystem.ExtraReadOnlyMounts, resolved) != "" {
-		return "", fmt.Errorf("local: path %q is in a read-only mount", agentPath)
-	}
-	// The system install subtrees (/opt/stella/*) are read-only — reject writes
-	// even though resolvePath allows reads of them.
-	for _, pair := range s.stellaHomeSubdirs() {
-		if pathWithinRoot(filepath.Clean(pair[1]), resolved) {
-			return "", fmt.Errorf("local: path %q is in the read-only system tree", agentPath)
-		}
-	}
-	return resolved, nil
+	return resolved.HostPath, nil
 }
 
 // resolveCwd validates a requested working directory, then returns both its
@@ -391,102 +386,40 @@ func (s *localSession) resolveCwd(cwd string) (sandboxCwd, realCwd string, err e
 // sandbox-space path. Existing symlink components under the workspace are
 // rejected, including symlinked parents of non-existent creation targets.
 func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath string, err error) {
-	abs := agentPath
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(s.WorkingDir(), agentPath)
-	}
-	sandboxPath = filepath.Clean(abs)
-	real := filepath.Clean(s.toRealPath(sandboxPath))
-
-	resolved, err := filepath.EvalSymlinks(real)
+	resolved, err := s.pathResolver().ResolvePath(agentPath)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return "", "", fmt.Errorf("local: resolve path %q: %w", agentPath, err)
-		}
-		resolved = real
+		return "", "", fmt.Errorf("local: %w", err)
 	}
-	resolved = filepath.Clean(resolved)
-
-	cleanRoot := filepath.Clean(s.realRoot)
-	if pathWithinRoot(cleanRoot, resolved) {
-		if err := rejectLocalSymlinkTraversal(cleanRoot, real); err != nil {
-			return "", "", fmt.Errorf("local: %w", err)
-		}
-		return resolved, s.toSandboxPath(resolved), nil
-	}
-
-	// Also allow the shared user-data root (/user): a second writable top-level
-	// root, disjoint from the workspace. Without this the file tools reject /user
-	// even though bash inside the sandbox can reach it via the bind mount.
-	if s.userDataReal != "" {
-		cleanUserData := filepath.Clean(s.userDataReal)
-		if pathWithinRoot(cleanUserData, resolved) {
-			if err := rejectLocalSymlinkTraversal(cleanUserData, real); err != nil {
-				return "", "", fmt.Errorf("local: %w", err)
-			}
-			return resolved, s.toSandboxPath(resolved), nil
-		}
-	}
-
-	// Also allow read of the RO system install subtrees (/opt/stella/{bin,
-	// .mise-tools,.agents/skills}) — e.g. system skill bundles the model addresses
-	// via skill_dir. Scoped to the mounted subtrees only, never the whole host
-	// STELLA_HOME, so the sibling users/ and agents/ trees stay invisible. Writes
-	// are rejected separately in ResolveWritePath.
-	for _, pair := range s.stellaHomeSubdirs() {
-		if pathWithinRoot(filepath.Clean(pair[1]), resolved) {
-			return resolved, s.toSandboxPath(resolved), nil
-		}
-	}
-
-	// Also allow access to extra read-only mounts (e.g. agent-level skill dirs).
-	if mountRoot := matchingExtraMount(s.policy.Filesystem.ExtraReadOnlyMounts, resolved); mountRoot != "" {
-		if err := rejectLocalSymlinkTraversal(mountRoot, real); err != nil {
-			return "", "", fmt.Errorf("local: %w", err)
-		}
-		return resolved, s.toSandboxPath(resolved), nil
-	}
-
-	// Allow access to session temp directories (/tmp, /var/tmp).
-	for _, m := range s.tmpMounts {
-		if pathWithinRoot(m.realPath, resolved) {
-			if err := rejectLocalSymlinkTraversal(m.realPath, real); err != nil {
-				return "", "", fmt.Errorf("local: %w", err)
-			}
-			return resolved, s.toSandboxPath(resolved), nil
-		}
-	}
-
-	return "", "", fmt.Errorf("local: path %q resolves to %q which is outside workspace root %q", agentPath, resolved, s.realRoot)
+	return resolved.HostPath, resolved.SandboxPath, nil
 }
 
 // matchingTmpMount returns the tmpMount with the longest sandboxPath that
 // contains sandboxPath, or nil if none match.
-func (s *localSession) matchingTmpMount(sandboxPath string) *tmpMount {
-	clean := filepath.Clean(sandboxPath)
-	var best *tmpMount
-	for i := range s.tmpMounts {
-		m := &s.tmpMounts[i]
-		if clean == m.sandboxPath || strings.HasPrefix(clean, m.sandboxPath+string(filepath.Separator)) {
-			if best == nil || len(m.sandboxPath) > len(best.sandboxPath) {
-				best = m
-			}
-		}
-	}
-	return best
-}
 
 // matchingExtraMount returns the longest extra read-only mount that contains
 // resolved, or "" if none match.
-func matchingExtraMount(mounts []string, resolved string) string {
-	best := ""
-	for _, m := range mounts {
-		clean := filepath.Clean(m)
-		if pathWithinRoot(clean, resolved) && len(clean) > len(best) {
-			best = clean
+
+func (s *localSession) pathResolver() *sandboxpkg.PathResolver {
+	mounts := append([]sandboxpkg.Mount(nil), s.policy.Filesystem.Mounts...)
+	if len(mounts) == 0 {
+		if s.realRoot != "" && s.sandboxRoot != "" {
+			mounts = append(mounts, sandboxpkg.Mount{HostPath: s.realRoot, SandboxPath: s.sandboxRoot, Access: sandboxpkg.MountReadWrite})
+		}
+		if s.userDataReal != "" && s.userDataSandbox != "" {
+			mounts = append(mounts, sandboxpkg.Mount{HostPath: s.userDataReal, SandboxPath: s.userDataSandbox, Access: sandboxpkg.MountReadWrite})
+		}
+		for _, pair := range s.stellaHomeSubdirs() {
+			mounts = append(mounts, sandboxpkg.Mount{HostPath: pair[1], SandboxPath: pair[0], Access: sandboxpkg.MountReadOnly})
 		}
 	}
-	return best
+	for _, m := range s.tmpMounts {
+		mounts = append(mounts, sandboxpkg.Mount{HostPath: m.realPath, SandboxPath: m.sandboxPath, Access: sandboxpkg.MountReadWrite})
+	}
+	return sandboxpkg.NewPathResolver(sandboxpkg.PathResolverConfig{
+		WorkspaceRoot: s.realRoot,
+		WorkingDir:    s.WorkingDir(),
+		Mounts:        mounts,
+	})
 }
 
 // stellaHomeSubdirs returns the {sandboxRoot, hostRoot} pairs for each subtree of
@@ -498,160 +431,40 @@ func (s *localSession) stellaHomeSubdirs() [][2]string {
 	if s.stellaHomeHost == "" || s.stellaHomeSandbox == s.stellaHomeHost {
 		return nil
 	}
-	names := sandboxpkg.StellaHomeSandboxDirs()
-	out := make([][2]string, 0, len(names)+1)
-	for _, name := range names {
+	out := make([][2]string, 0, len(sandboxpkg.StellaHomeSandboxDirs()))
+	for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
 		out = append(out, [2]string{
 			filepath.Join(s.stellaHomeSandbox, name),
 			filepath.Join(s.stellaHomeHost, name),
 		})
 	}
-	// Agent-bound (system_agent) skills: a read-only subtree mounted at its own
-	// fixed path (it lives in the agent definition tree, not under the STELLA_HOME
-	// subtrees above). Mapped here so the file tools can read it and reject writes.
-	if s.agentSkillsReal != "" {
-		out = append(out, [2]string{sandboxpkg.MountAgentSkills, filepath.Clean(s.agentSkillsReal)})
-	}
-	// DB-installed system skills: same treatment — a read-only subtree at its own
-	// fixed path, kept separate from the shipped built-ins under STELLA_HOME.
-	if s.systemDBSkillsReal != "" {
-		out = append(out, [2]string{sandboxpkg.MountSystemDBSkills, filepath.Clean(s.systemDBSkillsReal)})
-	}
 	return out
 }
 
 // pathWithinRoot reports whether path is the root itself or is contained under it.
-func pathWithinRoot(root, path string) bool {
-	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
-}
 
 // rejectLocalSymlinkTraversal rejects any symlink component at or below the
 // workspace root. For non-existent targets, checking stops at the first missing
 // component so creating new files still works unless an existing parent is a
 // symlink.
-func rejectLocalSymlinkTraversal(root, path string) error {
-	if !pathWithinRoot(root, path) {
-		return fmt.Errorf("path %q is outside workspace root %q", path, root)
-	}
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return fmt.Errorf("rel %q from %q: %w", path, root, err)
-	}
-	if rel == "." {
-		return nil
-	}
-	current := root
-	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
-		if part == "" || part == "." {
-			continue
-		}
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
-			return fmt.Errorf("lstat %q: %w", current, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("path %q traverses symlink at %q", path, current)
-		}
-	}
-	return nil
-}
 
 // toRealPath translates a sandbox-space absolute path to the real host path.
 // When sandboxRoot == realRoot (no remapping), it is a no-op.
 // Temp paths (/tmp, /var/tmp) are checked first against tmpMounts.
 func (s *localSession) toRealPath(sandboxPath string) string {
-	if m := s.matchingTmpMount(sandboxPath); m != nil {
-		rel, _ := filepath.Rel(m.sandboxPath, filepath.Clean(sandboxPath))
-		if rel == "." {
-			return m.realPath
-		}
-		return filepath.Join(m.realPath, rel)
+	if hostPath, ok := s.pathResolver().ToHostPath(sandboxPath); ok {
+		return hostPath
 	}
-	// Shared user-data root: /user/... maps to its host path. Disjoint from the
-	// workspace remap below; identity on macOS (sandbox == real).
-	if s.userDataSandbox != "" && s.userDataSandbox != s.userDataReal {
-		if rel, err := filepath.Rel(s.userDataSandbox, filepath.Clean(sandboxPath)); err == nil &&
-			rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return filepath.Join(s.userDataReal, rel)
-		}
-	}
-	// RO system install subtrees: /opt/stella/{bin,.mise-tools,.agents/skills}/...
-	// map back to the matching host STELLA_HOME subtree (only the mounted ones).
-	for _, pair := range s.stellaHomeSubdirs() {
-		if rel, err := filepath.Rel(pair[0], filepath.Clean(sandboxPath)); err == nil &&
-			rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return filepath.Join(pair[1], rel)
-		}
-	}
-	if s.sandboxRoot == s.realRoot {
-		return sandboxPath
-	}
-	rel, err := filepath.Rel(s.sandboxRoot, filepath.Clean(sandboxPath))
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return sandboxPath
-	}
-	return filepath.Join(s.realRoot, rel)
+	return sandboxPath
 }
 
 // toSandboxPath translates a real host path back into sandbox space.
 // Temp mount real paths are checked first against tmpMounts.
 func (s *localSession) toSandboxPath(realPath string) string {
-	clean := filepath.Clean(realPath)
-	// Use longest matching tmpMount (e.g. /var/tmp before /tmp if both match).
-	var best *tmpMount
-	for i := range s.tmpMounts {
-		m := &s.tmpMounts[i]
-		rel, err := filepath.Rel(m.realPath, clean)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			continue
-		}
-		if best == nil || len(m.realPath) > len(best.realPath) {
-			best = m
-		}
+	if sandboxPath, ok := s.pathResolver().ToSandboxPath(realPath); ok {
+		return sandboxPath
 	}
-	if best != nil {
-		rel, _ := filepath.Rel(best.realPath, clean)
-		if rel == "." {
-			return best.sandboxPath
-		}
-		return filepath.Join(best.sandboxPath, rel)
-	}
-	// Shared user-data root: host paths under it map back to /user/...
-	if s.userDataReal != "" && s.userDataReal != s.userDataSandbox {
-		if rel, err := filepath.Rel(s.userDataReal, clean); err == nil &&
-			rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			if rel == "." {
-				return s.userDataSandbox
-			}
-			return filepath.Join(s.userDataSandbox, rel)
-		}
-	}
-	// RO system install subtrees: host STELLA_HOME subtrees map back to
-	// /opt/stella/{bin,.mise-tools,.agents/skills}/... (only the mounted ones).
-	for _, pair := range s.stellaHomeSubdirs() {
-		if rel, err := filepath.Rel(pair[1], clean); err == nil &&
-			rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			if rel == "." {
-				return pair[0]
-			}
-			return filepath.Join(pair[0], rel)
-		}
-	}
-	if s.sandboxRoot == s.realRoot {
-		return realPath
-	}
-	rel, err := filepath.Rel(s.realRoot, clean)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return realPath
-	}
-	if rel == "." {
-		return s.sandboxRoot
-	}
-	return filepath.Join(s.sandboxRoot, rel)
+	return realPath
 }
 
 // Exec runs a shell command via sh -c on the host.
@@ -698,9 +511,10 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	cmd.Env = buildEnv(policy, opts.Env)
 	setSysProcAttr(cmd)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := sandboxpkg.NewExecOutputBuffer()
+	stderr := sandboxpkg.NewExecOutputBuffer()
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	if startErr := cmd.Start(); startErr != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: start: %w", startErr)

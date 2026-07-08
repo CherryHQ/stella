@@ -142,9 +142,6 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 	if err := pkgsandbox.EnsureMiseShims(paths.StellaHome, miseDir); err != nil {
 		return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure mise shims: %w", err)
 	}
-	if miseDir != "" {
-		fs.ExtraWritableMounts = append(fs.ExtraWritableMounts, miseDir)
-	}
 
 	policy := pkgsandbox.Policy{
 		Filesystem: fs,

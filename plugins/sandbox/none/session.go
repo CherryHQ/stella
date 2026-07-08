@@ -83,11 +83,21 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	// Host execution shares the real filesystem, so the shared user-data root is
 	// exposed at its real path (no /user remap). Keeps STELLA_USER_DIR meaningful
 	// for skills/prompt that address it regardless of backend.
-	if ud := policy.Filesystem.UserDataDir; ud != "" {
+	if ud := hostPathForSandboxMount(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ud != "" {
 		env["STELLA_USER_DIR"] = ud
 	}
 	policy.Env = env
 	return policy
+}
+
+func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) string {
+	clean := filepath.Clean(sandboxPath)
+	for _, m := range mounts {
+		if filepath.Clean(m.SandboxPath) == clean {
+			return m.HostPath
+		}
+	}
+	return ""
 }
 
 // noneSession implements sandboxpkg.Session with zero isolation.

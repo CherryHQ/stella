@@ -36,6 +36,17 @@ func generateID() string {
 
 // SaveArticle saves or updates an article by canonical URL.
 func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest) (*Article, bool, error) {
+	return s.saveArticle(ctx, userID, req, "", false)
+}
+
+// SaveArticleWithContent saves or updates an article by canonical URL. New
+// articles and their body content are inserted in one transaction so a crash
+// cannot leave an article row without its source body.
+func (s *Store) SaveArticleWithContent(ctx context.Context, userID string, req SaveRequest, content string) (*Article, bool, error) {
+	return s.saveArticle(ctx, userID, req, content, true)
+}
+
+func (s *Store) saveArticle(ctx context.Context, userID string, req SaveRequest, content string, insertContent bool) (*Article, bool, error) {
 	if req.SourceType == "" {
 		req.SourceType = SourceTypeWeb
 	}
@@ -75,7 +86,7 @@ func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest)
 		return nil, false, fmt.Errorf("lookup article by canonical url: %w", err)
 	}
 
-	created, err := s.q.CreateArticle(ctx, sqlc.CreateArticleParams{
+	params := sqlc.CreateArticleParams{
 		ID:           generateID(),
 		UserID:       userID,
 		AgentID:      toNullString(req.AgentID),
@@ -93,9 +104,32 @@ func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest)
 		PublishedAt:  toNullTime(req.PublishedAt),
 		SavedAt:      time.Now().UTC(),
 		ReadAt:       pgtype.Timestamptz{},
-	})
-	if err != nil {
-		return nil, false, fmt.Errorf("create article: %w", err)
+	}
+
+	var created sqlc.RecallyArticle
+	if insertContent {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return nil, false, fmt.Errorf("begin article transaction: %w", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		qtx := s.q.WithTx(tx)
+		created, err = qtx.CreateArticle(ctx, params)
+		if err != nil {
+			return nil, false, fmt.Errorf("create article: %w", err)
+		}
+		if err := qtx.UpsertArticleContent(ctx, sqlc.UpsertArticleContentParams{ArticleID: created.ID, Content: content}); err != nil {
+			return nil, false, fmt.Errorf("upsert article content: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, false, fmt.Errorf("commit article transaction: %w", err)
+		}
+	} else {
+		created, err = s.q.CreateArticle(ctx, params)
+		if err != nil {
+			return nil, false, fmt.Errorf("create article: %w", err)
+		}
 	}
 
 	var article Article
@@ -538,6 +572,52 @@ func (s *Store) UpdateArticleFilePath(ctx context.Context, userID, articleID, fi
 		return fmt.Errorf("update file path: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) UpsertArticleContent(ctx context.Context, articleID, content string) error {
+	if err := s.q.UpsertArticleContent(ctx, sqlc.UpsertArticleContentParams{ArticleID: articleID, Content: content}); err != nil {
+		return fmt.Errorf("upsert article content: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) InsertArticleContentIfAbsent(ctx context.Context, articleID, content string) error {
+	if err := s.q.InsertArticleContentIfAbsent(ctx, sqlc.InsertArticleContentIfAbsentParams{ArticleID: articleID, Content: content}); err != nil {
+		return fmt.Errorf("insert article content if absent: %w", err)
+	}
+	return nil
+}
+
+// ArticleMissingContent identifies a legacy article whose body still lives only
+// in its disk mirror and has no recally_article_content row yet.
+type ArticleMissingContent struct {
+	ID       string
+	FilePath string
+}
+
+// ListArticlesMissingContent returns legacy articles that carry a file_path but
+// have no stored content row, so a startup job can copy their bodies into the DB.
+func (s *Store) ListArticlesMissingContent(ctx context.Context) ([]ArticleMissingContent, error) {
+	rows, err := s.q.ListArticlesMissingContent(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list articles missing content: %w", err)
+	}
+	out := make([]ArticleMissingContent, len(rows))
+	for i, r := range rows {
+		out[i] = ArticleMissingContent{ID: r.ID, FilePath: r.FilePath}
+	}
+	return out, nil
+}
+
+func (s *Store) GetArticleContent(ctx context.Context, articleID string) (string, bool, error) {
+	content, err := s.q.GetArticleContent(ctx, articleID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("get article content: %w", err)
+	}
+	return content, true, nil
 }
 
 // GetDigest generates a daily reading digest for a user.

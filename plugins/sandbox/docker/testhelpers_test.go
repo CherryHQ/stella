@@ -51,6 +51,14 @@ func (noopAPI) VolumeCreate(context.Context, mobyclient.VolumeCreateOptions) (mo
 	return mobyclient.VolumeCreateResult{}, nil
 }
 
+func (noopAPI) VolumeList(context.Context, mobyclient.VolumeListOptions) (mobyclient.VolumeListResult, error) {
+	return mobyclient.VolumeListResult{}, nil
+}
+
+func (noopAPI) VolumeRemove(context.Context, string, mobyclient.VolumeRemoveOptions) (mobyclient.VolumeRemoveResult, error) {
+	return mobyclient.VolumeRemoveResult{}, nil
+}
+
 func (noopAPI) ExecCreate(context.Context, string, mobyclient.ExecCreateOptions) (mobyclient.ExecCreateResult, error) {
 	return mobyclient.ExecCreateResult{}, nil
 }

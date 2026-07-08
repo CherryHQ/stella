@@ -344,6 +344,22 @@ type SessionManager interface {
 	LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error)
 }
 
+// ReviewMessage is a logical message with the underlying storage boundary kept
+// intact for deterministic review watermarking. Assistant turns may span
+// multiple storage rows, so callers must advance to LastSeq after reviewing one.
+type ReviewMessage struct {
+	ID       string
+	FirstSeq int64
+	LastSeq  int64
+	Message  ai.Message
+}
+
+// ReviewHistoryReader returns raw session history with stable storage
+// boundaries for background reviewers.
+type ReviewHistoryReader interface {
+	LoadReviewHistory(ctx context.Context, sessionID string) ([]ReviewMessage, error)
+}
+
 // ---------------------------------------------------------------------------
 // Capability: Reviewer
 // ---------------------------------------------------------------------------

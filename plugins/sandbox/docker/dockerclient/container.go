@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
@@ -19,6 +20,14 @@ type NetworkMode string
 const (
 	NetworkDisabled NetworkMode = "disabled"
 	NetworkAllowAll NetworkMode = "allow_all"
+)
+
+// Deliberate resource ceilings for untrusted agent workloads; raise if a
+// legitimate toolchain needs more.
+const (
+	sandboxMemoryLimitBytes int64 = 2 << 30       // 2 GiB
+	sandboxNanoCPUs         int64 = 2_000_000_000 // 2 CPUs
+	sandboxPidsLimit        int64 = 512
 )
 
 // MountType identifies how Docker should mount Source into the container.
@@ -61,24 +70,21 @@ type CreateOptions struct {
 // (`sh -c 'tail -f /dev/null'`), starts it, and returns the container ID.
 // If the image is not present locally it is pulled automatically.
 func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string, error) {
-	slog.Info("dockerclient: checking sandbox image", "image", opts.Image, "container_name", opts.Name)
-	exists, err := c.ImageExists(ctx, opts.Image)
-	if err != nil {
-		slog.Warn("dockerclient: image check failed", "image", opts.Image, "container_name", opts.Name, "error", err)
-		return "", fmt.Errorf("dockerclient: image check %s: %w", opts.Image, err)
-	}
-	if !exists {
-		slog.Info("dockerclient: image not found locally, pulling", "image", opts.Image, "container_name", opts.Name)
-		if err := c.PullImage(ctx, opts.Image); err != nil {
-			slog.Warn("dockerclient: image pull failed", "image", opts.Image, "container_name", opts.Name, "error", err)
-			return "", err
-		}
+	if err := c.EnsureImageReady(ctx, opts.Image, opts.Name); err != nil {
+		return "", err
 	}
 
 	createOpts := buildContainerCreateOptions(opts)
 
 	slog.Info("dockerclient: creating sandbox container", "image", opts.Image, "container_name", opts.Name, "network_mode", opts.NetworkMode, "mounts", len(createOpts.HostConfig.Mounts))
 	created, err := c.api.ContainerCreate(ctx, createOpts)
+	if err != nil && errdefs.IsNotFound(err) {
+		c.invalidateImageReady(opts.Image)
+		if readyErr := c.EnsureImageReady(ctx, opts.Image, opts.Name); readyErr != nil {
+			return "", readyErr
+		}
+		created, err = c.api.ContainerCreate(ctx, createOpts)
+	}
 	if err != nil {
 		slog.Warn("dockerclient: container create failed", "image", opts.Image, "container_name", opts.Name, "error", err)
 		return "", fmt.Errorf("dockerclient: container create: %w", err)
@@ -87,7 +93,12 @@ func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string
 	slog.Info("dockerclient: starting sandbox container", "container_id", created.ID, "container_name", opts.Name)
 	if _, err := c.api.ContainerStart(ctx, created.ID, mobyclient.ContainerStartOptions{}); err != nil {
 		slog.Warn("dockerclient: container start failed", "container_id", created.ID, "container_name", opts.Name, "error", err)
-		return created.ID, fmt.Errorf("dockerclient: container start %s: %w", created.ID, err)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, removeErr := c.api.ContainerRemove(cleanupCtx, created.ID, mobyclient.ContainerRemoveOptions{Force: true}); removeErr != nil && !errdefs.IsNotFound(removeErr) {
+			slog.Warn("dockerclient: cleanup failed after container start failure", "container_id", created.ID, "container_name", opts.Name, "error", removeErr)
+		}
+		return "", fmt.Errorf("dockerclient: container start %s: %w", created.ID, err)
 	}
 
 	slog.Info("dockerclient: sandbox container started", "container_id", created.ID, "container_name", opts.Name)
@@ -233,8 +244,17 @@ func buildContainerConfig(opts CreateOptions) *container.Config {
 }
 
 func buildHostConfig(opts CreateOptions) *container.HostConfig {
+	pidsLimit := sandboxPidsLimit
 	hc := &container.HostConfig{
 		NetworkMode: mapNetworkMode(opts),
+		Resources: container.Resources{
+			Memory:    sandboxMemoryLimitBytes,
+			NanoCPUs:  sandboxNanoCPUs,
+			PidsLimit: &pidsLimit,
+		},
+		// Drop all capabilities by default; relax narrowly if a toolchain genuinely needs one.
+		CapDrop:     []string{"ALL"},
+		SecurityOpt: []string{"no-new-privileges"},
 		Mounts:      buildMounts(opts),
 	}
 	return hc

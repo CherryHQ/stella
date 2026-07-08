@@ -16,22 +16,23 @@ const (
 	// automatically deprecated.
 	defaultDraftMaxAge = 30 * 24 * time.Hour
 
-	// defaultReviewBatch caps how many candidate sessions a single review
-	// cycle processes per agent.
+	// defaultReviewBatch caps how many review targets a single cycle processes
+	// per agent.
 	defaultReviewBatch = 5
 )
 
 // Config holds dependencies for the reflect service.
 type Config struct {
-	StateStore pkgplugins.StateStore
-	Memory     memory.Provider
-	Store      Store
-	SkillStore pkgplugins.SkillStore
-	Notifier   pkgplugins.Notifier
-	Workspace  string
-	Log        *slog.Logger
-	Providers  func(api, apiKey, baseURL string) (providers.StreamFunc, error)
-	// Services provides per-agent session registries for review candidate listing.
+	StateStore     pkgplugins.StateStore
+	Memory         memory.Provider
+	Store          Store
+	SkillStore     pkgplugins.SkillStore
+	Notifier       pkgplugins.Notifier
+	Workspace      string
+	Log            *slog.Logger
+	Providers      func(api, apiKey, baseURL string) (providers.StreamFunc, error)
+	CandidateGates CandidateGateSettings
+	// Services provides per-agent session registries for review target listing.
 	// When set, reflect uses Registry.ListForReview and Registry.MemoryScope
 	// instead of calling memory.SessionManager directly.
 	Services agent.ServiceManager
@@ -41,20 +42,23 @@ type Config struct {
 type watermarker interface {
 	get(ctx context.Context, sessionID string) (time.Time, error)
 	set(ctx context.Context, sessionID string, at time.Time) error
+	getLine(ctx context.Context, sessionID string, line reflectLine) (reviewWatermark, error)
+	setLine(ctx context.Context, sessionID string, line reflectLine, mark reviewWatermark) error
 }
 
 // Service runs background conversation review.
 type Service struct {
-	memory     memory.Provider
-	store      Store
-	skillStore pkgplugins.SkillStore
-	notifier   pkgplugins.Notifier
-	wm         watermarker
-	workspace  string
-	batch      int
-	log        *slog.Logger
-	providers  func(api, apiKey, baseURL string) (providers.StreamFunc, error)
-	services   agent.ServiceManager
+	memory         memory.Provider
+	store          Store
+	skillStore     pkgplugins.SkillStore
+	notifier       pkgplugins.Notifier
+	wm             watermarker
+	workspace      string
+	batch          int
+	log            *slog.Logger
+	providers      func(api, apiKey, baseURL string) (providers.StreamFunc, error)
+	candidateGates CandidateGateSettings
+	services       agent.ServiceManager
 }
 
 // New creates a new reflect service.
@@ -63,15 +67,16 @@ func New(cfg Config) *Service {
 		cfg.Log = slog.Default()
 	}
 	return &Service{
-		memory:     cfg.Memory,
-		store:      cfg.Store,
-		skillStore: cfg.SkillStore,
-		notifier:   cfg.Notifier,
-		wm:         newWatermarkStore(cfg.StateStore),
-		workspace:  cfg.Workspace,
-		batch:      defaultReviewBatch,
-		log:        cfg.Log,
-		providers:  cfg.Providers,
-		services:   cfg.Services,
+		memory:         cfg.Memory,
+		store:          cfg.Store,
+		skillStore:     cfg.SkillStore,
+		notifier:       cfg.Notifier,
+		wm:             newWatermarkStore(cfg.StateStore),
+		workspace:      cfg.Workspace,
+		batch:          defaultReviewBatch,
+		log:            cfg.Log,
+		providers:      cfg.Providers,
+		candidateGates: cfg.CandidateGates.withDefaults(),
+		services:       cfg.Services,
 	}
 }

@@ -18,12 +18,18 @@ type PathResolver func(scope, agentID string, userID string) string
 // DiskSyncStore wraps a Store and mirrors every write to disk so that skill
 // scripts can be executed from the filesystem inside a sandbox.
 //
-// Write ordering is disk-first: if the disk write fails the DB write is skipped
+// Create ordering is disk-first: if the disk write fails the DB write is skipped
 // and the error is propagated. On crash after disk write but before DB write,
-// MigrateFilesystem at next startup re-imports the orphaned disk files.
+// the create is lost and the directory lingers as an inert orphan — nothing
+// re-imports disk files into the DB, and SyncAllToDisk only visits DB skills.
 //
-// For Delete, DB is removed first (disk after) to avoid orphaned skill
-// directories re-importing on next startup as if they were new skills.
+// Reflect patch ordering is DB-first because the expected-version check is only
+// authoritative inside the inner store's row lock. Disk is mirrored only after
+// the DB accepts the patch.
+//
+// For Delete, DB is removed first (disk after): a crash then leaves an inert
+// orphan directory, whereas disk-first would leave a live DB row that load
+// re-materializes — deleting the skill would silently fail.
 type DiskSyncStore struct {
 	Store
 	resolver PathResolver
@@ -42,6 +48,17 @@ func (d *DiskSyncStore) Create(ctx context.Context, sk Skill, files map[string]s
 		}
 	}
 	return d.Store.Create(ctx, sk, files)
+}
+
+func (d *DiskSyncStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (Skill, error) {
+	files := map[string]string{MainFile: in.MainFileContent}
+	base := d.resolver("user_agent", in.AgentID, in.UserID)
+	if base != "" {
+		if err := d.writeFilesToDisk(base, in.Name, files); err != nil {
+			return Skill{}, fmt.Errorf("disk_sync reflect create %q: %w", in.Name, err)
+		}
+	}
+	return d.Store.CreateReflectOwnedUserAgentSkill(ctx, in)
 }
 
 func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
@@ -64,6 +81,26 @@ func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content s
 	return d.Store.UpsertFile(ctx, skillID, path, content)
 }
 
+func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillPatch) (Skill, error) {
+	patched, err := d.Store.PatchReflectOwnedUserAgentSkill(ctx, in)
+	if err != nil {
+		return Skill{}, err
+	}
+	if in.MainFileContent != nil {
+		base := d.resolver(patched.Scope, patched.AgentID, patched.UserID)
+		if base != "" {
+			diskPath, err := safeDiskPath(base, patched.Name, filepath.FromSlash(MainFile))
+			if err != nil {
+				return Skill{}, fmt.Errorf("disk_sync reflect patch %q: %w", patched.Name, err)
+			}
+			if err := writeFile(diskPath, *in.MainFileContent); err != nil {
+				return Skill{}, fmt.Errorf("disk_sync reflect patch %q: %w", patched.Name, err)
+			}
+		}
+	}
+	return patched, nil
+}
+
 func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) error {
 	sk, err := d.findByID(ctx, skillID)
 	if err != nil {
@@ -84,8 +121,8 @@ func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) er
 	return d.Store.DeleteFile(ctx, skillID, path)
 }
 
-// Delete removes the DB row first, then removes the disk directory.
-// DB-first ordering prevents MigrateFilesystem from re-importing orphaned dirs.
+// Delete removes the DB row first, then removes the disk directory; a crash
+// in between leaves an inert orphan dir rather than a live, undeletable skill.
 func (d *DiskSyncStore) Delete(ctx context.Context, id string, vc ViewContext) error {
 	sk, err := d.findByID(ctx, id)
 	if err != nil {

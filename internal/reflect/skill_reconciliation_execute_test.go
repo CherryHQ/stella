@@ -1,0 +1,97 @@
+package reflect
+
+import (
+	"context"
+	"testing"
+
+	"github.com/CherryHQ/stella/internal/skills"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+)
+
+func TestExecuteSkillReconciliationPlanWritesCreateAndPatch(t *testing.T) {
+	writer := &fakeReflectSkillWriter{}
+	bundle := skillRelatedBundle{
+		Candidates: []skillCandidate{validSkillCandidate("skill-0001"), validSkillCandidate("skill-0002")},
+		RelatedRecords: []skillRelatedRecord{{
+			Skill: pkgplugins.Skill{
+				ID:       "old-skill",
+				Scope:    "user_agent",
+				Status:   "active",
+				Version:  4,
+				Metadata: []byte(`{"created_by":"reflect"}`),
+			},
+			MainFileContent: "# Old skill\n",
+		}},
+	}
+	plan := skillReconciliationPlan{Operations: []skillWriteOperation{
+		{
+			Operation:       skillOperationCreate,
+			CandidateRefs:   []CandidateRef{"skill-0001"},
+			Name:            "new-reflect-skill",
+			Description:     "Create a reflect-maintained skill.",
+			MainFileContent: "# New skill\n",
+		},
+		{
+			Operation:            skillOperationPatch,
+			CandidateRefs:        []CandidateRef{"skill-0002"},
+			TargetSkillID:        "old-skill",
+			ExpectedSkillVersion: 4,
+			Description:          "Patch a reflect-maintained skill.",
+			MainFileContent:      "# Patched skill\n",
+		},
+	}}
+
+	if _, err := executeSkillReconciliationPlan(context.Background(), writer, "user-1", "agent-1", bundle, plan); err != nil {
+		t.Fatalf("executeSkillReconciliationPlan: %v", err)
+	}
+
+	if len(writer.creates) != 1 || writer.creates[0].Name != "new-reflect-skill" {
+		t.Fatalf("unexpected creates: %#v", writer.creates)
+	}
+	if writer.creates[0].UserID != "user-1" || writer.creates[0].AgentID != "agent-1" {
+		t.Fatalf("wrong create owner: %#v", writer.creates[0])
+	}
+	if len(writer.patches) != 1 || writer.patches[0].ID != "old-skill" || writer.patches[0].ExpectedVersion != 4 {
+		t.Fatalf("unexpected patches: %#v", writer.patches)
+	}
+	if writer.patches[0].Description == nil || *writer.patches[0].Description != "Patch a reflect-maintained skill." {
+		t.Fatalf("patch description not mapped: %#v", writer.patches[0])
+	}
+	if writer.patches[0].MainFileContent == nil || *writer.patches[0].MainFileContent != "# Patched skill\n" {
+		t.Fatalf("patch SKILL.md not mapped: %#v", writer.patches[0])
+	}
+}
+
+func TestExecuteSkillReconciliationPlanRejectsInvalidPlanBeforeWriting(t *testing.T) {
+	writer := &fakeReflectSkillWriter{}
+	bundle := skillRelatedBundle{Candidates: []skillCandidate{validSkillCandidate("skill-0001")}}
+	plan := skillReconciliationPlan{Operations: []skillWriteOperation{{
+		Operation:            skillOperationPatch,
+		CandidateRefs:        []CandidateRef{"skill-0001"},
+		TargetSkillID:        "missing-skill",
+		ExpectedSkillVersion: 1,
+		MainFileContent:      "# Invalid\n",
+	}}}
+
+	if _, err := executeSkillReconciliationPlan(context.Background(), writer, "user-1", "agent-1", bundle, plan); err == nil {
+		t.Fatal("expected invalid plan error")
+	}
+	if len(writer.creates) != 0 || len(writer.patches) != 0 {
+		t.Fatalf("writer should not be called, got creates=%#v patches=%#v", writer.creates, writer.patches)
+	}
+}
+
+type fakeReflectSkillWriter struct {
+	creates []skills.ReflectSkillCreate
+	patches []skills.ReflectSkillPatch
+}
+
+func (w *fakeReflectSkillWriter) CreateReflectOwnedUserAgentSkill(_ context.Context, in skills.ReflectSkillCreate) (skills.Skill, error) {
+	w.creates = append(w.creates, in)
+	return skills.Skill{ID: "created-skill", Version: 1}, nil
+}
+
+func (w *fakeReflectSkillWriter) PatchReflectOwnedUserAgentSkill(_ context.Context, in skills.ReflectSkillPatch) (skills.Skill, error) {
+	w.patches = append(w.patches, in)
+	return skills.Skill{ID: in.ID, Version: in.ExpectedVersion + 1}, nil
+}

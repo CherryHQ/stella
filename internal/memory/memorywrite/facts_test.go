@@ -282,6 +282,98 @@ func TestSetSingletonFact_NoopsWhenContentUnchanged(t *testing.T) {
 	}
 }
 
+func TestApplyFactBatch_RollsBackWhenLaterOperationFails(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := memory.WithChangeSource(context.Background(), memory.SourceReflect)
+	oldWorld, err := CreateFact(ctx, db, q, memory.FactWrite{
+		UserID:  userID,
+		AgentID: agentID,
+		Subject: memory.FactSubjectWorld,
+		Content: "Old world fact.",
+		Source:  memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("CreateFact old world: %v", err)
+	}
+
+	_, err = ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{
+		{
+			Action:  FactBatchSetSingleton,
+			Subject: memory.FactSubjectUser,
+			Content: "New profile that should roll back.",
+		},
+		{
+			Action:        FactBatchReplaceMany,
+			Subject:       memory.FactSubjectWorld,
+			TargetFactIDs: []string{"missing-fact"},
+			Content:       "Replacement that cannot be applied.",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected batch failure")
+	}
+
+	profiles, err := ListActiveFacts(ctx, q, userID, agentID, memory.FactSubjectUser)
+	if err != nil {
+		t.Fatalf("ListActiveFacts profile: %v", err)
+	}
+	if len(profiles) != 0 {
+		t.Fatalf("profile write should have rolled back, got %#v", profiles)
+	}
+	worlds, err := ListActiveFacts(ctx, q, userID, agentID, memory.FactSubjectWorld)
+	if err != nil {
+		t.Fatalf("ListActiveFacts world: %v", err)
+	}
+	if len(worlds) != 1 || worlds[0].ID != oldWorld.ID {
+		t.Fatalf("old world fact should remain active after rollback, got %#v", worlds)
+	}
+}
+
+func TestApplyFactBatch_ReplacesManyWorldFacts(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := memory.WithChangeSource(context.Background(), memory.SourceReflect)
+	first, err := CreateFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectWorld, Content: "Old world fact A.", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("CreateFact first: %v", err)
+	}
+	second, err := CreateFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectWorld, Content: "Old world fact B.", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("CreateFact second: %v", err)
+	}
+
+	written, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
+		Action:        FactBatchReplaceMany,
+		Subject:       memory.FactSubjectWorld,
+		TargetFactIDs: []string{first.ID, second.ID},
+		Content:       "New consolidated world fact.",
+	}})
+	if err != nil {
+		t.Fatalf("ApplyFactBatch: %v", err)
+	}
+	if len(written) != 1 || written[0].Content != "New consolidated world fact." {
+		t.Fatalf("unexpected written facts: %#v", written)
+	}
+
+	active, err := ListActiveFacts(ctx, q, userID, agentID, memory.FactSubjectWorld)
+	if err != nil {
+		t.Fatalf("ListActiveFacts world: %v", err)
+	}
+	if len(active) != 1 || active[0].ID != written[0].ID {
+		t.Fatalf("expected only replacement active, got %#v", active)
+	}
+	if active[0].Source != memory.SourceReflect {
+		t.Fatalf("replacement source = %q, want reflect", active[0].Source)
+	}
+}
+
 func TestResetUserAgentMemory_KeepsVersionMonotonicAndDoesNotResurrect(t *testing.T) {
 	db, q, userID, agentID, cleanup := setupTestDB(t)
 	defer cleanup()

@@ -461,6 +461,45 @@ func TestLCMProvider_LoadHistory(t *testing.T) {
 	}
 }
 
+func TestLCMProvider_LoadReviewHistoryPreservesSeqBoundary(t *testing.T) {
+	p, cleanup := newLCMTestProvider(t)
+	defer cleanup()
+
+	sess := newLCMTestSession("review-history")
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.Append(ctx, sess,
+		ai.UserMessage{Content: "hello"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{
+			ai.TextContent{Text: "working"},
+			ai.ToolCall{ID: "tc1", Name: "shell", Arguments: map[string]any{"cmd": "true"}},
+		}},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, ok := p.(memory.ReviewHistoryReader)
+	if !ok {
+		t.Fatal("LCM provider does not implement ReviewHistoryReader")
+	}
+	history, err := reader.LoadReviewHistory(ctx, sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected 2 logical review messages, got %#v", history)
+	}
+	if history[0].FirstSeq != 1 || history[0].LastSeq != 1 {
+		t.Fatalf("expected user message seq 1..1, got %#v", history[0])
+	}
+	if history[1].FirstSeq != 2 || history[1].LastSeq != 3 {
+		t.Fatalf("expected assistant message seq 2..3, got %#v", history[1])
+	}
+}
+
 func TestLCMProvider_ListInfoFiltersInSQL(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer func() { db.Close() }()

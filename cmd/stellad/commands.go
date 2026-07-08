@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 
+	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -187,6 +188,16 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
+	blobStore, err := blob.NewStoreFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	if blobStore != nil {
+		if err := blob.SetDefault(blobStore); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
 		Memory:     memProvider,
 		Store:      store,
@@ -287,9 +298,8 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		credSvc.SetRegistry(ps.oauthRegistry)
 	}
 	recallyStore := recally.NewStore(db)
-	recallyFiles := recally.NewFileManager(config.StellaHome())
-	recallySvc := recally.NewService(recallyStore, recallyFiles, config.StellaHome())
-	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recallyStore, recallyFiles, config.StellaHome(), "http://localhost:25678")
+	recallySvc := recally.NewService(recallyStore, config.StellaHome())
+	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recallyStore, config.StellaHome(), "http://localhost:25678")
 
 	serviceTools := []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
@@ -346,6 +356,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	if ps.manifestToReconcile != nil {
 		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
 	}
+	backfillRecallyContentInBackground(parent, backgroundTasks, recallySvc)
 
 	result := &setupResult{
 		ctx:                      parent,
@@ -549,6 +560,31 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 		}
 		scheduler.RunOutputSinkFromContext(ctx).Set(strings.TrimSpace(output.String()))
 		return runErr
+	})
+}
+
+// backfillRecallyContentInBackground eager-copies legacy recally article bodies
+// from their disk mirrors into PostgreSQL at startup, so bodies survive on hosts
+// where the pod-local disk that held the mirror is gone. It runs off the daemon
+// lifecycle context in a background goroutine so it never delays startup.
+func backfillRecallyContentInBackground(ctx context.Context, wg *sync.WaitGroup, svc *recally.Service) {
+	if svc == nil {
+		return
+	}
+	wg.Go(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("recally content backfill panic", "panic", r)
+			}
+		}()
+		scanned, backfilled, missing, err := svc.BackfillMissingContent(ctx)
+		if err != nil {
+			slog.Warn("recally content backfill failed", "scanned", scanned, "backfilled", backfilled, "missing", missing, "error", err)
+			return
+		}
+		if scanned > 0 {
+			slog.Info("recally content backfill complete", "scanned", scanned, "backfilled", backfilled, "missing", missing)
+		}
 	})
 }
 

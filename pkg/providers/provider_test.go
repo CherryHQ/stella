@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -92,6 +93,57 @@ func TestCompleteAssemblesMessage(t *testing.T) {
 	}
 	if len(msg.Content) != 3 {
 		t.Errorf("expected 3 content blocks, got %d", len(msg.Content))
+	}
+}
+
+func TestCompletePreservesToolCallOrder(t *testing.T) {
+	wantIDs := []string{
+		"call-00",
+		"call-01",
+		"call-02",
+		"call-03",
+		"call-04",
+		"call-05",
+		"call-06",
+		"call-07",
+	}
+
+	for attempt := range 20 {
+		stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (AssistantEventStream, error) {
+			s := NewChannelEventStream(16)
+			for i, id := range wantIDs {
+				s.Emit(ai.EventToolCallDelta{
+					ID:        id,
+					Name:      fmt.Sprintf("tool_%02d", i),
+					Arguments: fmt.Sprintf(`{"i":%d}`, i),
+				})
+			}
+			s.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			s.Finish(nil)
+			return s, nil
+		}
+
+		msg, err := Complete(context.Background(), ai.Model{}, ai.Context{}, ai.CompleteOptions{}, stream)
+		if err != nil {
+			t.Fatalf("attempt %d: unexpected error: %v", attempt, err)
+		}
+
+		gotIDs := make([]string, 0, len(wantIDs))
+		for _, block := range msg.Content {
+			call, ok := block.(ai.ToolCall)
+			if !ok {
+				continue
+			}
+			gotIDs = append(gotIDs, call.ID)
+		}
+		if len(gotIDs) != len(wantIDs) {
+			t.Fatalf("attempt %d: got %d tool calls, want %d: %#v", attempt, len(gotIDs), len(wantIDs), gotIDs)
+		}
+		for i := range wantIDs {
+			if gotIDs[i] != wantIDs[i] {
+				t.Fatalf("attempt %d: tool call order = %#v, want %#v", attempt, gotIDs, wantIDs)
+			}
+		}
 	}
 }
 

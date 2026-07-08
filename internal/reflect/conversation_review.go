@@ -18,11 +18,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot, c candidate) error {
-	ctx, span := startConversationSpan(ctx, c)
+func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot, target reviewTarget) error {
+	ctx, span := startConversationSpan(ctx, target)
 	defer span.End()
 
-	userID := c.session.UserID
+	userID := target.session.UserID
 	model := snap.ResolveModelTier(config.ModelTierFast)
 	creds := snap.ResolveProviderCreds(model.API)
 
@@ -38,14 +38,14 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 	}
 
 	watermark := time.Now().UTC()
-	text, err := s.buildReviewContext(ctx, c.session, c.lastReview)
+	text, err := s.buildReviewContext(ctx, target.session, target.lastReview)
 	if err != nil {
 		recordError(span, err)
 		return fmt.Errorf("build review context: %w", err)
 	}
 	if text == "" {
 		span.SetAttributes(attribute.Bool("stella.reflect.skipped", true))
-		return s.wm.set(ctx, c.session.ID, watermark)
+		return s.wm.set(ctx, target.session.ID, watermark)
 	}
 
 	reviewer, err := s.newConversationReviewer(ctx, snap, userID, model, stream)
@@ -68,16 +68,70 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 		attribute.Bool("stella.reflect.memory_updated", result.MemoryUpdated),
 	)
 
-	if err := s.wm.set(ctx, c.session.ID, watermark); err != nil {
+	if err := s.wm.set(ctx, target.session.ID, watermark); err != nil {
 		recordError(span, err)
 		return fmt.Errorf("mark reviewed: %w", err)
 	}
 
 	s.notifyReviewResult(ctx, userID, result)
-	s.log.Info("reflect: reviewed", "session", c.session.ID, "agent", snap.AgentID, "user", userID,
+	s.log.Info("reflect: reviewed", "session", target.session.ID, "agent", snap.AgentID, "user", userID,
 		"skills_created", result.SkillsMutated, "memory_updated", result.MemoryUpdated)
 
 	return nil
+}
+
+// reviewConversationCandidates is staged #532 plumbing. It stays out of the
+// production review loop until #531 can persist/reconcile accepted candidates;
+// otherwise this path would advance line watermarks and then drop the output.
+func (s *Service) reviewConversationCandidates(ctx context.Context, snap *config.Snapshot, target reviewTarget) (candidatePipelineResult, error) {
+	if snap == nil {
+		return candidatePipelineResult{}, fmt.Errorf("candidate review: config snapshot is required")
+	}
+	model := snap.ResolveModelTier(config.ModelTierFast)
+	creds := snap.ResolveProviderCreds(model.API)
+	stream, err := s.buildStreamFunc(model.API, creds.APIKey, creds.BaseURL)
+	if err != nil {
+		return candidatePipelineResult{}, fmt.Errorf("build provider: %w", err)
+	}
+	reviewer := candidateLineReviewer{
+		Stream: stream,
+		Model:  model,
+		Gates:  s.candidateGates,
+	}
+	return s.runCandidatePipeline(ctx, target, candidatePipelineOptions{
+		FactLine:  reviewer.runFactLine,
+		SkillLine: reviewer.runSkillLine,
+	})
+}
+
+// ReviewConversationReconciledCandidates is the staged #531 entrypoint. It runs
+// #532 candidate generation/evaluation and only advances line watermarks after
+// #531 reconciliation and writes complete for that line.
+func (s *Service) ReviewConversationReconciledCandidates(ctx context.Context, snap *config.Snapshot, target reviewTarget) (candidatePipelineResult, error) {
+	if snap == nil {
+		return candidatePipelineResult{}, fmt.Errorf("candidate reconciliation: config snapshot is required")
+	}
+	model := snap.ResolveModelTier(config.ModelTierFast)
+	creds := snap.ResolveProviderCreds(model.API)
+	stream, err := s.buildStreamFunc(model.API, creds.APIKey, creds.BaseURL)
+	if err != nil {
+		return candidatePipelineResult{}, fmt.Errorf("build provider: %w", err)
+	}
+	reviewer := candidateLineReviewer{
+		Stream: stream,
+		Model:  model,
+		Gates:  s.candidateGates,
+	}
+	return s.runReconciliationPipeline(ctx, target, reconciliationPipelineOptions{
+		FactLine:  reviewer.runFactLine,
+		SkillLine: reviewer.runSkillLine,
+		FactReconciler: func(ctx context.Context, target reviewTarget, unit ReviewUnit, candidates []factCandidate) error {
+			return s.reconcileFactCandidates(ctx, target, unit, candidates, reviewer)
+		},
+		SkillReconciler: func(ctx context.Context, target reviewTarget, unit ReviewUnit, candidates []skillCandidate) error {
+			return s.reconcileSkillCandidates(ctx, target, unit, candidates, reviewer)
+		},
+	})
 }
 
 func (s *Service) buildStreamFunc(api, apiKey, baseURL string) (providers.StreamFunc, error) {

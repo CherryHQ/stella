@@ -701,6 +701,13 @@ type Provider struct {
 	UpdatedAt time.Time       `json:"updated_at"`
 }
 
+type ProviderModelsCache struct {
+	ProviderID string          `json:"provider_id"`
+	Models     json.RawMessage `json:"models"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+}
+
 type RecallyArticle struct {
 	ID           string             `json:"id"`
 	UserID       string             `json:"user_id"`
@@ -721,6 +728,13 @@ type RecallyArticle struct {
 	ReadAt       pgtype.Timestamptz `json:"read_at"`
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
+}
+
+type RecallyArticleContent struct {
+	ArticleID string    `json:"article_id"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type RecallyArticleEmbedding struct {
@@ -851,6 +865,20 @@ type Skill struct {
 	Metadata               json.RawMessage `json:"metadata"`
 	CreatedAt              time.Time       `json:"created_at"`
 	UpdatedAt              time.Time       `json:"updated_at"`
+	Version                int64           `json:"version"`
+}
+
+type SkillChangelog struct {
+	ID            string          `json:"id"`
+	SkillID       string          `json:"skill_id"`
+	UserID        pgtype.Text     `json:"user_id"`
+	AgentID       pgtype.Text     `json:"agent_id"`
+	Scope         string          `json:"scope"`
+	Action        string          `json:"action"`
+	VersionBefore pgtype.Int8     `json:"version_before"`
+	VersionAfter  int64           `json:"version_after"`
+	Metadata      json.RawMessage `json:"metadata"`
+	CreatedAt     time.Time       `json:"created_at"`
 }
 
 type SkillFile struct {

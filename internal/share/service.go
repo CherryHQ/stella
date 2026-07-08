@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/url"
 	"os"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -50,7 +52,7 @@ type Service struct {
 	q          *sqlc.Queries
 	mem        memory.Provider
 	store      *recally.Store
-	files      *recally.FileManager
+	recallySvc *recally.Service
 	stellaHome string
 	baseURL    string
 }
@@ -66,8 +68,8 @@ type ListResult struct {
 	NextPageToken string
 }
 
-func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, files *recally.FileManager, stellaHome, baseURL string) *Service {
-	return &Service{q: q, mem: mem, store: store, files: files, stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
+func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, stellaHome, baseURL string) *Service {
+	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
 func (s *Service) SetBaseURL(baseURL string) {
@@ -114,7 +116,12 @@ func (s Authorized) ShareArtifact(ctx context.Context, sessionID, path, scope, e
 	}
 	fi, err := os.Stat(abs)
 	if err != nil {
-		return Created{}, authz.ErrNotFound
+		if os.IsNotExist(err) && s.restoreAssetFromBlob(ctx, rel, abs) == nil {
+			fi, err = os.Stat(abs)
+		}
+		if err != nil {
+			return Created{}, authz.ErrNotFound
+		}
 	}
 	if fi.IsDir() {
 		return Created{}, ErrDirectory
@@ -148,16 +155,12 @@ func (s Authorized) ShareArticle(ctx context.Context, articleID, expiresIn strin
 	if article.UserID != ident.UserID {
 		return Created{}, authz.ErrForbidden
 	}
-	if article.FilePath == "" {
-		return Created{}, ErrNoContent
-	}
-	filePath := article.FilePath
-	if !filepath.IsAbs(filePath) {
-		filePath = filepath.Join(s.stellaHome, filePath)
-	}
-	md, err := s.files.ReadArticle(filePath)
+	md, err := s.recallySvc.ReadArticleBody(ctx, article)
 	if err != nil {
 		return Created{}, err
+	}
+	if md == "" {
+		return Created{}, ErrNoContent
 	}
 	rendered, err := RenderMarkdownPage(RenderMarkdownOpts{Title: article.Title, Author: article.Author, SourceURL: article.URL, Summary: article.Summary, Tags: article.Tags}, []byte(md))
 	if err != nil {
@@ -192,6 +195,59 @@ func (s Authorized) Revoke(ctx context.Context, id string) error {
 		return authz.ErrNotFound
 	}
 	return nil
+}
+
+func (s *Service) restoreAssetFromBlob(ctx context.Context, rel, abs string) error {
+	store := blob.Default()
+	if store == nil || !isAssetRelPath(rel) {
+		return os.ErrNotExist
+	}
+	key, err := blob.KeyForPath(s.stellaHome, abs)
+	if err != nil || !blob.IsUserAssetKey(key) {
+		return os.ErrNotExist
+	}
+	rc, err := store.Open(ctx, key)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rc.Close() }()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return err
+	}
+	return writeRestoredAssetFile(abs, data)
+}
+
+func writeRestoredAssetFile(abs string, data []byte) error {
+	dir := filepath.Dir(abs)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".stella-restore-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	// Normalize restored assets to 0644. Channel SaveAsset uses 0600, but files
+	// under a per-user home are not relying on mode bits as a security boundary.
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, abs)
+}
+
+func isAssetRelPath(rel string) bool {
+	clean := filepath.ToSlash(filepath.Clean("/" + rel))
+	return strings.HasPrefix(strings.TrimPrefix(clean, "/"), "assets/")
 }
 
 func (s *Service) create(ctx context.Context, userID, title, mediaType string, content []byte, expiresIn string) (Created, error) {

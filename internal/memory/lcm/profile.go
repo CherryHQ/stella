@@ -89,6 +89,13 @@ func (p *Provider) setSingletonFact(ctx context.Context, userID string, agentID 
 	return nil
 }
 
+// ApplyFactBatch applies multiple fact mutations in one transaction. Reflect
+// uses this capability after reconciliation so fact-line writes can fail closed
+// without partially updating profile, soul, or world knowledge.
+func (p *Provider) ApplyFactBatch(ctx context.Context, userID string, agentID string, ops []memorywrite.FactBatchOperation) ([]memory.Fact, error) {
+	return memorywrite.ApplyFactBatch(ctx, p.db, p.q, userID, agentID, ops)
+}
+
 // GetConstraints implements memory.ConstraintStore.
 func (p *Provider) GetConstraints(ctx context.Context, userID string, agentID string) ([]memory.ConstraintEntry, error) {
 	return memorywrite.GetConstraints(ctx, p.q, userID, agentID)
