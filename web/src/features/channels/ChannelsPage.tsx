@@ -10,6 +10,7 @@ import {
   deleteChannel,
   generateLinkCode,
   listAgents,
+  listAuthUsers,
   listChannels,
   listProfileIdentities,
   listPublicChannels,
@@ -20,7 +21,7 @@ import {
   unlinkProfileIdentity,
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
-import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
+import type { ComponentsAuthUser, ComponentsPublicChannel } from "@/lib/api-client/types.gen";
 import type { Agent, Channel, Identity } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,6 +82,13 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; 
   weixin: {
     label: "Weixin",
     defaults: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
+  },
+  webhook: {
+    label: "Webhook",
+    // Only behavioural knobs the UI can safely round-trip as string/bool. The
+    // int timeout fields (wait/max) stay at backend defaults; the config decoder
+    // is strict JSON, so a stringified number would fail to unmarshal.
+    defaults: { default_wait: false, session_mode: "ephemeral" },
   },
 };
 
@@ -254,6 +262,44 @@ function InstanceFields({
           {field("user_id", "User ID", "text", "optional")}
         </div>
       )}
+
+      {type === "webhook" && <WebhookConfigFields ch={ch} onChange={onChange} />}
+    </div>
+  );
+}
+
+// WebhookConfigFields renders the two round-trippable webhook knobs. Timeouts
+// are intentionally omitted (see platformMeta.webhook) — the strict JSON decoder
+// rejects stringified ints, so they stay at backend defaults.
+function WebhookConfigFields({
+  ch,
+  onChange,
+}: {
+  ch: Record<string, unknown>;
+  onChange: (key: string, value: unknown) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Switch
+          checked={Boolean(ch.default_wait)}
+          onCheckedChange={(v) => onChange("default_wait", v)}
+        />
+        <span className="text-sm">{t("channels.webhookDefaultWait")}</span>
+      </div>
+      <p className="text-xs text-muted-foreground">{t("channels.webhookDefaultWaitDesc")}</p>
+      <div className="w-full space-y-1.5">
+        <label className="text-sm font-medium">{t("channels.webhookSessionMode")}</label>
+        <select
+          value={(ch.session_mode as string) || "ephemeral"}
+          onChange={(e) => onChange("session_mode", e.target.value)}
+          className={selectClassName}
+        >
+          <option value="ephemeral">{t("channels.webhookSessionEphemeral")}</option>
+          <option value="persistent">{t("channels.webhookSessionPersistent")}</option>
+        </select>
+      </div>
     </div>
   );
 }
@@ -349,12 +395,15 @@ function ChannelDetail({
         />
       </div>
 
+      {/* Webhook ingress URL (inbound-only channel, no bot runtime). */}
+      {channel.type === "webhook" && <WebhookIngress channelId={channel.id} />}
+
       {/* Config section */}
       {Object.keys(platformConfigDefaults(channel.type)).length > 0 && (
         <div className="space-y-4">
           <FormSectionTitle>Configuration</FormSectionTitle>
           <InstanceFields ch={channel} onChange={(key, value) => updateField(key, value)} />
-          {hasConfig(channel.type, channel) && (
+          {channel.type !== "webhook" && hasConfig(channel.type, channel) && (
             <p className="text-xs text-muted-foreground">
               This page stores the channel config only. Agent selection belongs on the agent page.
             </p>
@@ -362,78 +411,81 @@ function ChannelDetail({
         </div>
       )}
 
-      {/* Identity / account section */}
-      <div className="space-y-3">
-        <FormSectionTitle>My account</FormSectionTitle>
-        {identity ? (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">Linked identity</p>
-            <p className="font-mono text-sm">
-              {identity.name ? identity.name + " · " : ""}
-              {identity.external_id}
-            </p>
-            <Button
-              onClick={() => onUnlink(identity.id)}
-              variant="ghost"
-              size="sm"
-              className="text-destructive-foreground"
-            >
-              Unlink
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">No account linked yet.</p>
-            {channel.type !== "weixin" && (
+      {/* Identity / account section — bot channels only; webhook has no linked
+          account (it authenticates via the caller's PAT). */}
+      {channel.type !== "webhook" && (
+        <div className="space-y-3">
+          <FormSectionTitle>My account</FormSectionTitle>
+          {identity ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Linked identity</p>
+              <p className="font-mono text-sm">
+                {identity.name ? identity.name + " · " : ""}
+                {identity.external_id}
+              </p>
               <Button
-                onClick={() => onGenerateCode(channel.type)}
-                disabled={generating}
-                loading={generating && linkPlatform === channel.type}
+                onClick={() => onUnlink(identity.id)}
+                variant="ghost"
                 size="sm"
+                className="text-destructive-foreground"
               >
-                Link {platformLabel}
-              </Button>
-            )}
-            {channel.type === "weixin" && (
-              <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
-                Link Weixin
-              </Button>
-            )}
-          </div>
-        )}
-
-        {/* Link code */}
-        {linkCode && linkPlatform === channel.type && (
-          <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-            <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
-            <div className="flex items-center gap-2 flex-wrap">
-              <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
-                /link {linkCode}
-              </code>
-              <Button onClick={onCopyLinkCode} variant="ghost" size="xs">
-                copy
+                Unlink
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Expires in 5 minutes.</p>
-          </div>
-        )}
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">No account linked yet.</p>
+              {channel.type !== "weixin" && (
+                <Button
+                  onClick={() => onGenerateCode(channel.type)}
+                  disabled={generating}
+                  loading={generating && linkPlatform === channel.type}
+                  size="sm"
+                >
+                  Link {platformLabel}
+                </Button>
+              )}
+              {channel.type === "weixin" && (
+                <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
+                  Link Weixin
+                </Button>
+              )}
+            </div>
+          )}
 
-        {/* Weixin QR */}
-        {wxQrUrl && channel.type === "weixin" && (
-          <div className="rounded-xl border border-border bg-muted p-6 flex flex-col items-center">
-            <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
-            <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
-            <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
-              {wxQrStatus}
-            </Badge>
-            {wxQrStatus === "expired" && (
-              <Button onClick={onRefreshWxQr} variant="outline" size="xs" className="mt-1">
-                Refresh
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
+          {/* Link code */}
+          {linkCode && linkPlatform === channel.type && (
+            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+              <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
+                  /link {linkCode}
+                </code>
+                <Button onClick={onCopyLinkCode} variant="ghost" size="xs">
+                  copy
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Expires in 5 minutes.</p>
+            </div>
+          )}
+
+          {/* Weixin QR */}
+          {wxQrUrl && channel.type === "weixin" && (
+            <div className="rounded-xl border border-border bg-muted p-6 flex flex-col items-center">
+              <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
+              <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
+              <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
+                {wxQrStatus}
+              </Badge>
+              {wxQrStatus === "expired" && (
+                <Button onClick={onRefreshWxQr} variant="outline" size="xs" className="mt-1">
+                  Refresh
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirmDeleteOpen}
@@ -446,12 +498,43 @@ function ChannelDetail({
   );
 }
 
+// WebhookIngress shows the read-only POST URL callers hit to trigger this
+// channel. It's derived from the current origin + channel id, so it stays
+// correct behind any reverse proxy the browser reached.
+function WebhookIngress({ channelId }: { channelId: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const url = `${origin}/webhooks/${channelId}`;
+  const copy = () => {
+    void navigator.clipboard?.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div className="space-y-2">
+      <FormSectionTitle>{t("channels.webhookUrl")}</FormSectionTitle>
+      <div className="flex items-center gap-2 flex-wrap">
+        <code className="font-mono text-sm bg-muted text-foreground px-3 py-1 rounded select-all break-all">
+          {url}
+        </code>
+        <Button onClick={copy} variant="ghost" size="xs">
+          {copied ? t("channels.copied") : t("channels.copy")}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{t("channels.webhookUrlDesc")}</p>
+    </div>
+  );
+}
+
 // ─── NewChannelForm ───────────────────────────────────────────────────────────
 
 interface NewChannelFormProps {
   fallbackChannelType: string;
   agents: Agent[];
   channels: NormalizedChannel[];
+  users: ComponentsAuthUser[];
   onAdd: (channel: Record<string, unknown>) => Promise<void>;
   onRegistered: (channel: NormalizedChannel) => Promise<void>;
   onCancel: () => void;
@@ -462,6 +545,7 @@ function NewChannelForm({
   fallbackChannelType,
   agents,
   channels,
+  users,
   onAdd,
   onRegistered,
   onCancel,
@@ -663,12 +747,16 @@ function NewChannelForm({
     await beginWeixinScanPolling();
   };
 
-  const requiresBoundAgent = draft.type === "feishu" || draft.type === "weixin";
+  const isWebhook = draft.type === "webhook";
+  const requiresBoundAgent = draft.type === "feishu" || draft.type === "weixin" || isWebhook;
 
   const availableAgents = agents.filter(
     (agent) =>
       agent.enabled !== false &&
-      !channels.some((channel) => channel.type === draft.type && channel.agent_id === agent.id),
+      // Bot channels are one-agent-per-platform; webhooks can reuse an agent
+      // across many trigger endpoints, so skip the already-bound exclusion.
+      (isWebhook ||
+        !channels.some((channel) => channel.type === draft.type && channel.agent_id === agent.id)),
   );
 
   const canStartRegistrationScan = Boolean(
@@ -677,7 +765,7 @@ function NewChannelForm({
     ((draft.agent_id as string) || "").trim(),
   );
 
-  const canSubmit = !creating && !!draft.id && !!draft.type;
+  const canSubmit = !creating && !!draft.id && !!draft.type && (!isWebhook || !!draft.user_id);
 
   return (
     <DetailPanel
@@ -761,6 +849,28 @@ function NewChannelForm({
             <p className="text-xs text-muted-foreground">{t("channels.boundAgentDesc")}</p>
             {availableAgents.length === 0 && (
               <p className="text-xs text-muted-foreground">{t("channels.noAvailableAgents")}</p>
+            )}
+          </div>
+        )}
+
+        {isWebhook && (
+          <div className="w-full space-y-1.5">
+            <label className="text-sm font-medium">{t("channels.boundUser")}</label>
+            <select
+              value={(draft.user_id as string) || ""}
+              onChange={(e) => updateField("user_id", e.target.value)}
+              className={selectClassName}
+            >
+              <option value="">{t("channels.selectUser")}</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name || u.email || u.id}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">{t("channels.boundUserDesc")}</p>
+            {users.length === 0 && (
+              <p className="text-xs text-muted-foreground">{t("channels.noAvailableUsers")}</p>
             )}
           </div>
         )}
@@ -1000,6 +1110,7 @@ export function ChannelsPage() {
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [users, setUsers] = useState<ComponentsAuthUser[]>([]);
   const [loadingInstances, setLoadingInstances] = useState(false);
 
   const [linkCode, setLinkCode] = useState("");
@@ -1075,6 +1186,16 @@ export function ChannelsPage() {
     }
   }, [showToast]);
 
+  // Users back the webhook channel's owner picker (admin-only endpoint).
+  const loadUsers = useCallback(async () => {
+    try {
+      const { data } = await listAuthUsers({ throwOnError: true });
+      setUsers(data?.users ?? []);
+    } catch (e) {
+      showToast((e as Error).message, "error");
+    }
+  }, [showToast]);
+
   const loadInstances = useCallback(async () => {
     setLoadingInstances(true);
     try {
@@ -1099,14 +1220,20 @@ export function ChannelsPage() {
 
   useEffect(() => {
     if (isAdmin) {
-      void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances(), loadAgents()]);
+      void Promise.all([
+        loadPublicChannels(),
+        loadIdentities(),
+        loadInstances(),
+        loadAgents(),
+        loadUsers(),
+      ]);
     } else {
       void Promise.all([loadPublicChannels(), loadIdentities()]);
     }
     return () => {
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
     };
-  }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances, loadAgents]);
+  }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances, loadAgents, loadUsers]);
 
   // ── link code ──
 
@@ -1226,6 +1353,9 @@ export function ChannelsPage() {
           name: ch.name || "",
           type: ch.type,
           agent_id: ch.agent_id || "",
+          // Webhook requires user_id; re-send it so a config edit doesn't drop
+          // the binding the backend validates on every write.
+          user_id: ch.type === "webhook" ? (ch.user_id as string) : undefined,
           enabled: ch.enabled,
           config: channelConfig(ch),
         },
@@ -1274,8 +1404,13 @@ export function ChannelsPage() {
       showToast("Dedicated instance ID must not match the platform ID", "error");
       return;
     }
-    if ((draft.type === "feishu" || draft.type === "weixin") && !draft.agent_id) {
+    const isWebhook = draft.type === "webhook";
+    if ((draft.type === "feishu" || draft.type === "weixin" || isWebhook) && !draft.agent_id) {
       showToast(t("channels.scanNeedsAgent"), "error");
+      return;
+    }
+    if (isWebhook && !draft.user_id) {
+      showToast(t("channels.webhookNeedsUser"), "error");
       return;
     }
     setCreatingInstance(true);
@@ -1286,6 +1421,7 @@ export function ChannelsPage() {
           name: (draft.name as string) || "",
           type: draft.type as string,
           agent_id: (draft.agent_id as string) || "",
+          user_id: isWebhook ? (draft.user_id as string) : undefined,
           config: channelConfig(draft),
         },
         throwOnError: true,
@@ -1328,6 +1464,7 @@ export function ChannelsPage() {
           fallbackChannelType={defaultChannelType}
           agents={agents}
           channels={instances}
+          users={users}
           onAdd={createNewChannel}
           onRegistered={finishRegisteredChannel}
           onCancel={() => void navigate({ to: "/settings/channels" })}
