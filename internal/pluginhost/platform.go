@@ -2,7 +2,6 @@ package pluginhost
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -78,23 +77,11 @@ func (a skillStoreAdapter) PatchReflectOwnedUserAgentSkill(ctx context.Context, 
 }
 
 func (a skillStoreAdapter) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillDeprecate) (skills.Skill, error) {
-	writer, ok := a.s.(interface {
-		DeprecateReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDeprecate) (skills.Skill, error)
-	})
-	if !ok {
-		return skills.Skill{}, fmt.Errorf("skill store does not support reflect lifecycle deprecate")
-	}
-	return writer.DeprecateReflectOwnedUserAgentSkill(ctx, in)
+	return a.s.DeprecateReflectOwnedUserAgentSkill(ctx, in)
 }
 
 func (a skillStoreAdapter) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {
-	tracker, ok := a.s.(interface {
-		TouchReflectSkillRuntimeUse(context.Context, string, string, string) error
-	})
-	if !ok {
-		return nil
-	}
-	return tracker.TouchReflectSkillRuntimeUse(ctx, skillID, userID, agentID)
+	return a.s.TouchReflectSkillRuntimeUse(ctx, skillID, userID, agentID)
 }
 
 func (a skillStoreAdapter) LoadFile(ctx context.Context, skillID, path string) (string, error) {

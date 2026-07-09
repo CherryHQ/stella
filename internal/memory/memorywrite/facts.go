@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -212,6 +213,10 @@ type FactBatchOperation struct {
 	Content       string
 	Metadata      json.RawMessage
 	TargetFactIDs []string
+	// TargetUsageLastUsedAt optionally makes deprecate_many skip targets whose
+	// Reflect knowledge usage changed since candidate selection. Curator uses
+	// this to avoid retiring facts that were used while an armed run was pending.
+	TargetUsageLastUsedAt map[string]time.Time
 }
 
 // ApplyFactBatch applies a batch of fact writes under one memory advisory lock
@@ -308,6 +313,13 @@ func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userI
 		}
 		deprecated := make([]memory.Fact, 0, len(op.TargetFactIDs))
 		for _, id := range op.TargetFactIDs {
+			shouldDeprecate, err := knowledgeUsageMatchesPrecondition(ctx, qtx, userID, agentID, id, op.TargetUsageLastUsedAt)
+			if err != nil {
+				return nil, err
+			}
+			if !shouldDeprecate {
+				continue
+			}
 			fact, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id)
 			if err != nil {
 				return nil, err
@@ -318,6 +330,25 @@ func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userI
 	default:
 		return nil, fmt.Errorf("fact batch: unknown action %q", op.Action)
 	}
+}
+
+func knowledgeUsageMatchesPrecondition(ctx context.Context, qtx *sqlc.Queries, userID string, agentID string, factID string, expected map[string]time.Time) (bool, error) {
+	expectedAt, ok := expected[factID]
+	if !ok {
+		return true, nil
+	}
+	row, err := qtx.GetKnowledgeUsageForUpdate(ctx, sqlc.GetKnowledgeUsageForUpdateParams{
+		FactID:  factID,
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("lock knowledge usage for fact %s: %w", factID, err)
+	}
+	return row.LastUsedAt.Equal(expectedAt), nil
 }
 
 func singleFactResult(fact memory.Fact, err error) ([]memory.Fact, error) {

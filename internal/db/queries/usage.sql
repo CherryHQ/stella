@@ -12,6 +12,14 @@ WHERE f.id = sqlc.arg(fact_id)::uuid
 ON CONFLICT (fact_id) DO UPDATE
 SET last_used_at = excluded.last_used_at;
 
+-- name: GetKnowledgeUsageForUpdate :one
+SELECT *
+FROM knowledge_usage
+WHERE fact_id = sqlc.arg(fact_id)::uuid
+  AND user_id = sqlc.arg(user_id)::uuid
+  AND agent_id = sqlc.arg(agent_id)
+FOR UPDATE;
+
 -- name: DeleteKnowledgeUsage :exec
 DELETE FROM knowledge_usage
 WHERE fact_id = sqlc.arg(fact_id);
@@ -55,10 +63,21 @@ SET use_count = skill_usage.use_count + 1,
 WHERE skill_usage.user_id = excluded.user_id
   AND skill_usage.agent_id = excluded.agent_id;
 
+-- name: GetSkillUsageForUpdate :one
+SELECT *
+FROM skill_usage
+WHERE skill_id = sqlc.arg(skill_id)
+  AND user_id = sqlc.arg(user_id)::uuid
+  AND agent_id = sqlc.arg(agent_id)::text
+FOR UPDATE;
+
 -- name: DeleteSkillUsage :exec
 DELETE FROM skill_usage
 WHERE skill_id = sqlc.arg(skill_id);
 
+-- The activity gate intentionally means "at least one non-archived conversation
+-- had activity after this item was last used"; it does not assert recent
+-- activity relative to the curator run time.
 -- name: ListStaleReflectKnowledgeForCurator :many
 SELECT
   f.id::text AS fact_id,
@@ -81,6 +100,8 @@ GROUP BY f.id, f.user_id, f.agent_id, ku.last_used_at
 HAVING MAX(c.last_active) > ku.last_used_at
 ORDER BY ku.last_used_at ASC, f.id ASC;
 
+-- The same activity gate applies here: at least one non-archived conversation
+-- had activity after the skill was last used.
 -- name: ListStaleReflectSkillsForCurator :many
 SELECT
   s.id AS skill_id,

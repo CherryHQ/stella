@@ -30,6 +30,63 @@ func (q *Queries) DeleteSkillUsage(ctx context.Context, skillID string) error {
 	return err
 }
 
+const getKnowledgeUsageForUpdate = `-- name: GetKnowledgeUsageForUpdate :one
+SELECT fact_id, user_id, agent_id, last_used_at, created_at
+FROM knowledge_usage
+WHERE fact_id = $1::uuid
+  AND user_id = $2::uuid
+  AND agent_id = $3
+FOR UPDATE
+`
+
+type GetKnowledgeUsageForUpdateParams struct {
+	FactID  string `json:"fact_id"`
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) GetKnowledgeUsageForUpdate(ctx context.Context, arg GetKnowledgeUsageForUpdateParams) (KnowledgeUsage, error) {
+	row := q.db.QueryRow(ctx, getKnowledgeUsageForUpdate, arg.FactID, arg.UserID, arg.AgentID)
+	var i KnowledgeUsage
+	err := row.Scan(
+		&i.FactID,
+		&i.UserID,
+		&i.AgentID,
+		&i.LastUsedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getSkillUsageForUpdate = `-- name: GetSkillUsageForUpdate :one
+SELECT skill_id, user_id, agent_id, use_count, last_used_at, created_at
+FROM skill_usage
+WHERE skill_id = $1
+  AND user_id = $2::uuid
+  AND agent_id = $3::text
+FOR UPDATE
+`
+
+type GetSkillUsageForUpdateParams struct {
+	SkillID string `json:"skill_id"`
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) GetSkillUsageForUpdate(ctx context.Context, arg GetSkillUsageForUpdateParams) (SkillUsage, error) {
+	row := q.db.QueryRow(ctx, getSkillUsageForUpdate, arg.SkillID, arg.UserID, arg.AgentID)
+	var i SkillUsage
+	err := row.Scan(
+		&i.SkillID,
+		&i.UserID,
+		&i.AgentID,
+		&i.UseCount,
+		&i.LastUsedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listStaleReflectKnowledgeForCurator = `-- name: ListStaleReflectKnowledgeForCurator :many
 SELECT
   f.id::text AS fact_id,
@@ -61,6 +118,9 @@ type ListStaleReflectKnowledgeForCuratorRow struct {
 	PairLatestActivityAt time.Time `json:"pair_latest_activity_at"`
 }
 
+// The activity gate intentionally means "at least one non-archived conversation
+// had activity after this item was last used"; it does not assert recent
+// activity relative to the curator run time.
 func (q *Queries) ListStaleReflectKnowledgeForCurator(ctx context.Context, staleBefore time.Time) ([]ListStaleReflectKnowledgeForCuratorRow, error) {
 	rows, err := q.db.Query(ctx, listStaleReflectKnowledgeForCurator, staleBefore)
 	if err != nil {
@@ -138,6 +198,8 @@ type ListStaleReflectSkillsForCuratorRow struct {
 	Rule                 string    `json:"rule"`
 }
 
+// The same activity gate applies here: at least one non-archived conversation
+// had activity after the skill was last used.
 func (q *Queries) ListStaleReflectSkillsForCurator(ctx context.Context, arg ListStaleReflectSkillsForCuratorParams) ([]ListStaleReflectSkillsForCuratorRow, error) {
 	rows, err := q.db.Query(ctx, listStaleReflectSkillsForCurator, arg.StaleBefore, arg.LowUseBefore, arg.LowUseMaxUseCount)
 	if err != nil {

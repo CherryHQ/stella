@@ -189,24 +189,28 @@ func deprecateCuratorKnowledge(ctx context.Context, writer factBatchWriter, cand
 	writeCtx := memory.WithChangeSource(ctx, memory.SourceReflect)
 	for _, key := range keys {
 		group := groups[key]
-		op := memorywrite.FactBatchOperation{
-			Action:        memorywrite.FactBatchDeprecateMany,
-			Subject:       memory.FactSubjectWorld,
-			TargetFactIDs: group.factIDs,
+		for _, candidate := range group.candidates {
+			op := memorywrite.FactBatchOperation{
+				Action:                memorywrite.FactBatchDeprecateMany,
+				Subject:               memory.FactSubjectWorld,
+				TargetFactIDs:         []string{candidate.FactID},
+				TargetUsageLastUsedAt: map[string]time.Time{candidate.FactID: candidate.LastUsedAt},
+			}
+			facts, err := writer.ApplyFactBatch(writeCtx, group.userID, group.agentID, []memorywrite.FactBatchOperation{op})
+			if err != nil {
+				errs = append(errs, fmt.Errorf("usage curator: deprecate knowledge %s for %s/%s: %w", candidate.FactID, group.userID, group.agentID, err))
+				continue
+			}
+			deprecated += len(facts)
 		}
-		if _, err := writer.ApplyFactBatch(writeCtx, group.userID, group.agentID, []memorywrite.FactBatchOperation{op}); err != nil {
-			errs = append(errs, fmt.Errorf("usage curator: deprecate knowledge for %s/%s: %w", group.userID, group.agentID, err))
-			continue
-		}
-		deprecated += len(group.factIDs)
 	}
 	return deprecated, errors.Join(errs...)
 }
 
 type usageCuratorKnowledgeGroup struct {
-	userID  string
-	agentID string
-	factIDs []string
+	userID     string
+	agentID    string
+	candidates []usageCuratorKnowledgeCandidate
 }
 
 func groupKnowledgeCuratorCandidates(candidates []usageCuratorKnowledgeCandidate) map[string]usageCuratorKnowledgeGroup {
@@ -216,11 +220,13 @@ func groupKnowledgeCuratorCandidates(candidates []usageCuratorKnowledgeCandidate
 		group := groups[key]
 		group.userID = candidate.UserID
 		group.agentID = candidate.AgentID
-		group.factIDs = append(group.factIDs, candidate.FactID)
+		group.candidates = append(group.candidates, candidate)
 		groups[key] = group
 	}
 	for key, group := range groups {
-		sort.Strings(group.factIDs)
+		sort.Slice(group.candidates, func(i, j int) bool {
+			return group.candidates[i].FactID < group.candidates[j].FactID
+		})
 		groups[key] = group
 	}
 	return groups
@@ -241,13 +247,18 @@ func deprecateCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter,
 			errs = append(errs, err)
 			continue
 		}
+		expectedLastUsedAt := candidate.LastUsedAt
 		_, err = writer.DeprecateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDeprecate{
-			ID:              candidate.SkillID,
-			UserID:          candidate.UserID,
-			AgentID:         candidate.AgentID,
-			ExpectedVersion: candidate.Version,
-			Metadata:        metadata,
+			ID:                      candidate.SkillID,
+			UserID:                  candidate.UserID,
+			AgentID:                 candidate.AgentID,
+			ExpectedVersion:         candidate.Version,
+			ExpectedUsageLastUsedAt: &expectedLastUsedAt,
+			Metadata:                metadata,
 		})
+		if errors.Is(err, skills.ErrSkillUsageChanged) {
+			continue
+		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("usage curator: deprecate skill %s: %w", candidate.SkillID, err))
 			continue

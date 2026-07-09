@@ -11,7 +11,7 @@ CREATE TABLE "knowledge_usage" (
   CONSTRAINT "knowledge_usage_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "agent" ("id") ON UPDATE NO ACTION ON DELETE CASCADE
 );
 
-CREATE INDEX "idx_knowledge_usage_owner_last_used" ON "knowledge_usage" ("user_id", "agent_id", "last_used_at");
+CREATE INDEX "idx_knowledge_usage_last_used" ON "knowledge_usage" ("last_used_at", "fact_id");
 
 CREATE TABLE "skill_usage" (
   "skill_id" text NOT NULL,
@@ -26,14 +26,15 @@ CREATE TABLE "skill_usage" (
   CONSTRAINT "skill_usage_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "agent" ("id") ON UPDATE NO ACTION ON DELETE CASCADE
 );
 
-CREATE INDEX "idx_skill_usage_owner_last_used" ON "skill_usage" ("user_id", "agent_id", "last_used_at");
-CREATE INDEX "idx_skill_usage_owner_low_use" ON "skill_usage" ("user_id", "agent_id", "use_count", "last_used_at");
+CREATE INDEX "idx_skill_usage_last_used" ON "skill_usage" ("last_used_at", "use_count", "skill_id");
 
 ALTER TABLE "skill_changelog" DROP CONSTRAINT "skill_changelog_action_check";
 ALTER TABLE "skill_changelog"
-  ADD CONSTRAINT "skill_changelog_action_check" CHECK ("action" IN ('create', 'patch', 'deprecate', 'restore'));
+  ADD CONSTRAINT "skill_changelog_action_check" CHECK ("action" IN ('create', 'patch', 'deprecate'));
 
 -- +goose Down
+DELETE FROM "skill_changelog" WHERE "action" = 'deprecate';
+
 ALTER TABLE "skill_changelog" DROP CONSTRAINT "skill_changelog_action_check";
 ALTER TABLE "skill_changelog"
   ADD CONSTRAINT "skill_changelog_action_check" CHECK ("action" IN ('create', 'patch'));

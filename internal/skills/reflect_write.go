@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -20,6 +21,7 @@ var validReflectSkillNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 var (
 	ErrSkillVersionConflict = errors.New("skill version conflict")
 	ErrSkillNotReflectOwned = errors.New("skill is not reflect-owned")
+	ErrSkillUsageChanged    = errors.New("skill usage changed")
 )
 
 type ReflectSkillCreate struct {
@@ -44,11 +46,12 @@ type ReflectSkillPatch struct {
 }
 
 type ReflectSkillDeprecate struct {
-	ID              string
-	UserID          string
-	AgentID         string
-	ExpectedVersion int64
-	Metadata        json.RawMessage
+	ID                      string
+	UserID                  string
+	AgentID                 string
+	ExpectedVersion         int64
+	ExpectedUsageLastUsedAt *time.Time
+	Metadata                json.RawMessage
 }
 
 // CreateReflectOwnedUserAgentSkill creates an active Reflect-owned user_agent
@@ -260,6 +263,22 @@ func (s *PGStore) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in Re
 	}
 	if before.Version != in.ExpectedVersion || before.Status != SkillStatusActive {
 		return Skill{}, ErrSkillVersionConflict
+	}
+	if in.ExpectedUsageLastUsedAt != nil {
+		usage, err := qtx.GetSkillUsageForUpdate(ctx, sqlc.GetSkillUsageForUpdateParams{
+			SkillID: in.ID,
+			UserID:  in.UserID,
+			AgentID: in.AgentID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Skill{}, ErrSkillUsageChanged
+		}
+		if err != nil {
+			return Skill{}, fmt.Errorf("skills: lock reflect skill usage: %w", err)
+		}
+		if !usage.LastUsedAt.Equal(*in.ExpectedUsageLastUsedAt) {
+			return Skill{}, ErrSkillUsageChanged
+		}
 	}
 
 	afterRow, err := qtx.DeprecateReflectOwnedUserAgentSkill(ctx, sqlc.DeprecateReflectOwnedUserAgentSkillParams{

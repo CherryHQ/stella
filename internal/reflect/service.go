@@ -25,16 +25,19 @@ const (
 
 // Config holds dependencies for the reflect service.
 type Config struct {
-	StateStore           pkgplugins.StateStore
-	Memory               memory.Provider
-	Store                Store
-	SkillStore           pkgplugins.SkillStore
-	UsageCuratorStore    UsageCuratorStore
-	Notifier             pkgplugins.Notifier
-	Workspace            string
-	Log                  *slog.Logger
-	Providers            func(api, apiKey, baseURL string) (providers.StreamFunc, error)
-	CandidateGates       CandidateGateSettings
+	StateStore        pkgplugins.StateStore
+	Memory            memory.Provider
+	Store             Store
+	SkillStore        pkgplugins.SkillStore
+	UsageCuratorStore UsageCuratorStore
+	Notifier          pkgplugins.Notifier
+	Workspace         string
+	Log               *slog.Logger
+	Providers         func(api, apiKey, baseURL string) (providers.StreamFunc, error)
+	CandidateGates    CandidateGateSettings
+	// UsageCuratorSettings is intentionally package-local while production runs
+	// shadow-first. Wiring an armed production switch is a follow-up; armed mode
+	// itself must still stay correct for tests and future enablement.
 	UsageCuratorSettings usageCuratorSettings
 	// Services provides per-agent session registries for review target listing.
 	// When set, reflect uses Registry.ListForReview and Registry.MemoryScope
