@@ -20,7 +20,6 @@ const factsScope = "fact"
 
 var (
 	ErrFactNotRestorable    = errors.New("fact is not restorable")
-	ErrFactRestoreConflict  = errors.New("fact restore conflict")
 	ErrFactRestoreBadCaller = errors.New("fact restore requires restored_by")
 )
 
@@ -267,19 +266,6 @@ func RestoreCuratorDeprecatedKnowledgeFact(ctx context.Context, db *pgxpool.Pool
 	if err != nil {
 		return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("read curator deprecate changelog: %w", err)
 	}
-	replaced, err := qtx.HasActiveReplacementForFact(ctx, sqlc.HasActiveReplacementForFactParams{
-		UserID:     in.UserID,
-		AgentID:    in.AgentID,
-		FactID:     in.FactID,
-		FactIDText: in.FactID,
-	})
-	if err != nil {
-		return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("check fact replacement: %w", err)
-	}
-	if replaced {
-		return RestoreCuratorDeprecatedKnowledgeFactResult{}, ErrFactRestoreConflict
-	}
-
 	beforeVersion, err := currentMemoryVersion(ctx, qtx, in.UserID, in.AgentID)
 	if err != nil {
 		return RestoreCuratorDeprecatedKnowledgeFactResult{}, err

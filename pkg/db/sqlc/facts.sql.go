@@ -165,41 +165,6 @@ func (q *Queries) GetLatestCuratorDeprecateFactChangelog(ctx context.Context, ar
 	return i, err
 }
 
-const hasActiveReplacementForFact = `-- name: HasActiveReplacementForFact :one
-SELECT EXISTS (
-  SELECT 1
-  FROM facts replacement
-  WHERE replacement.user_id = $1
-    AND replacement.agent_id = $2
-    AND replacement.scope = 'user_agent'
-    AND replacement.subject = 'world'
-    AND replacement.status = 'active'
-    AND (
-      replacement.supersedes = $3::uuid
-      OR COALESCE(replacement.metadata->'replaced_fact_ids', '[]'::jsonb) ? $4::text
-    )
-)::bool
-`
-
-type HasActiveReplacementForFactParams struct {
-	UserID     string `json:"user_id"`
-	AgentID    string `json:"agent_id"`
-	FactID     string `json:"fact_id"`
-	FactIDText string `json:"fact_id_text"`
-}
-
-func (q *Queries) HasActiveReplacementForFact(ctx context.Context, arg HasActiveReplacementForFactParams) (bool, error) {
-	row := q.db.QueryRow(ctx, hasActiveReplacementForFact,
-		arg.UserID,
-		arg.AgentID,
-		arg.FactID,
-		arg.FactIDText,
-	)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const insertFact = `-- name: InsertFact :one
 INSERT INTO facts (id, subject, scope, user_id, agent_id, content, status, metadata, supersedes, version, source, created_at, updated_at)
 VALUES ($1, $2, 'user_agent', $3, $4, $5, 'active', $6, $7, 1, $8, now(), now())

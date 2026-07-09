@@ -338,6 +338,55 @@ func TestRestoreCuratorDeprecatedKnowledgeFactRestoresStatusChangelogAndUsage(t 
 	}
 }
 
+func TestRestoreCuratorDeprecatedKnowledgeFactAllowsExistingReplacement(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	fact, err := CreateFact(ctx, db, q, memory.FactWrite{
+		UserID:  userID,
+		AgentID: agentID,
+		Subject: memory.FactSubjectWorld,
+		Content: "Curator-deprecated world knowledge with replacement.",
+		Source:  memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("CreateFact: %v", err)
+	}
+	if _, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
+		Action:        FactBatchDeprecateMany,
+		Subject:       memory.FactSubjectWorld,
+		TargetFactIDs: []string{fact.ID},
+		Metadata:      json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`),
+	}}); err != nil {
+		t.Fatalf("ApplyFactBatch deprecate: %v", err)
+	}
+	if _, err := CreateFact(ctx, db, q, memory.FactWrite{
+		UserID:     userID,
+		AgentID:    agentID,
+		Subject:    memory.FactSubjectWorld,
+		Content:    "Replacement world knowledge remains active.",
+		Supersedes: fact.ID,
+		Source:     memory.SourceReflect,
+	}); err != nil {
+		t.Fatalf("CreateFact replacement: %v", err)
+	}
+
+	result, err := RestoreCuratorDeprecatedKnowledgeFact(ctx, db, q, RestoreCuratorDeprecatedKnowledgeFactInput{
+		FactID:     fact.ID,
+		UserID:     userID,
+		AgentID:    agentID,
+		RestoredBy: "admin@example.com",
+		Reason:     "operator wants both facts visible",
+	})
+	if err != nil {
+		t.Fatalf("RestoreCuratorDeprecatedKnowledgeFact: %v", err)
+	}
+	if !result.Restored || result.Fact.Status != memory.FactStatusActive {
+		t.Fatalf("restore result = %#v, want active restored fact", result)
+	}
+}
+
 func TestListActiveFactsAt_UsesMemoryVersionSnapshot(t *testing.T) {
 	db, q, userID, agentID, cleanup := setupTestDB(t)
 	defer cleanup()

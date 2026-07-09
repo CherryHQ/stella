@@ -3,6 +3,7 @@ package reflect
 import (
 	"context"
 	"encoding/json"
+	stdreflect "reflect"
 	"slices"
 	"testing"
 	"time"
@@ -516,8 +517,8 @@ func TestSQLRecentlyForgottenStoreListsRestorableKnowledgeAndSkillCandidates(t *
 	if len(items.Skills) != 1 || items.Skills[0].SkillID != skill.ID || items.Skills[0].Name != skill.Name {
 		t.Fatalf("skill items = %#v, want skill catalog", items.Skills)
 	}
-	if items.Skills[0].MainFileContent != "" {
-		t.Fatalf("skill list leaked main file content %q", items.Skills[0].MainFileContent)
+	if _, ok := stdreflect.TypeFor[RecentlyForgottenSkillItem]().FieldByName("MainFileContent"); ok {
+		t.Fatal("skill forgotten list payload should not expose MainFileContent")
 	}
 }
 

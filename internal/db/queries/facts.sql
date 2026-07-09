@@ -40,21 +40,6 @@ WHERE id = sqlc.arg(id)
   AND source = 'reflect'
 RETURNING *;
 
--- name: HasActiveReplacementForFact :one
-SELECT EXISTS (
-  SELECT 1
-  FROM facts replacement
-  WHERE replacement.user_id = sqlc.arg(user_id)
-    AND replacement.agent_id = sqlc.arg(agent_id)
-    AND replacement.scope = 'user_agent'
-    AND replacement.subject = 'world'
-    AND replacement.status = 'active'
-    AND (
-      replacement.supersedes = sqlc.arg(fact_id)::uuid
-      OR COALESCE(replacement.metadata->'replaced_fact_ids', '[]'::jsonb) ? sqlc.arg(fact_id_text)::text
-    )
-)::bool;
-
 -- name: ListActiveFactsBySubject :many
 SELECT * FROM facts
 WHERE user_id = $1

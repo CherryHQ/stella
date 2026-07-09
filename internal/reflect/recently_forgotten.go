@@ -60,7 +60,6 @@ type RecentlyForgottenSkillItem struct {
 	LastUsedAt            string
 	UseCount              int64
 	DeprecatedChangelogID string
-	MainFileContent       string
 }
 
 // SQLRecentlyForgottenStore lists curator-deprecated Reflect records that are
