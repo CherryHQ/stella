@@ -3,6 +3,7 @@ package vault_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"filippo.io/age"
@@ -11,8 +12,10 @@ import (
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
+	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -404,6 +407,17 @@ func sqlcNullString(value string) pgtype.Text {
 	return pgtype.Text{String: value, Valid: value != ""}
 }
 
+func insertUserVaultEntry(t *testing.T, q *sqlc.Queries, userID string, publicKey string, name string, value string) {
+	t.Helper()
+	ciphertext, err := vault.Encrypt(publicKey, value)
+	if err != nil {
+		t.Fatalf("Encrypt %s: %v", name, err)
+	}
+	if _, err := q.UpsertVaultEntryByScope(context.Background(), sqlc.UpsertVaultEntryByScopeParams{ID: uuid.NewString(), Scope: vault.ScopeUser, UserID: sqlcNullString(userID), Name: name, Ciphertext: ciphertext}); err != nil {
+		t.Fatalf("insert %s: %v", name, err)
+	}
+}
+
 func TestLoadEnvNoAgeKeys(t *testing.T) {
 	t.Parallel()
 	db := dbtest.New(t)
@@ -471,14 +485,18 @@ func TestLoadEnvFiltersSystemManagedNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUser: %v", err)
 	}
-	for _, name := range []string{"OAUTH_GITHUB_TOKEN", "GH_OAUTH", "STELLA_TOKEN"} {
-		ciphertext, err := vault.Encrypt(user.AgePublicKey, "reserved-value")
-		if err != nil {
-			t.Fatalf("Encrypt %s: %v", name, err)
-		}
-		if _, err := q.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{ID: uuid.NewString(), Scope: vault.ScopeUser, UserID: sqlcNullString(userID), Name: name, Ciphertext: ciphertext}); err != nil {
-			t.Fatalf("insert %s: %v", name, err)
-		}
+	svc.AddSystemManagedNames("CUSTOM_PROVIDER_BUNDLE")
+	blocked := []string{
+		"OAUTH_GITHUB_TOKEN",
+		"MCP_TOKEN_01234567_89AB_4DEF_8123_456789ABCDEF",
+		"GH_OAUTH",
+		"LARK_CLI_OAUTH",
+		"FEISHU_CLI_OAUTH",
+		"CUSTOM_PROVIDER_BUNDLE",
+		"STELLA_TOKEN",
+	}
+	for _, name := range blocked {
+		insertUserVaultEntry(t, q, userID, user.AgePublicKey, name, "reserved-value")
 	}
 	if err := svc.Set(ctx, userID, "AMBIENT_KEY", "ambient-value"); err != nil {
 		t.Fatalf("Set AMBIENT_KEY: %v", err)
@@ -491,9 +509,77 @@ func TestLoadEnvFiltersSystemManagedNames(t *testing.T) {
 	if got := env["AMBIENT_KEY"]; got != "ambient-value" {
 		t.Fatalf("AMBIENT_KEY = %q, want ambient-value", got)
 	}
-	for _, name := range []string{"OAUTH_GITHUB_TOKEN", "GH_OAUTH", "STELLA_TOKEN"} {
+	for _, name := range blocked {
 		if _, ok := env[name]; ok {
 			t.Fatalf("%s should not be ambient", name)
+		}
+	}
+}
+
+func TestValidateUserFacingNameRejectsSystemManagedWithoutBlockingSystemWriters(t *testing.T) {
+	svc, _, userID := testService(t)
+	ctx := context.Background()
+	svc.AddSystemManagedNames("CUSTOM_PROVIDER_BUNDLE")
+
+	for _, name := range []string{"GH_OAUTH", "OAUTH_FOO", "MCP_TOKEN_01234567_89AB_4DEF_8123_456789ABCDEF", "CUSTOM_PROVIDER_BUNDLE"} {
+		t.Run(name, func(t *testing.T) {
+			err := svc.ValidateUserFacingName(name)
+			if err == nil || !strings.Contains(err.Error(), "reserved for system-managed credentials") {
+				t.Fatalf("ValidateUserFacingName(%q) = %v, want system-managed reserved error", name, err)
+			}
+		})
+	}
+	if err := vault.ValidateName(oauth.VaultKeyGitHub); err != nil {
+		t.Fatalf("ValidateName(%q) = %v, want nil", oauth.VaultKeyGitHub, err)
+	}
+	if err := svc.Set(ctx, userID, oauth.VaultKeyGitHub, `{"access_token":"system"}`); err != nil {
+		t.Fatalf("Set system-managed OAuth bundle through core Set: %v", err)
+	}
+}
+
+func TestBuiltinOAuthVaultKeysAreNotAmbientWhenRegistryWired(t *testing.T) {
+	svc, oidc, userID, q := testServiceWithQueries(t)
+	ctx := context.Background()
+
+	manifest, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		t.Fatalf("LoadBuiltin: %v", err)
+	}
+	registry := oauth.NewProviderRegistry()
+	wantBlocked := make([]string, 0, len(manifest.OAuthProviders))
+	for _, provider := range manifest.OAuthProviders {
+		if provider.VaultKey == "" {
+			continue
+		}
+		registry.Register(oauth.ProviderConfig{ID: provider.ID, VaultKey: provider.VaultKey})
+		wantBlocked = append(wantBlocked, provider.VaultKey)
+	}
+	if len(wantBlocked) == 0 {
+		t.Fatal("builtin manifest has no OAuth provider vault keys")
+	}
+	svc.AddSystemManagedNames(registry.VaultKeys()...)
+
+	user, err := oidc.GetUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetUser: %v", err)
+	}
+	for _, name := range wantBlocked {
+		insertUserVaultEntry(t, q, userID, user.AgePublicKey, name, "provider-bundle")
+	}
+	if err := svc.Set(ctx, userID, "AMBIENT_KEY", "ambient-value"); err != nil {
+		t.Fatalf("Set AMBIENT_KEY: %v", err)
+	}
+
+	env, err := svc.LoadEnvForAgentProject(ctx, userID, "agent-1")
+	if err != nil {
+		t.Fatalf("LoadEnvForAgentProject: %v", err)
+	}
+	if got := env["AMBIENT_KEY"]; got != "ambient-value" {
+		t.Fatalf("AMBIENT_KEY = %q, want ambient-value", got)
+	}
+	for _, name := range wantBlocked {
+		if _, ok := env[name]; ok {
+			t.Fatalf("builtin OAuth vault key %s should not be ambient", name)
 		}
 	}
 }

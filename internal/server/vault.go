@@ -151,6 +151,10 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := s.vaultSvc.ValidateUserFacingName(name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	opts := vault.SetOptions{Description: body.Description}
 	var err error

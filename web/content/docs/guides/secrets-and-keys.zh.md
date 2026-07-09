@@ -89,7 +89,9 @@ Agent 会话不会收到 Stella API bearer token。Agent 使用内置工具访�
 - 仅限大写字母、数字和下划线，例如 `MY_API_KEY`
 - 必须以字母开头
 - 最长 128 个字符
-- 不能以 `STELLA_` 等保留前缀开头
+- 不能使用系统托管凭据名称，例如 `STELLA_TOKEN`、`GH_OAUTH`、`LARK_CLI_OAUTH` 或 `FEISHU_CLI_OAUTH`
+- 不能以 `STELLA_`、`OAUTH_`、`MCP_TOKEN_`、`LD_` 或 `DYLD_` 等保留前缀开头
+- 不能使用执行钩子名称，例如 `BASH_ENV`、`ENV`、`PROMPT_COMMAND`、`GIT_SSH_COMMAND`、`NODE_OPTIONS` 或 `PYTHONSTARTUP`
 
 ## 小贴士
 

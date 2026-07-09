@@ -57,9 +57,22 @@ type VaultScope = VaultEntry["scope"];
 type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
 
-// Reserved keys are written and rotated by stella itself (e.g. the auto session
-// token). Surface them as read-only so users don't delete a managed secret.
-const RESERVED_VAULT_KEYS = new Set(["STELLA_TOKEN"]);
+// Reserved keys are written and rotated by stella itself. Surface them as
+// read-only so users don't delete a managed credential.
+const RESERVED_VAULT_KEYS = new Set([
+  "STELLA_TOKEN",
+  "GH_OAUTH",
+  "LARK_CLI_OAUTH",
+  "FEISHU_CLI_OAUTH",
+]);
+const RESERVED_VAULT_PREFIXES = ["OAUTH_", "MCP_TOKEN_"];
+
+function isReservedVaultKey(name: string) {
+  return (
+    RESERVED_VAULT_KEYS.has(name) ||
+    RESERVED_VAULT_PREFIXES.some((prefix) => name.startsWith(prefix))
+  );
+}
 
 function isAgentVaultScope(scope: VaultScope) {
   return scope === "user_agent" || scope === "system_agent";
@@ -365,6 +378,10 @@ export function CredentialsPage() {
   const addVaultEntry = useCallback(async () => {
     if (!newSecretName) {
       showToast(t("credentials.secretNameRequired"), "error");
+      return;
+    }
+    if (isReservedVaultKey(newSecretName)) {
+      showToast(t("credentials.secretNameReserved"), "error");
       return;
     }
     const value = newSecretValue || existingSecretValue;
@@ -1009,7 +1026,7 @@ export function CredentialsPage() {
                   </div>
                   <SettingsList>
                     {group.entries.map((entry) => {
-                      const reserved = RESERVED_VAULT_KEYS.has(entry.name);
+                      const reserved = isReservedVaultKey(entry.name);
                       return (
                         <SettingsRow
                           key={`${entry.scope}:${entry.agent_id ?? ""}:${entry.name}`}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"filippo.io/age"
@@ -52,6 +53,10 @@ type Service struct {
 	db              DB
 	masterIdentity  *age.X25519Identity
 	masterRecipient *age.X25519Recipient
+
+	systemManagedMu       sync.RWMutex
+	systemManagedNames    map[string]struct{}
+	systemManagedPrefixes []string
 }
 
 // NewService creates a vault Service. masterIdentityStr is the raw age secret
@@ -62,9 +67,11 @@ func NewService(db DB, masterIdentityStr string) (*Service, error) {
 		return nil, fmt.Errorf("vault: new service: %w", err)
 	}
 	return &Service{
-		db:              db,
-		masterIdentity:  id,
-		masterRecipient: recipient,
+		db:                    db,
+		masterIdentity:        id,
+		masterRecipient:       recipient,
+		systemManagedNames:    defaultSystemManagedNames(),
+		systemManagedPrefixes: []string{"OAUTH_", "MCP_TOKEN_"},
 	}, nil
 }
 
@@ -448,7 +455,7 @@ func (s *Service) LoadEnvForAgentProject(ctx context.Context, userID string, age
 
 	env := make(map[string]string, len(entries))
 	for _, e := range entries {
-		if !isAmbientSecretName(e.Name) {
+		if !s.isAmbientSecretName(e.Name) {
 			continue
 		}
 		plaintext, err := s.decryptEntry(ctx, e)
@@ -562,12 +569,60 @@ func validateScope(scope string, userID string, agentID string) error {
 	return nil
 }
 
-func isAmbientSecretName(name string) bool {
-	switch name {
-	case "STELLA_TOKEN", oauth.VaultKeyGitHub, oauth.VaultKeyLark, oauth.VaultKeyFeishu:
-		return false
+func defaultSystemManagedNames() map[string]struct{} {
+	names := map[string]struct{}{}
+	for _, name := range []string{"STELLA_TOKEN", oauth.VaultKeyGitHub, oauth.VaultKeyLark, oauth.VaultKeyFeishu} {
+		names[name] = struct{}{}
 	}
-	return !strings.HasPrefix(name, "OAUTH_")
+	return names
+}
+
+// AddSystemManagedNames reserves host-side credential names so they are never
+// exposed as ambient sandbox env or accepted from user-facing vault writes.
+// OAuth bundle keys come from the provider registry; hand-enumerating them in
+// vault code drifts when manifest providers are added without Go changes (the
+// X provider leak was exactly that failure mode). Defaults cover built-ins even
+// if startup wiring is missed.
+func (s *Service) AddSystemManagedNames(names ...string) {
+	s.systemManagedMu.Lock()
+	defer s.systemManagedMu.Unlock()
+	if s.systemManagedNames == nil {
+		s.systemManagedNames = defaultSystemManagedNames()
+	}
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		s.systemManagedNames[name] = struct{}{}
+	}
+}
+
+// ValidateUserFacingName applies core env-var rules plus host-managed credential
+// reservations. System writers use Set directly so OAuth and MCP stores can keep
+// writing their internal vault rows.
+func (s *Service) ValidateUserFacingName(name string) error {
+	if s.isSystemManagedName(name) {
+		return fmt.Errorf("vault: name %q is reserved for system-managed credentials", name)
+	}
+	return ValidateName(name)
+}
+
+func (s *Service) isAmbientSecretName(name string) bool {
+	return !s.isSystemManagedName(name)
+}
+
+func (s *Service) isSystemManagedName(name string) bool {
+	s.systemManagedMu.RLock()
+	defer s.systemManagedMu.RUnlock()
+	if _, ok := s.systemManagedNames[name]; ok {
+		return true
+	}
+	for _, prefix := range s.systemManagedPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func stringFromNull(value pgtype.Text) string {

@@ -12,6 +12,7 @@ func TestValidateName(t *testing.T) {
 
 	valid := []string{
 		"GITHUB_TOKEN",
+		"GH_OAUTH",
 		"MY_SECRET",
 		"A",
 		"API_KEY_2",
@@ -64,6 +65,14 @@ func TestValidateName(t *testing.T) {
 		{"LANG", "LANG"},
 		{"TERM", "TERM"},
 		{"PATH_EXTRA", "PATH_EXTRA"},
+		{"LD_PRELOAD", "LD_PRELOAD"},
+		{"DYLD_INSERT_LIBRARIES", "DYLD_INSERT_LIBRARIES"},
+		{"BASH_ENV", "BASH_ENV"},
+		{"ENV", "ENV"},
+		{"PROMPT_COMMAND", "PROMPT_COMMAND"},
+		{"GIT_SSH_COMMAND", "GIT_SSH_COMMAND"},
+		{"NODE_OPTIONS", "NODE_OPTIONS"},
+		{"PYTHONSTARTUP", "PYTHONSTARTUP"},
 	}
 	for _, tc := range reserved {
 		t.Run("reserved/"+tc.name, func(t *testing.T) {

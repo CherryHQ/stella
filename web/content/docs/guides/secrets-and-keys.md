@@ -89,7 +89,9 @@ Secret names must follow these rules:
 - Uppercase letters, digits, and underscores only, for example `MY_API_KEY`
 - Must start with a letter
 - Maximum 128 characters
-- Cannot start with reserved prefixes like `STELLA_`
+- Cannot use system-managed credential names such as `STELLA_TOKEN`, `GH_OAUTH`, `LARK_CLI_OAUTH`, or `FEISHU_CLI_OAUTH`
+- Cannot start with reserved prefixes such as `STELLA_`, `OAUTH_`, `MCP_TOKEN_`, `LD_`, or `DYLD_`
+- Cannot use execution-hook names such as `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, `GIT_SSH_COMMAND`, `NODE_OPTIONS`, or `PYTHONSTARTUP`
 
 ## Tips
 

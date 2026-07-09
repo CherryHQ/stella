@@ -52,6 +52,9 @@ func (h vaultHandler) List(ctx context.Context, in ListInput) (any, error) {
 }
 
 func (h vaultHandler) Set(ctx context.Context, in SetInput) (any, error) {
+	if err := h.svc.ValidateUserFacingName(in.Name); err != nil {
+		return nil, err
+	}
 	meta, err := h.svc.As(h.ident).Set(ctx, in.Scope, in.Name, in.Value)
 	if err != nil {
 		return nil, err

@@ -296,6 +296,9 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	emailSvc := email.NewService(vaultSvc, sqlc.New(db))
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
+		if vaultSvc != nil {
+			vaultSvc.AddSystemManagedNames(ps.oauthRegistry.VaultKeys()...)
+		}
 	}
 	recallyStore := recally.NewStore(db)
 	recallySvc := recally.NewService(recallyStore, config.StellaHome())

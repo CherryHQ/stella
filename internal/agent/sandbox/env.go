@@ -186,9 +186,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		}
 	}
 
-	// OAuth bundle keys are host-side only: they hold raw JSON credentials and
-	// must not reach the sandbox process. The runner injects derived runtime
-	// tokens below instead.
+	// Defense in depth: the vault-side system-managed filter is authoritative,
+	// but these legacy OAuth bundle keys must still never reach the sandbox.
 	delete(env, oauth.VaultKeyGitHub)
 	delete(env, oauth.VaultKeyLark)
 	delete(env, oauth.VaultKeyFeishu)

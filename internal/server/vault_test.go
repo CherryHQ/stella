@@ -147,6 +147,18 @@ func TestVaultSetValidationError(t *testing.T) {
 	}
 }
 
+func TestVaultSetRejectsSystemManagedName(t *testing.T) {
+	env, _ := setupVaultEnv(t)
+
+	rr := doRequest(t, env, "PUT", "/api/vault/OAUTH_FOO", map[string]string{"value": "test"})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	if got := parseResponse(t, rr).Error; got != "vault: name \"OAUTH_FOO\" is reserved for system-managed credentials" {
+		t.Fatalf("error = %q, want system-managed reserved error", got)
+	}
+}
+
 func TestVaultNotConfiguredPUT(t *testing.T) {
 	env := setupAdmin(t)
 
