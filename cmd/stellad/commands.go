@@ -314,7 +314,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		{Tool: recally.NewTool(recallySvc), Available: agent.BuiltinToolAvailable},
 	}
 	if vaultSvc != nil {
-		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: vault.NewTool(vaultSvc), Available: agent.BuiltinToolAvailable})
+		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: vault.NewTool(vaultSvc, credSvc), Available: agent.BuiltinToolAvailable})
 	}
 	builtinTools = append(builtinTools, serviceTools...)
 

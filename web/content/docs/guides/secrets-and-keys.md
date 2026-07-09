@@ -74,6 +74,8 @@ You can also ask Stella to manage secrets:
 
 Secrets are available automatically in matching sandbox sessions. A secret named `GITHUB_TOKEN` is available as `$GITHUB_TOKEN` to bash commands and third-party CLIs.
 
+If a stored secret has the same name as an environment variable derived from a connected account, the stored secret wins.
+
 You do not bind secrets to agents or projects separately. The scope is the only targeting control.
 
 Group sessions do not receive vault secrets.

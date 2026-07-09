@@ -221,25 +221,10 @@ func (s *Server) DeleteScopedVaultEntry(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// invalidateVaultRunners closes the live runners a vault mutation affects so the
-// next session reads the new snapshot instead of the value baked into the sandbox
-// env at start. Reach follows the scope: a single user for user/user_agent, one
-// agent across all users for system_agent, and every runner for system (whose
-// secrets merge into every agent's env via LoadEnvForAgentProject).
+// invalidateVaultRunners logs runner-cache invalidation failures without
+// failing the already-committed vault mutation.
 func (s *Server) invalidateVaultRunners(scope, userID, agentID, name, op string) {
-	var err error
-	switch scope {
-	case vault.ScopeSystem:
-		err = s.credSvc.InvalidateAll()
-	case vault.ScopeSystemAgent:
-		err = s.credSvc.InvalidateAgent(agentID)
-	default: // user, user_agent
-		if userID == "" {
-			return
-		}
-		err = s.credSvc.InvalidateUser(userID)
-	}
-	if err != nil {
+	if err := vault.InvalidateForScope(s.credSvc, scope, userID, agentID); err != nil {
 		s.log.Warn("invalidate runners after vault "+op, "scope", scope, "user_id", userID, "agent_id", agentID, "name", name, "error", err)
 	}
 }

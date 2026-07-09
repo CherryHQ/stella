@@ -74,6 +74,8 @@ stellad server
 
 匹配作用域的密钥会自动出现在 sandbox 会话里。名为 `GITHUB_TOKEN` 的密钥会以 `$GITHUB_TOKEN` 的形式供 bash 命令和第三方 CLI 使用。
 
+如果已存储密钥和已连接账号派生出的环境变量同名，已存储密钥优先。
+
 你不需要再把密钥单独绑定到 Agent 或项目。作用域就是唯一的投递控制。
 
 群组会话不会收到 vault 密钥。
