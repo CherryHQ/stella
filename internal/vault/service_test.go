@@ -234,9 +234,9 @@ func TestLoadEnvDefaultSecretIsAmbient(t *testing.T) {
 	if err := svc.Set(ctx, userID, "API_KEY", "sk_test_123"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	env, err := svc.LoadEnvForAgentProject(ctx, userID, "")
+	env, err := svc.LoadEnvForAgent(ctx, userID, "")
 	if err != nil {
-		t.Fatalf("LoadEnvForAgentProject: %v", err)
+		t.Fatalf("LoadEnvForAgent: %v", err)
 	}
 	if got := env["API_KEY"]; got != "sk_test_123" {
 		t.Fatalf("API_KEY = %q, want sk_test_123", got)
@@ -308,7 +308,7 @@ func TestLoadEnvForAgentMergesScopedPrecedence(t *testing.T) {
 		}
 	}
 
-	env, err := svc.LoadEnvForAgentProject(ctx, userID, "agent-a")
+	env, err := svc.LoadEnvForAgent(ctx, userID, "agent-a")
 	if err != nil {
 		t.Fatalf("LoadEnvForAgent(agent-a): %v", err)
 	}
@@ -316,12 +316,51 @@ func TestLoadEnvForAgentMergesScopedPrecedence(t *testing.T) {
 		t.Fatalf("TOKEN for agent-a = %q, want user-agent", got)
 	}
 
-	env, err = svc.LoadEnvForAgentProject(ctx, userID, "agent-b")
+	env, err = svc.LoadEnvForAgent(ctx, userID, "agent-b")
 	if err != nil {
 		t.Fatalf("LoadEnvForAgent(agent-b): %v", err)
 	}
 	if got := env["TOKEN"]; got != "user" {
 		t.Fatalf("TOKEN for agent-b = %q, want user", got)
+	}
+}
+
+func TestListAmbientSecretMetasUsesMetadataOnlyPrecedence(t *testing.T) {
+	t.Parallel()
+	svc, _, userID, q := testServiceWithQueries(t)
+	ctx := context.Background()
+
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	desc := func(s string) *string { return &s }
+	if err := svc.SetSystemScopedWithOptions(ctx, vault.ScopeSystem, "", "TOKEN", "system", vault.SetOptions{Description: desc("system token")}); err != nil {
+		t.Fatalf("SetSystemScopedWithOptions: %v", err)
+	}
+	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUser, userID, "", "TOKEN", "user", vault.SetOptions{Description: desc("user token")}); err != nil {
+		t.Fatalf("SetScopedWithOptions TOKEN: %v", err)
+	}
+	if err := svc.SetScopedWithOptions(ctx, vault.ScopeUserAgent, userID, "agent-a", "API_KEY", "api", vault.SetOptions{Description: desc("API key")}); err != nil {
+		t.Fatalf("SetScopedWithOptions API_KEY: %v", err)
+	}
+	if err := svc.SetScoped(ctx, vault.ScopeUser, userID, "", oauth.VaultKeyGitHub, "oauth-bundle"); err != nil {
+		t.Fatalf("SetScoped oauth: %v", err)
+	}
+
+	metas, err := svc.ListAmbientSecretMetas(ctx, userID, "agent-a")
+	if err != nil {
+		t.Fatalf("ListAmbientSecretMetas: %v", err)
+	}
+	if len(metas) != 2 {
+		t.Fatalf("metas = %#v, want 2 ambient entries", metas)
+	}
+	if metas[0].Name != "API_KEY" || metas[0].Description != "API key" {
+		t.Fatalf("metas[0] = %#v, want API_KEY metadata", metas[0])
+	}
+	if metas[1].Name != "TOKEN" || metas[1].Description != "user token" {
+		t.Fatalf("metas[1] = %#v, want user TOKEN metadata to override system", metas[1])
 	}
 }
 
@@ -391,7 +430,7 @@ func TestLoadEnvForAgentKeepsSystemSecretsWhenUserEntryFails(t *testing.T) {
 		t.Fatalf("insert broken user entry: %v", err)
 	}
 
-	env, err := svc.LoadEnvForAgentProject(ctx, userID, "agent-a")
+	env, err := svc.LoadEnvForAgent(ctx, userID, "agent-a")
 	if err != nil {
 		t.Fatalf("LoadEnvForAgent: %v", err)
 	}
@@ -446,9 +485,9 @@ func TestLoadEnvNoAgeKeys(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	env, err := svc.LoadEnvForAgentProject(ctx, user.ID, "")
+	env, err := svc.LoadEnvForAgent(ctx, user.ID, "")
 	if err != nil {
-		t.Fatalf("LoadEnvForAgentProject: %v", err)
+		t.Fatalf("LoadEnvForAgent: %v", err)
 	}
 	if len(env) != 0 {
 		t.Fatalf("LoadEnv got %d entries, want 0", len(env))
@@ -502,9 +541,9 @@ func TestLoadEnvFiltersSystemManagedNames(t *testing.T) {
 		t.Fatalf("Set AMBIENT_KEY: %v", err)
 	}
 
-	env, err := svc.LoadEnvForAgentProject(ctx, userID, "agent-1")
+	env, err := svc.LoadEnvForAgent(ctx, userID, "agent-1")
 	if err != nil {
-		t.Fatalf("LoadEnvForAgentProject: %v", err)
+		t.Fatalf("LoadEnvForAgent: %v", err)
 	}
 	if got := env["AMBIENT_KEY"]; got != "ambient-value" {
 		t.Fatalf("AMBIENT_KEY = %q, want ambient-value", got)
@@ -570,9 +609,9 @@ func TestBuiltinOAuthVaultKeysAreNotAmbientWhenRegistryWired(t *testing.T) {
 		t.Fatalf("Set AMBIENT_KEY: %v", err)
 	}
 
-	env, err := svc.LoadEnvForAgentProject(ctx, userID, "agent-1")
+	env, err := svc.LoadEnvForAgent(ctx, userID, "agent-1")
 	if err != nil {
-		t.Fatalf("LoadEnvForAgentProject: %v", err)
+		t.Fatalf("LoadEnvForAgent: %v", err)
 	}
 	if got := env["AMBIENT_KEY"]; got != "ambient-value" {
 		t.Fatalf("AMBIENT_KEY = %q, want ambient-value", got)

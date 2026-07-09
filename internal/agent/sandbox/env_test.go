@@ -7,6 +7,7 @@ import (
 	"time"
 
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -14,10 +15,14 @@ type staticVaultEnv struct {
 	env map[string]string
 }
 
-func (v staticVaultEnv) LoadEnvForAgentProject(context.Context, string, string) (map[string]string, error) {
+func (v staticVaultEnv) LoadEnvForAgent(context.Context, string, string) (map[string]string, error) {
 	out := make(map[string]string, len(v.env))
 	maps.Copy(out, v.env)
 	return out, nil
+}
+
+func (v staticVaultEnv) ListAmbientSecretMetas(context.Context, string, string) ([]vault.AmbientSecretMeta, error) {
+	return nil, nil
 }
 
 func requireSessionSecretValues(t *testing.T, values []string, present []string, absent []string) {

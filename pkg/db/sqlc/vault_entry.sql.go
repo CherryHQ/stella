@@ -140,7 +140,7 @@ type ListVaultEntriesForRuntimeParams struct {
 	UserID         pgtype.Text `json:"user_id"`
 }
 
-// Keep this precedence in sync with internal/vault envPrecedence.
+// Keep this precedence in sync with vault.Service.LoadEnvForAgent's merge loop.
 func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultEntriesForRuntimeParams) ([]VaultEntry, error) {
 	rows, err := q.db.Query(ctx, listVaultEntriesForRuntime, arg.RuntimeAgentID, arg.UserID)
 	if err != nil {

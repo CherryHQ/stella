@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -442,9 +443,9 @@ func (s *Service) Lookup(ctx context.Context, userID string, name string) (strin
 	return plaintext, true, nil
 }
 
-// LoadEnvForAgentProject resolves runtime env in the SQL precedence order;
+// LoadEnvForAgent resolves runtime env in the SQL precedence order;
 // later scopes override earlier scopes. System-managed names stay internal-only.
-func (s *Service) LoadEnvForAgentProject(ctx context.Context, userID string, agentID string) (map[string]string, error) {
+func (s *Service) LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
 	entries, err := s.db.ListVaultEntriesForRuntime(ctx, sqlc.ListVaultEntriesForRuntimeParams{
 		UserID:         pgnull.Text(userID),
 		RuntimeAgentID: pgnull.Text(agentID),
@@ -454,11 +455,12 @@ func (s *Service) LoadEnvForAgentProject(ctx context.Context, userID string, age
 	}
 
 	env := make(map[string]string, len(entries))
+	userCache := make(map[string]sqlc.VaultUser)
 	for _, e := range entries {
 		if !s.isAmbientSecretName(e.Name) {
 			continue
 		}
-		plaintext, err := s.decryptEntry(ctx, e)
+		plaintext, err := s.decryptEntryWithUserCache(ctx, e, userCache)
 		if err != nil {
 			slog.Warn("vault env entry skipped",
 				"component", "vault",
@@ -473,19 +475,68 @@ func (s *Service) LoadEnvForAgentProject(ctx context.Context, userID string, age
 	return env, nil
 }
 
+// AmbientSecretMeta is prompt-safe ambient secret metadata: the env var name a
+// tool reads plus the user's hint about what it holds. Never carries values.
+type AmbientSecretMeta struct {
+	Name        string
+	Description string
+}
+
+// ListAmbientSecretMetas returns prompt-safe metadata for ambient secrets only.
+func (s *Service) ListAmbientSecretMetas(ctx context.Context, userID string, agentID string) ([]AmbientSecretMeta, error) {
+	entries, err := s.db.ListVaultEntriesForRuntime(ctx, sqlc.ListVaultEntriesForRuntimeParams{
+		UserID:         pgnull.Text(userID),
+		RuntimeAgentID: pgnull.Text(agentID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("vault: list ambient secret metas: list entries: %w", err)
+	}
+
+	byName := make(map[string]AmbientSecretMeta, len(entries))
+	for _, e := range entries {
+		if !s.isAmbientSecretName(e.Name) {
+			continue
+		}
+		byName[e.Name] = AmbientSecretMeta{Name: e.Name, Description: stringFromNull(e.Description)}
+	}
+
+	names := make([]string, 0, len(byName))
+	for name := range byName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	metas := make([]AmbientSecretMeta, 0, len(names))
+	for _, name := range names {
+		metas = append(metas, byName[name])
+	}
+	return metas, nil
+}
+
 func (s *Service) decryptEntry(ctx context.Context, entry sqlc.VaultEntry) (string, error) {
+	return s.decryptEntryWithUserCache(ctx, entry, nil)
+}
+
+func (s *Service) decryptEntryWithUserCache(ctx context.Context, entry sqlc.VaultEntry, userCache map[string]sqlc.VaultUser) (string, error) {
 	if entry.Scope == ScopeSystem || entry.Scope == ScopeSystemAgent {
 		return s.DecryptSystem(entry.Ciphertext)
 	}
 	if !entry.UserID.Valid || entry.UserID.String == "" {
 		return "", fmt.Errorf("user-scoped entry %q has no user", entry.Name)
 	}
-	user, err := s.db.GetVaultUser(ctx, entry.UserID.String)
-	if err != nil {
-		return "", fmt.Errorf("get user: %w", err)
+	userID := entry.UserID.String
+	user, ok := userCache[userID]
+	if !ok {
+		var err error
+		user, err = s.db.GetVaultUser(ctx, userID)
+		if err != nil {
+			return "", fmt.Errorf("get user: %w", err)
+		}
+		if userCache != nil {
+			userCache[userID] = user
+		}
 	}
 	if user.AgePrivateKey == "" {
-		return "", fmt.Errorf("user %s has no age private key provisioned", entry.UserID.String)
+		return "", fmt.Errorf("user %s has no age private key provisioned", userID)
 	}
 	plaintext, err := Decrypt(s.masterIdentity, user.AgePrivateKey, entry.Ciphertext)
 	if err != nil {

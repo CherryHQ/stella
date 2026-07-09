@@ -13,7 +13,7 @@ WHERE ((scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
     OR (scope = 'system_agent' AND user_id IS NULL AND vault_entry.agent_id = sqlc.arg(runtime_agent_id))
     OR (scope = 'user' AND user_id = sqlc.arg(user_id) AND vault_entry.agent_id IS NULL)
     OR (scope = 'user_agent' AND user_id = sqlc.arg(user_id) AND vault_entry.agent_id = sqlc.arg(runtime_agent_id)))
--- Keep this precedence in sync with internal/vault envPrecedence.
+-- Keep this precedence in sync with vault.Service.LoadEnvForAgent's merge loop.
 ORDER BY CASE scope
     WHEN 'system' THEN 1
     WHEN 'system_agent' THEN 2

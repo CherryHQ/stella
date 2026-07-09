@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -14,6 +13,7 @@ import (
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/vault"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -155,10 +155,19 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			sections = append(sections, skillsSection)
 		}
 		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
-			if env, err := cfg.VaultEnvLoader.LoadEnvForAgentProject(ctx, params.UserID, params.AgentID); err == nil && len(env) > 0 {
+			metas, err := cfg.VaultEnvLoader.ListAmbientSecretMetas(ctx, params.UserID, params.AgentID)
+			if err != nil {
+				slog.Warn("vault secret metadata unavailable",
+					"component", "runner_builder",
+					"user_id", params.UserID,
+					"agent_id", params.AgentID,
+					"project_id", params.ProjectID,
+					"error", err,
+				)
+			} else if len(metas) > 0 {
 				sections = append(sections, pkgplugins.SystemPromptSection{
 					Title:   "Available Secrets",
-					Content: "These vault secret names are already available as environment variables in bash. Values are never shown; use the names exactly as the CLI or tool expects.\n\n" + formatAvailableSecretNames(env),
+					Content: "These vault secret names are already available as environment variables in bash. Values are never shown; use the names exactly as the CLI or tool expects.\n\n" + formatAvailableSecretMetas(metas),
 				})
 			}
 		}
@@ -242,11 +251,14 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 	}
 }
 
-func formatAvailableSecretNames(env map[string]string) string {
-	names := make([]string, 0, len(env))
-	for name := range env {
-		names = append(names, name)
+func formatAvailableSecretMetas(metas []vault.AmbientSecretMeta) string {
+	lines := make([]string, 0, len(metas))
+	for _, meta := range metas {
+		line := meta.Name
+		if meta.Description != "" {
+			line += " — " + meta.Description
+		}
+		lines = append(lines, line)
 	}
-	sort.Strings(names)
-	return "- " + strings.Join(names, "\n- ")
+	return "- " + strings.Join(lines, "\n- ")
 }

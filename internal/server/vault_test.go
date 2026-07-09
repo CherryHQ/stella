@@ -287,7 +287,7 @@ func TestScopedVaultPermissionsAndRuntimeResolution(t *testing.T) {
 		}
 	}
 
-	envMap, err := svc.LoadEnvForAgentProject(ctx, regular.ID, "agent-a")
+	envMap, err := svc.LoadEnvForAgent(ctx, regular.ID, "agent-a")
 	if err != nil {
 		t.Fatalf("LoadEnvForAgent: %v", err)
 	}

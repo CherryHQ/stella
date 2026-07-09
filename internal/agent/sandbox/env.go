@@ -171,7 +171,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 
 	// Group sessions never load human vault secrets (D9 isolation).
 	if cfg.GroupID == "" && cfg.VaultEnvLoader != nil {
-		ve, err := cfg.VaultEnvLoader.LoadEnvForAgentProject(ctx, cfg.UserID, cfg.AgentID)
+		ve, err := cfg.VaultEnvLoader.LoadEnvForAgent(ctx, cfg.UserID, cfg.AgentID)
 		if err != nil {
 			slog.Warn("vault env injection skipped",
 				"component", "runner_sandbox",

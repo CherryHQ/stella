@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -20,8 +21,12 @@ type stubVaultLoader struct {
 	err error
 }
 
-func (s *stubVaultLoader) LoadEnvForAgentProject(_ context.Context, _ string, _ string) (map[string]string, error) {
+func (s *stubVaultLoader) LoadEnvForAgent(_ context.Context, _ string, _ string) (map[string]string, error) {
 	return s.env, s.err
+}
+
+func (s *stubVaultLoader) ListAmbientSecretMetas(_ context.Context, _ string, _ string) ([]vault.AmbientSecretMeta, error) {
+	return nil, s.err
 }
 
 type stubOAuthVaultStore struct {
@@ -51,7 +56,7 @@ func (s *stubOAuthVaultStore) Lookup(_ context.Context, userID string, name stri
 	return value, ok, nil
 }
 
-func (s *stubOAuthVaultStore) LoadEnvForAgentProject(_ context.Context, userID string, _ string) (map[string]string, error) {
+func (s *stubOAuthVaultStore) LoadEnvForAgent(_ context.Context, userID string, _ string) (map[string]string, error) {
 	out := make(map[string]string)
 	prefix := userID + ":"
 	for k, v := range s.data {
@@ -61,6 +66,10 @@ func (s *stubOAuthVaultStore) LoadEnvForAgentProject(_ context.Context, userID s
 		out[k[len(prefix):]] = v
 	}
 	return out, nil
+}
+
+func (s *stubOAuthVaultStore) ListAmbientSecretMetas(_ context.Context, _ string, _ string) ([]vault.AmbientSecretMeta, error) {
+	return nil, nil
 }
 
 // TestResolveSessionRequiresUserRoot tests that ResolveSession fails without a UserRoot.
