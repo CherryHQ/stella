@@ -164,7 +164,12 @@ Decide per table — don't default to one approach everywhere:
 | RESTRICT                   | Prevent silently orphaning important references |
 | Archive                    | Move cold data to separate storage              |
 
-CASCADE is convenient but dangerous — it can remove more than you expect.
+CASCADE is convenient but dangerous — it can remove more than you expect. Never
+combine CASCADE-on-history with self-deleting parents. A one-shot scheduler job
+that deletes itself after firing will also delete run/audit rows that were just
+written if those rows cascade from the parent. Retire fired or completed parents
+as disabled rows instead; reserve deletion plus CASCADE for explicit user
+deletion where dropping history is intended.
 
 ## JSON Columns
 
@@ -268,6 +273,6 @@ Before approving any schema change:
    money integer cents?
 8. Are common queries supported by indexes?
 9. Is deletion behavior intentional per table?
-10. Did the change ship as a new goose migration (`db:migrate:new` → write
-    Up/Down → `generate`), with no edits to already-committed migrations?
+10. Did the change follow [`goose.md`](./goose.md) for the migration workflow,
+    with no edits to already-committed migrations?
 11. Is sensitive data protected?

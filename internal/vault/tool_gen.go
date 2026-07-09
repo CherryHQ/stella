@@ -98,6 +98,20 @@ const InputSchemaJSON = `{
         "set"
       ],
       "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "scope": {
+      "default": "user",
+      "enum": [
+        "user",
+        "user_agent"
+      ],
+      "type": "string"
+    },
+    "value": {
+      "type": "string"
     }
   },
   "required": [

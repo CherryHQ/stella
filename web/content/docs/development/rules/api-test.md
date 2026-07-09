@@ -1,4 +1,7 @@
-# Backend API Test
+---
+title: Backend API testing
+description: Live backend HTTP API integration testing workflow for stellad against Postgres.
+---
 
 Drive the backend HTTP API directly against a running `stellad` and a real Postgres,
 then assert in the database. This is API / integration testing, not end-to-end —

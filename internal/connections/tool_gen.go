@@ -91,6 +91,12 @@ const InputSchemaJSON = `{
         "status"
       ],
       "type": "string"
+    },
+    "flow_id": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
     }
   },
   "required": [

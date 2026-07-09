@@ -394,6 +394,145 @@ const InputSchemaJSON = `{
         "save"
       ],
       "type": "string"
+    },
+    "article_id": {
+      "nullable": true,
+      "type": "string"
+    },
+    "articles": {
+      "items": {
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "canonical_url": {
+            "type": "string"
+          },
+          "content": {
+            "description": "Markdown body. If empty and the article exists, only metadata is updated; if empty and the article is new, the request fails 400.",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "published_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "source_type": {
+            "enum": [
+              "web",
+              "twitter",
+              "youtube",
+              "github",
+              "rss",
+              "pdf"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "type": "array"
+    },
+    "canonical_url": {
+      "type": "string"
+    },
+    "date": {
+      "description": "YYYY-MM-DD; defaults to today if omitted",
+      "type": "string"
+    },
+    "error_msg": {
+      "type": "string"
+    },
+    "feed_id": {
+      "type": "string"
+    },
+    "guid": {
+      "description": "Stable per-source item id; the dedup key (unique per feed)",
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "description": "Escape hatch to force the feed kind. Omit to let the server sniff it from the URL (x.com/twitter.com → twitter, otherwise rss).",
+      "enum": [
+        "rss",
+        "twitter",
+        "website"
+      ],
+      "type": "string"
+    },
+    "limit": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "narrative": {
+      "type": "string"
+    },
+    "page_size": {
+      "default": 20,
+      "maximum": 500,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "page_token": {
+      "type": "string"
+    },
+    "q": {
+      "type": "string"
+    },
+    "source_type": {
+      "enum": [
+        "web",
+        "twitter",
+        "youtube",
+        "github",
+        "rss",
+        "pdf"
+      ],
+      "type": "string"
+    },
+    "starred": {
+      "type": "boolean"
+    },
+    "status": {
+      "type": "string"
+    },
+    "title": {
+      "description": "Optional override; server fetches feed metadata if omitted (rss only)",
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
     }
   },
   "required": [

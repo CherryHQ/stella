@@ -10,11 +10,10 @@ description: >
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
   Also triggers when the user wants to report a bug or file a GitHub issue about stella:
   "report this bug", "create an issue for this", "报告这个 issue", "帮我建个 issue".
-  Read this BEFORE working on any goal — not only when asked how stella works, but
-  whenever you are about to act on one: "run this in the background", "what's the status of
-  this goal", "why is this blocked", "decompose this", "review/accept this",
-  "后台跑", "拆解成子目标", "为什么卡住了", "验收". Read references/goals.md for how a
-  goal converges through its acceptance contract and what your worker contract is.
+  Also triggers on goal-model work — goal status, "why is this blocked", "decompose this",
+  "review/accept this", "为什么卡住了", "拆解成子目标", "验收", or being dispatched as a goal
+  worker: read references/goals.md. Merely creating a goal does not — write a clear intent
+  and call the goal tool.
 ---
 
 # Stella Self-Knowledge

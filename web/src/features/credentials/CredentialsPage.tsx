@@ -387,12 +387,12 @@ export function CredentialsPage() {
       showToast(t("credentials.secretValueRequired"), "error");
       return;
     }
-    const agentScoped = formRange === "specific";
+    const scope = toVaultScope(formOwner, formRange);
+    const agentScoped = isAgentVaultScope(scope);
     if (agentScoped && !formAgentID) {
       showToast(t("credentials.scope.agentMissing"), "error");
       return;
     }
-    const scope = toVaultScope(formOwner, formRange);
     setVaultSaving(true);
     try {
       await setScopedVaultEntry({
@@ -401,9 +401,9 @@ export function CredentialsPage() {
           value,
           scope,
           agent_id: agentScoped ? formAgentID : undefined,
-          inject_always: injectAlways,
-          inject_agent_ids: injectAlways ? [] : injectAgentIDs,
-          inject_project_ids: injectAlways ? [] : injectProjectIDs,
+          inject_always: agentScoped ? false : injectAlways,
+          inject_agent_ids: agentScoped || injectAlways ? [] : injectAgentIDs,
+          inject_project_ids: agentScoped || injectAlways ? [] : injectProjectIDs,
         },
         throwOnError: true,
       });
@@ -604,6 +604,12 @@ export function CredentialsPage() {
   const injectionBadge = (entry: VaultEntry) => {
     const entryBoundCount =
       (entry.inject_agent_ids?.length ?? 0) + (entry.inject_project_ids?.length ?? 0);
+    if (isAgentVaultScope(entry.scope))
+      return (
+        <Badge variant="success" size="sm">
+          {t("credentials.injection.state.auto")}
+        </Badge>
+      );
     if (entry.inject_always)
       return (
         <Badge variant="success" size="sm">
@@ -712,68 +718,78 @@ export function CredentialsPage() {
 
       <div className="space-y-3 border-t border-border pt-4">
         <FormSectionTitle>{t("credentials.injection.title")}</FormSectionTitle>
-        <p className="text-xs text-muted-foreground">{t("credentials.injection.hint")}</p>
-        <div className="flex items-center justify-between gap-3">
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-foreground">
-              {t("credentials.injection.always")}
-            </p>
-            <p className="text-xs text-muted-foreground">{t("credentials.injection.alwaysDesc")}</p>
-          </div>
-          <Switch checked={injectAlways} onCheckedChange={setInjectAlways} />
-        </div>
-        {!injectAlways && (
-          <div className="grid gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t("credentials.injection.agents")}
-              </label>
-              <Select
-                multiple
-                value={injectAgentIDs}
-                onValueChange={(value) => setInjectAgentIDs((value as string[]) ?? [])}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t("credentials.injection.selectAgents")}>
-                    {(value) => agentBindingLabel((value as string[]) ?? [])}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {agents.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.id}>
-                      {agent.name || agent.id}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
+        {isAgentVaultScope(formScope) ? (
+          <p className="text-xs text-muted-foreground">{t("credentials.injection.autoAgent")}</p>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">{t("credentials.injection.hint")}</p>
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-foreground">
+                  {t("credentials.injection.always")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("credentials.injection.alwaysDesc")}
+                </p>
+              </div>
+              <Switch checked={injectAlways} onCheckedChange={setInjectAlways} />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t("credentials.injection.projects")}
-              </label>
-              <Select
-                multiple
-                value={injectProjectIDs}
-                onValueChange={(value) => setInjectProjectIDs((value as string[]) ?? [])}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t("credentials.injection.selectProjects")}>
-                    {(value) => projectBindingLabel((value as string[]) ?? [])}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {projects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
-                      {project.name} · {project.agent_name}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </div>
-            {boundCount === 0 && (
-              <p className="text-xs text-muted-foreground">{t("credentials.injection.offHint")}</p>
+            {!injectAlways && (
+              <div className="grid gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("credentials.injection.agents")}
+                  </label>
+                  <Select
+                    multiple
+                    value={injectAgentIDs}
+                    onValueChange={(value) => setInjectAgentIDs((value as string[]) ?? [])}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={t("credentials.injection.selectAgents")}>
+                        {(value) => agentBindingLabel((value as string[]) ?? [])}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {agents.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {agent.name || agent.id}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("credentials.injection.projects")}
+                  </label>
+                  <Select
+                    multiple
+                    value={injectProjectIDs}
+                    onValueChange={(value) => setInjectProjectIDs((value as string[]) ?? [])}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={t("credentials.injection.selectProjects")}>
+                        {(value) => projectBindingLabel((value as string[]) ?? [])}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {projects.map((project) => (
+                        <SelectItem key={project.id} value={project.id}>
+                          {project.name} · {project.agent_name}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </div>
+                {boundCount === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("credentials.injection.offHint")}
+                  </p>
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
 

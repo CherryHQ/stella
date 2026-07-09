@@ -197,6 +197,134 @@ func TestFactsMigrationDownFlushesActiveIdentityFacts(t *testing.T) {
 	}
 }
 
+func TestReflectProvenanceBackfillMarksOnlyLegacyReflectFacts(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, 20260707092307); err != nil {
+		t.Fatalf("goose down to before reflect provenance backfill: %v", err)
+	}
+
+	userID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, 'reflect-backfill@test.local')`, userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	agentReflect := "reflect-backfill-agent"
+	agentManualLatest := "manual-latest-agent"
+	agentAmbiguous := "ambiguous-agent"
+	agentContentMismatch := "content-mismatch-agent"
+	agentDeprecated := "deprecated-agent"
+	for _, agentID := range []string{agentReflect, agentManualLatest, agentAmbiguous, agentContentMismatch, agentDeprecated} {
+		if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, $1, '/tmp')`, agentID); err != nil {
+			t.Fatalf("seed agent %s: %v", agentID, err)
+		}
+		if _, err := db.Exec(ctx, `INSERT INTO ctx_agent_memory (user_id, agent_id, version) VALUES ($1, $2, 3)`, userID, agentID); err != nil {
+			t.Fatalf("seed memory row %s: %v", agentID, err)
+		}
+	}
+
+	reflectProfileFactID := uuid.NewString()
+	reflectSoulFactID := uuid.NewString()
+	manualLatestFactID := uuid.NewString()
+	ambiguousFactID := uuid.NewString()
+	contentMismatchFactID := uuid.NewString()
+	deprecatedFactID := uuid.NewString()
+	seedMigratedFact := func(id, agentID, subject, status, content string) {
+		t.Helper()
+		if _, err := db.Exec(ctx, `
+			INSERT INTO facts (id, subject, scope, user_id, agent_id, content, status, metadata, version, source, created_at, updated_at)
+			VALUES ($1, $2, 'user_agent', $3, $4, $5, $6, '{"migration":"20260625090000_add_facts_memory"}', 1, 'manual', now(), now())`,
+			id, subject, userID, agentID, content, status); err != nil {
+			t.Fatalf("seed fact %s: %v", id, err)
+		}
+		if _, err := db.Exec(ctx, `
+			INSERT INTO ctx_agent_memory_changelog (id, user_id, agent_id, entity_id, scope, action, source, memory_version_after, after_text, metadata)
+			VALUES ($1, $2, $3, $4, 'fact', 'create', 'manual', 3, jsonb_build_object(
+				'id', $4::text,
+				'subject', $5::text,
+				'scope', 'user_agent',
+				'user_id', $2::uuid::text,
+				'agent_id', $3::text,
+				'content', $6::text,
+				'status', $7::text,
+				'metadata', jsonb_build_object('migration', '20260625090000_add_facts_memory'),
+				'version', 1,
+				'source', 'manual',
+				'created_at', now(),
+				'updated_at', now()
+			)::text, '{"migration":"20260625090000_add_facts_memory"}')`,
+			uuid.NewString(), userID, agentID, id, subject, content, status); err != nil {
+			t.Fatalf("seed fact changelog %s: %v", id, err)
+		}
+	}
+	seedMigratedFact(reflectProfileFactID, agentReflect, "user", "active", "reflect generated profile")
+	seedMigratedFact(reflectSoulFactID, agentReflect, "agent", "active", "reflect generated soul")
+	seedMigratedFact(manualLatestFactID, agentManualLatest, "user", "active", "manual latest profile")
+	seedMigratedFact(ambiguousFactID, agentAmbiguous, "user", "active", "ambiguous profile")
+	seedMigratedFact(contentMismatchFactID, agentContentMismatch, "user", "active", "locally edited profile")
+	seedMigratedFact(deprecatedFactID, agentDeprecated, "user", "deprecated", "deprecated reflect profile")
+
+	seedLegacyIdentityChangelog := func(agentID, scope, source string, version int, after string) {
+		t.Helper()
+		if _, err := db.Exec(ctx, `
+			INSERT INTO ctx_agent_memory_changelog (id, user_id, agent_id, scope, action, source, memory_version_after, after_text)
+			VALUES ($1, $2, $3, $4, 'update', $5, $6, $7)`,
+			uuid.NewString(), userID, agentID, scope, source, version, after); err != nil {
+			t.Fatalf("seed legacy %s changelog for %s: %v", scope, agentID, err)
+		}
+	}
+	seedLegacyIdentityChangelog(agentReflect, "profile", "manual", 1, "old manual profile")
+	seedLegacyIdentityChangelog(agentReflect, "profile", "reflect", 2, "reflect generated profile")
+	seedLegacyIdentityChangelog(agentReflect, "soul", "reflect", 2, "reflect generated soul")
+	seedLegacyIdentityChangelog(agentManualLatest, "profile", "reflect", 1, "manual latest profile")
+	seedLegacyIdentityChangelog(agentManualLatest, "profile", "manual", 2, "manual latest profile")
+	seedLegacyIdentityChangelog(agentContentMismatch, "profile", "reflect", 1, "legacy reflect profile")
+	seedLegacyIdentityChangelog(agentDeprecated, "profile", "reflect", 1, "deprecated reflect profile")
+
+	if _, err := provider.UpTo(ctx, 20260708090000); err != nil {
+		t.Fatalf("goose up reflect provenance backfill: %v", err)
+	}
+
+	assertFactSource := func(id, want string) {
+		t.Helper()
+		var got string
+		if err := db.QueryRow(ctx, `SELECT source FROM facts WHERE id = $1`, id).Scan(&got); err != nil {
+			t.Fatalf("read fact source %s: %v", id, err)
+		}
+		if got != want {
+			t.Fatalf("fact %s source = %q, want %q", id, got, want)
+		}
+	}
+	assertFactSource(reflectProfileFactID, "reflect")
+	assertFactSource(reflectSoulFactID, "reflect")
+	assertFactSource(manualLatestFactID, "manual")
+	assertFactSource(ambiguousFactID, "manual")
+	assertFactSource(contentMismatchFactID, "manual")
+	assertFactSource(deprecatedFactID, "manual")
+
+	var changelogSource, payloadSource string
+	if err := db.QueryRow(ctx, `
+		SELECT source, after_text::jsonb->>'source'
+		FROM ctx_agent_memory_changelog
+		WHERE scope = 'fact' AND entity_id = $1`,
+		reflectProfileFactID).Scan(&changelogSource, &payloadSource); err != nil {
+		t.Fatalf("read migrated fact changelog source: %v", err)
+	}
+	if changelogSource != "reflect" || payloadSource != "reflect" {
+		t.Fatalf("migrated fact changelog source = %q payload=%q, want reflect/reflect", changelogSource, payloadSource)
+	}
+}
+
 func tableExists(t *testing.T, db *pgxpool.Pool, name string) bool {
 	t.Helper()
 

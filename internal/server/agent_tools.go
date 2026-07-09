@@ -59,12 +59,25 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	scope := agent.ToolOverrideScopeUserAgent
+	if req.Scope != nil && *req.Scope != "" {
+		scope = string(*req.Scope)
+	}
+	agentCtxID := ""
+	if isAgentToolOverrideScope(scope) {
+		agentCtxID = id
+	}
+	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentCtxID)
+	if !ok {
+		return
+	}
+
 	if req.Enabled == nil {
 		if err := s.q.DeleteToolOverride(ctx, sqlc.DeleteToolOverrideParams{
 			ToolName: toolName,
-			Scope:    agent.ToolOverrideScopeUserAgent,
-			UserID:   pgnull.Text(info.UserID),
-			AgentID:  pgnull.Text(id),
+			Scope:    scope,
+			UserID:   pgnull.Text(userID),
+			AgentID:  pgnull.Text(agentID),
 		}); err != nil {
 			s.writeInternalError(w, err)
 			return
@@ -72,9 +85,9 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 	} else {
 		if _, err := s.q.UpsertToolOverride(ctx, sqlc.UpsertToolOverrideParams{
 			ToolName: toolName,
-			Scope:    agent.ToolOverrideScopeUserAgent,
-			UserID:   pgnull.Text(info.UserID),
-			AgentID:  pgnull.Text(id),
+			Scope:    scope,
+			UserID:   pgnull.Text(userID),
+			AgentID:  pgnull.Text(agentID),
 			Enabled:  *req.Enabled,
 		}); err != nil {
 			s.writeInternalError(w, err)
@@ -111,6 +124,7 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		items = append(items, types.AgentTool{
 			Name: def.Name, Description: def.Description,
 			Source: agentToolSourceCore, Enabled: true, Origin: agent.ToolOverrideOriginDefault,
+			InputSchema: toolInputSchema(def.InputSchema),
 		})
 	}
 
@@ -125,6 +139,7 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		items = append(items, types.AgentTool{
 			Name: def.Name, Description: def.Description,
 			Source: agentToolSourceBuiltin, Enabled: decision.Enabled, Origin: decision.Origin,
+			InputSchema: toolInputSchema(def.InputSchema),
 		})
 	}
 
@@ -163,6 +178,20 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		return items[i].Name < items[j].Name
 	})
 	return items, nil
+}
+
+// toolInputSchema adapts a tool definition's JSON input schema to the pointer
+// shape the API type uses, returning nil for an empty schema so the field is
+// omitted rather than serialized as an empty object.
+func toolInputSchema(schema map[string]any) *map[string]any {
+	if len(schema) == 0 {
+		return nil
+	}
+	return &schema
+}
+
+func isAgentToolOverrideScope(scope string) bool {
+	return scope == agent.ToolOverrideScopeUserAgent || scope == agent.ToolOverrideScopeSystemAgent
 }
 
 func toolSourceOrder(source string) int {

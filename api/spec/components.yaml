@@ -161,6 +161,11 @@ components:
           type: boolean
         origin:
           type: string
+        input_schema:
+          type: object
+          additionalProperties: true
+          description: >-
+            JSON Schema for the tool's arguments. Present for core and builtin tools; omitted for plugin and MCP tools whose schema is not resolved by this endpoint.
     AgentToolList:
       type: object
       required: [tools]
@@ -174,6 +179,10 @@ components:
       properties:
         enabled:
           type: boolean
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+          default: user_agent
     Skill:
       type: object
       properties:
