@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func testLogger() *slog.Logger {
@@ -75,6 +78,41 @@ func (f *fakeWatermarks) lineSeq(sessionID string, line reflectLine) int64 {
 
 func fakeLineWatermarkKey(sessionID string, line reflectLine) string {
 	return sessionID + ":" + string(line)
+}
+
+type mapStateStore struct {
+	values map[string]map[string]any
+}
+
+func newMapStateStore() *mapStateStore {
+	return &mapStateStore{values: make(map[string]map[string]any)}
+}
+
+func (s *mapStateStore) Get(_ context.Context, scope pkgplugins.StateScope, key string) (map[string]any, bool, error) {
+	value, ok := s.values[mapStateKey(scope, key)]
+	if !ok {
+		return nil, false, nil
+	}
+	out := make(map[string]any, len(value))
+	maps.Copy(out, value)
+	return out, true, nil
+}
+
+func (s *mapStateStore) Set(_ context.Context, scope pkgplugins.StateScope, key string, value map[string]any) error {
+	copyValue := make(map[string]any, len(value))
+	maps.Copy(copyValue, value)
+	s.values[mapStateKey(scope, key)] = copyValue
+	return nil
+}
+
+func (s *mapStateStore) Delete(_ context.Context, scope pkgplugins.StateScope, key string) error {
+	delete(s.values, mapStateKey(scope, key))
+	return nil
+}
+
+func mapStateKey(scope pkgplugins.StateScope, key string) string {
+	normalized := scope.Normalize()
+	return normalized.Kind + ":" + normalized.ID + ":" + key
 }
 
 type reviewListOnlyFake struct {
@@ -292,5 +330,67 @@ func TestListUnreviewed_BatchLimit(t *testing.T) {
 	}
 	if len(targets) != 2 {
 		t.Fatalf("expected 2 review targets (batch limit), got %d", len(targets))
+	}
+}
+
+func TestListUnreviewed_UsesMaxReviewTargetsPerAgent(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{
+		memory:                   fake,
+		wm:                       newFakeWatermarks(),
+		batch:                    10,
+		maxReviewTargetsPerAgent: 30,
+		log:                      testLogger(),
+	}
+
+	now := time.Now().UTC()
+	for i := range 35 {
+		seedFakeSession(t, fake, fmt.Sprintf("s%02d", i), "a", fmt.Sprintf("%d", i+1), now.Add(time.Duration(i)*time.Minute))
+	}
+
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 30 {
+		t.Fatalf("expected 30 review targets (per-agent drain cap), got %d", len(targets))
+	}
+}
+
+func TestReviewAgentCursorRotatesAgentOrder(t *testing.T) {
+	ctx := context.Background()
+	state := newMapStateStore()
+	svc := &Service{stateStore: state, log: testLogger()}
+	agents := []config.Agent{{ID: "agent-a"}, {ID: "agent-b"}, {ID: "agent-c"}}
+
+	if err := state.Set(ctx, pkgplugins.StateScope{Kind: pkgplugins.StateScopeGlobal}, reviewAgentCursorStateKey, map[string]any{
+		"next_agent_id": "agent-b",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ordered := svc.orderAgentsForReview(ctx, agents)
+	gotOrder := []string{ordered[0].ID, ordered[1].ID, ordered[2].ID}
+	wantOrder := []string{"agent-b", "agent-c", "agent-a"}
+	if fmt.Sprint(gotOrder) != fmt.Sprint(wantOrder) {
+		t.Fatalf("ordered agents = %v, want %v", gotOrder, wantOrder)
+	}
+
+	svc.recordNextReviewAgentCursor(ctx, ordered, len(ordered))
+	value, ok, err := state.Get(ctx, pkgplugins.StateScope{Kind: pkgplugins.StateScopeGlobal}, reviewAgentCursorStateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || value["next_agent_id"] != "agent-c" {
+		t.Fatalf("cursor after full pass = %#v, want next agent-c", value)
+	}
+
+	svc.recordNextReviewAgentCursor(ctx, ordered, 2)
+	value, _, err = state.Get(ctx, pkgplugins.StateScope{Kind: pkgplugins.StateScopeGlobal}, reviewAgentCursorStateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value["next_agent_id"] != "agent-a" {
+		t.Fatalf("cursor after partial pass = %#v, want next unprocessed agent-a", value)
 	}
 }

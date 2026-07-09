@@ -35,10 +35,9 @@ type Config struct {
 	Log               *slog.Logger
 	Providers         func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 	CandidateGates    CandidateGateSettings
-	// UsageCuratorSettings is intentionally package-local while production runs
-	// shadow-first. Wiring an armed production switch is a follow-up; armed mode
-	// itself must still stay correct for tests and future enablement.
-	UsageCuratorSettings usageCuratorSettings
+	// UsageCuratorSettings defaults to shadow mode. Production may enable armed
+	// mode explicitly via host wiring; restore/undelete remains tracked in #696.
+	UsageCuratorSettings UsageCuratorSettings
 	// Services provides per-agent session registries for review target listing.
 	// When set, reflect uses Registry.ListForReview and Registry.MemoryScope
 	// instead of calling memory.SessionManager directly.
@@ -68,7 +67,7 @@ type Service struct {
 	log                      *slog.Logger
 	providers                func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 	candidateGates           CandidateGateSettings
-	usageCuratorSettings     usageCuratorSettings
+	usageCuratorSettings     UsageCuratorSettings
 	services                 agent.ServiceManager
 }
 

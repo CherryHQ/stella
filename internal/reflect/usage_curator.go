@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	usageCuratorModeShadow usageCuratorMode = "shadow"
-	usageCuratorModeArmed  usageCuratorMode = "armed"
+	UsageCuratorModeShadow UsageCuratorMode = "shadow"
+	UsageCuratorModeArmed  UsageCuratorMode = "armed"
 
 	defaultKnowledgeMaxIdle        = 20 * 24 * time.Hour
 	defaultSkillMaxIdle            = 60 * 24 * time.Hour
@@ -27,12 +27,12 @@ const (
 	usageCuratorSkillRuleLowUse usageCuratorSkillRule = "low_use"
 )
 
-type usageCuratorMode string
+type UsageCuratorMode string
 
 type usageCuratorSkillRule string
 
-type usageCuratorSettings struct {
-	Mode               usageCuratorMode
+type UsageCuratorSettings struct {
+	Mode               UsageCuratorMode
 	KnowledgeMaxIdle   time.Duration
 	SkillMaxIdle       time.Duration
 	SkillLowUseIdle    time.Duration
@@ -41,9 +41,16 @@ type usageCuratorSettings struct {
 	Now                func() time.Time
 }
 
-func (s usageCuratorSettings) withDefaults() usageCuratorSettings {
+const (
+	usageCuratorModeShadow = UsageCuratorModeShadow
+	usageCuratorModeArmed  = UsageCuratorModeArmed
+)
+
+type usageCuratorSettings = UsageCuratorSettings
+
+func (s UsageCuratorSettings) withDefaults() UsageCuratorSettings {
 	if s.Mode == "" {
-		s.Mode = usageCuratorModeShadow
+		s.Mode = UsageCuratorModeShadow
 	}
 	if s.KnowledgeMaxIdle <= 0 {
 		s.KnowledgeMaxIdle = defaultKnowledgeMaxIdle
@@ -112,7 +119,7 @@ type usageCuratorSkillCandidate struct {
 }
 
 type usageCuratorReport struct {
-	Mode                usageCuratorMode
+	Mode                UsageCuratorMode
 	KnowledgeCandidates int
 	KnowledgeDeprecated int
 	SkillCandidates     int

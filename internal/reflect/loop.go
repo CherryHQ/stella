@@ -42,8 +42,15 @@ func (s *Service) runCycle(ctx context.Context) error {
 	ctx, span := startCycleSpan(ctx, len(agents))
 	defer span.End()
 
+	agents = s.orderAgentsForReview(ctx, agents)
 	totalReviewed := 0
+	processedAgents := 0
 	for _, agent := range agents {
+		if err := ctx.Err(); err != nil {
+			s.recordNextReviewAgentCursor(ctx, agents, processedAgents)
+			return err
+		}
+		processedAgents++
 		snap, err := s.store.Snapshot(ctx, agent.ID)
 		if err != nil {
 			s.log.Error("reflect: snapshot", "agent", agent.ID, "error", err)
@@ -55,6 +62,7 @@ func (s *Service) runCycle(ctx context.Context) error {
 		}
 		totalReviewed += n
 	}
+	s.recordNextReviewAgentCursor(ctx, agents, processedAgents)
 
 	span.SetAttributes(attribute.Int("stella.reflect.sessions_reviewed", totalReviewed))
 	expireDrafts(s.skillStore, defaultDraftMaxAge, s.log)

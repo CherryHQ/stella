@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/reflect"
@@ -26,6 +27,11 @@ const (
 // — it exists so verifying reflect's wiring doesn't require a code rebuild.
 func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config) error {
 	every := resolveReflectInterval()
+	usageCuratorSettings, err := resolveUsageCuratorSettings()
+	if err != nil {
+		return err
+	}
+	cfg.UsageCuratorSettings = usageCuratorSettings
 
 	handler, err := reflect.NewBuiltinHandler(cfg)
 	if err != nil {
@@ -38,7 +44,7 @@ func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config) error {
 	}); err != nil {
 		return fmt.Errorf("register reflect builtin: %w", err)
 	}
-	slog.Info("reflect: registered scheduler builtin", "every", every)
+	slog.Info("reflect: registered scheduler builtin", "every", every, "usage_curator_mode", usageCuratorSettings.Mode)
 	return nil
 }
 
@@ -59,4 +65,19 @@ func resolveReflectInterval() time.Duration {
 		return minReflectInterval
 	}
 	return parsed
+}
+
+func resolveUsageCuratorSettings() (reflect.UsageCuratorSettings, error) {
+	raw := strings.TrimSpace(os.Getenv("STELLA_REFLECT_CURATOR_MODE"))
+	if raw == "" {
+		return reflect.UsageCuratorSettings{Mode: reflect.UsageCuratorModeShadow}, nil
+	}
+	switch strings.ToLower(raw) {
+	case string(reflect.UsageCuratorModeShadow):
+		return reflect.UsageCuratorSettings{Mode: reflect.UsageCuratorModeShadow}, nil
+	case string(reflect.UsageCuratorModeArmed):
+		return reflect.UsageCuratorSettings{Mode: reflect.UsageCuratorModeArmed}, nil
+	default:
+		return reflect.UsageCuratorSettings{}, fmt.Errorf("reflect: unsupported STELLA_REFLECT_CURATOR_MODE %q (want shadow or armed)", raw)
+	}
 }

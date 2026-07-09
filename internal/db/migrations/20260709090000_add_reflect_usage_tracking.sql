@@ -13,6 +13,17 @@ CREATE TABLE "knowledge_usage" (
 
 CREATE INDEX "idx_knowledge_usage_last_used" ON "knowledge_usage" ("last_used_at", "fact_id");
 
+-- Backfill usage only for records that already carry durable Reflect ownership.
+-- This does not infer provenance for legacy skill-backed knowledge or skills.
+INSERT INTO "knowledge_usage" ("fact_id", "user_id", "agent_id", "last_used_at", "created_at")
+SELECT f."id", f."user_id", f."agent_id", now(), now()
+FROM "facts" f
+WHERE f."scope" = 'user_agent'
+  AND f."subject" = 'world'
+  AND f."status" = 'active'
+  AND f."source" = 'reflect'
+ON CONFLICT ("fact_id") DO NOTHING;
+
 CREATE TABLE "skill_usage" (
   "skill_id" text NOT NULL,
   "user_id" uuid NOT NULL,
@@ -27,6 +38,16 @@ CREATE TABLE "skill_usage" (
 );
 
 CREATE INDEX "idx_skill_usage_last_used" ON "skill_usage" ("last_used_at", "use_count", "skill_id");
+
+-- Same boundary as knowledge: seed usage for already-marked Reflect-owned
+-- skills only. Unmarked legacy skills remain outside curator ownership.
+INSERT INTO "skill_usage" ("skill_id", "user_id", "agent_id", "use_count", "last_used_at", "created_at")
+SELECT s."id", s."user_id", s."agent_id", 1, now(), now()
+FROM "skill" s
+WHERE s."scope" = 'user_agent'
+  AND s."status" = 'active'
+  AND s."metadata"->>'created_by' = 'reflect'
+ON CONFLICT ("skill_id") DO NOTHING;
 
 ALTER TABLE "skill_changelog" DROP CONSTRAINT "skill_changelog_action_check";
 ALTER TABLE "skill_changelog"

@@ -73,3 +73,12 @@ func TestNewBuiltinHandlerRejectsMissingDeps(t *testing.T) {
 		t.Fatal("expected error for missing deps, got nil")
 	}
 }
+
+func TestNewBuiltinHandlerRejectsArmedCuratorWithoutStore(t *testing.T) {
+	cfg := validConfig(&fakeReflectStore{})
+	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeArmed}
+
+	if _, err := NewBuiltinHandler(cfg); err == nil {
+		t.Fatal("expected error for armed usage curator without store")
+	}
+}

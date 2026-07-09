@@ -29,6 +29,9 @@ func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
 	if cfg.Providers == nil {
 		return nil, fmt.Errorf("reflect: Providers builder is required")
 	}
+	if cfg.UsageCuratorSettings.withDefaults().Mode == UsageCuratorModeArmed && cfg.UsageCuratorStore == nil {
+		return nil, fmt.Errorf("reflect: UsageCuratorStore is required for armed usage curator")
+	}
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
