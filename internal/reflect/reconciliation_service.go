@@ -12,7 +12,9 @@ func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarg
 	if !ok {
 		return fmt.Errorf("fact reconciliation: memory provider does not support fact reads")
 	}
-	writer, ok := s.memory.(factBatchWriter)
+	// Tracing wrappers expose read interfaces but batch writes live on the
+	// underlying memory provider.
+	writer, ok := memory.Unwrap(s.memory).(factBatchWriter)
 	if !ok {
 		return fmt.Errorf("fact reconciliation: memory provider does not support fact batch writes")
 	}

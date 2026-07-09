@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -42,7 +43,9 @@ func (s *Service) maybeRunUsageCurator(ctx context.Context) {
 }
 
 func (s *Service) runUsageCuratorOnce(ctx context.Context, settings usageCuratorSettings) (usageCuratorReport, error) {
-	factWriter, _ := s.memory.(factBatchWriter)
+	// Reflect may receive a traced memory provider in production; the write
+	// capability belongs to the wrapped provider.
+	factWriter, _ := memory.Unwrap(s.memory).(factBatchWriter)
 	skillWriter, _ := s.skillStore.(usageCuratorSkillWriter)
 	return runUsageCurator(ctx, usageCuratorRunConfig{
 		Store:       s.usageCuratorStore,

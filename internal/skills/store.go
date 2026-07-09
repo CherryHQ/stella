@@ -76,6 +76,10 @@ type Store interface {
 	// as deprecated under optimistic version control and removes usage tracking.
 	DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillDeprecate) (Skill, error)
 
+	// RestoreReflectOwnedUserAgentSkill restores a usage-curator-deprecated
+	// Reflect-owned user_agent skill for internal/admin recovery.
+	RestoreReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillRestore) (ReflectSkillRestoreResult, error)
+
 	// TouchReflectSkillRuntimeUse records a successful runtime load of a
 	// Reflect-owned user_agent skill. Implementations recheck owner/status.
 	TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error

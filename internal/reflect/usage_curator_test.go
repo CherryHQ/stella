@@ -20,6 +20,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -105,6 +106,35 @@ func TestUsageCuratorArmedDeprecatesKnowledgeAndSkills(t *testing.T) {
 	}
 	if got := skillWriter.inputs[0]; got.ID != "skill-1" || got.ExpectedVersion != 3 {
 		t.Fatalf("skill deprecate input = %#v, want skill-1 v3", got)
+	}
+}
+
+func TestUsageCuratorArmedUsesFactWriterBehindTracing(t *testing.T) {
+	inner := &fakeUsageCuratorMemoryProvider{}
+	svc := &Service{
+		memory: memory.WithTracing(inner, nil),
+		usageCuratorStore: fakeUsageCuratorStore{
+			knowledge: []usageCuratorKnowledgeCandidate{{
+				FactID:     "fact-1",
+				UserID:     "user-1",
+				AgentID:    "agent-1",
+				LastUsedAt: fixedUsageCuratorNow().Add(-30 * 24 * time.Hour),
+			}},
+		},
+	}
+
+	report, err := svc.runUsageCuratorOnce(context.Background(), UsageCuratorSettings{
+		Mode: UsageCuratorModeArmed,
+		Now:  fixedUsageCuratorNow,
+	})
+	if err != nil {
+		t.Fatalf("runUsageCuratorOnce: %v", err)
+	}
+	if report.KnowledgeDeprecated != 1 {
+		t.Fatalf("KnowledgeDeprecated = %d, want 1", report.KnowledgeDeprecated)
+	}
+	if len(inner.calls) != 1 {
+		t.Fatalf("fact writer calls = %d, want 1", len(inner.calls))
 	}
 }
 
@@ -479,6 +509,16 @@ func TestSQLRecentlyForgottenStoreListsRestorableKnowledgeAndSkillCandidates(t *
 	}}); err != nil {
 		t.Fatalf("deprecate reflect fact: %v", err)
 	}
+	if _, err := memorywrite.CreateFact(ctx, db, q, memory.FactWrite{
+		UserID:     userID,
+		AgentID:    agentID,
+		Subject:    memory.FactSubjectWorld,
+		Content:    "Replacement knowledge should not hide forgotten candidate.",
+		Supersedes: fact.ID,
+		Source:     memory.SourceReflect,
+	}); err != nil {
+		t.Fatalf("create replacement reflect fact: %v", err)
+	}
 
 	skillStore := skills.New(db)
 	skill, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
@@ -659,6 +699,28 @@ func (w *fakeUsageCuratorFactWriter) ApplyFactBatch(_ context.Context, userID st
 	}
 	return facts, nil
 }
+
+type fakeUsageCuratorMemoryProvider struct {
+	fakeUsageCuratorFactWriter
+}
+
+func (p *fakeUsageCuratorMemoryProvider) Name() string { return "fake-usage-curator-memory" }
+
+func (p *fakeUsageCuratorMemoryProvider) Bootstrap(context.Context, memory.Session) error { return nil }
+
+func (p *fakeUsageCuratorMemoryProvider) Append(context.Context, memory.Session, ...ai.Message) error {
+	return nil
+}
+
+func (p *fakeUsageCuratorMemoryProvider) Assemble(context.Context, memory.Session, int, int) ([]ai.Message, error) {
+	return nil, nil
+}
+
+func (p *fakeUsageCuratorMemoryProvider) Stats(context.Context, memory.Session) (memory.SessionStats, error) {
+	return memory.SessionStats{}, nil
+}
+
+func (p *fakeUsageCuratorMemoryProvider) Close() error { return nil }
 
 type fakeUsageCuratorSkillWriter struct {
 	inputs []skills.ReflectSkillDeprecate

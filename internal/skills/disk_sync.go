@@ -102,15 +102,9 @@ func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in 
 }
 
 func (d *DiskSyncStore) RestoreReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillRestore) (ReflectSkillRestoreResult, error) {
-	store, ok := d.Store.(interface {
-		RestoreReflectOwnedUserAgentSkill(context.Context, ReflectSkillRestore) (ReflectSkillRestoreResult, error)
-	})
-	if !ok {
-		return ReflectSkillRestoreResult{}, fmt.Errorf("disk_sync: inner store does not support reflect restore")
-	}
 	// Deprecating a Reflect skill only changes DB status and usage rows, so restore
 	// does not need extra disk writes; the skill files should already be present.
-	return store.RestoreReflectOwnedUserAgentSkill(ctx, in)
+	return d.Store.RestoreReflectOwnedUserAgentSkill(ctx, in)
 }
 
 func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) error {

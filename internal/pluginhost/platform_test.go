@@ -2,6 +2,7 @@ package pluginhost
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -56,6 +57,59 @@ func TestSkillStoreAdapterTouchesReflectSkillUsageThroughDiskSync(t *testing.T) 
 	}
 	if after != before+1 {
 		t.Fatalf("use_count after touch = %d, want %d", after, before+1)
+	}
+}
+
+func TestSkillStoreAdapterRestoresReflectSkillThroughDiskSync(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	userID, agentID := seedSkillAdapterFixtures(t, db)
+	raw := skills.New(db)
+	store := skills.NewDiskSyncStore(raw, func(scope, agentID string, userID string) string {
+		return ""
+	})
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
+		UserID:          userID,
+		AgentID:         agentID,
+		Name:            "reflect-adapter-restore",
+		Description:     "created by reflect",
+		MainFileContent: "# Reflect Adapter Restore\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+	deprecated, err := store.DeprecateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDeprecate{
+		ID:              created.ID,
+		UserID:          userID,
+		AgentID:         agentID,
+		ExpectedVersion: created.Version,
+		Metadata:        json.RawMessage(`{"curator":"usage","rule":"adapter_restore","use_count":2,"last_used_at":"2026-06-01T00:00:00Z"}`),
+	})
+	if err != nil {
+		t.Fatalf("DeprecateReflectOwnedUserAgentSkill: %v", err)
+	}
+
+	restorer, ok := NewSkillStoreAdapter(store).(interface {
+		RestoreReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillRestore) (skills.ReflectSkillRestoreResult, error)
+	})
+	if !ok {
+		t.Fatal("skill store adapter does not expose reflect restore")
+	}
+	result, err := restorer.RestoreReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillRestore{
+		ID:         deprecated.ID,
+		UserID:     userID,
+		AgentID:    agentID,
+		RestoredBy: "test",
+		Reason:     "adapter restore test",
+	})
+	if err != nil {
+		t.Fatalf("RestoreReflectOwnedUserAgentSkill: %v", err)
+	}
+	if !result.Restored {
+		t.Fatal("RestoreReflectOwnedUserAgentSkill restored = false, want true")
+	}
+	if result.Skill.Status != "active" {
+		t.Fatalf("restored skill status = %q, want active", result.Skill.Status)
 	}
 }
 

@@ -9,9 +9,9 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// skillStoreAdapter adapts internal/skills.Store to pkg/plugins.SkillStore.
-// Both interfaces have identical shapes but use locally-defined types, so a
-// thin adapter is needed to bridge the two packages without a circular import.
+// skillStoreAdapter adapts internal/skills.Store to the plugin-facing skill API.
+// It also exposes selected internal lifecycle methods by structural typing when
+// host services need them.
 type skillStoreAdapter struct{ s skills.Store }
 
 func (a skillStoreAdapter) List(ctx context.Context, vc pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
@@ -78,6 +78,10 @@ func (a skillStoreAdapter) PatchReflectOwnedUserAgentSkill(ctx context.Context, 
 
 func (a skillStoreAdapter) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillDeprecate) (skills.Skill, error) {
 	return a.s.DeprecateReflectOwnedUserAgentSkill(ctx, in)
+}
+
+func (a skillStoreAdapter) RestoreReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillRestore) (skills.ReflectSkillRestoreResult, error) {
+	return a.s.RestoreReflectOwnedUserAgentSkill(ctx, in)
 }
 
 func (a skillStoreAdapter) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {

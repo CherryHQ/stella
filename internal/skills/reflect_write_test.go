@@ -67,6 +67,21 @@ func TestCreateReflectOwnedUserAgentSkillRecordsVersionAndChangelog(t *testing.T
 	}
 }
 
+func TestStoreInterfaceExposesReflectRestore(t *testing.T) {
+	var store Store = (*PGStore)(nil)
+	requireReflectRestoreStore(t, store)
+}
+
+func requireReflectRestoreStore(t *testing.T, store interface {
+	RestoreReflectOwnedUserAgentSkill(context.Context, ReflectSkillRestore) (ReflectSkillRestoreResult, error)
+},
+) {
+	t.Helper()
+	if store == nil {
+		t.Fatal("restore-capable store is nil")
+	}
+}
+
 func TestCreateReflectOwnedUserAgentSkillInitializesUsage(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)

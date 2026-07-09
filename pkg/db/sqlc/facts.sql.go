@@ -400,19 +400,6 @@ WHERE f.user_id = $1
   AND f.source = 'reflect'
   AND d.metadata IS NOT NULL
   AND (d.metadata::jsonb)->>'curator' = 'usage'
-  AND NOT EXISTS (
-    SELECT 1
-    FROM facts replacement
-    WHERE replacement.user_id = f.user_id
-      AND replacement.agent_id = f.agent_id
-      AND replacement.scope = 'user_agent'
-      AND replacement.subject = 'world'
-      AND replacement.status = 'active'
-      AND (
-        replacement.supersedes = f.id
-        OR COALESCE(replacement.metadata->'replaced_fact_ids', '[]'::jsonb) ? f.id::text
-      )
-  )
 ORDER BY d.created_at DESC, f.id ASC
 LIMIT $3
 `
