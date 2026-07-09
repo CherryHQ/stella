@@ -51,10 +51,10 @@ ON CONFLICT ("skill_id") DO NOTHING;
 
 ALTER TABLE "skill_changelog" DROP CONSTRAINT "skill_changelog_action_check";
 ALTER TABLE "skill_changelog"
-  ADD CONSTRAINT "skill_changelog_action_check" CHECK ("action" IN ('create', 'patch', 'deprecate'));
+  ADD CONSTRAINT "skill_changelog_action_check" CHECK ("action" IN ('create', 'patch', 'deprecate', 'restore'));
 
 -- +goose Down
-DELETE FROM "skill_changelog" WHERE "action" = 'deprecate';
+DELETE FROM "skill_changelog" WHERE "action" IN ('deprecate', 'restore');
 
 ALTER TABLE "skill_changelog" DROP CONSTRAINT "skill_changelog_action_check";
 ALTER TABLE "skill_changelog"

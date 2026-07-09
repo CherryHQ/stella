@@ -19,9 +19,11 @@ import (
 var validReflectSkillNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 var (
-	ErrSkillVersionConflict = errors.New("skill version conflict")
-	ErrSkillNotReflectOwned = errors.New("skill is not reflect-owned")
-	ErrSkillUsageChanged    = errors.New("skill usage changed")
+	ErrSkillVersionConflict  = errors.New("skill version conflict")
+	ErrSkillNotReflectOwned  = errors.New("skill is not reflect-owned")
+	ErrSkillUsageChanged     = errors.New("skill usage changed")
+	ErrSkillNotRestorable    = errors.New("skill is not restorable")
+	ErrSkillRestoreBadCaller = errors.New("skill restore requires restored_by")
 )
 
 type ReflectSkillCreate struct {
@@ -52,6 +54,19 @@ type ReflectSkillDeprecate struct {
 	ExpectedVersion         int64
 	ExpectedUsageLastUsedAt *time.Time
 	Metadata                json.RawMessage
+}
+
+type ReflectSkillRestore struct {
+	ID         string
+	UserID     string
+	AgentID    string
+	RestoredBy string
+	Reason     string
+}
+
+type ReflectSkillRestoreResult struct {
+	Skill    Skill
+	Restored bool
 }
 
 // CreateReflectOwnedUserAgentSkill creates an active Reflect-owned user_agent
@@ -319,6 +334,132 @@ func (s *PGStore) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in Re
 		return Skill{}, fmt.Errorf("skills: commit reflect deprecate: %w", err)
 	}
 	return after, nil
+}
+
+// RestoreReflectOwnedUserAgentSkill restores a usage-curator-deprecated
+// Reflect-owned user_agent skill. It is not part of the plugin-facing tool
+// surface; callers must be internal/admin code.
+func (s *PGStore) RestoreReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillRestore) (ReflectSkillRestoreResult, error) {
+	if in.ID == "" || in.UserID == "" || in.AgentID == "" {
+		return ReflectSkillRestoreResult{}, fmt.Errorf("skills: id, user_id, and agent_id are required")
+	}
+	if in.RestoredBy == "" {
+		return ReflectSkillRestoreResult{}, ErrSkillRestoreBadCaller
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return ReflectSkillRestoreResult{}, fmt.Errorf("skills: begin reflect restore: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
+
+	beforeRow, err := qtx.GetSkillForUpdate(ctx, in.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ReflectSkillRestoreResult{}, ErrSkillNotRestorable
+	}
+	if err != nil {
+		return ReflectSkillRestoreResult{}, fmt.Errorf("skills: lock reflect restore skill: %w", err)
+	}
+	before := mapRow(beforeRow)
+	if before.Scope != "user_agent" || before.UserID != in.UserID || before.AgentID != in.AgentID || !IsReflectOwned(before) {
+		return ReflectSkillRestoreResult{}, ErrSkillNotReflectOwned
+	}
+	if before.Status == SkillStatusActive {
+		if err := tx.Commit(ctx); err != nil {
+			return ReflectSkillRestoreResult{}, fmt.Errorf("skills: commit no-op reflect restore: %w", err)
+		}
+		return ReflectSkillRestoreResult{Skill: before, Restored: false}, nil
+	}
+	if before.Status != SkillStatusDeprecated {
+		return ReflectSkillRestoreResult{}, ErrSkillNotRestorable
+	}
+
+	deprecateLog, err := qtx.GetLatestCuratorDeprecateSkillChangelog(ctx, sqlc.GetLatestCuratorDeprecateSkillChangelogParams{
+		SkillID: in.ID,
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ReflectSkillRestoreResult{}, ErrSkillNotRestorable
+	}
+	if err != nil {
+		return ReflectSkillRestoreResult{}, fmt.Errorf("skills: read curator deprecate changelog: %w", err)
+	}
+	restoreUseCount := restoreSkillUseCount(deprecateLog.Metadata)
+	afterRow, err := qtx.RestoreReflectOwnedUserAgentSkill(ctx, sqlc.RestoreReflectOwnedUserAgentSkillParams{
+		ID:      in.ID,
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ReflectSkillRestoreResult{}, ErrSkillNotRestorable
+	}
+	if err != nil {
+		return ReflectSkillRestoreResult{}, fmt.Errorf("skills: restore reflect-owned skill: %w", err)
+	}
+	after := mapRow(afterRow)
+	if err := qtx.UpsertSkillUsageOnReflectRestore(ctx, sqlc.UpsertSkillUsageOnReflectRestoreParams{
+		SkillID:  after.ID,
+		UserID:   in.UserID,
+		AgentID:  in.AgentID,
+		UseCount: restoreUseCount,
+	}); err != nil {
+		return ReflectSkillRestoreResult{}, fmt.Errorf("skills: restore skill usage: %w", err)
+	}
+	metadata := restoreSkillMetadata(in.RestoredBy, in.Reason, deprecateLog, restoreUseCount)
+	if _, err := qtx.InsertSkillChangelog(ctx, sqlc.InsertSkillChangelogParams{
+		SkillID:       after.ID,
+		UserID:        pgtype.Text{String: in.UserID, Valid: true},
+		AgentID:       pgtype.Text{String: in.AgentID, Valid: true},
+		Scope:         after.Scope,
+		Action:        "restore",
+		VersionBefore: pgtype.Int8{Int64: before.Version, Valid: true},
+		VersionAfter:  after.Version,
+		Metadata:      metadata,
+	}); err != nil {
+		return ReflectSkillRestoreResult{}, fmt.Errorf("skills: record reflect restore changelog: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ReflectSkillRestoreResult{}, fmt.Errorf("skills: commit reflect restore: %w", err)
+	}
+	return ReflectSkillRestoreResult{Skill: after, Restored: true}, nil
+}
+
+func restoreSkillUseCount(metadata json.RawMessage) int64 {
+	var payload struct {
+		UseCount int64 `json:"use_count"`
+	}
+	if err := json.Unmarshal(metadata, &payload); err != nil || payload.UseCount <= 0 {
+		return 1
+	}
+	return payload.UseCount
+}
+
+func restoreSkillMetadata(restoredBy string, reason string, deprecated sqlc.SkillChangelog, useCount int64) json.RawMessage {
+	payload := map[string]any{
+		"restored_by":             restoredBy,
+		"deprecated_changelog_id": deprecated.ID,
+		"deprecated_at":           deprecated.CreatedAt.UTC().Format(time.RFC3339),
+		"curator_rule":            "",
+		"restored_use_count":      useCount,
+	}
+	if reason != "" {
+		payload["reason"] = reason
+	}
+	deprecateMetadata := map[string]any{}
+	if err := json.Unmarshal(deprecated.Metadata, &deprecateMetadata); err == nil {
+		if rule, _ := deprecateMetadata["rule"].(string); rule != "" {
+			payload["curator_rule"] = rule
+		}
+		if lastUsed, _ := deprecateMetadata["last_used_at"].(string); lastUsed != "" {
+			payload["last_used_at"] = lastUsed
+		}
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return b
 }
 
 func validateReflectSkillName(name string) error {

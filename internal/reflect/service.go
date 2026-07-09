@@ -36,7 +36,7 @@ type Config struct {
 	Providers         func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 	CandidateGates    CandidateGateSettings
 	// UsageCuratorSettings defaults to shadow mode. Production may enable armed
-	// mode explicitly via host wiring; restore/undelete remains tracked in #696.
+	// mode explicitly via host wiring; restore remains an internal/admin path.
 	UsageCuratorSettings UsageCuratorSettings
 	// Services provides per-agent session registries for review target listing.
 	// When set, reflect uses Registry.ListForReview and Registry.MemoryScope

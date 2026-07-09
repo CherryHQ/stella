@@ -170,6 +170,19 @@ WHERE id = sqlc.arg(id)
   AND version = sqlc.arg(expected_version)
 RETURNING *;
 
+-- name: RestoreReflectOwnedUserAgentSkill :one
+UPDATE skill
+SET status     = 'active',
+    version    = version + 1,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND scope = 'user_agent'
+  AND user_id = sqlc.arg(user_id)::uuid
+  AND agent_id = sqlc.arg(agent_id)::text
+  AND metadata->>'created_by' = 'reflect'
+  AND status = 'deprecated'
+RETURNING *;
+
 -- name: InsertSkillChangelog :one
 INSERT INTO skill_changelog (
   skill_id,
@@ -198,6 +211,21 @@ SELECT * FROM skill_changelog
 WHERE skill_id = sqlc.arg(skill_id)
 ORDER BY version_after DESC, created_at DESC, id DESC
 LIMIT sqlc.arg(limit_count);
+
+-- name: GetLatestCuratorDeprecateSkillChangelog :one
+SELECT *
+FROM (
+  SELECT *
+  FROM skill_changelog
+  WHERE skill_id = sqlc.arg(skill_id)
+    AND user_id = sqlc.arg(user_id)::uuid
+    AND agent_id = sqlc.arg(agent_id)::text
+    AND scope = 'user_agent'
+    AND action = 'deprecate'
+  ORDER BY created_at DESC, id DESC
+  LIMIT 1
+) latest
+WHERE latest.metadata->>'curator' = 'usage';
 
 -- name: DeleteSkillFile :exec
 DELETE FROM skill_file WHERE skill_id = $1 AND path = $2;
@@ -235,3 +263,33 @@ WHERE scope = 'user_agent'
   AND status = 'active'
   AND metadata->>'created_by' = 'reflect'
 ORDER BY updated_at DESC, created_at DESC, id ASC;
+
+-- name: ListRecentlyForgottenReflectSkills :many
+SELECT
+  s.id AS skill_id,
+  s.name,
+  s.description,
+  s.version,
+  d.id::text AS deprecated_changelog_id,
+  d.created_at AS deprecated_at,
+  d.metadata AS deprecate_metadata
+FROM skill s
+JOIN LATERAL (
+  SELECT *
+  FROM skill_changelog c
+  WHERE c.skill_id = s.id
+    AND c.user_id = s.user_id
+    AND c.agent_id = s.agent_id
+    AND c.scope = 'user_agent'
+    AND c.action = 'deprecate'
+  ORDER BY c.created_at DESC, c.id DESC
+  LIMIT 1
+) d ON true
+WHERE s.user_id = sqlc.arg(user_id)::uuid
+  AND s.agent_id = sqlc.arg(agent_id)::text
+  AND s.scope = 'user_agent'
+  AND s.status = 'deprecated'
+  AND s.metadata->>'created_by' = 'reflect'
+  AND d.metadata->>'curator' = 'usage'
+ORDER BY d.created_at DESC, s.id ASC
+LIMIT sqlc.arg(limit_count);

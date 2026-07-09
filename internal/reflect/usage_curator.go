@@ -197,10 +197,16 @@ func deprecateCuratorKnowledge(ctx context.Context, writer factBatchWriter, cand
 	for _, key := range keys {
 		group := groups[key]
 		for _, candidate := range group.candidates {
+			metadata, err := usageCuratorKnowledgeMetadata(candidate)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
 			op := memorywrite.FactBatchOperation{
 				Action:                memorywrite.FactBatchDeprecateMany,
 				Subject:               memory.FactSubjectWorld,
 				TargetFactIDs:         []string{candidate.FactID},
+				Metadata:              metadata,
 				TargetUsageLastUsedAt: map[string]time.Time{candidate.FactID: candidate.LastUsedAt},
 			}
 			facts, err := writer.ApplyFactBatch(writeCtx, group.userID, group.agentID, []memorywrite.FactBatchOperation{op})
@@ -212,6 +218,20 @@ func deprecateCuratorKnowledge(ctx context.Context, writer factBatchWriter, cand
 		}
 	}
 	return deprecated, errors.Join(errs...)
+}
+
+func usageCuratorKnowledgeMetadata(candidate usageCuratorKnowledgeCandidate) (json.RawMessage, error) {
+	payload := map[string]any{
+		"curator":                 "usage",
+		"rule":                    "idle",
+		"last_used_at":            candidate.LastUsedAt.UTC().Format(time.RFC3339),
+		"pair_latest_activity_at": candidate.PairLatestActivityAt.UTC().Format(time.RFC3339),
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
 }
 
 type usageCuratorKnowledgeGroup struct {

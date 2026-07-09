@@ -9,6 +9,13 @@ WHERE id = $1
   AND user_id = $2
   AND agent_id = $3;
 
+-- name: GetFactForUpdate :one
+SELECT * FROM facts
+WHERE id = sqlc.arg(id)
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id = sqlc.arg(agent_id)
+FOR UPDATE;
+
 -- name: DeprecateFact :one
 UPDATE facts
 SET status = 'deprecated',
@@ -18,6 +25,35 @@ WHERE id = $1
   AND user_id = $2
   AND agent_id = $3
 RETURNING *;
+
+-- name: RestoreReflectWorldFact :one
+UPDATE facts
+SET status = 'active',
+    version = version + 1,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND scope = 'user_agent'
+  AND subject = 'world'
+  AND status = 'deprecated'
+  AND source = 'reflect'
+RETURNING *;
+
+-- name: HasActiveReplacementForFact :one
+SELECT EXISTS (
+  SELECT 1
+  FROM facts replacement
+  WHERE replacement.user_id = sqlc.arg(user_id)
+    AND replacement.agent_id = sqlc.arg(agent_id)
+    AND replacement.scope = 'user_agent'
+    AND replacement.subject = 'world'
+    AND replacement.status = 'active'
+    AND (
+      replacement.supersedes = sqlc.arg(fact_id)::uuid
+      OR COALESCE(replacement.metadata->'replaced_fact_ids', '[]'::jsonb) ? sqlc.arg(fact_id_text)::text
+    )
+)::bool;
 
 -- name: ListActiveFactsBySubject :many
 SELECT * FROM facts
@@ -45,4 +81,65 @@ WHERE user_id = $1
     OR (after_text IS NOT NULL AND after_text::jsonb->>'subject' = sqlc.arg(subject))
   )
 ORDER BY memory_version_after DESC NULLS LAST, id DESC
+LIMIT sqlc.arg(limit_count);
+
+-- name: GetLatestCuratorDeprecateFactChangelog :one
+SELECT *
+FROM (
+  SELECT *
+  FROM ctx_agent_memory_changelog
+  WHERE user_id = sqlc.arg(user_id)
+    AND agent_id = sqlc.arg(agent_id)
+    AND scope = 'fact'
+    AND action = 'deprecate'
+    AND entity_id = sqlc.arg(fact_id)::text
+  ORDER BY created_at DESC, id DESC
+  LIMIT 1
+) latest
+WHERE latest.metadata IS NOT NULL
+  AND (latest.metadata::jsonb)->>'curator' = 'usage';
+
+-- name: ListRecentlyForgottenReflectKnowledge :many
+SELECT
+  f.id::text AS fact_id,
+  f.content,
+  f.version,
+  d.id::text AS deprecated_changelog_id,
+  d.created_at AS deprecated_at,
+  d.memory_version_after,
+  d.metadata AS deprecate_metadata
+FROM facts f
+JOIN LATERAL (
+  SELECT *
+  FROM ctx_agent_memory_changelog c
+  WHERE c.user_id = f.user_id
+    AND c.agent_id = f.agent_id
+    AND c.scope = 'fact'
+    AND c.action = 'deprecate'
+    AND c.entity_id = f.id::text
+  ORDER BY c.created_at DESC, c.id DESC
+  LIMIT 1
+) d ON true
+WHERE f.user_id = sqlc.arg(user_id)
+  AND f.agent_id = sqlc.arg(agent_id)
+  AND f.scope = 'user_agent'
+  AND f.subject = 'world'
+  AND f.status = 'deprecated'
+  AND f.source = 'reflect'
+  AND d.metadata IS NOT NULL
+  AND (d.metadata::jsonb)->>'curator' = 'usage'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM facts replacement
+    WHERE replacement.user_id = f.user_id
+      AND replacement.agent_id = f.agent_id
+      AND replacement.scope = 'user_agent'
+      AND replacement.subject = 'world'
+      AND replacement.status = 'active'
+      AND (
+        replacement.supersedes = f.id
+        OR COALESCE(replacement.metadata->'replaced_fact_ids', '[]'::jsonb) ? f.id::text
+      )
+  )
+ORDER BY d.created_at DESC, f.id ASC
 LIMIT sqlc.arg(limit_count);

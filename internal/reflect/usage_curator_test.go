@@ -2,6 +2,7 @@ package reflect
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"testing"
 	"time"
@@ -235,6 +236,73 @@ func TestUsageCuratorArmedDoesNotRollBackSiblingKnowledgeWhenOneCandidateChanged
 	}
 }
 
+func TestUsageCuratorArmedRecordsKnowledgeDeprecateMetadata(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	userID, agentID := seedUsageCuratorDB(t, ctx, db)
+	provider, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new lcm provider: %v", err)
+	}
+	fact, err := memorywrite.CreateFact(ctx, db, q, memory.FactWrite{
+		UserID:  userID,
+		AgentID: agentID,
+		Subject: memory.FactSubjectWorld,
+		Content: "Stale Reflect knowledge.",
+		Source:  memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("create reflect fact: %v", err)
+	}
+	lastUsed := fixedUsageCuratorNow().Add(-30 * 24 * time.Hour)
+	pairLatestActivity := fixedUsageCuratorNow().Add(-24 * time.Hour)
+	if _, err := db.Exec(ctx, `
+		UPDATE knowledge_usage
+		SET last_used_at = $1
+		WHERE fact_id = $2
+	`, lastUsed, fact.ID); err != nil {
+		t.Fatalf("seed stale knowledge usage: %v", err)
+	}
+
+	deprecated, err := deprecateCuratorKnowledge(ctx, provider, []usageCuratorKnowledgeCandidate{{
+		FactID:               fact.ID,
+		UserID:               userID,
+		AgentID:              agentID,
+		LastUsedAt:           lastUsed,
+		PairLatestActivityAt: pairLatestActivity,
+	}})
+	if err != nil {
+		t.Fatalf("deprecateCuratorKnowledge: %v", err)
+	}
+	if deprecated != 1 {
+		t.Fatalf("deprecated = %d, want 1", deprecated)
+	}
+
+	logs, err := q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
+		UserID:  userID,
+		AgentID: agentID,
+		Scope:   "fact",
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("list memory changelog: %v", err)
+	}
+	if len(logs) == 0 || logs[0].Action != "deprecate" || logs[0].EntityID.String != fact.ID {
+		t.Fatalf("latest fact changelog = %#v, want deprecate for %s", logs, fact.ID)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(logs[0].Metadata.String), &metadata); err != nil {
+		t.Fatalf("unmarshal deprecate metadata: %v", err)
+	}
+	if metadata["curator"] != "usage" || metadata["rule"] != "idle" {
+		t.Fatalf("metadata = %#v, want curator usage idle", metadata)
+	}
+	if metadata["last_used_at"] == "" || metadata["pair_latest_activity_at"] == "" {
+		t.Fatalf("metadata missing usage timestamps: %#v", metadata)
+	}
+}
+
 func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
@@ -382,6 +450,151 @@ func TestSQLUsageCuratorStoreListsOnlyStaleReflectRecordsWithActivity(t *testing
 	}
 	if len(skillCandidates) != 1 || skillCandidates[0].SkillID != staleSkill.ID || skillCandidates[0].Rule != usageCuratorSkillRuleLowUse {
 		t.Fatalf("skill candidates = %#v, want only low-use stale skill", skillCandidates)
+	}
+}
+
+func TestSQLRecentlyForgottenStoreListsRestorableKnowledgeAndSkillCandidates(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	userID, agentID := seedUsageCuratorDB(t, ctx, db)
+
+	fact, err := memorywrite.CreateFact(ctx, db, q, memory.FactWrite{
+		UserID:  userID,
+		AgentID: agentID,
+		Subject: memory.FactSubjectWorld,
+		Content: "Forgotten knowledge content.",
+		Source:  memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("create reflect fact: %v", err)
+	}
+	factMetadata := json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`)
+	if _, err := memorywrite.ApplyFactBatch(ctx, db, q, userID, agentID, []memorywrite.FactBatchOperation{{
+		Action:        memorywrite.FactBatchDeprecateMany,
+		Subject:       memory.FactSubjectWorld,
+		TargetFactIDs: []string{fact.ID},
+		Metadata:      factMetadata,
+	}}); err != nil {
+		t.Fatalf("deprecate reflect fact: %v", err)
+	}
+
+	skillStore := skills.New(db)
+	skill, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
+		UserID:          userID,
+		AgentID:         agentID,
+		Name:            "forgotten-skill",
+		Description:     "forgotten skill description",
+		MainFileContent: "# Forgotten Skill\n\nFull body should not appear in list.\n",
+	})
+	if err != nil {
+		t.Fatalf("create reflect skill: %v", err)
+	}
+	skillMetadata := json.RawMessage(`{"curator":"usage","rule":"low_use","use_count":4,"last_used_at":"2026-06-01T00:00:00Z"}`)
+	if _, err := skillStore.DeprecateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDeprecate{
+		ID:              skill.ID,
+		UserID:          userID,
+		AgentID:         agentID,
+		ExpectedVersion: skill.Version,
+		Metadata:        skillMetadata,
+	}); err != nil {
+		t.Fatalf("deprecate reflect skill: %v", err)
+	}
+
+	store := NewSQLRecentlyForgottenStore(q)
+	items, err := store.ListRecentlyForgotten(ctx, RecentlyForgottenQuery{
+		UserID:  userID,
+		AgentID: agentID,
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("ListRecentlyForgotten: %v", err)
+	}
+	if len(items.Knowledge) != 1 || items.Knowledge[0].FactID != fact.ID || items.Knowledge[0].Content != fact.Content {
+		t.Fatalf("knowledge items = %#v, want fact content", items.Knowledge)
+	}
+	if len(items.Skills) != 1 || items.Skills[0].SkillID != skill.ID || items.Skills[0].Name != skill.Name {
+		t.Fatalf("skill items = %#v, want skill catalog", items.Skills)
+	}
+	if items.Skills[0].MainFileContent != "" {
+		t.Fatalf("skill list leaked main file content %q", items.Skills[0].MainFileContent)
+	}
+}
+
+func TestSQLForgottenRestoreServiceRestoresKnowledgeAndSkill(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	userID, agentID := seedUsageCuratorDB(t, ctx, db)
+
+	fact, err := memorywrite.CreateFact(ctx, db, q, memory.FactWrite{
+		UserID:  userID,
+		AgentID: agentID,
+		Subject: memory.FactSubjectWorld,
+		Content: "Restore service knowledge.",
+		Source:  memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("create reflect fact: %v", err)
+	}
+	if _, err := memorywrite.ApplyFactBatch(ctx, db, q, userID, agentID, []memorywrite.FactBatchOperation{{
+		Action:        memorywrite.FactBatchDeprecateMany,
+		Subject:       memory.FactSubjectWorld,
+		TargetFactIDs: []string{fact.ID},
+		Metadata:      json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`),
+	}}); err != nil {
+		t.Fatalf("deprecate reflect fact: %v", err)
+	}
+
+	skillStore := skills.New(db)
+	skill, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
+		UserID:          userID,
+		AgentID:         agentID,
+		Name:            "restore-service-skill",
+		Description:     "restore service skill",
+		MainFileContent: "# Restore Service Skill\n",
+	})
+	if err != nil {
+		t.Fatalf("create reflect skill: %v", err)
+	}
+	if _, err := skillStore.DeprecateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDeprecate{
+		ID:              skill.ID,
+		UserID:          userID,
+		AgentID:         agentID,
+		ExpectedVersion: skill.Version,
+		Metadata:        json.RawMessage(`{"curator":"usage","rule":"unused","use_count":3,"last_used_at":"2026-06-01T00:00:00Z"}`),
+	}); err != nil {
+		t.Fatalf("deprecate reflect skill: %v", err)
+	}
+
+	service := NewSQLForgottenRestoreService(db, q, skillStore)
+	knowledgeResult, err := service.RestoreForgotten(ctx, RestoreForgottenRequest{
+		Kind:       RecentlyForgottenKindKnowledge,
+		ID:         fact.ID,
+		UserID:     userID,
+		AgentID:    agentID,
+		RestoredBy: "admin@example.com",
+		Reason:     "false positive",
+	})
+	if err != nil {
+		t.Fatalf("RestoreForgotten knowledge: %v", err)
+	}
+	if !knowledgeResult.Restored || knowledgeResult.Knowledge == nil || knowledgeResult.Knowledge.Status != memory.FactStatusActive {
+		t.Fatalf("knowledge restore result = %#v, want active restored fact", knowledgeResult)
+	}
+
+	skillResult, err := service.RestoreForgotten(ctx, RestoreForgottenRequest{
+		Kind:       RecentlyForgottenKindSkill,
+		ID:         skill.ID,
+		UserID:     userID,
+		AgentID:    agentID,
+		RestoredBy: "admin@example.com",
+	})
+	if err != nil {
+		t.Fatalf("RestoreForgotten skill: %v", err)
+	}
+	if !skillResult.Restored || skillResult.Skill == nil || skillResult.Skill.Status != skills.SkillStatusActive {
+		t.Fatalf("skill restore result = %#v, want active restored skill", skillResult)
 	}
 }
 
