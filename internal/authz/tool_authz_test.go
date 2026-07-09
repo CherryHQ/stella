@@ -138,7 +138,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("scheduler create response=%s err=%v", out, err)
 	}
 
-	vaultTool := vault.NewTool(vaultSvc)
+	vaultTool := vault.NewTool(vaultSvc, nil)
 	for _, scope := range []string{vault.ScopeSystem, vault.ScopeSystemAgent} {
 		for _, action := range []string{"list", "set", "delete"} {
 			t.Run("vault "+scope+" "+action, func(t *testing.T) {

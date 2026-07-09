@@ -75,6 +75,21 @@ func (r *ProviderRegistry) VaultKey(providerID string) (string, bool) {
 	return cfg.VaultKey, true
 }
 
+// VaultKeys returns all non-empty provider vault keys in sorted order.
+func (r *ProviderRegistry) VaultKeys() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	keys := make([]string, 0, len(r.entries))
+	for _, cfg := range r.entries {
+		if cfg.VaultKey == "" {
+			continue
+		}
+		keys = append(keys, cfg.VaultKey)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // IDs returns all registered provider IDs in sorted order.
 func (r *ProviderRegistry) IDs() []string {
 	r.mu.RLock()

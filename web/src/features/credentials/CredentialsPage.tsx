@@ -9,7 +9,6 @@ import {
   getScopedVaultEntry,
   listAgents,
   listOAuthProviders,
-  listProjects,
   listScopedVaultEntries,
   pollOAuthFlow,
   setOAuthProviderConfig,
@@ -17,11 +16,10 @@ import {
   startOAuthFlow,
 } from "@/lib/api-client/sdk.gen";
 import { formatTime } from "@/lib/time";
-import type { Agent, OAuthFlow, OAuthProvider, Project, VaultEntry } from "@/lib/types";
+import type { Agent, OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectItem,
@@ -59,9 +57,22 @@ type VaultScope = VaultEntry["scope"];
 type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
 
-// Reserved keys are written and rotated by stella itself (e.g. the auto session
-// token). Surface them as read-only so users don't delete a managed secret.
-const RESERVED_VAULT_KEYS = new Set(["STELLA_TOKEN"]);
+// Reserved keys are written and rotated by stella itself. Surface them as
+// read-only so users don't delete a managed credential.
+const RESERVED_VAULT_KEYS = new Set([
+  "STELLA_TOKEN",
+  "GH_OAUTH",
+  "LARK_CLI_OAUTH",
+  "FEISHU_CLI_OAUTH",
+]);
+const RESERVED_VAULT_PREFIXES = ["OAUTH_", "MCP_TOKEN_"];
+
+function isReservedVaultKey(name: string) {
+  return (
+    RESERVED_VAULT_KEYS.has(name) ||
+    RESERVED_VAULT_PREFIXES.some((prefix) => name.startsWith(prefix))
+  );
+}
 
 function isAgentVaultScope(scope: VaultScope) {
   return scope === "user_agent" || scope === "system_agent";
@@ -77,9 +88,17 @@ function toVaultScope(owner: ScopeOwner, range: ScopeRange): VaultScope {
 // the same color everywhere.
 const SCOPE_COLOR: Record<VaultScope, { dot: string; text: string; soft: string }> = {
   user: { dot: "bg-chart-2", text: "text-chart-2", soft: "bg-chart-2/12" },
-  user_agent: { dot: "bg-chart-1", text: "text-chart-1", soft: "bg-chart-1/12" },
+  user_agent: {
+    dot: "bg-chart-1",
+    text: "text-chart-1",
+    soft: "bg-chart-1/12",
+  },
   system: { dot: "bg-chart-4", text: "text-chart-4", soft: "bg-chart-4/12" },
-  system_agent: { dot: "bg-chart-5", text: "text-chart-5", soft: "bg-chart-5/12" },
+  system_agent: {
+    dot: "bg-chart-5",
+    text: "text-chart-5",
+    soft: "bg-chart-5/12",
+  },
 };
 
 // Render order for the grouped vault list.
@@ -103,8 +122,6 @@ const SCOPE_DESC_KEY: Record<VaultScope, MessageKey> = {
   system_agent: "credentials.scope.systemAgent.desc",
 };
 
-type ProjectOption = Project & { agent_name: string };
-
 function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
   const [family, name] = (icon ?? "").split(":");
   const path = family === "simpleicons" ? SIMPLE_ICON_PATHS[name?.toLowerCase()] : undefined;
@@ -125,7 +142,6 @@ export function CredentialsPage() {
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultSaving, setVaultSaving] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [editingEntry, setEditingEntry] = useState<VaultEntry | null>(null);
   const [existingSecretValue, setExistingSecretValue] = useState("");
   // Add-form scope state, independent of the list (which shows every visible scope).
@@ -134,9 +150,6 @@ export function CredentialsPage() {
   const [formAgentID, setFormAgentID] = useState("");
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
-  const [injectAlways, setInjectAlways] = useState(false);
-  const [injectAgentIDs, setInjectAgentIDs] = useState<string[]>([]);
-  const [injectProjectIDs, setInjectProjectIDs] = useState<string[]>([]);
   const [addSheetOpen, setAddSheetOpen] = useState(false);
 
   const resetVaultForm = useCallback(() => {
@@ -147,9 +160,6 @@ export function CredentialsPage() {
     setFormOwner("me");
     setFormRange("all");
     setFormAgentID("");
-    setInjectAlways(false);
-    setInjectAgentIDs([]);
-    setInjectProjectIDs([]);
   }, []);
 
   const openAddSheet = useCallback(() => {
@@ -229,7 +239,10 @@ export function CredentialsPage() {
 
   const loadAgents = useCallback(async () => {
     try {
-      const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
+      const { data } = await listAgents({
+        query: { include_all: true },
+        throwOnError: true,
+      });
       const list = (data?.agents as Agent[]) ?? [];
       setAgents(list);
       return list;
@@ -237,23 +250,6 @@ export function CredentialsPage() {
       setAgents([]);
       return [];
     }
-  }, []);
-
-  const loadProjects = useCallback(async (agentList: Agent[]) => {
-    const results = await Promise.all(
-      agentList.map(async (agent) => {
-        try {
-          const { data } = await listProjects({ path: { agentId: agent.id }, throwOnError: true });
-          return ((data?.projects as Project[]) ?? []).map((project) => ({
-            ...project,
-            agent_name: agent.name || agent.id,
-          }));
-        } catch {
-          return [];
-        }
-      }),
-    );
-    setProjects(results.flat());
   }, []);
 
   const loadOAuthProviders = useCallback(async () => {
@@ -304,7 +300,10 @@ export function CredentialsPage() {
             redirectUrl: cfg.redirect_url ?? "",
           },
         }));
-        setHasExistingSecret((prev) => ({ ...prev, [provider]: cfg.client_secret === "***" }));
+        setHasExistingSecret((prev) => ({
+          ...prev,
+          [provider]: cfg.client_secret === "***",
+        }));
       }
     } catch {
       // not admin or no config yet
@@ -314,7 +313,10 @@ export function CredentialsPage() {
   const checkOAuthConnected = useCallback(async (provider: string) => {
     setOauthStatus((prev) => ({ ...prev, [provider]: "checking" }));
     try {
-      const { data } = await getOAuthConnected({ path: { provider }, throwOnError: true });
+      const { data } = await getOAuthConnected({
+        path: { provider },
+        throwOnError: true,
+      });
       setOauthStatus((prev) => ({
         ...prev,
         [provider]: data?.connected ? "connected" : "disconnected",
@@ -327,7 +329,7 @@ export function CredentialsPage() {
   useEffect(() => {
     const init = async () => {
       const agentList = await loadAgents();
-      await Promise.all([loadProjects(agentList), loadVaultEntries(agentList)]);
+      await loadVaultEntries(agentList);
       const providers = await loadOAuthProviders();
       await Promise.all([
         ...providers.map((p) => checkOAuthConnected(p.provider)),
@@ -343,7 +345,6 @@ export function CredentialsPage() {
   }, [
     loadVaultEntries,
     loadAgents,
-    loadProjects,
     loadOAuthProviders,
     checkOAuthConnected,
     loadProviderConfig,
@@ -358,9 +359,6 @@ export function CredentialsPage() {
     setFormOwner(entry.scope === "system" || entry.scope === "system_agent" ? "global" : "me");
     setFormRange(isAgentVaultScope(entry.scope) ? "specific" : "all");
     setFormAgentID(entry.agent_id ?? "");
-    setInjectAlways(entry.inject_always);
-    setInjectAgentIDs(entry.inject_agent_ids ?? []);
-    setInjectProjectIDs(entry.inject_project_ids ?? []);
     setAddSheetOpen(true);
     try {
       const { data } = await getScopedVaultEntry({
@@ -382,6 +380,10 @@ export function CredentialsPage() {
       showToast(t("credentials.secretNameRequired"), "error");
       return;
     }
+    if (isReservedVaultKey(newSecretName)) {
+      showToast(t("credentials.secretNameReserved"), "error");
+      return;
+    }
     const value = newSecretValue || existingSecretValue;
     if (!value) {
       showToast(t("credentials.secretValueRequired"), "error");
@@ -401,9 +403,6 @@ export function CredentialsPage() {
           value,
           scope,
           agent_id: agentScoped ? formAgentID : undefined,
-          inject_always: agentScoped ? false : injectAlways,
-          inject_agent_ids: agentScoped || injectAlways ? [] : injectAgentIDs,
-          inject_project_ids: agentScoped || injectAlways ? [] : injectProjectIDs,
         },
         throwOnError: true,
       });
@@ -429,9 +428,6 @@ export function CredentialsPage() {
     formOwner,
     formRange,
     formAgentID,
-    injectAlways,
-    injectAgentIDs,
-    injectProjectIDs,
     editingEntry,
     showToast,
     reloadScope,
@@ -484,7 +480,10 @@ export function CredentialsPage() {
             showToast(t("credentials.oauth.connectedSuccess", { provider }));
           else if (status)
             showToast(
-              t("credentials.oauth.authorizationState", { provider, state: status.state }),
+              t("credentials.oauth.authorizationState", {
+                provider,
+                state: status.state,
+              }),
               "error",
             );
           break;
@@ -499,7 +498,10 @@ export function CredentialsPage() {
       setOauthFlowActive((prev) => ({ ...prev, [provider]: true }));
       setOauthFlow((prev) => ({ ...prev, [provider]: null }));
       try {
-        const { data } = await startOAuthFlow({ path: { provider }, throwOnError: true });
+        const { data } = await startOAuthFlow({
+          path: { provider },
+          throwOnError: true,
+        });
         const flow = data as OAuthFlow;
         setOauthFlow((prev) => ({ ...prev, [provider]: flow }));
         await pollUntilDone(provider, flow.flow_id);
@@ -518,7 +520,10 @@ export function CredentialsPage() {
     async (provider: string) => {
       if (!window.confirm(t("credentials.oauth.disconnectConfirm", { provider }))) return;
       try {
-        await disconnectOAuthRequest({ path: { provider }, throwOnError: true });
+        await disconnectOAuthRequest({
+          path: { provider },
+          throwOnError: true,
+        });
         showToast(t("credentials.oauth.disconnected", { provider }));
         await checkOAuthConnected(provider);
       } catch (e) {
@@ -569,7 +574,10 @@ export function CredentialsPage() {
     async (provider: string) => {
       if (!window.confirm(t("credentials.oauth.resetConfirm", { provider }))) return;
       try {
-        await deleteOAuthProviderConfig({ path: { id: provider }, throwOnError: true });
+        await deleteOAuthProviderConfig({
+          path: { id: provider },
+          throwOnError: true,
+        });
         showToast(t("credentials.oauth.configReset", { provider }));
         await loadOAuthProviders();
         await loadProviderConfig(provider);
@@ -593,51 +601,12 @@ export function CredentialsPage() {
   })).filter((g) => g.entries.length > 0);
   const formScope = toVaultScope(formOwner, formRange);
   const editingVault = !!editingEntry;
-  const boundCount = injectAgentIDs.length + injectProjectIDs.length;
 
   const selectScope = (scope: VaultScope) => {
     if (editingVault) return;
     setFormOwner(scope === "system" || scope === "system_agent" ? "global" : "me");
     setFormRange(scope === "user_agent" || scope === "system_agent" ? "specific" : "all");
   };
-
-  const injectionBadge = (entry: VaultEntry) => {
-    const entryBoundCount =
-      (entry.inject_agent_ids?.length ?? 0) + (entry.inject_project_ids?.length ?? 0);
-    if (isAgentVaultScope(entry.scope))
-      return (
-        <Badge variant="success" size="sm">
-          {t("credentials.injection.state.auto")}
-        </Badge>
-      );
-    if (entry.inject_always)
-      return (
-        <Badge variant="success" size="sm">
-          {t("credentials.injection.state.always")}
-        </Badge>
-      );
-    if (entryBoundCount > 0)
-      return (
-        <Badge variant="info" size="sm">
-          {t("credentials.injection.state.bound", { count: entryBoundCount })}
-        </Badge>
-      );
-    return (
-      <Badge variant="warning" size="sm">
-        {t("credentials.injection.state.off")}
-      </Badge>
-    );
-  };
-
-  const agentBindingLabel = (ids: string[]) =>
-    ids.length === 0
-      ? t("credentials.injection.selectAgents")
-      : t("credentials.injection.selectedAgents", { count: ids.length });
-
-  const projectBindingLabel = (ids: string[]) =>
-    ids.length === 0
-      ? t("credentials.injection.selectProjects")
-      : t("credentials.injection.selectedProjects", { count: ids.length });
 
   const vaultAddPanel = (
     <DetailPanel>
@@ -713,83 +682,6 @@ export function CredentialsPage() {
               ))}
             </SelectPopup>
           </Select>
-        )}
-      </div>
-
-      <div className="space-y-3 border-t border-border pt-4">
-        <FormSectionTitle>{t("credentials.injection.title")}</FormSectionTitle>
-        {isAgentVaultScope(formScope) ? (
-          <p className="text-xs text-muted-foreground">{t("credentials.injection.autoAgent")}</p>
-        ) : (
-          <>
-            <p className="text-xs text-muted-foreground">{t("credentials.injection.hint")}</p>
-            <div className="flex items-center justify-between gap-3">
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-foreground">
-                  {t("credentials.injection.always")}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t("credentials.injection.alwaysDesc")}
-                </p>
-              </div>
-              <Switch checked={injectAlways} onCheckedChange={setInjectAlways} />
-            </div>
-            {!injectAlways && (
-              <div className="grid gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    {t("credentials.injection.agents")}
-                  </label>
-                  <Select
-                    multiple
-                    value={injectAgentIDs}
-                    onValueChange={(value) => setInjectAgentIDs((value as string[]) ?? [])}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={t("credentials.injection.selectAgents")}>
-                        {(value) => agentBindingLabel((value as string[]) ?? [])}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      {agents.map((agent) => (
-                        <SelectItem key={agent.id} value={agent.id}>
-                          {agent.name || agent.id}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    {t("credentials.injection.projects")}
-                  </label>
-                  <Select
-                    multiple
-                    value={injectProjectIDs}
-                    onValueChange={(value) => setInjectProjectIDs((value as string[]) ?? [])}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={t("credentials.injection.selectProjects")}>
-                        {(value) => projectBindingLabel((value as string[]) ?? [])}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      {projects.map((project) => (
-                        <SelectItem key={project.id} value={project.id}>
-                          {project.name} · {project.agent_name}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                </div>
-                {boundCount === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {t("credentials.injection.offHint")}
-                  </p>
-                )}
-              </div>
-            )}
-          </>
         )}
       </div>
 
@@ -885,7 +777,9 @@ export function CredentialsPage() {
       {sp.available && !spConnected && (sp.required_by?.length ?? 0) > 0 && (
         <div className="rounded-lg border border-info/36 bg-info/8 p-3 text-xs">
           <p className="font-medium text-foreground">
-            {t("credentials.oauth.connectToEnable", { tools: sp.required_by?.join(", ") ?? "" })}
+            {t("credentials.oauth.connectToEnable", {
+              tools: sp.required_by?.join(", ") ?? "",
+            })}
           </p>
           <p className="mt-1 text-muted-foreground">
             {t("credentials.oauth.unauthenticatedWarning")}
@@ -951,7 +845,10 @@ export function CredentialsPage() {
               onChange={(e) =>
                 setConfigValues((prev) => ({
                   ...prev,
-                  [sp.provider]: { ...prev[sp.provider], clientId: e.target.value },
+                  [sp.provider]: {
+                    ...prev[sp.provider],
+                    clientId: e.target.value,
+                  },
                 }))
               }
               placeholder={t("credentials.oauth.clientIdPlaceholder")}
@@ -969,7 +866,10 @@ export function CredentialsPage() {
               onChange={(e) =>
                 setConfigValues((prev) => ({
                   ...prev,
-                  [sp.provider]: { ...prev[sp.provider], clientSecret: e.target.value },
+                  [sp.provider]: {
+                    ...prev[sp.provider],
+                    clientSecret: e.target.value,
+                  },
                 }))
               }
               placeholder={
@@ -1032,10 +932,14 @@ export function CredentialsPage() {
                   ? t("credentials.oauth.appNotConfigured")
                   : connected
                     ? clientIdPreview
-                      ? t("credentials.oauth.connectedWithClient", { client: clientIdPreview })
+                      ? t("credentials.oauth.connectedWithClient", {
+                          client: clientIdPreview,
+                        })
                       : t("credentials.oauth.status.connected")
                     : requiredBy.length > 0
-                      ? t("credentials.oauth.connectToEnable", { tools: requiredBy.join(", ") })
+                      ? t("credentials.oauth.connectToEnable", {
+                          tools: requiredBy.join(", "),
+                        })
                       : t("credentials.oauth.notConnectedWithClient", {
                           client: clientIdPreview || t("credentials.oauth.configured"),
                         });
@@ -1122,7 +1026,7 @@ export function CredentialsPage() {
                   </div>
                   <SettingsList>
                     {group.entries.map((entry) => {
-                      const reserved = RESERVED_VAULT_KEYS.has(entry.name);
+                      const reserved = isReservedVaultKey(entry.name);
                       return (
                         <SettingsRow
                           key={`${entry.scope}:${entry.agent_id ?? ""}:${entry.name}`}
@@ -1151,7 +1055,6 @@ export function CredentialsPage() {
                             updated: formatTime(entry.updated_at),
                             created: formatTime(entry.created_at),
                           })}
-                          status={injectionBadge(entry)}
                           menu={
                             reserved
                               ? []

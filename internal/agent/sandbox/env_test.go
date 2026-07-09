@@ -4,35 +4,25 @@ import (
 	"context"
 	"maps"
 	"testing"
+	"time"
 
+	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/vault"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// noDeclarableSecrets stubs the declarable-secret surface of VaultEnvLoader
-// for tests that only exercise env assembly.
-type noDeclarableSecrets struct{}
-
-func (noDeclarableSecrets) ListDeclarableForAgentProject(context.Context, string, string, string) ([]vault.DeclarableSecret, error) {
-	return nil, nil
-}
-
-func (noDeclarableSecrets) ResolveDeclarableEnv(context.Context, string, string, string, []string) (map[string]string, []string, error) {
-	return nil, nil, nil
-}
-
-func (noDeclarableSecrets) RecordExecSecretUse(context.Context, string, string, string, string, string) error {
-	return nil
-}
-
 type staticVaultEnv struct {
-	noDeclarableSecrets
 	env map[string]string
 }
 
-func (v staticVaultEnv) LoadEnvForAgentProject(context.Context, string, string, string) (map[string]string, error) {
+func (v staticVaultEnv) LoadEnvForAgent(context.Context, string, string) (map[string]string, error) {
 	out := make(map[string]string, len(v.env))
 	maps.Copy(out, v.env)
 	return out, nil
+}
+
+func (v staticVaultEnv) ListAmbientSecretMetas(context.Context, string, string) ([]vault.AmbientSecretMeta, error) {
+	return nil, nil
 }
 
 func requireSessionSecretValues(t *testing.T, values []string, present []string, absent []string) {
@@ -107,5 +97,72 @@ func TestBuildSandboxEnvDeletesVaultTokenWhenScopedUnavailable(t *testing.T) {
 	}
 	if _, ok := env["STELLA_TOKEN"]; ok {
 		t.Fatal("legacy vault token must not be injected")
+	}
+}
+
+func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		vaultSecret   bool
+		wantToken     string
+		wantRedacted  []string
+		absentSecrets []string
+	}{
+		{
+			name:          "vault secret wins",
+			vaultSecret:   true,
+			wantToken:     "vault_pat",
+			wantRedacted:  []string{"vault_pat"},
+			absentSecrets: []string{"oauth_access_token"},
+		},
+		{
+			name:          "oauth injects without vault collision",
+			wantToken:     "oauth_access_token",
+			wantRedacted:  []string{"oauth_access_token"},
+			absentSecrets: []string{"vault_pat"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			userID := "user-1"
+			store := newStubOAuthVaultStore()
+			registry := oauth.NewProviderRegistry()
+			registry.Register(oauth.ProviderConfig{ID: "github", VaultKey: oauth.VaultKeyGitHub})
+			tm := oauth.NewTokenManager(store)
+			tm.SetRegistry(registry)
+			if err := oauth.SaveOAuthBundle(ctx, store, userID, oauth.VaultKeyGitHub, oauth.OAuthBundle{
+				Version:         1,
+				AccessToken:     "oauth_access_token",
+				AccessExpiresAt: time.Now().Add(time.Hour),
+			}); err != nil {
+				t.Fatalf("SaveOAuthBundle: %v", err)
+			}
+			if tt.vaultSecret {
+				if err := store.Set(ctx, userID, "GH_TOKEN", "vault_pat"); err != nil {
+					t.Fatalf("Set GH_TOKEN: %v", err)
+				}
+			}
+			secretValues := NewSessionSecretValues()
+			env, err := buildSandboxEnv(ctx, Config{
+				UserID:              userID,
+				AgentID:             "agent-1",
+				VaultEnvLoader:      store,
+				SessionSecretValues: secretValues,
+				TokenManager:        tm,
+				SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
+					{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
+				},
+			}, Paths{})
+			if err != nil {
+				t.Fatalf("buildSandboxEnv: %v", err)
+			}
+			if got := env["GH_TOKEN"]; got != tt.wantToken {
+				t.Fatalf("GH_TOKEN = %q, want %q", got, tt.wantToken)
+			}
+			if _, ok := env[oauth.VaultKeyGitHub]; ok {
+				t.Fatalf("%s must not appear in sandbox env", oauth.VaultKeyGitHub)
+			}
+			requireSessionSecretValues(t, secretValues.Values(), tt.wantRedacted, tt.absentSecrets)
+		})
 	}
 }
