@@ -47,22 +47,6 @@ func (d *vaultDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.ListV
 	return d.q.ListVaultEntriesForRuntime(ctx, arg)
 }
 
-func (d *vaultDB) ListVaultEntryAgentBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
-	return d.q.ListVaultEntryAgentBindings(ctx, vaultEntryID)
-}
-
-func (d *vaultDB) ListVaultEntryProjectBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
-	return d.q.ListVaultEntryProjectBindings(ctx, vaultEntryID)
-}
-
-func (d *vaultDB) ReplaceVaultEntryAgentBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryAgentBindingsParams) error {
-	return d.q.ReplaceVaultEntryAgentBindings(ctx, arg)
-}
-
-func (d *vaultDB) ReplaceVaultEntryProjectBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryProjectBindingsParams) error {
-	return d.q.ReplaceVaultEntryProjectBindings(ctx, arg)
-}
-
 func (d *vaultDB) UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) (sqlc.VaultEntry, error) {
 	return d.q.UpsertVaultEntryByScope(ctx, arg)
 }

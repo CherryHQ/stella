@@ -1,19 +1,17 @@
 package sandbox
 
 import (
-	"fmt"
-
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 // NewTools returns the four standard sandbox-backed tools (bash, read, write, edit).
-func NewTools(host pkgsandbox.Host, toolsBinDir, projectRoot string, secretResolver ExecSecretResolver) []pkgtools.Tool {
+func NewTools(host pkgsandbox.Host, toolsBinDir, projectRoot string, sessionSecretValues *SessionSecretValues) []pkgtools.Tool {
 	if host == nil {
 		return nil
 	}
 	return []pkgtools.Tool{
-		newBashTool(host, toolsBinDir, projectRoot, secretResolver),
+		newBashTool(host, toolsBinDir, projectRoot, sessionSecretValues),
 		newReadTool(host, projectRoot),
 		newWriteTool(host, projectRoot),
 		newEditTool(host, projectRoot),
@@ -51,29 +49,6 @@ func resolveWritableToolPath(host pkgsandbox.Host, projectRoot, path string) (st
 		return host.ResolveWritePath(resolved)
 	}
 	return host.ResolveWritePath(path)
-}
-
-func toolStringSliceArg(args map[string]any, key string) ([]string, error) {
-	v, ok := args[key]
-	if !ok || v == nil {
-		return nil, nil
-	}
-	items, ok := v.([]any)
-	if !ok {
-		if ss, ok := v.([]string); ok {
-			return ss, nil
-		}
-		return nil, nil
-	}
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		s, ok := item.(string)
-		if !ok || s == "" {
-			return nil, fmt.Errorf("%s must contain non-empty strings", key)
-		}
-		out = append(out, s)
-	}
-	return out, nil
 }
 
 func toolIntArg(args map[string]any, key string, defaultVal int) int {

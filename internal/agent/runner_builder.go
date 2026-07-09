@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -153,10 +155,10 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			sections = append(sections, skillsSection)
 		}
 		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
-			if secrets, err := cfg.VaultEnvLoader.ListDeclarableForAgentProject(ctx, params.UserID, params.AgentID, params.ProjectID); err == nil && len(secrets) > 0 {
+			if env, err := cfg.VaultEnvLoader.LoadEnvForAgentProject(ctx, params.UserID, params.AgentID); err == nil && len(env) > 0 {
 				sections = append(sections, pkgplugins.SystemPromptSection{
-					Title:   "Declarable Secrets",
-					Content: "The following vault secrets can be injected into a single bash command by passing their names in the bash `secrets` parameter. Values are never shown; only declare the names needed for that command.\n\n" + formatDeclarableSecrets(secrets),
+					Title:   "Available Secrets",
+					Content: "These vault secret names are already available as environment variables in bash. Values are never shown; use the names exactly as the CLI or tool expects.\n\n" + formatAvailableSecretNames(env),
 				})
 			}
 		}
@@ -238,4 +240,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
 		})
 	}
+}
+
+func formatAvailableSecretNames(env map[string]string) string {
+	names := make([]string, 0, len(env))
+	for name := range env {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return "- " + strings.Join(names, "\n- ")
 }

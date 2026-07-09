@@ -205,7 +205,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		Runtime: session,
 	}
 
-	coreTools := buildSandboxCoreTools(session, bc, newExecSecretResolver(cfg.Sandbox))
+	coreTools := buildSandboxCoreTools(session, bc, cfg.Sandbox.SessionSecretValues)
 	if len(coreTools) == 0 {
 		return nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}

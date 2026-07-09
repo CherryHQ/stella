@@ -37,7 +37,7 @@ func (q *Queries) DeleteVaultEntryByScope(ctx context.Context, arg DeleteVaultEn
 }
 
 const getVaultEntryByScope = `-- name: GetVaultEntryByScope :one
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, description
 FROM vault_entry
 WHERE scope = $1
   AND coalesce(user_id::text, '') = coalesce($2::text, '')
@@ -69,14 +69,13 @@ func (q *Queries) GetVaultEntryByScope(ctx context.Context, arg GetVaultEntryByS
 		&i.Ciphertext,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.InjectAlways,
 		&i.Description,
 	)
 	return i, err
 }
 
 const listVaultEntriesByScope = `-- name: ListVaultEntriesByScope :many
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, description
 FROM vault_entry
 WHERE scope = $1
   AND coalesce(user_id::text, '') = coalesce($2::text, '')
@@ -108,74 +107,6 @@ func (q *Queries) ListVaultEntriesByScope(ctx context.Context, arg ListVaultEntr
 			&i.Ciphertext,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.InjectAlways,
-			&i.Description,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVaultEntriesDeclarableForRuntime = `-- name: ListVaultEntriesDeclarableForRuntime :many
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
-FROM vault_entry
-WHERE ((scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
-    OR (scope = 'system_agent' AND user_id IS NULL AND vault_entry.agent_id = $1)
-    OR (scope = 'user' AND user_id = $2 AND vault_entry.agent_id IS NULL)
-    OR (scope = 'user_agent' AND user_id = $2 AND vault_entry.agent_id = $1))
-  AND NOT (inject_always
-    OR scope IN ('user_agent', 'system_agent')
-    OR EXISTS (
-        SELECT 1
-        FROM vault_entry_agent_binding b
-        WHERE b.vault_entry_id = vault_entry.id
-          AND b.agent_id = $1
-    )
-    OR EXISTS (
-        SELECT 1
-        FROM vault_entry_project_binding b
-        WHERE b.vault_entry_id = vault_entry.id
-          AND b.project_id = $3::uuid
-    ))
-ORDER BY CASE scope
-    WHEN 'system' THEN 1
-    WHEN 'system_agent' THEN 2
-    WHEN 'user' THEN 3
-    WHEN 'user_agent' THEN 4
-    ELSE 0
-END, name
-`
-
-type ListVaultEntriesDeclarableForRuntimeParams struct {
-	RuntimeAgentID pgtype.Text `json:"runtime_agent_id"`
-	UserID         pgtype.Text `json:"user_id"`
-	ProjectID      pgtype.Text `json:"project_id"`
-}
-
-func (q *Queries) ListVaultEntriesDeclarableForRuntime(ctx context.Context, arg ListVaultEntriesDeclarableForRuntimeParams) ([]VaultEntry, error) {
-	rows, err := q.db.Query(ctx, listVaultEntriesDeclarableForRuntime, arg.RuntimeAgentID, arg.UserID, arg.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []VaultEntry{}
-	for rows.Next() {
-		var i VaultEntry
-		if err := rows.Scan(
-			&i.ID,
-			&i.Scope,
-			&i.UserID,
-			&i.AgentID,
-			&i.Name,
-			&i.Ciphertext,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.InjectAlways,
 			&i.Description,
 		); err != nil {
 			return nil, err
@@ -189,26 +120,12 @@ func (q *Queries) ListVaultEntriesDeclarableForRuntime(ctx context.Context, arg 
 }
 
 const listVaultEntriesForRuntime = `-- name: ListVaultEntriesForRuntime :many
-SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, description
 FROM vault_entry
 WHERE ((scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
     OR (scope = 'system_agent' AND user_id IS NULL AND vault_entry.agent_id = $1)
     OR (scope = 'user' AND user_id = $2 AND vault_entry.agent_id IS NULL)
     OR (scope = 'user_agent' AND user_id = $2 AND vault_entry.agent_id = $1))
-  AND (inject_always
-    OR scope IN ('user_agent', 'system_agent')
-    OR EXISTS (
-        SELECT 1
-        FROM vault_entry_agent_binding b
-        WHERE b.vault_entry_id = vault_entry.id
-          AND b.agent_id = $1
-    )
-    OR EXISTS (
-        SELECT 1
-        FROM vault_entry_project_binding b
-        WHERE b.vault_entry_id = vault_entry.id
-          AND b.project_id = $3::uuid
-    ))
 ORDER BY CASE scope
     WHEN 'system' THEN 1
     WHEN 'system_agent' THEN 2
@@ -221,12 +138,11 @@ END, name
 type ListVaultEntriesForRuntimeParams struct {
 	RuntimeAgentID pgtype.Text `json:"runtime_agent_id"`
 	UserID         pgtype.Text `json:"user_id"`
-	ProjectID      pgtype.Text `json:"project_id"`
 }
 
 // Keep this precedence in sync with internal/vault envPrecedence.
 func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultEntriesForRuntimeParams) ([]VaultEntry, error) {
-	rows, err := q.db.Query(ctx, listVaultEntriesForRuntime, arg.RuntimeAgentID, arg.UserID, arg.ProjectID)
+	rows, err := q.db.Query(ctx, listVaultEntriesForRuntime, arg.RuntimeAgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +159,6 @@ func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultE
 			&i.Ciphertext,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.InjectAlways,
 			&i.Description,
 		); err != nil {
 			return nil, err
@@ -256,118 +171,24 @@ func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultE
 	return items, nil
 }
 
-const listVaultEntryAgentBindings = `-- name: ListVaultEntryAgentBindings :many
-SELECT agent_id
-FROM vault_entry_agent_binding
-WHERE vault_entry_id = $1
-ORDER BY agent_id
-`
-
-func (q *Queries) ListVaultEntryAgentBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
-	rows, err := q.db.Query(ctx, listVaultEntryAgentBindings, vaultEntryID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var agent_id string
-		if err := rows.Scan(&agent_id); err != nil {
-			return nil, err
-		}
-		items = append(items, agent_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVaultEntryProjectBindings = `-- name: ListVaultEntryProjectBindings :many
-SELECT project_id
-FROM vault_entry_project_binding
-WHERE vault_entry_id = $1
-ORDER BY project_id
-`
-
-func (q *Queries) ListVaultEntryProjectBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
-	rows, err := q.db.Query(ctx, listVaultEntryProjectBindings, vaultEntryID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var project_id string
-		if err := rows.Scan(&project_id); err != nil {
-			return nil, err
-		}
-		items = append(items, project_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const replaceVaultEntryAgentBindings = `-- name: ReplaceVaultEntryAgentBindings :exec
-WITH deleted AS (
-    DELETE FROM vault_entry_agent_binding
-    WHERE vault_entry_id = $1
-)
-INSERT INTO vault_entry_agent_binding (vault_entry_id, agent_id)
-SELECT $1, unnest($2::text[])
-`
-
-type ReplaceVaultEntryAgentBindingsParams struct {
-	VaultEntryID string   `json:"vault_entry_id"`
-	AgentIds     []string `json:"agent_ids"`
-}
-
-func (q *Queries) ReplaceVaultEntryAgentBindings(ctx context.Context, arg ReplaceVaultEntryAgentBindingsParams) error {
-	_, err := q.db.Exec(ctx, replaceVaultEntryAgentBindings, arg.VaultEntryID, arg.AgentIds)
-	return err
-}
-
-const replaceVaultEntryProjectBindings = `-- name: ReplaceVaultEntryProjectBindings :exec
-WITH deleted AS (
-    DELETE FROM vault_entry_project_binding
-    WHERE vault_entry_id = $1
-)
-INSERT INTO vault_entry_project_binding (vault_entry_id, project_id)
-SELECT $1, unnest($2::uuid[])
-`
-
-type ReplaceVaultEntryProjectBindingsParams struct {
-	VaultEntryID string   `json:"vault_entry_id"`
-	ProjectIds   []string `json:"project_ids"`
-}
-
-func (q *Queries) ReplaceVaultEntryProjectBindings(ctx context.Context, arg ReplaceVaultEntryProjectBindingsParams) error {
-	_, err := q.db.Exec(ctx, replaceVaultEntryProjectBindings, arg.VaultEntryID, arg.ProjectIds)
-	return err
-}
-
 const upsertVaultEntryByScope = `-- name: UpsertVaultEntryByScope :one
-INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext, inject_always, description)
-VALUES ($1, $2, $3, $4, $5, $6, coalesce($7, false), $8)
+INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext, description)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (scope, (COALESCE(user_id::text, '')), (COALESCE(agent_id, '')), name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
-    inject_always = coalesce($7, vault_entry.inject_always),
-    description = coalesce($8, vault_entry.description),
+    description = coalesce($7, vault_entry.description),
     updated_at = now()
-RETURNING id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, inject_always, description
+RETURNING id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at, description
 `
 
 type UpsertVaultEntryByScopeParams struct {
-	ID           string      `json:"id"`
-	Scope        string      `json:"scope"`
-	UserID       pgtype.Text `json:"user_id"`
-	AgentID      pgtype.Text `json:"agent_id"`
-	Name         string      `json:"name"`
-	Ciphertext   string      `json:"ciphertext"`
-	InjectAlways interface{} `json:"inject_always"`
-	Description  pgtype.Text `json:"description"`
+	ID          string      `json:"id"`
+	Scope       string      `json:"scope"`
+	UserID      pgtype.Text `json:"user_id"`
+	AgentID     pgtype.Text `json:"agent_id"`
+	Name        string      `json:"name"`
+	Ciphertext  string      `json:"ciphertext"`
+	Description pgtype.Text `json:"description"`
 }
 
 func (q *Queries) UpsertVaultEntryByScope(ctx context.Context, arg UpsertVaultEntryByScopeParams) (VaultEntry, error) {
@@ -378,7 +199,6 @@ func (q *Queries) UpsertVaultEntryByScope(ctx context.Context, arg UpsertVaultEn
 		arg.AgentID,
 		arg.Name,
 		arg.Ciphertext,
-		arg.InjectAlways,
 		arg.Description,
 	)
 	var i VaultEntry
@@ -391,7 +211,6 @@ func (q *Queries) UpsertVaultEntryByScope(ctx context.Context, arg UpsertVaultEn
 		&i.Ciphertext,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.InjectAlways,
 		&i.Description,
 	)
 	return i, err

@@ -32,34 +32,6 @@ func (d *oidcVaultDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.L
 	return d.q.ListVaultEntriesForRuntime(ctx, arg)
 }
 
-func (d *oidcVaultDB) ListVaultEntriesDeclarableForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesDeclarableForRuntimeParams) ([]sqlc.VaultEntry, error) {
-	return d.q.ListVaultEntriesDeclarableForRuntime(ctx, arg)
-}
-
-func (d *oidcVaultDB) CreateVaultExecSecretAudit(ctx context.Context, arg sqlc.CreateVaultExecSecretAuditParams) (sqlc.VaultExecSecretAudit, error) {
-	return d.q.CreateVaultExecSecretAudit(ctx, arg)
-}
-
-func (d *oidcVaultDB) ListVaultExecSecretAuditByUser(ctx context.Context, arg sqlc.ListVaultExecSecretAuditByUserParams) ([]sqlc.VaultExecSecretAudit, error) {
-	return d.q.ListVaultExecSecretAuditByUser(ctx, arg)
-}
-
-func (d *oidcVaultDB) ListVaultEntryAgentBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
-	return d.q.ListVaultEntryAgentBindings(ctx, vaultEntryID)
-}
-
-func (d *oidcVaultDB) ListVaultEntryProjectBindings(ctx context.Context, vaultEntryID string) ([]string, error) {
-	return d.q.ListVaultEntryProjectBindings(ctx, vaultEntryID)
-}
-
-func (d *oidcVaultDB) ReplaceVaultEntryAgentBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryAgentBindingsParams) error {
-	return d.q.ReplaceVaultEntryAgentBindings(ctx, arg)
-}
-
-func (d *oidcVaultDB) ReplaceVaultEntryProjectBindings(ctx context.Context, arg sqlc.ReplaceVaultEntryProjectBindingsParams) error {
-	return d.q.ReplaceVaultEntryProjectBindings(ctx, arg)
-}
-
 func (d *oidcVaultDB) UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) (sqlc.VaultEntry, error) {
 	return d.q.UpsertVaultEntryByScope(ctx, arg)
 }
@@ -294,8 +266,8 @@ func TestScopedVaultPermissionsAndRuntimeResolution(t *testing.T) {
 		}
 	}
 	for _, req := range []map[string]any{
-		{"scope": "user", "value": "user", "inject_always": true},
-		{"scope": "user_agent", "agent_id": "agent-a", "value": "user-agent", "inject_always": true},
+		{"scope": "user", "value": "user"},
+		{"scope": "user_agent", "agent_id": "agent-a", "value": "user-agent"},
 	} {
 		rr = doRequestWithSession(t, env.srv, regularToken, "PUT", "/api/vault/TOKEN", req)
 		if rr.Code != http.StatusOK {
@@ -303,7 +275,7 @@ func TestScopedVaultPermissionsAndRuntimeResolution(t *testing.T) {
 		}
 	}
 
-	envMap, err := svc.LoadEnvForAgentProject(ctx, regular.ID, "agent-a", "")
+	envMap, err := svc.LoadEnvForAgentProject(ctx, regular.ID, "agent-a")
 	if err != nil {
 		t.Fatalf("LoadEnvForAgent: %v", err)
 	}
