@@ -15,7 +15,7 @@ audit chain, no injection UI.
 Dominant real usage: the agent runs **third-party bash CLIs** that read an API key
 from an env var (e.g. `expense-cli` reads `$EXPENSE_AGENT_TOKEN`). The agent
 cannot know which env var a third-party tool needs — that knowledge lives in the
-tool's docs, not in stella. So any model that requires the agent to *declare* a
+tool's docs, not in stella. So any model that requires the agent to _declare_ a
 secret before use (the old declarable path, #652) fails: the agent declares
 nothing, the tool runs without its key, the tool call fails. Observed as an
 elevated tool-call failure rate.
@@ -74,7 +74,7 @@ confidently run tools that need it. Names are not secret.
   (document as one-way, like the existing STELLA_TOKEN delete).
 - No backfill needed: injection is now unconditional per scope, so every existing
   agent/user-scoped secret starts injecting (this is the intended, more-inclusive
-  behavior; it only *adds* the previously non-injected user-scoped secrets, which
+  behavior; it only _adds_ the previously non-injected user-scoped secrets, which
   is correct — they are user secrets meant for their agents).
 
 ### sqlc queries (`internal/db/queries/vault_entry.sql`) — read `rules/sqlc.md`
