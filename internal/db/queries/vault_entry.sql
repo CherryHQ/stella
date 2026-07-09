@@ -14,6 +14,7 @@ WHERE ((scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
     OR (scope = 'user' AND user_id = sqlc.arg(user_id) AND vault_entry.agent_id IS NULL)
     OR (scope = 'user_agent' AND user_id = sqlc.arg(user_id) AND vault_entry.agent_id = sqlc.arg(runtime_agent_id)))
   AND (inject_always
+    OR scope IN ('user_agent', 'system_agent')
     OR EXISTS (
         SELECT 1
         FROM vault_entry_agent_binding b
@@ -43,6 +44,7 @@ WHERE ((scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
     OR (scope = 'user' AND user_id = sqlc.arg(user_id) AND vault_entry.agent_id IS NULL)
     OR (scope = 'user_agent' AND user_id = sqlc.arg(user_id) AND vault_entry.agent_id = sqlc.arg(runtime_agent_id)))
   AND NOT (inject_always
+    OR scope IN ('user_agent', 'system_agent')
     OR EXISTS (
         SELECT 1
         FROM vault_entry_agent_binding b

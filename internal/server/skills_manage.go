@@ -45,7 +45,7 @@ func skillScopeOwner(scope, userID, agentID string) (uid, aid string) {
 }
 
 // resolveSkillManageScope validates that the caller may manage the requested
-// scope and normalizes the owner fields. It mirrors resolveVaultScope: system
+// scope and normalizes the owner fields. It mirrors resolveScope: system
 // scopes require admin; agent scopes require agent access. On failure it writes
 // the response and returns ok=false.
 func (s *Server) resolveSkillManageScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope, agentID string) (string, string, bool) {

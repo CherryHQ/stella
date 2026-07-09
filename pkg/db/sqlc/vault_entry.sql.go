@@ -129,6 +129,7 @@ WHERE ((scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
     OR (scope = 'user' AND user_id = $2 AND vault_entry.agent_id IS NULL)
     OR (scope = 'user_agent' AND user_id = $2 AND vault_entry.agent_id = $1))
   AND NOT (inject_always
+    OR scope IN ('user_agent', 'system_agent')
     OR EXISTS (
         SELECT 1
         FROM vault_entry_agent_binding b
@@ -195,6 +196,7 @@ WHERE ((scope = 'system' AND user_id IS NULL AND vault_entry.agent_id IS NULL)
     OR (scope = 'user' AND user_id = $2 AND vault_entry.agent_id IS NULL)
     OR (scope = 'user_agent' AND user_id = $2 AND vault_entry.agent_id = $1))
   AND (inject_always
+    OR scope IN ('user_agent', 'system_agent')
     OR EXISTS (
         SELECT 1
         FROM vault_entry_agent_binding b

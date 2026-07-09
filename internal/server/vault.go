@@ -48,7 +48,7 @@ func (s *Server) ListScopedVaultEntries(w http.ResponseWriter, r *http.Request, 
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, ok := s.resolveVaultScope(w, r, info, scope, agentID)
+	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
 	if !ok {
 		return
 	}
@@ -96,7 +96,7 @@ func (s *Server) GetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, ok := s.resolveVaultScope(w, r, info, scope, agentID)
+	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
 	if !ok {
 		return
 	}
@@ -150,7 +150,7 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 	if body.Scope == "" {
 		body.Scope = vault.ScopeUser
 	}
-	userID, agentID, ok := s.resolveVaultScope(w, r, info, body.Scope, body.AgentID)
+	userID, agentID, ok := s.resolveScope(w, r, info, body.Scope, body.AgentID)
 	if !ok {
 		return
 	}
@@ -236,7 +236,7 @@ func (s *Server) DeleteScopedVaultEntry(w http.ResponseWriter, r *http.Request, 
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, ok := s.resolveVaultScope(w, r, info, scope, agentID)
+	userID, agentID, ok := s.resolveScope(w, r, info, scope, agentID)
 	if !ok {
 		return
 	}
@@ -278,7 +278,7 @@ func (s *Server) invalidateVaultRunners(scope, userID, agentID, name, op string)
 	}
 }
 
-func (s *Server) resolveVaultScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope string, agentID string) (string, string, bool) {
+func (s *Server) resolveScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope string, agentID string) (string, string, bool) {
 	resolved, err := vault.ResolveScope(vault.ScopeRequest{
 		Scope:   scope,
 		UserID:  info.UserID,
