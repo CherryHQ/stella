@@ -199,14 +199,15 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	}
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
-		Memory:     memProvider,
-		Store:      store,
-		SkillStore: skillStoreAdapter,
-		Notifier:   dispatcher,
-		StateStore: pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
-		Workspace:  config.StellaHome(),
-		Providers:  providerStreamBuilder,
-		Services:   &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
+		Memory:            memProvider,
+		Store:             store,
+		SkillStore:        skillStoreAdapter,
+		UsageCuratorStore: reflect.NewSQLUsageCuratorStore(sqlc.New(db)),
+		Notifier:          dispatcher,
+		StateStore:        pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
+		Workspace:         config.StellaHome(),
+		Providers:         providerStreamBuilder,
+		Services:          &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 	}); err != nil {
 		return nil, err
 	}

@@ -235,6 +235,18 @@ func (s *testSkillStore) Delete(ctx context.Context, id string) error {
 	return s.q.DeleteSkill(ctx, params)
 }
 
+func (s *testSkillStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE skill_usage
+		SET use_count = use_count + 1,
+		    last_used_at = now()
+		WHERE skill_id = $1
+		  AND user_id = $2
+		  AND agent_id = $3
+	`, skillID, userID, agentID)
+	return err
+}
+
 func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) error {
 	return s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339))
 }
@@ -691,6 +703,134 @@ func TestLoadWithPath(t *testing.T) {
 	}
 }
 
+func TestLoadReflectOwnedUserAgentSkillTouchesRuntimeUsage(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+	metadata, err := MarkReflectOwnedMetadata(nil)
+	if err != nil {
+		t.Fatalf("reflect metadata: %v", err)
+	}
+
+	skillID, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "user_agent",
+		UserID:      userID,
+		AgentID:     agentID,
+		Name:        "reflect-runtime-skill",
+		Description: "Reflect-owned runtime skill",
+		Status:      "active",
+		Metadata:    metadata,
+	}, map[string]string{
+		pkgplugins.SkillMainFile: "# Reflect Runtime Skill",
+	})
+	if err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+	seedSkillUsage(t, store, skillID, userID, agentID, 2, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+
+	tool := NewTool(store, "", "")
+	if _, err := tool.load(ctx, map[string]any{"name": "reflect-runtime-skill"}); err != nil {
+		t.Fatalf("load skill: %v", err)
+	}
+
+	useCount, lastUsed := loadSkillUsage(t, store, skillID)
+	if useCount != 3 {
+		t.Fatalf("use_count = %d, want 3", useCount)
+	}
+	if !lastUsed.After(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("last_used_at = %s, want refreshed timestamp", lastUsed)
+	}
+}
+
+type blockingSkillUsageStore struct {
+	*testSkillStore
+	deadline time.Time
+	resolves int
+}
+
+func (s *blockingSkillUsageStore) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
+	s.resolves++
+	return s.testSkillStore.Resolve(ctx, name, vc)
+}
+
+func (s *blockingSkillUsageStore) TouchReflectSkillRuntimeUse(ctx context.Context, _ string, _ string, _ string) error {
+	s.deadline, _ = ctx.Deadline()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(1200 * time.Millisecond):
+		return nil
+	}
+}
+
+func TestLoadReflectOwnedSkillBoundsUsageLatencyAndResolvesOnce(t *testing.T) {
+	base, userID, agentID := newTestSkillStore(t)
+	store := &blockingSkillUsageStore{testSkillStore: base}
+	ctx := ctxWithUser(userID, agentID)
+	metadata, err := MarkReflectOwnedMetadata(nil)
+	if err != nil {
+		t.Fatalf("reflect metadata: %v", err)
+	}
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user_agent", UserID: userID, AgentID: agentID,
+		Name: "reflect-runtime-timeout", Description: "bounded usage touch",
+		Status: "active", Metadata: metadata,
+	}, map[string]string{pkgplugins.SkillMainFile: "# Runtime Timeout"}); err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	started := time.Now()
+	out, err := NewTool(store, "", "").load(ctx, map[string]any{"name": "reflect-runtime-timeout"})
+	if err != nil {
+		t.Fatalf("load skill: %v", err)
+	}
+	if !strings.Contains(out, "# Runtime Timeout") {
+		t.Fatalf("main load result lost after usage timeout: %s", out)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("skill load blocked for %s, want bounded best-effort touch", elapsed)
+	}
+	if store.deadline.IsZero() {
+		t.Fatal("usage tracker did not receive a deadline")
+	}
+	if store.resolves != 1 {
+		t.Fatalf("Resolve calls = %d, want one resolution shared by load and touch", store.resolves)
+	}
+}
+
+func TestLoadNonReflectSkillDoesNotTouchRuntimeUsage(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	skillID, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "user_agent",
+		UserID:      userID,
+		AgentID:     agentID,
+		Name:        "manual-runtime-skill",
+		Description: "Manual runtime skill",
+		Status:      "active",
+	}, map[string]string{
+		pkgplugins.SkillMainFile: "# Manual Runtime Skill",
+	})
+	if err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+	seededAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	seedSkillUsage(t, store, skillID, userID, agentID, 2, seededAt)
+
+	tool := NewTool(store, "", "")
+	if _, err := tool.load(ctx, map[string]any{"name": "manual-runtime-skill"}); err != nil {
+		t.Fatalf("load skill: %v", err)
+	}
+
+	useCount, lastUsed := loadSkillUsage(t, store, skillID)
+	if useCount != 2 {
+		t.Fatalf("use_count = %d, want unchanged 2", useCount)
+	}
+	if !lastUsed.Equal(seededAt) {
+		t.Fatalf("last_used_at = %s, want unchanged %s", lastUsed, seededAt)
+	}
+}
+
 func TestLoadMaterializesDBSkillDir(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
@@ -736,6 +876,30 @@ func TestLoadMaterializesDBSkillDir(t *testing.T) {
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("stale file exists after materialize: %v", err)
 	}
+}
+
+func seedSkillUsage(t *testing.T, store *testSkillStore, skillID string, userID string, agentID string, useCount int64, lastUsedAt time.Time) {
+	t.Helper()
+	if _, err := store.db.Exec(context.Background(), `
+		INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $5)
+	`, skillID, userID, agentID, useCount, lastUsedAt); err != nil {
+		t.Fatalf("seed skill_usage: %v", err)
+	}
+}
+
+func loadSkillUsage(t *testing.T, store *testSkillStore, skillID string) (int64, time.Time) {
+	t.Helper()
+	var useCount int64
+	var lastUsedAt time.Time
+	if err := store.db.QueryRow(context.Background(), `
+		SELECT use_count, last_used_at
+		FROM skill_usage
+		WHERE skill_id = $1
+	`, skillID).Scan(&useCount, &lastUsedAt); err != nil {
+		t.Fatalf("load skill_usage: %v", err)
+	}
+	return useCount, lastUsedAt
 }
 
 func TestLoadRefreshesStaleDBSkillDir(t *testing.T) {

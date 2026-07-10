@@ -35,8 +35,8 @@ func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, 
 	}
 
 	sortReviewTargets(targets)
-	if len(targets) > s.batch {
-		targets = targets[:s.batch]
+	if limit := s.reviewTargetLimit(); limit > 0 && len(targets) > limit {
+		targets = targets[:limit]
 	}
 	return targets, nil
 }
@@ -60,10 +60,17 @@ func (s *Service) listUnreviewedFromRegistry(ctx context.Context, reg *session.R
 	}
 
 	sortReviewTargets(targets)
-	if len(targets) > s.batch {
-		targets = targets[:s.batch]
+	if limit := s.reviewTargetLimit(); limit > 0 && len(targets) > limit {
+		targets = targets[:limit]
 	}
 	return targets, nil
+}
+
+func (s *Service) reviewTargetLimit() int {
+	if s.maxReviewTargetsPerAgent > 0 {
+		return s.maxReviewTargetsPerAgent
+	}
+	return defaultMaxReviewTargetsPerAgent
 }
 
 func listSessionInfoForReview(ctx context.Context, sm memory.SessionManager, agentID string) ([]memory.SessionInfo, error) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/scheduler"
 )
 
@@ -28,6 +29,19 @@ func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
 	}
 	if cfg.Providers == nil {
 		return nil, fmt.Errorf("reflect: Providers builder is required")
+	}
+	if cfg.UsageCuratorSettings.withDefaults().Mode == UsageCuratorModeArmed {
+		if cfg.UsageCuratorStore == nil {
+			return nil, fmt.Errorf("reflect: UsageCuratorStore is required for armed usage curator")
+		}
+		// Armed curator performs actual lifecycle writes, so missing writer
+		// capabilities should fail during wiring instead of partway through a run.
+		if _, ok := memory.Unwrap(cfg.Memory).(factBatchWriter); !ok {
+			return nil, fmt.Errorf("reflect: Memory provider must support fact batch writes for armed usage curator")
+		}
+		if _, ok := cfg.SkillStore.(usageCuratorSkillWriter); !ok {
+			return nil, fmt.Errorf("reflect: SkillStore must support reflect skill deprecate for armed usage curator")
+		}
 	}
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()

@@ -72,11 +72,14 @@ var skillsInputSchema = func() map[string]any {
 	return m
 }()
 
+const runtimeUsageTouchTimeout = 500 * time.Millisecond
+
 type Tool struct {
 	svc         *Service
 	store       pkgplugins.SkillStore
 	stellaHome  string
 	projectRoot string
+	actionsOnly map[string]bool
 	// layout is the single authority for where a DB-backed skill's files live on
 	// disk, by scope; it must agree with the write side that materialized them.
 	layout SkillDiskLayout
@@ -85,6 +88,10 @@ type Tool struct {
 	// prompt search instructions use the same visible system-skill set.
 	registeredPluginIDs []string
 	enabledPluginIDs    []string
+}
+
+type reflectSkillRuntimeUsageTracker interface {
+	TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error
 }
 
 func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool {
@@ -116,6 +123,17 @@ func (t *Tool) WithSkillDirView(v SkillDirView) *Tool {
 func (t *Tool) WithPluginVisibility(registered, enabled []string) *Tool {
 	t.registeredPluginIDs = append([]string(nil), registered...)
 	t.enabledPluginIDs = append([]string(nil), enabled...)
+	return t
+}
+
+// WithActionsOnly restricts the model-facing tool to the named actions. The
+// executor enforces the same allowlist so hidden actions cannot be called by
+// submitting raw tool arguments.
+func (t *Tool) WithActionsOnly(actions ...string) *Tool {
+	t.actionsOnly = make(map[string]bool, len(actions))
+	for _, action := range actions {
+		t.actionsOnly[action] = true
+	}
 	return t
 }
 
@@ -253,11 +271,20 @@ func pkgskillsToolDefinition() tools.Definition {
 }
 
 func (t *Tool) Definition() tools.Definition {
-	return pkgskillsToolDefinition()
+	definition := pkgskillsToolDefinition()
+	if t.actionsOnly == nil {
+		return definition
+	}
+	definition.Description = "Search installed visible skills and load a selected skill's content."
+	definition.InputSchema = t.restrictedInputSchema()
+	return definition
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	action, _ := args["action"].(string)
+	if t.actionsOnly != nil && !t.actionsOnly[action] {
+		return "", fmt.Errorf("skills action %q is not available in this context", action)
+	}
 	switch action {
 	case "load":
 		return t.load(ctx, args)
@@ -282,6 +309,60 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	}
 }
 
+func (t *Tool) restrictedInputSchema() map[string]any {
+	properties := map[string]any{
+		"action": map[string]any{
+			"type":        "string",
+			"enum":        t.allowedActionValues(),
+			"description": "Action to perform",
+		},
+	}
+	baseProperties, _ := skillsInputSchema["properties"].(map[string]any)
+	for property, actions := range map[string][]string{
+		"query":       {"search_installed", "search"},
+		"limit":       {"search_installed", "search"},
+		"source":      {"install"},
+		"scope":       {"install", "remove", "create", "patch", "deprecate"},
+		"name":        {"load", "remove", "create", "patch", "deprecate"},
+		"description": {"create", "patch"},
+		"content":     {"create", "patch"},
+		"status":      {"patch"},
+		"path":        {"load"},
+	} {
+		if t.allowsAny(actions...) {
+			properties[property] = baseProperties[property]
+		}
+	}
+	return map[string]any{
+		"type":       "object",
+		"properties": properties,
+		"required":   []any{"action"},
+	}
+}
+
+func (t *Tool) allowedActionValues() []any {
+	all, _ := skillsInputSchema["properties"].(map[string]any)
+	action, _ := all["action"].(map[string]any)
+	values, _ := action["enum"].([]any)
+	allowed := make([]any, 0, len(values))
+	for _, raw := range values {
+		name, _ := raw.(string)
+		if t.actionsOnly[name] {
+			allowed = append(allowed, name)
+		}
+	}
+	return allowed
+}
+
+func (t *Tool) allowsAny(actions ...string) bool {
+	for _, action := range actions {
+		if t.actionsOnly[action] {
+			return true
+		}
+	}
+	return false
+}
+
 func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	if name == "" {
@@ -292,7 +373,7 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
 	vc := t.viewContext(ctx)
 
-	data, skillDir, err := t.svc.LoadFile(ctx, name, path, vc, projectRoot)
+	data, skillDir, resolved, err := t.svc.LoadFile(ctx, name, path, vc, projectRoot)
 	if err != nil {
 		return "", err
 	}
@@ -307,17 +388,16 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	// created through a non-syncing store; <skill_dir> must be executable, not a
 	// theoretical address.
 	if skillDir == "" {
-		rs, _ := t.svc.Resolve(ctx, name, vc, projectRoot)
-		if rs != nil {
-			skillDir = t.layout.Dir(rs.Scope, rs.Name)
+		if resolved != nil {
+			skillDir = t.layout.Dir(resolved.Scope, resolved.Name)
 			if skillDir != "" {
 				// Cross-replica writes leave no local signal, so load refreshes the mirror
 				// from the DB; content comparison spares the disk writes but not the DB
 				// reads. Ceiling: a revision marker would make the no-op path cheap, but
 				// needs file mutations to bump skill.updated_at first (today
 				// UpsertSkillFile/DeleteSkillFile touch only skill_file rows).
-				if err := t.materializeDBSkill(ctx, rs.ID, skillDir); err != nil {
-					slog.WarnContext(ctx, "skills load: failed to materialize DB skill", "skill", rs.Name, "dir", skillDir, "err", err)
+				if err := t.materializeDBSkill(ctx, resolved.ID, skillDir); err != nil {
+					slog.WarnContext(ctx, "skills load: failed to materialize DB skill", "skill", resolved.Name, "dir", skillDir, "err", err)
 					// Degrade to staleness, not to lost execution: keep serving an
 					// existing mirror through a transient store error. Probed by
 					// opening — the sandbox bypass guard bans the stat helpers here.
@@ -330,6 +410,7 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 			}
 		}
 	}
+	t.touchReflectSkillRuntimeUse(ctx, resolved, vc)
 
 	// Remap the host directory to the path the agent sees inside the sandbox; an
 	// unmappable dir on an isolating backend is dropped rather than leaked.
@@ -342,6 +423,24 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	fmt.Fprintf(&out, "<skill_content name=%q path=%q>\n%s\n</skill_content>", name, path, data)
 
 	return out.String(), nil
+}
+
+func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, resolved *ResolvedSkill, vc pkgplugins.SkillViewContext) {
+	tracker, ok := t.store.(reflectSkillRuntimeUsageTracker)
+	if !ok || vc.UserID == "" || vc.AgentID == "" {
+		return
+	}
+	if resolved == nil || resolved.Scope != skillScopeAgent || resolved.UserID != vc.UserID || resolved.AgentID != vc.AgentID {
+		return
+	}
+	if !IsReflectOwned(Skill{Metadata: resolved.Metadata}) {
+		return
+	}
+	touchCtx, cancel := context.WithTimeout(ctx, runtimeUsageTouchTimeout)
+	defer cancel()
+	if err := tracker.TouchReflectSkillRuntimeUse(touchCtx, resolved.ID, vc.UserID, vc.AgentID); err != nil {
+		slog.WarnContext(ctx, "skills load: failed to touch skill usage", "skill", resolved.Name, "err", err)
+	}
 }
 
 type installedSkill struct {

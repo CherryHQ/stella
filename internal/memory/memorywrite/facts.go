@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -16,6 +17,11 @@ import (
 )
 
 const factsScope = "fact"
+
+var (
+	ErrFactNotRestorable    = errors.New("fact is not restorable")
+	ErrFactRestoreBadCaller = errors.New("fact restore requires restored_by")
+)
 
 // CreateFact inserts an active fact, bumps the shared user-agent memory version,
 // and records the fact state in ctx_agent_memory_changelog.
@@ -138,8 +144,12 @@ func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries
 			if err != nil {
 				return fmt.Errorf("deprecate reset fact: %w", err)
 			}
+			before := factFromRow(row)
+			if err := deleteKnowledgeUsageIfReflectWorld(ctx, qtx, before); err != nil {
+				return err
+			}
 			deprecated = append(deprecated, deprecatedFact{
-				before: factFromRow(row),
+				before: before,
 				after:  factFromRow(deprecatedRow),
 			})
 		}
@@ -184,6 +194,114 @@ func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries
 	return tx.Commit(ctx)
 }
 
+type RestoreCuratorDeprecatedKnowledgeFactInput struct {
+	FactID     string
+	UserID     string
+	AgentID    string
+	RestoredBy string
+	Reason     string
+}
+
+type RestoreCuratorDeprecatedKnowledgeFactResult struct {
+	Fact     memory.Fact
+	Restored bool
+}
+
+// RestoreCuratorDeprecatedKnowledgeFact restores a Reflect-owned world fact that
+// was deprecated by the usage curator. It intentionally refuses other deprecates:
+// manual/semantic deprecations need a different review path.
+func RestoreCuratorDeprecatedKnowledgeFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, in RestoreCuratorDeprecatedKnowledgeFactInput) (RestoreCuratorDeprecatedKnowledgeFactResult, error) {
+	if in.FactID == "" || in.UserID == "" || in.AgentID == "" {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("fact restore: fact_id, user_id, and agent_id are required")
+	}
+	if in.RestoredBy == "" {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, ErrFactRestoreBadCaller
+	}
+	if db == nil || q == nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("fact restore: db and sql queries are required")
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("begin fact restore: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockMemory(ctx, tx, in.UserID, in.AgentID); err != nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, err
+	}
+	qtx := q.WithTx(tx)
+
+	beforeRow, err := qtx.GetFactForUpdate(ctx, sqlc.GetFactForUpdateParams{
+		ID:      in.FactID,
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, ErrFactNotRestorable
+	}
+	if err != nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("lock fact for restore: %w", err)
+	}
+	before := factFromRow(beforeRow)
+	if before.Scope != "user_agent" || before.Subject != memory.FactSubjectWorld || before.Source != memory.SourceReflect {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, ErrFactNotRestorable
+	}
+	if before.Status == memory.FactStatusActive {
+		if err := tx.Commit(ctx); err != nil {
+			return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("commit no-op fact restore: %w", err)
+		}
+		return RestoreCuratorDeprecatedKnowledgeFactResult{Fact: before, Restored: false}, nil
+	}
+	if before.Status != memory.FactStatusDeprecated {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, ErrFactNotRestorable
+	}
+
+	deprecateLog, err := qtx.GetLatestCuratorDeprecateFactChangelog(ctx, sqlc.GetLatestCuratorDeprecateFactChangelogParams{
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+		FactID:  in.FactID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, ErrFactNotRestorable
+	}
+	if err != nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("read curator deprecate changelog: %w", err)
+	}
+	beforeVersion, err := currentMemoryVersion(ctx, qtx, in.UserID, in.AgentID)
+	if err != nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, err
+	}
+	restoredRow, err := qtx.RestoreReflectWorldFact(ctx, sqlc.RestoreReflectWorldFactParams{
+		ID:      in.FactID,
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, ErrFactNotRestorable
+	}
+	if err != nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("restore fact row: %w", err)
+	}
+	memoryRow, err := qtx.BumpAgentMemoryVersion(ctx, sqlc.BumpAgentMemoryVersionParams{
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+	})
+	if err != nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("bump memory version: %w", err)
+	}
+	restored := factFromRow(restoredRow)
+	if err := upsertKnowledgeUsageIfReflectWorld(ctx, qtx, restored); err != nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, err
+	}
+	metadata := restoreFactMetadata(in.RestoredBy, in.Reason, deprecateLog)
+	if _, err := writeFactChangelogWithMetadata(ctx, qtx, in.UserID, in.AgentID, "restore", memory.SourceManual, beforeVersion, memoryRow.Version, before, restored, metadata); err != nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return RestoreCuratorDeprecatedKnowledgeFactResult{}, fmt.Errorf("commit fact restore: %w", err)
+	}
+	return RestoreCuratorDeprecatedKnowledgeFactResult{Fact: restored, Restored: true}, nil
+}
+
 type factWritePlan struct {
 	action    string
 	oldFactID string
@@ -208,6 +326,14 @@ type FactBatchOperation struct {
 	Content       string
 	Metadata      json.RawMessage
 	TargetFactIDs []string
+	// TargetUsageLastUsedAt optionally makes deprecate_many skip targets whose
+	// Reflect knowledge usage changed since candidate selection. Curator uses
+	// this to avoid retiring facts that were used while an armed run was pending.
+	TargetUsageLastUsedAt map[string]time.Time
+	// RequireEligibleActivityAfterUsage makes curator deprecation recheck that
+	// the owning user-agent pair still has a review-eligible conversation after
+	// the locked usage timestamp.
+	RequireEligibleActivityAfterUsage bool
 }
 
 // ApplyFactBatch applies a batch of fact writes under one memory advisory lock
@@ -288,7 +414,7 @@ func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userI
 			return nil, fmt.Errorf("fact batch: replace_many requires targets and content")
 		}
 		for _, id := range op.TargetFactIDs {
-			if _, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id); err != nil {
+			if _, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id, nil); err != nil {
 				return nil, err
 			}
 		}
@@ -304,7 +430,14 @@ func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userI
 		}
 		deprecated := make([]memory.Fact, 0, len(op.TargetFactIDs))
 		for _, id := range op.TargetFactIDs {
-			fact, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id)
+			shouldDeprecate, err := knowledgeUsageMatchesPrecondition(ctx, qtx, userID, agentID, id, op.TargetUsageLastUsedAt, op.RequireEligibleActivityAfterUsage)
+			if err != nil {
+				return nil, err
+			}
+			if !shouldDeprecate {
+				continue
+			}
+			fact, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id, op.Metadata)
 			if err != nil {
 				return nil, err
 			}
@@ -314,6 +447,39 @@ func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userI
 	default:
 		return nil, fmt.Errorf("fact batch: unknown action %q", op.Action)
 	}
+}
+
+func knowledgeUsageMatchesPrecondition(ctx context.Context, qtx *sqlc.Queries, userID string, agentID string, factID string, expected map[string]time.Time, requireEligibleActivity bool) (bool, error) {
+	expectedAt, ok := expected[factID]
+	if !ok {
+		return true, nil
+	}
+	row, err := qtx.GetKnowledgeUsageForUpdate(ctx, sqlc.GetKnowledgeUsageForUpdateParams{
+		FactID:  factID,
+		UserID:  userID,
+		AgentID: agentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("lock knowledge usage for fact %s: %w", factID, err)
+	}
+	if !row.LastUsedAt.Equal(expectedAt) {
+		return false, nil
+	}
+	if !requireEligibleActivity {
+		return true, nil
+	}
+	hasActivity, err := qtx.HasEligiblePairActivityAfter(ctx, sqlc.HasEligiblePairActivityAfterParams{
+		UserID:  userID,
+		AgentID: agentID,
+		After:   row.LastUsedAt,
+	})
+	if err != nil {
+		return false, fmt.Errorf("recheck eligible activity for fact %s: %w", factID, err)
+	}
+	return hasActivity, nil
 }
 
 func singleFactResult(fact memory.Fact, err error) ([]memory.Fact, error) {
@@ -385,6 +551,9 @@ func applyFactWriteLocked(ctx context.Context, qtx *sqlc.Queries, plan factWrite
 		}
 		f := factFromRow(row)
 		deprecatedOld = &f
+		if err := deleteKnowledgeUsageIfReflectWorld(ctx, qtx, oldBefore); err != nil {
+			return memory.Fact{}, err
+		}
 	}
 
 	metadata := plan.write.Metadata
@@ -415,6 +584,9 @@ func applyFactWriteLocked(ctx context.Context, qtx *sqlc.Queries, plan factWrite
 	}
 
 	fact := factFromRow(row)
+	if err := upsertKnowledgeUsageIfReflectWorld(ctx, qtx, fact); err != nil {
+		return memory.Fact{}, err
+	}
 	changelogAction := plan.action
 	if deprecatedOld != nil {
 		changelogAction = "replace"
@@ -429,7 +601,7 @@ func applyFactWriteLocked(ctx context.Context, qtx *sqlc.Queries, plan factWrite
 	return fact, nil
 }
 
-func applyDeprecateFactLocked(ctx context.Context, qtx *sqlc.Queries, userID string, agentID string, subject memory.FactSubject, factID string) (memory.Fact, error) {
+func applyDeprecateFactLocked(ctx context.Context, qtx *sqlc.Queries, userID string, agentID string, subject memory.FactSubject, factID string, changelogMetadata json.RawMessage) (memory.Fact, error) {
 	source := factSourceFromContext(ctx)
 	beforeVersion, err := currentMemoryVersion(ctx, qtx, userID, agentID)
 	if err != nil {
@@ -466,10 +638,37 @@ func applyDeprecateFactLocked(ctx context.Context, qtx *sqlc.Queries, userID str
 		return memory.Fact{}, fmt.Errorf("bump memory version: %w", err)
 	}
 	deprecated := factFromRow(row)
-	if _, err := writeFactChangelog(ctx, qtx, userID, agentID, "deprecate", source, beforeVersion, memoryRow.Version, oldBefore, deprecated); err != nil {
+	if err := deleteKnowledgeUsageIfReflectWorld(ctx, qtx, oldBefore); err != nil {
+		return memory.Fact{}, err
+	}
+	if _, err := writeFactChangelogWithMetadata(ctx, qtx, userID, agentID, "deprecate", source, beforeVersion, memoryRow.Version, oldBefore, deprecated, changelogMetadata); err != nil {
 		return memory.Fact{}, err
 	}
 	return deprecated, nil
+}
+
+func upsertKnowledgeUsageIfReflectWorld(ctx context.Context, qtx *sqlc.Queries, fact memory.Fact) error {
+	if fact.Subject != memory.FactSubjectWorld || fact.Source != memory.SourceReflect {
+		return nil
+	}
+	if err := qtx.UpsertKnowledgeUsage(ctx, sqlc.UpsertKnowledgeUsageParams{
+		FactID:  fact.ID,
+		UserID:  fact.UserID,
+		AgentID: fact.AgentID,
+	}); err != nil {
+		return fmt.Errorf("upsert knowledge usage: %w", err)
+	}
+	return nil
+}
+
+func deleteKnowledgeUsageIfReflectWorld(ctx context.Context, qtx *sqlc.Queries, fact memory.Fact) error {
+	if fact.Subject != memory.FactSubjectWorld || fact.Source != memory.SourceReflect {
+		return nil
+	}
+	if err := qtx.DeleteKnowledgeUsage(ctx, fact.ID); err != nil {
+		return fmt.Errorf("delete knowledge usage: %w", err)
+	}
+	return nil
 }
 
 func metadataWithReplacedFactIDs(metadata json.RawMessage, targetIDs []string) json.RawMessage {
@@ -478,6 +677,34 @@ func metadataWithReplacedFactIDs(metadata json.RawMessage, targetIDs []string) j
 		_ = json.Unmarshal(metadata, &payload)
 	}
 	payload["replaced_fact_ids"] = targetIDs
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return b
+}
+
+func restoreFactMetadata(restoredBy string, reason string, deprecated sqlc.CtxAgentMemoryChangelog) json.RawMessage {
+	payload := map[string]any{
+		"restored_by":                restoredBy,
+		"deprecated_changelog_id":    deprecated.ID,
+		"deprecated_at":              deprecated.CreatedAt.UTC().Format(time.RFC3339),
+		"deprecated_changelog_scope": deprecated.Scope,
+	}
+	if reason != "" {
+		payload["reason"] = reason
+	}
+	if deprecated.Metadata.Valid {
+		deprecateMetadata := map[string]any{}
+		if err := json.Unmarshal([]byte(deprecated.Metadata.String), &deprecateMetadata); err == nil {
+			if rule, _ := deprecateMetadata["rule"].(string); rule != "" {
+				payload["curator_rule"] = rule
+			}
+			if lastUsed, _ := deprecateMetadata["last_used_at"].(string); lastUsed != "" {
+				payload["last_used_at"] = lastUsed
+			}
+		}
+	}
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return json.RawMessage(`{}`)
@@ -500,6 +727,10 @@ func currentMemoryVersion(ctx context.Context, q *sqlc.Queries, userID string, a
 }
 
 func writeFactChangelog(ctx context.Context, q *sqlc.Queries, userID string, agentID string, action string, source memory.ChangeSource, beforeVersion int64, afterVersion int64, before memory.Fact, after memory.Fact) (string, error) {
+	return writeFactChangelogWithMetadata(ctx, q, userID, agentID, action, source, beforeVersion, afterVersion, before, after, nil)
+}
+
+func writeFactChangelogWithMetadata(ctx context.Context, q *sqlc.Queries, userID string, agentID string, action string, source memory.ChangeSource, beforeVersion int64, afterVersion int64, before memory.Fact, after memory.Fact, metadata json.RawMessage) (string, error) {
 	var beforeText pgtype.Text
 	if before.ID != "" {
 		b, err := json.Marshal(before)
@@ -516,6 +747,9 @@ func writeFactChangelog(ctx context.Context, q *sqlc.Queries, userID string, age
 		}
 		afterText = pgtype.Text{String: string(b), Valid: true}
 	}
+	if len(metadata) == 0 {
+		metadata = json.RawMessage(`{}`)
+	}
 	id := uuid.Must(uuid.NewV7()).String()
 	if err := q.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
 		ID:                  id,
@@ -529,6 +763,7 @@ func writeFactChangelog(ctx context.Context, q *sqlc.Queries, userID string, age
 		MemoryVersionAfter:  pgtype.Int8{Int64: afterVersion, Valid: true},
 		BeforeText:          beforeText,
 		AfterText:           afterText,
+		Metadata:            pgtype.Text{String: string(metadata), Valid: true},
 	}); err != nil {
 		return "", fmt.Errorf("write fact changelog: %w", err)
 	}

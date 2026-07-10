@@ -178,37 +178,37 @@ func scopeOwner(scope string, vc pkgplugins.SkillViewContext) (userID, agentID s
 	}
 }
 
-// LoadFile loads a file from a skill resolved by name.
-// Returns the file content and the skill's directory path (if on disk).
-func (s *Service) LoadFile(ctx context.Context, name, path string, vc pkgplugins.SkillViewContext, projectRoot string) (content string, skillDir string, err error) {
+// LoadFile loads a file from a skill resolved by name. It returns the resolved
+// record so callers can reuse the exact identity for post-load bookkeeping.
+func (s *Service) LoadFile(ctx context.Context, name, path string, vc pkgplugins.SkillViewContext, projectRoot string) (content string, skillDir string, resolved *ResolvedSkill, err error) {
 	if path == "" {
 		path = pkgplugins.SkillMainFile
 	}
 
 	rs, err := s.Resolve(ctx, name, vc, projectRoot)
 	if err != nil {
-		return "", "", fmt.Errorf("resolve skill %q: %w", name, err)
+		return "", "", nil, fmt.Errorf("resolve skill %q: %w", name, err)
 	}
 	if rs == nil {
-		return "", "", fmt.Errorf("skill %q not found", name)
+		return "", "", nil, fmt.Errorf("skill %q not found", name)
 	}
 
 	if rs.Dir != "" {
 		data, err := loadProjectSkillFile(rs.Dir, path)
 		if err != nil {
-			return "", "", fmt.Errorf("load %s skill %q file %q: %w", rs.Scope, name, path, err)
+			return "", "", nil, fmt.Errorf("load %s skill %q file %q: %w", rs.Scope, name, path, err)
 		}
-		return data, rs.Dir, nil
+		return data, rs.Dir, rs, nil
 	}
 
 	if s.store == nil {
-		return "", "", fmt.Errorf("skill %q has no directory and store is unavailable", name)
+		return "", "", nil, fmt.Errorf("skill %q has no directory and store is unavailable", name)
 	}
 	data, err := s.store.LoadFile(ctx, rs.ID, path)
 	if err != nil {
-		return "", "", fmt.Errorf("load skill %q file %q: %w", name, path, err)
+		return "", "", nil, fmt.Errorf("load skill %q file %q: %w", name, path, err)
 	}
-	return data, "", nil
+	return data, "", rs, nil
 }
 
 // ListFiles returns file paths for a resolved skill.

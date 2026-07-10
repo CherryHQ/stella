@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -31,6 +32,8 @@ const (
 	actionConstraintAdd    = "constraint_add"
 	actionConstraintRemove = "constraint_remove"
 )
+
+const runtimeUsageTouchTimeout = 500 * time.Millisecond
 
 // ToolOption configures the generated memory tool.
 type ToolOption func(*toolConfig)
@@ -127,6 +130,9 @@ func BuildTool(provider Provider, opts ...ToolOption) tools.Tool {
 	if _, ok := inner.(VersionedFactStore); ok {
 		t.versionedFacts, _ = provider.(VersionedFactStore)
 	}
+	if _, ok := inner.(KnowledgeUsageTracker); ok {
+		t.knowledgeUsageTracker, _ = provider.(KnowledgeUsageTracker)
+	}
 
 	// Build the list of available actions.
 	t.actions = t.buildActions()
@@ -142,19 +148,20 @@ type actionMeta struct {
 
 // memoryTool implements tools.Tool with dynamic actions based on provider capabilities.
 type memoryTool struct {
-	provider        Provider
-	cfg             *toolConfig
-	searcher        Searcher
-	explorer        Explorer
-	messageReader   MessageReader
-	profileStore    ProfileStore
-	changelogReader ChangelogReader
-	changelogWriter ChangelogWriter
-	constraintStore ConstraintStore
-	snapshotStore   SessionSnapshotStore
-	factStore       FactStore
-	versionedFacts  VersionedFactStore
-	actions         []actionMeta
+	provider              Provider
+	cfg                   *toolConfig
+	searcher              Searcher
+	explorer              Explorer
+	messageReader         MessageReader
+	profileStore          ProfileStore
+	changelogReader       ChangelogReader
+	changelogWriter       ChangelogWriter
+	constraintStore       ConstraintStore
+	snapshotStore         SessionSnapshotStore
+	factStore             FactStore
+	versionedFacts        VersionedFactStore
+	knowledgeUsageTracker KnowledgeUsageTracker
+	actions               []actionMeta
 }
 
 func (t *memoryTool) buildActions() []actionMeta {
@@ -469,7 +476,29 @@ func (t *memoryTool) execSearchKnowledge(ctx context.Context, args map[string]an
 	if len(results) == 0 {
 		return "No knowledge facts found.", nil
 	}
+	t.touchReturnedKnowledgeUsage(ctx, userID, agentID, results)
 	return marshalJSON(results)
+}
+
+func (t *memoryTool) touchReturnedKnowledgeUsage(ctx context.Context, userID string, agentID string, results []knowledgeSearchResult) {
+	if t.knowledgeUsageTracker == nil {
+		return
+	}
+	factIDs := make([]string, 0, len(results))
+	for _, result := range results {
+		if result.Source != SourceReflect {
+			continue
+		}
+		factIDs = append(factIDs, result.FactID)
+	}
+	if len(factIDs) == 0 {
+		return
+	}
+	touchCtx, cancel := context.WithTimeout(ctx, runtimeUsageTouchTimeout)
+	defer cancel()
+	if err := t.knowledgeUsageTracker.TouchKnowledgeUsage(touchCtx, userID, agentID, factIDs); err != nil {
+		slog.WarnContext(ctx, "memory search_knowledge: failed to touch knowledge usage", "err", err)
+	}
 }
 
 func (t *memoryTool) requireKnowledgeCtx(ctx context.Context) (string, string, error) {

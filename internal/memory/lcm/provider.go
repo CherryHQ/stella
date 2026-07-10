@@ -20,17 +20,18 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ memory.Provider            = (*Provider)(nil)
-	_ memory.Compactor           = (*Provider)(nil)
-	_ memory.Searcher            = (*Provider)(nil)
-	_ memory.Explorer            = (*Provider)(nil)
-	_ memory.ProfileStore        = (*Provider)(nil)
-	_ memory.SessionManager      = (*Provider)(nil)
-	_ memory.ReviewHistoryReader = (*Provider)(nil)
-	_ memory.Reviewer            = (*Provider)(nil)
-	_ memory.ChangelogWriter     = (*Provider)(nil)
-	_ memory.ChangelogReader     = (*Provider)(nil)
-	_ memory.ConstraintStore     = (*Provider)(nil)
+	_ memory.Provider              = (*Provider)(nil)
+	_ memory.Compactor             = (*Provider)(nil)
+	_ memory.Searcher              = (*Provider)(nil)
+	_ memory.Explorer              = (*Provider)(nil)
+	_ memory.ProfileStore          = (*Provider)(nil)
+	_ memory.SessionManager        = (*Provider)(nil)
+	_ memory.ReviewHistoryReader   = (*Provider)(nil)
+	_ memory.Reviewer              = (*Provider)(nil)
+	_ memory.ChangelogWriter       = (*Provider)(nil)
+	_ memory.ChangelogReader       = (*Provider)(nil)
+	_ memory.ConstraintStore       = (*Provider)(nil)
+	_ memory.KnowledgeUsageTracker = (*Provider)(nil)
 )
 
 // Provider implements memory.Provider and all six capability interfaces

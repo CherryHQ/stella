@@ -101,6 +101,12 @@ func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in 
 	return patched, nil
 }
 
+func (d *DiskSyncStore) RestoreReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillRestore) (ReflectSkillRestoreResult, error) {
+	// Deprecating a Reflect skill only changes DB status and usage rows, so restore
+	// does not need extra disk writes; the skill files should already be present.
+	return d.Store.RestoreReflectOwnedUserAgentSkill(ctx, in)
+}
+
 func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) error {
 	sk, err := d.findByID(ctx, skillID)
 	if err != nil {

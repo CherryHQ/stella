@@ -15,7 +15,9 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // auth_user.id and ctx_agent_memory.user_id are UUID columns, so test user ids
@@ -69,6 +71,38 @@ func newLCMTestSession(suffix string) memory.Session {
 		AgentID: "test",
 		UserID:  testUserID,
 		Channel: "cli",
+	}
+}
+
+func TestTouchKnowledgeUsageDoesNotRecreateMissingRuntimeRow(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer db.Close()
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+	ctx := context.Background()
+	fact, err := memorywrite.CreateFact(ctx, db, sqlc.New(db), memory.FactWrite{
+		UserID: testUserID, AgentID: "test", Subject: memory.FactSubjectWorld,
+		Content: "Runtime touch must not recreate usage.", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("create reflect fact: %v", err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM knowledge_usage WHERE fact_id = $1`, fact.ID); err != nil {
+		t.Fatalf("delete knowledge usage: %v", err)
+	}
+
+	if err := p.TouchKnowledgeUsage(ctx, testUserID, "test", []string{fact.ID}); err != nil {
+		t.Fatalf("TouchKnowledgeUsage: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM knowledge_usage WHERE fact_id = $1`, fact.ID).Scan(&count); err != nil {
+		t.Fatalf("count knowledge usage: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("knowledge usage rows = %d, runtime touch must be UPDATE-only", count)
 	}
 }
 

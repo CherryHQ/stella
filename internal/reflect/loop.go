@@ -3,6 +3,7 @@ package reflect
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 
@@ -29,9 +30,16 @@ func (s *Service) ReviewNow(ctx context.Context, agentID string) (int, error) {
 }
 
 func (s *Service) runCycle(ctx context.Context) error {
+	return s.runCycleWithReviewer(ctx, s.reviewConversation)
+}
+
+type reviewTargetFunc func(context.Context, *config.Snapshot, reviewTarget) error
+
+func (s *Service) runCycleWithReviewer(ctx context.Context, review reviewTargetFunc) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	deadline := s.reflectNow().Add(s.reflectRunSoftBudget())
 
 	agents, err := s.store.ListEnabledAgents(ctx)
 	if err != nil {
@@ -42,26 +50,55 @@ func (s *Service) runCycle(ctx context.Context) error {
 	ctx, span := startCycleSpan(ctx, len(agents))
 	defer span.End()
 
+	agents = s.orderAgentsForReview(ctx, agents)
 	totalReviewed := 0
-	for _, agent := range agents {
+	processedAgents := 0
+	softStopped := false
+	for i, agent := range agents {
+		if err := ctx.Err(); err != nil {
+			s.recordNextReviewAgentCursor(ctx, agents, processedAgents)
+			return err
+		}
 		snap, err := s.store.Snapshot(ctx, agent.ID)
 		if err != nil {
 			s.log.Error("reflect: snapshot", "agent", agent.ID, "error", err)
+			processedAgents = i + 1
 			continue
 		}
-		n, err := s.reviewAgent(ctx, snap)
+		n, exhausted, err := s.reviewAgentWithReviewer(ctx, snap, deadline, review)
 		if err != nil {
 			s.log.Error("reflect: review agent", "agent", agent.ID, "error", err)
+			if ctx.Err() != nil {
+				s.recordNextReviewAgentCursor(ctx, agents, i)
+				return ctx.Err()
+			}
 		}
 		totalReviewed += n
+		if exhausted {
+			// This agent may still have unreviewed targets. Keep the cursor here;
+			// watermark ordering will omit targets that completed in this run.
+			s.recordNextReviewAgentCursor(ctx, agents, i)
+			softStopped = true
+			break
+		}
+		processedAgents = i + 1
+	}
+	if !softStopped {
+		s.recordNextReviewAgentCursor(ctx, agents, processedAgents)
 	}
 
 	span.SetAttributes(attribute.Int("stella.reflect.sessions_reviewed", totalReviewed))
 	expireDrafts(s.skillStore, defaultDraftMaxAge, s.log)
+	s.maybeRunUsageCurator(ctx)
 	return nil
 }
 
 func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, error) {
+	reviewed, _, err := s.reviewAgentWithReviewer(ctx, snap, time.Time{}, s.reviewConversation)
+	return reviewed, err
+}
+
+func (s *Service) reviewAgentWithReviewer(ctx context.Context, snap *config.Snapshot, deadline time.Time, review reviewTargetFunc) (int, bool, error) {
 	ctx, span := startAgentSpan(ctx, snap.AgentID)
 	defer span.End()
 
@@ -77,20 +114,27 @@ func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, 
 		// Fallback: use direct SessionManager if services not wired.
 		sm, ok := s.memory.(memory.SessionManager)
 		if !ok {
-			return 0, nil
+			return 0, false, nil
 		}
 		targets, err = s.listUnreviewed(ctx, sm, snap.AgentID)
 	}
 	if err != nil {
 		recordError(span, err)
-		return 0, fmt.Errorf("list unreviewed: %w", err)
+		return 0, false, fmt.Errorf("list unreviewed: %w", err)
 	}
 
 	span.SetAttributes(attribute.Int("stella.reflect.review_target_count", len(targets)))
 
 	reviewed := 0
 	for _, target := range targets {
-		if err := s.reviewConversation(ctx, snap, target); err != nil {
+		if err := ctx.Err(); err != nil {
+			return reviewed, false, err
+		}
+		if !deadline.IsZero() && !s.reflectNow().Before(deadline) {
+			span.SetAttributes(attribute.Int("stella.reflect.sessions_reviewed", reviewed))
+			return reviewed, true, nil
+		}
+		if err := review(ctx, snap, target); err != nil {
 			s.log.Error("reflect: review conversation", "session", target.session.ID, "error", err)
 			continue
 		}
@@ -98,5 +142,19 @@ func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, 
 	}
 
 	span.SetAttributes(attribute.Int("stella.reflect.sessions_reviewed", reviewed))
-	return reviewed, nil
+	return reviewed, false, nil
+}
+
+func (s *Service) reflectNow() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+func (s *Service) reflectRunSoftBudget() time.Duration {
+	if s.runSoftBudget > 0 {
+		return s.runSoftBudget
+	}
+	return defaultReflectRunSoftBudget
 }

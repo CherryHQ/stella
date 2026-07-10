@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -323,6 +324,103 @@ func TestReflectProvenanceBackfillMarksOnlyLegacyReflectFacts(t *testing.T) {
 	if changelogSource != "reflect" || payloadSource != "reflect" {
 		t.Fatalf("migrated fact changelog source = %q payload=%q, want reflect/reflect", changelogSource, payloadSource)
 	}
+}
+
+func TestReflectUsageBackfillSeedsOnlyProvenReflectOwnedRows(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, 20260708090000); err != nil {
+		t.Fatalf("goose down to before reflect usage tracking: %v", err)
+	}
+
+	userID := uuid.NewString()
+	agentID := "reflect-usage-backfill-agent"
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, 'reflect-usage-backfill@test.local')`, userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, $1, '/tmp')`, agentID); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+
+	reflectFactID := uuid.NewString()
+	manualFactID := uuid.NewString()
+	profileFactID := uuid.NewString()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO facts (id, subject, scope, user_id, agent_id, content, status, metadata, version, source)
+		VALUES
+		  ($1, 'world', 'user_agent', $4, $5, 'owned world fact', 'active', '{}', 1, 'reflect'),
+		  ($2, 'world', 'user_agent', $4, $5, 'legacy/manual world fact', 'active', '{}', 1, 'manual'),
+		  ($3, 'user', 'user_agent', $4, $5, 'reflect profile singleton', 'active', '{}', 1, 'reflect')`,
+		reflectFactID, manualFactID, profileFactID, userID, agentID); err != nil {
+		t.Fatalf("seed facts: %v", err)
+	}
+
+	if _, err := db.Exec(ctx, `
+		INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, metadata)
+		VALUES
+		  ('reflect-skill', 'user_agent', $1, $2, 'reflect-skill', 'owned reflect skill', 'active', '{"created_by":"reflect"}'),
+		  ('legacy-skill', 'user_agent', $1, $2, 'legacy-skill', 'unmarked legacy skill', 'active', '{}'),
+		  ('deprecated-reflect-skill', 'user_agent', $1, $2, 'deprecated-reflect-skill', 'old reflect skill', 'deprecated', '{"created_by":"reflect"}')`,
+		userID, agentID); err != nil {
+		t.Fatalf("seed skills: %v", err)
+	}
+
+	if _, err := provider.UpTo(ctx, 20260709090000); err != nil {
+		t.Fatalf("goose up reflect usage tracking: %v", err)
+	}
+
+	assertKnowledgeUsage := func(factID string, want int) {
+		t.Helper()
+		var got int
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM knowledge_usage WHERE fact_id = $1`, factID).Scan(&got); err != nil {
+			t.Fatalf("count knowledge_usage %s: %v", factID, err)
+		}
+		if got != want {
+			t.Fatalf("knowledge_usage rows for %s = %d, want %d", factID, got, want)
+		}
+	}
+	assertKnowledgeUsage(reflectFactID, 1)
+	assertKnowledgeUsage(manualFactID, 0)
+	assertKnowledgeUsage(profileFactID, 0)
+
+	assertSkillUsage := func(skillID string, wantRows int, wantUseCount int64) {
+		t.Helper()
+		var rows int
+		var useCount int64
+		if err := db.QueryRow(ctx, `SELECT count(*), COALESCE(max(use_count), 0) FROM skill_usage WHERE skill_id = $1`, skillID).Scan(&rows, &useCount); err != nil {
+			t.Fatalf("count skill_usage %s: %v", skillID, err)
+		}
+		if rows != wantRows || useCount != wantUseCount {
+			t.Fatalf("skill_usage for %s = (%d rows, use_count %d), want (%d rows, use_count %d)", skillID, rows, useCount, wantRows, wantUseCount)
+		}
+	}
+	assertSkillUsage("reflect-skill", 1, 0)
+	assertSkillUsage("legacy-skill", 0, 0)
+	assertSkillUsage("deprecated-reflect-skill", 0, 0)
+
+	assertIndexDefinition := func(name string, want string) {
+		t.Helper()
+		var got string
+		if err := db.QueryRow(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`, name).Scan(&got); err != nil {
+			t.Fatalf("read index %s: %v", name, err)
+		}
+		if !strings.Contains(got, want) {
+			t.Fatalf("index %s = %q, want it to contain %q", name, got, want)
+		}
+	}
+	assertIndexDefinition("idx_knowledge_usage_last_used", "(user_id, agent_id, last_used_at, fact_id)")
+	assertIndexDefinition("idx_skill_usage_last_used", "(user_id, agent_id, last_used_at, skill_id) INCLUDE (use_count)")
 }
 
 func tableExists(t *testing.T, db *pgxpool.Pool, name string) bool {
