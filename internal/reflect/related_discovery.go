@@ -49,25 +49,49 @@ type skillRelatedHint struct {
 }
 
 func normalizeKnowledgeRelatedSelections(selections []knowledgeRelatedSelection) []knowledgeRelatedSelection {
-	out := make([]knowledgeRelatedSelection, len(selections))
-	for i, selection := range selections {
-		out[i] = selection
-		out[i].Related = dedupeKnowledgeRelatedHints(selection.Related)
+	out := make([]knowledgeRelatedSelection, 0, len(selections))
+	positions := make(map[CandidateRef]int, len(selections))
+	for _, selection := range selections {
+		if idx, ok := positions[selection.CandidateRef]; ok {
+			out[idx].Related = append(out[idx].Related, selection.Related...)
+			if out[idx].Reason == "" {
+				out[idx].Reason = selection.Reason
+			}
+			continue
+		}
+		positions[selection.CandidateRef] = len(out)
+		selection.Related = append([]knowledgeRelatedHint(nil), selection.Related...)
+		out = append(out, selection)
+	}
+	for i := range out {
+		out[i].Related = dedupeKnowledgeRelatedHints(out[i].Related)
 	}
 	return out
 }
 
 func normalizeSkillRelatedSelections(selections []skillRelatedSelection) []skillRelatedSelection {
-	out := make([]skillRelatedSelection, len(selections))
-	for i, selection := range selections {
-		out[i] = selection
-		out[i].Related = dedupeSkillRelatedHints(selection.Related)
+	out := make([]skillRelatedSelection, 0, len(selections))
+	positions := make(map[CandidateRef]int, len(selections))
+	for _, selection := range selections {
+		if idx, ok := positions[selection.CandidateRef]; ok {
+			out[idx].Related = append(out[idx].Related, selection.Related...)
+			if out[idx].Reason == "" {
+				out[idx].Reason = selection.Reason
+			}
+			continue
+		}
+		positions[selection.CandidateRef] = len(out)
+		selection.Related = append([]skillRelatedHint(nil), selection.Related...)
+		out = append(out, selection)
+	}
+	for i := range out {
+		out[i].Related = dedupeSkillRelatedHints(out[i].Related)
 	}
 	return out
 }
 
 // Dedupe keeps the schema single-relation while making LLM relation discovery
-// tolerant of repeated targets in one candidate selection.
+// tolerant of repeated targets after candidate-level aggregation.
 func dedupeKnowledgeRelatedHints(hints []knowledgeRelatedHint) []knowledgeRelatedHint {
 	out := make([]knowledgeRelatedHint, 0, len(hints))
 	positions := map[string]int{}

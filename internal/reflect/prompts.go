@@ -358,6 +358,7 @@ Your job:
 
 Rules:
 - Use only fact IDs from the provided catalog.
+- Include each candidate_ref at most once in selections.
 - Include each fact_id at most once per candidate.
 - If multiple relation types apply to the same fact_id, choose the relation that most affects reconciliation.
 - Do not decide create, replace, deprecate, merge, or no-op.
@@ -385,6 +386,7 @@ Your job:
 
 Rules:
 - Use only skill IDs from the provided catalog.
+- Include each candidate_ref at most once in selections.
 - Include each skill_id at most once per candidate.
 - If multiple relation types apply to the same skill_id, choose the relation that most affects reconciliation.
 - Do not decide create, patch, deprecate, merge, or no-op.

@@ -138,27 +138,10 @@ func normalizeSkillReconciliationPlan(plan skillReconciliationPlan) skillReconci
 	return plan
 }
 
-// normalizeCandidateRefLists removes same-operation duplicates without hiding
-// cross-operation coverage conflicts, which validation still rejects.
+// normalizeCandidateRefLists removes duplicates within each list while keeping
+// cross-list overlap visible to validation and protocol repair.
 func normalizeCandidateRefLists(direct []CandidateRef, covered []CandidateRef) ([]CandidateRef, []CandidateRef) {
-	direct = uniqueCandidateRefs(direct)
-	directSet := make(map[CandidateRef]struct{}, len(direct))
-	for _, ref := range direct {
-		directSet[ref] = struct{}{}
-	}
-	outCovered := make([]CandidateRef, 0, len(covered))
-	seenCovered := map[CandidateRef]struct{}{}
-	for _, ref := range covered {
-		if _, ok := directSet[ref]; ok {
-			continue
-		}
-		if _, ok := seenCovered[ref]; ok {
-			continue
-		}
-		seenCovered[ref] = struct{}{}
-		outCovered = append(outCovered, ref)
-	}
-	return direct, outCovered
+	return uniqueCandidateRefs(direct), uniqueCandidateRefs(covered)
 }
 
 func uniqueCandidateRefs(refs []CandidateRef) []CandidateRef {

@@ -30,3 +30,17 @@ func TestDecodeFactReconciliationCallRejectsUnknownField(t *testing.T) {
 		t.Fatal("expected unknown reconciliation field to be rejected")
 	}
 }
+
+func TestNormalizeCandidateRefListsKeepsCrossListOverlapForValidation(t *testing.T) {
+	direct, covered := normalizeCandidateRefLists(
+		[]CandidateRef{"fact-0001", "fact-0001"},
+		[]CandidateRef{"fact-0001", "fact-0001"},
+	)
+
+	if len(direct) != 1 || direct[0] != "fact-0001" {
+		t.Fatalf("expected duplicate direct refs to be removed, got %#v", direct)
+	}
+	if len(covered) != 1 || covered[0] != "fact-0001" {
+		t.Fatalf("expected cross-list overlap to remain visible to validation, got %#v", covered)
+	}
+}
