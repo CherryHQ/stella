@@ -741,6 +741,62 @@ func TestLoadReflectOwnedUserAgentSkillTouchesRuntimeUsage(t *testing.T) {
 	}
 }
 
+type blockingSkillUsageStore struct {
+	*testSkillStore
+	deadline time.Time
+	resolves int
+}
+
+func (s *blockingSkillUsageStore) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
+	s.resolves++
+	return s.testSkillStore.Resolve(ctx, name, vc)
+}
+
+func (s *blockingSkillUsageStore) TouchReflectSkillRuntimeUse(ctx context.Context, _ string, _ string, _ string) error {
+	s.deadline, _ = ctx.Deadline()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(1200 * time.Millisecond):
+		return nil
+	}
+}
+
+func TestLoadReflectOwnedSkillBoundsUsageLatencyAndResolvesOnce(t *testing.T) {
+	base, userID, agentID := newTestSkillStore(t)
+	store := &blockingSkillUsageStore{testSkillStore: base}
+	ctx := ctxWithUser(userID, agentID)
+	metadata, err := MarkReflectOwnedMetadata(nil)
+	if err != nil {
+		t.Fatalf("reflect metadata: %v", err)
+	}
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user_agent", UserID: userID, AgentID: agentID,
+		Name: "reflect-runtime-timeout", Description: "bounded usage touch",
+		Status: "active", Metadata: metadata,
+	}, map[string]string{pkgplugins.SkillMainFile: "# Runtime Timeout"}); err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	started := time.Now()
+	out, err := NewTool(store, "", "").load(ctx, map[string]any{"name": "reflect-runtime-timeout"})
+	if err != nil {
+		t.Fatalf("load skill: %v", err)
+	}
+	if !strings.Contains(out, "# Runtime Timeout") {
+		t.Fatalf("main load result lost after usage timeout: %s", out)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("skill load blocked for %s, want bounded best-effort touch", elapsed)
+	}
+	if store.deadline.IsZero() {
+		t.Fatal("usage tracker did not receive a deadline")
+	}
+	if store.resolves != 1 {
+		t.Fatalf("Resolve calls = %d, want one resolution shared by load and touch", store.resolves)
+	}
+}
+
 func TestLoadNonReflectSkillDoesNotTouchRuntimeUsage(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -404,9 +405,22 @@ func TestReflectUsageBackfillSeedsOnlyProvenReflectOwnedRows(t *testing.T) {
 			t.Fatalf("skill_usage for %s = (%d rows, use_count %d), want (%d rows, use_count %d)", skillID, rows, useCount, wantRows, wantUseCount)
 		}
 	}
-	assertSkillUsage("reflect-skill", 1, 1)
+	assertSkillUsage("reflect-skill", 1, 0)
 	assertSkillUsage("legacy-skill", 0, 0)
 	assertSkillUsage("deprecated-reflect-skill", 0, 0)
+
+	assertIndexDefinition := func(name string, want string) {
+		t.Helper()
+		var got string
+		if err := db.QueryRow(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`, name).Scan(&got); err != nil {
+			t.Fatalf("read index %s: %v", name, err)
+		}
+		if !strings.Contains(got, want) {
+			t.Fatalf("index %s = %q, want it to contain %q", name, got, want)
+		}
+	}
+	assertIndexDefinition("idx_knowledge_usage_last_used", "(user_id, agent_id, last_used_at, fact_id)")
+	assertIndexDefinition("idx_skill_usage_last_used", "(user_id, agent_id, last_used_at, skill_id) INCLUDE (use_count)")
 }
 
 func tableExists(t *testing.T, db *pgxpool.Pool, name string) bool {

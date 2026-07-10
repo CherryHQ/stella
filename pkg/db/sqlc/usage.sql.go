@@ -87,28 +87,102 @@ func (q *Queries) GetSkillUsageForUpdate(ctx context.Context, arg GetSkillUsageF
 	return i, err
 }
 
+const hasEligiblePairActivityAfter = `-- name: HasEligiblePairActivityAfter :one
+SELECT EXISTS (
+  SELECT 1
+  FROM ctx_conversation c
+  WHERE c.user_id = $1::text
+    AND c.agent_id = $2::text
+    AND c.archived = false
+    AND c.kind NOT IN ('task', 'delegate', 'scheduler')
+    AND c.last_active > $3::timestamptz
+) AS has_activity
+`
+
+type HasEligiblePairActivityAfterParams struct {
+	UserID  string    `json:"user_id"`
+	AgentID string    `json:"agent_id"`
+	After   time.Time `json:"after"`
+}
+
+func (q *Queries) HasEligiblePairActivityAfter(ctx context.Context, arg HasEligiblePairActivityAfterParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasEligiblePairActivityAfter, arg.UserID, arg.AgentID, arg.After)
+	var has_activity bool
+	err := row.Scan(&has_activity)
+	return has_activity, err
+}
+
+const listReflectUsagePairs = `-- name: ListReflectUsagePairs :many
+SELECT DISTINCT owned.user_id, owned.agent_id
+FROM (
+  SELECT ku.user_id::text AS user_id, ku.agent_id
+  FROM knowledge_usage ku
+  UNION
+  SELECT su.user_id::text AS user_id, su.agent_id
+  FROM skill_usage su
+) owned
+ORDER BY owned.agent_id, owned.user_id
+`
+
+type ListReflectUsagePairsRow struct {
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) ListReflectUsagePairs(ctx context.Context) ([]ListReflectUsagePairsRow, error) {
+	rows, err := q.db.Query(ctx, listReflectUsagePairs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReflectUsagePairsRow{}
+	for rows.Next() {
+		var i ListReflectUsagePairsRow
+		if err := rows.Scan(&i.UserID, &i.AgentID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStaleReflectKnowledgeForCurator = `-- name: ListStaleReflectKnowledgeForCurator :many
+WITH pair_activity AS (
+  SELECT MAX(c.last_active)::timestamptz AS latest
+  FROM ctx_conversation c
+  WHERE c.user_id = $1::text
+    AND c.agent_id = $2::text
+    AND c.archived = false
+    AND c.kind NOT IN ('task', 'delegate', 'scheduler')
+)
 SELECT
   f.id::text AS fact_id,
   f.user_id::text AS user_id,
   f.agent_id,
   ku.last_used_at,
-  MAX(c.last_active)::timestamptz AS pair_latest_activity_at
+  pair_activity.latest AS pair_latest_activity_at
 FROM knowledge_usage ku
 JOIN facts f ON f.id = ku.fact_id
-JOIN ctx_conversation c
-  ON c.user_id = f.user_id::text
- AND c.agent_id = f.agent_id
- AND c.archived = false
-WHERE ku.last_used_at < $1
+CROSS JOIN pair_activity
+WHERE ku.user_id = $1::uuid
+  AND ku.agent_id = $2::text
+  AND ku.last_used_at < $3
   AND f.scope = 'user_agent'
   AND f.subject = 'world'
   AND f.status = 'active'
   AND f.source = 'reflect'
-GROUP BY f.id, f.user_id, f.agent_id, ku.last_used_at
-HAVING MAX(c.last_active) > ku.last_used_at
+  AND pair_activity.latest > ku.last_used_at
 ORDER BY ku.last_used_at ASC, f.id ASC
 `
+
+type ListStaleReflectKnowledgeForCuratorParams struct {
+	UserID      string    `json:"user_id"`
+	AgentID     string    `json:"agent_id"`
+	StaleBefore time.Time `json:"stale_before"`
+}
 
 type ListStaleReflectKnowledgeForCuratorRow struct {
 	FactID               string    `json:"fact_id"`
@@ -121,8 +195,8 @@ type ListStaleReflectKnowledgeForCuratorRow struct {
 // The activity gate intentionally means "at least one non-archived conversation
 // had activity after this item was last used"; it does not assert recent
 // activity relative to the curator run time.
-func (q *Queries) ListStaleReflectKnowledgeForCurator(ctx context.Context, staleBefore time.Time) ([]ListStaleReflectKnowledgeForCuratorRow, error) {
-	rows, err := q.db.Query(ctx, listStaleReflectKnowledgeForCurator, staleBefore)
+func (q *Queries) ListStaleReflectKnowledgeForCurator(ctx context.Context, arg ListStaleReflectKnowledgeForCuratorParams) ([]ListStaleReflectKnowledgeForCuratorRow, error) {
+	rows, err := q.db.Query(ctx, listStaleReflectKnowledgeForCurator, arg.UserID, arg.AgentID, arg.StaleBefore)
 	if err != nil {
 		return nil, err
 	}
@@ -148,6 +222,14 @@ func (q *Queries) ListStaleReflectKnowledgeForCurator(ctx context.Context, stale
 }
 
 const listStaleReflectSkillsForCurator = `-- name: ListStaleReflectSkillsForCurator :many
+WITH pair_activity AS (
+  SELECT MAX(c.last_active)::timestamptz AS latest
+  FROM ctx_conversation c
+  WHERE c.user_id = $2::text
+    AND c.agent_id = $3::text
+    AND c.archived = false
+    AND c.kind NOT IN ('task', 'delegate', 'scheduler')
+)
 SELECT
   s.id AS skill_id,
   s.user_id::text AS user_id,
@@ -155,34 +237,34 @@ SELECT
   s.version,
   su.use_count,
   su.last_used_at,
-  MAX(c.last_active)::timestamptz AS pair_latest_activity_at,
+  pair_activity.latest AS pair_latest_activity_at,
   CASE
     WHEN su.last_used_at < $1 THEN 'unused'
     ELSE 'low_use'
   END AS rule
 FROM skill_usage su
 JOIN skill s ON s.id = su.skill_id
-JOIN ctx_conversation c
-  ON c.user_id = s.user_id::text
- AND c.agent_id = s.agent_id
- AND c.archived = false
-WHERE s.scope = 'user_agent'
+CROSS JOIN pair_activity
+WHERE su.user_id = $2::uuid
+  AND su.agent_id = $3::text
+  AND s.scope = 'user_agent'
   AND s.status = 'active'
   AND s.metadata->>'created_by' = 'reflect'
   AND (
     su.last_used_at < $1
     OR (
-      su.last_used_at < $2
-      AND su.use_count < $3
+      su.last_used_at < $4
+      AND su.use_count < $5
     )
   )
-GROUP BY s.id, s.user_id, s.agent_id, s.version, su.use_count, su.last_used_at
-HAVING MAX(c.last_active) > su.last_used_at
+  AND pair_activity.latest > su.last_used_at
 ORDER BY su.last_used_at ASC, s.id ASC
 `
 
 type ListStaleReflectSkillsForCuratorParams struct {
 	StaleBefore       time.Time `json:"stale_before"`
+	UserID            string    `json:"user_id"`
+	AgentID           string    `json:"agent_id"`
 	LowUseBefore      time.Time `json:"low_use_before"`
 	LowUseMaxUseCount int64     `json:"low_use_max_use_count"`
 }
@@ -201,7 +283,13 @@ type ListStaleReflectSkillsForCuratorRow struct {
 // The same activity gate applies here: at least one non-archived conversation
 // had activity after the skill was last used.
 func (q *Queries) ListStaleReflectSkillsForCurator(ctx context.Context, arg ListStaleReflectSkillsForCuratorParams) ([]ListStaleReflectSkillsForCuratorRow, error) {
-	rows, err := q.db.Query(ctx, listStaleReflectSkillsForCurator, arg.StaleBefore, arg.LowUseBefore, arg.LowUseMaxUseCount)
+	rows, err := q.db.Query(ctx, listStaleReflectSkillsForCurator,
+		arg.StaleBefore,
+		arg.UserID,
+		arg.AgentID,
+		arg.LowUseBefore,
+		arg.LowUseMaxUseCount,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -254,22 +342,48 @@ func (q *Queries) RefreshSkillUsageOnReflectPatch(ctx context.Context, arg Refre
 	return err
 }
 
+const touchKnowledgeUsage = `-- name: TouchKnowledgeUsage :exec
+UPDATE knowledge_usage ku
+SET last_used_at = now()
+FROM facts f
+WHERE ku.fact_id = $1::uuid
+  AND ku.user_id = $2::uuid
+  AND ku.agent_id = $3
+  AND f.id = ku.fact_id
+  AND f.user_id = ku.user_id
+  AND f.agent_id = ku.agent_id
+  AND f.scope = 'user_agent'
+  AND f.subject = 'world'
+  AND f.status = 'active'
+  AND f.source = 'reflect'
+`
+
+type TouchKnowledgeUsageParams struct {
+	FactID  string `json:"fact_id"`
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) TouchKnowledgeUsage(ctx context.Context, arg TouchKnowledgeUsageParams) error {
+	_, err := q.db.Exec(ctx, touchKnowledgeUsage, arg.FactID, arg.UserID, arg.AgentID)
+	return err
+}
+
 const touchReflectSkillRuntimeUse = `-- name: TouchReflectSkillRuntimeUse :exec
-INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-SELECT s.id, s.user_id, s.agent_id, 1, now()
+UPDATE skill_usage su
+SET use_count = su.use_count + 1,
+    last_used_at = now()
 FROM skill s
-WHERE s.id = $1
-  AND s.user_id = $2::uuid
-  AND s.agent_id = $3::text
+WHERE su.skill_id = $1
+  AND su.user_id = $2::uuid
+  AND su.agent_id = $3::text
+  AND s.id = su.skill_id
+  AND s.user_id = su.user_id
+  AND s.agent_id = su.agent_id
   AND s.scope = 'user_agent'
   AND s.status = 'active'
   AND s.disable_model_invocation = false
   AND s.metadata->>'created_by' = 'reflect'
-ON CONFLICT (skill_id) DO UPDATE
-SET use_count = skill_usage.use_count + 1,
-    last_used_at = excluded.last_used_at
-WHERE skill_usage.user_id = excluded.user_id
-  AND skill_usage.agent_id = excluded.agent_id
 `
 
 type TouchReflectSkillRuntimeUseParams struct {

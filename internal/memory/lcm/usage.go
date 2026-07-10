@@ -12,7 +12,7 @@ import (
 // for manual, deprecated, or non-world facts.
 func (p *Provider) TouchKnowledgeUsage(ctx context.Context, userID string, agentID string, factIDs []string) error {
 	for _, factID := range factIDs {
-		if err := p.q.UpsertKnowledgeUsage(ctx, sqlc.UpsertKnowledgeUsageParams{
+		if err := p.q.TouchKnowledgeUsage(ctx, sqlc.TouchKnowledgeUsageParams{
 			FactID:  factID,
 			UserID:  userID,
 			AgentID: agentID,

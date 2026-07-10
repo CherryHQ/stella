@@ -70,14 +70,7 @@ func (s *Service) reviewTargetLimit() int {
 	if s.maxReviewTargetsPerAgent > 0 {
 		return s.maxReviewTargetsPerAgent
 	}
-	return s.reviewBatchSize()
-}
-
-func (s *Service) reviewBatchSize() int {
-	if s.batch > 0 {
-		return s.batch
-	}
-	return defaultReviewBatch
+	return defaultMaxReviewTargetsPerAgent
 }
 
 func listSessionInfoForReview(ctx context.Context, sm memory.SessionManager, agentID string) ([]memory.SessionInfo, error) {

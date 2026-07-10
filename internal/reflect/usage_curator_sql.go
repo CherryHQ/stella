@@ -15,11 +15,28 @@ func NewSQLUsageCuratorStore(q *sqlc.Queries) UsageCuratorStore {
 	return sqlUsageCuratorStore{q: q}
 }
 
+func (s sqlUsageCuratorStore) ListReflectUsagePairs(ctx context.Context) ([]usageCuratorPair, error) {
+	if s.q == nil {
+		return nil, fmt.Errorf("usage curator: sql queries are required")
+	}
+	rows, err := s.q.ListReflectUsagePairs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	pairs := make([]usageCuratorPair, 0, len(rows))
+	for _, row := range rows {
+		pairs = append(pairs, usageCuratorPair{UserID: row.UserID, AgentID: row.AgentID})
+	}
+	return pairs, nil
+}
+
 func (s sqlUsageCuratorStore) ListStaleReflectKnowledge(ctx context.Context, query usageCuratorKnowledgeQuery) ([]usageCuratorKnowledgeCandidate, error) {
 	if s.q == nil {
 		return nil, fmt.Errorf("usage curator: sql queries are required")
 	}
-	rows, err := s.q.ListStaleReflectKnowledgeForCurator(ctx, query.StaleBefore)
+	rows, err := s.q.ListStaleReflectKnowledgeForCurator(ctx, sqlc.ListStaleReflectKnowledgeForCuratorParams{
+		UserID: query.UserID, AgentID: query.AgentID, StaleBefore: query.StaleBefore,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +58,8 @@ func (s sqlUsageCuratorStore) ListStaleReflectSkills(ctx context.Context, query 
 		return nil, fmt.Errorf("usage curator: sql queries are required")
 	}
 	rows, err := s.q.ListStaleReflectSkillsForCurator(ctx, sqlc.ListStaleReflectSkillsForCuratorParams{
+		UserID:            query.UserID,
+		AgentID:           query.AgentID,
 		StaleBefore:       query.StaleBefore,
 		LowUseBefore:      query.LowUseBefore,
 		LowUseMaxUseCount: query.LowUseMaxUseCount,

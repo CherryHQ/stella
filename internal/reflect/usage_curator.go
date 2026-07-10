@@ -77,12 +77,19 @@ type usageCuratorRunConfig struct {
 	Store       UsageCuratorStore
 	FactWriter  factBatchWriter
 	SkillWriter usageCuratorSkillWriter
+	Pair        usageCuratorPair
 	Settings    usageCuratorSettings
 }
 
 type UsageCuratorStore interface {
+	ListReflectUsagePairs(ctx context.Context) ([]usageCuratorPair, error)
 	ListStaleReflectKnowledge(ctx context.Context, q usageCuratorKnowledgeQuery) ([]usageCuratorKnowledgeCandidate, error)
 	ListStaleReflectSkills(ctx context.Context, q usageCuratorSkillQuery) ([]usageCuratorSkillCandidate, error)
+}
+
+type usageCuratorPair struct {
+	UserID  string
+	AgentID string
 }
 
 type usageCuratorSkillWriter interface {
@@ -90,10 +97,14 @@ type usageCuratorSkillWriter interface {
 }
 
 type usageCuratorKnowledgeQuery struct {
+	UserID      string
+	AgentID     string
 	StaleBefore time.Time
 }
 
 type usageCuratorSkillQuery struct {
+	UserID            string
+	AgentID           string
 	StaleBefore       time.Time
 	LowUseBefore      time.Time
 	LowUseMaxUseCount int64
@@ -120,27 +131,45 @@ type usageCuratorSkillCandidate struct {
 
 type usageCuratorReport struct {
 	Mode                UsageCuratorMode
+	Pair                usageCuratorPair
 	KnowledgeCandidates int
 	KnowledgeDeprecated int
 	SkillCandidates     int
 	SkillDeprecated     int
+	Evidence            []usageCuratorEvidence
+}
+
+type usageCuratorEvidence struct {
+	RecordType           string
+	RecordID             string
+	UserID               string
+	AgentID              string
+	Rule                 string
+	LastUsedAt           time.Time
+	UseCount             int64
+	Cutoff               time.Time
+	PairLatestActivityAt time.Time
 }
 
 func runUsageCurator(ctx context.Context, cfg usageCuratorRunConfig) (usageCuratorReport, error) {
 	settings := cfg.Settings.withDefaults()
 	now := settings.Now().UTC()
-	report := usageCuratorReport{Mode: settings.Mode}
+	report := usageCuratorReport{Mode: settings.Mode, Pair: cfg.Pair}
 	if cfg.Store == nil {
 		return report, nil
 	}
 
 	knowledge, knowledgeErr := cfg.Store.ListStaleReflectKnowledge(ctx, usageCuratorKnowledgeQuery{
+		UserID:      cfg.Pair.UserID,
+		AgentID:     cfg.Pair.AgentID,
 		StaleBefore: now.Add(-settings.KnowledgeMaxIdle),
 	})
 	if knowledgeErr == nil {
 		report.KnowledgeCandidates = len(knowledge)
 	}
 	skillsToDeprecate, skillErr := cfg.Store.ListStaleReflectSkills(ctx, usageCuratorSkillQuery{
+		UserID:            cfg.Pair.UserID,
+		AgentID:           cfg.Pair.AgentID,
 		StaleBefore:       now.Add(-settings.SkillMaxIdle),
 		LowUseBefore:      now.Add(-settings.SkillLowUseIdle),
 		LowUseMaxUseCount: settings.SkillLowUseMaxUses,
@@ -148,6 +177,7 @@ func runUsageCurator(ctx context.Context, cfg usageCuratorRunConfig) (usageCurat
 	if skillErr == nil {
 		report.SkillCandidates = len(skillsToDeprecate)
 	}
+	report.Evidence = usageCuratorEvidenceForCandidates(settings, now, knowledge, skillsToDeprecate)
 	if settings.Mode == usageCuratorModeShadow {
 		return report, errors.Join(knowledgeErr, skillErr)
 	}
@@ -177,6 +207,31 @@ func runUsageCurator(ctx context.Context, cfg usageCuratorRunConfig) (usageCurat
 	return report, errors.Join(writeErrs...)
 }
 
+func usageCuratorEvidenceForCandidates(settings usageCuratorSettings, now time.Time, knowledge []usageCuratorKnowledgeCandidate, skillCandidates []usageCuratorSkillCandidate) []usageCuratorEvidence {
+	evidence := make([]usageCuratorEvidence, 0, len(knowledge)+len(skillCandidates))
+	for _, candidate := range knowledge {
+		evidence = append(evidence, usageCuratorEvidence{
+			RecordType: "knowledge", RecordID: candidate.FactID,
+			UserID: candidate.UserID, AgentID: candidate.AgentID, Rule: "idle",
+			LastUsedAt: candidate.LastUsedAt, Cutoff: now.Add(-settings.KnowledgeMaxIdle),
+			PairLatestActivityAt: candidate.PairLatestActivityAt,
+		})
+	}
+	for _, candidate := range skillCandidates {
+		cutoff := now.Add(-settings.SkillLowUseIdle)
+		if candidate.Rule == usageCuratorSkillRuleUnused {
+			cutoff = now.Add(-settings.SkillMaxIdle)
+		}
+		evidence = append(evidence, usageCuratorEvidence{
+			RecordType: "skill", RecordID: candidate.SkillID,
+			UserID: candidate.UserID, AgentID: candidate.AgentID, Rule: string(candidate.Rule),
+			LastUsedAt: candidate.LastUsedAt, UseCount: candidate.UseCount, Cutoff: cutoff,
+			PairLatestActivityAt: candidate.PairLatestActivityAt,
+		})
+	}
+	return evidence
+}
+
 func deprecateCuratorKnowledge(ctx context.Context, writer factBatchWriter, candidates []usageCuratorKnowledgeCandidate) (int, error) {
 	if len(candidates) == 0 {
 		return 0, nil
@@ -194,20 +249,27 @@ func deprecateCuratorKnowledge(ctx context.Context, writer factBatchWriter, cand
 	var deprecated int
 	var errs []error
 	writeCtx := memory.WithChangeSource(ctx, memory.SourceReflect)
+
+writeGroups:
 	for _, key := range keys {
 		group := groups[key]
 		for _, candidate := range group.candidates {
+			if err := ctx.Err(); err != nil {
+				errs = append(errs, err)
+				break writeGroups
+			}
 			metadata, err := usageCuratorKnowledgeMetadata(candidate)
 			if err != nil {
 				errs = append(errs, err)
 				continue
 			}
 			op := memorywrite.FactBatchOperation{
-				Action:                memorywrite.FactBatchDeprecateMany,
-				Subject:               memory.FactSubjectWorld,
-				TargetFactIDs:         []string{candidate.FactID},
-				Metadata:              metadata,
-				TargetUsageLastUsedAt: map[string]time.Time{candidate.FactID: candidate.LastUsedAt},
+				Action:                            memorywrite.FactBatchDeprecateMany,
+				Subject:                           memory.FactSubjectWorld,
+				TargetFactIDs:                     []string{candidate.FactID},
+				Metadata:                          metadata,
+				TargetUsageLastUsedAt:             map[string]time.Time{candidate.FactID: candidate.LastUsedAt},
+				RequireEligibleActivityAfterUsage: true,
 			}
 			facts, err := writer.ApplyFactBatch(writeCtx, group.userID, group.agentID, []memorywrite.FactBatchOperation{op})
 			if err != nil {
@@ -269,6 +331,10 @@ func deprecateCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter,
 	var deprecated int
 	var errs []error
 	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
 		metadata, err := usageCuratorSkillMetadata(candidate)
 		if err != nil {
 			errs = append(errs, err)
@@ -276,12 +342,13 @@ func deprecateCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter,
 		}
 		expectedLastUsedAt := candidate.LastUsedAt
 		_, err = writer.DeprecateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDeprecate{
-			ID:                      candidate.SkillID,
-			UserID:                  candidate.UserID,
-			AgentID:                 candidate.AgentID,
-			ExpectedVersion:         candidate.Version,
-			ExpectedUsageLastUsedAt: &expectedLastUsedAt,
-			Metadata:                metadata,
+			ID:                                candidate.SkillID,
+			UserID:                            candidate.UserID,
+			AgentID:                           candidate.AgentID,
+			ExpectedVersion:                   candidate.Version,
+			ExpectedUsageLastUsedAt:           &expectedLastUsedAt,
+			RequireEligibleActivityAfterUsage: true,
+			Metadata:                          metadata,
 		})
 		if errors.Is(err, skills.ErrSkillUsageChanged) {
 			continue

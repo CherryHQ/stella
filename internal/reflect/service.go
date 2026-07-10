@@ -16,11 +16,8 @@ const (
 	// automatically deprecated.
 	defaultDraftMaxAge = 30 * 24 * time.Hour
 
-	// defaultReviewBatch caps how many review targets a single cycle processes
-	// per in-memory batch.
-	defaultReviewBatch = 10
-
 	defaultMaxReviewTargetsPerAgent = 30
+	defaultReflectRunSoftBudget     = 15 * time.Minute
 )
 
 // Config holds dependencies for the reflect service.
@@ -62,8 +59,9 @@ type Service struct {
 	notifier                 pkgplugins.Notifier
 	wm                       watermarker
 	workspace                string
-	batch                    int
 	maxReviewTargetsPerAgent int
+	runSoftBudget            time.Duration
+	now                      func() time.Time
 	log                      *slog.Logger
 	providers                func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 	candidateGates           CandidateGateSettings
@@ -85,8 +83,9 @@ func New(cfg Config) *Service {
 		notifier:                 cfg.Notifier,
 		wm:                       newWatermarkStore(cfg.StateStore),
 		workspace:                cfg.Workspace,
-		batch:                    defaultReviewBatch,
 		maxReviewTargetsPerAgent: defaultMaxReviewTargetsPerAgent,
+		runSoftBudget:            defaultReflectRunSoftBudget,
+		now:                      time.Now,
 		log:                      cfg.Log,
 		providers:                cfg.Providers,
 		candidateGates:           cfg.CandidateGates.withDefaults(),

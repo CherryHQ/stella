@@ -67,6 +67,32 @@ func TestCreateReflectOwnedUserAgentSkillRecordsVersionAndChangelog(t *testing.T
 	}
 }
 
+func TestTouchReflectSkillRuntimeUseDoesNotRecreateMissingRow(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: userID, AgentID: agentID, Name: "runtime-update-only",
+		Description: "runtime update only", MainFileContent: "# Runtime Update Only\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM skill_usage WHERE skill_id = $1`, created.ID); err != nil {
+		t.Fatalf("delete skill usage: %v", err)
+	}
+
+	if err := store.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID); err != nil {
+		t.Fatalf("TouchReflectSkillRuntimeUse: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&count); err != nil {
+		t.Fatalf("count skill usage: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("skill usage rows = %d, runtime touch must be UPDATE-only", count)
+	}
+}
+
 func TestStoreInterfaceExposesReflectRestore(t *testing.T) {
 	var store Store = (*PGStore)(nil)
 	requireReflectRestoreStore(t, store)
@@ -408,6 +434,52 @@ func TestRestoreReflectOwnedUserAgentSkillRestoresStatusChangelogAndUsage(t *tes
 	})
 	if !errors.Is(err, ErrSkillNotRestorable) {
 		t.Fatalf("restore after latest manual deprecate err = %v, want ErrSkillNotRestorable", err)
+	}
+}
+
+func TestRestoreReflectOwnedUserAgentSkillPreservesExplicitZeroUseCount(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID:          userID,
+		AgentID:         agentID,
+		Name:            "reflect-zero-use-restore",
+		Description:     "zero-use restore candidate",
+		MainFileContent: "# Zero-use Restore Candidate\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+	deprecated, err := store.DeprecateReflectOwnedUserAgentSkill(ctx, ReflectSkillDeprecate{
+		ID:              created.ID,
+		UserID:          userID,
+		AgentID:         agentID,
+		ExpectedVersion: created.Version,
+		Metadata:        json.RawMessage(`{"curator":"usage","rule":"unused","use_count":0,"last_used_at":"2026-06-01T00:00:00Z"}`),
+	})
+	if err != nil {
+		t.Fatalf("DeprecateReflectOwnedUserAgentSkill: %v", err)
+	}
+
+	result, err := store.RestoreReflectOwnedUserAgentSkill(ctx, ReflectSkillRestore{
+		ID:         created.ID,
+		UserID:     userID,
+		AgentID:    agentID,
+		RestoredBy: "admin@example.com",
+	})
+	if err != nil {
+		t.Fatalf("RestoreReflectOwnedUserAgentSkill: %v", err)
+	}
+	if !result.Restored || result.Skill.Version != deprecated.Version+1 {
+		t.Fatalf("restore result = %#v, want restored version %d", result, deprecated.Version+1)
+	}
+
+	var useCount int64
+	if err := db.QueryRow(ctx, `SELECT use_count FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&useCount); err != nil {
+		t.Fatalf("read restored skill usage: %v", err)
+	}
+	if useCount != 0 {
+		t.Fatalf("restored use_count = %d, want explicit historical value 0", useCount)
 	}
 }
 

@@ -48,12 +48,13 @@ type ReflectSkillPatch struct {
 }
 
 type ReflectSkillDeprecate struct {
-	ID                      string
-	UserID                  string
-	AgentID                 string
-	ExpectedVersion         int64
-	ExpectedUsageLastUsedAt *time.Time
-	Metadata                json.RawMessage
+	ID                                string
+	UserID                            string
+	AgentID                           string
+	ExpectedVersion                   int64
+	ExpectedUsageLastUsedAt           *time.Time
+	RequireEligibleActivityAfterUsage bool
+	Metadata                          json.RawMessage
 }
 
 type ReflectSkillRestore struct {
@@ -294,6 +295,19 @@ func (s *PGStore) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in Re
 		if !usage.LastUsedAt.Equal(*in.ExpectedUsageLastUsedAt) {
 			return Skill{}, ErrSkillUsageChanged
 		}
+		if in.RequireEligibleActivityAfterUsage {
+			hasActivity, err := qtx.HasEligiblePairActivityAfter(ctx, sqlc.HasEligiblePairActivityAfterParams{
+				UserID:  in.UserID,
+				AgentID: in.AgentID,
+				After:   usage.LastUsedAt,
+			})
+			if err != nil {
+				return Skill{}, fmt.Errorf("skills: recheck eligible activity: %w", err)
+			}
+			if !hasActivity {
+				return Skill{}, ErrSkillUsageChanged
+			}
+		}
 	}
 
 	afterRow, err := qtx.DeprecateReflectOwnedUserAgentSkill(ctx, sqlc.DeprecateReflectOwnedUserAgentSkillParams{
@@ -427,12 +441,12 @@ func (s *PGStore) RestoreReflectOwnedUserAgentSkill(ctx context.Context, in Refl
 
 func restoreSkillUseCount(metadata json.RawMessage) int64 {
 	var payload struct {
-		UseCount int64 `json:"use_count"`
+		UseCount *int64 `json:"use_count"`
 	}
-	if err := json.Unmarshal(metadata, &payload); err != nil || payload.UseCount <= 0 {
+	if err := json.Unmarshal(metadata, &payload); err != nil || payload.UseCount == nil || *payload.UseCount < 0 {
 		return 1
 	}
-	return payload.UseCount
+	return *payload.UseCount
 }
 
 func restoreSkillMetadata(restoredBy string, reason string, deprecated sqlc.SkillChangelog, useCount int64) json.RawMessage {

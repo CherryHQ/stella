@@ -462,6 +462,21 @@ func (p *usageTrackingKnowledgeProvider) TouchKnowledgeUsage(_ context.Context, 
 	return nil
 }
 
+type blockingUsageKnowledgeProvider struct {
+	*memorytest.Fake
+	deadline time.Time
+}
+
+func (p *blockingUsageKnowledgeProvider) TouchKnowledgeUsage(ctx context.Context, _ string, _ string, _ []string) error {
+	p.deadline, _ = ctx.Deadline()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(1200 * time.Millisecond):
+		return nil
+	}
+}
+
 func TestExecute_SearchKnowledgeTouchesReturnedReflectFacts(t *testing.T) {
 	provider := &usageTrackingKnowledgeProvider{Fake: memorytest.New()}
 	now := time.Now().UTC()
@@ -496,6 +511,34 @@ func TestExecute_SearchKnowledgeTouchesReturnedReflectFacts(t *testing.T) {
 	}
 	if !slices.Equal(provider.touchedFactIDs, []string{"reflect-world-1"}) {
 		t.Fatalf("touchedFactIDs = %#v, want only returned reflect fact", provider.touchedFactIDs)
+	}
+}
+
+func TestExecute_SearchKnowledgeBoundsBestEffortUsageLatency(t *testing.T) {
+	provider := &blockingUsageKnowledgeProvider{Fake: memorytest.New()}
+	provider.AddFact("1", "agent1", memory.Fact{
+		ID: "reflect-world-timeout", Subject: memory.FactSubjectWorld,
+		Content: "The deployment uses bounded usage tracking.", Status: memory.FactStatusActive,
+		Source: memory.SourceReflect, UpdatedAt: time.Now().UTC(),
+	})
+	tool := memory.BuildTool(provider)
+	execCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "1"), "agent1")
+	started := time.Now()
+	out, err := tool.Execute(execCtx, map[string]any{"action": "search_knowledge", "query": "bounded usage tracking"})
+	if err != nil {
+		t.Fatalf("search_knowledge: %v", err)
+	}
+	if !strings.Contains(out, "reflect-world-timeout") {
+		t.Fatalf("main search result lost after usage timeout: %s", out)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("search_knowledge blocked for %s, want bounded best-effort touch", elapsed)
+	}
+	if provider.deadline.IsZero() {
+		t.Fatal("usage tracker did not receive a deadline")
+	}
+	if remaining := provider.deadline.Sub(started); remaining > 600*time.Millisecond {
+		t.Fatalf("usage deadline = %s after start, want about 500ms", remaining)
 	}
 }
 

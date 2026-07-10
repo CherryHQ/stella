@@ -330,6 +330,10 @@ type FactBatchOperation struct {
 	// Reflect knowledge usage changed since candidate selection. Curator uses
 	// this to avoid retiring facts that were used while an armed run was pending.
 	TargetUsageLastUsedAt map[string]time.Time
+	// RequireEligibleActivityAfterUsage makes curator deprecation recheck that
+	// the owning user-agent pair still has a review-eligible conversation after
+	// the locked usage timestamp.
+	RequireEligibleActivityAfterUsage bool
 }
 
 // ApplyFactBatch applies a batch of fact writes under one memory advisory lock
@@ -426,7 +430,7 @@ func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userI
 		}
 		deprecated := make([]memory.Fact, 0, len(op.TargetFactIDs))
 		for _, id := range op.TargetFactIDs {
-			shouldDeprecate, err := knowledgeUsageMatchesPrecondition(ctx, qtx, userID, agentID, id, op.TargetUsageLastUsedAt)
+			shouldDeprecate, err := knowledgeUsageMatchesPrecondition(ctx, qtx, userID, agentID, id, op.TargetUsageLastUsedAt, op.RequireEligibleActivityAfterUsage)
 			if err != nil {
 				return nil, err
 			}
@@ -445,7 +449,7 @@ func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userI
 	}
 }
 
-func knowledgeUsageMatchesPrecondition(ctx context.Context, qtx *sqlc.Queries, userID string, agentID string, factID string, expected map[string]time.Time) (bool, error) {
+func knowledgeUsageMatchesPrecondition(ctx context.Context, qtx *sqlc.Queries, userID string, agentID string, factID string, expected map[string]time.Time, requireEligibleActivity bool) (bool, error) {
 	expectedAt, ok := expected[factID]
 	if !ok {
 		return true, nil
@@ -461,7 +465,21 @@ func knowledgeUsageMatchesPrecondition(ctx context.Context, qtx *sqlc.Queries, u
 	if err != nil {
 		return false, fmt.Errorf("lock knowledge usage for fact %s: %w", factID, err)
 	}
-	return row.LastUsedAt.Equal(expectedAt), nil
+	if !row.LastUsedAt.Equal(expectedAt) {
+		return false, nil
+	}
+	if !requireEligibleActivity {
+		return true, nil
+	}
+	hasActivity, err := qtx.HasEligiblePairActivityAfter(ctx, sqlc.HasEligiblePairActivityAfterParams{
+		UserID:  userID,
+		AgentID: agentID,
+		After:   row.LastUsedAt,
+	})
+	if err != nil {
+		return false, fmt.Errorf("recheck eligible activity for fact %s: %w", factID, err)
+	}
+	return hasActivity, nil
 }
 
 func singleFactResult(fact memory.Fact, err error) ([]memory.Fact, error) {

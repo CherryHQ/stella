@@ -263,7 +263,8 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
 			WithSkillDiskLayout(layout).
 			WithSkillDirView(view).
-			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs))
+			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
+			WithActionsOnly("search_installed", "load"))
 	}
 	if cfg.MCPToolProvider != nil {
 		for _, t := range cfg.MCPToolProvider.ToolsForContext(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID) {

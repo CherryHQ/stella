@@ -11,7 +11,7 @@ CREATE TABLE "knowledge_usage" (
   CONSTRAINT "knowledge_usage_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "agent" ("id") ON UPDATE NO ACTION ON DELETE CASCADE
 );
 
-CREATE INDEX "idx_knowledge_usage_last_used" ON "knowledge_usage" ("last_used_at", "fact_id");
+CREATE INDEX "idx_knowledge_usage_last_used" ON "knowledge_usage" ("user_id", "agent_id", "last_used_at", "fact_id");
 
 -- Backfill usage only for records that already carry durable Reflect ownership.
 -- This does not infer provenance for legacy skill-backed knowledge or skills.
@@ -37,12 +37,12 @@ CREATE TABLE "skill_usage" (
   CONSTRAINT "skill_usage_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "agent" ("id") ON UPDATE NO ACTION ON DELETE CASCADE
 );
 
-CREATE INDEX "idx_skill_usage_last_used" ON "skill_usage" ("last_used_at", "use_count", "skill_id");
+CREATE INDEX "idx_skill_usage_last_used" ON "skill_usage" ("user_id", "agent_id", "last_used_at", "skill_id") INCLUDE ("use_count");
 
 -- Same boundary as knowledge: seed usage for already-marked Reflect-owned
 -- skills only. Unmarked legacy skills remain outside curator ownership.
 INSERT INTO "skill_usage" ("skill_id", "user_id", "agent_id", "use_count", "last_used_at", "created_at")
-SELECT s."id", s."user_id", s."agent_id", 1, now(), now()
+SELECT s."id", s."user_id", s."agent_id", 0, now(), now()
 FROM "skill" s
 WHERE s."scope" = 'user_agent'
   AND s."status" = 'active'

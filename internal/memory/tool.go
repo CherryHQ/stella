@@ -33,6 +33,8 @@ const (
 	actionConstraintRemove = "constraint_remove"
 )
 
+const runtimeUsageTouchTimeout = 500 * time.Millisecond
+
 // ToolOption configures the generated memory tool.
 type ToolOption func(*toolConfig)
 
@@ -492,7 +494,9 @@ func (t *memoryTool) touchReturnedKnowledgeUsage(ctx context.Context, userID str
 	if len(factIDs) == 0 {
 		return
 	}
-	if err := t.knowledgeUsageTracker.TouchKnowledgeUsage(ctx, userID, agentID, factIDs); err != nil {
+	touchCtx, cancel := context.WithTimeout(ctx, runtimeUsageTouchTimeout)
+	defer cancel()
+	if err := t.knowledgeUsageTracker.TouchKnowledgeUsage(touchCtx, userID, agentID, factIDs); err != nil {
 		slog.WarnContext(ctx, "memory search_knowledge: failed to touch knowledge usage", "err", err)
 	}
 }
