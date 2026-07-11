@@ -725,7 +725,7 @@ func (s *DBStore) Seed(ctx context.Context) error {
 	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID:                   uuid.Must(uuid.NewV7()).String(),
 		Name:                 "Stella",
-		Model:                config.DefaultAgentModelRef(providers),
+		Model:                defaultAgentModelRef(providers),
 		SystemPrompt:         defaultStellaSoul,
 		Workspace:            workspace,
 		Sandbox:              sandboxJSON,

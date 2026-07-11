@@ -38,7 +38,7 @@ var envReadAllowlist = map[string]map[string]bool{
 
 	// Per-call lenient selection: the sandbox backend is chosen per operation
 	// from the live plugin set, not fixed at boot.
-	"internal/config/sandbox.go": {nonLiteralRead: true},
+	"internal/config/sandbox_env.go": {nonLiteralRead: true},
 
 	// Internal testing escape hatch (STELLA_POSTGRES_RUNTIME) for exercising a
 	// Stella-built postgres runtime; not an operator-facing knob.

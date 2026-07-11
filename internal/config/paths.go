@@ -48,10 +48,3 @@ func ResetStellaHome() {
 func CachePath() string {
 	return filepath.Join(StellaHome(), "cache")
 }
-
-// DBPath returns the path to the legacy SQLite database inside the stella home.
-// It is retained for the one-time SQLite→PostgreSQL data-migration tool; the
-// running server uses ServerConfig.Database.URL instead.
-func DBPath() string {
-	return filepath.Join(StellaHome(), "stella.db")
-}

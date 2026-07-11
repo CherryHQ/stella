@@ -1,4 +1,4 @@
-package config
+package sandbox
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 	"github.com/CherryHQ/stella/internal/version"
 )
 
-func TestSandboxDockerImage(t *testing.T) {
+func TestDockerImage(t *testing.T) {
 	cases := []struct {
 		name    string
 		version string
@@ -27,14 +27,14 @@ func TestSandboxDockerImage(t *testing.T) {
 			t.Cleanup(func() { version.Version = original })
 			version.Version = tc.version
 
-			if got := SandboxDockerImage(); got != tc.want {
-				t.Errorf("SandboxDockerImage() = %q, want %q", got, tc.want)
+			if got := dockerImage(); got != tc.want {
+				t.Errorf("dockerImage() = %q, want %q", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestSandboxDockerImageIsDev(t *testing.T) {
+func TestDockerImageIsDev(t *testing.T) {
 	cases := []struct {
 		version string
 		want    bool
@@ -52,8 +52,8 @@ func TestSandboxDockerImageIsDev(t *testing.T) {
 			t.Cleanup(func() { version.Version = original })
 			version.Version = tc.version
 
-			if got := SandboxDockerImageIsDev(); got != tc.want {
-				t.Errorf("SandboxDockerImageIsDev() for %q = %v, want %v", tc.version, got, tc.want)
+			if got := dockerImageIsDev(); got != tc.want {
+				t.Errorf("dockerImageIsDev() for %q = %v, want %v", tc.version, got, tc.want)
 			}
 		})
 	}

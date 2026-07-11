@@ -2,75 +2,7 @@ package config
 
 import (
 	"context"
-	"time"
 )
-
-type ProviderModelCost struct {
-	Input      float64 `json:"input,omitempty"`
-	Output     float64 `json:"output,omitempty"`
-	CacheRead  float64 `json:"cacheRead,omitempty"`
-	CacheWrite float64 `json:"cacheWrite,omitempty"`
-}
-
-type ProviderModel struct {
-	ID            string            `json:"id,omitempty"`
-	Name          string            `json:"name,omitempty"`
-	Enabled       bool              `json:"enabled"`
-	Reasoning     bool              `json:"reasoning,omitempty"`
-	Input         []string          `json:"input,omitempty"`
-	Output        []string          `json:"output,omitempty"`
-	ContextWindow int               `json:"contextWindow,omitempty"`
-	MaxTokens     int               `json:"maxTokens,omitempty"`
-	Cost          ProviderModelCost `json:"cost,omitzero"`
-}
-
-// Provider represents an LLM API provider.
-type Provider struct {
-	ID      string                   `json:"id"`
-	Type    string                   `json:"type"`
-	Name    string                   `json:"name"`
-	Enabled bool                     `json:"enabled"`
-	APIKey  string                   `json:"api_key"`
-	BaseURL string                   `json:"base_url"`
-	Models  map[string]ProviderModel `json:"models,omitempty"`
-}
-
-// AgentScope constants define the access scope for an agent.
-const (
-	AgentScopeSystem     = "system"     // all users can access
-	AgentScopeRestricted = "restricted" // only assigned users can access
-)
-
-// Agent represents an agent definition.
-// Model fields use {provider}/{model} format (e.g. "anthropic/claude-sonnet-4-6").
-type Agent struct {
-	ID                  string        `json:"id"`
-	Name                string        `json:"name"`
-	Model               string        `json:"model"`
-	ModelThinking       string        `json:"model_thinking"`
-	ModelStrong         string        `json:"model_strong"`
-	ModelStrongThinking string        `json:"model_strong_thinking"`
-	ModelFast           string        `json:"model_fast"`
-	ModelFastThinking   string        `json:"model_fast_thinking"`
-	SystemPrompt        string        `json:"system_prompt"`
-	Soul                string        `json:"soul"`
-	Workspace           string        `json:"workspace"`
-	Sandbox             SandboxConfig `json:"sandbox"`
-	Scope               string        `json:"scope"`
-	CreatorID           string        `json:"creator_id"`
-	Enabled             bool          `json:"enabled"`
-	LastActive          *time.Time    `json:"last_active,omitempty"`
-}
-
-// Channel represents a platform channel configuration.
-type Channel struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	AgentID string `json:"agent_id,omitempty"`
-	Enabled bool   `json:"enabled"`
-	Config  string `json:"config"`
-}
 
 // Store provides typed access to configuration stored in the database.
 type Store interface {

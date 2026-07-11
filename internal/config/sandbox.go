@@ -2,8 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"strings"
 )
 
 const (
@@ -13,21 +11,7 @@ const (
 
 	SandboxNetworkDisabled = "disabled"
 	SandboxNetworkAllowAll = "allow_all"
-
-	sandboxBackendEnv = "STELLA_SANDBOX_BACKEND"
 )
-
-// SandboxBackendEnvOverride returns the env-forced sandbox backend name,
-// or "" when the operator has not set STELLA_SANDBOX_BACKEND.
-func SandboxBackendEnvOverride() string {
-	v := strings.TrimSpace(os.Getenv(sandboxBackendEnv))
-	switch v {
-	case SandboxBackendDocker, SandboxBackendLocal, SandboxBackendNone:
-		return v
-	default:
-		return ""
-	}
-}
 
 // SandboxConfig configures the sandbox backend.
 // The active backend is selected globally on the Plugins page.

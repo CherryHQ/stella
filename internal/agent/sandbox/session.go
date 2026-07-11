@@ -44,7 +44,7 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 	)
 
 	factory, err := dockerplugin.NewFactory(dockerplugin.Config{
-		Image:      config.SandboxDockerImage(),
+		Image:      dockerImage(),
 		StellaHome: paths.StellaHome,
 	})
 	if err != nil {
@@ -53,8 +53,8 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 
 	session, err := factory.CreateSession(ctx, policy)
 	if err != nil {
-		if config.SandboxDockerImageIsDev() {
-			err = fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
+		if dockerImageIsDev() {
+			err = fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, dockerImage())
 		} else {
 			err = fmt.Errorf("docker not available; install and start Docker Desktop or the docker daemon: %w", err)
 		}
