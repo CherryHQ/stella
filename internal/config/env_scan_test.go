@@ -19,11 +19,10 @@ const nonLiteralRead = "<non-literal>"
 
 // envReadAllowlist is the approved set of direct environment reads that remain
 // after issue #701 centralized the server's boot/setup variables onto
-// ServerConfig. Every entry is a deliberate exception, justified in the ledger
-// at docs/design/research/2026-07-11-env-inventory.md (see the "stays custom"
-// rows). A new (file, variable) read not listed here fails this test: either
-// route it through ServerConfig, or add it with a ledger entry explaining why it
-// cannot be.
+// ServerConfig. Every entry is a deliberate exception, justified by the comment
+// on its group below. A new (file, variable) read not listed here fails this
+// test: either route it through ServerConfig, or add it here with a comment
+// explaining why it cannot be.
 //
 // Keys are module-relative file paths; values are the env names that file may
 // read directly, or nonLiteralRead for a dynamic-argument read.
@@ -76,7 +75,7 @@ var envReadAllowlist = map[string]map[string]bool{
 	// Dead-in-production loader: real email config is vault-scoped per user
 	// (internal/email/service.go); LoadFromEnv has no production caller and must
 	// keep its unset-vs-empty distinction, which the normalized ServerConfig
-	// deliberately collapses. See the ledger's EMAIL_CONFIG row.
+	// deliberately collapses.
 	"internal/email/config.go": {"EMAIL_CONFIG": true},
 
 	// Dynamic per-key reads over a computed key set.
@@ -186,9 +185,9 @@ func TestNoUnapprovedEnvReads(t *testing.T) {
 			}
 			pos := fset.Position(call.Pos())
 			if name == nonLiteralRead {
-				t.Errorf("%s:%d: unapproved dynamic env read; route through ServerConfig or add a ledger-backed exception", rel, pos.Line)
+				t.Errorf("%s:%d: unapproved dynamic env read; route through ServerConfig or add a justified allowlist entry", rel, pos.Line)
 			} else {
-				t.Errorf("%s:%d: unapproved env read %q; route through ServerConfig or add a ledger-backed exception", rel, pos.Line, name)
+				t.Errorf("%s:%d: unapproved env read %q; route through ServerConfig or add a justified allowlist entry", rel, pos.Line, name)
 			}
 			return true
 		})

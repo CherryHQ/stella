@@ -59,8 +59,8 @@ const (
 // It carries every boot/setup-time environment variable the server owns (issue
 // #701). Variables that are read per-call, live in pkg/ (which must not import
 // this package), or need dialect/validation the consuming subsystem owns are
-// NOT here; see docs/design/research/2026-07-11-env-inventory.md for the full
-// ledger of what migrated and what stays custom, with the reason for each.
+// NOT here; the allowlist in env_scan_test.go enumerates every such exception
+// with the reason it stays a direct read.
 type ServerConfig struct {
 	// Database selects between the embedded PostgreSQL convenience cluster and an
 	// external server.
