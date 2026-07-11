@@ -182,6 +182,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	warnDeploymentBaseURL(resolveBaseURL(adminHost, adminPort))
 
+	warnDeploymentBaseURL(resolveBaseURL(adminHost, adminPort))
+
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
 		return fmt.Errorf("seed default data: %w", err)
