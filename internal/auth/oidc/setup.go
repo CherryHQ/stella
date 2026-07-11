@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 // SetupParams contains dependencies for OIDC setup.
@@ -17,6 +18,10 @@ type SetupParams struct {
 	DB       *pgxpool.Pool
 	BaseURL  string
 	VaultKey string
+	// OIDC is the static OIDC_* block from the server config snapshot. It drives
+	// both the external-vs-local mode decision and the external provider config,
+	// so both observe one generation.
+	OIDC config.OIDCConfig
 	// AuthStores is a store that implements all auth store interfaces.
 	// In practice this is *db.OIDCStore.
 	AuthStores AuthStores
@@ -53,14 +58,14 @@ func Setup(ctx context.Context, p SetupParams) (*SetupResult, error) {
 	}
 	authSvc := auth.NewAuthService(p.DB, s, s, s)
 
-	if os.Getenv("OIDC_ISSUER_URL") != "" {
-		return setupExternal(ctx, p.BaseURL, authSvc, sessionMgr, stateMgr)
+	if p.OIDC.IssuerURL != "" {
+		return setupExternal(ctx, p.OIDC, p.BaseURL, authSvc, sessionMgr, stateMgr)
 	}
 	return setupLocal(ctx, p, authSvc, sessionMgr, stateMgr)
 }
 
-func setupExternal(ctx context.Context, baseURL string, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
-	cfg, err := ConfigFromEnv()
+func setupExternal(ctx context.Context, oidcCfg config.OIDCConfig, baseURL string, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
+	cfg, err := configFrom(oidcCfg)
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}

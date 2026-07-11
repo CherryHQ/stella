@@ -192,7 +192,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	defer workCancel()
 	g, gctx := errgroup.WithContext(workCtx)
 
-	warnDeploymentBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort))
+	warnDeploymentBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort), s.cfg.OIDC.IssuerURL)
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
@@ -273,6 +273,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		DB:         s.db,
 		BaseURL:    resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort),
 		VaultKey:   s.cfg.Vault.Key,
+		OIDC:       s.cfg.OIDC,
 		AuthStores: oidcStore,
 	})
 	if err != nil {
@@ -579,11 +580,11 @@ func resolveBaseURL(baseURL, adminHost string, adminPort int) string {
 // that emits such links is actually configured. Kubernetes charts enforce
 // STELLA_BASE_URL as a required value at the layer that knows it is behind an
 // ingress.
-func warnDeploymentBaseURL(baseURL string) {
+func warnDeploymentBaseURL(baseURL, oidcIssuerURL string) {
 	if !baseURLUnsafe(baseURL) {
 		return
 	}
-	if linkDependentFeaturesConfigured() {
+	if linkDependentFeaturesConfigured(oidcIssuerURL) {
 		slog.Warn("STELLA_BASE_URL is loopback/unspecified; OAuth callbacks and channel deep links will point back at this host and fail off-box. Set STELLA_BASE_URL to the public URL clients use", "base_url", baseURL)
 	}
 }
@@ -614,10 +615,11 @@ func baseURLUnsafe(raw string) bool {
 
 // linkDependentFeaturesConfigured reports whether a feature that emits absolute
 // links back to this server (external OIDC or an OAuth login provider) is
-// configured, reusing the auth package's existing env probes rather than
-// enumerating channels from the database.
-func linkDependentFeaturesConfigured() bool {
-	return os.Getenv("OIDC_ISSUER_URL") != "" || oidc.OAuthConfiguredFromEnv()
+// configured. The OIDC signal is the same OIDC_ISSUER_URL snapshot value that
+// drives the setup mode decision, so both agree; the dynamic AUTH_OAUTH_* probe
+// stays in the auth package.
+func linkDependentFeaturesConfigured(oidcIssuerURL string) bool {
+	return oidcIssuerURL != "" || oidc.OAuthConfiguredFromEnv()
 }
 
 func adminURLForDisplay(host string, port int, fallbackAddr string) string {

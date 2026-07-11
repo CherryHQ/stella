@@ -2,12 +2,13 @@ package oidc
 
 import (
 	"errors"
-	"os"
 	"strings"
+
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 // Config holds the configuration for a generic OIDC provider.
-// All values are loaded from environment variables via ConfigFromEnv.
+// All values are loaded from the server config snapshot via configFrom.
 type Config struct {
 	ProviderName string
 	IssuerURL    string
@@ -17,7 +18,10 @@ type Config struct {
 	Scopes       []string
 }
 
-// ConfigFromEnv reads OIDC configuration from environment variables.
+// configFrom builds the OIDC provider config from the static OIDC_* block of the
+// server config snapshot. Consuming the snapshot (rather than re-reading the
+// environment) is what keeps the mode decision, this config, and the gateway's
+// dependent-feature probe reading one consistent generation.
 //
 //   - OIDC_PROVIDER_NAME (required)
 //   - OIDC_ISSUER_URL    (required)
@@ -25,16 +29,16 @@ type Config struct {
 //   - OIDC_CLIENT_SECRET (optional; empty = public client with PKCE only)
 //   - OIDC_REDIRECT_URL  (required)
 //   - OIDC_SCOPES        (optional, comma-separated; default: openid email profile)
-func ConfigFromEnv() (*Config, error) {
+func configFrom(c config.OIDCConfig) (*Config, error) {
 	cfg := &Config{
-		ProviderName: os.Getenv("OIDC_PROVIDER_NAME"),
-		IssuerURL:    os.Getenv("OIDC_ISSUER_URL"),
-		ClientID:     os.Getenv("OIDC_CLIENT_ID"),
-		ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
-		RedirectURL:  os.Getenv("OIDC_REDIRECT_URL"),
+		ProviderName: c.ProviderName,
+		IssuerURL:    c.IssuerURL,
+		ClientID:     c.ClientID,
+		ClientSecret: c.ClientSecret,
+		RedirectURL:  c.RedirectURL,
 	}
 
-	if raw := os.Getenv("OIDC_SCOPES"); raw != "" {
+	if raw := c.Scopes; raw != "" {
 		cfg.Scopes = splitTrimmed(raw)
 	} else {
 		cfg.Scopes = []string{"openid", "email", "profile"}
