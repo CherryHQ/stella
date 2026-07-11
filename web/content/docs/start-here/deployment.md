@@ -251,18 +251,19 @@ Stella exposes two unauthenticated infrastructure endpoints for orchestrators:
 On the first `SIGTERM`/`SIGINT` the daemon runs a **two-phase graceful drain** rather than stopping immediately:
 
 1. `/readyz` flips to `503` and idle watch streams (SSE subscriptions) end, so load balancers stop routing new traffic. Streams carrying an in-flight turn keep running so the turn can finish.
-2. After `STELLA_READINESS_DRAIN_DELAY`, in-flight HTTP requests drain within `STELLA_HTTP_SHUTDOWN_TIMEOUT`; anything still open when the budget is spent is force-closed.
+2. In-flight HTTP requests drain within `STELLA_HTTP_SHUTDOWN_TIMEOUT`; anything still open when the budget is spent is force-closed.
 3. Background jobs (goal and scheduler agent runs) keep executing and drain within `STELLA_RIVER_SOFT_STOP_TIMEOUT`; jobs still running when that budget is spent are cancelled.
 
 A **second** signal during the drain collapses to an immediate hard stop. These two budgets bound the drain; they do **not** guarantee any single long-running LLM turn finishes.
 
-| Variable                         | Default | Purpose                                                                                                             |
-| -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | `60s`   | Drain budget for in-flight HTTP requests before open connections are force-closed. Must be `> 0`.                   |
-| `STELLA_RIVER_SOFT_STOP_TIMEOUT` | `120s`  | Drain budget for in-flight background jobs before their contexts are cancelled. Must be `> 0`.                      |
-| `STELLA_READINESS_DRAIN_DELAY`   | `0s`    | Wait after flipping not-ready before HTTP shutdown starts, giving load balancers time to observe `/readyz`. `>= 0`. |
+| Variable                         | Default | Purpose                                                                                           |
+| -------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | `60s`   | Drain budget for in-flight HTTP requests before open connections are force-closed. Must be `> 0`. |
+| `STELLA_RIVER_SOFT_STOP_TIMEOUT` | `120s`  | Drain budget for in-flight background jobs before their contexts are cancelled. Must be `> 0`.    |
 
-All three take a Go duration (`60s`, `2m`, `500ms`). An unparseable value or a bound violation fails startup fast.
+Both take a Go duration (`60s`, `2m`, `500ms`). An unparseable or non-positive value fails startup fast.
+
+The drain starts as soon as the signal lands. On Kubernetes, use a `preStop` sleep to give endpoint propagation a head start: the kubelet removes the pod from endpoints when termination begins, and the sleep delays `SIGTERM` until routing has caught up.
 
 Example probe and lifecycle configuration:
 
@@ -279,13 +280,17 @@ livenessProbe:
     port: 25678
   periodSeconds: 10
   failureThreshold: 3
+lifecycle:
+  preStop:
+    sleep:
+      seconds: 5
 # Must exceed the full drain so the kubelet does not SIGKILL mid-drain:
 #   terminationGracePeriodSeconds >=
-#     STELLA_READINESS_DRAIN_DELAY  (endpoint propagation)
-#   + STELLA_HTTP_SHUTDOWN_TIMEOUT  (HTTP drain budget)
+#     preStop sleep                  (endpoint propagation)
+#   + STELLA_HTTP_SHUTDOWN_TIMEOUT   (HTTP drain budget)
 #   + STELLA_RIVER_SOFT_STOP_TIMEOUT (background-job drain budget)
 #   + cleanup margin
-# At the defaults (0 + 60 + 120 + margin) use >= 200.
+# At the defaults (5 + 60 + 120 + margin) use >= 200.
 terminationGracePeriodSeconds: 200
 ```
 
@@ -321,7 +326,6 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | `STELLA_REQUIRE_EXTERNAL_DB`     | No                        | Fail startup when `STELLA_DATABASE_URL` is unset instead of starting embedded PostgreSQL; the Docker image sets `1`, override with `0` for embedded PG on a persistent volume |
 | `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | No                        | Graceful-shutdown drain budget for in-flight HTTP requests (Go duration, default `60s`, `> 0`)                                                                                |
 | `STELLA_RIVER_SOFT_STOP_TIMEOUT` | No                        | Graceful-shutdown drain budget for in-flight background jobs (Go duration, default `120s`, `> 0`)                                                                             |
-| `STELLA_READINESS_DRAIN_DELAY`   | No                        | Delay after flipping `/readyz` to not-ready before HTTP shutdown starts (Go duration, default `0s`, `>= 0`)                                                                   |
 | `STELLA_BLOB_S3_ENDPOINT`        | No§                       | S3-compatible endpoint for the durable user-asset mirror                                                                                                                      |
 | `STELLA_BLOB_S3_BUCKET`          | No§                       | Bucket for mirrored user-uploaded assets                                                                                                                                      |
 | `STELLA_BLOB_S3_ACCESS_KEY`      | No§                       | Access key for the asset mirror                                                                                                                                               |

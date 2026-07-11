@@ -433,12 +433,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// pre-existing abort-startup semantics. onServing hands signal ownership over.
 	drainer := &drainSequence{
 		beginDrain:   adminSrv.BeginDrain,
-		drainDelay:   s.lifecycle.ReadinessDrainDelay,
 		httpTimeout:  s.lifecycle.HTTPShutdownTimeout,
 		shutdownHTTP: httpSrv.Shutdown,
 		forceClose:   func() { _ = httpSrv.Close() },
 		cancelWork:   workCancel,
-		sleep:        sleepCtx,
 	}
 	onServing()
 	go superviseShutdown(gctx, sigCh, httpSrv, drainer)
@@ -455,37 +453,33 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 // drainSequence runs the graceful shutdown steps in order. It is a struct of
 // side-effect hooks so the ordering can be asserted in tests without a live
-// server. The order is: flip not-ready + signal SSE (beginDrain) -> optional
-// readiness delay -> HTTP shutdown within the budget -> force-close leftovers ->
-// cancel work contexts.
+// server. The order is: flip not-ready + signal SSE (beginDrain) -> HTTP
+// shutdown within the budget -> force-close leftovers -> cancel work contexts.
+//
+// There is deliberately no in-process delay between not-ready and shutdown for
+// load-balancer propagation: that window is the platform's job (Kubernetes
+// preStop sleep), not the process's.
 type drainSequence struct {
 	beginDrain   func()
-	drainDelay   time.Duration
 	httpTimeout  time.Duration
 	shutdownHTTP func(context.Context) error
 	forceClose   func()
 	cancelWork   func()
-	sleep        func(context.Context, time.Duration)
 }
 
-func (d *drainSequence) run(ctx context.Context) {
+func (d *drainSequence) run() {
 	// 1. Flip readiness to not-ready and signal SSE streams to end. This is
 	//    observable before the listener is touched (happens-before), so a probe
 	//    can never see /readyz succeed once the drain has begun.
 	d.beginDrain()
-	// 2. Give load balancers time to observe not-ready before connections stop.
-	//    Abortable by a hard stop (second signal cancels ctx).
-	if d.drainDelay > 0 {
-		d.sleep(ctx, d.drainDelay)
-	}
-	// 3. Stop accepting and drain in-flight HTTP within the budget; force-close
+	// 2. Stop accepting and drain in-flight HTTP within the budget; force-close
 	//    anything still open when the budget is spent.
 	shutCtx, cancel := context.WithTimeout(context.Background(), d.httpTimeout)
 	defer cancel()
 	if err := d.shutdownHTTP(shutCtx); err != nil {
 		d.forceClose()
 	}
-	// 4. Cancel work contexts: gctx cancels, g.Wait returns, and the LIFO defer
+	// 3. Cancel work contexts: gctx cancels, g.Wait returns, and the LIFO defer
 	//    chain drains the subsystems and River.
 	d.cancelWork()
 }
@@ -508,30 +502,19 @@ func superviseShutdown(gctx context.Context, sigCh <-chan os.Signal, httpSrv *ht
 		_ = httpSrv.Shutdown(shutCtx)
 		return
 	}
-	// Watch for a second signal: immediately hard-stop (force-close HTTP, cancel
-	// the drain's remaining wait). hardCtx aborts the readiness delay in run().
-	hardCtx, hardCancel := context.WithCancel(context.Background())
-	defer hardCancel()
+	// Watch for a second signal: force-closing the server aborts the in-flight
+	// Shutdown wait, so the drain collapses to an immediate hard stop.
+	done := make(chan struct{})
+	defer close(done)
 	go func() {
 		select {
 		case <-sigCh:
 			slog.Warn("second shutdown signal received; hard-stopping")
 			_ = httpSrv.Close()
-			hardCancel()
-		case <-hardCtx.Done():
+		case <-done:
 		}
 	}()
-	d.run(hardCtx)
-}
-
-// sleepCtx sleeps for d unless ctx is cancelled first.
-func sleepCtx(ctx context.Context, d time.Duration) {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-t.C:
-	case <-ctx.Done():
-	}
+	d.run()
 }
 
 func schedulerJobContext(ctx context.Context, agentID string, job scheduler.Job) context.Context {

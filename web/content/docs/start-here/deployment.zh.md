@@ -251,18 +251,19 @@ Stella 暴露两个供编排器使用的免鉴权基础设施端点：
 收到第一个 `SIGTERM`/`SIGINT` 时，网关不会立即退出，而是执行**两阶段优雅排空**：
 
 1. `/readyz` 翻转为 `503`，空闲的订阅流（SSE watch）结束，使负载均衡器停止转发新流量；承载进行中 turn 的流会继续运行至 turn 完成。
-2. 等待 `STELLA_READINESS_DRAIN_DELAY` 后，在 `STELLA_HTTP_SHUTDOWN_TIMEOUT` 预算内排空进行中的 HTTP 请求；预算耗尽后仍未结束的连接被强制关闭。
+2. 在 `STELLA_HTTP_SHUTDOWN_TIMEOUT` 预算内排空进行中的 HTTP 请求；预算耗尽后仍未结束的连接被强制关闭。
 3. 后台任务（goal 与 scheduler 的 agent 运行）继续执行，并在 `STELLA_RIVER_SOFT_STOP_TIMEOUT` 预算内排空；预算耗尽时仍在运行的任务被取消。
 
 在排空期间收到**第二个**信号会立即硬停。这两个预算是**排空预算**，用于给停机设定上界；它们**不保证**任意一次长时间运行的 LLM turn 能跑完。
 
-| 变量                             | 默认值 | 用途                                                                                        |
-| -------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
-| `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | `60s`  | 在强制关闭连接前，排空进行中 HTTP 请求的预算。必须 `> 0`。                                  |
-| `STELLA_RIVER_SOFT_STOP_TIMEOUT` | `120s` | 在取消任务上下文前，排空进行中后台任务的预算。必须 `> 0`。                                  |
-| `STELLA_READINESS_DRAIN_DELAY`   | `0s`   | 翻转为 not-ready 之后、开始 HTTP 停机之前的等待时间，留给负载均衡器观察 `/readyz`。`>= 0`。 |
+| 变量                             | 默认值 | 用途                                                       |
+| -------------------------------- | ------ | ---------------------------------------------------------- |
+| `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | `60s`  | 在强制关闭连接前，排空进行中 HTTP 请求的预算。必须 `> 0`。 |
+| `STELLA_RIVER_SOFT_STOP_TIMEOUT` | `120s` | 在取消任务上下文前，排空进行中后台任务的预算。必须 `> 0`。 |
 
-三者都接受 Go duration（`60s`、`2m`、`500ms`）。无法解析的值或违反下界会让启动快速失败。
+两者都接受 Go duration（`60s`、`2m`、`500ms`）。无法解析或非正数的值会让启动快速失败。
+
+信号一到，排空立即开始。在 Kubernetes 上请用 `preStop` sleep 为 endpoint 传播留出窗口：Pod 进入终止流程时 kubelet 就会将其从 endpoints 中摘除，sleep 把 `SIGTERM` 推迟到路由收敛之后。
 
 探针与生命周期配置示例：
 
@@ -279,13 +280,17 @@ livenessProbe:
     port: 25678
   periodSeconds: 10
   failureThreshold: 3
+lifecycle:
+  preStop:
+    sleep:
+      seconds: 5
 # 必须大于整个排空时长，避免 kubelet 在排空中途 SIGKILL：
 #   terminationGracePeriodSeconds >=
-#     STELLA_READINESS_DRAIN_DELAY   （endpoint 传播延迟）
+#     preStop sleep                  （endpoint 传播延迟）
 #   + STELLA_HTTP_SHUTDOWN_TIMEOUT   （HTTP 排空预算）
 #   + STELLA_RIVER_SOFT_STOP_TIMEOUT （后台任务排空预算）
 #   + 清理余量
-# 默认值下（0 + 60 + 120 + 余量）取 >= 200。
+# 默认值下（5 + 60 + 120 + 余量）取 >= 200。
 terminationGracePeriodSeconds: 200
 ```
 
@@ -321,7 +326,6 @@ PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、
 | `STELLA_REQUIRE_EXTERNAL_DB`     | 否                        | `STELLA_DATABASE_URL` 未设置时快速失败而非启动内嵌 PostgreSQL；Docker 镜像默认设为 `1`，设 `0` 可在持久卷上运行内嵌 PG |
 | `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | 否                        | 优雅停机时排空进行中 HTTP 请求的预算（Go duration，默认 `60s`，`> 0`）                                                 |
 | `STELLA_RIVER_SOFT_STOP_TIMEOUT` | 否                        | 优雅停机时排空进行中后台任务的预算（Go duration，默认 `120s`，`> 0`）                                                  |
-| `STELLA_READINESS_DRAIN_DELAY`   | 否                        | 翻转 `/readyz` 为 not-ready 之后、开始 HTTP 停机之前的延迟（Go duration，默认 `0s`，`>= 0`）                           |
 | `STELLA_BLOB_S3_ENDPOINT`        | 否§                       | 持久化用户资产镜像使用的 S3 兼容 endpoint                                                                              |
 | `STELLA_BLOB_S3_BUCKET`          | 否§                       | 镜像用户上传资产的 bucket                                                                                              |
 | `STELLA_BLOB_S3_ACCESS_KEY`      | 否§                       | 资产镜像使用的 access key                                                                                              |
