@@ -273,7 +273,7 @@ func (b *Bot) handleVoice(msg WeixinMessage, voiceItem *VoiceItem) {
 		fileData = wav
 	}
 
-	savedPath, err := agent.SaveAsset(assetsDir, fileName, fileData)
+	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, fileData)
 	if err != nil {
 		logger().Error("save voice asset failed", "user_id", msg.FromUserID, "error", err)
 		b.sendReply(msg, "[Voice message] (save failed)")
@@ -326,7 +326,7 @@ func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 		}
 	}
 
-	savedPath, err := agent.SaveAsset(assetsDir, fileName, data)
+	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 	if err != nil {
 		logger().Error("save file asset failed", "user_id", msg.FromUserID, "error", err)
 		b.sendReply(msg, fmt.Sprintf("[File: %s] (save failed)", fileName))

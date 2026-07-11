@@ -348,7 +348,7 @@ func (b *Bot) handleDocument(c tele.Context) error {
 		return c.Send("File too large (max 50 MB).")
 	}
 
-	savedPath, err := agent.SaveAsset(assetsDir, fileName, data)
+	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 	if err != nil {
 		logger().Error("save document failed", "error", err)
 		return c.Send(fmt.Sprintf("Failed to save file: %v", err))

@@ -14,6 +14,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
@@ -89,6 +90,9 @@ type Server struct {
 	eventLog *eventlog.Store
 	// groupDispatcher runs the shared durable group dispatch flow for Web sends.
 	groupDispatcher *channel.GroupDispatcher
+	// assets is the authoritative asset persistence service backing the session
+	// workspace file handlers (durable-write/restore/move/delete for user assets).
+	assets *asset.Store
 	// runtimeCtx is canceled by the process/service lifecycle; request handlers
 	// derive long-running work from it instead of client connections.
 	runtimeCtx context.Context
@@ -143,6 +147,10 @@ type Deps struct {
 	OAuthAuthServer     *oidc.Service
 	EventLog            *eventlog.Store
 	GroupDispatcher     *channel.GroupDispatcher
+	// Assets is the authoritative asset persistence service. Session workspace
+	// handlers use its narrow durable-write/restore/move/delete ports instead of a
+	// raw blob store, so the HTTP transport never holds process-global blob state.
+	Assets *asset.Store
 
 	// Optional capabilities. A nil field is a supported configuration: the
 	// matching endpoints report 503 through the centralized unavailable mapping
@@ -201,6 +209,7 @@ func (d Deps) validate() error {
 	req(d.Email != nil, "Email")
 	req(d.Share != nil, "Share")
 	req(d.Recally != nil, "Recally")
+	req(d.Assets != nil, "Assets")
 	req(d.OIDC.AuthSvc != nil, "OIDC.AuthSvc")
 	req(d.OIDC.SessionMgr != nil, "OIDC.SessionMgr")
 	req(d.OIDC.Logins != nil, "OIDC.Logins")
@@ -258,6 +267,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		workflowSvc:     deps.Workflow,
 		eventLog:        deps.EventLog,
 		groupDispatcher: deps.GroupDispatcher,
+		assets:          deps.Assets,
 		authProviders:   deps.OIDC.Providers,
 		authSvc:         deps.OIDC.AuthSvc,
 		sessionMgr:      deps.OIDC.SessionMgr,

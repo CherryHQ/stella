@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -62,6 +63,7 @@ type Coordinator struct {
 	publisherRegistry    *PublisherRegistry
 	groupDispatcher      *GroupDispatcher
 	db                   *pgxpool.Pool
+	assets               *asset.Store
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -115,6 +117,14 @@ func NewCoordinator(
 func WithVaultService(svc *vault.Service) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.vaultSvc = svc
+	}
+}
+
+// WithCoordinatorAssets injects the authoritative asset store so inbound channel
+// attachments are persisted durably (satisfies pkgchannel.AssetSaver).
+func WithCoordinatorAssets(a *asset.Store) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.assets = a
 	}
 }
 
@@ -561,10 +571,21 @@ func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.Incomi
 	return userDir, nil
 }
 
+// SaveAsset persists an inbound channel attachment through the authoritative
+// asset store, satisfying pkgchannel.AssetSaver. It fails when no asset store is
+// configured rather than silently dropping the attachment.
+func (c *Coordinator) SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error) {
+	if c.assets == nil {
+		return "", fmt.Errorf("asset store is not configured")
+	}
+	return c.assets.SaveAsset(ctx, assetsDir, fileName, data)
+}
+
 // compile-time checks.
 var (
 	_ pkgchannel.Handler          = (*Coordinator)(nil)
 	_ pkgchannel.Provisioner      = (*Coordinator)(nil)
 	_ pkgchannel.UserRootResolver = (*Coordinator)(nil)
+	_ pkgchannel.AssetSaver       = (*Coordinator)(nil)
 	_ pkgchannel.BotRegistrar     = (*Coordinator)(nil)
 )

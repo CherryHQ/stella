@@ -1,17 +1,21 @@
 package blob_test
 
-// Architecture boundary tripwire for issue #706 (stack 1 of #703).
+// Architecture boundary tripwire for #709 (stack 4 of #703).
 //
-// blob.Default()/blob.SetDefault() are the process-global raw blob store. The
-// target architecture injects raw blob storage only into a single asset/workspace
-// persistence service; transports and plugins receive narrow ports instead.
-// Removing the global is a later stack, so this guard freezes the CURRENT set of
-// production call sites by (file -> call count) and fails on any new call — even
-// inside an already-listed file, since the count is exact.
+// The blob package no longer exposes a process-global store: blob.Default /
+// blob.SetDefault / blob.ResetDefaultForTest were deleted when the authoritative
+// asset service (internal/asset) took ownership of durable-write, local
+// materialization, restore, move, delete, and cold-pod hydration. Raw blob
+// storage is now injected only into asset.Store; transports and channel plugins
+// receive narrow ports (server.Deps.Assets, channel.AssetSaver).
 //
-// This walks the whole module (call sites live outside internal/blob) and matches
-// blob.Default / blob.SetDefault by the "blob" import identifier (an aliased
-// import would evade it — an accepted limit shared with env_scan_test).
+// This guard keeps the global deleted: it walks the whole module and fails on any
+// production call to blob.Default / blob.SetDefault. The symbols are gone, so such
+// a call would not compile — but the scan documents the invariant and catches a
+// re-introduction attempt (e.g. a new package-level default helper) at review time
+// rather than in production. It resolves the internal/blob import's local name per
+// file so an aliased import cannot evade it (an accepted limit shared with
+// env_scan_test: a fully dynamic/reflection call is out of scope).
 
 import (
 	"go/ast"
@@ -24,23 +28,10 @@ import (
 	"testing"
 )
 
-// blobDefaultCallAllowlist records the exact number of blob.Default/SetDefault
-// production call sites per module-relative file. These are existing debt to be
-// replaced by an injected asset/workspace persistence service; the counts may
-// only go down (pay off debt, then lower the number), never up.
-var blobDefaultCallAllowlist = map[string]int{
-	"cmd/stellad/commands.go":     1, // SetDefault: installs the process-global store at boot
-	"internal/server/sessions.go": 5, // asset upload/download/list/delete handlers
-	"internal/agent/hydrate.go":   1, // cold-pod workspace hydration
-	"internal/agent/workspace.go": 1, // workspace materialization
-	"internal/share/service.go":   1, // shared-asset read
-}
-
 const blobImportPath = "github.com/CherryHQ/stella/internal/blob"
 
 // blobLocalName returns the identifier a file uses for the internal/blob import
-// (honoring an explicit alias), or "" if it does not import it. Resolving the
-// local name means an aliased import cannot evade the call counter.
+// (honoring an explicit alias), or "" if it does not import it.
 func blobLocalName(f *ast.File) string {
 	for _, imp := range f.Imports {
 		if strings.Trim(imp.Path.Value, "`\"") != blobImportPath {
@@ -66,15 +57,14 @@ func isBlobDefaultCall(call *ast.CallExpr, local string) bool {
 	if !ok || id.Name != local {
 		return false
 	}
-	return sel.Sel.Name == "Default" || sel.Sel.Name == "SetDefault"
+	return sel.Sel.Name == "Default" || sel.Sel.Name == "SetDefault" || sel.Sel.Name == "ResetDefaultForTest"
 }
 
-func TestNoNewBlobDefaultCallers(t *testing.T) {
+func TestNoBlobProcessGlobal(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatalf("resolve module root: %v", err)
 	}
-	counts := map[string]int{}
 	skipDirs := map[string]bool{
 		".git": true, "node_modules": true, "dist": true, ".agents": true,
 	}
@@ -88,6 +78,7 @@ func TestNoNewBlobDefaultCallers(t *testing.T) {
 			}
 			return nil
 		}
+		// Production files only: tests may reference the removed names in comments.
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
@@ -112,7 +103,8 @@ func TestNoNewBlobDefaultCallers(t *testing.T) {
 		local := blobLocalName(f)
 		ast.Inspect(f, func(n ast.Node) bool {
 			if call, ok := n.(*ast.CallExpr); ok && isBlobDefaultCall(call, local) {
-				counts[rel]++
+				t.Errorf("%s: production code calls a blob process-global (Default/SetDefault/ResetDefaultForTest); "+
+					"the global was deleted in #709 — inject an asset.Store or a narrow asset port instead", rel)
 			}
 			return true
 		})
@@ -120,22 +112,5 @@ func TestNoNewBlobDefaultCallers(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("walk module: %v", err)
-	}
-
-	for file, got := range counts {
-		want, ok := blobDefaultCallAllowlist[file]
-		if !ok {
-			t.Errorf("%s: new production blob.Default/SetDefault caller (%d call(s)); inject an asset/workspace persistence port instead of the process-global store", file, got)
-			continue
-		}
-		if got > want {
-			t.Errorf("%s: %d blob.Default/SetDefault call(s), allowlist permits %d; do not add new callers of the process-global blob store", file, got, want)
-		}
-	}
-	for file, want := range blobDefaultCallAllowlist {
-		got := counts[file]
-		if got < want {
-			t.Errorf("%s: only %d blob.Default/SetDefault call(s) remain (allowlist expects %d); lower the allowlist so regressions are caught", file, got, want)
-		}
 	}
 }

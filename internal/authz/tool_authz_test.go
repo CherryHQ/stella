@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -213,7 +214,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
+	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssetStore(t, home), home, "http://stella.test")
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
@@ -305,4 +306,13 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 		}
 	}
 	return svc
+}
+
+func mustAssetStore(t *testing.T, home string) *asset.Store {
+	t.Helper()
+	a, err := asset.NewStore(home, nil, false, nil)
+	if err != nil {
+		t.Fatalf("asset.NewStore: %v", err)
+	}
+	return a
 }

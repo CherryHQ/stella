@@ -19,6 +19,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
@@ -91,6 +92,7 @@ type setupResult struct {
 	emailSvc                 *email.Service
 	shareSvc                 *sharepkg.Service
 	recallySvc               *recally.Service
+	assetStore               *asset.Store
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
 	riverClient              *river.Client[pgx.Tx]
@@ -206,14 +208,19 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
+	// Asset authority: single-node uses the local filesystem under STELLA_HOME;
+	// a deployment that declares shared-asset durability (STELLA_REQUIRE_SHARED_ASSETS,
+	// set by the Helm chart when it runs more than one replica) must configure a
+	// shared object store, else NewStore fails fast. This replaces the former blob
+	// process-global (blob.SetDefault/Default): the durable asset service is
+	// injected into every consumer instead.
 	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
 	if err != nil {
 		return nil, err
 	}
-	if blobStore != nil {
-		if err := blob.SetDefault(blobStore); err != nil {
-			return nil, err
-		}
+	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, cfg.RequireSharedAssets, slog.Default())
+	if err != nil {
+		return nil, err
 	}
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
@@ -330,7 +337,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	recallyStore := recally.NewStore(db)
 	recallySvc := recally.NewService(recallyStore, config.StellaHome())
-	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, config.StellaHome(), baseURL)
+	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL)
 
 	// MCP registration service: one instance shared by the HTTP API and the agent
 	// runtime. Built here (before StartAll) so its tool provider can be bound into
@@ -357,10 +364,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	// The agent domain owns project resolution/ensuring and tool-override
 	// fetching; the composition root passes the pool, not raw queries.
-	projectStore := agent.NewProjectStore(db, store)
+	projectStore := agent.NewProjectStore(db, store, assetStore)
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
+		agent.WithAssetStorePM(assetStore),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
@@ -446,6 +454,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		emailSvc:                 emailSvc,
 		shareSvc:                 shareSvc,
 		recallySvc:               recallySvc,
+		assetStore:               assetStore,
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
 		riverClient:              riverClient,
