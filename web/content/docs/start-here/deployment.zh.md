@@ -208,7 +208,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 ## 受管部署
 
-当你在编排系统（Kubernetes 等）下运行 Stella 时，两个本地环境下的便利做法会变成陷阱：内嵌的单节点数据库，以及指向 pod 自身的 base URL。设置 `STELLA_STRICT_DEPLOYMENT=1` 可将这些陷阱转化为快速、可操作的启动错误。
+当你在编排系统（Kubernetes 等）下运行 Stella 时，两个本地环境下的便利做法会变成陷阱：内嵌的单节点数据库，以及指向 pod 自身的 base URL。Docker 镜像默认拒绝前者（`STELLA_REQUIRE_EXTERNAL_DB=1`），对后者 Stella 会发出响亮的警告。
 
 ### 三种 URL 角色
 
@@ -222,23 +222,20 @@ Stella 使用三个不同的地址，务必区分：
 
 绑定到 `0.0.0.0`（`HOST`）**并不会**给你一个公网 URL：`STELLA_BASE_URL` 未设置时，base URL 由绑定地址推导，仍然解析为 loopback。受管部署中请始终显式设置 `STELLA_BASE_URL`。
 
-### 严格部署模式
+### 外部数据库要求
 
-`STELLA_STRICT_DEPLOYMENT=1` 会拒绝仅供本地使用的 fallback：
+Docker 镜像设置了 `STELLA_REQUIRE_EXTERNAL_DB=1`：当 `STELLA_DATABASE_URL` 未设置时，启动会以可操作的错误快速失败，而不是在容器的临时文件系统上静默启动内嵌 PostgreSQL 集群——多副本时每个 pod 甚至会各建一套数据库。请将 `STELLA_DATABASE_URL` 指向带 `pgvector` 与 `pg_search` 的外部 PostgreSQL。若要有意在挂载持久卷的单容器中运行内嵌 PostgreSQL，设置 `STELLA_REQUIRE_EXTERNAL_DB=0`。
 
-- 服务不会启动内嵌 PostgreSQL。你必须将 `STELLA_DATABASE_URL` 指向已安装 `pgvector` 与 `pg_search` 的外部 PostgreSQL。
-- 服务不会在 `STELLA_BASE_URL` 为 loopback 或未指定地址时启动。请将其设为客户端使用的公网 URL。
-
-如果你有意配置了一个不使用任何外链功能（无 OAuth 登录、无频道外链）的部署，并接受 loopback base URL，可设置 `STELLA_ALLOW_UNSAFE_BASE_URL=1` 将 base URL 的启动失败降级为警告。在非严格模式下，仅当配置了依赖外链的功能时，Stella 才会对 loopback base URL 发出警告。
+loopback base URL 永远不是启动错误——通过 `localhost` 或 `kubectl port-forward` 访问 Stella 时它是合法的——但当配置了 OAuth/OIDC 登录时 Stella 会发出响亮警告，因为登录跳转会指回 pod 自身。部署 chart 应将 `STELLA_BASE_URL` 作为必填值：那一层才知道自己位于 ingress 之后。
 
 ### 受管部署所需的环境变量
 
-| 变量                       | 值                                                                |
-| -------------------------- | ----------------------------------------------------------------- |
-| `STELLA_DATABASE_URL`      | 含 `pgvector` + `pg_search` 的外部 PostgreSQL DSN                 |
-| `STELLA_VAULT_KEY`         | 密钥库的 age 私钥（用 `stellad vault keygen` 生成）               |
-| `STELLA_BASE_URL`          | 客户端使用的公网 canonical URL（如 `https://stella.example.com`） |
-| `STELLA_STRICT_DEPLOYMENT` | `1` —— 若将回退到仅本地 fallback 则快速失败                       |
+| 变量                         | 值                                                                            |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `STELLA_DATABASE_URL`        | 含 `pgvector` + `pg_search` 的外部 PostgreSQL DSN                             |
+| `STELLA_VAULT_KEY`           | 密钥库的 age 私钥（用 `stellad vault keygen` 生成）                           |
+| `STELLA_BASE_URL`            | 客户端使用的公网 canonical URL（如 `https://stella.example.com`）             |
+| `STELLA_REQUIRE_EXTERNAL_DB` | `1` —— Docker 镜像已默认设置；未配外部数据库时快速失败而非启动内嵌 PostgreSQL |
 
 完整的 Kubernetes manifest 演示不在本页范围内。
 
@@ -316,28 +313,27 @@ PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、
 
 配置通过Web UI管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
-| 变量                             | 必需                      | 描述                                                                                                    |
-| -------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                    | 否                        | Stella 主目录（默认 `~/.stella`）                                                                       |
-| `STELLA_DATABASE_URL`            | Docker 中必需；其他环境否 | 外部 PostgreSQL 连接 URL；Docker 之外不设置时使用 `STELLA_HOME` 下的内嵌集群                            |
-| `STELLA_BASE_URL`                | 否¶                       | OAuth 回调与频道外链使用的公网 canonical URL；未设置时由绑定地址推导（loopback）                        |
-| `STELLA_STRICT_DEPLOYMENT`       | 否                        | 受管部署设为 `1`：要求 `STELLA_DATABASE_URL` 与非 loopback 的 `STELLA_BASE_URL`，拒绝仅本地 fallback    |
-| `STELLA_ALLOW_UNSAFE_BASE_URL`   | 否                        | 设为 `1` 时，允许在 `STELLA_STRICT_DEPLOYMENT` 下使用 loopback 的 `STELLA_BASE_URL`（将失败降级为警告） |
-| `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | 否                        | 优雅停机时排空进行中 HTTP 请求的预算（Go duration，默认 `60s`，`> 0`）                                  |
-| `STELLA_RIVER_SOFT_STOP_TIMEOUT` | 否                        | 优雅停机时排空进行中后台任务的预算（Go duration，默认 `120s`，`> 0`）                                   |
-| `STELLA_READINESS_DRAIN_DELAY`   | 否                        | 翻转 `/readyz` 为 not-ready 之后、开始 HTTP 停机之前的延迟（Go duration，默认 `0s`，`>= 0`）            |
-| `STELLA_BLOB_S3_ENDPOINT`        | 否§                       | 持久化用户资产镜像使用的 S3 兼容 endpoint                                                               |
-| `STELLA_BLOB_S3_BUCKET`          | 否§                       | 镜像用户上传资产的 bucket                                                                               |
-| `STELLA_BLOB_S3_ACCESS_KEY`      | 否§                       | 资产镜像使用的 access key                                                                               |
-| `STELLA_BLOB_S3_SECRET_KEY`      | 否§                       | 资产镜像使用的 secret key                                                                               |
-| `STELLA_BLOB_S3_REGION`          | 否                        | 可选 S3 region                                                                                          |
-| `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                  |
-| `ANTHROPIC_API_KEY`              | 是\*                      | Anthropic 提供商密钥                                                                                    |
-| `OPENAI_API_KEY`                 | 是\*                      | OpenAI 提供商密钥                                                                                       |
-| `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                         |
-| `STELLA_DOCKER_SANDBOX_MODE`     | 否‡                       | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                                    |
-| `STELLA_HOME_HOST`               | 否‡                       | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                               |
-| `STELLA_HOME_VOLUME`             | 否‡                       | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要                |
+| 变量                             | 必需                      | 描述                                                                                                                   |
+| -------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                    | 否                        | Stella 主目录（默认 `~/.stella`）                                                                                      |
+| `STELLA_DATABASE_URL`            | Docker 中必需；其他环境否 | 外部 PostgreSQL 连接 URL；Docker 之外不设置时使用 `STELLA_HOME` 下的内嵌集群                                           |
+| `STELLA_BASE_URL`                | 否¶                       | OAuth 回调与频道外链使用的公网 canonical URL；未设置时由绑定地址推导（loopback）                                       |
+| `STELLA_REQUIRE_EXTERNAL_DB`     | 否                        | `STELLA_DATABASE_URL` 未设置时快速失败而非启动内嵌 PostgreSQL；Docker 镜像默认设为 `1`，设 `0` 可在持久卷上运行内嵌 PG |
+| `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | 否                        | 优雅停机时排空进行中 HTTP 请求的预算（Go duration，默认 `60s`，`> 0`）                                                 |
+| `STELLA_RIVER_SOFT_STOP_TIMEOUT` | 否                        | 优雅停机时排空进行中后台任务的预算（Go duration，默认 `120s`，`> 0`）                                                  |
+| `STELLA_READINESS_DRAIN_DELAY`   | 否                        | 翻转 `/readyz` 为 not-ready 之后、开始 HTTP 停机之前的延迟（Go duration，默认 `0s`，`>= 0`）                           |
+| `STELLA_BLOB_S3_ENDPOINT`        | 否§                       | 持久化用户资产镜像使用的 S3 兼容 endpoint                                                                              |
+| `STELLA_BLOB_S3_BUCKET`          | 否§                       | 镜像用户上传资产的 bucket                                                                                              |
+| `STELLA_BLOB_S3_ACCESS_KEY`      | 否§                       | 资产镜像使用的 access key                                                                                              |
+| `STELLA_BLOB_S3_SECRET_KEY`      | 否§                       | 资产镜像使用的 secret key                                                                                              |
+| `STELLA_BLOB_S3_REGION`          | 否                        | 可选 S3 region                                                                                                         |
+| `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
+| `ANTHROPIC_API_KEY`              | 是\*                      | Anthropic 提供商密钥                                                                                                   |
+| `OPENAI_API_KEY`                 | 是\*                      | OpenAI 提供商密钥                                                                                                      |
+| `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
+| `STELLA_DOCKER_SANDBOX_MODE`     | 否‡                       | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                                                   |
+| `STELLA_HOME_HOST`               | 否‡                       | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                                              |
+| `STELLA_HOME_VOLUME`             | 否‡                       | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要                               |
 
 \* 至少需要一个提供商密钥。API 密钥也可以通过Web UI配置。
 

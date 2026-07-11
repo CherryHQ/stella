@@ -30,33 +30,3 @@ func TestBaseURLUnsafe(t *testing.T) {
 		})
 	}
 }
-
-func TestCheckDeploymentBaseURL(t *testing.T) {
-	cases := []struct {
-		name    string
-		url     string
-		strict  string
-		allow   string
-		wantErr bool
-	}{
-		{"safe url passes regardless", "https://stella.example.com", "1", "", false},
-		{"unsafe non-strict warns only", "http://127.0.0.1:25678", "", "", false},
-		{"unsafe strict fails", "http://127.0.0.1:25678", "1", "", true},
-		{"unsafe strict with override passes", "http://127.0.0.1:25678", "1", "1", false},
-		{"strict parse error surfaces", "http://127.0.0.1:25678", "maybe", "", true},
-		{"override parse error surfaces", "http://127.0.0.1:25678", "1", "maybe", true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("STELLA_STRICT_DEPLOYMENT", tc.strict)
-			t.Setenv("STELLA_ALLOW_UNSAFE_BASE_URL", tc.allow)
-			err := checkDeploymentBaseURL(tc.url)
-			if tc.wantErr && err == nil {
-				t.Fatalf("checkDeploymentBaseURL(%q) = nil, want error", tc.url)
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("checkDeploymentBaseURL(%q) unexpected error: %v", tc.url, err)
-			}
-		})
-	}
-}

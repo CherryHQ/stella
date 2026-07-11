@@ -7,34 +7,22 @@ import (
 	"strings"
 )
 
-// strictDeploymentEnv marks a managed deployment (Kubernetes and similar
-// orchestrators) where the single-node local conveniences are unsafe. When set
-// to a truthy value the server refuses fallbacks meant for local use: it
-// requires an external PostgreSQL via STELLA_DATABASE_URL instead of the
-// embedded cluster, and it requires an explicit, non-loopback STELLA_BASE_URL
-// so OAuth callbacks and channel deep links point at a reachable address.
-const strictDeploymentEnv = "STELLA_STRICT_DEPLOYMENT"
+// requireExternalDBEnv makes an empty STELLA_DATABASE_URL a startup error
+// instead of silently starting the embedded PostgreSQL cluster. The embedded
+// cluster is a single-node local convenience: in a container it lands on an
+// ephemeral filesystem, and with multiple replicas each process would create
+// its own database. The Docker image sets this by default; set it to 0 to
+// deliberately run embedded PostgreSQL inside a container (e.g. a single
+// container with a persistent volume).
+const requireExternalDBEnv = "STELLA_REQUIRE_EXTERNAL_DB"
 
-// allowUnsafeBaseURLEnv opts out of the strict base-URL check: it lets a managed
-// deployment start with a loopback or otherwise unsafe STELLA_BASE_URL,
-// downgrading the hard failure to a loud warning. Use it only when link-out
-// features (OAuth callbacks, channel deep links) are known to be unused.
-const allowUnsafeBaseURLEnv = "STELLA_ALLOW_UNSAFE_BASE_URL"
-
-// StrictDeployment reports whether STELLA_STRICT_DEPLOYMENT requests managed
-// deployment mode. Unset or empty is false. Any other value is parsed as a
-// boolean; an unparseable value returns an actionable error instead of being
-// silently ignored, so a typo fails fast rather than quietly disabling the
-// guard.
-func StrictDeployment() (bool, error) {
-	return parseBoolEnv(strictDeploymentEnv)
-}
-
-// AllowUnsafeBaseURL reports whether STELLA_ALLOW_UNSAFE_BASE_URL permits an
-// unsafe base URL in strict deployment mode. Same parsing rules as
-// StrictDeployment.
-func AllowUnsafeBaseURL() (bool, error) {
-	return parseBoolEnv(allowUnsafeBaseURLEnv)
+// RequireExternalDB reports whether STELLA_REQUIRE_EXTERNAL_DB forbids the
+// embedded-PostgreSQL fallback. Unset or empty is false. Any other value is
+// parsed as a boolean; an unparseable value returns an actionable error instead
+// of being silently ignored, so a typo fails fast rather than quietly disabling
+// the guard.
+func RequireExternalDB() (bool, error) {
+	return parseBoolEnv(requireExternalDBEnv)
 }
 
 func parseBoolEnv(name string) (bool, error) {
