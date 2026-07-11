@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -23,7 +22,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -1231,20 +1229,20 @@ func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 	if body.IsDir != nil && *body.IsDir {
+		// A directory is not a durable object key; create it locally only.
 		if err := os.MkdirAll(abs, 0o755); err != nil {
 			s.writeInternalError(w, err)
 			return
 		}
 	} else {
-		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
 		content := ""
 		if body.Content != nil {
 			content = *body.Content
 		}
-		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		// The asset store owns the local create and the durable persist for an
+		// asset path, rolling back the local creation if the durable write fails; a
+		// non-asset workspace file is created locally only.
+		if err := s.assets.CreateFile(r.Context(), abs, []byte(content), 0o644); err != nil {
 			s.writeInternalError(w, err)
 			return
 		}
@@ -1276,18 +1274,12 @@ func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	if err := os.RemoveAll(abs); err != nil {
+	// The asset store owns the local removal and the durable authority deletion
+	// (child keys included) so a directory delete cannot be resurrected by
+	// hydration; a durable failure fails the request before local state changes.
+	if err := s.assets.RemoveFile(r.Context(), abs); err != nil {
 		s.writeInternalError(w, err)
 		return
-	}
-	if store := blob.Default(); store != nil && isAssetRelPath(body.Path) {
-		if key, err := blob.KeyForPath(config.StellaHome(), abs); err != nil {
-			s.log.Warn("asset blob delete key failed", "path", abs, "error", err)
-		} else if blob.IsUserAssetKey(key) {
-			if err := store.Delete(r.Context(), key); err != nil {
-				s.log.Warn("asset blob delete failed", "key", key, "error", err)
-			}
-		}
 	}
 	writeNoContent(w)
 }
@@ -1316,39 +1308,13 @@ func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agent
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	// The asset store owns the local rename and the durable authority mirror,
+	// persisting the destination before deleting the source and rolling back the
+	// local rename on a durable failure — the handler is never left locally-moved
+	// but durably-inconsistent.
+	if err := s.assets.MoveFile(r.Context(), src, dst); err != nil {
 		s.writeInternalError(w, err)
 		return
-	}
-	if err := os.Rename(src, dst); err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	if store := blob.Default(); store != nil {
-		if isAssetRelPath(body.Path) {
-			if key, err := blob.KeyForPath(config.StellaHome(), src); err != nil {
-				s.log.Warn("asset blob move source key failed", "path", src, "error", err)
-			} else if blob.IsUserAssetKey(key) {
-				if err := store.Delete(r.Context(), key); err != nil {
-					s.log.Warn("asset blob move delete failed", "key", key, "error", err)
-				}
-			}
-		}
-		if isAssetRelPath(body.NewPath) {
-			if key, err := blob.KeyForPath(config.StellaHome(), dst); err != nil {
-				s.log.Warn("asset blob move destination key failed", "path", dst, "error", err)
-			} else if blob.IsUserAssetKey(key) {
-				file, err := os.Open(dst)
-				if err != nil {
-					s.log.Warn("asset blob move open failed", "path", dst, "error", err)
-				} else {
-					if err := store.Put(r.Context(), key, file); err != nil {
-						s.log.Warn("asset blob move mirror failed", "key", key, "error", err)
-					}
-					_ = file.Close()
-				}
-			}
-		}
 	}
 	diskInfo, err := collectWorkspaceDiskInfo(root, false, "", 0)
 	if err != nil {
@@ -1374,7 +1340,7 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		if os.IsNotExist(err) && s.restoreAssetFromBlob(r.Context(), params.Path, abs) == nil {
+		if os.IsNotExist(err) && s.assets.Restore(r.Context(), abs) == nil {
 			info, err = os.Stat(abs)
 		}
 		if err != nil {
@@ -1436,23 +1402,12 @@ func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
 	data := []byte(body.Content)
-	if err := os.WriteFile(abs, data, 0o644); err != nil {
+	// The asset store owns the local write and the durable persist; a durable
+	// failure on a newly-created file removes the local orphan.
+	if err := s.assets.WriteFile(r.Context(), abs, data, 0o644); err != nil {
 		s.writeInternalError(w, err)
 		return
-	}
-	if store := blob.Default(); store != nil && isAssetRelPath(body.Path) {
-		if key, err := blob.KeyForPath(config.StellaHome(), abs); err != nil {
-			s.log.Warn("asset blob update key failed", "path", abs, "error", err)
-		} else if blob.IsUserAssetKey(key) {
-			if err := store.Put(r.Context(), key, bytes.NewReader(data)); err != nil {
-				s.log.Warn("asset blob update mirror failed", "key", key, "error", err)
-			}
-		}
 	}
 	lang := detectLanguage(body.Path)
 	writeData(w, http.StatusOK, map[string]any{
@@ -1491,96 +1446,20 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	now := time.Now()
 	hash := fmt.Sprintf("%06x", now.UnixNano()&0xFFFFFF)
 	dir := filepath.Join(root, "assets", now.Format("200601"))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
 	name := fmt.Sprintf("%s-%s-%s", now.Format("20060102"), hash, filepath.Base(header.Filename))
 	abs := filepath.Join(dir, name)
-	if err := os.WriteFile(abs, data, 0o644); err != nil {
+	// The asset store owns the local write and the durable persist, removing the
+	// local orphan if the durable write fails so a reported failure is never a
+	// local-only success.
+	if err := s.assets.WriteFile(r.Context(), abs, data, 0o644); err != nil {
 		s.writeInternalError(w, err)
 		return
-	}
-	if store := blob.Default(); store != nil {
-		key, err := blob.KeyForPath(config.StellaHome(), abs)
-		if err != nil {
-			s.log.Warn("upload blob key failed", "path", abs, "error", err)
-		} else if err := store.Put(r.Context(), key, bytes.NewReader(data)); err != nil {
-			s.log.Warn("upload blob mirror failed", "key", key, "error", err)
-		}
 	}
 	// Return the sandbox-visible path (e.g. /user/assets/...) so the agent can
 	// open the upload directly from its message text.
 	rel, _ := filepath.Rel(root, abs)
 	sandboxRoot := sandbox.UserDataViewFor(s.sandboxBackend(r.Context()), root)
 	writeData(w, http.StatusCreated, map[string]string{"path": filepath.ToSlash(filepath.Join(sandboxRoot, rel))})
-}
-
-func (s *Server) restoreAssetFromBlob(ctx context.Context, rel, abs string) error {
-	store := blob.Default()
-	if store == nil || !isAssetRelPath(rel) {
-		return os.ErrNotExist
-	}
-	key, err := blob.KeyForPath(config.StellaHome(), abs)
-	if err != nil || !blob.IsUserAssetKey(key) {
-		return os.ErrNotExist
-	}
-	rc, err := store.Open(ctx, key)
-	if err != nil {
-		s.log.Warn("asset blob restore open failed", "key", key, "error", err)
-		return err
-	}
-	defer func() { _ = rc.Close() }()
-	data, err := io.ReadAll(rc)
-	if err != nil {
-		return err
-	}
-	// Restore only through the previously safe-pathed location; S3 is a mirror, not
-	// an authority that can choose local filesystem paths.
-	return writeRestoredAssetFile(abs, data)
-}
-
-func writeRestoredAssetFile(abs string, data []byte) error {
-	dir := filepath.Dir(abs)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".stella-restore-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	// Normalize restored assets to 0644. Channel SaveAsset uses 0600, but files
-	// under a per-user home are not relying on mode bits as a security boundary.
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	// Install with no-replace semantics: rename would silently clobber a file
-	// written between the caller's missing-file check and this install, replacing
-	// fresh local content with older blob content. link(2) fails with EEXIST
-	// instead (on Windows too), so the concurrent local write wins — the caller
-	// re-reads the local file after a nil return, serving the newer content.
-	if err := os.Link(tmpName, abs); err != nil {
-		if os.IsExist(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
-func isAssetRelPath(rel string) bool {
-	clean := filepath.ToSlash(filepath.Clean("/" + rel))
-	return strings.HasPrefix(strings.TrimPrefix(clean, "/"), "assets/")
 }
 
 // detectLanguage returns a simple language hint based on file extension.

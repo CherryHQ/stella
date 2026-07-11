@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
@@ -180,6 +181,11 @@ func setupAdmin(t *testing.T) *testEnv {
 	const baseURL = "http://localhost:25678"
 	poolManager := agent.NewPoolManager(store, mem)
 	recallyStore := recally.NewStore(db)
+	assetHome := t.TempDir()
+	assetStore, err := asset.NewStore(assetHome, nil, false, nil)
+	if err != nil {
+		t.Fatalf("asset.NewStore: %v", err)
+	}
 	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	deps := server.Deps{
@@ -194,7 +200,8 @@ func setupAdmin(t *testing.T) *testEnv {
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
 		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, t.TempDir(), baseURL),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
+		Assets:              assetStore,
 		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,

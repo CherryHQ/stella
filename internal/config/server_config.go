@@ -15,6 +15,7 @@ import (
 // messages.
 const (
 	requireExternalDBEnv    = "STELLA_REQUIRE_EXTERNAL_DB"
+	requireSharedAssetsEnv  = "STELLA_REQUIRE_SHARED_ASSETS"
 	httpShutdownTimeoutEnv  = "STELLA_HTTP_SHUTDOWN_TIMEOUT"
 	riverSoftStopTimeoutEnv = "STELLA_RIVER_SOFT_STOP_TIMEOUT"
 
@@ -99,6 +100,17 @@ type ServerConfig struct {
 	// Observability holds tracing/telemetry toggles owned by this server (the
 	// standard OTEL SDK variables stay with the SDK and are not mirrored here).
 	Observability ObservabilityConfig
+	// RequireSharedAssets declares that uploaded user assets must be durable in a
+	// shared object store rather than on local disk (STELLA_REQUIRE_SHARED_ASSETS).
+	// It is a deployment-topology assertion, independent of the database mode: a
+	// deployment that runs more than one replica (or otherwise treats local disk as
+	// ephemeral) sets it so the asset store fails fast at startup when no shared
+	// object store is configured. A single-replica deployment — including a
+	// container with an external database but a persistent asset volume — leaves it
+	// false and keeps the local filesystem as the asset authority. Unset/empty is
+	// false; any other value parses as a boolean and an unparseable value fails
+	// fast.
+	RequireSharedAssets bool
 }
 
 // VaultConfig carries the vault master key (STELLA_VAULT_KEY). The key is a
@@ -190,6 +202,7 @@ const defaultServerURL = "http://127.0.0.1:25678"
 // after the struct is populated to preserve the existing actionable messages.
 type rawServerConfig struct {
 	RequireExternalDB    string `env:"STELLA_REQUIRE_EXTERNAL_DB"`
+	RequireSharedAssets  string `env:"STELLA_REQUIRE_SHARED_ASSETS"`
 	HTTPShutdownTimeout  string `env:"STELLA_HTTP_SHUTDOWN_TIMEOUT"`
 	RiverSoftStopTimeout string `env:"STELLA_RIVER_SOFT_STOP_TIMEOUT"`
 }
@@ -200,6 +213,7 @@ type rawServerConfig struct {
 // unrelated variable can never leak into the parse.
 var serverConfigKeys = []string{
 	requireExternalDBEnv,
+	requireSharedAssetsEnv,
 	httpShutdownTimeoutEnv,
 	riverSoftStopTimeoutEnv,
 }
@@ -285,6 +299,10 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 	if err != nil {
 		errs = append(errs, err)
 	}
+	requireSharedAssets, err := parseServerBool(requireSharedAssetsEnv, raw.RequireSharedAssets)
+	if err != nil {
+		errs = append(errs, err)
+	}
 	httpTimeout, err := parseServerDuration(httpShutdownTimeoutEnv, raw.HTTPShutdownTimeout, defaultHTTPShutdownTimeout)
 	if err != nil {
 		errs = append(errs, err)
@@ -301,6 +319,7 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 		Database: DatabaseConfig{
 			RequireExternalDB: requireExternalDB,
 		},
+		RequireSharedAssets: requireSharedAssets,
 		Lifecycle: Lifecycle{
 			HTTPShutdownTimeout:  httpTimeout,
 			RiverSoftStopTimeout: riverTimeout,

@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/config"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -15,13 +16,16 @@ import (
 // project exists for an agent+user pair. Resolve satisfies
 // ProjectResolverFunc and Ensure satisfies ProjectEnsurerFunc.
 type ProjectStore struct {
-	q     *sqlc.Queries
-	store config.Store
+	q      *sqlc.Queries
+	store  config.Store
+	assets *asset.Store
 }
 
 // NewProjectStore builds a ProjectStore over the given pool and config store.
-func NewProjectStore(db *pgxpool.Pool, store config.Store) *ProjectStore {
-	return &ProjectStore{q: sqlc.New(db), store: store}
+// assets is the authoritative asset store used to hydrate a cold pod's asset
+// tree when a project is first created; it may be nil (hydration is skipped).
+func NewProjectStore(db *pgxpool.Pool, store config.Store, assets *asset.Store) *ProjectStore {
+	return &ProjectStore{q: sqlc.New(db), store: store, assets: assets}
 }
 
 // Resolve returns the base directory for the given project owned by the user.
@@ -51,13 +55,18 @@ func (s *ProjectStore) Ensure(ctx context.Context, agentID, userID string) (stri
 	if err != nil {
 		return "", err
 	}
-	// Restore the user's assets subtree from the blob mirror in the background,
-	// so a cold pod fills its empty assets tree without blocking project setup.
-	go func() {
-		if err := HydrateUserAssets(context.Background(), config.StellaHome(), userHome); err != nil {
-			slog.Warn("hydrate user assets failed", "home", userHome, "error", err)
-		}
-	}()
+	// Restore the user's assets subtree from the shared asset authority in the
+	// background, so a cold pod fills its empty assets tree without blocking
+	// project setup. No-op when no asset store is configured or there is no shared
+	// authority (single-node, where the local tree is already the authority).
+	if s.assets != nil {
+		assets := s.assets
+		go func() {
+			if err := assets.HydrateUser(context.Background(), UserAssetsDir(userHome)); err != nil {
+				slog.Warn("hydrate user assets failed", "home", userHome, "error", err)
+			}
+		}()
+	}
 	// The default project's working tree is the agent's private area under the
 	// user home (a project is owned by the agent, #442).
 	baseDir := UserAgentDir(config.StellaHome(), userID, agentID)

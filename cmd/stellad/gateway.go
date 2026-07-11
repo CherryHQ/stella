@@ -239,6 +239,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	var coordOpts []channel.CoordinatorOption
 	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
+	coordOpts = append(coordOpts, channel.WithCoordinatorAssets(s.assetStore))
 	if s.vaultSvc != nil {
 		vaultRecipient = s.vaultSvc.MasterRecipient()
 		coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultRecipient))
@@ -309,6 +310,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Email:               s.emailSvc,
 		Share:               s.shareSvc,
 		Recally:             s.recallySvc,
+		Assets:              s.assetStore,
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
 		EventLog:            elStore,

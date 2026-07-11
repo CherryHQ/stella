@@ -8,10 +8,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 )
 
-// Store mirrors durable user assets by STELLA_HOME-relative slash keys.
+// Store persists durable user assets by STELLA_HOME-relative slash keys. It is a
+// low-level object-store port: the authoritative asset semantics (durable-write,
+// local materialization, restore, move, delete, cold-pod hydration) live in
+// internal/asset, which is the only package that holds a Store. Transports and
+// channel plugins receive the narrow asset ports, never this interface, and
+// there is deliberately no process-global default: an asset store is injected.
 type Store interface {
 	Put(ctx context.Context, key string, r io.Reader) error
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
@@ -21,42 +25,6 @@ type Store interface {
 	// (traversal/absolute rejected). A prefix pointing at nothing yields an
 	// empty slice, not an error.
 	List(ctx context.Context, prefix string) ([]string, error)
-}
-
-var (
-	defaultMu    sync.RWMutex
-	defaultStore Store
-	defaultSet   bool
-)
-
-// SetDefault installs the process-wide blob mirror. Channel plugins currently
-// create asset files from callbacks that have no dependency-injection path back
-// to server setup, so SaveAsset reads this one hook instead of threading a store
-// through every channel adapter. It is intentionally set-once in production.
-func SetDefault(store Store) error {
-	defaultMu.Lock()
-	defer defaultMu.Unlock()
-	if defaultSet {
-		return fmt.Errorf("blob default store already set")
-	}
-	defaultStore = store
-	defaultSet = true
-	return nil
-}
-
-// Default returns the process-wide blob mirror, or nil when none is configured.
-func Default() Store {
-	defaultMu.RLock()
-	defer defaultMu.RUnlock()
-	return defaultStore
-}
-
-// ResetDefaultForTest clears the process-wide hook for isolated tests.
-func ResetDefaultForTest() {
-	defaultMu.Lock()
-	defer defaultMu.Unlock()
-	defaultStore = nil
-	defaultSet = false
 }
 
 // KeyForPath returns the slash-separated key for abs relative to stellaHome.

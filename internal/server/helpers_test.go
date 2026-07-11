@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
@@ -35,6 +36,11 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 	}
 	recallyStore := recally.NewStore(db)
 	credFrontDoor, oauthAuthServer := NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
+	assetHome := t.TempDir()
+	assetStore, err := asset.NewStore(assetHome, nil, false, nil)
+	if err != nil {
+		t.Fatalf("asset.NewStore: %v", err)
+	}
 	return Deps{
 		Store:               store,
 		DB:                  db,
@@ -47,10 +53,11 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 		BaseURL:             baseURL,
 		Credentials:         connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL),
 		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, t.TempDir(), baseURL),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
+		Assets:              assetStore,
 		OIDC: OIDCDeps{
 			AuthSvc:     authSvc,
 			SessionMgr:  sessionMgr,

@@ -118,7 +118,7 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string) []ai.Conte
 				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s] (download failed)", fileName)})
 				continue
 			}
-			savedPath, err := agent.SaveAsset(assetsDir, fileName, data)
+			savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 			if err != nil {
 				logger().Warn("save file attachment failed", "error", err)
 				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s] (save failed)", fileName)})

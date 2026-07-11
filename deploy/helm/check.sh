@@ -84,6 +84,11 @@ assert_contains "image repo"                 "ghcr.io/cherryhq/stella"
 assert_contains "default tag is latest"      "ghcr.io/cherryhq/stella:latest"
 assert_contains "explicit bind all"          'value: "0.0.0.0"'
 assert_contains "explicit external db"       "STELLA_REQUIRE_EXTERNAL_DB"
+# Single replica keeps the local asset volume as the authority, so shared assets
+# are not required. (A multi-replica topology would render "1"; the chart pins
+# niCount to 1 today, so only the false case is renderable here.)
+assert_contains "shared assets env present"  "STELLA_REQUIRE_SHARED_ASSETS"
+assert_contains "shared assets off single"   'value: "0"'
 assert_contains "readiness probe timeout"    "timeoutSeconds: 3"
 assert_contains "seccomp runtime default"    "type: RuntimeDefault"
 assert_absent   "no plaintext secret env"    "AGE-SECRET-KEY"
