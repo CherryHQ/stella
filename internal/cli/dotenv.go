@@ -47,7 +47,11 @@ func LoadDotEnv() {
 		if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
 			v = v[1 : len(v)-1]
 		}
-		if os.Getenv(k) == "" {
+		// Presence, not emptiness, decides precedence: an OS/service-injected
+		// variable explicitly set to "" still wins over the .env file, matching
+		// "Existing OS/service-injected variables win" above. LookupEnv
+		// distinguishes unset from empty; Getenv cannot.
+		if _, ok := os.LookupEnv(k); !ok {
 			_ = os.Setenv(k, v)
 		}
 	}
