@@ -59,6 +59,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
   /api/channels/{id}:
     parameters:

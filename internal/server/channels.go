@@ -268,6 +268,13 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// POST is create-only: silently upserting would let a re-POST overwrite an
+	// existing channel's config and flip a deliberately disabled webhook back on.
+	if _, err := s.store.GetChannel(r.Context(), req.ID); err == nil {
+		writeError(w, http.StatusConflict, "channel already exists")
+		return
+	}
+
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON")
@@ -319,10 +326,15 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 	}
 
 	enabled := false
-	if req.Enabled != nil {
+	switch {
+	case req.Enabled != nil:
 		enabled = *req.Enabled
-	} else if hasExisting {
+	case hasExisting:
 		enabled = existing.Enabled
+	case channelType == pkgchannel.PlatformWebhook:
+		// PUT-created webhooks match POST semantics: no runtime to configure,
+		// so they go live on creation unless explicitly disabled.
+		enabled = true
 	}
 
 	return config.Channel{

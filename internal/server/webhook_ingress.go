@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -123,6 +124,18 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "empty request body")
 		return
 	}
+	// Parse the reply-mode override before anything irreversible: a malformed
+	// value must reject the request, not silently pick a mode (or worse,
+	// reject after the run already started).
+	wait := cfg.DefaultWait
+	if q := r.URL.Query().Get("wait"); q != "" {
+		v, perr := strconv.ParseBool(q)
+		if perr != nil {
+			writeError(w, http.StatusBadRequest, "invalid wait parameter: use true or false")
+			return
+		}
+		wait = v
+	}
 
 	// --- Acquire the agent service. ---
 	svc := s.poolManager.GetService(ch.AgentID)
@@ -173,10 +186,6 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	// buffered so the drainer never blocks on send after the caller stops waiting.
 	resCh := drainWebhookStream(stream)
 
-	wait := cfg.DefaultWait
-	if q := r.URL.Query().Get("wait"); q != "" {
-		wait = q == "true" || q == "1"
-	}
 	start := time.Now()
 
 	if !wait {
