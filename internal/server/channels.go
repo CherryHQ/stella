@@ -133,6 +133,14 @@ func buildPublicChannelViews(channels []config.Channel, enabledTypes map[string]
 		if !ch.Enabled || !enabledTypes[channelType] {
 			continue
 		}
+		// Webhooks are inbound triggers with no linkable identity; they never
+		// belong in the user-facing channel list (the link-code flow rejects
+		// them, and the list keys by type so duplicates would collide).
+		// Upgrade to a plugin capability flag when the next runtime-less
+		// channel type lands.
+		if channelType == pkgchannel.PlatformWebhook {
+			continue
+		}
 		agentName := ""
 		if ch.AgentID != "" {
 			var ok bool
