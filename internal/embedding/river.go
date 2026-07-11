@@ -34,8 +34,8 @@ const (
 )
 
 // errNoRiverClient guards the periodic registration against a missing
-// SetRiverClient call (a composition-root wiring bug, not a runtime condition).
-var errNoRiverClient = errors.New("embedding: StartBackfill before SetRiverClient")
+// BindRiverClient call (a composition-root wiring bug, not a runtime condition).
+var errNoRiverClient = errors.New("embedding: StartBackfill before BindRiverClient")
 
 // ErrDisabled is returned by resolve when the lane is turned off or unconfigured
 // (no API key). It is a control signal, not a failure: query and backfill paths
@@ -63,7 +63,7 @@ type SettingsProvider interface {
 // provider, it is config-driven: it reads Settings on each use and (re)builds its
 // chain + indexer when the configuration changes, so enabling/disabling the lane
 // or swapping model/key/dimension in the UI takes effect at runtime. It does NOT
-// own a River client; the composition root injects the shared one via SetRiverClient.
+// own a River client; the composition root injects the shared one via BindRiverClient.
 //
 // When the lane is disabled the query embedder reports "no space" (search stays
 // pure-BM25) and the backfill worker no-ops, so an unconfigured deployment behaves
@@ -78,9 +78,10 @@ type Service struct {
 	river *river.Client[pgx.Tx]
 
 	// mu guards the cached build so concurrent queries reuse one chain and a config
-	// change rebuilds it exactly once.
-	mu     sync.Mutex
-	cached *resolved
+	// change rebuilds it exactly once. It also guards the one-shot river bind.
+	mu      sync.Mutex
+	cached  *resolved
+	started bool
 }
 
 // resolved is the chain + indexer built for one configuration fingerprint, reused
@@ -103,7 +104,7 @@ type BootConfig struct {
 }
 
 // Boot constructs the always-present embedding lane. The backfill periodic is not
-// started; the composition root injects the shared River client (SetRiverClient)
+// started; the composition root injects the shared River client (BindRiverClient)
 // and starts it (StartBackfill).
 func Boot(cfg BootConfig) *Service {
 	logger := cfg.Logger
@@ -253,19 +254,40 @@ func (s *Service) RegisterRiverWorker(workers *river.Workers) {
 	river.AddWorker(workers, &backfillWorker{svc: s, log: s.logger.With("subcomponent", "river")})
 }
 
-// SetRiverClient injects the shared working River client the backfill periodic
+// BindRiverClient injects the shared working River client the backfill periodic
 // is registered against. Call after the client is built, before StartBackfill.
-func (s *Service) SetRiverClient(c *river.Client[pgx.Tx]) { s.river = c }
+// BindRiverClient binds the shared working River client before StartBackfill.
+// One-shot pre-start bind: rejects a nil client (missing), a second bind
+// (duplicate), and any bind after StartBackfill (late).
+func (s *Service) BindRiverClient(c *river.Client[pgx.Tx]) error {
+	if c == nil {
+		return errors.New("embedding: BindRiverClient requires a non-nil client")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started {
+		return errors.New("embedding: BindRiverClient after StartBackfill")
+	}
+	if s.river != nil {
+		return errors.New("embedding: river client already bound")
+	}
+	s.river = c
+	return nil
+}
 
 // StartBackfill registers the backfill as a single-leader River periodic job.
 // River enqueues a periodic only on the elected leader and ByState uniqueness
 // keeps at most one backfill in flight cluster-wide; RunOnStart kicks an initial
 // drain so a fresh deployment starts populating immediately. Requires
-// SetRiverClient first.
+// BindRiverClient first.
 func (s *Service) StartBackfill() (rivertype.PeriodicJobHandle, error) {
+	s.mu.Lock()
 	if s.river == nil {
+		s.mu.Unlock()
 		return 0, errNoRiverClient
 	}
+	s.started = true
+	s.mu.Unlock()
 	handle := s.river.PeriodicJobs().Add(river.NewPeriodicJob(
 		river.PeriodicInterval(s.interval),
 		func() (river.JobArgs, *river.InsertOpts) {

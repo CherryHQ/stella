@@ -9,6 +9,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -53,6 +54,17 @@ func NewService(
 		corsOrigin: corsOrigin,
 		log:        slog.With("component", "credentials"),
 	}
+}
+
+// NewServiceForPool creates a credentials service that owns the sqlc query set
+// for the connections tables, so callers pass only the pgx pool.
+func NewServiceForPool(
+	vaultSvc *vault.Service,
+	pool *pgxpool.Pool,
+	flowStore *oauth.FlowStore,
+	corsOrigin string,
+) *Service {
+	return NewService(vaultSvc, pkgdb.New(pool), flowStore, corsOrigin)
 }
 
 // SetRegistry wires the OAuth provider registry used for generic provider operations.

@@ -56,6 +56,17 @@ func TestToolOverrideStoreRoundTrip(t *testing.T) {
 		t.Fatalf("rows = %+v, want one memory user_agent override", rows)
 	}
 
+	// ToolOverrideStore.Fetch must expose the same row through the
+	// ToolOverrideFetcher signature.
+	var fetch ToolOverrideFetcher = NewToolOverrideStore(db).Fetch
+	fetched, err := fetch(ctx, user.ID, agentID)
+	if err != nil {
+		t.Fatalf("ToolOverrideStore.Fetch: %v", err)
+	}
+	if len(fetched) != 1 || fetched[0] != (ToolOverride{ToolName: "memory", Scope: ToolOverrideScopeUserAgent, Enabled: false}) {
+		t.Fatalf("fetched = %+v, want one disabled memory user_agent override", fetched)
+	}
+
 	if err := q.DeleteToolOverride(ctx, sqlc.DeleteToolOverrideParams{
 		ToolName: "memory", Scope: ToolOverrideScopeUserAgent,
 		UserID: pgnull.Text(user.ID), AgentID: pgnull.Text(agentID),

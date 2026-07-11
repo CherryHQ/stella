@@ -26,15 +26,14 @@ import (
 
 const sqlcImportPath = "github.com/CherryHQ/stella/pkg/db/sqlc"
 
-// cmdSQLCRefCounts is the exact count of sqlc.<Symbol> references per file today.
-// Every entry is existing debt to be relocated behind a service; counts may only
-// go down (pay off debt, then lower the number), never up.
-var cmdSQLCRefCounts = map[string]int{
-	"commands.go":       11,
-	"gateway.go":        2,
-	"setup_pool.go":     4,
-	"tool_overrides.go": 2,
-}
+// cmdSQLCRefCounts is empty: issue #708 Section B relocated every application
+// query and business fallback closure out of cmd/stellad into named
+// owning-domain adapters/services (the *ForPool constructors, agent.ProjectStore
+// / agent.ToolOverrideStore, workflow.Service.LatestRunState,
+// channel.NewDBGroupMemberLister). No composition-root file may reference the raw
+// sqlc query layer; a new sqlc.<Symbol> reference in any cmd/stellad file fails
+// here — route the query behind a service the root merely wires.
+var cmdSQLCRefCounts = map[string]int{}
 
 // localImportName returns the identifier a file uses for importPath, honoring an
 // explicit alias; "" if the file does not import it. This defeats trivial alias

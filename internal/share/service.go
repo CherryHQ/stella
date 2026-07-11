@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -70,6 +71,12 @@ type ListResult struct {
 
 func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, stellaHome, baseURL string) *Service {
 	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
+}
+
+// NewServiceForPool creates a share service that owns the sqlc query set for the
+// share tables, so callers pass only the pgx pool.
+func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, stellaHome, baseURL string) *Service {
+	return NewService(sqlc.New(pool), mem, store, stellaHome, baseURL)
 }
 
 func (s *Service) PublicURL(token string) string {

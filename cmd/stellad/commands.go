@@ -27,6 +27,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/observability"
@@ -41,7 +42,6 @@ import (
 	"github.com/CherryHQ/stella/internal/version"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -86,6 +86,7 @@ type setupResult struct {
 	schedulerSvc             *scheduler.Service
 	goalSvc                  *goal.Service
 	vaultSvc                 *vault.Service
+	mcpSvc                   *mcp.Service
 	credSvc                  *connections.Service
 	emailSvc                 *email.Service
 	shareSvc                 *sharepkg.Service
@@ -219,7 +220,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Memory:            memProvider,
 		Store:             store,
 		SkillStore:        skillStoreAdapter,
-		UsageCuratorStore: reflect.NewSQLUsageCuratorStore(sqlc.New(db)),
+		UsageCuratorStore: reflect.NewSQLUsageCuratorStoreForPool(db),
 		Notifier:          dispatcher,
 		StateStore:        pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
 		Workspace:         config.StellaHome(),
@@ -251,7 +252,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	var vaultSvc *vault.Service
 	if vaultKey := cfg.Vault.Key; vaultKey != "" {
 		var err error
-		vaultSvc, err = vault.NewService(sqlc.New(db), vaultKey)
+		vaultSvc, err = vault.NewServiceForPool(db, vaultKey)
 		if err != nil {
 			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
 			vaultSvc = nil
@@ -307,15 +308,16 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
-	workflowSvc := workflowpkg.New(db, sqlc.New(db), goalSvc.Goal)
-	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc, q: sqlc.New(db)})
+	workflowSvc := workflowpkg.New(db, goalSvc.Goal)
+	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc})
 
 	// Build the shared credentials/email/share services once, with the final
-	// resolved base URL — no localhost placeholder to mutate later. These same
-	// instances back both the agent tools (below) and the HTTP endpoints (via
-	// server.Deps), so there is one source of truth per capability.
-	credSvc := connections.NewService(vaultSvc, sqlc.New(db), oauth.NewFlowStore(), baseURL)
-	emailSvc := email.NewService(vaultSvc, sqlc.New(db))
+	// resolved base URL — no localhost placeholder to mutate later. Each domain
+	// owns its own sqlc query set (the *ForPool constructors), so the composition
+	// root passes only the pool. These same instances back both the agent tools
+	// (below) and the HTTP endpoints (via server.Deps).
+	credSvc := connections.NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), baseURL)
+	emailSvc := email.NewServiceForPool(vaultSvc, db)
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
 		if vaultSvc != nil {
@@ -324,7 +326,16 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	recallyStore := recally.NewStore(db)
 	recallySvc := recally.NewService(recallyStore, config.StellaHome())
-	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recallyStore, config.StellaHome(), baseURL)
+	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, config.StellaHome(), baseURL)
+
+	// MCP registration service: one instance shared by the HTTP API and the agent
+	// runtime. Built here (before StartAll) so its tool provider can be bound into
+	// the pool as a static capability rather than injected after agents start.
+	var mcpVault mcp.Vault
+	if vaultSvc != nil {
+		mcpVault = vaultSvc
+	}
+	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
 
 	serviceTools := []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
@@ -340,6 +351,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	builtinTools = append(builtinTools, serviceTools...)
 
+	// The agent domain owns project resolution/ensuring and tool-override
+	// fetching; the composition root passes the pool, not raw queries.
+	projectStore := agent.NewProjectStore(db, store)
+
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithBuiltinTools(builtinTools),
@@ -353,32 +368,38 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			return phost.BeforeRun(ctx, build)
 		}),
 		agent.WithToolLifecyclePM(toolLifecycle),
-		agent.WithToolOverrideFetcher(toolOverrideFetcher(sqlc.New(db))),
+		agent.WithToolOverrideFetcher(agent.NewToolOverrideStore(db).Fetch),
 		agent.WithSkillStore(skillStoreAdapter),
-		agent.WithProjectResolver(func(ctx context.Context, projectID, userID string) (string, error) {
-			p, err := sqlc.New(db).GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
-			if err != nil {
-				return "", err
-			}
-			return p.BaseDir, nil
-		}),
-		agent.WithProjectEnsurerPM(buildProjectEnsurer(db, store)),
+		agent.WithProjectResolver(projectStore.Resolve),
+		agent.WithProjectEnsurerPM(projectStore.Ensure),
 	)
+
+	// Bind the static Vault/MCP/OAuth capabilities into the pool BEFORE StartAll,
+	// as one-shot pre-start binds. Binding them up front means agents are built
+	// once, with the full capability set, rather than rebuilt after a late setter.
+	if vaultSvc != nil {
+		if err := poolMgr.BindVaultEnvLoader(vaultSvc); err != nil {
+			return nil, fmt.Errorf("bind vault env loader: %w", err)
+		}
+	}
+	if err := poolMgr.BindMCPToolProvider(mcp.NewToolProvider(mcpSvc)); err != nil {
+		return nil, fmt.Errorf("bind mcp tool provider: %w", err)
+	}
+	if ps.oauthRegistry != nil {
+		if err := poolMgr.BindOAuthRegistry(ps.oauthRegistry); err != nil {
+			return nil, fmt.Errorf("bind oauth registry: %w", err)
+		}
+	}
 
 	if err := poolMgr.StartAll(parent); err != nil {
 		return nil, fmt.Errorf("start pool manager: %w", err)
 	}
 
-	// Now that the pool manager exists, finish wiring the shared credentials
-	// service: its runner invalidator (so token refresh propagates to running
-	// pools) and, when configured, the OAuth provider registry on both the
-	// credentials service and the pool. This completes the single shared instance
-	// before it is handed to the admin server via Deps — the server itself
-	// performs no such mutation.
+	// The runner invalidator lets credential/token refresh propagate to running
+	// pools. It targets the pool but is not a pool capability, so it is wired
+	// after StartAll; the shared credSvc is then fully configured before it is
+	// handed to the admin server via Deps.
 	credSvc.SetInvalidator(poolMgr)
-	if ps.oauthRegistry != nil {
-		poolMgr.SetOAuthRegistry(ps.oauthRegistry)
-	}
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
@@ -386,6 +407,15 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, cfg.Lifecycle.RiverSoftStopTimeout)
 	if err != nil {
 		return nil, err
+	}
+
+	// Seal the plugin host: all static plugin registrations and capability
+	// bindings are complete. This validates them once and refuses any late
+	// static registration; the dynamic desired-state surface (ApplyChannel /
+	// RegisterManifestPlugins, used by the background reconcile below and by
+	// runtime admin edits) stays available.
+	if err := phost.Seal(); err != nil {
+		return nil, fmt.Errorf("seal plugin host: %w", err)
 	}
 
 	backgroundTasks := &sync.WaitGroup{}
@@ -407,6 +437,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		schedulerSvc:             schedulerSvc,
 		goalSvc:                  goalSvc,
 		vaultSvc:                 vaultSvc,
+		mcpSvc:                   mcpSvc,
 		credSvc:                  credSvc,
 		emailSvc:                 emailSvc,
 		shareSvc:                 shareSvc,
@@ -451,7 +482,7 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host) (*scheduler.Servic
 	// External-river mode: the scheduler does not build its own River client. The
 	// composition root (buildSharedRiverClient) assembles the single process-wide
 	// working client from both the scheduler and goal queues and injects it back
-	// via SetRiverClient, so there is exactly one electable River client per
+	// via BindRiverClient, so there is exactly one electable River client per
 	// database (see db.NewWorkingRiverClient).
 	svc, err := scheduler.New(db, scheduler.WithExternalRiver())
 	if err != nil {
@@ -493,17 +524,26 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	if err != nil {
 		return nil, fmt.Errorf("build shared river client: %w", err)
 	}
-	schedulerSvc.SetRiverClient(client)
-	goalSvc.SetRiverClient(client)
+	// One-shot pre-start binds: each subsystem rejects a nil/duplicate/late bind.
+	if err := schedulerSvc.BindRiverClient(client); err != nil {
+		return nil, err
+	}
+	if err := goalSvc.BindRiverClient(client); err != nil {
+		return nil, err
+	}
 	if embeddingSvc != nil {
-		embeddingSvc.SetRiverClient(client)
+		if err := embeddingSvc.BindRiverClient(client); err != nil {
+			return nil, err
+		}
 	}
 	return client, nil
 }
 
+// schedulerWorkflowAdapter bridges the scheduler's WorkflowRunner port to the
+// workflow service. It holds no queries of its own — every read goes through the
+// workflow domain (svc), so the composition root carries no application SQL.
 type schedulerWorkflowAdapter struct {
 	svc *workflowpkg.Service
-	q   *sqlc.Queries
 }
 
 func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context, req scheduler.WorkflowValidateRequest) (scheduler.ScheduledWorkflow, error) {
@@ -515,23 +555,17 @@ func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context,
 }
 
 func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req scheduler.WorkflowLatestRunRequest) (scheduler.WorkflowRunState, error) {
-	run, err := a.q.GetLatestWorkflowRun(ctx, req.WorkflowID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return scheduler.WorkflowRunState{}, nil
-	}
+	rs, err := a.svc.LatestRunState(ctx, req.WorkflowID)
 	if err != nil {
 		return scheduler.WorkflowRunState{}, err
 	}
-	state := scheduler.WorkflowRunState{Found: true, Status: run.Status, IdempotencyKey: run.IdempotencyKey}
-	if run.RootGoalID.Valid {
-		state.RootGoalID = run.RootGoalID.String
-		root, err := a.q.GetGoal(ctx, run.RootGoalID.String)
-		if err != nil {
-			return scheduler.WorkflowRunState{}, err
-		}
-		state.RootGoalTerminal = goal.IsTerminalLifecycle(root.Lifecycle)
-	}
-	return state, nil
+	return scheduler.WorkflowRunState{
+		Found:            rs.Found,
+		Status:           rs.Status,
+		IdempotencyKey:   rs.IdempotencyKey,
+		RootGoalID:       rs.RootGoalID,
+		RootGoalTerminal: rs.RootGoalTerminal,
+	}, nil
 }
 
 func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {

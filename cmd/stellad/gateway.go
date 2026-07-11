@@ -31,13 +31,11 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
-	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
@@ -235,26 +233,17 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// surface itself.
 	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(s.db, slog.With("component", "admin"))
 
-	// Vault-dependent capabilities. mcpVault is nil when the vault is
-	// unavailable; MCP bearer auth is then rejected. The pool-side env loader is
-	// a runtime bind on the pool, not an admin-server dependency.
+	// Vault recipient for the admin server (new-user age keygen) and the channel
+	// coordinator. The MCP service and the pool-side vault env loader / MCP tool
+	// provider were bound in setup, before StartAll.
 	var coordOpts []channel.CoordinatorOption
-	var mcpVault mcp.Vault
 	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
 	if s.vaultSvc != nil {
-		mcpVault = s.vaultSvc
 		vaultRecipient = s.vaultSvc.MasterRecipient()
-		s.poolManager.SetVaultEnvLoader(gctx, s.vaultSvc)
 		coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultRecipient))
 		coordOpts = append(coordOpts, channel.WithVaultService(s.vaultSvc))
 	}
-
-	// One MCP registration service shared by the HTTP API (add/list/remove) and
-	// the agent runtime (tool exposure). Servers using auth_type=none work even
-	// without the vault; bearer auth requires it.
-	mcpSvc := mcp.NewService(sqlc.New(s.db), mcpVault)
-	s.poolManager.SetMCPToolProvider(gctx, mcp.NewToolProvider(mcpSvc))
 
 	// Login authentication (external OIDC/OAuth providers and local password
 	// auth). The identity stores it produces back the auth handlers.
@@ -293,32 +282,14 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordOpts = append(coordOpts, channel.WithArbiter(channel.NewArbiter(channel.ArbiterConfig{
 		MaxRepliesPerTrigger: 1,
 	})))
-	coordOpts = append(coordOpts, channel.WithGroupMemberLister(
-		channel.FuncGroupMemberLister(func(ctx context.Context, groupID string) ([]channel.GroupMember, error) {
-			rows, err := sqlc.New(s.db).ListGroupMembers(ctx, groupID)
-			if err != nil {
-				return nil, err
-			}
-			members := make([]channel.GroupMember, len(rows))
-			for i, r := range rows {
-				members[i] = channel.GroupMember{AgentID: r.AgentID, ReplyChannelID: r.ReplyChannelID}
-			}
-			return members, nil
-		}),
-	))
+	coordOpts = append(coordOpts, channel.WithGroupMemberLister(channel.NewDBGroupMemberLister(s.db)))
 
 	// The channel domain builds the coordinator and its durable group dispatcher
-	// together and closes the coordinator<->dispatcher cycle here; the HTTP
-	// server receives only the narrow group-dispatch port (Deps.GroupDispatcher).
-	coordinator := channel.NewCoordinator(
-		s.poolManager,
-		s.store,
-		listFn,
-		switchFn,
-		coordOpts...,
-	)
-	groupDispatcher := channel.NewGroupDispatcher(s.db, coordinator, publisherRegistry)
-	coordinator.SetGroupDispatcher(groupDispatcher)
+	// together and closes the coordinator<->dispatcher cycle; the HTTP server
+	// receives only the narrow group-dispatch port (Deps.GroupDispatcher).
+	coordination := channel.NewCoordination(s.db, s.poolManager, s.store, listFn, switchFn, coordOpts...)
+	coordinator := coordination.Coordinator
+	groupDispatcher := coordination.GroupDispatcher
 
 	// Assemble the immutable, validated admin-server dependency set and construct
 	// the server exactly once. Every shared instance above is passed in; the
@@ -345,7 +316,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		GroupDispatcher:     groupDispatcher,
 		Vault:               s.vaultSvc,
 		VaultRecipient:      vaultRecipient,
-		MCP:                 mcpSvc,
+		MCP:                 s.mcpSvc,
 		Scheduler:           s.schedulerSvc,
 		Goal:                s.goalSvc,
 		Workflow:            s.workflowSvc,
@@ -438,7 +409,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	}
 
 	// Goal execution substrate (River Phase 2a + 2b). The dispatcher enqueues
-	// claimed attempts onto the shared client (injected via SetRiverClient); its
+	// claimed attempts onto the shared client (injected via BindRiverClient); its
 	// convergence tick runs as a single-leader River periodic job (StartDispatchTick)
 	// rather than a per-node in-process ticker, so the cluster runs ONE convergence
 	// loop instead of every node scanning redundantly.

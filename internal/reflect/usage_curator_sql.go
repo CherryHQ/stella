@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -13,6 +15,12 @@ type sqlUsageCuratorStore struct {
 
 func NewSQLUsageCuratorStore(q *sqlc.Queries) UsageCuratorStore {
 	return sqlUsageCuratorStore{q: q}
+}
+
+// NewSQLUsageCuratorStoreForPool builds a UsageCuratorStore backed by the given
+// connection pool, owning construction of its sqlc query set.
+func NewSQLUsageCuratorStoreForPool(pool *pgxpool.Pool) UsageCuratorStore {
+	return NewSQLUsageCuratorStore(sqlc.New(pool))
 }
 
 func (s sqlUsageCuratorStore) ListReflectUsagePairs(ctx context.Context) ([]usageCuratorPair, error) {

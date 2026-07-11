@@ -2,6 +2,7 @@ package pluginhost
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -17,11 +18,17 @@ import (
 type Option func(*Host)
 
 type Host struct {
-	store              config.Store
-	log                *slog.Logger
-	config             *configService
-	runtimes           *RuntimeHost
-	mu                 sync.RWMutex
+	store    config.Store
+	log      *slog.Logger
+	config   *configService
+	runtimes *RuntimeHost
+	mu       sync.RWMutex
+	// sealed is set by Seal() after all static registrations and capability
+	// bindings are complete. Once sealed, the static composition surface
+	// (LoadCatalog and the Set* capability binders) refuses further changes,
+	// while the dynamic desired-state surface (ApplyPlugin/ApplyChannel/
+	// SetEnabled/Stop/RegisterManifestPlugins) stays available.
+	sealed             bool
 	pluginIDs          map[string]struct{}
 	manifestEnabledIDs map[string]struct{}
 	manifestOwnedIDs   map[string]struct{}
@@ -97,9 +104,44 @@ func (h *Host) RegisterPluginID(id string) {
 	h.pluginIDs[id] = struct{}{}
 }
 
+// Seal validates every static registration and capability binding, then marks
+// the host sealed so no further static composition can occur. Missing capability
+// registrations fail here; duplicate static registrations already fail eagerly
+// at registration time (registerUnique). After Seal, LoadCatalog and the Set*
+// capability binders refuse late changes, while the dynamic desired-state
+// surface (ApplyPlugin/ApplyChannel/SetEnabled/RegisterManifestPlugins/Stop)
+// remains available. Seal is one-shot.
+func (h *Host) Seal() error {
+	if err := h.ValidateRegistrations(); err != nil {
+		return err
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.sealed {
+		return errors.New("pluginhost: already sealed")
+	}
+	h.sealed = true
+	return nil
+}
+
+// requireUnsealedLocked panics if the host is sealed. Callers must already hold
+// h.mu. A late static registration is a composition bug, mirroring the eager
+// panic registerUnique raises for duplicates.
+func (h *Host) requireUnsealedLocked(op string) {
+	if h.sealed {
+		panic("pluginhost: " + op + " after Seal (static registration is sealed)")
+	}
+}
+
 func (h *Host) LoadCatalog(catalog *pkgplugins.Catalog) error {
 	if catalog == nil {
 		return nil
+	}
+	h.mu.RLock()
+	sealed := h.sealed
+	h.mu.RUnlock()
+	if sealed {
+		return errors.New("pluginhost: LoadCatalog after Seal")
 	}
 	for _, id := range catalog.Names() {
 		plugin, ok := catalog.Get(id)

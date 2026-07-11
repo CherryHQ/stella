@@ -130,7 +130,7 @@ func RegisterRiverWorker(workers *river.Workers, svc *Service) {
 // newSchedulerRiverClient builds a self-contained River client that both works
 // the scheduler queue and hosts its periodic jobs. Used when the Service owns its
 // River client (the default / test path); production injects a shared client via
-// SetRiverClient instead (WithExternalRiver). s.river is assigned by the caller.
+// BindRiverClient instead (WithExternalRiver). s.river is assigned by the caller.
 func newSchedulerRiverClient(s *Service, pool *pgxpool.Pool) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	RegisterRiverWorker(workers, s)

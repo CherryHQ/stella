@@ -130,7 +130,7 @@ type Service struct {
 type Option func(*Service)
 
 // WithExternalRiver constructs the Service WITHOUT its own River client: the
-// caller injects the single process-wide working client via SetRiverClient
+// caller injects the single process-wide working client via BindRiverClient
 // before Start and owns its Start/Stop lifecycle. This is how the composition
 // root keeps exactly one electable River client per database while letting both
 // the scheduler and the goal subsystem work and enqueue jobs (see
@@ -165,12 +165,27 @@ func New(db *pgxpool.Pool, opts ...Option) (*Service, error) {
 	return s, nil
 }
 
-// SetRiverClient injects the shared working River client (external-river mode).
+// BindRiverClient injects the shared working River client (external-river mode).
 // Call after New(db, WithExternalRiver()) and before Start. The Service uses it
 // to enqueue and register periodic jobs but does NOT start or stop it — the
 // composition root owns the shared client's lifecycle.
-func (s *Service) SetRiverClient(c *river.Client[pgx.Tx]) {
+// BindRiverClient binds the shared working River client before start
+// (external-river mode). One-shot pre-start bind: rejects a nil client
+// (missing), a second bind (duplicate), and any bind after start (late).
+func (s *Service) BindRiverClient(c *river.Client[pgx.Tx]) error {
+	if c == nil {
+		return errors.New("scheduler: BindRiverClient requires a non-nil client")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started {
+		return errors.New("scheduler: BindRiverClient after start")
+	}
+	if s.river != nil {
+		return errors.New("scheduler: river client already bound")
+	}
 	s.river = c
+	return nil
 }
 
 // NewFromPath creates a scheduler service that opens its own PostgreSQL
@@ -231,11 +246,11 @@ func (s *Service) StartEphemeral(ctx context.Context) error {
 
 func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 	// External-river mode: the composition root must inject the shared working
-	// client via SetRiverClient before start. Without it, scheduleJob and
+	// client via BindRiverClient before start. Without it, scheduleJob and
 	// s.river.Start nil-deref. Fail fast with a clear error instead of panicking,
 	// mirroring goal.StartDispatchTick's guard.
 	if s.externalRiver && s.river == nil {
-		return fmt.Errorf("scheduler: external river mode requires SetRiverClient before start")
+		return fmt.Errorf("scheduler: external river mode requires BindRiverClient before start")
 	}
 
 	var jobs []Job

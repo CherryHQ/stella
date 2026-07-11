@@ -18,8 +18,7 @@ import (
 func setupWorkflowEnv(t *testing.T) *testEnv {
 	t.Helper()
 	env := setupAdmin(t)
-	q := sqlc.New(env.db)
-	env.rebuild(t, func(d *server.Deps) { d.Workflow = workflowpkg.New(env.db, q, nil) })
+	env.rebuild(t, func(d *server.Deps) { d.Workflow = workflowpkg.New(env.db, nil) })
 	return env
 }
 
