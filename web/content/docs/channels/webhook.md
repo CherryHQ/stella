@@ -103,6 +103,7 @@ In synchronous mode the caller waits up to a fixed timeout (60 seconds) for the 
 
 - **Payload size:** up to 256 KiB per request.
 - **Rate limit:** each webhook allows a short burst and then a steady trickle; sustained flooding returns `429`.
+- **Concurrency:** at most 10 runs of one webhook may be in flight at once; extra triggers return `429` until a run finishes.
 
 ## Troubleshooting
 

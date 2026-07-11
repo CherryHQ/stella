@@ -54,6 +54,12 @@ const (
 
 	WebhookDefaultWaitTimeoutSeconds   = 60
 	WebhookDefaultMaxRunTimeoutSeconds = 300
+
+	// Hard ceilings on the admin-configured timeouts: the wait timeout holds
+	// an HTTP connection open, the run timeout holds an in-flight run slot.
+	// Raise if a legitimate longer-running webhook workload appears.
+	WebhookWaitTimeoutCeilingSeconds = 600
+	WebhookRunTimeoutCeilingSeconds  = 3600
 )
 
 // WebhookConfig is the persisted config for the inbound webhook channel.

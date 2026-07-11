@@ -103,6 +103,7 @@ curl -X POST 'https://your-host/webhooks/deploy-notify?wait=true' \
 
 - **负载大小：** 每次请求最多 256 KiB。
 - **速率限制：** 每个 webhook 允许短时突发，之后稳定放行；持续洪泛会返回 `429`。
+- **并发上限：** 单个 webhook 同时最多 10 次运行在途；超出的触发会返回 `429`，直到有运行结束。
 
 ## 故障排查
 

@@ -142,8 +142,23 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// --- Cap concurrent runs: a run can outlive this request by minutes, so
+	// the acceptance-rate bucket alone cannot bound resource usage. ---
+	if s.webhookLimiter != nil && !s.webhookLimiter.beginRun(id) {
+		writeError(w, http.StatusTooManyRequests, "too many concurrent runs for this webhook")
+		return
+	}
+
 	// --- Run the agent on a detached, bounded context (never the request ctx). ---
 	runCtx, cancel := context.WithTimeout(s.runtimeCtx, time.Duration(cfg.EffectiveMaxRunTimeout())*time.Second)
+	// done releases everything tied to the run's lifetime; every path that
+	// consumes the drain result calls it exactly once.
+	done := func() {
+		cancel()
+		if s.webhookLimiter != nil {
+			s.webhookLimiter.endRun(id)
+		}
+	}
 	stream := svc.Chat(runCtx, agent.ChatRequest{
 		SessionID: info.ID,
 		UserID:    principal.UserID,
@@ -167,7 +182,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		// (persistent session with a turn already running) becomes a 429
 		// instead of a 202 for a message that was never processed.
 		if res, ok := peekWebhookResult(resCh, webhookBusyPeekWindow); ok {
-			cancel()
+			done()
 			if errors.Is(res.err, agenterr.ErrSessionBusy) {
 				s.logWebhook(id, principal.UserID, ch.AgentID, "async", info.ID, "busy", start, res.err)
 				writeWebhookBusy(w, info.ID)
@@ -178,7 +193,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 			s.logWebhook(id, principal.UserID, ch.AgentID, "async", info.ID, webhookRunStatus(res.err), start, res.err)
 		} else {
 			s.logWebhook(id, principal.UserID, ch.AgentID, "async", info.ID, "accepted", start, nil)
-			s.finishWebhookRun(id, principal.UserID, ch.AgentID, "async", info.ID, start, resCh, cancel)
+			s.finishWebhookRun(id, principal.UserID, ch.AgentID, "async", info.ID, start, resCh, done)
 		}
 		writeData(w, http.StatusAccepted, map[string]any{"session_id": info.ID})
 		return
@@ -187,7 +202,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	// Synchronous: wait up to wait_timeout for the reply.
 	select {
 	case res := <-resCh:
-		cancel()
+		done()
 		if res.err != nil {
 			if errors.Is(res.err, agenterr.ErrSessionBusy) {
 				s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "busy", start, res.err)
@@ -204,18 +219,19 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		// Stop waiting, but the drainer keeps consuming the stream to
 		// completion; the terminal status lands in the log.
 		s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "timeout", start, nil)
-		s.finishWebhookRun(id, principal.UserID, ch.AgentID, "sync", info.ID, start, resCh, cancel)
+		s.finishWebhookRun(id, principal.UserID, ch.AgentID, "sync", info.ID, start, resCh, done)
 		writeErrorDetails(w, http.StatusGatewayTimeout, "timed out waiting for agent reply", map[string]any{"session_id": info.ID})
 	}
 }
 
 // finishWebhookRun consumes the run result in the background after the HTTP
-// response has been written, releases the run context, and emits the terminal
-// audit record — the log line is the only place the final outcome is visible.
-func (s *Server) finishWebhookRun(webhookID, userID, agentID, mode, sessionID string, start time.Time, resCh <-chan webhookResult, cancel context.CancelFunc) {
+// response has been written, releases the run's resources via done, and emits
+// the terminal audit record — the log line is the only place the final
+// outcome is visible.
+func (s *Server) finishWebhookRun(webhookID, userID, agentID, mode, sessionID string, start time.Time, resCh <-chan webhookResult, done func()) {
 	go func() {
 		res := <-resCh
-		cancel()
+		done()
 		s.logWebhook(webhookID, userID, agentID, mode, sessionID, webhookRunStatus(res.err), start, res.err)
 	}()
 }

@@ -6,17 +6,26 @@ import (
 	"time"
 )
 
-// webhookLimiter is a per-webhook token-bucket rate limiter. Unlike the login
-// RateLimiter (which counts *failed* attempts to slow brute force), this
-// throttles *accepted* webhook calls so a leaked PAT cannot saturate agent
-// concurrency. It is in-memory and per-process: with multiple replicas each pod
-// enforces its own budget (documented limitation, acceptable for a rate cap).
+// defaultWebhookMaxInflight caps concurrent runs per webhook. A run can
+// outlive its request by minutes (up to max_run_timeout), so an acceptance
+// rate alone would let a leaked PAT stack up hundreds of background runs.
+// Ceiling: raise (or make configurable) if a legit fan-out workload appears.
+const defaultWebhookMaxInflight = 10
+
+// webhookLimiter throttles webhook ingress per instance on two axes: a token
+// bucket caps the acceptance rate, and an in-flight counter caps concurrent
+// runs. Unlike the login RateLimiter (which counts *failed* attempts to slow
+// brute force), this throttles *accepted* webhook calls. It is in-memory and
+// per-process: with multiple replicas each pod enforces its own budget
+// (documented limitation, acceptable for a rate cap).
 type webhookLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*tokenBucket
-	rate    float64 // tokens refilled per second
-	burst   float64 // bucket capacity
-	now     func() time.Time
+	mu          sync.Mutex
+	buckets     map[string]*tokenBucket
+	inflight    map[string]int
+	rate        float64 // tokens refilled per second
+	burst       float64 // bucket capacity
+	maxInflight int
+	now         func() time.Time
 }
 
 type tokenBucket struct {
@@ -26,10 +35,12 @@ type tokenBucket struct {
 
 func newWebhookLimiter(ratePerSec, burst float64) *webhookLimiter {
 	return &webhookLimiter{
-		buckets: make(map[string]*tokenBucket),
-		rate:    ratePerSec,
-		burst:   burst,
-		now:     time.Now,
+		buckets:     make(map[string]*tokenBucket),
+		inflight:    make(map[string]int),
+		rate:        ratePerSec,
+		burst:       burst,
+		maxInflight: defaultWebhookMaxInflight,
+		now:         time.Now,
 	}
 }
 
@@ -54,4 +65,27 @@ func (l *webhookLimiter) allow(key string) bool {
 	}
 	b.tokens--
 	return true
+}
+
+// beginRun reserves an in-flight run slot for key. The caller must pair a
+// successful reservation with exactly one endRun once the run terminates.
+func (l *webhookLimiter) beginRun(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.inflight[key] >= l.maxInflight {
+		return false
+	}
+	l.inflight[key]++
+	return true
+}
+
+// endRun releases an in-flight run slot for key.
+func (l *webhookLimiter) endRun(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.inflight[key] > 1 {
+		l.inflight[key]--
+		return
+	}
+	delete(l.inflight, key)
 }

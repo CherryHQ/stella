@@ -14,6 +14,8 @@ func TestValidate(t *testing.T) {
 		{"bad session_mode", map[string]any{"session_mode": "weird"}, true},
 		{"negative wait", map[string]any{"wait_timeout_seconds": -1}, true},
 		{"negative max run", map[string]any{"max_run_timeout_seconds": -5}, true},
+		{"wait over ceiling", map[string]any{"wait_timeout_seconds": 601}, true},
+		{"max run over ceiling", map[string]any{"max_run_timeout_seconds": 3601}, true},
 		{"valid full", map[string]any{
 			"default_wait":            true,
 			"wait_timeout_seconds":    30,

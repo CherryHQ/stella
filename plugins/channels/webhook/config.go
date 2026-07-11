@@ -18,11 +18,11 @@ func validateConfig(cfg pkgchannel.WebhookConfig) string {
 	default:
 		return fmt.Sprintf("webhook: invalid session_mode %q (want ephemeral or persistent)", cfg.SessionMode)
 	}
-	if cfg.WaitTimeoutSeconds < 0 {
-		return "webhook: wait_timeout_seconds must be >= 0"
+	if cfg.WaitTimeoutSeconds < 0 || cfg.WaitTimeoutSeconds > pkgchannel.WebhookWaitTimeoutCeilingSeconds {
+		return fmt.Sprintf("webhook: wait_timeout_seconds must be between 0 and %d", pkgchannel.WebhookWaitTimeoutCeilingSeconds)
 	}
-	if cfg.MaxRunTimeoutSeconds < 0 {
-		return "webhook: max_run_timeout_seconds must be >= 0"
+	if cfg.MaxRunTimeoutSeconds < 0 || cfg.MaxRunTimeoutSeconds > pkgchannel.WebhookRunTimeoutCeilingSeconds {
+		return fmt.Sprintf("webhook: max_run_timeout_seconds must be between 0 and %d", pkgchannel.WebhookRunTimeoutCeilingSeconds)
 	}
 	return ""
 }

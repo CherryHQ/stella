@@ -59,11 +59,13 @@ func configSchema() map[string]any {
 			"wait_timeout_seconds": map[string]any{
 				"type":        "integer",
 				"minimum":     0,
+				"maximum":     pkgchannel.WebhookWaitTimeoutCeilingSeconds,
 				"description": "How long a synchronous caller waits before a 504 (the run continues in the background). Default 60.",
 			},
 			"max_run_timeout_seconds": map[string]any{
 				"type":        "integer",
 				"minimum":     0,
+				"maximum":     pkgchannel.WebhookRunTimeoutCeilingSeconds,
 				"description": "Hard ceiling on the agent run. Default 300.",
 			},
 			"session_mode": map[string]any{
