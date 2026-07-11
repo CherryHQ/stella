@@ -59,7 +59,11 @@
           "enum": ["", "local", "none"],
           "description": "docker is intentionally unsupported by this chart."
         },
-        "allowUnsafeHostExecution": { "type": "boolean" }
+        "allowUnsafeHostExecution": { "type": "boolean" },
+        "seccompProfile": {
+          "type": "string",
+          "enum": ["RuntimeDefault", "Unconfined"]
+        }
       }
     },
     "shutdown": {

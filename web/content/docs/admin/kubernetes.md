@@ -104,6 +104,7 @@ install with `-f values.yaml`.
 | `secrets.keys.databaseURL`               | `STELLA_DATABASE_URL`           | Key in the Secret holding the DSN.                                 |
 | `sandbox.backend`                        | `""`                            | **Required.** `local` or `none` (see [Sandbox](#sandbox-backend)). |
 | `sandbox.allowUnsafeHostExecution`       | `false`                         | Must be `true` when `backend=none`.                                |
+| `sandbox.seccompProfile`                 | `RuntimeDefault`                | Pod seccomp profile. `Unconfined` if `local` needs it.             |
 | `shutdown.preStopSeconds`                | `10`                            | preStop sleep, for endpoint propagation.                           |
 | `shutdown.httpSeconds`                   | `60`                            | `STELLA_HTTP_SHUTDOWN_TIMEOUT`.                                    |
 | `shutdown.riverSoftStopSeconds`          | `120`                           | `STELLA_RIVER_SOFT_STOP_TIMEOUT`.                                  |
@@ -157,10 +158,13 @@ mounted Docker socket).
   user, PID, and mount namespaces with the Stella process's environment scrubbed, so
   they cannot read its secrets. **Experimental on Kubernetes:** it depends on the
   cluster allowing _unprivileged user namespaces_ (bubblewrap calls `unshare(2)`).
-  The chart adds no privileged securityContext and mounts no Docker socket. If tools
-  fail with `bwrap:` / `unshare` / "Operation not permitted" errors, reconfigure the
-  cluster/node to permit unprivileged user namespaces and an unrestricted seccomp
-  profile — do not reach for `none` to work around it on a multi-tenant deployment.
+  The chart adds no privileged securityContext and mounts no Docker socket, and
+  defaults the pod's seccomp profile to `RuntimeDefault`. If tools fail with `bwrap:`
+  / `unshare` / "Operation not permitted" errors, first set
+  `sandbox.seccompProfile=Unconfined` (some clusters' default profile blocks
+  bubblewrap's namespace syscalls); if that is not enough, reconfigure the
+  cluster/node to permit unprivileged user namespaces — do not reach for `none` to
+  work around it on a multi-tenant deployment.
 - **`none`** — no isolation. `none` does not disable agent tools; it runs them
   directly inside the Stella pod as the same user and in the same process namespace.
 
@@ -170,7 +174,8 @@ mounted Docker socket).
   > secrets and tokens — and `STELLA_DATABASE_URL`. `secretKeyRef` and the `extraEnv`
   > guard do not protect against this. Only choose `none` when every user who can
   > drive an agent is fully trusted (e.g. a single-operator install), never for a
-  > multi-tenant or public deployment.
+  > multi-tenant or public deployment. Hardening the `none` backend itself is
+  > tracked in [#705](https://github.com/CherryHQ/stella/issues/705).
 
   Because of that, `none` also requires `sandbox.allowUnsafeHostExecution=true` to
   render. The chart still drops all Linux capabilities and disallows privilege

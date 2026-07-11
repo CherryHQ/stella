@@ -96,6 +96,7 @@ kubectl -n stella port-forward svc/stella 25678:25678
 | `secrets.keys.databaseURL`               | `STELLA_DATABASE_URL`           | Secret 中存 DSN 的键名。                                      |
 | `sandbox.backend`                        | `""`                            | **必填。** `local` 或 `none`（见 [沙箱](#sandbox-backend)）。 |
 | `sandbox.allowUnsafeHostExecution`       | `false`                         | `backend=none` 时必须为 `true`。                              |
+| `sandbox.seccompProfile`                 | `RuntimeDefault`                | Pod seccomp profile。`local` 需要时设 `Unconfined`。          |
 | `shutdown.preStopSeconds`                | `10`                            | preStop sleep，等待 endpoint 摘除传播。                       |
 | `shutdown.httpSeconds`                   | `60`                            | `STELLA_HTTP_SHUTDOWN_TIMEOUT`。                              |
 | `shutdown.riverSoftStopSeconds`          | `120`                           | `STELLA_RIVER_SOFT_STOP_TIMEOUT`。                            |
@@ -145,9 +146,11 @@ socket）。
 - **`local`**（推荐）—— bubblewrap 隔离。工具进程运行在自己独立的 user、PID、mount
   namespace 里，且 Stella 进程的环境变量被擦除，因此读不到它的密钥。**在 Kubernetes
   上属实验性：** 依赖集群允许 _非特权 user namespace_（bubblewrap 会调用
-  `unshare(2)`）。chart 不加任何特权 securityContext，也不挂 Docker socket。若工具报
-  `bwrap:` / `unshare` / “Operation not permitted” 错误，请把集群/节点改成允许非特权
-  user namespace 和不受限的 seccomp profile —— 在多租户部署上不要用切到 `none` 来绕过。
+  `unshare(2)`）。chart 不加任何特权 securityContext，也不挂 Docker socket，并把 pod
+  的 seccomp profile 默认设为 `RuntimeDefault`。若工具报 `bwrap:` / `unshare` /
+  “Operation not permitted” 错误，先设 `sandbox.seccompProfile=Unconfined`（某些集群
+  的默认 profile 会拦掉 bubblewrap 的 namespace 系统调用）；若还不够，再把集群/节点改成
+  允许非特权 user namespace —— 在多租户部署上不要用切到 `none` 来绕过。
 - **`none`** —— 无隔离。`none` 不会禁用 agent 工具；它让工具以同一用户、同一进程
   namespace 直接在 Stella pod 内运行。
 
@@ -155,7 +158,8 @@ socket）。
   > 进程的环境变量（如 `/proc/1/environ`），拿到 `STELLA_VAULT_KEY`——解密**每一个
   > 租户**密钥与 token 的主密钥——以及 `STELLA_DATABASE_URL`。`secretKeyRef` 和
   > `extraEnv` 防护都挡不住这条路径。只有当每个能驱动 agent 的用户都完全可信时
-  > （例如单运维者的私有部署）才用 `none`，绝不要用于多租户或公开部署。
+  > （例如单运维者的私有部署）才用 `none`，绝不要用于多租户或公开部署。加固 `none`
+  > 后端本身的工作追踪在 [#705](https://github.com/CherryHQ/stella/issues/705)。
 
   正因如此，`none` 还要求 `sandbox.allowUnsafeHostExecution=true` 才能渲染。这种模式
   下 chart 仍会为容器 drop 所有 Linux capability 并禁止提权，但这并不能恢复密钥暴露

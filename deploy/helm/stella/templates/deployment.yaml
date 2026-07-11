@@ -18,12 +18,12 @@ spec:
   template:
     metadata:
       labels:
+        {{- include "stella.selectorLabels" . | nindent 8 }}
+        {{- /* podLabels cannot collide with the selector labels: stella.validate
+               rejects the two selector keys, so no duplicate YAML keys render. */}}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- /* Selector labels render last so podLabels can never shadow them
-               and leave the Deployment unable to find its own pods. */}}
-        {{- include "stella.selectorLabels" . | nindent 8 }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
@@ -42,7 +42,10 @@ spec:
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
-          type: RuntimeDefault
+          # RuntimeDefault by default. bubblewrap (sandbox.backend=local) may need
+          # Unconfined on clusters whose default profile blocks its namespace
+          # syscalls; that is why this is a lever, not a hardcoded value.
+          type: {{ .Values.sandbox.seccompProfile }}
       terminationGracePeriodSeconds: {{ int .Values.shutdown.terminationGracePeriodSeconds }}
       containers:
         - name: stella

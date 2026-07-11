@@ -55,6 +55,10 @@ sandbox:
   # Must be true when backend is "none" to acknowledge that agent tools execute
   # unsandboxed inside the pod. Ignored for other backends.
   allowUnsafeHostExecution: false
+  # Pod seccomp profile. RuntimeDefault is the hardened default. If backend=local
+  # (bubblewrap) fails with seccomp/namespace errors on your cluster, set this to
+  # Unconfined; backend=none never needs it.
+  seccompProfile: RuntimeDefault
 
 # Two-phase graceful-shutdown budget, in whole seconds. See the deployment docs
 # for how these combine. Rendering fails when the termination grace period is

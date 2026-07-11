@@ -98,9 +98,12 @@ actionable message. Kept in one place so every template shares the same checks.
 {{- if not (or (hasPrefix "http://" $baseURL) (hasPrefix "https://" $baseURL)) -}}
 {{- fail (printf "stella: baseURL must include an http:// or https:// scheme (got %q). It is the public address clients reach, used for OAuth callbacks and channel deep links." $baseURL) -}}
 {{- end -}}
-{{- $host := regexReplaceAll "^https?://([^/:]+).*$" $baseURL "${1}" -}}
-{{- if or (eq $host "localhost") (hasPrefix "127." $host) (eq $host "0.0.0.0") (eq $host "::1") -}}
-{{- fail (printf "stella: baseURL host %q is a loopback/bind address, but it must be the externally reachable URL clients use (the ingress address), or OAuth callbacks and channel links break." $host) -}}
+{{- $authority := regexReplaceAll "^https?://" $baseURL "" -}}
+{{- $host := regexReplaceAll "^([^/:]+).*$" $authority "${1}" -}}
+{{- /* IPv6 hosts are bracketed ([::1], [::1]:8443); the host regex above cannot
+       capture them, so match the bracketed loopback on the raw authority. */ -}}
+{{- if or (eq $host "localhost") (hasPrefix "127." $host) (eq $host "0.0.0.0") (hasPrefix "[::1]" $authority) (hasPrefix "[0:0:0:0:0:0:0:1]" $authority) -}}
+{{- fail (printf "stella: baseURL %q points at a loopback/bind address, but it must be the externally reachable URL clients use (the ingress address), or OAuth callbacks and channel links break." $baseURL) -}}
 {{- end -}}
 
 {{- if not (trim $v.secrets.existingSecret) -}}
@@ -131,6 +134,12 @@ actionable message. Kept in one place so every template shares the same checks.
 {{- range $v.extraEnv -}}
 {{- if has .name (list "STELLA_BASE_URL" "STELLA_SANDBOX_BACKEND" "STELLA_HTTP_SHUTDOWN_TIMEOUT" "STELLA_RIVER_SOFT_STOP_TIMEOUT" "STELLA_VAULT_KEY" "STELLA_DATABASE_URL" "HOST" "PORT" "STELLA_REQUIRE_EXTERNAL_DB") -}}
 {{- fail (printf "stella: extraEnv must not set %s — it is managed by the chart's typed values (baseURL, secrets.*, sandbox.*, shutdown.*), which enforce this chart's safety contract. Setting it twice would make the effective value ambiguous." .name) -}}
+{{- end -}}
+{{- end -}}
+
+{{- range $k, $val := $v.podLabels -}}
+{{- if has $k (list "app.kubernetes.io/name" "app.kubernetes.io/instance") -}}
+{{- fail (printf "stella: podLabels must not set %s — it is the Deployment's immutable selector label. Overriding it would leave the Deployment unable to find its own pods." $k) -}}
 {{- end -}}
 {{- end -}}
 

@@ -111,6 +111,15 @@ expect_ok "storageClass '-' disables provisioning" "${BASE[@]}" \
   --set sandbox.backend=local --set 'persistence.storageClass=-'
 assert_contains "empty storageClassName"     'storageClassName: ""'
 
+expect_ok "seccomp Unconfined override for local" "${BASE[@]}" \
+  --set sandbox.backend=local --set sandbox.seccompProfile=Unconfined
+assert_contains "seccomp unconfined rendered"  "type: Unconfined"
+
+expect_ok "custom podLabels render" "${BASE[@]}" --set sandbox.backend=local \
+  --set 'podLabels.team=platform'
+assert_contains "custom pod label"           "team: platform"
+assert_contains "selector label kept"        "app.kubernetes.io/name:"
+
 expect_ok "ingress + tls" "${BASE[@]}" --set sandbox.backend=local \
   --set ingress.enabled=true \
   --set 'ingress.className=nginx' \
@@ -152,6 +161,14 @@ expect_fail "baseURL without scheme" "scheme" \
 expect_fail "baseURL loopback host" "loopback" \
   --set baseURL=http://localhost:25678 --set secrets.existingSecret=stella-secrets \
   --set sandbox.backend=local
+expect_fail "baseURL IPv6 loopback" "loopback" \
+  --set 'baseURL=https://[::1]:8443' --set secrets.existingSecret=stella-secrets \
+  --set sandbox.backend=local
+expect_fail "podLabels overrides selector" "podLabels must not set" \
+  "${BASE[@]}" --set sandbox.backend=local \
+  --set 'podLabels.app\.kubernetes\.io/name=evil'
+expect_fail "invalid seccompProfile rejected" "seccompProfile" \
+  "${BASE[@]}" --set sandbox.backend=local --set sandbox.seccompProfile=Wide
 expect_fail "ingress enabled without hosts" "ingress.hosts" \
   "${BASE[@]}" --set sandbox.backend=local --set ingress.enabled=true --set 'ingress.hosts=null'
 
