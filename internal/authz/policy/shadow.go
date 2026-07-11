@@ -41,6 +41,12 @@ type ShadowResult struct {
 	PolicyID   string
 	// Diagnostic is a human-readable explanation, populated on a mismatch.
 	Diagnostic string
+	// Err is the Begin/Decide failure that forced the new decision to fail
+	// closed, or nil on a clean decision. It is reported independently of Match:
+	// a new engine that errors but happens to agree with a legacy deny is still a
+	// shadow signal worth surfacing (the new engine is not actually deciding), so
+	// callers emit a diagnostic whenever Err != nil even if Match is true.
+	Err error
 }
 
 // ShadowCompare binds an Evaluation, decides the request, and diffs the result
@@ -58,6 +64,7 @@ func (az *Authorizer) ShadowCompare(
 	eval, err := az.Begin(ctx, authority)
 	if err != nil {
 		res.NewAllowed = false
+		res.Err = err
 		res.Match = !legacyAllowed
 		if !res.Match {
 			res.Diagnostic = fmt.Sprintf("new authorizer unavailable (%v) but legacy allowed", err)
@@ -69,6 +76,7 @@ func (az *Authorizer) ShadowCompare(
 	dec, err := eval.Decide(req)
 	if err != nil {
 		res.NewAllowed = false
+		res.Err = err
 		res.Match = !legacyAllowed
 		if !res.Match {
 			res.Diagnostic = fmt.Sprintf("new decide error (%v) but legacy allowed", err)
