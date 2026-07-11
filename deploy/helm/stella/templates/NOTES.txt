@@ -1,0 +1,71 @@
+Stella has been deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Single replica only (strategy: Recreate). Upgrades and restarts have a brief
+downtime window; this is by design — see "Why only one replica?" in the docs.
+
+Access
+------
+{{- if .Values.ingress.enabled }}
+Ingress is enabled. Reach Stella at:
+{{- range .Values.ingress.hosts }}
+  - http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+No ingress configured. Port-forward to reach the Web UI locally:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "stella.fullname" . }} 25678:{{ int .Values.service.port }}
+
+Then open http://localhost:25678
+{{- end }}
+
+Make sure baseURL ({{ .Values.baseURL }}) matches the address users actually reach.
+
+Secret
+------
+Stella reads its vault key and database DSN from the Secret named
+"{{ .Values.secrets.existingSecret }}" (keys: {{ .Values.secrets.keys.vaultKey }},
+{{ .Values.secrets.keys.databaseURL }}). If that Secret does not exist yet, create it,
+for example (replace the placeholder values):
+
+  kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.secrets.existingSecret }} \
+    --from-literal={{ .Values.secrets.keys.vaultKey }}='AGE-SECRET-KEY-REPLACE-ME' \
+    --from-literal={{ .Values.secrets.keys.databaseURL }}='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require'
+
+Updating the Secret does NOT restart the pod. Roll it after a secret change:
+
+  kubectl -n {{ .Release.Namespace }} rollout restart deployment/{{ include "stella.fullname" . }}
+
+Sandbox
+-------
+sandbox.backend = {{ .Values.sandbox.backend }}
+{{- if eq (trim .Values.sandbox.backend) "none" }}
+  backend=none runs agent tools directly inside the Stella pod WITHOUT sandbox
+  isolation. It does not disable agent tools.
+{{- else }}
+  backend=local (bubblewrap) is experimental and requires a cluster that permits
+  unprivileged user namespaces. If tools fail with bwrap/unshare errors, switch
+  to backend=none (and set sandbox.allowUnsafeHostExecution=true) or adjust the
+  cluster.
+{{- end }}
+
+Storage
+-------
+{{- if .Values.persistence.enabled }}
+{{- if .Values.persistence.existingClaim }}
+Using your existing PVC "{{ .Values.persistence.existingClaim }}" for STELLA_HOME.
+{{- else }}
+STELLA_HOME is backed by PVC "{{ include "stella.pvcName" . }}" ({{ .Values.persistence.size }}).
+It carries annotation helm.sh/resource-policy: keep, so "helm uninstall" leaves it
+(and your data) in place. To delete it deliberately:
+
+  kubectl -n {{ .Release.Namespace }} delete pvc {{ include "stella.pvcName" . }}
+{{- end }}
+{{- else }}
+Persistence is DISABLED — STELLA_HOME uses an emptyDir and is lost when the pod
+restarts. Enable persistence for any real deployment.
+{{- end }}
+
+Health
+------
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  # Liveness /healthz, readiness /readyz on port 25678.

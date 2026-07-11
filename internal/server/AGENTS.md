@@ -22,7 +22,7 @@ GET /api/*      → apiserver.HandlerFromMux       (all API routes from OpenAPI 
 GET /{path...}  → web.SPAHandler()              (serves dist files or index.html fallback)
 ```
 
-`authMiddleware` (global, wraps the entire mux) exempts `/login`, `/static/`, `/s/`, `GET /api/shares/public/*`, and auth endpoints. All other page routes require a valid session; unauthenticated requests are redirected to `/login`.
+`authMiddleware` (global, wraps the entire mux) exempts `/login`, `/healthz`, `/readyz` (infrastructure probes — no user session), `/static/`, `/s/`, `GET /api/shares/public/*`, and auth endpoints. All other page routes require a valid session; unauthenticated requests are redirected to `/login`. See `isAuthExempt` in `middleware.go` for the authoritative list.
 
 ### Directory Structure
 

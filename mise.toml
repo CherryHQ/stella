@@ -5,6 +5,7 @@ dprint = "0.54.0"
 jq = "1.8.1"
 yq = "4.49.2"
 act = "0.2.88"
+helm = "3.16.4"
 # Go
 "github:pressly/goose" = "3.27.1"
 go = "1.25.9"
@@ -242,6 +243,14 @@ if ! tar tzf "$archive" 2>/dev/null | grep -Eq "(^|/)${bin}$" && ! unzip -l "$ar
 fi
 echo "OK: archive $archive contains stellad"
 """
+
+# ============================================================================
+# Deploy
+# ============================================================================
+
+[tasks."deploy:helm:check"]
+description = "Lint and render-assert the Kubernetes Helm chart"
+run = "bash deploy/helm/check.sh"
 
 # ============================================================================
 # Docker
