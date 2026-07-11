@@ -1,11 +1,9 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -17,15 +15,18 @@ import (
 // messages.
 const (
 	requireExternalDBEnv    = "STELLA_REQUIRE_EXTERNAL_DB"
-	databaseURLEnv          = "STELLA_DATABASE_URL"
 	httpShutdownTimeoutEnv  = "STELLA_HTTP_SHUTDOWN_TIMEOUT"
 	riverSoftStopTimeoutEnv = "STELLA_RIVER_SOFT_STOP_TIMEOUT"
-	serverURLEnv            = "STELLA_SERVER_URL"
 
 	// Raw passthrough vars: read with os.Getenv semantics (value or "" for
 	// unset/empty; no trim, no default). Their group-level validation stays with
 	// the consuming subsystem (blob group constraint, oidc Validate, vault
-	// required check) so semantics are preserved exactly.
+	// required check) so semantics are preserved exactly. The two URLs are here
+	// deliberately: the legacy readers returned them untrimmed, so normalizing
+	// them would silently rewrite a padded DSN instead of letting the database
+	// layer reject it.
+	databaseURLEnv  = "STELLA_DATABASE_URL"
+	serverURLEnv    = "STELLA_SERVER_URL"
 	baseURLEnv      = "STELLA_BASE_URL"
 	vaultKeyEnv     = "STELLA_VAULT_KEY"
 	pprofAddrEnv    = "STELLA_PPROF_ADDR"
@@ -177,29 +178,30 @@ type DatabaseConfig struct {
 	URL string
 }
 
+// defaultServerURL is the legacy ServerURL fallback: applied only when the
+// variable is unset or exactly empty, never to a non-empty value (which is
+// passed through untrimmed).
+const defaultServerURL = "http://127.0.0.1:25678"
+
 // rawServerConfig is the wire format env.ParseWithOptions fills: every field is
 // a trimmed string. Duration and bool fields keep custom, env-name-aware
 // validation (see convert below) because the env library wraps parser errors
 // with the Go field name and cannot enforce the ">0" bound — so we parse those
-// after the struct is populated to preserve the existing actionable messages
-// and to keep the DSN out of any error text.
+// after the struct is populated to preserve the existing actionable messages.
 type rawServerConfig struct {
 	RequireExternalDB    string `env:"STELLA_REQUIRE_EXTERNAL_DB"`
-	DatabaseURL          string `env:"STELLA_DATABASE_URL"`
 	HTTPShutdownTimeout  string `env:"STELLA_HTTP_SHUTDOWN_TIMEOUT"`
 	RiverSoftStopTimeout string `env:"STELLA_RIVER_SOFT_STOP_TIMEOUT"`
-	ServerURL            string `env:"STELLA_SERVER_URL" envDefault:"http://127.0.0.1:25678"`
 }
 
-// serverConfigKeys is the closed set of variables ServerConfig owns. The
-// normalized environment is built from exactly these keys so an unrelated
-// variable can never leak into the parse.
+// serverConfigKeys is the closed set of normalized (trimmed, empty=default)
+// variables: exactly the typed fields whose legacy parsers TrimSpace'd their
+// input. The normalized environment is built from exactly these keys so an
+// unrelated variable can never leak into the parse.
 var serverConfigKeys = []string{
 	requireExternalDBEnv,
-	databaseURLEnv,
 	httpShutdownTimeoutEnv,
 	riverSoftStopTimeoutEnv,
-	serverURLEnv,
 }
 
 // LoadServerConfig parses the server's boot-time environment. lookup resolves a
@@ -207,11 +209,13 @@ var serverConfigKeys = []string{
 // it in keeps the function pure and lets tests drive it without mutating process
 // state.
 //
-// Normalization (all fields): the value is trimmed, and a whitespace-only or
-// empty value is treated as unset so the default applies — preserving the
-// current TrimSpace-then-default behavior. Parse errors for every field are
-// aggregated (env.AggregateError) so a misconfigured deployment sees all its
-// mistakes at once, not one per restart.
+// Normalization (typed fields only, serverConfigKeys): the value is trimmed,
+// and a whitespace-only or empty value is treated as unset so the default
+// applies — preserving the legacy TrimSpace-then-default parsers. String
+// passthrough fields (URLs, secrets, subsystem-validated blocks) are exempt and
+// keep exact os.Getenv semantics. Parse errors for every field are aggregated
+// (env.AggregateError) so a misconfigured deployment sees all its mistakes at
+// once, not one per restart.
 func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) {
 	environment := make(map[string]string, len(serverConfigKeys))
 	for _, k := range serverConfigKeys {
@@ -239,6 +243,12 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 	// preserved exactly. A secret (Vault.Key, OIDC.ClientSecret) is only stored,
 	// never logged.
 	get := func(name string) string { v, _ := lookup(name); return v }
+	cfg.Database.URL = get(databaseURLEnv)
+	// Legacy ServerURL rule: default only replaces unset/exactly-empty; any
+	// non-empty value (even whitespace) passes through untouched.
+	if cfg.ServerURL = get(serverURLEnv); cfg.ServerURL == "" {
+		cfg.ServerURL = defaultServerURL
+	}
 	cfg.BaseURL = get(baseURLEnv)
 	cfg.Vault.Key = get(vaultKeyEnv)
 	cfg.OIDC = OIDCConfig{
@@ -290,13 +300,11 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 	return ServerConfig{
 		Database: DatabaseConfig{
 			RequireExternalDB: requireExternalDB,
-			URL:               raw.DatabaseURL,
 		},
 		Lifecycle: Lifecycle{
 			HTTPShutdownTimeout:  httpTimeout,
 			RiverSoftStopTimeout: riverTimeout,
 		},
-		ServerURL: raw.ServerURL,
 	}, nil
 }
 
@@ -333,41 +341,8 @@ func parseServerDuration(name, v string, def time.Duration) (time.Duration, erro
 	return d, nil
 }
 
-// Process-wide snapshot. Installed once at startup and never reloaded in
-// production: the parsed config is threaded into subsystems (see serverAction),
-// and this snapshot is the read-only fallback for the rare consumer that cannot
-// be reached by injection without an invasive signature change. Production
-// accessors read it and never fall back to os.Getenv.
-var (
-	serverConfigMu        sync.RWMutex
-	serverConfigInstalled bool
-	serverConfigValue     ServerConfig
-)
-
-// InstallServerConfig publishes the parsed config as the process-wide snapshot.
-// It may be called at most once, at server startup; a second call is a
-// programming error (two startup paths racing to own the config) and returns an
-// error rather than silently clobbering the first.
-func InstallServerConfig(cfg ServerConfig) error {
-	serverConfigMu.Lock()
-	defer serverConfigMu.Unlock()
-	if serverConfigInstalled {
-		return errors.New("server config already installed")
-	}
-	serverConfigInstalled = true
-	serverConfigValue = cfg
-	return nil
-}
-
-// InstalledServerConfig returns the installed snapshot, panicking if
-// InstallServerConfig has not run. It never reads the environment, so a caller
-// that reaches it before startup installs the config fails loudly instead of
-// silently diverging from the parsed values.
-func InstalledServerConfig() ServerConfig {
-	serverConfigMu.RLock()
-	defer serverConfigMu.RUnlock()
-	if !serverConfigInstalled {
-		panic("config: server config not installed; call InstallServerConfig at startup")
-	}
-	return serverConfigValue
-}
+// There is deliberately NO process-wide snapshot of ServerConfig: every
+// consumer receives its values by injection from serverAction. A global
+// read-only copy (write-once install + accessor) was tried and removed — it had
+// zero consumers and kept secrets alive in package state. Reintroduce one only
+// when a consumer genuinely cannot be reached by injection.

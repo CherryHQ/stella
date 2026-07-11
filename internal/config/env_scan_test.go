@@ -109,8 +109,13 @@ var envReadAllowlist = map[string]map[string]bool{
 // migration, a direct os.Getenv/os.LookupEnv in non-test code is a regression
 // unless it is a documented exception. It walks every non-test, compiled .go
 // file in the module and fails on any (file, variable) read not in
-// envReadAllowlist, so a new ambient env read cannot silently bypass
-// ServerConfig.
+// envReadAllowlist.
+//
+// Known limits (deliberate; tighten if they ever bite): variable names are
+// matched only for string-literal arguments — const or computed names collapse
+// to <non-literal>, so a file allowlisted for one dynamic read is not re-checked
+// for new dynamic reads; and the receiver is matched by identifier name ("os"),
+// not import binding, so an aliased stdlib import would evade the scan.
 func TestNoUnapprovedEnvReads(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {

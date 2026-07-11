@@ -281,46 +281,31 @@ func TestLoadServerConfigRawUnset(t *testing.T) {
 	}
 }
 
-func TestServerConfigWriteOnce(t *testing.T) {
-	resetServerConfigForTest(t)
-
-	cfg := ServerConfig{ServerURL: "http://once"}
-	if err := InstallServerConfig(cfg); err != nil {
-		t.Fatalf("first InstallServerConfig() error: %v", err)
+// TestLoadServerConfigURLsNotNormalized locks the legacy semantics of the two
+// URL variables: values pass through untrimmed (a padded DSN reaches the
+// database layer, which is where it should be rejected), a whitespace-only
+// value counts as set-and-non-empty, and the ServerURL default replaces only
+// unset or exactly-empty values.
+func TestLoadServerConfigURLsNotNormalized(t *testing.T) {
+	cfg, err := LoadServerConfig(lookupFrom(map[string]string{
+		databaseURLEnv: "  postgres://user:pass@db:5432/stella  ",
+		serverURLEnv:   "   ",
+	}))
+	if err != nil {
+		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
 	}
-	if err := InstallServerConfig(cfg); err == nil {
-		t.Fatal("second InstallServerConfig() error = nil, want error")
+	if cfg.Database.URL != "  postgres://user:pass@db:5432/stella  " {
+		t.Errorf("Database.URL = %q, want padded value verbatim", cfg.Database.URL)
 	}
-	if got := InstalledServerConfig(); got.ServerURL != "http://once" {
-		t.Errorf("InstalledServerConfig().ServerURL = %q, want installed value", got.ServerURL)
+	if cfg.ServerURL != "   " {
+		t.Errorf("ServerURL = %q, want whitespace passthrough (legacy v != \"\" rule)", cfg.ServerURL)
 	}
-}
 
-func TestInstalledServerConfigPanicsBeforeInstall(t *testing.T) {
-	resetServerConfigForTest(t)
-
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("InstalledServerConfig() did not panic before install")
-		}
-	}()
-	_ = InstalledServerConfig()
-}
-
-// resetServerConfigForTest clears the process-wide snapshot so a test can
-// exercise the write-once install path from a clean slate. Test-only: production
-// never resets the installed config. Tests using it must not call t.Parallel,
-// since they mutate shared global state; the cleanup restores the empty state.
-func resetServerConfigForTest(t *testing.T) {
-	t.Helper()
-	serverConfigMu.Lock()
-	serverConfigInstalled = false
-	serverConfigValue = ServerConfig{}
-	serverConfigMu.Unlock()
-	t.Cleanup(func() {
-		serverConfigMu.Lock()
-		serverConfigInstalled = false
-		serverConfigValue = ServerConfig{}
-		serverConfigMu.Unlock()
-	})
+	cfg, err = LoadServerConfig(lookupFrom(map[string]string{serverURLEnv: ""}))
+	if err != nil {
+		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
+	}
+	if cfg.ServerURL != defaultServerURL {
+		t.Errorf("ServerURL = %q, want default for exactly-empty", cfg.ServerURL)
+	}
 }

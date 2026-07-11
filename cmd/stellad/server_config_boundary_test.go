@@ -12,14 +12,14 @@ import (
 // server startup boundary, so operator commands that never start the server
 // (version, vault keygen, service, mise, upgrade, postgres) cannot be blocked by
 // an unrelated bad variable. It asserts the source references to
-// LoadServerConfig/InstallServerConfig live only in gateway.go (serverAction).
+// LoadServerConfig live only in gateway.go (serverAction).
 //
 // This makes the boundary provable at the file level; the CLI smoke test
 // (`stellad version` with a garbage duration exiting 0) proves the runtime
 // behavior it implies.
 func TestServerConfigLoadedOnlyAtServerBoundary(t *testing.T) {
 	const allowedFile = "gateway.go"
-	symbols := []string{"config.LoadServerConfig", "config.InstallServerConfig"}
+	symbols := []string{"config.LoadServerConfig"}
 
 	entries, err := os.ReadDir(".")
 	if err != nil {

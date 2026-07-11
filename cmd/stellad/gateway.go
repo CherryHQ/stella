@@ -74,9 +74,9 @@ func serverAction(c *ucli.Context) error {
 		return err
 	}
 
-	// The vault key is required to run the server. Check it from the snapshot so
-	// there is a single reader; the key is a secret and never appears in this
-	// error text.
+	// The vault key is required to run the server. Check it from the parsed
+	// config so there is a single reader; the key is a secret and never appears
+	// in this error text.
 	if cfg.Vault.Key == "" {
 		return errors.New(
 			"STELLA_VAULT_KEY is not set\n\n" +
@@ -93,12 +93,6 @@ func serverAction(c *ucli.Context) error {
 	if installDir, err := resolveUpgradeDir(""); err == nil {
 		warnStaleUpgradeArtifacts(installDir)
 		cleanStaleUpgradeArtifacts(installDir)
-	}
-
-	// Publish the read-only snapshot for consumers that read it as a fallback;
-	// the values setup needs are still injected below, not read ambiently.
-	if err := config.InstallServerConfig(cfg); err != nil {
-		return err
 	}
 
 	// Signals are handled manually, not via signal.NotifyContext: once serving,
