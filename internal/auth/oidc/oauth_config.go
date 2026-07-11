@@ -3,12 +3,24 @@ package oidc
 import (
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 )
 
 const oauthProviderEnv = "AUTH_OAUTH_PROVIDERS"
+
+// Lookup mirrors os.LookupEnv: it returns a variable's value and whether it was
+// set. The login-config loaders take it so the oidc package never reads the
+// process environment itself — the value flows in from the startup boundary
+// (serverAction passes os.LookupEnv), exactly like config.LoadServerConfig.
+type Lookup = func(string) (string, bool)
+
+// envValue returns the value of key under lookup, or "" — os.Getenv semantics
+// without touching the process environment.
+func envValue(lookup Lookup, key string) string {
+	v, _ := lookup(key)
+	return v
+}
 
 var oauthProviderIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
@@ -31,12 +43,11 @@ type OAuthConfig struct {
 	RequireEmailVerified bool
 }
 
-func OAuthConfiguredFromEnv() bool {
-	return len(splitTrimmed(os.Getenv(oauthProviderEnv))) > 0
-}
-
-func OAuthConfigsFromEnv(baseURL string) ([]*OAuthConfig, error) {
-	ids := splitTrimmed(os.Getenv(oauthProviderEnv))
+// OAuthConfigs parses the AUTH_OAUTH_* multi-provider block through lookup,
+// validating each provider. baseURL supplies the default redirect URL when a
+// provider does not set one explicitly.
+func OAuthConfigs(lookup Lookup, baseURL string) ([]*OAuthConfig, error) {
+	ids := splitTrimmed(envValue(lookup, oauthProviderEnv))
 	out := make([]*OAuthConfig, 0, len(ids))
 	var errs []string
 	seen := make(map[string]struct{}, len(ids))
@@ -47,7 +58,7 @@ func OAuthConfigsFromEnv(baseURL string) ([]*OAuthConfig, error) {
 			continue
 		}
 		seen[id] = struct{}{}
-		cfg, err := OAuthConfigFromEnv(id, baseURL)
+		cfg, err := OAuthConfigForProvider(lookup, id, baseURL)
 		if err != nil {
 			errs = append(errs, err.Error())
 			continue
@@ -60,7 +71,9 @@ func OAuthConfigsFromEnv(baseURL string) ([]*OAuthConfig, error) {
 	return out, nil
 }
 
-func OAuthConfigFromEnv(providerName, baseURL string) (*OAuthConfig, error) {
+// OAuthConfigForProvider parses the AUTH_OAUTH_<PROVIDER>_* block for one
+// provider through lookup.
+func OAuthConfigForProvider(lookup Lookup, providerName, baseURL string) (*OAuthConfig, error) {
 	providerName = strings.ToLower(strings.TrimSpace(providerName))
 	if !oauthProviderIDPattern.MatchString(providerName) {
 		return nil, fmt.Errorf("provider %q: id must match %s", providerName, oauthProviderIDPattern.String())
@@ -68,29 +81,29 @@ func OAuthConfigFromEnv(providerName, baseURL string) (*OAuthConfig, error) {
 
 	cfg := defaultOAuthConfig(providerName)
 	prefix := "AUTH_OAUTH_" + envProviderName(providerName) + "_"
-	cfg.ClientID = os.Getenv(prefix + "CLIENT_ID")
-	cfg.ClientSecret = os.Getenv(prefix + "CLIENT_SECRET")
-	cfg.RedirectURL = os.Getenv(prefix + "REDIRECT_URL")
-	cfg.AllowedEmailDomains = splitTrimmed(os.Getenv(prefix + "ALLOWED_EMAIL_DOMAINS"))
-	cfg.AllowedTenantKeys = splitTrimmed(os.Getenv(prefix + "ALLOWED_TENANT_KEYS"))
-	cfg.RequireEmailVerified = parseOAuthBool(os.Getenv(prefix+"REQUIRE_EMAIL_VERIFIED"), cfg.RequireEmailVerified)
+	cfg.ClientID = envValue(lookup, prefix+"CLIENT_ID")
+	cfg.ClientSecret = envValue(lookup, prefix+"CLIENT_SECRET")
+	cfg.RedirectURL = envValue(lookup, prefix+"REDIRECT_URL")
+	cfg.AllowedEmailDomains = splitTrimmed(envValue(lookup, prefix+"ALLOWED_EMAIL_DOMAINS"))
+	cfg.AllowedTenantKeys = splitTrimmed(envValue(lookup, prefix+"ALLOWED_TENANT_KEYS"))
+	cfg.RequireEmailVerified = parseOAuthBool(envValue(lookup, prefix+"REQUIRE_EMAIL_VERIFIED"), cfg.RequireEmailVerified)
 
-	if raw := os.Getenv(prefix + "SCOPES"); raw != "" {
+	if raw := envValue(lookup, prefix+"SCOPES"); raw != "" {
 		cfg.Scopes = splitTrimmed(raw)
 	}
-	if v := os.Getenv(prefix + "AUTH_URL"); v != "" {
+	if v := envValue(lookup, prefix+"AUTH_URL"); v != "" {
 		cfg.AuthURL = v
 	}
-	if v := os.Getenv(prefix + "TOKEN_URL"); v != "" {
+	if v := envValue(lookup, prefix+"TOKEN_URL"); v != "" {
 		cfg.TokenURL = v
 	}
-	if v := os.Getenv(prefix + "TOKEN_REQUEST_STYLE"); v != "" {
+	if v := envValue(lookup, prefix+"TOKEN_REQUEST_STYLE"); v != "" {
 		cfg.TokenRequestStyle = v
 	}
-	if v := os.Getenv(prefix + "USERINFO_URL"); v != "" {
+	if v := envValue(lookup, prefix+"USERINFO_URL"); v != "" {
 		cfg.UserInfoURL = v
 	}
-	if v := os.Getenv(prefix + "USER_EMAILS_URL"); v != "" {
+	if v := envValue(lookup, prefix+"USER_EMAILS_URL"); v != "" {
 		cfg.UserEmailsURL = v
 	}
 	if cfg.RedirectURL == "" && baseURL != "" {

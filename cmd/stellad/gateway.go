@@ -76,6 +76,17 @@ func serverAction(c *ucli.Context) error {
 		return err
 	}
 
+	// Parse the dynamic login-provider config (AUTH_OAUTH_*, LOCAL_*) at this same
+	// startup boundary, alongside ServerConfig, so the oidc package reads no
+	// environment of its own and a misconfigured provider fails fast here. The
+	// resolved base URL supplies OAuth redirect defaults.
+	adminHost := c.String("host")
+	adminPort := c.Int("port")
+	loginCfg, err := oidc.LoadLoginConfig(os.LookupEnv, resolveBaseURL(cfg.BaseURL, adminHost, adminPort))
+	if err != nil {
+		return fmt.Errorf("load login config: %w", err)
+	}
+
 	// The vault key is required to run the server. Check it from the parsed
 	// config so there is a single reader; the key is a secret and never appears
 	// in this error text.
@@ -170,14 +181,14 @@ func serverAction(c *ucli.Context) error {
 	}
 	switchFn := func(_, _ string) error { return nil }
 
-	return runServer(s.ctx, s, listFn, switchFn, c.String("host"), c.Int("port"), sigCh, endStartupWatch)
+	return runServer(s.ctx, s, loginCfg, listFn, switchFn, adminHost, adminPort, sigCh, endStartupWatch)
 }
 
 // runServer starts every subsystem and blocks until shutdown. sigCh delivers
 // SIGINT/SIGTERM (registered by the caller, who owns signal.Stop); onServing is
 // called exactly once, when startup is complete and the two-phase drain
 // supervisor has taken over signal handling from the caller's startup watcher.
-func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int, sigCh <-chan os.Signal, onServing func()) error {
+func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int, sigCh <-chan os.Signal, onServing func()) error {
 	// workCtx is the errgroup parent. Graceful drain cancels it only AFTER the
 	// HTTP server has drained, so the LIFO defer chain (goal tick/dispatcher,
 	// scheduler, riverClient.Stop) then tears subsystems down in order. A
@@ -188,7 +199,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	defer workCancel()
 	g, gctx := errgroup.WithContext(workCtx)
 
-	warnDeploymentBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort), s.cfg.OIDC.IssuerURL)
+	warnDeploymentBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort), s.cfg.OIDC.IssuerURL, len(loginConfig.OAuth) > 0)
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
@@ -277,6 +288,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		BaseURL:    resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort),
 		VaultKey:   s.cfg.Vault.Key,
 		OIDC:       s.cfg.OIDC,
+		Login:      loginConfig,
 		AuthStores: oidcStore,
 	})
 	if err != nil {
@@ -583,11 +595,11 @@ func resolveBaseURL(baseURL, adminHost string, adminPort int) string {
 // that emits such links is actually configured. Kubernetes charts enforce
 // STELLA_BASE_URL as a required value at the layer that knows it is behind an
 // ingress.
-func warnDeploymentBaseURL(baseURL, oidcIssuerURL string) {
+func warnDeploymentBaseURL(baseURL, oidcIssuerURL string, oauthConfigured bool) {
 	if !baseURLUnsafe(baseURL) {
 		return
 	}
-	if linkDependentFeaturesConfigured(oidcIssuerURL) {
+	if linkDependentFeaturesConfigured(oidcIssuerURL, oauthConfigured) {
 		slog.Warn("STELLA_BASE_URL is loopback/unspecified; OAuth callbacks and channel deep links will point back at this host and fail off-box. Set STELLA_BASE_URL to the public URL clients use", "base_url", baseURL)
 	}
 }
@@ -619,10 +631,10 @@ func baseURLUnsafe(raw string) bool {
 // linkDependentFeaturesConfigured reports whether a feature that emits absolute
 // links back to this server (external OIDC or an OAuth login provider) is
 // configured. The OIDC signal is the same OIDC_ISSUER_URL snapshot value that
-// drives the setup mode decision, so both agree; the dynamic AUTH_OAUTH_* probe
-// stays in the auth package.
-func linkDependentFeaturesConfigured(oidcIssuerURL string) bool {
-	return oidcIssuerURL != "" || oidc.OAuthConfiguredFromEnv()
+// drives the setup mode decision; oauthConfigured is derived from the login
+// config parsed once at the startup boundary, so both observe one generation.
+func linkDependentFeaturesConfigured(oidcIssuerURL string, oauthConfigured bool) bool {
+	return oidcIssuerURL != "" || oauthConfigured
 }
 
 func adminURLForDisplay(host string, port int, fallbackAddr string) string {
