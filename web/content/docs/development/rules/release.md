@@ -18,20 +18,27 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
    jq --arg version "$VERSION" '.version = $version' web/package.json > "$tmp" && mv "$tmp" web/package.json
    test "$(jq -r '.version' web/package.json)" = "$VERSION"
    ```
-3. Update `web/content/docs/changelog.mdx` and `web/content/docs/changelog.zh.mdx` (see below).
-4. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z` including both changelogs and `web/package.json`.
-5. Verify the commit succeeded and the working tree is clean:
+3. Update the Helm chart metadata in `deploy/helm/stella/Chart.yaml`:
+   - Set `appVersion: "vX.Y.Z"` so the chart records the release it ships alongside.
+     The default `image.tag` is `latest` (CI publishes it for every stable release,
+     see Artifacts), so a fresh install already tracks this version; `appVersion`
+     just keeps the metadata honest.
+   - Bump the chart's own `version` (its SemVer, independent of `appVersion`)
+     whenever the chart changed since the last release.
+4. Update `web/content/docs/changelog.mdx` and `web/content/docs/changelog.zh.mdx` (see below).
+5. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z` including both changelogs, `web/package.json`, and `deploy/helm/stella/Chart.yaml`.
+6. Verify the commit succeeded and the working tree is clean:
    ```bash
    git status --short
    git log --oneline -1
    ```
    Stop if the release commit is not `HEAD`; never tag before the commit exists.
-6. Tag the release commit and verify the tag points at `HEAD`:
+7. Tag the release commit and verify the tag points at `HEAD`:
    ```bash
    git tag vX.Y.Z
    test "$(git rev-parse vX.Y.Z)" = "$(git rev-parse HEAD)"
    ```
-7. Tag release issues with the release label so they are traceable on the GitHub Project board:
+8. Tag release issues with the release label so they are traceable on the GitHub Project board:
 
    ```bash
    # warn about any issue still open in the milestone before tagging
@@ -45,8 +52,8 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
 
    Filter the project board by the `release:vX.Y.Z` label to confirm the release scope.
 
-8. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
-9. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images.
+9. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
+10. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images.
 
 ## Update Changelog
 
