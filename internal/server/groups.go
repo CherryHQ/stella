@@ -513,6 +513,10 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 
 	publisher := &webGroupPublisher{w: w, flusher: flusher}
 	publisher.writeSSE(map[string]string{"type": "start", "messageId": uuid.Must(uuid.NewV7()).String()})
+	// Deliberately based on runtimeCtx, not the drain context: DispatchSync runs
+	// the group turn itself, so a drain-start cancellation would kill in-flight
+	// work the graceful HTTP shutdown budget exists to finish. runtimeCtx is
+	// cancelled only after the HTTP drain completes.
 	dispatchCtx, cancelDispatch := context.WithTimeout(s.runtimeCtx, groupOutboxLeaseDuration)
 	defer cancelDispatch()
 	if err := s.groupDispatcher.DispatchSync(dispatchCtx, outbox, publisher); err != nil {

@@ -187,6 +187,9 @@ func isAuthExempt(method, path string) bool {
 	switch {
 	case path == "/login" || path == "/signup":
 		return true
+	case path == "/healthz" || path == "/readyz":
+		// Infrastructure probes for orchestrators (kubelet); no user session.
+		return true
 	case strings.HasPrefix(path, "/assets/") ||
 		strings.HasPrefix(path, "/static/") ||
 		strings.HasPrefix(path, "/api-references") ||

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -71,6 +72,7 @@ the server, or use "stellad service" to manage it as a background service.`,
 
 type setupResult struct {
 	ctx                      context.Context
+	lifecycle                config.Lifecycle
 	db                       *pgxpool.Pool
 	embedded                 *appdb.Embedded
 	mem                      memory.Provider
@@ -99,7 +101,7 @@ type setupResult struct {
 	backgroundTasks          *sync.WaitGroup
 }
 
-func setup(parent context.Context, _ bool) (*setupResult, error) {
+func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
 	requireExternalDB, err := config.RequireExternalDB()
 	if err != nil {
 		return nil, err
@@ -362,7 +364,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, lc.RiverSoftStopTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -375,6 +377,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 
 	result := &setupResult{
 		ctx:                      parent,
+		lifecycle:                lc,
 		db:                       db,
 		embedded:                 embedded,
 		mem:                      memProvider,
@@ -445,7 +448,7 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host) (*scheduler.Servic
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, softStopTimeout time.Duration) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
@@ -466,7 +469,7 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 		queues[en] = ec
 	}
 
-	client, err := appdb.NewWorkingRiverClient(db, queues, workers, slog.With("component", "river"))
+	client, err := appdb.NewWorkingRiverClient(db, queues, workers, slog.With("component", "river"), softStopTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("build shared river client: %w", err)
 	}

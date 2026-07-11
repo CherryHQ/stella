@@ -135,7 +135,7 @@ func newSchedulerRiverClient(s *Service, pool *pgxpool.Pool) (*river.Client[pgx.
 	workers := river.NewWorkers()
 	RegisterRiverWorker(workers, s)
 	name, cfg := SchedulerQueueConfig()
-	return appdb.NewWorkingRiverClient(pool, map[string]river.QueueConfig{name: cfg}, workers, s.log)
+	return appdb.NewWorkingRiverClient(pool, map[string]river.QueueConfig{name: cfg}, workers, s.log, appdb.DefaultRiverSoftStopTimeout)
 }
 
 // scheduleJob registers a job with River and records its registration in

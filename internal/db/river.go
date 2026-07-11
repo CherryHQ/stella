@@ -60,9 +60,11 @@ const (
 	// scheduler and goal queues execute agent runs that routinely exceed a minute;
 	// graceful shutdown still cancels in-flight work via SoftStopTimeout.
 	riverJobTimeout = -1
-	// riverSoftStopTimeout bounds how long Stop waits for in-flight jobs to drain
-	// before cancelling their work contexts.
-	riverSoftStopTimeout = 30 * time.Second
+	// DefaultRiverSoftStopTimeout is the fallback drain budget for the self-contained
+	// scheduler client (default/test path). Production injects a value parsed from
+	// STELLA_RIVER_SOFT_STOP_TIMEOUT via the composition root; this package reads no
+	// env itself.
+	DefaultRiverSoftStopTimeout = 120 * time.Second
 	// riverRescueStuckJobsAfter keeps River from marking a legitimately long agent
 	// run as stuck (default 1h). App-level guards (scheduler's tryStartJobRun, the
 	// goal lease/reaper) are the real backstops; this only keeps River's own job
@@ -87,7 +89,12 @@ const (
 // root instead. An insert-only client (no queues, never Started) must use
 // river.NewClient directly, not this constructor — which is what the guard below
 // enforces: a working client must actually have queues and workers to work.
-func NewWorkingRiverClient(pool *pgxpool.Pool, queues map[string]river.QueueConfig, workers *river.Workers, logger *slog.Logger) (*river.Client[pgx.Tx], error) {
+//
+// softStopTimeout bounds how long Stop waits for in-flight jobs to drain before
+// River cancels their work contexts (escalating to a hard stop). It is injected
+// rather than read from the environment here so this package stays env-free; the
+// composition root parses STELLA_RIVER_SOFT_STOP_TIMEOUT and passes it in.
+func NewWorkingRiverClient(pool *pgxpool.Pool, queues map[string]river.QueueConfig, workers *river.Workers, logger *slog.Logger, softStopTimeout time.Duration) (*river.Client[pgx.Tx], error) {
 	if len(queues) == 0 || workers == nil {
 		return nil, fmt.Errorf("working river client requires queues and workers (got %d queues, workers set=%t); use river.NewClient directly for an insert-only client", len(queues), workers != nil)
 	}
@@ -96,7 +103,7 @@ func NewWorkingRiverClient(pool *pgxpool.Pool, queues map[string]river.QueueConf
 		Queues:               queues,
 		Workers:              workers,
 		JobTimeout:           riverJobTimeout,
-		SoftStopTimeout:      riverSoftStopTimeout,
+		SoftStopTimeout:      softStopTimeout,
 		RescueStuckJobsAfter: riverRescueStuckJobsAfter,
 		ErrorHandler:         riverErrorHandler{log: logger},
 	})
