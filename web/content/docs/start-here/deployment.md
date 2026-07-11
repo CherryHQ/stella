@@ -210,6 +210,8 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 When you run Stella under an orchestrator (Kubernetes and similar), two things that are convenient locally become traps: the embedded single-node database and a base URL that points back at the pod. The Docker image refuses the first by default (`STELLA_REQUIRE_EXTERNAL_DB=1`), and Stella warns loudly about the second.
 
+For Kubernetes, use the production Helm chart and its walkthrough in the [Kubernetes deployment guide](/docs/admin/kubernetes); the rest of this section explains the concepts the chart configures for you.
+
 ### The three URL roles
 
 Stella uses three distinct addresses. Keep them separate:

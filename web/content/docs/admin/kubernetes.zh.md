@@ -116,7 +116,7 @@ extraEnv:
     value: https://s3.example.com
   - name: STELLA_BLOB_S3_BUCKET
     value: stella-assets
-  - name: OIDC_ISSUER
+  - name: OIDC_ISSUER_URL
     value: https://id.example.com
 ```
 

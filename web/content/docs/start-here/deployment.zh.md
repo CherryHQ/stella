@@ -210,6 +210,8 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 当你在编排系统（Kubernetes 等）下运行 Stella 时，两个本地环境下的便利做法会变成陷阱：内嵌的单节点数据库，以及指向 pod 自身的 base URL。Docker 镜像默认拒绝前者（`STELLA_REQUIRE_EXTERNAL_DB=1`），对后者 Stella 会发出响亮的警告。
 
+在 Kubernetes 上部署请使用生产级 Helm chart，完整步骤见 [Kubernetes 部署指南](/docs/admin/kubernetes)；本节其余内容解释 chart 已为你配置好的那些概念。
+
 ### 三种 URL 角色
 
 Stella 使用三个不同的地址，务必区分：
