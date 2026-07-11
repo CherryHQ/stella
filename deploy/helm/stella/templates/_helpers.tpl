@@ -110,4 +110,14 @@ actionable message. Kept in one place so every template shares the same checks.
 {{- if lt (int $s.terminationGracePeriodSeconds) $minGrace -}}
 {{- fail (printf "stella: shutdown.terminationGracePeriodSeconds (%d) is too small. It must be >= preStopSeconds + httpSeconds + riverSoftStopSeconds + 10 (cleanup margin) = %d + %d + %d + 10 = %d, or the kubelet SIGKILLs the pod mid-drain." (int $s.terminationGracePeriodSeconds) (int $s.preStopSeconds) (int $s.httpSeconds) (int $s.riverSoftStopSeconds) $minGrace) -}}
 {{- end -}}
+
+{{- if and (not $v.persistence.enabled) (not $v.persistence.allowEphemeralDataLoss) -}}
+{{- fail "stella: persistence.enabled=false stores STELLA_HOME (user workspaces, attachments, article files) in an emptyDir that is lost on every pod restart. Set persistence.allowEphemeralDataLoss=true to acknowledge this, or keep persistence enabled." -}}
+{{- end -}}
+
+{{- range $v.extraEnv -}}
+{{- if has .name (list "STELLA_BASE_URL" "STELLA_SANDBOX_BACKEND" "STELLA_HTTP_SHUTDOWN_TIMEOUT" "STELLA_RIVER_SOFT_STOP_TIMEOUT" "STELLA_VAULT_KEY" "STELLA_DATABASE_URL" "HOST" "PORT" "STELLA_REQUIRE_EXTERNAL_DB") -}}
+{{- fail (printf "stella: extraEnv must not set %s — it is managed by the chart's typed values (baseURL, secrets.*, sandbox.*, shutdown.*), which enforce this chart's safety contract. Setting it twice would make the effective value ambiguous." .name) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}

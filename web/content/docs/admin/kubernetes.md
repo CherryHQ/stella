@@ -103,6 +103,7 @@ install with `-f values.yaml`.
 | `shutdown.riverSoftStopSeconds`          | `120`                           | `STELLA_RIVER_SOFT_STOP_TIMEOUT`.                                  |
 | `shutdown.terminationGracePeriodSeconds` | `200`                           | Pod grace period (see [formula](#graceful-shutdown)).              |
 | `persistence.enabled`                    | `true`                          | Mount a PVC at `/home/stella/.stella`.                             |
+| `persistence.allowEphemeralDataLoss`     | `false`                         | Must be `true` to disable persistence (emptyDir loses user data).  |
 | `persistence.size`                       | `10Gi`                          | Requested volume size.                                             |
 | `persistence.accessMode`                 | `ReadWriteOnce`                 |                                                                    |
 | `persistence.storageClass`               | `""`                            | Empty = cluster default; `-` disables dynamic provisioning.        |
@@ -131,6 +132,13 @@ extraEnv:
 
 Keep credentials (S3 secret key, OIDC client secret) out of `extraEnv` values that
 sit in your `values.yaml` — put them in the Secret and reference them there.
+
+Variables the chart manages through typed values are **rejected** in `extraEnv`
+(`STELLA_BASE_URL`, `STELLA_SANDBOX_BACKEND`, the shutdown timeouts, the vault key
+and DSN, `HOST`, `PORT`, `STELLA_REQUIRE_EXTERNAL_DB`): setting them there would
+silently bypass the chart's validation. The chart also sets `HOST=0.0.0.0` and
+`STELLA_REQUIRE_EXTERNAL_DB=1` explicitly rather than relying on the image's ENV
+defaults, so its contract holds for any `image.repository` you substitute.
 
 ## Sandbox backend
 

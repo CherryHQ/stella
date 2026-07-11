@@ -69,6 +69,10 @@ shutdown:
 # Persistent storage for STELLA_HOME (/home/stella/.stella).
 persistence:
   enabled: true
+  # STELLA_HOME holds durable user data (workspaces, attachments, article
+  # files). Disabling persistence puts it in an emptyDir that vanishes on every
+  # pod restart, so enabled=false additionally requires this acknowledgement.
+  allowEphemeralDataLoss: false
   size: 10Gi
   accessMode: ReadWriteOnce
   # Empty uses the cluster default StorageClass; "-" disables dynamic provisioning.
@@ -106,6 +110,10 @@ resources:
 # Extra plain environment variables passed through verbatim. Use this for
 # optional integrations (S3 asset mirror STELLA_BLOB_S3_*, OIDC_*, provider API
 # keys). Keep secret values in the Secret referenced above, not here.
+# Variables the chart manages through typed values (STELLA_BASE_URL,
+# STELLA_SANDBOX_BACKEND, the shutdown timeouts, the two secret refs, HOST,
+# PORT, STELLA_REQUIRE_EXTERNAL_DB) are rejected here — overriding them would
+# bypass the chart's validation contract.
 extraEnv: []
 # - name: STELLA_BLOB_S3_ENDPOINT
 #   value: https://s3.example.com

@@ -95,6 +95,7 @@ kubectl -n stella port-forward svc/stella 25678:25678
 | `shutdown.riverSoftStopSeconds`          | `120`                           | `STELLA_RIVER_SOFT_STOP_TIMEOUT`。                            |
 | `shutdown.terminationGracePeriodSeconds` | `200`                           | Pod grace period（见 [公式](#graceful-shutdown)）。           |
 | `persistence.enabled`                    | `true`                          | 在 `/home/stella/.stella` 挂 PVC。                            |
+| `persistence.allowEphemeralDataLoss`     | `false`                         | 关闭持久化时必须为 `true`（emptyDir 会丢用户数据）。          |
 | `persistence.size`                       | `10Gi`                          | 申请卷大小。                                                  |
 | `persistence.accessMode`                 | `ReadWriteOnce`                 |                                                               |
 | `persistence.storageClass`               | `""`                            | 空 = 集群默认；`-` 关闭动态供给。                             |
@@ -123,14 +124,20 @@ extraEnv:
 凭据（S3 secret key、OIDC client secret）不要写进落在 `values.yaml` 里的 `extraEnv`
 值 —— 放进 Secret 并在那里引用。
 
+chart 通过 typed values 管理的变量在 `extraEnv` 里会被**拒绝**（`STELLA_BASE_URL`、
+`STELLA_SANDBOX_BACKEND`、两个停机超时、vault key 与 DSN、`HOST`、`PORT`、
+`STELLA_REQUIRE_EXTERNAL_DB`）：在这里设置它们会静默绕过 chart 的校验。chart 也
+显式设置 `HOST=0.0.0.0` 和 `STELLA_REQUIRE_EXTERNAL_DB=1`，不依赖镜像的 ENV 默认
+值，所以换用自定义 `image.repository` 时合同依然成立。
+
 ## 沙箱后端 {#sandbox-backend}
 
 `sandbox.backend` 必填且无默认值。本 chart 支持两种后端；`docker` 后端刻意不支持
 （它需要挂载 Docker socket）。
 
-- **`none`** —— `none does not disable agent tools — it runs them directly inside
-the Stella pod without sandbox isolation.`（none 不会禁用 agent 工具，而是让它们
-  直接在 Stella pod 内、无沙箱隔离地运行。）因为没有隔离宿主，你必须同时设置
+- **`none`** —— `none` 不会禁用 agent 工具：它让工具直接在 Stella pod 内、无沙箱
+  隔离地运行（none does not disable agent tools — it runs them directly inside
+  the Stella pod without sandbox isolation）。因为没有隔离层，你必须同时设置
   `sandbox.allowUnsafeHostExecution=true` 来确认，否则渲染失败。这是 Kubernetes 上
   最简单、最可靠的后端。
 - **`local`** —— bubblewrap 隔离。**在 Kubernetes 上属实验性。** 它依赖集群允许

@@ -44,11 +44,27 @@ spec:
         - name: stella
           image: {{ include "stella.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if eq (trim .Values.sandbox.backend) "none" }}
+          # With no sandbox there is no reason to keep escalation paths open.
+          # The local (bubblewrap) backend omits this: bwrap needs user
+          # namespaces and, on setuid installs, privilege escalation.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          {{- end }}
           ports:
             - name: http
               containerPort: 25678
               protocol: TCP
           env:
+            # Set explicitly rather than trusting the image's ENV defaults: the
+            # chart's contract (reachable probes, no embedded PostgreSQL) must
+            # hold for any image.repository/tag the user substitutes.
+            - name: HOST
+              value: "0.0.0.0"
+            - name: STELLA_REQUIRE_EXTERNAL_DB
+              value: "1"
             - name: STELLA_BASE_URL
               value: {{ .Values.baseURL | quote }}
             - name: STELLA_SANDBOX_BACKEND
