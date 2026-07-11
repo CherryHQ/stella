@@ -136,9 +136,7 @@ func serverAction(c *ucli.Context) error {
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
 	g, gctx := errgroup.WithContext(ctx)
 
-	if err := checkDeploymentBaseURL(resolveBaseURL(adminHost, adminPort)); err != nil {
-		return err
-	}
+	warnDeploymentBaseURL(resolveBaseURL(adminHost, adminPort))
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
@@ -416,35 +414,23 @@ func resolveBaseURL(adminHost string, adminPort int) string {
 	return adminBaseURL(adminHost, adminPort)
 }
 
-// checkDeploymentBaseURL guards the canonical base URL used for OAuth callbacks
-// and channel deep links. When STELLA_BASE_URL is unset the URL is derived from
-// the bind host, so a default (loopback) bind yields a base URL that points back
-// at this pod and is useless off-box. In strict deployment mode that is a hard
-// failure unless STELLA_ALLOW_UNSAFE_BASE_URL overrides it; outside strict mode
-// it is only a warning, and only when a link-dependent feature is configured.
-func checkDeploymentBaseURL(baseURL string) error {
+// warnDeploymentBaseURL warns when the canonical base URL used for OAuth
+// callbacks and channel deep links cannot work off-box. When STELLA_BASE_URL is
+// unset the URL is derived from the bind host, so a default (loopback) bind
+// yields a base URL that points back at this machine. That is legitimate in
+// every deployment shape (local browser, docker port publish, kubectl
+// port-forward) and its failure mode is immediately visible in the login
+// redirect — so this warns loudly instead of failing, and only when a feature
+// that emits such links is actually configured. Kubernetes charts enforce
+// STELLA_BASE_URL as a required value at the layer that knows it is behind an
+// ingress.
+func warnDeploymentBaseURL(baseURL string) {
 	if !baseURLUnsafe(baseURL) {
-		return nil
-	}
-	strict, err := config.StrictDeployment()
-	if err != nil {
-		return err
-	}
-	if strict {
-		allow, err := config.AllowUnsafeBaseURL()
-		if err != nil {
-			return err
-		}
-		if !allow {
-			return fmt.Errorf("STELLA_STRICT_DEPLOYMENT=1 requires a public STELLA_BASE_URL: %q is loopback/unspecified, so OAuth callbacks and channel links would point back at this pod; set STELLA_BASE_URL to the public URL clients use (or STELLA_ALLOW_UNSAFE_BASE_URL=1 to override)", baseURL)
-		}
-		slog.Warn("STELLA_BASE_URL is loopback/unspecified but STELLA_ALLOW_UNSAFE_BASE_URL=1 is set; OAuth callbacks and channel deep links will point back at this pod and fail off-box", "base_url", baseURL)
-		return nil
+		return
 	}
 	if linkDependentFeaturesConfigured() {
 		slog.Warn("STELLA_BASE_URL is loopback/unspecified; OAuth callbacks and channel deep links will point back at this host and fail off-box. Set STELLA_BASE_URL to the public URL clients use", "base_url", baseURL)
 	}
-	return nil
 }
 
 // baseURLUnsafe reports whether a base URL cannot serve as a public canonical

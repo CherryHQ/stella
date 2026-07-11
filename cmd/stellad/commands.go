@@ -100,18 +100,19 @@ type setupResult struct {
 }
 
 func setup(parent context.Context, _ bool) (*setupResult, error) {
-	strict, err := config.StrictDeployment()
+	requireExternalDB, err := config.RequireExternalDB()
 	if err != nil {
 		return nil, err
 	}
 	dsn := config.DatabaseURL()
 	var embedded *appdb.Embedded
 	if dsn == "" {
-		if strict {
-			// Managed deployment (k8s etc.): the embedded PostgreSQL cluster is a
-			// single-node local convenience with no HA, backups, or shared state
-			// across replicas, so refuse it rather than silently starting one.
-			return nil, errors.New("STELLA_STRICT_DEPLOYMENT=1 requires STELLA_DATABASE_URL: embedded PostgreSQL is for single-node local use; point STELLA_DATABASE_URL at an external PostgreSQL with pgvector + pg_search")
+		if requireExternalDB {
+			// Set by the Docker image (and k8s manifests): in a container the
+			// embedded cluster lands on an ephemeral filesystem, and with multiple
+			// replicas each process would create its own database — refuse it
+			// rather than silently starting one.
+			return nil, errors.New("STELLA_REQUIRE_EXTERNAL_DB=1 but STELLA_DATABASE_URL is not set: embedded PostgreSQL is for single-node local use; point STELLA_DATABASE_URL at an external PostgreSQL with pgvector + pg_search (or set STELLA_REQUIRE_EXTERNAL_DB=0 to deliberately run embedded PostgreSQL on a persistent volume)")
 		}
 		// Zero-config default: no external DSN, so run a managed PostgreSQL whose
 		// cluster lives under the stella home and persists across restarts.

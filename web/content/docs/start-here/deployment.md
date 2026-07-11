@@ -208,7 +208,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 ## Managed Deployment
 
-When you run Stella under an orchestrator (Kubernetes and similar), two things that are convenient locally become traps: the embedded single-node database and a base URL that points back at the pod. Set `STELLA_STRICT_DEPLOYMENT=1` to turn those traps into fast, actionable startup errors.
+When you run Stella under an orchestrator (Kubernetes and similar), two things that are convenient locally become traps: the embedded single-node database and a base URL that points back at the pod. The Docker image refuses the first by default (`STELLA_REQUIRE_EXTERNAL_DB=1`), and Stella warns loudly about the second.
 
 ### The three URL roles
 
@@ -222,23 +222,20 @@ Stella uses three distinct addresses. Keep them separate:
 
 Binding to `0.0.0.0` (`HOST`) does **not** give you a public URL: with `STELLA_BASE_URL` unset, the base URL is derived from the bind host and still resolves to loopback. Always set `STELLA_BASE_URL` explicitly in a managed deployment.
 
-### Strict deployment mode
+### External database requirement
 
-`STELLA_STRICT_DEPLOYMENT=1` refuses local-only fallbacks:
+The Docker image sets `STELLA_REQUIRE_EXTERNAL_DB=1`: startup fails with an actionable error when `STELLA_DATABASE_URL` is unset, instead of silently starting the embedded PostgreSQL cluster on the container's ephemeral filesystem — with multiple replicas, each pod would even create its own database. Point `STELLA_DATABASE_URL` at an external PostgreSQL with `pgvector` and `pg_search`. To deliberately run embedded PostgreSQL in a single container backed by a persistent volume, set `STELLA_REQUIRE_EXTERNAL_DB=0`.
 
-- The server will not start its embedded PostgreSQL. You must set `STELLA_DATABASE_URL` to an external PostgreSQL with `pgvector` and `pg_search`.
-- The server will not start with a loopback or unspecified `STELLA_BASE_URL`. Set it to the public URL clients use.
-
-If you have deliberately configured a deployment with no link-out features (no OAuth login, no channel deep links) and accept a loopback base URL, set `STELLA_ALLOW_UNSAFE_BASE_URL=1` to downgrade the base-URL failure to a warning. Outside strict mode Stella only warns about a loopback base URL when a link-dependent feature is configured.
+A loopback base URL is never a startup error — it is legitimate when you reach Stella via `localhost` or `kubectl port-forward` — but Stella logs a loud warning when OAuth/OIDC login is configured against one, because login redirects would point back at the pod. Deployment charts should make `STELLA_BASE_URL` a required value; that layer knows it sits behind an ingress.
 
 ### Required environment for a managed deployment
 
-| Variable                   | Value                                                                |
-| -------------------------- | -------------------------------------------------------------------- |
-| `STELLA_DATABASE_URL`      | External PostgreSQL DSN with `pgvector` + `pg_search`                |
-| `STELLA_VAULT_KEY`         | age secret key for the vault (generate with `stellad vault keygen`)  |
-| `STELLA_BASE_URL`          | Public canonical URL clients use (e.g. `https://stella.example.com`) |
-| `STELLA_STRICT_DEPLOYMENT` | `1` — fail fast if a local-only fallback would otherwise be used     |
+| Variable                     | Value                                                                                    |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| `STELLA_DATABASE_URL`        | External PostgreSQL DSN with `pgvector` + `pg_search`                                    |
+| `STELLA_VAULT_KEY`           | age secret key for the vault (generate with `stellad vault keygen`)                      |
+| `STELLA_BASE_URL`            | Public canonical URL clients use (e.g. `https://stella.example.com`)                     |
+| `STELLA_REQUIRE_EXTERNAL_DB` | `1` — already set by the Docker image; fail fast instead of starting embedded PostgreSQL |
 
 A full Kubernetes manifest walkthrough is out of scope here.
 
@@ -266,25 +263,24 @@ For a full breakdown of which directories are durable data, derived cache, or sc
 
 Configuration is managed through the Web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
 
-| Variable                       | Required                  | Description                                                                                                                         |
-| ------------------------------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                  | No                        | Stella home directory (default `~/.stella`)                                                                                         |
-| `STELLA_DATABASE_URL`          | Docker: yes; otherwise no | External PostgreSQL connection URL; unset uses the embedded cluster under `STELLA_HOME` outside Docker                              |
-| `STELLA_BASE_URL`              | No¶                       | Public canonical URL for OAuth callbacks and channel deep links; unset derives from the bind host (loopback)                        |
-| `STELLA_STRICT_DEPLOYMENT`     | No                        | Set `1` for managed deployments: requires `STELLA_DATABASE_URL` and a non-loopback `STELLA_BASE_URL`, refusing local-only fallbacks |
-| `STELLA_ALLOW_UNSAFE_BASE_URL` | No                        | Set `1` to allow a loopback `STELLA_BASE_URL` under `STELLA_STRICT_DEPLOYMENT` (downgrades the failure to a warning)                |
-| `STELLA_BLOB_S3_ENDPOINT`      | No§                       | S3-compatible endpoint for the durable user-asset mirror                                                                            |
-| `STELLA_BLOB_S3_BUCKET`        | No§                       | Bucket for mirrored user-uploaded assets                                                                                            |
-| `STELLA_BLOB_S3_ACCESS_KEY`    | No§                       | Access key for the asset mirror                                                                                                     |
-| `STELLA_BLOB_S3_SECRET_KEY`    | No§                       | Secret key for the asset mirror                                                                                                     |
-| `STELLA_BLOB_S3_REGION`        | No                        | Optional S3 region                                                                                                                  |
-| `STELLA_BLOB_S3_USE_SSL`       | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                             |
-| `ANTHROPIC_API_KEY`            | Yes\*                     | Anthropic provider key                                                                                                              |
-| `OPENAI_API_KEY`               | Yes\*                     | OpenAI provider key                                                                                                                 |
-| `STELLA_VAULT_KEY`             | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                       |
-| `STELLA_DOCKER_SANDBOX_MODE`   | No‡                       | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                                         |
-| `STELLA_HOME_HOST`             | No‡                       | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                                         |
-| `STELLA_HOME_VOLUME`           | No‡                       | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                                  |
+| Variable                     | Required                  | Description                                                                                                                                                                   |
+| ---------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                | No                        | Stella home directory (default `~/.stella`)                                                                                                                                   |
+| `STELLA_DATABASE_URL`        | Docker: yes; otherwise no | External PostgreSQL connection URL; unset uses the embedded cluster under `STELLA_HOME` outside Docker                                                                        |
+| `STELLA_BASE_URL`            | No¶                       | Public canonical URL for OAuth callbacks and channel deep links; unset derives from the bind host (loopback)                                                                  |
+| `STELLA_REQUIRE_EXTERNAL_DB` | No                        | Fail startup when `STELLA_DATABASE_URL` is unset instead of starting embedded PostgreSQL; the Docker image sets `1`, override with `0` for embedded PG on a persistent volume |
+| `STELLA_BLOB_S3_ENDPOINT`    | No§                       | S3-compatible endpoint for the durable user-asset mirror                                                                                                                      |
+| `STELLA_BLOB_S3_BUCKET`      | No§                       | Bucket for mirrored user-uploaded assets                                                                                                                                      |
+| `STELLA_BLOB_S3_ACCESS_KEY`  | No§                       | Access key for the asset mirror                                                                                                                                               |
+| `STELLA_BLOB_S3_SECRET_KEY`  | No§                       | Secret key for the asset mirror                                                                                                                                               |
+| `STELLA_BLOB_S3_REGION`      | No                        | Optional S3 region                                                                                                                                                            |
+| `STELLA_BLOB_S3_USE_SSL`     | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                                                                       |
+| `ANTHROPIC_API_KEY`          | Yes\*                     | Anthropic provider key                                                                                                                                                        |
+| `OPENAI_API_KEY`             | Yes\*                     | OpenAI provider key                                                                                                                                                           |
+| `STELLA_VAULT_KEY`           | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                                                                 |
+| `STELLA_DOCKER_SANDBOX_MODE` | No‡                       | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                                                                                   |
+| `STELLA_HOME_HOST`           | No‡                       | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                                                                                   |
+| `STELLA_HOME_VOLUME`         | No‡                       | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                                                                            |
 
 \* At least one provider key is required. API keys can also be configured via the Web UI.
 
