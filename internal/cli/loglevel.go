@@ -2,15 +2,16 @@ package cli
 
 import (
 	"log/slog"
-	"os"
 	"strings"
 )
 
-// ParseLogLevel maps the LOG_LEVEL env var to slog.Level.
+// ParseLogLevel maps a LOG_LEVEL value to slog.Level.
 // Supported values: TRACE, DEBUG, INFO, WARN, ERROR (case-insensitive).
-// Defaults to DEBUG if unset or unrecognized.
-func ParseLogLevel() slog.Level {
-	switch strings.ToUpper(os.Getenv("LOG_LEVEL")) {
+// Defaults to DEBUG if empty or unrecognized. It is a pure function of its
+// argument: logging is configured before the server config is parsed, so the
+// caller (main) passes the raw environment value.
+func ParseLogLevel(raw string) slog.Level {
+	switch strings.ToUpper(raw) {
 	case "TRACE":
 		return slog.Level(-8)
 	case "DEBUG", "":

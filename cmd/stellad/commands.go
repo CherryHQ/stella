@@ -71,8 +71,11 @@ the server, or use "stellad service" to manage it as a background service.`,
 }
 
 type setupResult struct {
-	ctx                      context.Context
-	lifecycle                config.Lifecycle
+	ctx context.Context
+	// cfg is the parsed boot-time server config, carried so runServer reads the
+	// injected values (base URL, vault key, lifecycle, OIDC) instead of the
+	// environment. A secret it holds (Vault.Key) must never be logged.
+	cfg                      config.ServerConfig
 	db                       *pgxpool.Pool
 	embedded                 *appdb.Embedded
 	mem                      memory.Provider
@@ -373,7 +376,7 @@ func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error
 
 	result := &setupResult{
 		ctx:                      parent,
-		lifecycle:                cfg.Lifecycle,
+		cfg:                      cfg,
 		db:                       db,
 		embedded:                 embedded,
 		mem:                      memProvider,

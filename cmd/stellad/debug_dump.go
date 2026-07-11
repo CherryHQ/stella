@@ -21,15 +21,15 @@ import (
 //     Zero overhead, no pre-configuration: when the server wedges, run
 //     `kill -USR1 <pid>` and inspect where goroutines are parked (e.g.
 //     database/sql.(*DB).conn means connection-pool exhaustion).
-//   - Setting STELLA_PPROF_ADDR (e.g. 127.0.0.1:6060) starts a localhost
-//     pprof server exposing goroutine, heap, block, and mutex profiles.
-//     Block and mutex profiling carry overhead, so they activate only when
-//     the address is set.
+//   - A non-empty pprofAddr (STELLA_PPROF_ADDR, e.g. 127.0.0.1:6060) starts a
+//     localhost pprof server exposing goroutine, heap, block, and mutex
+//     profiles. Block and mutex profiling carry overhead, so they activate only
+//     when the address is set.
 //
 // Both stop when ctx is cancelled.
-func startDiagnostics(ctx context.Context) {
+func startDiagnostics(ctx context.Context, pprofAddr string) {
 	installGoroutineDumpHandler(ctx)
-	startPprofServer(ctx)
+	startPprofServer(ctx, pprofAddr)
 }
 
 func dumpGoroutines() {
@@ -55,8 +55,7 @@ func dumpGoroutines() {
 	slog.Warn("goroutine dump written", "path", path, "goroutines", runtime.NumGoroutine())
 }
 
-func startPprofServer(ctx context.Context) {
-	addr := os.Getenv("STELLA_PPROF_ADDR")
+func startPprofServer(ctx context.Context, addr string) {
 	if addr == "" {
 		return
 	}

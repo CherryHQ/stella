@@ -123,7 +123,7 @@ func serverAction(c *ucli.Context) error {
 		}
 	}()
 
-	startDiagnostics(ctx)
+	startDiagnostics(ctx, cfg.Diagnostics.PprofAddr)
 
 	s, err := setup(ctx, cfg)
 	if err != nil {
@@ -188,7 +188,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	defer workCancel()
 	g, gctx := errgroup.WithContext(workCtx)
 
-	warnDeploymentBaseURL(resolveBaseURL(adminHost, adminPort))
+	warnDeploymentBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort))
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
@@ -221,7 +221,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if s.recallySvc != nil {
 		adminSrv.SetRecallyService(s.recallySvc)
 	}
-	adminSrv.SetBaseURL(resolveBaseURL(adminHost, adminPort))
+	adminSrv.SetBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort))
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 	}
@@ -267,7 +267,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	oidcStore := appdb.NewOIDCStore(s.db)
 	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
 		DB:         s.db,
-		BaseURL:    resolveBaseURL(adminHost, adminPort),
+		BaseURL:    resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort),
 		VaultKey:   os.Getenv("STELLA_VAULT_KEY"),
 		AuthStores: oidcStore,
 	})
@@ -441,7 +441,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// pre-existing abort-startup semantics. onServing hands signal ownership over.
 	drainer := &drainSequence{
 		beginDrain:   adminSrv.BeginDrain,
-		httpTimeout:  s.lifecycle.HTTPShutdownTimeout,
+		httpTimeout:  s.cfg.Lifecycle.HTTPShutdownTimeout,
 		shutdownHTTP: httpSrv.Shutdown,
 		forceClose:   func() { _ = httpSrv.Close() },
 		cancelWork:   workCancel,
@@ -555,8 +555,11 @@ func adminBaseURL(host string, port int) string {
 	return "http://" + net.JoinHostPort(h, fmt.Sprintf("%d", port))
 }
 
-func resolveBaseURL(adminHost string, adminPort int) string {
-	if v := os.Getenv("STELLA_BASE_URL"); v != "" {
+// resolveBaseURL returns the canonical base URL: the configured STELLA_BASE_URL
+// (threaded in raw as baseURL, trailing slash trimmed here) when set, otherwise
+// one derived from the admin bind host.
+func resolveBaseURL(baseURL, adminHost string, adminPort int) string {
+	if v := baseURL; v != "" {
 		return strings.TrimRight(v, "/")
 	}
 	return adminBaseURL(adminHost, adminPort)
