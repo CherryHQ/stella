@@ -72,12 +72,14 @@ curl -X POST 'https://your-host/webhooks/deploy-notify?wait=true' \
   --data 'What is 2 + 2?'
 ```
 
-In synchronous mode the caller waits up to a fixed timeout (60 seconds) for the reply. If the agent is still working when the timeout hits, you get `504 Gateway Timeout` -- but the run keeps going in the background, and the response includes the `session_id` so you can inspect the result in the Web UI later.
+In synchronous mode the caller waits up to the channel's **wait timeout** (60 seconds by default, configurable per channel up to 10 minutes) for the reply. If the agent is still working when the timeout hits, you get `504 Gateway Timeout` -- but the run keeps going in the background, and the response includes the `session_id` so you can inspect the result in the Web UI later.
+
+Any other value than `true`/`false` (or `1`/`0`) for `?wait=` is rejected with `400 Bad Request`.
 
 ## Session modes
 
 - **Ephemeral** (default): every trigger starts a fresh session with no memory of previous calls. Best for stateless automation -- each payload is handled on its own.
-- **Persistent**: all triggers for this webhook share one long-lived session, so the agent accumulates context across calls. Best when later triggers should build on earlier ones.
+- **Persistent**: each caller keeps one long-lived session per webhook, so the agent accumulates that caller's context across calls. Different callers never share a session -- each PAT user gets their own. Best when later triggers should build on earlier ones.
 
 > **Persistent sessions and concurrency:** a persistent session runs one trigger at a time. If a trigger arrives while a previous run is still in flight, it is rejected with `429 Too Many Requests` (in both reply modes) -- wait for the in-flight run to finish and retry. Ephemeral mode is not affected: every trigger gets its own session.
 
@@ -89,14 +91,16 @@ In synchronous mode the caller waits up to a fixed timeout (60 seconds) for the 
 | ----------------------- | --------------------------------------------------------------------------- |
 | `200 OK`                | Synchronous run finished; body carries `output`                             |
 | `202 Accepted`          | Asynchronous run started; body carries `session_id`                         |
-| `400 Bad Request`       | Empty body                                                                  |
+| `400 Bad Request`       | Empty body, or invalid `?wait=` value                                       |
 | `401 Unauthorized`      | Missing, invalid, or non-PAT token                                          |
 | `403 Forbidden`         | Token lacks `agent:write`, or its user isn't allowed to run the bound agent |
 | `404 Not Found`         | No webhook with that ID                                                     |
-| `409 Conflict`          | Webhook or bound agent is disabled, or no agent is bound                    |
+| `409 Conflict`          | Webhook disabled, no agent bound, or bound agent missing/disabled           |
 | `413 Payload Too Large` | Body exceeds 256 KiB                                                        |
 | `429 Too Many Requests` | Rate limit exceeded, or the persistent session is busy with another run     |
+| `500 Internal Error`    | Invalid webhook config, or session creation failed                          |
 | `502 Bad Gateway`       | The agent run failed                                                        |
+| `503 Unavailable`       | The bound agent's runtime is not available                                  |
 | `504 Gateway Timeout`   | Synchronous wait timed out; the run continues in the background             |
 
 ## Limits
@@ -104,6 +108,7 @@ In synchronous mode the caller waits up to a fixed timeout (60 seconds) for the 
 - **Payload size:** up to 256 KiB per request.
 - **Rate limit:** each webhook allows a short burst and then a steady trickle; sustained flooding returns `429`.
 - **Concurrency:** at most 10 runs of one webhook may be in flight at once; extra triggers return `429` until a run finishes.
+- **Session history:** in ephemeral mode every trigger creates a new session, so a high-volume webhook accumulates session records over time. Prune old sessions from the Web UI if the list grows noisy.
 
 ## Troubleshooting
 

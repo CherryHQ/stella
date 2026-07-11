@@ -71,7 +71,7 @@ func configSchema() map[string]any {
 			"session_mode": map[string]any{
 				"type":        "string",
 				"enum":        []any{pkgchannel.WebhookSessionEphemeral, pkgchannel.WebhookSessionPersistent},
-				"description": "ephemeral: fresh session per trigger (default). persistent: one stable session per webhook.",
+				"description": "ephemeral: fresh session per trigger (default). persistent: one stable session per caller per webhook.",
 			},
 		},
 	}

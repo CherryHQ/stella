@@ -72,12 +72,14 @@ curl -X POST 'https://your-host/webhooks/deploy-notify?wait=true' \
   --data '2 + 2 等于几？'
 ```
 
-在同步模式下，调用方最多等待一个固定超时（60 秒）来获取回复。如果超时时 Agent 仍在运行，你会收到 `504 Gateway Timeout`——但运行会在后台继续，且响应里包含 `session_id`，你稍后可以在 Web UI 中查看结果。
+在同步模式下，调用方最多等待渠道配置的**等待超时**（默认 60 秒，可按渠道配置，上限 10 分钟）来获取回复。如果超时时 Agent 仍在运行，你会收到 `504 Gateway Timeout`——但运行会在后台继续，且响应里包含 `session_id`，你稍后可以在 Web UI 中查看结果。
+
+`?wait=` 传入 `true`/`false`（或 `1`/`0`）以外的值会被拒绝并返回 `400 Bad Request`。
 
 ## 会话模式
 
 - **临时**（默认）：每次触发都开启一个全新会话，不记得之前的调用。适合无状态自动化——每段负载独立处理。
-- **持久**：该 webhook 的所有触发共享一个长期会话，Agent 会在多次调用间累积上下文。适合后续触发需要基于之前触发的场景。
+- **持久**：每个调用者在该 webhook 上保留一个长期会话，Agent 会在该调用者的多次调用间累积上下文。不同调用者不共享会话——每个 PAT 用户有自己的会话。适合后续触发需要基于之前触发的场景。
 
 > **持久会话与并发：** 持久会话同一时间只处理一次触发。如果上一次运行还未结束时又有触发到达，该请求会被拒绝并返回 `429 Too Many Requests`（两种回复模式都如此）——请等在途运行结束后重试。临时模式不受影响：每次触发都有自己的会话。
 
@@ -89,14 +91,16 @@ curl -X POST 'https://your-host/webhooks/deploy-notify?wait=true' \
 | ----------------------- | ---------------------------------------------------- |
 | `200 OK`                | 同步运行完成；正文携带 `output`                      |
 | `202 Accepted`          | 异步运行已启动；正文携带 `session_id`                |
-| `400 Bad Request`       | 正文为空                                             |
+| `400 Bad Request`       | 正文为空，或 `?wait=` 值非法                         |
 | `401 Unauthorized`      | 令牌缺失、无效或不是 PAT                             |
 | `403 Forbidden`         | 令牌缺少 `agent:write`，或其用户无权运行绑定的 Agent |
 | `404 Not Found`         | 没有该 ID 的 webhook                                 |
-| `409 Conflict`          | webhook 或绑定 Agent 被禁用，或未绑定 Agent          |
+| `409 Conflict`          | webhook 被禁用、未绑定 Agent，或绑定 Agent 缺失/禁用 |
 | `413 Payload Too Large` | 正文超过 256 KiB                                     |
 | `429 Too Many Requests` | 触发超出速率限制，或持久会话正被另一次运行占用       |
+| `500 Internal Error`    | webhook 配置无效，或创建会话失败                     |
 | `502 Bad Gateway`       | Agent 运行失败                                       |
+| `503 Unavailable`       | 绑定 Agent 的运行时不可用                            |
 | `504 Gateway Timeout`   | 同步等待超时；运行在后台继续                         |
 
 ## 限制
@@ -104,6 +108,7 @@ curl -X POST 'https://your-host/webhooks/deploy-notify?wait=true' \
 - **负载大小：** 每次请求最多 256 KiB。
 - **速率限制：** 每个 webhook 允许短时突发，之后稳定放行；持续洪泛会返回 `429`。
 - **并发上限：** 单个 webhook 同时最多 10 次运行在途；超出的触发会返回 `429`，直到有运行结束。
+- **会话记录：** 临时模式下每次触发都会新建一个会话，高频 webhook 会随时间累积会话记录。如果列表变得杂乱，可在 Web UI 中清理旧会话。
 
 ## 故障排查
 

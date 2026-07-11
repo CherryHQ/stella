@@ -63,8 +63,9 @@ const (
 )
 
 // WebhookConfig is the persisted config for the inbound webhook channel.
-// The user + agent binding lives on the channel row (user_id / agent_id), not
-// here; this holds only behavioural knobs.
+// The agent binding lives on the channel row (agent_id), not here; there is no
+// user binding — each run executes as the calling PAT's user. This holds only
+// behavioural knobs.
 type WebhookConfig struct {
 	// DefaultWait selects synchronous (true) vs. fire-and-forget (false) when a
 	// request does not set the ?wait query parameter.
@@ -75,7 +76,7 @@ type WebhookConfig struct {
 	// MaxRunTimeoutSeconds is the hard ceiling on the agent run itself.
 	MaxRunTimeoutSeconds int `json:"max_run_timeout_seconds"`
 	// SessionMode is "ephemeral" (fresh session per trigger, default) or
-	// "persistent" (one stable session per webhook instance).
+	// "persistent" (one stable session per caller per webhook instance).
 	SessionMode string `json:"session_mode"`
 }
 
