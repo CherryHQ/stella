@@ -1,0 +1,20 @@
+apiVersion: v2
+name: stella
+description: Stella — a multi-tenant, multi-user, multi-agent AI assistant platform. Single-replica production chart.
+type: application
+# Chart version — bump on chart changes, independent of the app version.
+version: 0.1.0
+# appVersion tracks the Stella release the chart is validated against; it is the
+# default image tag. Update it in lockstep with the published container image.
+appVersion: "0.50.4"
+home: https://stella.cherryin.com
+sources:
+  - https://github.com/CherryHQ/stella
+keywords:
+  - ai
+  - assistant
+  - agent
+  - self-hosted
+maintainers:
+  - name: CherryHQ
+    email: hello@cherryin.com

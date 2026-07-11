@@ -1,0 +1,123 @@
+{{- include "stella.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stella.fullname" . }}
+  labels:
+    {{- include "stella.labels" . | nindent 4 }}
+spec:
+  # Single replica only; enforced by stella.validate. Recreate avoids two pods
+  # ever running at once (they would fight over the RWO volume, the IM channel
+  # ingress, and in-process session state).
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "stella.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "stella.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "stella.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      terminationGracePeriodSeconds: {{ int .Values.shutdown.terminationGracePeriodSeconds }}
+      containers:
+        - name: stella
+          image: {{ include "stella.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 25678
+              protocol: TCP
+          env:
+            - name: STELLA_BASE_URL
+              value: {{ .Values.baseURL | quote }}
+            - name: STELLA_SANDBOX_BACKEND
+              value: {{ .Values.sandbox.backend | quote }}
+            - name: STELLA_HTTP_SHUTDOWN_TIMEOUT
+              value: {{ printf "%ds" (int .Values.shutdown.httpSeconds) | quote }}
+            - name: STELLA_RIVER_SOFT_STOP_TIMEOUT
+              value: {{ printf "%ds" (int .Values.shutdown.riverSoftStopSeconds) | quote }}
+            - name: STELLA_VAULT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | quote }}
+                  key: {{ .Values.secrets.keys.vaultKey | quote }}
+            - name: STELLA_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | quote }}
+                  key: {{ .Values.secrets.keys.databaseURL | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /home/stella/.stella
+          lifecycle:
+            preStop:
+              exec:
+                # The app has not received SIGTERM yet during preStop; this sleep
+                # only gives endpoint removal time to propagate so the load
+                # balancer stops routing new traffic before the drain begins.
+                command: ["/bin/sleep", {{ int .Values.shutdown.preStopSeconds | quote }}]
+          # startupProbe gates liveness/readiness until the process is serving,
+          # covering migrations, seed, and plugin reconcile (5s * 60 = 5 min).
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: data
+        {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "stella.pvcName" . }}
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

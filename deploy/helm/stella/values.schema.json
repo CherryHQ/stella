@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Stella Helm values",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "replicaCount",
+    "image",
+    "baseURL",
+    "secrets",
+    "sandbox",
+    "shutdown",
+    "persistence",
+    "service"
+  ],
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "description": "Must be 1; multi-replica is unsupported."
+    },
+    "image": {
+      "type": "object",
+      "required": ["repository", "pullPolicy"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"]
+        }
+      }
+    },
+    "imagePullSecrets": { "type": "array" },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "baseURL": { "type": "string" },
+    "secrets": {
+      "type": "object",
+      "required": ["existingSecret", "keys"],
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "keys": {
+          "type": "object",
+          "required": ["vaultKey", "databaseURL"],
+          "properties": {
+            "vaultKey": { "type": "string", "minLength": 1 },
+            "databaseURL": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "required": ["backend"],
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["", "local", "none"],
+          "description": "docker is intentionally unsupported by this chart."
+        },
+        "allowUnsafeHostExecution": { "type": "boolean" }
+      }
+    },
+    "shutdown": {
+      "type": "object",
+      "required": [
+        "preStopSeconds",
+        "httpSeconds",
+        "riverSoftStopSeconds",
+        "terminationGracePeriodSeconds"
+      ],
+      "properties": {
+        "preStopSeconds": { "type": "integer", "minimum": 0 },
+        "httpSeconds": { "type": "integer", "minimum": 1 },
+        "riverSoftStopSeconds": { "type": "integer", "minimum": 1 },
+        "terminationGracePeriodSeconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "size": { "type": "string" },
+        "accessMode": {
+          "type": "string",
+          "enum": ["ReadWriteOnce", "ReadWriteOncePod"]
+        },
+        "storageClass": { "type": "string" },
+        "existingClaim": { "type": "string" }
+      }
+    },
+    "service": {
+      "type": "object",
+      "required": ["type", "port"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["ClusterIP", "NodePort", "LoadBalancer"]
+        },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "annotations": { "type": "object" },
+        "hosts": { "type": "array" },
+        "tls": { "type": "array" }
+      }
+    },
+    "resources": { "type": "object" },
+    "extraEnv": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "podAnnotations": { "type": "object" },
+    "podLabels": { "type": "object" },
+    "nodeSelector": { "type": "object" },
+    "tolerations": { "type": "array" },
+    "affinity": { "type": "object" }
+  }
+}

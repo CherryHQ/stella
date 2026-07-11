@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "stella.fullname" . }}
+  labels:
+    {{- include "stella.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "stella.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ int .Values.service.port }}
+      targetPort: http
+      protocol: TCP

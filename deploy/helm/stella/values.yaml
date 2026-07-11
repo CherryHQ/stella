@@ -1,0 +1,122 @@
+# Default values for the Stella chart.
+# Stella runs as a single replica (see the "Why only one replica?" section of
+# the Kubernetes deployment docs). Values that have no safe default are left
+# empty and rejected at render time with an actionable message.
+
+# Stella does not support multiple replicas. This must be 1; any other value
+# fails rendering. The Deployment strategy is hard-wired to Recreate and is not
+# configurable.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/cherryhq/stella
+  # Empty tag defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Names of image pull secrets (for a private registry).
+imagePullSecrets: []
+# - name: my-registry-creds
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Public, externally reachable URL clients see (STELLA_BASE_URL). Used for OAuth
+# callback URLs and channel deep links, so it must be the ingress address, never
+# a loopback. Required.
+baseURL: ""
+
+# Stella's required secrets are read from a Secret you create out-of-band. The
+# chart only references it; it never creates or templates secret material.
+# Deliberate ceiling: no in-chart secret creation until a demo path needs it.
+secrets:
+  # Name of a pre-existing Secret holding STELLA_VAULT_KEY and STELLA_DATABASE_URL.
+  # Required.
+  existingSecret: ""
+  # Keys within that Secret. Defaults match the environment variable names, so a
+  # `kubectl create secret generic ... --from-literal=STELLA_VAULT_KEY=...` works
+  # without further configuration.
+  keys:
+    vaultKey: STELLA_VAULT_KEY
+    databaseURL: STELLA_DATABASE_URL
+
+sandbox:
+  # Which sandbox backend agent tools use. Required, no default. One of:
+  #   local — bubblewrap isolation. EXPERIMENTAL: needs a cluster that permits
+  #           unprivileged user namespaces. The chart adds no privileges and
+  #           mounts no docker socket.
+  #   none  — no sandbox isolation. Agent tools run directly inside the Stella
+  #           pod. This does NOT disable agent tools; it removes their isolation.
+  # The `docker` backend is intentionally unsupported here (no docker socket).
+  backend: ""
+  # Must be true when backend is "none" to acknowledge that agent tools execute
+  # unsandboxed inside the pod. Ignored for other backends.
+  allowUnsafeHostExecution: false
+
+# Two-phase graceful-shutdown budget, in whole seconds. See the deployment docs
+# for how these combine. Rendering fails when the termination grace period is
+# too small to cover the full drain.
+shutdown:
+  # preStop sleep: buys time for endpoint removal to propagate before SIGTERM.
+  preStopSeconds: 10
+  # STELLA_HTTP_SHUTDOWN_TIMEOUT: in-flight HTTP drain budget.
+  httpSeconds: 60
+  # STELLA_RIVER_SOFT_STOP_TIMEOUT: in-flight background-job drain budget.
+  riverSoftStopSeconds: 120
+  # Pod terminationGracePeriodSeconds. Must be >= preStop + http + river + 10.
+  terminationGracePeriodSeconds: 200
+
+# Persistent storage for STELLA_HOME (/home/stella/.stella).
+persistence:
+  enabled: true
+  size: 10Gi
+  accessMode: ReadWriteOnce
+  # Empty uses the cluster default StorageClass; "-" disables dynamic provisioning.
+  storageClass: ""
+  # Reuse a PVC you manage yourself instead of one created by the chart.
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 25678
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: stella.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  # tls:
+  #   - secretName: stella-tls
+  #     hosts:
+  #       - stella.example.com
+  tls: []
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+# Extra plain environment variables passed through verbatim. Use this for
+# optional integrations (S3 asset mirror STELLA_BLOB_S3_*, OIDC_*, provider API
+# keys). Keep secret values in the Secret referenced above, not here.
+extraEnv: []
+# - name: STELLA_BLOB_S3_ENDPOINT
+#   value: https://s3.example.com
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
