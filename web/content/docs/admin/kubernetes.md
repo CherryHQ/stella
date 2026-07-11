@@ -94,7 +94,7 @@ install with `-f values.yaml`.
 | ---------------------------------------- | ------------------------------- | ------------------------------------------------------------------ |
 | `replicaCount`                           | `1`                             | Must be `1`. Any other value is rejected.                          |
 | `image.repository`                       | `ghcr.io/cherryhq/stella`       | Container image.                                                   |
-| `image.tag`                              | `""`                            | Defaults to the chart's `appVersion`.                              |
+| `image.tag`                              | `""`                            | Defaults to `latest`; pin a version tag or digest for production.  |
 | `image.digest`                           | `""`                            | `sha256:…` digest; pins the image and overrides `tag`.             |
 | `image.pullPolicy`                       | `IfNotPresent`                  |                                                                    |
 | `imagePullSecrets`                       | `[]`                            | For a private registry.                                            |

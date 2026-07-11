@@ -86,7 +86,7 @@ kubectl -n stella port-forward svc/stella 25678:25678
 | ---------------------------------------- | ------------------------------- | ------------------------------------------------------------- |
 | `replicaCount`                           | `1`                             | 必须为 `1`，其他值一律拒绝。                                  |
 | `image.repository`                       | `ghcr.io/cherryhq/stella`       | 容器镜像。                                                    |
-| `image.tag`                              | `""`                            | 为空时用 chart 的 `appVersion`。                              |
+| `image.tag`                              | `""`                            | 为空时用 `latest`；生产建议固定版本 tag 或 digest。           |
 | `image.digest`                           | `""`                            | `sha256:…` 摘要；固定镜像并覆盖 `tag`。                       |
 | `image.pullPolicy`                       | `IfNotPresent`                  |                                                               |
 | `imagePullSecrets`                       | `[]`                            | 私有 registry 用。                                            |

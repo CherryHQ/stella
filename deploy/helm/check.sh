@@ -79,9 +79,9 @@ assert_contains "vault key secretKeyRef"     'key: "STELLA_VAULT_KEY"'
 assert_contains "database secretKeyRef"      'key: "STELLA_DATABASE_URL"'
 assert_contains "pvc kept on uninstall"      "helm.sh/resource-policy: keep"
 assert_contains "image repo"                 "ghcr.io/cherryhq/stella"
-# Default tag comes from Chart.appVersion; published image tags carry a leading
-# "v", so the default MUST render "…:v…" or the out-of-box pull 404s.
-assert_contains "default tag has v prefix"   "ghcr.io/cherryhq/stella:v"
+# Empty image.tag defaults to "latest" so a fresh install tracks the newest
+# published release (a pinned appVersion could point at an incompatible image).
+assert_contains "default tag is latest"      "ghcr.io/cherryhq/stella:latest"
 assert_contains "explicit bind all"          'value: "0.0.0.0"'
 assert_contains "explicit external db"       "STELLA_REQUIRE_EXTERNAL_DB"
 assert_contains "readiness probe timeout"    "timeoutSeconds: 3"

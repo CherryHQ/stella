@@ -64,7 +64,7 @@ otherwise repository:tag, with tag defaulting to the chart's appVersion.
 {{- if .Values.image.digest -}}
 {{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
 {{- else -}}
-{{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
+{{- $tag := .Values.image.tag | default "latest" -}}
 {{- printf "%s:%s" .Values.image.repository $tag -}}
 {{- end -}}
 {{- end -}}

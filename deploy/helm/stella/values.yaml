@@ -10,11 +10,14 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/cherryhq/stella
-  # Empty tag defaults to the chart's appVersion.
+  # Empty tag defaults to "latest" (tracks the newest published release). For
+  # reproducible/production deploys pin a version tag (e.g. v0.50.5) or a digest.
   tag: ""
   # Immutable digest (e.g. "sha256:abc..."). When set it pins the image and
   # takes precedence over tag; recommended for production.
   digest: ""
+  # With tag "latest" + IfNotPresent a node reuses its cached image; set Always
+  # (or pin a digest) if a restart must pull the newest "latest".
   pullPolicy: IfNotPresent
 
 # Names of image pull secrets (for a private registry).
