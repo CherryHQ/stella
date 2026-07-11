@@ -19,6 +19,7 @@ const (
 	PlatformFeishu   = "feishu"
 	PlatformWeixin   = "weixin"
 	PlatformCLI      = "cli"
+	PlatformWebhook  = "webhook"
 )
 
 // Channel is a messaging platform adapter.

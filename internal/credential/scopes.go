@@ -8,6 +8,13 @@ const (
 	ActionWrite = "write"
 )
 
+// ScopeAgentWrite guards posting messages / triggering an agent run. The
+// webhook ingress (POST /webhooks/{id}) is auth-exempt and bypasses Enforce,
+// so it checks this constant directly; defining it here ties that surface to
+// the same catalog mapping scopeForMethod applies to the equivalent /api
+// routes (see TestScopeAgentWriteMatchesRouteMapping).
+const ScopeAgentWrite = "agent:" + ActionWrite
+
 // Scope is one entry in the authoritative API-permission catalog. These are the
 // resource:action permissions checked at the HTTP boundary. They are a DIFFERENT
 // axis from skill/vault storage scopes (system / user / agent ownership) -- do

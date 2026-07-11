@@ -133,6 +133,14 @@ func buildPublicChannelViews(channels []config.Channel, enabledTypes map[string]
 		if !ch.Enabled || !enabledTypes[channelType] {
 			continue
 		}
+		// Webhooks are inbound triggers with no linkable identity; they never
+		// belong in the user-facing channel list (the link-code flow rejects
+		// them, and the list keys by type so duplicates would collide).
+		// Upgrade to a plugin capability flag when the next runtime-less
+		// channel type lands.
+		if channelType == pkgchannel.PlatformWebhook {
+			continue
+		}
 		agentName := ""
 		if ch.AgentID != "" {
 			var ok bool
@@ -260,6 +268,13 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// POST is create-only: silently upserting would let a re-POST overwrite an
+	// existing channel's config and flip a deliberately disabled webhook back on.
+	if _, err := s.store.GetChannel(r.Context(), req.ID); err == nil {
+		writeError(w, http.StatusConflict, "channel already exists")
+		return
+	}
+
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON")
@@ -271,6 +286,9 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		Name:    req.Name,
 		Type:    channelType,
 		AgentID: requestAgentID(req),
+		// Bot channels start disabled until their runtime is configured/scanned;
+		// a webhook has no runtime, so it goes live the moment it's created.
+		Enabled: channelType == pkgchannel.PlatformWebhook,
 	}
 	s.saveChannel(w, r, ch, cfgMap, http.StatusCreated)
 }
@@ -308,10 +326,15 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 	}
 
 	enabled := false
-	if req.Enabled != nil {
+	switch {
+	case req.Enabled != nil:
 		enabled = *req.Enabled
-	} else if hasExisting {
+	case hasExisting:
 		enabled = existing.Enabled
+	case channelType == pkgchannel.PlatformWebhook:
+		// PUT-created webhooks match POST semantics: no runtime to configure,
+		// so they go live on creation unless explicitly disabled.
+		enabled = true
 	}
 
 	return config.Channel{
@@ -324,6 +347,12 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 }
 
 func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.Channel, cfgMap map[string]any, status int) bool {
+	// A webhook is a runtime-less trigger: it must name the agent it runs, but
+	// its caller is resolved dynamically from the PAT (not bound to one user).
+	if ch.Type == pkgchannel.PlatformWebhook && ch.AgentID == "" {
+		writeError(w, http.StatusBadRequest, "webhook channel requires a bound agent")
+		return false
+	}
 	if conflict, err := s.channelAgentPlatformBindingConflict(r.Context(), ch); err != nil {
 		s.writeInternalError(w, err)
 		return false
@@ -364,6 +393,11 @@ func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.C
 
 func (s *Server) channelAgentPlatformBindingConflict(ctx context.Context, ch config.Channel) (string, error) {
 	if ch.AgentID == "" || ch.Type == "" {
+		return "", nil
+	}
+	// Webhooks are inbound triggers, not a single bidirectional binding: an agent
+	// may back many webhook endpoints, so the one-per-agent rule does not apply.
+	if ch.Type == pkgchannel.PlatformWebhook {
 		return "", nil
 	}
 	channels, err := s.store.ListChannels(ctx)

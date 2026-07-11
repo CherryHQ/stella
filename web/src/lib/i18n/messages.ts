@@ -1769,6 +1769,18 @@ const en = {
   "channels.scanNeedsAgent": "Bind this channel to an agent before starting QR setup.",
   "channels.scanExpired": "QR code expired. Try again.",
   "channels.waiting": "Waiting",
+  // Webhook channel
+  "channels.webhookDefaultWait": "Wait for reply by default",
+  "channels.webhookDefaultWaitDesc":
+    "When on, callers get the agent reply synchronously unless they pass ?wait=false. Off means fire-and-forget (202).",
+  "channels.webhookSessionMode": "Session mode",
+  "channels.webhookSessionEphemeral": "Ephemeral — fresh session per request",
+  "channels.webhookSessionPersistent": "Persistent — each caller keeps a long-lived session",
+  "channels.webhookUrl": "Ingress URL",
+  "channels.webhookUrlDesc":
+    "POST your payload here with a Bearer PAT (agent:write scope); the agent runs as the PAT's user.",
+  "channels.copy": "copy",
+  "channels.copied": "Copied",
 
   // Automations schedule detail
   "automations.scheduleField": "Schedule",
@@ -3594,6 +3606,18 @@ const zh: Record<MessageKey, string> = {
   "channels.scanNeedsAgent": "先把这个频道绑定到 Agent，再开始扫码配置。",
   "channels.scanExpired": "二维码已过期，请重试。",
   "channels.waiting": "等待中",
+  // Webhook channel
+  "channels.webhookDefaultWait": "默认等待回复",
+  "channels.webhookDefaultWaitDesc":
+    "开启后，除非调用方传入 ?wait=false，否则同步返回 Agent 回复；关闭则为异步触发（202）。",
+  "channels.webhookSessionMode": "会话模式",
+  "channels.webhookSessionEphemeral": "临时 — 每次请求新建会话",
+  "channels.webhookSessionPersistent": "持久 — 每个调用者保留一个长期会话",
+  "channels.webhookUrl": "接入 URL",
+  "channels.webhookUrlDesc":
+    "用具备 agent:write 权限的 Bearer PAT 向此地址 POST 负载，Agent 以该 PAT 所属用户的身份运行。",
+  "channels.copy": "复制",
+  "channels.copied": "已复制",
 
   // Automations schedule detail
   "automations.scheduleField": "计划",

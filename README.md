@@ -50,13 +50,14 @@ See the [full quickstart guide](web/content/docs/getting-started/quickstart.md) 
 
 All channels share the same memory. Chat from one, switch to another, and Stella picks up where you left off.
 
-| Channel  | How to connect             | Streaming support |
-| -------- | -------------------------- | ----------------- |
-| Terminal | Built-in TUI               | Token-by-token    |
-| Telegram | Long polling, no public IP | Yes               |
-| QQ       | WebSocket                  | Yes               |
-| Feishu   | WebSocket, no public IP    | Edit-in-place     |
-| WeChat   | Long polling (iLink Bot)   | No                |
+| Channel  | How to connect               | Streaming support |
+| -------- | ---------------------------- | ----------------- |
+| Terminal | Built-in TUI                 | Token-by-token    |
+| Telegram | Long polling, no public IP   | Yes               |
+| QQ       | WebSocket                    | Yes               |
+| Feishu   | WebSocket, no public IP      | Edit-in-place     |
+| WeChat   | Long polling (iLink Bot)     | No                |
+| Webhook  | Inbound HTTP POST with a PAT | No (sync or 202)  |
 
 You can bind a channel to a specific agent, or let users switch agents with `/agent`.
 
@@ -66,12 +67,12 @@ Skills are reusable playbooks that teach Stella how to perform specific tasks. S
 
 ## Documentation
 
-| Section         | What's inside                             | Link                                            |
-| --------------- | ----------------------------------------- | ----------------------------------------------- |
-| Getting Started | Install, deploy, configure                | [Quick Start](/docs/getting-started/quickstart) |
-| Guides          | Memory, scheduling, skills, notifications | [Guides](/docs/guides/memory)                   |
-| Channels        | Telegram, QQ, Feishu, WeChat setup        | [Channels](/docs/channels/telegram)             |
-| Development     | Architecture, plugins, contributing       | [Development](/docs/development/architecture)   |
+| Section         | What's inside                               | Link                                            |
+| --------------- | ------------------------------------------- | ----------------------------------------------- |
+| Getting Started | Install, deploy, configure                  | [Quick Start](/docs/getting-started/quickstart) |
+| Guides          | Memory, scheduling, skills, notifications   | [Guides](/docs/guides/memory)                   |
+| Channels        | Telegram, QQ, Feishu, WeChat, Webhook setup | [Channels](/docs/channels/telegram)             |
+| Development     | Architecture, plugins, contributing         | [Development](/docs/development/architecture)   |
 
 ## CLI reference
 

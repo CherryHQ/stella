@@ -42,3 +42,25 @@ func (s *Server) agentReadRequest(subject auth.Subject, a config.Agent) auth.Acc
 		},
 	}
 }
+
+// canExecuteAgent checks if the user may run a specific agent.
+func (s *Server) canExecuteAgent(ctx context.Context, info *AuthInfo, a config.Agent) bool {
+	subject, err := s.agentAccessSubject(ctx, info)
+	if err != nil {
+		s.log.Error("list user agent IDs for execute check", "user_id", info.UserID, "error", err)
+		return false
+	}
+	return s.engine.Can(ctx, s.agentExecuteRequest(subject, a))
+}
+
+func (s *Server) agentExecuteRequest(subject auth.Subject, a config.Agent) auth.AccessRequest {
+	return auth.AccessRequest{
+		Subject: subject,
+		Action:  auth.ActionExecute,
+		Resource: auth.Resource{
+			Type:  auth.ResourceAgent,
+			ID:    a.ID,
+			Attrs: map[string]any{"scope": a.Scope},
+		},
+	}
+}

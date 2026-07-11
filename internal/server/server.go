@@ -93,6 +93,8 @@ type Server struct {
 	// runtimeCtx is canceled by the process/service lifecycle; request handlers
 	// derive long-running work from it instead of client connections.
 	runtimeCtx context.Context
+	// webhookLimiter throttles accepted webhook ingress calls per instance.
+	webhookLimiter *webhookLimiter
 }
 
 // New creates an admin server with all API routes mounted.
@@ -116,26 +118,27 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 
 	log := slog.With("component", "admin")
 	s := &Server{
-		store:       store,
-		authStore:   authStore,
-		engine:      engine,
-		rateLimiter: auth.NewRateLimiter(),
-		linkCodes:   linkCodes,
-		mem:         mem,
-		poolManager: poolManager,
-		db:          db,
-		pluginHost:  pluginHost,
-		q:           sqlc.New(db),
-		mux:         http.NewServeMux(),
-		log:         log,
-		baseURL:     defaultBaseURL,
-		credSvc:     credSvc,
-		emailSvc:    emailSvc,
-		shareSvc:    shareSvc,
-		recallySvc:  recallySvc,
-		recally:     newRecallyHandlersWithService(recallyStore, recallySvc, log),
-		startedAt:   time.Now(),
-		runtimeCtx:  ctx,
+		store:          store,
+		authStore:      authStore,
+		engine:         engine,
+		rateLimiter:    auth.NewRateLimiter(),
+		webhookLimiter: newWebhookLimiter(5, 20),
+		linkCodes:      linkCodes,
+		mem:            mem,
+		poolManager:    poolManager,
+		db:             db,
+		pluginHost:     pluginHost,
+		q:              sqlc.New(db),
+		mux:            http.NewServeMux(),
+		log:            log,
+		baseURL:        defaultBaseURL,
+		credSvc:        credSvc,
+		emailSvc:       emailSvc,
+		shareSvc:       shareSvc,
+		recallySvc:     recallySvc,
+		recally:        newRecallyHandlersWithService(recallyStore, recallySvc, log),
+		startedAt:      time.Now(),
+		runtimeCtx:     ctx,
 	}
 
 	s.registerRoutes()
