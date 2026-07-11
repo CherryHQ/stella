@@ -163,6 +163,10 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		Channel:   session.Channel(si.Channel),
 		Message:   msgContent,
 	})
+	// Deliberately NOT drain-cancelled: the turn above runs on the request
+	// context, so ending this stream at drain start would kill the in-flight
+	// turn — the exact work the graceful HTTP shutdown budget exists to finish.
+	// The stream ends when the turn completes; force-close is the backstop.
 	streamAgentEvents(r.Context(), w, flusher, agentID, sessionID, ch)
 }
 
@@ -428,7 +432,9 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 
-	streamAgentEvents(r.Context(), w, flusher, agentID, sessionID, ch)
+	sctx, cancel := s.readiness.streamContext(r.Context())
+	defer cancel()
+	streamAgentEvents(sctx, w, flusher, agentID, sessionID, ch)
 }
 
 // partsToMessageContent converts API MessageParts to internal MessageContent.

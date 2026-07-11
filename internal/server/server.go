@@ -95,6 +95,9 @@ type Server struct {
 	runtimeCtx context.Context
 	// webhookLimiter throttles accepted webhook ingress calls per instance.
 	webhookLimiter *webhookLimiter
+	// readiness backs the /healthz and /readyz infrastructure probes and carries
+	// the graceful-drain signal streaming handlers watch.
+	readiness *readiness
 }
 
 // New creates an admin server with all API routes mounted.
@@ -140,11 +143,23 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		startedAt:      time.Now(),
 		runtimeCtx:     ctx,
 	}
+	// Drain signal is a child of runtimeCtx so a hard process stop also releases
+	// streaming handlers. The pool answers the /readyz liveness ping.
+	s.readiness = newReadiness(ctx, db)
 
 	s.registerRoutes()
 
 	return s
 }
+
+// MarkStartupComplete makes /readyz eligible to report ready. The gateway calls
+// it once every subsystem has started, just before it blocks on shutdown.
+func (s *Server) MarkStartupComplete() { s.readiness.markStartupComplete() }
+
+// BeginDrain starts graceful shutdown from the server's side: /readyz flips to
+// 503 and streaming handlers unwind. The shutdown orchestrator calls it before
+// it touches the HTTP listener.
+func (s *Server) BeginDrain() { s.readiness.beginDrain() }
 
 // LinkCodes returns the link code store for use by channel handlers.
 func (s *Server) LinkCodes() *auth.LinkCodeStore {

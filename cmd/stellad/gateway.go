@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -81,11 +82,42 @@ func serverAction(c *ucli.Context) error {
 		cleanStaleUpgradeArtifacts(installDir)
 	}
 
-	ctx, cancel := signal.NotifyContext(c.Context, syscall.SIGINT, syscall.SIGTERM)
+	// Parse the shutdown-lifecycle env vars once, up front, so a misconfigured
+	// duration fails fast before any subsystem starts.
+	lifecycle, err := config.LoadLifecycle()
+	if err != nil {
+		return err
+	}
+
+	// Signals are handled manually, not via signal.NotifyContext: once serving,
+	// the first SIGINT/SIGTERM must start a graceful drain without cancelling
+	// work contexts, and only a second signal hard-stops. This base context is
+	// cancelled by the cleanup defers below — or by a signal DURING STARTUP,
+	// where "abort setup" (stopping the embedded PostgreSQL via the defers, not
+	// killing the process with a live postmaster) is the old NotifyContext
+	// behavior we must keep. runServer hands the channel over to the drain
+	// supervisor once subsystems are up.
+	ctx, cancel := context.WithCancel(c.Context)
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	startupDone := make(chan struct{})
+	var handoff sync.Once
+	endStartupWatch := func() { handoff.Do(func() { close(startupDone) }) }
+	// Release the watcher even when startup fails before runServer hands off.
+	defer endStartupWatch()
+	go func() {
+		select {
+		case <-sigCh:
+			slog.Info("shutdown signal during startup; aborting")
+			cancel()
+		case <-startupDone:
+		}
+	}()
 
 	startDiagnostics(ctx)
 
-	s, err := setup(ctx, true)
+	s, err := setup(ctx, lifecycle)
 	if err != nil {
 		cancel()
 		return err
@@ -130,11 +162,23 @@ func serverAction(c *ucli.Context) error {
 	}
 	switchFn := func(_, _ string) error { return nil }
 
-	return runServer(s.ctx, s, listFn, switchFn, c.String("host"), c.Int("port"))
+	return runServer(s.ctx, s, listFn, switchFn, c.String("host"), c.Int("port"), sigCh, endStartupWatch)
 }
 
-func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
-	g, gctx := errgroup.WithContext(ctx)
+// runServer starts every subsystem and blocks until shutdown. sigCh delivers
+// SIGINT/SIGTERM (registered by the caller, who owns signal.Stop); onServing is
+// called exactly once, when startup is complete and the two-phase drain
+// supervisor has taken over signal handling from the caller's startup watcher.
+func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int, sigCh <-chan os.Signal, onServing func()) error {
+	// workCtx is the errgroup parent. Graceful drain cancels it only AFTER the
+	// HTTP server has drained, so the LIFO defer chain (goal tick/dispatcher,
+	// scheduler, riverClient.Stop) then tears subsystems down in order. A
+	// subsystem crash still cancels gctx via the errgroup, exactly as before.
+	// River is started below on a context decoupled from workCtx, so in-flight
+	// jobs survive this cancellation and drain under the soft-stop budget.
+	workCtx, workCancel := context.WithCancel(ctx)
+	defer workCancel()
+	g, gctx := errgroup.WithContext(workCtx)
 
 	if err := checkDeploymentBaseURL(resolveBaseURL(adminHost, adminPort)); err != nil {
 		return err
@@ -302,13 +346,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	httpSrv := &http.Server{Handler: adminSrv.Handler()}
 	g.Go(func() error {
-		<-gctx.Done()
-		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		return httpSrv.Shutdown(shutCtx)
-	})
-	g.Go(func() error {
-		if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("admin serve: %w", err)
 		}
 		return nil
@@ -323,9 +361,23 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// tick and the scheduler have stopped — so in-flight attempt and scheduled jobs
 	// drain gracefully with no new work being enqueued.
 	if s.riverClient != nil {
-		if err := s.riverClient.Start(ctx); err != nil {
+		// Decouple River from workCtx: graceful drain cancels workCtx/gctx, but
+		// in-flight goal/scheduler agent runs must keep executing until Stop drains
+		// them within the soft-stop budget. WithoutCancel preserves values (tracing)
+		// while dropping cancellation.
+		if err := s.riverClient.Start(context.WithoutCancel(workCtx)); err != nil {
 			return fmt.Errorf("start river client: %w", err)
 		}
+		// Stop waits for in-flight jobs, then cancels their contexts after
+		// SoftStopTimeout (STELLA_RIVER_SOFT_STOP_TIMEOUT); River logs the jobs it
+		// force-cancels. A background context means we wait for that full escalation
+		// rather than giving up early.
+		//
+		// drain ceiling: a river job that completes after gctx is cancelled may fail
+		// its downstream delivery (notifier/channel runtime captured gctx); the goal
+		// lease-reaper / outbox retry heals it. Perfect ordering would move subsystem
+		// teardown out of these defers -- deferred to the multi-replica Phase 2 when
+		// it actually matters.
 		defer func() { _ = s.riverClient.Stop(context.Background()) }()
 	}
 
@@ -374,9 +426,114 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		defer s.embeddingSvc.StopBackfill(handle)
 	}
 
+	// Two-phase shutdown supervisor (runs OUTSIDE the errgroup). The first
+	// SIGINT/SIGTERM starts a graceful drain; a second collapses to a hard stop.
+	// A subsystem crash cancels gctx and is torn down without a readiness drain.
+	// Started only now, with every subsystem up: a signal at any earlier point is
+	// consumed by serverAction's startup watcher, which cancels the base context
+	// so partially-started subsystems unwind through the error path — the
+	// pre-existing abort-startup semantics. onServing hands signal ownership over.
+	drainer := &drainSequence{
+		beginDrain:   adminSrv.BeginDrain,
+		drainDelay:   s.lifecycle.ReadinessDrainDelay,
+		httpTimeout:  s.lifecycle.HTTPShutdownTimeout,
+		shutdownHTTP: httpSrv.Shutdown,
+		forceClose:   func() { _ = httpSrv.Close() },
+		cancelWork:   workCancel,
+		sleep:        sleepCtx,
+	}
+	onServing()
+	go superviseShutdown(gctx, sigCh, httpSrv, drainer)
+
+	// All subsystems are started; /readyz may now report ready. Do this last,
+	// immediately before blocking on the errgroup, so a probe never sees ready
+	// while wiring is still in progress.
+	adminSrv.MarkStartupComplete()
+
 	waitErr := g.Wait()
 	slog.Info("gateway stopped")
 	return waitErr
+}
+
+// drainSequence runs the graceful shutdown steps in order. It is a struct of
+// side-effect hooks so the ordering can be asserted in tests without a live
+// server. The order is: flip not-ready + signal SSE (beginDrain) -> optional
+// readiness delay -> HTTP shutdown within the budget -> force-close leftovers ->
+// cancel work contexts.
+type drainSequence struct {
+	beginDrain   func()
+	drainDelay   time.Duration
+	httpTimeout  time.Duration
+	shutdownHTTP func(context.Context) error
+	forceClose   func()
+	cancelWork   func()
+	sleep        func(context.Context, time.Duration)
+}
+
+func (d *drainSequence) run(ctx context.Context) {
+	// 1. Flip readiness to not-ready and signal SSE streams to end. This is
+	//    observable before the listener is touched (happens-before), so a probe
+	//    can never see /readyz succeed once the drain has begun.
+	d.beginDrain()
+	// 2. Give load balancers time to observe not-ready before connections stop.
+	//    Abortable by a hard stop (second signal cancels ctx).
+	if d.drainDelay > 0 {
+		d.sleep(ctx, d.drainDelay)
+	}
+	// 3. Stop accepting and drain in-flight HTTP within the budget; force-close
+	//    anything still open when the budget is spent.
+	shutCtx, cancel := context.WithTimeout(context.Background(), d.httpTimeout)
+	defer cancel()
+	if err := d.shutdownHTTP(shutCtx); err != nil {
+		d.forceClose()
+	}
+	// 4. Cancel work contexts: gctx cancels, g.Wait returns, and the LIFO defer
+	//    chain drains the subsystems and River.
+	d.cancelWork()
+}
+
+// superviseShutdown blocks until the first signal (start graceful drain) or a
+// subsystem crash cancelling gctx (hard teardown, no drain — prior semantics).
+// During the drain a second signal aborts the remaining budget and hard-stops
+// immediately.
+func superviseShutdown(gctx context.Context, sigCh <-chan os.Signal, httpSrv *http.Server, d *drainSequence) {
+	select {
+	case <-sigCh:
+		// Graceful drain below.
+		slog.Info("shutdown signal received; starting graceful drain")
+	case <-gctx.Done():
+		// A subsystem error cancelled the errgroup — not a drain. Mirror the prior
+		// <-gctx.Done() -> Shutdown(2s) path: bounded HTTP shutdown, no readiness
+		// drain and no drain budget, so Serve returns and g.Wait completes.
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutCtx)
+		return
+	}
+	// Watch for a second signal: immediately hard-stop (force-close HTTP, cancel
+	// the drain's remaining wait). hardCtx aborts the readiness delay in run().
+	hardCtx, hardCancel := context.WithCancel(context.Background())
+	defer hardCancel()
+	go func() {
+		select {
+		case <-sigCh:
+			slog.Warn("second shutdown signal received; hard-stopping")
+			_ = httpSrv.Close()
+			hardCancel()
+		case <-hardCtx.Done():
+		}
+	}()
+	d.run(hardCtx)
+}
+
+// sleepCtx sleeps for d unless ctx is cancelled first.
+func sleepCtx(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-ctx.Done():
+	}
 }
 
 func schedulerJobContext(ctx context.Context, agentID string, job scheduler.Job) context.Context {

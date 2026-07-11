@@ -25,6 +25,12 @@ func (s *Server) registerAPIRoutes() {
 func (s *Server) registerStaticRoutes() {
 	s.mux.Handle("GET /static/", web.StaticHandler())
 	s.mux.HandleFunc("GET /{$}", s.redirectRoot)
+	// Kubernetes-style infrastructure probes. These are intentionally NOT in the
+	// OpenAPI spec (api/CLAUDE.md spec-first workflow): they are unversioned infra
+	// endpoints for orchestrators, not part of the product API contract. Auth is
+	// bypassed via isAuthExempt so a kubelet can reach them without a session.
+	s.mux.HandleFunc("GET /healthz", s.readiness.healthz)
+	s.mux.HandleFunc("GET /readyz", s.readiness.readyz)
 	// API documentation (Scalar UI).
 	s.mux.HandleFunc("GET /api-references", s.handleDocsPage)
 	s.mux.HandleFunc("GET /api-references/openapi.yaml", s.handleDocsSpec)
