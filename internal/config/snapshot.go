@@ -7,6 +7,12 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
+// Model tier constants.
+const (
+	ModelTierStrong = "strong"
+	ModelTierFast   = "fast"
+)
+
 // ProviderCreds holds credentials for a single provider.
 type ProviderCreds struct {
 	Type    string

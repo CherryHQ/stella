@@ -71,8 +71,11 @@ the server, or use "stellad service" to manage it as a background service.`,
 }
 
 type setupResult struct {
-	ctx                      context.Context
-	lifecycle                config.Lifecycle
+	ctx context.Context
+	// cfg is the parsed boot-time server config, carried so runServer reads the
+	// injected values (base URL, vault key, lifecycle, OIDC) instead of the
+	// environment. A secret it holds (Vault.Key) must never be logged.
+	cfg                      config.ServerConfig
 	db                       *pgxpool.Pool
 	embedded                 *appdb.Embedded
 	mem                      memory.Provider
@@ -101,15 +104,11 @@ type setupResult struct {
 	backgroundTasks          *sync.WaitGroup
 }
 
-func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
-	requireExternalDB, err := config.RequireExternalDB()
-	if err != nil {
-		return nil, err
-	}
-	dsn := config.DatabaseURL()
+func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error) {
+	dsn := cfg.Database.URL
 	var embedded *appdb.Embedded
 	if dsn == "" {
-		if requireExternalDB {
+		if cfg.Database.RequireExternalDB {
 			// Set by the Docker image (and k8s manifests): in a container the
 			// embedded cluster lands on an ephemeral filesystem, and with multiple
 			// replicas each process would create its own database — refuse it
@@ -201,7 +200,7 @@ func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
-	blobStore, err := blob.NewStoreFromEnv()
+	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +220,7 @@ func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
 		Workspace:         config.StellaHome(),
 		Providers:         providerStreamBuilder,
 		Services:          &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
-	}); err != nil {
+	}, cfg.Reflect.Interval, cfg.Reflect.CuratorMode); err != nil {
 		return nil, err
 	}
 
@@ -234,7 +233,7 @@ func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
 	// (both derive from observability.LoadConfig) so there is a single source of
 	// truth for whether OTel export is active. It is registered as a core hook so
 	// plugin reloads never rebuild or close it out from under in-flight runners.
-	coreHooks := []hooks.HookPlugin{tracehook.New(observability.LoadConfig().Enabled)}
+	coreHooks := []hooks.HookPlugin{tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO)}
 
 	toolLifecycle := buildToolLifecycle(phost)
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
@@ -245,7 +244,7 @@ func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
 	}
 
 	var vaultSvc *vault.Service
-	if vaultKey := os.Getenv("STELLA_VAULT_KEY"); vaultKey != "" {
+	if vaultKey := cfg.Vault.Key; vaultKey != "" {
 		var err error
 		vaultSvc, err = vault.NewService(sqlc.New(db), vaultKey)
 		if err != nil {
@@ -364,7 +363,7 @@ func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, lc.RiverSoftStopTimeout)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, cfg.Lifecycle.RiverSoftStopTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +376,7 @@ func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
 
 	result := &setupResult{
 		ctx:                      parent,
-		lifecycle:                lc,
+		cfg:                      cfg,
 		db:                       db,
 		embedded:                 embedded,
 		mem:                      memProvider,

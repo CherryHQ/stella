@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"time"
 
@@ -22,12 +21,15 @@ const (
 
 // registerReflectBuiltin wires the reflect review cycle into the scheduler
 // as a builtin job. The cadence defaults to 6h and can be overridden
-// for development via the STELLA_REFLECT_INTERVAL env var (Go duration
-// string). The override is intentionally undocumented in user-facing docs
-// — it exists so verifying reflect's wiring doesn't require a code rebuild.
-func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config) error {
-	every := resolveReflectInterval()
-	usageCuratorSettings, err := resolveUsageCuratorSettings()
+// for development via STELLA_REFLECT_INTERVAL (Go duration string), threaded in
+// as intervalRaw; curatorModeRaw carries STELLA_REFLECT_CURATOR_MODE. The
+// interval override is intentionally undocumented in user-facing docs — it
+// exists so verifying reflect's wiring doesn't require a code rebuild. Parsing
+// stays here (not in the config layer) so the interval keeps its lenient
+// warn-and-clamp behavior and the curator mode keeps its fail-fast enum.
+func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config, intervalRaw, curatorModeRaw string) error {
+	every := resolveReflectInterval(intervalRaw)
+	usageCuratorSettings, err := resolveUsageCuratorSettings(curatorModeRaw)
 	if err != nil {
 		return err
 	}
@@ -48,8 +50,7 @@ func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config) error {
 	return nil
 }
 
-func resolveReflectInterval() time.Duration {
-	raw := os.Getenv("STELLA_REFLECT_INTERVAL")
+func resolveReflectInterval(raw string) time.Duration {
 	if raw == "" {
 		return defaultReflectInterval
 	}
@@ -67,8 +68,8 @@ func resolveReflectInterval() time.Duration {
 	return parsed
 }
 
-func resolveUsageCuratorSettings() (reflect.UsageCuratorSettings, error) {
-	raw := strings.TrimSpace(os.Getenv("STELLA_REFLECT_CURATOR_MODE"))
+func resolveUsageCuratorSettings(rawMode string) (reflect.UsageCuratorSettings, error) {
+	raw := strings.TrimSpace(rawMode)
 	if raw == "" {
 		return reflect.UsageCuratorSettings{Mode: reflect.UsageCuratorModeShadow}, nil
 	}

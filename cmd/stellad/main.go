@@ -12,7 +12,7 @@ func main() {
 	cli.LoadDotEnv()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: cli.ParseLogLevel(),
+		Level: cli.ParseLogLevel(os.Getenv("LOG_LEVEL")),
 	})))
 
 	app := newApp()

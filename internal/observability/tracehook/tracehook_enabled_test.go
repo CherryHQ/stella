@@ -21,13 +21,13 @@ import (
 // in-memory recorder, returning an enabled hook plus the recorder. The prior
 // global provider is restored on cleanup so tests don't leak a recording
 // provider into one another.
-func newRecordingHook(t *testing.T) (*Hook, *tracetest.SpanRecorder) {
+func newRecordingHook(t *testing.T, recordIO bool) (*Hook, *tracetest.SpanRecorder) {
 	t.Helper()
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	prev := otel.GetTracerProvider()
 	otel.SetTracerProvider(tp)
-	h := New(true)
+	h := New(true, recordIO)
 	t.Cleanup(func() {
 		_ = h.Close()
 		otel.SetTracerProvider(prev)
@@ -103,7 +103,7 @@ func assertChildOf(t *testing.T, name string, child, parent tracetest.SpanStub) 
 }
 
 func TestHook_EnabledSpanHierarchy(t *testing.T) {
-	h, sr := newRecordingHook(t)
+	h, sr := newRecordingHook(t, false)
 	driveSession(h, "sess-1", nil)
 
 	spans := endedStubs(sr)
@@ -137,7 +137,7 @@ func TestHook_EnabledSpanHierarchy(t *testing.T) {
 
 func TestHook_ToolIORecording(t *testing.T) {
 	t.Run("default omits tool input/result", func(t *testing.T) {
-		h, sr := newRecordingHook(t)
+		h, sr := newRecordingHook(t, false)
 		driveSession(h, "sess-off", nil)
 
 		tool, ok := spanByName(endedStubs(sr), "gen_ai.execute_tool")
@@ -156,8 +156,7 @@ func TestHook_ToolIORecording(t *testing.T) {
 	})
 
 	t.Run("opt-in records tool input/result", func(t *testing.T) {
-		t.Setenv("OTEL_STELLA_RECORD_TOOL_IO", "true")
-		h, sr := newRecordingHook(t)
+		h, sr := newRecordingHook(t, true)
 		driveSession(h, "sess-on", nil)
 
 		tool, ok := spanByName(endedStubs(sr), "gen_ai.execute_tool")
@@ -178,7 +177,7 @@ func TestHook_ToolIORecording(t *testing.T) {
 }
 
 func TestHook_DuplicatePostLLMCall(t *testing.T) {
-	h, sr := newRecordingHook(t)
+	h, sr := newRecordingHook(t, false)
 	meta := hooks.HookMeta{SessionID: "dup", AgentID: "agent-1", UserID: "u1"}
 
 	h.OnPreAgentCall(context.Background(), &hooks.PreAgentCallContext{HookMeta: meta})
@@ -202,7 +201,7 @@ func TestHook_DuplicatePostLLMCall(t *testing.T) {
 }
 
 func TestHook_SpanErrorRedacted(t *testing.T) {
-	h, sr := newRecordingHook(t)
+	h, sr := newRecordingHook(t, false)
 	secret := "sk-abcdef0123456789xyz"
 	driveSession(h, "sess-err", errors.New("provider failed: api_key="+secret))
 

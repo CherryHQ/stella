@@ -64,7 +64,20 @@ func serverCommand() *ucli.Command {
 }
 
 func serverAction(c *ucli.Context) error {
-	if os.Getenv("STELLA_VAULT_KEY") == "" {
+	// Parse the full server environment once, up front, so a misconfigured
+	// value (bad duration, non-boolean guard) fails fast before any subsystem
+	// starts. This is the single startup boundary that reads ServerConfig;
+	// operator commands that never call setup (version, vault keygen, service,
+	// mise) must not reach it, so an unrelated bad variable cannot block them.
+	cfg, err := config.LoadServerConfig(os.LookupEnv)
+	if err != nil {
+		return err
+	}
+
+	// The vault key is required to run the server. Check it from the parsed
+	// config so there is a single reader; the key is a secret and never appears
+	// in this error text.
+	if cfg.Vault.Key == "" {
 		return errors.New(
 			"STELLA_VAULT_KEY is not set\n\n" +
 				"stella requires a vault key to encrypt credentials and secrets.\n" +
@@ -80,13 +93,6 @@ func serverAction(c *ucli.Context) error {
 	if installDir, err := resolveUpgradeDir(""); err == nil {
 		warnStaleUpgradeArtifacts(installDir)
 		cleanStaleUpgradeArtifacts(installDir)
-	}
-
-	// Parse the shutdown-lifecycle env vars once, up front, so a misconfigured
-	// duration fails fast before any subsystem starts.
-	lifecycle, err := config.LoadLifecycle()
-	if err != nil {
-		return err
 	}
 
 	// Signals are handled manually, not via signal.NotifyContext: once serving,
@@ -115,9 +121,9 @@ func serverAction(c *ucli.Context) error {
 		}
 	}()
 
-	startDiagnostics(ctx)
+	startDiagnostics(ctx, cfg.Diagnostics.PprofAddr)
 
-	s, err := setup(ctx, lifecycle)
+	s, err := setup(ctx, cfg)
 	if err != nil {
 		cancel()
 		return err
@@ -180,7 +186,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	defer workCancel()
 	g, gctx := errgroup.WithContext(workCtx)
 
-	warnDeploymentBaseURL(resolveBaseURL(adminHost, adminPort))
+	warnDeploymentBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort), s.cfg.OIDC.IssuerURL)
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
@@ -213,7 +219,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if s.recallySvc != nil {
 		adminSrv.SetRecallyService(s.recallySvc)
 	}
-	adminSrv.SetBaseURL(resolveBaseURL(adminHost, adminPort))
+	adminSrv.SetBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort))
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 	}
@@ -259,8 +265,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	oidcStore := appdb.NewOIDCStore(s.db)
 	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
 		DB:         s.db,
-		BaseURL:    resolveBaseURL(adminHost, adminPort),
-		VaultKey:   os.Getenv("STELLA_VAULT_KEY"),
+		BaseURL:    resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort),
+		VaultKey:   s.cfg.Vault.Key,
+		OIDC:       s.cfg.OIDC,
 		AuthStores: oidcStore,
 	})
 	if err != nil {
@@ -433,7 +440,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// pre-existing abort-startup semantics. onServing hands signal ownership over.
 	drainer := &drainSequence{
 		beginDrain:   adminSrv.BeginDrain,
-		httpTimeout:  s.lifecycle.HTTPShutdownTimeout,
+		httpTimeout:  s.cfg.Lifecycle.HTTPShutdownTimeout,
 		shutdownHTTP: httpSrv.Shutdown,
 		forceClose:   func() { _ = httpSrv.Close() },
 		cancelWork:   workCancel,
@@ -547,8 +554,11 @@ func adminBaseURL(host string, port int) string {
 	return "http://" + net.JoinHostPort(h, fmt.Sprintf("%d", port))
 }
 
-func resolveBaseURL(adminHost string, adminPort int) string {
-	if v := os.Getenv("STELLA_BASE_URL"); v != "" {
+// resolveBaseURL returns the canonical base URL: the configured STELLA_BASE_URL
+// (threaded in raw as baseURL, trailing slash trimmed here) when set, otherwise
+// one derived from the admin bind host.
+func resolveBaseURL(baseURL, adminHost string, adminPort int) string {
+	if v := baseURL; v != "" {
 		return strings.TrimRight(v, "/")
 	}
 	return adminBaseURL(adminHost, adminPort)
@@ -564,11 +574,11 @@ func resolveBaseURL(adminHost string, adminPort int) string {
 // that emits such links is actually configured. Kubernetes charts enforce
 // STELLA_BASE_URL as a required value at the layer that knows it is behind an
 // ingress.
-func warnDeploymentBaseURL(baseURL string) {
+func warnDeploymentBaseURL(baseURL, oidcIssuerURL string) {
 	if !baseURLUnsafe(baseURL) {
 		return
 	}
-	if linkDependentFeaturesConfigured() {
+	if linkDependentFeaturesConfigured(oidcIssuerURL) {
 		slog.Warn("STELLA_BASE_URL is loopback/unspecified; OAuth callbacks and channel deep links will point back at this host and fail off-box. Set STELLA_BASE_URL to the public URL clients use", "base_url", baseURL)
 	}
 }
@@ -599,10 +609,11 @@ func baseURLUnsafe(raw string) bool {
 
 // linkDependentFeaturesConfigured reports whether a feature that emits absolute
 // links back to this server (external OIDC or an OAuth login provider) is
-// configured, reusing the auth package's existing env probes rather than
-// enumerating channels from the database.
-func linkDependentFeaturesConfigured() bool {
-	return os.Getenv("OIDC_ISSUER_URL") != "" || oidc.OAuthConfiguredFromEnv()
+// configured. The OIDC signal is the same OIDC_ISSUER_URL snapshot value that
+// drives the setup mode decision, so both agree; the dynamic AUTH_OAUTH_* probe
+// stays in the auth package.
+func linkDependentFeaturesConfigured(oidcIssuerURL string) bool {
+	return oidcIssuerURL != "" || oidc.OAuthConfiguredFromEnv()
 }
 
 func adminURLForDisplay(host string, port int, fallbackAddr string) string {
