@@ -21,6 +21,32 @@ const (
 	httpShutdownTimeoutEnv  = "STELLA_HTTP_SHUTDOWN_TIMEOUT"
 	riverSoftStopTimeoutEnv = "STELLA_RIVER_SOFT_STOP_TIMEOUT"
 	serverURLEnv            = "STELLA_SERVER_URL"
+
+	// Raw passthrough vars: read with os.Getenv semantics (value or "" for
+	// unset/empty; no trim, no default). Their group-level validation stays with
+	// the consuming subsystem (blob group constraint, oidc Validate, vault
+	// required check) so semantics are preserved exactly.
+	baseURLEnv      = "STELLA_BASE_URL"
+	vaultKeyEnv     = "STELLA_VAULT_KEY"
+	pprofAddrEnv    = "STELLA_PPROF_ADDR"
+	recordToolIOEnv = "OTEL_STELLA_RECORD_TOOL_IO"
+
+	reflectIntervalEnv    = "STELLA_REFLECT_INTERVAL"
+	reflectCuratorModeEnv = "STELLA_REFLECT_CURATOR_MODE"
+
+	oidcProviderNameEnv = "OIDC_PROVIDER_NAME"
+	oidcIssuerURLEnv    = "OIDC_ISSUER_URL"
+	oidcClientIDEnv     = "OIDC_CLIENT_ID"
+	oidcClientSecretEnv = "OIDC_CLIENT_SECRET"
+	oidcRedirectURLEnv  = "OIDC_REDIRECT_URL"
+	oidcScopesEnv       = "OIDC_SCOPES"
+
+	blobS3EndpointEnv  = "STELLA_BLOB_S3_ENDPOINT"
+	blobS3BucketEnv    = "STELLA_BLOB_S3_BUCKET"
+	blobS3AccessKeyEnv = "STELLA_BLOB_S3_ACCESS_KEY"
+	blobS3SecretKeyEnv = "STELLA_BLOB_S3_SECRET_KEY"
+	blobS3RegionEnv    = "STELLA_BLOB_S3_REGION"
+	blobS3UseSSLEnv    = "STELLA_BLOB_S3_USE_SSL"
 )
 
 // ServerConfig is the boot-time-static environment configuration the stella
@@ -29,11 +55,11 @@ const (
 // parse it once and inject the values, so a misconfiguration fails fast at
 // startup rather than surfacing mid-request.
 //
-// PR1 (issue #701) carries only the five variables whose reads already lived in
-// internal/config and are boot-time static. Consumer packages (blob, oidc,
-// observability, reflect, ...) migrate onto this struct in PR2; see
-// docs/design/research/2026-07-11-env-inventory.md for the full ledger and the
-// per-field semantics that block a purely mechanical migration.
+// It carries every boot/setup-time environment variable the server owns (issue
+// #701). Variables that are read per-call, live in pkg/ (which must not import
+// this package), or need dialect/validation the consuming subsystem owns are
+// NOT here; see docs/design/research/2026-07-11-env-inventory.md for the full
+// ledger of what migrated and what stays custom, with the reason for each.
 type ServerConfig struct {
 	// Database selects between the embedded PostgreSQL convenience cluster and an
 	// external server.
@@ -47,6 +73,89 @@ type ServerConfig struct {
 	// container itself); the field is carried so a future CLI client threads it
 	// from here instead of reading the environment directly.
 	ServerURL string
+	// BaseURL is the externally reachable base URL of the deployment
+	// (STELLA_BASE_URL), raw and un-normalized: "" means "derive from the bind
+	// host". The gateway trims a trailing slash where it builds absolute URLs;
+	// the raw value is carried so that trimming stays at the use site.
+	BaseURL string
+	// Vault carries the master key used to seal per-user secrets.
+	Vault VaultConfig
+	// OIDC is the static single-provider OIDC block. It is read raw (no trim) so
+	// the external-vs-local mode decision, the provider config, and the
+	// dependent-feature check all observe one snapshot with no os.Getenv/config
+	// generation split.
+	OIDC OIDCConfig
+	// Blob holds the raw S3-compatible blob-store settings. The group constraint
+	// (any set => the four core fields required) and the USE_SSL bool dialect stay
+	// in the blob package, which consumes these raw strings.
+	Blob BlobS3Config
+	// Reflect carries the raw reflect-scheduler tuning strings. Parsing stays in
+	// the reflect setup so its lenient-warn-and-clamp interval behavior and
+	// fail-fast curator-mode enum are preserved exactly.
+	Reflect ReflectConfig
+	// Diagnostics holds optional debug-server settings.
+	Diagnostics DiagnosticsConfig
+	// Observability holds tracing/telemetry toggles owned by this server (the
+	// standard OTEL SDK variables stay with the SDK and are not mirrored here).
+	Observability ObservabilityConfig
+}
+
+// VaultConfig carries the vault master key (STELLA_VAULT_KEY). The key is a
+// secret: it must never appear in any error or log text, so this struct is not
+// logged and callers thread Key only into the vault service. The value is raw
+// (os.Getenv semantics, no trim) to preserve the exact "empty => required
+// error" check at the server startup boundary.
+type VaultConfig struct {
+	Key string
+}
+
+// OIDCConfig is the static single-provider OIDC block (OIDC_* variables), read
+// raw. ClientSecret is a secret and must never be logged. Scopes is the raw
+// OIDC_SCOPES string; the oidc package owns splitting and defaulting it so the
+// parsing stays next to its use.
+type OIDCConfig struct {
+	ProviderName string
+	IssuerURL    string
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	Scopes       string
+}
+
+// BlobS3Config holds the six raw S3 blob-store variables. The blob package owns
+// the group constraint and the USE_SSL dialect, so these stay untyped strings
+// here.
+type BlobS3Config struct {
+	Endpoint  string
+	Bucket    string
+	AccessKey string
+	SecretKey string
+	Region    string
+	UseSSL    string
+}
+
+// ReflectConfig carries the raw reflect-scheduler tuning strings so the reflect
+// setup keeps ownership of interval parsing (lenient warn-and-clamp) and curator
+// mode parsing (fail-fast enum).
+type ReflectConfig struct {
+	Interval    string
+	CuratorMode string
+}
+
+// DiagnosticsConfig holds optional local debug-server settings.
+type DiagnosticsConfig struct {
+	// PprofAddr is the listen address for the net/http/pprof debug server
+	// (STELLA_PPROF_ADDR). Empty (unset) leaves the debug server disabled. Raw
+	// (os.Getenv semantics) so the disabled-when-empty check is unchanged.
+	PprofAddr string
+}
+
+// ObservabilityConfig holds tracing toggles this server owns.
+type ObservabilityConfig struct {
+	// RecordToolIO records tool input/output payloads on spans
+	// (OTEL_STELLA_RECORD_TOOL_IO). Preserves the exact ==\"true\" opt-in: any
+	// other value, including unset, leaves it off.
+	RecordToolIO bool
 }
 
 // DatabaseConfig holds the two variables that jointly decide, at startup,
@@ -119,7 +228,42 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 		// field regressing silently.
 		return ServerConfig{}, err
 	}
-	return raw.convert()
+	cfg, err := raw.convert()
+	if err != nil {
+		return ServerConfig{}, err
+	}
+
+	// Raw passthrough fields: read with os.Getenv semantics (value or "" for
+	// unset/empty; no trim, no default). Their group-level validation lives with
+	// the consuming subsystem, so loading never fails here and semantics are
+	// preserved exactly. A secret (Vault.Key, OIDC.ClientSecret) is only stored,
+	// never logged.
+	get := func(name string) string { v, _ := lookup(name); return v }
+	cfg.BaseURL = get(baseURLEnv)
+	cfg.Vault.Key = get(vaultKeyEnv)
+	cfg.OIDC = OIDCConfig{
+		ProviderName: get(oidcProviderNameEnv),
+		IssuerURL:    get(oidcIssuerURLEnv),
+		ClientID:     get(oidcClientIDEnv),
+		ClientSecret: get(oidcClientSecretEnv),
+		RedirectURL:  get(oidcRedirectURLEnv),
+		Scopes:       get(oidcScopesEnv),
+	}
+	cfg.Blob = BlobS3Config{
+		Endpoint:  get(blobS3EndpointEnv),
+		Bucket:    get(blobS3BucketEnv),
+		AccessKey: get(blobS3AccessKeyEnv),
+		SecretKey: get(blobS3SecretKeyEnv),
+		Region:    get(blobS3RegionEnv),
+		UseSSL:    get(blobS3UseSSLEnv),
+	}
+	cfg.Reflect = ReflectConfig{
+		Interval:    get(reflectIntervalEnv),
+		CuratorMode: get(reflectCuratorModeEnv),
+	}
+	cfg.Diagnostics.PprofAddr = get(pprofAddrEnv)
+	cfg.Observability.RecordToolIO = get(recordToolIOEnv) == "true"
+	return cfg, nil
 }
 
 // convert turns the parsed strings into the typed, validated ServerConfig,
@@ -191,9 +335,9 @@ func parseServerDuration(name, v string, def time.Duration) (time.Duration, erro
 
 // Process-wide snapshot. Installed once at startup and never reloaded in
 // production: the parsed config is threaded into subsystems (see serverAction),
-// and this snapshot is the read-only fallback for consumers that PR2 migrates
-// but cannot yet reach via injection. Production accessors read it and never
-// fall back to os.Getenv.
+// and this snapshot is the read-only fallback for the rare consumer that cannot
+// be reached by injection without an invasive signature change. Production
+// accessors read it and never fall back to os.Getenv.
 var (
 	serverConfigMu        sync.RWMutex
 	serverConfigInstalled bool

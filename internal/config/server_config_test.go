@@ -215,6 +215,72 @@ func TestLoadServerConfigNoSecretInError(t *testing.T) {
 	}
 }
 
+// TestLoadServerConfigRawPassthrough verifies the non-normalized fields keep
+// exact os.Getenv semantics: the value is carried verbatim (no trim), unset is
+// "", and no group validation runs at load time.
+func TestLoadServerConfigRawPassthrough(t *testing.T) {
+	cfg, err := LoadServerConfig(lookupFrom(map[string]string{
+		baseURLEnv:          "https://stella.example.com/",
+		vaultKeyEnv:         "  AGE-SECRET-KEY-1padded  ",
+		pprofAddrEnv:        "127.0.0.1:6060",
+		recordToolIOEnv:     "true",
+		oidcIssuerURLEnv:    "https://issuer.example.com",
+		oidcClientSecretEnv: "  spaced-secret  ",
+		oidcScopesEnv:       "openid,email",
+		blobS3UseSSLEnv:     "yes",
+		blobS3EndpointEnv:   "s3.example.com",
+		reflectIntervalEnv:  "  garbage  ",
+	}))
+	if err != nil {
+		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
+	}
+	// Raw: trailing slash and surrounding whitespace are preserved for the use
+	// site to handle, not silently trimmed here.
+	if cfg.BaseURL != "https://stella.example.com/" {
+		t.Errorf("BaseURL = %q, want verbatim", cfg.BaseURL)
+	}
+	if cfg.Vault.Key != "  AGE-SECRET-KEY-1padded  " {
+		t.Errorf("Vault.Key not carried verbatim")
+	}
+	if cfg.OIDC.ClientSecret != "  spaced-secret  " {
+		t.Errorf("OIDC.ClientSecret not carried verbatim")
+	}
+	if cfg.OIDC.IssuerURL != "https://issuer.example.com" || cfg.OIDC.Scopes != "openid,email" {
+		t.Errorf("OIDC fields not carried: %+v", cfg.OIDC)
+	}
+	if cfg.Diagnostics.PprofAddr != "127.0.0.1:6060" {
+		t.Errorf("PprofAddr = %q", cfg.Diagnostics.PprofAddr)
+	}
+	if !cfg.Observability.RecordToolIO {
+		t.Errorf("RecordToolIO = false, want true")
+	}
+	if cfg.Blob.UseSSL != "yes" || cfg.Blob.Endpoint != "s3.example.com" {
+		t.Errorf("Blob raw fields not carried: %+v", cfg.Blob)
+	}
+	if cfg.Reflect.Interval != "  garbage  " {
+		t.Errorf("Reflect.Interval not carried verbatim: %q", cfg.Reflect.Interval)
+	}
+}
+
+// TestLoadServerConfigRawUnset verifies unset raw fields are "" (and the OTEL
+// bool defaults off), and that a non-"true" value never opts in.
+func TestLoadServerConfigRawUnset(t *testing.T) {
+	cfg, err := LoadServerConfig(lookupFrom(map[string]string{recordToolIOEnv: "1"}))
+	if err != nil {
+		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
+	}
+	if cfg.Vault.Key != "" || cfg.BaseURL != "" || cfg.Diagnostics.PprofAddr != "" {
+		t.Errorf("unset raw fields should be empty")
+	}
+	if cfg.OIDC.IssuerURL != "" || cfg.Blob.Endpoint != "" {
+		t.Errorf("unset group fields should be empty")
+	}
+	// Only the exact literal "true" opts in; "1" must not.
+	if cfg.Observability.RecordToolIO {
+		t.Errorf("RecordToolIO = true for value %q, want false", "1")
+	}
+}
+
 func TestServerConfigWriteOnce(t *testing.T) {
 	resetServerConfigForTest(t)
 
