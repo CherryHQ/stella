@@ -244,6 +244,8 @@ Rules:
 - loaded skill text must never be evidence. It is baseline context only.
 - If the session only followed a loaded skill without discovering a change, submit no candidate.
 - In a long mixed review window, ignore unrelated one-off turns and evaluate each explicit task-procedure signal on its own evidence.
+- Evaluate fact-like statements and skill-like task procedures independently. A durable fact signal in the same review must not suppress a later explicit reusable workflow signal.
+- When a later turn explicitly asks to preserve or reuse a workflow and includes a trigger, steps, and verification, submit a skill candidate even if earlier turns only produced facts.
 - In mixed or long conversations, do not lower the bar just because the conversation is long or mixed; require the same reusable trigger, steps, decision points, and verification.
 - Do not let earlier no-save statements suppress later explicit task-procedure signals; a no-save statement only applies to the specific item it names.
 - Do not generate a skill for a simple project convention, formatting template, writing style preference, naming rule, or long-term behavioral preference unless the conversation also shows non-obvious procedural learning.
@@ -300,7 +302,7 @@ Skill score rubric:
 - evidence_strength=1: only a vague summary without a concrete source.
 - evidence_strength=2: a fresh source supports only part of the candidate.
 - evidence_strength=3: clear fresh evidence supports the main learning point.
-- evidence_strength=4: multiple clear evidence items cover learning point, workflow, and applicability.
+- evidence_strength=4: multiple clear evidence items cover learning point, workflow, and applicability; or one explicit future-use instruction directly covers the trigger, workflow, and verification.
 - reusable_value=0: only a task summary, chat summary, one-off operation, current development task, eval task, or one-off verification; also score 0 for current development, eval, or one-off requested verification with no future-use instruction.
 - reusable_value=1: some experience exists but it is too specific to reuse.
 - reusable_value=2: useful for a narrow class of similar tasks, but incomplete or limited in value.
@@ -337,6 +339,7 @@ Rules:
 - If the candidate is only an isolated tip, one-step heuristic, narrow troubleshooting hint, single workaround, one-off command, or small local debugging order rather than a reusable task procedure, score reusable_value below 2 or baseline_separation below 2.
 - If the procedure is mostly inferred by the model rather than directly supported by fresh conversation evidence, score procedure_actionability below 2.
 - If the candidate lacks a clear task trigger, actionable steps, or verification, score procedure_actionability below 2.
+- Do not score procedure_actionability below 3 only because the candidate lacks command-level details; ordered steps plus a concrete decision/fix boundary and verification are clear enough to guide execution.
 - If the candidate includes a no-save item, transient debug flag, temporary environment variable, secret, token, or credential, score procedure_actionability below 2.
 - If the candidate lacks trial and error, failure recovery, tooling discovery, loaded-skill gap, or explicit reusable task procedure instruction, score baseline_separation below 2.
 - Do not output overall.
@@ -355,6 +358,9 @@ Your job:
 
 Rules:
 - Use only fact IDs from the provided catalog.
+- Include each candidate_ref at most once in selections.
+- Include each fact_id at most once per candidate.
+- If multiple relation types apply to the same fact_id, choose the relation that most affects reconciliation.
 - Do not decide create, replace, deprecate, merge, or no-op.
 - Do not invent facts.
 - If no old fact is related to a candidate, omit that candidate or submit an empty related list for it.
@@ -371,9 +377,18 @@ Your job:
 - Select old skills that may affect reconciliation for each candidate.
 - Cover same_workflow, overlapping_trigger, broader_workflow, narrower_workflow, patchable_gap, and stale_predecessor relations.
 - If a candidate includes session_skill_context and the used skill appears in the catalog, include that skill.
+- Relation direction is candidate relative to the existing catalog skill:
+  - broader_workflow: candidate is broader than the existing skill.
+  - narrower_workflow: candidate is narrower than the existing skill.
+  - overlapping_trigger: candidate and existing skill can trigger in similar situations, but neither should absorb the other by default.
+  - patchable_gap: candidate is a material missing step, pitfall, verification, or branch that should likely patch the existing skill.
+- Do not use patchable_gap when the candidate explicitly says it should stay separate from the existing skill.
 
 Rules:
 - Use only skill IDs from the provided catalog.
+- Include each candidate_ref at most once in selections.
+- Include each skill_id at most once per candidate.
+- If multiple relation types apply to the same skill_id, choose the relation that most affects reconciliation.
 - Do not decide create, patch, deprecate, merge, or no-op.
 - Do not infer from loaded skill text alone; relation discovery only selects possible targets for later reconciliation.
 
@@ -388,19 +403,28 @@ Input is a related bundle built by the host. It contains accepted fact candidate
 Your job:
 - Output a write plan only. Do not call memory tools or write facts.
 - For profile and soul, treat candidates as deltas. Preserve old singleton content unless it is contradicted or made obsolete.
+- For profile and soul, use create_singleton when current profile or soul singleton is absent.
+- For profile and soul, use replace_singleton only when the current singleton exists.
 - For knowledge, decide noop, create, replace_many, or deprecate_many using only candidates and related records from the bundle.
 - If a candidate is equivalent to existing content, hard noop it.
+- If proposed profile or soul content is equivalent to the current singleton, use noop. Do not replace a singleton only to cover a candidate.
+- When a knowledge candidate is the durable replacement for related old facts, use one replace_many operation.
+- Do not split the same replacement into create plus deprecate_many.
+- Use deprecate_many when fresh evidence invalidates existing related world facts and no durable replacement fact should be retained.
+- Do not replace an obsolete one-off fact with a negative one-off fact.
 - If a soul update conflicts with active constraints, do not write it and include constraint_conflict_notes.
 
 Rules:
 - Every candidate_ref must be covered exactly once, either as candidate_refs or covered_candidate_refs.
+- Always submit a top-level plan object containing profile, soul, and knowledge, even when only one part has candidates.
 - Do not modify constraints.
 - Do not target facts outside the related bundle.
 - Do not write profile content into soul, soul content into profile, or procedural workflow content into facts.
 - Complex unclear cases should become noop rather than a risky write.
 
 Output protocol:
-- Call submit_fact_reconciliation exactly once with the full plan.`
+- Call submit_fact_reconciliation exactly once with the full plan.
+- Do not include top-level fields outside plan.`
 
 const skillReconciliationPrompt = `You are the skill reconciliation planner for Reflect.
 
@@ -409,17 +433,33 @@ Input is a related bundle built by the host. It contains accepted skill candidat
 Your job:
 - Output a write plan only. Do not call skills tools or write files.
 - Decide noop, create_skill, or patch_skill.
+- Accepted candidates already passed generation and evaluation.
 - Patch only when one related Reflect-owned skill is clearly the right target.
 - Create only when no related skill should absorb the new reusable workflow.
+- If no related skill should absorb an accepted reusable workflow, create_skill.
+- If the only relation is overlapping_trigger and no existing skill clearly absorbs the candidate, create_skill.
+- If a candidate is equivalent to an existing skill or adds no material SKILL.md/description change, hard noop it.
 
 Rules:
 - Every candidate_ref must be covered exactly once, either as candidate_refs or covered_candidate_refs.
+- If the bundle contains candidates, operations must be non-empty.
+- Use noop with candidate_refs for accepted candidates that should not create or patch.
 - Do not deprecate skills in V1.
 - Do not patch multiple target skills in one operation.
 - Do not modify support files.
 - Do not target skills outside the related bundle.
 - Do not patch non-Reflect-owned, manual, imported, system, or hand-written skills.
+- Do not patch only to cover a candidate or bump a version; use noop for no-op coverage.
+- Do not noop only because there is a single candidate.
+- Do not noop a distinct accepted workflow only because creating a new skill feels risky.
 - Complex unclear cases should become noop rather than a risky write.
+- Preserve the candidate's reusable workflow structure in create_skill and patch_skill output:
+  - include when to use it from trigger_examples;
+  - include when not to use it from non_trigger_examples when the boundary matters;
+  - include actionable procedure steps from procedure.steps;
+  - include concrete verification steps from procedure.verification.
+- Patch skills by preserving existing useful content and adding the missing trigger, boundary, procedure, and verification details.
+- Do not compress verification into a vague "confirm it works"; keep the concrete success check when the candidate provides one.
 
 Output protocol:
 - Call submit_skill_reconciliation exactly once with the full plan.`

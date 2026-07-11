@@ -1,4 +1,7 @@
-# Marketing & Positioning
+---
+title: Marketing & positioning
+description: Positioning and copy rules for Stella marketing surfaces.
+---
 
 **Read this before writing any landing page, hero section, README opener, docs index, feature pitch, screenshot caption, social post, or release announcement.** Anything a prospective user reads _before_ they decide to try Stella is governed by this file. Reference docs, API specs, and in-app UI copy are not — those follow [`doc-style.md`](./doc-style.md) and [`web-design.md`](./web-design.md).
 
@@ -30,15 +33,15 @@ If a headline doesn't trace back to a filled-in formula, it's decoration. Cut it
 
 Engineering describes Stella in feature language. Users don't buy features; they buy "what this does for me." Every feature claim must be translated to its value before it ships in marketing copy.
 
-| Feature layer (how we build it)                      | Value layer (what the reader gets)                                                         |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Multi-tenant, multi-user, multi-agent                | Anyone on the team just asks — no new system to learn, no seat-by-seat setup               |
-| Per-user-per-agent memory                            | The agent remembers each teammate's context, so nobody re-explains themselves              |
-| Telegram / QQ / Feishu / WeChat / Web / CLI channels | It shows up in the group chat you already live in — no new app to install                  |
-| Skills, tools, sandbox policy                        | It does the work, not just chats — and only within boundaries you set                      |
-| Self-hosted, bring-your-own model keys               | Your data and your keys stay on infrastructure you control                                 |
-| Knowledge base + permissions                         | The agent answers from _your_ docs, and only shows each person what they're allowed to see |
-| Scheduler / durable jobs                             | Reminders, digests, and recurring work keep running and notify the right people            |
+| Feature layer (how we build it)                | Value layer (what the reader gets)                                                         |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Multi-tenant, multi-user, multi-agent          | Anyone on the team just asks — no new system to learn, no seat-by-seat setup               |
+| Per-user-per-agent memory                      | The agent remembers each teammate's context, so nobody re-explains themselves              |
+| Telegram / QQ / Feishu / WeChat / Web channels | It shows up in the group chat you already live in — no new app to install                  |
+| Skills, tools, sandbox policy                  | It does the work, not just chats — and only within boundaries you set                      |
+| Self-hosted, bring-your-own model keys         | Your data and your keys stay on infrastructure you control                                 |
+| Knowledge base + permissions                   | The agent answers from _your_ docs, and only shows each person what they're allowed to see |
+| Scheduler / durable jobs                       | Reminders, digests, and recurring work keep running and notify the right people            |
 
 The test for any marketing sentence: a reader should feel **"this is about me,"** not "this is impressive engineering." If a sentence only makes sense to someone who already knows the architecture, it belongs in `development/`, not on a landing page.
 

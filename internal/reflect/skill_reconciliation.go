@@ -84,9 +84,21 @@ func validateSkillReconciliationPlan(bundle skillRelatedBundle, plan skillReconc
 			if strings.TrimSpace(op.MainFileContent) == "" {
 				return fmt.Errorf("skill reconciliation: patch_skill requires SKILL.md")
 			}
+			// Exact no-op patches only bump versions; the model should use noop
+			// when a candidate adds no material description or SKILL.md change.
+			if !skillPatchHasMaterialChange(record, op) {
+				return fmt.Errorf("skill reconciliation: patch_skill for %q has no material change; use noop", op.TargetSkillID)
+			}
 		}
 	}
 	return coverage.requireComplete()
+}
+
+func skillPatchHasMaterialChange(record skillRelatedRecord, op skillWriteOperation) bool {
+	if op.MainFileContent != record.MainFileContent {
+		return true
+	}
+	return op.Description != "" && op.Description != record.Skill.Description
 }
 
 func validSkillWriteOperation(op skillWritePlanOperation) bool {

@@ -544,6 +544,14 @@ type Fact struct {
 	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
+type KnowledgeUsage struct {
+	FactID     string    `json:"fact_id"`
+	UserID     string    `json:"user_id"`
+	AgentID    string    `json:"agent_id"`
+	LastUsedAt time.Time `json:"last_used_at"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type McpServer struct {
 	ID            string          `json:"id"`
 	Scope         string          `json:"scope"`
@@ -887,6 +895,15 @@ type SkillFile struct {
 	Content string `json:"content"`
 }
 
+type SkillUsage struct {
+	SkillID    string    `json:"skill_id"`
+	UserID     string    `json:"user_id"`
+	AgentID    string    `json:"agent_id"`
+	UseCount   int64     `json:"use_count"`
+	LastUsedAt time.Time `json:"last_used_at"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type ToolOverride struct {
 	ID        string      `json:"id"`
 	ToolName  string      `json:"tool_name"`
@@ -899,39 +916,13 @@ type ToolOverride struct {
 }
 
 type VaultEntry struct {
-	ID           string      `json:"id"`
-	Scope        string      `json:"scope"`
-	UserID       pgtype.Text `json:"user_id"`
-	AgentID      pgtype.Text `json:"agent_id"`
-	Name         string      `json:"name"`
-	Ciphertext   string      `json:"ciphertext"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
-	InjectAlways bool        `json:"inject_always"`
-	Description  pgtype.Text `json:"description"`
-}
-
-type VaultEntryAgentBinding struct {
-	VaultEntryID string    `json:"vault_entry_id"`
-	AgentID      string    `json:"agent_id"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-type VaultEntryProjectBinding struct {
-	VaultEntryID string    `json:"vault_entry_id"`
-	ProjectID    string    `json:"project_id"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-type VaultExecSecretAudit struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"user_id"`
-	AgentID     string    `json:"agent_id"`
-	SessionID   string    `json:"session_id"`
-	Name        string    `json:"name"`
-	CommandText string    `json:"command_text"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string      `json:"id"`
+	Scope       string      `json:"scope"`
+	UserID      pgtype.Text `json:"user_id"`
+	AgentID     pgtype.Text `json:"agent_id"`
+	Name        string      `json:"name"`
+	Ciphertext  string      `json:"ciphertext"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+	Description pgtype.Text `json:"description"`
 }

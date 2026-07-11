@@ -63,3 +63,8 @@ type FactStore interface {
 type VersionedFactStore interface {
 	ListActiveFactsAt(ctx context.Context, userID string, agentID string, subject FactSubject, version int64) ([]Fact, error)
 }
+
+// KnowledgeUsageTracker records runtime use for returned Reflect-owned world facts.
+type KnowledgeUsageTracker interface {
+	TouchKnowledgeUsage(ctx context.Context, userID string, agentID string, factIDs []string) error
+}

@@ -340,31 +340,6 @@ paths:
           $ref: "../../components.yaml#/components/responses/Forbidden",
         }
 
-  /api/vault/audit:
-    get:
-      tags: [profile]
-      summary: List recent vault exec secret audit rows
-      operationId: listVaultExecSecretAudit
-      parameters:
-        - name: limit
-          in: query
-          required: false
-          schema: { type: integer, default: 20 }
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/VaultExecSecretAuditList",
-              }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "503": {
-          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
-        }
-
   /api/vault/{name}:
     parameters:
       - { name: name, in: path, required: true, schema: { type: string } }
@@ -412,14 +387,7 @@ paths:
         tool: "vault",
         action: "set",
         restrict: { scope: [user, user_agent] },
-        # Injection binding stays human-owned (Web UI / CLI): an agent must not
-        # bind secrets into its own sandbox env (#652 default-off invariant).
-        fixed: {
-          description: "",
-          inject_always: false,
-          inject_agent_ids: [],
-          inject_project_ids: [],
-        },
+        fixed: { description: "" },
       }
       requestBody:
         required: true

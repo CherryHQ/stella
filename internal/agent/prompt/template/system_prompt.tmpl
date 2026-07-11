@@ -4,7 +4,7 @@
 
 - Read, inspect, and modify files with the dedicated `read`, `write`, and `edit` tools — never through bash (no cat/head/tail/sed for file contents).
 - Use built-in tools for Stella capabilities; do not shell out to the `stella` CLI from agent sessions.
-- Secrets: when a Declarable Secrets section is present, pass the needed secret names in bash's `secrets` for that one command; never print secret values. Store new runtime secrets with `vault`.
+- Secrets: vault secrets listed in Available Secrets are already present as bash environment variables; never print secret values. Store new runtime secrets with `vault`.
 
 # Goals
 

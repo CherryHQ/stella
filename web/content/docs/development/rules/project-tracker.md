@@ -1,4 +1,7 @@
-# Project Tracker (GitHub Projects + Issues)
+---
+title: Project tracker
+description: GitHub Projects and Issues workflow for Stella requirements and status.
+---
 
 Manage requirements and development status entirely in GitHub. **GitHub Projects**
 owns the product layer (status, priority, roadmap views). **GitHub Issues** are
@@ -16,16 +19,16 @@ Use these coordinates directly — do not re-resolve or guess:
 
 ### Project fields (Stella #14)
 
-| Field      | ID                               | Type          | Options                                                                               |
-| ---------- | -------------------------------- | ------------- | ------------------------------------------------------------------------------------- |
-| Title      | `PVTF_lADOCzFCf84BXEejzhST8rM`   | text          | —                                                                                     |
-| Assignees  | `PVTF_lADOCzFCf84BXEejzhST8rQ`   | text          | —                                                                                     |
-| **Status** | `PVTSSF_lADOCzFCf84BXEejzhST8rU` | single-select | Backlog (`d98918fd`), Todo (`f75ad846`), In Progress (`47fc9ee4`), Done (`98236657`)  |
-| **Week**   | `PVTIF_lADOCzFCf84BXEejzhUocBE`  | iteration     | 7-day cycles starting Monday. Current: W23 (`2fba2474`). Use `--iteration-id` to set. |
-| Labels     | `PVTF_lADOCzFCf84BXEejzhST8rY`   | text          | —                                                                                     |
-| Linked PRs | `PVTF_lADOCzFCf84BXEejzhST8rc`   | text          | —                                                                                     |
-| Milestone  | `PVTF_lADOCzFCf84BXEejzhST8rg`   | text          | —                                                                                     |
-| Repository | `PVTF_lADOCzFCf84BXEejzhST8rk`   | text          | —                                                                                     |
+| Field      | ID                               | Type          | Options                                                                                    |
+| ---------- | -------------------------------- | ------------- | ------------------------------------------------------------------------------------------ |
+| Title      | `PVTF_lADOCzFCf84BXEejzhST8rM`   | text          | —                                                                                          |
+| Assignees  | `PVTF_lADOCzFCf84BXEejzhST8rQ`   | text          | —                                                                                          |
+| **Status** | `PVTSSF_lADOCzFCf84BXEejzhST8rU` | single-select | Backlog (`d98918fd`), Todo (`f75ad846`), In Progress (`47fc9ee4`), Done (`98236657`)       |
+| **Week**   | `PVTIF_lADOCzFCf84BXEejzhUocBE`  | iteration     | 7-day cycles starting Monday. Query current iteration IDs before setting `--iteration-id`. |
+| Labels     | `PVTF_lADOCzFCf84BXEejzhST8rY`   | text          | —                                                                                          |
+| Linked PRs | `PVTF_lADOCzFCf84BXEejzhST8rc`   | text          | —                                                                                          |
+| Milestone  | `PVTF_lADOCzFCf84BXEejzhST8rg`   | text          | —                                                                                          |
+| Repository | `PVTF_lADOCzFCf84BXEejzhST8rk`   | text          | —                                                                                          |
 
 ## Status workflow
 
@@ -157,12 +160,14 @@ gh issue close <number> --repo CherryHQ/stella
 
 ## Issue conventions
 
-Follow the repo's issue/PR template (from CLAUDE.md):
+Follow the repo's issue/PR template:
 
 - **What** — the change in one or two sentences.
 - **Why** — the motivation or problem it solves.
 - **How** — the approach, plan, and design details.
 - **Refs** — related issues, PRs, docs, or discussions.
+
+Keep issue and PR descriptions current as the plan evolves.
 
 ### Labels
 
@@ -183,9 +188,7 @@ Track:   gh issue list --repo CherryHQ/stella --milestone v0.42.0
 Release: /release → tag + changelog → close milestone
 ```
 
-The `/release` skill builds the changelog from `git log` + merged PRs, and tags
-every issue in the matching milestone with `release:vX.Y.Z` so the board can be
-filtered by release.
+Release mechanics live in [`release.md`](./release.md).
 
 ## Creating issues — interaction flow
 

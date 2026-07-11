@@ -11,15 +11,13 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// VaultEnvLoader is the vault surface an agent session needs: binding-filtered
-// env for session start and the declarable exec-time secret flow. Implemented by *vault.Service.
+// VaultEnvLoader is the vault surface an agent session needs.
+// Implemented by *vault.Service.
 type VaultEnvLoader interface {
-	// LoadEnvForAgentProject returns the binding-filtered env for a session
-	// (projectID may be empty for agent-only sessions).
-	LoadEnvForAgentProject(ctx context.Context, userID string, agentID string, projectID string) (map[string]string, error)
-	ListDeclarableForAgentProject(ctx context.Context, userID string, agentID string, projectID string) ([]vault.DeclarableSecret, error)
-	ResolveDeclarableEnv(ctx context.Context, userID string, agentID string, projectID string, names []string) (map[string]string, []string, error)
-	RecordExecSecretUse(ctx context.Context, userID string, agentID string, sessionID string, name string, command string) error
+	// LoadEnvForAgent returns the ambient env for a user's agent session.
+	LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error)
+	// ListAmbientSecretMetas returns prompt-safe ambient secret metadata.
+	ListAmbientSecretMetas(ctx context.Context, userID string, agentID string) ([]vault.AmbientSecretMeta, error)
 }
 
 // Config is passed to sandbox operations.

@@ -15,6 +15,7 @@ func TestProviderRegistry_GetAndVaultKeyAndIDs(t *testing.T) {
 	reg := NewProviderRegistry()
 	reg.Register(ProviderConfig{ID: "github", VaultKey: "GH_OAUTH"})
 	reg.Register(ProviderConfig{ID: "lark", VaultKey: "LARK_OAUTH"})
+	reg.Register(ProviderConfig{ID: "empty"})
 
 	cfg, ok := reg.Get("github")
 	if !ok || cfg.ID != "github" {
@@ -34,9 +35,14 @@ func TestProviderRegistry_GetAndVaultKeyAndIDs(t *testing.T) {
 		t.Fatal("VaultKey(missing) should return false")
 	}
 
+	keys := reg.VaultKeys()
+	if len(keys) != 2 || keys[0] != "GH_OAUTH" || keys[1] != "LARK_OAUTH" {
+		t.Fatalf("VaultKeys() = %v, want [GH_OAUTH LARK_OAUTH]", keys)
+	}
+
 	ids := reg.IDs()
-	if len(ids) != 2 || ids[0] != "github" || ids[1] != "lark" {
-		t.Fatalf("IDs() = %v, want [github lark]", ids)
+	if len(ids) != 3 || ids[0] != "empty" || ids[1] != "github" || ids[2] != "lark" {
+		t.Fatalf("IDs() = %v, want [empty github lark]", ids)
 	}
 }
 

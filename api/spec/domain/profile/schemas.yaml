@@ -36,9 +36,6 @@ components:
       required: [
         name,
         scope,
-        inject_always,
-        inject_agent_ids,
-        inject_project_ids,
         created_at,
         updated_at,
       ]
@@ -48,13 +45,6 @@ components:
         scope: { type: string, enum: [user, user_agent, system, system_agent] }
         user_id: { type: string }
         agent_id: { type: string }
-        inject_always: { type: boolean }
-        inject_agent_ids:
-          type: array
-          items: { type: string }
-        inject_project_ids:
-          type: array
-          items: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -70,13 +60,6 @@ components:
           default: user,
         }
         agent_id: { type: string }
-        inject_always: { type: boolean }
-        inject_agent_ids:
-          type: array
-          items: { type: string }
-        inject_project_ids:
-          type: array
-          items: { type: string }
 
     VaultEntryValue:
       type: object
@@ -144,25 +127,6 @@ components:
         entries:
           type: array
           items: { $ref: "#/components/schemas/VaultEntry" }
-
-    VaultExecSecretAuditEntry:
-      type: object
-      required: [user_id, agent_id, session_id, name, command, created_at]
-      properties:
-        user_id: { type: string }
-        agent_id: { type: string }
-        session_id: { type: string }
-        name: { type: string }
-        command: { type: string }
-        created_at: { type: string, format: date-time }
-
-    VaultExecSecretAuditList:
-      type: object
-      required: [entries]
-      properties:
-        entries:
-          type: array
-          items: { $ref: "#/components/schemas/VaultExecSecretAuditEntry" }
 
     OAuthProviderStatusList:
       type: object

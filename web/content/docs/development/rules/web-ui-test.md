@@ -1,17 +1,24 @@
-# Web UI Test
+---
+title: Web UI testing
+description: Browser automation workflow for verifying Stella's Web UI.
+---
 
 Automate Stella web UI verification using `tap` browser commands.
 
 ## Environment
 
-| Variable         | Purpose        | Default          |
-| ---------------- | -------------- | ---------------- |
-| `DEV_ADMIN_USER` | Admin username | `admin@test.com` |
-| `DEV_ADMIN_PASS` | Admin password | `i-am-admin`     |
-| `DEV_USER`       | Normal user    | `user@test.com`  |
-| `DEV_PASS`       | Normal pass    | `i-am-user`      |
+| Variable         | Purpose        | Default      |
+| ---------------- | -------------- | ------------ |
+| `DEV_ADMIN_USER` | Admin username | `admin`      |
+| `DEV_ADMIN_PASS` | Admin password | `i-am-admin` |
+| `DEV_USER`       | Normal user    | `user`       |
+| `DEV_PASS`       | Normal pass    | `i-am-user`  |
 
 Base URL: `http://localhost:25678`
+
+```bash
+URL=${URL:-http://localhost:25678}
+```
 
 ## Prerequisites
 
@@ -56,7 +63,7 @@ tap browser open "$URL" --show
 ### Login
 
 ```bash
-tap browser open "https://stella.localhost/login"
+tap browser open "$URL/login"
 tap browser snapshot --interactive -f json
 # Clear any pre-filled values
 tap browser evaluate 'document.querySelectorAll("input").forEach(i => { i.value = ""; i.dispatchEvent(new Event("input", {bubbles:true})); })'
@@ -86,8 +93,8 @@ tap browser snapshot --interactive   # See all interactive elements
 ### Navigate
 
 ```bash
-tap browser open "https://stella.localhost/agents"
-tap browser open "https://stella.localhost/settings"
+tap browser open "$URL/agents"
+tap browser open "$URL/settings"
 ```
 
 ## Assertion pattern

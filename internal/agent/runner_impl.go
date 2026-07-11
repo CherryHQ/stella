@@ -205,7 +205,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		Runtime: session,
 	}
 
-	coreTools := buildSandboxCoreTools(session, bc, newExecSecretResolver(cfg.Sandbox))
+	coreTools := buildSandboxCoreTools(session, bc, cfg.Sandbox.SessionSecretValues)
 	if len(coreTools) == 0 {
 		return nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
@@ -263,7 +263,8 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
 			WithSkillDiskLayout(layout).
 			WithSkillDirView(view).
-			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs))
+			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
+			WithActionsOnly("search_installed", "load"))
 	}
 	if cfg.MCPToolProvider != nil {
 		for _, t := range cfg.MCPToolProvider.ToolsForContext(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID) {

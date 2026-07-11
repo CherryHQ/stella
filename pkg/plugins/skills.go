@@ -39,9 +39,9 @@ type SkillUpdatePatch struct {
 	Metadata               json.RawMessage // optional; set to overwrite
 }
 
-// SkillStore is the persistence interface for skills, available to plugins via Platform.
-// It mirrors internal/skills.Store method-for-method; internal/skills re-exports these
-// types as aliases so both sides remain in sync.
+// SkillStore is the plugin-facing persistence interface for skills, available
+// via Platform. It intentionally exposes the management/runtime subset; internal
+// Reflect lifecycle and admin restore methods stay on internal/skills.Store.
 type SkillStore interface {
 	// List returns all visible skills for the given context (metadata only, no file content).
 	List(ctx context.Context, vc SkillViewContext) ([]Skill, error)

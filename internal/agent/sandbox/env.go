@@ -171,7 +171,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 
 	// Group sessions never load human vault secrets (D9 isolation).
 	if cfg.GroupID == "" && cfg.VaultEnvLoader != nil {
-		ve, err := cfg.VaultEnvLoader.LoadEnvForAgentProject(ctx, cfg.UserID, cfg.AgentID, cfg.ProjectID)
+		ve, err := cfg.VaultEnvLoader.LoadEnvForAgent(ctx, cfg.UserID, cfg.AgentID)
 		if err != nil {
 			slog.Warn("vault env injection skipped",
 				"component", "runner_sandbox",
@@ -186,14 +186,13 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		}
 	}
 
-	// OAuth bundle keys are host-side only: they hold raw JSON credentials and
-	// must not reach the sandbox process. The runner injects derived runtime
-	// tokens below instead.
+	// Defense in depth: the vault-side system-managed filter is authoritative,
+	// but these legacy OAuth bundle keys must still never reach the sandbox.
 	delete(env, oauth.VaultKeyGitHub)
 	delete(env, oauth.VaultKeyLark)
 	delete(env, oauth.VaultKeyFeishu)
 	if cfg.GroupID == "" {
-		if err := injectSessionEnv(ctx, cfg, env, sessionSecretEnv); err != nil {
+		if err := injectSessionEnv(ctx, cfg, env, vaultEnv, sessionSecretEnv); err != nil {
 			return nil, err
 		}
 	}
@@ -249,7 +248,7 @@ func recordSessionSecretValues(target *SessionSecretValues, env map[string]strin
 }
 
 // injectSessionEnv resolves plugin SessionEnvSpecs into env.
-func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, secretEnv map[string]string) error {
+func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, vaultEnv map[string]string, secretEnv map[string]string) error {
 	// oauthBundles caches loaded bundles per provider to avoid redundant vault hits.
 	oauthBundles := make(map[string]*oauth.OAuthBundle)
 	for _, spec := range cfg.SessionEnvSpecs {
@@ -262,6 +261,10 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, se
 			if spec.Required {
 				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 			}
+			continue
+		}
+		// Explicit vault secrets override OAuth-derived session env of the same name.
+		if _, ok := vaultEnv[spec.EnvVar]; ok {
 			continue
 		}
 		if cfg.TokenManager == nil {

@@ -1,4 +1,7 @@
-# Release
+---
+title: Release
+description: Release tagging and packaging workflow for Stella.
+---
 
 ## Tag Format
 
@@ -66,6 +69,8 @@ Apply to both changelog files:
 5. Append: `**Full Changelog**: [vPREV...vX.Y.Z](https://github.com/CherryHQ/stella/compare/vPREV...vX.Y.Z)`
 
 ## Validate and Test
+
+The standard pre-commit gate (`mise run format && mise run build && mise run test`) must already be green before cutting a release.
 
 ```bash
 VERSION=X.Y.Z

@@ -2,6 +2,7 @@ package reflect
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/memory"
 )
@@ -102,6 +103,9 @@ func validateFactSingletonPlan(part string, candidates []factCandidate, current 
 		if plan.ProposedContent == "" {
 			return fmt.Errorf("fact reconciliation: %s replace requires proposed content", part)
 		}
+		if sameFactContent(plan.ProposedContent, current.Content) {
+			return fmt.Errorf("fact reconciliation: %s replace has no material change; use noop", part)
+		}
 	}
 	return nil
 }
@@ -181,6 +185,10 @@ func validSingletonOperation(op singletonFactOperation) bool {
 	default:
 		return false
 	}
+}
+
+func sameFactContent(left string, right string) bool {
+	return strings.TrimSpace(left) == strings.TrimSpace(right)
 }
 
 func validKnowledgeOperation(op knowledgeFactOperation) bool {

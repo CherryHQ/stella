@@ -3,10 +3,12 @@ package reflect
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -42,6 +44,48 @@ func (stubStateStore) Delete(context.Context, pkgplugins.StateScope, string) err
 
 func stubProviders(string, string, string) (providers.StreamFunc, error) { return nil, nil }
 
+type stubPluginSkillStore struct{}
+
+func (stubPluginSkillStore) List(context.Context, pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
+	return nil, nil
+}
+
+func (stubPluginSkillStore) Resolve(context.Context, string, pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
+	return nil, nil
+}
+
+func (stubPluginSkillStore) ListByScope(context.Context, string, string, string) ([]pkgplugins.Skill, error) {
+	return nil, nil
+}
+
+func (stubPluginSkillStore) LoadFile(context.Context, string, string) (string, error) { return "", nil }
+
+func (stubPluginSkillStore) ListFiles(context.Context, string) ([]string, error) { return nil, nil }
+
+func (stubPluginSkillStore) Create(context.Context, pkgplugins.Skill, map[string]string) (string, error) {
+	return "", nil
+}
+
+func (stubPluginSkillStore) Update(context.Context, string, pkgplugins.SkillUpdatePatch) error {
+	return nil
+}
+
+func (stubPluginSkillStore) UpsertFile(context.Context, string, string, string) error { return nil }
+
+func (stubPluginSkillStore) DeleteFile(context.Context, string, string) error { return nil }
+
+func (stubPluginSkillStore) Delete(context.Context, string) error { return nil }
+
+func (stubPluginSkillStore) ExpireDrafts(context.Context, time.Time) error { return nil }
+
+type stubUsageCuratorSkillStore struct {
+	stubPluginSkillStore
+}
+
+func (stubUsageCuratorSkillStore) DeprecateReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDeprecate) (skills.Skill, error) {
+	return skills.Skill{}, nil
+}
+
 func validConfig(store Store) Config {
 	return Config{
 		Memory:     stubMemory{},
@@ -71,5 +115,37 @@ func TestBuiltinHandlerInvokesStore(t *testing.T) {
 func TestNewBuiltinHandlerRejectsMissingDeps(t *testing.T) {
 	if _, err := NewBuiltinHandler(Config{}); err == nil {
 		t.Fatal("expected error for missing deps, got nil")
+	}
+}
+
+func TestNewBuiltinHandlerRejectsArmedCuratorWithoutStore(t *testing.T) {
+	cfg := validConfig(&fakeReflectStore{})
+	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeArmed}
+
+	if _, err := NewBuiltinHandler(cfg); err == nil {
+		t.Fatal("expected error for armed usage curator without store")
+	}
+}
+
+func TestNewBuiltinHandlerRejectsArmedCuratorWithoutFactWriter(t *testing.T) {
+	cfg := validConfig(&fakeReflectStore{})
+	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeArmed}
+	cfg.UsageCuratorStore = fakeUsageCuratorStore{}
+	cfg.SkillStore = stubUsageCuratorSkillStore{}
+
+	if _, err := NewBuiltinHandler(cfg); err == nil {
+		t.Fatal("expected error for armed usage curator without fact writer")
+	}
+}
+
+func TestNewBuiltinHandlerRejectsArmedCuratorWithoutSkillWriter(t *testing.T) {
+	cfg := validConfig(&fakeReflectStore{})
+	cfg.Memory = memory.WithTracing(&fakeUsageCuratorMemoryProvider{}, nil)
+	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeArmed}
+	cfg.UsageCuratorStore = fakeUsageCuratorStore{}
+	cfg.SkillStore = stubPluginSkillStore{}
+
+	if _, err := NewBuiltinHandler(cfg); err == nil {
+		t.Fatal("expected error for armed usage curator without skill writer")
 	}
 }

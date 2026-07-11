@@ -593,6 +593,14 @@ func (t *tracedProvider) ListActiveFactsAt(ctx context.Context, userID string, a
 	return fs.ListActiveFactsAt(ctx, userID, agentID, subject, version)
 }
 
+func (t *tracedProvider) TouchKnowledgeUsage(ctx context.Context, userID string, agentID string, factIDs []string) error {
+	kt, ok := t.inner.(KnowledgeUsageTracker)
+	if !ok {
+		return errCapabilityNotSupported("KnowledgeUsageTracker")
+	}
+	return kt.TouchKnowledgeUsage(ctx, userID, agentID, factIDs)
+}
+
 // ---------------------------------------------------------------------------
 // ProfileEntryStore
 // ---------------------------------------------------------------------------

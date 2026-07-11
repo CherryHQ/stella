@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func testLogger() *slog.Logger {
@@ -75,6 +78,41 @@ func (f *fakeWatermarks) lineSeq(sessionID string, line reflectLine) int64 {
 
 func fakeLineWatermarkKey(sessionID string, line reflectLine) string {
 	return sessionID + ":" + string(line)
+}
+
+type mapStateStore struct {
+	values map[string]map[string]any
+}
+
+func newMapStateStore() *mapStateStore {
+	return &mapStateStore{values: make(map[string]map[string]any)}
+}
+
+func (s *mapStateStore) Get(_ context.Context, scope pkgplugins.StateScope, key string) (map[string]any, bool, error) {
+	value, ok := s.values[mapStateKey(scope, key)]
+	if !ok {
+		return nil, false, nil
+	}
+	out := make(map[string]any, len(value))
+	maps.Copy(out, value)
+	return out, true, nil
+}
+
+func (s *mapStateStore) Set(_ context.Context, scope pkgplugins.StateScope, key string, value map[string]any) error {
+	copyValue := make(map[string]any, len(value))
+	maps.Copy(copyValue, value)
+	s.values[mapStateKey(scope, key)] = copyValue
+	return nil
+}
+
+func (s *mapStateStore) Delete(_ context.Context, scope pkgplugins.StateScope, key string) error {
+	delete(s.values, mapStateKey(scope, key))
+	return nil
+}
+
+func mapStateKey(scope pkgplugins.StateScope, key string) string {
+	normalized := scope.Normalize()
+	return normalized.Kind + ":" + normalized.ID + ":" + key
 }
 
 type reviewListOnlyFake struct {
@@ -150,7 +188,7 @@ func seedFakeSession(t *testing.T, fake *memorytest.Fake, id, agentID string, us
 
 func TestListUnreviewed_SkipsAnonymous(t *testing.T) {
 	fake := memorytest.New()
-	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
+	svc := &Service{memory: fake, wm: newFakeWatermarks(), log: testLogger()}
 
 	now := time.Now().UTC()
 	seedFakeSession(t, fake, "s1", "a", "", now)  // anonymous
@@ -170,7 +208,7 @@ func TestListUnreviewed_SkipsAnonymous(t *testing.T) {
 
 func TestListUnreviewed_ReturnsReviewTargets(t *testing.T) {
 	fake := memorytest.New()
-	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
+	svc := &Service{memory: fake, wm: newFakeWatermarks(), log: testLogger()}
 
 	now := time.Now().UTC()
 	seedFakeSession(t, fake, "s1", "a", "1", now)
@@ -191,7 +229,7 @@ func assertReviewTargets(t *testing.T, _ []reviewTarget) {
 
 func TestListUnreviewed_UsesReviewListerWithoutUserScope(t *testing.T) {
 	fake := &reviewListOnlyFake{Fake: memorytest.New()}
-	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
+	svc := &Service{memory: fake, wm: newFakeWatermarks(), log: testLogger()}
 
 	seedFakeSession(t, fake.Fake, "s1", "a", "1", time.Now().UTC())
 	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
@@ -209,7 +247,7 @@ func TestListUnreviewed_UsesReviewListerWithoutUserScope(t *testing.T) {
 func TestListUnreviewed_SkipsAlreadyReviewed(t *testing.T) {
 	fake := memorytest.New()
 	wm := newFakeWatermarks()
-	svc := &Service{memory: fake, wm: wm, batch: 10, log: testLogger()}
+	svc := &Service{memory: fake, wm: wm, log: testLogger()}
 
 	now := time.Now().UTC()
 	seedFakeSession(t, fake, "s1", "a", "1", now)
@@ -233,7 +271,7 @@ func TestListUnreviewed_SkipsAlreadyReviewed(t *testing.T) {
 func TestListUnreviewed_OldestFirst(t *testing.T) {
 	fake := memorytest.New()
 	wm := newFakeWatermarks()
-	svc := &Service{memory: fake, wm: wm, batch: 10, log: testLogger()}
+	svc := &Service{memory: fake, wm: wm, log: testLogger()}
 
 	now := time.Now().UTC()
 	seedFakeSession(t, fake, "new", "a", "1", now)
@@ -257,7 +295,7 @@ func TestListUnreviewed_OldestFirst(t *testing.T) {
 
 func TestListUnreviewed_ZeroWatermarkTiebreaker(t *testing.T) {
 	fake := memorytest.New()
-	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
+	svc := &Service{memory: fake, wm: newFakeWatermarks(), log: testLogger()}
 
 	now := time.Now().UTC()
 	// Both sessions have never been reviewed (zero watermark).
@@ -277,9 +315,9 @@ func TestListUnreviewed_ZeroWatermarkTiebreaker(t *testing.T) {
 	}
 }
 
-func TestListUnreviewed_BatchLimit(t *testing.T) {
+func TestListUnreviewed_PerAgentLimit(t *testing.T) {
 	fake := memorytest.New()
-	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 2, log: testLogger()}
+	svc := &Service{memory: fake, wm: newFakeWatermarks(), maxReviewTargetsPerAgent: 2, log: testLogger()}
 
 	now := time.Now().UTC()
 	for i := range 5 {
@@ -291,6 +329,125 @@ func TestListUnreviewed_BatchLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(targets) != 2 {
-		t.Fatalf("expected 2 review targets (batch limit), got %d", len(targets))
+		t.Fatalf("expected 2 review targets (per-agent limit), got %d", len(targets))
+	}
+}
+
+func TestListUnreviewed_UsesMaxReviewTargetsPerAgent(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{
+		memory:                   fake,
+		wm:                       newFakeWatermarks(),
+		maxReviewTargetsPerAgent: 30,
+		log:                      testLogger(),
+	}
+
+	now := time.Now().UTC()
+	for i := range 35 {
+		seedFakeSession(t, fake, fmt.Sprintf("s%02d", i), "a", fmt.Sprintf("%d", i+1), now.Add(time.Duration(i)*time.Minute))
+	}
+
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 30 {
+		t.Fatalf("expected 30 review targets (per-agent drain cap), got %d", len(targets))
+	}
+}
+
+func TestReviewAgentCursorRotatesAgentOrder(t *testing.T) {
+	ctx := context.Background()
+	state := newMapStateStore()
+	svc := &Service{stateStore: state, log: testLogger()}
+	agents := []config.Agent{{ID: "agent-a"}, {ID: "agent-b"}, {ID: "agent-c"}}
+
+	if err := state.Set(ctx, pkgplugins.StateScope{Kind: pkgplugins.StateScopeGlobal}, reviewAgentCursorStateKey, map[string]any{
+		"next_agent_id": "agent-b",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ordered := svc.orderAgentsForReview(ctx, agents)
+	gotOrder := []string{ordered[0].ID, ordered[1].ID, ordered[2].ID}
+	wantOrder := []string{"agent-b", "agent-c", "agent-a"}
+	if fmt.Sprint(gotOrder) != fmt.Sprint(wantOrder) {
+		t.Fatalf("ordered agents = %v, want %v", gotOrder, wantOrder)
+	}
+
+	svc.recordNextReviewAgentCursor(ctx, ordered, len(ordered))
+	value, ok, err := state.Get(ctx, pkgplugins.StateScope{Kind: pkgplugins.StateScopeGlobal}, reviewAgentCursorStateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || value["next_agent_id"] != "agent-c" {
+		t.Fatalf("cursor after full pass = %#v, want next agent-c", value)
+	}
+
+	svc.recordNextReviewAgentCursor(ctx, ordered, 2)
+	value, _, err = state.Get(ctx, pkgplugins.StateScope{Kind: pkgplugins.StateScopeGlobal}, reviewAgentCursorStateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value["next_agent_id"] != "agent-a" {
+		t.Fatalf("cursor after partial pass = %#v, want next unprocessed agent-a", value)
+	}
+}
+
+type softBudgetReflectStore struct {
+	agents []config.Agent
+}
+
+func (s softBudgetReflectStore) ListEnabledAgents(context.Context) ([]config.Agent, error) {
+	return append([]config.Agent(nil), s.agents...), nil
+}
+
+func (s softBudgetReflectStore) Snapshot(_ context.Context, agentID string) (*config.Snapshot, error) {
+	return &config.Snapshot{AgentID: agentID}, nil
+}
+
+func TestRunCycleSoftBudgetFinishesCurrentTargetThenRunsCurator(t *testing.T) {
+	ctx := context.Background()
+	fakeMemory := memorytest.New()
+	base := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	seedFakeSession(t, fakeMemory, "budget-1", "agent-a", "user-a", base.Add(time.Minute))
+	seedFakeSession(t, fakeMemory, "budget-2", "agent-a", "user-a", base.Add(2*time.Minute))
+	state := newMapStateStore()
+	now := base
+	reviewed := 0
+	svc := &Service{
+		memory:                   fakeMemory,
+		store:                    softBudgetReflectStore{agents: []config.Agent{{ID: "agent-a"}, {ID: "agent-b"}}},
+		stateStore:               state,
+		wm:                       newFakeWatermarks(),
+		maxReviewTargetsPerAgent: 30,
+		runSoftBudget:            15 * time.Minute,
+		now:                      func() time.Time { return now },
+		usageCuratorStore:        fakeUsageCuratorStore{pairs: []usageCuratorPair{{UserID: "curator-user", AgentID: "curator-agent"}}},
+		usageCuratorSettings:     UsageCuratorSettings{Mode: UsageCuratorModeShadow, Now: func() time.Time { return base }},
+		log:                      testLogger(),
+	}
+	reviewer := func(context.Context, *config.Snapshot, reviewTarget) error {
+		reviewed++
+		now = now.Add(16 * time.Minute)
+		return nil
+	}
+
+	if err := svc.runCycleWithReviewer(ctx, reviewer); err != nil {
+		t.Fatalf("runCycleWithReviewer: %v", err)
+	}
+	if reviewed != 1 {
+		t.Fatalf("reviewed targets = %d, want current target only", reviewed)
+	}
+	cursor, ok, err := state.Get(ctx, pkgplugins.StateScope{Kind: pkgplugins.StateScopeGlobal}, reviewAgentCursorStateKey)
+	if err != nil {
+		t.Fatalf("read cursor: %v", err)
+	}
+	if !ok || cursor["next_agent_id"] != "agent-a" {
+		t.Fatalf("cursor = %#v, want current agent-a for remaining targets", cursor)
+	}
+	curatorScope := pkgplugins.StateScope{Kind: pkgplugins.StateScopeAgent, ID: "curator-agent"}
+	if _, ok, err := state.Get(ctx, curatorScope, usageCuratorPairStateKey("curator-user")); err != nil || !ok {
+		t.Fatalf("curator state = ok:%v err:%v, soft stop must still run curator", ok, err)
 	}
 }

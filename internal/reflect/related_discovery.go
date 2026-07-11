@@ -48,6 +48,118 @@ type skillRelatedHint struct {
 	Relation skillRelationKind `json:"relation"`
 }
 
+func normalizeKnowledgeRelatedSelections(selections []knowledgeRelatedSelection) []knowledgeRelatedSelection {
+	out := make([]knowledgeRelatedSelection, 0, len(selections))
+	positions := make(map[CandidateRef]int, len(selections))
+	for _, selection := range selections {
+		if idx, ok := positions[selection.CandidateRef]; ok {
+			out[idx].Related = append(out[idx].Related, selection.Related...)
+			if out[idx].Reason == "" {
+				out[idx].Reason = selection.Reason
+			}
+			continue
+		}
+		positions[selection.CandidateRef] = len(out)
+		selection.Related = append([]knowledgeRelatedHint(nil), selection.Related...)
+		out = append(out, selection)
+	}
+	for i := range out {
+		out[i].Related = dedupeKnowledgeRelatedHints(out[i].Related)
+	}
+	return out
+}
+
+func normalizeSkillRelatedSelections(selections []skillRelatedSelection) []skillRelatedSelection {
+	out := make([]skillRelatedSelection, 0, len(selections))
+	positions := make(map[CandidateRef]int, len(selections))
+	for _, selection := range selections {
+		if idx, ok := positions[selection.CandidateRef]; ok {
+			out[idx].Related = append(out[idx].Related, selection.Related...)
+			if out[idx].Reason == "" {
+				out[idx].Reason = selection.Reason
+			}
+			continue
+		}
+		positions[selection.CandidateRef] = len(out)
+		selection.Related = append([]skillRelatedHint(nil), selection.Related...)
+		out = append(out, selection)
+	}
+	for i := range out {
+		out[i].Related = dedupeSkillRelatedHints(out[i].Related)
+	}
+	return out
+}
+
+// Dedupe keeps the schema single-relation while making LLM relation discovery
+// tolerant of repeated targets after candidate-level aggregation.
+func dedupeKnowledgeRelatedHints(hints []knowledgeRelatedHint) []knowledgeRelatedHint {
+	out := make([]knowledgeRelatedHint, 0, len(hints))
+	positions := map[string]int{}
+	for _, hint := range hints {
+		if idx, ok := positions[hint.FactID]; ok {
+			if knowledgeRelationPriority(hint.Relation) > knowledgeRelationPriority(out[idx].Relation) {
+				out[idx].Relation = hint.Relation
+			}
+			continue
+		}
+		positions[hint.FactID] = len(out)
+		out = append(out, hint)
+	}
+	return out
+}
+
+func dedupeSkillRelatedHints(hints []skillRelatedHint) []skillRelatedHint {
+	out := make([]skillRelatedHint, 0, len(hints))
+	positions := map[string]int{}
+	for _, hint := range hints {
+		if idx, ok := positions[hint.SkillID]; ok {
+			if skillRelationPriority(hint.Relation) > skillRelationPriority(out[idx].Relation) {
+				out[idx].Relation = hint.Relation
+			}
+			continue
+		}
+		positions[hint.SkillID] = len(out)
+		out = append(out, hint)
+	}
+	return out
+}
+
+func knowledgeRelationPriority(relation knowledgeRelationKind) int {
+	switch relation {
+	case knowledgeRelationConflict:
+		return 6
+	case knowledgeRelationEquivalent:
+		return 5
+	case knowledgeRelationSupersedes:
+		return 4
+	case knowledgeRelationSameEntitySlot:
+		return 3
+	case knowledgeRelationDependsOn:
+		return 2
+	case knowledgeRelationPossiblyAffects:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func skillRelationPriority(relation skillRelationKind) int {
+	switch relation {
+	case skillRelationPatchableGap:
+		return 6
+	case skillRelationStalePredecessor:
+		return 5
+	case skillRelationSameWorkflow:
+		return 4
+	case skillRelationOverlappingTrigger:
+		return 3
+	case skillRelationBroaderWorkflow, skillRelationNarrowerWorkflow:
+		return 2
+	default:
+		return 0
+	}
+}
+
 func validateKnowledgeRelatedDiscovery(candidates []factCandidate, catalog []factCatalogItem, selections []knowledgeRelatedSelection, limit int) error {
 	candidateRefs := make(map[CandidateRef]struct{}, len(candidates))
 	for _, candidate := range candidates {
