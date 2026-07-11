@@ -9,7 +9,6 @@ package tracehook
 import (
 	"context"
 	"log/slog"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,14 +57,15 @@ type sessionTrace struct {
 }
 
 // New builds the core trace hook. enabled mirrors whether the global tracer
-// provider was installed (see observability.Init); the caller passes it so the
-// hook and the provider share a single source of truth instead of each reading
-// the environment. Span export is handled by that global provider.
-func New(enabled bool) *Hook {
+// provider was installed (see observability.Init); recordIO is the
+// OTEL_STELLA_RECORD_TOOL_IO opt-in. Both are passed by the caller so the hook
+// and the global provider share a single source of truth instead of each
+// reading the environment. Span export is handled by that global provider.
+func New(enabled, recordIO bool) *Hook {
 	h := &Hook{
 		log:      slog.With("hook", "trace"),
 		enabled:  enabled,
-		recordIO: os.Getenv("OTEL_STELLA_RECORD_TOOL_IO") == "true",
+		recordIO: recordIO,
 		sessions: make(map[string]*sessionTrace),
 		done:     make(chan struct{}),
 	}

@@ -220,7 +220,7 @@ func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error
 		Workspace:         config.StellaHome(),
 		Providers:         providerStreamBuilder,
 		Services:          &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
-	}); err != nil {
+	}, cfg.Reflect.Interval, cfg.Reflect.CuratorMode); err != nil {
 		return nil, err
 	}
 
@@ -233,7 +233,7 @@ func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error
 	// (both derive from observability.LoadConfig) so there is a single source of
 	// truth for whether OTel export is active. It is registered as a core hook so
 	// plugin reloads never rebuild or close it out from under in-flight runners.
-	coreHooks := []hooks.HookPlugin{tracehook.New(observability.LoadConfig().Enabled)}
+	coreHooks := []hooks.HookPlugin{tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO)}
 
 	toolLifecycle := buildToolLifecycle(phost)
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
