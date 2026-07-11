@@ -781,7 +781,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 	}
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
 	channelStr := "group:" + row.GroupID
-	info, err := svc.ResolveChannelSession(ctx, sessionKey, row.GroupID, row.AgentID, session.Channel(channelStr))
+	info, err := svc.ResolveGroupChannelSession(ctx, sessionKey, row.GroupID, row.AgentID, session.Channel(channelStr))
 	if err != nil {
 		return nil, fmt.Errorf("resolve session: %w", err)
 	}

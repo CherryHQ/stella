@@ -354,6 +354,7 @@ type CtxConversation struct {
 	UserID         pgtype.Text        `json:"user_id"`
 	CreatedAt      time.Time          `json:"created_at"`
 	UpdatedAt      time.Time          `json:"updated_at"`
+	GroupID        pgtype.Text        `json:"group_id"`
 }
 
 type CtxGroupDispatch struct {

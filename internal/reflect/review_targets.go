@@ -98,8 +98,16 @@ func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session
 		return reviewTarget{}, false
 	}
 
+	scope, err := reg.MemoryScope(info)
+	if err != nil {
+		s.log.Warn("reflect: invalid session scope, skipping session", "session", info.ID, "error", err)
+		return reviewTarget{}, false
+	}
+	// GroupID is durable now, so a group session (GroupID set) is correctly
+	// classified as not private-one-to-one and skipped by buildReviewUnit rather
+	// than reviewed as a personal 1:1 conversation.
 	return reviewTarget{
-		session:         reg.MemoryScope(info),
+		session:         scope,
 		lastActive:      info.LastActive,
 		lastReview:      wm,
 		sourceGroupID:   info.GroupID,
@@ -121,18 +129,22 @@ func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo)
 		return reviewTarget{}, false
 	}
 
+	info, err := session.InfoFromRecord(sess)
+	if err != nil {
+		s.log.Warn("reflect: invalid session record, skipping session", "session", sess.ID, "error", err)
+		return reviewTarget{}, false
+	}
+	scope, err := info.MemoryScope()
+	if err != nil {
+		s.log.Warn("reflect: invalid session scope, skipping session", "session", sess.ID, "error", err)
+		return reviewTarget{}, false
+	}
 	return reviewTarget{
-		session: memory.Session{
-			ID:      sess.ID,
-			AgentID: sess.AgentID,
-			UserID:  sess.UserID,
-			Channel: sess.Channel,
-			GroupID: sess.GroupID,
-		},
-		lastActive:      sess.LastActive,
+		session:         scope,
+		lastActive:      info.LastActive,
 		lastReview:      wm,
-		sourceGroupID:   sess.GroupID,
-		privateOneToOne: sess.GroupID == "" && sess.UserID != "",
+		sourceGroupID:   info.GroupID,
+		privateOneToOne: info.GroupID == "" && info.UserID != "",
 	}, true
 }
 

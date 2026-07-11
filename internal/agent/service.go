@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,12 @@ import (
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
+
+// ErrGroupCompactionUnsupported is returned by CompactSession for a group
+// session. Group history lives in the group event log, not the LCM conversation,
+// so LCM compaction does not apply; callers surface this as a user-facing notice
+// rather than silently compacting an event-log conversation.
+var ErrGroupCompactionUnsupported = errors.New("compaction is not supported for group sessions")
 
 // Service is a thin composition facade over session.Registry and runtime.Runtime.
 // It provides ergonomic entry points for common use cases without hiding the
@@ -93,6 +100,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 		ID:        req.SessionID,
 		UserID:    req.UserID,
 		AgentID:   req.AgentID,
+		GroupID:   req.GroupID,
 		ProjectID: req.ProjectID,
 		Kind:      kind,
 		Channel:   req.Channel,
@@ -113,9 +121,8 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 		close(out)
 		return out
 	}
-	if req.GroupID != "" {
-		info.GroupID = req.GroupID
-	}
+	// GroupID is threaded through the Request and owned by the Registry (create
+	// persists it; resume overlays it), so info.GroupID is already set here.
 
 	opts := req.RuntimeOpts
 	if req.Model != "" {
@@ -302,14 +309,33 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 	return out
 }
 
-// ResolveChannelSession resolves or creates a channel/group chat session using a
-// trusted system-derived session key. This is the session-only variant of
-// ChatForChannel — it returns the Info without executing a chat turn.
-func (s *Service) ResolveChannelSession(ctx context.Context, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
+// ResolvePrivateChannelSession resolves or creates a private channel chat session
+// using a trusted system-derived session key. It is the session-only variant of
+// ChatForChannel for a per-user channel; it returns the Info without executing a
+// chat turn. Private callers do not know about groups.
+func (s *Service) ResolvePrivateChannelSession(ctx context.Context, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
 	return s.Sessions.Ensure(ctx, session.Request{
 		ID:                 sessionKey,
 		UserID:             userID,
 		AgentID:            agentID,
+		Kind:               session.KindChat,
+		Channel:            channel,
+		CreateIfMissing:    true,
+		AllowExactIDCreate: true,
+		RequireKind:        session.KindChat,
+	})
+}
+
+// ResolveGroupChannelSession resolves or creates a group chat session owned by
+// the group. The caller passes the canonical group id once; the group-ownership
+// invariant (a group session is owned by its group, so UserID == GroupID) is
+// established here in one place rather than by callers repeating the id.
+func (s *Service) ResolveGroupChannelSession(ctx context.Context, sessionKey, groupID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.Sessions.Ensure(ctx, session.Request{
+		ID:                 sessionKey,
+		UserID:             groupID,
+		AgentID:            agentID,
+		GroupID:            groupID,
 		Kind:               session.KindChat,
 		Channel:            channel,
 		CreateIfMissing:    true,
@@ -437,7 +463,16 @@ func (s *Service) ResolveMainSession(ctx context.Context, userID, agentID string
 
 // CompactSession runs full compaction on the session identified by sessionID.
 // This is a best-effort operation: it returns the compaction summary or an error.
+//
+// Group sessions are unsupported: their history is assembled from the group event
+// log, not the LCM conversation, and NeedsCompaction already declines them. The
+// manual path rejects a group session up front (before touching the compactor)
+// with ErrGroupCompactionUnsupported rather than run a private-style compaction
+// over an event-log conversation.
 func (s *Service) CompactSession(ctx context.Context, info session.Info) (string, error) {
+	if info.GroupID != "" {
+		return "", ErrGroupCompactionUnsupported
+	}
 	mem := s.Runtime.Memory()
 	if mem == nil {
 		return "", fmt.Errorf("no memory provider")
@@ -448,7 +483,10 @@ func (s *Service) CompactSession(ctx context.Context, info session.Info) (string
 	if !ok {
 		return "", fmt.Errorf("memory provider does not support compaction")
 	}
-	memSess := s.Sessions.MemoryScope(info)
+	memSess, err := s.Sessions.MemoryScope(info)
+	if err != nil {
+		return "", err
+	}
 	result, err := c.Compact(ctx, memSess, memory.CompactionFull)
 	if err != nil {
 		return "", fmt.Errorf("compact: %w", err)

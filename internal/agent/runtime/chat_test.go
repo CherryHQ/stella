@@ -91,7 +91,7 @@ func TestRuntimeChatCommitsGroupCursorAfterSuccessfulGroupTurn(t *testing.T) {
 	}
 	ctx := memory.WithGroupSeq(context.Background(), 42)
 	out := make(chan Event, 10)
-	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "group-1", AgentID: "agent-1", GroupID: "group-1"}, "hello", chatOptions{})
+	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", GroupID: "11111111-1111-4111-8111-111111111111"}, "hello", chatOptions{})
 	for range out {
 	}
 	if len(mem.commits) != 1 || mem.commits[0] != 42 {
@@ -122,7 +122,7 @@ func TestRuntimeChatDoesNotCommitGroupCursorOnChatError(t *testing.T) {
 	}
 	ctx := memory.WithGroupSeq(context.Background(), 42)
 	out := make(chan Event, 10)
-	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "group-1", AgentID: "agent-1", GroupID: "group-1"}, "hello", chatOptions{})
+	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", GroupID: "11111111-1111-4111-8111-111111111111"}, "hello", chatOptions{})
 	for range out {
 	}
 	if len(mem.commits) != 0 {
@@ -147,7 +147,7 @@ func TestRuntimeChatDoesNotCommitGroupCursorWhenContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(memory.WithGroupSeq(context.Background(), 42))
 	cancel()
 	out := make(chan Event, 10)
-	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "group-1", AgentID: "agent-1", GroupID: "group-1"}, "hello", chatOptions{})
+	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", GroupID: "11111111-1111-4111-8111-111111111111"}, "hello", chatOptions{})
 	for range out {
 	}
 	if len(mem.commits) != 0 {
@@ -168,7 +168,7 @@ func TestRuntimeChatDoesNotPersistGroupPartialOnTimeout(t *testing.T) {
 	}
 	ctx := memory.WithGroupSeq(context.Background(), 42)
 	out := make(chan Event, 10)
-	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "group-1", AgentID: "agent-1", GroupID: "group-1"}, "hello", chatOptions{})
+	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", GroupID: "11111111-1111-4111-8111-111111111111"}, "hello", chatOptions{})
 	for range out {
 	}
 	if len(mem.commits) != 0 {
@@ -193,7 +193,7 @@ func TestRuntimeChatDoesNotPersistGroupStoreBeforeLaterError(t *testing.T) {
 	}
 	ctx := memory.WithGroupSeq(context.Background(), 42)
 	out := make(chan Event, 10)
-	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "group-1", AgentID: "agent-1", GroupID: "group-1"}, "hello", chatOptions{})
+	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", GroupID: "11111111-1111-4111-8111-111111111111"}, "hello", chatOptions{})
 	for range out {
 	}
 	if len(mem.commits) != 0 {
@@ -217,7 +217,7 @@ func TestRuntimeChatDoesNotCommitGroupCursorWhenStoreFails(t *testing.T) {
 	}
 	ctx := memory.WithGroupSeq(context.Background(), 42)
 	out := make(chan Event, 10)
-	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "group-1", AgentID: "agent-1", GroupID: "group-1"}, "hello", chatOptions{})
+	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", GroupID: "11111111-1111-4111-8111-111111111111"}, "hello", chatOptions{})
 	for range out {
 	}
 	if len(mem.commits) != 0 {
@@ -239,7 +239,7 @@ func TestRuntimeChatDoesNotCommitGroupCursorWhenAssembleFails(t *testing.T) {
 	}
 	ctx := memory.WithGroupSeq(context.Background(), 42)
 	out := make(chan Event, 10)
-	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "group-1", AgentID: "agent-1", GroupID: "group-1"}, "hello", chatOptions{})
+	rt.chat(ctx, out, session.Info{ID: "sess-1", UserID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", GroupID: "11111111-1111-4111-8111-111111111111"}, "hello", chatOptions{})
 	var gotErr bool
 	for evt := range out {
 		if errors.Is(evt.Err, assembleErr) {

@@ -300,7 +300,10 @@ func TestMemoryScope(t *testing.T) {
 	now := time.Now().UTC()
 	info := NewInfo("s1", "agent1", "u1", "web", KindChat, "", now)
 
-	scope := r.MemoryScope(info)
+	scope, err := r.MemoryScope(info)
+	if err != nil {
+		t.Fatalf("MemoryScope: %v", err)
+	}
 	if scope.ID != "s1" || scope.AgentID != "agent1" || scope.UserID != "u1" {
 		t.Errorf("unexpected scope: %+v", scope)
 	}
@@ -389,4 +392,63 @@ func TestResolveMain_CreatesAgentMainWhenOnlyProjectMainExists(t *testing.T) {
 	if !strings.Contains(info.Channel, ":user:u1:") {
 		t.Errorf("Channel = %q, want private user channel", info.Channel)
 	}
+}
+
+// TestEnsure_ResumeGroupReconciliation covers validateResume's handling of a
+// requested GroupID against the durable one.
+func TestEnsure_ResumeGroupReconciliation(t *testing.T) {
+	const (
+		gid1 = "11111111-1111-4111-8111-111111111111"
+		gid2 = "22222222-2222-4222-8222-222222222222"
+	)
+	now := time.Now().UTC()
+
+	seedGroup := func(s *fakeStore, id, userID, groupID string) {
+		s.sessions[id] = Info{
+			ID: id, AgentID: "agent1", UserID: userID, GroupID: groupID,
+			Channel: "group:" + userID, Kind: string(KindChat), CreatedAt: now, LastActive: now,
+		}
+	}
+
+	t.Run("durable group matches", func(t *testing.T) {
+		r, s := newTestRegistry(t)
+		seedGroup(s, "g", gid1, gid1)
+		info, err := r.Ensure(context.Background(), Request{ID: "g", UserID: gid1, GroupID: gid1})
+		if err != nil {
+			t.Fatalf("Ensure: %v", err)
+		}
+		if info.GroupID != gid1 {
+			t.Fatalf("GroupID = %q, want %q", info.GroupID, gid1)
+		}
+	})
+
+	t.Run("conflicting durable group rejected", func(t *testing.T) {
+		r, s := newTestRegistry(t)
+		seedGroup(s, "g", gid1, gid1)
+		_, err := r.Ensure(context.Background(), Request{ID: "g", UserID: gid1, GroupID: gid2})
+		if !errors.Is(err, ErrForbidden) {
+			t.Fatalf("err = %v, want ErrForbidden", err)
+		}
+	})
+
+	t.Run("legacy null row reattaches for matching owner", func(t *testing.T) {
+		r, s := newTestRegistry(t)
+		seedGroup(s, "g", gid1, "") // durable group_id is NULL, owner is the group
+		info, err := r.Ensure(context.Background(), Request{ID: "g", UserID: gid1, GroupID: gid1})
+		if err != nil {
+			t.Fatalf("Ensure: %v", err)
+		}
+		if info.GroupID != gid1 {
+			t.Fatalf("GroupID after reattach = %q, want %q", info.GroupID, gid1)
+		}
+	})
+
+	t.Run("legacy null row rejects non-owner", func(t *testing.T) {
+		r, s := newTestRegistry(t)
+		seedGroup(s, "g", "some-user", "") // owner is not the requested group
+		_, err := r.Ensure(context.Background(), Request{ID: "g", UserID: "some-user", GroupID: gid1})
+		if !errors.Is(err, ErrForbidden) {
+			t.Fatalf("err = %v, want ErrForbidden", err)
+		}
+	})
 }

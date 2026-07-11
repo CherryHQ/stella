@@ -1,9 +1,5 @@
 package agent
 
-import (
-	"github.com/CherryHQ/stella/internal/memory"
-)
-
 // CompactionConfig controls automatic session compaction.
 type CompactionConfig struct {
 	// MaxTokens triggers compaction when the estimated token count exceeds this.
@@ -47,6 +43,3 @@ func BuildUserSessionKey(agentID string, authUserID string, channelContext strin
 func BuildGroupSessionKey(agentID, groupID string) string {
 	return agentID + ":group:" + groupID
 }
-
-// SessionInfo is an alias for memory.SessionInfo.
-type SessionInfo = memory.SessionInfo

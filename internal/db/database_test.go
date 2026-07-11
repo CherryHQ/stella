@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -470,5 +471,83 @@ func TestSpanName(t *testing.T) {
 		if got := spanName(c.query); got != c.want {
 			t.Errorf("spanName(%q) = %q, want %q", c.query, got, c.want)
 		}
+	}
+}
+
+// TestCtxConversationGroupIDBackfillMigration seeds canonical group and private
+// rows before the group_id migration, applies the real migration, and asserts the
+// backfill populates only the canonical group conversation while leaving private
+// and non-canonical rows NULL. It uses the repository's DownTo/seed/UpTo pattern.
+func TestCtxConversationGroupIDBackfillMigration(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+
+	// Roll back to just before the group_id migration.
+	if _, err := provider.DownTo(ctx, 20260709120000); err != nil {
+		t.Fatalf("goose down to before group_id migration: %v", err)
+	}
+	if columnExists(t, db, "ctx_conversation", "group_id") {
+		t.Fatal("group_id should not exist before the migration")
+	}
+
+	const agentID = "agent-a"
+	gid := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_group_state (id, platform, platform_group_id) VALUES ($1, 'test', $2)`, gid, "grp-"+gid); err != nil {
+		t.Fatalf("seed group state: %v", err)
+	}
+
+	// Canonical group conversation: user_id == group uuid and the derived key.
+	groupSessionID := agentID + ":group:" + gid
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id) VALUES ($1, $2, $3, 'chat', $4, $5)`,
+		uuid.NewString(), groupSessionID, "group:"+gid, agentID, gid); err != nil {
+		t.Fatalf("seed canonical group conversation: %v", err)
+	}
+	// Private conversation: real user, should never be backfilled.
+	privateSessionID := agentID + ":user:user-1:private"
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id) VALUES ($1, $2, 'web', 'chat', $3, 'user-1')`,
+		uuid.NewString(), privateSessionID, agentID); err != nil {
+		t.Fatalf("seed private conversation: %v", err)
+	}
+	// Non-canonical row: user_id == group uuid but session_id does not match the
+	// derived group key, so the predicate must leave it NULL.
+	noncanonSessionID := "arbitrary-key"
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id) VALUES ($1, $2, 'web', 'chat', $3, $4)`,
+		uuid.NewString(), noncanonSessionID, agentID, gid); err != nil {
+		t.Fatalf("seed non-canonical conversation: %v", err)
+	}
+
+	// Apply the real migration (adds column, FK, CHECK, index, and backfills).
+	if _, err := provider.UpTo(ctx, 20260711134243); err != nil {
+		t.Fatalf("goose up group_id migration: %v", err)
+	}
+
+	groupIDOf := func(sessionID string) (string, bool) {
+		t.Helper()
+		var g pgtype.Text
+		if err := db.QueryRow(ctx, `SELECT group_id::text FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&g); err != nil {
+			t.Fatalf("read group_id for %s: %v", sessionID, err)
+		}
+		return g.String, g.Valid
+	}
+
+	if got, ok := groupIDOf(groupSessionID); !ok || got != gid {
+		t.Fatalf("canonical group conversation group_id = (%q, valid=%v), want %q", got, ok, gid)
+	}
+	if _, ok := groupIDOf(privateSessionID); ok {
+		t.Fatal("private conversation group_id must stay NULL")
+	}
+	if _, ok := groupIDOf(noncanonSessionID); ok {
+		t.Fatal("non-canonical conversation group_id must stay NULL")
 	}
 }

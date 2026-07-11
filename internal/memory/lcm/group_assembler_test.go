@@ -364,7 +364,16 @@ func TestGroupAssemble_EmptyGroup(t *testing.T) {
 		t.Fatalf("new: %v", err)
 	}
 
-	sess := groupSess("agent-a", "nonexistent")
+	// A group session's conversation now carries an FK-backed group_id, so the
+	// group must exist even when it has no messages. Create an empty group state.
+	gid := uuid.Must(uuid.NewV7()).String()
+	if _, err := p.q.CreateGroupState(context.Background(), sqlc.CreateGroupStateParams{
+		ID: gid, Platform: "test", PlatformGroupID: "empty-" + gid,
+	}); err != nil {
+		t.Fatalf("create group state: %v", err)
+	}
+
+	sess := groupSess("agent-a", gid)
 	assembleCtx := groupCtx(1)
 	msgs, err := p.Assemble(assembleCtx, sess, 100_000, 20)
 	if err != nil {

@@ -1,6 +1,6 @@
 -- name: CreateConversation :one
-INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id, group_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, sqlc.narg(group_id))
 RETURNING *;
 
 -- name: GetConversation :one
@@ -53,6 +53,12 @@ SET
     WHEN sqlc.narg(project_id)::text IS NOT NULL AND (project_id IS NULL OR project_id != sqlc.narg(project_id)) THEN sqlc.narg(project_id)
     ELSE project_id
   END,
+  -- Make a legacy canonical group row durable: adopt the supplied group_id only
+  -- when the stored value is NULL. Never overwrite or clear an existing group_id.
+  group_id = CASE
+    WHEN group_id IS NULL AND sqlc.narg(group_id)::uuid IS NOT NULL THEN sqlc.narg(group_id)
+    ELSE group_id
+  END,
   last_active = now(),
   updated_at = now()
 WHERE session_id = sqlc.arg(session_id)
@@ -93,15 +99,21 @@ WHERE user_id = sqlc.arg(user_id)
 GROUP BY agent_id;
 
 -- name: ListConversationsForReviewByAgent :many
+-- Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
+-- and such rows were never review candidates.
 SELECT * FROM ctx_conversation
 WHERE agent_id = sqlc.arg(agent_id)
   AND archived = false
+  AND user_id IS NOT NULL AND user_id <> ''
 ORDER BY last_active DESC;
 
 -- name: ListConversationsForReviewFiltered :many
+-- Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
+-- and such rows were never review candidates.
 SELECT * FROM ctx_conversation
 WHERE agent_id = sqlc.arg(agent_id)
   AND archived = false
+  AND user_id IS NOT NULL AND user_id <> ''
   AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))
   AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
   AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))
