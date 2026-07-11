@@ -98,10 +98,12 @@ actionable message. Kept in one place so every template shares the same checks.
 {{- if not (or (hasPrefix "http://" $baseURL) (hasPrefix "https://" $baseURL)) -}}
 {{- fail (printf "stella: baseURL must include an http:// or https:// scheme (got %q). It is the public address clients reach, used for OAuth callbacks and channel deep links." $baseURL) -}}
 {{- end -}}
-{{- $authority := regexReplaceAll "^https?://" $baseURL "" -}}
+{{- $authority := lower (regexReplaceAll "^https?://" $baseURL "") -}}
 {{- $host := regexReplaceAll "^([^/:]+).*$" $authority "${1}" -}}
-{{- /* IPv6 hosts are bracketed ([::1], [::1]:8443); the host regex above cannot
-       capture them, so match the bracketed loopback on the raw authority. */ -}}
+{{- /* Best-effort rejection of common loopback/bind forms, not full URL/IP
+       validation. IPv6 hosts are bracketed ([::1], [::1]:8443); the host regex
+       above cannot capture them, so match the bracketed loopback on the raw
+       authority. */ -}}
 {{- if or (eq $host "localhost") (hasPrefix "127." $host) (eq $host "0.0.0.0") (hasPrefix "[::1]" $authority) (hasPrefix "[0:0:0:0:0:0:0:1]" $authority) -}}
 {{- fail (printf "stella: baseURL %q points at a loopback/bind address, but it must be the externally reachable URL clients use (the ingress address), or OAuth callbacks and channel links break." $baseURL) -}}
 {{- end -}}
@@ -119,6 +121,12 @@ actionable message. Kept in one place so every template shares the same checks.
 {{- end -}}
 {{- if and (eq $backend "none") (not $v.sandbox.allowUnsafeHostExecution) -}}
 {{- fail "stella: sandbox.backend=none runs agent tools directly inside the Stella pod with no isolation. Set sandbox.allowUnsafeHostExecution=true to acknowledge this, or choose sandbox.backend=local." -}}
+{{- end -}}
+{{- /* Unconfined seccomp only exists to unblock the local (bubblewrap) backend;
+       none never needs it, and keeping it (e.g. carried over by --reuse-values
+       when switching from local) would drop defence-in-depth for no reason. */ -}}
+{{- if and (eq $backend "none") (ne (trim $v.sandbox.seccompProfile) "RuntimeDefault") -}}
+{{- fail "stella: sandbox.backend=none requires sandbox.seccompProfile=RuntimeDefault; Unconfined is only an escape hatch for the local bubblewrap backend." -}}
 {{- end -}}
 
 {{- $s := $v.shutdown -}}

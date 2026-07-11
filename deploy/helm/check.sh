@@ -169,6 +169,9 @@ expect_fail "podLabels overrides selector" "podLabels must not set" \
   --set 'podLabels.app\.kubernetes\.io/name=evil'
 expect_fail "invalid seccompProfile rejected" "seccompProfile" \
   "${BASE[@]}" --set sandbox.backend=local --set sandbox.seccompProfile=Wide
+expect_fail "none must not weaken seccomp" "seccompProfile=RuntimeDefault" \
+  "${BASE[@]}" --set sandbox.backend=none --set sandbox.allowUnsafeHostExecution=true \
+  --set sandbox.seccompProfile=Unconfined
 expect_fail "ingress enabled without hosts" "ingress.hosts" \
   "${BASE[@]}" --set sandbox.backend=local --set ingress.enabled=true --set 'ingress.hosts=null'
 
