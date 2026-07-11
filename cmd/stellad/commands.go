@@ -200,7 +200,7 @@ func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
-	blobStore, err := blob.NewStoreFromEnv()
+	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
 	if err != nil {
 		return nil, err
 	}

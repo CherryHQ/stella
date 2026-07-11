@@ -2,10 +2,14 @@ package blob
 
 import (
 	"fmt"
-	"os"
 	"strings"
+
+	"github.com/CherryHQ/stella/internal/config"
 )
 
+// Env var names, retained for the group-constraint and dialect error messages.
+// The values are loaded into config.BlobS3Config at the server boundary; this
+// package owns only the validation and the S3 store construction.
 const (
 	envS3Endpoint  = "STELLA_BLOB_S3_ENDPOINT"
 	envS3Bucket    = "STELLA_BLOB_S3_BUCKET"
@@ -15,38 +19,30 @@ const (
 	envS3UseSSL    = "STELLA_BLOB_S3_USE_SSL"
 )
 
-func NewStoreFromEnv() (Store, error) {
-	vals := map[string]string{
-		envS3Endpoint:  os.Getenv(envS3Endpoint),
-		envS3Bucket:    os.Getenv(envS3Bucket),
-		envS3AccessKey: os.Getenv(envS3AccessKey),
-		envS3SecretKey: os.Getenv(envS3SecretKey),
-	}
-	allVals := map[string]string{
-		envS3Endpoint:  vals[envS3Endpoint],
-		envS3Bucket:    vals[envS3Bucket],
-		envS3AccessKey: vals[envS3AccessKey],
-		envS3SecretKey: vals[envS3SecretKey],
-		envS3Region:    os.Getenv(envS3Region),
-		envS3UseSSL:    os.Getenv(envS3UseSSL),
-	}
-	anySet := false
-	for _, v := range allVals {
-		if v != "" {
-			anySet = true
-			break
-		}
-	}
-	if !anySet {
+// NewStoreFromConfig builds the blob store from the raw S3 settings on the
+// server config snapshot. It owns the group semantics the config layer
+// deliberately does not: none set => no store (nil, nil); any set => the four
+// core fields are required together; and the USE_SSL bool dialect
+// (1/true/t/yes/y/on vs 0/false/f/no/n/off, default true) is preserved exactly
+// rather than narrowed to strconv.ParseBool.
+func NewStoreFromConfig(c config.BlobS3Config) (Store, error) {
+	if c.Endpoint == "" && c.Bucket == "" && c.AccessKey == "" &&
+		c.SecretKey == "" && c.Region == "" && c.UseSSL == "" {
 		return nil, nil
 	}
-	for _, v := range vals {
+	core := map[string]string{
+		envS3Endpoint:  c.Endpoint,
+		envS3Bucket:    c.Bucket,
+		envS3AccessKey: c.AccessKey,
+		envS3SecretKey: c.SecretKey,
+	}
+	for _, v := range core {
 		if v == "" {
 			return nil, fmt.Errorf("blob s3 config is partial; set %s, %s, %s, and %s together", envS3Endpoint, envS3Bucket, envS3AccessKey, envS3SecretKey)
 		}
 	}
 	useSSL := true
-	if raw := os.Getenv(envS3UseSSL); raw != "" {
+	if raw := c.UseSSL; raw != "" {
 		switch strings.ToLower(raw) {
 		case "1", "true", "t", "yes", "y", "on":
 			useSSL = true
@@ -57,11 +53,11 @@ func NewStoreFromEnv() (Store, error) {
 		}
 	}
 	return NewS3Store(S3Config{
-		Endpoint:  vals[envS3Endpoint],
-		Bucket:    vals[envS3Bucket],
-		AccessKey: vals[envS3AccessKey],
-		SecretKey: vals[envS3SecretKey],
-		Region:    os.Getenv(envS3Region),
+		Endpoint:  c.Endpoint,
+		Bucket:    c.Bucket,
+		AccessKey: c.AccessKey,
+		SecretKey: c.SecretKey,
+		Region:    c.Region,
 		UseSSL:    useSSL,
 	})
 }
