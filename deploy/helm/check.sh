@@ -81,10 +81,16 @@ assert_contains "pvc kept on uninstall"      "helm.sh/resource-policy: keep"
 assert_contains "image repo"                 "ghcr.io/cherryhq/stella"
 assert_contains "explicit bind all"          'value: "0.0.0.0"'
 assert_contains "explicit external db"       "STELLA_REQUIRE_EXTERNAL_DB"
+assert_contains "readiness probe timeout"    "timeoutSeconds: 3"
+assert_contains "seccomp runtime default"    "type: RuntimeDefault"
 assert_absent   "no plaintext secret env"    "AGE-SECRET-KEY"
 # local backend must not get the restrictive container securityContext that
 # would break bubblewrap.
 assert_absent   "no privilege drop on local" "allowPrivilegeEscalation"
+
+expect_ok "image digest pins over tag" "${BASE[@]}" --set sandbox.backend=local \
+  --set image.digest=sha256:0123456789abcdef
+assert_contains "image pinned by digest"     "ghcr.io/cherryhq/stella@sha256:0123456789abcdef"
 
 expect_ok "sandbox=none with confirmation" "${BASE[@]}" \
   --set sandbox.backend=none --set sandbox.allowUnsafeHostExecution=true
@@ -99,6 +105,11 @@ assert_contains "emptyDir when unpersisted"  "emptyDir: {}"
 expect_ok "existingClaim reuses PVC" "${BASE[@]}" --set sandbox.backend=local \
   --set persistence.existingClaim=my-stella-data
 assert_absent "no chart-created PVC with existingClaim" "kind: PersistentVolumeClaim"
+assert_contains "mounts the existing claim"  "claimName: my-stella-data"
+
+expect_ok "storageClass '-' disables provisioning" "${BASE[@]}" \
+  --set sandbox.backend=local --set 'persistence.storageClass=-'
+assert_contains "empty storageClassName"     'storageClassName: ""'
 
 expect_ok "ingress + tls" "${BASE[@]}" --set sandbox.backend=local \
   --set ingress.enabled=true \
@@ -135,6 +146,14 @@ expect_fail "extraEnv injects vault key" "extraEnv must not set STELLA_VAULT_KEY
 expect_fail "extraEnv overrides HOST" "extraEnv must not set HOST" \
   "${BASE[@]}" --set sandbox.backend=local \
   --set 'extraEnv[0].name=HOST' --set 'extraEnv[0].value=127.0.0.1'
+expect_fail "baseURL without scheme" "scheme" \
+  --set baseURL=stella.example.com --set secrets.existingSecret=stella-secrets \
+  --set sandbox.backend=local
+expect_fail "baseURL loopback host" "loopback" \
+  --set baseURL=http://localhost:25678 --set secrets.existingSecret=stella-secrets \
+  --set sandbox.backend=local
+expect_fail "ingress enabled without hosts" "ingress.hosts" \
+  "${BASE[@]}" --set sandbox.backend=local --set ingress.enabled=true --set 'ingress.hosts=null'
 
 echo
 if [ "$rc" -eq 0 ]; then echo "All Helm checks passed."; else echo "Helm checks FAILED."; fi

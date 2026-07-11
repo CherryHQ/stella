@@ -18,10 +18,12 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "stella.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- /* Selector labels render last so podLabels can never shadow them
+               and leave the Deployment unable to find its own pods. */}}
+        {{- include "stella.selectorLabels" . | nindent 8 }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
@@ -39,6 +41,8 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       terminationGracePeriodSeconds: {{ int .Values.shutdown.terminationGracePeriodSeconds }}
       containers:
         - name: stella
@@ -114,6 +118,9 @@ spec:
               path: /readyz
               port: http
             periodSeconds: 5
+            # /readyz pings the database with a 2s budget; a 1s probe timeout
+            # (the kubelet default) would flap the pod NotReady under DB latency.
+            timeoutSeconds: 3
             failureThreshold: 2
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

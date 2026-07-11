@@ -26,10 +26,12 @@ two-phase graceful drain. Multiple replicas are not supported — see
 ### Create the Secret
 
 The chart never creates or templates secret material; it only references a Secret
-you create yourself. Create it with your real values:
+you create yourself. Create the namespace and the Secret in it (the same namespace
+you install the release into):
 
 ```bash
-kubectl create secret generic stella-secrets \
+kubectl create namespace stella
+kubectl -n stella create secret generic stella-secrets \
   --from-literal=STELLA_VAULT_KEY='AGE-SECRET-KEY-REPLACE-ME' \
   --from-literal=STELLA_DATABASE_URL='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require'
 ```
@@ -40,7 +42,7 @@ you must use different key names, set `secrets.keys.vaultKey` and
 `secrets.keys.databaseURL`.
 
 > Updating this Secret does **not** restart the pod. After you change it, roll the
-> deployment: `kubectl rollout restart deployment/stella`.
+> deployment: `kubectl -n stella rollout restart deployment/stella`.
 
 ## Install
 
@@ -48,12 +50,15 @@ From a checkout of the repository:
 
 ```bash
 helm install stella ./deploy/helm/stella \
-  --namespace stella --create-namespace \
+  --namespace stella \
   --set baseURL=https://stella.example.com \
   --set secrets.existingSecret=stella-secrets \
-  --set sandbox.backend=none \
-  --set sandbox.allowUnsafeHostExecution=true
+  --set sandbox.backend=local
 ```
+
+`sandbox.backend=local` is the recommended choice — it isolates agent-run tools with
+bubblewrap. Only fall back to `none` after reading [Sandbox backend](#sandbox-backend);
+`none` runs agent code with no isolation and exposes deployment secrets to it.
 
 `baseURL`, `secrets.existingSecret`, and `sandbox.backend` are required — the chart
 refuses to render without them. `baseURL` must be the externally reachable URL
@@ -90,6 +95,7 @@ install with `-f values.yaml`.
 | `replicaCount`                           | `1`                             | Must be `1`. Any other value is rejected.                          |
 | `image.repository`                       | `ghcr.io/cherryhq/stella`       | Container image.                                                   |
 | `image.tag`                              | `""`                            | Defaults to the chart's `appVersion`.                              |
+| `image.digest`                           | `""`                            | `sha256:…` digest; pins the image and overrides `tag`.             |
 | `image.pullPolicy`                       | `IfNotPresent`                  |                                                                    |
 | `imagePullSecrets`                       | `[]`                            | For a private registry.                                            |
 | `baseURL`                                | `""`                            | **Required.** Public URL (`STELLA_BASE_URL`).                      |
@@ -142,21 +148,34 @@ defaults, so its contract holds for any `image.repository` you substitute.
 
 ## Sandbox backend
 
-`sandbox.backend` is required and has no default. This chart supports two backends;
-the `docker` backend is intentionally unsupported (it would need a mounted Docker
-socket).
+`sandbox.backend` is required and has no default. It decides how the tools an agent
+runs (`bash`, file edits) are isolated from the Stella process. This chart supports
+two backends; the `docker` backend is intentionally unsupported (it would need a
+mounted Docker socket).
 
-- **`none`** — `none` does not disable agent tools — it runs them directly inside
-  the Stella pod without sandbox isolation. Because there is no isolation host,
-  you must also set `sandbox.allowUnsafeHostExecution=true` to acknowledge it, or
-  rendering fails. This is the simplest, most reliable backend on Kubernetes.
-- **`local`** — bubblewrap isolation. **Experimental on Kubernetes.** It depends on
-  the cluster allowing _unprivileged user namespaces_ (bubblewrap calls
-  `unshare(2)`). The chart adds no privileged securityContext and mounts no Docker
-  socket. If tools fail with `bwrap:` / `unshare` / "Operation not permitted"
-  errors, either switch to `none` (and confirm `allowUnsafeHostExecution=true`) or
-  reconfigure the cluster/node to permit unprivileged user namespaces and an
-  unrestricted seccomp profile.
+- **`local`** (recommended) — bubblewrap isolation. Tool processes run in their own
+  user, PID, and mount namespaces with the Stella process's environment scrubbed, so
+  they cannot read its secrets. **Experimental on Kubernetes:** it depends on the
+  cluster allowing _unprivileged user namespaces_ (bubblewrap calls `unshare(2)`).
+  The chart adds no privileged securityContext and mounts no Docker socket. If tools
+  fail with `bwrap:` / `unshare` / "Operation not permitted" errors, reconfigure the
+  cluster/node to permit unprivileged user namespaces and an unrestricted seccomp
+  profile — do not reach for `none` to work around it on a multi-tenant deployment.
+- **`none`** — no isolation. `none` does not disable agent tools; it runs them
+  directly inside the Stella pod as the same user and in the same process namespace.
+
+  > **`none` exposes deployment secrets to agent code.** With no process isolation,
+  > a tool can read the Stella process's environment (e.g. `/proc/1/environ`) and
+  > recover `STELLA_VAULT_KEY` — the master key that decrypts **every tenant's**
+  > secrets and tokens — and `STELLA_DATABASE_URL`. `secretKeyRef` and the `extraEnv`
+  > guard do not protect against this. Only choose `none` when every user who can
+  > drive an agent is fully trusted (e.g. a single-operator install), never for a
+  > multi-tenant or public deployment.
+
+  Because of that, `none` also requires `sandbox.allowUnsafeHostExecution=true` to
+  render. The chart still drops all Linux capabilities and disallows privilege
+  escalation for the container in this mode, but that does not restore the process
+  isolation the secret exposure depends on.
 
 ## Why only one replica?
 
@@ -178,9 +197,21 @@ the moment a second pod runs.
   `STELLA_HOME` files (the database stores only relative paths). A second pod with
   its own volume would not see them.
 
-`Recreate` guarantees the old pod is fully gone before the new one starts, so these
-never overlap. The chart does not ship HPA, PodDisruptionBudget, or NetworkPolicy
-resources — they only make sense for a stateless, multi-replica workload.
+`Recreate` guarantees a clean rollout: the old pod is fully gone before the new one
+starts, so these never overlap during an upgrade. (An involuntary disruption — a node
+failure or eviction — can still briefly overlap two pods; see [Storage](#storage) for
+the `ReadWriteOncePod` fencing option.)
+
+The chart ships no HPA (autoscaling a stateful single replica is unsafe) and no
+PodDisruptionBudget. A single-replica PDB is a deliberate omission, not an oversight:
+`minAvailable: 1` on one replica blocks every voluntary eviction, including node
+drains for maintenance. If your operations require gating voluntary disruptions,
+add one yourself and accept that it will hold up node drains until the pod is
+manually moved.
+
+Because the Deployment strategy is `Recreate`, an HPA or a second replica can never
+be reached through values — but a raw manifest edit could. Do not add either; the
+"Why only one replica?" reasons above are correctness constraints, not tuning.
 
 ## Graceful shutdown
 
@@ -232,6 +263,16 @@ The pod runs as UID/GID `1000` with `fsGroup: 1000` and
 `fsGroupChangePolicy: OnRootMismatch`, so the volume is group-owned correctly on
 first mount.
 
+The chart-created PVC name is derived from the release/chart name. Do not change
+`nameOverride`/`fullnameOverride` after install — the pod would bind a new, empty
+PVC and the old one (with your data) would be left behind by the `keep` policy. Use
+`persistence.existingClaim` to pin a volume you manage yourself.
+
+To keep a node failure from ever running two pods against the volume at once, set
+`persistence.accessMode: ReadWriteOncePod` on a cluster that supports it (Kubernetes
+1.29+). With plain `ReadWriteOnce`, `Recreate` prevents overlap on rollout but not
+during an involuntary disruption.
+
 ## Network egress
 
 Stella needs outbound access to:
@@ -243,6 +284,37 @@ Stella needs outbound access to:
 
 If your cluster restricts egress, allow these destinations. The chart does not ship
 a NetworkPolicy.
+
+**Restrict egress when you run untrusted agents.** Agent tools reach the network
+with the pod's full access — and with `sandbox.backend=none` they do so as arbitrary
+model-driven code. At minimum, block the cloud metadata endpoint
+(`169.254.169.254`), which on IMDSv1 clusters can hand out node IAM credentials, and
+deny east-west traffic you do not need. A starting NetworkPolicy:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: stella-egress
+  namespace: stella
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: stella
+  policyTypes: [Egress]
+  egress:
+    # DNS
+    - to: []
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # Everything except link-local (blocks 169.254.169.254). Tighten to your
+    # PostgreSQL, provider, IM, and S3 CIDRs for a real deployment.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: ["169.254.0.0/16"]
+```
 
 ## Troubleshooting
 
@@ -257,7 +329,8 @@ a NetworkPolicy.
   StorageClass whose driver honors `fsGroup`.
 - **Agent tools fail with `bwrap` / `unshare` errors.** You are on
   `sandbox.backend=local` in a cluster that blocks unprivileged user namespaces.
-  Switch to `sandbox.backend=none` (with `sandbox.allowUnsafeHostExecution=true`) or
-  reconfigure the node to allow them.
+  Reconfigure the node to allow them. Switching to `sandbox.backend=none` also makes
+  the error go away, but on a multi-tenant deployment that trades an isolation error
+  for a secret-exposure problem — see [Sandbox backend](#sandbox-backend) first.
 - **OAuth/channel links point at localhost.** `baseURL` is wrong or unset upstream —
   set it to the public ingress URL.

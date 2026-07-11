@@ -57,11 +57,16 @@ ServiceAccount name.
 {{- end -}}
 
 {{/*
-Image reference (repository:tag, tag defaults to appVersion).
+Image reference. A digest pins the image immutably and wins over any tag;
+otherwise repository:tag, with tag defaulting to the chart's appVersion.
 */}}
 {{- define "stella.image" -}}
+{{- if .Values.image.digest -}}
+{{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+{{- else -}}
 {{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
 {{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
@@ -86,8 +91,16 @@ actionable message. Kept in one place so every template shares the same checks.
 {{- fail (printf "stella: replicaCount must be 1 (got %v). Stella does not support multiple replicas; see the 'Why only one replica?' section of the Kubernetes deployment docs. The Deployment strategy is fixed to Recreate." $v.replicaCount) -}}
 {{- end -}}
 
-{{- if not (trim $v.baseURL) -}}
+{{- $baseURL := trim $v.baseURL -}}
+{{- if not $baseURL -}}
 {{- fail "stella: baseURL is required — set it to the externally reachable URL clients use (STELLA_BASE_URL), e.g. --set baseURL=https://stella.example.com" -}}
+{{- end -}}
+{{- if not (or (hasPrefix "http://" $baseURL) (hasPrefix "https://" $baseURL)) -}}
+{{- fail (printf "stella: baseURL must include an http:// or https:// scheme (got %q). It is the public address clients reach, used for OAuth callbacks and channel deep links." $baseURL) -}}
+{{- end -}}
+{{- $host := regexReplaceAll "^https?://([^/:]+).*$" $baseURL "${1}" -}}
+{{- if or (eq $host "localhost") (hasPrefix "127." $host) (eq $host "0.0.0.0") (eq $host "::1") -}}
+{{- fail (printf "stella: baseURL host %q is a loopback/bind address, but it must be the externally reachable URL clients use (the ingress address), or OAuth callbacks and channel links break." $host) -}}
 {{- end -}}
 
 {{- if not (trim $v.secrets.existingSecret) -}}
@@ -118,6 +131,17 @@ actionable message. Kept in one place so every template shares the same checks.
 {{- range $v.extraEnv -}}
 {{- if has .name (list "STELLA_BASE_URL" "STELLA_SANDBOX_BACKEND" "STELLA_HTTP_SHUTDOWN_TIMEOUT" "STELLA_RIVER_SOFT_STOP_TIMEOUT" "STELLA_VAULT_KEY" "STELLA_DATABASE_URL" "HOST" "PORT" "STELLA_REQUIRE_EXTERNAL_DB") -}}
 {{- fail (printf "stella: extraEnv must not set %s — it is managed by the chart's typed values (baseURL, secrets.*, sandbox.*, shutdown.*), which enforce this chart's safety contract. Setting it twice would make the effective value ambiguous." .name) -}}
+{{- end -}}
+{{- end -}}
+
+{{- if $v.ingress.enabled -}}
+{{- if not $v.ingress.hosts -}}
+{{- fail "stella: ingress.enabled=true requires at least one entry under ingress.hosts (each with a host and one or more paths), or the rendered Ingress is rejected by the API server." -}}
+{{- end -}}
+{{- range $v.ingress.hosts -}}
+{{- if or (not .host) (not .paths) -}}
+{{- fail "stella: every ingress.hosts entry needs a non-empty host and at least one path." -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

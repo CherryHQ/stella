@@ -12,6 +12,9 @@ image:
   repository: ghcr.io/cherryhq/stella
   # Empty tag defaults to the chart's appVersion.
   tag: ""
+  # Immutable digest (e.g. "sha256:abc..."). When set it pins the image and
+  # takes precedence over tag; recommended for production.
+  digest: ""
   pullPolicy: IfNotPresent
 
 # Names of image pull secrets (for a private registry).

@@ -21,10 +21,12 @@ Stella 在 `deploy/helm/stella` 提供了一个 Helm chart，用于在 Kubernete
 
 ### 创建 Secret
 
-chart 从不创建或渲染任何密钥内容，只引用你自己创建的 Secret。用你的真实值创建它：
+chart 从不创建或渲染任何密钥内容，只引用你自己创建的 Secret。先创建 namespace，
+再在同一个 namespace（你安装 release 的那个）里用真实值创建它：
 
 ```bash
-kubectl create secret generic stella-secrets \
+kubectl create namespace stella
+kubectl -n stella create secret generic stella-secrets \
   --from-literal=STELLA_VAULT_KEY='AGE-SECRET-KEY-REPLACE-ME' \
   --from-literal=STELLA_DATABASE_URL='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require'
 ```
@@ -34,7 +36,7 @@ Secret 里默认的 key 名（`STELLA_VAULT_KEY`、`STELLA_DATABASE_URL`）与 S
 和 `secrets.keys.databaseURL`。
 
 > 更新这个 Secret **不会**自动重启 Pod。改完之后需手动滚动：
-> `kubectl rollout restart deployment/stella`。
+> `kubectl -n stella rollout restart deployment/stella`。
 
 ## 安装
 
@@ -42,12 +44,15 @@ Secret 里默认的 key 名（`STELLA_VAULT_KEY`、`STELLA_DATABASE_URL`）与 S
 
 ```bash
 helm install stella ./deploy/helm/stella \
-  --namespace stella --create-namespace \
+  --namespace stella \
   --set baseURL=https://stella.example.com \
   --set secrets.existingSecret=stella-secrets \
-  --set sandbox.backend=none \
-  --set sandbox.allowUnsafeHostExecution=true
+  --set sandbox.backend=local
 ```
+
+`sandbox.backend=local` 是推荐选项 —— 它用 bubblewrap 隔离 agent 运行的工具。只有在
+读过 [沙箱后端](#sandbox-backend) 之后才考虑退回 `none`；`none` 让 agent 代码无隔离
+运行，并会把部署密钥暴露给它。
 
 `baseURL`、`secrets.existingSecret`、`sandbox.backend` 为必填 —— 缺任意一个 chart 都
 拒绝渲染。`baseURL` 必须是外部可达的 URL（ingress 地址），绝不能是 loopback：它是
@@ -82,6 +87,7 @@ kubectl -n stella port-forward svc/stella 25678:25678
 | `replicaCount`                           | `1`                             | 必须为 `1`，其他值一律拒绝。                                  |
 | `image.repository`                       | `ghcr.io/cherryhq/stella`       | 容器镜像。                                                    |
 | `image.tag`                              | `""`                            | 为空时用 chart 的 `appVersion`。                              |
+| `image.digest`                           | `""`                            | `sha256:…` 摘要；固定镜像并覆盖 `tag`。                       |
 | `image.pullPolicy`                       | `IfNotPresent`                  |                                                               |
 | `imagePullSecrets`                       | `[]`                            | 私有 registry 用。                                            |
 | `baseURL`                                | `""`                            | **必填。** 公网 URL（`STELLA_BASE_URL`）。                    |
@@ -132,20 +138,28 @@ chart 通过 typed values 管理的变量在 `extraEnv` 里会被**拒绝**（`S
 
 ## 沙箱后端 {#sandbox-backend}
 
-`sandbox.backend` 必填且无默认值。本 chart 支持两种后端；`docker` 后端刻意不支持
-（它需要挂载 Docker socket）。
+`sandbox.backend` 必填且无默认值。它决定 agent 运行的工具（`bash`、文件编辑）如何与
+Stella 进程隔离。本 chart 支持两种后端；`docker` 后端刻意不支持（它需要挂载 Docker
+socket）。
 
-- **`none`** —— `none` 不会禁用 agent 工具：它让工具直接在 Stella pod 内、无沙箱
-  隔离地运行（none does not disable agent tools — it runs them directly inside
-  the Stella pod without sandbox isolation）。因为没有隔离层，你必须同时设置
-  `sandbox.allowUnsafeHostExecution=true` 来确认，否则渲染失败。这是 Kubernetes 上
-  最简单、最可靠的后端。
-- **`local`** —— bubblewrap 隔离。**在 Kubernetes 上属实验性。** 它依赖集群允许
-  _非特权 user namespace_（bubblewrap 会调用 `unshare(2)`）。chart 不加任何特权
-  securityContext，也不挂 Docker socket。若工具报 `bwrap:` / `unshare` /
-  “Operation not permitted” 错误，要么切到 `none`（并确认
-  `allowUnsafeHostExecution=true`），要么把集群/节点改成允许非特权 user namespace
-  和不受限的 seccomp profile。
+- **`local`**（推荐）—— bubblewrap 隔离。工具进程运行在自己独立的 user、PID、mount
+  namespace 里，且 Stella 进程的环境变量被擦除，因此读不到它的密钥。**在 Kubernetes
+  上属实验性：** 依赖集群允许 _非特权 user namespace_（bubblewrap 会调用
+  `unshare(2)`）。chart 不加任何特权 securityContext，也不挂 Docker socket。若工具报
+  `bwrap:` / `unshare` / “Operation not permitted” 错误，请把集群/节点改成允许非特权
+  user namespace 和不受限的 seccomp profile —— 在多租户部署上不要用切到 `none` 来绕过。
+- **`none`** —— 无隔离。`none` 不会禁用 agent 工具；它让工具以同一用户、同一进程
+  namespace 直接在 Stella pod 内运行。
+
+  > **`none` 会把部署密钥暴露给 agent 代码。** 没有进程隔离，工具可以读取 Stella
+  > 进程的环境变量（如 `/proc/1/environ`），拿到 `STELLA_VAULT_KEY`——解密**每一个
+  > 租户**密钥与 token 的主密钥——以及 `STELLA_DATABASE_URL`。`secretKeyRef` 和
+  > `extraEnv` 防护都挡不住这条路径。只有当每个能驱动 agent 的用户都完全可信时
+  > （例如单运维者的私有部署）才用 `none`，绝不要用于多租户或公开部署。
+
+  正因如此，`none` 还要求 `sandbox.allowUnsafeHostExecution=true` 才能渲染。这种模式
+  下 chart 仍会为容器 drop 所有 Linux capability 并禁止提权，但这并不能恢复密钥暴露
+  所依赖的那层进程隔离。
 
 ## 为什么只能单副本？ {#why-only-one-replica}
 
@@ -162,8 +176,18 @@ chart 写死了 `replicaCount: 1` 与 `strategy: Recreate`。Stella 不是无状
   Recally 文章正文都写在 `STELLA_HOME` 文件里（数据库只存相对路径）。带独立卷的
   第二个 pod 看不到这些文件。
 
-`Recreate` 保证新 pod 启动前旧 pod 已完全消失，所以这些永不重叠。chart 不提供
-HPA、PodDisruptionBudget 或 NetworkPolicy 资源 —— 它们只对无状态多副本负载才有意义。
+`Recreate` 保证干净滚动：新 pod 启动前旧 pod 已完全消失，所以升级期间永不重叠。
+（节点故障或驱逐这类**非自愿中断**仍可能短暂让两个 pod 重叠；见 [存储](#存储) 的
+`ReadWriteOncePod` fencing 选项。）
+
+chart 不提供 HPA（对有状态单副本自动扩缩不安全），也不提供 PodDisruptionBudget。
+单副本不发 PDB 是刻意的，不是疏漏：单副本上 `minAvailable: 1` 会阻断一切自愿驱逐，
+包括节点维护时的 drain。若你的运维确实需要门控自愿中断，请自己加一个，并接受它会
+一直挡住节点 drain，直到手动迁移该 pod。
+
+由于 Deployment 策略是 `Recreate`，通过 values 永远无法得到 HPA 或第二个副本 —— 但
+手改裸 manifest 可以。不要那样做；上面“为什么只能单副本”的三条是正确性约束，不是
+可调参数。
 
 ## 优雅停机 {#graceful-shutdown}
 
@@ -210,6 +234,14 @@ kubectl -n stella delete pvc stella-data
 Pod 以 UID/GID `1000` 运行，配 `fsGroup: 1000` 和
 `fsGroupChangePolicy: OnRootMismatch`，首次挂载时卷会被正确地按组授权。
 
+chart 创建的 PVC 名字派生自 release/chart 名。安装后不要改
+`nameOverride`/`fullnameOverride` —— 否则 pod 会挂上一个新的空 PVC，而旧的（带你数据的）
+会因 `keep` 策略被留下。要固定你自己管理的卷，用 `persistence.existingClaim`。
+
+要让节点故障永远不会同时让两个 pod 用同一个卷，在支持的集群（Kubernetes 1.29+）上把
+`persistence.accessMode` 设为 `ReadWriteOncePod`。用普通 `ReadWriteOnce` 时，`Recreate`
+只保证滚动升级不重叠，不覆盖非自愿中断。
+
 ## 网络出站
 
 Stella 需要出站访问：
@@ -221,6 +253,36 @@ Stella 需要出站访问：
 
 若集群限制出站，请放行这些目标。chart 不提供 NetworkPolicy。
 
+**运行不受信任的 agent 时请限制出站。** agent 工具以 pod 的完整网络权限访问外部——
+在 `sandbox.backend=none` 下更是以任意模型驱动的代码身份访问。至少要阻断云元数据端点
+（`169.254.169.254`），它在 IMDSv1 集群上可能交出节点 IAM 凭据；并拒绝不需要的东西向
+流量。一个起步的 NetworkPolicy：
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: stella-egress
+  namespace: stella
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: stella
+  policyTypes: [Egress]
+  egress:
+    # DNS
+    - to: []
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # 除 link-local 外全部放行（阻断 169.254.169.254）。生产环境请收紧到你的
+    # PostgreSQL、provider、IM、S3 的 CIDR。
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: ["169.254.0.0/16"]
+```
+
 ## 排障
 
 - **Pod 一直不 ready / `/readyz` 返回 `503`。** 启动未完成、正在停机、或数据库 ping
@@ -231,7 +293,8 @@ Stella 需要出站访问：
   chart 设了 `fsGroup: 1000`；若你的 CSI 驱动忽略 `fsGroup`（有些会），请在外部给卷
   设好属主，或选一个驱动尊重 `fsGroup` 的 StorageClass。
 - **agent 工具报 `bwrap` / `unshare` 错误。** 你在一个禁止非特权 user namespace 的
-  集群上用 `sandbox.backend=local`。切到 `sandbox.backend=none`（并设
-  `sandbox.allowUnsafeHostExecution=true`），或把节点改成允许它们。
+  集群上用 `sandbox.backend=local`。把节点改成允许它们。切到 `sandbox.backend=none`
+  也能让错误消失，但在多租户部署上这是用一个隔离错误换来一个密钥暴露问题 —— 请先看
+  [沙箱后端](#sandbox-backend)。
 - **OAuth/通道链接指向 localhost。** 上游的 `baseURL` 错了或没设 —— 把它设成公网
   ingress URL。
