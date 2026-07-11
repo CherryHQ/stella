@@ -40,9 +40,6 @@ func (s *Server) registerStaticRoutes() {
 	// Inbound webhook channel ingress — a PAT-authenticated trigger, not an
 	// OpenAPI/JSON API route. It authenticates itself (auth-exempt in
 	// middleware.go) via the caller's personal access token.
-	if s.webhookLimiter == nil {
-		s.webhookLimiter = newWebhookLimiter(5, 20)
-	}
 	s.mux.HandleFunc("POST /webhooks/{id}", s.handleWebhookIngress)
 }
 

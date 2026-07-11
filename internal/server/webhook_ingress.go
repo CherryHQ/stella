@@ -12,7 +12,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credential"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	webhookplugin "github.com/CherryHQ/stella/plugins/channels/webhook"
@@ -22,11 +21,6 @@ const (
 	// maxWebhookBody caps the request body (and therefore the agent prompt) an
 	// inbound webhook may carry.
 	maxWebhookBody = 256 << 10 // 256 KiB
-	// webhookRequiredScope is the PAT scope required to trigger an agent. It
-	// mirrors the scope the equivalent /api session-message-send route enforces
-	// (agent writes). Kept literal on purpose: the ingress is auth-exempt and
-	// bypasses credential.Enforce, so scope must be checked here.
-	webhookRequiredScope = "agent:write"
 	// webhookBusyPeekWindow is how long the fire-and-forget path watches the
 	// stream before acknowledging. ErrSessionBusy is emitted synchronously
 	// before any work starts, so a busy rejection lands inside this window; a
@@ -53,7 +47,10 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "webhook requires a personal access token")
 		return
 	}
-	if !credential.MatchScope(principal.Scopes, webhookRequiredScope) {
+	// The ingress is auth-exempt and bypasses credential.Enforce, so the scope
+	// must be checked here; the constant is pinned to the /api route mapping in
+	// the credential package.
+	if !credential.MatchScope(principal.Scopes, credential.ScopeAgentWrite) {
 		writeError(w, http.StatusForbidden, "personal access token missing the agent:write scope")
 		return
 	}
@@ -85,7 +82,12 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "bound agent is disabled")
 		return
 	}
-	if !s.webhookCanExecute(ctx, principal, ag) {
+	role := principal.Role
+	if role == "" {
+		role = auth.RoleUser
+	}
+	caller := &AuthInfo{UserID: principal.UserID, Role: role}
+	if !s.canExecuteAgent(ctx, caller, ag) {
 		writeError(w, http.StatusForbidden, "not authorized to run the bound agent")
 		return
 	}
@@ -286,29 +288,6 @@ func drainWebhookStream(stream <-chan agent.Event) <-chan webhookResult {
 		res <- webhookResult{output: b.String(), err: runErr}
 	}()
 	return res
-}
-
-// webhookCanExecute reports whether the PAT's user may run the given agent.
-// Mirrors the channel-layer ResolveAgent authorization (identity.go).
-func (s *Server) webhookCanExecute(ctx context.Context, principal *credential.Principal, ag config.Agent) bool {
-	assignedIDs, _ := s.authStore.ListUserAgentIDs(ctx, principal.UserID)
-	role := principal.Role
-	if role == "" {
-		role = auth.RoleUser
-	}
-	return s.engine.Can(ctx, auth.AccessRequest{
-		Subject: auth.Subject{
-			UserID:   principal.UserID,
-			Roles:    []string{role},
-			AgentIDs: assignedIDs,
-		},
-		Action: auth.ActionExecute,
-		Resource: auth.Resource{
-			Type:  auth.ResourceAgent,
-			ID:    ag.ID,
-			Attrs: map[string]any{"scope": ag.Scope},
-		},
-	})
 }
 
 // logWebhook emits the structured audit record for one webhook invocation.

@@ -51,6 +51,10 @@ func Enforce(p *Principal, method, path string) error {
 	}
 
 	// Bearer credentials are API-only; they may not fetch page routes.
+	// One deliberate exception lives outside this gate: POST /webhooks/{id} is
+	// auth-exempt in the server middleware and re-checks kind + ScopeAgentWrite
+	// itself (internal/server/webhook_ingress.go). Account for it when changing
+	// PAT policy here.
 	if !strings.HasPrefix(path, "/api/") {
 		return fmt.Errorf("%w: bearer credential may only call /api routes", ErrForbidden)
 	}
