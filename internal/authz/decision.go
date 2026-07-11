@@ -1,6 +1,9 @@
 package authz
 
-import "errors"
+import (
+	"errors"
+	"maps"
+)
 
 // This file defines the typed request/decision shapes an Authorizer evaluates.
 // They are pure values with validating constructors; the Authorizer/Evaluation
@@ -18,22 +21,48 @@ var (
 
 // Resource is a typed reference to the thing an action targets. Its attributes
 // originate from typed domain builders, never a transport-supplied attribute
-// bag. For this contract layer it carries the catalog type plus identity and
-// ownership; richer per-domain attribute schemas attach in the domain builders
-// that produce a Resource in subphase B.
+// bag. It carries the catalog type plus identity, ownership, and an optional
+// validated attribute set.
+//
+// The attrs map is an internal representation only: it is populated exclusively
+// by the typed resource builders in internal/authz/policy, which validate each
+// name/value against the per-resource attribute schema before construction. It
+// is NOT a transport attribute bag — no HTTP/channel/plugin code constructs it,
+// and it holds already-stringified typed values (bool as "true"/"false"), never
+// arbitrary `any`. Keeping it here (rather than a richer type) lets internal/authz
+// stay a stdlib-only leaf while the schema knowledge lives in the policy layer.
 type Resource struct {
 	typ     ResourceType
 	id      string
 	ownerID string
+	attrs   map[string]string
 }
 
-// NewResource constructs a validated resource reference. The type must be a
-// catalog member. A collection-level request (list) has an empty id.
+// NewResource constructs a validated resource reference with no attributes. The
+// type must be a catalog member. A collection-level request (list) has an empty
+// id.
 func NewResource(typ ResourceType, id, ownerID string) (Resource, error) {
 	if !typ.Valid() {
 		return Resource{}, ErrInvalidResource
 	}
 	return Resource{typ: typ, id: id, ownerID: ownerID}, nil
+}
+
+// NewResourceWithAttrs constructs a validated resource reference carrying an
+// attribute set. It defensively copies attrs so the caller cannot mutate the
+// resource after construction. The attribute names/values are expected to have
+// already been validated against the resource's schema by the typed builder
+// that calls this; the contract layer only stores them.
+func NewResourceWithAttrs(typ ResourceType, id, ownerID string, attrs map[string]string) (Resource, error) {
+	if !typ.Valid() {
+		return Resource{}, ErrInvalidResource
+	}
+	r := Resource{typ: typ, id: id, ownerID: ownerID}
+	if len(attrs) > 0 {
+		r.attrs = make(map[string]string, len(attrs))
+		maps.Copy(r.attrs, attrs)
+	}
+	return r, nil
 }
 
 // Type returns the resource's catalog type.
@@ -44,6 +73,22 @@ func (r Resource) ID() string { return r.id }
 
 // OwnerID returns the resource owner id, if known.
 func (r Resource) OwnerID() string { return r.ownerID }
+
+// Attr returns a resource attribute value and whether it was set.
+func (r Resource) Attr(name string) (string, bool) {
+	v, ok := r.attrs[name]
+	return v, ok
+}
+
+// Attrs returns a defensive copy of the resource's attribute set.
+func (r Resource) Attrs() map[string]string {
+	if len(r.attrs) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(r.attrs))
+	maps.Copy(out, r.attrs)
+	return out
+}
 
 // Valid reports whether the resource references a catalog type.
 func (r Resource) Valid() bool { return r.typ.Valid() }
