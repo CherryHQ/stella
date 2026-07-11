@@ -2,13 +2,17 @@ package server
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credential"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -141,5 +145,35 @@ func TestDrainWebhookStream(t *testing.T) {
 	}
 	if res.output != "Hello, world" {
 		t.Fatalf("output = %q, want %q", res.output, "Hello, world")
+	}
+}
+
+// TestDrainWebhookStreamPreservesBusy pins the error identity the busy branch
+// depends on: a wrapped ErrSessionBusy must survive the drain so the handler
+// can turn it into a 429 instead of a generic failure.
+func TestDrainWebhookStreamPreservesBusy(t *testing.T) {
+	stream := make(chan agent.Event, 1)
+	stream <- agent.Event{Err: fmt.Errorf("%w: session s1", agenterr.ErrSessionBusy)}
+	close(stream)
+
+	res := <-drainWebhookStream(stream)
+	if !errors.Is(res.err, agenterr.ErrSessionBusy) {
+		t.Fatalf("busy identity lost through drain: %v", res.err)
+	}
+}
+
+func TestPeekWebhookResult(t *testing.T) {
+	// An immediate result (e.g. a busy rejection, emitted before any work
+	// starts) is caught inside the window.
+	ready := make(chan webhookResult, 1)
+	ready <- webhookResult{err: agenterr.ErrSessionBusy}
+	res, ok := peekWebhookResult(ready, time.Second)
+	if !ok || !errors.Is(res.err, agenterr.ErrSessionBusy) {
+		t.Fatalf("expected immediate busy result, ok=%v err=%v", ok, res.err)
+	}
+
+	// A still-running stream yields nothing within the window.
+	if _, ok := peekWebhookResult(make(chan webhookResult), 10*time.Millisecond); ok {
+		t.Fatal("expected no result from a running stream")
 	}
 }

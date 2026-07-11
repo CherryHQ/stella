@@ -79,6 +79,8 @@ curl -X POST 'https://your-host/webhooks/deploy-notify?wait=true' \
 - **临时**（默认）：每次触发都开启一个全新会话，不记得之前的调用。适合无状态自动化——每段负载独立处理。
 - **持久**：该 webhook 的所有触发共享一个长期会话，Agent 会在多次调用间累积上下文。适合后续触发需要基于之前触发的场景。
 
+> **持久会话与并发：** 持久会话同一时间只处理一次触发。如果上一次运行还未结束时又有触发到达，该请求会被拒绝并返回 `429 Too Many Requests`（两种回复模式都如此）——请等在途运行结束后重试。临时模式不受影响：每次触发都有自己的会话。
+
 > **持久会话与多副本：** 持久模式假设只有单个 Agent 运行实例。如果你在多个副本上运行 Stella，对同一持久 webhook 的并发触发可能会交错。对于高频持久 webhook，请把该 Agent 固定在单个副本上。
 
 ## 响应码
@@ -93,7 +95,7 @@ curl -X POST 'https://your-host/webhooks/deploy-notify?wait=true' \
 | `404 Not Found`         | 没有该 ID 的 webhook                                 |
 | `409 Conflict`          | webhook 或绑定 Agent 被禁用，或未绑定 Agent          |
 | `413 Payload Too Large` | 正文超过 256 KiB                                     |
-| `429 Too Many Requests` | 该 webhook 触发超出速率限制                          |
+| `429 Too Many Requests` | 触发超出速率限制，或持久会话正被另一次运行占用       |
 | `502 Bad Gateway`       | Agent 运行失败                                       |
 | `504 Gateway Timeout`   | 同步等待超时；运行在后台继续                         |
 

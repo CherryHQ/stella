@@ -79,6 +79,8 @@ In synchronous mode the caller waits up to a fixed timeout (60 seconds) for the 
 - **Ephemeral** (default): every trigger starts a fresh session with no memory of previous calls. Best for stateless automation -- each payload is handled on its own.
 - **Persistent**: all triggers for this webhook share one long-lived session, so the agent accumulates context across calls. Best when later triggers should build on earlier ones.
 
+> **Persistent sessions and concurrency:** a persistent session runs one trigger at a time. If a trigger arrives while a previous run is still in flight, it is rejected with `429 Too Many Requests` (in both reply modes) -- wait for the in-flight run to finish and retry. Ephemeral mode is not affected: every trigger gets its own session.
+
 > **Persistent sessions and multiple replicas:** persistent mode assumes a single agent runner. If you run Stella across several replicas, concurrent triggers to the same persistent webhook may interleave. For high-frequency persistent webhooks, keep the agent on one replica.
 
 ## Response codes
@@ -93,7 +95,7 @@ In synchronous mode the caller waits up to a fixed timeout (60 seconds) for the 
 | `404 Not Found`         | No webhook with that ID                                                     |
 | `409 Conflict`          | Webhook or bound agent is disabled, or no agent is bound                    |
 | `413 Payload Too Large` | Body exceeds 256 KiB                                                        |
-| `429 Too Many Requests` | Rate limit exceeded for this webhook                                        |
+| `429 Too Many Requests` | Rate limit exceeded, or the persistent session is busy with another run     |
 | `502 Bad Gateway`       | The agent run failed                                                        |
 | `504 Gateway Timeout`   | Synchronous wait timed out; the run continues in the background             |
 

@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -25,6 +27,12 @@ const (
 	// (agent writes). Kept literal on purpose: the ingress is auth-exempt and
 	// bypasses credential.Enforce, so scope must be checked here.
 	webhookRequiredScope = "agent:write"
+	// webhookBusyPeekWindow is how long the fire-and-forget path watches the
+	// stream before acknowledging. ErrSessionBusy is emitted synchronously
+	// before any work starts, so a busy rejection lands inside this window; a
+	// real run does not. Without the peek, a 202 would acknowledge a message
+	// the runtime already dropped.
+	webhookBusyPeekWindow = 100 * time.Millisecond
 )
 
 // handleWebhookIngress serves POST /webhooks/{id}: an inbound-only trigger that
@@ -155,12 +163,23 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	if !wait {
-		// Fire-and-forget: keep draining in the background, then release the ctx.
-		go func() {
-			<-resCh
+		// Fire-and-forget — but peek briefly so an immediate busy rejection
+		// (persistent session with a turn already running) becomes a 429
+		// instead of a 202 for a message that was never processed.
+		if res, ok := peekWebhookResult(resCh, webhookBusyPeekWindow); ok {
 			cancel()
-		}()
-		s.logWebhook(id, principal.UserID, ch.AgentID, "async", info.ID, "accepted", start, nil)
+			if errors.Is(res.err, agenterr.ErrSessionBusy) {
+				s.logWebhook(id, principal.UserID, ch.AgentID, "async", info.ID, "busy", start, res.err)
+				writeWebhookBusy(w, info.ID)
+				return
+			}
+			// The run finished inside the peek window; record its terminal
+			// status now, the response stays 202 for a stable contract.
+			s.logWebhook(id, principal.UserID, ch.AgentID, "async", info.ID, webhookRunStatus(res.err), start, res.err)
+		} else {
+			s.logWebhook(id, principal.UserID, ch.AgentID, "async", info.ID, "accepted", start, nil)
+			s.finishWebhookRun(id, principal.UserID, ch.AgentID, "async", info.ID, start, resCh, cancel)
+		}
 		writeData(w, http.StatusAccepted, map[string]any{"session_id": info.ID})
 		return
 	}
@@ -170,6 +189,11 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	case res := <-resCh:
 		cancel()
 		if res.err != nil {
+			if errors.Is(res.err, agenterr.ErrSessionBusy) {
+				s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "busy", start, res.err)
+				writeWebhookBusy(w, info.ID)
+				return
+			}
 			s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "error", start, res.err)
 			writeErrorDetails(w, http.StatusBadGateway, "agent run failed", map[string]any{"session_id": info.ID})
 			return
@@ -177,14 +201,49 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "ok", start, nil)
 		writeData(w, http.StatusOK, map[string]any{"session_id": info.ID, "output": res.output})
 	case <-time.After(time.Duration(cfg.EffectiveWaitTimeout()) * time.Second):
-		// Stop waiting, but the drainer keeps consuming the stream to completion.
-		go func() {
-			<-resCh
-			cancel()
-		}()
+		// Stop waiting, but the drainer keeps consuming the stream to
+		// completion; the terminal status lands in the log.
 		s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "timeout", start, nil)
+		s.finishWebhookRun(id, principal.UserID, ch.AgentID, "sync", info.ID, start, resCh, cancel)
 		writeErrorDetails(w, http.StatusGatewayTimeout, "timed out waiting for agent reply", map[string]any{"session_id": info.ID})
 	}
+}
+
+// finishWebhookRun consumes the run result in the background after the HTTP
+// response has been written, releases the run context, and emits the terminal
+// audit record — the log line is the only place the final outcome is visible.
+func (s *Server) finishWebhookRun(webhookID, userID, agentID, mode, sessionID string, start time.Time, resCh <-chan webhookResult, cancel context.CancelFunc) {
+	go func() {
+		res := <-resCh
+		cancel()
+		s.logWebhook(webhookID, userID, agentID, mode, sessionID, webhookRunStatus(res.err), start, res.err)
+	}()
+}
+
+// peekWebhookResult waits up to window for a result that is already (or about
+// to be) available, reporting whether one arrived.
+func peekWebhookResult(resCh <-chan webhookResult, window time.Duration) (webhookResult, bool) {
+	select {
+	case res := <-resCh:
+		return res, true
+	case <-time.After(window):
+		return webhookResult{}, false
+	}
+}
+
+// webhookRunStatus maps a terminal run error to the audit-log status value.
+func webhookRunStatus(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "done"
+}
+
+// writeWebhookBusy reports a busy persistent session: the message was NOT
+// processed and the caller should retry once the in-flight turn finishes.
+func writeWebhookBusy(w http.ResponseWriter, sessionID string) {
+	w.Header().Set("Retry-After", "1")
+	writeErrorDetails(w, http.StatusTooManyRequests, "session is busy with another run; retry later", map[string]any{"session_id": sessionID})
 }
 
 type webhookResult struct {
