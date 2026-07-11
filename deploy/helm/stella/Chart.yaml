@@ -5,8 +5,11 @@ type: application
 # Chart version — bump on chart changes, independent of the app version.
 version: 0.1.0
 # appVersion tracks the Stella release the chart is validated against; it is the
-# default image tag. Update it in lockstep with the published container image.
-appVersion: "0.50.4"
+# default image tag (see stella.image). It MUST match a published container image
+# tag, and those carry a leading "v" (git release tags are v0.50.5, etc.), so this
+# value must include the "v" too — without it the default pull 404s. Update it in
+# lockstep with the published image.
+appVersion: "v0.50.5"
 home: https://stella.cherryin.com
 sources:
   - https://github.com/CherryHQ/stella
