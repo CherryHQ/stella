@@ -206,6 +206,39 @@ docker build -t stella .
 docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 ```
 
+## 受管部署
+
+当你在编排系统（Kubernetes 等）下运行 Stella 时，两个本地环境下的便利做法会变成陷阱：内嵌的单节点数据库，以及指向 pod 自身的 base URL。Docker 镜像默认拒绝前者（`STELLA_REQUIRE_EXTERNAL_DB=1`），对后者 Stella 会发出响亮的警告。
+
+### 三种 URL 角色
+
+Stella 使用三个不同的地址，务必区分：
+
+| 变量                | 角色                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `HOST`              | 服务绑定的网卡地址。容器内使用 `0.0.0.0` 让 pod 可达；默认 `127.0.0.1`。                                     |
+| `STELLA_SERVER_URL` | CLI 与进程内调用方访问本地服务所用的地址。pod 内部使用；默认 `http://127.0.0.1:25678`。                      |
+| `STELLA_BASE_URL`   | 客户端看到的公网 canonical URL。它是 OAuth 回调地址与频道外链的来源，因此必须是外部可达地址，而非 loopback。 |
+
+绑定到 `0.0.0.0`（`HOST`）**并不会**给你一个公网 URL：`STELLA_BASE_URL` 未设置时，base URL 由绑定地址推导，仍然解析为 loopback。受管部署中请始终显式设置 `STELLA_BASE_URL`。
+
+### 外部数据库要求
+
+Docker 镜像设置了 `STELLA_REQUIRE_EXTERNAL_DB=1`：当 `STELLA_DATABASE_URL` 未设置时，启动会以可操作的错误快速失败，而不是在容器的临时文件系统上静默启动内嵌 PostgreSQL 集群——多副本时每个 pod 甚至会各建一套数据库。请将 `STELLA_DATABASE_URL` 指向带 `pgvector` 与 `pg_search` 的外部 PostgreSQL。若要有意在挂载持久卷的单容器中运行内嵌 PostgreSQL，设置 `STELLA_REQUIRE_EXTERNAL_DB=0`。
+
+loopback base URL 永远不是启动错误——通过 `localhost` 或 `kubectl port-forward` 访问 Stella 时它是合法的——但当配置了 OAuth/OIDC 登录时 Stella 会发出响亮警告，因为登录跳转会指回 pod 自身。部署 chart 应将 `STELLA_BASE_URL` 作为必填值：那一层才知道自己位于 ingress 之后。
+
+### 受管部署所需的环境变量
+
+| 变量                         | 值                                                                            |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `STELLA_DATABASE_URL`        | 含 `pgvector` + `pg_search` 的外部 PostgreSQL DSN                             |
+| `STELLA_VAULT_KEY`           | 密钥库的 age 私钥（用 `stellad vault keygen` 生成）                           |
+| `STELLA_BASE_URL`            | 客户端使用的公网 canonical URL（如 `https://stella.example.com`）             |
+| `STELLA_REQUIRE_EXTERNAL_DB` | `1` —— Docker 镜像已默认设置；未配外部数据库时快速失败而非启动内嵌 PostgreSQL |
+
+完整的 Kubernetes manifest 演示不在本页范围内。
+
 ## 沙箱后端
 
 将 Stella 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。Stella 支持三种沙箱后端：`docker`、`local` 和 `none`。请参阅[沙箱指南](/docs/guides/sandbox)了解如何选择后端、配置 Docker 沙箱模式和排查常见问题。
@@ -230,22 +263,24 @@ PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、
 
 配置通过Web UI管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
-| 变量                         | 必需                      | 描述                                                                                     |
-| ---------------------------- | ------------------------- | ---------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                | 否                        | Stella 主目录（默认 `~/.stella`）                                                        |
-| `STELLA_DATABASE_URL`        | Docker 中必需；其他环境否 | 外部 PostgreSQL 连接 URL；Docker 之外不设置时使用 `STELLA_HOME` 下的内嵌集群             |
-| `STELLA_BLOB_S3_ENDPOINT`    | 否§                       | 持久化用户资产镜像使用的 S3 兼容 endpoint                                                |
-| `STELLA_BLOB_S3_BUCKET`      | 否§                       | 镜像用户上传资产的 bucket                                                                |
-| `STELLA_BLOB_S3_ACCESS_KEY`  | 否§                       | 资产镜像使用的 access key                                                                |
-| `STELLA_BLOB_S3_SECRET_KEY`  | 否§                       | 资产镜像使用的 secret key                                                                |
-| `STELLA_BLOB_S3_REGION`      | 否                        | 可选 S3 region                                                                           |
-| `STELLA_BLOB_S3_USE_SSL`     | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
-| `ANTHROPIC_API_KEY`          | 是\*                      | Anthropic 提供商密钥                                                                     |
-| `OPENAI_API_KEY`             | 是\*                      | OpenAI 提供商密钥                                                                        |
-| `STELLA_VAULT_KEY`           | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                          |
-| `STELLA_DOCKER_SANDBOX_MODE` | 否‡                       | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
-| `STELLA_HOME_HOST`           | 否‡                       | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
-| `STELLA_HOME_VOLUME`         | 否‡                       | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
+| 变量                         | 必需                      | 描述                                                                                                                   |
+| ---------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                | 否                        | Stella 主目录（默认 `~/.stella`）                                                                                      |
+| `STELLA_DATABASE_URL`        | Docker 中必需；其他环境否 | 外部 PostgreSQL 连接 URL；Docker 之外不设置时使用 `STELLA_HOME` 下的内嵌集群                                           |
+| `STELLA_BASE_URL`            | 否¶                       | OAuth 回调与频道外链使用的公网 canonical URL；未设置时由绑定地址推导（loopback）                                       |
+| `STELLA_REQUIRE_EXTERNAL_DB` | 否                        | `STELLA_DATABASE_URL` 未设置时快速失败而非启动内嵌 PostgreSQL；Docker 镜像默认设为 `1`，设 `0` 可在持久卷上运行内嵌 PG |
+| `STELLA_BLOB_S3_ENDPOINT`    | 否§                       | 持久化用户资产镜像使用的 S3 兼容 endpoint                                                                              |
+| `STELLA_BLOB_S3_BUCKET`      | 否§                       | 镜像用户上传资产的 bucket                                                                                              |
+| `STELLA_BLOB_S3_ACCESS_KEY`  | 否§                       | 资产镜像使用的 access key                                                                                              |
+| `STELLA_BLOB_S3_SECRET_KEY`  | 否§                       | 资产镜像使用的 secret key                                                                                              |
+| `STELLA_BLOB_S3_REGION`      | 否                        | 可选 S3 region                                                                                                         |
+| `STELLA_BLOB_S3_USE_SSL`     | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
+| `ANTHROPIC_API_KEY`          | 是\*                      | Anthropic 提供商密钥                                                                                                   |
+| `OPENAI_API_KEY`             | 是\*                      | OpenAI 提供商密钥                                                                                                      |
+| `STELLA_VAULT_KEY`           | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
+| `STELLA_DOCKER_SANDBOX_MODE` | 否‡                       | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                                                   |
+| `STELLA_HOME_HOST`           | 否‡                       | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                                              |
+| `STELLA_HOME_VOLUME`         | 否‡                       | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要                               |
 
 \* 至少需要一个提供商密钥。API 密钥也可以通过Web UI配置。
 
@@ -254,6 +289,8 @@ PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、
 ‡ 仅当 agent 使用 `docker` 沙箱后端时需要。stellad 在宿主机上运行用 `host`；stellad 在 Docker 内且使用 host bind mount 用 `bind`；stellad 在 Docker 内且使用 named volume 用 `volume`。
 
 § 四个必需的 S3 镜像变量必须同时设置，或全部不设置。部分设置会导致启动失败。
+
+¶ 受管部署所必需，以及在使用 OAuth 登录或频道外链时必需。参见[受管部署](#受管部署)。
 
 ## 健康检查
 

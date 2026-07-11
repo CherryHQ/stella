@@ -54,4 +54,14 @@ WORKDIR /home/stella
 USER stella
 COPY --from=builder /go/src/app/dist/bin/stellad /usr/local/bin/stellad
 
-CMD ["stellad", "server", "--host", "0.0.0.0"]
+# Containers must bind all interfaces to be reachable; the --host flag binds to
+# HOST, so set it via env instead of a hardcoded flag. This keeps the CMD free of
+# an explicit --host so a manifest that overrides `command:` does not silently
+# drop the bind, and lets users override HOST without fighting the flag.
+ENV HOST=0.0.0.0
+# In a container the embedded PostgreSQL cluster would land on an ephemeral
+# filesystem (and split state across replicas), so the image requires an
+# external STELLA_DATABASE_URL by default. Override with =0 to deliberately run
+# embedded PostgreSQL on a persistent volume.
+ENV STELLA_REQUIRE_EXTERNAL_DB=1
+CMD ["stellad", "server"]

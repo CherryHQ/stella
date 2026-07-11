@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -134,6 +135,8 @@ func serverAction(c *ucli.Context) error {
 
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
 	g, gctx := errgroup.WithContext(ctx)
+
+	warnDeploymentBaseURL(resolveBaseURL(adminHost, adminPort))
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
@@ -409,6 +412,57 @@ func resolveBaseURL(adminHost string, adminPort int) string {
 		return strings.TrimRight(v, "/")
 	}
 	return adminBaseURL(adminHost, adminPort)
+}
+
+// warnDeploymentBaseURL warns when the canonical base URL used for OAuth
+// callbacks and channel deep links cannot work off-box. When STELLA_BASE_URL is
+// unset the URL is derived from the bind host, so a default (loopback) bind
+// yields a base URL that points back at this machine. That is legitimate in
+// every deployment shape (local browser, docker port publish, kubectl
+// port-forward) and its failure mode is immediately visible in the login
+// redirect — so this warns loudly instead of failing, and only when a feature
+// that emits such links is actually configured. Kubernetes charts enforce
+// STELLA_BASE_URL as a required value at the layer that knows it is behind an
+// ingress.
+func warnDeploymentBaseURL(baseURL string) {
+	if !baseURLUnsafe(baseURL) {
+		return
+	}
+	if linkDependentFeaturesConfigured() {
+		slog.Warn("STELLA_BASE_URL is loopback/unspecified; OAuth callbacks and channel deep links will point back at this host and fail off-box. Set STELLA_BASE_URL to the public URL clients use", "base_url", baseURL)
+	}
+}
+
+// baseURLUnsafe reports whether a base URL cannot serve as a public canonical
+// address: it fails to parse, is not http(s), or resolves to a loopback,
+// unspecified, or localhost host.
+func baseURLUnsafe(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return true
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return true
+	}
+	host := u.Hostname()
+	if host == "" {
+		return true
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsUnspecified()
+	}
+	return false
+}
+
+// linkDependentFeaturesConfigured reports whether a feature that emits absolute
+// links back to this server (external OIDC or an OAuth login provider) is
+// configured, reusing the auth package's existing env probes rather than
+// enumerating channels from the database.
+func linkDependentFeaturesConfigured() bool {
+	return os.Getenv("OIDC_ISSUER_URL") != "" || oidc.OAuthConfiguredFromEnv()
 }
 
 func adminURLForDisplay(host string, port int, fallbackAddr string) string {
