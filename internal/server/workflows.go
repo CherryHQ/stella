@@ -16,15 +16,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-func (s *Server) SetWorkflowService(svc *workflowpkg.Service) {
-	s.workflowSvc = svc
-}
-
 func (s *Server) workflowsReady() bool { return s.workflowSvc != nil }
 
 func (s *Server) workflowAuth(w http.ResponseWriter, r *http.Request) (*AuthInfo, bool) {
 	if !s.workflowsReady() {
-		writeError(w, http.StatusServiceUnavailable, "workflows unavailable")
+		writeCapabilityUnavailable(w, capWorkflow)
 		return nil, false
 	}
 	info := UserFromContext(r.Context())

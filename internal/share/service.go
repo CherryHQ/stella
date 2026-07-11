@@ -72,12 +72,6 @@ func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, stel
 	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
-func (s *Service) SetBaseURL(baseURL string) {
-	if baseURL != "" {
-		s.baseURL = strings.TrimRight(baseURL, "/")
-	}
-}
-
 func (s *Service) PublicURL(token string) string {
 	if token == "" || s.baseURL == "" {
 		return ""

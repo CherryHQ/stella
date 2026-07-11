@@ -55,13 +55,6 @@ func NewService(
 	}
 }
 
-// SetBaseURL overrides the base URL used to build OAuth redirect URIs.
-func (s *Service) SetBaseURL(url string) {
-	if url != "" {
-		s.corsOrigin = url
-	}
-}
-
 // SetRegistry wires the OAuth provider registry used for generic provider operations.
 func (s *Service) SetRegistry(r *oauth.ProviderRegistry) {
 	s.registry = r

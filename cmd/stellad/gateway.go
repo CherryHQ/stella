@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"filippo.io/age"
+
 	ucli "github.com/urfave/cli/v2"
 
 	"golang.org/x/sync/errgroup"
@@ -82,7 +84,8 @@ func serverAction(c *ucli.Context) error {
 	// resolved base URL supplies OAuth redirect defaults.
 	adminHost := c.String("host")
 	adminPort := c.Int("port")
-	loginCfg, err := oidc.LoadLoginConfig(os.LookupEnv, resolveBaseURL(cfg.BaseURL, adminHost, adminPort))
+	baseURL := resolveBaseURL(cfg.BaseURL, adminHost, adminPort)
+	loginCfg, err := oidc.LoadLoginConfig(os.LookupEnv, baseURL)
 	if err != nil {
 		return fmt.Errorf("load login config: %w", err)
 	}
@@ -136,7 +139,7 @@ func serverAction(c *ucli.Context) error {
 
 	startDiagnostics(ctx, cfg.Diagnostics.PprofAddr)
 
-	s, err := setup(ctx, cfg)
+	s, err := setup(ctx, cfg, baseURL)
 	if err != nil {
 		cancel()
 		return err
@@ -181,14 +184,14 @@ func serverAction(c *ucli.Context) error {
 	}
 	switchFn := func(_, _ string) error { return nil }
 
-	return runServer(s.ctx, s, loginCfg, listFn, switchFn, adminHost, adminPort, sigCh, endStartupWatch)
+	return runServer(s.ctx, s, loginCfg, baseURL, listFn, switchFn, adminHost, adminPort, sigCh, endStartupWatch)
 }
 
 // runServer starts every subsystem and blocks until shutdown. sigCh delivers
 // SIGINT/SIGTERM (registered by the caller, who owns signal.Stop); onServing is
 // called exactly once, when startup is complete and the two-phase drain
 // supervisor has taken over signal handling from the caller's startup watcher.
-func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int, sigCh <-chan os.Signal, onServing func()) error {
+func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig, baseURL string, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int, sigCh <-chan os.Signal, onServing func()) error {
 	// workCtx is the errgroup parent. Graceful drain cancels it only AFTER the
 	// HTTP server has drained, so the LIFO defer chain (goal tick/dispatcher,
 	// scheduler, riverClient.Stop) then tears subsystems down in order. A
@@ -199,7 +202,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	defer workCancel()
 	g, gctx := errgroup.WithContext(workCtx)
 
-	warnDeploymentBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort), s.cfg.OIDC.IssuerURL, len(loginConfig.OAuth) > 0)
+	warnDeploymentBaseURL(baseURL, s.cfg.OIDC.IssuerURL, len(loginConfig.OAuth) > 0)
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
@@ -226,66 +229,39 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		return fmt.Errorf("create link code store: %w", err)
 	}
 
-	// Admin server is always created so channel stop functions can be registered
-	// even when the panel is disabled.
-	adminSrv := server.New(gctx, s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
-	adminSrv.SetBuiltinTools(s.builtinTools)
-	if s.credSvc != nil {
-		adminSrv.SetCredentialsService(s.credSvc)
-	}
-	if s.shareSvc != nil {
-		adminSrv.SetShareService(s.shareSvc)
-	}
-	if s.recallySvc != nil {
-		adminSrv.SetRecallyService(s.recallySvc)
-	}
-	adminSrv.SetBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort))
-	if s.schedulerSvc != nil {
-		adminSrv.SetSchedulerService(s.schedulerSvc)
-	}
-	if s.goalSvc != nil {
-		adminSrv.SetGoalService(s.goalSvc)
-	}
-	if s.workflowSvc != nil {
-		adminSrv.SetWorkflowService(s.workflowSvc)
-	}
+	// Unified bearer credential front door (PAT/OAuth storage) + OAuth2
+	// authorization server, built once by the composition root and injected into
+	// the admin server via Deps. Server.New never constructs the credential
+	// surface itself.
+	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(s.db, slog.With("component", "admin"))
 
-	// Wire the shared credentials service: inject invalidator so token
-	// refresh propagates to running pools.
-	credSvc := adminSrv.CredentialsService()
-	credSvc.SetInvalidator(s.poolManager)
-	if s.oauthRegistry != nil {
-		credSvc.SetRegistry(s.oauthRegistry)
-		s.poolManager.SetOAuthRegistry(s.oauthRegistry)
-	}
-
-	adminSrv.InitCredentialFrontDoor()
-
-	// Wire vault service if STELLA_VAULT_KEY was valid during setup.
+	// Vault-dependent capabilities. mcpVault is nil when the vault is
+	// unavailable; MCP bearer auth is then rejected. The pool-side env loader is
+	// a runtime bind on the pool, not an admin-server dependency.
 	var coordOpts []channel.CoordinatorOption
-	var mcpVault mcp.Vault // nil when the vault is unavailable; MCP bearer auth then rejected
+	var mcpVault mcp.Vault
+	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
 	if s.vaultSvc != nil {
 		mcpVault = s.vaultSvc
-		adminSrv.SetVaultService(s.vaultSvc)
-		adminSrv.SetVaultRecipient(s.vaultSvc.MasterRecipient())
+		vaultRecipient = s.vaultSvc.MasterRecipient()
 		s.poolManager.SetVaultEnvLoader(gctx, s.vaultSvc)
-		coordOpts = append(coordOpts, channel.WithVaultRecipient(s.vaultSvc.MasterRecipient()))
+		coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultRecipient))
 		coordOpts = append(coordOpts, channel.WithVaultService(s.vaultSvc))
 	}
 
-	// Wire the MCP client: one registration service shared by the HTTP API
-	// (add/list/remove) and the agent runtime (tool exposure). Servers using
-	// auth_type=none work even without the vault; bearer auth requires it.
+	// One MCP registration service shared by the HTTP API (add/list/remove) and
+	// the agent runtime (tool exposure). Servers using auth_type=none work even
+	// without the vault; bearer auth requires it.
 	mcpSvc := mcp.NewService(sqlc.New(s.db), mcpVault)
-	adminSrv.SetMCPService(mcpSvc)
 	s.poolManager.SetMCPToolProvider(gctx, mcp.NewToolProvider(mcpSvc))
 
-	// Wire authentication (external OIDC/OAuth providers and local password auth).
+	// Login authentication (external OIDC/OAuth providers and local password
+	// auth). The identity stores it produces back the auth handlers.
 	oidcStore := appdb.NewOIDCStore(s.db)
 	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
 		DB:         s.db,
-		BaseURL:    resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort),
+		BaseURL:    baseURL,
 		VaultKey:   s.cfg.Vault.Key,
 		OIDC:       s.cfg.OIDC,
 		Login:      loginConfig,
@@ -294,11 +270,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	if err != nil {
 		return fmt.Errorf("oidc: setup: %w", err)
 	}
-	adminSrv.SetLoginIdentityStore(oidcStore)
-	adminSrv.SetUserStore(oidcStore)
-	adminSrv.SetSessionStore(oidcStore)
-	adminSrv.SetCredentialStore(oidcStore)
-	adminSrv.SetOIDCAuth(oidcResult)
 	slog.Info("oidc: authentication configured")
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
@@ -309,10 +280,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	}
 
 	elStore := eventlog.NewStore(s.db)
-	adminSrv.SetEventLogStore(elStore)
-	adminSrv.SetArbiter(channel.NewArbiter(channel.ArbiterConfig{
-		MaxRepliesPerTrigger: 100,
-	}))
+	// The admin group-chat arbiter allows up to 100 replies per trigger; the
+	// coordinator's own arbiter (below) caps at 1. They are deliberately distinct
+	// instances with different budgets.
+	adminArbiter := channel.NewArbiter(channel.ArbiterConfig{MaxRepliesPerTrigger: 100})
 	botRegistry := channel.NewBotIdentityRegistry()
 	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
@@ -336,7 +307,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		}),
 	))
 
-	// Create the coordinator that implements MessageHandler for all channels.
+	// The channel domain builds the coordinator and its durable group dispatcher
+	// together and closes the coordinator<->dispatcher cycle here; the HTTP
+	// server receives only the narrow group-dispatch port (Deps.GroupDispatcher).
 	coordinator := channel.NewCoordinator(
 		s.poolManager,
 		s.store,
@@ -346,7 +319,52 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	)
 	groupDispatcher := channel.NewGroupDispatcher(s.db, coordinator, publisherRegistry)
 	coordinator.SetGroupDispatcher(groupDispatcher)
-	adminSrv.SetGroupDispatcher(groupDispatcher)
+
+	// Assemble the immutable, validated admin-server dependency set and construct
+	// the server exactly once. Every shared instance above is passed in; the
+	// server creates no shadow service, reads no environment, and has no setters.
+	adminSrv, err := server.New(gctx, server.Deps{
+		Store:               s.store,
+		DB:                  s.db,
+		AuthStore:           as,
+		Mem:                 s.mem,
+		Engine:              engine,
+		LinkCodes:           linkCodes,
+		PoolManager:         s.poolManager,
+		PluginHost:          s.pluginHost,
+		BuiltinTools:        s.builtinTools,
+		BaseURL:             baseURL,
+		Credentials:         s.credSvc,
+		Email:               s.emailSvc,
+		Share:               s.shareSvc,
+		Recally:             s.recallySvc,
+		CredentialFrontDoor: credFrontDoor,
+		OAuthAuthServer:     oauthAuthServer,
+		EventLog:            elStore,
+		Arbiter:             adminArbiter,
+		GroupDispatcher:     groupDispatcher,
+		Vault:               s.vaultSvc,
+		VaultRecipient:      vaultRecipient,
+		MCP:                 mcpSvc,
+		Scheduler:           s.schedulerSvc,
+		Goal:                s.goalSvc,
+		Workflow:            s.workflowSvc,
+		OIDC: server.OIDCDeps{
+			Providers:   oidcResult.Providers,
+			AuthSvc:     oidcResult.AuthSvc,
+			SessionMgr:  oidcResult.SessionMgr,
+			StateMgr:    oidcResult.StateMgr,
+			LocalAuth:   oidcResult.LocalAuth,
+			Logins:      oidcStore,
+			Users:       oidcStore,
+			Sessions:    oidcStore,
+			Credentials: oidcStore,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("build admin server: %w", err)
+	}
+
 	g.Go(func() error {
 		if err := groupDispatcher.Run(gctx); err != nil && !errors.Is(err, context.Canceled) {
 			return err
@@ -411,7 +429,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// tear down the scheduler's periodic and one-time jobs against the shared
 	// client but do not start or stop it.
 	if s.schedulerSvc != nil {
-		adminSrv.SetSchedulerService(s.schedulerSvc)
 		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)

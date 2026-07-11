@@ -25,7 +25,7 @@ func (s *Server) ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if s.credResolver == nil {
-		writeError(w, http.StatusServiceUnavailable, "personal access tokens not configured")
+		writeCapabilityUnavailable(w, capPAT)
 		return
 	}
 	recs, err := s.credResolver.ListPAT(r.Context(), info.UserID)
@@ -49,7 +49,7 @@ func (s *Server) GetPersonalAccessToken(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	if s.credResolver == nil {
-		writeError(w, http.StatusServiceUnavailable, "personal access tokens not configured")
+		writeCapabilityUnavailable(w, capPAT)
 		return
 	}
 	rec, found, err := s.credResolver.GetPAT(r.Context(), id, info.UserID)
@@ -72,7 +72,7 @@ func (s *Server) CreatePersonalAccessToken(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if s.credResolver == nil {
-		writeError(w, http.StatusServiceUnavailable, "personal access tokens not configured")
+		writeCapabilityUnavailable(w, capPAT)
 		return
 	}
 
@@ -115,7 +115,7 @@ func (s *Server) RevokePersonalAccessToken(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if s.credResolver == nil {
-		writeError(w, http.StatusServiceUnavailable, "personal access tokens not configured")
+		writeCapabilityUnavailable(w, capPAT)
 		return
 	}
 	revoked, err := s.credResolver.RevokePAT(r.Context(), id, info.UserID)

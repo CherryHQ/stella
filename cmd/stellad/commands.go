@@ -87,6 +87,7 @@ type setupResult struct {
 	goalSvc                  *goal.Service
 	vaultSvc                 *vault.Service
 	credSvc                  *connections.Service
+	emailSvc                 *email.Service
 	shareSvc                 *sharepkg.Service
 	recallySvc               *recally.Service
 	workflowSvc              *workflowpkg.Service
@@ -104,7 +105,11 @@ type setupResult struct {
 	backgroundTasks          *sync.WaitGroup
 }
 
-func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error) {
+// setup builds every subsystem. baseURL is the final public URL resolved once at
+// the startup boundary; the shared credentials/share services are constructed
+// with it directly, so no service is built with a localhost placeholder and
+// mutated later.
+func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*setupResult, error) {
 	dsn := cfg.Database.URL
 	var embedded *appdb.Embedded
 	if dsn == "" {
@@ -305,7 +310,11 @@ func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error
 	workflowSvc := workflowpkg.New(db, sqlc.New(db), goalSvc.Goal)
 	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc, q: sqlc.New(db)})
 
-	credSvc := connections.NewService(vaultSvc, sqlc.New(db), oauth.NewFlowStore(), "http://localhost:25678")
+	// Build the shared credentials/email/share services once, with the final
+	// resolved base URL — no localhost placeholder to mutate later. These same
+	// instances back both the agent tools (below) and the HTTP endpoints (via
+	// server.Deps), so there is one source of truth per capability.
+	credSvc := connections.NewService(vaultSvc, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	emailSvc := email.NewService(vaultSvc, sqlc.New(db))
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
@@ -315,7 +324,7 @@ func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error
 	}
 	recallyStore := recally.NewStore(db)
 	recallySvc := recally.NewService(recallyStore, config.StellaHome())
-	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recallyStore, config.StellaHome(), "http://localhost:25678")
+	shareSvc := sharepkg.NewService(sqlc.New(db), memProvider, recallyStore, config.StellaHome(), baseURL)
 
 	serviceTools := []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
@@ -360,6 +369,17 @@ func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error
 		return nil, fmt.Errorf("start pool manager: %w", err)
 	}
 
+	// Now that the pool manager exists, finish wiring the shared credentials
+	// service: its runner invalidator (so token refresh propagates to running
+	// pools) and, when configured, the OAuth provider registry on both the
+	// credentials service and the pool. This completes the single shared instance
+	// before it is handed to the admin server via Deps — the server itself
+	// performs no such mutation.
+	credSvc.SetInvalidator(poolMgr)
+	if ps.oauthRegistry != nil {
+		poolMgr.SetOAuthRegistry(ps.oauthRegistry)
+	}
+
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
@@ -388,6 +408,7 @@ func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error
 		goalSvc:                  goalSvc,
 		vaultSvc:                 vaultSvc,
 		credSvc:                  credSvc,
+		emailSvc:                 emailSvc,
 		shareSvc:                 shareSvc,
 		recallySvc:               recallySvc,
 		workflowSvc:              workflowSvc,
