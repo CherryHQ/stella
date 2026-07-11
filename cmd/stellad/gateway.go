@@ -82,10 +82,18 @@ func serverAction(c *ucli.Context) error {
 		cleanStaleUpgradeArtifacts(installDir)
 	}
 
-	// Parse the shutdown-lifecycle env vars once, up front, so a misconfigured
-	// duration fails fast before any subsystem starts.
-	lifecycle, err := config.LoadLifecycle()
+	// Parse the full server environment once, up front, so a misconfigured
+	// value (bad duration, non-boolean guard) fails fast before any subsystem
+	// starts. This is the single startup boundary that reads ServerConfig;
+	// operator commands that never call setup (version, vault keygen, service,
+	// mise) must not reach it, so an unrelated bad variable cannot block them.
+	cfg, err := config.LoadServerConfig(os.LookupEnv)
 	if err != nil {
+		return err
+	}
+	// Publish the read-only snapshot for consumers that read it as a fallback;
+	// the values setup needs are still injected below, not read ambiently.
+	if err := config.InstallServerConfig(cfg); err != nil {
 		return err
 	}
 
@@ -117,7 +125,7 @@ func serverAction(c *ucli.Context) error {
 
 	startDiagnostics(ctx)
 
-	s, err := setup(ctx, lifecycle)
+	s, err := setup(ctx, cfg)
 	if err != nil {
 		cancel()
 		return err

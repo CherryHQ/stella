@@ -101,15 +101,11 @@ type setupResult struct {
 	backgroundTasks          *sync.WaitGroup
 }
 
-func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
-	requireExternalDB, err := config.RequireExternalDB()
-	if err != nil {
-		return nil, err
-	}
-	dsn := config.DatabaseURL()
+func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error) {
+	dsn := cfg.Database.URL
 	var embedded *appdb.Embedded
 	if dsn == "" {
-		if requireExternalDB {
+		if cfg.Database.RequireExternalDB {
 			// Set by the Docker image (and k8s manifests): in a container the
 			// embedded cluster lands on an ephemeral filesystem, and with multiple
 			// replicas each process would create its own database — refuse it
@@ -364,7 +360,7 @@ func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, lc.RiverSoftStopTimeout)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, cfg.Lifecycle.RiverSoftStopTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +373,7 @@ func setup(parent context.Context, lc config.Lifecycle) (*setupResult, error) {
 
 	result := &setupResult{
 		ctx:                      parent,
-		lifecycle:                lc,
+		lifecycle:                cfg.Lifecycle,
 		db:                       db,
 		embedded:                 embedded,
 		mem:                      memProvider,
