@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -134,6 +135,10 @@ func serverAction(c *ucli.Context) error {
 
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
 	g, gctx := errgroup.WithContext(ctx)
+
+	if err := checkDeploymentBaseURL(resolveBaseURL(adminHost, adminPort)); err != nil {
+		return err
+	}
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
@@ -409,6 +414,69 @@ func resolveBaseURL(adminHost string, adminPort int) string {
 		return strings.TrimRight(v, "/")
 	}
 	return adminBaseURL(adminHost, adminPort)
+}
+
+// checkDeploymentBaseURL guards the canonical base URL used for OAuth callbacks
+// and channel deep links. When STELLA_BASE_URL is unset the URL is derived from
+// the bind host, so a default (loopback) bind yields a base URL that points back
+// at this pod and is useless off-box. In strict deployment mode that is a hard
+// failure unless STELLA_ALLOW_UNSAFE_BASE_URL overrides it; outside strict mode
+// it is only a warning, and only when a link-dependent feature is configured.
+func checkDeploymentBaseURL(baseURL string) error {
+	if !baseURLUnsafe(baseURL) {
+		return nil
+	}
+	strict, err := config.StrictDeployment()
+	if err != nil {
+		return err
+	}
+	if strict {
+		allow, err := config.AllowUnsafeBaseURL()
+		if err != nil {
+			return err
+		}
+		if !allow {
+			return fmt.Errorf("STELLA_STRICT_DEPLOYMENT=1 requires a public STELLA_BASE_URL: %q is loopback/unspecified, so OAuth callbacks and channel links would point back at this pod; set STELLA_BASE_URL to the public URL clients use (or STELLA_ALLOW_UNSAFE_BASE_URL=1 to override)", baseURL)
+		}
+		slog.Warn("STELLA_BASE_URL is loopback/unspecified but STELLA_ALLOW_UNSAFE_BASE_URL=1 is set; OAuth callbacks and channel deep links will point back at this pod and fail off-box", "base_url", baseURL)
+		return nil
+	}
+	if linkDependentFeaturesConfigured() {
+		slog.Warn("STELLA_BASE_URL is loopback/unspecified; OAuth callbacks and channel deep links will point back at this host and fail off-box. Set STELLA_BASE_URL to the public URL clients use", "base_url", baseURL)
+	}
+	return nil
+}
+
+// baseURLUnsafe reports whether a base URL cannot serve as a public canonical
+// address: it fails to parse, is not http(s), or resolves to a loopback,
+// unspecified, or localhost host.
+func baseURLUnsafe(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return true
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return true
+	}
+	host := u.Hostname()
+	if host == "" {
+		return true
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsUnspecified()
+	}
+	return false
+}
+
+// linkDependentFeaturesConfigured reports whether a feature that emits absolute
+// links back to this server (external OIDC or an OAuth login provider) is
+// configured, reusing the auth package's existing env probes rather than
+// enumerating channels from the database.
+func linkDependentFeaturesConfigured() bool {
+	return os.Getenv("OIDC_ISSUER_URL") != "" || oidc.OAuthConfiguredFromEnv()
 }
 
 func adminURLForDisplay(host string, port int, fallbackAddr string) string {

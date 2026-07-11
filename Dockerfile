@@ -54,4 +54,9 @@ WORKDIR /home/stella
 USER stella
 COPY --from=builder /go/src/app/dist/bin/stellad /usr/local/bin/stellad
 
-CMD ["stellad", "server", "--host", "0.0.0.0"]
+# Containers must bind all interfaces to be reachable; the --host flag binds to
+# HOST, so set it via env instead of a hardcoded flag. This keeps the CMD free of
+# an explicit --host so a manifest that overrides `command:` does not silently
+# drop the bind, and lets users override HOST without fighting the flag.
+ENV HOST=0.0.0.0
+CMD ["stellad", "server"]
