@@ -44,7 +44,7 @@ stellad server
 
 You can also install with `go install github.com/CherryHQ/stella/cmd/stellad@latest` or download binaries from [Releases](https://github.com/CherryHQ/stella/releases).
 
-See the [full quickstart guide](web/content/docs/getting-started/quickstart.md) for detailed steps.
+See the [full quickstart guide](web/content/docs/getting-started/quickstart.md) for detailed steps. To run Stella on Kubernetes, use the production [Helm chart](web/content/docs/admin/kubernetes.md).
 
 ## Connect your channels
 
@@ -72,6 +72,7 @@ Skills are reusable playbooks that teach Stella how to perform specific tasks. S
 | Getting Started | Install, deploy, configure                  | [Quick Start](/docs/getting-started/quickstart) |
 | Guides          | Memory, scheduling, skills, notifications   | [Guides](/docs/guides/memory)                   |
 | Channels        | Telegram, QQ, Feishu, WeChat, Webhook setup | [Channels](/docs/channels/telegram)             |
+| Admin           | Kubernetes / Helm deployment                | [Kubernetes](/docs/admin/kubernetes)            |
 | Development     | Architecture, plugins, contributing         | [Development](/docs/development/architecture)   |
 
 ## CLI reference

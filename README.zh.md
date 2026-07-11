@@ -44,7 +44,7 @@ stellad server
 
 你也可以使用 `go install github.com/CherryHQ/stella/cmd/stellad@latest` 安装，或从 [Releases](https://github.com/CherryHQ/stella/releases) 下载二进制文件。
 
-详见[完整快速开始指南](web/content/docs/getting-started/quickstart.zh.md)。
+详见[完整快速开始指南](web/content/docs/getting-started/quickstart.zh.md)。要在 Kubernetes 上运行 Stella，请使用生产级 [Helm chart](web/content/docs/admin/kubernetes.zh.md)。
 
 ## 连接聊天渠道
 
@@ -72,6 +72,7 @@ stellad server
 | 入门 | 安装、部署、配置                       | [快速开始](/docs/getting-started/quickstart) |
 | 指南 | 记忆、定时任务、技能、通知             | [指南](/docs/guides/memory)                  |
 | 渠道 | Telegram、QQ、飞书、微信、Webhook 配置 | [渠道](/docs/channels/telegram)              |
+| 管理 | Kubernetes / Helm 部署                 | [Kubernetes](/docs/admin/kubernetes)         |
 | 开发 | 架构、插件、贡献                       | [开发](/docs/development/architecture)       |
 
 ## CLI 参考
