@@ -244,7 +244,7 @@ func setup(parent context.Context, cfg config.ServerConfig) (*setupResult, error
 	}
 
 	var vaultSvc *vault.Service
-	if vaultKey := os.Getenv("STELLA_VAULT_KEY"); vaultKey != "" {
+	if vaultKey := cfg.Vault.Key; vaultKey != "" {
 		var err error
 		vaultSvc, err = vault.NewService(sqlc.New(db), vaultKey)
 		if err != nil {

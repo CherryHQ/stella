@@ -64,7 +64,20 @@ func serverCommand() *ucli.Command {
 }
 
 func serverAction(c *ucli.Context) error {
-	if os.Getenv("STELLA_VAULT_KEY") == "" {
+	// Parse the full server environment once, up front, so a misconfigured
+	// value (bad duration, non-boolean guard) fails fast before any subsystem
+	// starts. This is the single startup boundary that reads ServerConfig;
+	// operator commands that never call setup (version, vault keygen, service,
+	// mise) must not reach it, so an unrelated bad variable cannot block them.
+	cfg, err := config.LoadServerConfig(os.LookupEnv)
+	if err != nil {
+		return err
+	}
+
+	// The vault key is required to run the server. Check it from the snapshot so
+	// there is a single reader; the key is a secret and never appears in this
+	// error text.
+	if cfg.Vault.Key == "" {
 		return errors.New(
 			"STELLA_VAULT_KEY is not set\n\n" +
 				"stella requires a vault key to encrypt credentials and secrets.\n" +
@@ -82,15 +95,6 @@ func serverAction(c *ucli.Context) error {
 		cleanStaleUpgradeArtifacts(installDir)
 	}
 
-	// Parse the full server environment once, up front, so a misconfigured
-	// value (bad duration, non-boolean guard) fails fast before any subsystem
-	// starts. This is the single startup boundary that reads ServerConfig;
-	// operator commands that never call setup (version, vault keygen, service,
-	// mise) must not reach it, so an unrelated bad variable cannot block them.
-	cfg, err := config.LoadServerConfig(os.LookupEnv)
-	if err != nil {
-		return err
-	}
 	// Publish the read-only snapshot for consumers that read it as a fallback;
 	// the values setup needs are still injected below, not read ambiently.
 	if err := config.InstallServerConfig(cfg); err != nil {
@@ -268,7 +272,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
 		DB:         s.db,
 		BaseURL:    resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort),
-		VaultKey:   os.Getenv("STELLA_VAULT_KEY"),
+		VaultKey:   s.cfg.Vault.Key,
 		AuthStores: oidcStore,
 	})
 	if err != nil {
