@@ -336,45 +336,32 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		return fmt.Errorf("build admin server: %w", err)
 	}
 
-	g.Go(func() error {
-		if err := groupDispatcher.Run(gctx); err != nil && !errors.Is(err, context.Canceled) {
-			return err
-		}
-		return nil
-	})
+	// ---- Static callbacks + backend startup (BEFORE any ingress) ------------
+	// Everything an inbound request or a River job might touch is wired and
+	// started here, so ingress (HTTP Serve, channel runtimes, group dispatch)
+	// never observes a half-wired backend — the #708 no-late-bind/ingress-window
+	// contract. The three setters below are mutex-guarded one-time writes that
+	// run before any concurrent reader exists.
+
+	// Notification auth directory: River scheduler/goal jobs route per-user
+	// notifications through it, so it must be set before River starts.
+	s.notifier.SetAuthService(s.pluginHost.Auth())
+
+	// Channel runtime back-edge: the coordinator + notifier the managed channel
+	// runtimes reach. Set before applyManagedChannelPlugins starts any bot.
 	if s.channelRuntimeServices != nil {
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
 	}
 
-	// Apply managed channel plugins at startup.
-	applyManagedChannelPlugins(gctx, s.pluginHost)
-
-	// Start Web UI server.
-	listenAddr := adminListenAddress(adminHost, adminPort)
-	ln, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		return fmt.Errorf("admin listen: %w", err)
+	// Scheduler OnJob handler MUST be wired before River starts: River may pick up
+	// a persisted scheduler job the instant it starts, and this handler is what
+	// runs it.
+	if s.schedulerSvc != nil {
+		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
 	}
-	addr := ln.Addr().String()
-	slog.Info("starting Web UI", "addr", addr)
-	fmt.Printf("Web UI running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
-
-	httpSrv := &http.Server{Handler: adminSrv.Handler()}
-	g.Go(func() error {
-		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("admin serve: %w", err)
-		}
-		return nil
-	})
-
-	// Wire auth directory into dispatcher for per-user notification routing.
-	s.notifier.SetAuthService(s.pluginHost.Auth())
 
 	// Start the single shared River client (composition root: buildSharedRiverClient
-	// assembled it from the scheduler and goal queues). It is started before the
-	// subsystems and, because defers run LIFO, its Stop runs last — after the goal
-	// tick and the scheduler have stopped — so in-flight attempt and scheduled jobs
-	// drain gracefully with no new work being enqueued.
+	// assembled it from the scheduler and goal queues).
 	if s.riverClient != nil {
 		// Decouple River from workCtx: graceful drain cancels workCtx/gctx, but
 		// in-flight goal/scheduler agent runs must keep executing until Stop drains
@@ -384,61 +371,87 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 			return fmt.Errorf("start river client: %w", err)
 		}
 		// Stop waits for in-flight jobs, then cancels their contexts after
-		// SoftStopTimeout (STELLA_RIVER_SOFT_STOP_TIMEOUT); River logs the jobs it
-		// force-cancels. A background context means we wait for that full escalation
-		// rather than giving up early.
-		//
-		// drain ceiling: a river job that completes after gctx is cancelled may fail
-		// its downstream delivery (notifier/channel runtime captured gctx); the goal
-		// lease-reaper / outbox retry heals it. Perfect ordering would move subsystem
-		// teardown out of these defers -- deferred to the multi-replica Phase 2 when
-		// it actually matters.
+		// SoftStopTimeout (STELLA_RIVER_SOFT_STOP_TIMEOUT). It is deferred FIRST so
+		// it runs LAST (LIFO), after every ingress source has been quieted, so
+		// in-flight jobs drain with their outbound deps still alive.
 		defer func() { _ = s.riverClient.Stop(context.Background()) }()
 	}
 
-	// Wire scheduler and start it. In external-river mode Start/Stop register and
-	// tear down the scheduler's periodic and one-time jobs against the shared
-	// client but do not start or stop it.
+	// Idempotent stop-once ingress closures. Each halts a source of NEW work; they
+	// are invoked by stopIngress at the start of a graceful drain AND deferred for
+	// the crash / startup-error teardown path, so double invocation is safe.
+	var stopChanOnce, stopSchedOnce, stopGoalOnce, stopEmbedOnce sync.Once
+	stopChannelIngress := func() {
+		stopChanOnce.Do(func() { _ = s.pluginHost.Stop(context.Background()) })
+	}
+
+	stopSchedulerDispatch := func() {}
 	if s.schedulerSvc != nil {
-		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
 		s.schedulerSvc.EnsureBuiltinJobs()
-		defer func() { _ = s.schedulerSvc.Stop() }()
+		stopSchedulerDispatch = func() { stopSchedOnce.Do(func() { _ = s.schedulerSvc.Stop() }) }
+		defer stopSchedulerDispatch()
 	}
 
-	// Goal execution substrate (River Phase 2a + 2b). The dispatcher enqueues
-	// claimed attempts onto the shared client (injected via BindRiverClient); its
-	// convergence tick runs as a single-leader River periodic job (StartDispatchTick)
-	// rather than a per-node in-process ticker, so the cluster runs ONE convergence
-	// loop instead of every node scanning redundantly.
-	// Shutdown (defers run LIFO): remove the periodic and quiet the dispatcher
-	// first so no new ticks/claims enqueue, then the scheduler, then drain
-	// in-flight jobs when the shared client stops.
+	// Goal execution substrate (River Phase 2a + 2b). Its convergence tick is a
+	// single-leader River periodic (StartDispatchTick). Stop order quiets the
+	// dispatcher BEFORE removing the periodic, so a tick already queued that a
+	// worker picks up during shutdown finds the dispatcher stopped and no-ops.
+	stopGoalDispatch := func() {}
 	if s.goalSvc != nil && s.riverClient != nil {
 		tick, err := s.goalSvc.StartDispatchTick()
 		if err != nil {
 			return fmt.Errorf("start goal dispatcher tick: %w", err)
 		}
-		// LIFO: quiet the dispatcher BEFORE removing the periodic, so any tick job
-		// already queued that a worker picks up during shutdown finds the dispatcher
-		// stopped and no-ops instead of claiming fresh work.
-		defer s.goalSvc.StopDispatchTick(tick)
-		defer s.goalSvc.Dispatcher.Stop()
+		stopGoalDispatch = func() {
+			stopGoalOnce.Do(func() {
+				s.goalSvc.Dispatcher.Stop()
+				s.goalSvc.StopDispatchTick(tick)
+			})
+		}
+		defer stopGoalDispatch()
 	}
 
-	// Embedding backfill periodic: a single-leader River job that drains the
-	// embedding backlog (RunOnStart kicks an initial pass). Registered against the
-	// same shared client; the defer removes it so no further firings enqueue on
-	// shutdown. Only present when the semantic lane is configured.
+	// Embedding backfill periodic (single-leader River job). Present only when the
+	// semantic lane is configured.
+	stopEmbeddingBackfill := func() {}
 	if s.embeddingSvc != nil && s.riverClient != nil {
 		handle, err := s.embeddingSvc.StartBackfill()
 		if err != nil {
 			return fmt.Errorf("start embedding backfill: %w", err)
 		}
-		defer s.embeddingSvc.StopBackfill(handle)
+		stopEmbeddingBackfill = func() { stopEmbedOnce.Do(func() { s.embeddingSvc.StopBackfill(handle) }) }
+		defer stopEmbeddingBackfill()
 	}
+
+	// ---- Ingress (starts only now, with every backend + callback ready) -----
+	// ingressCtx is a child of the errgroup context: stopIngress cancels it to
+	// halt the in-process group-dispatch loop WITHOUT cancelling workCtx, so River
+	// keeps draining in-flight jobs with outbound deps alive. A peer crash cancels
+	// gctx -> ingressCtx too, so unexpected-error teardown still holds.
+	ingressCtx, stopGroupDispatch := context.WithCancel(gctx)
+	defer stopGroupDispatch()
+
+	// The listener is bound now but not served until every backend is up.
+	listenAddr := adminListenAddress(adminHost, adminPort)
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("admin listen: %w", err)
+	}
+	addr := ln.Addr().String()
+	slog.Info("starting Web UI", "addr", addr)
+	fmt.Printf("Web UI running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
+	httpSrv := &http.Server{Handler: adminSrv.Handler()}
+
+	// Group-dispatch acceptance loop.
+	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
+	// Managed channel runtimes (bot pollers).
+	applyManagedChannelPlugins(gctx, s.pluginHost)
+	defer stopChannelIngress()
+	// HTTP serve — the final ingress source to come up.
+	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
 
 	// Two-phase shutdown supervisor (runs OUTSIDE the errgroup). The first
 	// SIGINT/SIGTERM starts a graceful drain; a second collapses to a hard stop.
@@ -448,7 +461,19 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// so partially-started subsystems unwind through the error path — the
 	// pre-existing abort-startup semantics. onServing hands signal ownership over.
 	drainer := &drainSequence{
-		beginDrain:   adminSrv.BeginDrain,
+		beginDrain: adminSrv.BeginDrain,
+		// Stop ALL new ingress before HTTP drains and before the work context is
+		// cancelled: group-dispatch acceptance, channel bot pollers, and every
+		// River-periodic/new-dispatch source (scheduler, goal, embedding). River
+		// workers then drain in-flight jobs with outbound deps still alive; no
+		// periodic or new dispatch runs after this point.
+		stopIngress: func() {
+			stopGroupDispatch()     // group-dispatch acceptance
+			stopChannelIngress()    // channel / plugin runtimes
+			stopSchedulerDispatch() // scheduler periodic + one-time dispatch
+			stopGoalDispatch()      // goal tick + dispatcher claims
+			stopEmbeddingBackfill() // embedding backfill periodic
+		},
 		httpTimeout:  s.cfg.Lifecycle.HTTPShutdownTimeout,
 		shutdownHTTP: httpSrv.Shutdown,
 		forceClose:   func() { _ = httpSrv.Close() },
@@ -467,16 +492,41 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	return waitErr
 }
 
+// normalizeRunErr maps a Stella-owned Run(ctx) component's shutdown error to
+// nil: an orchestrated shutdown cancels the run context, so context.Canceled
+// from the loop is expected, not a failure. Any other error propagates to the
+// errgroup so it cancels peers and becomes the root error.
+func normalizeRunErr(err error) error {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
+}
+
+// normalizeServeErr maps http.Server.Serve's expected close error to nil.
+// http.ErrServerClosed means an orchestrated Shutdown/Close ran; anything else
+// is a real serve failure that must cancel peers.
+func normalizeServeErr(err error) error {
+	if err == nil || errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return fmt.Errorf("admin serve: %w", err)
+}
+
 // drainSequence runs the graceful shutdown steps in order. It is a struct of
 // side-effect hooks so the ordering can be asserted in tests without a live
-// server. The order is: flip not-ready + signal SSE (beginDrain) -> HTTP
-// shutdown within the budget -> force-close leftovers -> cancel work contexts.
+// server. The order is: flip not-ready + signal SSE (beginDrain) -> stop channel
+// ingress (stopIngress) -> HTTP shutdown within the budget -> force-close
+// leftovers -> cancel work contexts. Outbound dependencies (pools, notifier)
+// stay alive until the final cancel, so work accepted before the drain can still
+// complete and deliver.
 //
 // There is deliberately no in-process delay between not-ready and shutdown for
 // load-balancer propagation: that window is the platform's job (Kubernetes
 // preStop sleep), not the process's.
 type drainSequence struct {
 	beginDrain   func()
+	stopIngress  func()
 	httpTimeout  time.Duration
 	shutdownHTTP func(context.Context) error
 	forceClose   func()
@@ -488,15 +538,20 @@ func (d *drainSequence) run() {
 	//    observable before the listener is touched (happens-before), so a probe
 	//    can never see /readyz succeed once the drain has begun.
 	d.beginDrain()
-	// 2. Stop accepting and drain in-flight HTTP within the budget; force-close
+	// 2. Stop non-HTTP ingress (channel pollers) so no new inbound work starts,
+	//    while outbound dependencies remain alive for work already accepted.
+	if d.stopIngress != nil {
+		d.stopIngress()
+	}
+	// 3. Stop accepting and drain in-flight HTTP within the budget; force-close
 	//    anything still open when the budget is spent.
 	shutCtx, cancel := context.WithTimeout(context.Background(), d.httpTimeout)
 	defer cancel()
 	if err := d.shutdownHTTP(shutCtx); err != nil {
 		d.forceClose()
 	}
-	// 3. Cancel work contexts: gctx cancels, g.Wait returns, and the LIFO defer
-	//    chain drains the subsystems and River.
+	// 4. Cancel work contexts: gctx cancels, g.Wait returns, and the LIFO defer
+	//    chain drains River and reverse-closes the subsystems.
 	d.cancelWork()
 }
 

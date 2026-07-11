@@ -239,7 +239,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// (both derive from observability.LoadConfig) so there is a single source of
 	// truth for whether OTel export is active. It is registered as a core hook so
 	// plugin reloads never rebuild or close it out from under in-flight runners.
-	coreHooks := []hooks.HookPlugin{tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO)}
+	// Its constructor starts no goroutine (#708 D); the composition root starts
+	// its idle-session reaper here, bound to the daemon lifecycle context.
+	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO)
+	traceHook.Start(parent)
+	coreHooks := []hooks.HookPlugin{traceHook}
 
 	toolLifecycle := buildToolLifecycle(phost)
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
