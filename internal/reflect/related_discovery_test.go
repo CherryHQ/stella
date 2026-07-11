@@ -1,6 +1,7 @@
 package reflect
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -52,6 +53,59 @@ func TestValidateKnowledgeRelatedDiscoveryEnforcesPerCandidateLimit(t *testing.T
 	}
 }
 
+func TestNormalizeKnowledgeRelatedDiscoveryAggregatesCandidateAndKeepsStrongestRelation(t *testing.T) {
+	got := normalizeKnowledgeRelatedSelections([]knowledgeRelatedSelection{
+		{
+			CandidateRef: "fact-0001",
+			Related: []knowledgeRelatedHint{
+				{FactID: "fact-old", Relation: knowledgeRelationPossiblyAffects},
+			},
+		},
+		{
+			CandidateRef: "fact-0001",
+			Related: []knowledgeRelatedHint{
+				{FactID: "fact-old", Relation: knowledgeRelationConflict},
+				{FactID: "fact-other", Relation: knowledgeRelationSameEntitySlot},
+			},
+		},
+	})
+
+	if len(got) != 1 || len(got[0].Related) != 2 {
+		t.Fatalf("expected duplicate fact id to be deduped, got %#v", got)
+	}
+	if got[0].Related[0].FactID != "fact-old" || got[0].Related[0].Relation != knowledgeRelationConflict {
+		t.Fatalf("expected conflict to win for duplicate fact, got %#v", got[0].Related[0])
+	}
+	if got[0].Related[1].FactID != "fact-other" {
+		t.Fatalf("expected first unique order to be preserved, got %#v", got[0].Related)
+	}
+}
+
+func TestNormalizeKnowledgeRelatedDiscoveryExposesAggregateLimitViolation(t *testing.T) {
+	catalog := make([]factCatalogItem, 0, defaultMaxRelatedPerCandidate+1)
+	selections := make([]knowledgeRelatedSelection, 0, 2)
+	for batch := range 2 {
+		related := make([]knowledgeRelatedHint, 0, defaultMaxRelatedPerCandidate)
+		for i := batch; i <= defaultMaxRelatedPerCandidate; i += 2 {
+			id := fmt.Sprintf("fact-old-%d", i)
+			catalog = append(catalog, factCatalogItem{ID: id})
+			related = append(related, knowledgeRelatedHint{FactID: id, Relation: knowledgeRelationPossiblyAffects})
+		}
+		selections = append(selections, knowledgeRelatedSelection{CandidateRef: "fact-0001", Related: related})
+	}
+
+	normalized := normalizeKnowledgeRelatedSelections(selections)
+	err := validateKnowledgeRelatedDiscovery(
+		[]factCandidate{validFactCandidate("fact-0001", factSubjectWorld)},
+		catalog,
+		normalized,
+		defaultMaxRelatedPerCandidate,
+	)
+	if err == nil {
+		t.Fatal("expected aggregate related facts over the per-candidate limit to be rejected")
+	}
+}
+
 func TestValidateSkillRelatedDiscoveryRequiresUsedSkillRefs(t *testing.T) {
 	candidate := validSkillCandidate("skill-0001")
 	candidate.SessionSkillContext = &sessionSkillContext{
@@ -87,5 +141,58 @@ func TestValidateSkillRelatedDiscoveryAcceptsUsedSkillRefByName(t *testing.T) {
 	}}, defaultMaxRelatedPerCandidate)
 	if err != nil {
 		t.Fatalf("expected used skill ref by name to be accepted: %v", err)
+	}
+}
+
+func TestNormalizeSkillRelatedDiscoveryAggregatesCandidateAndKeepsStrongestRelation(t *testing.T) {
+	got := normalizeSkillRelatedSelections([]skillRelatedSelection{
+		{
+			CandidateRef: "skill-0001",
+			Related: []skillRelatedHint{
+				{SkillID: "skill-old", Relation: skillRelationOverlappingTrigger},
+			},
+		},
+		{
+			CandidateRef: "skill-0001",
+			Related: []skillRelatedHint{
+				{SkillID: "skill-old", Relation: skillRelationPatchableGap},
+				{SkillID: "skill-other", Relation: skillRelationSameWorkflow},
+			},
+		},
+	})
+
+	if len(got) != 1 || len(got[0].Related) != 2 {
+		t.Fatalf("expected duplicate skill id to be deduped, got %#v", got)
+	}
+	if got[0].Related[0].SkillID != "skill-old" || got[0].Related[0].Relation != skillRelationPatchableGap {
+		t.Fatalf("expected patchable_gap to win for duplicate skill, got %#v", got[0].Related[0])
+	}
+	if got[0].Related[1].SkillID != "skill-other" {
+		t.Fatalf("expected first unique order to be preserved, got %#v", got[0].Related)
+	}
+}
+
+func TestNormalizeSkillRelatedDiscoveryExposesAggregateLimitViolation(t *testing.T) {
+	catalog := make([]skillCatalogItem, 0, defaultMaxRelatedPerCandidate+1)
+	selections := make([]skillRelatedSelection, 0, 2)
+	for batch := range 2 {
+		related := make([]skillRelatedHint, 0, defaultMaxRelatedPerCandidate)
+		for i := batch; i <= defaultMaxRelatedPerCandidate; i += 2 {
+			id := fmt.Sprintf("skill-old-%d", i)
+			catalog = append(catalog, skillCatalogItem{ID: id})
+			related = append(related, skillRelatedHint{SkillID: id, Relation: skillRelationOverlappingTrigger})
+		}
+		selections = append(selections, skillRelatedSelection{CandidateRef: "skill-0001", Related: related})
+	}
+
+	normalized := normalizeSkillRelatedSelections(selections)
+	err := validateSkillRelatedDiscovery(
+		[]skillCandidate{validSkillCandidate("skill-0001")},
+		catalog,
+		normalized,
+		defaultMaxRelatedPerCandidate,
+	)
+	if err == nil {
+		t.Fatal("expected aggregate related skills over the per-candidate limit to be rejected")
 	}
 }
