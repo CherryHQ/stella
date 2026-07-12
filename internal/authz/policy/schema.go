@@ -96,10 +96,13 @@ func enumAttr(members ...string) attrSpec {
 // resource so validation is total and a coverage test can assert completeness.
 var schemas = map[authz.ResourceType]resourceSchema{
 	authz.ResourceAgent: {attrs: map[string]attrSpec{
-		"scope":    enumAttr("system", "user", "shared"),
-		"assigned": boolAttr,
-		"creator":  stringAttr,
-		"status":   stringAttr,
+		"scope":       enumAttr("system", "user", "shared"),
+		"assigned":    boolAttr,
+		"creator":     stringAttr,
+		"is_creator":  boolAttr,
+		"is_executor": boolAttr,
+		"dedicated":   boolAttr,
+		"status":      enumAttr("enabled", "disabled"),
 	}},
 	authz.ResourceSession:   {attrs: ownerAgentKindState()},
 	authz.ResourceWorkspace: {attrs: ownerAgentKindState()},
@@ -258,14 +261,31 @@ func (b *ResourceBuilder) Build() (authz.Resource, error) {
 	return authz.NewResourceWithAttrs(b.typ, b.id, b.ownerID, b.attrs)
 }
 
-// AgentResource is the concrete typed builder for the one resource activated in
-// this subphase. scope is the agent's scope (system/user/shared) and assigned
-// reports whether the acting user has the agent assigned — the two attributes
-// the built-in agent policies evaluate.
-func AgentResource(id, ownerID, scope string, assigned bool) (authz.Resource, error) {
+// AgentFacts is the complete canonical set of per-agent policy facts. Every
+// agent request uses it so an accepted custom-policy predicate can never become
+// a silently missing attribute.
+type AgentFacts struct {
+	Scope     string
+	Assigned  bool
+	Creator   string
+	IsCreator bool
+	// IsExecutor is true only when an AgentActor or GroupAgentActor names
+	// this exact agent. It is never inferred from a role or assignment.
+	IsExecutor bool
+	Dedicated  bool
+	Status     string
+}
+
+// AgentResource builds an Agent resource carrying every accepted schema fact.
+func AgentResource(id, ownerID string, facts AgentFacts) (authz.Resource, error) {
 	return NewResourceBuilder(authz.ResourceAgent, id, ownerID).
-		WithEnum("scope", scope).
-		WithBool("assigned", assigned).
+		WithEnum("scope", facts.Scope).
+		WithBool("assigned", facts.Assigned).
+		WithString("creator", facts.Creator).
+		WithBool("is_creator", facts.IsCreator).
+		WithBool("is_executor", facts.IsExecutor).
+		WithBool("dedicated", facts.Dedicated).
+		WithEnum("status", facts.Status).
 		Build()
 }
 

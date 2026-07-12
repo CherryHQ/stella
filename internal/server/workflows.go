@@ -58,6 +58,12 @@ func (s *Server) SaveGoalAsWorkflow(w http.ResponseWriter, r *http.Request, id s
 	if !ok {
 		return
 	}
+	// Saving captures an agent-bound executable workflow; authorize the
+	// initiator before persisting it rather than relying on a future worker.
+	if _, code, msg := s.requireAgentUse(r.Context(), goalRow.AgentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 	var body apitypes.SaveGoalAsWorkflowRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -157,6 +163,22 @@ func (s *Server) InstantiateWorkflow(w http.ResponseWriter, r *http.Request, id 
 	inputs := map[string]string{}
 	if body.Inputs != nil {
 		inputs = *body.Inputs
+	}
+	// The workflow's AgentID is persisted authority-bearing state. Load it under
+	// the initiator's ownership scope and authorize use before claiming a run or
+	// materializing its root goal; worker executor authority is only confinement.
+	wf, err := s.workflowSvc.Get(r.Context(), info.UserID, workflowAgentScope(info), id)
+	if err != nil {
+		workflowError(w, err)
+		return
+	}
+	if !wf.AgentID.Valid || wf.AgentID.String == "" {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if _, code, msg := s.requireAgentUse(r.Context(), wf.AgentID.String); code != 0 {
+		writeError(w, code, msg)
+		return
 	}
 	run, created, err := s.workflowSvc.Instantiate(r.Context(), workflowpkg.InstantiateInput{UserID: info.UserID, AgentID: workflowAgentScope(info), WorkflowID: id, Inputs: inputs, IdempotencyKey: key})
 	if err != nil {

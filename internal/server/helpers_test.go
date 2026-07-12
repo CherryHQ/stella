@@ -8,8 +8,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -46,7 +48,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
-		Engine:              engine,
+		AgentAccess:         agentaccess.NewService(store, as, policy.New(db)),
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         agent.NewPoolManager(store, mem),
 		PluginHost:          phost,

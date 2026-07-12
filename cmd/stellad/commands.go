@@ -18,6 +18,9 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agentaccess"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/blob"
@@ -81,6 +84,8 @@ type setupResult struct {
 	embedded                 *appdb.Embedded
 	mem                      memory.Provider
 	store                    config.Store
+	authStore                *appdb.AuthStore
+	agentAccess              *agentaccess.Service
 	pluginHost               *pluginhost.Host
 	channelRuntimeServices   *pluginhost.ChannelPlatform
 	poolManager              *agent.PoolManager
@@ -147,6 +152,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	store := cfgstore.NewDBStore(db)
+	// Construct the one Agent PDP/PEP at the composition root before any agent
+	// Service is built. HTTP, channels, and durable workers all share it.
+	authStore := appdb.NewAuthStore(db)
+	agentAccess := agentaccess.NewService(store, authStore, policy.New(db))
 
 	if err := ensureEmbeddedAssets(); err != nil {
 		return nil, err
@@ -271,11 +280,16 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	workerExcludedTools := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName}
+	// The goal River worker is a durable Agent invocation boundary. It gets the
+	// same authoritative PEP as HTTP/channel paths, but reconstructs authority
+	// exclusively from the persisted attempt owner and executor.
+	goalAgentAccess := agentAccess
 
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 		ExcludedTools: workerExcludedTools,
+		AgentAccess:   goalAgentAccess,
 		Capabilities: goal.CapabilityProbeFunc(func() bool {
 			plugins, err := store.ListPlugins(context.Background())
 			if err != nil {
@@ -394,6 +408,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			return nil, fmt.Errorf("bind vault env loader: %w", err)
 		}
 	}
+	if err := poolMgr.BindAgentAccess(agentAccess); err != nil {
+		return nil, fmt.Errorf("bind agent access: %w", err)
+	}
 	if err := poolMgr.BindMCPToolProvider(mcp.NewToolProvider(mcpSvc)); err != nil {
 		return nil, fmt.Errorf("bind mcp tool provider: %w", err)
 	}
@@ -443,6 +460,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		embedded:                 embedded,
 		mem:                      memProvider,
 		store:                    store,
+		authStore:                authStore,
+		agentAccess:              agentAccess,
 		pluginHost:               phost,
 		channelRuntimeServices:   ps.channelRuntimeServices,
 		poolManager:              poolMgr,
@@ -593,7 +612,7 @@ func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, req s
 	return scheduler.WorkflowInstantiateResult{RunID: run.ID, RootGoalID: rootID}, nil
 }
 
-func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher) {
+func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher, access *agentaccess.Service) {
 	if svc == nil {
 		return
 	}
@@ -601,6 +620,31 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 		if job.OwnerKind == scheduler.JobOwnerPlugin {
 			return nil
 		}
+		// Every durable execution reconstructs its authority from persisted owner
+		// data and performs a fresh PEP use. Ownerless user rows fail closed.
+		if access == nil || job.AgentID == "" {
+			return fmt.Errorf("scheduler: missing agent authorization data for job %s", job.ID)
+		}
+		var authorityErr error
+		var authority authz.Authority
+		switch job.OwnerKind {
+		case scheduler.JobOwnerUser:
+			if job.UserID == "" {
+				return fmt.Errorf("scheduler: user job %s has no persisted owner", job.ID)
+			}
+			authority, authorityErr = agentaccess.WorkerAgentAuthority(job.UserID, job.AgentID)
+		case scheduler.JobOwnerSystem:
+			authority, authorityErr = agentaccess.SystemAgentAuthority("scheduler")
+		default:
+			return fmt.Errorf("scheduler: unsupported durable owner kind %q", job.OwnerKind)
+		}
+		if authorityErr != nil {
+			return authorityErr
+		}
+		if _, err := access.Use(ctx, authority, job.AgentID); err != nil {
+			return fmt.Errorf("scheduler: agent use denied for job %s: %w", job.ID, err)
+		}
+
 		agentSvc := poolMgr.GetService(job.AgentID)
 		if agentSvc == nil && job.AgentID == "" {
 			agentSvc = poolMgr.Default()

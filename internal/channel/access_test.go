@@ -3,13 +3,16 @@ package channel
 import (
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 )
 
 type testStoresWithEngine struct {
 	testStores
 	engine *auth.PolicyEngine
+	access *agentaccess.Service
 }
 
 func setupStoresWithEngine(t *testing.T) testStoresWithEngine {
@@ -21,7 +24,7 @@ func setupStoresWithEngine(t *testing.T) testStoresWithEngine {
 		t.Fatalf("NewEngine: %v", err)
 	}
 
-	return testStoresWithEngine{testStores: ts, engine: engine}
+	return testStoresWithEngine{testStores: ts, engine: engine, access: agentaccess.NewService(ts.store, ts.authStore, policy.New(ts.db))}
 }
 
 func TestResolveAgentWithAuthSystemAgent(t *testing.T) {
@@ -33,7 +36,7 @@ func TestResolveAgentWithAuthSystemAgent(t *testing.T) {
 	identity := ResolvedIdentity{User: authUser}
 
 	chat := ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := ResolveAgent(ctx, ts.store, ts.oidcStore, ts.engine, identity, chat)
+	agentID, err := ResolveAgent(ctx, ts.store, ts.access, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgentWithAuth: %v", err)
 	}
@@ -63,7 +66,7 @@ func TestResolveAgentWithAuthRestrictedFallback(t *testing.T) {
 	identity := ResolvedIdentity{User: authUser}
 
 	chat := ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := ResolveAgent(ctx, ts.store, ts.oidcStore, ts.engine, identity, chat)
+	agentID, err := ResolveAgent(ctx, ts.store, ts.access, identity, chat)
 	if err != nil {
 		t.Fatalf("expected fallback, got error: %v", err)
 	}
@@ -94,7 +97,7 @@ func TestResolveAgentWithAuthRestrictedAllowed(t *testing.T) {
 	identity := ResolvedIdentity{User: authUser}
 
 	chat := ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := ResolveAgent(ctx, ts.store, ts.oidcStore, ts.engine, identity, chat)
+	agentID, err := ResolveAgent(ctx, ts.store, ts.access, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
@@ -131,7 +134,7 @@ func TestResolveAgentWithAuthFallbackFiltered(t *testing.T) {
 	identity := ResolvedIdentity{User: authUser}
 
 	chat := ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := ResolveAgent(ctx, ts.store, ts.oidcStore, ts.engine, identity, chat)
+	agentID, err := ResolveAgent(ctx, ts.store, ts.access, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgentWithAuth: %v", err)
 	}
@@ -160,7 +163,7 @@ func TestResolveAgentWithAuthGroupChatFallback(t *testing.T) {
 	identity := ResolvedIdentity{User: authUser}
 
 	chat := ChatContext{Platform: "telegram", ChatID: "-1001234", IsGroup: true}
-	agentID, err := ResolveAgent(ctx, ts.store, ts.oidcStore, ts.engine, identity, chat)
+	agentID, err := ResolveAgent(ctx, ts.store, ts.access, identity, chat)
 	if err != nil {
 		t.Fatalf("expected fallback, got error: %v", err)
 	}
@@ -196,7 +199,7 @@ func TestResolveAgentDedicatedChannelBypassesAgentAssignment(t *testing.T) {
 	identity := ResolvedIdentity{User: authUser}
 
 	chat := ChatContext{Platform: "telegram", ChannelID: "telegram-support", ChatID: "123", IsGroup: false}
-	agentID, err := ResolveAgent(ctx, ts.store, ts.oidcStore, ts.engine, identity, chat)
+	agentID, err := ResolveAgent(ctx, ts.store, ts.access, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}

@@ -45,3 +45,27 @@ func roleToAuthz(role string) (authz.Role, error) {
 		return authz.RoleInvalid, authz.ErrInvalidRole
 	}
 }
+
+// ChannelAuthority mints a UserActor for a dedicated channel turn. channelID is
+// read from the persisted channel configuration by the channel adapter; it is
+// never request payload identity. The exact binding grant is consumed only by
+// the Agent PEP's dedicated-channel decision.
+func (s Subject) ChannelAuthority(channelID string) (authz.Authority, error) {
+	base, err := s.Authority()
+	if err != nil {
+		return authz.Authority{}, err
+	}
+	binding, err := authz.ChannelBindingGrant(channelID)
+	if err != nil {
+		return authz.Authority{}, err
+	}
+	grants, err := authz.NewGrantSet(binding)
+	if err != nil {
+		return authz.Authority{}, err
+	}
+	roles, err := authz.NewRoleSet(base.Roles()...)
+	if err != nil {
+		return authz.Authority{}, err
+	}
+	return authz.NewUserAuthority(base.Actor().UserID(), roles, grants)
+}

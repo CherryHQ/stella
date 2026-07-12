@@ -160,6 +160,7 @@ type PoolManager struct {
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
 	assets                   *asset.Store
+	agentAccess              AgentUseAccess
 	log                      *slog.Logger
 }
 
@@ -225,6 +226,25 @@ func (pm *PoolManager) BindVaultEnvLoader(v sandbox.VaultEnvLoader) error {
 	return nil
 }
 
+// BindAgentAccess binds the shared Agent PEP before StartAll. Every Service
+// built by this pool receives this exact instance; a missing or late bind fails
+// closed rather than leaving delegate execution on a bypass path.
+func (pm *PoolManager) BindAgentAccess(access AgentUseAccess) error {
+	if access == nil {
+		return errors.New("agent: BindAgentAccess requires a non-nil service")
+	}
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.started {
+		return errors.New("agent: BindAgentAccess after StartAll")
+	}
+	if pm.agentAccess != nil {
+		return errors.New("agent: agent access already bound")
+	}
+	pm.agentAccess = access
+	return nil
+}
+
 // BindMCPToolProvider binds the MCP tool provider before StartAll. One-shot
 // pre-start bind: rejects nil (missing), a second bind (duplicate), and any bind
 // after StartAll (late). No runner rebuild is needed because agents have not yet
@@ -265,6 +285,10 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 	if pm.started {
 		pm.mu.Unlock()
 		return errors.New("agent: PoolManager.StartAll called more than once")
+	}
+	if pm.agentAccess == nil {
+		pm.mu.Unlock()
+		return errors.New("agent: PoolManager.StartAll requires AgentAccess")
 	}
 	pm.started = true
 	pm.mu.Unlock()
@@ -350,7 +374,13 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	}
 	go rt.StartReaper(ctx)
 
-	svc := &Service{Sessions: reg, Runtime: rt, AgentID: agentID}
+	pm.mu.RLock()
+	access := pm.agentAccess
+	pm.mu.RUnlock()
+	if access == nil {
+		return nil, errors.New("agent access is not bound")
+	}
+	svc := &Service{Sessions: reg, Runtime: rt, AgentAccess: access, AgentID: agentID}
 	rt.SetDelegateRunner(svc)
 	return svc, nil
 }
