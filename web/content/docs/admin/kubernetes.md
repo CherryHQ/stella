@@ -164,17 +164,17 @@ mounted Docker socket).
   `sandbox.seccompProfile=Unconfined` (some clusters' default profile blocks
   bubblewrap's namespace syscalls); if that is not enough, reconfigure the
   cluster/node to permit unprivileged user namespaces — do not reach for `none` to
-  work around it on a multi-tenant deployment.
+  work around it on a multi-user deployment.
 - **`none`** — no isolation. `none` does not disable agent tools; it runs them
   directly inside the Stella pod as the same user and in the same process namespace.
 
   > **`none` exposes deployment secrets to agent code.** With no process isolation,
   > a tool can read the Stella process's environment (e.g. `/proc/1/environ`) and
-  > recover `STELLA_VAULT_KEY` — the master key that decrypts **every tenant's**
+  > recover `STELLA_VAULT_KEY` — the master key that decrypts **every user's**
   > secrets and tokens — and `STELLA_DATABASE_URL`. `secretKeyRef` and the `extraEnv`
   > guard do not protect against this. Only choose `none` when every user who can
   > drive an agent is fully trusted (e.g. a single-operator install), never for a
-  > multi-tenant or public deployment. Hardening the `none` backend itself is
+  > multi-user or public deployment. Hardening the `none` backend itself is
   > tracked in [#705](https://github.com/CherryHQ/stella/issues/705).
 
   Because of that, `none` also requires `sandbox.allowUnsafeHostExecution=true` to
@@ -335,7 +335,7 @@ spec:
 - **Agent tools fail with `bwrap` / `unshare` errors.** You are on
   `sandbox.backend=local` in a cluster that blocks unprivileged user namespaces.
   Reconfigure the node to allow them. Switching to `sandbox.backend=none` also makes
-  the error go away, but on a multi-tenant deployment that trades an isolation error
+  the error go away, but on a multi-user deployment that trades an isolation error
   for a secret-exposure problem — see [Sandbox backend](#sandbox-backend) first.
 - **OAuth/channel links point at localhost.** `baseURL` is wrong or unset upstream —
   set it to the public ingress URL.

@@ -41,33 +41,32 @@ Channel response stream                                      LLM Provider
 cmd/stellad/             入口点，服务器命令，服务组装
 internal/
   config/              Store 接口、DBStore（PostgreSQL）、Snapshot、类型
-  ai/                  Message/Content 类型、Model、Provider 接口、流式事件
   agent/               Service、ServiceManager、session registry、runtime、runner 工厂
     session/           Session 生命周期、ownership、kind/channel policy
     runtime/           Runner cache、turn 执行、event 持久化
-    engine/            代理循环引擎（多轮工具执行）
     prompt/            系统提示构建器和模板
-  channel/             Channel 接口、身份解析、斜杠命令、通知
-    cli/               Bubble Tea TUI
-    telegram/          Telegram 机器人
-    qq/                QQ 机器人
-    feishu/            飞书机器人
-  admin/               HTTP API + 嵌入式 React SPA
-  auth/                RBAC/ABAC 策略引擎、会话、沙箱
+    sandbox/           核心沙箱工具（bash、read、write、edit）
+    delegate/          Delegate 工具（隔离子循环）
+  channel/             Channel 接口、身份解析、斜杠命令、入口租约、通知
+  memory/              记忆 provider 注册表 + 实现（lcm、simple）
+  server/              HTTP API + 嵌入式 React SPA
+  auth/                登录、会话与身份
+  authz/               统一授权器——capability/authority 评估
+    policy/            策略目录、激活、编译、评估
+  controlplane/        控制面 PEP（providers、settings、plugins、channels）
+  pluginhost/          按能力限定的插件平台宿主
   db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询
   scheduler/           River 持久化调度服务（供 Web UI、CLI 和 Agent 原生工具使用）
   skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
 pkg/
-  memory/              Memory Provider 接口、类型、Summarizer、工具自动生成、测试辅助
-  tools/               Tool 接口、注册表、内置工具（read、bash、write、edit、agent）
+  ai/                  Message/Content 类型、Model、Provider 接口、流式事件
+  tools/               Tool 接口、注册表、内置工具（read、bash、write、edit、delegate）
 plugins/
-  memory/              记忆插件注册表 + 实现
-    lcm/               无损上下文管理（默认）— 摘要 DAG、压缩、搜索
-    simple/            滑动窗口记忆 — 保留最近 N 条消息，无摘要
   tools/               插件工具注册表 + 插件工具（webfetch）
   hooks/               插件钩子注册表 + 插件钩子（rtk）
-  channels/            通道插件（telegram、qq、feishu、weixin）
+  channels/            通道插件（telegram、qq、feishu、weixin、webhook）
   providers/           供应商插件注册表 + LLM 适配器（anthropic、openai、openai-response）
+  sandbox/             沙箱后端插件
 ```
 
 ## 配置
@@ -91,11 +90,13 @@ plugins/
 
 **不可变 Server Deps。** `server.Deps` 是按域分组的值结构体（持久化、授权、运行时、共享服务、可选能力）。它携带具体域服务，而非宽泛的影子 store；一个 reflection/AST 三线闸冻结剩余的宽持久化债（DB 池、`config.Store`、auth stores）并禁止新增宽字段。可选能力容忍 nil，退化为单一集中的 503 映射。
 
-**授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `agentaccess` 策略执行服务。Session 与 Workspace 用例使用 `sessionaccess`：它先加载持久化的 owner、agent、kind 和生命周期事实，再创建带作用域的 registry 访问，并在一个绑定策略版本的 `authz.Authority` evaluation 中决定 Agent、Session 和 Workspace 请求；旧策略引擎不再有任何 Agent、Session 或 Workspace 决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）铸造；请求 body/path 字段永远不能铸造或覆写 actor。
+**授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `agentaccess` 策略执行服务。Session 与 Workspace 用例使用 `sessionaccess`：它先加载持久化的 owner、agent、kind 和生命周期事实，再创建带作用域的 registry 访问，并在一个绑定策略版本的 `authz.Authority` evaluation 中决定 Agent、Session 和 Workspace 请求；原先的 RBAC/ABAC 策略引擎已移除，不再有独立的 Agent、Session 或 Workspace 决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）铸造；请求 body/path 字段永远不能铸造或覆写 actor。
 
 执行域采用相同形态：Workflow、Scheduler、Goal 由各自的域服务（`workflow.Service`、`scheduler.Service`、`goal.Service`）执行，Skills 由 `skillaccess` 执行，均取代了原先的 `Service.As(authz.Identity)` 门面与散落的 helper。每个传输层与工具用例只调用一次 `Begin`，并在该单一版本内决定域资源；跨资源的 agent 门禁通过 `agentaccess.AuthorizeWithin` 折叠进同一 evaluation。持久化 worker（goal attempt、触发的定时 workflow）从持久可信状态重建 owner/executor Authority，并在每次动作时重新决策。`admin` 通过内建的 `admin-full-access` 策略成为策略超级用户，而非散落的 `role == admin` 检查。
 
 用户能力域——Vault、Connections、Email、Share、Recally——同样由各自的域服务（`vault.Service`、`connections.Service`、`email.Service`、`share.Service`、`recally.Service`）执行。它们均为用户所有：被委派的 agent 回合以其用户的访问权限行事，而非受 executor 限制（agent 共享用户的邮件、连接与阅读库）。Vault 保留其四个持久 scope——`user`/`user_agent` 归用户所有（并折叠 agent-read 门禁），管理员管理的 `system`/`system_agent` 仅经 `admin-full-access` 可达——并保留静态加密、不回读密文、保留名保护与 runner 失效；其宿主侧调用方（MCP、OAuth、邮箱配置、频道配置、沙箱环境、密钥发放）仍作为原始服务方法的可信调用方。有两个面刻意留在按用户 PEP 之外：OAuth 回调与令牌刷新路径（以 flow/user 为键，而非实时请求），以及公开分享视图——它是一个不可猜测的能力 URL，仅凭 token 哈希与过期时间授权，无需会话。
+
+控制面各域收尾闭环。Provider、Settings、Plugin 与 Channel 管理经由 `internal/controlplane`——一个 `Begin(authority) → Access` 的 PEP，取代了旧的 `requireAdmin` 门禁加直接访问 `config.Store` 的做法。它们仅限管理员：内建的 `admin-full-access` 策略是唯一授权。插件宿主随之按能力限定：`pluginhost` 的 `Platform` 不再是环境式（ambient）——插件只能触达它所声明的宿主能力（`PluginInfo.RequiredCapabilities`），宿主只授予这些、对任何未声明者返回 `nil`，并在托管运行时启动前校验所声明能力确有注入服务支撑。至此，旧的 `auth.PolicyEngine` 已彻底移除：授权完全由 `internal/authz`（+ `internal/authz/policy`）与各域 PEP 服务承担。激活目录是完备的——16 个资源由 Authorizer 治理（active），其余每个资源都由专门机制保护，而非放任不治。
 
 **静态 vs 动态。** 启动静态能力在启动前绑定一次并随后密封。热重配（插件工具/钩子/提供商重载、agent 同步、runner 失效）是独立接口，启动后仍可用并原子应用——绝不重跑一次性绑定。
 
@@ -132,6 +133,8 @@ LLM 提供商采用插件模式。Stella 内置三种提供商：
 每个提供商都实现 `ai.ProviderAdapter` 接口以进行流式响应，并可选实现 `ai.ModelLister` 以进行模型发现。所有提供商都通过 `ImageContent` 类型支持多模态输入（文本 + 图像），转换为其原生图像格式（Anthropic 的 base64 块、OpenAI 的数据 URI image_url）。
 
 提供商位于 `plugins/providers/`，通过 `init()` 自注册。添加新的提供商只需在 `plugins/providers/` 下创建一个包——无需其他连接代码。详见[插件系统](/docs/development/plugin-system)。
+
+提供商管理（与设置、插件、通道一样）是一项控制面操作，经由 `internal/controlplane` 通过统一 Authorizer 授权，而非裸角色检查。它仅限管理员：内建的 `admin-full-access` 策略是唯一授权。
 
 ## 工具
 
@@ -231,7 +234,7 @@ type Channel interface {
 
 ## Admin API
 
-`internal/server/` 包提供用于管理系统的 HTTP API 和嵌入式 SPA。端点涵盖提供商、代理、通道、用户、会话、调度器作业和全局设置的 CRUD 操作。server 通过 `config.Store` 读写，为操作员提供 Web 界面来配置之前通过 YAML 文件完成的配置。
+`internal/server/` 包提供用于管理系统的 HTTP API 和嵌入式 SPA。端点涵盖提供商、代理、通道、用户、会话、调度器作业和全局设置的 CRUD 操作。控制面管理——LLM 提供商、部署设置、插件与通道——经由 `internal/controlplane` 通过统一 Authorizer 授权（仅限管理员，凭内建 `admin-full-access` 策略），而非裸角色检查；底层读写仍走 `config.Store`，为操作员提供 Web 界面来配置之前通过 YAML 文件完成的配置。
 
 ## 通知流程
 

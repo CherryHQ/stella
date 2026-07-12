@@ -11,7 +11,7 @@ Stella is an MCP **client** over HTTP-based transports only:
 - `streamable_http` — the streamable HTTP transport (default).
 - `sse` — HTTP + Server-Sent Events.
 
-Local `stdio` servers are intentionally not supported: the multi-tenant sandbox never spawns local processes.
+Local `stdio` servers are intentionally not supported: the multi-user sandbox never spawns local processes.
 
 ## Scopes
 

@@ -61,9 +61,11 @@ Stella ships built-in plugins across several areas:
 | memory   | `lcm`, `simple`                          |
 | runtime  | `reflect`                                |
 
-## Per-Org Isolation
+## Declared Capabilities
 
-Stella is multi-tenant. Every plugin runtime, manifest override, OAuth provider configuration, and channel callback resolves to a single org via `context.Context`. See [Plugin Org Isolation](/docs/development/plugin-org-isolation) for the contracts and tables.
+Stella is single-tenant, multi-user, multi-agent: one deployment serves many users and agents, with no per-org partitioning.
+
+The plugin `Platform` is **not** ambient — a plugin reaches only the host capabilities it declares in `PluginInfo.RequiredCapabilities`. The host grants exactly those, returns `nil` for anything undeclared, and validates at seal time that each declared capability is backed by an injected host service before a managed runtime starts. The old "every plugin sees every service" surface is gone. See [Platform API](/docs/extend-stella/platform) for the capability list and accessor contract.
 
 ## Read The Plugin Docs
 
