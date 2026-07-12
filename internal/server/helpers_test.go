@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,7 +21,9 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
+	"github.com/CherryHQ/stella/internal/sessionaccess"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -43,12 +46,33 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
+	authorizer := policy.New(db)
+	homeDir, _ := os.UserHomeDir()
+	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
+		StellaHome: config.StellaHome(),
+		HomeDir:    homeDir,
+		Memory:     mem,
+		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
+		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
+		Workspace:  sessionaccess.AgentPromptWorkspace{},
+		Plugins:    phost,
+		SkillStore: pluginhost.NewSkillStoreAdapter(phost.SkillStore()),
+		Skills:     skills.BuildPromptSection,
+	})
+	if err != nil {
+		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
+	}
+	sessionSvc, err := sessionaccess.NewService(mem, db, store, as, assetStore, authorizer, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	if err != nil {
+		t.Fatalf("sessionaccess.NewService: %v", err)
+	}
 	return Deps{
 		Store:               store,
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
-		AgentAccess:         agentaccess.NewService(store, as, policy.New(db)),
+		AgentAccess:         agentaccess.NewService(store, as, authorizer),
+		SessionAccess:       sessionSvc,
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         agent.NewPoolManager(store, mem),
 		PluginHost:          phost,

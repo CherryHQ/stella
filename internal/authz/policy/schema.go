@@ -159,6 +159,9 @@ func ownerAgentState() map[string]attrSpec {
 func ownerAgentKindState() map[string]attrSpec {
 	return map[string]attrSpec{
 		"owner": stringAttr, "agent": stringAttr, "kind": stringAttr, "state": stringAttr,
+		// Derived from the immutable Authority and the durable resource facts;
+		// callers cannot assert either bit through a route or request body.
+		"is_owner": boolAttr, "is_executor": boolAttr, "is_group": boolAttr, "is_same_group": boolAttr,
 	}
 }
 
@@ -286,6 +289,44 @@ func AgentResource(id, ownerID string, facts AgentFacts) (authz.Resource, error)
 		WithBool("is_executor", facts.IsExecutor).
 		WithBool("dedicated", facts.Dedicated).
 		WithEnum("status", facts.Status).
+		Build()
+}
+
+// SessionFacts is the complete durable fact set for both Session and Workspace
+// policy resources. The three boolean facts are derived by the PEP from the
+// Authority and loaded conversation; they are never caller-controlled.
+type SessionFacts struct {
+	Owner       string
+	Agent       string
+	Kind        string
+	State       string
+	IsOwner     bool
+	IsExecutor  bool
+	IsGroup     bool
+	IsSameGroup bool
+}
+
+// SessionResource builds a Session resource with every accepted durable fact.
+func SessionResource(id, ownerID string, facts SessionFacts) (authz.Resource, error) {
+	return ownerAgentKindStateResource(authz.ResourceSession, id, ownerID, facts)
+}
+
+// WorkspaceResource builds a Workspace resource with the same session-derived
+// facts. A workspace has no independent owner or executor.
+func WorkspaceResource(id, ownerID string, facts SessionFacts) (authz.Resource, error) {
+	return ownerAgentKindStateResource(authz.ResourceWorkspace, id, ownerID, facts)
+}
+
+func ownerAgentKindStateResource(rt authz.ResourceType, id, ownerID string, facts SessionFacts) (authz.Resource, error) {
+	return NewResourceBuilder(rt, id, ownerID).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
+		WithString("kind", facts.Kind).
+		WithString("state", facts.State).
+		WithBool("is_owner", facts.IsOwner).
+		WithBool("is_executor", facts.IsExecutor).
+		WithBool("is_group", facts.IsGroup).
+		WithBool("is_same_group", facts.IsSameGroup).
 		Build()
 }
 

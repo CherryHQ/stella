@@ -23,7 +23,16 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionaccess"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
+	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 )
 
@@ -36,11 +45,37 @@ func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Pro
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
+	db := dbtest.New(t)
+	store := cfgstore.NewDBStore(db)
+	if err := store.CreateAgent(context.Background(), config.Agent{ID: "a1", Scope: config.AgentScopeSystem, Enabled: true}); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	record, err := mem.(memory.SessionManager).LoadInfo(authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "a1"), "s1")
+	if err != nil {
+		t.Fatalf("load session fixture: %v", err)
+	}
+	if _, err := sqlc.New(db).CreateConversation(context.Background(), sqlc.CreateConversationParams{
+		ID: uuid.NewString(), SessionID: record.ID, UserID: pgtype.Text{String: record.UserID, Valid: true},
+		AgentID: pgtype.Text{String: record.AgentID, Valid: true}, Channel: record.Channel, Kind: record.Kind,
+		Archived: record.Archived, LastActive: record.LastActive,
+	}); err != nil {
+		t.Fatalf("create session fixture: %v", err)
+	}
+	authorizer := assetSessionAuthorizer{allow: true}
+	sessions, err := sessionaccess.NewService(mem, db, store, appdb.NewAuthStore(db), assets, authorizer)
+	if err != nil {
+		t.Fatalf("sessionaccess.NewService: %v", err)
+	}
+	authStore := appdb.NewAuthStore(db)
 	return &Server{
-		mem:         mem,
-		assets:      assets,
-		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
-		agentAccess: agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{}, assetSessionAuthorizer{allow: true}),
+		mem:           mem,
+		store:         store,
+		db:            db,
+		authStore:     authStore,
+		assets:        assets,
+		sessionAccess: sessions,
+		log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		agentAccess:   agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{}, authorizer),
 	}
 }
 
@@ -94,7 +129,12 @@ func TestSessionFileAccessHidesRevokedAgentAndBeginsOnce(t *testing.T) {
 	}
 	s := assetServer(t, home, remote, mem)
 	begins := 0
-	s.agentAccess = agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{}, assetSessionAuthorizer{begins: &begins})
+	counted := assetSessionAuthorizer{begins: &begins, allow: true}
+	s.agentAccess = agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{}, counted)
+	s.sessionAccess, err = sessionaccess.NewService(mem, s.db, s.store, s.authStore.(*appdb.AuthStore), s.assets, counted)
+	if err != nil {
+		t.Fatalf("sessionaccess.NewService: %v", err)
+	}
 	scope := apitypes.WorkspaceScopeUser
 	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
 	rr := httptest.NewRecorder()

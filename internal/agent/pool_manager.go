@@ -161,6 +161,7 @@ type PoolManager struct {
 	oauthRegistry            *oauth.ProviderRegistry
 	assets                   *asset.Store
 	agentAccess              AgentUseAccess
+	sessionAccess            SessionAccessService
 	log                      *slog.Logger
 }
 
@@ -245,6 +246,24 @@ func (pm *PoolManager) BindAgentAccess(access AgentUseAccess) error {
 	return nil
 }
 
+// BindSessionAccess binds the shared Session PEP before StartAll. All non-HTTP
+// entry session lifecycle in Service goes through this port.
+func (pm *PoolManager) BindSessionAccess(access SessionAccessService) error {
+	if access == nil {
+		return errors.New("agent: BindSessionAccess requires a non-nil service")
+	}
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.started {
+		return errors.New("agent: BindSessionAccess after StartAll")
+	}
+	if pm.sessionAccess != nil {
+		return errors.New("agent: session access already bound")
+	}
+	pm.sessionAccess = access
+	return nil
+}
+
 // BindMCPToolProvider binds the MCP tool provider before StartAll. One-shot
 // pre-start bind: rejects nil (missing), a second bind (duplicate), and any bind
 // after StartAll (late). No runner rebuild is needed because agents have not yet
@@ -289,6 +308,10 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 	if pm.agentAccess == nil {
 		pm.mu.Unlock()
 		return errors.New("agent: PoolManager.StartAll requires AgentAccess")
+	}
+	if pm.sessionAccess == nil {
+		pm.mu.Unlock()
+		return errors.New("agent: PoolManager.StartAll requires SessionAccess")
 	}
 	pm.started = true
 	pm.mu.Unlock()
@@ -376,11 +399,15 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 
 	pm.mu.RLock()
 	access := pm.agentAccess
+	sessionAccess := pm.sessionAccess
 	pm.mu.RUnlock()
 	if access == nil {
 		return nil, errors.New("agent access is not bound")
 	}
-	svc := &Service{Sessions: reg, Runtime: rt, AgentAccess: access, AgentID: agentID}
+	if sessionAccess == nil {
+		return nil, errors.New("session access is not bound")
+	}
+	svc := &Service{Sessions: reg, Runtime: rt, AgentAccess: access, SessionAccess: sessionAccess, AgentID: agentID}
 	rt.SetDelegateRunner(svc)
 	return svc, nil
 }

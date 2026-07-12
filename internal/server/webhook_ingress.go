@@ -147,9 +147,9 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	var info session.Info
 	if cfg.Persistent() {
 		key := agent.BuildUserSessionKey(ch.AgentID, principal.UserID, "webhook:"+id)
-		info, err = svc.ResolvePrivateChannelSession(ctx, key, principal.UserID, ch.AgentID, session.ChannelWebhook)
+		info, err = svc.ResolvePrivateChannelSession(ctx, authority, key, principal.UserID, ch.AgentID, session.ChannelWebhook)
 	} else {
-		info, err = svc.NewSession(ctx, principal.UserID, ch.AgentID, "", session.KindChat, session.ChannelWebhook)
+		info, err = svc.NewSession(ctx, authority, principal.UserID, ch.AgentID, "", session.KindChat, session.ChannelWebhook)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create session")
@@ -180,6 +180,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		Kind:      session.KindChat,
 		Channel:   session.ChannelWebhook,
 		Message:   message,
+		Authority: authority,
 	})
 	// A single drainer owns the stream for its whole life. The result channel is
 	// buffered so the drainer never blocks on send after the caller stops waiting.

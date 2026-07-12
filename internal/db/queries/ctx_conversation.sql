@@ -15,6 +15,12 @@ WHERE session_id = sqlc.arg(session_id)
   AND user_id = sqlc.arg(user_id)
   AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
 
+-- name: GetConversationForSessionAccess :one
+-- Private PEP lookup: it obtains durable owner/executor facts before the
+-- SessionManager receives the resulting tenant scope. No transport may call it.
+SELECT * FROM ctx_conversation
+WHERE session_id = $1;
+
 -- name: GetConversationAgentBySessionID :one
 SELECT agent_id FROM ctx_conversation
 WHERE session_id = sqlc.arg(session_id)

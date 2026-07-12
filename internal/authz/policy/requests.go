@@ -47,3 +47,39 @@ func agentActionRequest(action authz.Action, agentID, ownerID string, facts Agen
 	}
 	return authz.NewRequest(action, res, authz.InvocationFacts{})
 }
+
+// SessionRequest builds an action against one durable Session.
+func SessionRequest(action authz.Action, sessionID, ownerID string, facts SessionFacts) (authz.Request, error) {
+	res, err := SessionResource(sessionID, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+func SessionReadRequest(sessionID, ownerID string, facts SessionFacts) (authz.Request, error) {
+	return SessionRequest(authz.ActionRead, sessionID, ownerID, facts)
+}
+
+// SessionCreateRequest uses the durable owner as the resource ID because a
+// generated session ID does not exist until after authorization.
+func SessionCreateRequest(ownerID string, facts SessionFacts) (authz.Request, error) {
+	return SessionRequest(authz.ActionCreate, ownerID, ownerID, facts)
+}
+
+func SessionListRequest() (authz.Request, error) {
+	res, err := authz.NewResource(authz.ResourceSession, "", "")
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
+}
+
+// WorkspaceRequest builds an action against the workspace rooted by sessionID.
+func WorkspaceRequest(action authz.Action, sessionID, ownerID string, facts SessionFacts) (authz.Request, error) {
+	res, err := WorkspaceResource(sessionID, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}

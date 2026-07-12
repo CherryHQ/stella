@@ -169,14 +169,14 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	// This is the durable execution boundary: owner and executor come only from
 	// the persisted attempt. A worker never inherits a triggering user's request
 	// authority, and a missing PEP fails closed rather than running the model.
+	if req.Attempt.UserID == "" {
+		return failResult("goal agent authorization is unavailable", FailureClassEnvironment, BlockEnvUnavailable), nil
+	}
+	authority, err := agentaccess.WorkerAgentAuthority(req.Attempt.UserID, agentID)
+	if err != nil {
+		return Result{}, fmt.Errorf("goal agent authority is invalid: %w", err)
+	}
 	if e.access != nil {
-		if req.Attempt.UserID == "" {
-			return failResult("goal agent authorization is unavailable", FailureClassEnvironment, BlockEnvUnavailable), nil
-		}
-		authority, err := agentaccess.WorkerAgentAuthority(req.Attempt.UserID, agentID)
-		if err != nil {
-			return Result{}, fmt.Errorf("goal agent authority is invalid: %w", err)
-		}
 		if _, err := e.access.Use(ctx, authority, agentID); err != nil {
 			return Result{}, fmt.Errorf("goal agent execution denied: %w", err)
 		}
@@ -206,6 +206,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 				ExtraTools:       []tools.Tool{ctTool},
 				ExcludedTools:    append([]string(nil), e.excludedTools...),
 				OnSandboxSession: terminalSubmitSandboxCallback(rec, req.OnSandboxSession),
+				Authority:        authority,
 			}),
 			cancel: cancel,
 		}

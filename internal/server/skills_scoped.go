@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -15,10 +16,8 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skills"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -138,28 +137,19 @@ func (s *Server) projectRootForSession(ctx context.Context, agentID string, sess
 	if sessionID == nil || *sessionID == "" {
 		return "", nil
 	}
-	sm, ok := s.mem.(memory.SessionManager)
-	if !ok {
-		return "", nil
+	info := UserFromContext(ctx)
+	if info == nil {
+		return "", fmt.Errorf("unauthorized")
 	}
-	si, err := sm.LoadInfo(ctx, *sessionID)
-	if isNotFound(err) {
-		return "", nil
-	}
+	authority, err := info.authority()
 	if err != nil {
 		return "", err
 	}
-	if si.AgentID != agentID || si.ProjectID == "" {
-		return "", nil
-	}
-	p, err := s.q.GetProject(ctx, sqlc.GetProjectParams{ID: si.ProjectID, UserID: si.UserID})
-	if isNotFound(err) {
-		return "", nil
-	}
+	access, err := s.sessionAccess.Begin(ctx, authority)
 	if err != nil {
 		return "", err
 	}
-	return p.BaseDir, nil
+	return access.ProjectRoot(ctx, agentID, sessionID)
 }
 
 func dbSkillsToPluginSkills(rows []skills.Skill) []pkgplugins.Skill {
@@ -289,7 +279,7 @@ func (s *Server) resolveSkillAny(ctx context.Context, agentID, skillName string,
 	if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
 		return nil, "", code, msg
 	}
-	projectRoot, _ := s.projectRootForSession(memoryContext2(ctx), agentID, sessionID)
+	projectRoot, _ := s.projectRootForSession(ctx, agentID, sessionID)
 	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
 	rs, err := s.skillService().Resolve(ctx, skillName, vc, projectRoot)
 	if err != nil {
@@ -311,7 +301,7 @@ func (s *Server) resolveSkill(ctx context.Context, agentID, skillName, scope str
 	if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
 		return nil, "", code, msg
 	}
-	projectRoot, _ := s.projectRootForSession(memoryContext2(ctx), agentID, sessionID)
+	projectRoot, _ := s.projectRootForSession(ctx, agentID, sessionID)
 	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
 	rs, err := s.skillService().ResolveScoped(ctx, skillName, scope, vc, projectRoot)
 	if err != nil {
@@ -322,11 +312,6 @@ func (s *Server) resolveSkill(ctx context.Context, agentID, skillName, scope str
 		return nil, "", http.StatusNotFound, "skill not found"
 	}
 	return rs, projectRoot, 0, ""
-}
-
-// memoryContext2 builds memory context from just ctx (no *http.Request).
-func memoryContext2(ctx context.Context) context.Context {
-	return ctx
 }
 
 // loadSkillFile loads a file from an already-resolved skill.
@@ -362,7 +347,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, code, msg)
 		return
 	}
-	projectRoot, err := s.projectRootForSession(memoryContext(r, agentID), agentID, params.SessionId)
+	projectRoot, err := s.projectRootForSession(r.Context(), agentID, params.SessionId)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return

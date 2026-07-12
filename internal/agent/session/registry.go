@@ -113,6 +113,8 @@ func (r *Registry) List(ctx context.Context, scope Scope, opts ListOptions) ([]I
 		UserID:          scope.UserID,
 		AgentID:         agentID,
 		IncludeArchived: opts.IncludeArchived,
+		ExcludeInternal: opts.ExcludeInternal,
+		ProjectID:       opts.ProjectID,
 		Limit:           opts.Limit,
 		Offset:          opts.Offset,
 	}

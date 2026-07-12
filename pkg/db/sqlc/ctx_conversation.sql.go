@@ -154,6 +154,35 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConvers
 	return i, err
 }
 
+const getConversationForSessionAccess = `-- name: GetConversationForSessionAccess :one
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
+WHERE session_id = $1
+`
+
+// Private PEP lookup: it obtains durable owner/executor facts before the
+// SessionManager receives the resulting tenant scope. No transport may call it.
+func (q *Queries) GetConversationForSessionAccess(ctx context.Context, sessionID string) (CtxConversation, error) {
+	row := q.db.QueryRow(ctx, getConversationForSessionAccess, sessionID)
+	var i CtxConversation
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.Title,
+		&i.Channel,
+		&i.Kind,
+		&i.ProjectID,
+		&i.Archived,
+		&i.LastActive,
+		&i.BootstrappedAt,
+		&i.AgentID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupID,
+	)
+	return i, err
+}
+
 const getMainConversationByProject = `-- name: GetMainConversationByProject :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE project_id = $1
