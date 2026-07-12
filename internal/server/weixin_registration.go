@@ -39,7 +39,12 @@ type weixinRegistrationPollRequest struct {
 }
 
 func (s *Server) BeginWeixinRegistration(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
+		return
+	}
+	if err := access.AuthorizeChannelRegistration(config.Channel{ID: pkgchannel.PlatformWeixin, Type: pkgchannel.PlatformWeixin}); err != nil {
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	qr, err := s.weixinRegistrar.GetQRCode()
@@ -55,7 +60,8 @@ func (s *Server) BeginWeixinRegistration(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
 	var req weixinRegistrationPollRequest
@@ -91,6 +97,10 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	ch := config.Channel{ID: pkgchannel.PlatformWeixin, Type: pkgchannel.PlatformWeixin, AgentID: req.AgentID}
+	if err := access.AuthorizeChannelRegistration(ch); err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
 	if conflict, err := s.channelAgentPlatformBindingConflict(r.Context(), ch); err != nil {
 		s.writeInternalError(w, err)
 		return

@@ -476,7 +476,26 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// release, a later reacquire calls applyManagedChannelPlugins again, which
 	// rebuilds the runtimes Stop tore down.
 	channelLease := channel.NewIngressLease(s.db, channel.DefaultOwnerID(), channelIngressLeaseTTL, slog.Default())
-	onAcquire := func(leaderCtx context.Context) { applyManagedChannelPlugins(leaderCtx, s.pluginHost) }
+	// Runtime construction may perform platform network I/O. Never run it on the
+	// lease-renewal goroutine: a slow platform handshake must not let the lease
+	// expire while already-started pollers keep running. applyMu serializes
+	// acquire generations. On release we stop existing runtimes immediately; an
+	// in-flight apply observes cancellation and stops again before allowing a
+	// later generation to start, so no late-created poller escapes revocation.
+	var applyMu sync.Mutex
+	onAcquire := func(leaderCtx context.Context) {
+		go func() {
+			applyMu.Lock()
+			defer applyMu.Unlock()
+			if leaderCtx.Err() != nil {
+				return
+			}
+			applyManagedChannelPlugins(leaderCtx, s.pluginHost)
+			if leaderCtx.Err() != nil {
+				_ = s.pluginHost.Stop(context.Background())
+			}
+		}()
+	}
 	onRelease := func() { _ = s.pluginHost.Stop(context.Background()) }
 	g.Go(func() error { return normalizeRunErr(channelLease.Run(ingressCtx, onAcquire, onRelease)) })
 	defer stopChannelIngress()

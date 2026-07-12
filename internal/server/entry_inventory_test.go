@@ -84,7 +84,7 @@ func funcDeclNames(f *ast.File) map[string]bool {
 var webhookEntry = entryRow{
 	Actor: "SystemActor(webhook-ingress)", Action: "execute", Resource: "webhook_trigger",
 	Visibility: "private(secret-authenticated)", Stack: "transports",
-	Gate: "webhook id/secret + per-instance rate limit (not session/PAT)",
+	Gate: "PAT agent:write scope + per-instance rate limit (mounted outside session middleware)",
 }
 
 func TestWebhookEntryRegistered(t *testing.T) {

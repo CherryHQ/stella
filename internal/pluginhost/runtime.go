@@ -174,6 +174,23 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 	if err := managed.Apply(ctx, desired.Clone()); err != nil {
 		return fmt.Errorf("apply runtime %s/%s: %w", runtimeID, reg.Name, err)
 	}
+
+	// Stop may atomically replace the runtime table while Build/Apply is doing
+	// platform I/O. Recheck membership after Apply under the same lock used by
+	// Stop. If this entry was evicted, it belongs to a revoked generation and
+	// must tear itself down; otherwise a late-started poller would be invisible
+	// to every future Stop and could survive a leadership change indefinitely.
+	h.mu.Lock()
+	current := h.rt[key] == entry
+	h.mu.Unlock()
+	if !current {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := managed.Stop(stopCtx); err != nil {
+			return fmt.Errorf("stop revoked runtime %s/%s: %w", runtimeID, reg.Name, err)
+		}
+		return fmt.Errorf("runtime %s/%s was revoked while starting", runtimeID, reg.Name)
+	}
 	return nil
 }
 
