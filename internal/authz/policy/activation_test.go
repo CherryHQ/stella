@@ -41,6 +41,28 @@ func TestOnlyPolicyBackedResourcesAreActivated(t *testing.T) {
 	}
 }
 
+// TestActivationCatalogIsTotal asserts the catalog carries an explicit entry for
+// every catalog resource — never relying on activationFor's defensive default.
+// This keeps activation a deliberate, reviewed decision: a newly added
+// authz.AllResourceTypes() member cannot ship without an entry here.
+func TestActivationCatalogIsTotal(t *testing.T) {
+	for _, rt := range authz.AllResourceTypes() {
+		if _, ok := activationCatalog[rt]; !ok {
+			t.Errorf("resource %s has no explicit activationCatalog entry; every catalog resource needs a deliberate activation decision", rt)
+		}
+	}
+	// The catalog must not carry entries outside the closed catalog either.
+	all := make(map[authz.ResourceType]bool, len(authz.AllResourceTypes()))
+	for _, rt := range authz.AllResourceTypes() {
+		all[rt] = true
+	}
+	for rt := range activationCatalog {
+		if !all[rt] {
+			t.Errorf("activationCatalog has entry for %s, which is not in authz.AllResourceTypes()", rt)
+		}
+	}
+}
+
 func TestInactiveResourceWritesAreRejected(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)

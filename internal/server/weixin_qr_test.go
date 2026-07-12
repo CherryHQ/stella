@@ -52,10 +52,6 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	}
 
 	as := appdb.NewAuthStore(db)
-	engine, err := auth.NewEngine(ctx, as)
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
 	mem, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
@@ -80,7 +76,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	srv := newTestServer(t, store, as, engine, mem, db, phost)
+	srv := newTestServer(t, store, as, mem, db, phost)
 
 	status := WeixinQRCodeStatus{
 		Status:      "confirmed",
