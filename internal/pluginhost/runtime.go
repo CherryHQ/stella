@@ -227,12 +227,13 @@ func (h *RuntimeHost) Quiesce(ctx context.Context) {
 	}
 }
 
-// Stop tears down every managed runtime. Entries are removed from the map
-// before Stop is called so the lock isn't held while runtime teardown executes.
-func (h *RuntimeHost) Stop(ctx context.Context) error {
+// Release tears down every managed runtime without making the host terminal. It
+// is used when a channel-ingress lease is lost: a later lease acquisition must be
+// able to rebuild the pollers. Entries are removed before Stop is called so the
+// lock isn't held while runtime teardown executes.
+func (h *RuntimeHost) Release(ctx context.Context) error {
 	h.applyMu.Lock()
 	defer h.applyMu.Unlock()
-	h.quiesced = true
 
 	h.mu.Lock()
 	entries := h.rt
@@ -249,6 +250,15 @@ func (h *RuntimeHost) Stop(ctx context.Context) error {
 		}
 	}
 	return lastErr
+}
+
+// Stop tears down every managed runtime permanently. It also prevents any later
+// Apply, which keeps a graceful drain from admitting new ingress.
+func (h *RuntimeHost) Stop(ctx context.Context) error {
+	h.applyMu.Lock()
+	h.quiesced = true
+	h.applyMu.Unlock()
+	return h.Release(ctx)
 }
 
 func (h *RuntimeHost) Snapshot(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeStatus, error) {

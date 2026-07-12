@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -38,6 +39,12 @@ import (
 )
 
 const defaultAdminPort = 25678
+
+// channelIngressLeaseTTL bounds how long a replica may keep polling channels
+// without a successful lease renew. The holder renews every ttl/3, so failover to
+// a standby replica completes within ~ttl of a crash. Always-on: a single-replica
+// deployment wins the lease on its first attempt.
+const channelIngressLeaseTTL = 15 * time.Second
 
 func serverCommand() *ucli.Command {
 	return &ucli.Command{
@@ -476,9 +483,27 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
-	// Managed channel runtimes (bot pollers).
-	applyManagedChannelPlugins(gctx, s.pluginHost)
-	defer quiesceChannelIngress()
+	// Managed channel runtimes (bot pollers), gated by single-replica leadership.
+	// Every replica used to start every bot poller unconditionally, so two replicas
+	// polling the same platform produced Telegram 409 conflicts and duplicate
+	// delivery on weixin/qq/feishu. Now exactly one replica holds the Postgres
+	// ingress lease and runs the pollers; the rest stand by.
+	//
+	// A lease loss releases runtimes so a later acquisition can rebuild them. A
+	// graceful drain instead quiesces them: it must preserve already-accepted work
+	// and notifier senders until the final Stop after River drains. The flag is set
+	// before ingressCtx is cancelled below and read by the lease goroutine.
+	var gracefulDrain atomic.Bool
+	channelLease := channel.NewIngressLease(s.db, channel.DefaultOwnerID(), channelIngressLeaseTTL, slog.Default())
+	onAcquire := func(leaderCtx context.Context) { applyManagedChannelPlugins(leaderCtx, s.pluginHost) }
+	onRelease := func() {
+		if gracefulDrain.Load() {
+			quiesceChannelIngress()
+			return
+		}
+		_ = s.pluginHost.Release(context.Background())
+	}
+	g.Go(func() error { return normalizeRunErr(channelLease.Run(ingressCtx, onAcquire, onRelease)) })
 	// HTTP serve — the final ingress source to come up.
 	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
 
@@ -497,6 +522,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		// workers then drain in-flight jobs with outbound deps still alive; no
 		// periodic or new dispatch runs after this point.
 		stopIngress: func() {
+			gracefulDrain.Store(true)
 			stopGroupDispatch()     // group-dispatch acceptance
 			quiesceChannelIngress() // channel / plugin runtimes (polling only)
 			stopSchedulerDispatch() // scheduler periodic + one-time dispatch

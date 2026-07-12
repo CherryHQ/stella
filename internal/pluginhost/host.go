@@ -480,6 +480,10 @@ func (h *Host) ApplyChannel(ctx context.Context, channel config.Channel) error {
 // runtime table is left intact so a later Stop can fully tear them down.
 func (h *Host) Quiesce(ctx context.Context) { h.runtimes.Quiesce(ctx) }
 
+// Release tears down managed runtimes while allowing a later Apply. Channel
+// ingress leadership uses it when a replica loses its lease.
+func (h *Host) Release(ctx context.Context) error { return h.runtimes.Release(ctx) }
+
 func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
 
 func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.PromptToolInfo, error) {

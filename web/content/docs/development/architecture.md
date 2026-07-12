@@ -216,6 +216,19 @@ type Channel interface {
 
 Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards, QQ, Feishu, and WeChat use text lists, CLI uses a TUI picker). Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
 
+### Channel ingress ownership
+
+Managed channel bot pollers must run on **exactly one replica at a time**. Two replicas polling the same platform produce Telegram 409 conflicts and duplicate delivery on WeChat/QQ/Feishu, so channel ingress is gated behind a single-owner **Postgres lease** (`channel_ingress_lease`, a singleton row). Every replica runs an `IngressLease` (`internal/channel/ingress_lease.go`), but only the current holder starts the pollers via `applyManagedChannelPlugins`; the rest stand by. The holder renews every `ttl/3` and stamps `lease_expires_at` from the **database clock**, so failover timing never depends on a replica's local clock. On a crash the lease expires and a standby takes over within `~ttl`; on graceful shutdown the holder releases the lease immediately so failover is instant. This is single-leader for **all** channels (one leader runs every poller) — the simplest correct shape, not per-channel sharding.
+
+The lease is **fail-safe over split-brain**: if renews stop succeeding (database error, or a peer has taken the lease), the holder stops leading _before_ its lease could expire, computed from a conservative local deadline. Losing the database means no polling — never two concurrent pollers. The lease is always-on with no config branch: a single-replica deployment simply wins it on the first attempt at near-zero cost. Stopping the pollers is done exclusively by `pluginHost.Stop`, which is inherently channel-scoped (the plugin runtime host only ever holds managed channel runtimes), so losing channel leadership never disturbs non-channel plugin capabilities (tools, providers, sandbox).
+
+Delivery guarantees, stated honestly:
+
+- **Group messages are at-least-once.** Ingest is durable (event-log dedup) and dispatch is a durable outbox (`ctx_group_outbox`) claimed under a CAS lease, so a lost dispatcher hands the work to another. A duplicate **platform** send is possible when a dispatch lease expires and the message is re-published after a partial send.
+- **Inline DM turns are at-most-once.** They have no durable queue: a turn interrupted by a crash or a leadership handover is dropped, not retried. This is a documented limitation, not a regression from prior behavior.
+- **No exactly-once is claimed or implemented** anywhere in channel ingress.
+- **Poll offsets are owned by the single lease holder.** They live in-memory inside each platform SDK (telebot's long-poller cursor, the WeChat cursor) and advance under one consumer at a time; they are not externalized, which is why single-owner ingress — not offset fencing — is what keeps consumption consistent.
+
 ## Admin API
 
 The `internal/server/` package provides an HTTP API and embedded SPA for managing the system. Endpoints cover CRUD operations for providers, agents, channels, users, sessions, scheduler jobs, and global settings. The server reads and writes through `config.Store`, giving operators a web interface for configuration that was previously done via YAML files.

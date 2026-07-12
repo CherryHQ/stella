@@ -68,6 +68,25 @@ func TestRuntimeMissingKeyReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestRuntimeReleaseAllowsReapply(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{"tool/test": {ID: "tool/test", Enabled: true}}}
+	host := New(store)
+	host.RegisterPluginID("tool/test")
+	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/test", Name: "main", Build: func(pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
+		return runtimeStub{apply: func(context.Context, pkgplugins.PluginState) error { return nil }}, nil
+	}})
+	ctx := context.Background()
+	if err := host.ApplyPlugin(ctx, "tool/test"); err != nil {
+		t.Fatalf("first Apply: %v", err)
+	}
+	if err := host.Release(ctx); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if err := host.ApplyPlugin(ctx, "tool/test"); err != nil {
+		t.Fatalf("second Apply after Release: %v", err)
+	}
+}
+
 // TestShutdownReleasesLockBeforeStop ensures Stop() is called outside the
 // RuntimeHost mutex; the stub's Stop reads back via Get to verify no deadlock.
 func TestShutdownReleasesLockBeforeStop(t *testing.T) {
