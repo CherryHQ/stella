@@ -3,6 +3,7 @@ package vault_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,12 +11,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
+	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -80,7 +84,9 @@ func testServiceWithQueries(t *testing.T) (*vault.Service, *appdb.OIDCStore, str
 	}
 
 	testDB := &vaultTestDB{oidc: oidc, q: q}
-	svc, err := vault.NewService(testDB, masterID.String())
+	authorizer := policy.New(db)
+	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), authorizer)
+	svc, err := vault.NewService(testDB, masterID.String(), authorizer, agents)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -105,51 +111,73 @@ func testServiceWithQueries(t *testing.T) (*vault.Service, *appdb.OIDCStore, str
 	return svc, oidc, user.ID, q
 }
 
-func TestAuthorizedMethodsEnforceAgentVaultScope(t *testing.T) {
+func agentAuthority(t *testing.T, userID, agentID string) authz.Authority {
+	t.Helper()
+	a, err := agentaccess.WorkerAgentAuthority(userID, agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+func TestVaultAccessEnforcesAgentScope(t *testing.T) {
 	svc, _, userID, q := testServiceWithQueries(t)
 	ctx := context.Background()
-	identA := authz.Identity{UserID: userID, AgentID: "agent-a", AgentScoped: true}
-	identB := authz.Identity{UserID: userID, AgentID: "agent-b", AgentScoped: true}
-	for _, agentID := range []string{identA.AgentID, identB.AgentID} {
+	for _, agentID := range []string{"agent-a", "agent-b"} {
 		if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: agentID, Name: agentID, Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true}); err != nil {
 			t.Fatalf("CreateAgent(%s): %v", agentID, err)
 		}
 	}
-
-	if _, err := svc.As(authz.Identity{}).Set(ctx, vault.ScopeUser, "NOPE", "x"); err == nil {
-		t.Fatal("Set unauthenticated must fail")
+	begin := func(authority authz.Authority) *vault.Access {
+		acc, err := svc.Begin(ctx, authority)
+		if err != nil {
+			t.Fatalf("Begin: %v", err)
+		}
+		return acc
 	}
+	authA := agentAuthority(t, userID, "agent-a")
+	authB := agentAuthority(t, userID, "agent-b")
+
+	// An invalid Authority is refused at Begin.
+	if _, err := svc.Begin(ctx, authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("Begin(zero) err=%v, want forbidden", err)
+	}
+	// A delegated agent (non-admin) cannot touch admin-managed system scopes.
 	for _, scope := range []string{vault.ScopeSystem, vault.ScopeSystemAgent} {
-		if _, err := svc.As(identA).List(ctx, scope); err == nil {
-			t.Fatalf("List(%s) must reject system scope", scope)
+		if _, err := begin(authA).ListScoped(ctx, scope, "agent-a"); !errors.Is(err, authz.ErrForbidden) {
+			t.Fatalf("List(%s) err=%v, want forbidden", scope, err)
 		}
-		if _, err := svc.As(identA).Set(ctx, scope, "SECRET", "x"); err == nil {
-			t.Fatalf("Set(%s) must reject system scope", scope)
-		}
-		if err := svc.As(identA).Delete(ctx, scope, "SECRET"); err == nil {
-			t.Fatalf("Delete(%s) must reject system scope", scope)
+		if err := begin(authA).SetScoped(ctx, scope, "agent-a", "SECRET", "x", vault.SetOptions{}); !errors.Is(err, authz.ErrForbidden) {
+			t.Fatalf("Set(%s) err=%v, want forbidden", scope, err)
 		}
 	}
 
-	if _, err := svc.As(identA).Set(ctx, vault.ScopeUserAgent, "AGENT_SECRET", "a"); err != nil {
+	// agent-a writes its own user_agent bucket.
+	if err := begin(authA).SetScoped(ctx, vault.ScopeUserAgent, "agent-a", "AGENT_SECRET", "a", vault.SetOptions{}); err != nil {
 		t.Fatalf("Set user_agent: %v", err)
 	}
-	entries, err := svc.As(identB).List(ctx, vault.ScopeUserAgent)
+	// agent-b cannot even name agent-a's bucket (confinement).
+	if _, err := begin(authB).ListScoped(ctx, vault.ScopeUserAgent, "agent-a"); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("agent-b listing agent-a bucket err=%v, want forbidden", err)
+	}
+	// agent-b's own bucket is empty and deleting AGENT_SECRET there is a no-op.
+	entries, err := begin(authB).ListScoped(ctx, vault.ScopeUserAgent, "")
 	if err != nil {
-		t.Fatalf("List other agent: %v", err)
+		t.Fatalf("List own agent: %v", err)
 	}
 	if len(entries) != 0 {
-		t.Fatalf("other agent saw entries: %+v", entries)
+		t.Fatalf("agent-b saw entries: %+v", entries)
 	}
-	if err := svc.As(identB).Delete(ctx, vault.ScopeUserAgent, "AGENT_SECRET"); err != nil {
-		t.Fatalf("Delete other agent should be scoped to itself: %v", err)
+	if err := begin(authB).DeleteScoped(ctx, vault.ScopeUserAgent, "", "AGENT_SECRET"); err != nil {
+		t.Fatalf("Delete own bucket: %v", err)
 	}
-	entries, err = svc.As(identA).List(ctx, vault.ScopeUserAgent)
+	// agent-a still owns AGENT_SECRET.
+	entries, err = begin(authA).ListScoped(ctx, vault.ScopeUserAgent, "")
 	if err != nil {
 		t.Fatalf("List owner agent: %v", err)
 	}
 	if len(entries) != 1 || entries[0].Name != "AGENT_SECRET" {
-		t.Fatalf("owner agent entry missing after foreign delete: %+v", entries)
+		t.Fatalf("owner agent entry missing: %+v", entries)
 	}
 }
 
@@ -377,7 +405,7 @@ func TestNewServiceInvalidKey(t *testing.T) {
 
 	oidc := appdb.NewOIDCStore(db)
 	testDB := &vaultTestDB{oidc: oidc, q: sqlc.New(db)}
-	_, err := vault.NewService(testDB, "not-a-valid-age-key")
+	_, err := vault.NewService(testDB, "not-a-valid-age-key", nil, nil)
 	if err == nil {
 		t.Fatal("NewService with invalid key should fail")
 	}
@@ -397,7 +425,7 @@ func TestSetNoAgeKeys(t *testing.T) {
 	}
 
 	testDB := &vaultTestDB{oidc: oidc, q: q}
-	svc, err := vault.NewService(testDB, masterID.String())
+	svc, err := vault.NewService(testDB, masterID.String(), nil, nil)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -471,7 +499,7 @@ func TestLoadEnvNoAgeKeys(t *testing.T) {
 	}
 
 	testDB := &vaultTestDB{oidc: oidc, q: q}
-	svc, err := vault.NewService(testDB, masterID.String())
+	svc, err := vault.NewService(testDB, masterID.String(), nil, nil)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

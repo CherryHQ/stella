@@ -8,10 +8,12 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/server"
+	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -53,7 +55,9 @@ func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
 	}
 
 	vaultDB := &oidcVaultDB{OIDCStore: env.oidcStore, q: sqlc.New(env.db)}
-	svc, err := vault.NewService(vaultDB, masterID.String())
+	authorizer := policy.New(env.db)
+	agents := agentaccess.NewService(storepkg.NewDBStore(env.db), appdb.NewAuthStore(env.db), authorizer)
+	svc, err := vault.NewService(vaultDB, masterID.String(), authorizer, agents)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

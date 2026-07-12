@@ -110,7 +110,7 @@ func newEmailVaultService(t *testing.T, db *pgxpool.Pool, userID string) *vault.
 	if err != nil {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
-	svc, err := vault.NewService(sqlc.New(db), masterID.String())
+	svc, err := vault.NewService(sqlc.New(db), masterID.String(), nil, nil)
 	if err != nil {
 		t.Fatalf("vault.NewService: %v", err)
 	}

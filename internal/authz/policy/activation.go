@@ -70,6 +70,18 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// provider-config CRUD and the OAuth callback / token-refresh paths are
 	// separate trusted surfaces that do not open a user Access.
 	authz.ResourceConnection: activeActive,
+	// #711: Vault entries are enforced only through internal/vault.Service's
+	// Authority-based Access PEP. user/user_agent scopes are user-owned (with an
+	// agent-read gate folded in); system/system_agent scopes are reachable only via
+	// admin-full-access. Trusted host-side callers use the raw Service methods.
+	authz.ResourceVault: activeActive,
+	// #711: Share owner operations are enforced through internal/share.Service's
+	// Access PEP; the public capability-URL view (token-hash + expiry) is not a
+	// ResourceShare decision and stays outside the PEP. Recally is enforced through
+	// internal/recally.Service's Access PEP (user-owned, shared across the user's
+	// agents — a delegated agent has the same access, not executor-confined).
+	authz.ResourceShare:   activeActive,
+	authz.ResourceRecally: activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

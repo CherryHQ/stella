@@ -10,11 +10,6 @@ package server
 //     except a small allowlist of language/runtime constructors New legitimately
 //     needs (a query handle over the injected pool, a mux, the readiness probe,
 //     etc.).
-//   - TestTrustedIdentityIgnoresRequestControlledActor proves the trusted-entry
-//     property that a current seam can actually demonstrate: the request identity's
-//     actor (UserID) always comes from the verified AuthInfo, and a request-body
-//     agent id can select an agent but can never widen the identity to agent scope
-//     (AgentScoped stays false). Request input cannot mint or overwrite the actor.
 //   - TestDepsBroadCapabilityFieldsFrozen freezes today's explicitly documented
 //     broad-capability debt on server.Deps and rejects any new broad field or
 //     nesting (a second pool, a raw sqlc.Queries, a blob.Store, a memory
@@ -136,43 +131,6 @@ func sortedKeys(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// ---------------------------------------------------------------------------
-// Trusted-entry: request input cannot mint/overwrite the actor.
-// ---------------------------------------------------------------------------
-
-func TestTrustedIdentityIgnoresRequestControlledActor(t *testing.T) {
-	info := &AuthInfo{UserID: "trusted-user"}
-
-	// The tool identity's actor is the verified user, and it is never agent
-	// scoped — an agent scope cannot be asserted by a request.
-	tool := toolIdentity(info)
-	if tool.UserID != "trusted-user" {
-		t.Errorf("toolIdentity actor = %q, want the verified user", tool.UserID)
-	}
-	if tool.AgentScoped {
-		t.Errorf("toolIdentity is agent scoped: %+v", tool)
-	}
-
-	// shareIdentity may carry a request-body agent id as a downstream-validated
-	// selection hint (Identity.AgentID), but the trusted invariants hold: the
-	// actor stays the verified user and the identity is NOT widened to agent
-	// scope. So a request cannot escalate its own authority to an agent.
-	share := shareIdentity(info, "body-supplied-agent")
-	if share.UserID != "trusted-user" {
-		t.Errorf("shareIdentity actor = %q, want the verified user (not a body value)", share.UserID)
-	}
-	if share.AgentScoped {
-		t.Errorf("shareIdentity widened to agent scope from request input: %+v", share)
-	}
-	if share.AgentID != "body-supplied-agent" {
-		t.Errorf("shareIdentity AgentID = %q, want the body selection hint carried through for downstream validation", share.AgentID)
-	}
-	// NOTE: shareIdentity's `if !ident.AgentScoped` guard's protective branch (an
-	// already agent-scoped base) is not exercisable through any current seam —
-	// toolIdentity never returns an agent-scoped identity — so it is intentionally
-	// not asserted here rather than fabricating a scenario that cannot occur.
 }
 
 // ---------------------------------------------------------------------------

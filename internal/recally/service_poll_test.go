@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 )
 
 // minimalRSS is a valid RSS 2.0 document with two items, served over httptest so
@@ -50,7 +51,7 @@ func failingServer(t *testing.T) *httptest.Server {
 func newPollService(t *testing.T, db *pgxpool.Pool) *Service {
 	t.Helper()
 	home := t.TempDir()
-	return NewService(NewStore(db), home)
+	return NewService(NewStore(db), home, policy.New(db))
 }
 
 func TestServicePollFeedsFiltersDisabledAndNonRSS(t *testing.T) {
@@ -59,7 +60,6 @@ func TestServicePollFeedsFiltersDisabledAndNonRSS(t *testing.T) {
 	svc := newPollService(t, db)
 	store := svc.Store()
 	ctx := t.Context()
-	ident := authz.Identity{UserID: testUserID}
 
 	rss := rssServer(t)
 
@@ -78,7 +78,7 @@ func TestServicePollFeedsFiltersDisabledAndNonRSS(t *testing.T) {
 		t.Fatalf("CreateFeed twitter: %v", err)
 	}
 
-	results, err := svc.As(ident).PollFeeds(ctx, 20)
+	results, err := mustBegin(t, svc, testUserID).PollFeeds(ctx, 20)
 	if err != nil {
 		t.Fatalf("PollFeeds: %v", err)
 	}
@@ -103,7 +103,6 @@ func TestServicePollFeedsErrorIsolation(t *testing.T) {
 	svc := newPollService(t, db)
 	store := svc.Store()
 	ctx := t.Context()
-	ident := authz.Identity{UserID: testUserID}
 
 	healthy := rssServer(t)
 	broken := failingServer(t)
@@ -117,7 +116,7 @@ func TestServicePollFeedsErrorIsolation(t *testing.T) {
 		t.Fatalf("CreateFeed broken: %v", err)
 	}
 
-	results, err := svc.As(ident).PollFeeds(ctx, 20)
+	results, err := mustBegin(t, svc, testUserID).PollFeeds(ctx, 20)
 	if err != nil {
 		t.Fatalf("PollFeeds must not fail even when one feed errors: %v", err)
 	}
@@ -145,7 +144,6 @@ func TestServicePollFeedByIDAndOwnership(t *testing.T) {
 	svc := newPollService(t, db)
 	store := svc.Store()
 	ctx := t.Context()
-	ident := authz.Identity{UserID: testUserID}
 
 	rss := rssServer(t)
 
@@ -153,7 +151,7 @@ func TestServicePollFeedByIDAndOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateFeed mine: %v", err)
 	}
-	res, err := svc.As(ident).PollFeed(ctx, feed.ID, 20)
+	res, err := mustBegin(t, svc, testUserID).PollFeed(ctx, feed.ID, 20)
 	if err != nil {
 		t.Fatalf("PollFeed own feed: %v", err)
 	}
@@ -166,7 +164,7 @@ func TestServicePollFeedByIDAndOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateFeed other: %v", err)
 	}
-	if _, err := svc.As(ident).PollFeed(ctx, otherFeed.ID, 20); !errors.Is(err, authz.ErrNotFound) {
+	if _, err := mustBegin(t, svc, testUserID).PollFeed(ctx, otherFeed.ID, 20); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("PollFeed cross-user err=%v, want ErrNotFound", err)
 	}
 }
@@ -177,14 +175,13 @@ func TestServiceSaveDigest(t *testing.T) {
 	svc := newPollService(t, db)
 	store := svc.Store()
 	ctx := t.Context()
-	ident := authz.Identity{UserID: testUserID}
 
-	if _, err := svc.As(ident).SaveDigest(ctx, "", ""); err == nil || !strings.Contains(err.Error(), "narrative is required") {
+	if _, err := mustBegin(t, svc, testUserID).SaveDigest(ctx, "", ""); err == nil || !strings.Contains(err.Error(), "narrative is required") {
 		t.Fatalf("SaveDigest empty narrative err=%v, want narrative required", err)
 	}
 
 	today := time.Now().UTC().Format("2006-01-02")
-	first, err := svc.As(ident).SaveDigest(ctx, "first narrative", "")
+	first, err := mustBegin(t, svc, testUserID).SaveDigest(ctx, "first narrative", "")
 	if err != nil {
 		t.Fatalf("SaveDigest first: %v", err)
 	}
@@ -197,7 +194,7 @@ func TestServiceSaveDigest(t *testing.T) {
 
 	// Saving again for the same day replaces the narrative (upsert-per-day),
 	// never duplicates.
-	second, err := svc.As(ident).SaveDigest(ctx, "second narrative", today)
+	second, err := mustBegin(t, svc, testUserID).SaveDigest(ctx, "second narrative", today)
 	if err != nil {
 		t.Fatalf("SaveDigest second: %v", err)
 	}
@@ -235,8 +232,7 @@ func TestServiceEntryOpCrossUserDenied(t *testing.T) {
 		t.Fatalf("CreateFeed: %v", err)
 	}
 
-	other := authz.Identity{UserID: otherUserID}
-	if _, err := svc.As(other).ListFeedEntries(ctx, feed.ID, FeedEntryFilter{}); !errors.Is(err, authz.ErrNotFound) {
+	if _, err := mustBegin(t, svc, otherUserID).ListFeedEntries(ctx, feed.ID, FeedEntryFilter{}); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("ListFeedEntries cross-user err=%v, want ErrNotFound", err)
 	}
 }

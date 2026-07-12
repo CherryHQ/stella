@@ -222,9 +222,9 @@ func setupAdmin(t *testing.T) *testEnv {
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
 		Email:               email.NewService(nil, sqlc.New(db), authorizer),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL, authorizer),
 		Assets:              assetStore,
-		Recally:             recally.NewService(recallyStore, t.TempDir()),
+		Recally:             recally.NewService(recallyStore, t.TempDir(), authorizer),
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
 		OIDC: server.OIDCDeps{

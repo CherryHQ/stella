@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"mime"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -25,17 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
-
-// Authorized is the identity-scoped view of the service; all authorization
-// checks live on its methods.
-type Authorized struct {
-	*Service
-	ident authz.Identity
-}
-
-func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
 const MaxShareSize = 25 * 1024 * 1024
 
@@ -56,6 +45,9 @@ type Service struct {
 	assets     *asset.Store
 	stellaHome string
 	baseURL    string
+	// authz is the unified policy PEP; the Access opened via Begin is the sole
+	// enforcement point for the user-owned ResourceShare capability.
+	authz authz.Authorizer
 }
 
 type Created struct {
@@ -69,14 +61,14 @@ type ListResult struct {
 	NextPageToken string
 }
 
-func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string) *Service {
-	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), assets: assets, stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
+func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string, az authz.Authorizer) *Service {
+	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome, az), assets: assets, stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/"), authz: az}
 }
 
 // NewServiceForPool creates a share service that owns the sqlc query set for the
 // share tables, so callers pass only the pgx pool.
-func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string) *Service {
-	return NewService(sqlc.New(pool), mem, store, assets, stellaHome, baseURL)
+func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string, az authz.Authorizer) *Service {
+	return NewService(sqlc.New(pool), mem, store, assets, stellaHome, baseURL, az)
 }
 
 func (s *Service) PublicURL(token string) string {
@@ -84,118 +76,6 @@ func (s *Service) PublicURL(token string) string {
 		return ""
 	}
 	return s.baseURL + "/s/" + url.PathEscape(token)
-}
-
-func (s Authorized) ShareArtifact(ctx context.Context, sessionID, path, scope, expiresIn string) (Created, error) {
-	ident := s.ident
-	if err := ident.RequireUser(); err != nil {
-		return Created{}, err
-	}
-	if ident.AgentID == "" {
-		return Created{}, fmt.Errorf("agent_id is required for artifact shares: %w", ErrInvalidInput)
-	}
-	if sessionID == "" {
-		return Created{}, fmt.Errorf("session_id is required for artifact shares: %w", ErrInvalidInput)
-	}
-	if path == "" {
-		return Created{}, fmt.Errorf("path is required for artifact shares: %w", ErrInvalidInput)
-	}
-
-	rel := path
-	if stripped, ok := strings.CutPrefix(path, pkgsandbox.MountUserData+"/"); ok {
-		scope, rel = "user", stripped
-	} else if stripped, ok := strings.CutPrefix(path, pkgsandbox.MountWorkspace+"/"); ok {
-		scope, rel = "agent", stripped
-	}
-	root, err := s.sessionWorkspaceRoot(ctx, ident, sessionID, scope)
-	if err != nil {
-		return Created{}, err
-	}
-	abs, err := SafePath(root, rel)
-	if err != nil {
-		return Created{}, err
-	}
-	fi, err := os.Stat(abs)
-	if err != nil {
-		if os.IsNotExist(err) && s.assets.Restore(ctx, abs) == nil {
-			fi, err = os.Stat(abs)
-		}
-		if err != nil {
-			return Created{}, authz.ErrNotFound
-		}
-	}
-	if fi.IsDir() {
-		return Created{}, ErrDirectory
-	}
-	if fi.Size() > MaxShareSize {
-		return Created{}, ErrTooLarge
-	}
-	mt := ArtifactMediaType(path)
-	if mt == "" {
-		return Created{}, ErrUnsupportedType
-	}
-	data, err := os.ReadFile(abs)
-	if err != nil {
-		return Created{}, err
-	}
-	return s.create(ctx, ident.UserID, filepath.Base(path), mt, data, expiresIn)
-}
-
-func (s Authorized) ShareArticle(ctx context.Context, articleID, expiresIn string) (Created, error) {
-	ident := s.ident
-	if err := ident.RequireUser(); err != nil {
-		return Created{}, err
-	}
-	if articleID == "" {
-		return Created{}, fmt.Errorf("article_id is required for article shares: %w", ErrInvalidInput)
-	}
-	article, err := s.store.GetArticle(ctx, ident.UserID, articleID)
-	if err != nil {
-		return Created{}, authz.ErrNotFound
-	}
-	if article.UserID != ident.UserID {
-		return Created{}, authz.ErrForbidden
-	}
-	md, err := s.recallySvc.ReadArticleBody(ctx, article)
-	if err != nil {
-		return Created{}, err
-	}
-	if md == "" {
-		return Created{}, ErrNoContent
-	}
-	rendered, err := RenderMarkdownPage(RenderMarkdownOpts{Title: article.Title, Author: article.Author, SourceURL: article.URL, Summary: article.Summary, Tags: article.Tags}, []byte(md))
-	if err != nil {
-		return Created{}, err
-	}
-	return s.create(ctx, ident.UserID, article.Title, "text/html; charset=utf-8", rendered, expiresIn)
-}
-
-func (s Authorized) List(ctx context.Context, limit, offset int) (ListResult, error) {
-	ident := s.ident
-	if err := ident.RequireUser(); err != nil {
-		return ListResult{}, err
-	}
-	rows, err := s.q.ListSharesByUser(ctx, sqlc.ListSharesByUserParams{UserID: ident.UserID, Limit: int32(limit + 1), Offset: int32(offset)})
-	if err != nil {
-		return ListResult{}, err
-	}
-	page, next := pageRows(rows, limit, offset)
-	return ListResult{Shares: page, NextPageToken: next}, nil
-}
-
-func (s Authorized) Revoke(ctx context.Context, id string) error {
-	ident := s.ident
-	if err := ident.RequireUser(); err != nil {
-		return err
-	}
-	rows, err := s.q.DeleteShareByUser(ctx, sqlc.DeleteShareByUserParams{ID: id, UserID: ident.UserID})
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return authz.ErrNotFound
-	}
-	return nil
 }
 
 func (s *Service) create(ctx context.Context, userID, title, mediaType string, content []byte, expiresIn string) (Created, error) {
