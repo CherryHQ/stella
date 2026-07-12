@@ -8,6 +8,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -52,10 +53,21 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 	// current user's identity regardless of role.
 	if status.Status == "confirmed" && status.BotToken != "" {
 		if info.IsAdmin {
-			if err := s.saveWeixinCredentials(r.Context(), status); err != nil {
-				s.log.Error("save weixin credentials", "error", err)
-				s.writeInternalError(w, err)
-				return
+			// Identity linking remains available to every authenticated user, but
+			// mutating the singleton channel is a separate control-plane use case.
+			// A custom channel deny therefore suppresses only credential
+			// provisioning, preserving the existing identity-link behavior.
+			authority, authErr := info.authority()
+			if authErr != nil {
+				s.log.Warn("skip weixin credential provisioning: invalid admin authority", "error", authErr)
+			} else if access, beginErr := s.controlPlane.Begin(r.Context(), authority); beginErr != nil {
+				s.log.Warn("skip weixin credential provisioning: control-plane authorization unavailable", "error", beginErr)
+			} else if access.AuthorizeChannelRegistration(config.Channel{ID: pkgchannel.PlatformWeixin, Type: pkgchannel.PlatformWeixin}) == nil {
+				if err := s.saveWeixinCredentials(r.Context(), status); err != nil {
+					s.log.Error("save weixin credentials", "error", err)
+					s.writeInternalError(w, err)
+					return
+				}
 			}
 		}
 

@@ -504,7 +504,29 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// before ingressCtx is cancelled below and read by the lease goroutine.
 	var gracefulDrain atomic.Bool
 	channelLease := channel.NewIngressLease(s.db, channel.DefaultOwnerID(), channelIngressLeaseTTL, slog.Default())
-	onAcquire := func(leaderCtx context.Context) { applyManagedChannelPlugins(leaderCtx, s.pluginHost) }
+	// Runtime construction may perform platform network I/O. Never run it on the
+	// lease-renewal goroutine: a slow platform handshake must not let the lease
+	// expire while already-started pollers keep running. applyMu serializes
+	// acquire generations; a cancelled generation releases any runtime it created
+	// before a later generation may start.
+	var applyMu sync.Mutex
+	onAcquire := func(leaderCtx context.Context) {
+		go func() {
+			applyMu.Lock()
+			defer applyMu.Unlock()
+			if leaderCtx.Err() != nil {
+				return
+			}
+			applyManagedChannelPlugins(leaderCtx, s.pluginHost)
+			if leaderCtx.Err() != nil {
+				if gracefulDrain.Load() {
+					quiesceChannelIngress()
+				} else {
+					_ = s.pluginHost.Release(context.Background())
+				}
+			}
+		}()
+	}
 	onRelease := func() {
 		if gracefulDrain.Load() {
 			quiesceChannelIngress()

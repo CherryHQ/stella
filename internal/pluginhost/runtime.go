@@ -24,6 +24,7 @@ type runtimeKey struct {
 type runtimeEntry struct {
 	reg     pkgplugins.RuntimeSpec
 	managed pkgplugins.Runtime
+	applyMu sync.Mutex
 }
 
 // RuntimeHost owns the map of managed runtime instances.
@@ -32,9 +33,8 @@ type RuntimeHost struct {
 	mu   sync.RWMutex
 	rt   map[runtimeKey]*runtimeEntry
 
-	// applyMu serializes the rare runtime build/apply lifecycle against Quiesce
-	// and Stop. Without it, a runtime whose Build was in flight could be absent
-	// from Quiesce's snapshot and start polling after drain began.
+	// applyMu serializes lifecycle state transitions and map membership. A
+	// per-entry mutex serializes Build/Apply without blocking a lease-loss Stop.
 	applyMu  sync.Mutex
 	quiesced bool
 }
@@ -146,21 +146,37 @@ func (h *RuntimeHost) applyOne(ctx context.Context, reg pkgplugins.RuntimeSpec, 
 }
 
 func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.RuntimeSpec, runtimeID string, desired pkgplugins.PluginState) error {
+	key := runtimeKey{RuntimeID: runtimeID, RuntimeName: reg.Name}
 	h.applyMu.Lock()
-	defer h.applyMu.Unlock()
 	if h.quiesced {
+		h.applyMu.Unlock()
 		return fmt.Errorf("runtime host is quiescing")
 	}
-
-	key := runtimeKey{RuntimeID: runtimeID, RuntimeName: reg.Name}
 	h.mu.Lock()
 	entry := h.rt[key]
 	if entry == nil {
 		entry = &runtimeEntry{reg: reg}
 		h.rt[key] = entry
 	}
-	managed := entry.managed
 	h.mu.Unlock()
+	h.applyMu.Unlock()
+
+	entry.applyMu.Lock()
+	defer entry.applyMu.Unlock()
+
+	// A release can evict the entry before this apply generation begins.
+	h.applyMu.Lock()
+	h.mu.RLock()
+	current := !h.quiesced && h.rt[key] == entry
+	h.mu.RUnlock()
+	h.applyMu.Unlock()
+	if !current {
+		return fmt.Errorf("runtime %s/%s was revoked while starting", runtimeID, reg.Name)
+	}
+
+	h.mu.RLock()
+	managed := entry.managed
+	h.mu.RUnlock()
 	if managed == nil {
 		if err := h.host.verifyRuntimeCapabilities(reg.PluginID); err != nil {
 			h.host.log.Error("refusing to start managed runtime: capability unavailable",
@@ -183,8 +199,41 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 		entry.managed = created
 		h.mu.Unlock()
 	}
+
+	// Quiesce serializes through entry.applyMu, but Stop/Release deliberately do
+	// not: a slow platform handshake must not delay lease revocation. Avoid Apply
+	// if either already evicted this generation.
+	h.applyMu.Lock()
+	h.mu.RLock()
+	current = !h.quiesced && h.rt[key] == entry
+	h.mu.RUnlock()
+	h.applyMu.Unlock()
+	if !current {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := managed.Stop(stopCtx); err != nil {
+			return fmt.Errorf("stop revoked runtime %s/%s: %w", runtimeID, reg.Name, err)
+		}
+		return fmt.Errorf("runtime %s/%s was revoked while starting", runtimeID, reg.Name)
+	}
 	if err := managed.Apply(ctx, desired.Clone()); err != nil {
 		return fmt.Errorf("apply runtime %s/%s: %w", runtimeID, reg.Name, err)
+	}
+
+	// Stop/Release may replace the runtime table while Apply performs platform
+	// I/O. Recheck membership so a late-started poller cannot escape revocation.
+	h.applyMu.Lock()
+	h.mu.RLock()
+	current = !h.quiesced && h.rt[key] == entry
+	h.mu.RUnlock()
+	h.applyMu.Unlock()
+	if !current {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := managed.Stop(stopCtx); err != nil {
+			return fmt.Errorf("stop revoked runtime %s/%s: %w", runtimeID, reg.Name, err)
+		}
+		return fmt.Errorf("runtime %s/%s was revoked while starting", runtimeID, reg.Name)
 	}
 	return nil
 }
@@ -204,8 +253,8 @@ type ingressQuiescer interface {
 // to Stop — it halts new ingress while preserving accepted work.
 func (h *RuntimeHost) Quiesce(ctx context.Context) {
 	h.applyMu.Lock()
-	defer h.applyMu.Unlock()
 	if h.quiesced {
+		h.applyMu.Unlock()
 		return
 	}
 	h.quiesced = true
@@ -216,14 +265,18 @@ func (h *RuntimeHost) Quiesce(ctx context.Context) {
 		entries = append(entries, entry)
 	}
 	h.mu.RUnlock()
+	h.applyMu.Unlock()
 
 	for _, entry := range entries {
-		if entry.managed == nil {
-			continue
+		// Wait for an in-flight Apply before quiescing it, so it cannot start a
+		// poller after the drain has begun.
+		entry.applyMu.Lock()
+		if entry.managed != nil {
+			if q, ok := entry.managed.(ingressQuiescer); ok {
+				q.Quiesce(ctx)
+			}
 		}
-		if q, ok := entry.managed.(ingressQuiescer); ok {
-			q.Quiesce(ctx)
-		}
+		entry.applyMu.Unlock()
 	}
 }
 

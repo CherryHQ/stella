@@ -14,6 +14,18 @@ func channelFacts(ch config.Channel) policy.ChannelFacts {
 	return policy.ChannelFacts{Kind: ch.Type, Status: providerStatus(ch.Enabled)}
 }
 
+// AuthorizeChannelRegistration gates specialized channel enrollment flows that
+// must perform platform handshakes before they can call SaveChannel. The
+// transport supplies only the prospective channel shape; policy facts remain
+// typed and this Access keeps the same revision for the whole enrollment use case.
+func (a *Access) AuthorizeChannelRegistration(ch config.Channel) error {
+	id := ch.ID
+	if id == "" {
+		id = "registration"
+	}
+	return a.authorizeChannel(authz.ActionManage, id, channelFacts(ch))
+}
+
 // ListChannels returns every configured channel.
 func (a *Access) ListChannels(ctx context.Context) ([]config.Channel, error) {
 	if err := a.authorizeChannelList(); err != nil {

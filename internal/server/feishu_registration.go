@@ -71,7 +71,12 @@ type feishuRegistrationUpstream struct {
 }
 
 func (s *Server) InitFeishuRegistration(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
+		return
+	}
+	if err := access.AuthorizeChannelRegistration(config.Channel{Type: pkgchannel.PlatformFeishu}); err != nil {
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	var req feishuRegistrationBrandRequest
@@ -88,7 +93,12 @@ func (s *Server) InitFeishuRegistration(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) BeginFeishuRegistration(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
+		return
+	}
+	if err := access.AuthorizeChannelRegistration(config.Channel{Type: pkgchannel.PlatformFeishu}); err != nil {
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	var req feishuRegistrationBrandRequest
@@ -124,7 +134,8 @@ func (s *Server) BeginFeishuRegistration(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) PollFeishuRegistration(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
 	var req feishuRegistrationPollRequest
@@ -152,7 +163,12 @@ func (s *Server) PollFeishuRegistration(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "agent_id must reference an enabled agent")
 		return
 	}
-	if conflict, err := s.channelAgentPlatformBindingConflict(r.Context(), config.Channel{ID: req.ChannelID, Type: pkgchannel.PlatformFeishu, AgentID: req.AgentID}); err != nil {
+	prospective := config.Channel{ID: req.ChannelID, Type: pkgchannel.PlatformFeishu, AgentID: req.AgentID}
+	if err := access.AuthorizeChannelRegistration(prospective); err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	if conflict, err := s.channelAgentPlatformBindingConflict(r.Context(), prospective); err != nil {
 		s.writeInternalError(w, err)
 		return
 	} else if conflict != "" {

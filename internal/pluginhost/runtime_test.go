@@ -2,6 +2,8 @@ package pluginhost
 
 import (
 	"context"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,6 +91,57 @@ func TestRuntimeReleaseAllowsReapply(t *testing.T) {
 
 // TestShutdownReleasesLockBeforeStop ensures Stop() is called outside the
 // RuntimeHost mutex; the stub's Stop reads back via Get to verify no deadlock.
+func TestStopDuringApplyCleansLateRuntime(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{"tool/test": {ID: "tool/test", Enabled: true}}}
+	host := New(store)
+	host.RegisterPluginID("tool/test")
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var stops atomic.Int32
+	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/test", Name: "main", Build: func(pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
+		return &blockingApplyRuntime{entered: entered, release: release, stops: &stops}, nil
+	}})
+
+	applyDone := make(chan error, 1)
+	go func() { applyDone <- host.ApplyPlugin(context.Background(), "tool/test") }()
+	<-entered
+	if err := host.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	close(release)
+	if err := <-applyDone; err == nil || !strings.Contains(err.Error(), "revoked while starting") {
+		t.Fatalf("Apply error=%v, want revoked generation", err)
+	}
+	if got := stops.Load(); got < 2 {
+		t.Fatalf("Stop calls=%d, want initial stop plus late-runtime cleanup", got)
+	}
+	if _, ok := host.Runtime().Get(context.Background(), "tool/test", "main"); ok {
+		t.Fatal("revoked runtime escaped into the active table")
+	}
+}
+
+type blockingApplyRuntime struct {
+	entered chan struct{}
+	release chan struct{}
+	stops   *atomic.Int32
+}
+
+func (r *blockingApplyRuntime) Apply(context.Context, pkgplugins.PluginState) error {
+	close(r.entered)
+	<-r.release
+	return nil
+}
+func (r *blockingApplyRuntime) Start(context.Context, pkgplugins.PluginState) error     { return nil }
+func (r *blockingApplyRuntime) Reconcile(context.Context, pkgplugins.PluginState) error { return nil }
+func (r *blockingApplyRuntime) Stop(context.Context) error                              { r.stops.Add(1); return nil }
+func (r *blockingApplyRuntime) Snapshot(context.Context) (pkgplugins.RuntimeStatus, error) {
+	return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateRunning}, nil
+}
+
+func (r *blockingApplyRuntime) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
+	return r.Snapshot(ctx)
+}
+
 func TestShutdownReleasesLockBeforeStop(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{"tool/test": {ID: "tool/test", Enabled: true}}}
 	host := New(store)
