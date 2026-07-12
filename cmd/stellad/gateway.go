@@ -39,6 +39,12 @@ import (
 
 const defaultAdminPort = 25678
 
+// channelIngressLeaseTTL bounds how long a replica may keep polling channels
+// without a successful lease renew. The holder renews every ttl/3, so failover to
+// a standby replica completes within ~ttl of a crash. Always-on: a single-replica
+// deployment wins the lease on its first attempt.
+const channelIngressLeaseTTL = 15 * time.Second
+
 func serverCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:     "server",
@@ -441,8 +447,29 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
-	// Managed channel runtimes (bot pollers).
-	applyManagedChannelPlugins(gctx, s.pluginHost)
+	// Managed channel runtimes (bot pollers), gated by single-replica leadership.
+	// Every replica used to start every bot poller unconditionally, so two replicas
+	// polling the same platform produced Telegram 409 conflicts and duplicate
+	// delivery on weixin/qq/feishu. Now exactly one replica holds the Postgres
+	// ingress lease and runs the pollers; the rest stand by. The lease runs on
+	// ingressCtx, so a graceful drain (which cancels ingressCtx) releases the lease
+	// and stops the pollers, and a peer crash (which cancels gctx -> ingressCtx)
+	// does the same.
+	//
+	// onRelease is pluginHost.Stop and is the ONLY thing that actually stops the
+	// pollers: their lifetime hangs off the channelRuntimeServices parent context
+	// (gctx, set above), not the leaderCtx handed to applyManagedChannelPlugins, so
+	// cancelling leaderCtx alone would not quiet them. Stop is inherently
+	// channel-scoped — the plugin runtime host only ever holds managed channel
+	// runtimes (RegisterManagedChannelPlugin is its sole AddRuntime caller) — so
+	// losing channel leadership never disturbs non-channel plugin capabilities
+	// (tools, providers, sandbox). onAcquire/onRelease are repeatable: after a
+	// release, a later reacquire calls applyManagedChannelPlugins again, which
+	// rebuilds the runtimes Stop tore down.
+	channelLease := channel.NewIngressLease(s.db, channel.DefaultOwnerID(), channelIngressLeaseTTL, slog.Default())
+	onAcquire := func(leaderCtx context.Context) { applyManagedChannelPlugins(leaderCtx, s.pluginHost) }
+	onRelease := func() { _ = s.pluginHost.Stop(context.Background()) }
+	g.Go(func() error { return normalizeRunErr(channelLease.Run(ingressCtx, onAcquire, onRelease)) })
 	defer stopChannelIngress()
 	// HTTP serve — the final ingress source to come up.
 	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })

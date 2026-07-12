@@ -324,6 +324,15 @@ type ChannelIdentity struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type ChannelIngressLease struct {
+	ID             int32              `json:"id"`
+	OwnerID        string             `json:"owner_id"`
+	AcquiredAt     pgtype.Timestamptz `json:"acquired_at"`
+	HeartbeatAt    pgtype.Timestamptz `json:"heartbeat_at"`
+	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+}
+
 type CtxAgentMemory struct {
 	UserID         string          `json:"user_id"`
 	AgentID        string          `json:"agent_id"`
