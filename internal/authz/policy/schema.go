@@ -107,10 +107,13 @@ var schemas = map[authz.ResourceType]resourceSchema{
 	authz.ResourceSession:   {attrs: ownerAgentKindState()},
 	authz.ResourceWorkspace: {attrs: ownerAgentKindState()},
 	authz.ResourceSkill: {attrs: map[string]attrSpec{
-		"scope":  enumAttr("system", "agent", "user"),
+		"scope":  enumAttr("system", "system_agent", "user", "user_agent"),
 		"owner":  stringAttr,
 		"agent":  stringAttr,
 		"source": stringAttr,
+		// Derived by the PEP from the immutable Authority and the loaded skill
+		// row; a route or request body can never assert it.
+		"is_owner": boolAttr,
 	}},
 	authz.ResourceGoal:      {attrs: ownerAgentState()},
 	authz.ResourceWorkflow:  {attrs: ownerAgentState()},
@@ -400,6 +403,29 @@ func SchedulerResource(id, ownerID string, facts SchedulerFacts) (authz.Resource
 		WithString("state", facts.State).
 		WithBool("is_owner", facts.IsOwner).
 		WithBool("is_executor", facts.IsExecutor).
+		Build()
+}
+
+// SkillFacts is the complete durable fact set for a Skill policy resource. The
+// four scopes are the durable DB buckets (system, system_agent, user,
+// user_agent). IsOwner is derived by the PEP from the Authority and the loaded
+// skill row (or the write target's owner columns); it is never caller-supplied.
+type SkillFacts struct {
+	Scope   string
+	Owner   string
+	Agent   string
+	Source  string
+	IsOwner bool
+}
+
+// SkillResource builds a Skill resource carrying every accepted durable fact.
+func SkillResource(id, ownerID string, facts SkillFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceSkill, id, ownerID).
+		WithEnum("scope", facts.Scope).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
+		WithString("source", facts.Source).
+		WithBool("is_owner", facts.IsOwner).
 		Build()
 }
 

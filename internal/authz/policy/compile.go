@@ -478,5 +478,61 @@ func builtinPolicies() []compiledPolicy {
 				{Attr: "is_executor", Op: opEq, Value: "true"},
 			},
 		},
+		// A user may list their skills (collection-level; per-scope management
+		// filters by owner/admin in the same evaluation).
+		{
+			id:       "builtin:user-list-skills",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A user owns the user/user_agent skills they created (read/create/write/
+		// delete). is_owner is derived at the PEP from the loaded row (or write
+		// target) and the acting user; admin-managed system scopes are excluded.
+		{
+			id:       "builtin:user-own-skills",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}},
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+			},
+		},
+		// Any user may read admin-managed system/system_agent skills (they are
+		// shared reference procedures); only admins may write them.
+		{
+			id:       "builtin:user-read-system-skills",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionRead},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"system", "system_agent"}},
+			},
+		},
+		// A delegated agent may list skills it owns as the delegating user.
+		{
+			id:       "builtin:agent-list-skills",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A delegated agent may act only on user/user_agent skills owned by its
+		// delegating user (is_owner). It never writes admin-managed system scopes.
+		{
+			id:       "builtin:agent-own-skills",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}},
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+			},
+		},
 	}
 }
