@@ -574,5 +574,145 @@ func builtinPolicies() []compiledPolicy {
 				{Attr: "scope", Op: opIn, Values: []string{"system", "system_agent"}},
 			},
 		},
+
+		// ---- #711 Vault ---------------------------------------------------
+		// A user may list their vault entries in the user/user_agent scopes; a
+		// per-scope read decision filters rows in the same evaluation.
+		{
+			id: "builtin:user-list-vault", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceVault,
+			actions:    []authz.Action{authz.ActionList},
+			predicates: []predicate{{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}}},
+		},
+		// A user owns their user/user_agent vault entries. system/system_agent
+		// scopes are admin-managed (admin-full-access only); is_owner is derived by
+		// the PEP from the entry's owner/agent columns.
+		{
+			id: "builtin:user-own-vault", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceVault,
+			actions: []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}},
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+			},
+		},
+		// A delegated agent may list its delegating user's user/user_agent vault.
+		{
+			id: "builtin:agent-list-vault", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceVault,
+			actions:    []authz.Action{authz.ActionList},
+			predicates: []predicate{{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}}},
+		},
+		// A delegated agent acts only on its delegating user's user/user_agent vault
+		// entries (is_owner). The PEP additionally confines an agent-scoped actor to
+		// its own user_agent bucket before setting is_owner.
+		{
+			id: "builtin:agent-own-vault", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceVault,
+			actions: []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}},
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+			},
+		},
+
+		// ---- #711 Connection ----------------------------------------------
+		{
+			id: "builtin:user-list-connections", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceConnection,
+			actions: []authz.Action{authz.ActionList},
+		},
+		{
+			id: "builtin:user-own-connections", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceConnection,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+		{
+			id: "builtin:agent-list-connections", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceConnection,
+			actions: []authz.Action{authz.ActionList},
+		},
+		{
+			id: "builtin:agent-own-connections", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceConnection,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+
+		// ---- #711 Email ---------------------------------------------------
+		{
+			id: "builtin:user-list-email", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceEmail,
+			actions: []authz.Action{authz.ActionList},
+		},
+		{
+			id: "builtin:user-own-email", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceEmail,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+		{
+			id: "builtin:agent-list-email", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceEmail,
+			actions: []authz.Action{authz.ActionList},
+		},
+		{
+			id: "builtin:agent-own-email", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceEmail,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+
+		// ---- #711 Share ---------------------------------------------------
+		{
+			id: "builtin:user-list-shares", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceShare,
+			actions: []authz.Action{authz.ActionList},
+		},
+		{
+			id: "builtin:user-own-shares", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceShare,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+		{
+			id: "builtin:agent-list-shares", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceShare,
+			actions: []authz.Action{authz.ActionList},
+		},
+		{
+			id: "builtin:agent-own-shares", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceShare,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+
+		// ---- #711 Recally -------------------------------------------------
+		{
+			id: "builtin:user-list-recally", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceRecally,
+			actions: []authz.Action{authz.ActionList},
+		},
+		{
+			id: "builtin:user-own-recally", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceRecally,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+		{
+			id: "builtin:agent-list-recally", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceRecally,
+			actions: []authz.Action{authz.ActionList},
+		},
+		// Recally is deliberately user-owned and shared across the user's agents; a
+		// delegated agent has the same access as the user (is_owner), not confined
+		// to its exact executor agent.
+		{
+			id: "builtin:agent-own-recally", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceRecally,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
 	}
 }

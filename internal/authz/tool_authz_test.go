@@ -196,7 +196,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := vaultSvc.SetScoped(ctx, vault.ScopeUser, ownerUser, "", "EMAIL_CONFIG", `{"default":"work","accounts":{"work":{"imap_host":"8.8.8.8","smtp_host":"1.1.1.1","username":"owner@example.com","password":"secret","from":"owner@example.com"}}}`); err != nil {
 		t.Fatalf("set owner email config: %v", err)
 	}
-	emailTool := emailpkg.NewTool(emailpkg.NewService(vaultSvc, q))
+	emailTool := emailpkg.NewTool(emailpkg.NewService(vaultSvc, q, policy.New(db)))
 	if out, err := emailTool.Execute(foreignCtx, map[string]any{"action": "accounts"}); err == nil || !strings.Contains(err.Error(), "no email account configured") || strings.Contains(out, "work") || strings.Contains(out, "secret") {
 		t.Fatalf("email foreign accounts out=%q err=%v, want no leak", out, err)
 	}

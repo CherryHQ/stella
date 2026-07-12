@@ -8,6 +8,7 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/server"
@@ -62,7 +63,7 @@ func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
 	env.credSvc.SetVaultService(svc)
 	env.rebuild(t, func(d *server.Deps) {
 		d.Vault = svc
-		d.Email = email.NewService(svc, sqlc.New(env.db))
+		d.Email = email.NewService(svc, sqlc.New(env.db), policy.New(env.db))
 	})
 
 	// Provision age keys for the admin user.
