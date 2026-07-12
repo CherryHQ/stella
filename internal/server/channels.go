@@ -195,13 +195,13 @@ func sortPublicChannels(channels []publicChannelView) {
 }
 
 func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
-	info := requireAdmin(w, r)
-	if info == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
-	channels, err := s.store.ListChannels(r.Context())
+	channels, err := access.ListChannels(r.Context())
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	views := make([]channelView, len(channels))
@@ -212,19 +212,21 @@ func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
-	ch, err := s.store.GetChannel(r.Context(), id)
+	ch, err := access.GetChannel(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "channel not found")
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, channelToView(ch))
 }
 
 func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
 	var req channelWriteRequest
@@ -235,6 +237,9 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	req.ID = id
 
 	ctx := r.Context()
+	// Load the current row only to merge unspecified write fields (a PUT is a
+	// partial update); the authorization decision and the persistence run inside
+	// the control-plane PEP, which 403s a non-admin before any state is observed.
 	existing, existingErr := s.store.GetChannel(ctx, id)
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
@@ -243,11 +248,17 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	}
 
 	ch := s.channelFromWriteRequest(r, req, existing, existingErr == nil)
-	s.saveChannel(w, r, ch, cfgMap, http.StatusOK)
+	saved, err := access.SaveChannel(ctx, ch, cfgMap, false)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, channelToView(saved))
 }
 
 func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
 	var req channelWriteRequest
@@ -267,13 +278,6 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// POST is create-only: silently upserting would let a re-POST overwrite an
-	// existing channel's config and flip a deliberately disabled webhook back on.
-	if _, err := s.store.GetChannel(r.Context(), req.ID); err == nil {
-		writeError(w, http.StatusConflict, "channel already exists")
-		return
-	}
-
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON")
@@ -289,7 +293,14 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		// a webhook has no runtime, so it goes live the moment it's created.
 		Enabled: channelType == pkgchannel.PlatformWebhook,
 	}
-	s.saveChannel(w, r, ch, cfgMap, http.StatusCreated)
+	// create=true enforces the POST create-only contract inside the PEP (after
+	// authorization): a re-POST to an existing id is a 409, never a silent upsert.
+	saved, err := access.SaveChannel(r.Context(), ch, cfgMap, true)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	writeData(w, http.StatusCreated, channelToView(saved))
 }
 
 func requestChannelType(req channelWriteRequest) string {
@@ -345,51 +356,10 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 	}
 }
 
-func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.Channel, cfgMap map[string]any, status int) bool {
-	// A webhook is a runtime-less trigger: it must name the agent it runs, but
-	// its caller is resolved dynamically from the PAT (not bound to one user).
-	if ch.Type == pkgchannel.PlatformWebhook && ch.AgentID == "" {
-		writeError(w, http.StatusBadRequest, "webhook channel requires a bound agent")
-		return false
-	}
-	if conflict, err := s.channelAgentPlatformBindingConflict(r.Context(), ch); err != nil {
-		s.writeInternalError(w, err)
-		return false
-	} else if conflict != "" {
-		writeError(w, http.StatusBadRequest, conflict)
-		return false
-	}
-	pluginID := config.PluginID(config.PluginKindChannel, ch.Type)
-	if err := s.pluginHost.ValidateConfig(pluginID, cfgMap); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request")
-		return false
-	}
-	cfgJSON, err := json.Marshal(cfgMap)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid config JSON")
-		return false
-	}
-	ch.Config = string(cfgJSON)
-	if err := s.store.UpsertChannel(r.Context(), ch); err != nil {
-		s.writeInternalError(w, err)
-		return false
-	}
-	if err := s.ensureChannelPluginEnabled(r.Context(), ch.Type); err != nil {
-		s.writeInternalError(w, err)
-		return false
-	}
-	if err := s.pluginHost.ApplyChannel(r.Context(), ch); err != nil {
-		s.log.Error("failed to apply channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
-	}
-	saved, err := s.store.GetChannel(r.Context(), ch.ID)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return false
-	}
-	writeData(w, status, channelToView(saved))
-	return true
-}
-
+// channelAgentPlatformBindingConflict enforces one bidirectional-channel binding
+// per (agent, platform). The admin channel CRUD path enforces the same rule
+// inside internal/controlplane; this copy remains for the feishu/weixin
+// registration handlers (a separate migration item) that still call it.
 func (s *Server) channelAgentPlatformBindingConflict(ctx context.Context, ch config.Channel) (string, error) {
 	if ch.AgentID == "" || ch.Type == "" {
 		return "", nil
@@ -439,21 +409,12 @@ func parseChannelConfig(raw string) (map[string]any, error) {
 }
 
 func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
-	ctx := r.Context()
-	ch, err := s.store.GetChannel(ctx, id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "channel not found")
-		return
-	}
-	ch.Enabled = false
-	if err := s.pluginHost.ApplyChannel(ctx, ch); err != nil {
-		s.log.Error("failed to stop channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
-	}
-	if err := s.store.DeleteChannel(ctx, id); err != nil {
-		s.writeInternalError(w, err)
+	if err := access.DeleteChannel(r.Context(), id); err != nil {
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	writeNoContent(w)

@@ -511,6 +511,77 @@ func RecallyResource(id, ownerID string, facts OwnedFacts) (authz.Resource, erro
 	return ownedResource(authz.ResourceRecally, id, ownerID, facts)
 }
 
+// ---- #712 control-plane resources ---------------------------------------
+//
+// Provider, Settings, Plugin, and Channel are deployment control-plane resources:
+// they are administered, not user-owned. The single built-in that governs them is
+// admin-full-access, so a non-admin actor is default-denied exactly as the legacy
+// requireAdmin gate did. The facts below carry the deployment-visible attributes
+// (kind/status, plus owner for the two plugin-shaped resources) so an operator may
+// still author a custom policy that narrows or widens access along them; the PEP
+// derives every fact from durable state, never from a request body.
+
+// ProviderFacts is the durable fact set for an LLM provider config resource.
+type ProviderFacts struct {
+	Kind   string // provider type (e.g. anthropic, openai)
+	Status string // enabled | disabled
+}
+
+// ProviderResource builds a Provider control-plane resource.
+func ProviderResource(id, ownerID string, facts ProviderFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceProvider, id, ownerID).
+		WithString("kind", facts.Kind).
+		WithString("status", facts.Status).
+		Build()
+}
+
+// SettingsFacts is the durable fact set for a deployment settings resource
+// (embedding config, CLI-tool registry, OAuth provider config).
+type SettingsFacts struct {
+	Kind   string // settings category (e.g. embedding, cli, oauth_provider_config)
+	Status string
+}
+
+// SettingsResource builds a Settings control-plane resource.
+func SettingsResource(id, ownerID string, facts SettingsFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceSettings, id, ownerID).
+		WithString("kind", facts.Kind).
+		WithString("status", facts.Status).
+		Build()
+}
+
+// PluginFacts is the durable fact set for a plugin control-plane resource.
+type PluginFacts struct {
+	Kind   string // plugin kind (channel, tool, provider, hook)
+	Owner  string // deployment-owned; empty in the single-tenant control plane
+	Status string // enabled | disabled
+}
+
+// PluginResource builds a Plugin control-plane resource.
+func PluginResource(id, ownerID string, facts PluginFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourcePlugin, id, ownerID).
+		WithString("kind", facts.Kind).
+		WithString("owner", facts.Owner).
+		WithString("status", facts.Status).
+		Build()
+}
+
+// ChannelFacts is the durable fact set for a channel control-plane resource.
+type ChannelFacts struct {
+	Kind   string // channel platform (telegram, feishu, qq, weixin, webhook)
+	Owner  string // deployment-owned; empty in the single-tenant control plane
+	Status string // enabled | disabled
+}
+
+// ChannelResource builds a Channel control-plane resource.
+func ChannelResource(id, ownerID string, facts ChannelFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceChannel, id, ownerID).
+		WithString("kind", facts.Kind).
+		WithString("owner", facts.Owner).
+		WithString("status", facts.Status).
+		Build()
+}
+
 // predicate is one attribute comparison inside a custom policy.
 type predicate struct {
 	Attr  string   `json:"attr"`

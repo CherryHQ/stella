@@ -298,6 +298,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		BuiltinTools:        s.builtinTools,
 		BaseURL:             baseURL,
 		Credentials:         s.credSvc,
+		ControlPlane:        s.controlPlane,
 		Email:               s.emailSvc,
 		Share:               s.shareSvc,
 		Recally:             s.recallySvc,

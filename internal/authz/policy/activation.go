@@ -82,6 +82,16 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// agents — a delegated agent has the same access, not executor-confined).
 	authz.ResourceShare:   activeActive,
 	authz.ResourceRecally: activeActive,
+	// #712: the deployment control-plane resources are enforced only through
+	// internal/controlplane.Service's Authority-based Access PEP. They are
+	// administered, not user-owned: the built-in admin-full-access policy is the
+	// sole grant, so a non-admin actor is default-denied exactly as the legacy
+	// requireAdmin gate was. Activating them lets an operator additionally author a
+	// custom policy along the kind/status/owner facts.
+	authz.ResourceProvider: activeActive,
+	authz.ResourceSettings: activeActive,
+	authz.ResourcePlugin:   activeActive,
+	authz.ResourceChannel:  activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

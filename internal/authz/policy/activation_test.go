@@ -9,11 +9,11 @@ import (
 )
 
 // #709 made Agent, Session, and Workspace authoritative; #710 added the execution
-// domains; #711 adds the user-capability domains one PEP at a time (Email first,
-// then Vault/Connection/Share/Recally). Every not-yet-cut-over resource — the
-// remaining #711 domains plus the system catalog, public tool, and Stack 7
-// providers/settings/plugins/channels — stays inactive and rejects custom-policy
-// writes until its owning PEP lands.
+// domains; #711 the user-capability domains; #712 the deployment control-plane
+// resources (Provider/Settings/Plugin/Channel). Every remaining resource — the
+// system catalog, public tool, and the identity/token/mcp/webhook families whose
+// enforcement lives in dedicated mechanisms, not the custom-policy Authorizer —
+// stays inactive and rejects custom-policy writes.
 func TestOnlySessionVerticalIsActivated(t *testing.T) {
 	active := map[authz.ResourceType]bool{
 		authz.ResourceAgent:      true,
@@ -28,6 +28,10 @@ func TestOnlySessionVerticalIsActivated(t *testing.T) {
 		authz.ResourceVault:      true,
 		authz.ResourceShare:      true,
 		authz.ResourceRecally:    true,
+		authz.ResourceProvider:   true,
+		authz.ResourceSettings:   true,
+		authz.ResourcePlugin:     true,
+		authz.ResourceChannel:    true,
 	}
 	for _, rt := range authz.AllResourceTypes() {
 		if got := resourceAcceptsCustomPolicy(rt); got != active[rt] {
@@ -48,7 +52,7 @@ func TestInactiveResourceWritesAreRejected(t *testing.T) {
 	svc := NewService(New(pool))
 
 	for _, rt := range []authz.ResourceType{
-		authz.ResourceSystemCatalog, authz.ResourceTool, authz.ResourceProvider, authz.ResourceSettings,
+		authz.ResourceSystemCatalog, authz.ResourceTool, authz.ResourceUser, authz.ResourceMCP,
 	} {
 		_, _, err := svc.CreatePolicy(ctx, PolicyInput{
 			Resource: rt, Action: authz.ActionRead, Effect: EffectAllow,

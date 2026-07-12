@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -67,6 +68,8 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
+	poolMgr := agent.NewPoolManager(store, mem)
+	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL, authorizer)
 	return Deps{
 		Store:               store,
 		DB:                  db,
@@ -76,10 +79,11 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 		SessionAccess:       sessionSvc,
 		SkillAccess:         skillaccess.NewService(phost.SkillStore(), agentaccess.NewService(store, as, authorizer), authorizer),
 		LinkCodes:           auth.NewLinkCodeStore(),
-		PoolManager:         agent.NewPoolManager(store, mem),
+		PoolManager:         poolMgr,
 		PluginHost:          phost,
 		BaseURL:             baseURL,
-		Credentials:         connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL, authorizer),
+		Credentials:         credSvc,
+		ControlPlane:        controlplane.NewService(authorizer, store, phost, poolMgr, credSvc, slog.With("component", "controlplane-test")),
 		Email:               email.NewService(nil, sqlc.New(db), authorizer),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL, authorizer),
 		Recally:             recally.NewService(recallyStore, t.TempDir(), authorizer),

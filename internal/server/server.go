@@ -22,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/credential"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -56,19 +57,20 @@ type Server struct {
 	q              *sqlc.Queries
 	mux            *http.ServeMux
 	log            *slog.Logger
-	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
-	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
-	mcpSvc         *mcp.Service         // optional; if nil, MCP endpoints return 503
-	credResolver   *credential.Service  // unified bearer credential front door
-	oauthAS        *oidc.Service        // OAuth2 authorization server
-	credSvc        *connections.Service // shared credentials service
-	emailSvc       *email.Service       // shared email service
-	shareSvc       *sharepkg.Service    // shared share service
-	recallySvc     *recally.Service     // shared recally service
-	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
-	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
-	goalSvc        *goal.Service        // optional; if nil, goal endpoints return 503
-	workflowSvc    *workflowpkg.Service // optional; if nil, workflow endpoints return 503
+	vaultRecipient *age.X25519Recipient  // optional; if set, age keys are generated for new users
+	vaultSvc       *vault.Service        // optional; if nil, vault endpoints return 503
+	mcpSvc         *mcp.Service          // optional; if nil, MCP endpoints return 503
+	credResolver   *credential.Service   // unified bearer credential front door
+	oauthAS        *oidc.Service         // OAuth2 authorization server
+	controlPlane   *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
+	credSvc        *connections.Service  // shared credentials service
+	emailSvc       *email.Service        // shared email service
+	shareSvc       *sharepkg.Service     // shared share service
+	recallySvc     *recally.Service      // shared recally service
+	recally        *recallyHandlers      // recally HTTP API (articles, feeds, digest)
+	schedulerSvc   *scheduler.Service    // optional; if set, create/delete go through the live scheduler
+	goalSvc        *goal.Service         // optional; if nil, goal endpoints return 503
+	workflowSvc    *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
 	builtinTools   []agent.BuiltinTool
 	startedAt      time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
@@ -151,6 +153,7 @@ type Deps struct {
 	// composition root. The same instances back both the agent tools and the
 	// HTTP endpoints, so there is one source of truth per capability.
 	Credentials         *connections.Service
+	ControlPlane        *controlplane.Service
 	Email               *email.Service
 	Share               *sharepkg.Service
 	Recally             *recally.Service
@@ -219,6 +222,7 @@ func (d Deps) validate() error {
 	req(d.PluginHost != nil, "PluginHost")
 	req(d.BaseURL != "", "BaseURL")
 	req(d.Credentials != nil, "Credentials")
+	req(d.ControlPlane != nil, "ControlPlane")
 	req(d.Email != nil, "Email")
 	req(d.Share != nil, "Share")
 	req(d.Recally != nil, "Recally")
@@ -272,6 +276,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		mcpSvc:          deps.MCP,
 		credResolver:    deps.CredentialFrontDoor,
 		oauthAS:         deps.OAuthAuthServer,
+		controlPlane:    deps.ControlPlane,
 		credSvc:         deps.Credentials,
 		emailSvc:        deps.Email,
 		shareSvc:        deps.Share,

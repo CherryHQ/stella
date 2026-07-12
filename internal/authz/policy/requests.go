@@ -203,6 +203,53 @@ func RecallyRequest(action authz.Action, id, ownerID string, facts OwnedFacts) (
 // RecallyListRequest builds the collection-level recally list request.
 func RecallyListRequest() (authz.Request, error) { return listRequest(authz.ResourceRecally) }
 
+// ---- #712 control-plane requests ----------------------------------------
+
+// ProviderRequest builds an action against one LLM provider config.
+func ProviderRequest(action authz.Action, id, ownerID string, facts ProviderFacts) (authz.Request, error) {
+	res, err := ProviderResource(id, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// ProviderListRequest builds the collection-level provider list request.
+func ProviderListRequest() (authz.Request, error) { return listRequest(authz.ResourceProvider) }
+
+// SettingsRequest builds an action against one deployment settings resource.
+func SettingsRequest(action authz.Action, id, ownerID string, facts SettingsFacts) (authz.Request, error) {
+	res, err := SettingsResource(id, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// PluginRequest builds an action against one plugin control-plane resource.
+func PluginRequest(action authz.Action, id, ownerID string, facts PluginFacts) (authz.Request, error) {
+	res, err := PluginResource(id, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// PluginListRequest builds the collection-level plugin list request.
+func PluginListRequest() (authz.Request, error) { return listRequest(authz.ResourcePlugin) }
+
+// ChannelRequest builds an action against one channel control-plane resource.
+func ChannelRequest(action authz.Action, id, ownerID string, facts ChannelFacts) (authz.Request, error) {
+	res, err := ChannelResource(id, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// ChannelListRequest builds the collection-level channel list request.
+func ChannelListRequest() (authz.Request, error) { return listRequest(authz.ResourceChannel) }
+
 func ownedRequest(rt authz.ResourceType, action authz.Action, id, ownerID string, facts OwnedFacts) (authz.Request, error) {
 	res, err := ownedResource(rt, id, ownerID, facts)
 	if err != nil {
