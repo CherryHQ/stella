@@ -9,14 +9,13 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/auth"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/plugins/channels/weixin"
 )
 
 // StartWeixinQR initiates the WeChat QR login flow by requesting a QR code
 // from the iLink API. Any authenticated user can call this.
 // POST /api/channels/weixin/qr
 func (s *Server) StartWeixinQR(w http.ResponseWriter, r *http.Request) {
-	qr, err := getWeixinRegistrationQRCode()
+	qr, err := s.weixinRegistrar.GetQRCode()
 	if err != nil {
 		s.writeBadGatewayError(w, err)
 		return
@@ -43,7 +42,7 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 		return
 	}
 
-	status, err := getWeixinRegistrationStatus(qrcode)
+	status, err := s.weixinRegistrar.GetQRCodeStatus(qrcode)
 	if err != nil {
 		s.writeBadGatewayError(w, err)
 		return
@@ -85,7 +84,7 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 
 // saveWeixinCredentials merges iLink credentials into the existing weixin
 // channel instance config in the DB.
-func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCodeStatusResponse) error {
+func (s *Server) saveWeixinCredentials(ctx context.Context, status WeixinQRCodeStatus) error {
 	_, err := s.saveWeixinSingletonChannel(ctx, "", "", false, nil, status)
 	return err
 }

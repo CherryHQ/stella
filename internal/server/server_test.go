@@ -220,6 +220,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolManager,
 		PluginHost:          phost,
+		WeixinRegistrar:     server.NewTestWeixinRegistrar(),
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
 		ControlPlane:        controlplane.NewService(authorizer, store, phost, poolManager, credSvc, slog.With("component", "controlplane-test")),

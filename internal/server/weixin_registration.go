@@ -11,7 +11,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/plugins/channels/weixin"
 )
 
 const weixinRegistrationPollInterval = 2
@@ -31,14 +30,6 @@ func validateWeixinChannelID(id string) error {
 	return nil
 }
 
-var weixinRegistrationEndpoint = weixin.DefaultBaseURL
-
-func SetWeixinRegistrationEndpointForTesting(endpoint string) func() {
-	previous := weixinRegistrationEndpoint
-	weixinRegistrationEndpoint = endpoint
-	return func() { weixinRegistrationEndpoint = previous }
-}
-
 type weixinRegistrationPollRequest struct {
 	QRCode    string         `json:"qrcode"`
 	ChannelID string         `json:"channel_id"`
@@ -47,19 +38,11 @@ type weixinRegistrationPollRequest struct {
 	Config    map[string]any `json:"config"`
 }
 
-func getWeixinRegistrationQRCode() (*weixin.QRCodeResponse, error) {
-	return weixin.NewClient(weixinRegistrationEndpoint, "", "", "").GetQRCode()
-}
-
-func getWeixinRegistrationStatus(qrcode string) (*weixin.QRCodeStatusResponse, error) {
-	return weixin.NewClient(weixinRegistrationEndpoint, "", "", "").GetQRCodeStatus(qrcode)
-}
-
 func (s *Server) BeginWeixinRegistration(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
 	}
-	qr, err := getWeixinRegistrationQRCode()
+	qr, err := s.weixinRegistrar.GetQRCode()
 	if err != nil {
 		s.writeBadGatewayError(w, err)
 		return
@@ -116,7 +99,7 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	status, err := getWeixinRegistrationStatus(req.QRCode)
+	status, err := s.weixinRegistrar.GetQRCodeStatus(req.QRCode)
 	if err != nil {
 		s.writeBadGatewayError(w, err)
 		return
@@ -151,7 +134,7 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 // always win. name and agentID are applied only when non-empty; enable only
 // ever turns the channel on (a confirmed registration enables it; the
 // identity-link path passes false to leave the existing state untouched).
-func (s *Server) saveWeixinSingletonChannel(ctx context.Context, name, agentID string, enable bool, cfgPatch map[string]any, status *weixin.QRCodeStatusResponse) (config.Channel, error) {
+func (s *Server) saveWeixinSingletonChannel(ctx context.Context, name, agentID string, enable bool, cfgPatch map[string]any, status WeixinQRCodeStatus) (config.Channel, error) {
 	ch, err := s.store.GetChannel(ctx, pkgchannel.PlatformWeixin)
 	cfg := map[string]any{}
 	if err != nil {

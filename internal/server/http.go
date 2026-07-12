@@ -21,6 +21,16 @@ func (s *Server) redirectRoot(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/agents", http.StatusFound)
 }
 
+// WebhookIngressHandler returns the auth-exempt inbound webhook ingress handler
+// (POST /webhooks/{id}). The composition root mounts it at the HTTP root, in
+// front of the admin middleware chain, because the handler authenticates itself
+// via the caller's personal access token and must never be wrapped by the
+// session authMiddleware. It stays in internal/server, with its Server-field
+// dependencies, because it is transport code — not a plugin implementation.
+func (s *Server) WebhookIngressHandler() http.Handler {
+	return http.HandlerFunc(s.handleWebhookIngress)
+}
+
 // Handler returns the HTTP handler with OTel instrumentation wrapping the
 // CORS, JSON, and auth middleware chain. The OTel wrap is unconditional: it is
 // a no-op when tracing is disabled.

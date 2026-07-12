@@ -88,7 +88,12 @@ var webhookEntry = entryRow{
 }
 
 func TestWebhookEntryRegistered(t *testing.T) {
-	path := filepath.Join(moduleRoot(t), "internal/server/routes.go")
+	// #712 Item 4 moved the webhook ingress mount out of internal/server's route
+	// table and onto the HTTP root in the composition root, so it bypasses the
+	// admin middleware chain and does its own PAT auth. The frozen entry inventory
+	// tracks the route where it is now registered: gateway.go's outer mux
+	// (rootMux.Handle("POST /webhooks/{id}", ...)).
+	path := filepath.Join(moduleRoot(t), "cmd/stellad/gateway.go")
 	f, _ := parseGoFile(t, path)
 	found := false
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -97,7 +102,7 @@ func TestWebhookEntryRegistered(t *testing.T) {
 			return true
 		}
 		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "HandleFunc" {
+		if !ok || (sel.Sel.Name != "Handle" && sel.Sel.Name != "HandleFunc") {
 			return true
 		}
 		if lit, ok := call.Args[0].(*ast.BasicLit); ok {
@@ -108,7 +113,7 @@ func TestWebhookEntryRegistered(t *testing.T) {
 		return true
 	})
 	if !found {
-		t.Errorf("webhook ingress route \"POST /webhooks/{id}\" is no longer registered in routes.go; the non-HTTP entry inventory is stale — re-classify (%+v)", webhookEntry)
+		t.Errorf("webhook ingress route \"POST /webhooks/{id}\" is no longer registered in cmd/stellad/gateway.go; the non-HTTP entry inventory is stale — re-classify (%+v)", webhookEntry)
 	}
 }
 
