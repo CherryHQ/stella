@@ -73,6 +73,16 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// share,recally}). Their catalog entries stay inactive so a stray custom-policy
 	// write for them fails closed.
 	authz.ResourceVault: activeActive,
+	// #712: the deployment control-plane resources are enforced only through
+	// internal/controlplane.Service's Authority-based Access PEP. They are
+	// administered, not user-owned: the built-in admin-full-access policy is the
+	// sole grant, so a non-admin actor is default-denied exactly as the legacy
+	// requireAdmin gate was. Activating them lets an operator additionally author a
+	// custom policy along the kind/status/owner facts.
+	authz.ResourceProvider: activeActive,
+	authz.ResourceSettings: activeActive,
+	authz.ResourcePlugin:   activeActive,
+	authz.ResourceChannel:  activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

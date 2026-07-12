@@ -5,18 +5,20 @@ import (
 	"net/http"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/embedding"
 )
 
 // GetEmbeddingSettings returns the deployment-wide embedding configuration. The
 // API key is never returned; has_api_key reports whether one is stored.
 func (s *Server) GetEmbeddingSettings(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
-	cfg, err := config.LoadEmbeddingSettings(r.Context(), s.store)
+	cfg, err := access.GetEmbeddingSettings(r.Context())
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, embeddingSettingsView(cfg))
@@ -27,7 +29,8 @@ func (s *Server) GetEmbeddingSettings(w http.ResponseWriter, r *http.Request) {
 // and backfill pass, so no restart is needed. The api_key is write-only — an
 // omitted or empty key keeps the stored one, since the GET never echoes it back.
 func (s *Server) UpdateEmbeddingSettings(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
 	var body struct {
@@ -57,33 +60,16 @@ func (s *Server) UpdateEmbeddingSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	existing, err := config.LoadEmbeddingSettings(r.Context(), s.store)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-
-	next := config.EmbeddingSettings{
+	next, err := access.SetEmbeddingSettings(r.Context(), controlplane.EmbeddingUpdate{
 		Enabled:   body.Enabled,
 		Model:     body.Model,
 		Dim:       body.Dim,
 		BaseURL:   body.BaseURL,
 		Normalize: body.Normalize,
-		APIKey:    existing.APIKey, // preserve unless a new key is supplied
-	}
-	if body.APIKey != nil && *body.APIKey != "" {
-		next.APIKey = *body.APIKey
-	}
-
-	// Enabling the lane without a key would silently no-op (the service treats a
-	// keyless config as disabled); reject it so the operator gets clear feedback.
-	if next.Enabled && next.APIKey == "" {
-		writeError(w, http.StatusBadRequest, "api_key is required to enable embedding")
-		return
-	}
-
-	if err := config.SaveEmbeddingSettings(r.Context(), s.store, next); err != nil {
-		s.writeInternalError(w, err)
+		APIKey:    body.APIKey,
+	})
+	if err != nil {
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, embeddingSettingsView(next))

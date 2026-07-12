@@ -5,23 +5,22 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
 )
 
 // SearchCliToolRegistry searches the mise tool registry so the UI can add a CLI
 // tool by picking a name instead of hand-writing its mise backend key.
 func (s *Server) SearchCliToolRegistry(w http.ResponseWriter, r *http.Request, params apiserver.SearchCliToolRegistryParams) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
 	limit := 30
 	if params.Limit != nil {
 		limit = *params.Limit
 	}
-	tools, err := manifestplugins.SearchRegistry(r.Context(), config.StellaHome(), params.Q, limit)
+	tools, err := access.SearchCliToolRegistry(r.Context(), params.Q, limit)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	items := make([]types.CliToolRegistryItem, 0, len(tools))
@@ -36,12 +35,13 @@ func (s *Server) SearchCliToolRegistry(w http.ResponseWriter, r *http.Request, p
 // GetCliToolLatest resolves the latest installable version for a mise tool key,
 // letting the UI pin a tool to its current latest without the admin running mise.
 func (s *Server) GetCliToolLatest(w http.ResponseWriter, r *http.Request, params apiserver.GetCliToolLatestParams) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
-	version, err := manifestplugins.LatestVersion(r.Context(), config.StellaHome(), params.Tool)
+	version, err := access.CliToolLatest(r.Context(), params.Tool)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, types.CliToolLatestResponse{Version: version})

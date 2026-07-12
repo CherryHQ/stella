@@ -9,11 +9,11 @@ import (
 )
 
 // #709 made Agent, Session, and Workspace authoritative; #710 added the execution
-// domains; #711 makes Vault policy-backed. The other user capabilities (Email,
-// Connection, Share, Recally) are enforced by their own domain Access services, not
-// custom policy, so they stay inactive — as do the system catalog, public tool, and
-// Stack 7 providers/settings/plugins/channels — and reject custom-policy writes.
-func TestOnlySessionVerticalIsActivated(t *testing.T) {
+// domains; #711 makes Vault policy-backed; #712 adds the deployment control-plane
+// resources (Provider/Settings/Plugin/Channel). Email, Connection, Share, and
+// Recally are Authority-bound user capabilities, not custom-policy resources, so
+// they stay inactive along with the system catalog and public tool.
+func TestOnlyPolicyBackedResourcesAreActivated(t *testing.T) {
 	active := map[authz.ResourceType]bool{
 		authz.ResourceAgent:     true,
 		authz.ResourceSession:   true,
@@ -23,6 +23,10 @@ func TestOnlySessionVerticalIsActivated(t *testing.T) {
 		authz.ResourceGoal:      true,
 		authz.ResourceSkill:     true,
 		authz.ResourceVault:     true,
+		authz.ResourceProvider:  true,
+		authz.ResourceSettings:  true,
+		authz.ResourcePlugin:    true,
+		authz.ResourceChannel:   true,
 	}
 	for _, rt := range authz.AllResourceTypes() {
 		if got := resourceAcceptsCustomPolicy(rt); got != active[rt] {
@@ -43,7 +47,7 @@ func TestInactiveResourceWritesAreRejected(t *testing.T) {
 	svc := NewService(New(pool))
 
 	for _, rt := range []authz.ResourceType{
-		authz.ResourceSystemCatalog, authz.ResourceTool, authz.ResourceProvider, authz.ResourceSettings,
+		authz.ResourceSystemCatalog, authz.ResourceTool, authz.ResourceUser, authz.ResourceMCP,
 		// Email/Connection/Share/Recally are Authority-bound user capabilities, not
 		// policy-backed: a custom-policy write for them must fail closed.
 		authz.ResourceEmail, authz.ResourceConnection, authz.ResourceShare, authz.ResourceRecally,
