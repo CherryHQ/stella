@@ -72,15 +72,17 @@ const (
 )
 
 type JobRun struct {
-	ID         string     `json:"id"`
-	JobID      string     `json:"job_id"`
-	SessionID  string     `json:"session_id"`
-	UserID     string     `json:"user_id,omitempty"`
-	Status     string     `json:"status"`
-	StartedAt  time.Time  `json:"started_at"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
-	Error      string     `json:"error,omitempty"`
-	Output     string     `json:"output,omitempty"`
+	ID             string     `json:"id"`
+	JobID          string     `json:"job_id"`
+	SessionID      string     `json:"session_id"`
+	SessionAgentID string     `json:"session_agent_id,omitempty"`
+	UserID         string     `json:"user_id,omitempty"`
+	RootGoalID     string     `json:"root_goal_id,omitempty"`
+	Status         string     `json:"status"`
+	StartedAt      time.Time  `json:"started_at"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	Error          string     `json:"error,omitempty"`
+	Output         string     `json:"output,omitempty"`
 }
 
 // RunOutputSink is a context-carried slot the dispatch callback fills with the

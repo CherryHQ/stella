@@ -7,9 +7,29 @@ import (
 	"testing"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/agentaccess"
+	"github.com/CherryHQ/stella/internal/authz/policy"
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
+	storepkg "github.com/CherryHQ/stella/internal/store"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// newTestScheduler builds a PEP-enabled scheduler service for server tests: it
+// shares the test DB's agents/assignments through a fresh agent-access gate so
+// the folded-in agent-read decision runs the same way it does in production.
+func newTestScheduler(t *testing.T, db *pgxpool.Pool) *scheduler.Service {
+	t.Helper()
+	az := policy.New(db)
+	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), az)
+	svc, err := scheduler.New(db, scheduler.WithAuthorization(az, agents))
+	if err != nil {
+		t.Fatalf("scheduler.New: %v", err)
+	}
+	return svc
+}
 
 // setupSchedulerEnv creates a testEnv with a live scheduler service that has
 // one registered template ("test-template") and is started with the test DB.
@@ -18,10 +38,7 @@ func setupSchedulerEnv(t *testing.T) (*testEnv, *scheduler.Service, string) {
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
 
-	svc, err := scheduler.New(env.db)
-	if err != nil {
-		t.Fatalf("scheduler.New: %v", err)
-	}
+	svc := newTestScheduler(t, env.db)
 	if err := svc.RegisterTemplate(scheduler.JobTemplate{
 		Key:             "test-template",
 		Name:            "Test Template",
@@ -224,10 +241,7 @@ func setupSchedulerEnvWithBuiltin(t *testing.T, builtinName string) (*testEnv, *
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
 
-	svc, err := scheduler.New(env.db)
-	if err != nil {
-		t.Fatalf("scheduler.New: %v", err)
-	}
+	svc := newTestScheduler(t, env.db)
 	// Register template.
 	if err := svc.RegisterTemplate(scheduler.JobTemplate{
 		Key:             "test-template",

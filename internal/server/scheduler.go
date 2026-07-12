@@ -9,13 +9,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/scheduler"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func schedulerServiceError(w http.ResponseWriter, err error) {
@@ -86,18 +83,39 @@ func (s *Server) ListJobTemplates(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, apitypes.JobTemplateList{JobTemplates: out})
 }
 
-func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agentID string) {
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	info := UserFromContext(r.Context())
+// schedulerAccess begins one scheduler policy evaluation for an authenticated
+// caller. The Authority carries the verified session role; the former
+// requireAgentAccess agent-read gate now runs inside the PEP under this same
+// evaluation, so request path/body fields never contribute to authorization.
+func (s *Server) schedulerAccess(w http.ResponseWriter, r *http.Request) (*scheduler.Access, bool) {
 	if s.schedulerSvc == nil {
 		writeCapabilityUnavailable(w, capScheduler)
+		return nil, false
+	}
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	acc, err := s.schedulerSvc.Begin(r.Context(), authority)
+	if err != nil {
+		schedulerServiceError(w, err)
+		return nil, false
+	}
+	return acc, true
+}
+
+func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agentID string) {
+	acc, ok := s.schedulerAccess(w, r)
+	if !ok {
 		return
 	}
-
-	rows, err := s.schedulerSvc.As(toolIdentity(info)).ListJobs(r.Context(), agentID)
+	rows, err := acc.ListJobs(r.Context(), agentID)
 	if err != nil {
 		schedulerServiceError(w, err)
 		return
@@ -111,17 +129,8 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 }
 
 func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string) {
-	info := UserFromContext(r.Context())
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	if info == nil {
-		writeError(w, http.StatusForbidden, "access denied")
-		return
-	}
-	if s.schedulerSvc == nil {
-		writeCapabilityUnavailable(w, capScheduler)
+	acc, ok := s.schedulerAccess(w, r)
+	if !ok {
 		return
 	}
 
@@ -142,7 +151,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 			Every: derefStr(body.Every),
 			At:    derefStr(body.At),
 		}
-		job, err := s.schedulerSvc.As(toolIdentity(info)).Subscribe(r.Context(), agentID, *body.TemplateKey, sched)
+		job, err := acc.Subscribe(r.Context(), agentID, *body.TemplateKey, sched)
 		if err != nil {
 			switch {
 			case errors.Is(err, scheduler.ErrAlreadySubscribed):
@@ -202,9 +211,9 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 			writeError(w, http.StatusBadRequest, "workflow_id is required for workflow jobs")
 			return
 		}
-		job, err = s.schedulerSvc.As(toolIdentity(info)).CreateWorkflowJob(r.Context(), *body.Name, sched, sessionMode, agentID, *body.WorkflowId, derefStringMap(body.Inputs), body.AllowReplan != nil && *body.AllowReplan)
+		job, err = acc.CreateWorkflowJob(r.Context(), *body.Name, sched, sessionMode, agentID, *body.WorkflowId, derefStringMap(body.Inputs), body.AllowReplan != nil && *body.AllowReplan)
 	} else {
-		job, err = s.schedulerSvc.As(toolIdentity(info)).CreateJob(r.Context(), *body.Name, derefStr(body.Message), sched, sessionMode, agentID, derefStr(body.IdempotencyKey))
+		job, err = acc.CreateJob(r.Context(), *body.Name, derefStr(body.Message), sched, sessionMode, agentID, derefStr(body.IdempotencyKey))
 	}
 	if err != nil {
 		schedulerServiceError(w, err)
@@ -214,15 +223,11 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 }
 
 func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	acc, ok := s.schedulerAccess(w, r)
+	if !ok {
 		return
 	}
-	if s.schedulerSvc == nil {
-		writeCapabilityUnavailable(w, capScheduler)
-		return
-	}
-	job, err := s.schedulerSvc.As(toolIdentity(UserFromContext(r.Context()))).GetJob(r.Context(), agentID, jobID)
+	job, err := acc.GetJob(r.Context(), agentID, jobID)
 	if err != nil {
 		schedulerServiceError(w, err)
 		return
@@ -231,16 +236,11 @@ func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID
 }
 
 func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	acc, ok := s.schedulerAccess(w, r)
+	if !ok {
 		return
 	}
-	info := UserFromContext(r.Context())
-	if s.schedulerSvc == nil {
-		writeCapabilityUnavailable(w, capScheduler)
-		return
-	}
-	existing, err := s.schedulerSvc.As(toolIdentity(info)).GetJob(r.Context(), agentID, jobID)
+	existing, err := acc.GetJob(r.Context(), agentID, jobID)
 	if err != nil {
 		schedulerServiceError(w, err)
 		return
@@ -294,7 +294,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		update.Enabled = body.Enabled
 	}
 
-	job, err := s.schedulerSvc.As(toolIdentity(info)).UpdateJob(r.Context(), agentID, jobID, update)
+	job, err := acc.UpdateJob(r.Context(), agentID, jobID, update)
 	if err != nil {
 		schedulerServiceError(w, err)
 		return
@@ -303,17 +303,11 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 }
 
 func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	acc, ok := s.schedulerAccess(w, r)
+	if !ok {
 		return
 	}
-	info := UserFromContext(r.Context())
-	if s.schedulerSvc == nil {
-		writeCapabilityUnavailable(w, capScheduler)
-		return
-	}
-
-	if err := s.schedulerSvc.As(toolIdentity(info)).DeleteJob(r.Context(), agentID, jobID); err != nil {
+	if err := acc.DeleteJob(r.Context(), agentID, jobID); err != nil {
 		schedulerServiceError(w, err)
 		return
 	}
@@ -321,16 +315,11 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 }
 
 func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
-	if s.schedulerSvc == nil {
-		writeCapabilityUnavailable(w, capScheduler)
+	acc, ok := s.schedulerAccess(w, r)
+	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
-	runID, err := s.schedulerSvc.As(toolIdentity(UserFromContext(r.Context()))).RunJobNow(r.Context(), agentID, jobID)
+	runID, err := acc.RunJobNow(r.Context(), agentID, jobID)
 	if err != nil {
 		if errors.Is(err, authz.ErrNotFound) || errors.Is(err, authz.ErrForbidden) || errors.Is(err, authz.ErrUnauthenticated) {
 			schedulerServiceError(w, err)
@@ -345,53 +334,27 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 }
 
 func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, agentID string, jobID string, params apiserver.ListSchedulerJobRunsParams) {
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	acc, ok := s.schedulerAccess(w, r)
+	if !ok {
 		return
 	}
-	if s.schedulerSvc == nil {
-		writeCapabilityUnavailable(w, capScheduler)
-		return
-	}
-
-	if _, err := s.schedulerSvc.As(toolIdentity(UserFromContext(r.Context()))).GetJob(r.Context(), agentID, jobID); err != nil {
-		schedulerServiceError(w, err)
-		return
-	}
-
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
-		JobID:  jobID,
-		UserID: pgtype.Text{},
-		Limit:  int32(limit + 1),
-		Offset: int32(offset),
-	})
+	// The scheduler service owns the run read model (including the session's
+	// executing agent), so the transport never queries scheduler or conversation
+	// tables directly. It authorizes the job read under the same evaluation.
+	rows, err := acc.ListRuns(r.Context(), agentID, jobID, limit+1, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list job runs")
+		schedulerServiceError(w, err)
 		return
 	}
-
 	page, nextToken := nextPageTokenForRows(rows, limit, offset)
 	runs := make([]apitypes.JobRun, 0, len(page))
 	for _, row := range page {
-		j := dbRowToAPIJobRun(row)
-		if j.SessionId != "" {
-			agent, err := s.q.GetConversationAgentBySessionID(r.Context(), sqlc.GetConversationAgentBySessionIDParams{
-				SessionID: j.SessionId,
-				UserID:    row.UserID,
-			})
-			switch {
-			case err != nil:
-				j.SessionId = ""
-			case agent.Valid:
-				j.SessionAgentId = ptrStr(agent.String)
-			}
-		}
-		runs = append(runs, j)
+		runs = append(runs, schedulerRunToAPI(row))
 	}
 	out := apitypes.JobRunList{Runs: runs}
 	if nextToken != "" {
@@ -441,7 +404,7 @@ func (s *Server) schedulerJobToAPI(job scheduler.Job) apiserver.Job {
 	return j
 }
 
-func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
+func schedulerRunToAPI(row scheduler.JobRun) apitypes.JobRun {
 	j := apitypes.JobRun{
 		Id:        row.ID,
 		JobId:     row.JobID,
@@ -455,14 +418,18 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 	if row.Output != "" {
 		j.Output = &row.Output
 	}
-	if row.UserID.Valid {
-		j.UserId = ptrStr(row.UserID.String)
+	if row.UserID != "" {
+		j.UserId = ptrStr(row.UserID)
 	}
-	if row.RootGoalID.Valid {
-		j.RootGoalId = ptrStr(row.RootGoalID.String)
+	if row.RootGoalID != "" {
+		j.RootGoalId = ptrStr(row.RootGoalID)
 	}
-	if finished := parseTimePtr(row.FinishedAt); finished != nil {
-		j.FinishedAt = finished
+	if row.SessionAgentID != "" {
+		j.SessionAgentId = ptrStr(row.SessionAgentID)
+	}
+	if row.FinishedAt != nil {
+		finished := row.FinishedAt.UTC()
+		j.FinishedAt = &finished
 		if started := row.StartedAt.UTC(); !started.IsZero() {
 			dur := finished.Sub(started).Truncate(time.Second).String()
 			j.Duration = &dur

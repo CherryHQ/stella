@@ -14,20 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
-
-// Authorized is the identity-scoped view of the service; all authorization
-// checks live on its methods.
-type Authorized struct {
-	*Service
-	ident authz.Identity
-}
-
-func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
 // ErrOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
 // has already elapsed. Start suppresses this for persisted jobs; AddJob treats
@@ -106,8 +97,10 @@ type Service struct {
 	workflowRunner  WorkflowRunner
 	db              *pgxpool.Pool
 	q               *sqlc.Queries
-	ownsDB          bool            // true when Service opened the DB itself
-	ctx             context.Context // lifecycle context from Start
+	authz           authz.Authorizer     // policy decision point for the Access PEP
+	agents          *agentaccess.Service // agent read gate reused inside one evaluation
+	ownsDB          bool                 // true when Service opened the DB itself
+	ctx             context.Context      // lifecycle context from Start
 	mu              sync.Mutex
 	jobs            map[string]Job
 	refs            map[string]schedRef // job ID -> live River registration
@@ -149,6 +142,17 @@ type Option func(*Service)
 // self-contained client (the default / test path).
 func WithExternalRiver() Option {
 	return func(s *Service) { s.externalRiver = true }
+}
+
+// WithAuthorization injects the unified Authorizer and the agent-access gate used
+// by the Authority-based Access PEP. Without it, Begin fails closed and every
+// transport/tool use case is denied — the raw *Service methods (worker dispatch,
+// builtin/ensure jobs) remain callable for trusted internal wiring.
+func WithAuthorization(az authz.Authorizer, agents *agentaccess.Service) Option {
+	return func(s *Service) {
+		s.authz = az
+		s.agents = agents
+	}
 }
 
 // New creates a scheduler service backed by the given database.
@@ -722,138 +726,6 @@ func (s *Service) ListJobs() []Job {
 		result = append(result, j)
 	}
 	return result
-}
-
-func (s Authorized) CreateJob(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string) (Job, error) {
-	return s.createJob(ctx, name, message, sched, sessionMode, agentID, idempotencyKey, true)
-}
-
-func (s Authorized) CreateJobWithEnabled(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string, enabled bool) (Job, error) {
-	return s.createJob(ctx, name, message, sched, sessionMode, agentID, idempotencyKey, enabled)
-}
-
-func (s Authorized) createJob(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID string, idempotencyKey string, enabled bool) (Job, error) {
-	ident := s.ident
-	if err := ident.RequireUser(); err != nil {
-		return Job{}, err
-	}
-	if err := ident.RequireAgentMatch(agentID); err != nil {
-		return Job{}, err
-	}
-	if idempotencyKey != "" {
-		row, err := s.q.GetSchedulerJobByIdempotencyKey(ctx, sqlc.GetSchedulerJobByIdempotencyKeyParams{UserID: pgnull.Text(ident.UserID), IdempotencyKey: pgnull.Text(idempotencyKey)})
-		if err == nil {
-			job := dbRowToJob(row)
-			if !enabled {
-				return s.As(ident).SetJobEnabled(ctx, agentID, job.ID, false)
-			}
-			return job, nil
-		}
-	}
-	execScope := ExecScopeSystem
-	if ident.UserID != "" {
-		execScope = ExecScopeUser
-	}
-	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: ident.UserID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: enabled})
-}
-
-func (s Authorized) CreateWorkflowJob(ctx context.Context, name string, sched Schedule, sessionMode, agentID string, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
-	ident := s.ident
-	if err := ident.RequireUser(); err != nil {
-		return Job{}, err
-	}
-	if err := ident.RequireAgentMatch(agentID); err != nil {
-		return Job{}, err
-	}
-	return s.AddWorkflowJobWithOwner(ctx, name, sched, sessionMode, agentID, ident.UserID, workflowID, inputs, allowReplan)
-}
-
-func (s Authorized) Subscribe(ctx context.Context, agentID, key string, schedOverride Schedule) (Job, error) {
-	ident := s.ident
-	if err := ident.RequireUser(); err != nil {
-		return Job{}, err
-	}
-	if err := ident.RequireAgentMatch(agentID); err != nil {
-		return Job{}, err
-	}
-	return s.Service.Subscribe(ctx, ident.UserID, agentID, key, schedOverride)
-}
-
-func (s Authorized) ListJobs(ctx context.Context, agentID string) ([]Job, error) {
-	ident := s.ident
-	if err := ident.RequireUser(); err != nil {
-		return nil, err
-	}
-	resolvedAgentID, err := ident.ResolveAgentScope(agentID)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.q.ListSchedulerJobByOwner(ctx, sqlc.ListSchedulerJobByOwnerParams{
-		AgentID: pgnull.Text(resolvedAgentID),
-		UserID:  pgnull.Text(ident.UserID),
-	})
-	if err != nil {
-		return nil, err
-	}
-	jobs := make([]Job, 0, len(rows))
-	for _, row := range rows {
-		jobs = append(jobs, dbRowToJob(row))
-	}
-	return jobs, nil
-}
-
-func (s Authorized) GetJob(ctx context.Context, agentID, jobID string) (Job, error) {
-	ident := s.ident
-	if err := ident.RequireUser(); err != nil {
-		return Job{}, err
-	}
-	row, err := s.q.GetSchedulerJob(ctx, jobID)
-	if err != nil {
-		return Job{}, authz.ErrNotFound
-	}
-	job := dbRowToJob(row)
-	if job.OwnerKind == JobOwnerPlugin || job.OwnerKind == JobOwnerSystem {
-		return Job{}, authz.ErrNotFound
-	}
-	if job.AgentID != agentID {
-		return Job{}, authz.ErrNotFound
-	}
-	if job.UserID != ident.UserID {
-		return Job{}, authz.ErrForbidden
-	}
-	if ident.AgentScoped && job.AgentID != ident.AgentID {
-		return Job{}, authz.ErrForbidden
-	}
-	return job, nil
-}
-
-func (s Authorized) UpdateJob(ctx context.Context, agentID, jobID string, update JobUpdate) (Job, error) {
-	ident := s.ident
-	if _, err := s.As(ident).GetJob(ctx, agentID, jobID); err != nil {
-		return Job{}, err
-	}
-	return s.UpdateUserJob(ctx, jobID, update)
-}
-
-func (s Authorized) DeleteJob(ctx context.Context, agentID, jobID string) error {
-	ident := s.ident
-	if _, err := s.As(ident).GetJob(ctx, agentID, jobID); err != nil {
-		return err
-	}
-	return s.RemoveJob(jobID)
-}
-
-func (s Authorized) SetJobEnabled(ctx context.Context, agentID, jobID string, enabled bool) (Job, error) {
-	ident := s.ident
-	return s.As(ident).UpdateJob(ctx, agentID, jobID, JobUpdate{Enabled: &enabled})
-}
-
-func (s Authorized) RunJobNow(ctx context.Context, agentID, jobID string) (string, error) {
-	ident := s.ident
-	if _, err := s.As(ident).GetJob(ctx, agentID, jobID); err != nil {
-		return "", err
-	}
-	return s.Service.RunJobNow(ctx, jobID)
 }
 
 // executeSingleRun runs one job execution for the given userID (empty = system context).

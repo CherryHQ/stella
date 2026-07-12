@@ -18,6 +18,7 @@ func TestOnlySessionVerticalIsActivated(t *testing.T) {
 		authz.ResourceSession:   true,
 		authz.ResourceWorkspace: true,
 		authz.ResourceWorkflow:  true,
+		authz.ResourceScheduler: true,
 	}
 	for _, rt := range authz.AllResourceTypes() {
 		if got := resourceAcceptsCustomPolicy(rt); got != active[rt] {
