@@ -1,6 +1,6 @@
 apiVersion: v2
 name: stella
-description: Stella — a multi-tenant, multi-user, multi-agent AI assistant platform. Single-replica production chart.
+description: Stella — a single-tenant, multi-user, multi-agent AI assistant platform. Single-replica production chart.
 type: application
 # Chart version — bump on chart changes, independent of the app version.
 version: 0.1.0
