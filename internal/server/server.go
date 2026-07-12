@@ -66,7 +66,6 @@ type Server struct {
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
 	goalSvc        *goal.Service        // optional; if nil, goal endpoints return 503
-	goalQueries    *sqlc.Queries        // optional; read side for goal endpoints
 	workflowSvc    *workflowpkg.Service // optional; if nil, workflow endpoints return 503
 	builtinTools   []agent.BuiltinTool
 	startedAt      time.Time
@@ -290,9 +289,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		credentials:     deps.OIDC.Credentials,
 		startedAt:       time.Now(),
 		runtimeCtx:      ctx,
-	}
-	if deps.Goal != nil {
-		s.goalQueries = deps.Goal.Queries
 	}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases
 	// streaming handlers. The pool answers the /readyz liveness ping.

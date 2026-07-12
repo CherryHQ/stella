@@ -316,6 +316,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 		ExcludedTools: workerExcludedTools,
 		AgentAccess:   goalAgentAccess,
+		Authorizer:    authorizer,
 		Capabilities: goal.CapabilityProbeFunc(func() bool {
 			plugins, err := store.ListPlugins(context.Background())
 			if err != nil {

@@ -38,11 +38,17 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", err
 	}
+	// The runtime context identity is the trusted adapter: a delegated agent turn
+	// becomes a confined AgentActor. Model-supplied arguments never form identity.
+	authority, err := ident.ToAuthority()
+	if err != nil {
+		return "", authz.MapError("goal", err)
+	}
 	action, err := tools.ActionArg(args, "goal")
 	if err != nil {
 		return "", err
 	}
-	out, err := Dispatch(ctx, goalHandler{svc: t.svc, ident: ident}, action, args)
+	out, err := Dispatch(ctx, goalHandler{svc: t.svc, authority: authority, agentID: ident.AgentID}, action, args)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return "", fmt.Errorf("goal not found — check the id with action=list")
@@ -53,12 +59,17 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 }
 
 type goalHandler struct {
-	svc   *Service
-	ident authz.Identity
+	svc       *Service
+	authority authz.Authority
+	agentID   string
+}
+
+func (h goalHandler) begin(ctx context.Context) (*Access, error) {
+	return h.svc.Begin(ctx, h.authority)
 }
 
 func (h goalHandler) Create(ctx context.Context, in ToolCreateInput) (any, error) {
-	create := CreateInput{AgentID: h.ident.AgentID, Title: in.Title, Intent: in.Intent, Kind: KindComposite}
+	create := CreateInput{AgentID: h.agentID, Title: in.Title, Intent: in.Intent, Kind: KindComposite}
 	if in.ProjectId != "" {
 		create.ProjectID = in.ProjectId
 	}
@@ -79,7 +90,11 @@ func (h goalHandler) Create(ctx context.Context, in ToolCreateInput) (any, error
 		}
 	}
 	create.IdempotencyKey = in.IdempotencyKey
-	row, err := h.svc.As(h.ident).CreateGoal(ctx, create)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	row, err := acc.CreateGoal(ctx, create)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +102,11 @@ func (h goalHandler) Create(ctx context.Context, in ToolCreateInput) (any, error
 }
 
 func (h goalHandler) Get(ctx context.Context, in GetInput) (any, error) {
-	row, err := h.svc.As(h.ident).GetGoal(ctx, in.Id)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	row, err := acc.Get(ctx, in.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -103,14 +122,18 @@ func (h goalHandler) List(ctx context.Context, in ListInput) (any, error) {
 	if in.Archived != nil {
 		filter.Archived = *in.Archived
 	}
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var rows []sqlc.AgentGoal
 	switch {
 	case in.Parent != "":
-		rows, err = h.svc.As(h.ident).ListChildren(ctx, in.Parent)
+		rows, err = acc.ListChildren(ctx, in.Parent)
 	case in.Root != "":
-		rows, err = h.svc.As(h.ident).ListSubtree(ctx, in.Root)
+		rows, err = acc.ListSubtree(ctx, in.Root)
 	default:
-		rows, err = h.svc.As(h.ident).ListGoals(ctx, filter, int64(limit+1), int64(offset))
+		rows, err = acc.ListGoals(ctx, filter, int64(limit+1), int64(offset))
 	}
 	if err != nil {
 		return nil, err
@@ -124,10 +147,14 @@ func (h goalHandler) List(ctx context.Context, in ListInput) (any, error) {
 }
 
 func (h goalHandler) Cancel(ctx context.Context, in CancelInput) (any, error) {
-	if err := h.svc.As(h.ident).Cancel(ctx, in.Id, in.Reason); err != nil {
+	acc, err := h.begin(ctx)
+	if err != nil {
 		return nil, err
 	}
-	row, err := h.svc.As(h.ident).GetGoal(ctx, in.Id)
+	if err := acc.Cancel(ctx, in.Id, in.Reason); err != nil {
+		return nil, err
+	}
+	row, err := acc.Get(ctx, in.Id)
 	if err != nil {
 		return nil, err
 	}

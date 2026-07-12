@@ -164,7 +164,7 @@ func TestActivateRejectsInactiveResource(t *testing.T) {
 
 	seedRow(t, pool, "q1", statusQuarantined)
 	in := agentAllow()
-	in.Resource = authz.ResourceGoal // not active
+	in.Resource = authz.ResourceVault // not active
 	in.Predicates = nil
 	if _, err := svc.ActivatePolicy(ctx, "q1", in); !errors.Is(err, ErrResourceInactive) {
 		t.Fatalf("activate inactive resource = %v, want ErrResourceInactive", err)

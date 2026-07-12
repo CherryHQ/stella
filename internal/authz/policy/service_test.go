@@ -65,15 +65,15 @@ func TestActivationRejectsInactiveResourceWrite(t *testing.T) {
 	pool := dbtest.New(t)
 	svc := NewService(New(pool))
 
-	// Goal is not cut over: writing a custom policy for it must fail closed,
+	// Vault is not cut over: writing a custom policy for it must fail closed,
 	// with no transaction and no revision bump.
 	_, _, err := svc.CreatePolicy(ctx, PolicyInput{
-		Resource: authz.ResourceGoal,
+		Resource: authz.ResourceVault,
 		Action:   authz.ActionRead,
 		Effect:   EffectAllow,
 	})
 	if !errors.Is(err, ErrResourceInactive) {
-		t.Fatalf("goal write = %v, want ErrResourceInactive", err)
+		t.Fatalf("vault write = %v, want ErrResourceInactive", err)
 	}
 	if got := currentRevision(t, pool); got != 0 {
 		t.Fatalf("rejected write bumped revision to %d, want 0", got)

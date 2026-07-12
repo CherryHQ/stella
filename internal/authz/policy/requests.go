@@ -95,6 +95,26 @@ func WorkflowListRequest() (authz.Request, error) {
 	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
 }
 
+// GoalRequest builds an action against one durable Goal.
+func GoalRequest(action authz.Action, goalID, ownerID string, facts GoalFacts) (authz.Request, error) {
+	res, err := GoalResource(goalID, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// GoalListRequest builds the collection-level goal list request. Per-row
+// visibility is decided separately with a GoalRequest read in the same
+// evaluation.
+func GoalListRequest() (authz.Request, error) {
+	res, err := authz.NewResource(authz.ResourceGoal, "", "")
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
+}
+
 // SchedulerRequest builds an action against one durable Scheduler job.
 func SchedulerRequest(action authz.Action, jobID, ownerID string, facts SchedulerFacts) (authz.Request, error) {
 	res, err := SchedulerResource(jobID, ownerID, facts)

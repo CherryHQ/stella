@@ -58,9 +58,13 @@ func (s *Server) SaveGoalAsWorkflow(w http.ResponseWriter, r *http.Request, id s
 	if !ok {
 		return
 	}
-	// The source goal's ownership and agent binding are still resolved through the
-	// goal domain; the workflow PEP re-authorizes the resulting workflow + agent.
-	goalRow, ok := s.loadGoal(r.Context(), w, toolIdentity(info), id)
+	// The source goal's ownership and agent binding are resolved through the goal
+	// PEP; the workflow PEP then re-authorizes the resulting workflow + agent.
+	gacc, _, ok := s.goalAccess(w, r)
+	if !ok {
+		return
+	}
+	goalRow, ok := s.loadGoalRead(r.Context(), w, gacc, id)
 	if !ok {
 		return
 	}

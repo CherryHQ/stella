@@ -597,9 +597,8 @@ func TestNoServerPlatformPluginImports(t *testing.T) {
 
 var authIdentityConstructorAllowlist = map[string]bool{
 	"emailIdentity": true, // internal/server/email.go
-	"goalAuth":      true, // internal/server/goals.go
 	"shareIdentity": true, // internal/server/shares.go
-	"toolIdentity":  true, // internal/server/tool_identity.go
+	"toolIdentity":  true, // internal/server/tool_identity.go (share only, post-#710)
 }
 
 func resultHasAuthzIdentity(ft *ast.FuncType) bool {

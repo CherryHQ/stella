@@ -197,7 +197,7 @@ func TestDurableWorkerInventory(t *testing.T) {
 var builtinToolInventory = map[string]entryRow{
 	"memory.BuildTool":    {Actor: "AgentActor", Action: "write", Resource: "memory", Visibility: "private", Stack: "authz-core", Gate: "runtime authz.Identity (session-scoped writes)"},
 	"notifyTool":          {Actor: "AgentActor", Action: "execute", Resource: "notify", Visibility: "private", Stack: "authz-core", Gate: "runtime authz.Identity"},
-	"goal.NewTool":        {Actor: "AgentActor", Action: "execute", Resource: "goal", Visibility: "private", Stack: "authz-core", Gate: "runtime authz.Identity"},
+	"goal.NewTool":        {Actor: "AgentActor", Action: "execute", Resource: "goal", Visibility: "private", Stack: "authz-core", Gate: "goal.Service Authority PEP (#710)"},
 	"scheduler.NewTool":   {Actor: "AgentActor", Action: "execute", Resource: "scheduler", Visibility: "private", Stack: "authz-core", Gate: "scheduler.Service Authority PEP (#710)"},
 	"workflowpkg.NewTool": {Actor: "AgentActor", Action: "execute", Resource: "workflow", Visibility: "private", Stack: "authz-core", Gate: "workflow.Service Authority PEP (#710)"},
 	"connections.NewTool": {Actor: "AgentActor", Action: "execute", Resource: "connections", Visibility: "private", Stack: "authz-core", Gate: "oauthToolAvailable gate"},

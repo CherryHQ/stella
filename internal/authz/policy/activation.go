@@ -51,6 +51,9 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// #710: Scheduler jobs are enforced only through internal/scheduler.Service's
 	// Authority-based Access PEP; system/plugin jobs are hidden before any decide.
 	authz.ResourceScheduler: activeActive,
+	// #710: Goals are enforced only through internal/goal.Service's Authority-based
+	// Access PEP; the durable worker executor already reconstructs authority (#709).
+	authz.ResourceGoal: activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

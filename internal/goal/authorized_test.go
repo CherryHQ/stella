@@ -7,79 +7,143 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 )
 
-func TestAuthorizedMethodsRejectUnauthenticatedIdentity(t *testing.T) {
-	h := newHarness(t)
-	g := h.createRoot(KindComposite, AcceptanceContract{})
-	ctx := context.Background()
+// countingAuthorizer proves the PEP owns exactly one Begin per use case.
+type countingAuthorizer struct {
+	authz.Authorizer
+	begins int
+}
 
-	if _, err := h.bundle.As(authz.Identity{}).GetGoal(ctx, g.ID); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("GetGoal err=%v, want unauthenticated", err)
+func (a *countingAuthorizer) Begin(ctx context.Context, authority authz.Authority) (authz.Evaluation, error) {
+	a.begins++
+	return a.Authorizer.Begin(ctx, authority)
+}
+
+func (h *harness) userAuth(t *testing.T, id string) authz.Authority {
+	t.Helper()
+	rs, err := authz.NewRoleSet(authz.RoleUser)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := h.bundle.As(authz.Identity{}).ListGoals(ctx, GoalFilter{}, 10, 0); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("ListGoals err=%v, want unauthenticated", err)
+	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := h.bundle.As(authz.Identity{}).CreateGoal(ctx, CreateInput{AgentID: h.agentID, Title: "x", Kind: KindComposite}); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("CreateGoal err=%v, want unauthenticated", err)
+	return a
+}
+
+func (h *harness) agentAuth(t *testing.T, userID, agentID string) authz.Authority {
+	t.Helper()
+	a, err := agentaccess.WorkerAgentAuthority(userID, agentID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := h.bundle.As(authz.Identity{}).Cancel(ctx, g.ID, ""); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("Cancel err=%v, want unauthenticated", err)
+	return a
+}
+
+func (h *harness) begin(t *testing.T, authority authz.Authority) *Access {
+	t.Helper()
+	acc, err := h.bundle.Begin(context.Background(), authority)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	return acc
+}
+
+func TestGoalBeginRejectsInvalidAuthority(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.bundle.Begin(context.Background(), authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("Begin(zero) err=%v, want forbidden", err)
 	}
 }
 
-func TestCreateGoalIdempotencyReturnsExistingGoal(t *testing.T) {
+func TestGoalCreateIdempotencyReturnsExistingGoal(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	ident := authz.Identity{UserID: h.userID, AgentID: h.agentID, AgentScoped: true}
-	first, err := h.bundle.As(ident).CreateGoal(ctx, CreateInput{AgentID: h.agentID, Title: "first", Kind: KindComposite, IdempotencyKey: "goal-key"})
+	auth := h.agentAuth(t, h.userID, h.agentID)
+	first, err := h.begin(t, auth).CreateGoal(ctx, CreateInput{AgentID: h.agentID, Title: "first", Kind: KindComposite, IdempotencyKey: "goal-key"})
 	if err != nil {
 		t.Fatalf("first CreateGoal: %v", err)
 	}
-	second, err := h.bundle.As(ident).CreateGoal(ctx, CreateInput{AgentID: h.agentID, Title: "second", Kind: KindComposite, IdempotencyKey: "goal-key"})
+	second, err := h.begin(t, auth).CreateGoal(ctx, CreateInput{AgentID: h.agentID, Title: "second", Kind: KindComposite, IdempotencyKey: "goal-key"})
 	if err != nil {
 		t.Fatalf("second CreateGoal: %v", err)
 	}
-	if second.ID != first.ID || second.Title != first.Title {
-		t.Fatalf("second=%+v first=%+v, want existing goal", second, first)
+	if second.ID != first.ID {
+		t.Fatalf("second=%s first=%s, want existing goal", second.ID, first.ID)
 	}
 }
 
-func TestAuthorizedMethodsEnforceGoalUserAndAgentBoundaries(t *testing.T) {
+func TestGoalEnforcesOwnerAndExecutorBoundaries(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
+	az := &countingAuthorizer{Authorizer: policy.New(h.db)}
+	h.bundle.authz = az
+
 	g := h.createRoot(KindComposite, AcceptanceContract{})
 
-	foreign := authz.Identity{UserID: uuid.NewString()}
-	if _, err := h.bundle.As(foreign).GetGoal(ctx, g.ID); !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("foreign GetGoal err=%v, want not found", err)
+	// A foreign user cannot read or cancel the goal (opaque not-found).
+	foreign := h.userAuth(t, uuid.NewString())
+	before := az.begins
+	if _, err := h.begin(t, foreign).Get(ctx, g.ID); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("foreign Get err=%v, want not found", err)
 	}
-	if err := h.bundle.As(foreign).Cancel(ctx, g.ID, ""); !errors.Is(err, authz.ErrNotFound) {
+	if az.begins != before+1 {
+		t.Fatalf("Begin count = %d, want 1 per use case", az.begins-before)
+	}
+	if err := h.begin(t, foreign).Cancel(ctx, g.ID, ""); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("foreign Cancel err=%v, want not found", err)
 	}
 
+	// A second (system) agent and a goal owned by the same user but bound to it.
 	otherAgentID := uuid.NewString()
-	if _, err := h.db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, 'other-agent', '/tmp')`, otherAgentID); err != nil {
+	if _, err := h.db.Exec(ctx, `INSERT INTO agent (id, name, workspace, scope) VALUES ($1, 'other-agent', '/tmp', 'system')`, otherAgentID); err != nil {
 		t.Fatalf("seed other agent: %v", err)
 	}
-	otherAgentGoal, err := h.bundle.As(authz.Identity{UserID: h.userID}).CreateGoal(ctx, CreateInput{
-		AgentID: otherAgentID,
-		Title:   "other agent",
-		Kind:    KindComposite,
-	})
+	otherGoal, err := h.begin(t, h.userAuth(t, h.userID)).CreateGoal(ctx, CreateInput{AgentID: otherAgentID, Title: "other agent", Kind: KindComposite})
 	if err != nil {
 		t.Fatalf("CreateGoal other agent: %v", err)
 	}
 
-	scoped := authz.Identity{UserID: h.userID, AgentID: h.agentID, AgentScoped: true}
-	if _, err := h.bundle.As(scoped).GetGoal(ctx, otherAgentGoal.ID); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("scoped GetGoal err=%v, want forbidden", err)
+	// A delegated agent confined to h.agentID cannot read/create/list on another.
+	scoped := h.agentAuth(t, h.userID, h.agentID)
+	if _, err := h.begin(t, scoped).Get(ctx, otherGoal.ID); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("scoped Get other-agent goal err=%v, want not found", err)
 	}
-	if _, err := h.bundle.As(scoped).ListGoals(ctx, GoalFilter{AgentID: otherAgentID}, 10, 0); !errors.Is(err, authz.ErrForbidden) {
+	if _, err := h.begin(t, scoped).ListGoals(ctx, GoalFilter{AgentID: otherAgentID}, 10, 0); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("scoped ListGoals other agent err=%v, want forbidden", err)
 	}
-	if _, err := h.bundle.As(scoped).CreateGoal(ctx, CreateInput{AgentID: otherAgentID, Title: "bad", Kind: KindComposite}); !errors.Is(err, authz.ErrForbidden) {
+	if _, err := h.begin(t, scoped).CreateGoal(ctx, CreateInput{AgentID: otherAgentID, Title: "bad", Kind: KindComposite}); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("scoped CreateGoal other agent err=%v, want forbidden", err)
+	}
+
+	// The owner reads their own goal; a delegated executor of h.agentID reads it.
+	if _, err := h.begin(t, h.userAuth(t, h.userID)).Get(ctx, g.ID); err != nil {
+		t.Fatalf("owner Get: %v", err)
+	}
+	if _, err := h.begin(t, scoped).Get(ctx, g.ID); err != nil {
+		t.Fatalf("delegated executor Get: %v", err)
+	}
+}
+
+// A custom deny overrides the owner built-in against the durable facts.
+func TestGoalCustomDenyHidesOwnGoal(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	g := h.createRoot(KindComposite, AcceptanceContract{})
+	ps := policy.NewService(policy.New(h.db))
+	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
+		Name: "deny own goal read", Resource: authz.ResourceGoal, Action: authz.ActionRead,
+		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
+		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.begin(t, h.userAuth(t, h.userID)).Get(ctx, g.ID); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("custom deny Get err=%v, want not found", err)
 	}
 }
