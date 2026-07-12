@@ -74,11 +74,12 @@ func (s UsageCuratorSettings) withDefaults() UsageCuratorSettings {
 }
 
 type usageCuratorRunConfig struct {
-	Store       UsageCuratorStore
-	FactWriter  factBatchWriter
-	SkillWriter usageCuratorSkillWriter
-	Pair        usageCuratorPair
-	Settings    usageCuratorSettings
+	Store           UsageCuratorStore
+	FactWriter      factBatchWriter
+	SkillWriter     usageCuratorSkillWriter
+	SkillAuthorizer skillWriteAuthorizer
+	Pair            usageCuratorPair
+	Settings        usageCuratorSettings
 }
 
 type UsageCuratorStore interface {
@@ -198,7 +199,7 @@ func runUsageCurator(ctx context.Context, cfg usageCuratorRunConfig) (usageCurat
 	if skillErr != nil {
 		writeErrs = append(writeErrs, skillErr)
 	} else {
-		n, err := deprecateCuratorSkills(ctx, cfg.SkillWriter, skillsToDeprecate)
+		n, err := deprecateCuratorSkills(ctx, cfg.SkillWriter, cfg.SkillAuthorizer, skillsToDeprecate)
 		report.SkillDeprecated = n
 		if err != nil {
 			writeErrs = append(writeErrs, err)
@@ -321,12 +322,15 @@ func groupKnowledgeCuratorCandidates(candidates []usageCuratorKnowledgeCandidate
 	return groups
 }
 
-func deprecateCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter, candidates []usageCuratorSkillCandidate) (int, error) {
+func deprecateCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter, authorizer skillWriteAuthorizer, candidates []usageCuratorSkillCandidate) (int, error) {
 	if len(candidates) == 0 {
 		return 0, nil
 	}
 	if writer == nil {
 		return 0, fmt.Errorf("usage curator: skill writer is required")
+	}
+	if authorizer == nil {
+		return 0, fmt.Errorf("usage curator: skill authorizer is required")
 	}
 	var deprecated int
 	var errs []error
@@ -338,6 +342,10 @@ func deprecateCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter,
 		metadata, err := usageCuratorSkillMetadata(candidate)
 		if err != nil {
 			errs = append(errs, err)
+			continue
+		}
+		if err := authorizer.AuthorizeWorkerWrite(ctx, candidate.UserID, candidate.AgentID, candidate.SkillID, false); err != nil {
+			errs = append(errs, fmt.Errorf("usage curator: authorize deprecate skill %s: %w", candidate.SkillID, err))
 			continue
 		}
 		expectedLastUsedAt := candidate.LastUsedAt

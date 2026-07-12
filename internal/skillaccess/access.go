@@ -125,6 +125,45 @@ func (a *Access) AuthorizeManage(ctx context.Context, sk skills.Skill, action au
 	return nil
 }
 
+// AuthorizeRead authorizes reading one DB-backed skill row through the resolve/
+// list surface (agent skills tool, agent HTTP list/get/file). Unlike
+// AuthorizeManage it uses ActionRead without escalating system scopes to Manage,
+// so a user or delegated agent may read shared system/system_agent procedures
+// (builtin user-read-system-skills / agent-read-system-skills) while a custom
+// deny or a since-revoked agent grant still hides the row. For agent-bound scopes
+// the caller's read access to the skill's agent is folded into this evaluation.
+// A user-scope denial is opaque (ErrNotFound); a system-scope denial is
+// ErrForbidden — the caller decides whether to skip (list) or 404 (single load).
+func (a *Access) AuthorizeRead(ctx context.Context, sk skills.Skill) error {
+	// No a.userID != "" guard here: Begin already validated the authority, and a
+	// GroupAgentActor (a group turn) legitimately has no user. Its read visibility
+	// is decided by policy (system/system_agent only) plus the folded agent gate.
+	// A delegated agent never reads another agent's bound skills.
+	if a.scopeAgentID != "" && sk.AgentID != "" && a.scopeAgentID != sk.AgentID {
+		return ErrNotFound
+	}
+	facts := policy.SkillFacts{
+		Scope:   sk.Scope,
+		Owner:   sk.UserID,
+		Agent:   sk.AgentID,
+		Source:  skillSource(sk.Metadata),
+		IsOwner: a.userID != "" && a.userID == sk.UserID,
+	}
+	req, err := policy.SkillRequest(authz.ActionRead, sk.ID, sk.UserID, facts)
+	if err != nil {
+		return ErrForbidden
+	}
+	if err := a.decide(sk.Scope, req); err != nil {
+		return err
+	}
+	if agentBound(sk.Scope) && sk.AgentID != "" {
+		if err := a.authorizeAgent(ctx, sk.AgentID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // AuthorizeManageByID loads a skill row by id and authorizes an action on it. A
 // missing row is opaque (ErrNotFound). It returns the loaded row so the caller
 // can perform the store mutation it just authorized.
@@ -137,6 +176,32 @@ func (a *Access) AuthorizeManageByID(ctx context.Context, id string, action auth
 		return skills.Skill{}, err
 	}
 	return sk, nil
+}
+
+// AuthorizeWorkerWrite authorizes a durable worker's write to a reflect-owned
+// user_agent skill under a freshly reconstructed WorkerAgentAuthority(userID,
+// agentID) — one evaluation per operation. create=true authorizes minting a new
+// row (scope create); otherwise it authorizes writing the existing skillID. It is
+// the single PEP for reflect's staged skill reconciliation and usage curation, so
+// a since-revoked agent grant or a custom deny stops the write.
+func (s *Service) AuthorizeWorkerWrite(ctx context.Context, userID, agentID, skillID string, create bool) error {
+	authority, err := agentaccess.WorkerAgentAuthority(userID, agentID)
+	if err != nil {
+		return ErrForbidden
+	}
+	acc, err := s.Begin(ctx, authority)
+	if err != nil {
+		return err
+	}
+	if create {
+		_, _, err := acc.AuthorizeManageScope(ctx, ScopeUserAgent, agentID)
+		return err
+	}
+	// Load the real row and authorize against its durable owner/agent facts; the
+	// caller-supplied userID/agentID only reconstruct the acting authority, never
+	// the resource's ownership, so a worker cannot claim a foreign owner.
+	_, err = acc.AuthorizeManageByID(ctx, skillID, authz.ActionWrite)
+	return err
 }
 
 // AuthorizeList authorizes the collection-level skill list. Per-scope and per-row

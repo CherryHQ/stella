@@ -95,6 +95,12 @@ func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
 	return func(pm *PoolManager) { pm.skillStore = s }
 }
 
+// WithSkillReadAuthorizer injects the ResourceSkill read PEP into every runner's
+// skills tool, so DB-backed skill reads (load/search_installed) are authorized.
+func WithSkillReadAuthorizer(a skillstool.SkillReadAuthorizer) PoolManagerOption {
+	return func(pm *PoolManager) { pm.skillReadAuthz = a }
+}
+
 func WithVaultEnvLoader(v sandbox.VaultEnvLoader) PoolManagerOption {
 	return func(pm *PoolManager) { pm.vaultEnvLoader = v }
 }
@@ -152,6 +158,7 @@ type PoolManager struct {
 	toolLifecycle            *coreagent.ToolLifecycle
 	providerStreamBuilder    ProviderStreamBuilder
 	skillStore               pkgplugins.SkillStore
+	skillReadAuthz           skillstool.SkillReadAuthorizer
 	mcpToolProvider          MCPToolProvider
 	toolOverrideFetcher      ToolOverrideFetcher
 	vaultEnvLoader           sandbox.VaultEnvLoader
@@ -671,6 +678,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		SkillStore:               pm.skillStore,
+		SkillReadAuthorizer:      pm.skillReadAuthz,
 		MCPToolProvider:          pm.mcpToolProvider,
 		ToolOverrideFetcher:      pm.toolOverrideFetcher,
 		ToolLifecycle:            pm.toolLifecycle,

@@ -55,8 +55,10 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// Access PEP; the durable worker executor already reconstructs authority (#709).
 	authz.ResourceGoal: activeActive,
 	// #710: Skills are enforced only through internal/skillaccess.Service's
-	// Authority-based Access PEP; the HTTP transports and the agent skills tool
-	// pass a trusted Authority and never a scoped query.
+	// Authority-based Access PEP. HTTP transports, the agent skills tool (via the
+	// skills read port), and the reflect reviewer/curator all decide every
+	// DB-backed skill read and write against it; only filesystem project/built-in
+	// skills are exempt (they are not DB rows).
 	authz.ResourceSkill: activeActive,
 }
 

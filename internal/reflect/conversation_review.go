@@ -56,15 +56,19 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 		return s.wm.set(ctx, target.session.ID, watermark)
 	}
 
-	reviewer, err := s.newConversationReviewer(ctx, snap, userID, model, stream)
+	// Build the trusted review identity up front so the reviewer's existing-skill
+	// summaries and its tool reads/writes all decide against the same ResourceSkill
+	// evaluation (AgentActor for this user+agent), never a context.Background bypass.
+	reviewCtx := authz.WithUserID(ctx, userID)
+	reviewCtx = authz.WithAgentID(reviewCtx, snap.AgentID)
+	reviewCtx = memory.WithChangeSource(reviewCtx, memory.SourceReflect)
+
+	reviewer, err := s.newConversationReviewer(reviewCtx, snap, userID, model, stream)
 	if err != nil {
 		recordError(span, err)
 		return fmt.Errorf("create reviewer: %w", err)
 	}
 
-	reviewCtx := authz.WithUserID(ctx, userID)
-	reviewCtx = authz.WithAgentID(reviewCtx, snap.AgentID)
-	reviewCtx = memory.WithChangeSource(reviewCtx, memory.SourceReflect)
 	result, err := reviewer.review(reviewCtx, text)
 	if err != nil {
 		recordError(span, err)
@@ -157,27 +161,54 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 	return newReviewer(reviewerConfig{
 		Stream: stream,
 		Model:  model,
-		// No skill-disk layout: reflect runs host-identity and only reads skill
-		// content (from the DB) and writes back through the store, which mirrors to
-		// disk itself. The tool needs no skill-path knowledge here.
-		SkillsTool:     skillstool.NewTool(s.skillStore, "", ""),
+		// No skill-disk layout: reflect runs host-identity and reads/writes skill
+		// content through the DB store, which mirrors to disk itself. The reviewer
+		// prompt drives create/patch/deprecate, so those stay enabled — but every
+		// DB read and every write is authorized against ResourceSkill under the
+		// review target's identity (WithUserID+WithAgentID on reviewCtx →
+		// AgentActor). remove/install/search/list are not exposed. The separate
+		// staged reconciliation-plan writer is authorized independently.
+		SkillsTool: skillstool.NewTool(s.skillStore, "", "").
+			WithReadAuthorizer(s.skillReadAuthz).
+			WithWriteAuthorizer(s.skillToolWriteAuthz).
+			WithActionsOnly("search_installed", "load", "create", "patch", "deprecate"),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
-		ExistingSkills: loadExistingSkillSummaries(context.Background(), s.skillStore, userID),
+		ExistingSkills: s.loadExistingSkillSummaries(ctx, userID),
 		CurrentProfile: profile,
 	})
 }
 
-func loadExistingSkillSummaries(ctx context.Context, store pkgplugins.SkillStore, userID string) []string {
-	if store == nil {
+// loadExistingSkillSummaries lists the reviewer's visible skills for the prompt.
+// It runs under the review identity (ctx carries WithUserID+WithAgentID) and
+// filters every DB row through the same ResourceSkill read evaluation the tool
+// uses, so a custom deny or a revoked grant hides a skill from the prompt exactly
+// as it hides it from load/search. A read-authz failure fails hidden (the summary
+// is dropped) rather than leaking an unauthorized skill.
+func (s *Service) loadExistingSkillSummaries(ctx context.Context, userID string) []string {
+	if s.skillStore == nil {
 		return nil
 	}
-	vc := pkgplugins.SkillViewContext{UserID: userID}
-	all, err := store.List(ctx, vc)
+	all, err := s.skillStore.List(ctx, pkgplugins.SkillViewContext{UserID: userID})
 	if err != nil {
 		return nil
 	}
+	var dec skillstool.SkillReadDecision
+	if s.skillReadAuthz != nil {
+		if d, err := s.skillReadAuthz.BeginRead(ctx); err == nil {
+			dec = d
+		}
+	}
 	entries := make([]string, 0, len(all))
 	for _, sk := range all {
+		// store.List returns DB rows; each must pass the read decision. Without a
+		// decider (unavailable/no identity) drop it — never leak an unauthorized row.
+		if dec == nil {
+			continue
+		}
+		allowed, err := dec.AllowRead(ctx, sk.ID, sk.Scope, sk.UserID, sk.AgentID, sk.Metadata)
+		if err != nil || !allowed {
+			continue
+		}
 		if sk.Description != "" {
 			entries = append(entries, sk.Name+" — "+sk.Description)
 		} else {

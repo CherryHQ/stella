@@ -10,6 +10,7 @@ type contextKey string
 const (
 	userIDKey  contextKey = "memory_user_id"
 	agentIDKey contextKey = "memory_agent_id"
+	groupIDKey contextKey = "memory_group_id"
 )
 
 var (
@@ -37,6 +38,19 @@ func WithAgentID(ctx context.Context, agentID string) context.Context {
 // AgentIDFromContext extracts the agent ID from context.
 func AgentIDFromContext(ctx context.Context) string {
 	s, _ := ctx.Value(agentIDKey).(string)
+	return s
+}
+
+// WithGroupID attaches a group ID to the context. Group turns carry the group
+// (not a user) so a trusted adapter can reconstruct a confined GroupAgentActor
+// without ever minting a user identity for the group (D9 isolation).
+func WithGroupID(ctx context.Context, groupID string) context.Context {
+	return context.WithValue(ctx, groupIDKey, groupID)
+}
+
+// GroupIDFromContext extracts the group ID from context.
+func GroupIDFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(groupIDKey).(string)
 	return s
 }
 
