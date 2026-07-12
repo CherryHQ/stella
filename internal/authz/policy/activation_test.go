@@ -16,14 +16,15 @@ import (
 // writes until its owning PEP lands.
 func TestOnlySessionVerticalIsActivated(t *testing.T) {
 	active := map[authz.ResourceType]bool{
-		authz.ResourceAgent:     true,
-		authz.ResourceSession:   true,
-		authz.ResourceWorkspace: true,
-		authz.ResourceWorkflow:  true,
-		authz.ResourceScheduler: true,
-		authz.ResourceGoal:      true,
-		authz.ResourceSkill:     true,
-		authz.ResourceEmail:     true,
+		authz.ResourceAgent:      true,
+		authz.ResourceSession:    true,
+		authz.ResourceWorkspace:  true,
+		authz.ResourceWorkflow:   true,
+		authz.ResourceScheduler:  true,
+		authz.ResourceGoal:       true,
+		authz.ResourceSkill:      true,
+		authz.ResourceEmail:      true,
+		authz.ResourceConnection: true,
 	}
 	for _, rt := range authz.AllResourceTypes() {
 		if got := resourceAcceptsCustomPolicy(rt); got != active[rt] {

@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -20,7 +22,20 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 func newService(t *testing.T) *connections.Service {
 	t.Helper()
 	flowStore := oauth.NewFlowStore()
-	return connections.NewService(nil, nil, flowStore, "http://localhost:8080")
+	return connections.NewService(nil, nil, flowStore, "http://localhost:8080", nil)
+}
+
+func userAuthority(t *testing.T, id string) authz.Authority {
+	t.Helper()
+	rs, err := authz.NewRoleSet(authz.RoleUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
 }
 
 func testProviderConfig(id, vaultKey string) oauth.ProviderConfig {
@@ -151,29 +166,90 @@ func TestDisconnectUnsupportedProvider(t *testing.T) {
 	}
 }
 
-func TestOAuthAuthorizedMethodsEnforceUserIdentity(t *testing.T) {
+// countingAuthorizer proves the PEP opens exactly one Begin per use case.
+type countingAuthorizer struct {
+	authz.Authorizer
+	begins int
+}
+
+func (a *countingAuthorizer) Begin(ctx context.Context, authority authz.Authority) (authz.Evaluation, error) {
+	a.begins++
+	return a.Authorizer.Begin(ctx, authority)
+}
+
+func TestOAuthAccessEnforcesUserIdentity(t *testing.T) {
+	db := dbtest.New(t)
 	ctx := context.Background()
 	flowStore := oauth.NewFlowStore()
 	flowStore.Create(oauth.FlowStatus{Provider: oauth.ProviderGitHub, FlowID: "owner-flow", UserID: "owner", FlowType: "device_code"})
-	svc := connections.NewService(nil, nil, flowStore, "http://localhost:8080")
+	svc := connections.NewService(nil, nil, flowStore, "http://localhost:8080", policy.New(db))
 
-	if _, err := svc.As(authz.Identity{}).Statuses(ctx); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("Statuses unauth err=%v, want ErrUnauthenticated", err)
+	// A zero (invalid) Authority is refused before any evaluation.
+	if _, err := svc.Begin(ctx, authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("Begin(zero) err=%v, want forbidden", err)
 	}
-	if _, err := svc.As(authz.Identity{}).StartFlow(ctx, "github"); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("StartFlow unauth err=%v, want ErrUnauthenticated", err)
+	// A foreign user cannot poll the owner's flow (is_owner=false → denied).
+	accForeign, err := svc.Begin(ctx, userAuthority(t, "foreign"))
+	if err != nil {
+		t.Fatalf("Begin foreign: %v", err)
 	}
-	if _, _, err := svc.As(authz.Identity{}).PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("PollFlow unauth err=%v, want ErrUnauthenticated", err)
+	if _, _, err := accForeign.PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("foreign PollFlow err=%v, want forbidden", err)
 	}
-	if err := svc.As(authz.Identity{}).Disconnect(ctx, "github"); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("Disconnect unauth err=%v, want ErrUnauthenticated", err)
+	// The owner polling a missing flow is opaque not-found.
+	accOwner, err := svc.Begin(ctx, userAuthority(t, "owner"))
+	if err != nil {
+		t.Fatalf("Begin owner: %v", err)
 	}
-	if _, _, err := svc.As(authz.Identity{UserID: "foreign"}).PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("PollFlow foreign err=%v, want ErrForbidden", err)
+	if _, _, err := accOwner.PollFlow(ctx, "github", "missing-flow"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("owner PollFlow missing err=%v, want not found", err)
 	}
-	if _, _, err := svc.As(authz.Identity{UserID: "owner"}).PollFlow(ctx, "github", "missing-flow"); !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("PollFlow missing err=%v, want ErrNotFound", err)
+}
+
+// A delegated agent has the same connection access as its delegating user; the
+// PEP opens exactly one Begin per use case.
+func TestOAuthAgentActsAsUser(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	az := &countingAuthorizer{Authorizer: policy.New(db)}
+	svc := connections.NewService(nil, nil, oauth.NewFlowStore(), "http://localhost:8080", az)
+
+	authority, err := agentaccess.WorkerAgentAuthority("user-1", "agent-x")
+	if err != nil {
+		t.Fatalf("WorkerAgentAuthority: %v", err)
+	}
+	acc, err := svc.Begin(ctx, authority)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	before := az.begins
+	// No registry configured → empty status list, but the list decision is allowed.
+	if _, err := acc.Statuses(ctx); err != nil {
+		t.Fatalf("agent Statuses: %v", err)
+	}
+	if az.begins != before {
+		t.Fatalf("Statuses opened %d extra Begins, want 0 within one Access", az.begins-before)
+	}
+}
+
+// A custom deny on the connection list overrides the owner built-in.
+func TestOAuthCustomDenyHidesStatuses(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	ps := policy.NewService(policy.New(db))
+	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
+		Name: "deny connection list", Resource: authz.ResourceConnection, Action: authz.ActionList,
+		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := connections.NewService(nil, nil, oauth.NewFlowStore(), "http://localhost:8080", policy.New(db))
+	acc, err := svc.Begin(ctx, userAuthority(t, "u1"))
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if _, err := acc.Statuses(ctx); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("custom deny Statuses err=%v, want forbidden", err)
 	}
 }
 
@@ -220,7 +296,7 @@ func TestSetOAuthProviderConfigNilDB(t *testing.T) {
 func TestSetAndGetOAuthProviderConfig(t *testing.T) {
 	db := dbtest.New(t)
 
-	svc := connections.NewService(nil, pkgdb.New(db), oauth.NewFlowStore(), "http://localhost:8080")
+	svc := connections.NewService(nil, pkgdb.New(db), oauth.NewFlowStore(), "http://localhost:8080", policy.New(db))
 	ctx := context.Background()
 
 	if err := svc.SetOAuthProviderConfig(ctx, connections.OAuthProviderConfig{ProviderID: "github", ClientID: "my-client"}); err != nil {

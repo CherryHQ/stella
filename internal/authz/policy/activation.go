@@ -65,6 +65,11 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// user-capability resources (Vault/Connection/Share/Recally) are activated as
 	// each domain's PEP lands.
 	authz.ResourceEmail: activeActive,
+	// #711: Connections (user-facing OAuth) are enforced only through
+	// internal/connections.Service's Authority-based Access PEP. Admin
+	// provider-config CRUD and the OAuth callback / token-refresh paths are
+	// separate trusted surfaces that do not open a user Access.
+	authz.ResourceConnection: activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

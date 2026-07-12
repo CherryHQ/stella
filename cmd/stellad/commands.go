@@ -378,7 +378,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// owns its own sqlc query set (the *ForPool constructors), so the composition
 	// root passes only the pool. These same instances back both the agent tools
 	// (below) and the HTTP endpoints (via server.Deps).
-	credSvc := connections.NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), baseURL)
+	credSvc := connections.NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), baseURL, authorizer)
 	emailSvc := email.NewServiceForPool(vaultSvc, db, authorizer)
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)

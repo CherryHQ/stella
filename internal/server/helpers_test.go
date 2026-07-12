@@ -79,7 +79,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 		PoolManager:         agent.NewPoolManager(store, mem),
 		PluginHost:          phost,
 		BaseURL:             baseURL,
-		Credentials:         connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL),
+		Credentials:         connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL, authorizer),
 		Email:               email.NewService(nil, sqlc.New(db), authorizer),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Recally:             recally.NewService(recallyStore, t.TempDir()),
