@@ -30,7 +30,7 @@ func userAuthority(t *testing.T, userID string, admin bool) authz.Authority {
 // mustAgentRead builds an agent read request or fails the test.
 func mustAgentRead(t *testing.T, agentID, ownerID, scope string, assigned bool) authz.Request {
 	t.Helper()
-	req, err := AgentReadRequest(agentID, ownerID, scope, assigned)
+	req, err := AgentReadRequest(agentID, ownerID, AgentFacts{Scope: scope, Assigned: assigned, Creator: ownerID, Status: "enabled"})
 	if err != nil {
 		t.Fatalf("agent read request: %v", err)
 	}

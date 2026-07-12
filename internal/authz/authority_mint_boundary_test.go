@@ -59,9 +59,10 @@ var authorityConstructors = map[string]bool{
 // identity/credential adapter; a transport or request-payload package must never
 // appear here.
 var authorityMintAllowset = map[string]string{
-	"internal/authz":      "defines the constructors and the runtime Identity→Authority adapter (adapt.go)",
-	"internal/auth":       "auth.Subject session → Authority adapter (authority.go)",
-	"internal/credential": "credential.Principal → Authority adapter (authority.go)",
+	"internal/authz":       "defines the constructors and the runtime Identity→Authority adapter (adapt.go)",
+	"internal/auth":        "auth.Subject session → Authority adapter (authority.go)",
+	"internal/credential":  "credential.Principal → Authority adapter (authority.go)",
+	"internal/agentaccess": "trusted worker/group authority adapter; PEP-owned capability reconstruction",
 }
 
 // mintsAuthority reports whether a file calls an Authority constructor through

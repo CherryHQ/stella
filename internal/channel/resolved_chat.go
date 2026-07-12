@@ -7,7 +7,9 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 )
@@ -18,13 +20,15 @@ type GroupResolver interface {
 }
 
 type ResolvedChat struct {
-	Service    *agent.Service
-	User       auth.User
-	AgentID    string
-	SessionKey string
-	Channel    session.Channel
-	ChatCtx    ChatContext
-	GroupID    string // non-empty for group sessions; used as session scope (D9)
+	Service            *agent.Service
+	User               auth.User
+	AgentID            string
+	SessionKey         string
+	Channel            session.Channel
+	ChatCtx            ChatContext
+	GroupID            string          // non-empty for group sessions; used as session scope (D9)
+	Authority          authz.Authority // minted from resolved persisted identity/group, never message args
+	DedicatedChannelID string          // non-empty only with Authority's exact persisted binding grant
 	// CurrentSpeaker is the per-turn group speaker (personalization target only).
 	// Canonical source for group personalization; runtime/session scope still
 	// flows from GroupID / sessionUserID(), never from User.ID.
@@ -61,6 +65,25 @@ func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 	return rc.Service.CompactSession(ctx, info)
 }
 
+// AuthorizeUse performs the fresh execution decision at dequeue time. The
+// authority was established from persisted identity/group state while resolving;
+// do not reconstruct it from an incoming message here.
+func (rc *ResolvedChat) AuthorizeUse(ctx context.Context, access *agentaccess.Service) error {
+	if access == nil || !rc.Authority.Valid() {
+		return agentaccess.ErrForbidden
+	}
+	decision, err := access.Begin(ctx, rc.Authority)
+	if err != nil {
+		return err
+	}
+	if rc.DedicatedChannelID != "" {
+		_, err = decision.UseDedicated(ctx, rc.AgentID, rc.DedicatedChannelID)
+	} else {
+		_, err = decision.Use(ctx, rc.AgentID)
+	}
+	return err
+}
+
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) (<-chan agent.Event, string, error) {
 	if rc.User.ID == "" && rc.GroupID == "" {
 		return nil, "", fmt.Errorf("missing user context")
@@ -85,11 +108,11 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 	return stream, info.ID, nil
 }
 
-func Resolve(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
-	return ResolveWithChannel(ctx, sm, store, authStore, engine, nil, platform, platform, senderID, nil, senderName, chatID, "", isGroup)
+func Resolve(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
+	return ResolveWithChannel(ctx, sm, store, authStore, accessService, nil, platform, platform, senderID, nil, senderName, chatID, "", isGroup)
 }
 
-func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, groupResolver GroupResolver, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool) (*ResolvedChat, error) {
+func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool) (*ResolvedChat, error) {
 	if channelID == "" {
 		channelID = platform
 	}
@@ -105,11 +128,47 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		return nil, fmt.Errorf("canonicalize user identity: %w", err)
 	}
 
-	chatCtx := ChatContext{Platform: platform, ChannelID: channelID, ChatID: chatID, IsGroup: isGroup}
+	// Resolve the durable canonical group identity before selecting an agent.
+	// Agent policy must never be evaluated against an uncanonical platform ID.
+	var groupID string
+	if isGroup && chatID != "" && groupResolver != nil {
+		groupID, err = groupResolver.ResolveGroupID(ctx, platform, chatID, threadID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve group id: %w", err)
+		}
+	}
+	chatCtx := ChatContext{Platform: platform, ChannelID: channelID, ChatID: chatID, GroupID: groupID, IsGroup: isGroup}
 
-	agentID, err := ResolveAgent(ctx, store, authStore, engine, resolved, chatCtx)
+	agentID, err := ResolveAgent(ctx, store, accessService, resolved, chatCtx)
 	if err != nil {
 		return nil, fmt.Errorf("resolve agent: %w", err)
+	}
+
+	role := resolved.User.Role
+	if role == "" {
+		role = auth.RoleUser
+	}
+	subject := auth.Subject{UserID: resolved.User.ID, Roles: []string{role}}
+	authority, err := subject.Authority()
+	if err != nil {
+		return nil, ErrAgentAccessDenied
+	}
+	dedicatedChannelID := ""
+	if groupID != "" {
+		authority, err = agentaccess.GroupAgentAuthority(groupID, agentID)
+		if err != nil {
+			return nil, ErrAgentAccessDenied
+		}
+	} else if channelID != "" {
+		// Re-read the persisted channel binding after selection. This is the sole
+		// source for a dedicated authority; input routing fields never mint grants.
+		if channel, channelErr := store.GetChannel(ctx, channelID); channelErr == nil && channel.AgentID == agentID {
+			authority, err = subject.ChannelAuthority(channel.ID)
+			if err != nil {
+				return nil, ErrAgentAccessDenied
+			}
+			dedicatedChannelID = channel.ID
+		}
 	}
 
 	svc := sm.GetService(agentID)
@@ -125,16 +184,9 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		channelCtx = "channel:" + channelID + ":" + channelCtx
 	}
 
-	var (
-		sessionKey string
-		groupID    string
-	)
+	var sessionKey string
 	switch {
-	case isGroup && chatID != "" && groupResolver != nil:
-		groupID, err = groupResolver.ResolveGroupID(ctx, platform, chatID, threadID)
-		if err != nil {
-			return nil, fmt.Errorf("resolve group id: %w", err)
-		}
+	case groupID != "":
 		sessionKey = agent.BuildGroupSessionKey(agentID, groupID)
 	case resolved.User.ID != "" && !isGroup:
 		sessionKey = agent.BuildUserSessionKey(agentID, resolved.User.ID, channelCtx)
@@ -148,12 +200,14 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 	}
 
 	return &ResolvedChat{
-		Service:    svc,
-		User:       resolved.User,
-		AgentID:    agentID,
-		SessionKey: sessionKey,
-		Channel:    ch,
-		ChatCtx:    chatCtx,
-		GroupID:    groupID,
+		Service:            svc,
+		User:               resolved.User,
+		AgentID:            agentID,
+		SessionKey:         sessionKey,
+		Channel:            ch,
+		ChatCtx:            chatCtx,
+		GroupID:            groupID,
+		Authority:          authority,
+		DedicatedChannelID: dedicatedChannelID,
 	}, nil
 }

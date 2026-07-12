@@ -14,6 +14,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
@@ -41,7 +42,7 @@ import (
 type Server struct {
 	store          config.Store
 	authStore      auth.AuthStore
-	engine         *auth.PolicyEngine
+	agentAccess    *agentaccess.Service
 	rateLimiter    *auth.RateLimiter
 	linkCodes      *auth.LinkCodeStore
 	mem            memory.Provider
@@ -124,10 +125,11 @@ type Deps struct {
 	AuthStore auth.AuthStore
 	Mem       memory.Provider
 
-	// Authorization.
-	Engine    *auth.PolicyEngine
-	LinkCodes *auth.LinkCodeStore
-	OIDC      OIDCDeps
+	// Authorization. AgentAccess is the agent policy-enforcement point (the unified
+	// Authorizer behind a deep agent service); there is no legacy PolicyEngine here.
+	AgentAccess *agentaccess.Service
+	LinkCodes   *auth.LinkCodeStore
+	OIDC        OIDCDeps
 
 	// Agent runtime + plugins.
 	PoolManager  *agent.PoolManager
@@ -203,7 +205,7 @@ func (d Deps) validate() error {
 	req(d.DB != nil, "DB")
 	req(d.AuthStore != nil, "AuthStore")
 	req(d.Mem != nil, "Mem")
-	req(d.Engine != nil, "Engine")
+	req(d.AgentAccess != nil, "AgentAccess")
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
 	req(d.PluginHost != nil, "PluginHost")
@@ -242,7 +244,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 	s := &Server{
 		store:           deps.Store,
 		authStore:       deps.AuthStore,
-		engine:          deps.Engine,
+		agentAccess:     deps.AgentAccess,
 		rateLimiter:     auth.NewRateLimiter(),
 		webhookLimiter:  newWebhookLimiter(5, 20),
 		linkCodes:       deps.LinkCodes,

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 )
@@ -19,7 +20,10 @@ type ChatContext struct {
 	Platform  string
 	ChannelID string
 	ChatID    string
-	IsGroup   bool
+	// GroupID is the canonical persisted group identity. It is resolved before
+	// any agent decision; platform chat IDs are routing input, never authority.
+	GroupID string
+	IsGroup bool
 }
 
 type ResolvedIdentity struct {
@@ -182,7 +186,7 @@ func maybeCanonicalizeIdentity(ctx context.Context, store channelAuthStore, plat
 	return nil
 }
 
-func ResolveAgent(ctx context.Context, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, identity ResolvedIdentity, chat ChatContext) (string, error) {
+func ResolveAgent(ctx context.Context, store config.Store, accessService *agentaccess.Service, identity ResolvedIdentity, chat ChatContext) (string, error) {
 	log := slog.With("component", "identity", "user_id", identity.User.ID)
 
 	if identity.User.ID == "" {
@@ -190,32 +194,11 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore channelAuth
 		return "", ErrAgentAccessDenied
 	}
 
-	assignedIDs, _ := authStore.ListUserAgentIDs(ctx, identity.User.ID)
 	role := identity.User.Role
 	if role == "" {
 		role = auth.RoleUser
 	}
-	subject := auth.Subject{
-		UserID:   identity.User.ID,
-		Roles:    []string{role},
-		AgentIDs: assignedIDs,
-	}
-
-	canAccess := func(agentID string) bool {
-		agent, err := store.GetAgent(ctx, agentID)
-		if err != nil {
-			return false
-		}
-		return engine.Can(ctx, auth.AccessRequest{
-			Subject: subject,
-			Action:  auth.ActionExecute,
-			Resource: auth.Resource{
-				Type:  auth.ResourceAgent,
-				ID:    agent.ID,
-				Attrs: map[string]any{"scope": agent.Scope},
-			},
-		})
-	}
+	subject := auth.Subject{UserID: identity.User.ID, Roles: []string{role}}
 
 	channelID := chat.ChannelID
 	if channelID == "" {
@@ -224,15 +207,37 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore channelAuth
 	if channelID != "" {
 		ch, err := store.GetChannel(ctx, channelID)
 		if err == nil && ch.AgentID != "" {
-			agent, agentErr := store.GetAgent(ctx, ch.AgentID)
-			if agentErr != nil {
-				return "", fmt.Errorf("resolve agent: dedicated channel agent %q not found", ch.AgentID)
+			// A dedicated channel is a distinct use case. Its Authority carries the
+			// exact persisted channel binding and cannot be minted from message data.
+			authority, err := subject.ChannelAuthority(ch.ID)
+			if err != nil {
+				return "", ErrAgentAccessDenied
 			}
-			if !agent.Enabled {
-				return "", fmt.Errorf("resolve agent: dedicated channel agent %q is not enabled", ch.AgentID)
+			access, err := accessService.Begin(ctx, authority)
+			if err != nil {
+				return "", ErrAgentAccessDenied
 			}
-			return ch.AgentID, nil
+			agent, err := access.UseDedicated(ctx, ch.AgentID, ch.ID)
+			if err != nil || !agent.Enabled {
+				return "", ErrAgentAccessDenied
+			}
+			return agent.ID, nil
 		}
+	}
+
+	// One non-dedicated channel resolution is one use case: every candidate
+	// decision shares this revision and assignment snapshot.
+	authority, err := subject.Authority()
+	if err != nil {
+		return "", ErrAgentAccessDenied
+	}
+	access, err := accessService.Begin(ctx, authority)
+	if err != nil {
+		return "", ErrAgentAccessDenied
+	}
+	canAccess := func(agentID string) bool {
+		ok, err := access.CanUse(ctx, agentID)
+		return err == nil && ok
 	}
 
 	if chat.IsGroup && chat.ChatID != "" {

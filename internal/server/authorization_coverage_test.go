@@ -214,21 +214,21 @@ func classifyAgents(method, act string, segs []string) (routeClass, bool) {
 		// collection or single agent.
 		if method == http.MethodGet {
 			return routeClass{
-				CurrentGate: "agent-policy (canAccessAgent -> PolicyEngine.Can)",
+				CurrentGate: "agentaccess (authoritative Authorizer)",
 				Actor:       "UserActor", Action: act, Resource: "agent",
 				Visibility: "private", Stack: stackAuthz,
 			}, true
 		}
 		return routeClass{
-			CurrentGate: "agent-admin (info.IsAdmin)",
-			Actor:       "UserActor(admin)", Action: act, Resource: "agent",
-			Visibility: "admin", Stack: stackAuthz,
+			CurrentGate: "agentaccess (authoritative Authorizer)",
+			Actor:       "UserActor", Action: act, Resource: "agent",
+			Visibility: "private", Stack: stackAuthz,
 		}, true
 	}
 	sub := segs[2]
 	agentScoped := func(resource, stack string) (routeClass, bool) {
 		return routeClass{
-			CurrentGate: "agent-scoped owner (requireAgentAccess/checkSessionAccess)",
+			CurrentGate: "agentaccess (fresh Agent Read/Use after session ownership check)",
 			Actor:       "UserActor", Action: act, Resource: resource,
 			Visibility: "private", Stack: stack,
 		}, true

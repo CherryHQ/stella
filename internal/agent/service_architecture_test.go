@@ -6,7 +6,10 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 )
@@ -80,6 +83,64 @@ func TestService_Delegate_EmptySessionIDCreatesNew(t *testing.T) {
 
 // TestService_Chat_WrongKindResume verifies that resuming a session with a
 // different kind is rejected (invariant 6).
+func TestService_RunDelegateSessionUsesFreshPEP(t *testing.T) {
+	svc, _ := newTestService(t, []agentruntime.Event{{Text: "done"}})
+	access := svc.AgentAccess.(*fakeAgentAccessSvc)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "agent1")
+
+	res, err := svc.RunDelegateSession(ctx, delegatetool.SessionRunRequest{Task: "work"})
+	if err != nil {
+		t.Fatalf("RunDelegateSession: %v", err)
+	}
+	if !res.Complete || res.Output != "done" {
+		t.Fatalf("unexpected result: %#v", res)
+	}
+	if access.uses != 1 {
+		t.Fatalf("PEP Use count = %d, want 1", access.uses)
+	}
+	if got := access.authority.Actor(); got.UserID() != "u1" || got.AgentID() != "agent1" {
+		t.Fatalf("authority = user %q agent %q, want u1/agent1", got.UserID(), got.AgentID())
+	}
+}
+
+func TestService_RunDelegateSessionRejectsForeignOrSpoofedIdentityBeforePEP(t *testing.T) {
+	svc, mem := newTestService(t, nil)
+	access := svc.AgentAccess.(*fakeAgentAccessSvc)
+	foreign := memory.SessionInfo{ID: "foreign", UserID: "u2", AgentID: "agent1", Kind: "delegate", Channel: "delegate"}
+	ownerCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "u2"), "agent1")
+	if err := mem.SaveInfo(ownerCtx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "agent1")
+	if _, err := svc.RunDelegateSession(ctx, delegatetool.SessionRunRequest{SessionID: "foreign", Task: "work"}); err == nil {
+		t.Fatal("foreign resume succeeded")
+	}
+	spoofed := authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "other-agent")
+	if _, err := svc.RunDelegateSession(spoofed, delegatetool.SessionRunRequest{Task: "work"}); !errors.Is(err, agentaccess.ErrForbidden) {
+		t.Fatalf("spoofed executor error = %v, want forbidden", err)
+	}
+	if access.uses != 0 {
+		t.Fatalf("PEP Use count = %d, want 0", access.uses)
+	}
+}
+
+func TestService_RunDelegateSessionPEPDownDoesNotExecute(t *testing.T) {
+	svc, _ := newTestService(t, []agentruntime.Event{{Text: "must not run"}})
+	access := svc.AgentAccess.(*fakeAgentAccessSvc)
+	access.err = agentaccess.ErrUnavailable
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "agent1")
+	res, err := svc.RunDelegateSession(ctx, delegatetool.SessionRunRequest{Task: "work"})
+	if !errors.Is(err, agentaccess.ErrUnavailable) {
+		t.Fatalf("error = %v, want unavailable", err)
+	}
+	if res.Output != "" || res.Complete {
+		t.Fatalf("PEP-down delegate executed: %#v", res)
+	}
+	if access.uses != 1 {
+		t.Fatalf("PEP Use count = %d, want 1", access.uses)
+	}
+}
+
 func TestService_Chat_WrongKindResume(t *testing.T) {
 	svc, mem := newTestService(t, nil)
 

@@ -266,7 +266,7 @@ func TestPersistedSelectorConfinesDecision(t *testing.T) {
 		t.Fatalf("create group-scoped policy: %v", err)
 	}
 
-	req, err := AgentExecuteRequest("a1", "", "user", false)
+	req, err := AgentUseRequest("a1", "", AgentFacts{Scope: "user", Status: "enabled"})
 	if err != nil {
 		t.Fatalf("agent execute request: %v", err)
 	}

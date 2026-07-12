@@ -13,6 +13,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
@@ -33,6 +35,12 @@ func (fakeMCPToolProvider) ToolsForContext(context.Context, string, string) []to
 
 type fakeVaultEnvLoader struct{}
 
+type fakeAgentAccess struct{}
+
+func (fakeAgentAccess) Use(context.Context, authz.Authority, string) (config.Agent, error) {
+	return config.Agent{}, nil
+}
+
 func (fakeVaultEnvLoader) LoadEnvForAgent(context.Context, string, string) (map[string]string, error) {
 	return nil, nil
 }
@@ -49,6 +57,9 @@ func newPool(t *testing.T) *PoolManager {
 
 func startPool(t *testing.T, pm *PoolManager) {
 	t.Helper()
+	if err := pm.BindAgentAccess(fakeAgentAccess{}); err != nil {
+		t.Fatalf("BindAgentAccess: %v", err)
+	}
 	if err := pm.StartAll(context.Background()); err != nil {
 		t.Fatalf("StartAll: %v", err)
 	}
@@ -88,6 +99,32 @@ func TestBindOAuthRegistryGuards(t *testing.T) {
 	startPool(t, pm2)
 	if err := pm2.BindOAuthRegistry(oauth.NewProviderRegistry()); err == nil {
 		t.Error("BindOAuthRegistry after StartAll should error")
+	}
+}
+
+func TestBindAgentAccessGuards(t *testing.T) {
+	pm := newPool(t)
+	if err := pm.BindAgentAccess(nil); err == nil {
+		t.Error("BindAgentAccess(nil) should error")
+	}
+	if err := pm.BindAgentAccess(fakeAgentAccess{}); err != nil {
+		t.Fatalf("first bind: %v", err)
+	}
+	if err := pm.BindAgentAccess(fakeAgentAccess{}); err == nil {
+		t.Error("duplicate BindAgentAccess should error")
+	}
+	pm2 := newPool(t)
+	if err := pm2.StartAll(context.Background()); err == nil {
+		t.Error("StartAll without AgentAccess should error")
+	}
+	if err := pm2.BindAgentAccess(fakeAgentAccess{}); err != nil {
+		t.Fatalf("BindAgentAccess after rejected StartAll: %v", err)
+	}
+	if err := pm2.StartAll(context.Background()); err != nil {
+		t.Fatalf("StartAll after bind: %v", err)
+	}
+	if err := pm2.BindAgentAccess(fakeAgentAccess{}); err == nil {
+		t.Error("BindAgentAccess after StartAll should error")
 	}
 }
 

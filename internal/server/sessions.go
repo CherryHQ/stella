@@ -101,9 +101,9 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	// Authorize through the single chokepoint: ownership and agent/path match. A
-	// caller must not reach a session outside the authorized agent path.
-	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
+	// Sending invokes the agent. The session's persisted AgentID, not the path,
+	// is authorized after ownership/path validation in one fresh use case.
+	if err := s.checkSessionUse(w, r, agentID, sessionID); err != nil {
 		return
 	}
 
@@ -987,9 +987,21 @@ func (s *Server) requireSessionConversation(w http.ResponseWriter, r *http.Reque
 	return conv, true
 }
 
-// checkSessionAccess verifies the current user has access to the session.
-// Returns a non-nil error (and writes the HTTP response) if access is denied.
+// checkSessionAccess authorizes an existing session read after validating its
+// persisted owner and AgentID against the route. Session visibility is hidden
+// on any policy denial, so a revoked grant cannot reveal an old session.
 func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) error {
+	return s.checkSessionAgentAction(w, r, agentID, sessionID, false)
+}
+
+// checkSessionUse is the execution variant for a turn. It deliberately shares
+// the same single Begin with session validation instead of validating then
+// starting another policy evaluation against a potentially changed revision.
+func (s *Server) checkSessionUse(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) error {
+	return s.checkSessionAgentAction(w, r, agentID, sessionID, true)
+}
+
+func (s *Server) checkSessionAgentAction(w http.ResponseWriter, r *http.Request, agentID, sessionID string, use bool) error {
 	info := UserFromContext(r.Context())
 	sm, ok := s.mem.(memory.SessionManager)
 	if info == nil {
@@ -1006,12 +1018,37 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, agen
 		return err
 	}
 	if si.UserID != info.UserID {
-		writeError(w, http.StatusForbidden, "access denied")
-		return fmt.Errorf("access denied")
+		writeError(w, http.StatusNotFound, "session not found")
+		return fmt.Errorf("session not found")
 	}
 	if agentID != "" && si.AgentID != agentID {
 		writeError(w, http.StatusNotFound, "session not found")
 		return fmt.Errorf("session not found")
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session not found")
+		return err
+	}
+	access, err := s.agentAccess.Begin(r.Context(), authority)
+	if err == nil {
+		if use {
+			_, err = access.Use(r.Context(), si.AgentID)
+		} else {
+			_, err = access.Read(r.Context(), si.AgentID)
+		}
+	}
+	if err != nil {
+		// Unlike an agent endpoint, an existing session is always opaque when its
+		// backing agent is no longer visible to this caller.
+		code, _ := agentAccessError(err)
+		if code == http.StatusInternalServerError {
+			s.log.Error("session agent access", "session_id", sessionID, "agent_id", si.AgentID, "error", err)
+			writeError(w, code, "internal error")
+		} else {
+			writeError(w, http.StatusNotFound, "session not found")
+		}
+		return err
 	}
 	return nil
 }

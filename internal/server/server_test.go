@@ -16,8 +16,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -102,11 +104,6 @@ func setupAdmin(t *testing.T) *testEnv {
 	ctx := context.Background()
 	_ = store.Seed(ctx)
 	as := appdb.NewAuthStore(db)
-
-	engine, err := auth.NewEngine(ctx, as)
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
 
 	mem, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
@@ -193,7 +190,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
-		Engine:              engine,
+		AgentAccess:         agentaccess.NewService(store, as, policy.New(db)),
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolManager,
 		PluginHost:          phost,

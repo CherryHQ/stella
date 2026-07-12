@@ -9,7 +9,9 @@ import (
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -27,11 +29,18 @@ var ErrGroupCompactionUnsupported = errors.New("compaction is not supported for 
 // conceptual split: policy lives in Session, execution lives in Runtime.
 //
 // Callers that need fine-grained control can use Sessions and Runtime directly.
+// AgentUseAccess is the narrow Agent PEP port required before delegate turns.
+// *agentaccess.Service is the production implementation; the interface keeps
+// runtime composition independent of the PEP's storage details.
+type AgentUseAccess interface {
+	Use(context.Context, authz.Authority, string) (config.Agent, error)
+}
+
 type Service struct {
-	Sessions *session.Registry
-	Runtime  *agentruntime.Runtime
-	// AgentID is the agent this service belongs to.
-	// Used by RunDelegateSession when the caller does not supply an agent ID.
+	Sessions    *session.Registry
+	Runtime     *agentruntime.Runtime
+	AgentAccess AgentUseAccess
+	// AgentID is the executor this service belongs to.
 	AgentID string
 }
 
@@ -376,6 +385,11 @@ func (s *Service) MintTaskSession(ctx context.Context, userID, executorAgentID, 
 // When SessionID is non-empty, the session must already exist (resume-only);
 // this prevents model-supplied session_id from reserving arbitrary future IDs.
 func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateResult, error) {
+	if s.AgentAccess == nil || req.UserID == "" || req.AgentID == "" || req.AgentID != s.AgentID ||
+		authz.UserIDFromContext(ctx) != req.UserID || authz.AgentIDFromContext(ctx) != s.AgentID ||
+		(req.ProjectID != "" && req.ProjectID != memory.ProjectIDFromContext(ctx)) {
+		return DelegateResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
+	}
 	ensureReq := session.Request{
 		ID:              req.SessionID,
 		UserID:          req.UserID,
@@ -389,6 +403,20 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	info, err := s.Sessions.Ensure(ctx, ensureReq)
 	if err != nil {
 		return DelegateResult{SessionID: req.SessionID}, fmt.Errorf("ensure delegate session: %w", err)
+	}
+	// Use durable, validated session ownership to reconstruct authority. Request
+	// fields and delegate-tool arguments are never capabilities. Ensure validates
+	// a resume's owner, executor, kind, and group; the exact project check below
+	// completes the validated scope before this fresh PEP evaluation.
+	if info.UserID != req.UserID || info.AgentID != s.AgentID || info.GroupID != "" || info.ProjectID != req.ProjectID {
+		return DelegateResult{SessionID: info.ID}, agentaccess.ErrForbidden
+	}
+	authority, err := agentaccess.WorkerAgentAuthority(info.UserID, info.AgentID)
+	if err != nil {
+		return DelegateResult{SessionID: info.ID}, agentaccess.ErrForbidden
+	}
+	if _, err := s.AgentAccess.Use(ctx, authority, info.AgentID); err != nil {
+		return DelegateResult{SessionID: info.ID}, fmt.Errorf("authorize delegate agent use: %w", err)
 	}
 
 	opts := []agentruntime.Option{}
@@ -419,17 +447,18 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 }
 
 // RunDelegateSession implements delegatetool.SessionRunner so that Service can
-// be passed directly to delegate tool constructors.
-// UserID is resolved from ctx; AgentID falls back to s.AgentID.
+// be passed directly to delegate tool constructors. Its identity is the parent
+// runtime's validated session identity: a delegate tool cannot choose an owner,
+// executor, or project through its model arguments.
 func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.SessionRunRequest) (delegatetool.SessionRunResult, error) {
 	userID := authz.UserIDFromContext(ctx)
 	agentID := authz.AgentIDFromContext(ctx)
-	if agentID == "" {
-		agentID = s.AgentID
+	if userID == "" || agentID == "" || agentID != s.AgentID {
+		return delegatetool.SessionRunResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
 	}
-	projectID := req.ProjectID
-	if projectID == "" {
-		projectID = memory.ProjectIDFromContext(ctx)
+	projectID := memory.ProjectIDFromContext(ctx)
+	if req.ProjectID != "" && req.ProjectID != projectID {
+		return delegatetool.SessionRunResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
 	}
 	res, err := s.Delegate(ctx, DelegateRequest{
 		SessionID:     req.SessionID,

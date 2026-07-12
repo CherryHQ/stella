@@ -8,7 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -229,14 +231,9 @@ func TestResolveAgentUnlinkedUserDenied(t *testing.T) {
 	ts := setupStores(t)
 	ctx := ts.ctx()
 
-	engine, err := auth.NewEngine(ctx, ts.authStore)
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
-
 	identity := ResolvedIdentity{}
 	chat := ChatContext{Platform: "telegram", IsGroup: false}
-	_, err = ResolveAgent(ctx, ts.store, ts.oidcStore, engine, identity, chat)
+	_, err := ResolveAgent(ctx, ts.store, agentaccess.NewService(ts.store, ts.authStore, policy.New(ts.db)), identity, chat)
 	if !errors.Is(err, ErrAgentAccessDenied) {
 		t.Fatalf("expected ErrAgentAccessDenied for unlinked user, got: %v", err)
 	}
@@ -246,16 +243,11 @@ func TestResolveAgentFallbackToFirstEnabled(t *testing.T) {
 	ts := setupStores(t)
 	ctx := ts.ctx()
 
-	engine, err := auth.NewEngine(ctx, ts.authStore)
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
-
 	authUser := createTestUser(t, ts.oidcStore, "testuser@example.com")
 
 	identity := ResolvedIdentity{User: authUser}
 	chat := ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := ResolveAgent(ctx, ts.store, ts.oidcStore, engine, identity, chat)
+	agentID, err := ResolveAgent(ctx, ts.store, agentaccess.NewService(ts.store, ts.authStore, policy.New(ts.db)), identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
@@ -269,11 +261,6 @@ func TestResolveAgentGroupAssignment(t *testing.T) {
 	ts := setupStores(t)
 	ctx := ts.ctx()
 
-	engine, err := auth.NewEngine(ctx, ts.authStore)
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
-
 	_ = ts.store.CreateAgent(ctx, config.Agent{
 		ID: "writer", Name: "Writer", Model: "openai/gpt-4", Workspace: "/tmp/writer", Enabled: true,
 	})
@@ -283,7 +270,7 @@ func TestResolveAgentGroupAssignment(t *testing.T) {
 
 	identity := ResolvedIdentity{User: authUser}
 	chat := ChatContext{Platform: "telegram", ChatID: "-999", IsGroup: true}
-	agentID, err := ResolveAgent(ctx, ts.store, ts.oidcStore, engine, identity, chat)
+	agentID, err := ResolveAgent(ctx, ts.store, agentaccess.NewService(ts.store, ts.authStore, policy.New(ts.db)), identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}

@@ -171,6 +171,12 @@ func compileCustom(id, resourceType, action, effectStr string, subjects Selector
 	if err := validatePredicates(rt, preds); err != nil {
 		return compiledPolicy{}, fmt.Errorf("%w: %w", ErrInvalidPolicy, err)
 	}
+	// Agent list/create are collection decisions and have no canonical single
+	// agent facts. Reject resource predicates rather than accepting policies
+	// whose missing attributes would silently fail open.
+	if rt == authz.ResourceAgent && (act == authz.ActionList || act == authz.ActionCreate) && len(preds) != 0 {
+		return compiledPolicy{}, fmt.Errorf("%w: agent collection actions cannot use resource predicates", ErrInvalidPolicy)
+	}
 	return compiledPolicy{
 		id:         id,
 		effect:     eff,
@@ -195,6 +201,11 @@ func compileCustom(id, resourceType, action, effectStr string, subjects Selector
 func builtinPolicies() []compiledPolicy {
 	adminOnly := NewSubjectBuilder().Roles(authz.RoleAdmin).Build()
 	userOnly := NewSubjectBuilder().Roles(authz.RoleUser).Build()
+	groupUseGrant, _ := authz.GroupToolGrant("agent.use")
+	systemUseGrant, _ := authz.SystemGrant("agent.use")
+	agentOnly := NewSubjectBuilder().Kinds(authz.ActorAgent).Build()
+	groupAgentUse := NewSubjectBuilder().Kinds(authz.ActorGroupAgent).Grants(groupUseGrant).Build()
+	systemUse := NewSubjectBuilder().Kinds(authz.ActorSystem).Grants(systemUseGrant).Build()
 	return []compiledPolicy{
 		// Admin holds every action on every resource.
 		{
@@ -232,6 +243,57 @@ func builtinPolicies() []compiledPolicy {
 			actions:  []authz.Action{authz.ActionRead, authz.ActionExecute},
 			predicates: []predicate{
 				{Attr: "assigned", Op: opEq, Value: "true"},
+			},
+		},
+		// A durable AgentActor executes only its exact executor agent. Roles do
+		// not widen this boundary.
+		{
+			id: "builtin:agent-own-executor", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceAgent,
+			actions:    []authz.Action{authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_executor", Op: opEq, Value: "true"}},
+		},
+		// A group turn has no user role or private grants. It can execute only
+		// its exact member agent and only with the explicit group-scoped use grant.
+		{
+			id: "builtin:group-agent-use", effect: effectAllow,
+			subjects: groupAgentUse, resource: authz.ResourceAgent,
+			actions:    []authz.Action{authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_executor", Op: opEq, Value: "true"}},
+		},
+		// Named maintenance is deliberately capability-based, never role-based.
+		{
+			id: "builtin:system-agent-use", effect: effectAllow,
+			subjects: systemUse, resource: authz.ResourceAgent,
+			actions: []authz.Action{authz.ActionExecute},
+		},
+		// A verified dedicated channel binding may execute only its configured
+		// agent. The PEP derives this fact from an exact ChannelBinding grant.
+		{
+			id: "builtin:user-dedicated-channel-agent", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceAgent,
+			actions:    []authz.Action{authz.ActionExecute},
+			predicates: []predicate{{Attr: "dedicated", Op: opEq, Value: "true"}},
+		},
+		// Any user may create an agent (the transport confines a non-admin to a
+		// restricted scope). Collection-level: no per-agent attributes.
+		{
+			id:       "builtin:user-create-agents",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceAgent,
+			actions:  []authz.Action{authz.ActionCreate},
+		},
+		// A user may manage (update/delete) an agent they created. is_creator is
+		// resolved at the PEP from the loaded agent's creator and the acting user.
+		{
+			id:       "builtin:user-manage-own-agents",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceAgent,
+			actions:  []authz.Action{authz.ActionWrite, authz.ActionDelete, authz.ActionManage},
+			predicates: []predicate{
+				{Attr: "is_creator", Op: opEq, Value: "true"},
 			},
 		},
 	}

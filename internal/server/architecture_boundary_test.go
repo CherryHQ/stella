@@ -408,18 +408,20 @@ func TestNoNewResourceAuthIdentityConstructors(t *testing.T) {
 // same shape must be added here (with justification) or, preferably, routed
 // through the shared authorization core.
 var resourceAuthHelperAllowlist = map[string]bool{
-	"canAccessAgent":             true, // agent_access.go — agent read via PolicyEngine
 	"requireGroupOwner":          true, // groups.go — group ownership gate
 	"requireAuth":                true, // middleware.go — authentication (not resource authz)
 	"requireAdmin":               true, // middleware.go — admin gate
 	"requireUser":                true, // recally_handlers.go — recally user gate
 	"authorizeSkillManage":       true, // skills_manage.go — skill manage authorization
 	"requireAgentAccess":         true, // skills_scoped.go — agent access gate
+	"requireAgentUse":            true, // skills_scoped.go — agent execute gate
 	"requireAgentManage":         true, // skills_scoped.go — agent manage gate
+	"requireAgentDelete":         true, // skills_scoped.go — agent delete gate
+	"requireAgentAction":         true, // skills_scoped.go — shared Agent PEP adapter
 	"requireSkillScope":          true, // skills_scoped.go — skill scope gate
 	"requireAgentSkillWrite":     true, // skills_scoped.go — agent skill write gate
 	"requireSessionConversation": true, // sessions.go — session ownership gate
-	"checkSessionAccess":         true, // sessions.go — session access check
+	"checkSessionAccess":         true, // sessions.go — session ownership + Agent Read PEP
 	"requireUserTarget":          true, // users.go — target-user admin gate
 }
 

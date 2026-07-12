@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -127,18 +128,15 @@ type workerExecutor struct {
 	chat          TaskChatFunc
 	log           *slog.Logger
 	excludedTools []string
+	access        *agentaccess.Service
 }
 
 // newWorkerExecutor builds the default agent-backed executor.
-func newWorkerExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools ...[]string) *workerExecutor {
+func newWorkerExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string, access *agentaccess.Service) *workerExecutor {
 	if log == nil {
 		log = slog.Default().With("component", "goal/executor")
 	}
-	var excluded []string
-	if len(excludedTools) > 0 {
-		excluded = excludedTools[0]
-	}
-	return &workerExecutor{chat: chat, log: log, excludedTools: append([]string(nil), excluded...)}
+	return &workerExecutor{chat: chat, log: log, excludedTools: append([]string(nil), excludedTools...), access: access}
 }
 
 // Execute runs one attempt and returns the frozen ExecutorResult. All outcomes
@@ -167,6 +165,21 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	}
 	if agentID == "" {
 		return failResult("no executor agent on attempt", FailureClassEnvironment, BlockEnvUnavailable), nil
+	}
+	// This is the durable execution boundary: owner and executor come only from
+	// the persisted attempt. A worker never inherits a triggering user's request
+	// authority, and a missing PEP fails closed rather than running the model.
+	if e.access != nil {
+		if req.Attempt.UserID == "" {
+			return failResult("goal agent authorization is unavailable", FailureClassEnvironment, BlockEnvUnavailable), nil
+		}
+		authority, err := agentaccess.WorkerAgentAuthority(req.Attempt.UserID, agentID)
+		if err != nil {
+			return Result{}, fmt.Errorf("goal agent authority is invalid: %w", err)
+		}
+		if _, err := e.access.Use(ctx, authority, agentID); err != nil {
+			return Result{}, fmt.Errorf("goal agent execution denied: %w", err)
+		}
 	}
 
 	decompose := req.Attempt.Purpose == PurposeDecomposition

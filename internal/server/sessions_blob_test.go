@@ -18,7 +18,9 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/asset"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -34,7 +36,75 @@ func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Pro
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
-	return &Server{mem: mem, assets: assets, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	return &Server{
+		mem:         mem,
+		assets:      assets,
+		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		agentAccess: agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{}, assetSessionAuthorizer{allow: true}),
+	}
+}
+
+type assetSessionAgents struct{}
+
+func (assetSessionAgents) GetAgent(context.Context, string) (config.Agent, error) {
+	return config.Agent{ID: "a1", Scope: config.AgentScopeSystem, Enabled: true}, nil
+}
+func (assetSessionAgents) ListAgents(context.Context) ([]config.Agent, error) { return nil, nil }
+
+type assetSessionAssignments struct{}
+
+func (assetSessionAssignments) ListUserAgentIDs(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
+type assetSessionAuthorizer struct {
+	allow  bool
+	begins *int
+}
+
+func (a assetSessionAuthorizer) Begin(context.Context, authz.Authority) (authz.Evaluation, error) {
+	if a.begins != nil {
+		*a.begins++
+	}
+	return assetSessionEvaluation{allow: a.allow}, nil
+}
+
+type assetSessionEvaluation struct{ allow bool }
+
+func (e assetSessionEvaluation) Decide(authz.Request) (authz.Decision, error) {
+	if e.allow {
+		return authz.Allow("asset-test", authz.AuditRecord{}), nil
+	}
+	return authz.Deny(authz.VisibilityForbidden, "asset-test", authz.AuditRecord{}), nil
+}
+func (assetSessionEvaluation) Revision() int64 { return 1 }
+
+func TestSessionFileAccessHidesRevokedAgentAndBeginsOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, remote, mem)
+	begins := 0
+	s.agentAccess = agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{}, assetSessionAuthorizer{begins: &begins})
+	scope := apitypes.WorkspaceScopeUser
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "assets/missing.txt", Scope: &scope})
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if begins != 1 {
+		t.Fatalf("Begin calls=%d, want 1", begins)
+	}
 }
 
 func TestGetWorkspaceFileContentRestoresAssetFromAuthorityOnMiss(t *testing.T) {

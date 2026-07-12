@@ -9,6 +9,7 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -18,6 +19,18 @@ import (
 
 type fakeRunnerSvc struct {
 	events []agentruntime.Event
+}
+
+type fakeAgentAccessSvc struct {
+	uses      int
+	authority authz.Authority
+	err       error
+}
+
+func (a *fakeAgentAccessSvc) Use(_ context.Context, authority authz.Authority, _ string) (config.Agent, error) {
+	a.uses++
+	a.authority = authority
+	return config.Agent{}, a.err
 }
 
 func (r *fakeRunnerSvc) Chat(_ context.Context, _ []ai.Message, _ agentruntime.MessageContent) <-chan agentruntime.Event {
@@ -56,9 +69,10 @@ func newTestService(t *testing.T, events []agentruntime.Event) (*agent.Service, 
 	}
 
 	svc := &agent.Service{
-		Sessions: reg,
-		Runtime:  rt,
-		AgentID:  "agent1",
+		Sessions:    reg,
+		Runtime:     rt,
+		AgentAccess: &fakeAgentAccessSvc{},
+		AgentID:     "agent1",
 	}
 	return svc, mem
 }

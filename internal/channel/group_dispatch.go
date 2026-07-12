@@ -11,6 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -166,6 +167,19 @@ func (c *Coordinator) resolveGroupChat(ctx context.Context, msg pkgchannel.Incom
 		return nil, fmt.Errorf("canonicalize user identity: %w", err)
 	}
 
+	// Membership selects a candidate, not an authority. Every group turn gets a
+	// fresh roleless GroupAgentActor bound to this exact group/member.
+	if c.agentAccess == nil {
+		return nil, ErrAgentAccessDenied
+	}
+	authority, err := agentaccess.GroupAgentAuthority(groupID, agentID)
+	if err != nil {
+		return nil, ErrAgentAccessDenied
+	}
+	if _, err := c.agentAccess.Use(ctx, authority, agentID); err != nil {
+		return nil, ErrAgentAccessDenied
+	}
+
 	svc := c.serviceManager.GetService(agentID)
 	if svc == nil {
 		return nil, fmt.Errorf("agent service %q not found", agentID)
@@ -189,8 +203,9 @@ func (c *Coordinator) resolveGroupChat(ctx context.Context, msg pkgchannel.Incom
 		AgentID:        agentID,
 		SessionKey:     agent.BuildGroupSessionKey(agentID, groupID),
 		Channel:        session.Channel(channelCtx),
-		ChatCtx:        ChatContext{Platform: msg.Platform, ChannelID: channelID, ChatID: msg.ChatID, IsGroup: true},
+		ChatCtx:        ChatContext{Platform: msg.Platform, ChannelID: channelID, ChatID: msg.ChatID, GroupID: groupID, IsGroup: true},
 		GroupID:        groupID,
+		Authority:      authority,
 		CurrentSpeaker: platformGroupSpeaker(msg, resolved.User.ID, resolved.User.Name),
 	}, nil
 }

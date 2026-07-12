@@ -12,7 +12,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/credential"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	webhookplugin "github.com/CherryHQ/stella/plugins/channels/webhook"
@@ -74,22 +73,22 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "webhook has no bound agent")
 		return
 	}
-	ag, err := s.store.GetAgent(ctx, ch.AgentID)
+	authority, err := principal.Authority()
 	if err != nil {
-		writeError(w, http.StatusConflict, "bound agent not found")
+		writeError(w, http.StatusForbidden, "not authorized to run the bound agent")
+		return
+	}
+	ag, err := s.agentAccess.Use(ctx, authority, ch.AgentID)
+	if err != nil {
+		code, msg := agentAccessError(err)
+		if code == http.StatusNotFound {
+			code, msg = http.StatusConflict, "bound agent not found"
+		}
+		writeError(w, code, msg)
 		return
 	}
 	if !ag.Enabled {
 		writeError(w, http.StatusConflict, "bound agent is disabled")
-		return
-	}
-	role := principal.Role
-	if role == "" {
-		role = auth.RoleUser
-	}
-	caller := &AuthInfo{UserID: principal.UserID, Role: role}
-	if !s.canExecuteAgent(ctx, caller, ag) {
-		writeError(w, http.StatusForbidden, "not authorized to run the bound agent")
 		return
 	}
 
