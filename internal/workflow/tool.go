@@ -29,11 +29,17 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", err
 	}
+	// The runtime context identity is the trusted adapter: a delegated agent turn
+	// becomes a confined AgentActor. Model-supplied arguments never form identity.
+	authority, err := ident.ToAuthority()
+	if err != nil {
+		return "", authz.MapError("workflow", err)
+	}
 	action, err := tools.ActionArg(args, "workflow")
 	if err != nil {
 		return "", err
 	}
-	out, err := Dispatch(ctx, workflowHandler{svc: t.svc, ident: ident}, action, args)
+	out, err := Dispatch(ctx, workflowHandler{svc: t.svc, authority: authority}, action, args)
 	if err != nil {
 		return "", authz.MapError("workflow", err)
 	}
@@ -41,12 +47,20 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 }
 
 type workflowHandler struct {
-	svc   *Service
-	ident authz.Identity
+	svc       *Service
+	authority authz.Authority
+}
+
+func (h workflowHandler) begin(ctx context.Context) (*Access, error) {
+	return h.svc.Begin(ctx, h.authority)
 }
 
 func (h workflowHandler) Get(ctx context.Context, in GetInput) (any, error) {
-	row, err := h.svc.As(h.ident).Get(ctx, in.Id)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	row, err := acc.Get(ctx, in.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +68,11 @@ func (h workflowHandler) Get(ctx context.Context, in GetInput) (any, error) {
 }
 
 func (h workflowHandler) List(ctx context.Context, _ ListInput) (any, error) {
-	rows, err := h.svc.As(h.ident).List(ctx)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := acc.List(ctx, "")
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +92,11 @@ func (h workflowHandler) Run(ctx context.Context, in RunInput) (any, error) {
 	if key == "" {
 		key = uuid.NewString()
 	}
-	run, created, err := h.svc.As(h.ident).Instantiate(ctx, InstantiateInput{WorkflowID: in.Id, Inputs: inputs, IdempotencyKey: key})
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	run, created, err := acc.Instantiate(ctx, in.Id, inputs, key)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +110,11 @@ func (h workflowHandler) Save(ctx context.Context, in ToolSaveInput) (any, error
 	if err != nil {
 		return nil, err
 	}
-	row, err := h.svc.As(h.ident).SaveGoalAsWorkflow(ctx, SaveInput{GoalID: in.Id, Name: in.Name, Inputs: inputs})
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	row, err := acc.SaveGoalAsWorkflow(ctx, SaveInput{GoalID: in.Id, Name: in.Name, Inputs: inputs})
 	if err != nil {
 		return nil, err
 	}

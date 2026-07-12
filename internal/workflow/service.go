@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentaccess"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -45,13 +47,19 @@ type GoalWriter interface {
 }
 
 type Service struct {
-	db   *pgxpool.Pool
-	q    *sqlc.Queries
-	goal GoalWriter
+	db     *pgxpool.Pool
+	q      *sqlc.Queries
+	goal   GoalWriter
+	authz  authz.Authorizer
+	agents *agentaccess.Service
 }
 
-func New(db *pgxpool.Pool, goalSvc GoalWriter) *Service {
-	return &Service{db: db, q: sqlc.New(db), goal: goalSvc}
+// New constructs the Workflow application service. authz + agents are the
+// policy-enforcement dependencies used by the Authority-based Access PEP; the
+// raw *Service methods remain callable by trusted worker adapters (the scheduler
+// dispatch reconstructs owner/executor authority from the persisted job).
+func New(db *pgxpool.Pool, goalSvc GoalWriter, az authz.Authorizer, agents *agentaccess.Service) *Service {
+	return &Service{db: db, q: sqlc.New(db), goal: goalSvc, authz: az, agents: agents}
 }
 
 // RunState is the latest-run snapshot the scheduler adapter needs to decide
@@ -274,6 +282,13 @@ func (s *Service) Delete(ctx context.Context, userID, agentID, id string) error 
 	if _, err := s.getScoped(ctx, id, userID, agentID); err != nil {
 		return err
 	}
+	return s.deleteLoaded(ctx, id)
+}
+
+// deleteLoaded removes a workflow whose access has already been authorized by the
+// caller (the Access PEP). It still enforces the domain invariant that a
+// workflow with runs or an enabled scheduler job cannot be deleted.
+func (s *Service) deleteLoaded(ctx context.Context, id string) error {
 	count, err := s.q.CountWorkflowRuns(ctx, id)
 	if err != nil {
 		return fmt.Errorf("count workflow runs: %w", err)
