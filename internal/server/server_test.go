@@ -36,6 +36,7 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/server"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -214,6 +215,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		Mem:                 mem,
 		AgentAccess:         agentaccess.NewService(store, as, authorizer),
 		SessionAccess:       sessionSvc,
+		SkillAccess:         skillaccess.NewService(skillStore, agentaccess.NewService(store, as, authorizer), authorizer),
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolManager,
 		PluginHost:          phost,

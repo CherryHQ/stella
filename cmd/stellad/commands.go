@@ -42,6 +42,7 @@ import (
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -89,6 +90,7 @@ type setupResult struct {
 	authStore                *appdb.AuthStore
 	agentAccess              *agentaccess.Service
 	sessionAccess            *sessionaccess.Service
+	skillAccess              *skillaccess.Service
 	pluginHost               *pluginhost.Host
 	channelRuntimeServices   *pluginhost.ChannelPlatform
 	poolManager              *agent.PoolManager
@@ -172,6 +174,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := ss.diskSync.SyncAllToDisk(parent); err != nil {
 		return nil, fmt.Errorf("sync DB skills to disk: %w", err)
 	}
+	// The Skill PEP shares the same revision-bound authorizer and agent PEP as the
+	// other #710 execution domains; the disk-sync store is the single DB skill
+	// read port (its ListAll reaches the same rows the transports resolve).
+	skillAccess := skillaccess.NewService(ss.diskSync, agentAccess, authorizer)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
@@ -492,6 +498,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		authStore:                authStore,
 		agentAccess:              agentAccess,
 		sessionAccess:            sessionAccess,
+		skillAccess:              skillAccess,
 		pluginHost:               phost,
 		channelRuntimeServices:   ps.channelRuntimeServices,
 		poolManager:              poolMgr,

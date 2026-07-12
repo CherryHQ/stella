@@ -54,6 +54,10 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// #710: Goals are enforced only through internal/goal.Service's Authority-based
 	// Access PEP; the durable worker executor already reconstructs authority (#709).
 	authz.ResourceGoal: activeActive,
+	// #710: Skills are enforced only through internal/skillaccess.Service's
+	// Authority-based Access PEP; the HTTP transports and the agent skills tool
+	// pass a trusted Authority and never a scoped query.
+	authz.ResourceSkill: activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

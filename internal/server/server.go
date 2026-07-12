@@ -34,6 +34,7 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -45,6 +46,7 @@ type Server struct {
 	authStore      auth.AuthStore
 	agentAccess    *agentaccess.Service
 	sessionAccess  *sessionaccess.Service
+	skillAccess    *skillaccess.Service
 	rateLimiter    *auth.RateLimiter
 	linkCodes      *auth.LinkCodeStore
 	mem            memory.Provider
@@ -128,8 +130,11 @@ type Deps struct {
 	// Authorizer behind a deep agent service); there is no legacy PolicyEngine here.
 	AgentAccess   *agentaccess.Service
 	SessionAccess *sessionaccess.Service
-	LinkCodes     *auth.LinkCodeStore
-	OIDC          OIDCDeps
+	// SkillAccess is the DB-backed Skill policy-enforcement point. When nil the
+	// skill endpoints report 503 through the centralized unavailable mapping.
+	SkillAccess *skillaccess.Service
+	LinkCodes   *auth.LinkCodeStore
+	OIDC        OIDCDeps
 
 	// Agent runtime + plugins.
 	PoolManager  *agent.PoolManager
@@ -246,6 +251,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		authStore:       deps.AuthStore,
 		agentAccess:     deps.AgentAccess,
 		sessionAccess:   deps.SessionAccess,
+		skillAccess:     deps.SkillAccess,
 		rateLimiter:     auth.NewRateLimiter(),
 		webhookLimiter:  newWebhookLimiter(5, 20),
 		linkCodes:       deps.LinkCodes,

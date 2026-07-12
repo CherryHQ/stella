@@ -135,6 +135,25 @@ func SchedulerListRequest() (authz.Request, error) {
 	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
 }
 
+// SkillRequest builds an action against one durable Skill.
+func SkillRequest(action authz.Action, skillID, ownerID string, facts SkillFacts) (authz.Request, error) {
+	res, err := SkillResource(skillID, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// SkillListRequest builds the collection-level skill list request. Per-scope
+// visibility is decided separately with a SkillRequest in the same evaluation.
+func SkillListRequest() (authz.Request, error) {
+	res, err := authz.NewResource(authz.ResourceSkill, "", "")
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
+}
+
 // WorkspaceRequest builds an action against the workspace rooted by sessionID.
 func WorkspaceRequest(action authz.Action, sessionID, ownerID string, facts SessionFacts) (authz.Request, error) {
 	res, err := WorkspaceResource(sessionID, ownerID, facts)
